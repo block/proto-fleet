@@ -166,6 +166,16 @@ describe("formatActivityDescription", () => {
     expect(formatActivityDescription(create(ActivityEntrySchema, { eventType }))).toBe(label);
   });
 
+  it("keeps the channel, model and version of a controller software version change", () => {
+    const eventType = "release_channel_controller_software_changed";
+    const description = "Set controller software version: Site North Proto CT1 → 1.6.0";
+
+    expect(formatActivityDescription(create(ActivityEntrySchema, { eventType, description }))).toBe(description);
+    expect(formatActivityDescription(create(ActivityEntrySchema, { eventType }))).toBe(
+      "Changed controller software version",
+    );
+  });
+
   it.each([
     ["rollout_retried", "Retried failed firmware updates"],
     ["rollout_advanced", "Advanced firmware update"],

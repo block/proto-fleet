@@ -2,9 +2,17 @@ import { type ReactNode, useMemo } from "react";
 import ContainerCooling from "./General/ContainerCooling";
 import ContainerMiningPools from "./MiningPools/ContainerMiningPools";
 import { MdkV2Adapter, type MdkV2Client } from "@/protoOS/api/adapters/mdkV2";
+import type { ContainerPoolConfiguration } from "@/protoOS/api/adapters/poolConfiguration";
 import MinerHostingContext from "@/protoOS/contexts/MinerHostingContext/MinerHostingContext";
 
-const ContainerPreview = ({ children }: { children: ReactNode }) => {
+const NO_OPERATIONS: ContainerPoolConfiguration["pendingOperations"] = [];
+const ContainerPreview = ({
+  children,
+  operations = NO_OPERATIONS,
+}: {
+  children: ReactNode;
+  operations?: ContainerPoolConfiguration["pendingOperations"];
+}) => {
   const adapter = useMemo(() => {
     let nextPoolId = 4;
     let pools = [1, 2, 3].map((id) => ({
@@ -27,6 +35,22 @@ const ContainerPreview = ({ children }: { children: ReactNode }) => {
     const client: {
       [K in keyof MdkV2Client]?: (...args: Parameters<NonNullable<MdkV2Client[K]>>) => Promise<unknown>;
     } = {
+      miningGroupServiceGetMiningGroupCapability: async () => ({
+        data: {
+          capability: {
+            name: "mining-groups-v1",
+            assignmentGranularity: "PHYSICAL_HASHBOARD",
+            version: 1,
+            stateRevision: "1",
+            enabled: false,
+          },
+        },
+      }),
+      miningGroupServiceListMiningGroups: async () => ({
+        data: { pendingOperations: operations.map((operation) => ({ ...operation, macAddresses: operation.boards })) },
+      }),
+      miningGroupServiceListMiningGroupMemberships: async () => ({ data: {} }),
+      hashboardServiceGetContainerMap: async () => ({ data: { containerMap: { tanks: [] } } }),
       poolServiceListPools: async () => ({ data: { pools } }),
       poolServiceUpdatePool: async ({ poolId }, { pool }) => {
         pools = pools.map((current) => (current.id === poolId ? { ...current, ...pool } : current));
@@ -50,7 +74,7 @@ const ContainerPreview = ({ children }: { children: ReactNode }) => {
       },
     };
     return new MdkV2Adapter(client as MdkV2Client);
-  }, []);
+  }, [operations]);
   return (
     <MinerHostingContext.Provider
       value={{
@@ -75,6 +99,36 @@ export const Pools = () => (
 export const Cooling = () => (
   <ContainerPreview>
     <ContainerCooling />
+  </ContainerPreview>
+);
+export const PendingPoolChange = () => (
+  <ContainerPreview
+    operations={[
+      {
+        id: "transfer-1",
+        kind: "Transfer",
+        phase: "QUIESCING",
+        error: "Waiting for the board to stop",
+        boards: ["AA:BB:CC:00:00:01"],
+      },
+    ]}
+  >
+    <ContainerMiningPools />
+  </ContainerPreview>
+);
+export const FailedPoolChange = () => (
+  <ContainerPreview
+    operations={[
+      {
+        id: "transfer-1",
+        kind: "Transfer",
+        phase: "FAILED",
+        error: "The transfer failed. Inspect the board before trying again.",
+        boards: ["AA:BB:CC:00:00:01"],
+      },
+    ]}
+  >
+    <ContainerMiningPools />
   </ContainerPreview>
 );
 export default { title: "Proto OS/Settings/Container controls" };

@@ -105,6 +105,7 @@ describe("container Home integration", () => {
           heatRejectionOutletPressurePa: 190000,
         },
         coolingFans: [{ componentId: "fan-one", powerW: 10, speedPercent: 80 }],
+        powerDistributions: [{ componentId: "pdu-west", activePowerW: 1500 }],
       },
       "ct1",
     );
@@ -638,11 +639,12 @@ describe("container Home integration", () => {
     await waitFor(() => expect(mocks.adapter.getContainerHistory).toHaveBeenCalledTimes(3));
     expect(mocks.adapter.getCurrentTelemetry).toHaveBeenCalledTimes(1);
     expect(mocks.adapter.getContainerHistory.mock.calls[2][0].selections).toEqual([
+      { metric: "facilityPower" },
       { metric: "power" },
+      { metric: "distributionPower", identifier: "pdu-west" },
       { metric: "fanPower", identifier: "fan-one" },
     ]);
-    fireEvent.click(screen.getByRole("button", { name: "Hashboards" }));
-    await waitFor(() => expect(screen.getByText("History unavailable for this selection.")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Hashboards" })).not.toBeInTheDocument();
     expect(mocks.adapter.getTimeSeries).not.toHaveBeenCalled();
     expect(mocks.adapter.getCurrentTelemetry).toHaveBeenCalledTimes(1);
   });
@@ -744,31 +746,68 @@ describe("container Home integration", () => {
     expect(client.miningServiceGetMiningStatus).toHaveBeenCalledTimes(3);
   });
 
-  it("only polls power history in System mode, including after direct Hashboards entry", async () => {
+  it("shows and polls supported power histories even with an obsolete Hashboards query", async () => {
     vi.useFakeTimers();
+    mocks.adapter.getContainerHistory.mockImplementation(async (request: ContainerHistoryRequest) => ({
+      series: Object.fromEntries(
+        request.selections.map((selection) => [
+          containerHistoryKey(selection),
+          {
+            units: "W",
+            bucketSizeMs: request.intervalMs,
+            points: [
+              {
+                timestampMs: Date.parse(request.endTime) - request.intervalMs,
+                value:
+                  selection.metric === "facilityPower" ? 2000 : selection.metric === "distributionPower" ? 0 : 1000,
+              },
+            ],
+          },
+        ]),
+      ),
+      unavailable: [],
+    }));
     const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/power-usage?mode=hashboards"] });
     render(<RouterProvider router={router} />);
     await act(async () => {});
-    expect(screen.getByText("History unavailable for this selection.")).toBeInTheDocument();
-    await act(() => vi.advanceTimersByTimeAsync(60_000));
-    expect(mocks.adapter.getContainerHistory).not.toHaveBeenCalled();
-
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "System" })));
-    expect(mocks.adapter.getContainerHistory).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("group", { name: "Power chart mode" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Hashboards" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "System" })).not.toBeInTheDocument();
+    for (const label of ["Pumps", "AC", "Aux"]) expect(screen.queryByText(label)).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Fans period statistics" })).toBeInTheDocument();
+    const legend = screen.getByRole("list", { name: "Latest series values" });
+    expect(legend).toHaveTextContent("Facility total2.0 kW");
+    expect(legend).toHaveTextContent("Mining power1.0 kW");
+    expect(legend).toHaveTextContent("pdu-west0.0 kW");
+    expect(screen.getByRole("region", { name: "Live readings" })).not.toHaveTextContent("pdu-west");
+    expect(legend).toHaveTextContent("Fans1.0 kW");
     expect(mocks.adapter.getContainerHistory.mock.calls[0][0].selections).toEqual([
+      { metric: "facilityPower" },
       { metric: "power" },
+      { metric: "distributionPower", identifier: "pdu-west" },
       { metric: "fanPower", identifier: "fan-one" },
     ]);
-    const systemSignal = mocks.adapter.getContainerHistory.mock.calls[0][1].signal;
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Hashboards" })));
-    expect(systemSignal.aborted).toBe(true);
-    await act(() => vi.advanceTimersByTimeAsync(60_000));
-    expect(mocks.adapter.getContainerHistory).toHaveBeenCalledTimes(1);
-
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "System" })));
-    expect(mocks.adapter.getContainerHistory).toHaveBeenCalledTimes(2);
     await act(() => vi.advanceTimersByTimeAsync(30_000));
-    expect(mocks.adapter.getContainerHistory).toHaveBeenCalledTimes(3);
+    expect(mocks.adapter.getContainerHistory).toHaveBeenCalledTimes(2);
+    expect(mocks.adapter.getTimeSeries).not.toHaveBeenCalled();
+  });
+
+  it("keeps successful power series when a PDU history is unavailable", async () => {
+    mocks.adapter.getContainerHistory.mockImplementation(async (request: ContainerHistoryRequest) => ({
+      series: {
+        "facilityPower:": {
+          units: "W",
+          bucketSizeMs: request.intervalMs,
+          points: [{ timestampMs: Date.parse(request.endTime) - request.intervalMs, value: 2000 }],
+        },
+      },
+      unavailable: ["distributionPower:pdu-west", "power:", "fanPower:fan-one"],
+    }));
+    render(<RouterProvider router={createMemoryRouter(routes, { initialEntries: ["/miners/ct1/power-usage"] })} />);
+    const legend = await screen.findByRole("list", { name: "Latest series values" });
+    await waitFor(() => expect(legend).toHaveTextContent("Facility total2.0 kW"));
+    expect(legend).toHaveTextContent("pdu-west—");
+    expect(screen.getByRole("region", { name: "Fans period statistics" })).toHaveTextContent("—");
   });
 
   it("supports direct Fluid entry and back/forward navigation without unrelated history queries", async () => {

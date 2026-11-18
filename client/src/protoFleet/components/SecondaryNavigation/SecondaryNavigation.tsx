@@ -1,7 +1,11 @@
 import { Link, useLocation } from "react-router-dom";
 import { clsx } from "clsx";
 
-import { isNavItemAllowedByPermissions, type SecondaryNavItem } from "@/protoFleet/config/navItems";
+import {
+  getActiveSecondaryNavPath,
+  isNavItemAllowedByPermissions,
+  type SecondaryNavItem,
+} from "@/protoFleet/config/navItems";
 import { useHostedAccounts } from "@/protoFleet/features/hostedAccounts/HostedAccountsContext";
 import { useNavFeatureEnabled } from "@/protoFleet/hooks/useNavFeatureEnabled";
 import { usePermissions } from "@/protoFleet/store";
@@ -31,14 +35,11 @@ const SecondaryNavigation = ({ items, parentPath }: SecondaryNavigationProps) =>
     const permissionMatch = isNavItemAllowedByPermissions(item, permissions);
     const featureMatch = !item.requiredFeature || featureEnabled[item.requiredFeature];
     const accountMatch = !item.requiresHostedAccounts || (directory?.hostAccess && directory.accounts.length > 0);
-    return pathMatch && permissionMatch && featureMatch && accountMatch;
+    const reportingMatch = !item.requiresReportingAccess || directory?.reportingAccess;
+    return pathMatch && permissionMatch && featureMatch && accountMatch && reportingMatch;
   });
 
-  const isCurrentPath = (path: string) => {
-    const _pathname = stripLeadingSlash(pathname);
-    const _path = stripLeadingSlash(path);
-    return _pathname === _path || _pathname.startsWith(`${_path}/`);
-  };
+  const activePath = getActiveSecondaryNavPath(visibleItems, pathname);
 
   // if current route has no secondary nav items
   // dont render anything
@@ -72,9 +73,9 @@ const SecondaryNavigation = ({ items, parentPath }: SecondaryNavigationProps) =>
                   <li key={item.path}>
                     <Link
                       to={"/" + stripLeadingSlash(item.path)}
-                      aria-current={isCurrentPath(item.path) ? "page" : undefined}
+                      aria-current={activePath === item.path ? "page" : undefined}
                       className={clsx("block rounded-lg px-2 py-1 text-emphasis-300 text-text-primary-70", {
-                        "bg-core-primary-5": isCurrentPath(item.path),
+                        "bg-core-primary-5": activePath === item.path,
                       })}
                     >
                       {item.label}

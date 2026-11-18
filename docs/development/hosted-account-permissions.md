@@ -13,9 +13,10 @@ bits; changing a label does not change authorization.
 | 4   | `ChangePools`     | Change pools               | Apply shared configurations to currently owned miners or installed module boards using a Fleet session and current login password.                                                                       |
 | 8   | `ManageMembers`   | Manage memberships         | Manage the account's team, invitations and explicit ancestor grants; also rename the account and manage site policy within the permitted scope.                                       |
 | 16  | `Delegate`        | Allocate and recall assets | Manage permitted child accounts and reporting allocations. Customer administrators allocate directly held miners or hashboards (including module selections) to subclients and recall those allocations to the parent. |
+| 32  | `GenerateReports` | Generate ad hoc reports    | Generate saved operational analyses. This also requires direct account-administrator membership; host preview cannot generate.                                                        |
 
 Viewer supplies bit 1, Pool operator supplies bits 1, 2 and 4, and Account
-administrator supplies all five bits. Effective capabilities combine direct
+administrator supplies all six bits. Effective capabilities combine direct
 membership and explicit host/parent grants, then intersect them with every account
 ceiling on the path. Suspension anywhere on that path denies account access.
 Live organization affiliation and user/organization status also apply.
@@ -300,3 +301,41 @@ Replacement IDs are optional patches: omission preserves the recorded link. Use
 that target kind; a clear flag cannot accompany the corresponding replacement ID
 or replacement model. Clearing a replacement field in the host editor sends the
 matching clear flag and preserves the original target and model evidence.
+
+### Contractual reporting authority
+
+Client-generated operational analyses require a session, explicit selected-account
+scope and View. Creation additionally requires the effective GenerateReports
+capability and direct account-administrator membership; host preview cannot generate.
+Hosts control generation through the client's capability ceiling, including all
+parent ceilings. Revocation blocks new generation and retries, while existing
+analyses remain readable/exportable with View and deletable by direct admins.
+Migration 1064 preserves existing admin generation by enabling the new bit on
+account ceilings and expanding complete administrator source grants; partial
+ancestor grants remain exact. Rollback refuses an explicit client generation denial
+that the older admin-only policy cannot represent.
+Saved snapshots are shared with authorized account members and
+remain subject to live account/site policy on list, read and each export chunk.
+Repair analyses also require enabled ticket access, direct membership and current
+visibility of all included tickets. Account API keys cannot generate or read these
+analyses. Analysis access grants no official report preparation or publication rights.
+
+The **Create reports** permission uses explicit account/user/site grants, separate
+from account administration and ordinary maintenance permissions. Host operators
+with organization `account:manage` permission can manage those grants; the client Account administrator role does not grant that authority.
+Host account managers do not receive this permission automatically. A granted
+operator can save validated inputs, create drafts and publish their own reports
+without a separate approval step. Published snapshots and artifacts remain immutable.
+Current inputs are editable; metadata-only audits retain the actor, time, source
+reference and changed sections. Relevant original inputs are frozen once at
+publication in a host-only source artifact. Clients receive attributed meter
+consumption rather than whole shared-meter readings or allocation fractions.
+Selected-account host preview is read-only, and reporting endpoints require Fleet
+sessions rather than API keys.
+
+Clients with View can inspect issued reports and frozen exports within their live
+account/site policy. A multi-site report requires access to every included site;
+access is rechecked before each downloaded chunk. Host drafts, setup, actor IDs
+and delivery evidence are excluded from client responses. Existing general ticket
+submission is unchanged; representative records do not independently enable
+contractual ticket or S3 workflows.

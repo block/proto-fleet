@@ -290,16 +290,24 @@ already been removed.
 
 ### PostgreSQL worker and connection capacity
 
-The profile reserves 19 PostgreSQL worker slots for eight Timescale workers,
-eight parallel-query workers, and headroom. It also sets a limit of 300 database
-connections; Fleet API defaults to a maximum pool of 250 connections. Patroni
-accepts `max_worker_processes` and `max_connections` only from its shared cluster
-configuration. Values in the local `postgresql.parameters` section are ignored.
-New clusters set these limits through `bootstrap.dcs.postgresql.parameters`.
+| Setting | Limit |
+| --- | --- |
+| PostgreSQL workers | 19: eight Timescale, eight parallel-query, three spare |
+| PostgreSQL connections | 1,200: two API pools plus 200 slots for other clients |
+| Connections per HA API | 500 open, 500 idle |
+| Database connection lifetime | 15 minutes |
+| Miner-handle cache | 100,000 entries, one-minute expiry |
 
-An application update does not change the shared configuration of an existing
-cluster. Before changing it, record the current settings and identify the
-primary and synchronous standby:
+The HA connection settings do not apply to standalone profiles. Larger pools
+and caches use more memory. Miner-handle invalidation rules are unchanged.
+
+Patroni reads these PostgreSQL limits from its shared cluster configuration;
+local `postgresql.parameters` values are ignored. New clusters use
+`bootstrap.dcs.postgresql.parameters`.
+
+Existing clusters need the database limits set before updating Fleet. An
+application update does not change shared settings. Record the current values
+and identify the primary and synchronous standby:
 
 ```bash
 sudo docker exec -u postgres proto-fleet-ha-patroni-1 \
@@ -311,7 +319,7 @@ sudo docker exec -u postgres proto-fleet-ha-patroni-1 \
 ```
 
 Check both effective limits on both database hosts. If the worker limit is below
-19 or the connection limit is below 300, schedule a database maintenance window.
+19 or the connection limit is below 1,200, schedule a database maintenance window.
 Confirm healthy HA, synchronous replication, and no replication lag. Apply the
 shared settings once. Omit any parameter already at or above its target so this
 procedure only increases limits:
@@ -319,7 +327,7 @@ procedure only increases limits:
 ```bash
 sudo docker exec -u postgres proto-fleet-ha-patroni-1 \
   patronictl -c /run/proto-fleet-ha/patroni.yml \
-  edit-config proto-fleet --pg max_worker_processes=19 --pg max_connections=300 --force
+  edit-config proto-fleet --pg max_worker_processes=19 --pg max_connections=1200 --force
 ```
 
 Restart the current standby with `patronictl restart proto-fleet <standby>
@@ -335,7 +343,8 @@ Verify the effective limits on both hosts, no pending restart, healthy
 change and observe the next busy maintenance interval for worker-start failures.
 Changing these limits does not enable topology cleanup.
 
-If a rollback decreases either limit, restart the primary before the standby.
+Before reducing the connection limit, restore smaller API pools on both hosts.
+If a rollback decreases either database limit, restart the primary before the standby.
 Follow [Patroni's shared-memory parameter procedure](https://patroni.readthedocs.io/en/latest/patroni_configuration.html#postgresql-parameters-that-touch-shared-memory)
 for restart ordering. Restoring previous limits can restore worker or connection
 pressure.

@@ -292,3 +292,43 @@ func (q *Queries) ReportingContextSize(ctx context.Context, arg ReportingContext
 	err := row.Scan(&i.FactCount, &i.PayloadBytes, &i.IdentityBytes)
 	return i, err
 }
+
+const reportingPeriodHasCoverage = `-- name: ReportingPeriodHasCoverage :one
+SELECT EXISTS (
+ SELECT 1 FROM hosted_reporting_fact f
+ WHERE organization_id=$1 AND account_id=$2 AND kind='coverage'
+ AND start_at<=$3::timestamptz+interval '1 microsecond'
+ AND (start_seconds,start_nanos)<($4::bigint,$5::bigint)
+ AND (end_at IS NULL OR (end_at>=$6::timestamptz-interval '1 microsecond'
+  AND (extract(epoch FROM regexp_replace(payload->>'end','[.][0-9]+','')::timestamptz)
+   +COALESCE(('0.'||substring(payload->>'end' FROM '[.]([0-9]+)'))::numeric,0))
+   >($7::bigint::numeric+$8::bigint::numeric/1000000000)))
+)::boolean
+`
+
+type ReportingPeriodHasCoverageParams struct {
+	OrganizationID int64
+	AccountID      int64
+	PeriodEnd      time.Time
+	EndSeconds     int64
+	EndNanos       int64
+	PeriodStart    time.Time
+	StartSeconds   int64
+	StartNanos     int64
+}
+
+func (q *Queries) ReportingPeriodHasCoverage(ctx context.Context, arg ReportingPeriodHasCoverageParams) (bool, error) {
+	row := q.queryRow(ctx, q.reportingPeriodHasCoverageStmt, reportingPeriodHasCoverage,
+		arg.OrganizationID,
+		arg.AccountID,
+		arg.PeriodEnd,
+		arg.EndSeconds,
+		arg.EndNanos,
+		arg.PeriodStart,
+		arg.StartSeconds,
+		arg.StartNanos,
+	)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}

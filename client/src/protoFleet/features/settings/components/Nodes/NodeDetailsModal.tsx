@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import NodeRole from "./NodeRole";
 import NodeStatusBadge from "./NodeStatusBadge";
+import NodeVersion from "./NodeVersion";
 import { FleetNodeHARole } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 import { Copy } from "@/shared/assets/icons";
@@ -72,7 +73,7 @@ const NodeDetailsModal = ({ node, canFindMiners, onDismiss, onFindMiners, onRevo
               : "—"}
           </DetailField>
           <DetailField label="Version">
-            <span className="break-all">{node.version || "—"}</span>
+            <NodeVersion node={node} showUpgradeLabel />
           </DetailField>
           <DetailField label="Enrolled by">{node.enrolledBy || "—"}</DetailField>
           <DetailField label="Registered">{node.createdAt?.toLocaleString() ?? "—"}</DetailField>

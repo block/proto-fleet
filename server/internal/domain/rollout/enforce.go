@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"slices"
 	"time"
 
 	"connectrpc.com/authn"
@@ -601,21 +602,30 @@ func (s *Service) dispatchHoldReason(ctx context.Context, r sqlc.FirmwareRollout
 		return "", nil
 	}
 	cutoff := s.now().Add(-resendInterval)
-	due := false
+	var due []int64
 	for _, t := range reviewScope(r, targets) {
 		if t.settled(r) || len(t.PendingFirmwareChecksums) > 0 || len(t.PendingLegacyFirmwareFileIds) > 0 ||
 			(t.LastSentAt.Valid && !t.LastSentAt.Time.Before(cutoff)) ||
 			!t.InScope.Valid || !t.InScope.Bool || t.Attempts >= MaxAttempts {
 			continue
 		}
-		due = true
-		break
+		due = append(due, t.DeviceID)
 	}
-	if !due {
+	if len(due) == 0 {
 		return "", nil
 	}
 	if !firmwareAvailable {
 		return holdArtifactMissing, nil
+	}
+	// Containers behind the channel's controller software target wait for an
+	// operator. Report it when no other target is due, as the rollout then
+	// sends nothing more until one is updated.
+	held, err := s.controllerSoftwareHold(ctx, r.ChannelID, due)
+	if err != nil {
+		return "", err
+	}
+	if len(held) == len(due) {
+		return holdControllerSoftware(held), nil
 	}
 	q := s.store.GetQueries(ctx)
 	channel, err := q.GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: r.ChannelID, OrgID: r.OrgID})
@@ -718,6 +728,20 @@ func (s *Service) dispatchLockedBatch(ctx context.Context, r sqlc.FirmwareRollou
 		default:
 			due = append(due, t.DeviceID)
 		}
+	}
+	// The controller installs this firmware, so a container behind the
+	// channel's controller software target stays queued until an operator
+	// updates it. Holding is not an attempt: it neither counts toward
+	// MaxAttempts nor restarts the resend clock.
+	held, err := s.controllerSoftwareHold(ctx, r.ChannelID, due)
+	if err != nil {
+		return 0, nil, err
+	}
+	if len(held) > 0 {
+		due = slices.DeleteFunc(due, func(id int64) bool {
+			_, waiting := held[id]
+			return waiting
+		})
 	}
 	if len(incompatible) > 0 {
 		if err := q.HaltFirmwareRolloutDevices(ctx, sqlc.HaltFirmwareRolloutDevicesParams{

@@ -5,7 +5,12 @@ import clsx from "clsx";
 import type { NavigationRail } from "./useNavigationRail";
 import { useLogoutAction } from "@/protoFleet/api/useLogout";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
-import { isNavItemAllowedByPermissions, NavItem, secondaryNavItems } from "@/protoFleet/config/navItems";
+import {
+  getActiveSecondaryNavPath,
+  isNavItemAllowedByPermissions,
+  NavItem,
+  secondaryNavItems,
+} from "@/protoFleet/config/navItems";
 import { useHostedAccounts } from "@/protoFleet/features/hostedAccounts/HostedAccountsContext";
 import { formatRole } from "@/protoFleet/features/settings/utils/formatRole";
 import { useNavFeatureEnabled } from "@/protoFleet/hooks/useNavFeatureEnabled";
@@ -70,6 +75,7 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail,
         .filter((nav) => nav.parent === settingsItem?.path)
         .filter((nav) => isNavItemAllowedByPermissions(nav, permissions))
         .filter((nav) => !nav.requiredFeature || featureEnabled[nav.requiredFeature])
+        .filter((nav) => !nav.requiresReportingAccess || directory?.reportingAccess)
         .filter((nav) => !nav.requiresHostedAccounts || (directory?.hostAccess && directory.accounts.length > 0)),
     [featureEnabled, permissions, directory, settingsItem],
   );
@@ -106,9 +112,7 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail,
 
   const isCurrentPath = (item: string | Pick<NavItem, "path" | "scopable" | "exact">) => {
     if (typeof item === "string") {
-      const _pathname = stripLeadingSlash(pathname);
-      const _path = stripLeadingSlash(item);
-      return _pathname === _path || _pathname.startsWith(`${_path}/`);
+      return item === getActiveSecondaryNavPath(visibleSettingsItems, pathname);
     }
 
     if (item.path === settingsItem?.path && isOnSettingsSubPage) return true;

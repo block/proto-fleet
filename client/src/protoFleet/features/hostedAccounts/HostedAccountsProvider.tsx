@@ -3,6 +3,7 @@ import { Code, ConnectError } from "@connectrpc/connect";
 
 import { ACCOUNT_READ_TIMEOUT_MS, isRetryableReadError } from "./api";
 import { type Directory, HostedAccountsContext } from "./HostedAccountsContext";
+import { useReportingAccess } from "./useReportingAccess";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { hostedAccountsClient } from "@/protoFleet/features/hostedAccounts/api";
 import { useFleetStore } from "@/protoFleet/store";
@@ -46,11 +47,13 @@ export const HostedAccountsProvider = ({ children }: { children: ReactNode }) =>
   }, [authenticated, refresh]);
   // Never render a prior login's directory while a new session is loading.
   const current = authenticated && result?.generation === generation ? result : null;
+  const reportingAccess = useReportingAccess(authenticated && !!current?.data?.hostAccess);
   return (
     <HostedAccountsContext.Provider
       value={{
         accounts: current?.data?.accounts ?? [],
         hostAccess: current?.data?.hostAccess ?? false,
+        reportingAccess,
         loading: authenticated && !current,
         error: current?.error ?? null,
         refresh,

@@ -829,6 +829,12 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		if commandType == commandtype.UpdateMinerPassword && fleeterror.IsAuthenticationError(err) {
 			return message.OrgID, 0, fleeterror.NewFailedPreconditionErrorf("error getting miner connection info for deviceID: %d, %v", message.DeviceID, err)
 		}
+		if commandType == commandtype.ControlPowerFeed {
+			// A feed write is never retried: a later attempt could cut power
+			// long after the operator confirmed it.
+			slog.WarnContext(ctx, "power feed command not sent", "device_id", message.DeviceID, "error", err)
+			return message.OrgID, 0, powerFeedNotSent()
+		}
 		return message.OrgID, 0, fleeterror.NewInternalErrorf("error getting miner connection info for deviceID: %d, %v", message.DeviceID, err)
 	}
 	orgID := minerInfo.GetOrgID()
@@ -998,6 +1004,17 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		}
 		siteID = payload.SiteID
 		err = es.executeBoardIdentify(ctx, message.DeviceID, orgID, payload, controller)
+	case commandtype.ControlPowerFeed:
+		var payload modulePowerFeedPayload
+		if decodeErr := json.Unmarshal(message.Payload, &payload); decodeErr != nil {
+			return orgID, siteID, fleeterror.NewFailedPreconditionError("invalid power feed write")
+		}
+		controller, ok := minerInfo.(sdk.DeviceContainerPowerFeed)
+		if !ok {
+			return orgID, siteID, fleeterror.NewUnimplementedError("power feed control unsupported")
+		}
+		siteID = payload.SiteID
+		err = es.executeModulePowerFeed(ctx, message.DeviceID, orgID, payload, controller)
 	case commandtype.ContainerMining:
 		var payload containerMiningPayload
 		if decodeErr := json.Unmarshal(message.Payload, &payload); decodeErr != nil {

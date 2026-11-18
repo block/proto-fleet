@@ -40,6 +40,33 @@ const propsFor = () => ({
   onClose: vi.fn(),
 });
 
+describe("rollout device wording", () => {
+  it("lists a container model's update as containers", async () => {
+    const props = propsFor();
+    const rollout = { ...props.rollout, manufacturer: "Proto", model: "CT1" };
+    render(<RolloutMinersModal {...props} rollout={rollout} minerNames={{ "failed-rig": "Container A" }} />);
+
+    expect(await screen.findByText("Container A")).toBeInTheDocument();
+    const modal = screen.getByTestId("rollout-miners-modal");
+    expect(within(modal).getByText("Containers in firmware update")).toBeInTheDocument();
+    expect(within(modal).getByText("Container", { selector: "th *, th" })).toBeInTheDocument();
+    expect(within(modal).getByText("All containers")).toBeInTheDocument();
+    expect(modal).toHaveTextContent("2 containers in this update");
+    expect(modal).not.toHaveTextContent(/\bminers?\b/i);
+  });
+
+  it("keeps miner wording for a miner model's update", async () => {
+    const props = propsFor();
+    render(<RolloutMinersModal {...props} />);
+
+    await screen.findByText("Failed rig");
+    const modal = screen.getByTestId("rollout-miners-modal");
+    expect(within(modal).getByText("Miners in firmware update")).toBeInTheDocument();
+    expect(within(modal).getByText("All miners")).toBeInTheDocument();
+    expect(modal).toHaveTextContent("2 miners in this update");
+  });
+});
+
 describe("rollout miner detail loading", () => {
   it.each([
     RolloutCancelReason.CANCELED_REMAINING,

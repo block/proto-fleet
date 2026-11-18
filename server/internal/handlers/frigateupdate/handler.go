@@ -61,7 +61,11 @@ func (h *Handler) ListPackages(ctx context.Context, _ *connect.Request[pb.ListPa
 	if err != nil {
 		return nil, err
 	}
-	out := &pb.ListPackagesResponse{}
+	updatable, err := h.service.HasUpdatableContainer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := &pb.ListPackagesResponse{HasUpdatableContainer: updatable}
 	for _, p := range packages {
 		out.Packages = append(out.Packages, PackageToProto(p))
 	}

@@ -2,6 +2,24 @@
 
 Thank you for your interest in contributing to Proto Fleet! This guide covers the development workflows and conventions used in this project.
 
+## Technical Writing
+
+Use ASD-STE100 (Simplified Technical English) for all technical communication.
+This requirement applies to documentation, RFCs, plans, runbooks, PR titles and
+descriptions, commit messages, issues, review comments, and technical status reports.
+
+Apply the ASD-STE100 vocabulary and writing rules:
+
+- Use short, direct sentences. Give each sentence one main idea.
+- Use the active voice. Use the imperative form for instructions.
+- Keep procedural sentences to 20 words or fewer. Keep descriptive sentences
+  to 25 words or fewer.
+- Use the same term for the same meaning. Define unfamiliar abbreviations.
+- Keep commands, code, identifiers, file paths, URLs, and quoted source text exact.
+  Use necessary technical names and technical verbs consistently.
+
+Check new and revised text against ASD-STE100 before you submit it.
+
 ## Reporting Issues
 
 We use GitHub issue templates to keep reports consistent and actionable. When you open a new issue you will see an issue chooser with these options:

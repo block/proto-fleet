@@ -54,8 +54,8 @@ test.describe("Client workspace and read-only host preview", () => {
       await expect(workspace.performanceReading("Hashrate").getByText("400.0", { exact: true })).toBeVisible();
       await expect(workspace.performanceReading("Power").getByText("9.0", { exact: true })).toBeVisible();
       await expect(workspace.performanceReading("Efficiency").getByText("N/A", { exact: true })).toBeVisible();
-      for (const range of ["1h", "24h"]) await expect(workspace.timeRange(range)).toBeVisible();
-      for (const range of ["7d", "30d", "90d", "1y"]) await expect(workspace.timeRange(range)).toHaveCount(0);
+      for (const range of ["1h", "24h", "7d", "30d", "90d", "1y"])
+        await expect(workspace.timeRange(range)).toBeVisible();
       await expect(page.getByText("Viewing as Customer A", { exact: true })).toHaveCount(preview ? 1 : 0);
       await expect(page.getByText("Actions are unavailable in this read-only preview.", { exact: true })).toHaveCount(
         0,
@@ -187,11 +187,15 @@ test.describe("Client workspace and read-only host preview", () => {
     });
   }
 
-  test("uptime surfaces missing module observations alongside healthy miners", async ({ page, context, isMobile }) => {
+  test("hashing availability surfaces missing module observations alongside healthy miners", async ({
+    page,
+    context,
+    isMobile,
+  }) => {
     const mock = await mockClientWorkspace(context, false, { missingModuleUptime: true });
     const workspace = new ClientWorkspacePage(page, isMobile);
     await workspace.open(clientA);
-    const uptime = workspace.performanceReading("Uptime");
+    const uptime = workspace.performanceReading("Hashing status");
     await expect(uptime).toContainText("1 of 4 assets reporting");
     await expect(uptime).not.toContainText("All assets hashing");
     await uptime.scrollIntoViewIfNeeded();
@@ -217,7 +221,7 @@ test.describe("Client workspace and read-only host preview", () => {
         contentType: "image/png",
       });
       expect(mock.calls.filter((call) => call.method === "CreateAccount")).toMatchObject([
-        { account: hostAccount, body: { accountId: hostAccount, name: "New client", capabilities: "31" } },
+        { account: hostAccount, body: { accountId: hostAccount, name: "New client", capabilities: "63" } },
       ]);
       expect(mock.calls.filter((call) => call.method === "CreateInvitation")).toHaveLength(0);
     });
@@ -345,7 +349,7 @@ test.describe("Client workspace and read-only host preview", () => {
     expect(updates.map((call) => call.body.suspended ?? false)).toEqual([false, true, false]);
     for (const call of updates) {
       expect(call.account).toBe(hostAccount);
-      expect(call.body).toMatchObject({ accountId: hostAccount, childAccountId: clientA, capabilities: "27" });
+      expect(call.body).toMatchObject({ accountId: hostAccount, childAccountId: clientA, capabilities: "59" });
     }
 
     await workspace.previewFromAccountSettings();
@@ -663,7 +667,7 @@ test.describe("Client workspace and read-only host preview", () => {
         { exact: true },
       ),
     ).toBeVisible();
-    for (const label of ["Hashrate", "Uptime", "Temperature", "Power", "Efficiency"]) {
+    for (const label of ["Hashrate", "Hashing status", "Temperature", "Power", "Efficiency"]) {
       await expect(workspace.performanceReading(label).getByText("No data", { exact: true })).toBeVisible();
     }
     expect(mock.unexpected).toEqual([]);

@@ -16,7 +16,9 @@ func TestHostedReportAdHocCorrectionNormalizesPeriodPrecision(t *testing.T) {
 	p.Start = p.Start.Add(789 * time.Nanosecond)
 	p.End = p.End.Add(123 * time.Nanosecond)
 	p.RequestReceivedAt = p.End.Add(987 * time.Nanosecond)
-	p.RequestRef = "request/email"
+	request, err := f.svc.CreateReportRequest(t.Context(), f.host, f.org, client.AccountID, hostedaccounts.ReportRequest{ReceivedAt: p.RequestReceivedAt, SourceRef: "request/email", Requester: "contract representative", Scope: "correction precision", OwnerUserID: owner})
+	require.NoError(t, err)
+	p.RequestRef = request.RequestID
 	opts := hostedaccounts.DraftReportOptions{Period: p, InputRevision: saved.Revision, OwnerUserID: owner}
 	draft, err := f.svc.PrepareReport(t.Context(), f.host, f.org, client.AccountID, opts)
 	require.NoError(t, err)

@@ -86,7 +86,7 @@ describe("FrigateUpdatePanel progress", () => {
       }),
     ]);
 
-    expect(within(screen.getByTestId("frigate-instance-frigate-a")).getByText("Frigate stopped")).toBeInTheDocument();
+    expect(within(screen.getByTestId("frigate-instance-frigate-a")).getByText("Software stopped")).toBeInTheDocument();
     expect(within(screen.getByTestId("frigate-instance-frigate-b")).getByText("Installed")).toBeInTheDocument();
     expect(screen.getByTestId("frigate-instance-frigate-b-stale")).toHaveTextContent("No report for over 30 seconds");
     expect(screen.queryByTestId("frigate-instance-frigate-a-stale")).toBeNull();
@@ -129,7 +129,9 @@ describe("FrigateUpdatePanel progress", () => {
 
   it("shows a banner while the maintenance service is answering", () => {
     renderPanel([job({ servedByMaintenance: true })]);
-    expect(screen.getByTestId("frigate-update-maintenance")).toHaveTextContent("Frigate is stopped for the install.");
+    expect(screen.getByTestId("frigate-update-maintenance")).toHaveTextContent(
+      "The controller software is stopped for the install.",
+    );
   });
 
   it("does not show the maintenance banner otherwise", () => {
@@ -202,14 +204,14 @@ describe("FrigateUpdatePanel errors", () => {
 
   it("links to the runbook from one constant when the update failed", () => {
     renderPanel([job({ state: FrigateUpdateState.FAILED, errorCode: "UPDATE_INSTALL_FAILED" })]);
-    const link = screen.getByRole("link", { name: "Frigate update runbook" });
+    const link = screen.getByRole("link", { name: "Controller software update runbook" });
     expect(link).toHaveAttribute("href", FRIGATE_UPDATE_RUNBOOK_URL);
     expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"));
   });
 
   it("does not link the runbook for a healthy running update", () => {
     renderPanel([job()]);
-    expect(screen.queryByRole("link", { name: "Frigate update runbook" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Controller software update runbook" })).toBeNull();
   });
 });
 
@@ -258,7 +260,7 @@ describe("FrigateUpdatePanel retry and cancel", () => {
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
     expect(mocks.retryUpdate).toHaveBeenCalledWith("11111111-1111-4111-8111-111111111111", expect.any(String));
     expect(mocks.pushToast).toHaveBeenCalledWith({
-      message: "Frigate update retry requested.",
+      message: "Controller software update retry requested.",
       status: STATUSES.success,
     });
     expect(screen.queryByTestId("frigate-update-retry-dialog")).toBeNull();
@@ -285,7 +287,10 @@ describe("FrigateUpdatePanel retry and cancel", () => {
 
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
     expect(mocks.cancelUpdate).toHaveBeenCalledWith("11111111-1111-4111-8111-111111111111", expect.any(String));
-    expect(mocks.pushToast).toHaveBeenCalledWith({ message: "Frigate update cancelled.", status: STATUSES.success });
+    expect(mocks.pushToast).toHaveBeenCalledWith({
+      message: "Controller software update cancelled.",
+      status: STATUSES.success,
+    });
   });
 
   it.each([
@@ -304,7 +309,9 @@ describe("FrigateUpdatePanel retry and cancel", () => {
       message: "Cancel requested. The update stops only if no controller has stopped yet.",
       status: STATUSES.success,
     });
-    expect(mocks.pushToast).not.toHaveBeenCalledWith(expect.objectContaining({ message: "Frigate update cancelled." }));
+    expect(mocks.pushToast).not.toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Controller software update cancelled." }),
+    );
   });
 
   it("reuses the idempotency key when the same retry is resubmitted after a failure", async () => {
@@ -362,7 +369,7 @@ describe("FrigateUpdatePanel history", () => {
       }),
     ]);
 
-    const history = screen.getByRole("list", { name: "Recent Frigate updates" });
+    const history = screen.getByRole("list", { name: "Recent controller software updates" });
     expect(within(history).getAllByRole("listitem")).toHaveLength(2);
     expect(within(history).getByText("1.2.0 to 1.3.0")).toBeInTheDocument();
     expect(within(history).getByText(/Update complete/)).toBeInTheDocument();

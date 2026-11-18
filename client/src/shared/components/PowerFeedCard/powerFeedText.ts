@@ -26,6 +26,7 @@ const mappingReasons: Record<string, string> = {
   no_feed_assigned: "No feed is assigned to this module.",
   multiple_feeds: "Boards in this module report different feeds.",
   feed_evidence_incomplete: "A board in this module reports no feed.",
+  topology_incomplete: "The controller map is incomplete, so other hardware on this feed cannot be ruled out.",
 };
 
 const readingReasons: Record<string, string> = {
@@ -49,4 +50,39 @@ export function mappingReasonText(reason: string, sharedWith: PowerFeedModuleRef
 
 export function readingReasonText(reason: string): string {
   return readingReasons[reason] ?? "No current reading.";
+}
+
+export type PowerFeedAction = "turn_on" | "turn_off" | "cycle" | "clear_override";
+
+export const powerFeedActionLabels: Record<PowerFeedAction, string> = {
+  turn_on: "Turn on feed",
+  turn_off: "Turn off feed",
+  cycle: "Cycle feed",
+  clear_override: "Clear override",
+};
+
+/**
+ * What one feed write does to the module's hardware. Electrical power is
+ * separate from mining: turning a feed off never stops mining first.
+ */
+export function powerFeedActionConsequence(action: PowerFeedAction, cycleHoldSeconds: number): string[] {
+  const override = "The feed stays under this operator override until you clear it.";
+  switch (action) {
+    case "turn_off":
+      return [
+        "This cuts power to the module's boards immediately. It does not stop mining first; stop the module's mining for a clean shutdown.",
+        override,
+      ];
+    case "turn_on":
+      return ["This restores power to the module's boards.", override];
+    case "cycle":
+      return [
+        `This turns the feed off and the controller turns it back on after ${cycleHoldSeconds} seconds. It does not stop mining first.`,
+        "The controller owns the restore and completes it even if Fleet loses its connection. Other feed controls stay off until it finishes.",
+      ];
+    case "clear_override":
+      return [
+        "This returns the feed to the controller's automatic control. Its state may change when the controller next applies its own settings.",
+      ];
+  }
 }

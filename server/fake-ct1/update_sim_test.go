@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // The HA cluster UUID and the etcd cluster ID are different identifiers, as on
@@ -621,6 +622,7 @@ func TestStartRefusals(t *testing.T) {
 		{name: "etcd", tune: func(c *updateSimConfig) { c.Faults.EtcdUnhealthy = true }, code: codes.Unavailable, reason: "UPDATE_ETCD_UNHEALTHY"},
 		{name: "helper", tune: func(c *updateSimConfig) { c.Faults.HelperUnavailable = true }, code: codes.Unavailable, reason: "UPDATE_HELPER_UNAVAILABLE"},
 		{name: "window", tune: func(c *updateSimConfig) { c.Faults.OutsideWindow = true }, code: codes.FailedPrecondition, reason: "UPDATE_OUTSIDE_WINDOW"},
+		{name: "firmware active", tune: func(c *updateSimConfig) { c.Faults.FirmwareActive = true }, code: codes.FailedPrecondition, reason: "UPDATE_FIRMWARE_ACTIVE"},
 		{name: "space", tune: func(c *updateSimConfig) { c.SpoolFreeBytes = 10 }, code: codes.FailedPrecondition, reason: "UPDATE_INSUFFICIENT_SPACE"},
 		{name: "no keys", tune: func(c *updateSimConfig) { c.TrustedKeys = nil }, code: codes.FailedPrecondition, reason: "UPDATE_NO_TRUSTED_KEYS"},
 		{name: "not staged", change: func(_ *updateHarness, r *mdk.StartServerUpdateRequest) { r.JobId = "never-staged" }, code: codes.FailedPrecondition, reason: "UPDATE_NOT_STAGED"},
@@ -874,5 +876,28 @@ func TestRolloutSuccessDoesNotDeadlockStatusReads(t *testing.T) {
 				t.Fatalf("version = %q", version)
 			}
 		}
+	}
+}
+
+func TestStartRefusedWhileHashboardFlashRuns(t *testing.T) {
+	h := newUpdateHarness(t, nil)
+	fingerprints := h.stageBoth("job", testPackage(600))
+	peer := h.states[1]
+	peer.mu.Lock()
+	job := &mdk.FirmwareUpdate{TaskId: "flash-1", StartedAt: timestamppb.New(peer.now())}
+	peer.firmware.jobs["flash-1"] = job
+	peer.mu.Unlock()
+
+	_, err := h.update(0).StartServerUpdate(context.Background(), startRequest("job", fingerprints))
+	requireRefusal(t, err, codes.FailedPrecondition, "UPDATE_FIRMWARE_ACTIVE")
+	if !strings.Contains(status.Convert(err).Message(), "ct1-b/flash-1") {
+		t.Fatalf("refusal does not name the running flash: %v", err)
+	}
+
+	peer.mu.Lock()
+	job.CompletedAt = timestamppb.New(peer.now())
+	peer.mu.Unlock()
+	if _, err := h.update(0).StartServerUpdate(context.Background(), startRequest("job", fingerprints)); err != nil {
+		t.Fatalf("Start after the flash finished: %v", err)
 	}
 }

@@ -40,8 +40,8 @@ const (
 	minerCacheTTL = 1 * time.Minute
 
 	// minerCacheSize is the maximum number of miner handles to cache.
-	// Sized to cover very large fleets without meaningful memory overhead.
-	minerCacheSize = 10_000
+	// Keep a 50k-endpoint fleet resident with room for growth between polls.
+	minerCacheSize = 100_000
 )
 
 var _ telemetry.CachedMinerGetter = &Service{}

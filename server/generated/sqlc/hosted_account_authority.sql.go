@@ -97,12 +97,12 @@ WITH actor AS (
  ) AS authorized
 ), memberships AS (
  SELECT m.account_id, m.role,
-        CASE m.role WHEN 'viewer' THEN 1 WHEN 'pool_operator' THEN 7 WHEN 'account_administrator' THEN 31 ELSE 0 END::bigint AS capabilities
+        CASE m.role WHEN 'viewer' THEN 1 WHEN 'pool_operator' THEN 7 WHEN 'account_administrator' THEN 63 ELSE 0 END::bigint AS capabilities
  FROM hosted_account_membership m JOIN actor ON actor.id=m.user_id
  WHERE m.organization_id=$3 AND m.revoked_at IS NULL
 ), accounts AS (
  SELECT a.id, a.account_id, a.organization_id, a.parent_id, a.depth, a.name, a.capabilities, a.suspended, a.revision, a.created_at, a.updated_at, a.sites_restricted, a.site_ceiling_restricted, a.authority_revision, a.ticketing_enabled, COALESCE(parent.account_id,'')::text AS parent_account_id,
-        (a.capabilities & COALESCE(parent.capabilities,31) & root.capabilities)::bigint AS ceiling,
+        (a.capabilities & COALESCE(parent.capabilities,63) & root.capabilities)::bigint AS ceiling,
         (a.suspended OR root.suspended OR COALESCE(parent.suspended,FALSE)) AS path_suspended,
         root.id AS root_id,
         (a.ticketing_enabled AND root.ticketing_enabled AND COALESCE(parent.ticketing_enabled,TRUE)) AS effective_ticketing_enabled
@@ -115,7 +115,7 @@ WITH actor AS (
  SELECT a.id, m.role, m.capabilities
  FROM accounts a JOIN memberships m ON m.account_id=a.id WHERE a.depth>0
  UNION ALL
- SELECT a.id, ''::text, (g.capabilities & CASE WHEN ancestor.depth=0 THEN 31 ELSE m.capabilities END)::bigint
+ SELECT a.id, ''::text, (g.capabilities & CASE WHEN ancestor.depth=0 THEN 63 ELSE m.capabilities END)::bigint
  FROM accounts a
  JOIN hosted_account_ancestor_grant g ON g.account_id=a.id AND g.organization_id=a.organization_id AND g.revoked_at IS NULL
  JOIN hosted_account ancestor ON ancestor.id=g.ancestor_id AND ancestor.organization_id=g.organization_id AND ancestor.depth<a.depth
@@ -264,13 +264,13 @@ WITH RECURSIVE path AS (
         string_agg(id::text || ':' || authority_revision::text, ',' ORDER BY depth) AS state
  FROM path
 ), sources AS (
- SELECT CASE m.role WHEN 'viewer' THEN 1 WHEN 'pool_operator' THEN 7 WHEN 'account_administrator' THEN 31 ELSE 0 END::bigint AS capabilities,
+ SELECT CASE m.role WHEN 'viewer' THEN 1 WHEN 'pool_operator' THEN 7 WHEN 'account_administrator' THEN 63 ELSE 0 END::bigint AS capabilities,
         m.role, 'member:' || m.revision::text AS witness
  FROM hosted_account_membership m JOIN target t ON t.id=m.account_id AND t.organization_id=m.organization_id
  WHERE m.user_id=$1 AND m.revoked_at IS NULL
  UNION ALL
- SELECT (g.capabilities & CASE WHEN ancestor.depth=0 THEN 31 ELSE
-        CASE member.role WHEN 'viewer' THEN 1 WHEN 'pool_operator' THEN 7 WHEN 'account_administrator' THEN 31 ELSE 0 END END)::bigint,
+ SELECT (g.capabilities & CASE WHEN ancestor.depth=0 THEN 63 ELSE
+        CASE member.role WHEN 'viewer' THEN 1 WHEN 'pool_operator' THEN 7 WHEN 'account_administrator' THEN 63 ELSE 0 END END)::bigint,
         ''::text, 'grant:' || g.ancestor_id::text || ':' || g.revision::text || ':' ||
         CASE WHEN ancestor.depth=0 THEN COALESCE((
           SELECT string_agg(ur.id::text || ':' || ur.updated_at::text || ':' || r.updated_at::text, ',' ORDER BY ur.id)

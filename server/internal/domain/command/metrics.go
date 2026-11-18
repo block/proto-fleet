@@ -62,6 +62,8 @@ func commandKindLabel(t commandtype.Type) string {
 		return "apply_curtailment_config"
 	case commandtype.FrigateServerUpdate:
 		return "frigate_server_update"
+	case commandtype.ControlPowerFeed:
+		return "control_power_feed"
 	default:
 		return strings.ToLower((&t).String())
 	}

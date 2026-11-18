@@ -5,12 +5,13 @@ import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import ModulePowerFeedCard from "./ModulePowerFeedCard";
 import {
   GetModulePowerFeedResponseSchema,
+  PowerFeedAction,
   PowerFeedMappingConfidence,
   PowerFeedState,
 } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { formatTimestamp } from "@/shared/utils/formatTimestamp";
 
-const client = vi.hoisted(() => ({ getModulePowerFeed: vi.fn() }));
+const client = vi.hoisted(() => ({ getModulePowerFeed: vi.fn(), controlModulePowerFeed: vi.fn() }));
 vi.mock("@/protoFleet/api/clients", () => ({ containersClient: client }));
 vi.mock("@/protoFleet/store", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/protoFleet/store")>()),
@@ -20,7 +21,21 @@ vi.mock("@/protoFleet/store", async (importOriginal) => ({
 beforeEach(() => {
   vi.useRealTimers();
   client.getModulePowerFeed.mockReset();
+  client.controlModulePowerFeed.mockReset();
 });
+
+const controllable = (unavailableReason = "") =>
+  create(GetModulePowerFeedResponseSchema, {
+    moduleId: 91n,
+    deviceIdentifier: "north",
+    containerName: "North CT1",
+    tank: 1,
+    module: 2,
+    mapping: { confidence: PowerFeedMappingConfidence.CONFIGURED, feedId: "pdu-1-outlet-05" },
+    feed: { id: "pdu-1-outlet-05", state: PowerFeedState.ENABLED, faulted: false },
+    recoveryCycleKnown: true,
+    control: { actions: [PowerFeedAction.TURN_OFF, PowerFeedAction.CYCLE], unavailableReason, cycleHoldSeconds: 30 },
+  });
 
 it("reads the module's feed once, refreshes on request and drops the reading when a refresh fails", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -82,4 +97,52 @@ it("does not read while disabled", () => {
   render(<ModulePowerFeedCard moduleId={91n} enabled={false} />);
   expect(client.getModulePowerFeed).not.toHaveBeenCalled();
   expect(screen.queryByRole("status")).toBeNull();
+});
+
+it("offers no feed controls without control access", async () => {
+  client.getModulePowerFeed.mockResolvedValue(
+    create(GetModulePowerFeedResponseSchema, {
+      mapping: { confidence: PowerFeedMappingConfidence.CONFIGURED, feedId: "pdu-1-outlet-05" },
+      feed: { id: "pdu-1-outlet-05", state: PowerFeedState.ENABLED },
+      recoveryCycleKnown: true,
+    }),
+  );
+  render(<ModulePowerFeedCard moduleId={91n} enabled />);
+  expect(await screen.findByText("pdu-1-outlet-05")).toBeTruthy();
+  expect(screen.queryByTestId("power-feed-actions-trigger")).toBeNull();
+});
+
+it("explains why the offered controls cannot run now", async () => {
+  client.getModulePowerFeed.mockResolvedValue(controllable("Another power feed command is pending for this module."));
+  render(<ModulePowerFeedCard moduleId={91n} enabled />);
+  fireEvent.click(await screen.findByTestId("power-feed-actions-trigger"));
+  const turnOff = screen.getByText("Turn off feed").closest("button")!;
+  expect(turnOff).toHaveProperty("disabled", true);
+  expect(screen.getAllByText("Another power feed command is pending for this module.").length).toBeGreaterThan(0);
+  fireEvent.click(turnOff);
+  expect(screen.queryByTestId("power-feed-action-dialog")).toBeNull();
+});
+
+it("says why no control is offered when the server sends no actions", async () => {
+  const response = controllable("Controls are off because the feed's state is unknown.");
+  response.control!.actions = [];
+  client.getModulePowerFeed.mockResolvedValue(response);
+  render(<ModulePowerFeedCard moduleId={91n} enabled />);
+  fireEvent.click(await screen.findByTestId("power-feed-actions-trigger"));
+  expect(screen.getAllByText("Controls are off because the feed's state is unknown.").length).toBeGreaterThan(0);
+  expect(screen.queryByText("Turn off feed")).toBeNull();
+});
+
+it("confirms the chosen action against the feed it was offered for", async () => {
+  client.getModulePowerFeed.mockResolvedValue(controllable());
+  render(<ModulePowerFeedCard moduleId={91n} enabled />);
+  fireEvent.click(await screen.findByTestId("power-feed-actions-trigger"));
+  fireEvent.click(screen.getByText("Cycle feed"));
+  const dialog = screen.getByTestId("power-feed-action-dialog");
+  expect(dialog.textContent).toContain("Cycle feed pdu-1-outlet-05?");
+  expect(dialog.textContent).toContain("North CT1 · Tank 1 · Module 2");
+  expect(dialog.textContent).toContain("after 30 seconds");
+  expect(client.controlModulePowerFeed).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByTestId("power-feed-action-dialog")).toBeNull();
 });

@@ -133,6 +133,8 @@ test_patroni_contract() {
     assert_contains "$template" "sslmode: verify-full"
     assert_contains "$template" 'post_bootstrap: /usr/local/bin/patroni-post-bootstrap'
     assert_contains "$template" 'hostssl fleet grafana_ha_ro ${HA_DB_A_IP}/32 scram-sha-256'
+    assert_contains "$template" 'hostssl fleet fleet_metrics_ro ${HA_DB_A_IP}/32 scram-sha-256'
+    assert_contains "$template" 'hostssl fleet fleet_metrics_ro ${HA_DB_B_IP}/32 scram-sha-256'
     assert_not_contains "$template" "0.0.0.0/0"
     assert_contains "$entrypoint" "render-patroni-config"
     assert_contains "$entrypoint" 'exec gosu postgres start-patroni "${run_dir}/patroni.yml"'
@@ -182,6 +184,9 @@ test_fleet_ha_contract() {
         fail "HA Fleet targets must not include the standalone database service"
     fi
     assert_contains "$rendered" "HTTP_LISTEN_ADDRESS: 127.0.0.1:4000"
+    assert_contains "$rendered" 'DB_MAX_OPEN_CONNS: "500"'
+    assert_contains "$rendered" 'DB_MAX_IDLE_CONNS: "500"'
+    assert_contains "$rendered" 'DB_CONN_MAX_LIFETIME: 15m'
     assert_contains "$rendered" "LOG_JSON: \"true\""
     assert_contains "$rendered" "UPDATES_ENABLED: \"false\""
     assert_contains "$rendered" 'TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS: "false"'

@@ -16,6 +16,7 @@ import {
   type ControllerLogSeverity,
   type ControllerLogSnapshot,
 } from "@/shared/features/controllerLogs/types";
+import { withDeadline as runWithDeadline } from "@/shared/utils/withDeadline";
 
 const wireLevels: Record<ControllerLogSeverity, NonNullable<SystemServiceGetLogsParams["level"]>> = {
   debug: "LOG_LEVEL_DEBUG",
@@ -58,18 +59,19 @@ export async function withDeadline<T>(
 ): Promise<T> {
   const outer = params.signal ?? undefined;
   const giveUp = new AbortController();
-  const timer = setTimeout(() => giveUp.abort(), ms);
-  let failure: unknown;
+  const onAbort = () => giveUp.abort(outer?.reason);
+  if (outer?.aborted) onAbort();
+  else outer?.addEventListener("abort", onAbort, { once: true });
   try {
-    return await request({ ...params, signal: outer ? AbortSignal.any([outer, giveUp.signal]) : giveUp.signal });
+    return await runWithDeadline(() => request({ ...params, signal: giveUp.signal }), giveUp, ms);
   } catch (error) {
-    failure = error;
+    if (outer?.aborted) throw outer.reason;
+    if (giveUp.signal.aborted)
+      throw Object.assign(new Error(`The controller did not respond within ${ms / 1000} seconds.`), { cause: error });
+    throw error;
   } finally {
-    clearTimeout(timer);
+    outer?.removeEventListener("abort", onAbort);
   }
-  if (outer?.aborted) throw outer.reason;
-  if (giveUp.signal.aborted) throw new Error(`The controller did not respond within ${ms / 1000} seconds.`);
-  throw failure;
 }
 
 export async function readControllerLogs(

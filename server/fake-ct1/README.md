@@ -23,12 +23,14 @@ A full container is a **Tank → Module → Slot → Hashboard** tree:
 - **312 ASICs per board** with layout coordinates
   (four stacks of 78; the client wraps each stack into three rows of 26)
 - Plant/PUE, fan, power-distribution, and power-feed telemetry
-- Read-only module power feeds over gRPC: `ListPowerFeeds` reports one enabled
+- Read-only module power feeds over gRPC and Connect: `ListPowerFeeds` reports one enabled
   three-phase `pdu-N-outlet-MM` outlet per module, with line voltage, per-phase
   current, and AC power. `GetActivePowerRecoveryCycle` reports no cycle. Feed
   on, off, cycle, and override writes are not simulated.
 - Bucketed aggregate time-series telemetry
 - Stateful mining writes (global/scoped power targets, start/stop, fixed voltage, module run-in)
+- Dry-cooler fan reversal over Connect and gRPC, with status readback on every
+  transport (see [Dry-cooler fan reversal](#dry-cooler-fan-reversal))
 
 State is held in memory and resets on restart. The default scenario has three
 fully healthy tanks, one tank with mixed failures, one with a single board fault,
@@ -180,6 +182,22 @@ first frame and when it changes. Frames go through the shared request
 lifecycle, so they agree with `GetHashboardASICs` within a sample interval.
 Unknown boards fail with NotFound.
 
+**Board history.** `HashboardService/GetHashboardEvents`,
+`ListRecoveryEvidence` and `GetRecoveryEvidence` are available over Connect and
+native gRPC, with no REST routes. Each board has a deterministic fault episode
+every nine hours over the last 40 days, offset by slot. An episode reports an
+error cause sampled every 30 seconds for 18 minutes, and a mining state change
+into and out of error. Every fourth episode adds a stack dropout and every
+fifth a last shutdown cause. Like Frigate, events cover `[start, end)`. With no
+window the last 24 hours are returned. A window longer than seven days keeps
+its end and moves its start. Errors are aggregated per cause within the window,
+`count` counts samples, and a current isolation is appended last. Every third
+episode captured recovery evidence. Snapshots are kept for 30 days and at most
+ten per board, newest first. A JSON payload carries `sources`, `omitted` and
+stack dropout `cleared_at` times. Every seventh episode's snapshot is truncated.
+Set `CT1_BOARD_HISTORY_SCENARIO=events-unavailable` or `evidence-unavailable`
+to make those reads fail with Unavailable.
+
 Share-history range validation follows Frigate's
 [`validateIndefiniteHistoryRange`](https://github.com/btc-mining/frigate/blob/5225b5fa64f8d81d95329dcd5bbd6b9c70005198/pkg/api/telemetry_service.go):
 only one-hour or one-day buckets with aligned start/end timestamps are accepted.
@@ -239,6 +257,11 @@ existing hashboards into the stopped `default` group before Fleet resumes it.
 Native gRPC and REST global start/stop share the same lifecycle behavior. Module and hashboard **Edit pool**
 actions become available after Fleet observes completed activation.
 
+The browser Connect gateway also exposes capability, group, membership, and
+group-pool reads for ProtoOS Settings → Pools. These share native state. Group
+mutations remain on native gRPC; the browser inspection view cannot enable,
+create, or transfer groups.
+
 The fixture supports capability and membership reads, group creation, ordered
 pool replacement (including explicit empty replacements), exact-board transfers, mining intent, operation receipts, and
 empty-group deletion. New groups start stopped. Groups without enabled pools do
@@ -250,7 +273,9 @@ to verify selected-board clearing without treating missing boards as cleared.
 
 All group state resets when the simulator restarts. Connected-board transfers
 complete synchronously; transfers involving isolated or disconnected boards are
-rejected. This fixture does not model HA ownership, physical shutdown proofs,
+rejected. `ListMiningGroups` does not populate `pending_operations` or
+`inventory_issues`. Use the ProtoOS pool-assignment stories and client mocks to
+test in-progress changes, failed operations, and inventory warnings. This fixture does not model HA ownership, physical shutdown proofs,
 real Stratum sessions, or per-group connection history. Existing pool
 diagnostics remain demonstration data. REST retains its existing API; Fleet uses
 the native gRPC group service.
@@ -327,11 +352,15 @@ partial failures. Synthetic test images are not signed production firmware.
 | `CT1_DEMO_ALL_BOARD_FAULTS` | Report every current MDK fault cause on every board to exercise telemetry payload limits; use with `CT1_DEMO_MODULE_STATES=false` | `false` |
 | `CT1_DEMO_PLANT_ALARMS` | Start with two plant alarms raised and the buzzer sounding: a latched warning "Coolant low pressure" whose cause has cleared and a critical "Tank B outlet over temperature" whose cause is still present (see [Plant alarms](#plant-alarms)) | `false` |
 | `CT1_ALARM_RESET_SUPPORTED` | Set to `false` to mimic real CT1 hardware: `GetContainerControls` advertises `alarm_reset_supported=false` and `ResetContainerAlarm` returns Unimplemented. Mute stays supported. | `true` |
+| `CT1_FAN_REVERSE_SUPPORTED` | Set to `false` to omit the dry-cooler fan reversal: `GetContainerControls` reports `dry_cooler_fan_reverse_supported=false` and `RunDryCoolerFanReverse` returns Unimplemented | `true` |
+| `CT1_FAN_REVERSE_MINUTE` | Wall time of one simulated fan-reversal minute, as a positive Go duration (see [Dry-cooler fan reversal](#dry-cooler-fan-reversal)) | `2s` |
+| `CT1_FAN_REVERSE_SCENARIO` | Fan-reversal failure scenario: `not-primary`, `no-activation`, `interrupted` or `lost-response` | unset |
 | `CT1_OCCUPIED_BOARDS` | Populate the first N slots in tank/module/slot order, in `1..capacity`. Remaining physical slots are empty, with configured locations and no hashboard identity or telemetry. Invalid values fail before listening. | all slots |
 | `FAKE_MINER_RESPONSE_DELAY` | Nonnegative Go duration before each REST, Connect or native gRPC operation, outside simulation locks and canceled by request deadlines. Set `5ms` for the load campaign. | `0` |
 | `FAKE_MINER_METRICS_FILE` | Append cumulative operation counts, errors and latency sums as JSONL every ten seconds and on graceful shutdown; omit to disable file output. | unset |
 | `CT1_UNLOCATED_BOARDS` | Number of existing boards to report under tank/module zero, or `all` for entirely unlocated inventory | `0` |
 | `CT1_LOG_SCENARIO` | Log and audit failure scenario: `logs-unavailable`, `logs-interrupted` or `audit-unavailable` (see [Logs and audit trail](#implemented-endpoints)) | unset |
+| `CT1_BOARD_HISTORY_SCENARIO` | Board history failure scenario: `events-unavailable` or `evidence-unavailable` (see [Board history](#implemented-endpoints)) | unset |
 | `CT1_MODULE_VOLTAGE_SCENARIO` | Module voltage write failure scenario: `write-refused` or `write-unknown` (see [Module voltage](#implemented-endpoints)) | unset |
 | `CT1_SEED`               | Positive integer controlling deterministic variation                                                                                           | `1`               |
 
@@ -356,6 +385,37 @@ state; a controller without `CT1_DEMO_PLANT_ALARMS` reports none. Over REST the 
 ```bash
 CT1_DEMO_PLANT_ALARMS=true just dev-ct1
 CT1_DEMO_PLANT_ALARMS=true CT1_ALARM_RESET_SUPPORTED=false just dev-ct1
+```
+
+### Dry-cooler fan reversal
+
+`RunDryCoolerFanReverse` follows Frigate's PLC-owned procedure. It validates a 3-10 whole-minute
+duration, retains it, starts the run and returns only once the PLC reports a terminal state.
+`GetContainerControls` reports `dry_cooler_fan_reverse` (state and retained duration) and
+`dry_cooler_fan_reverse_supported`, over Connect, gRPC and REST. Before the first run the state is
+stopped with a 5-minute duration; after a run it is finished (standby).
+
+- The state is starting for the first 10 simulated seconds, then in progress until the duration
+  elapses. One simulated minute lasts `CT1_FAN_REVERSE_MINUTE` (default `2s`), so a 3-minute run
+  takes 6 seconds. Frigate's 15-second activation window scales the same way.
+- Other API calls keep being served while a run waits; the run does not hold the request lock.
+- The call is exempt from the HTTP server's 60-second write deadline, so a real-length run
+  (`CT1_FAN_REVERSE_MINUTE=1m`) still returns its terminal answer.
+- A second run while one is active returns FailedPrecondition. An out-of-range duration returns
+  InvalidArgument.
+- The procedure never changes the dry cooler's power, auto/manual mode or speed.
+
+`CT1_FAN_REVERSE_SCENARIO` exercises the outcomes ProtoOS must report:
+
+| Value | Behavior |
+| --- | --- |
+| `not-primary` | FailedPrecondition "this node is not the container control primary"; nothing is written |
+| `no-activation` | The duration is retained but the PLC never leaves standby, as when an interlock blocks it. After the activation window the call returns DeadlineExceeded (outcome unknown) |
+| `interrupted` | The run stops halfway; the call returns the terminal state stopped instead of finished |
+| `lost-response` | The run finishes on the PLC, but the call returns DeadlineExceeded as if completion was never observed |
+
+```bash
+CT1_FAN_REVERSE_SCENARIO=no-activation just dev-ct1
 ```
 
 ### Unlocated inventory
@@ -529,10 +589,12 @@ page's Controllers tab. Set `CT1_HA_FAULT_PEER_UNREACHABLE=1` to make each
 controller report its peer unreachable since startup, with stale role and
 reachability observations and unknown recovery.
 
-The pair serves the full MDK `ServerUpdateService` over native gRPC only (no
-REST or Connect routes): instance-scoped support and Begin/Append/Commit/Abort
-staging with exact-offset resume, plus Start/Status/Retry/Cancel that either
-controller answers. `x-frigate-server-id` selects the instance when one
+The pair serves the full MDK `ServerUpdateService` over native gRPC and, like
+Frigate's Connect gateway, its unary methods over Connect for ProtoOS (no REST
+routes; the streaming `StageServerUpdate` is gRPC only): instance-scoped
+support and Begin/Append/Commit/Abort staging with exact-offset resume, plus
+Start/Status/Retry/Cancel that either controller answers. Refusals carry the
+Frigate `ErrorInfo` reason on both transports. `x-frigate-server-id` selects the instance when one
 connection is used for both. Release statements are verified for real with
 ECDSA P-256 against `CT1_UPDATE_TRUSTED_KEY_FILES` and bound to the manifest.
 Once a rollout stops Frigate, every service except update Status/Retry/Cancel
@@ -562,6 +624,7 @@ CT1_HA_PAIR=1 CT1_UPDATE_TRUSTED_KEY_FILES=$PWD/release.pub go run .
 | `CT1_UPDATE_FAULT_ETCD_UNHEALTHY` | Start refused with Unavailable `UPDATE_ETCD_UNHEALTHY`. |
 | `CT1_UPDATE_FAULT_HELPER_UNAVAILABLE` | Start refused with Unavailable `UPDATE_HELPER_UNAVAILABLE`. |
 | `CT1_UPDATE_FAULT_OUTSIDE_WINDOW` | Start refused with `UPDATE_OUTSIDE_WINDOW`. |
+| `CT1_UPDATE_FAULT_FIRMWARE_ACTIVE` | Start refused with `UPDATE_FIRMWARE_ACTIVE`, as if a PSU flash were running. A running hashboard firmware task on either controller refuses Start the same way. |
 | `CT1_UPDATE_FAULT_COOLDOWN` | Duration after a success during which Start returns `UPDATE_COOLDOWN`. |
 | `CT1_UPDATE_FAULT_MIGRATE_FAILURES` | Number of rollouts that fail at MIGRATING (retryable, stays stopped). |
 | `CT1_UPDATE_FAULT_STALE_CONTACT` | Non-driver instance reports `contact_stale` with an old `last_contact`. |

@@ -1,8 +1,10 @@
 import type { ContainerHistoryRequest, ContainerHistoryResult } from "./containerHistory";
 import type { ControllerDiagnosticsResult } from "./controllerDiagnostics";
+import type { FrigateServerUpdate } from "./frigateServerUpdate";
 import type { HashboardFirmware } from "./hashboardFirmware";
 import type { ChangePasswordRequest } from "./mdkV1";
 import type { ModuleVoltageSetting, ModuleVoltageWriteResult } from "./moduleVoltage";
+import type { ContainerPoolConfiguration, MiningGroupPoolSettings } from "./poolConfiguration";
 import type { PoolHistoryRequest, PoolHistoryResult, PoolRecordedShares } from "./poolHistory";
 import type {
   CoolingMode,
@@ -21,6 +23,13 @@ import type {
   TelemetryState,
 } from "@/protoOS/store/contract";
 import type { AsicHardwareData, HashboardHardwareData } from "@/protoOS/store/types";
+import type { PowerFeedView } from "@/shared/components/PowerFeedCard";
+import type {
+  BoardEventPage,
+  BoardEventQuery,
+  RecoveryEvidenceRecord,
+  RecoveryEvidenceSummary,
+} from "@/shared/features/boardHistory/types";
 import type {
   AuditEventPage,
   AuditEventQuery,
@@ -83,6 +92,31 @@ export interface ContainerSettings {
    */
   alarmMute?: boolean;
   alarmReset?: boolean;
+  /**
+   * Present only when the controller advertises the dry-cooler fan reversal procedure. `status` is
+   * PLC readback, unset when the controller sent none.
+   */
+  dryCoolerFanReversal?: { status?: DryCoolerFanReversalStatus };
+}
+
+/** The PLC-owned fan reversal procedure. `stopped` is reported before the first run and after an interrupted one. */
+export type DryCoolerFanReversalState = "stopped" | "starting" | "inProgress" | "finished" | "unknown";
+export interface DryCoolerFanReversalStatus {
+  state: DryCoolerFanReversalState;
+  /** The duration the controller retains for the next or current run. */
+  durationMinutes?: number;
+}
+
+/** A module's controller position and its canonical ID, which records the module ID the operator saw there. */
+export interface ModulePowerFeedTarget {
+  tank: number;
+  module: number;
+  moduleId: string;
+}
+
+/** One live read of the feed that supplies a module, with the mapping derived from the controller map. */
+export interface ModulePowerFeedInspection extends PowerFeedView {
+  observedAt: Date;
 }
 
 export interface SavedPoolSettings extends PoolFormInput {
@@ -198,6 +232,8 @@ export interface TimeSeriesQuery {
 
 export interface MinerAdapter {
   hashboardFirmware?: HashboardFirmware;
+  /** Frigate controller software update. Only on a direct CT1 connection. */
+  frigateServerUpdate?: FrigateServerUpdate;
   /**
    * Merge this adapter's own request decoration (auth headers, actor
    * attribution, …) into `params`. Each generation owns what its firmware
@@ -224,6 +260,12 @@ export interface MinerAdapter {
   getPoolHistory?(request: PoolHistoryRequest, params?: AdapterRequestOptions): Promise<PoolHistoryResult>;
   getPoolRecordedShares?(params?: AdapterRequestOptions): Promise<PoolRecordedShares>;
   getPoolSettings?(params?: AdapterRequestOptions): Promise<SavedPoolSettings[]>;
+  getContainerPoolConfiguration?(params?: AdapterRequestOptions): Promise<ContainerPoolConfiguration>;
+  getMiningGroupPoolSettings?(
+    groupId: string,
+    revision: string,
+    params?: AdapterRequestOptions,
+  ): Promise<MiningGroupPoolSettings[]>;
   savePoolSettings?(pool: PoolFormInput, id?: string, params?: AdapterRequestOptions): Promise<void>;
   deletePoolSettings?(id: string, params?: AdapterRequestOptions): Promise<void>;
   reorderPoolSettings?(ids: string[], params?: AdapterRequestOptions): Promise<void>;
@@ -268,6 +310,20 @@ export interface MinerAdapter {
    */
   muteContainerAlarm?(params?: AdapterRequestOptions): Promise<void>;
   resetContainerAlarm?(params?: AdapterRequestOptions): Promise<void>;
+  /**
+   * One call, never retried. The controller retains the whole-minute duration (3-10), starts the
+   * PLC-owned procedure and resolves with its terminal state, so this can take up to about 12
+   * minutes. A refusal rejects with `writeOutcome: "refused"`; any other failure is `"unknown"`.
+   */
+  runDryCoolerFanReversal?(
+    durationMinutes: number,
+    params?: AdapterRequestOptions,
+  ): Promise<DryCoolerFanReversalStatus>;
+  /** Reads the module's feed on request; it never polls. Rejects only when the controller map cannot be read. */
+  getModulePowerFeed?(
+    target: ModulePowerFeedTarget,
+    params?: AdapterRequestOptions,
+  ): Promise<ModulePowerFeedInspection>;
   startModuleRunIn?(
     moduleId: string,
     request: ModuleRunInRequest,
@@ -284,6 +340,14 @@ export interface MinerAdapter {
    * Adapters without a per-board stream omit this capability; callers poll getHashboardStatus instead.
    */
   streamHashboardStatus?(serial: string, params?: AdapterRequestOptions): AsyncIterable<HashboardStatus>;
+  /**
+   * Past events for one CT1 hashboard (by MAC) in a [start, end) window, oldest first. Current isolation is not history
+   * and is left out. Adapters without board event history omit this and the two evidence reads.
+   */
+  getBoardEvents?(identifier: string, query: BoardEventQuery, params?: AdapterRequestOptions): Promise<BoardEventPage>;
+  /** Retained recovery evidence snapshots for one CT1 hashboard (by MAC), newest first. */
+  listRecoveryEvidence?(identifier: string, params?: AdapterRequestOptions): Promise<RecoveryEvidenceSummary[]>;
+  getRecoveryEvidence?(evidenceId: string, params?: AdapterRequestOptions): Promise<RecoveryEvidenceRecord>;
   login(password: string, params?: AdapterRequestOptions): Promise<AuthTokens>;
   refreshAccessToken(refreshToken: string, params?: AdapterRequestOptions): Promise<{ accessToken: string }>;
   getSystemLogs(

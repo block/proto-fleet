@@ -210,7 +210,7 @@ func TestPhysicalWriteKindCoversEveryProtocolAction(t *testing.T) {
 		"set_tank_mining":            commandtype.SetTankMining,
 		"set_module_mining":          commandtype.SetModuleMining,
 		"mining_groups":              commandtype.Type(-1),
-		"container_power_feed":       commandtype.Type(-1),
+		"container_power_feed":       commandtype.ControlPowerFeed,
 		"container_mining":           commandtype.ContainerMining,
 	}
 	actions := (&gatewaypb.MinerCommand{}).ProtoReflect().Descriptor().Oneofs().ByName("action").Fields()

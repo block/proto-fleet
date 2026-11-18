@@ -102,6 +102,7 @@ func TestContainerLifecycle(t *testing.T) {
 	require.ErrorContains(t, err, "identity mismatch")
 	_, err = driver.PairDevice(t.Context(), info, sdk.SecretBundle{})
 	require.ErrorContains(t, err, "identity mismatch")
+	require.Equal(t, codes.FailedPrecondition, status.Code(err), "the operator must remove the old device first")
 }
 
 func TestContainerDiscoveryRejectsConfiguredBearerToken(t *testing.T) {
@@ -171,7 +172,7 @@ func TestContainerDiscoveryAllowsSlowSequentialIdentityRPCs(t *testing.T) {
 
 	shortCtx, shortCancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
 	defer shortCancel()
-	_, err = discoverContainer(shortCtx, host, port)
+	_, err = discoverContainer(shortCtx, host, port, true)
 	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
 }
 
@@ -210,4 +211,62 @@ func TestContainerDiscoveryBoundsWebPortFallback(t *testing.T) {
 	default:
 		t.Fatal("the CT1 fallback did not reach the stalled HTTP/2 handler")
 	}
+}
+
+// tokenGatedContainerServer mirrors Frigate's mdk_auth gate, which also covers
+// the identity read.
+type tokenGatedContainerServer struct {
+	containerServer
+}
+
+func (tokenGatedContainerServer) GetSystemInfo(context.Context, *mdk.GetSystemInfoRequest) (*mdk.GetSystemInfoResponse, error) {
+	return nil, status.Error(codes.Unauthenticated, "invalid or missing MDK bearer token") //nolint:wrapcheck // gRPC server status
+}
+
+func startTokenGatedContainer(t *testing.T) (string, string) {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	server := grpc.NewServer()
+	mdk.RegisterSystemServiceServer(server, tokenGatedContainerServer{})
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(server.Stop)
+	host, port, err := net.SplitHostPort(listener.Addr().String())
+	require.NoError(t, err)
+	return host, port
+}
+
+func TestProtectedContainerIsListedWithoutIdentity(t *testing.T) {
+	host, portText := startTokenGatedContainer(t)
+	port, err := sdk.ParsePort(portText)
+	require.NoError(t, err)
+	t.Setenv("CT1_WEB_PORT", "8181")
+	driver, err := New(int(port))
+	require.NoError(t, err)
+
+	info, err := driver.DiscoverDevice(t.Context(), host, portText)
+	require.NoError(t, err)
+	require.Equal(t, sdk.DeviceClassContainer, info.DeviceClass)
+	require.Equal(t, "CT1", info.Model)
+	require.Equal(t, "Proto", info.Manufacturer)
+	require.Empty(t, info.SerialNumber, "discovery cannot verify which controller answered")
+	require.Empty(t, info.Endpoints, "HA membership is verified when pairing with the token")
+	require.Equal(t, host, info.Host)
+	require.Equal(t, int32(8181), info.Port)
+	require.Equal(t, port, info.RPCPort)
+
+	_, err = driver.PairDevice(t.Context(), info, sdk.SecretBundle{})
+	require.Equal(t, codes.Unauthenticated, status.Code(err), "pairing without the token needs authentication")
+	var sdkErr sdk.SDKError
+	require.ErrorAs(t, err, &sdkErr)
+	require.Equal(t, sdk.ErrCodeAuthenticationFailed, sdkErr.Code)
+}
+
+func TestWebPortFallbackDoesNotListAuthGatedService(t *testing.T) {
+	host, port := startTokenGatedContainer(t)
+	driver, err := New(0)
+	require.NoError(t, err)
+
+	_, err = driver.DiscoverDevice(t.Context(), host, port)
+	require.Error(t, err, "an opportunistic probe cannot tell an auth-gated gRPC service from a CT1")
 }

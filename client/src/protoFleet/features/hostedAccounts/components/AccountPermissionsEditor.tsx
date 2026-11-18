@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { useRequiredAccountScope } from "../AccountScope";
+import { ticketingDescription } from "../capabilities";
 import { ActionModal } from "./ActionModal";
 import { CapabilityFields } from "./CapabilityFields";
 import type { Account } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
@@ -44,9 +45,17 @@ export const AccountPermissionsEditor = ({
       }}
     >
       <CapabilityFields value={ceiling} allowed={allowed} required={required} onChange={setCeiling} />
-      <label className="flex items-center gap-3">
-        <Checkbox checked={ticketingEnabled} onChange={(event) => setTicketingEnabled(event.target.checked)} />
-        Ticketing
+      <label className="flex items-start gap-3 text-300 text-text-primary">
+        <Checkbox
+          ariaLabel="Ticketing"
+          className="shrink-0"
+          checked={ticketingEnabled}
+          onChange={(event) => setTicketingEnabled(event.target.checked)}
+        />
+        <span>
+          Ticketing
+          <span className="mt-1 block text-200 text-text-primary-50">{ticketingDescription}</span>
+        </span>
       </label>
       <p className="text-200 text-text-primary-50">Viewing data and managing the team are required.</p>
       <label className="flex items-start gap-3">

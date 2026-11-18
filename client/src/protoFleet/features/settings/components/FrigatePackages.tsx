@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
 import type { FrigatePackage } from "@/protoFleet/api/generated/frigateupdate/v1/frigateupdate_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useFrigatePackages } from "@/protoFleet/api/useFrigatePackages";
+import { FirmwareArtifactSection } from "@/protoFleet/features/settings/components/FirmwareSections";
 import FrigatePackageUploadDialog from "@/protoFleet/features/settings/components/FrigatePackageUploadDialog";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import { Alert, Trash } from "@/shared/assets/icons";
@@ -83,7 +83,7 @@ function toRow(item: FrigatePackage): PackageRow {
   };
 }
 
-const FrigatePackages = ({ actionContainer }: { actionContainer: HTMLElement | null }) => {
+const FrigatePackages = () => {
   const { listPackages, deletePackage } = useFrigatePackages();
   const [rows, setRows] = useState<PackageRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -104,7 +104,7 @@ const FrigatePackages = ({ actionContainer }: { actionContainer: HTMLElement | n
         })
         .catch((error) => {
           if (signal?.aborted) return;
-          setLoadError(getErrorMessage(error, "Couldn't load Frigate packages."));
+          setLoadError(getErrorMessage(error, "Couldn't load controller software."));
         })
         .finally(() => {
           if (!signal?.aborted) setIsLoading(false);
@@ -154,24 +154,23 @@ const FrigatePackages = ({ actionContainer }: { actionContainer: HTMLElement | n
 
   const uploadAction = (
     <Button
-      variant={variants.primary}
+      variant={variants.secondary}
       size={sizes.compact}
-      text="Upload Frigate package"
+      text="Upload controller software"
       onClick={() => setShowUpload(true)}
       className="shrink-0 phone:w-full"
     />
   );
 
   return (
-    <div className="flex flex-col gap-6">
-      {actionContainer ? createPortal(uploadAction, actionContainer) : uploadAction}
+    <FirmwareArtifactSection title="Controller software" action={uploadAction}>
       {loadError ? (
-        <p role="alert" className="text-300 text-intent-critical-text">
+        <p role="alert" className="mb-4 text-300 text-intent-critical-text">
           {loadError}
         </p>
       ) : null}
       {isLoading && rows.length === 0 ? (
-        <div className="text-center text-text-primary-50">Loading Frigate packages...</div>
+        <div className="text-center text-text-primary-50">Loading controller software...</div>
       ) : (
         <List<PackageRow, string, PackageColumns>
           items={rows}
@@ -183,8 +182,8 @@ const FrigatePackages = ({ actionContainer }: { actionContainer: HTMLElement | n
           itemName={{ singular: "package", plural: "packages" }}
           noDataElement={
             <SettingsEmptyState
-              title="No Frigate packages uploaded"
-              description="Upload a signed Frigate release to update container controllers."
+              title="No controller software uploaded"
+              description="Upload a signed release to update container controllers."
             />
           }
           actions={actions}
@@ -198,7 +197,7 @@ const FrigatePackages = ({ actionContainer }: { actionContainer: HTMLElement | n
           setShowUpload(false);
           fetchPackages();
           pushToast({
-            message: result.reused ? "That package was already uploaded" : "Frigate package uploaded",
+            message: result.reused ? "That package was already uploaded" : "Controller software uploaded",
             status: STATUSES.success,
           });
         }}
@@ -206,7 +205,7 @@ const FrigatePackages = ({ actionContainer }: { actionContainer: HTMLElement | n
 
       <Dialog
         open={toDelete !== null}
-        title="Delete Frigate package?"
+        title="Delete controller software package?"
         testId="delete-frigate-package-dialog"
         onDismiss={() => {
           if (!isDeleting) setToDelete(null);
@@ -231,7 +230,7 @@ const FrigatePackages = ({ actionContainer }: { actionContainer: HTMLElement | n
           </p>
         ) : null}
       </Dialog>
-    </div>
+    </FirmwareArtifactSection>
   );
 };
 

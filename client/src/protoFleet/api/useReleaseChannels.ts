@@ -6,6 +6,8 @@ import {
   type FirmwareAssignment,
   type PreviewReleaseChannelScopeResponse,
   type ReleaseChannel,
+  type ReleaseChannelContainer,
+  type ReleaseChannelControllerSoftware,
   type ReleaseChannelMiner,
   type ReleaseChannelModelGroup,
   type ReleaseChannelScope,
@@ -235,6 +237,18 @@ export interface ReleaseChannelsApi {
   ) => Promise<ReleaseChannelMiner[]>;
   listRolloutDevices: (rolloutId: bigint, signal?: AbortSignal) => Promise<RolloutDevice[]>;
   listChannelRollouts: (channelId: bigint, signal?: AbortSignal) => Promise<Rollout[]>;
+  // A channel's container models with the controller software version each
+  // should run and counts. Read-only.
+  listControllerSoftware: (channelId: bigint, signal?: AbortSignal) => Promise<ReleaseChannelControllerSoftware[]>;
+  // Sets a container model's controller software version; empty clears it.
+  // Starts no update.
+  setControllerSoftware: (channelId: bigint, manufacturer: string, model: string, version: string) => Promise<void>;
+  listControllerSoftwareContainers: (
+    channelId: bigint,
+    manufacturer: string,
+    model: string,
+    signal?: AbortSignal,
+  ) => Promise<ReleaseChannelContainer[]>;
   applyFirmware: (channelId: bigint, assignments: AssignmentDraft[]) => Promise<Rollout[]>;
   rollbackFirmware: (source: Rollout) => Promise<Rollout[]>;
   continueRollout: (rolloutId: bigint, expectedRevision: bigint) => Promise<void>;
@@ -723,6 +737,45 @@ export function useReleaseChannels(): ReleaseChannelsApi {
     [withAuthErrors],
   );
 
+  const listControllerSoftware = useCallback(
+    (channelId: bigint, signal?: AbortSignal) =>
+      withAuthErrors(
+        () =>
+          rolloutClient.listReleaseChannelControllerSoftware(
+            { channelId },
+            { timeoutMs: DETAIL_RPC_TIMEOUT_MS, signal },
+          ),
+        signal,
+      ).then((response) => response.models),
+    [withAuthErrors],
+  );
+
+  const listControllerSoftwareContainers = useCallback(
+    (channelId: bigint, manufacturer: string, model: string, signal?: AbortSignal) =>
+      drainPages(
+        (cursor) =>
+          withAuthErrors(
+            () =>
+              rolloutClient.listReleaseChannelContainers(
+                { channelId, manufacturer, model, pageSize: DETAIL_PAGE_SIZE, cursor },
+                { timeoutMs: DETAIL_RPC_TIMEOUT_MS, signal },
+              ),
+            signal,
+          ).then((response) => ({ items: response.containers, cursor: response.cursor })),
+        signal,
+      ),
+    [withAuthErrors],
+  );
+
+  const setControllerSoftware = useCallback(
+    (channelId: bigint, manufacturer: string, model: string, version: string) =>
+      // Refresh afterwards: the version decides which containers an update waits for.
+      mutate(() => rolloutClient.setReleaseChannelControllerSoftware({ channelId, manufacturer, model, version })).then(
+        () => undefined,
+      ),
+    [mutate],
+  );
+
   const applyFirmware = useCallback(
     (channelId: bigint, assignments: AssignmentDraft[]) =>
       mutate(
@@ -822,6 +875,9 @@ export function useReleaseChannels(): ReleaseChannelsApi {
     listChannelMiners,
     listChannelRollouts,
     listRolloutDevices,
+    listControllerSoftware,
+    listControllerSoftwareContainers,
+    setControllerSoftware,
     applyFirmware,
     rollbackFirmware,
     ...controls,

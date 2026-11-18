@@ -114,7 +114,9 @@ func TestHostedReportEvidenceCutoffWaitsForWritersAndExcludesLaterRevisions(t *t
 	// A report prepared now waits for that writer instead of freezing a cutoff
 	// that its row could later satisfy.
 	opts.Period.Kind, opts.Period.AsOf = "ad_hoc", reportAsOf(t, f)
-	opts.Period.RequestReceivedAt, opts.Period.RequestRef = p.End, "client request"
+	request, err := f.svc.CreateReportRequest(t.Context(), f.host, f.org, account.AccountID, hostedaccounts.ReportRequest{ReceivedAt: time.Now().UTC().Add(-time.Hour), SourceRef: "cutoff request receipt", Requester: "Client", Scope: "Cutoff package", OwnerUserID: owner})
+	require.NoError(t, err)
+	opts.Period.RequestReceivedAt, opts.Period.RequestRef = request.ReceivedAt, request.RequestID
 	type prepared struct {
 		report hostedaccounts.ReportRecord
 		err    error

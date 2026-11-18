@@ -373,6 +373,7 @@ func (r *Reconciler) confirmationUpdateFromSample(
 	now := r.now()
 	update := interfaces.ConfirmationUpdate{
 		DeviceDatabaseID: item.DeviceDatabaseID,
+		SampleAt:         sample.FlightStart,
 		DeviceIdentifier: item.DeviceIdentifier,
 		BatchUUID:        item.BatchUUID,
 		ObservedAt:       now,

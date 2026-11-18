@@ -490,7 +490,7 @@ func meters(ctx context.Context, p Period, in Inputs, s scope, cs []CoverageSegm
 			causes = append(causes, "meter_period_boundary_without_interval_evidence")
 			continue
 		}
-		if !covers(attributedWindows(p, cs, v.SiteID, v.ContainerID, v.OrderID), window{v.Start, v.End}) {
+		if !meterAttributed(p, cs, v) {
 			causes = append(causes, "meter_attribution_gap")
 			continue
 		}
@@ -525,6 +525,26 @@ func meters(ctx context.Context, p Period, in Inputs, s scope, cs []CoverageSegm
 		return
 	}
 	m["metered_energy_kwh"] = number(total, "kWh", "sum_meter_intervals_with_explicit_allocation", causes, sources)
+}
+
+func meterAttributed(p Period, cs []CoverageSegment, v MeterInterval) bool {
+	return covers(attributedWindows(p, cs, v.SiteID, v.ContainerID, v.OrderID), window{v.Start, v.End})
+}
+
+// SupportedMeterIntervals returns whole measured or estimated intervals whose
+// complete consumption window is covered by the account's commercial evidence.
+func SupportedMeterIntervals(ctx context.Context, p Period, in Inputs) ([]MeterInterval, error) {
+	cs := coverage(p, in, scope{})
+	out := []MeterInterval{}
+	for _, v := range in.Meters {
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("select supported meter intervals: %w", err)
+		}
+		if (v.Quality == meterQualityMeasured || v.Quality == meterQualityEstimated) && !v.Start.Before(p.Start) && !v.End.After(p.End) && meterAttributed(p, cs, v) {
+			out = append(out, v)
+		}
+	}
+	return out, nil
 }
 func fees(ctx context.Context, p Period, in Inputs, s scope, cs []CoverageSegment, m map[string]Metric) {
 	totals := map[string]*big.Rat{}
@@ -1505,6 +1525,36 @@ func openS3TicketsAtPeriodEnd(ctx context.Context, p Period, in Inputs, s scope)
 		n++
 	}
 	return n, uniqueStrings(sources), uniqueStrings(causes)
+}
+
+// MeteredEnergy applies the existing reviewed-evidence energy calculation to a
+// self-service window without exposing the other host reporting inputs.
+func MeteredEnergy(ctx context.Context, p Period, in Inputs) (Metric, error) {
+	if err := p.Validate(); err != nil {
+		return Metric{}, err
+	}
+	if err := in.ValidateContext(ctx); err != nil {
+		return Metric{}, err
+	}
+	metrics := map[string]Metric{}
+	cs := coverage(p, in, scope{})
+	if err := ctx.Err(); err != nil {
+		return Metric{}, fmt.Errorf("calculate metered energy: %w", err)
+	}
+	if len(cs) == 0 {
+		return unavailable("kWh", "commercial_coverage_unavailable"), nil
+	}
+	meters(ctx, p, in, scope{}, cs, metrics)
+	if err := ctx.Err(); err != nil {
+		return Metric{}, fmt.Errorf("calculate metered energy: %w", err)
+	}
+	metric := metrics["metered_energy_kwh"]
+	complete, _ := registerEvidenceCoversPeriod(p, in.Configuration, "coverage")
+	if metric.Status != Unavailable && !complete {
+		metric.Status = Provisional
+		metric.Causes = uniqueStrings(append(metric.Causes, "commercial_coverage_register_completeness_unverified"))
+	}
+	return metric, nil
 }
 
 // AttributedMeterEnergy returns only the account's exact share of a reviewed

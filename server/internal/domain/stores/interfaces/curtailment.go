@@ -52,6 +52,9 @@ var ErrCurtailmentEventStateRaceLoss = errors.New("curtailment event state advan
 // maps to ErrCurtailmentEventStateRaceLoss. Nil leaves the guard off, so the
 // existing full-tick writes are unaffected.
 type UpdateCurtailmentTargetStateParams struct {
+	// Telemetry time (or live sampling start) used only to admit historical evidence.
+	ConfirmationSampleAt      *time.Time
+	ExpectedDeviceDatabaseID  *int64
 	State                     models.TargetState
 	LastDispatchedAt          *time.Time
 	LastBatchUUID             *string
@@ -102,6 +105,8 @@ type ConfirmationPageCursor struct {
 // guarded bulk confirmation write. The store revalidates event phase, target
 // state/direction/batch, and the exact live device row before applying it.
 type ConfirmationUpdate struct {
+	// Live sampling start; reporting must not attribute assets acquired later.
+	SampleAt         time.Time
 	DeviceDatabaseID int64
 	DeviceIdentifier string
 	Phase            models.TargetPhase

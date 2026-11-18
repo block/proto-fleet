@@ -111,6 +111,10 @@ current-branch path below.
 
 ## Rules
 
+- Write PR titles and descriptions in ASD-STE100 (Simplified Technical English).
+  Check the draft against the
+  [technical writing rules](../../../CONTRIBUTING.md#technical-writing)
+  before you return it or update GitHub.
 - Mechanism and architecture over line-by-line detail. If a reviewer needs to
   open a file to understand the shape of the change, the description has failed.
 - Don't narrate the back-and-forth or rejected approaches — describe the final

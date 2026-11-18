@@ -1,9 +1,10 @@
 import { Code } from "@connectrpc/connect";
+import { isAuthenticationError } from "../errors";
 
 // The only codes the controller returns for container-control requests it rejects
 // before writing (not primary, unsupported backend, bad request). Any other failure
 // may have reached the PLC, so its outcome is unknown until readback.
-const CONTAINER_REFUSAL_CODES: ReadonlySet<number> = new Set<number>([
+export const CONTAINER_REFUSAL_CODES: ReadonlySet<number> = new Set<number>([
   Code.InvalidArgument,
   Code.FailedPrecondition,
   Code.Unimplemented,
@@ -19,9 +20,9 @@ export const containerWriteError = (
   outcomeUnknown: string,
   refusalCodes: ReadonlySet<number> = CONTAINER_REFUSAL_CODES,
 ) => {
-  const failure = error as { status?: number; error?: { code?: number; message?: string } } | undefined;
   // Leave authentication failures for the caller's token refresh and retry.
-  if (failure?.status === 401 || failure?.error?.code === Code.Unauthenticated) return error;
+  if (isAuthenticationError(error)) return error;
+  const failure = error as { error?: { code?: number; message?: string } } | undefined;
   const code = failure?.error?.code;
   if (code !== undefined && refusalCodes.has(code)) {
     const detail = failure?.error?.message?.trim();

@@ -19,11 +19,11 @@ import { useTemperatureUnit } from "@/protoOS/store/hooks/useUI";
 
 const ORANGE = "var(--color-core-accent-fill)";
 const COLORS = [ORANGE, "#783bf0", "#258fbf", "var(--color-core-primary-fill)", "#ff3344"];
-const powerModes = [
+const temperatureModes = [
   { id: "system" as const, label: "System" },
   { id: "hashboards" as const, label: "Hashboards" },
+  { id: "fluid" as const, label: "Fluid" },
 ];
-const temperatureModes = [...powerModes, { id: "fluid" as const, label: "Fluid" }];
 
 export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
   const duration = useDuration();
@@ -33,11 +33,15 @@ export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedMode = searchParams.get("mode");
   const mode: HomeChartMode =
-    requestedMode === "hashboards" || (requestedMode === "fluid" && tab === "temperature") ? requestedMode : "system";
+    tab === "temperature" && (requestedMode === "hashboards" || requestedMode === "fluid") ? requestedMode : "system";
   const live = useMemo(() => buildContainerLive(hardware, telemetry, unit), [hardware, telemetry, unit]);
   const fans = useMemo(
     () => [...hardware.fans.values()].filter((fan) => fan.ref.owner.kind === "container"),
     [hardware.fans],
+  );
+  const pdus = useMemo(
+    () => [...hardware.plant.values()].filter((component) => component.kind === "distribution"),
+    [hardware.plant],
   );
   const selections = useMemo<ContainerHistorySelection[]>(() => {
     if (tab === "overview") return [];
@@ -46,7 +50,9 @@ export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
     if (mode !== "system") return [];
     if (tab === "power")
       return [
+        { metric: "facilityPower" },
         { metric: "power" },
+        ...pdus.map((pdu) => ({ metric: "distributionPower" as const, identifier: pdu.name })),
         ...fans.flatMap((fan) => (fan.name ? [{ metric: "fanPower" as const, identifier: fan.name }] : [])),
       ];
     return [
@@ -56,7 +62,7 @@ export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
       { metric: "inletTemperature" },
       { metric: "outletTemperature" },
     ];
-  }, [tab, mode, fans]);
+  }, [tab, mode, fans, pdus]);
   const historyState = useContainerHistory(duration, selections);
   const window = historyState.window ?? ([0, 0] as [number, number]);
   const source = (selection: ContainerHistorySelection) => historyState.result?.series[containerHistoryKey(selection)];
@@ -87,36 +93,55 @@ export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
   if (tab === "overview") return <ContainerOverviewView plant={live.plant} fans={fans} power={live.power} />;
 
   if (tab === "power") {
-    const series =
-      mode === "system"
-        ? [
-            toHomeSeries(
-              "mining",
-              "Mining power",
-              ORANGE,
-              source({ metric: "power" }),
-              window,
-              "kW",
-              (value) => value / 1000,
-            ),
-            toHomeSeries("pumps", "Pumps", COLORS[1], undefined, window, "kW"),
-            fanSeries,
-            toHomeSeries("ac", "AC", COLORS[3], undefined, window, "kW"),
-            toHomeSeries("aux", "Aux", COLORS[4], undefined, window, "kW"),
-          ]
-        : [];
+    const series = [
+      toHomeSeries(
+        "facility",
+        "Facility total",
+        COLORS[3],
+        source({ metric: "facilityPower" }),
+        window,
+        "kW",
+        (value) => value / 1000,
+      ),
+      toHomeSeries(
+        "mining",
+        "Mining power",
+        ORANGE,
+        source({ metric: "power" }),
+        window,
+        "kW",
+        (value) => value / 1000,
+      ),
+      ...pdus.map((pdu, index) =>
+        toHomeSeries(
+          pdu.ref.id,
+          pdu.name,
+          `hsl(${(270 + index * 137.508) % 360} 65% 50%)`,
+          source({ metric: "distributionPower", identifier: pdu.name }),
+          window,
+          "kW",
+          (value) => value / 1000,
+        ),
+      ),
+      fanSeries,
+    ];
     return (
       <ContainerMetricView
         title="Power"
         readings={live.powerReadings}
-        mode={mode}
-        modes={powerModes}
-        onModeChange={onModeChange}
         history={{
           ...baseHistory,
           series,
         }}
-        categories={categorySummaries(fanSeries)}
+        categories={[
+          {
+            id: fanSeries.id,
+            label: fanSeries.label,
+            high: fanSeries.high ?? "—",
+            low: fanSeries.low ?? "—",
+            average: fanSeries.average ?? "—",
+          },
+        ]}
       />
     );
   }

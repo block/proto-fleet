@@ -18,7 +18,7 @@ var _ interfaces.FrigateUpdater = (*PluginMiner)(nil)
 func (p *PluginMiner) frigateUpdater() (sdk.DeviceFrigateUpdater, error) {
 	updater, ok := p.sdkDevice.(sdk.DeviceFrigateUpdater)
 	if !ok || !p.caps[sdk.CapabilityFrigateServerUpdate] {
-		return nil, fleeterror.NewUnimplementedError("plugin does not support Frigate server updates")
+		return nil, fleeterror.NewUnimplementedError("plugin does not support controller software updates")
 	}
 	return updater, nil
 }

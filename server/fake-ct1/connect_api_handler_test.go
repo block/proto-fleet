@@ -50,6 +50,56 @@ func TestConnectGatewayBypassesWebRootStaticFallback(t *testing.T) {
 	}
 }
 
+func TestConnectMiningGroupInspectionSharesNativeState(t *testing.T) {
+	srv, state := newConnectTestServer(t)
+	ctx := t.Context()
+	client := mdkv2connect.NewMiningGroupServiceClient(http.DefaultClient, srv.URL)
+	native := &grpcAPI{state: state}
+	mode, err := client.GetMiningGroupCapability(ctx, connect.NewRequest(&mdk.GetMiningGroupCapabilityRequest{}))
+	if err != nil || mode.Msg.GetCapability().GetEnabled() {
+		t.Fatalf("initial mode = %v, %v", mode, err)
+	}
+	if _, err := native.StopMining(ctx, &mdk.StopMiningRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := native.ActivateMiningGroups(ctx, &mdk.ActivateMiningGroupsRequest{ExpectedStateRevision: mode.Msg.Capability.StateRevision, IdempotencyKey: "inspection"}); err != nil {
+		t.Fatal(err)
+	}
+	mode, err = client.GetMiningGroupCapability(ctx, connect.NewRequest(&mdk.GetMiningGroupCapabilityRequest{}))
+	if err != nil || !mode.Msg.GetCapability().GetEnabled() {
+		t.Fatalf("group mode = %v, %v", mode, err)
+	}
+	groups, err := client.ListMiningGroups(ctx, connect.NewRequest(&mdk.ListMiningGroupsRequest{}))
+	if err != nil || len(groups.Msg.GetGroups()) != 1 || groups.Msg.Groups[0].Id != "default" {
+		t.Fatalf("groups = %v, %v", groups, err)
+	}
+	members, err := client.ListMiningGroupMemberships(ctx, connect.NewRequest(&mdk.ListMiningGroupMembershipsRequest{}))
+	if err != nil || len(members.Msg.GetMemberships()) != state.BoardCount() {
+		t.Fatalf("members = %v, %v", members, err)
+	}
+	group, err := client.GetMiningGroup(ctx, connect.NewRequest(&mdk.GetMiningGroupRequest{Id: "default"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	username := "account.region.worker-01"
+	password := "inspection-secret"
+	_, err = native.ReplaceMiningGroupPools(ctx, &mdk.ReplaceMiningGroupPoolsRequest{GroupId: "default", ExpectedRevision: group.Msg.Group.Revision, IdempotencyKey: "inspection-pools", Pools: []*mdk.MiningGroupPoolInput{
+		{Pool: &mdk.MiningGroupPoolRecord{Id: 1, Name: "Inspection", Url: "stratum+tcp://pool.example:3333", Username: username, Enabled: true}, Password: &password},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pools, err := client.ListMiningGroupPools(ctx, connect.NewRequest(&mdk.ListMiningGroupPoolsRequest{GroupId: "default"}))
+	if err != nil || len(pools.Msg.GetPools()) != 1 || pools.Msg.Pools[0].Username != username {
+		t.Fatalf("pools = %v, %v", pools, err)
+	}
+	// Inspection must not accidentally expose the native mutation workflow.
+	_, err = client.CreateMiningGroup(ctx, connect.NewRequest(&mdk.CreateMiningGroupRequest{IdempotencyKey: "not-exposed"}))
+	if connect.CodeOf(err) != connect.CodeUnimplemented {
+		t.Fatalf("CreateMiningGroup = %v, want Unimplemented", err)
+	}
+}
+
 func TestConnectGatewayServesBrowserMDKClient(t *testing.T) {
 	srv, state := newConnectTestServer(t)
 	options := []connect.ClientOption{connect.WithGRPCWeb()}
@@ -380,5 +430,25 @@ func TestConnectGatewayServesHAStatusWithUnreachablePeer(t *testing.T) {
 		peer.GetRoleObservation().GetFreshness() != mdk.HAObservationFreshness_HA_OBSERVATION_FRESHNESS_STALE ||
 		peer.GetFrigateObservation().GetLastSuccessfulAt() == nil {
 		t.Fatalf("peer member = %v", peer)
+	}
+}
+
+func TestConnectServesModulePowerFeedReads(t *testing.T) {
+	srv, _ := newConnectTestServer(t)
+	ctx := context.Background()
+	power := mdkv2connect.NewPowerServiceClient(http.DefaultClient, srv.URL)
+	feeds, err := power.ListPowerFeeds(ctx, connect.NewRequest(&mdk.ListPowerFeedsRequest{}))
+	if err != nil {
+		t.Fatalf("ListPowerFeeds: %v", err)
+	}
+	if !feeds.Msg.GetSnapshotReady() || len(feeds.Msg.GetPowerFeeds()) == 0 || feeds.Msg.GetPowerFeeds()[0].GetPowerFeedId() != "pdu-1-outlet-01" {
+		t.Fatalf("unexpected feeds: ready=%v feeds=%d", feeds.Msg.GetSnapshotReady(), len(feeds.Msg.GetPowerFeeds()))
+	}
+	cycle, err := power.GetActivePowerRecoveryCycle(ctx, connect.NewRequest(&mdk.GetActivePowerRecoveryCycleRequest{}))
+	if err != nil {
+		t.Fatalf("GetActivePowerRecoveryCycle: %v", err)
+	}
+	if cycle.Msg.GetCycle() != nil {
+		t.Fatalf("unexpected recovery cycle: %v", cycle.Msg.GetCycle())
 	}
 }

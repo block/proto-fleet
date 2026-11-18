@@ -39,6 +39,10 @@ func TestReleaseChannelsMigrationDownAndUp(t *testing.T) {
 	require.NoError(t, err)
 	delegatedUpSQL, err := migrations.Migrations.ReadFile("000157_delegated_rollout_events.up.sql")
 	require.NoError(t, err)
+	controllerSoftwareDownSQL, err := migrations.Current.ReadFile("current/001096_internal_release_channel_controller_software.down.sql")
+	require.NoError(t, err)
+	controllerSoftwareUpSQL, err := migrations.Current.ReadFile("current/001096_internal_release_channel_controller_software.up.sql")
+	require.NoError(t, err)
 
 	relations := []string{
 		"release_channel", "release_channel_target", "release_channel_firmware",
@@ -70,9 +74,21 @@ func TestReleaseChannelsMigrationDownAndUp(t *testing.T) {
 		}
 	}
 
+	// The controller software target round-trips with its version key function.
+	requireControllerSoftware := func(present bool) {
+		t.Helper()
+		require.Equal(t, present, count(`SELECT count(*) FROM pg_class WHERE relname = $1 AND relkind = 'r'`, "release_channel_controller_software") == 1)
+		require.Equal(t, present, count(`SELECT count(*) FROM pg_proc WHERE proname = $1`, "release_channel_controller_software_key") == 1)
+	}
+
 	requireObjects(true)
-	// Later event history and reservations reference the shipped tables.
-	// Unwind dependent migrations and their label wrappers in reverse order.
+	requireControllerSoftware(true)
+	// Later event history, reservations and controller software targets
+	// reference the shipped tables. Unwind dependent migrations and their
+	// label wrappers in reverse order.
+	_, err = db.ExecContext(ctx, string(controllerSoftwareDownSQL))
+	require.NoError(t, err)
+	requireControllerSoftware(false)
 	_, err = db.ExecContext(ctx, string(delegatedDownSQL))
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, string(labelsDownSQL))
@@ -91,6 +107,9 @@ func TestReleaseChannelsMigrationDownAndUp(t *testing.T) {
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, string(delegatedUpSQL))
 	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, string(controllerSoftwareUpSQL))
+	require.NoError(t, err)
+	requireControllerSoftware(true)
 
 	var members int
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM release_channel_member`).Scan(&members))

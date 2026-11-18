@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { useRequiredAccountScope } from "../AccountScope";
+import { ticketingDescription } from "../capabilities";
 import { useAccountMutation } from "../useAccountMutation";
 import { CapabilityFields } from "./CapabilityFields";
 import type { Account } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
@@ -72,8 +73,10 @@ export const ClientPermissions = ({ child, onSaved }: { child: Account; onSaved:
             void changePermissions(next);
           }}
         />
-        <label className="mt-4 flex items-center gap-3">
+        <label className="mt-4 flex items-start gap-3 text-300 text-text-primary">
           <Checkbox
+            ariaLabel="Ticketing"
+            className="shrink-0"
             checked={ticketingEnabled}
             onChange={(event) => {
               const next = event.target.checked;
@@ -85,7 +88,10 @@ export const ClientPermissions = ({ child, onSaved }: { child: Account; onSaved:
               });
             }}
           />
-          Ticketing
+          <span>
+            Ticketing
+            <span className="mt-1 block text-200 text-text-primary-50">{ticketingDescription}</span>
+          </span>
         </label>
       </fieldset>
       {busy && !confirming ? (

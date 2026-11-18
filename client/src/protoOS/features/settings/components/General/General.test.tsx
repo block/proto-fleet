@@ -35,6 +35,8 @@ vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({
   useMinerHosting: vi.fn(),
 }));
 
+// The cooling section's dry cooler hold reads through useAuthRetry; its token refresh is not exercised here.
+vi.mock("@/protoOS/store/hooks/useAuth", () => ({ useAuthErrors: () => ({ handleAuthErrors: vi.fn() }) }));
 vi.mock("@/protoOS/store", () => ({
   useAccessToken: vi.fn(() => ({ checkAccess: mockCheckAccess, hasAccess: mockState.hasAccess })),
   useDismissedLoginModal: vi.fn(() => mockState.dismissedLoginModal),
@@ -134,4 +136,18 @@ describe("General system-tag flow", () => {
     const { queryByRole } = render(<General />);
     expect(!!queryByRole("button", { name: "Upload hashboard firmware" })).toBe(!isFleetHosted);
   });
+  test.each([false, true])(
+    "local controller software update is shown only outside Fleet (hosted=%s)",
+    (isFleetHosted) => {
+      vi.mocked(useSystemInfo).mockReturnValue({
+        identity: { deviceType: "container", deviceId: "ct1-local" },
+        operatingSystem: { version: "2.0.0" },
+      } as never);
+      const frigateServerUpdate = { status: vi.fn().mockResolvedValue({ servedByMaintenance: false }) };
+      vi.mocked(useMinerHosting).mockReturnValue({ isFleetHosted, adapter: { frigateServerUpdate } } as never);
+      const { queryByRole } = render(<General />);
+      expect(!!queryByRole("button", { name: "Update controller software" })).toBe(!isFleetHosted);
+      expect(frigateServerUpdate.status).toHaveBeenCalledTimes(isFleetHosted ? 0 : 1);
+    },
+  );
 });

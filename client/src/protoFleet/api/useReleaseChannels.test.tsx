@@ -15,6 +15,8 @@ import {
   ListRolloutsResponseSchema,
   PauseRolloutRequestSchema,
   PreviewReleaseChannelScopeResponseSchema,
+  ReleaseChannelContainerSchema,
+  ReleaseChannelControllerSoftwareSchema,
   ReleaseChannelMinerSchema,
   ReleaseChannelModelGroupSchema,
   ReleaseChannelSchema,
@@ -58,9 +60,15 @@ const {
   mockRetryFailedRolloutDevices,
   mockListReleaseChannelMiners,
   mockListRolloutDevices,
+  mockListReleaseChannelControllerSoftware,
+  mockListReleaseChannelContainers,
+  mockSetReleaseChannelControllerSoftware,
   mockHandleAuthErrors,
   mockAuth,
 } = vi.hoisted(() => ({
+  mockListReleaseChannelControllerSoftware: vi.fn(),
+  mockListReleaseChannelContainers: vi.fn(),
+  mockSetReleaseChannelControllerSoftware: vi.fn(),
   mockListContainers: vi.fn(),
   mockListReleaseChannels: vi.fn(),
   mockGetReleaseChannel: vi.fn(),
@@ -111,6 +119,9 @@ vi.mock("@/protoFleet/api/clients", () => ({
     retryFailedRolloutDevices: mockRetryFailedRolloutDevices,
     listReleaseChannelMiners: mockListReleaseChannelMiners,
     listRolloutDevices: mockListRolloutDevices,
+    listReleaseChannelControllerSoftware: mockListReleaseChannelControllerSoftware,
+    listReleaseChannelContainers: mockListReleaseChannelContainers,
+    setReleaseChannelControllerSoftware: mockSetReleaseChannelControllerSoftware,
   },
   fleetManagementClient: {
     listMinerStateSnapshots: mockListMinerStateSnapshots,
@@ -3114,6 +3125,101 @@ describe("useReleaseChannels", () => {
     expect(mockListReleaseChannels).toHaveBeenCalledTimes(4);
     expect(mockListReleaseChannels).toHaveBeenNthCalledWith(3, { pageSize: 1000, cursor: "" }, pollOptions);
     expect(mockListReleaseChannels).toHaveBeenNthCalledWith(4, { pageSize: 1000, cursor: "page-2" }, pollOptions);
+  });
+
+  it("reads a channel's controller software and refreshes after setting a version", async () => {
+    const software = create(ReleaseChannelControllerSoftwareSchema, {
+      manufacturer: "Proto",
+      model: "CT1",
+      targetVersion: "1.6.0",
+      containerCount: 2,
+      onTargetCount: 1,
+    });
+    mockListReleaseChannelControllerSoftware.mockResolvedValue({ models: [software] });
+    mockSetReleaseChannelControllerSoftware.mockResolvedValue({});
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    const controller = new AbortController();
+    await expect(result.current.listControllerSoftware(1n, controller.signal)).resolves.toEqual([software]);
+    expect(mockListReleaseChannelControllerSoftware).toHaveBeenCalledWith(
+      { channelId: 1n },
+      { timeoutMs: 30_000, signal: controller.signal },
+    );
+    // Reading it leaves the polled snapshot alone.
+    expect(mockListReleaseChannels).toHaveBeenCalledTimes(1);
+
+    let saved;
+    await act(async () => {
+      saved = await result.current.setControllerSoftware(1n, "Proto", "CT1", "1.6.0");
+    });
+    expect(saved).toBeUndefined();
+    expect(mockSetReleaseChannelControllerSoftware).toHaveBeenCalledExactlyOnceWith({
+      channelId: 1n,
+      manufacturer: "Proto",
+      model: "CT1",
+      version: "1.6.0",
+    });
+    // The version changes which containers an update waits for.
+    expect(mockListReleaseChannels).toHaveBeenCalledTimes(2);
+  });
+
+  it("loads every page of controller software details for the requested model", async () => {
+    const firstPage = Array.from({ length: 1000 }, (_, i) =>
+      create(ReleaseChannelContainerSchema, {
+        deviceIdentifier: `ct1:${i}`,
+        controllerSoftwareVersion: "1.6.0",
+        onTarget: true,
+      }),
+    );
+    const last = create(ReleaseChannelContainerSchema, {
+      deviceIdentifier: "ct1:1000",
+      controllerSoftwareVersion: "1.5.0",
+    });
+    mockListReleaseChannelContainers
+      .mockResolvedValueOnce({ containers: firstPage, cursor: "next" })
+      .mockResolvedValueOnce({ containers: [last], cursor: "" });
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    const controller = new AbortController();
+    const containers = await result.current.listControllerSoftwareContainers(1n, "Proto", "CT1", controller.signal);
+    expect(containers).toHaveLength(1001);
+    expect(containers[1000]).toEqual(last);
+    expect(mockListReleaseChannelContainers).toHaveBeenNthCalledWith(
+      1,
+      { channelId: 1n, manufacturer: "Proto", model: "CT1", pageSize: 1000, cursor: "" },
+      { signal: controller.signal, timeoutMs: 30_000 },
+    );
+    expect(mockListReleaseChannelContainers).toHaveBeenNthCalledWith(
+      2,
+      { channelId: 1n, manufacturer: "Proto", model: "CT1", pageSize: 1000, cursor: "next" },
+      { signal: controller.signal, timeoutMs: 30_000 },
+    );
+  });
+
+  it("rejects an incomplete container detail read when a later page fails", async () => {
+    mockListReleaseChannelContainers
+      .mockResolvedValueOnce({
+        containers: [create(ReleaseChannelContainerSchema, { deviceIdentifier: "ct1:a" })],
+        cursor: "next",
+      })
+      .mockRejectedValueOnce(new Error("second page failed"));
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    await expect(result.current.listControllerSoftwareContainers(1n, "Proto", "CT1")).rejects.toThrow(
+      "second page failed",
+    );
+  });
+
+  it("delegates a controller software authentication failure to auth handling", async () => {
+    const error = new ConnectError("session expired", Code.Unauthenticated);
+    mockSetReleaseChannelControllerSoftware.mockRejectedValue(error);
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await expect(result.current.setControllerSoftware(1n, "Proto", "CT1", "1.6.0")).rejects.toBe(error);
+    expect(mockHandleAuthErrors).toHaveBeenCalledExactlyOnceWith({ error });
+    expect(mockListReleaseChannels).toHaveBeenCalledTimes(1);
   });
 
   it("creates a channel from a draft and refreshes", async () => {

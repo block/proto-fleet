@@ -12,8 +12,11 @@ import {
   channelWithActiveRollout,
   completedRigRollout,
   conflictingPreview,
+  containerChannel,
+  containerControllerSoftware,
   emptyChannel,
   firmwareFiles,
+  hashboardFirmwareFile,
   listChannelMinersFixture,
   listRolloutDevicesFixture,
   minerNames,
@@ -99,6 +102,27 @@ export const Settled: Story = {
         previewScope={resolveTo(canaryPreview)}
         listChannelMiners={listChannelMinersFixture}
         listRolloutDevices={listRolloutDevicesFixture}
+        onSave={settle}
+        onDelete={() => {}}
+        onApply={settle}
+      />
+    </Frame>
+  ),
+};
+
+export const MinersAndContainers: Story = {
+  name: "Miners and Proto Containers",
+  render: () => (
+    <Frame>
+      <ReleaseChannelManageView
+        channel={containerChannel}
+        rollouts={[]}
+        firmwareFiles={[...firmwareFiles, hashboardFirmwareFile]}
+        minerNames={minerNames}
+        previewScope={resolveTo(canaryPreview)}
+        listChannelMiners={listChannelMinersFixture}
+        listRolloutDevices={listRolloutDevicesFixture}
+        controllerSoftware={containerControllerSoftware}
         onSave={settle}
         onDelete={() => {}}
         onApply={settle}

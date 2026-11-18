@@ -11,7 +11,6 @@ const DISPLAY_STATUS_CONFIG: Record<NodeDisplayStatus, { label: string; dotClass
     description: "Recent heartbeat received, but no command connection is available.",
   },
   upgradeRequired: { label: "Upgrade required", dotClass: "bg-intent-critical-fill" },
-  upgradeRecommended: { label: "Upgrade recommended", dotClass: "bg-intent-warning-fill" },
   stale: {
     label: "Stale",
     dotClass: "bg-intent-warning-fill",
@@ -27,8 +26,8 @@ const NodeStatusBadge = ({ node }: { node: FleetNodeItem }) => {
   const status = getNodeDisplayStatus(node);
   const config = DISPLAY_STATUS_CONFIG[status];
   return (
-    <span title={config.description} className="inline-flex flex-wrap items-center gap-2 text-300 text-text-primary-50">
-      <span className={clsx("h-2 w-2 rounded-full", config.dotClass)} />
+    <span title={config.description} className="inline-flex items-center gap-2 text-300 text-text-primary-50">
+      <span className={clsx("h-2 w-2 shrink-0 rounded-full", config.dotClass)} />
       <span>{config.label}</span>
       {config.description ? <span className="sr-only">{config.description}</span> : null}
     </span>

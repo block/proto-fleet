@@ -42,12 +42,7 @@ describe("NodeStatusBadge", () => {
   ])("shows %s for a confirmed node last seen %dms ago", (label, ageMs) => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-09T12:10:00Z"));
-    const node = {
-      ...baseNode,
-      controlStreamConnected: true,
-      commandProtocolUpgradeRecommended: label === "Stale",
-      lastSeenAt: new Date(Date.now() - ageMs),
-    };
+    const node = { ...baseNode, controlStreamConnected: true, lastSeenAt: new Date(Date.now() - ageMs) };
 
     const { getByText } = render(<NodeStatusBadge node={node} />);
 
@@ -86,17 +81,26 @@ describe("NodeStatusBadge", () => {
     expect(container.querySelector(".sr-only")).toBeNull();
   });
 
-  it("ignores upgrade recommendations for a node without a control stream or heartbeat", () => {
-    const { getByText } = render(<NodeStatusBadge node={{ ...baseNode, commandProtocolUpgradeRecommended: true }} />);
+  it("leaves a recommended upgrade to the version column", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-09T12:10:00Z"));
+    const node = {
+      ...baseNode,
+      commandProtocolUpgradeRecommended: true,
+      controlStreamConnected: true,
+      lastSeenAt: new Date(Date.now() - 30_000),
+    };
 
-    expect(getByText("Never connected")).toBeInTheDocument();
+    const { getByText, queryByText } = render(<NodeStatusBadge node={node} />);
+
+    expect(getByText("Connected")).toBeInTheDocument();
+    expect(queryByText("Upgrade recommended")).not.toBeInTheDocument();
   });
 
   it.each([
-    ["Upgrade required", true, false],
-    ["Upgrade recommended", false, true],
-    ["Upgrade required", true, true],
-  ])("shows %s before the first heartbeat (required=%s, recommended=%s)", (label, required, recommended) => {
+    [true, false],
+    [true, true],
+  ])("shows Upgrade required before the first heartbeat (required=%s, recommended=%s)", (required, recommended) => {
     const node = {
       ...baseNode,
       commandProtocolUpgradeRequired: required,
@@ -106,7 +110,7 @@ describe("NodeStatusBadge", () => {
 
     const { getByText } = render(<NodeStatusBadge node={node} />);
 
-    expect(getByText(label)).toBeInTheDocument();
+    expect(getByText("Upgrade required")).toBeInTheDocument();
   });
 
   it("shows Awaiting confirmation for a registered node", () => {

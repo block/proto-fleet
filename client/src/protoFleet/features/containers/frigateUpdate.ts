@@ -7,6 +7,7 @@ import {
   InstanceStageState,
   type InstanceSupport,
 } from "@/protoFleet/api/generated/frigateupdate/v1/frigateupdate_pb";
+import { ETCD_UNHEALTHY, FRIGATE_UPDATE_MESSAGES_BY_CODE } from "@/shared/features/frigateUpdate/codeText";
 
 export const FRIGATE_UPDATE_PERMISSION = "controller:software_update";
 
@@ -15,36 +16,33 @@ export const FRIGATE_UPDATE_RUNBOOK_URL =
   "https://github.com/btc-mining/proto-fleet-internal/blob/main/docs/development/frigate-server-updates.md";
 
 const REMOTE_TRIGGER_DISABLED =
-  "Remote updates are turned off on a controller. On that controller, set update.allow_remote_trigger to true in the Frigate configuration, then check again.";
+  "Remote updates are turned off on a controller. On that controller, set update.allow_remote_trigger to true in its configuration, then check again.";
 const HELPER_UNAVAILABLE =
-  "A controller's update helper is not available. Install the Frigate Debian package that includes the update helper and make sure the helper service is running.";
+  "A controller's update helper is not available. Install the controller software package that includes the update helper and make sure the helper service is running.";
 const SELF_COORDINATION_UNSUPPORTED =
-  "A controller's Frigate version can't coordinate its own update. Update it once by hand to a version that supports Fleet updates.";
+  "A controller's software version can't coordinate its own update. Update it once by hand to a version that supports Fleet updates.";
 const UNSUPPORTED_INSTALLATION =
   "A controller wasn't installed from a Debian package, so it can't be updated from Fleet.";
-const ETCD_UNHEALTHY = "The controllers' etcd cluster is unhealthy. Restore quorum before updating.";
 const CONTROLLER_UNREACHABLE =
-  "Fleet can't reach a controller. Check its network connection and that Frigate is running.";
+  "Fleet can't reach a controller. Check its network connection and that its software is running.";
 
 // Codes are an open set with an UPDATE_ prefix from Frigate and a FLEET_ prefix
-// from Fleet, so lookups ignore the prefix.
+// from Fleet, so lookups ignore the prefix. Frigate's own codes are worded once
+// for ProtoOS and Fleet; the entries here are Fleet's codes and the ones whose
+// next step is specific to Fleet.
 const CODE_TEXT: Record<string, string> = {
+  ...FRIGATE_UPDATE_MESSAGES_BY_CODE,
   REMOTE_TRIGGER_DISABLED,
   HELPER_UNAVAILABLE,
   SELF_COORDINATION_UNSUPPORTED,
   UNSUPPORTED_INSTALLATION,
-  ETCD_UNHEALTHY,
-  ETCD_UNAVAILABLE: ETCD_UNHEALTHY,
   CONTROLLER_UNREACHABLE,
   INSTANCE_UNREACHABLE: CONTROLLER_UNREACHABLE,
   CONTROLLER_UNSUPPORTED: "This container's controllers can't be updated from Fleet.",
   NO_INSTANCES: "No controllers are reporting for this container.",
   CLUSTER_MISMATCH: "The two controllers report different clusters, so they can't be updated together.",
   ARCHITECTURE_MISMATCH: "The selected package was built for a different CPU architecture than a controller.",
-  INSUFFICIENT_SPACE: "A controller doesn't have enough free disk space for the package.",
   RELEASE_KEY_UNTRUSTED: "A controller doesn't trust the key that signed this package.",
-  NO_TRUSTED_KEYS: "A controller has no trusted release keys.",
-  SIGNATURE_INVALID: "A controller rejected the package's release signature.",
   RELEASE_SIGNATURE_INVALID: "A controller rejected the package's release signature.",
   UPDATE_IN_PROGRESS: "Another update is already in progress for this container.",
   ALREADY_RUNNING: "Another update is already in progress for this container.",
@@ -54,22 +52,9 @@ const CODE_TEXT: Record<string, string> = {
   STAGE_FAILED: "Fleet couldn't copy the package to a controller.",
   STAGE_STALLED: "Copying the package to a controller stopped making progress.",
   STAGE_DIGEST_MISMATCH: "A controller received a package that doesn't match the uploaded file.",
-  PACKAGE_REJECTED: "A controller rejected the package.",
-  MANIFEST_INVALID: "A controller rejected the update request.",
-  INSTALL_FAILED: "Installing the package failed on a controller.",
-  MIGRATE_FAILED: "The database migration failed after the package was installed.",
-  START_FAILED: "Frigate didn't start after the install.",
-  HELPER_CONTACT_LOST: "A controller's update helper stopped reporting.",
   ROLLOUT_NOT_FOUND: "The controllers no longer know this update.",
-  NOT_RETRYABLE: "This update can't be retried.",
-  NOT_CANCELLABLE: "This update can no longer be cancelled.",
   FIRMWARE_ACTIVE:
     "A hashboard or PSU firmware update is running on a controller. Wait for it to finish, then start the update again.",
-  COOLDOWN: "A controller was updated recently and is still in its cool-down period. Try again later.",
-  OUTSIDE_WINDOW: "A controller only accepts updates during its maintenance window.",
-  NOT_STAGED: "The package isn't staged on every controller yet.",
-  STAGE_MISMATCH: "A controller has a different package staged than this update expects.",
-  EXPIRED: "The update expired before it started, so nothing was stopped.",
 };
 
 function codeKey(code: string): string {
@@ -112,10 +97,10 @@ export const frigateStateLabel = (state: FrigateUpdateState) => STATE_LABELS[sta
 
 const ROLLOUT_PHASE_LABELS: Partial<Record<FrigateRolloutPhase, string>> = {
   [FrigateRolloutPhase.VERIFYING]: "Verifying",
-  [FrigateRolloutPhase.STOPPING]: "Stopping Frigate",
+  [FrigateRolloutPhase.STOPPING]: "Stopping controller software",
   [FrigateRolloutPhase.INSTALLING]: "Installing",
   [FrigateRolloutPhase.MIGRATING]: "Migrating the database",
-  [FrigateRolloutPhase.STARTING]: "Starting Frigate",
+  [FrigateRolloutPhase.STARTING]: "Starting controller software",
   [FrigateRolloutPhase.SUCCEEDED]: "Succeeded",
   [FrigateRolloutPhase.FAILED]: "Failed",
   [FrigateRolloutPhase.CANCELLED]: "Cancelled",
@@ -130,10 +115,10 @@ export const frigateRolloutPhaseLabel = (phase: FrigateRolloutPhase) => ROLLOUT_
 const AGENT_PHASE_LABELS: Partial<Record<FrigateAgentPhase, string>> = {
   [FrigateAgentPhase.CONNECTING]: "Connecting",
   [FrigateAgentPhase.STAGED]: "Staged",
-  [FrigateAgentPhase.STOPPED]: "Frigate stopped",
+  [FrigateAgentPhase.STOPPED]: "Software stopped",
   [FrigateAgentPhase.INSTALLED]: "Installed",
   [FrigateAgentPhase.MIGRATED]: "Migrated",
-  [FrigateAgentPhase.STARTED]: "Frigate started",
+  [FrigateAgentPhase.STARTED]: "Software started",
   [FrigateAgentPhase.FAILED]: "Failed",
   [FrigateAgentPhase.UNKNOWN]: "Unknown phase",
 };

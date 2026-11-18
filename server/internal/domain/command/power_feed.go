@@ -4,11 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/miner/remotenode"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/runtimepolicy"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -29,12 +31,15 @@ type ModulePowerFeed struct {
 	ContainerName    string
 	Tank, Module     int32
 	Inspection       sdk.ModulePowerFeedInspection
+	// Nil when the caller may not control feeds at the module's site.
+	Control *PowerFeedControl
 }
 
 // ReadModulePowerFeed asks the module's controller for its mapped feed. The
 // controller derives the mapping from its own map; Fleet passes only the
-// module's placement and the identity it confirmed.
-func (s *Service) ReadModulePowerFeed(ctx context.Context, moduleID int64, authorize modulePowerFeedAuthorization) (ModulePowerFeed, error) {
+// module's placement and the identity it confirmed. canControl decides, at
+// the same fresh site, whether the response offers feed controls.
+func (s *Service) ReadModulePowerFeed(ctx context.Context, moduleID int64, authorize modulePowerFeedAuthorization, canControl modulePowerFeedPermission) (ModulePowerFeed, error) {
 	ctx, cancel := context.WithTimeout(ctx, runtimepolicy.ContainerPowerFeedReadTimeout)
 	defer cancel()
 	var out ModulePowerFeed
@@ -74,16 +79,12 @@ func (s *Service) ReadModulePowerFeed(ctx context.Context, moduleID int64, autho
 	if s.pluginCaps == nil || !s.pluginCaps.GetRawCapabilitiesForDevice(ctx, row.DriverName, row.Manufacturer.String, row.Model.String)[sdk.CapabilityContainerPowerFeed] {
 		return out, fleeterror.NewFailedPreconditionError(powerFeedUnsupportedMessage)
 	}
-	if s.protocolChecker != nil {
-		routes, err := s.resolveDeviceCommandRoutes(ctx, info.OrganizationID, []resolvedDevice{{id: row.DeviceID, identifier: row.DeviceIdentifier}})
-		if err != nil {
-			return out, err
-		}
-		for _, route := range routes {
-			if route.FleetNodeID.Valid && s.protocolChecker.CommandProtocolUpgradeRequiredForVersion(route.FleetNodeID.Int64, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V13) {
-				return out, fleeterror.NewFailedPreconditionError(powerFeedUpgradeMessage)
-			}
-		}
+	upgrade, err := s.fleetNodeUpgradeRequired(ctx, info.OrganizationID, row.DeviceID, row.DeviceIdentifier, remotenode.PowerFeedInspectCommandProtocolVersion)
+	if err != nil {
+		return out, err
+	}
+	if upgrade {
+		return out, fleeterror.NewFailedPreconditionError(powerFeedUpgradeMessage)
 	}
 	params := sqlc.GetContainerMiningTargetParams{DeviceIdentifier: row.DeviceIdentifier, OrgID: info.OrganizationID}
 	target, err := q.GetContainerMiningTarget(ctx, params)
@@ -96,7 +97,10 @@ func (s *Service) ReadModulePowerFeed(ctx context.Context, moduleID int64, autho
 	if target.ID != row.DeviceID {
 		return out, fleeterror.NewFailedPreconditionError("container ownership changed")
 	}
-	var result sdk.ContainerPowerFeedResult
+	var (
+		result     sdk.ContainerPowerFeedResult
+		mayControl bool
+	)
 	writes := devicewrite.NewService(s.conn)
 	err = writes.WithHostObservation(ctx, info.OrganizationID, target.ID, target.WriteEpoch, func(ctx context.Context) error {
 		return writes.WithBindingObservation(ctx, target.ID, func(q sqlc.Querier) error {
@@ -111,7 +115,11 @@ func (s *Service) ReadModulePowerFeed(ctx context.Context, moduleID int64, autho
 			if fresh.SiteID.Valid {
 				site = &fresh.SiteID.Int64
 			}
-			return authorize(ctx, site)
+			if err := authorize(ctx, site); err != nil {
+				return err
+			}
+			mayControl = canControl != nil && canControl(ctx, site)
+			return nil
 		}, func(ctx context.Context) error {
 			miner, err := s.executionService.minerService.GetMinerForCommand(ctx, target.ID)
 			if err != nil {
@@ -131,5 +139,32 @@ func (s *Service) ReadModulePowerFeed(ctx context.Context, moduleID int64, autho
 	if err != nil {
 		return out, err
 	}
-	return ModulePowerFeed{ModuleID: row.ModuleID, DeviceIdentifier: row.DeviceIdentifier, ContainerName: row.ContainerName, Tank: row.TankPosition, Module: row.Position, Inspection: *result.Inspection}, nil
+	out = ModulePowerFeed{ModuleID: row.ModuleID, DeviceIdentifier: row.DeviceIdentifier, ContainerName: row.ContainerName, Tank: row.TankPosition, Module: row.Position, Inspection: *result.Inspection}
+	if mayControl {
+		out.Control, err = s.powerFeedControl(ctx, q, info.OrganizationID, row, out.Inspection)
+		if err != nil {
+			// The read itself succeeded; only the controls are withheld.
+			slog.WarnContext(ctx, "power feed control status unavailable", "device_id", row.DeviceID, "error", err)
+			out.Control = &PowerFeedControl{UnavailableReason: powerFeedControlCheckFailedReason}
+		}
+	}
+	return out, nil
+}
+
+// fleetNodeUpgradeRequired reports whether the controller sits behind a Fleet
+// Node below the command protocol version an operation needs.
+func (s *Service) fleetNodeUpgradeRequired(ctx context.Context, orgID, deviceID int64, identifier string, version gatewaypb.CommandProtocolVersion) (bool, error) {
+	if s.protocolChecker == nil {
+		return false, nil
+	}
+	routes, err := s.resolveDeviceCommandRoutes(ctx, orgID, []resolvedDevice{{id: deviceID, identifier: identifier}})
+	if err != nil {
+		return false, err
+	}
+	for _, route := range routes {
+		if route.FleetNodeID.Valid && s.protocolChecker.CommandProtocolUpgradeRequiredForVersion(route.FleetNodeID.Int64, version) {
+			return true, nil
+		}
+	}
+	return false, nil
 }

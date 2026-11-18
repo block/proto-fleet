@@ -32,7 +32,7 @@ vi.mock("./FrigatePackageUploadDialog", () => ({
     onDismiss: () => void;
   }) =>
     open ? (
-      <div role="dialog" aria-label="Upload Frigate package">
+      <div role="dialog" aria-label="Upload controller software">
         <button onClick={() => onSuccess({ reused: false })}>Finish upload</button>
         <button onClick={() => onSuccess({ reused: true })}>Finish duplicate upload</button>
         <button onClick={onDismiss}>Dismiss upload</button>
@@ -70,18 +70,18 @@ beforeEach(() => {
 describe("FrigatePackages list", () => {
   it("flags a package stored on another Fleet host", async () => {
     mocks.listPackages.mockResolvedValue([{ ...item(), storedOnThisHost: false }]);
-    render(<FrigatePackages actionContainer={null} />);
+    render(<FrigatePackages />);
     expect(await screen.findByText(/Stored on another Fleet host/)).toBeInTheDocument();
   });
 
   it("does not flag a package stored on this host", async () => {
-    render(<FrigatePackages actionContainer={null} />);
+    render(<FrigatePackages />);
     expect(await screen.findByText("1.4.0")).toBeInTheDocument();
     expect(screen.queryByText(/Stored on another Fleet host/)).not.toBeInTheDocument();
   });
 
   it("shows version, architecture, digest, signer key and upload time", async () => {
-    render(<FrigatePackages actionContainer={null} />);
+    render(<FrigatePackages />);
 
     expect(await screen.findByText("1.4.0")).toBeInTheDocument();
     expect(screen.getByText(/frigate_1\.4\.0_arm64\.deb, 5\.0 MB/)).toBeInTheDocument();
@@ -96,45 +96,46 @@ describe("FrigatePackages list", () => {
 
   it("shows an empty state", async () => {
     mocks.listPackages.mockResolvedValue([]);
-    render(<FrigatePackages actionContainer={null} />);
-    expect(await screen.findByText("No Frigate packages uploaded")).toBeInTheDocument();
+    render(<FrigatePackages />);
+    expect(await screen.findByText("No controller software uploaded")).toBeInTheDocument();
   });
 
   it("shows a load failure", async () => {
     mocks.listPackages.mockRejectedValue(new ConnectError("denied", Code.PermissionDenied));
-    render(<FrigatePackages actionContainer={null} />);
+    render(<FrigatePackages />);
     expect(await screen.findByRole("alert")).toHaveTextContent("denied");
   });
 
-  it("renders the upload action into the page header when one is provided", async () => {
-    const header = document.createElement("div");
-    document.body.appendChild(header);
-    render(<FrigatePackages actionContainer={header} />);
+  it("keeps the upload action with its own heading", async () => {
+    render(<FrigatePackages />);
     await screen.findByText("1.4.0");
-    expect(within(header).getByRole("button", { name: "Upload Frigate package" })).toBeInTheDocument();
-    header.remove();
+    const section = screen.getByRole("heading", { name: "Controller software" }).closest("section");
+    expect(within(section!).getByRole("button", { name: "Upload controller software" })).toBeInTheDocument();
   });
 });
 
 describe("FrigatePackages upload", () => {
   it("refreshes the list and confirms after an upload", async () => {
-    render(<FrigatePackages actionContainer={null} />);
+    render(<FrigatePackages />);
     await screen.findByText("1.4.0");
     mocks.listPackages.mockClear();
 
-    fireEvent.click(screen.getByRole("button", { name: "Upload Frigate package" }));
+    fireEvent.click(screen.getByRole("button", { name: "Upload controller software" }));
     fireEvent.click(await screen.findByRole("button", { name: "Finish upload" }));
 
     await waitFor(() => expect(mocks.listPackages).toHaveBeenCalledTimes(1));
-    expect(mocks.pushToast).toHaveBeenCalledWith({ message: "Frigate package uploaded", status: STATUSES.success });
-    expect(screen.queryByRole("dialog", { name: "Upload Frigate package" })).not.toBeInTheDocument();
+    expect(mocks.pushToast).toHaveBeenCalledWith({
+      message: "Controller software uploaded",
+      status: STATUSES.success,
+    });
+    expect(screen.queryByRole("dialog", { name: "Upload controller software" })).not.toBeInTheDocument();
   });
 
   it("says when the package was already uploaded", async () => {
-    render(<FrigatePackages actionContainer={null} />);
+    render(<FrigatePackages />);
     await screen.findByText("1.4.0");
 
-    fireEvent.click(screen.getByRole("button", { name: "Upload Frigate package" }));
+    fireEvent.click(screen.getByRole("button", { name: "Upload controller software" }));
     fireEvent.click(await screen.findByRole("button", { name: "Finish duplicate upload" }));
 
     expect(mocks.pushToast).toHaveBeenCalledWith({
@@ -146,7 +147,7 @@ describe("FrigatePackages upload", () => {
 
 describe("FrigatePackages delete", () => {
   const openDelete = async () => {
-    render(<FrigatePackages actionContainer={null} />);
+    render(<FrigatePackages />);
     await screen.findByText("1.4.0");
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     return screen.findByTestId("delete-frigate-package-dialog");

@@ -16,6 +16,24 @@ describe("hosted account request scope", () => {
     await expect(preview.client.renameAccount({ accountId: accountA, name: "Changed" })).rejects.toThrow(/preview/i);
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
+  it("allows saved-analysis preview reads and exports but rejects generation in the real interceptor", async () => {
+    const fetcher = vi.fn(async (input: Parameters<typeof fetch>[0]) =>
+      String(input).endsWith("/ExportAccountAnalysis")
+        ? new Response(new Uint8Array([2, 0, 0, 0, 2, 123, 125]), {
+            headers: { "Content-Type": "application/connect+json" },
+          })
+        : new Response("{}", { headers: { "Content-Type": "application/json" } }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    const preview = createAccountConnection(accountA, { readOnly: true });
+    await preview.client.getAccountAnalysis({ accountId: accountA, analysisId: "saved" });
+    const chunks = [];
+    for await (const chunk of preview.client.exportAccountAnalysis({ accountId: accountA, analysisId: "saved" }))
+      chunks.push(chunk);
+    expect(chunks).toEqual([]);
+    await expect(preview.client.generateAccountAnalysis({ accountId: accountA })).rejects.toThrow(/preview/i);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
   it("allows canonical configuration checks in preview while refusing review confirmation", async () => {
     const fetcher = vi.fn(async () => new Response("{}", { headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetcher);

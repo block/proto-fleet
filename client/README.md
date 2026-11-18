@@ -114,6 +114,48 @@ before retrying. This control is unavailable in Fleet-hosted views;
 the R2 catalog update flow remains available. R2 images must bundle a ProtoOS release
 containing this feature before operators can use it on-device.
 
+### CT1 local pool configuration
+
+On a direct CT1 connection, **Settings → Pools** reads mining-group mode before
+offering container-wide edits. When groups are enabled, the page shows group
+membership, reported board locations, pending changes, and assignment issues.
+Open a group to read its configured pools, complete usernames, enabled state,
+priority, and any saved weights. Pool details load on demand. These are
+controller-reported settings, not proof that every board has applied them.
+Frigate stores the complete pool username; ProtoOS does not extract or infer a
+separate worker name.
+
+Hashboard counts stay visible on each group. **View hashboards** opens a separate
+list with search by MAC address or location and 25 rows per page. Boards sort by
+tank, module, and board number, with unknown locations last. Paging limits rows
+rendered in the browser; the controller still returns all assignment records.
+
+Container-wide edits remain available when the controller reports the supported
+group protocol with groups disabled, no suspension, and no pending group change.
+Every write checks that state again. Reorders perform one full preflight, then
+check the mode revision before each priority write and stop if it changes.
+Between reorder steps, a transient capability-read failure is retried once;
+priority writes are never retried.
+After any successful priority write, a later failure reports that some priorities
+were saved and the final order is unconfirmed. Authentication errors keep their
+status and show sign-in guidance; neither writes nor reorders are replayed.
+Pool `FailedPrecondition` responses remain uncertain because Frigate can return
+them after saving a change when its live reload fails.
+This client preflight is not an authorization boundary or an
+atomic lock against another controller client. Failed reads keep editing blocked
+until a successful reload. Disabled mode reads only capability and operation
+state; leftover group records do not gate legacy editing. In group mode,
+membership stability uses group IDs and revisions, so live transfer progress
+does not invalidate the view. Operation details appear in both modes. Terminal
+`COMPLETE` and `FAILED` receipts do not block legacy editing; unfinished work
+still blocks it even when it reports an error.
+If the controller does not support the group protocol, saved container pools
+remain visible in a read-only list. Other capability-read failures keep the page
+unavailable. Pool reads time out after ten seconds so **Reload pools** stays usable.
+Use **Reload pools** to refresh the configuration.
+Group edits and transfers are not offered by this view. Fleet-hosted ProtoOS
+keeps its existing read-only pool view; hosted assignments are managed in Fleet.
+
 ### CT1 local hashboard firmware
 
 On a direct CT1 connection, **Settings → General → Firmware → Upload hashboard
@@ -176,6 +218,44 @@ The simulator covers upload integrity and job lifecycle, not real signing or
 flashing. Frigate must update its pinned ProtoOS release before this feature
 appears on physical containers. PSU firmware, controller software, and release
 archive upload are separate flows.
+
+### CT1 local controller software update
+
+On a direct CT1 connection, **Settings → General → Update controller software**
+updates Frigate on both HA controllers through Frigate's self-coordinated
+`ServerUpdateService`. Fleet-hosted views don't have it; they use Fleet's
+remote updates.
+
+- **Choose.** Pick the three files of one release: the `.deb` (at most
+  512 MiB), its `.deb.statement.json` and its `.deb.statement.sig`. ProtoOS
+  checks that they agree with each other and with what each controller
+  reports, and shows anything that blocks the update. The controllers verify
+  the signature themselves when the update starts, and the controller's
+  `update.allow_remote_trigger` setting applies.
+- **Copy.** The package is hashed and copied to each controller in 1 MiB
+  pieces, resuming an interrupted copy. A recovery record is saved in browser
+  storage first, and is shared between tabs of one browser.
+- **Start.** Start is sent once to the HA primary and never re-sent
+  automatically. A failed Start is settled by Status: an existing rollout is
+  followed; otherwise the copied package is offered again, at once after a
+  refusal (`InvalidArgument`, `FailedPrecondition`, `Unimplemented`) and after
+  Start's 60 s timeout plus a margin when the outcome is unknown.
+- **Follow.** The dialog polls Status. While Frigate is stopped its
+  maintenance service answers Status, Retry and Cancel, and ProtoOS shows its
+  booting screen; an update being followed stays on that screen with its
+  dialog open. With no record, ProtoOS looks for a rollout to follow, including
+  one started elsewhere.
+- **Retry and Cancel** appear when the rollout allows them. Each keeps its
+  idempotency key until the action is no longer offered or the rollout's
+  `updated_at` has changed, so a lost answer replays the same request.
+- **Discard** removes the copy from both controllers and keeps the record
+  until each confirms. **Stop tracking** is offered when the update can't be
+  followed; it changes nothing on the controllers.
+
+Frigate's `UPDATE_*` codes are worded for both apps in
+`src/shared/features/frigateUpdate/codeText.ts`. The simulator
+(`CT1_HA_PAIR=1`) serves `ServerUpdateService` over Connect; see
+`server/fake-ct1/README.md` for its trusted-key and refusal faults.
 
 ### CT1 on-device standalone
 
@@ -262,6 +342,15 @@ the draft. Requests have deadlines, and connection changes cancel pending work.
 Temperature inputs follow the display preference and write Celsius to MDKv2.
 Flow and pressures remain readings. Fluid levels are reported per bank in mm;
 the schematic does not infer individual tank fill percentages.
+
+The Power page shows facility total, mining power, each reported PDU, and combined
+fan history as separate lines over the selected period. These measurements overlap
+and are not stacked. PDU readings appear in the chart legend rather than the top
+summary. The top summary remains live; Fans High/Low/Average describe
+the selected period. Missing history remains unavailable rather than zero.
+Pump, air-conditioning, and auxiliary power histories are not exposed by the
+current API, so their series and statistics cards are omitted. Power has no
+System/Hashboards selector because percentage-band history is unsupported.
 
 ### Native container overview
 

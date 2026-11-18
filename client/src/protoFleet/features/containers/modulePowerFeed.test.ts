@@ -1,9 +1,10 @@
 import { expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
-import { modulePowerFeedView } from "./modulePowerFeed";
+import { modulePowerFeedControl, modulePowerFeedView } from "./modulePowerFeed";
 import {
   GetModulePowerFeedResponseSchema,
+  PowerFeedAction,
   PowerFeedMappingConfidence,
   PowerFeedState,
 } from "@/protoFleet/api/generated/containers/v1/containers_pb";
@@ -52,4 +53,31 @@ it("keeps an unreadable recovery cycle unknown and an unspecified state unknown"
   expect(
     modulePowerFeedView(create(GetModulePowerFeedResponseSchema, { recoveryCycleKnown: true })).recoveryCycle,
   ).toBeNull();
+});
+
+it("maps the offered controls and blocks them when no feed is mapped", () => {
+  const offered = (feedId: string | undefined, unavailableReason = "") =>
+    modulePowerFeedControl(
+      create(GetModulePowerFeedResponseSchema, {
+        moduleId: 91n,
+        mapping: { confidence: PowerFeedMappingConfidence.CONFIGURED, feedId },
+        control: {
+          actions: [PowerFeedAction.TURN_OFF, PowerFeedAction.CYCLE, PowerFeedAction.UNSPECIFIED],
+          unavailableReason,
+          cycleHoldSeconds: 30,
+        },
+        recoveryCycleKnown: true,
+      }),
+    );
+  expect(offered("pdu-1-outlet-05")).toEqual({
+    feedId: "pdu-1-outlet-05",
+    actions: ["turn_off", "cycle"],
+    unavailableReason: undefined,
+    cycleHoldSeconds: 30,
+  });
+  expect(offered("pdu-1-outlet-05", "A power feed command is already pending.")?.unavailableReason).toBe(
+    "A power feed command is already pending.",
+  );
+  expect(offered(undefined)?.unavailableReason).toBe("No feed is mapped.");
+  expect(modulePowerFeedControl(create(GetModulePowerFeedResponseSchema, {}))).toBeUndefined();
 });

@@ -11,6 +11,7 @@ interface ReadOnlyMiningPoolsProps {
   pools: PoolInfo[];
   loading?: boolean;
   description?: string;
+  showHeader?: boolean;
 }
 
 /**
@@ -23,6 +24,7 @@ const ReadOnlyMiningPools = ({
   pools,
   loading = false,
   description = "Pools are managed from Fleet. This is a read-only view of the miner's current configuration.",
+  showHeader = true,
 }: ReadOnlyMiningPoolsProps) => {
   const configuredPools = useMemo(
     () => pools.map((pool, index) => ({ pool, index: index as PoolIndex })).filter(({ pool }) => isValidPool(pool)),
@@ -35,7 +37,7 @@ const ReadOnlyMiningPools = ({
 
   return (
     <>
-      <ContentHeader title="Pools" subtitle={description} testId="mining-pool-title" />
+      {showHeader ? <ContentHeader title="Pools" subtitle={description} testId="mining-pool-title" /> : null}
       {configuredPools.length === 0 ? (
         <Row className="text-text-primary-70" testId="read-only-pools-empty">
           No pools configured.

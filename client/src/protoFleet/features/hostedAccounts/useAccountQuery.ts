@@ -81,6 +81,7 @@ export const useAccountQuery = <T>(
     error: current?.error ?? null,
     errorCode: current?.errorCode ?? null,
     loading: enabled && !current,
+    refreshing: enabled && result?.load === load && result.revision !== revision,
     refresh,
     poll,
     invalidate,

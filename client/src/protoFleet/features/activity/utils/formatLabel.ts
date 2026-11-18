@@ -60,6 +60,7 @@ const labelMap: Record<string, string> = {
   rollout_completed: "Completed firmware update",
   rollout_completed_with_failures: "Completed firmware update with failures",
   rollout_retried: "Retried failed firmware updates",
+  release_channel_controller_software_changed: "Changed controller software version",
 
   create_collection: "Created collection",
   update_collection: "Updated collection",
@@ -226,6 +227,7 @@ const filterLabelMap: Record<string, string> = {
   rollout_completed: "Firmware update completed",
   rollout_completed_with_failures: "Firmware update completed with failures",
   rollout_retried: "Firmware update retried",
+  release_channel_controller_software_changed: "Controller software version changed",
 
   create_collection: "Create collection",
   update_collection: "Update collection",

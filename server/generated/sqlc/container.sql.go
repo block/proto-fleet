@@ -19,7 +19,7 @@ const containerOwnsCommandBatch = `-- name: ContainerOwnsCommandBatch :one
 SELECT EXISTS (
  SELECT 1 FROM command_batch_log b JOIN queue_message m ON m.command_batch_log_uuid=b.uuid
  WHERE b.uuid=$1 AND b.organization_id=$2
- AND b.type IN ('SetContainerControl', 'SetTankMining', 'SetModuleMining', 'ContainerMining', 'SetBoardIdentify', 'ContainerAlarmAction') AND b.devices_count=1 AND m.device_id=$3
+ AND b.type IN ('SetContainerControl', 'SetTankMining', 'SetModuleMining', 'ContainerMining', 'SetBoardIdentify', 'ContainerAlarmAction', 'ControlPowerFeed') AND b.devices_count=1 AND m.device_id=$3
 )::boolean
 `
 

@@ -450,7 +450,14 @@ describe("hosted account pages", () => {
     });
     mount(
       <HostedAccountsContext.Provider
-        value={{ accounts: [host, value.account], hostAccess: true, loading: false, error: null, refresh: vi.fn() }}
+        value={{
+          reportingAccess: false,
+          accounts: [host, value.account],
+          hostAccess: true,
+          loading: false,
+          error: null,
+          refresh: vi.fn(),
+        }}
       >
         <AccountAccess />
       </HostedAccountsContext.Provider>,
@@ -626,6 +633,30 @@ describe("hosted account pages", () => {
       ),
     );
     expect(screen.queryByText("This account is unavailable.")).not.toBeInTheDocument();
+  });
+  it("saves the report-generation capability independently from other client permissions", async () => {
+    const user = userEvent.setup();
+    const { value, client } = scope(63n);
+    const onSaved = vi.fn();
+    mount(
+      <ClientPermissions
+        child={create(AccountSchema, { accountId: "child", capabilityCeiling: 63n, ticketingEnabled: true })}
+        onSaved={onSaved}
+      />,
+      value,
+    );
+    const generation = screen.getByRole("checkbox", { name: "Generate ad hoc reports" });
+    expect(generation).toBeChecked();
+    await user.click(generation);
+    await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+    expect(client.configureAccount).toHaveBeenCalledWith({
+      accountId,
+      childAccountId: "child",
+      capabilities: 31n,
+      suspended: false,
+      ticketingEnabled: true,
+    });
+    expect(screen.getByRole("checkbox", { name: "Manage memberships" })).toBeChecked();
   });
   it("saves permission changes immediately and rolls a failed update back", async () => {
     const user = userEvent.setup();

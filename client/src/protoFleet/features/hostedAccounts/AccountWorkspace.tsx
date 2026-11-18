@@ -12,6 +12,7 @@ import AccountAssets from "./components/AccountAssets";
 import AccountChildren from "./components/AccountChildren";
 import AccountDetails from "./components/AccountDetails";
 import AccountOverview from "./components/AccountOverview";
+import AccountReports from "./components/AccountReports";
 import { AccountState } from "./components/AccountState";
 import AccountTeam from "./components/AccountTeam";
 import AccountTickets from "./components/AccountTickets";
@@ -48,6 +49,7 @@ const AccountPage = ({
   const host = permissions.length > 0 || !!directory?.hostAccess;
   const navigate = useNavigate();
   const rootAccount = directory?.accounts.find((item) => item.accountId === accountId && item.depth === 0);
+  const reportingAccess = directory?.reportingAccess;
   const hostAdministration = directory?.accounts.some((item) => item.depth === 0 && can(item, 16n));
   const preview = !!hostAdministration && !rootAccount && !management;
   const path = (id: string, page = "overview") =>
@@ -107,6 +109,12 @@ const AccountPage = ({
       : []),
     ...(ticketAccess ? [{ path: path(accountId, "tickets"), label: "Tickets", icon: Repair }] : []),
     ...(account && account.depth > 0 && can(account, 1n)
+      ? [{ path: path(accountId, "reports"), label: "Reports", icon: Activity }]
+      : []),
+    ...(account?.depth === 0 && reportingAccess
+      ? [{ path: "/accounts/reports", label: "Reports", icon: Activity }]
+      : []),
+    ...(account && account.depth > 0 && can(account, 1n)
       ? [{ path: path(accountId, "pools"), label: "Pools", icon: LightningAlt }]
       : []),
     ...(can(account, 16n) && account!.depth < 2
@@ -154,6 +162,7 @@ const AccountPage = ({
               path(accountId, "assets"),
               path(accountId, "activity"),
               path(accountId, "tickets"),
+              path(accountId, "reports"),
             ].includes(item.path),
           ),
           ...(settingsPages.length
@@ -167,6 +176,8 @@ const AccountPage = ({
     switch (section) {
       case "tickets":
         return <AccountTickets key={authorityKey} />;
+      case "reports":
+        return <AccountReports key={authorityKey} />;
       case "activity":
         return <AccountActivity key={authorityKey} />;
       case "overview":

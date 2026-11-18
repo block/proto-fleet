@@ -50,6 +50,7 @@ export function UptimePanel({
   showActions = true,
 }: UptimePanelProps) {
   const navigate = useNavigate();
+  const title = audience === "account" ? "Hashing status" : "Uptime";
 
   const uptimeSegmentConfig: SegmentConfig = useMemo(
     () => ({
@@ -84,7 +85,7 @@ export function UptimePanel({
 
   if (uptimeStatusCounts === undefined) {
     const stat = {
-      label: "Uptime",
+      label: title,
       value: undefined,
       units: "",
     };
@@ -104,7 +105,7 @@ export function UptimePanel({
 
   return (
     <SegmentedMetricPanel
-      title="Uptime"
+      title={title}
       headlineGenerator={(data) => generateUptimeHeadline(data, { assetLabel, audience, expectedAssetCount })}
       chartData={uptimeStatusCounts}
       segmentConfig={uptimeSegmentConfig}

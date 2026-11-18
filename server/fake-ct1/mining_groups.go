@@ -114,6 +114,16 @@ func (a *grpcAPI) GetMiningGroupCapability(ctx context.Context, _ *mdk.GetMining
 	})
 }
 
+func (a *grpcAPI) GetMiningGroup(ctx context.Context, request *mdk.GetMiningGroupRequest) (*mdk.GetMiningGroupResponse, error) {
+	return miningGroupRPC(ctx, a, "", nil, func(_ *ContainerState, groups *simulatedMiningGroups) (*mdk.GetMiningGroupResponse, error) {
+		group, err := groups.group(request.GetId(), 0)
+		if err != nil {
+			return nil, err
+		}
+		return &mdk.GetMiningGroupResponse{Group: group}, nil
+	})
+}
+
 func (a *grpcAPI) DeactivateMiningGroups(ctx context.Context, r *mdk.DeactivateMiningGroupsRequest) (*mdk.DeactivateMiningGroupsResponse, error) {
 	return miningGroupRPC(ctx, a, r.IdempotencyKey, r, func(s *ContainerState, g *simulatedMiningGroups) (*mdk.DeactivateMiningGroupsResponse, error) {
 		if r.ExpectedStateRevision != g.capability.StateRevision {

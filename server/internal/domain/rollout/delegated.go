@@ -149,6 +149,26 @@ func (s *Service) AdvanceRollout(ctx context.Context, orgID, rolloutID int64, se
 				return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonDeviceNotDispatchable, DeviceIdentifiers: []string{t.DeviceIdentifier}}, "selected device %s has a pending firmware command", t.DeviceIdentifier)
 			}
 		}
+		// A container behind the channel's controller software target cannot
+		// take firmware yet. Name every one so the controller can skip them.
+		selectedIDs := make([]int64, 0, len(selected))
+		for _, t := range selected {
+			selectedIDs = append(selectedIDs, t.DeviceID)
+		}
+		held, err := s.controllerSoftwareHold(ctx, r.ChannelID, selectedIDs)
+		if err != nil {
+			return err
+		}
+		if len(held) > 0 {
+			var waiting []string
+			for _, t := range selected {
+				if _, ok := held[t.DeviceID]; ok {
+					waiting = append(waiting, t.DeviceIdentifier)
+				}
+			}
+			return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonDeviceNotDispatchable, DeviceIdentifiers: waiting},
+				"%d selected devices are behind the channel's controller software version; update their controller software first", len(waiting))
+		}
 		budget, err := s.refreshOfflineBudget(ctx, r.ChannelID, channel.MaxConcurrentOffline)
 		if err != nil {
 			return err

@@ -2496,6 +2496,7 @@ latest_hourly AS (
     ORDER BY device_metrics_hourly.device_identifier, bucket DESC
 )
 SELECT
+    d.id AS device_database_id,
     d.device_identifier,
     dd.driver_name,
     COALESCE(dd.model, '') AS model,
@@ -2607,6 +2608,7 @@ type ListCurtailmentCandidatesByOrgParams struct {
 }
 
 type ListCurtailmentCandidatesByOrgRow struct {
+	DeviceDatabaseID int64
 	DeviceIdentifier string
 	DriverName       sql.NullString
 	Model            string
@@ -2640,6 +2642,7 @@ func (q *Queries) ListCurtailmentCandidatesByOrg(ctx context.Context, arg ListCu
 	for rows.Next() {
 		var i ListCurtailmentCandidatesByOrgRow
 		if err := rows.Scan(
+			&i.DeviceDatabaseID,
 			&i.DeviceIdentifier,
 			&i.DriverName,
 			&i.Model,
@@ -4939,13 +4942,21 @@ func (q *Queries) UpdateCurtailmentEventState(ctx context.Context, arg UpdateCur
 
 const updateCurtailmentTargetState = `-- name: UpdateCurtailmentTargetState :execrows
 WITH locked_event AS MATERIALIZED (
-    SELECT id
-    FROM curtailment_event
-    WHERE id = $14
-        AND state IN ('pending', 'active', 'restoring')
-        AND ($15::TEXT IS NULL
-             OR state = $15::TEXT)
+    SELECT e.id,e.org_id,e.force_include_all_paired_miners
+    FROM curtailment_event e
+    WHERE e.id = $15
+        AND e.state IN ('pending', 'active', 'restoring')
+        AND ($16::TEXT IS NULL
+             OR e.state = $16::TEXT)
     FOR UPDATE
+),
+locked_device AS MATERIALIZED (
+    SELECT d.id
+    FROM locked_event,device d
+    WHERE d.id=$11::bigint
+      AND d.org_id=locked_event.org_id AND d.deleted_at IS NULL
+      AND d.device_identifier=$10
+    FOR UPDATE OF d
 )
 UPDATE curtailment_target
 SET state              = $1,
@@ -5033,16 +5044,21 @@ SET state              = $1,
     END
 FROM locked_event
 WHERE curtailment_event_id = locked_event.id
-  AND device_identifier    = $10
-  AND ($11::text IS NULL
-       OR desired_state = $11::text)
+  AND curtailment_target.device_identifier = $10
+  AND ($11::bigint IS NULL OR EXISTS (
+       SELECT 1 FROM locked_device d WHERE
+        curtailment_target.desired_state<>'curtailed' OR NOT locked_event.force_include_all_paired_miners
+        OR EXISTS (SELECT 1 FROM device_pairing dp WHERE dp.device_id=d.id
+         AND dp.pairing_status::text IN ('PAIRED','DEFAULT_PASSWORD','AUTHENTICATION_NEEDED'))))
   AND ($12::text IS NULL
-       OR state = $12::text)
+       OR desired_state = $12::text)
   AND ($13::text IS NULL
+       OR state = $13::text)
+  AND ($14::text IS NULL
        OR (CASE
                WHEN desired_state = 'curtailed' THEN curtail_batch_uuid
                WHEN desired_state = 'active'    THEN restore_batch_uuid
-           END) = $13::text)
+           END) = $14::text)
 `
 
 type UpdateCurtailmentTargetStateParams struct {
@@ -5056,6 +5072,7 @@ type UpdateCurtailmentTargetStateParams struct {
 	LastError                 sql.NullString
 	CurtailPossiblySent       sql.NullBool
 	DeviceIdentifier          string
+	ExpectedDeviceDatabaseID  sql.NullInt64
 	ExpectedDesiredState      sql.NullString
 	ExpectedState             sql.NullString
 	ExpectedDispatchBatchUuid sql.NullString
@@ -5095,6 +5112,7 @@ func (q *Queries) UpdateCurtailmentTargetState(ctx context.Context, arg UpdateCu
 		arg.LastError,
 		arg.CurtailPossiblySent,
 		arg.DeviceIdentifier,
+		arg.ExpectedDeviceDatabaseID,
 		arg.ExpectedDesiredState,
 		arg.ExpectedState,
 		arg.ExpectedDispatchBatchUuid,

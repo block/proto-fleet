@@ -16,6 +16,7 @@ import {
   RolloutState,
   RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { isCT1FirmwareTarget } from "@/protoFleet/api/useFirmwareApi";
 import type {
   ChannelView,
   ChannelModelGroupView as ReleaseChannelModelGroup,
@@ -315,8 +316,9 @@ export function scopeDevices(rollout: Rollout, devices: RolloutDevice[]): Rollou
 
 export function evidenceScopeLabel(rollout: Rollout): string {
   if (scopedToBatch(rollout)) return batchLabel(rollout);
-  if (isActive(rollout) && rollout.stage === RolloutStage.REST && rollout.batchCount > 0) return "Remaining miners";
-  return "All miners";
+  const { plural } = deviceNouns(rollout);
+  if (isActive(rollout) && rollout.stage === RolloutStage.REST && rollout.batchCount > 0) return `Remaining ${plural}`;
+  return `All ${plural}`;
 }
 
 export function failedDevices(devices: RolloutDevice[]): RolloutDevice[] {
@@ -344,13 +346,17 @@ export function rolloutProgressSegments(counts: RolloutDeviceCounts, status?: Ro
   ].filter((segment) => segment.count > 0);
 }
 
-export function rolloutProgressSummary(counts: RolloutDeviceCounts): string {
-  const minerNoun = counts.total === 1 ? "miner" : "miners";
+export function rolloutProgressSummary(
+  counts: RolloutDeviceCounts,
+  pair: { manufacturer: string; model: string },
+): string {
+  const { singular, plural } = deviceNouns(pair);
+  const noun = counts.total === 1 ? singular : plural;
   const failed = counts.failed > 0 ? `, ${counts.failed.toLocaleString()} failed` : "";
   if (counts.total > 0 && counts.updated === counts.total) {
-    return `${counts.updated.toLocaleString()} ${minerNoun} updated (100%)${failed}`;
+    return `${counts.updated.toLocaleString()} ${noun} updated (100%)${failed}`;
   }
-  return `${counts.updated.toLocaleString()} of ${counts.total.toLocaleString()} ${minerNoun} updated (${counts.percent}%)${failed}`;
+  return `${counts.updated.toLocaleString()} of ${counts.total.toLocaleString()} ${noun} updated (${counts.percent}%)${failed}`;
 }
 
 // "74 of 87 miners updated, 2 failed, Batch 5 of 6": the one-line summary for
@@ -358,7 +364,9 @@ export function rolloutProgressSummary(counts: RolloutDeviceCounts): string {
 export function activeUpdateSummary(rollout: Rollout): string {
   const counts = rolloutDeviceCounts(rollout);
   const failed = failedCount(rollout);
-  const parts = [`${counts.updated.toLocaleString()} of ${rollout.deviceCount.toLocaleString()} miners updated`];
+  const parts = [
+    `${counts.updated.toLocaleString()} of ${rollout.deviceCount.toLocaleString()} ${deviceNouns(rollout).plural} updated`,
+  ];
   if (failed > 0) parts.push(failed === 1 ? "1 failed" : `${failed.toLocaleString()} failed`);
   if (counts.skipped > 0) parts.push(`${counts.skipped.toLocaleString()} skipped`);
   if (counts.excluded > 0) parts.push(`${counts.excluded.toLocaleString()} excluded`);
@@ -477,7 +485,7 @@ export function modelUpdateStatus(
   }
   if (group.activeRolloutId > 0n) return { label: "Refreshing update status", tone: "active" };
   if (group.firmwareVersion === "") return { label: "No firmware assigned", tone: "none" };
-  if (group.minerCount === 0) return { label: "No miners", tone: "none" };
+  if (group.minerCount === 0) return { label: `No ${deviceNouns(group).plural}`, tone: "none" };
   const onTarget = group.onTargetCount;
   const currentFinished = lastFinished?.assignmentGeneration === group.assignmentGeneration ? lastFinished : undefined;
   if (currentFinished?.status === RolloutStatus.COMPLETED_WITH_FAILURES && onTarget < group.minerCount) {
@@ -508,6 +516,41 @@ export function channelUpdateStatus(activeRollouts: Rollout[]): UpdateStatus {
 // unknown halves left out.
 export const pairLabel = (pair: { manufacturer: string; model: string }): string =>
   `${pair.manufacturer} ${pair.model}`.trim() || "Unknown model";
+
+// Proto Containers are grouped and worded apart from miners. The channel API
+// reports no device class, so a container is recognized by its model pair.
+export const isContainerPair = (pair: { manufacturer: string; model: string }): boolean =>
+  isCT1FirmwareTarget({ targetManufacturer: pair.manufacturer, targetModel: pair.model });
+
+/** What operators call the devices of one model pair: miners, or containers. */
+export const deviceNouns = (pair: { manufacturer: string; model: string }): { singular: string; plural: string } =>
+  isContainerPair(pair) ? { singular: "container", plural: "containers" } : { singular: "miner", plural: "miners" };
+
+/** "1 miner" or "2,000 containers": a count of one model pair's devices. */
+export const deviceCountLabel = (pair: { manufacturer: string; model: string }, count: number): string => {
+  const { singular, plural } = deviceNouns(pair);
+  return `${count.toLocaleString()} ${count === 1 ? singular : plural}`;
+};
+
+export const capitalize = (text: string): string => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+
+/**
+ * "6 miners, 2 containers": a channel's members by device type. The total is
+ * the server's; containers are the members of its container model groups.
+ */
+export function channelMembersLabel(
+  total: number,
+  groups: ReadonlyArray<{ manufacturer: string; model: string; minerCount: number }>,
+): string {
+  const inContainerGroups = groups.filter(isContainerPair).reduce((sum, group) => sum + group.minerCount, 0);
+  const containers = Math.min(total, inContainerGroups);
+  const miners = total - containers;
+  const count = (value: number, singular: string, plural: string) =>
+    `${value.toLocaleString()} ${value === 1 ? singular : plural}`;
+  if (containers === 0) return count(miners, "miner", "miners");
+  if (miners === 0) return count(containers, "container", "containers");
+  return `${count(miners, "miner", "miners")}, ${count(containers, "container", "containers")}`;
+}
 
 // Device identifiers can also be names inherited from Object.prototype.
 export const minerLabel = (deviceIdentifier: string, names: Readonly<Record<string, string>>): string =>

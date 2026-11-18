@@ -73,7 +73,7 @@ vi.mock("./FrigateUpdateDialog", () => ({
     onClose: () => void;
     onStarted?: (job: unknown) => void;
   }) => (
-    <div role="dialog" aria-label="Update Frigate">
+    <div role="dialog" aria-label="Update controller software">
       <p>{target.deviceIdentifier}</p>
       <button onClick={() => onStarted?.({ jobId: "job-1" })}>Report started</button>
       <button onClick={onClose}>Close update</button>
@@ -162,17 +162,17 @@ describe("container command dispatch", () => {
     expect(screen.queryByRole("button", { name: "Change site" })).not.toBeInTheDocument();
   });
 
-  it("hides Update Frigate without the software update permission", () => {
+  it("hides Update controller software without the software update permission", () => {
     renderMenu();
     fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
-    expect(screen.queryByRole("button", { name: "Update Frigate" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Update controller software" })).not.toBeInTheDocument();
   });
 
-  it("offers Update Frigate with only the software update permission", () => {
+  it("offers Update controller software with only the software update permission", () => {
     state.permissions = ["controller:software_update"];
     renderMenu();
     fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
-    expect(screen.getByRole("button", { name: "Update Frigate" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Update controller software" })).toBeEnabled();
     expect(statusRequest).not.toHaveBeenCalled();
   });
 
@@ -185,14 +185,14 @@ describe("container command dispatch", () => {
       </MemoryRouter>,
     );
     fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
-    fireEvent.click(screen.getByRole("button", { name: "Update Frigate" }));
+    fireEvent.click(screen.getByRole("button", { name: "Update controller software" }));
 
-    const dialog = screen.getByRole("dialog", { name: "Update Frigate" });
+    const dialog = screen.getByRole("dialog", { name: "Update controller software" });
     expect(dialog).toHaveTextContent("ct1/board");
     fireEvent.click(within(dialog).getByRole("button", { name: "Report started" }));
     expect(onFrigateUpdateStarted).toHaveBeenCalledWith({ jobId: "job-1" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Close update" }));
-    expect(screen.queryByRole("dialog", { name: "Update Frigate" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Update controller software" })).not.toBeInTheDocument();
   });
 
   it.each([

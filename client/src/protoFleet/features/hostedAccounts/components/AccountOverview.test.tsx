@@ -99,6 +99,12 @@ function chooseFilter(key: "allocation" | "site", id: string) {
 }
 
 describe("shared account dashboard", () => {
+  it("distinguishes hashrate-derived availability from the operational state chart", async () => {
+    mount();
+    expect(await screen.findByText("Hashing availability")).toBeInTheDocument();
+    expect(screen.getByText("97.0%")).toBeInTheDocument();
+    expect(screen.getByText(/Aggregate source-time freshness is unavailable/)).toBeInTheDocument();
+  });
   it.each([
     ["7d", 3600],
     ["30d", 86400],
@@ -268,7 +274,7 @@ describe("shared account dashboard", () => {
     expect(screen.getAllByText("3 of 4 hashboards reporting")).toHaveLength(2);
     expect(screen.queryByText("30 J/TH")).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Performance" })).toBeInTheDocument();
-    for (const label of ["Hashrate", "Power", "Efficiency", "Temperature", "Uptime"])
+    for (const label of ["Hashrate", "Power", "Efficiency", "Temperature", "Hashing availability"])
       expect(screen.getAllByRole("heading", { name: label }).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Add Filter" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Refresh" })).not.toBeInTheDocument();

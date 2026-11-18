@@ -26,6 +26,7 @@ WHERE r.organization_id=sqlc.arg(organization_id) AND r.account_id=sqlc.arg(acco
  AND (sqlc.arg(host)::boolean OR (r.status='issued' AND NOT EXISTS (
    SELECT 1 FROM hosted_report newer WHERE newer.organization_id=r.organization_id AND newer.account_id=r.account_id AND newer.series_id=r.series_id AND newer.status='issued' AND newer.number>r.number
  )))
+ AND (sqlc.arg(report_id)::text='' OR r.report_id=sqlc.arg(report_id))
  AND (sqlc.arg(series_id)::text='' OR r.series_id=sqlc.arg(series_id))
  AND (sqlc.arg(before_id)::bigint=0 OR (r.period_start,r.id)<(sqlc.arg(before_start)::timestamptz,sqlc.arg(before_id)::bigint))
  AND (sqlc.arg(kind)::text='' OR r.kind=sqlc.arg(kind))
@@ -86,9 +87,22 @@ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *;
 
 -- name: ListHostedReportRequests :many
 SELECT r.id,r.request_id,r.received_at,r.source_ref,r.requester,r.scope,r.target_at,r.limitations,r.communication_ref,r.delivery_ref,
- u.user_id AS owner_user_id
+ r.owner_id,u.user_id AS owner_user_id,
+ COALESCE(fulfillment.fulfilled_at,'0001-01-01T00:00:00Z'::timestamptz)::timestamptz AS fulfilled_at, COALESCE(fulfillment.fulfillment_ref,'')::text AS fulfillment_ref
 FROM hosted_report_request r
 JOIN "user" u ON u.id=r.owner_id
+LEFT JOIN LATERAL (
+ SELECT recorded.fulfilled_at,recorded.fulfillment_ref FROM (
+  SELECT f.delivered_at AS fulfilled_at,f.delivery_ref AS fulfillment_ref
+  FROM hosted_report_request_fulfillment f WHERE f.request_internal_id=r.id
+  UNION ALL
+  SELECT d.sent_at AS fulfilled_at,d.source_ref AS fulfillment_ref
+  FROM hosted_report report JOIN hosted_report_delivery d ON d.report_internal_id=report.id
+  WHERE report.organization_id=r.organization_id AND report.account_id=r.account_id
+   AND report.kind='ad_hoc' AND report.period->>'requestRef'=r.request_id
+   AND report.status='issued' AND d.status='confirmed' AND d.sent_at>=r.received_at
+ ) recorded ORDER BY recorded.fulfilled_at DESC,recorded.fulfillment_ref LIMIT 1
+) fulfillment ON true
 WHERE r.organization_id=sqlc.arg(organization_id) AND r.account_id=sqlc.arg(account_id)
  AND (sqlc.arg(before_id)::bigint=0 OR (r.received_at,r.id)<(sqlc.arg(before_received_at)::timestamptz,sqlc.arg(before_id)::bigint))
 ORDER BY r.received_at DESC,r.id DESC LIMIT sqlc.arg(page_limit)::int;
@@ -101,6 +115,19 @@ UPDATE hosted_report SET result=$2,site_ids=$3 WHERE id=$1 AND status='draft' RE
 
 -- name: HostedReportPublicID :one
 SELECT report_id FROM hosted_report WHERE id=$1;
+
+-- name: HostedReportingUserUUID :one
+SELECT user_id FROM "user" WHERE id=$1;
+
+-- name: GetHostedReportRequest :one
+SELECT * FROM hosted_report_request WHERE organization_id=$1 AND account_id=$2 AND request_id=$3;
+
+-- name: CreateHostedReportRequestFulfillment :one
+INSERT INTO hosted_report_request_fulfillment(request_internal_id,entry_key,delivered_at,delivery_ref,communication_ref,evidence,actor_id)
+VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING RETURNING *;
+
+-- name: GetHostedReportRequestFulfillment :one
+SELECT * FROM hosted_report_request_fulfillment WHERE request_internal_id=$1 AND entry_key=$2;
 
 -- name: FindHostedOriginalReport :one
 SELECT report_id FROM hosted_report

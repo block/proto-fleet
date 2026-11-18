@@ -2246,6 +2246,7 @@ func listCurtailmentCandidates(
 	out := make([]*models.Candidate, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, &models.Candidate{
+			DeviceDatabaseID: row.DeviceDatabaseID,
 			DeviceIdentifier: row.DeviceIdentifier,
 			DriverName:       nullStringToPtr(row.DriverName),
 			Model:            row.Model,
@@ -2765,6 +2766,7 @@ func (s *SQLCurtailmentStore) ListEligibleConfirmationTargets(
 }
 
 type confirmationUpdateRow struct {
+	SampleAt         time.Time `json:"sample_at"`
 	DeviceDatabaseID int64     `json:"device_database_id"`
 	DeviceIdentifier string    `json:"device_identifier"`
 	Phase            string    `json:"phase"`
@@ -2787,6 +2789,7 @@ func (s *SQLCurtailmentStore) BulkConfirmTargets(
 	for i, update := range updates {
 		rows[i] = confirmationUpdateRow{
 			DeviceDatabaseID: update.DeviceDatabaseID,
+			SampleAt:         update.SampleAt,
 			DeviceIdentifier: update.DeviceIdentifier,
 			Phase:            string(update.Phase),
 			BatchUUID:        update.BatchUUID,
@@ -2799,11 +2802,23 @@ func (s *SQLCurtailmentStore) BulkConfirmTargets(
 	if err != nil {
 		return interfaces.ConfirmationBulkResult{}, fleeterror.NewInternalErrorf("encode confirmation update payload: %v", err)
 	}
-	applied, err := s.GetQueries(ctx).BulkConfirmCurtailmentTargets(ctx, sqlc.BulkConfirmCurtailmentTargetsParams{
-		CurtailmentEventID: eventID,
-		ExpectedEventState: string(expectedEventState),
-		UpdatesJsonb:       payload,
-	})
+	apply := func(q sqlc.Querier) (sqlc.BulkConfirmCurtailmentTargetsRow, error) {
+		applied, err := q.BulkConfirmCurtailmentTargets(ctx, sqlc.BulkConfirmCurtailmentTargetsParams{
+			CurtailmentEventID: eventID,
+			ExpectedEventState: string(expectedEventState),
+			UpdatesJsonb:       payload,
+		})
+		if err == nil && applied.AppliedCount > 0 {
+			err = q.CaptureHostedCurtailmentConfirmations(ctx, sqlc.CaptureHostedCurtailmentConfirmationsParams{EventID: eventID, Updates: payload})
+		}
+		return applied, err
+	}
+	var applied sqlc.BulkConfirmCurtailmentTargetsRow
+	if q := s.GetTxQueries(ctx); q != nil {
+		applied, err = apply(q)
+	} else {
+		applied, err = db.WithTransaction(ctx, s.conn.DB, apply)
+	}
 	if err != nil {
 		return interfaces.ConfirmationBulkResult{}, fleeterror.NewInternalErrorf("bulk confirm curtailment targets for event %d: %v", eventID, err)
 	}
@@ -2852,7 +2867,37 @@ func (s *SQLCurtailmentStore) RecordCurtailPendingDispatch(ctx context.Context, 
 }
 
 func (s *SQLCurtailmentStore) UpdateTargetState(ctx context.Context, eventID int64, deviceIdentifier string, params interfaces.UpdateCurtailmentTargetStateParams) error {
-	return updateCurtailmentTargetState(ctx, s.GetQueries(ctx), eventID, deviceIdentifier, params)
+	if params.ExpectedDeviceDatabaseID == nil || params.ConfirmedAt == nil || params.ExpectedDispatchBatchUUID == nil || params.ConfirmationSampleAt == nil ||
+		params.ExpectedState == nil || *params.ExpectedState != models.TargetStateDispatched ||
+		(params.State != models.TargetStateConfirmed && params.State != models.TargetStateResolved) {
+		return updateCurtailmentTargetState(ctx, s.GetQueries(ctx), eventID, deviceIdentifier, params)
+	}
+	// pgx truncates native timestamps to microseconds; PostgreSQL rounds JSON
+	// timestamps. Normalize copies so the operational row and evidence match.
+	confirmedAt := params.ConfirmedAt.Truncate(time.Microsecond)
+	sampleAt := params.ConfirmationSampleAt.Truncate(time.Microsecond)
+	params.ConfirmedAt, params.ConfirmationSampleAt = &confirmedAt, &sampleAt
+	apply := func(q sqlc.Querier) (struct{}, error) {
+		if err := updateCurtailmentTargetState(ctx, q, eventID, deviceIdentifier, params); err != nil {
+			return struct{}{}, err
+		}
+		phase := "curtail"
+		if params.State == models.TargetStateResolved {
+			phase = "restore"
+		}
+		payload, err := json.Marshal([]confirmationUpdateRow{{DeviceDatabaseID: *params.ExpectedDeviceDatabaseID,
+			DeviceIdentifier: deviceIdentifier, Phase: phase, BatchUUID: *params.ExpectedDispatchBatchUUID, ConfirmedAt: *params.ConfirmedAt, SampleAt: *params.ConfirmationSampleAt}})
+		if err != nil {
+			return struct{}{}, fleeterror.NewInternalErrorf("encode curtailment confirmation: %w", err)
+		}
+		return struct{}{}, q.CaptureHostedCurtailmentConfirmations(ctx, sqlc.CaptureHostedCurtailmentConfirmationsParams{EventID: eventID, Updates: payload})
+	}
+	if q := s.GetTxQueries(ctx); q != nil {
+		_, err := apply(q)
+		return err
+	}
+	_, err := db.WithTransaction(ctx, s.conn.DB, apply)
+	return err
 }
 
 func updateCurtailmentTargetState(
@@ -2877,6 +2922,7 @@ func updateCurtailmentTargetState(
 		ExpectedDesiredState:      ptrToNullString(params.ExpectedDesiredState),
 		ExpectedState:             ptrNamedStringToNullString(params.ExpectedState),
 		ExpectedDispatchBatchUuid: ptrToNullString(params.ExpectedDispatchBatchUUID),
+		ExpectedDeviceDatabaseID:  ptrToNullInt64(params.ExpectedDeviceDatabaseID),
 		CurtailPossiblySent:       sql.NullBool{Bool: true, Valid: params.CurtailPossiblySent},
 	})
 	if err != nil {

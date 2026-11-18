@@ -46,19 +46,50 @@ can discover a custom gRPC listener. New CT1s get a web endpoint of
 Set these on the process that runs the Proto plugin: the server for direct
 controllers, or the managing FleetNode.
 
-Authenticated native MDK connections are not supported. The plugin never sends
-bearer tokens or saved REST username/password credentials as RPC metadata,
-including when probing unknown discovery candidates. A nonempty
-`CT1_RPC_TOKEN_FILE` is rejected before creating a connection; the file is never
-read. This prevents a shared credential from being disclosed to scanned hosts.
+Controllers with `server.mdk_auth` enabled need their bearer token in Fleet.
+Fleet stores it per controller in the existing encrypted device credentials, as
+a credential with an empty username and the token as its password. Both
+controllers in an HA pair use the same token. The plugin sends
+`authorization: Bearer <token>` on every unary and streaming RPC to the paired
+endpoints only. It is never sent while probing discovery candidates. The plugin
+rejects a token that is not RFC 6750 `b64token` syntax, or that is longer than
+4096 characters, without echoing it. A credential with a username is a saved
+REST login and is never sent as RPC metadata. A nonempty `CT1_RPC_TOKEN_FILE`
+is still rejected before a connection is created and the file is never read: a
+process-wide token would reach every scanned host.
 
-Discovery verifies `SystemService.GetSystemInfo`. Pairing a saved group verifies
-its cluster ID and controller IDs through `GetHAStatus` and `GetSystemStatus`.
-Pairing does not perform REST login or token refresh. Controllers requiring authentication
-return `Unauthenticated`, with no REST fallback. Supporting authenticated
-controllers requires a separate design with verified TLS and credentials bound
-to explicitly trusted endpoints. The `x-frigate-actor` audit metadata remains
-present and is not an authentication credential.
+A controller's `Unauthenticated` response becomes the SDK authentication-failed
+error during pairing, handle creation, `DescribeDevice`, and status polling.
+Fleet then shows the container as needing authentication rather than offline.
+Pairing a protected controller without a token puts it in the same state. To
+rotate, replace the token on both controllers, then re-authenticate the device
+in Fleet with the new token. That re-runs pairing with the new credential and
+keeps the device's identity and history. The `x-frigate-actor` audit metadata
+remains present and is not an authentication credential.
+
+When `CT1_RPC_TLS` is false, the token travels in plaintext, as with Frigate's
+own clients. Put protected controllers behind TLS termination or on an
+encrypted private network.
+
+`mdk_auth` also gates `GetSystemInfo`, and discovery sends no token. At an
+explicit CT1 RPC port (9095, or the plugin's configured port), a controller that
+answers `Unauthenticated` is listed as a CT1 container at the scanned address
+with no controller ID, firmware version, or HA group. Opportunistic probes of
+web ports never list one, because any authenticated gRPC service would match.
+Pairing without a token then needs authentication. Pairing with the token reads
+and checks the controller ID. Rescanning a paired protected controller keeps the
+controller ID that pairing verified. An unpaired listing keeps no controller ID,
+so a replacement controller at the same address pairs under its own ID. If a
+different controller answers at a paired device's address, pairing fails with
+"CT1 controller identity mismatch" and asks the operator to remove the existing
+device, then discover and pair the new controller.
+
+Protected HA pairs cannot be paired yet. Pairing with the token returns an HA
+group that discovery did not record, and only discovery saves endpoint groups.
+Fleet reports that it cannot pair token-protected HA pairs yet, and saves
+nothing. A rescan of an HA pair that was paired before `mdk_auth` was enabled
+reports that it could not save the discovered device; the paired group is
+unchanged.
 
 Saved HA groups verify their cluster and controller IDs at pairing and before
 each operation. Custom RPC endpoints are persisted by identity on rediscovery;
@@ -169,7 +200,8 @@ ordinary polling reports the outage and the last HA observation becomes stale.
 - The HTTP ProtoOS proxy and plugin web URL use the saved browser address.
   HTTP proxy failover is separate. Reading the web URL does not probe controllers.
 - The single-address recovery job does not rewrite endpoint groups.
-- Authenticated MDK discovery remains unsupported. The optional `TestFrigateHALab`
+- Discovery never sends a controller token; protected controllers are listed
+  without an identity, as described above. The optional `TestFrigateHALab`
   sends its lab credential only to loopback test addresses.
 
 ## Hashboard firmware updates
@@ -329,6 +361,11 @@ identity matches the one Fleet confirmed, every occupied slot names the same
 single feed, wiring is not contradicted and no other module claims that feed;
 anything else is `ambiguous` or `unavailable` with machine-readable reasons. An
 occupied slot that names no feed while others do is `feed_evidence_incomplete`.
+Feed records name no modules, so sharing is known only from the map. A map
+that omits a tank or module position, leaves a slot unreported, lists an
+unlocated board, or has an occupied slot elsewhere that names no feed is
+`topology_incomplete`: the mapping is `ambiguous` and controls stay off,
+because hardware the map does not show could share the feed.
 Feed readings are shown only from a ready snapshot with exactly one record for
 the feed; an unreadable recovery cycle stays unknown rather than "none". Fleet
 reads through the `container_power_feed` capability and Fleet Node routing
@@ -341,6 +378,37 @@ Inspection uses the Fleet Node's deferrable-read capacity, so it never takes
 the command slots or device handles reserved for operator commands.
 fake-ct1 reports every simulated outlet as enabled with no active recovery
 cycle.
+
+Module power-feed control calls `PowerService.SetPowerFeedState` (turn on or
+off), `CyclePowerFeed` or `ClearPowerFeedOverride` for the one feed the
+operator confirmed. It requires the `container:power_feed` permission and the
+`container_power_feed_control` capability. Fleet offers an action only when
+the mapping is `wiring_verified` or `configured`, the feed has a current
+reading in a known state, no recovery cycle is active or unknown, and no power
+feed command is pending for the container. Turn on needs a disabled feed and
+turn off an enabled one. Cycle needs an enabled feed that reports no fault.
+Clear override needs an overridden feed. Under its write lock, the plugin
+re-derives the mapping, the module identity, the recovery cycle and the feed
+state before it sends anything, and refuses with `FailedPrecondition` if any
+of them changed. Those reads have a 10-second budget and the write its own
+15 seconds. Fleet and the plugin take the actions a feed state allows from one
+SDK rule, `PowerFeedWritesFor`. If Fleet cannot check whether controls are
+available, the inspection still succeeds with controls off and a reason.
+Writes are sent once and are never retried or replayed.
+A write names the controller the operator inspected, and Fleet refuses it
+before queueing if the module has since moved to another controller: feed IDs
+repeat across containers.
+Controller refusals report as failed, with the controller's reason. A Fleet
+Node carries that reason back with `ACK_CODE_FAILED_PRECONDITION`. Transport
+failures report as outcome unconfirmed. The confirmation dialog stays open
+until the command settles. A cycle that hits its deadline has been committed, and the
+controller owns its 30-second hold and restore durably. Fleet reads the feed
+once when a command settles and shows the recovery cycle from that read; the
+operator refreshes to follow it. Fleet Node routing requires command protocol
+V16 for writes. An older node only inspects, so Fleet turns controls off for its
+containers and refuses a write with an upgrade message. Feed power is separate
+from mining: turning a feed off does not stop mining first. fake-ct1 does not implement power-feed
+writes, so its controller refuses them as unimplemented.
 
 ## Protobuf presence and diagnostic fidelity
 
@@ -477,9 +545,13 @@ first; when a result is truncated, Fleet keeps the device's open errors.
 integration test builds and launches it with independent ephemeral ports, then
 checks all 288 occupied boards, collection, pairing and the HTTP system endpoint.
 Real gRPC tests cover restart/reconnect, TLS certificate rejection, credential-free
-discovery, rejected token configuration, status/cancellation/deadlines, receive
+discovery, listing protected controllers without an identity,
+per-controller bearer tokens on unary and streaming RPCs, token
+rejection as an authentication failure, rejected token configuration,
+status/cancellation/deadlines, receive
 limits and ambiguous writes.
-Real Postgres tests cover endpoint persistence and identity-based rediscovery.
+Real Postgres tests cover endpoint persistence, identity-based rediscovery, and
+rescans of protected controllers keeping their verified identity.
 
 On an Apple M4 Max, a 96-module/288-board simulator map measured 110,248 protobuf
 bytes versus 382,898 equivalent protojson bytes, uncompressed. The reproducible
@@ -525,8 +597,8 @@ Apply the additive endpoint migration and deploy compatible server, FleetNode an
 Proto plugin builds together. Before rollout, validate one direct and one
 FleetNode-managed controller running the selected firmware contract: SystemInfo
 identity, the full map/diagnostics, supplemental fields, both web links/proxying,
-reconnect, configured TLS, and approved control readback. Authenticated controllers
-remain outside the supported rollout configuration. Compare bytes, latency,
+reconnect, configured TLS, approved control readback, and one controller with
+`mdk_auth` enabled. Compare bytes, latency,
 timeouts and controller load against the previous build at the same cadence. No hardware validation is implied by simulator success.
 
 Monitor failed required reads, supplemental gRPC status warnings, unknown slots,
@@ -548,8 +620,7 @@ controllers and starts a self-coordinated rollout that the Frigate root helpers
 drive through etcd.
 
 - Transport and auth: native gRPC to the controller RPC port, reusing the
-  per-endpoint clients. There is no login or bearer token, so controllers that
-  require `mdk_auth` are not supported. FleetNode-owned controllers are not
+  per-endpoint clients and their stored controller token. FleetNode-owned controllers are not
   supported either: `RemoteFleetNodeMiner` answers every update call with
   FailedPrecondition.
 - Instance routing: one HA pair is one Fleet device. `DeviceEndpoint.ID` is the

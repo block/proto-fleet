@@ -12,14 +12,24 @@ interface ReadNoticesProps {
   error?: string;
   coverage?: CoverageNotice;
   testIdPrefix: string;
+  /** Spacing around each notice; defaults to the inset used inside controller record views. */
+  className?: string;
 }
 
 /** Explains failed refreshes and partial coverage above a controller record view. */
-const ReadNotices = ({ staleTitle, unavailableTitle, fetchedAt, error, coverage, testIdPrefix }: ReadNoticesProps) => (
+const ReadNotices = ({
+  staleTitle,
+  unavailableTitle,
+  fetchedAt,
+  error,
+  coverage,
+  testIdPrefix,
+  className = "mx-4 mb-3",
+}: ReadNoticesProps) => (
   <>
     {error ? (
       <Callout
-        className="mx-4 mb-3"
+        className={className}
         intent={fetchedAt ? "warning" : "danger"}
         prefixIcon={<Alert />}
         title={fetchedAt ? staleTitle : unavailableTitle}
@@ -29,7 +39,7 @@ const ReadNotices = ({ staleTitle, unavailableTitle, fetchedAt, error, coverage,
     ) : null}
     {coverage ? (
       <Callout
-        className="mx-4 mb-3"
+        className={className}
         intent={coverage.intent}
         prefixIcon={coverage.intent === "information" ? <Info /> : <Alert />}
         title={coverage.title}

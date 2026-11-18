@@ -19,7 +19,7 @@ import (
 func withAccountTickets[T any](ctx context.Context, s *Service, actorID, orgID int64, accountID string, write bool, action func(context.Context, sqlc.Querier, miningEstate) (T, error)) (T, error) {
 	ctx, cancel := context.WithTimeout(ctx, miningTransactionTimeout)
 	defer cancel()
-	return db.WithTransactionTimeout(ctx, s.conn, miningTransactionTimeout, func(q sqlc.Querier) (T, error) {
+	read := func(q sqlc.Querier) (T, error) {
 		var zero T
 		admission := miningRead
 		if write {
@@ -46,7 +46,11 @@ func withAccountTickets[T any](ctx context.Context, s *Service, actorID, orgID i
 			return zero, accessError(err)
 		}
 		return action(txCtx, q, e)
-	})
+	}
+	if q := db.GetTxQueries(ctx); q != nil {
+		return read(q)
+	}
+	return db.WithTransactionTimeout(ctx, s.conn, miningTransactionTimeout, read)
 }
 func accountTicketDetail(ctx context.Context, q sqlc.Querier, orgID int64, e miningEstate, actorID, ticketID, beforeCommentID int64) (*pb.AccountTicketDetail, error) {
 	row, err := q.GetAccountRepairTicket(ctx, sqlc.GetAccountRepairTicketParams{OrgID: orgID, AccountInternalID: e.account.ID, TicketID: ticketID})

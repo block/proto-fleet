@@ -91,6 +91,23 @@ the exclusion table using the normal database administration workflow, supplying
 an explicit device ID, reason and expiration. This package adds no public
 maintenance API or automatic maintenance inference.
 
+## Direct SQL collection
+
+`telemetry_freshness_summary` is a vendor-neutral aggregate interface. External
+collectors may query it directly with a dedicated `fleet_metrics_ro` login. The
+HA PostgreSQL access policy permits that login over TLS from the two database
+hosts only. Fleet does not create its credentials or grant broad table access.
+The deployment owner provisions the login, grants CONNECT on `fleet`, USAGE on
+`public`, and SELECT on this view only, with read-only sessions and bounded
+statement/lock timeouts. A missing role or grant must fail collection visibly.
+
+Direct collectors must enforce primary-only evaluation, per-query success
+freshness, bounded cardinality, and separate unknown/missing-data handling. They
+must not sum old-primary and new-primary samples across failover. Stateless SQL
+collection does not provide the snapshot observer's retained removal tombstones;
+missing-scope transitions need an explicit monitoring policy and qualification.
+No additional application exporter or collector executable is required.
+
 ## Collection and rollout
 
 The independent host observer runs every 30 seconds and queries only a local

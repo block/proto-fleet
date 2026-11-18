@@ -24,11 +24,56 @@ func authorizePowerFeedRead(ctx context.Context, site *int64) error {
 	return nil
 }
 
+// authorizePowerFeedControl adds feed control to the reads, at the module's current site.
+func authorizePowerFeedControl(ctx context.Context, site *int64) error {
+	if err := authorizePowerFeedRead(ctx, site); err != nil {
+		return err
+	}
+	_, err := middleware.RequirePermission(ctx, authz.PermContainerPowerFeed, authz.ResourceContext{SiteID: site})
+	return err
+}
+
+func canControlPowerFeed(ctx context.Context, site *int64) bool {
+	allowed, err := middleware.HasPermission(ctx, authz.PermContainerPowerFeed, authz.ResourceContext{SiteID: site})
+	return err == nil && allowed
+}
+
+var powerFeedActions = map[pb.PowerFeedAction]string{
+	pb.PowerFeedAction_POWER_FEED_ACTION_TURN_ON:        sdk.ContainerPowerFeedTurnOn,
+	pb.PowerFeedAction_POWER_FEED_ACTION_TURN_OFF:       sdk.ContainerPowerFeedTurnOff,
+	pb.PowerFeedAction_POWER_FEED_ACTION_CYCLE:          sdk.ContainerPowerFeedCycle,
+	pb.PowerFeedAction_POWER_FEED_ACTION_CLEAR_OVERRIDE: sdk.ContainerPowerFeedClearOverride,
+}
+
+func powerFeedActionProto(action string) pb.PowerFeedAction {
+	for wire, name := range powerFeedActions {
+		if name == action {
+			return wire
+		}
+	}
+	return pb.PowerFeedAction_POWER_FEED_ACTION_UNSPECIFIED
+}
+
+func (h *Handler) ControlModulePowerFeed(ctx context.Context, req *connect.Request[pb.ControlModulePowerFeedRequest]) (*connect.Response[pb.ControlModulePowerFeedResponse], error) {
+	if h.commands == nil {
+		return nil, fleeterror.NewUnimplementedError("module commands unavailable")
+	}
+	action, ok := powerFeedActions[req.Msg.Action]
+	if !ok {
+		return nil, fleeterror.NewInvalidArgumentError("unsupported power feed action")
+	}
+	result, identifier, err := h.commands.ControlModulePowerFeed(ctx, req.Msg.ModuleId, req.Msg.DeviceIdentifier, action, req.Msg.FeedId, authorizePowerFeedControl)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.ControlModulePowerFeedResponse{DeviceIdentifier: identifier, BatchIdentifier: result.BatchIdentifier}), nil
+}
+
 func (h *Handler) GetModulePowerFeed(ctx context.Context, req *connect.Request[pb.GetModulePowerFeedRequest]) (*connect.Response[pb.GetModulePowerFeedResponse], error) {
 	if h.commands == nil {
 		return nil, fleeterror.NewUnimplementedError("module commands unavailable")
 	}
-	result, err := h.commands.ReadModulePowerFeed(ctx, req.Msg.ModuleId, authorizePowerFeedRead)
+	result, err := h.commands.ReadModulePowerFeed(ctx, req.Msg.ModuleId, authorizePowerFeedRead, canControlPowerFeed)
 	if err != nil {
 		return nil, err
 	}
@@ -55,6 +100,12 @@ func modulePowerFeedResponse(r command.ModulePowerFeed) *pb.GetModulePowerFeedRe
 			VoltageV: f.VoltageV, CurrentA: f.CurrentA, PowerW: f.PowerW,
 			VoltageAbV: f.VoltageABV, VoltageBcV: f.VoltageBCV, VoltageCaV: f.VoltageCAV,
 			CurrentAA: f.CurrentAA, CurrentBA: f.CurrentBA, CurrentCA: f.CurrentCA,
+		}
+	}
+	if c := r.Control; c != nil {
+		out.Control = &pb.PowerFeedControl{UnavailableReason: c.UnavailableReason, CycleHoldSeconds: uint32(sdk.PowerFeedCycleHold.Seconds())}
+		for _, action := range c.Actions {
+			out.Control.Actions = append(out.Control.Actions, powerFeedActionProto(action))
 		}
 	}
 	if c := i.RecoveryCycle; c != nil {

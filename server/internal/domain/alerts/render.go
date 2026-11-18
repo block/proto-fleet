@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/google/uuid"
 )
 
 // Slack limits: section text ≤3000, top-level fallback text should stay ≤4000, ≤50 blocks per message.
@@ -46,6 +48,11 @@ func renderSlack(publicURL string, alerts []Alert, _ map[string]DeviceIdentity) 
 				return
 			}
 			line := groupLine(g, resolved)
+			for _, path := range g.ActionPaths {
+				if target := actionURL(publicURL, path); target != "" {
+					line += "\n<" + target + "|Open reporting queue item>"
+				}
+			}
 			blocks = append(blocks, mrkdwnSection(line))
 			fallbackLines = append(fallbackLines, line)
 			remaining--
@@ -300,6 +307,7 @@ type alertGroup struct {
 	// Distinct instance summaries, capped at groupSampleSummaries; SummaryCount is how many there were. Most
 	// rules render summary from the rule, so a group has one; the ones that interpolate the firing instance
 	// ("Curtailment source maestro-b is unreachable") have one per instance, and no single one describes them.
+	ActionPaths  []string
 	Summaries    []string
 	SummaryCount int
 	// Instances in the group, which exceeds DeviceCount only when a rule fires on a non-device dimension.
@@ -337,6 +345,9 @@ func groupAlerts(alerts []Alert) []alertGroup {
 			byKey[key] = g
 		}
 		g.InstanceCount++
+		if path := validatedActionPath(a.Annotations["action_path"]); path != "" && !slices.Contains(g.ActionPaths, path) && len(g.ActionPaths) < groupSampleSummaries {
+			g.ActionPaths = append(g.ActionPaths, path)
+		}
 		if summary := a.Annotations["summary"]; summary != "" && !g.summaries[summary] {
 			g.summaries[summary] = true
 			g.SummaryCount++
@@ -391,6 +402,7 @@ func alertRuleUID(a Alert) string {
 
 // webhookAlert is the clean, Grafana-free shape delivered to generic webhook channels.
 type webhookAlert struct {
+	ActionPath string `json:"action_path,omitempty"`
 	Status     string `json:"status"`
 	RuleUID    string `json:"rule_uid,omitempty"`
 	AlertName  string `json:"alert_name"`
@@ -422,6 +434,7 @@ func renderWebhook(orgID int64, alerts []Alert, identities map[string]DeviceIden
 			id := a.Labels["device_id"]
 			ident := identities[id]
 			out = append(out, webhookAlert{
+				ActionPath: validatedActionPath(a.Annotations["action_path"]),
 				Status:     a.Status,
 				RuleUID:    alertRuleUID(a),
 				AlertName:  a.Labels["alertname"],
@@ -476,4 +489,34 @@ func truncate(s string, maxRunes int) string {
 		return s
 	}
 	return string([]rune(s)[:maxRunes])
+}
+
+func validatedActionPath(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.IsAbs() || u.Host != "" || u.Path != "/accounts/reports" || u.Fragment != "" || strings.ContainsAny(raw, "<>\r\n\\") {
+		return ""
+	}
+	values := u.Query()
+	if len(values) != 2 || len(values["account"]) != 1 || len(values["queue"]) != 1 {
+		return ""
+	}
+	if _, err := uuid.Parse(values.Get("account")); err != nil {
+		return ""
+	}
+	if _, err := uuid.Parse(values.Get("queue")); err != nil {
+		return ""
+	}
+	return u.Path + "?" + values.Encode()
+}
+func actionURL(publicURL, path string) string {
+	base, err := url.Parse(publicURL)
+	if err != nil || base.Host == "" || (base.Scheme != "https" && base.Scheme != "http") {
+		return ""
+	}
+	relative := validatedActionPath(path)
+	if relative == "" {
+		return ""
+	}
+	target, _ := url.Parse(relative)
+	return base.ResolveReference(target).String()
 }

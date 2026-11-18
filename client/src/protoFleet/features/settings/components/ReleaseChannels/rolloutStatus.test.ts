@@ -22,11 +22,14 @@ import {
   activeUpdateSummary,
   canRetryRemaining,
   channelAssignmentKey,
+  channelMembersLabel,
   channelUpdateStatus,
+  deviceCountLabel,
   deviceCounts,
   evidenceScopeLabel,
   failedDevices,
   hasUnavailableAssignedFirmware,
+  isContainerPair,
   lastFinishedByChannelAssignment,
   metricDisplay,
   modelFirmwareLabel,
@@ -74,6 +77,52 @@ describe("release channel target keys", () => {
   });
 });
 const rigGroup = { ...canaryChannel.modelGroups[0], activeRolloutId: 0n, assignmentGeneration: 1n };
+const rigPair = { manufacturer: "Proto", model: "Rig" };
+const containerPair = { manufacturer: "Proto", model: "CT1" };
+
+describe("device wording by model pair", () => {
+  // A container update reuses a rig update's shape with the container pair.
+  const containerRollout = (base = activeRigRollout) => create(RolloutSchema, { ...base, ...containerPair });
+
+  it("recognizes a Proto Container by its pair, as the server folds it", () => {
+    expect(isContainerPair(containerPair)).toBe(true);
+    expect(isContainerPair({ manufacturer: " proto ", model: "ct1" })).toBe(true);
+    expect(isContainerPair(rigPair)).toBe(false);
+    expect(isContainerPair({ manufacturer: "", model: "CT1" })).toBe(false);
+  });
+
+  it("counts a pair's devices as miners or containers", () => {
+    expect(deviceCountLabel(rigPair, 1)).toBe("1 miner");
+    expect(deviceCountLabel(rigPair, 2000)).toBe("2,000 miners");
+    expect(deviceCountLabel(containerPair, 1)).toBe("1 container");
+    expect(deviceCountLabel(containerPair, 12)).toBe("12 containers");
+  });
+
+  it("words a container update's progress and evidence as containers", () => {
+    const counts = rolloutDeviceCounts(activeRigRollout);
+    expect(rolloutProgressSummary(counts, containerPair)).toBe("2 of 6 containers updated (33%)");
+    expect(activeUpdateSummary(containerRollout())).toBe("2 of 6 containers updated");
+    expect(evidenceScopeLabel(containerRollout(completedRigRollout))).toBe("All containers");
+  });
+
+  it("names an empty container model group", () => {
+    const group = { ...rigGroup, ...containerPair, minerCount: 0 };
+    expect(modelUpdateStatus(group, undefined, undefined).label).toBe("No containers");
+    expect(modelUpdateStatus({ ...rigGroup, minerCount: 0 }, undefined, undefined).label).toBe("No miners");
+  });
+
+  it("splits a channel's members by device type", () => {
+    const groups = [
+      { ...rigPair, minerCount: 6 },
+      { ...containerPair, minerCount: 2 },
+    ];
+    expect(channelMembersLabel(8, groups)).toBe("6 miners, 2 containers");
+    expect(channelMembersLabel(6, [groups[0]])).toBe("6 miners");
+    expect(channelMembersLabel(1, [{ ...containerPair, minerCount: 1 }])).toBe("1 container");
+    expect(channelMembersLabel(1, [{ ...rigPair, minerCount: 1 }])).toBe("1 miner");
+    expect(channelMembersLabel(0, [])).toBe("0 miners");
+  });
+});
 
 describe("active rollout identity", () => {
   const group = {
@@ -326,7 +375,7 @@ describe("device counts and progress", () => {
       { name: "Remaining", status: "WARNING", count: 2 },
       { name: "Failed", status: "CRITICAL", count: 1 },
     ]);
-    expect(rolloutProgressSummary(counts)).toBe("3 of 6 miners updated (50%), 1 failed");
+    expect(rolloutProgressSummary(counts, rigPair)).toBe("3 of 6 miners updated (50%), 1 failed");
   });
 
   it("uses a neutral canceled segment for unfinished terminal work", () => {
@@ -356,7 +405,7 @@ describe("device counts and progress", () => {
       ]);
       expect(fetchedCounts).toEqual(summaryCounts);
       expect(summaryCounts).toMatchObject({ updated: 199, total: 200, percent: 99 });
-      expect(rolloutProgressSummary(summaryCounts)).toBe(`199 of 200 miners updated (99%)${suffix}`);
+      expect(rolloutProgressSummary(summaryCounts, rigPair)).toBe(`199 of 200 miners updated (99%)${suffix}`);
     },
   );
 
@@ -366,14 +415,14 @@ describe("device counts and progress", () => {
   ])("reports exact completion for $done updated miners, excluding neutral targets", ({ done, expected }) => {
     const counts = rolloutDeviceCounts(create(RolloutSchema, { deviceCounts: { done, excluded: 2, skipped: 1 } }));
     expect(counts).toMatchObject({ updated: done, total: done, percent: 100 });
-    expect(rolloutProgressSummary(counts)).toBe(expected);
+    expect(rolloutProgressSummary(counts, rigPair)).toBe(expected);
   });
 
   it("does not report completion for an empty or entirely neutral scope", () => {
     for (const deviceCounts of [{}, { excluded: 2, skipped: 1 }]) {
       const counts = rolloutDeviceCounts(create(RolloutSchema, { deviceCounts }));
       expect(counts).toMatchObject({ updated: 0, total: 0, percent: 0 });
-      expect(rolloutProgressSummary(counts)).toBe("0 of 0 miners updated (0%)");
+      expect(rolloutProgressSummary(counts, rigPair)).toBe("0 of 0 miners updated (0%)");
     }
   });
 

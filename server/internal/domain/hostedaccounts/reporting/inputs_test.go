@@ -51,6 +51,31 @@ func TestReviewedSharedMeterAllocationsCannotDoubleConsumption(t *testing.T) {
 	require.ErrorContains(t, in.Validate(), "exceeds one")
 }
 
+func TestReportingScheduleRequiresExplicitBoundaries(t *testing.T) {
+	in := Inputs{Configuration: Configuration{Timezone: "UTC", ReportingYearMonth: 1, ReportingYearDay: 1}}
+	in.Configuration.Schedule = &Schedule{OwnerUserID: "0f514167-e33a-45df-8a16-c76ea3551ef4", SourceRef: "approved reporting calendar", MonthlyStart: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	require.NoError(t, in.Validate())
+	in.Configuration.Schedule.MonthlyStart = in.Configuration.Schedule.MonthlyStart.Add(time.Hour)
+	require.Error(t, in.Validate(), "calendar starts must be explicit local midnight boundaries")
+	in.Configuration.Schedule.MonthlyStart = time.Time{}
+	require.Error(t, in.Validate(), "a schedule must enable at least one period")
+	in.Configuration.Schedule.AnnualStart = time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	require.Error(t, in.Validate(), "annual anchor must match configured reporting year")
+	in.Configuration.Schedule.AnnualStart = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	in.Configuration.Schedule.SourceRef = ""
+	require.Error(t, in.Validate(), "an inferred start is not approved calendar evidence")
+}
+
+func TestReportingYearRejectsLeapDayUntilNonLeapRuleIsDefined(t *testing.T) {
+	in := Inputs{Configuration: Configuration{Timezone: "UTC", ReportingYearMonth: 2, ReportingYearDay: 29}}
+	require.ErrorContains(t, in.Validate(), "February 29")
+	in.Configuration.Schedule = &Schedule{OwnerUserID: "0f514167-e33a-45df-8a16-c76ea3551ef4", SourceRef: "calendar", AnnualStart: time.Date(2024, 2, 29, 0, 0, 0, 0, time.UTC)}
+	require.ErrorContains(t, in.Validate(), "February 29")
+	in.Configuration.ReportingYearDay = 28
+	in.Configuration.Schedule.AnnualStart = time.Date(2024, 2, 28, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, in.Validate())
+}
+
 func TestInputCalendarAndCurrencyAreExplicit(t *testing.T) {
 	at := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	in := Inputs{Configuration: Configuration{Timezone: "UTC", ReportingYearMonth: 1, ReportingYearDay: 1}, Orders: []Order{{ID: "order", Name: "Order", Start: at, SourceRef: "signed"}}}
@@ -168,13 +193,6 @@ func BenchmarkMeterValidation(b *testing.B) {
 			})
 		}
 	}
-}
-
-func TestReportingYearRejectsLeapDayUntilNonLeapRuleIsDefined(t *testing.T) {
-	in := Inputs{Configuration: Configuration{Timezone: "UTC", ReportingYearMonth: 2, ReportingYearDay: 29}}
-	require.ErrorContains(t, in.Validate(), "February 29")
-	in.Configuration.ReportingYearDay = 28
-	require.NoError(t, in.Validate())
 }
 
 func TestReportingInputAssetKindsPreserveContractualRepairUnits(t *testing.T) {

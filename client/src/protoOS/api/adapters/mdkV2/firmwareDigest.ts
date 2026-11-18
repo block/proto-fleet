@@ -1,6 +1,6 @@
 // FIPS 180-4 SHA-256 for image integrity (not signature verification). CT1 is
-// served over LAN HTTP, where SubtleCrypto is unavailable. Keep this bounded to
-// the image already in memory; no padded copy of the complete file is needed.
+// served over LAN HTTP, where SubtleCrypto is unavailable. The hash is fed in
+// pieces, so a large file is never held in memory to be hashed.
 const constants = new Uint32Array([
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98,
   0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
@@ -13,27 +13,26 @@ const constants = new Uint32Array([
 ]);
 const rotate = (n: number, bits: number) => (n >>> bits) | (n << (32 - bits));
 
-export async function firmwareDigest(bytes: Uint8Array, signal?: AbortSignal | null): Promise<string> {
+export interface Sha256 {
+  update(bytes: Uint8Array): void;
+  /** Lowercase hex. The hash can't be fed after this. */
+  digest(): string;
+}
+
+export function createSha256(): Sha256 {
   const hash = new Uint32Array([
     0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
   ]);
   const words = new Uint32Array(64);
-  const blocks = Math.ceil((bytes.length + 9) / 64);
-  const bitLength = bytes.length * 8;
-  for (let block = 0; block < blocks; block++) {
-    if (block % 4096 === 0) {
-      signal?.throwIfAborted();
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    }
-    words.fill(0);
-    for (let i = 0; i < 64; i++) {
-      const at = block * 64 + i;
-      const value = at < bytes.length ? bytes[at] : at === bytes.length ? 0x80 : 0;
-      words[i >>> 2] |= value << (24 - (i % 4) * 8);
-    }
-    if (block === blocks - 1) {
-      words[14] = Math.floor(bitLength / 0x100000000);
-      words[15] = bitLength;
+  // Bytes that don't fill a 64-byte block yet.
+  const pending = new Uint8Array(64);
+  let filled = 0;
+  let length = 0;
+
+  const compress = (bytes: Uint8Array, at: number) => {
+    for (let i = 0; i < 16; i++) {
+      const j = at + i * 4;
+      words[i] = (bytes[j] << 24) | (bytes[j + 1] << 16) | (bytes[j + 2] << 8) | bytes[j + 3];
     }
     for (let i = 16; i < 64; i++) {
       const a = words[i - 15],
@@ -61,7 +60,48 @@ export async function firmwareDigest(bytes: Uint8Array, signal?: AbortSignal | n
     [a, b, c, d, e, f, g, h].forEach((value, i) => {
       hash[i] += value;
     });
+  };
+
+  return {
+    update(bytes) {
+      length += bytes.length;
+      let at = 0;
+      if (filled) {
+        at = Math.min(64 - filled, bytes.length);
+        pending.set(bytes.subarray(0, at), filled);
+        filled += at;
+        if (filled < 64) return;
+        compress(pending, 0);
+        filled = 0;
+      }
+      for (; at + 64 <= bytes.length; at += 64) compress(bytes, at);
+      pending.set(bytes.subarray(at));
+      filled = bytes.length - at;
+    },
+    digest() {
+      const tail = new Uint8Array(filled < 56 ? 64 : 128);
+      tail.set(pending.subarray(0, filled));
+      tail[filled] = 0x80;
+      const view = new DataView(tail.buffer);
+      const bitLength = length * 8;
+      view.setUint32(tail.length - 8, Math.floor(bitLength / 0x100000000));
+      view.setUint32(tail.length - 4, bitLength >>> 0);
+      for (let at = 0; at < tail.length; at += 64) compress(tail, at);
+      return Array.from(hash, (n) => n.toString(16).padStart(8, "0")).join("");
+    },
+  };
+}
+
+// Bytes hashed between yields to the event loop, so the page stays responsive and the request can be stopped.
+const SLICE_BYTES = 4096 * 64;
+
+export async function firmwareDigest(bytes: Uint8Array, signal?: AbortSignal | null): Promise<string> {
+  const sha256 = createSha256();
+  for (let at = 0; at === 0 || at < bytes.length; at += SLICE_BYTES) {
+    signal?.throwIfAborted();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    sha256.update(bytes.subarray(at, at + SLICE_BYTES));
   }
   signal?.throwIfAborted();
-  return Array.from(hash, (n) => n.toString(16).padStart(8, "0")).join("");
+  return sha256.digest();
 }

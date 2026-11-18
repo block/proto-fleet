@@ -85,6 +85,52 @@ retains channel enforcement, retry, pause, and cancellation scheduling. Cancelin
 a Fleet rollout does not cancel an already-dispatched Frigate job. Per-board
 progress and owner/failure evidence appear in container module details.
 
+## CT1 controller software version
+
+A container's controllers install its hashboard firmware, so a channel can name
+the controller software version its containers should run before they take
+firmware. Set it per container manufacturer/model pair:
+
+```sh
+curl -X PUT "$FLEET/api/v1/release-channels/$CHANNEL/controller-software" \
+  -H "Authorization: Bearer $FLEET_API_KEY" -H "Content-Type: application/json" \
+  -d '{"manufacturer":"Proto","model":"CT1","version":"1.6.0"}'
+```
+
+- The version must be that of an uploaded controller software package; an
+  unknown version is rejected with `failed_precondition`. An empty `version`
+  clears the target. A successful write returns an empty response.
+- Setting or clearing the target needs both `miner:firmware_update` and
+  `controller:software_update`, each held at organization scope because a
+  channel can span sites. Reading it needs only `miner:firmware_update`.
+- The target starts no update. Controller software is still updated one
+  container at a time, as described in
+  [Frigate server updates](frigate-server-updates.md). Deleting the package
+  later does not clear the target.
+- `GET /release-channels/{channelId}/controller-software` returns each
+  container model in the channel with its target, how many containers are on
+  it, and the total container count. It does not return container details.
+- `GET /release-channels/{channelId}/containers` returns a page of containers
+  with their reported controller software version and `onTarget`. Set
+  `manufacturer` and `model` to the exact observed pair from the summary.
+  Empty identities are exact filters, not wildcards. Set `pageSize` up to
+  1000 and pass each response's `cursor` until it is empty.
+  Versions compare after trimming whitespace and one leading `v`. A container
+  that reports no version is not on the target.
+- While a target is set, a rollout sends hashboard firmware only to containers
+  on it. A container that is behind stays `QUEUED`: it uses no attempt and
+  does not fail. When every container due an update is waiting, the rollout's
+  `evidence.holdReason` names the version and how many containers need it. The
+  rollout stays active until those containers are updated, skipped, or
+  canceled, or the target is cleared.
+- `AdvanceRollout` rejects a selection that includes a container behind the
+  target with `DEVICE_NOT_DISPATCHABLE`, lists those containers in
+  `deviceIdentifiers`, and queues nothing. Skip them or advance the rest.
+- A firmware update started from a container's own menu is not held.
+
+Each container reports one controller software version, so a pair with only
+one controller updated can read as on the target.
+
 ## Resource endpoints
 
 All paths below start with `/api/v1` on the Fleet server. The shipped web
@@ -99,6 +145,8 @@ uses `http://localhost:4000/api/v1/...`.
 | Preview membership | `POST /release-channels/preview-scope` | PreviewReleaseChannelScope |
 | Inspect membership conflicts | `GET /release-channels/membership-conflicts` | ListReleaseChannelMembershipConflicts |
 | List model groups or miners | `GET /release-channels/{channelId}/model-groups`, `GET /release-channels/{channelId}/miners` | ListReleaseChannelModelGroups, ListReleaseChannelMiners |
+| List container controller software | `GET /release-channels/{channelId}/containers` | ListReleaseChannelContainers |
+| Read or set the controller software version | `GET`, `PUT /release-channels/{channelId}/controller-software` | ListReleaseChannelControllerSoftware, SetReleaseChannelControllerSoftware |
 | Preview or apply assignments | `POST /release-channels/{channelId}/firmware/preview`, `POST /release-channels/{channelId}/firmware/apply` | PreviewReleaseChannelFirmware, ApplyReleaseChannelFirmware |
 | List or read rollouts | `GET /rollouts`, `GET /rollouts/{rolloutId}` | ListRollouts, GetRollout |
 | Inspect per-miner progress | `GET /rollouts/{rolloutId}/devices` | ListRolloutDevices |

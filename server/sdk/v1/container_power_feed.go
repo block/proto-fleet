@@ -9,13 +9,38 @@ import (
 	"math"
 	"strings"
 	"time"
+	"unicode"
 )
 
 const CapabilityContainerPowerFeed = "container_power_feed"
 
+// CapabilityContainerPowerFeedControl marks plugins that accept the feed write
+// actions. Inspection alone needs only CapabilityContainerPowerFeed.
+const CapabilityContainerPowerFeedControl = "container_power_feed_control"
+
 // ContainerPowerFeedInspect reads one module's mapped power feed. It never
 // changes controller state.
 const ContainerPowerFeedInspect = "inspect"
+
+// Feed write actions. Each one names the feed the operator confirmed; the
+// plugin refuses it unless that feed is still the module's unique mapping.
+const (
+	// ContainerPowerFeedTurnOn enables a disabled feed.
+	ContainerPowerFeedTurnOn = "turn_on"
+	// ContainerPowerFeedTurnOff disables an enabled feed. It cuts power to the
+	// module's boards without stopping mining first.
+	ContainerPowerFeedTurnOff = "turn_off"
+	// ContainerPowerFeedCycle starts the controller's durable recovery cycle:
+	// the feed is held off for PowerFeedCycleHold and then restored, even across
+	// disconnects, restarts and HA handoff.
+	ContainerPowerFeedCycle = "cycle"
+	// ContainerPowerFeedClearOverride removes the controller's operator marker
+	// without changing the feed's state.
+	ContainerPowerFeedClearOverride = "clear_override"
+)
+
+// PowerFeedCycleHold is how long the controller holds a cycled feed off.
+const PowerFeedCycleHold = 30 * time.Second
 
 // Mapping confidence for the feed that supplies one module. The plugin derives
 // it from the controller map; Fleet never infers an outlet from positions.
@@ -61,23 +86,77 @@ type ContainerPowerFeedModule struct {
 }
 
 // ContainerPowerFeedRequest is a closed controller operation, never a raw path.
+// FeedID is the feed the operator confirmed; writes require it and inspection
+// forbids it.
 type ContainerPowerFeedRequest struct {
 	Action string                   `json:"action"`
 	Module ContainerPowerFeedModule `json:"module"`
+	FeedID string                   `json:"feed_id,omitempty"`
 }
 
 func (r ContainerPowerFeedRequest) ReadOnly() bool { return r.Action == ContainerPowerFeedInspect }
 
-func (r ContainerPowerFeedRequest) Validate() error {
-	if r.Action != ContainerPowerFeedInspect {
-		return fmt.Errorf("unsupported container power feed operation")
+// IsContainerPowerFeedWrite reports whether action is a feed write action.
+func IsContainerPowerFeedWrite(action string) bool {
+	switch action {
+	case ContainerPowerFeedTurnOn, ContainerPowerFeedTurnOff, ContainerPowerFeedCycle, ContainerPowerFeedClearOverride:
+		return true
 	}
+	return false
+}
+
+// PowerFeedWritesFor returns the writes that change the feed's current state,
+// in display order. A cycle needs a feed that is on and known not to be
+// faulted. Fleet offers these and the controller plugin accepts only these.
+func PowerFeedWritesFor(feed *PowerFeedReading) []string {
+	if feed == nil {
+		return nil
+	}
+	var actions []string
+	switch feed.State {
+	case PowerFeedStateDisabled:
+		actions = append(actions, ContainerPowerFeedTurnOn)
+	case PowerFeedStateEnabled:
+		actions = append(actions, ContainerPowerFeedTurnOff)
+		if feed.Faulted != nil && !*feed.Faulted {
+			actions = append(actions, ContainerPowerFeedCycle)
+		}
+	}
+	if feed.Overridden {
+		actions = append(actions, ContainerPowerFeedClearOverride)
+	}
+	return actions
+}
+
+// printableText rejects control and other non-printing characters, so an
+// identifier is safe to show and to record in the activity log.
+func printableText(s string) bool {
+	return strings.IndexFunc(s, func(r rune) bool { return !unicode.IsPrint(r) }) < 0
+}
+
+func (r ContainerPowerFeedRequest) Validate() error {
 	m := r.Module
 	if m.Tank < 1 || m.Tank > CT1TankCount || m.Module < 1 || m.Module > CT1ModulesPerTank {
 		return fmt.Errorf("tank and module positions out of range")
 	}
 	if len(m.ReportedID) > powerFeedTextLimit || strings.TrimSpace(m.ReportedID) != m.ReportedID {
 		return fmt.Errorf("invalid module identity")
+	}
+	switch {
+	case r.Action == ContainerPowerFeedInspect:
+		if r.FeedID != "" {
+			return fmt.Errorf("inspection does not name a feed")
+		}
+	case IsContainerPowerFeedWrite(r.Action):
+		// A write acts only on a confirmed module and the feed the operator saw.
+		if m.ReportedID == "" {
+			return fmt.Errorf("feed writes require a confirmed module identity")
+		}
+		if r.FeedID == "" || len(r.FeedID) > powerFeedTextLimit || strings.TrimSpace(r.FeedID) != r.FeedID || !printableText(r.FeedID) {
+			return fmt.Errorf("feed writes require the confirmed feed")
+		}
+	default:
+		return fmt.Errorf("unsupported container power feed operation")
 	}
 	return nil
 }
@@ -161,8 +240,11 @@ type ModulePowerFeedInspection struct {
 	RecoveryCycle      *PowerRecoveryCycle `json:"recovery_cycle,omitempty"`
 }
 
+// ContainerPowerFeedResult carries an inspection for "inspect" and the
+// controller's post-write readback of the feed for a write action.
 type ContainerPowerFeedResult struct {
 	Inspection *ModulePowerFeedInspection `json:"inspection,omitempty"`
+	Applied    *PowerFeedReading          `json:"applied,omitempty"`
 }
 
 func validText(values ...string) bool {
@@ -196,7 +278,10 @@ func (m PowerFeedMapping) validate() error {
 }
 
 func (r ContainerPowerFeedResult) Validate(req ContainerPowerFeedRequest) error {
-	if req.Action != ContainerPowerFeedInspect {
+	if IsContainerPowerFeedWrite(req.Action) {
+		return r.validateWrite(req)
+	}
+	if req.Action != ContainerPowerFeedInspect || r.Applied != nil {
 		return fmt.Errorf("unsupported container power feed result")
 	}
 	i := r.Inspection
@@ -212,23 +297,61 @@ func (r ContainerPowerFeedResult) Validate(req ContainerPowerFeedRequest) error 
 		return fmt.Errorf("unknown feed unavailable reason")
 	}
 	if f := i.Feed; f != nil {
-		if i.FeedUnavailableReason != "" || f.ID == "" || f.ID != i.Mapping.FeedID || !validText(f.ID, f.Phase) {
+		if i.FeedUnavailableReason != "" || f.ID != i.Mapping.FeedID {
 			return fmt.Errorf("feed reading must belong to the mapped feed")
 		}
-		switch f.State {
-		case PowerFeedStateEnabled, PowerFeedStateDisabled, PowerFeedStateUnknown:
-		default:
-			return fmt.Errorf("unknown feed state")
-		}
-		for _, v := range f.measurements() {
-			if v != nil && (math.IsNaN(*v) || math.IsInf(*v, 0)) {
-				return fmt.Errorf("non-finite feed measurement")
-			}
+		if err := f.validate(); err != nil {
+			return err
 		}
 	}
 	if c := i.RecoveryCycle; c != nil {
 		if !i.RecoveryCycleKnown || c.ID == "" || !validText(c.ID, c.Scope, c.Phase, c.LastError) || len(c.OutletIDs) > powerFeedListLimit || !validText(c.OutletIDs...) {
 			return fmt.Errorf("invalid recovery cycle")
+		}
+	}
+	return nil
+}
+
+func (f PowerFeedReading) validate() error {
+	if f.ID == "" || !validText(f.ID, f.Phase) {
+		return fmt.Errorf("invalid feed reading")
+	}
+	switch f.State {
+	case PowerFeedStateEnabled, PowerFeedStateDisabled, PowerFeedStateUnknown:
+	default:
+		return fmt.Errorf("unknown feed state")
+	}
+	for _, v := range f.measurements() {
+		if v != nil && (math.IsNaN(*v) || math.IsInf(*v, 0)) {
+			return fmt.Errorf("non-finite feed measurement")
+		}
+	}
+	return nil
+}
+
+// validateWrite requires the controller's acknowledgement for the confirmed
+// feed to show the action's effect. A cycle acknowledges its restore target,
+// so any state is accepted for it.
+func (r ContainerPowerFeedResult) validateWrite(req ContainerPowerFeedRequest) error {
+	a := r.Applied
+	if r.Inspection != nil || a == nil || a.ID != req.FeedID {
+		return fmt.Errorf("feed write readback required")
+	}
+	if err := a.validate(); err != nil {
+		return err
+	}
+	switch req.Action {
+	case ContainerPowerFeedTurnOn:
+		if a.State != PowerFeedStateEnabled {
+			return fmt.Errorf("feed write readback does not show the feed enabled")
+		}
+	case ContainerPowerFeedTurnOff:
+		if a.State != PowerFeedStateDisabled {
+			return fmt.Errorf("feed write readback does not show the feed disabled")
+		}
+	case ContainerPowerFeedClearOverride:
+		if a.Overridden {
+			return fmt.Errorf("feed write readback still shows the override")
 		}
 	}
 	return nil
@@ -271,7 +394,8 @@ func DecodeContainerPowerFeedResult(data []byte, req ContainerPowerFeedRequest) 
 	return r, r.Validate(req)
 }
 
-// DeviceContainerPowerFeed reads container power feeds for one module.
+// DeviceContainerPowerFeed reads, and with CapabilityContainerPowerFeedControl
+// writes, the power feed that supplies one module.
 type DeviceContainerPowerFeed interface {
 	ContainerPowerFeed(ctx context.Context, request ContainerPowerFeedRequest) (ContainerPowerFeedResult, error)
 }

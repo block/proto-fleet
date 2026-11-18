@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Buffer, File } from "node:buffer";
 import { createHash } from "node:crypto";
-import { firmwareDigest } from "./firmwareDigest";
+import { createSha256, firmwareDigest } from "./firmwareDigest";
 import { decodeFirmwareMetadata, readFirmwareImage } from "./firmwareImage";
 import { firmwareTestImage, firmwareTestImageWithMetadata, firmwareTestString } from "./firmwareTestFixtures";
 
@@ -149,6 +149,20 @@ describe("firmware digest", () => {
       expect(await firmwareDigest(bytes)).toBe(createHash("sha256").update(bytes).digest("hex"));
     },
   );
+  it("gives the same digest when a file is fed in uneven pieces", () => {
+    const bytes = Uint8Array.from({ length: 1000 }, (_, i) => (i * 7) % 256);
+    const sha256 = createSha256();
+    for (const [from, to] of [
+      [0, 0],
+      [0, 3],
+      [3, 64],
+      [64, 191],
+      [191, 192],
+      [192, 1000],
+    ])
+      sha256.update(bytes.subarray(from, to));
+    expect(sha256.digest()).toBe(createHash("sha256").update(bytes).digest("hex"));
+  });
   it("matches the SHA-256 abc vector and observes cancellation", async () => {
     expect(await firmwareDigest(new TextEncoder().encode("abc"))).toBe(
       "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",

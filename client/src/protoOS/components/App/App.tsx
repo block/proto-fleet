@@ -19,6 +19,7 @@ import { getNoPoolsCalloutState } from "@/protoOS/components/NoPoolsCallout/util
 import { WarnWakeDialog } from "@/protoOS/components/Power";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import LoginModal from "@/protoOS/features/auth/components/LoginModal";
+import ContainerFrigateUpdateDowntime from "@/protoOS/features/firmwareUpdate/components/ContainerFrigateUpdateDowntime";
 import { isAuthRequiredPath } from "@/protoOS/routeAuth";
 import { containerRoutePrefetch, globalRoutePrefetch } from "@/protoOS/routePrefetch";
 import {
@@ -357,7 +358,12 @@ const App = ({
   // ============================================================================
   // Skip the mining driver check during onboarding since the miner may not be fully operational yet
   if (!isFleetHosted && (!isWebServerRunning || (!isOnboardingRoute && !isMiningDriverRunning))) {
-    return <BootingUp />;
+    return (
+      <>
+        <BootingUp />
+        <ContainerFrigateUpdateDowntime />
+      </>
+    );
   }
 
   // Show loading spinner while waiting for system status

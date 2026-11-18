@@ -497,6 +497,11 @@ func isOrderedWrite(kind commandtype.Type) bool {
 		commandtype.Curtail, commandtype.Uncurtail, commandtype.ApplyCurtailmentConfig,
 		commandtype.SetContainerControl, commandtype.ContainerAlarmAction, commandtype.SetTankMining, commandtype.SetModuleMining, commandtype.ContainerMining:
 		return true
+	case commandtype.ControlPowerFeed:
+		// Each feed write is one synchronous controller call. A cycle's restore
+		// outlives it, but the controller owns that restore durably and reports
+		// it as its recovery cycle, which refuses every other feed write.
+		return true
 	case commandtype.FrigateServerUpdate:
 		// Each Frigate update call is synchronous and idempotent under its job
 		// ID and idempotency key, and Fleet reconciles every job from Frigate's

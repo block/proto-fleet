@@ -110,6 +110,7 @@ function mount(items: InventoryItem[], totalMiners = 1, initialEntry = "/fleet/m
     <MemoryRouter initialEntries={[initialEntry]}>
       <HostedAccountsContext.Provider
         value={{
+          reportingAccess: false,
           accounts: [create(AccountSchema, { accountId: rootId, depth: 0, name: "Host", effectiveCapabilities: 31n })],
           hostAccess: true,
           loading: false,

@@ -42,6 +42,11 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const Connected: Story = {};
+export const UpgradeRecommended: Story = {
+  args: {
+    node: { ...meta.args.node, commandProtocolUpgradeRecommended: true },
+  },
+};
 export const Unavailable: Story = {
   args: {
     node: {

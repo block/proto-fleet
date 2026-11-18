@@ -275,7 +275,7 @@ describe("account uptime headlines", () => {
         audience: "account",
         assetLabel: "module",
       }),
-    ).toBe("No uptime readings");
+    ).toBe("No hashing-state readings");
   });
 
   it("surfaces missing observations when the reporting assets are healthy", () => {

@@ -14,6 +14,8 @@ import { createAsyncIterable } from "@connectrpc/connect/protocol";
 import type { AdapterRequestOptions, MiningScope } from "../types";
 import type {
   FirmwareServiceWriteFirmwareArtifactUploadChunkBody,
+  HashboardServiceGetHashboardEventsParams,
+  HashboardServiceListRecoveryEvidenceParams,
   PoolServiceGetPoolDiagnosticsParams,
   PoolServiceUpdatePoolBody,
   SystemServiceGetLogsParams,
@@ -32,29 +34,41 @@ import type {
   V2CreatePoolRequest,
   V2CreatePoolResponse,
   V2DeletePoolResponse,
+  V2GetActivePowerRecoveryCycleResponse,
   V2GetContainerControlsResponse,
   V2GetContainerHealthResponse,
   V2GetContainerMapResponse,
   V2GetFirmwareUpdateResponse,
   V2GetHashboardASICsResponse,
+  V2GetHashboardEventsResponse,
   V2GetHAStatusResponse,
   V2GetLogsResponse,
+  V2GetMiningGroupCapabilityResponse,
+  V2GetMiningGroupResponse,
   V2GetMiningStatusResponse,
   V2GetPoolDiagnosticsResponse,
+  V2GetRecoveryEvidenceResponse,
   V2GetSystemInfoResponse,
   V2GetSystemStatusResponse,
   V2GetTargetPowerResponse,
   V2HashboardRunInConfig,
   V2ListAuditEventsResponse,
   V2ListFirmwareUpdatesResponse,
+  V2ListMiningGroupMembershipsResponse,
+  V2ListMiningGroupPoolsResponse,
+  V2ListMiningGroupsResponse,
   V2ListModuleVoltageSettingsResponse,
   V2ListPoolsResponse,
+  V2ListPowerFeedsResponse,
+  V2ListRecoveryEvidenceResponse,
   V2MuteContainerAlarmRequest,
   V2MuteContainerAlarmResponse,
   V2QueryShareQualityHistoryResponse,
   V2QueryTimeSeriesResponse,
   V2ResetContainerAlarmRequest,
   V2ResetContainerAlarmResponse,
+  V2RunDryCoolerFanReverseRequest,
+  V2RunDryCoolerFanReverseResponse,
   V2SetContainerControlResponse,
   V2SetContainerSetpointResponse,
   V2SetIdentifyLEDRequest,
@@ -78,6 +92,7 @@ import type {
 } from "./generated/generatedApi";
 import { FirmwareService } from "./generated/proto/mdk/v2/firmware_pb";
 import { HashboardService } from "./generated/proto/mdk/v2/hashboard_pb";
+import { MiningGroupService } from "./generated/proto/mdk/v2/mining_group_pb";
 import { MiningService } from "./generated/proto/mdk/v2/mining_pb";
 import { PoolService } from "./generated/proto/mdk/v2/pool_pb";
 import { PowerService } from "./generated/proto/mdk/v2/power_pb";
@@ -102,6 +117,22 @@ export interface LogTailRead {
 }
 
 export interface MdkV2Client {
+  miningGroupServiceGetMiningGroupCapability(
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2GetMiningGroupCapabilityResponse>;
+  miningGroupServiceListMiningGroups(params?: AdapterRequestOptions): HttpResponse<V2ListMiningGroupsResponse>;
+  miningGroupServiceListMiningGroupMemberships(
+    query: { groupId?: string },
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2ListMiningGroupMembershipsResponse>;
+  miningGroupServiceListMiningGroupPools(
+    path: { groupId: string },
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2ListMiningGroupPoolsResponse>;
+  miningGroupServiceGetMiningGroup(
+    path: { id: string },
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2GetMiningGroupResponse>;
   /** Bounded GetLogs read. Connect only: the REST client cannot end a following stream. */
   systemServiceReadLogTail?(query: SystemServiceGetLogsParams, params?: AdapterRequestOptions): Promise<LogTailRead>;
   systemServiceListAuditEvents?(
@@ -194,6 +225,21 @@ export interface MdkV2Client {
     path: { identifier: string },
     params?: AdapterRequestOptions,
   ): HttpResponse<V2GetHashboardASICsResponse>;
+  /** One board's past events within a window the controller defaults and caps. */
+  hashboardServiceGetHashboardEvents?(
+    query: HashboardServiceGetHashboardEventsParams,
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2GetHashboardEventsResponse>;
+  /** Recovery evidence summaries, newest first. CT1 only. */
+  hashboardServiceListRecoveryEvidence?(
+    query?: HashboardServiceListRecoveryEvidenceParams,
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2ListRecoveryEvidenceResponse>;
+  /** One recovery evidence snapshot with its bounded JSON payload. CT1 only. */
+  hashboardServiceGetRecoveryEvidence?(
+    path: { evidenceId: string },
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2GetRecoveryEvidenceResponse>;
   poolServiceListPools(params?: AdapterRequestOptions): HttpResponse<V2ListPoolsResponse>;
   poolServiceGetPoolDiagnostics(
     query?: PoolServiceGetPoolDiagnosticsParams,
@@ -217,6 +263,10 @@ export interface MdkV2Client {
     data: { value: number },
     params?: AdapterRequestOptions,
   ): HttpResponse<V2SetContainerSetpointResponse>;
+  powerServiceListPowerFeeds(params?: AdapterRequestOptions): HttpResponse<V2ListPowerFeedsResponse>;
+  powerServiceGetActivePowerRecoveryCycle(
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2GetActivePowerRecoveryCycleResponse>;
   powerServiceSetMainCircuitBreakerState(
     data: V2SetMainCircuitBreakerStateRequest,
     params?: AdapterRequestOptions,
@@ -229,6 +279,10 @@ export interface MdkV2Client {
     data: V2ResetContainerAlarmRequest,
     params?: AdapterRequestOptions,
   ): HttpResponse<V2ResetContainerAlarmResponse>;
+  powerServiceRunDryCoolerFanReverse(
+    data: V2RunDryCoolerFanReverseRequest,
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2RunDryCoolerFanReverseResponse>;
   runInServiceStartModuleRunIn(
     path: { moduleId: string; taskId?: string },
     data: V2HashboardRunInConfig,
@@ -518,9 +572,16 @@ const timeRange = <Q extends { "range.start"?: string; "range.end"?: string }>({
   ...query
 }: Q) => ({ ...query, range: { start, end } });
 
+const eventWindow = <Q extends { "window.start"?: string; "window.end"?: string }>({
+  "window.start": start,
+  "window.end": end,
+  ...query
+}: Q) => ({ ...query, window: { start, end } });
+
 export const createMdkV2Client = (transport: Transport): MdkV2Client => {
   const system = SystemService.method;
   const mining = MiningService.method;
+  const miningGroup = MiningGroupService.method;
   const hashboard = HashboardService.method;
   const pool = PoolService.method;
   const power = PowerService.method;
@@ -528,6 +589,14 @@ export const createMdkV2Client = (transport: Transport): MdkV2Client => {
   const telemetry = TelemetryService.method;
 
   return {
+    miningGroupServiceGetMiningGroupCapability: (params) =>
+      unary(transport, miningGroup.getMiningGroupCapability, {}, params),
+    miningGroupServiceListMiningGroups: (params) => unary(transport, miningGroup.listMiningGroups, {}, params),
+    miningGroupServiceListMiningGroupMemberships: (query, params) =>
+      unary(transport, miningGroup.listMiningGroupMemberships, query, params),
+    miningGroupServiceListMiningGroupPools: (path, params) =>
+      unary(transport, miningGroup.listMiningGroupPools, path, params),
+    miningGroupServiceGetMiningGroup: (path, params) => unary(transport, miningGroup.getMiningGroup, path, params),
     systemServiceReadLogTail: (query, params) => readLogTail(transport, query, params),
     systemServiceListAuditEvents: (query, params) => unary(transport, system.listAuditEvents, timeRange(query), params),
     firmwareServiceBeginFirmwareArtifactUpload: (data, params) =>
@@ -569,6 +638,12 @@ export const createMdkV2Client = (transport: Transport): MdkV2Client => {
     hashboardServiceSetIdentifyLed: (data, params) => unary(transport, hashboard.setIdentifyLED, data, params),
     hashboardServiceGetHashboardAsiCs: ({ identifier }, params) =>
       unary(transport, hashboard.getHashboardASICs, { identifier }, params),
+    hashboardServiceGetHashboardEvents: (query, params) =>
+      unary(transport, hashboard.getHashboardEvents, eventWindow(query), params),
+    hashboardServiceListRecoveryEvidence: (query = {}, params) =>
+      unary(transport, hashboard.listRecoveryEvidence, query, params),
+    hashboardServiceGetRecoveryEvidence: ({ evidenceId }, params) =>
+      unary(transport, hashboard.getRecoveryEvidence, { evidenceId }, params),
     poolServiceListPools: (params) => unary(transport, pool.listPools, {}, params),
     poolServiceGetPoolDiagnostics: (query = {}, params) => unary(transport, pool.getPoolDiagnostics, query, params),
     poolServiceCreatePool: (data, params) => unary(transport, pool.createPool, data, params),
@@ -580,10 +655,14 @@ export const createMdkV2Client = (transport: Transport): MdkV2Client => {
       unary(transport, power.setContainerControl, { ...data, name }, params),
     powerServiceSetContainerSetpoint: ({ name }, data, params) =>
       unary(transport, power.setContainerSetpoint, { ...data, name }, params),
+    powerServiceListPowerFeeds: (params) => unary(transport, power.listPowerFeeds, {}, params),
+    powerServiceGetActivePowerRecoveryCycle: (params) =>
+      unary(transport, power.getActivePowerRecoveryCycle, {}, params),
     powerServiceSetMainCircuitBreakerState: (data, params) =>
       unary(transport, power.setMainCircuitBreakerState, data, params),
     powerServiceMuteContainerAlarm: (data, params) => unary(transport, power.muteContainerAlarm, data, params),
     powerServiceResetContainerAlarm: (data, params) => unary(transport, power.resetContainerAlarm, data, params),
+    powerServiceRunDryCoolerFanReverse: (data, params) => unary(transport, power.runDryCoolerFanReverse, data, params),
     runInServiceStartModuleRunIn: ({ moduleId, taskId }, config, params) =>
       unary(transport, runIn.startModuleRunIn, { moduleId, taskId, config }, params),
     telemetryServiceFollowAsicHealth: ({ identifier }, params) =>

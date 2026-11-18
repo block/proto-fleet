@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -33,12 +34,20 @@ func Key(endpoints []*commonpb.DeviceEndpoint) (string, error) {
 	return sdk.DeviceEndpointKey(ToSDK(endpoints))
 }
 
+// ErrUnrecordedEndpointGroup reports pairing that found an HA pair discovery
+// did not record. Discovery cannot read the HA membership of a controller that
+// requires a token, and Fleet cannot pair such a pair yet.
+var ErrUnrecordedEndpointGroup = errors.New("this controller is part of an HA pair that discovery did not record; discover it again, or, if the controllers require a token, Fleet cannot pair token-protected HA pairs yet")
+
 // ValidatePairingResult keeps endpoint group changes in discovery, which owns
 // inventory locking and duplicate checks. Pairing may omit endpoint metadata;
 // callers retain the discovered routes in either case.
 func ValidatePairingResult(saved, returned []sdk.DeviceEndpoint) error {
 	if len(returned) == 0 {
 		return nil
+	}
+	if len(saved) == 0 {
+		return ErrUnrecordedEndpointGroup
 	}
 	returnedKey, err := sdk.DeviceEndpointKey(returned)
 	if err != nil {

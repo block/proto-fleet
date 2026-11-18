@@ -108,6 +108,85 @@ func TestHostedReportPublicationRejectsStaleInputs(t *testing.T) {
 	require.Zero(t, artifacts)
 }
 
+func TestHostedReportSharedCorrectionMustFollowLatestIssuedParent(t *testing.T) {
+	f, client, reviewer, draft := draftReportFixture(t)
+	original, err := f.svc.PublishReport(t.Context(), reviewer, f.org, client.AccountID, draft.ReportID, draft.Revision, "reviewed exception")
+	require.NoError(t, err)
+	var owner string
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT user_id FROM "user" WHERE id=$1`, f.host).Scan(&owner))
+	options := hostedaccounts.DraftReportOptions{Period: reportPeriod(), InputRevision: 1, OwnerUserID: owner, CorrectionOf: original.ReportID, CorrectionReason: "late evidence"}
+	first, err := f.svc.PrepareReport(t.Context(), f.host, f.org, client.AccountID, options)
+	require.NoError(t, err)
+	second, err := f.svc.PrepareReport(t.Context(), f.host, f.org, client.AccountID, options)
+	require.NoError(t, err)
+	require.Equal(t, first.ReportID, second.ReportID)
+	require.Equal(t, first.Number, second.Number)
+	first, err = f.svc.HostReport(t.Context(), reviewer, f.org, client.AccountID, first.ReportID)
+	require.NoError(t, err)
+	first, err = f.svc.PublishReport(t.Context(), reviewer, f.org, client.AccountID, first.ReportID, first.Revision, "reviewed exception")
+	require.NoError(t, err)
+	_, err = f.svc.PrepareReport(t.Context(), f.host, f.org, client.AccountID, options)
+	require.Error(t, err, "new corrections must target the latest issued version")
+	options.CorrectionOf = first.ReportID
+	second, err = f.svc.PrepareReport(t.Context(), f.host, f.org, client.AccountID, options)
+	require.NoError(t, err)
+	require.Greater(t, second.Number, first.Number)
+	visible, err := f.svc.AccountReports(t.Context(), f.user, f.org, client.AccountID, hostedaccounts.ReportListOptions{})
+	require.NoError(t, err)
+	require.Len(t, visible.Reports, 1)
+	require.Equal(t, first.ReportID, visible.Reports[0].ReportID)
+}
+
+func TestHostedReportConcurrentPublicationHasOneAtomicWinner(t *testing.T) {
+	f, client, operator, draft := draftReportFixture(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	gate, err := f.db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer gate.Rollback()
+	_, err = gate.ExecContext(ctx, `SELECT id FROM hosted_report WHERE id=$1 FOR UPDATE`, draft.ID)
+	require.NoError(t, err)
+	var gatePID int
+	require.NoError(t, gate.QueryRowContext(ctx, `SELECT pg_backend_pid()`).Scan(&gatePID))
+	results := make(chan error, 2)
+	publish := func() {
+		_, err := f.svc.PublishReport(ctx, operator, f.org, client.AccountID, draft.ReportID, draft.Revision, "Missing evidence is disclosed")
+		results <- err
+	}
+	go publish()
+	var firstPID int
+	require.Eventually(t, func() bool {
+		return f.db.QueryRowContext(ctx, `SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND query LIKE '-- name: LockHostedReport :one%' AND $1=ANY(pg_blocking_pids(pid))`, gatePID).Scan(&firstPID) == nil
+	}, 3*time.Second, 10*time.Millisecond)
+	go publish()
+	require.Eventually(t, func() bool {
+		var waiting bool
+		err := f.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND query LIKE '-- name: LockReportingInputsForReport :one%' AND $1=ANY(pg_blocking_pids(pid)))`, firstPID).Scan(&waiting)
+		return err == nil && waiting
+	}, 3*time.Second, 10*time.Millisecond)
+	require.NoError(t, gate.Commit())
+	first, second := <-results, <-results
+	if first == nil {
+		require.Error(t, second)
+	} else {
+		require.NoError(t, second)
+	}
+	var status string
+	var revision int64
+	var artifacts, issues int
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT status,revision FROM hosted_report WHERE id=$1`, draft.ID).Scan(&status, &revision))
+	require.Equal(t, "issued", status)
+	require.Equal(t, draft.Revision+1, revision)
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_report_artifact WHERE report_internal_id=$1`, draft.ID).Scan(&artifacts))
+	require.Equal(t, 3, artifacts)
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM activity_log WHERE organization_id=$1 AND event_type='publish_report'`, f.org).Scan(&issues))
+	require.Equal(t, 1, issues)
+	require.NotEmpty(t, downloadReportArtifact(t, f, f.user, client.AccountID, draft.ReportID, "report.html"))
+	visible, err := f.svc.AccountReports(t.Context(), f.user, f.org, client.AccountID, hostedaccounts.ReportListOptions{})
+	require.NoError(t, err)
+	require.Len(t, visible.Reports, 1)
+}
+
 func TestHostedReportPublicationRejectsLegacyDuplicateOriginal(t *testing.T) {
 	f, client, reviewer, first := draftReportFixture(t)
 	duplicate := uuid.NewString()

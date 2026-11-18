@@ -218,6 +218,21 @@ func (s *Service) PrepareReport(ctx context.Context, actorID, orgID int64, accou
 		if err != nil {
 			return zero, accessError(err)
 		}
+		if opts.Period.Kind == "ad_hoc" {
+			if !a.accountWideRequestsAllowed() {
+				return zero, denied()
+			}
+			if _, err := uuid.Parse(opts.Period.RequestRef); err != nil {
+				return zero, fleeterror.NewInvalidArgumentError("ad hoc reports require a recorded request")
+			}
+			request, err := q.GetHostedReportRequest(ctx, sqlc.GetHostedReportRequestParams{OrganizationID: orgID, AccountID: a.account.ID, RequestID: opts.Period.RequestRef})
+			if err != nil {
+				return zero, accessError(err)
+			}
+			if !request.ReceivedAt.Equal(opts.Period.RequestReceivedAt) {
+				return zero, fleeterror.NewInvalidArgumentError("ad hoc report receipt must match its recorded request")
+			}
+		}
 		periodJSON, _ := json.Marshal(opts.Period)
 		resultJSON, sites := []byte("{}"), []int64{}
 		checkOriginalPeriod := func() error {
@@ -241,6 +256,15 @@ func (s *Service) PrepareReport(ctx context.Context, actorID, orgID int64, accou
 			}
 			if !a.sitesAllowed(previous.SiteIds) {
 				return zero, denied()
+			}
+			if previous.Kind == "ad_hoc" {
+				var prior reporting.Period
+				if err := json.Unmarshal(previous.Period, &prior); err != nil {
+					return zero, fmt.Errorf("decode previous request period: %w", err)
+				}
+				if opts.Period.Kind != "ad_hoc" || prior.RequestRef != opts.Period.RequestRef || !prior.RequestReceivedAt.Equal(opts.Period.RequestReceivedAt) {
+					return zero, fleeterror.NewInvalidArgumentError("requested drafts must retain their original request")
+				}
 			}
 			if !previous.CorrectionOf.Valid {
 				if err := checkOriginalPeriod(); err != nil {
@@ -307,6 +331,10 @@ func (s *Service) PrepareReport(ctx context.Context, actorID, orgID int64, accou
 			}
 			return zero, fleeterror.NewInvalidArgumentError(err.Error())
 		}
+		curtailmentSites, err := appendCurtailmentEvidence(ctx, q, a, &result)
+		if err != nil {
+			return zero, err
+		}
 		resultJSON, err = reporting.MarshalResultContext(ctx, result)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -314,7 +342,7 @@ func (s *Service) PrepareReport(ctx context.Context, actorID, orgID int64, accou
 			}
 			return zero, fleeterror.NewInvalidArgumentError(err.Error())
 		}
-		sites = input.Inputs.Sites()
+		sites = append(input.Inputs.Sites(), curtailmentSites...)
 		if sites == nil {
 			sites = []int64{}
 		}
@@ -455,13 +483,9 @@ func (s *Service) reportList(ctx context.Context, actorID, orgID int64, accountI
 			out.NextPageToken = base64.RawURLEncoding.EncodeToString(payload)
 		}
 		for _, row := range rows {
-			record := ReportRecord{ID: row.ID, ReportID: row.ReportID, SeriesID: row.SeriesID, Number: row.Number, Revision: row.Revision, InputRevision: row.InputRevision, Status: row.Status, SiteIDs: row.SiteIds, CreatedBy: row.CreatedBy, OwnerID: row.OwnerID, IssuedAt: reportTime(row.IssuedAt), CorrectionOf: row.CorrectionOf, CorrectionReason: row.CorrectionReason, Exception: row.IncompleteException, DeliveryStatus: row.DeliveryStatus, AccountID: account.AccountID, AccountName: account.Name}
-			record.Result.Complete = row.Complete
-			if err := json.Unmarshal(row.Period, &record.Period); err != nil {
-				return out, fmt.Errorf("decode report period summary: %w", err)
-			}
-			if err := json.Unmarshal(row.Deadlines, &record.Result.Deadlines); err != nil {
-				return out, fmt.Errorf("decode report deadlines: %w", err)
+			record, err := reportSummaryRecord(account, row)
+			if err != nil {
+				return out, err
 			}
 			if !host {
 				record = clientReportRecord(record)
@@ -470,6 +494,17 @@ func (s *Service) reportList(ctx context.Context, actorID, orgID int64, accountI
 		}
 		return out, nil
 	})
+}
+func reportSummaryRecord(account Account, row sqlc.ListHostedReportSummariesRow) (ReportRecord, error) {
+	record := ReportRecord{ID: row.ID, ReportID: row.ReportID, SeriesID: row.SeriesID, Number: row.Number, Revision: row.Revision, InputRevision: row.InputRevision, Status: row.Status, SiteIDs: row.SiteIds, CreatedBy: row.CreatedBy, OwnerID: row.OwnerID, IssuedAt: reportTime(row.IssuedAt), CorrectionOf: row.CorrectionOf, CorrectionReason: row.CorrectionReason, Exception: row.IncompleteException, DeliveryStatus: row.DeliveryStatus, AccountID: account.AccountID, AccountName: account.Name}
+	record.Result.Complete = row.Complete
+	if err := json.Unmarshal(row.Period, &record.Period); err != nil {
+		return record, fmt.Errorf("decode report period summary: %w", err)
+	}
+	if err := json.Unmarshal(row.Deadlines, &record.Result.Deadlines); err != nil {
+		return record, fmt.Errorf("decode report deadlines: %w", err)
+	}
+	return record, nil
 }
 func reportReadAdmission(ctx context.Context, q sqlc.Querier, actorID, orgID int64, accountID string, host bool) (Account, func([]int64) bool, error) {
 	if host {
@@ -555,7 +590,7 @@ func (s *Service) RecordReportDelivery(ctx context.Context, actorID, orgID int64
 		if err != nil {
 			return accessError(err)
 		}
-		if !a.sitesAllowed(row.SiteIds) {
+		if !a.sitesAllowed(row.SiteIds) || (row.Kind == "ad_hoc" && !a.accountWideRequestsAllowed()) {
 			return denied()
 		}
 		if row.Status != "issued" {
@@ -598,16 +633,18 @@ func sameReportTime(a, b *time.Time) bool {
 }
 
 type ReportRequest struct {
-	RequestID        string    `json:"requestId"`
-	ReceivedAt       time.Time `json:"receivedAt"`
-	SourceRef        string    `json:"sourceRef"`
-	Requester        string    `json:"requester"`
-	Scope            string    `json:"scope"`
-	OwnerUserID      string    `json:"ownerUserId"`
-	TargetAt         time.Time `json:"targetAt"`
-	Limitations      string    `json:"limitations"`
-	CommunicationRef string    `json:"communicationRef"`
-	DeliveryRef      string    `json:"deliveryRef"`
+	FulfilledAt      *time.Time `json:"fulfilledAt,omitempty"`
+	FulfillmentRef   string     `json:"fulfillmentRef,omitempty"`
+	RequestID        string     `json:"requestId"`
+	ReceivedAt       time.Time  `json:"receivedAt"`
+	SourceRef        string     `json:"sourceRef"`
+	Requester        string     `json:"requester"`
+	Scope            string     `json:"scope"`
+	OwnerUserID      string     `json:"ownerUserId"`
+	TargetAt         time.Time  `json:"targetAt"`
+	Limitations      string     `json:"limitations"`
+	CommunicationRef string     `json:"communicationRef"`
+	DeliveryRef      string     `json:"deliveryRef"`
 }
 
 func (s *Service) CreateReportRequest(ctx context.Context, actorID, orgID int64, accountID string, r ReportRequest) (ReportRequest, error) {
@@ -631,6 +668,9 @@ func (s *Service) CreateReportRequest(ctx context.Context, actorID, orgID int64,
 		a, err := reportingHostReadAdmission(ctx, q, actorID, orgID, accountID, "prepare")
 		if err != nil {
 			return zero, err
+		}
+		if !a.accountWideRequestsAllowed() {
+			return zero, denied()
 		}
 		owner, err := q.GetReportingUser(ctx, sqlc.GetReportingUserParams{UserID: r.OwnerUserID, OrganizationID: orgID})
 		if err != nil {
@@ -682,6 +722,9 @@ func (s *Service) ReportRequests(ctx context.Context, actorID, orgID int64, acco
 		if err != nil {
 			return ReportRequestPage{}, err
 		}
+		if !a.accountWideRequestsAllowed() {
+			return ReportRequestPage{Requests: []ReportRequest{}}, nil
+		}
 		rows, err := q.ListHostedReportRequests(ctx, sqlc.ListHostedReportRequestsParams{OrganizationID: orgID, AccountID: a.account.ID, BeforeID: cursor.BeforeID, BeforeReceivedAt: cursor.BeforeReceivedAt, PageLimit: size + 1})
 		if err != nil {
 			return ReportRequestPage{}, err
@@ -698,9 +741,58 @@ func (s *Service) ReportRequests(ctx context.Context, actorID, orgID int64, acco
 			out.NextPageToken = base64.RawURLEncoding.EncodeToString(payload)
 		}
 		for _, row := range rows {
-			out.Requests = append(out.Requests, ReportRequest{RequestID: row.RequestID, ReceivedAt: row.ReceivedAt, SourceRef: row.SourceRef, Requester: row.Requester, Scope: row.Scope, OwnerUserID: row.OwnerUserID, TargetAt: row.TargetAt, Limitations: row.Limitations, CommunicationRef: row.CommunicationRef, DeliveryRef: row.DeliveryRef})
+			out.Requests = append(out.Requests, ReportRequest{RequestID: row.RequestID, ReceivedAt: row.ReceivedAt, SourceRef: row.SourceRef, Requester: row.Requester, Scope: row.Scope, OwnerUserID: row.OwnerUserID, TargetAt: row.TargetAt, Limitations: row.Limitations, CommunicationRef: row.CommunicationRef, DeliveryRef: row.DeliveryRef, FulfilledAt: requestFulfilledAt(row.FulfilledAt), FulfillmentRef: row.FulfillmentRef})
 		}
 		return out, nil
+	})
+}
+
+type ReportRequestFulfillment struct {
+	EntryKey         string
+	DeliveredAt      time.Time
+	DeliveryRef      string
+	CommunicationRef string
+	Evidence         string
+}
+
+func (s *Service) RecordReportRequestFulfillment(ctx context.Context, actorID, orgID int64, accountID, requestID string, entry ReportRequestFulfillment) error {
+	if _, err := uuid.Parse(entry.EntryKey); err != nil {
+		return fleeterror.NewInvalidArgumentError("fulfillment entry UUID required")
+	}
+	entry.DeliveredAt = entry.DeliveredAt.UTC().Round(time.Microsecond)
+	if entry.DeliveredAt.IsZero() || entry.DeliveredAt.After(reportingEvidenceTimeLimit()) || strings.TrimSpace(entry.DeliveryRef) == "" || len(entry.DeliveryRef) > 2000 || len(entry.CommunicationRef) > 2000 || strings.TrimSpace(entry.Evidence) == "" || len(entry.Evidence) > 8000 {
+		return fleeterror.NewInvalidArgumentError("actual delivery time, reference and evidence required")
+	}
+	return db.WithTransactionTimeoutNoResult(ctx, s.conn, miningTransactionTimeout, func(q sqlc.Querier) error {
+		a, err := reportingHostAdmission(ctx, q, actorID, orgID, accountID, "prepare")
+		if err != nil {
+			return err
+		}
+		if !a.accountWideRequestsAllowed() {
+			return denied()
+		}
+		request, err := q.GetHostedReportRequest(ctx, sqlc.GetHostedReportRequestParams{OrganizationID: orgID, AccountID: a.account.ID, RequestID: requestID})
+		if err != nil {
+			return accessError(err)
+		}
+		if entry.DeliveredAt.Before(request.ReceivedAt) {
+			return fleeterror.NewInvalidArgumentError("fulfillment cannot precede request receipt")
+		}
+		_, err = q.CreateHostedReportRequestFulfillment(ctx, sqlc.CreateHostedReportRequestFulfillmentParams{RequestInternalID: request.ID, EntryKey: entry.EntryKey, DeliveredAt: entry.DeliveredAt, DeliveryRef: entry.DeliveryRef, CommunicationRef: entry.CommunicationRef, Evidence: entry.Evidence, ActorID: actorID})
+		if errors.Is(err, sql.ErrNoRows) {
+			old, e := q.GetHostedReportRequestFulfillment(ctx, sqlc.GetHostedReportRequestFulfillmentParams{RequestInternalID: request.ID, EntryKey: entry.EntryKey})
+			if e != nil {
+				return e
+			}
+			if !old.DeliveredAt.Equal(entry.DeliveredAt) || old.DeliveryRef != entry.DeliveryRef || old.CommunicationRef != entry.CommunicationRef || old.Evidence != entry.Evidence {
+				return reportingConflict()
+			}
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		return audit(ctx, q, a.actor, a.account, "fulfill_report_request", map[string]any{"request_id": requestID, "entry_key": entry.EntryKey, "delivery_ref": entry.DeliveryRef, "communication_ref": entry.CommunicationRef, "delivered_at": entry.DeliveredAt})
 	})
 }
 
@@ -716,4 +808,11 @@ func retainsCorrectionPeriod(parent sqlc.HostedReport, candidate reporting.Perio
 		return original.RequestRef == candidate.RequestRef && original.RequestReceivedAt.Equal(candidate.RequestReceivedAt)
 	}
 	return true
+}
+
+func requestFulfilledAt(value time.Time) *time.Time {
+	if value.IsZero() {
+		return nil
+	}
+	return &value
 }

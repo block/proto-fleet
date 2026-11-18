@@ -69,6 +69,21 @@ describe("buildPermissionGroups", () => {
     expect(requiredReadsFor(softwareUpdate.key, [...catalog, softwareUpdate])).toEqual([]);
   });
 
+  it("publishes container power feed control as a visible role-editor group", () => {
+    const powerFeed: CatalogEntry = {
+      key: "container:power_feed",
+      description: "Turn a CT1 module's power feed on or off.",
+      resource: "container",
+    };
+
+    expect(buildPermissionGroups([...catalog, powerFeed])).toContainEqual({
+      resource: "container",
+      label: "Containers",
+      entries: [powerFeed],
+    });
+    expect(requiredReadsFor(powerFeed.key, [...catalog, powerFeed])).toEqual([]);
+  });
+
   it("publishes maintenance permissions as a visible role-editor group", () => {
     const maintenanceRead: CatalogEntry = {
       key: "maintenance:read",

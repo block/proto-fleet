@@ -80,6 +80,7 @@ function mount({
     <MemoryRouter initialEntries={["/fleet/miners"]}>
       <HostedAccountsContext.Provider
         value={{
+          reportingAccess: false,
           accounts: [
             create(AccountSchema, { accountId: rootId, depth: 0, name: "Host", effectiveCapabilities: capability }),
           ],

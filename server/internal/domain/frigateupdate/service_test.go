@@ -417,7 +417,7 @@ func TestRunner_StartRefusalFailsJob(t *testing.T) {
 	got := e.job(job.Row.ID)
 	assert.Equal(t, StateFailed, got.Row.State)
 	assert.Equal(t, "UPDATE_ALREADY_RUNNING", got.Row.ErrorCode)
-	assert.Contains(t, got.Row.ErrorMessage, "Frigate refused to start the update")
+	assert.Contains(t, got.Row.ErrorMessage, "The controller refused to start the update")
 	assert.Contains(t, got.Row.ErrorMessage, "another update is running")
 }
 
@@ -432,7 +432,7 @@ func TestRunner_FleetPreStartRefusalIsNotBlamedOnFrigate(t *testing.T) {
 	assert.Equal(t, StateFailed, got.Row.State)
 	assert.Equal(t, "FLEET_PAIR_MISMATCH", got.Row.ErrorCode)
 	assert.Contains(t, got.Row.ErrorMessage, "Fleet stopped the update before starting it")
-	assert.NotContains(t, got.Row.ErrorMessage, "Frigate refused")
+	assert.NotContains(t, got.Row.ErrorMessage, "controller refused")
 }
 
 func TestRunner_AmbiguousStartAcceptedButReplyLost(t *testing.T) {
@@ -762,6 +762,49 @@ func TestCrossOrgIsolation(t *testing.T) {
 	assert.True(t, fleeterror.IsNotFoundError(err), err)
 	_, err = e.svc.GetSupport(other, e.device.ID, uuid.Nil)
 	assert.True(t, fleeterror.IsNotFoundError(err), err)
+}
+
+// Package management is offered by where the caller may update controller
+// software, not by which containers the caller can list.
+func TestHasUpdatableContainerFollowsUpdateAuthority(t *testing.T) {
+	e := newEnv(t)
+	var siteID int64
+	require.NoError(t, e.conn.QueryRowContext(e.ctx,
+		`INSERT INTO site (org_id, name, slug) VALUES ($1, 'North', 'north') RETURNING id`, e.orgID).Scan(&siteID))
+	_, err := e.conn.ExecContext(e.ctx, `UPDATE device SET site_id=$1 WHERE id=$2`, siteID, e.device.DatabaseID)
+	require.NoError(t, err)
+
+	updatable, err := e.svc.HasUpdatableContainer(e.ctx)
+	require.NoError(t, err)
+	assert.True(t, updatable)
+	require.NotEmpty(t, e.auth.sites)
+	require.NotNil(t, e.auth.sites[len(e.auth.sites)-1])
+	assert.Equal(t, siteID, *e.auth.sites[len(e.auth.sites)-1], "the container's own site is checked")
+
+	// The permission is held somewhere, but not at the container's site.
+	e.auth.denySite = true
+	updatable, err = e.svc.HasUpdatableContainer(e.ctx)
+	require.NoError(t, err)
+	assert.False(t, updatable)
+	e.auth.denySite = false
+
+	e.auth.denyAny = true
+	_, err = e.svc.HasUpdatableContainer(e.ctx)
+	assert.True(t, fleeterror.IsForbiddenError(err), err)
+	e.auth.denyAny = false
+
+	// Another organization's container does not count.
+	other := userContext(e.ctx, e.userID, e.orgID+1000, "outsider")
+	updatable, err = e.svc.HasUpdatableContainer(other)
+	require.NoError(t, err)
+	assert.False(t, updatable)
+
+	// Nor does a container that is no longer paired.
+	_, err = e.conn.ExecContext(e.ctx, `DELETE FROM device_pairing WHERE device_id=$1`, e.device.DatabaseID)
+	require.NoError(t, err)
+	updatable, err = e.svc.HasUpdatableContainer(e.ctx)
+	require.NoError(t, err)
+	assert.False(t, updatable)
 }
 
 func TestPackages_ListAndDelete(t *testing.T) {

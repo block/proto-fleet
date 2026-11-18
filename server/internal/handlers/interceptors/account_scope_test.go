@@ -192,3 +192,22 @@ func TestMiningMethodsAreExplicitlySessionOnlyAndAccountScoped(t *testing.T) {
 		require.Contains(t, SessionOnlyProcedures, procedure)
 	}
 }
+
+func TestReportingMethodsKeepClientScopeAndHostAuthoritySeparate(t *testing.T) {
+	for _, method := range []string{"ListAccountReports", "GetAccountReport", "ExportAccountReport", "GenerateAccountAnalysis", "DeleteAccountAnalysis", "ListAccountAnalyses", "GetAccountAnalysis", "ExportAccountAnalysis"} {
+		procedure := hostedAccountProcedurePrefix + method
+		require.True(t, requiresSelectedAccount(procedure))
+		require.True(t, allowsSelectedAccount(procedure))
+		require.False(t, allowsAccountKey(procedure))
+		require.Contains(t, SessionOnlyProcedures, procedure)
+		require.True(t, SensitiveBodyProcedures[procedure])
+	}
+	for _, method := range []string{"ListHostReportingAccounts", "GetHostReportingSetup", "SetHostReportingAuthority", "MutateHostReportingInputs", "ListHostReportingFacts", "PrepareHostReport", "PublishHostReport", "ListHostReports", "GetHostReport", "RecordHostReportDelivery", "ExportHostReport", "CreateHostReportRequest", "RecordHostReportRequestFulfillment", "ListHostReportRequests", "ListHostReportQueue", "AcknowledgeHostReportQueue", "RetryHostReportQueueNotification"} {
+		procedure := hostedAccountProcedurePrefix + method
+		require.False(t, requiresSelectedAccount(procedure))
+		require.False(t, allowsSelectedAccount(procedure))
+		require.False(t, allowsAccountKey(procedure))
+		require.Contains(t, SessionOnlyProcedures, procedure)
+		require.True(t, SensitiveBodyProcedures[procedure])
+	}
+}

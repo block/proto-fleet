@@ -19,6 +19,15 @@ the new sequence against it.
 
 ## Existing databases
 
+### Reporting feature databases
+
+Reporting inputs, reports and delivery use migrations 1071–1079 after main's
+activation migration 1070. Earlier unmerged reporting databases used different
+numbers for these schemas.
+Preserve those databases and use a fresh development database for this sequence;
+do not force the version or replay renumbered files against an older feature
+database. Existing main migration files through 1070 are unchanged.
+
 ### Mining-group activation assignment handoff (1070)
 
 Private migration 1070 retains the original pool assignment and physical board

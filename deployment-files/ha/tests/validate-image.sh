@@ -108,7 +108,7 @@ assert config["postgresql"]["authentication"]["replication"]["password"] == "col
 effective = Config(sys.argv[1], validator=None)
 effective.set_dynamic_configuration(config["bootstrap"]["dcs"])
 assert effective["postgresql"]["parameters"]["max_worker_processes"] == 19
-assert effective["postgresql"]["parameters"]["max_connections"] == 300
+assert effective["postgresql"]["parameters"]["max_connections"] == 1200
 
 # Catch local parameters that Patroni overrides with cluster settings or defaults.
 for name, value in config["postgresql"]["parameters"].items():

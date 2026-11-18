@@ -34,6 +34,81 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// HostedAccountServiceGenerateAccountAnalysisProcedure is the fully-qualified name of the
+	// HostedAccountService's GenerateAccountAnalysis RPC.
+	HostedAccountServiceGenerateAccountAnalysisProcedure = "/hosted.v1.HostedAccountService/GenerateAccountAnalysis"
+	// HostedAccountServiceListAccountAnalysesProcedure is the fully-qualified name of the
+	// HostedAccountService's ListAccountAnalyses RPC.
+	HostedAccountServiceListAccountAnalysesProcedure = "/hosted.v1.HostedAccountService/ListAccountAnalyses"
+	// HostedAccountServiceGetAccountAnalysisProcedure is the fully-qualified name of the
+	// HostedAccountService's GetAccountAnalysis RPC.
+	HostedAccountServiceGetAccountAnalysisProcedure = "/hosted.v1.HostedAccountService/GetAccountAnalysis"
+	// HostedAccountServiceDeleteAccountAnalysisProcedure is the fully-qualified name of the
+	// HostedAccountService's DeleteAccountAnalysis RPC.
+	HostedAccountServiceDeleteAccountAnalysisProcedure = "/hosted.v1.HostedAccountService/DeleteAccountAnalysis"
+	// HostedAccountServiceExportAccountAnalysisProcedure is the fully-qualified name of the
+	// HostedAccountService's ExportAccountAnalysis RPC.
+	HostedAccountServiceExportAccountAnalysisProcedure = "/hosted.v1.HostedAccountService/ExportAccountAnalysis"
+	// HostedAccountServiceListHostReportQueueProcedure is the fully-qualified name of the
+	// HostedAccountService's ListHostReportQueue RPC.
+	HostedAccountServiceListHostReportQueueProcedure = "/hosted.v1.HostedAccountService/ListHostReportQueue"
+	// HostedAccountServiceAcknowledgeHostReportQueueProcedure is the fully-qualified name of the
+	// HostedAccountService's AcknowledgeHostReportQueue RPC.
+	HostedAccountServiceAcknowledgeHostReportQueueProcedure = "/hosted.v1.HostedAccountService/AcknowledgeHostReportQueue"
+	// HostedAccountServiceRetryHostReportQueueNotificationProcedure is the fully-qualified name of the
+	// HostedAccountService's RetryHostReportQueueNotification RPC.
+	HostedAccountServiceRetryHostReportQueueNotificationProcedure = "/hosted.v1.HostedAccountService/RetryHostReportQueueNotification"
+	// HostedAccountServiceCreateHostReportRequestProcedure is the fully-qualified name of the
+	// HostedAccountService's CreateHostReportRequest RPC.
+	HostedAccountServiceCreateHostReportRequestProcedure = "/hosted.v1.HostedAccountService/CreateHostReportRequest"
+	// HostedAccountServiceRecordHostReportRequestFulfillmentProcedure is the fully-qualified name of
+	// the HostedAccountService's RecordHostReportRequestFulfillment RPC.
+	HostedAccountServiceRecordHostReportRequestFulfillmentProcedure = "/hosted.v1.HostedAccountService/RecordHostReportRequestFulfillment"
+	// HostedAccountServiceListHostReportRequestsProcedure is the fully-qualified name of the
+	// HostedAccountService's ListHostReportRequests RPC.
+	HostedAccountServiceListHostReportRequestsProcedure = "/hosted.v1.HostedAccountService/ListHostReportRequests"
+	// HostedAccountServiceListHostReportingAccountsProcedure is the fully-qualified name of the
+	// HostedAccountService's ListHostReportingAccounts RPC.
+	HostedAccountServiceListHostReportingAccountsProcedure = "/hosted.v1.HostedAccountService/ListHostReportingAccounts"
+	// HostedAccountServiceGetHostReportingSetupProcedure is the fully-qualified name of the
+	// HostedAccountService's GetHostReportingSetup RPC.
+	HostedAccountServiceGetHostReportingSetupProcedure = "/hosted.v1.HostedAccountService/GetHostReportingSetup"
+	// HostedAccountServiceSetHostReportingAuthorityProcedure is the fully-qualified name of the
+	// HostedAccountService's SetHostReportingAuthority RPC.
+	HostedAccountServiceSetHostReportingAuthorityProcedure = "/hosted.v1.HostedAccountService/SetHostReportingAuthority"
+	// HostedAccountServiceMutateHostReportingInputsProcedure is the fully-qualified name of the
+	// HostedAccountService's MutateHostReportingInputs RPC.
+	HostedAccountServiceMutateHostReportingInputsProcedure = "/hosted.v1.HostedAccountService/MutateHostReportingInputs"
+	// HostedAccountServiceListHostReportingFactsProcedure is the fully-qualified name of the
+	// HostedAccountService's ListHostReportingFacts RPC.
+	HostedAccountServiceListHostReportingFactsProcedure = "/hosted.v1.HostedAccountService/ListHostReportingFacts"
+	// HostedAccountServicePrepareHostReportProcedure is the fully-qualified name of the
+	// HostedAccountService's PrepareHostReport RPC.
+	HostedAccountServicePrepareHostReportProcedure = "/hosted.v1.HostedAccountService/PrepareHostReport"
+	// HostedAccountServicePublishHostReportProcedure is the fully-qualified name of the
+	// HostedAccountService's PublishHostReport RPC.
+	HostedAccountServicePublishHostReportProcedure = "/hosted.v1.HostedAccountService/PublishHostReport"
+	// HostedAccountServiceListHostReportsProcedure is the fully-qualified name of the
+	// HostedAccountService's ListHostReports RPC.
+	HostedAccountServiceListHostReportsProcedure = "/hosted.v1.HostedAccountService/ListHostReports"
+	// HostedAccountServiceGetHostReportProcedure is the fully-qualified name of the
+	// HostedAccountService's GetHostReport RPC.
+	HostedAccountServiceGetHostReportProcedure = "/hosted.v1.HostedAccountService/GetHostReport"
+	// HostedAccountServiceRecordHostReportDeliveryProcedure is the fully-qualified name of the
+	// HostedAccountService's RecordHostReportDelivery RPC.
+	HostedAccountServiceRecordHostReportDeliveryProcedure = "/hosted.v1.HostedAccountService/RecordHostReportDelivery"
+	// HostedAccountServiceListAccountReportsProcedure is the fully-qualified name of the
+	// HostedAccountService's ListAccountReports RPC.
+	HostedAccountServiceListAccountReportsProcedure = "/hosted.v1.HostedAccountService/ListAccountReports"
+	// HostedAccountServiceGetAccountReportProcedure is the fully-qualified name of the
+	// HostedAccountService's GetAccountReport RPC.
+	HostedAccountServiceGetAccountReportProcedure = "/hosted.v1.HostedAccountService/GetAccountReport"
+	// HostedAccountServiceExportAccountReportProcedure is the fully-qualified name of the
+	// HostedAccountService's ExportAccountReport RPC.
+	HostedAccountServiceExportAccountReportProcedure = "/hosted.v1.HostedAccountService/ExportAccountReport"
+	// HostedAccountServiceExportHostReportProcedure is the fully-qualified name of the
+	// HostedAccountService's ExportHostReport RPC.
+	HostedAccountServiceExportHostReportProcedure = "/hosted.v1.HostedAccountService/ExportHostReport"
 	// HostedAccountServiceListAccountTicketsProcedure is the fully-qualified name of the
 	// HostedAccountService's ListAccountTickets RPC.
 	HostedAccountServiceListAccountTicketsProcedure = "/hosted.v1.HostedAccountService/ListAccountTickets"
@@ -140,6 +215,31 @@ const (
 
 // HostedAccountServiceClient is a client for the hosted.v1.HostedAccountService service.
 type HostedAccountServiceClient interface {
+	GenerateAccountAnalysis(context.Context, *connect.Request[v1.GenerateAccountAnalysisRequest]) (*connect.Response[v1.GenerateAccountAnalysisResponse], error)
+	ListAccountAnalyses(context.Context, *connect.Request[v1.ListAccountAnalysesRequest]) (*connect.Response[v1.ListAccountAnalysesResponse], error)
+	GetAccountAnalysis(context.Context, *connect.Request[v1.GetAccountAnalysisRequest]) (*connect.Response[v1.GetAccountAnalysisResponse], error)
+	DeleteAccountAnalysis(context.Context, *connect.Request[v1.DeleteAccountAnalysisRequest]) (*connect.Response[v1.DeleteAccountAnalysisResponse], error)
+	ExportAccountAnalysis(context.Context, *connect.Request[v1.ExportAccountAnalysisRequest]) (*connect.ServerStreamForClient[v1.ExportAccountAnalysisResponse], error)
+	ListHostReportQueue(context.Context, *connect.Request[v1.ListHostReportQueueRequest]) (*connect.Response[v1.ListHostReportQueueResponse], error)
+	AcknowledgeHostReportQueue(context.Context, *connect.Request[v1.AcknowledgeHostReportQueueRequest]) (*connect.Response[v1.AcknowledgeHostReportQueueResponse], error)
+	RetryHostReportQueueNotification(context.Context, *connect.Request[v1.RetryHostReportQueueNotificationRequest]) (*connect.Response[v1.RetryHostReportQueueNotificationResponse], error)
+	CreateHostReportRequest(context.Context, *connect.Request[v1.CreateHostReportRequestRequest]) (*connect.Response[v1.CreateHostReportRequestResponse], error)
+	RecordHostReportRequestFulfillment(context.Context, *connect.Request[v1.RecordHostReportRequestFulfillmentRequest]) (*connect.Response[v1.RecordHostReportRequestFulfillmentResponse], error)
+	ListHostReportRequests(context.Context, *connect.Request[v1.ListHostReportRequestsRequest]) (*connect.Response[v1.ListHostReportRequestsResponse], error)
+	ListHostReportingAccounts(context.Context, *connect.Request[v1.ListHostReportingAccountsRequest]) (*connect.Response[v1.ListHostReportingAccountsResponse], error)
+	GetHostReportingSetup(context.Context, *connect.Request[v1.GetHostReportingSetupRequest]) (*connect.Response[v1.GetHostReportingSetupResponse], error)
+	SetHostReportingAuthority(context.Context, *connect.Request[v1.SetHostReportingAuthorityRequest]) (*connect.Response[v1.SetHostReportingAuthorityResponse], error)
+	MutateHostReportingInputs(context.Context, *connect.Request[v1.MutateHostReportingInputsRequest]) (*connect.Response[v1.MutateHostReportingInputsResponse], error)
+	ListHostReportingFacts(context.Context, *connect.Request[v1.ListHostReportingFactsRequest]) (*connect.Response[v1.ListHostReportingFactsResponse], error)
+	PrepareHostReport(context.Context, *connect.Request[v1.PrepareHostReportRequest]) (*connect.Response[v1.PrepareHostReportResponse], error)
+	PublishHostReport(context.Context, *connect.Request[v1.PublishHostReportRequest]) (*connect.Response[v1.PublishHostReportResponse], error)
+	ListHostReports(context.Context, *connect.Request[v1.ListHostReportsRequest]) (*connect.Response[v1.ListHostReportsResponse], error)
+	GetHostReport(context.Context, *connect.Request[v1.GetHostReportRequest]) (*connect.Response[v1.GetHostReportResponse], error)
+	RecordHostReportDelivery(context.Context, *connect.Request[v1.RecordHostReportDeliveryRequest]) (*connect.Response[v1.RecordHostReportDeliveryResponse], error)
+	ListAccountReports(context.Context, *connect.Request[v1.ListAccountReportsRequest]) (*connect.Response[v1.ListAccountReportsResponse], error)
+	GetAccountReport(context.Context, *connect.Request[v1.GetAccountReportRequest]) (*connect.Response[v1.GetAccountReportResponse], error)
+	ExportAccountReport(context.Context, *connect.Request[v1.ExportAccountReportRequest]) (*connect.ServerStreamForClient[v1.ExportAccountReportResponse], error)
+	ExportHostReport(context.Context, *connect.Request[v1.ExportHostReportRequest]) (*connect.ServerStreamForClient[v1.ExportHostReportResponse], error)
 	ListAccountTickets(context.Context, *connect.Request[v1.ListAccountTicketsRequest]) (*connect.Response[v1.ListAccountTicketsResponse], error)
 	GetAccountTicket(context.Context, *connect.Request[v1.GetAccountTicketRequest]) (*connect.Response[v1.GetAccountTicketResponse], error)
 	CreateAccountTicket(context.Context, *connect.Request[v1.CreateAccountTicketRequest]) (*connect.Response[v1.CreateAccountTicketResponse], error)
@@ -186,6 +286,131 @@ type HostedAccountServiceClient interface {
 func NewHostedAccountServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) HostedAccountServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &hostedAccountServiceClient{
+		generateAccountAnalysis: connect.NewClient[v1.GenerateAccountAnalysisRequest, v1.GenerateAccountAnalysisResponse](
+			httpClient,
+			baseURL+HostedAccountServiceGenerateAccountAnalysisProcedure,
+			opts...,
+		),
+		listAccountAnalyses: connect.NewClient[v1.ListAccountAnalysesRequest, v1.ListAccountAnalysesResponse](
+			httpClient,
+			baseURL+HostedAccountServiceListAccountAnalysesProcedure,
+			opts...,
+		),
+		getAccountAnalysis: connect.NewClient[v1.GetAccountAnalysisRequest, v1.GetAccountAnalysisResponse](
+			httpClient,
+			baseURL+HostedAccountServiceGetAccountAnalysisProcedure,
+			opts...,
+		),
+		deleteAccountAnalysis: connect.NewClient[v1.DeleteAccountAnalysisRequest, v1.DeleteAccountAnalysisResponse](
+			httpClient,
+			baseURL+HostedAccountServiceDeleteAccountAnalysisProcedure,
+			opts...,
+		),
+		exportAccountAnalysis: connect.NewClient[v1.ExportAccountAnalysisRequest, v1.ExportAccountAnalysisResponse](
+			httpClient,
+			baseURL+HostedAccountServiceExportAccountAnalysisProcedure,
+			opts...,
+		),
+		listHostReportQueue: connect.NewClient[v1.ListHostReportQueueRequest, v1.ListHostReportQueueResponse](
+			httpClient,
+			baseURL+HostedAccountServiceListHostReportQueueProcedure,
+			opts...,
+		),
+		acknowledgeHostReportQueue: connect.NewClient[v1.AcknowledgeHostReportQueueRequest, v1.AcknowledgeHostReportQueueResponse](
+			httpClient,
+			baseURL+HostedAccountServiceAcknowledgeHostReportQueueProcedure,
+			opts...,
+		),
+		retryHostReportQueueNotification: connect.NewClient[v1.RetryHostReportQueueNotificationRequest, v1.RetryHostReportQueueNotificationResponse](
+			httpClient,
+			baseURL+HostedAccountServiceRetryHostReportQueueNotificationProcedure,
+			opts...,
+		),
+		createHostReportRequest: connect.NewClient[v1.CreateHostReportRequestRequest, v1.CreateHostReportRequestResponse](
+			httpClient,
+			baseURL+HostedAccountServiceCreateHostReportRequestProcedure,
+			opts...,
+		),
+		recordHostReportRequestFulfillment: connect.NewClient[v1.RecordHostReportRequestFulfillmentRequest, v1.RecordHostReportRequestFulfillmentResponse](
+			httpClient,
+			baseURL+HostedAccountServiceRecordHostReportRequestFulfillmentProcedure,
+			opts...,
+		),
+		listHostReportRequests: connect.NewClient[v1.ListHostReportRequestsRequest, v1.ListHostReportRequestsResponse](
+			httpClient,
+			baseURL+HostedAccountServiceListHostReportRequestsProcedure,
+			opts...,
+		),
+		listHostReportingAccounts: connect.NewClient[v1.ListHostReportingAccountsRequest, v1.ListHostReportingAccountsResponse](
+			httpClient,
+			baseURL+HostedAccountServiceListHostReportingAccountsProcedure,
+			opts...,
+		),
+		getHostReportingSetup: connect.NewClient[v1.GetHostReportingSetupRequest, v1.GetHostReportingSetupResponse](
+			httpClient,
+			baseURL+HostedAccountServiceGetHostReportingSetupProcedure,
+			opts...,
+		),
+		setHostReportingAuthority: connect.NewClient[v1.SetHostReportingAuthorityRequest, v1.SetHostReportingAuthorityResponse](
+			httpClient,
+			baseURL+HostedAccountServiceSetHostReportingAuthorityProcedure,
+			opts...,
+		),
+		mutateHostReportingInputs: connect.NewClient[v1.MutateHostReportingInputsRequest, v1.MutateHostReportingInputsResponse](
+			httpClient,
+			baseURL+HostedAccountServiceMutateHostReportingInputsProcedure,
+			opts...,
+		),
+		listHostReportingFacts: connect.NewClient[v1.ListHostReportingFactsRequest, v1.ListHostReportingFactsResponse](
+			httpClient,
+			baseURL+HostedAccountServiceListHostReportingFactsProcedure,
+			opts...,
+		),
+		prepareHostReport: connect.NewClient[v1.PrepareHostReportRequest, v1.PrepareHostReportResponse](
+			httpClient,
+			baseURL+HostedAccountServicePrepareHostReportProcedure,
+			opts...,
+		),
+		publishHostReport: connect.NewClient[v1.PublishHostReportRequest, v1.PublishHostReportResponse](
+			httpClient,
+			baseURL+HostedAccountServicePublishHostReportProcedure,
+			opts...,
+		),
+		listHostReports: connect.NewClient[v1.ListHostReportsRequest, v1.ListHostReportsResponse](
+			httpClient,
+			baseURL+HostedAccountServiceListHostReportsProcedure,
+			opts...,
+		),
+		getHostReport: connect.NewClient[v1.GetHostReportRequest, v1.GetHostReportResponse](
+			httpClient,
+			baseURL+HostedAccountServiceGetHostReportProcedure,
+			opts...,
+		),
+		recordHostReportDelivery: connect.NewClient[v1.RecordHostReportDeliveryRequest, v1.RecordHostReportDeliveryResponse](
+			httpClient,
+			baseURL+HostedAccountServiceRecordHostReportDeliveryProcedure,
+			opts...,
+		),
+		listAccountReports: connect.NewClient[v1.ListAccountReportsRequest, v1.ListAccountReportsResponse](
+			httpClient,
+			baseURL+HostedAccountServiceListAccountReportsProcedure,
+			opts...,
+		),
+		getAccountReport: connect.NewClient[v1.GetAccountReportRequest, v1.GetAccountReportResponse](
+			httpClient,
+			baseURL+HostedAccountServiceGetAccountReportProcedure,
+			opts...,
+		),
+		exportAccountReport: connect.NewClient[v1.ExportAccountReportRequest, v1.ExportAccountReportResponse](
+			httpClient,
+			baseURL+HostedAccountServiceExportAccountReportProcedure,
+			opts...,
+		),
+		exportHostReport: connect.NewClient[v1.ExportHostReportRequest, v1.ExportHostReportResponse](
+			httpClient,
+			baseURL+HostedAccountServiceExportHostReportProcedure,
+			opts...,
+		),
 		listAccountTickets: connect.NewClient[v1.ListAccountTicketsRequest, v1.ListAccountTicketsResponse](
 			httpClient,
 			baseURL+HostedAccountServiceListAccountTicketsProcedure,
@@ -361,40 +586,192 @@ func NewHostedAccountServiceClient(httpClient connect.HTTPClient, baseURL string
 
 // hostedAccountServiceClient implements HostedAccountServiceClient.
 type hostedAccountServiceClient struct {
-	listAccountTickets        *connect.Client[v1.ListAccountTicketsRequest, v1.ListAccountTicketsResponse]
-	getAccountTicket          *connect.Client[v1.GetAccountTicketRequest, v1.GetAccountTicketResponse]
-	createAccountTicket       *connect.Client[v1.CreateAccountTicketRequest, v1.CreateAccountTicketResponse]
-	commentAccountTicket      *connect.Client[v1.CommentAccountTicketRequest, v1.CommentAccountTicketResponse]
-	changeAccountTicketStatus *connect.Client[v1.ChangeAccountTicketStatusRequest, v1.ChangeAccountTicketStatusResponse]
-	listAccountTicketAssets   *connect.Client[v1.ListAccountTicketAssetsRequest, v1.ListAccountTicketAssetsResponse]
-	listAccountActivities     *connect.Client[v1.ListAccountActivitiesRequest, v1.ListAccountActivitiesResponse]
-	exportAccountActivities   *connect.Client[v1.ExportAccountActivitiesRequest, v1.ExportAccountActivitiesResponse]
-	getAccountDashboard       *connect.Client[v1.GetAccountDashboardRequest, v1.GetAccountDashboardResponse]
-	getAccountAssetDetail     *connect.Client[v1.GetAccountAssetDetailRequest, v1.GetAccountAssetDetailResponse]
-	getAccountMiningSummary   *connect.Client[v1.GetAccountMiningSummaryRequest, v1.GetAccountMiningSummaryResponse]
-	listAccountAssets         *connect.Client[v1.ListAccountAssetsRequest, v1.ListAccountAssetsResponse]
-	assignAccountAssets       *connect.Client[v1.AssignAccountAssetsRequest, v1.AssignAccountAssetsResponse]
-	replaceAccountHashboard   *connect.Client[v1.ReplaceAccountHashboardRequest, v1.ReplaceAccountHashboardResponse]
-	listAccounts              *connect.Client[v1.ListAccountsRequest, v1.ListAccountsResponse]
-	getAccount                *connect.Client[v1.GetAccountRequest, v1.GetAccountResponse]
-	listChildren              *connect.Client[v1.ListChildrenRequest, v1.ListChildrenResponse]
-	createAccount             *connect.Client[v1.CreateAccountRequest, v1.CreateAccountResponse]
-	configureAccount          *connect.Client[v1.ConfigureAccountRequest, v1.ConfigureAccountResponse]
-	renameAccount             *connect.Client[v1.RenameAccountRequest, v1.RenameAccountResponse]
-	listMembers               *connect.Client[v1.ListMembersRequest, v1.ListMembersResponse]
-	setMemberRole             *connect.Client[v1.SetMemberRoleRequest, v1.SetMemberRoleResponse]
-	revokeMember              *connect.Client[v1.RevokeMemberRequest, v1.RevokeMemberResponse]
-	listAncestorGrants        *connect.Client[v1.ListAncestorGrantsRequest, v1.ListAncestorGrantsResponse]
-	setAncestorGrant          *connect.Client[v1.SetAncestorGrantRequest, v1.SetAncestorGrantResponse]
-	revokeAncestorGrant       *connect.Client[v1.RevokeAncestorGrantRequest, v1.RevokeAncestorGrantResponse]
-	getSitePolicy             *connect.Client[v1.GetSitePolicyRequest, v1.GetSitePolicyResponse]
-	setSitePolicy             *connect.Client[v1.SetSitePolicyRequest, v1.SetSitePolicyResponse]
-	listInvitations           *connect.Client[v1.ListInvitationsRequest, v1.ListInvitationsResponse]
-	createInvitation          *connect.Client[v1.CreateInvitationRequest, v1.CreateInvitationResponse]
-	revokeInvitation          *connect.Client[v1.RevokeInvitationRequest, v1.RevokeInvitationResponse]
-	createAccountKey          *connect.Client[v1.CreateAccountKeyRequest, v1.CreateAccountKeyResponse]
-	listAccountKeys           *connect.Client[v1.ListAccountKeysRequest, v1.ListAccountKeysResponse]
-	revokeAccountKey          *connect.Client[v1.RevokeAccountKeyRequest, v1.RevokeAccountKeyResponse]
+	generateAccountAnalysis            *connect.Client[v1.GenerateAccountAnalysisRequest, v1.GenerateAccountAnalysisResponse]
+	listAccountAnalyses                *connect.Client[v1.ListAccountAnalysesRequest, v1.ListAccountAnalysesResponse]
+	getAccountAnalysis                 *connect.Client[v1.GetAccountAnalysisRequest, v1.GetAccountAnalysisResponse]
+	deleteAccountAnalysis              *connect.Client[v1.DeleteAccountAnalysisRequest, v1.DeleteAccountAnalysisResponse]
+	exportAccountAnalysis              *connect.Client[v1.ExportAccountAnalysisRequest, v1.ExportAccountAnalysisResponse]
+	listHostReportQueue                *connect.Client[v1.ListHostReportQueueRequest, v1.ListHostReportQueueResponse]
+	acknowledgeHostReportQueue         *connect.Client[v1.AcknowledgeHostReportQueueRequest, v1.AcknowledgeHostReportQueueResponse]
+	retryHostReportQueueNotification   *connect.Client[v1.RetryHostReportQueueNotificationRequest, v1.RetryHostReportQueueNotificationResponse]
+	createHostReportRequest            *connect.Client[v1.CreateHostReportRequestRequest, v1.CreateHostReportRequestResponse]
+	recordHostReportRequestFulfillment *connect.Client[v1.RecordHostReportRequestFulfillmentRequest, v1.RecordHostReportRequestFulfillmentResponse]
+	listHostReportRequests             *connect.Client[v1.ListHostReportRequestsRequest, v1.ListHostReportRequestsResponse]
+	listHostReportingAccounts          *connect.Client[v1.ListHostReportingAccountsRequest, v1.ListHostReportingAccountsResponse]
+	getHostReportingSetup              *connect.Client[v1.GetHostReportingSetupRequest, v1.GetHostReportingSetupResponse]
+	setHostReportingAuthority          *connect.Client[v1.SetHostReportingAuthorityRequest, v1.SetHostReportingAuthorityResponse]
+	mutateHostReportingInputs          *connect.Client[v1.MutateHostReportingInputsRequest, v1.MutateHostReportingInputsResponse]
+	listHostReportingFacts             *connect.Client[v1.ListHostReportingFactsRequest, v1.ListHostReportingFactsResponse]
+	prepareHostReport                  *connect.Client[v1.PrepareHostReportRequest, v1.PrepareHostReportResponse]
+	publishHostReport                  *connect.Client[v1.PublishHostReportRequest, v1.PublishHostReportResponse]
+	listHostReports                    *connect.Client[v1.ListHostReportsRequest, v1.ListHostReportsResponse]
+	getHostReport                      *connect.Client[v1.GetHostReportRequest, v1.GetHostReportResponse]
+	recordHostReportDelivery           *connect.Client[v1.RecordHostReportDeliveryRequest, v1.RecordHostReportDeliveryResponse]
+	listAccountReports                 *connect.Client[v1.ListAccountReportsRequest, v1.ListAccountReportsResponse]
+	getAccountReport                   *connect.Client[v1.GetAccountReportRequest, v1.GetAccountReportResponse]
+	exportAccountReport                *connect.Client[v1.ExportAccountReportRequest, v1.ExportAccountReportResponse]
+	exportHostReport                   *connect.Client[v1.ExportHostReportRequest, v1.ExportHostReportResponse]
+	listAccountTickets                 *connect.Client[v1.ListAccountTicketsRequest, v1.ListAccountTicketsResponse]
+	getAccountTicket                   *connect.Client[v1.GetAccountTicketRequest, v1.GetAccountTicketResponse]
+	createAccountTicket                *connect.Client[v1.CreateAccountTicketRequest, v1.CreateAccountTicketResponse]
+	commentAccountTicket               *connect.Client[v1.CommentAccountTicketRequest, v1.CommentAccountTicketResponse]
+	changeAccountTicketStatus          *connect.Client[v1.ChangeAccountTicketStatusRequest, v1.ChangeAccountTicketStatusResponse]
+	listAccountTicketAssets            *connect.Client[v1.ListAccountTicketAssetsRequest, v1.ListAccountTicketAssetsResponse]
+	listAccountActivities              *connect.Client[v1.ListAccountActivitiesRequest, v1.ListAccountActivitiesResponse]
+	exportAccountActivities            *connect.Client[v1.ExportAccountActivitiesRequest, v1.ExportAccountActivitiesResponse]
+	getAccountDashboard                *connect.Client[v1.GetAccountDashboardRequest, v1.GetAccountDashboardResponse]
+	getAccountAssetDetail              *connect.Client[v1.GetAccountAssetDetailRequest, v1.GetAccountAssetDetailResponse]
+	getAccountMiningSummary            *connect.Client[v1.GetAccountMiningSummaryRequest, v1.GetAccountMiningSummaryResponse]
+	listAccountAssets                  *connect.Client[v1.ListAccountAssetsRequest, v1.ListAccountAssetsResponse]
+	assignAccountAssets                *connect.Client[v1.AssignAccountAssetsRequest, v1.AssignAccountAssetsResponse]
+	replaceAccountHashboard            *connect.Client[v1.ReplaceAccountHashboardRequest, v1.ReplaceAccountHashboardResponse]
+	listAccounts                       *connect.Client[v1.ListAccountsRequest, v1.ListAccountsResponse]
+	getAccount                         *connect.Client[v1.GetAccountRequest, v1.GetAccountResponse]
+	listChildren                       *connect.Client[v1.ListChildrenRequest, v1.ListChildrenResponse]
+	createAccount                      *connect.Client[v1.CreateAccountRequest, v1.CreateAccountResponse]
+	configureAccount                   *connect.Client[v1.ConfigureAccountRequest, v1.ConfigureAccountResponse]
+	renameAccount                      *connect.Client[v1.RenameAccountRequest, v1.RenameAccountResponse]
+	listMembers                        *connect.Client[v1.ListMembersRequest, v1.ListMembersResponse]
+	setMemberRole                      *connect.Client[v1.SetMemberRoleRequest, v1.SetMemberRoleResponse]
+	revokeMember                       *connect.Client[v1.RevokeMemberRequest, v1.RevokeMemberResponse]
+	listAncestorGrants                 *connect.Client[v1.ListAncestorGrantsRequest, v1.ListAncestorGrantsResponse]
+	setAncestorGrant                   *connect.Client[v1.SetAncestorGrantRequest, v1.SetAncestorGrantResponse]
+	revokeAncestorGrant                *connect.Client[v1.RevokeAncestorGrantRequest, v1.RevokeAncestorGrantResponse]
+	getSitePolicy                      *connect.Client[v1.GetSitePolicyRequest, v1.GetSitePolicyResponse]
+	setSitePolicy                      *connect.Client[v1.SetSitePolicyRequest, v1.SetSitePolicyResponse]
+	listInvitations                    *connect.Client[v1.ListInvitationsRequest, v1.ListInvitationsResponse]
+	createInvitation                   *connect.Client[v1.CreateInvitationRequest, v1.CreateInvitationResponse]
+	revokeInvitation                   *connect.Client[v1.RevokeInvitationRequest, v1.RevokeInvitationResponse]
+	createAccountKey                   *connect.Client[v1.CreateAccountKeyRequest, v1.CreateAccountKeyResponse]
+	listAccountKeys                    *connect.Client[v1.ListAccountKeysRequest, v1.ListAccountKeysResponse]
+	revokeAccountKey                   *connect.Client[v1.RevokeAccountKeyRequest, v1.RevokeAccountKeyResponse]
+}
+
+// GenerateAccountAnalysis calls hosted.v1.HostedAccountService.GenerateAccountAnalysis.
+func (c *hostedAccountServiceClient) GenerateAccountAnalysis(ctx context.Context, req *connect.Request[v1.GenerateAccountAnalysisRequest]) (*connect.Response[v1.GenerateAccountAnalysisResponse], error) {
+	return c.generateAccountAnalysis.CallUnary(ctx, req)
+}
+
+// ListAccountAnalyses calls hosted.v1.HostedAccountService.ListAccountAnalyses.
+func (c *hostedAccountServiceClient) ListAccountAnalyses(ctx context.Context, req *connect.Request[v1.ListAccountAnalysesRequest]) (*connect.Response[v1.ListAccountAnalysesResponse], error) {
+	return c.listAccountAnalyses.CallUnary(ctx, req)
+}
+
+// GetAccountAnalysis calls hosted.v1.HostedAccountService.GetAccountAnalysis.
+func (c *hostedAccountServiceClient) GetAccountAnalysis(ctx context.Context, req *connect.Request[v1.GetAccountAnalysisRequest]) (*connect.Response[v1.GetAccountAnalysisResponse], error) {
+	return c.getAccountAnalysis.CallUnary(ctx, req)
+}
+
+// DeleteAccountAnalysis calls hosted.v1.HostedAccountService.DeleteAccountAnalysis.
+func (c *hostedAccountServiceClient) DeleteAccountAnalysis(ctx context.Context, req *connect.Request[v1.DeleteAccountAnalysisRequest]) (*connect.Response[v1.DeleteAccountAnalysisResponse], error) {
+	return c.deleteAccountAnalysis.CallUnary(ctx, req)
+}
+
+// ExportAccountAnalysis calls hosted.v1.HostedAccountService.ExportAccountAnalysis.
+func (c *hostedAccountServiceClient) ExportAccountAnalysis(ctx context.Context, req *connect.Request[v1.ExportAccountAnalysisRequest]) (*connect.ServerStreamForClient[v1.ExportAccountAnalysisResponse], error) {
+	return c.exportAccountAnalysis.CallServerStream(ctx, req)
+}
+
+// ListHostReportQueue calls hosted.v1.HostedAccountService.ListHostReportQueue.
+func (c *hostedAccountServiceClient) ListHostReportQueue(ctx context.Context, req *connect.Request[v1.ListHostReportQueueRequest]) (*connect.Response[v1.ListHostReportQueueResponse], error) {
+	return c.listHostReportQueue.CallUnary(ctx, req)
+}
+
+// AcknowledgeHostReportQueue calls hosted.v1.HostedAccountService.AcknowledgeHostReportQueue.
+func (c *hostedAccountServiceClient) AcknowledgeHostReportQueue(ctx context.Context, req *connect.Request[v1.AcknowledgeHostReportQueueRequest]) (*connect.Response[v1.AcknowledgeHostReportQueueResponse], error) {
+	return c.acknowledgeHostReportQueue.CallUnary(ctx, req)
+}
+
+// RetryHostReportQueueNotification calls
+// hosted.v1.HostedAccountService.RetryHostReportQueueNotification.
+func (c *hostedAccountServiceClient) RetryHostReportQueueNotification(ctx context.Context, req *connect.Request[v1.RetryHostReportQueueNotificationRequest]) (*connect.Response[v1.RetryHostReportQueueNotificationResponse], error) {
+	return c.retryHostReportQueueNotification.CallUnary(ctx, req)
+}
+
+// CreateHostReportRequest calls hosted.v1.HostedAccountService.CreateHostReportRequest.
+func (c *hostedAccountServiceClient) CreateHostReportRequest(ctx context.Context, req *connect.Request[v1.CreateHostReportRequestRequest]) (*connect.Response[v1.CreateHostReportRequestResponse], error) {
+	return c.createHostReportRequest.CallUnary(ctx, req)
+}
+
+// RecordHostReportRequestFulfillment calls
+// hosted.v1.HostedAccountService.RecordHostReportRequestFulfillment.
+func (c *hostedAccountServiceClient) RecordHostReportRequestFulfillment(ctx context.Context, req *connect.Request[v1.RecordHostReportRequestFulfillmentRequest]) (*connect.Response[v1.RecordHostReportRequestFulfillmentResponse], error) {
+	return c.recordHostReportRequestFulfillment.CallUnary(ctx, req)
+}
+
+// ListHostReportRequests calls hosted.v1.HostedAccountService.ListHostReportRequests.
+func (c *hostedAccountServiceClient) ListHostReportRequests(ctx context.Context, req *connect.Request[v1.ListHostReportRequestsRequest]) (*connect.Response[v1.ListHostReportRequestsResponse], error) {
+	return c.listHostReportRequests.CallUnary(ctx, req)
+}
+
+// ListHostReportingAccounts calls hosted.v1.HostedAccountService.ListHostReportingAccounts.
+func (c *hostedAccountServiceClient) ListHostReportingAccounts(ctx context.Context, req *connect.Request[v1.ListHostReportingAccountsRequest]) (*connect.Response[v1.ListHostReportingAccountsResponse], error) {
+	return c.listHostReportingAccounts.CallUnary(ctx, req)
+}
+
+// GetHostReportingSetup calls hosted.v1.HostedAccountService.GetHostReportingSetup.
+func (c *hostedAccountServiceClient) GetHostReportingSetup(ctx context.Context, req *connect.Request[v1.GetHostReportingSetupRequest]) (*connect.Response[v1.GetHostReportingSetupResponse], error) {
+	return c.getHostReportingSetup.CallUnary(ctx, req)
+}
+
+// SetHostReportingAuthority calls hosted.v1.HostedAccountService.SetHostReportingAuthority.
+func (c *hostedAccountServiceClient) SetHostReportingAuthority(ctx context.Context, req *connect.Request[v1.SetHostReportingAuthorityRequest]) (*connect.Response[v1.SetHostReportingAuthorityResponse], error) {
+	return c.setHostReportingAuthority.CallUnary(ctx, req)
+}
+
+// MutateHostReportingInputs calls hosted.v1.HostedAccountService.MutateHostReportingInputs.
+func (c *hostedAccountServiceClient) MutateHostReportingInputs(ctx context.Context, req *connect.Request[v1.MutateHostReportingInputsRequest]) (*connect.Response[v1.MutateHostReportingInputsResponse], error) {
+	return c.mutateHostReportingInputs.CallUnary(ctx, req)
+}
+
+// ListHostReportingFacts calls hosted.v1.HostedAccountService.ListHostReportingFacts.
+func (c *hostedAccountServiceClient) ListHostReportingFacts(ctx context.Context, req *connect.Request[v1.ListHostReportingFactsRequest]) (*connect.Response[v1.ListHostReportingFactsResponse], error) {
+	return c.listHostReportingFacts.CallUnary(ctx, req)
+}
+
+// PrepareHostReport calls hosted.v1.HostedAccountService.PrepareHostReport.
+func (c *hostedAccountServiceClient) PrepareHostReport(ctx context.Context, req *connect.Request[v1.PrepareHostReportRequest]) (*connect.Response[v1.PrepareHostReportResponse], error) {
+	return c.prepareHostReport.CallUnary(ctx, req)
+}
+
+// PublishHostReport calls hosted.v1.HostedAccountService.PublishHostReport.
+func (c *hostedAccountServiceClient) PublishHostReport(ctx context.Context, req *connect.Request[v1.PublishHostReportRequest]) (*connect.Response[v1.PublishHostReportResponse], error) {
+	return c.publishHostReport.CallUnary(ctx, req)
+}
+
+// ListHostReports calls hosted.v1.HostedAccountService.ListHostReports.
+func (c *hostedAccountServiceClient) ListHostReports(ctx context.Context, req *connect.Request[v1.ListHostReportsRequest]) (*connect.Response[v1.ListHostReportsResponse], error) {
+	return c.listHostReports.CallUnary(ctx, req)
+}
+
+// GetHostReport calls hosted.v1.HostedAccountService.GetHostReport.
+func (c *hostedAccountServiceClient) GetHostReport(ctx context.Context, req *connect.Request[v1.GetHostReportRequest]) (*connect.Response[v1.GetHostReportResponse], error) {
+	return c.getHostReport.CallUnary(ctx, req)
+}
+
+// RecordHostReportDelivery calls hosted.v1.HostedAccountService.RecordHostReportDelivery.
+func (c *hostedAccountServiceClient) RecordHostReportDelivery(ctx context.Context, req *connect.Request[v1.RecordHostReportDeliveryRequest]) (*connect.Response[v1.RecordHostReportDeliveryResponse], error) {
+	return c.recordHostReportDelivery.CallUnary(ctx, req)
+}
+
+// ListAccountReports calls hosted.v1.HostedAccountService.ListAccountReports.
+func (c *hostedAccountServiceClient) ListAccountReports(ctx context.Context, req *connect.Request[v1.ListAccountReportsRequest]) (*connect.Response[v1.ListAccountReportsResponse], error) {
+	return c.listAccountReports.CallUnary(ctx, req)
+}
+
+// GetAccountReport calls hosted.v1.HostedAccountService.GetAccountReport.
+func (c *hostedAccountServiceClient) GetAccountReport(ctx context.Context, req *connect.Request[v1.GetAccountReportRequest]) (*connect.Response[v1.GetAccountReportResponse], error) {
+	return c.getAccountReport.CallUnary(ctx, req)
+}
+
+// ExportAccountReport calls hosted.v1.HostedAccountService.ExportAccountReport.
+func (c *hostedAccountServiceClient) ExportAccountReport(ctx context.Context, req *connect.Request[v1.ExportAccountReportRequest]) (*connect.ServerStreamForClient[v1.ExportAccountReportResponse], error) {
+	return c.exportAccountReport.CallServerStream(ctx, req)
+}
+
+// ExportHostReport calls hosted.v1.HostedAccountService.ExportHostReport.
+func (c *hostedAccountServiceClient) ExportHostReport(ctx context.Context, req *connect.Request[v1.ExportHostReportRequest]) (*connect.ServerStreamForClient[v1.ExportHostReportResponse], error) {
+	return c.exportHostReport.CallServerStream(ctx, req)
 }
 
 // ListAccountTickets calls hosted.v1.HostedAccountService.ListAccountTickets.
@@ -569,6 +946,31 @@ func (c *hostedAccountServiceClient) RevokeAccountKey(ctx context.Context, req *
 
 // HostedAccountServiceHandler is an implementation of the hosted.v1.HostedAccountService service.
 type HostedAccountServiceHandler interface {
+	GenerateAccountAnalysis(context.Context, *connect.Request[v1.GenerateAccountAnalysisRequest]) (*connect.Response[v1.GenerateAccountAnalysisResponse], error)
+	ListAccountAnalyses(context.Context, *connect.Request[v1.ListAccountAnalysesRequest]) (*connect.Response[v1.ListAccountAnalysesResponse], error)
+	GetAccountAnalysis(context.Context, *connect.Request[v1.GetAccountAnalysisRequest]) (*connect.Response[v1.GetAccountAnalysisResponse], error)
+	DeleteAccountAnalysis(context.Context, *connect.Request[v1.DeleteAccountAnalysisRequest]) (*connect.Response[v1.DeleteAccountAnalysisResponse], error)
+	ExportAccountAnalysis(context.Context, *connect.Request[v1.ExportAccountAnalysisRequest], *connect.ServerStream[v1.ExportAccountAnalysisResponse]) error
+	ListHostReportQueue(context.Context, *connect.Request[v1.ListHostReportQueueRequest]) (*connect.Response[v1.ListHostReportQueueResponse], error)
+	AcknowledgeHostReportQueue(context.Context, *connect.Request[v1.AcknowledgeHostReportQueueRequest]) (*connect.Response[v1.AcknowledgeHostReportQueueResponse], error)
+	RetryHostReportQueueNotification(context.Context, *connect.Request[v1.RetryHostReportQueueNotificationRequest]) (*connect.Response[v1.RetryHostReportQueueNotificationResponse], error)
+	CreateHostReportRequest(context.Context, *connect.Request[v1.CreateHostReportRequestRequest]) (*connect.Response[v1.CreateHostReportRequestResponse], error)
+	RecordHostReportRequestFulfillment(context.Context, *connect.Request[v1.RecordHostReportRequestFulfillmentRequest]) (*connect.Response[v1.RecordHostReportRequestFulfillmentResponse], error)
+	ListHostReportRequests(context.Context, *connect.Request[v1.ListHostReportRequestsRequest]) (*connect.Response[v1.ListHostReportRequestsResponse], error)
+	ListHostReportingAccounts(context.Context, *connect.Request[v1.ListHostReportingAccountsRequest]) (*connect.Response[v1.ListHostReportingAccountsResponse], error)
+	GetHostReportingSetup(context.Context, *connect.Request[v1.GetHostReportingSetupRequest]) (*connect.Response[v1.GetHostReportingSetupResponse], error)
+	SetHostReportingAuthority(context.Context, *connect.Request[v1.SetHostReportingAuthorityRequest]) (*connect.Response[v1.SetHostReportingAuthorityResponse], error)
+	MutateHostReportingInputs(context.Context, *connect.Request[v1.MutateHostReportingInputsRequest]) (*connect.Response[v1.MutateHostReportingInputsResponse], error)
+	ListHostReportingFacts(context.Context, *connect.Request[v1.ListHostReportingFactsRequest]) (*connect.Response[v1.ListHostReportingFactsResponse], error)
+	PrepareHostReport(context.Context, *connect.Request[v1.PrepareHostReportRequest]) (*connect.Response[v1.PrepareHostReportResponse], error)
+	PublishHostReport(context.Context, *connect.Request[v1.PublishHostReportRequest]) (*connect.Response[v1.PublishHostReportResponse], error)
+	ListHostReports(context.Context, *connect.Request[v1.ListHostReportsRequest]) (*connect.Response[v1.ListHostReportsResponse], error)
+	GetHostReport(context.Context, *connect.Request[v1.GetHostReportRequest]) (*connect.Response[v1.GetHostReportResponse], error)
+	RecordHostReportDelivery(context.Context, *connect.Request[v1.RecordHostReportDeliveryRequest]) (*connect.Response[v1.RecordHostReportDeliveryResponse], error)
+	ListAccountReports(context.Context, *connect.Request[v1.ListAccountReportsRequest]) (*connect.Response[v1.ListAccountReportsResponse], error)
+	GetAccountReport(context.Context, *connect.Request[v1.GetAccountReportRequest]) (*connect.Response[v1.GetAccountReportResponse], error)
+	ExportAccountReport(context.Context, *connect.Request[v1.ExportAccountReportRequest], *connect.ServerStream[v1.ExportAccountReportResponse]) error
+	ExportHostReport(context.Context, *connect.Request[v1.ExportHostReportRequest], *connect.ServerStream[v1.ExportHostReportResponse]) error
 	ListAccountTickets(context.Context, *connect.Request[v1.ListAccountTicketsRequest]) (*connect.Response[v1.ListAccountTicketsResponse], error)
 	GetAccountTicket(context.Context, *connect.Request[v1.GetAccountTicketRequest]) (*connect.Response[v1.GetAccountTicketResponse], error)
 	CreateAccountTicket(context.Context, *connect.Request[v1.CreateAccountTicketRequest]) (*connect.Response[v1.CreateAccountTicketResponse], error)
@@ -611,6 +1013,131 @@ type HostedAccountServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewHostedAccountServiceHandler(svc HostedAccountServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	hostedAccountServiceGenerateAccountAnalysisHandler := connect.NewUnaryHandler(
+		HostedAccountServiceGenerateAccountAnalysisProcedure,
+		svc.GenerateAccountAnalysis,
+		opts...,
+	)
+	hostedAccountServiceListAccountAnalysesHandler := connect.NewUnaryHandler(
+		HostedAccountServiceListAccountAnalysesProcedure,
+		svc.ListAccountAnalyses,
+		opts...,
+	)
+	hostedAccountServiceGetAccountAnalysisHandler := connect.NewUnaryHandler(
+		HostedAccountServiceGetAccountAnalysisProcedure,
+		svc.GetAccountAnalysis,
+		opts...,
+	)
+	hostedAccountServiceDeleteAccountAnalysisHandler := connect.NewUnaryHandler(
+		HostedAccountServiceDeleteAccountAnalysisProcedure,
+		svc.DeleteAccountAnalysis,
+		opts...,
+	)
+	hostedAccountServiceExportAccountAnalysisHandler := connect.NewServerStreamHandler(
+		HostedAccountServiceExportAccountAnalysisProcedure,
+		svc.ExportAccountAnalysis,
+		opts...,
+	)
+	hostedAccountServiceListHostReportQueueHandler := connect.NewUnaryHandler(
+		HostedAccountServiceListHostReportQueueProcedure,
+		svc.ListHostReportQueue,
+		opts...,
+	)
+	hostedAccountServiceAcknowledgeHostReportQueueHandler := connect.NewUnaryHandler(
+		HostedAccountServiceAcknowledgeHostReportQueueProcedure,
+		svc.AcknowledgeHostReportQueue,
+		opts...,
+	)
+	hostedAccountServiceRetryHostReportQueueNotificationHandler := connect.NewUnaryHandler(
+		HostedAccountServiceRetryHostReportQueueNotificationProcedure,
+		svc.RetryHostReportQueueNotification,
+		opts...,
+	)
+	hostedAccountServiceCreateHostReportRequestHandler := connect.NewUnaryHandler(
+		HostedAccountServiceCreateHostReportRequestProcedure,
+		svc.CreateHostReportRequest,
+		opts...,
+	)
+	hostedAccountServiceRecordHostReportRequestFulfillmentHandler := connect.NewUnaryHandler(
+		HostedAccountServiceRecordHostReportRequestFulfillmentProcedure,
+		svc.RecordHostReportRequestFulfillment,
+		opts...,
+	)
+	hostedAccountServiceListHostReportRequestsHandler := connect.NewUnaryHandler(
+		HostedAccountServiceListHostReportRequestsProcedure,
+		svc.ListHostReportRequests,
+		opts...,
+	)
+	hostedAccountServiceListHostReportingAccountsHandler := connect.NewUnaryHandler(
+		HostedAccountServiceListHostReportingAccountsProcedure,
+		svc.ListHostReportingAccounts,
+		opts...,
+	)
+	hostedAccountServiceGetHostReportingSetupHandler := connect.NewUnaryHandler(
+		HostedAccountServiceGetHostReportingSetupProcedure,
+		svc.GetHostReportingSetup,
+		opts...,
+	)
+	hostedAccountServiceSetHostReportingAuthorityHandler := connect.NewUnaryHandler(
+		HostedAccountServiceSetHostReportingAuthorityProcedure,
+		svc.SetHostReportingAuthority,
+		opts...,
+	)
+	hostedAccountServiceMutateHostReportingInputsHandler := connect.NewUnaryHandler(
+		HostedAccountServiceMutateHostReportingInputsProcedure,
+		svc.MutateHostReportingInputs,
+		opts...,
+	)
+	hostedAccountServiceListHostReportingFactsHandler := connect.NewUnaryHandler(
+		HostedAccountServiceListHostReportingFactsProcedure,
+		svc.ListHostReportingFacts,
+		opts...,
+	)
+	hostedAccountServicePrepareHostReportHandler := connect.NewUnaryHandler(
+		HostedAccountServicePrepareHostReportProcedure,
+		svc.PrepareHostReport,
+		opts...,
+	)
+	hostedAccountServicePublishHostReportHandler := connect.NewUnaryHandler(
+		HostedAccountServicePublishHostReportProcedure,
+		svc.PublishHostReport,
+		opts...,
+	)
+	hostedAccountServiceListHostReportsHandler := connect.NewUnaryHandler(
+		HostedAccountServiceListHostReportsProcedure,
+		svc.ListHostReports,
+		opts...,
+	)
+	hostedAccountServiceGetHostReportHandler := connect.NewUnaryHandler(
+		HostedAccountServiceGetHostReportProcedure,
+		svc.GetHostReport,
+		opts...,
+	)
+	hostedAccountServiceRecordHostReportDeliveryHandler := connect.NewUnaryHandler(
+		HostedAccountServiceRecordHostReportDeliveryProcedure,
+		svc.RecordHostReportDelivery,
+		opts...,
+	)
+	hostedAccountServiceListAccountReportsHandler := connect.NewUnaryHandler(
+		HostedAccountServiceListAccountReportsProcedure,
+		svc.ListAccountReports,
+		opts...,
+	)
+	hostedAccountServiceGetAccountReportHandler := connect.NewUnaryHandler(
+		HostedAccountServiceGetAccountReportProcedure,
+		svc.GetAccountReport,
+		opts...,
+	)
+	hostedAccountServiceExportAccountReportHandler := connect.NewServerStreamHandler(
+		HostedAccountServiceExportAccountReportProcedure,
+		svc.ExportAccountReport,
+		opts...,
+	)
+	hostedAccountServiceExportHostReportHandler := connect.NewServerStreamHandler(
+		HostedAccountServiceExportHostReportProcedure,
+		svc.ExportHostReport,
+		opts...,
+	)
 	hostedAccountServiceListAccountTicketsHandler := connect.NewUnaryHandler(
 		HostedAccountServiceListAccountTicketsProcedure,
 		svc.ListAccountTickets,
@@ -783,6 +1310,56 @@ func NewHostedAccountServiceHandler(svc HostedAccountServiceHandler, opts ...con
 	)
 	return "/hosted.v1.HostedAccountService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case HostedAccountServiceGenerateAccountAnalysisProcedure:
+			hostedAccountServiceGenerateAccountAnalysisHandler.ServeHTTP(w, r)
+		case HostedAccountServiceListAccountAnalysesProcedure:
+			hostedAccountServiceListAccountAnalysesHandler.ServeHTTP(w, r)
+		case HostedAccountServiceGetAccountAnalysisProcedure:
+			hostedAccountServiceGetAccountAnalysisHandler.ServeHTTP(w, r)
+		case HostedAccountServiceDeleteAccountAnalysisProcedure:
+			hostedAccountServiceDeleteAccountAnalysisHandler.ServeHTTP(w, r)
+		case HostedAccountServiceExportAccountAnalysisProcedure:
+			hostedAccountServiceExportAccountAnalysisHandler.ServeHTTP(w, r)
+		case HostedAccountServiceListHostReportQueueProcedure:
+			hostedAccountServiceListHostReportQueueHandler.ServeHTTP(w, r)
+		case HostedAccountServiceAcknowledgeHostReportQueueProcedure:
+			hostedAccountServiceAcknowledgeHostReportQueueHandler.ServeHTTP(w, r)
+		case HostedAccountServiceRetryHostReportQueueNotificationProcedure:
+			hostedAccountServiceRetryHostReportQueueNotificationHandler.ServeHTTP(w, r)
+		case HostedAccountServiceCreateHostReportRequestProcedure:
+			hostedAccountServiceCreateHostReportRequestHandler.ServeHTTP(w, r)
+		case HostedAccountServiceRecordHostReportRequestFulfillmentProcedure:
+			hostedAccountServiceRecordHostReportRequestFulfillmentHandler.ServeHTTP(w, r)
+		case HostedAccountServiceListHostReportRequestsProcedure:
+			hostedAccountServiceListHostReportRequestsHandler.ServeHTTP(w, r)
+		case HostedAccountServiceListHostReportingAccountsProcedure:
+			hostedAccountServiceListHostReportingAccountsHandler.ServeHTTP(w, r)
+		case HostedAccountServiceGetHostReportingSetupProcedure:
+			hostedAccountServiceGetHostReportingSetupHandler.ServeHTTP(w, r)
+		case HostedAccountServiceSetHostReportingAuthorityProcedure:
+			hostedAccountServiceSetHostReportingAuthorityHandler.ServeHTTP(w, r)
+		case HostedAccountServiceMutateHostReportingInputsProcedure:
+			hostedAccountServiceMutateHostReportingInputsHandler.ServeHTTP(w, r)
+		case HostedAccountServiceListHostReportingFactsProcedure:
+			hostedAccountServiceListHostReportingFactsHandler.ServeHTTP(w, r)
+		case HostedAccountServicePrepareHostReportProcedure:
+			hostedAccountServicePrepareHostReportHandler.ServeHTTP(w, r)
+		case HostedAccountServicePublishHostReportProcedure:
+			hostedAccountServicePublishHostReportHandler.ServeHTTP(w, r)
+		case HostedAccountServiceListHostReportsProcedure:
+			hostedAccountServiceListHostReportsHandler.ServeHTTP(w, r)
+		case HostedAccountServiceGetHostReportProcedure:
+			hostedAccountServiceGetHostReportHandler.ServeHTTP(w, r)
+		case HostedAccountServiceRecordHostReportDeliveryProcedure:
+			hostedAccountServiceRecordHostReportDeliveryHandler.ServeHTTP(w, r)
+		case HostedAccountServiceListAccountReportsProcedure:
+			hostedAccountServiceListAccountReportsHandler.ServeHTTP(w, r)
+		case HostedAccountServiceGetAccountReportProcedure:
+			hostedAccountServiceGetAccountReportHandler.ServeHTTP(w, r)
+		case HostedAccountServiceExportAccountReportProcedure:
+			hostedAccountServiceExportAccountReportHandler.ServeHTTP(w, r)
+		case HostedAccountServiceExportHostReportProcedure:
+			hostedAccountServiceExportHostReportHandler.ServeHTTP(w, r)
 		case HostedAccountServiceListAccountTicketsProcedure:
 			hostedAccountServiceListAccountTicketsHandler.ServeHTTP(w, r)
 		case HostedAccountServiceGetAccountTicketProcedure:
@@ -859,6 +1436,106 @@ func NewHostedAccountServiceHandler(svc HostedAccountServiceHandler, opts ...con
 
 // UnimplementedHostedAccountServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedHostedAccountServiceHandler struct{}
+
+func (UnimplementedHostedAccountServiceHandler) GenerateAccountAnalysis(context.Context, *connect.Request[v1.GenerateAccountAnalysisRequest]) (*connect.Response[v1.GenerateAccountAnalysisResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.GenerateAccountAnalysis is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) ListAccountAnalyses(context.Context, *connect.Request[v1.ListAccountAnalysesRequest]) (*connect.Response[v1.ListAccountAnalysesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.ListAccountAnalyses is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) GetAccountAnalysis(context.Context, *connect.Request[v1.GetAccountAnalysisRequest]) (*connect.Response[v1.GetAccountAnalysisResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.GetAccountAnalysis is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) DeleteAccountAnalysis(context.Context, *connect.Request[v1.DeleteAccountAnalysisRequest]) (*connect.Response[v1.DeleteAccountAnalysisResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.DeleteAccountAnalysis is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) ExportAccountAnalysis(context.Context, *connect.Request[v1.ExportAccountAnalysisRequest], *connect.ServerStream[v1.ExportAccountAnalysisResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.ExportAccountAnalysis is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) ListHostReportQueue(context.Context, *connect.Request[v1.ListHostReportQueueRequest]) (*connect.Response[v1.ListHostReportQueueResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.ListHostReportQueue is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) AcknowledgeHostReportQueue(context.Context, *connect.Request[v1.AcknowledgeHostReportQueueRequest]) (*connect.Response[v1.AcknowledgeHostReportQueueResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.AcknowledgeHostReportQueue is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) RetryHostReportQueueNotification(context.Context, *connect.Request[v1.RetryHostReportQueueNotificationRequest]) (*connect.Response[v1.RetryHostReportQueueNotificationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.RetryHostReportQueueNotification is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) CreateHostReportRequest(context.Context, *connect.Request[v1.CreateHostReportRequestRequest]) (*connect.Response[v1.CreateHostReportRequestResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.CreateHostReportRequest is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) RecordHostReportRequestFulfillment(context.Context, *connect.Request[v1.RecordHostReportRequestFulfillmentRequest]) (*connect.Response[v1.RecordHostReportRequestFulfillmentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.RecordHostReportRequestFulfillment is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) ListHostReportRequests(context.Context, *connect.Request[v1.ListHostReportRequestsRequest]) (*connect.Response[v1.ListHostReportRequestsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.ListHostReportRequests is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) ListHostReportingAccounts(context.Context, *connect.Request[v1.ListHostReportingAccountsRequest]) (*connect.Response[v1.ListHostReportingAccountsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.ListHostReportingAccounts is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) GetHostReportingSetup(context.Context, *connect.Request[v1.GetHostReportingSetupRequest]) (*connect.Response[v1.GetHostReportingSetupResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.GetHostReportingSetup is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) SetHostReportingAuthority(context.Context, *connect.Request[v1.SetHostReportingAuthorityRequest]) (*connect.Response[v1.SetHostReportingAuthorityResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.SetHostReportingAuthority is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) MutateHostReportingInputs(context.Context, *connect.Request[v1.MutateHostReportingInputsRequest]) (*connect.Response[v1.MutateHostReportingInputsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.MutateHostReportingInputs is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) ListHostReportingFacts(context.Context, *connect.Request[v1.ListHostReportingFactsRequest]) (*connect.Response[v1.ListHostReportingFactsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.ListHostReportingFacts is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) PrepareHostReport(context.Context, *connect.Request[v1.PrepareHostReportRequest]) (*connect.Response[v1.PrepareHostReportResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.PrepareHostReport is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) PublishHostReport(context.Context, *connect.Request[v1.PublishHostReportRequest]) (*connect.Response[v1.PublishHostReportResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.PublishHostReport is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) ListHostReports(context.Context, *connect.Request[v1.ListHostReportsRequest]) (*connect.Response[v1.ListHostReportsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.ListHostReports is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) GetHostReport(context.Context, *connect.Request[v1.GetHostReportRequest]) (*connect.Response[v1.GetHostReportResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.GetHostReport is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) RecordHostReportDelivery(context.Context, *connect.Request[v1.RecordHostReportDeliveryRequest]) (*connect.Response[v1.RecordHostReportDeliveryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.RecordHostReportDelivery is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) ListAccountReports(context.Context, *connect.Request[v1.ListAccountReportsRequest]) (*connect.Response[v1.ListAccountReportsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.ListAccountReports is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) GetAccountReport(context.Context, *connect.Request[v1.GetAccountReportRequest]) (*connect.Response[v1.GetAccountReportResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.GetAccountReport is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) ExportAccountReport(context.Context, *connect.Request[v1.ExportAccountReportRequest], *connect.ServerStream[v1.ExportAccountReportResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.ExportAccountReport is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) ExportHostReport(context.Context, *connect.Request[v1.ExportHostReportRequest], *connect.ServerStream[v1.ExportHostReportResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.ExportHostReport is not implemented"))
+}
 
 func (UnimplementedHostedAccountServiceHandler) ListAccountTickets(context.Context, *connect.Request[v1.ListAccountTicketsRequest]) (*connect.Response[v1.ListAccountTicketsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.ListAccountTickets is not implemented"))

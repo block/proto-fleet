@@ -14,6 +14,8 @@ import {
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import type { ColConfig, ColTitles, ListAction, ListActionValue } from "@/shared/components/List/types";
+import { pushToast } from "@/shared/features/toaster";
+import { copyToClipboard } from "@/shared/utils/utility";
 
 const permissionsMock = vi.hoisted(() => ({ current: [] as string[] }));
 const listFleetNodesMock = vi.hoisted(() => vi.fn());
@@ -147,6 +149,14 @@ vi.mock("@/shared/features/toaster", () => ({
   pushToast: vi.fn(),
   STATUSES: { error: "error", success: "success" },
 }));
+
+vi.mock("@/shared/utils/utility", async () => {
+  const actual = await vi.importActual<typeof import("@/shared/utils/utility")>("@/shared/utils/utility");
+  return { ...actual, copyToClipboard: vi.fn() };
+});
+
+const mockCopyToClipboard = vi.mocked(copyToClipboard);
+const mockPushToast = vi.mocked(pushToast);
 
 const confirmedNode: FleetNodeItem = {
   fleetNodeId: "7",
@@ -285,6 +295,54 @@ describe("NodesPage", () => {
     discoverOnFleetNodeMock.mockResolvedValue(undefined);
     pairDiscoveredDevicesOnFleetNodeMock.mockReset();
     pairDiscoveredDevicesOnFleetNodeMock.mockResolvedValue(undefined);
+    mockCopyToClipboard.mockReset();
+    mockCopyToClipboard.mockResolvedValue(undefined);
+    mockPushToast.mockClear();
+  });
+
+  it("copies the node's first IP address and confirms with a toast", async () => {
+    listFleetNodesMock.mockResolvedValue([{ ...confirmedNode, ipAddresses: ["192.168.1.7", "fd00::7"] }]);
+    renderNodesPage();
+
+    expect(await screen.findByText("192.168.1.7 +1")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Copy IP address 192.168.1.7" }));
+
+    await waitFor(() =>
+      expect(mockPushToast).toHaveBeenCalledWith({ message: "IP address copied to clipboard", status: "success" }),
+    );
+    expect(mockCopyToClipboard).toHaveBeenCalledWith("192.168.1.7");
+    expect(screen.queryByRole("dialog", { name: "Node details" })).not.toBeInTheDocument();
+  });
+
+  it("reports an error toast when copying the IP address fails", async () => {
+    mockCopyToClipboard.mockRejectedValue(new Error("copy failed"));
+    listFleetNodesMock.mockResolvedValue([{ ...confirmedNode, ipAddresses: ["192.168.1.7"] }]);
+    renderNodesPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Copy IP address 192.168.1.7" }));
+
+    await waitFor(() =>
+      expect(mockPushToast).toHaveBeenCalledWith({ message: "Failed to copy IP address", status: "error" }),
+    );
+  });
+
+  it("offers no copy button for a node that has not reported an IP address", async () => {
+    renderNodesPage();
+
+    expect(await screen.findByText("node-01")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Copy IP address/ })).not.toBeInTheDocument();
+  });
+
+  it("flags a recommended upgrade beside the version while the connection stays Connected", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-07-09T12:01:30Z"));
+    listFleetNodesMock.mockResolvedValue([
+      { ...confirmedNode, version: "v0.6.2-internal.8", commandProtocolUpgradeRecommended: true },
+    ]);
+    renderNodesPage();
+
+    expect(await screen.findByTitle("Upgrade recommended")).toHaveTextContent("v0.6.2-internal.8");
+    expect(screen.getByText("Connected")).toBeVisible();
   });
 
   it("renders nodes for read-only users without management actions", async () => {

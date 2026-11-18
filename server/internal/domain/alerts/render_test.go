@@ -650,3 +650,18 @@ func mustJSON(t *testing.T, v any) string {
 	require.NoError(t, err)
 	return string(b)
 }
+
+func TestReportingActionLinksStayWithinTheFleet(t *testing.T) {
+	path := "/accounts/reports?account=0f514167-e33a-45df-8a16-c76ea3551ef4&queue=0f514167-e33a-45df-8a16-c76ea3551ef5"
+	a := Alert{Status: "firing", RuleUID: "hosted-reporting-operations", Labels: map[string]string{"alertname": "Hosted report requires action", "severity": "warning"}, Annotations: map[string]string{"summary": "Review the reporting item", "action_path": path}}
+	raw, err := json.Marshal(renderSlack("https://fleet.example.com", []Alert{a}, nil))
+	require.NoError(t, err)
+	require.Contains(t, string(raw), "https://fleet.example.com/accounts/reports?")
+	require.Contains(t, string(raw), "Open reporting queue item")
+	for _, invalid := range []string{"https://evil.example/accounts/reports", "//evil.example/accounts/reports", "/accounts/reports?account=x&queue=y", path + "&token=secret", path + ">"} {
+		a.Annotations["action_path"] = invalid
+		raw, err = json.Marshal(renderSlack("https://fleet.example.com", []Alert{a}, nil))
+		require.NoError(t, err)
+		require.NotContains(t, string(raw), "Open reporting queue item")
+	}
+}

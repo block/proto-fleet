@@ -21,18 +21,16 @@ export class SingleMinerPage extends BasePage {
   }
 
   private async ensureNavigationVisible() {
+    const surface = this.page.getByTestId("single-miner-surface");
+    await expect(surface).toBeVisible();
+    const navigation = surface.getByTestId("navigation");
     if (!this.isMobile) {
+      await expect(navigation).toBeVisible();
       return;
     }
-
-    // The hosted miner layout is hidden, with its menu state kept, while a lazy
-    // page chunk loads, so a single visibility check can miss an open menu.
-    const navigation = this.page.getByTestId("navigation");
     await expect(async () => {
-      if (await navigation.isVisible().catch(() => false)) {
-        return;
-      }
-      await this.page.getByTestId("navigation-menu-button").click({ timeout: DEFAULT_INTERVAL });
+      if (await navigation.isVisible().catch(() => false)) return;
+      await surface.getByTestId("navigation-menu-button").click({ timeout: DEFAULT_INTERVAL });
       await expect(navigation).toBeVisible({ timeout: DEFAULT_INTERVAL });
     }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
   }
@@ -80,7 +78,11 @@ export class SingleMinerPage extends BasePage {
 
   async navigateToLogs() {
     await this.ensureNavigationVisible();
-    await this.page.getByTestId("navigation").getByRole("button", { name: "Logs" }).click();
+    await this.page
+      .getByTestId("single-miner-surface")
+      .getByTestId("navigation")
+      .getByRole("button", { name: "Logs" })
+      .click();
     await expect(this.page).toHaveURL(/.*\/logs/);
     await this.waitForLogsListToBeReady();
   }

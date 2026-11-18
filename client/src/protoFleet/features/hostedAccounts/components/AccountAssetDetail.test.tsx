@@ -56,7 +56,14 @@ describe("account mining asset details", () => {
     render(
       <MemoryRouter initialEntries={["/accounts/client/assets/module/7"]}>
         <HostedAccountsContext.Provider
-          value={{ accounts: [], hostAccess: false, loading: false, error: null, refresh: vi.fn() }}
+          value={{
+            reportingAccess: false,
+            accounts: [],
+            hostAccess: false,
+            loading: false,
+            error: null,
+            refresh: vi.fn(),
+          }}
         >
           <Routes>
             <Route path="/accounts/:accountId/assets/:kind/:assetId" element={<AccountWorkspace />} />
@@ -150,7 +157,14 @@ it.each([
     render(
       <MemoryRouter initialEntries={[`/accounts/client/assets/${kind}/${assetId}`]}>
         <HostedAccountsContext.Provider
-          value={{ accounts: [], hostAccess: false, loading: false, error: null, refresh: vi.fn() }}
+          value={{
+            accounts: [],
+            hostAccess: false,
+            reportingAccess: false,
+            loading: false,
+            error: null,
+            refresh: vi.fn(),
+          }}
         >
           <Routes>
             <Route path="/accounts/:accountId/assets/:kind/:assetId" element={<AccountWorkspace />} />

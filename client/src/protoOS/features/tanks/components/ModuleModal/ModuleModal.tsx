@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 
+import ModulePowerFeed from "./ModulePowerFeed";
 import ModuleVoltageSection from "./ModuleVoltageSection";
 
 import { useHashboardStatus } from "@/protoOS/api/hooks/useHashboardStatus";
@@ -148,6 +149,7 @@ const ModuleModal = ({
           ) : (
             <p role="status">No PSU data available.</p>
           )}
+          <ModulePowerFeed key={module.id} module={module} tank={tank} />
         </ComponentSection>
       </div>
     </Modal>

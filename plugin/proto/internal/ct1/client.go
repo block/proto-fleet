@@ -16,8 +16,10 @@ import (
 	mdk "github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
 const DefaultRPCPort int32 = 9095
@@ -41,7 +43,9 @@ type Client struct {
 	pollMu       sync.Mutex
 }
 
-func NewClient(info sdk.DeviceInfo, _ sdk.UsernamePassword) (*Client, error) {
+// NewClient opens one controller connection. A stored controller token is sent
+// only on connections to the paired endpoints; discovery passes no credentials.
+func NewClient(info sdk.DeviceInfo, access sdk.UsernamePassword) (*Client, error) {
 	if info.Host == "" || info.Port <= 0 || info.Port > 65535 || (info.URLScheme != "http" && info.URLScheme != "https") {
 		return nil, fmt.Errorf("invalid CT1 web endpoint")
 	}
@@ -50,7 +54,12 @@ func NewClient(info sdk.DeviceInfo, _ sdk.UsernamePassword) (*Client, error) {
 		return nil, fmt.Errorf("invalid CT1 RPC port")
 	}
 	if os.Getenv("CT1_RPC_TOKEN_FILE") != "" {
-		return nil, fmt.Errorf("CT1_RPC_TOKEN_FILE is unsupported; authenticated CT1 RPC connections are not supported")
+		// A process-wide token would reach every scanned host. Tokens are per controller.
+		return nil, fmt.Errorf("CT1_RPC_TOKEN_FILE is unsupported; enter each controller's token in Fleet")
+	}
+	token, err := controllerToken(access)
+	if err != nil {
+		return nil, err
 	}
 	var transport credentials.TransportCredentials = insecure.NewCredentials()
 	if info.RPCTLS {
@@ -65,6 +74,9 @@ func NewClient(info sdk.DeviceInfo, _ sdk.UsernamePassword) (*Client, error) {
 	}), grpc.WithStreamInterceptor(func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, options ...grpc.CallOption) (grpc.ClientStream, error) {
 		return streamer(outgoingActor(ctx), desc, cc, method, options...)
 	}))
+	if token != "" {
+		opts = append(opts, grpc.WithPerRPCCredentials(newBearerCredential(token)))
+	}
 	conn, err := grpc.NewClient("dns:///"+net.JoinHostPort(info.Host, strconv.Itoa(int(port))), opts...)
 	if err != nil {
 		return nil, fmt.Errorf("create CT1 connection: %w", err)
@@ -81,6 +93,9 @@ func (c *Client) Discover(ctx context.Context, info sdk.DeviceInfo) (sdk.DeviceI
 	defer cancel()
 	result, err := c.system.GetSystemInfo(ctx, &mdk.GetSystemInfoRequest{})
 	if err != nil {
+		if status.Code(err) == codes.Unauthenticated {
+			return sdk.DeviceInfo{}, fmt.Errorf("%w: %w", ErrIdentityRequiresToken, err)
+		}
 		return sdk.DeviceInfo{}, err
 	}
 	v := result.GetInfo()
@@ -88,7 +103,7 @@ func (c *Client) Discover(ctx context.Context, info sdk.DeviceInfo) (sdk.DeviceI
 		return sdk.DeviceInfo{}, fmt.Errorf("endpoint is not a CT1 container")
 	}
 	if info.SerialNumber != "" && info.SerialNumber != v.Id {
-		return sdk.DeviceInfo{}, fmt.Errorf("CT1 controller identity mismatch")
+		return sdk.DeviceInfo{}, ErrControllerIdentityMismatch
 	}
 	report, key, err := c.readHA(ctx, v.Id, "")
 	if err != nil {

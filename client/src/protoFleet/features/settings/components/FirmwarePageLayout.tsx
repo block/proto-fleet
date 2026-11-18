@@ -3,7 +3,7 @@ import { type ReactNode, useEffect, useRef } from "react";
 import SettingsPageHeader from "./SettingsPageHeader";
 import { TabStrip, TabStripItem } from "@/shared/components/Tab";
 
-export type FirmwareTab = "files" | "releaseChannels" | "frigatePackages";
+export type FirmwareTab = "files" | "releaseChannels";
 
 type Props = {
   activeTab: FirmwareTab;
@@ -11,10 +11,6 @@ type Props = {
   manageRequest: { channelId: bigint } | null;
   monitor: ReactNode;
   headerAction?: ReactNode;
-  /** Offers the Frigate packages tab, which needs the controller software update permission. */
-  showFrigatePackages?: boolean;
-  /** Offers the miner Files and Release channels tabs, which need the miner firmware permission. */
-  showMinerFirmware?: boolean;
   refreshWarning?: ReactNode;
   children: ReactNode;
 };
@@ -25,8 +21,6 @@ const FirmwarePageLayout = ({
   manageRequest,
   monitor,
   headerAction,
-  showFrigatePackages = false,
-  showMinerFirmware = true,
   refreshWarning,
   children,
 }: Props) => {
@@ -49,15 +43,10 @@ const FirmwarePageLayout = ({
         <TabStrip
           activeId={activeTab}
           ariaLabel="Firmware sections"
-          onSelect={(tab) =>
-            onSelectTab(
-              tab === "releaseChannels" ? "releaseChannels" : tab === "frigatePackages" ? "frigatePackages" : "files",
-            )
-          }
+          onSelect={(tab) => onSelectTab(tab === "releaseChannels" ? "releaseChannels" : "files")}
         >
-          {showMinerFirmware ? <TabStripItem id="files" label="Files" /> : null}
-          {showMinerFirmware ? <TabStripItem id="releaseChannels" label="Release channels" /> : null}
-          {showFrigatePackages ? <TabStripItem id="frigatePackages" label="Frigate packages" /> : null}
+          <TabStripItem id="files" label="Files" />
+          <TabStripItem id="releaseChannels" label="Release channels" />
         </TabStrip>
       </div>
       {children}

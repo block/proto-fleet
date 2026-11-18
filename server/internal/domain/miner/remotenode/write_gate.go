@@ -56,7 +56,7 @@ func physicalWriteKind(command *gatewaypb.MinerCommand) (commandtype.Type, bool)
 		return commandtype.ContainerMining, err != nil || !r.ReadOnly()
 	case *gatewaypb.MinerCommand_ContainerPowerFeed:
 		r, err := sdk.DecodeContainerPowerFeedRequest(command.GetContainerPowerFeed().Request)
-		return commandtype.Type(-1), err != nil || !r.ReadOnly()
+		return commandtype.ControlPowerFeed, err != nil || !r.ReadOnly()
 	case *gatewaypb.MinerCommand_MiningGroups:
 		r, err := sdk.DecodeMiningGroupRequest(command.GetMiningGroups().Request)
 		return commandtype.Type(-1), err != nil || !r.ReadOnly()

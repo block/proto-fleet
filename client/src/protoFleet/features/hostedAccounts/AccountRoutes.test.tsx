@@ -37,6 +37,8 @@ vi.mock("./AccountWorkspace", () => ({
     );
   },
 }));
+vi.mock("./ReportingQueuePage", () => ({ default: () => <div data-testid="reporting-page">Reports</div> }));
+
 const initialAuth = useFleetStore.getState().auth;
 afterEach(() => useFleetStore.setState({ auth: initialAuth }));
 
@@ -46,6 +48,7 @@ it("keeps the host list mounted and restores its URL, filter and scroll after cl
     <MemoryRouter initialEntries={["/accounts?sort=descending#last-client"]}>
       <HostedAccountsContext.Provider
         value={{
+          reportingAccess: false,
           accounts: [create(AccountSchema, { accountId: "host", depth: 0, effectiveCapabilities: 16n })],
           hostAccess: true,
           loading: false,
@@ -80,6 +83,7 @@ it("does not overlay a member workspace merely because the member can read Fleet
     <MemoryRouter initialEntries={["/accounts/client/overview"]}>
       <HostedAccountsContext.Provider
         value={{
+          reportingAccess: false,
           accounts: [
             create(AccountSchema, {
               accountId: "client",
@@ -103,3 +107,29 @@ it("does not overlay a member workspace merely because the member can read Fleet
   expect(screen.getByText("overview").closest("[inert]")).not.toBeInTheDocument();
   expect(screen.queryByTestId("host-list")).not.toBeInTheDocument();
 });
+
+it.each(["/accounts/reports/", "/accounts/REPORTS", "/accounts/REPORTS/"])(
+  "renders %s as reporting rather than a client preview",
+  (path) => {
+    render(
+      <MemoryRouter initialEntries={[path]}>
+        <HostedAccountsContext.Provider
+          value={{
+            reportingAccess: false,
+            accounts: [create(AccountSchema, { accountId: "host", depth: 0, effectiveCapabilities: 16n })],
+            hostAccess: true,
+            loading: false,
+            error: null,
+            refresh: vi.fn(),
+          }}
+        >
+          <Routes>
+            <Route path="/accounts/*" element={<AccountRoutes />} />
+          </Routes>
+        </HostedAccountsContext.Provider>
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId("reporting-page").closest("[inert]")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Close preview" })).not.toBeInTheDocument();
+  },
+);

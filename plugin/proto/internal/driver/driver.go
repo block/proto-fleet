@@ -194,10 +194,10 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 	}
 
 	if portInt32 == ct1.DefaultRPCPort {
-		return discoverContainer(ctx, ipAddress, portInt32)
+		return discoverContainer(ctx, ipAddress, portInt32, true)
 	}
 	if d.requiredPort > 0 {
-		info, err := discoverContainer(ctx, ipAddress, portInt32)
+		info, err := discoverContainer(ctx, ipAddress, portInt32, true)
 		if err == nil {
 			return info, nil
 		}
@@ -238,7 +238,7 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 		// keeps the longer budget for sequential identity requests.
 		probeCtx, cancel := context.WithTimeout(ctx, containerFallbackTimeout)
 		defer cancel()
-		if info, err := discoverContainer(probeCtx, ipAddress, portInt32); err == nil {
+		if info, err := discoverContainer(probeCtx, ipAddress, portInt32, false); err == nil {
 			return info, nil
 		} else if terminalRPCDiscoveryError(err) {
 			return sdk.DeviceInfo{}, err
@@ -504,8 +504,9 @@ func (d *Driver) GetCapabilitiesForModel(ctx context.Context, manufacturer, mode
 	return base
 }
 
-// Stored REST credentials remain accepted as input but are never sent as RPC
-// metadata. Authenticated native MDK connections are not supported.
+// A container credential with an empty username is the controller's MDK bearer
+// token, sent only to the paired endpoints. Stored REST credentials remain
+// accepted as input but are never sent as RPC metadata.
 func containerCredentials(secret sdk.SecretBundle) (sdk.UsernamePassword, error) {
 	if secret.Kind == nil {
 		return sdk.UsernamePassword{}, nil
@@ -514,7 +515,10 @@ func containerCredentials(secret sdk.SecretBundle) (sdk.UsernamePassword, error)
 }
 
 // A discovered RPC port never replaces the HTTP endpoint used by ProtoOS.
-func discoverContainer(ctx context.Context, host string, port int32) (sdk.DeviceInfo, error) {
+// listProtected lists a controller that requires a token, identity unknown, at
+// an explicit CT1 RPC port. Opportunistic probes of web ports never do: any
+// gRPC service with an auth gate would otherwise be listed as a CT1.
+func discoverContainer(ctx context.Context, host string, port int32, listProtected bool) (sdk.DeviceInfo, error) {
 	info := sdk.DeviceInfo{Host: host, Port: 8080, URLScheme: "http", RPCPort: port}
 	if value := os.Getenv("CT1_WEB_PORT"); value != "" {
 		p, err := sdk.ParsePort(value)
@@ -538,5 +542,9 @@ func discoverContainer(ctx context.Context, host string, port int32) (sdk.Device
 		return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeInvalidConfig, err)
 	}
 	defer c.Close()
-	return c.Discover(ctx, info)
+	discovered, err := c.Discover(ctx, info)
+	if listProtected && errors.Is(err, ct1.ErrIdentityRequiresToken) {
+		return ct1.UnidentifiedController(info), nil
+	}
+	return discovered, err
 }

@@ -38,6 +38,66 @@ func (q *retryingQuerier) AcceptPoolRemoval(ctx context.Context, arg AcceptPoolR
 	return result, err
 }
 
+func (q *retryingQuerier) AccountAnalysisDeleted(ctx context.Context, arg AccountAnalysisDeletedParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "AccountAnalysisDeleted", func() error {
+		callResult, callErr := q.next.AccountAnalysisDeleted(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) AccountAnalysisEnergyContextSize(ctx context.Context, arg AccountAnalysisEnergyContextSizeParams) (AccountAnalysisEnergyContextSizeRow, error) {
+	var result AccountAnalysisEnergyContextSizeRow
+	err := q.retrier.RetryQuery(ctx, "AccountAnalysisEnergyContextSize", func() error {
+		callResult, callErr := q.next.AccountAnalysisEnergyContextSize(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) AccountAnalysisRequestDeleted(ctx context.Context, arg AccountAnalysisRequestDeletedParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "AccountAnalysisRequestDeleted", func() error {
+		callResult, callErr := q.next.AccountAnalysisRequestDeleted(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) AccountAnalysisTicketsVisible(ctx context.Context, arg AccountAnalysisTicketsVisibleParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "AccountAnalysisTicketsVisible", func() error {
+		callResult, callErr := q.next.AccountAnalysisTicketsVisible(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) AcknowledgeHostedReportQueue(ctx context.Context, arg AcknowledgeHostedReportQueueParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "AcknowledgeHostedReportQueue", func() error {
+		callResult, callErr := q.next.AcknowledgeHostedReportQueue(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) AcquireFleetRuntimeLease(ctx context.Context, arg AcquireFleetRuntimeLeaseParams) (AcquireFleetRuntimeLeaseRow, error) {
 	var result AcquireFleetRuntimeLeaseRow
 	err := q.retrier.RetryQuery(ctx, "AcquireFleetRuntimeLease", func() error {
@@ -113,6 +173,12 @@ func (q *retryingQuerier) AddHostedAccountSite(ctx context.Context, arg AddHoste
 func (q *retryingQuerier) AddHostedAccountUserAffiliation(ctx context.Context, arg AddHostedAccountUserAffiliationParams) error {
 	return q.retrier.RetryQuery(ctx, "AddHostedAccountUserAffiliation", func() error {
 		return q.next.AddHostedAccountUserAffiliation(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) AddHostedReportQueueEvent(ctx context.Context, arg AddHostedReportQueueEventParams) error {
+	return q.retrier.RetryQuery(ctx, "AddHostedReportQueueEvent", func() error {
+		return q.next.AddHostedReportQueueEvent(ctx, arg)
 	})
 }
 
@@ -770,6 +836,12 @@ func (q *retryingQuerier) CancelPendingEnrollment(ctx context.Context, arg Cance
 	return result, err
 }
 
+func (q *retryingQuerier) CaptureHostedCurtailmentConfirmations(ctx context.Context, arg CaptureHostedCurtailmentConfirmationsParams) error {
+	return q.retrier.RetryQuery(ctx, "CaptureHostedCurtailmentConfirmations", func() error {
+		return q.next.CaptureHostedCurtailmentConfirmations(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) CascadeAddedDeviceBuildings(ctx context.Context, arg CascadeAddedDeviceBuildingsParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CascadeAddedDeviceBuildings", func() error {
@@ -930,6 +1002,18 @@ func (q *retryingQuerier) ClaimDeletionUnpairPermit(ctx context.Context, arg Cla
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "ClaimDeletionUnpairPermit", func() error {
 		callResult, callErr := q.next.ClaimDeletionUnpairPermit(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ClaimHostedReportQueueNotification(ctx context.Context, arg ClaimHostedReportQueueNotificationParams) (HostedReportQueue, error) {
+	var result HostedReportQueue
+	err := q.retrier.RetryQuery(ctx, "ClaimHostedReportQueueNotification", func() error {
+		callResult, callErr := q.next.ClaimHostedReportQueueNotification(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -1148,6 +1232,18 @@ func (q *retryingQuerier) CompleteDelegatedFirmwareRollout(ctx context.Context, 
 	})
 }
 
+func (q *retryingQuerier) CompleteHostedReportQueueNotification(ctx context.Context, arg CompleteHostedReportQueueNotificationParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CompleteHostedReportQueueNotification", func() error {
+		callResult, callErr := q.next.CompleteHostedReportQueueNotification(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CompleteMiningGroupPoolHandoff(ctx context.Context, arg CompleteMiningGroupPoolHandoffParams) error {
 	return q.retrier.RetryQuery(ctx, "CompleteMiningGroupPoolHandoff", func() error {
 		return q.next.CompleteMiningGroupPoolHandoff(ctx, arg)
@@ -1278,6 +1374,18 @@ func (q *retryingQuerier) ContainsContainerIdentifiers(ctx context.Context, arg 
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "ContainsContainerIdentifiers", func() error {
 		callResult, callErr := q.next.ContainsContainerIdentifiers(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ControllerSoftwareVersionUploaded(ctx context.Context, arg ControllerSoftwareVersionUploadedParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "ControllerSoftwareVersionUploaded", func() error {
+		callResult, callErr := q.next.ControllerSoftwareVersionUploaded(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -1718,6 +1826,24 @@ func (q *retryingQuerier) CountUnexpiredAlertMaintenanceWindows(ctx context.Cont
 	return result, err
 }
 
+func (q *retryingQuerier) CreateAccountAnalysis(ctx context.Context, arg CreateAccountAnalysisParams) error {
+	return q.retrier.RetryQuery(ctx, "CreateAccountAnalysis", func() error {
+		return q.next.CreateAccountAnalysis(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) CreateAccountAnalysisDeletion(ctx context.Context, arg CreateAccountAnalysisDeletionParams) (CreateAccountAnalysisDeletionRow, error) {
+	var result CreateAccountAnalysisDeletionRow
+	err := q.retrier.RetryQuery(ctx, "CreateAccountAnalysisDeletion", func() error {
+		callResult, callErr := q.next.CreateAccountAnalysisDeletion(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CreateApiKey(ctx context.Context, arg CreateApiKeyParams) error {
 	return q.retrier.RetryQuery(ctx, "CreateApiKey", func() error {
 		return q.next.CreateApiKey(ctx, arg)
@@ -1932,6 +2058,18 @@ func (q *retryingQuerier) CreateHostedReportRequest(ctx context.Context, arg Cre
 	var result HostedReportRequest
 	err := q.retrier.RetryQuery(ctx, "CreateHostedReportRequest", func() error {
 		callResult, callErr := q.next.CreateHostedReportRequest(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CreateHostedReportRequestFulfillment(ctx context.Context, arg CreateHostedReportRequestFulfillmentParams) (HostedReportRequestFulfillment, error) {
+	var result HostedReportRequestFulfillment
+	err := q.retrier.RetryQuery(ctx, "CreateHostedReportRequestFulfillment", func() error {
+		callResult, callErr := q.next.CreateHostedReportRequestFulfillment(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -2222,6 +2360,18 @@ func (q *retryingQuerier) DeferPoolLifecycleTransition(ctx context.Context, arg 
 	})
 }
 
+func (q *retryingQuerier) DeleteAccountAnalysis(ctx context.Context, arg DeleteAccountAnalysisParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "DeleteAccountAnalysis", func() error {
+		callResult, callErr := q.next.DeleteAccountAnalysis(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) DeleteActiveRepairTicketParts(ctx context.Context, arg DeleteActiveRepairTicketPartsParams) error {
 	return q.retrier.RetryQuery(ctx, "DeleteActiveRepairTicketParts", func() error {
 		return q.next.DeleteActiveRepairTicketParts(ctx, arg)
@@ -2480,6 +2630,18 @@ func (q *retryingQuerier) DeleteReleaseChannel(ctx context.Context, arg DeleteRe
 	return result, err
 }
 
+func (q *retryingQuerier) DeleteReleaseChannelControllerSoftware(ctx context.Context, arg DeleteReleaseChannelControllerSoftwareParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "DeleteReleaseChannelControllerSoftware", func() error {
+		callResult, callErr := q.next.DeleteReleaseChannelControllerSoftware(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) DeleteReleaseChannelTargets(ctx context.Context, channelID int64) error {
 	return q.retrier.RetryQuery(ctx, "DeleteReleaseChannelTargets", func() error {
 		return q.next.DeleteReleaseChannelTargets(ctx, channelID)
@@ -2700,6 +2862,18 @@ func (q *retryingQuerier) ExcludeFirmwareRolloutDevices(ctx context.Context, arg
 	return q.retrier.RetryQuery(ctx, "ExcludeFirmwareRolloutDevices", func() error {
 		return q.next.ExcludeFirmwareRolloutDevices(ctx, arg)
 	})
+}
+
+func (q *retryingQuerier) ExhaustExpiredHostedReportQueueNotifications(ctx context.Context, nowAt time.Time) ([]ExhaustExpiredHostedReportQueueNotificationsRow, error) {
+	var result []ExhaustExpiredHostedReportQueueNotificationsRow
+	err := q.retrier.RetryQuery(ctx, "ExhaustExpiredHostedReportQueueNotifications", func() error {
+		callResult, callErr := q.next.ExhaustExpiredHostedReportQueueNotifications(ctx, nowAt)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
 }
 
 func (q *retryingQuerier) FailCurtailmentPendingDeadlineTargets(ctx context.Context, arg FailCurtailmentPendingDeadlineTargetsParams) (int64, error) {
@@ -2970,6 +3144,54 @@ func (q *retryingQuerier) FrigateUpdatePackageWantsBlob(ctx context.Context, id 
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "FrigateUpdatePackageWantsBlob", func() error {
 		callResult, callErr := q.next.FrigateUpdatePackageWantsBlob(ctx, id)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetAccountAnalysis(ctx context.Context, arg GetAccountAnalysisParams) (GetAccountAnalysisRow, error) {
+	var result GetAccountAnalysisRow
+	err := q.retrier.RetryQuery(ctx, "GetAccountAnalysis", func() error {
+		callResult, callErr := q.next.GetAccountAnalysis(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetAccountAnalysisAccess(ctx context.Context, arg GetAccountAnalysisAccessParams) (GetAccountAnalysisAccessRow, error) {
+	var result GetAccountAnalysisAccessRow
+	err := q.retrier.RetryQuery(ctx, "GetAccountAnalysisAccess", func() error {
+		callResult, callErr := q.next.GetAccountAnalysisAccess(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetAccountAnalysisCSVChunk(ctx context.Context, arg GetAccountAnalysisCSVChunkParams) (GetAccountAnalysisCSVChunkRow, error) {
+	var result GetAccountAnalysisCSVChunkRow
+	err := q.retrier.RetryQuery(ctx, "GetAccountAnalysisCSVChunk", func() error {
+		callResult, callErr := q.next.GetAccountAnalysisCSVChunk(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetAccountAnalysisRequest(ctx context.Context, arg GetAccountAnalysisRequestParams) (GetAccountAnalysisRequestRow, error) {
+	var result GetAccountAnalysisRequestRow
+	err := q.retrier.RetryQuery(ctx, "GetAccountAnalysisRequest", func() error {
+		callResult, callErr := q.next.GetAccountAnalysisRequest(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -4898,6 +5120,54 @@ func (q *retryingQuerier) GetHostedReportDelivery(ctx context.Context, arg GetHo
 	return result, err
 }
 
+func (q *retryingQuerier) GetHostedReportQueue(ctx context.Context, arg GetHostedReportQueueParams) (HostedReportQueue, error) {
+	var result HostedReportQueue
+	err := q.retrier.RetryQuery(ctx, "GetHostedReportQueue", func() error {
+		callResult, callErr := q.next.GetHostedReportQueue(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetHostedReportQueueWork(ctx context.Context, arg GetHostedReportQueueWorkParams) (json.RawMessage, error) {
+	var result json.RawMessage
+	err := q.retrier.RetryQuery(ctx, "GetHostedReportQueueWork", func() error {
+		callResult, callErr := q.next.GetHostedReportQueueWork(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetHostedReportRequest(ctx context.Context, arg GetHostedReportRequestParams) (HostedReportRequest, error) {
+	var result HostedReportRequest
+	err := q.retrier.RetryQuery(ctx, "GetHostedReportRequest", func() error {
+		callResult, callErr := q.next.GetHostedReportRequest(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetHostedReportRequestFulfillment(ctx context.Context, arg GetHostedReportRequestFulfillmentParams) (HostedReportRequestFulfillment, error) {
+	var result HostedReportRequestFulfillment
+	err := q.retrier.RetryQuery(ctx, "GetHostedReportRequestFulfillment", func() error {
+		callResult, callErr := q.next.GetHostedReportRequestFulfillment(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetInfrastructureControlSubnets(ctx context.Context, arg GetInfrastructureControlSubnetsParams) (string, error) {
 	var result string
 	err := q.retrier.RetryQuery(ctx, "GetInfrastructureControlSubnets", func() error {
@@ -6038,6 +6308,18 @@ func (q *retryingQuerier) GetReportingInputs(ctx context.Context, arg GetReporti
 	return result, err
 }
 
+func (q *retryingQuerier) GetReportingJobAccount(ctx context.Context, arg GetReportingJobAccountParams) (HostedAccount, error) {
+	var result HostedAccount
+	err := q.retrier.RetryQuery(ctx, "GetReportingJobAccount", func() error {
+		callResult, callErr := q.next.GetReportingJobAccount(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetReportingUser(ctx context.Context, arg GetReportingUserParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "GetReportingUser", func() error {
@@ -6596,6 +6878,18 @@ func (q *retryingQuerier) HostedReportPublicID(ctx context.Context, id int64) (s
 	return result, err
 }
 
+func (q *retryingQuerier) HostedReportingUserUUID(ctx context.Context, id int64) (string, error) {
+	var result string
+	err := q.retrier.RetryQuery(ctx, "HostedReportingUserUUID", func() error {
+		callResult, callErr := q.next.HostedReportingUserUUID(ctx, id)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) InitializeDeviceWorkerName(ctx context.Context, arg InitializeDeviceWorkerNameParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "InitializeDeviceWorkerName", func() error {
@@ -7038,6 +7332,30 @@ func (q *retryingQuerier) LinkPoolLifecycleOperation(ctx context.Context, arg Li
 	return q.retrier.RetryQuery(ctx, "LinkPoolLifecycleOperation", func() error {
 		return q.next.LinkPoolLifecycleOperation(ctx, arg)
 	})
+}
+
+func (q *retryingQuerier) ListAccountAnalyses(ctx context.Context, arg ListAccountAnalysesParams) ([]ListAccountAnalysesRow, error) {
+	var result []ListAccountAnalysesRow
+	err := q.retrier.RetryQuery(ctx, "ListAccountAnalyses", func() error {
+		callResult, callErr := q.next.ListAccountAnalyses(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListAccountAnalysisEnergyContextMetadata(ctx context.Context, arg ListAccountAnalysisEnergyContextMetadataParams) ([]ListAccountAnalysisEnergyContextMetadataRow, error) {
+	var result []ListAccountAnalysisEnergyContextMetadataRow
+	err := q.retrier.RetryQuery(ctx, "ListAccountAnalysisEnergyContextMetadata", func() error {
+		callResult, callErr := q.next.ListAccountAnalysisEnergyContextMetadata(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
 }
 
 func (q *retryingQuerier) ListAccountRepairTicketComments(ctx context.Context, arg ListAccountRepairTicketCommentsParams) ([]ListAccountRepairTicketCommentsRow, error) {
@@ -7748,6 +8066,18 @@ func (q *retryingQuerier) ListDeviceWriteRecoveryCandidates(ctx context.Context,
 	return result, err
 }
 
+func (q *retryingQuerier) ListDevicesBehindControllerSoftware(ctx context.Context, arg ListDevicesBehindControllerSoftwareParams) ([]ListDevicesBehindControllerSoftwareRow, error) {
+	var result []ListDevicesBehindControllerSoftwareRow
+	err := q.retrier.RetryQuery(ctx, "ListDevicesBehindControllerSoftware", func() error {
+		callResult, callErr := q.next.ListDevicesBehindControllerSoftware(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListEarlierCurtailmentReservationDevices(ctx context.Context, arg ListEarlierCurtailmentReservationDevicesParams) ([]string, error) {
 	var result []string
 	err := q.retrier.RetryQuery(ctx, "ListEarlierCurtailmentReservationDevices", func() error {
@@ -8372,6 +8702,18 @@ func (q *retryingQuerier) ListHostedAccounts(ctx context.Context, organizationID
 	return result, err
 }
 
+func (q *retryingQuerier) ListHostedCurtailmentWindows(ctx context.Context, arg ListHostedCurtailmentWindowsParams) ([]ListHostedCurtailmentWindowsRow, error) {
+	var result []ListHostedCurtailmentWindowsRow
+	err := q.retrier.RetryQuery(ctx, "ListHostedCurtailmentWindows", func() error {
+		callResult, callErr := q.next.ListHostedCurtailmentWindows(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListHostedPoolImportSources(ctx context.Context, organizationID int64) ([]ListHostedPoolImportSourcesRow, error) {
 	var result []ListHostedPoolImportSourcesRow
 	err := q.retrier.RetryQuery(ctx, "ListHostedPoolImportSources", func() error {
@@ -8444,6 +8786,30 @@ func (q *retryingQuerier) ListHostedReportEvidenceIntervals(ctx context.Context,
 	return result, err
 }
 
+func (q *retryingQuerier) ListHostedReportQueue(ctx context.Context, arg ListHostedReportQueueParams) ([]HostedReportQueue, error) {
+	var result []HostedReportQueue
+	err := q.retrier.RetryQuery(ctx, "ListHostedReportQueue", func() error {
+		callResult, callErr := q.next.ListHostedReportQueue(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListHostedReportQueueEvents(ctx context.Context, queueInternalID int64) ([]ListHostedReportQueueEventsRow, error) {
+	var result []ListHostedReportQueueEventsRow
+	err := q.retrier.RetryQuery(ctx, "ListHostedReportQueueEvents", func() error {
+		callResult, callErr := q.next.ListHostedReportQueueEvents(ctx, queueInternalID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListHostedReportRequests(ctx context.Context, arg ListHostedReportRequestsParams) ([]ListHostedReportRequestsRow, error) {
 	var result []ListHostedReportRequestsRow
 	err := q.retrier.RetryQuery(ctx, "ListHostedReportRequests", func() error {
@@ -8460,6 +8826,18 @@ func (q *retryingQuerier) ListHostedReportSummaries(ctx context.Context, arg Lis
 	var result []ListHostedReportSummariesRow
 	err := q.retrier.RetryQuery(ctx, "ListHostedReportSummaries", func() error {
 		callResult, callErr := q.next.ListHostedReportSummaries(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListHostedReportWorkSummaries(ctx context.Context, arg ListHostedReportWorkSummariesParams) ([]ListHostedReportWorkSummariesRow, error) {
+	var result []ListHostedReportWorkSummariesRow
+	err := q.retrier.RetryQuery(ctx, "ListHostedReportWorkSummaries", func() error {
+		callResult, callErr := q.next.ListHostedReportWorkSummaries(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -9080,6 +9458,30 @@ func (q *retryingQuerier) ListRecentlyResolvedCurtailedDevicesByScope(ctx contex
 	return result, err
 }
 
+func (q *retryingQuerier) ListReleaseChannelContainersPage(ctx context.Context, arg ListReleaseChannelContainersPageParams) ([]ListReleaseChannelContainersPageRow, error) {
+	var result []ListReleaseChannelContainersPageRow
+	err := q.retrier.RetryQuery(ctx, "ListReleaseChannelContainersPage", func() error {
+		callResult, callErr := q.next.ListReleaseChannelContainersPage(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListReleaseChannelControllerSoftwareSummary(ctx context.Context, arg ListReleaseChannelControllerSoftwareSummaryParams) ([]ListReleaseChannelControllerSoftwareSummaryRow, error) {
+	var result []ListReleaseChannelControllerSoftwareSummaryRow
+	err := q.retrier.RetryQuery(ctx, "ListReleaseChannelControllerSoftwareSummary", func() error {
+		callResult, callErr := q.next.ListReleaseChannelControllerSoftwareSummary(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListReleaseChannelFirmware(ctx context.Context, orgID int64) ([]ReleaseChannelFirmware, error) {
 	var result []ReleaseChannelFirmware
 	err := q.retrier.RetryQuery(ctx, "ListReleaseChannelFirmware", func() error {
@@ -9396,6 +9798,18 @@ func (q *retryingQuerier) ListReportingFactSites(ctx context.Context, arg ListRe
 	var result []int64
 	err := q.retrier.RetryQuery(ctx, "ListReportingFactSites", func() error {
 		callResult, callErr := q.next.ListReportingFactSites(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListReportingJobAccounts(ctx context.Context) ([]HostedAccount, error) {
+	var result []HostedAccount
+	err := q.retrier.RetryQuery(ctx, "ListReportingJobAccounts", func() error {
+		callResult, callErr := q.next.ListReportingJobAccounts(ctx)
 		if callErr == nil {
 			result = callResult
 		}
@@ -9744,6 +10158,18 @@ func (q *retryingQuerier) ListVisiblePoolLifecycleTransitions(ctx context.Contex
 	var result []ListVisiblePoolLifecycleTransitionsRow
 	err := q.retrier.RetryQuery(ctx, "ListVisiblePoolLifecycleTransitions", func() error {
 		callResult, callErr := q.next.ListVisiblePoolLifecycleTransitions(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockAccountAnalysisLibrary(ctx context.Context, arg LockAccountAnalysisLibraryParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "LockAccountAnalysisLibrary", func() error {
+		callResult, callErr := q.next.LockAccountAnalysisLibrary(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -10362,6 +10788,12 @@ func (q *retryingQuerier) LockHostedReport(ctx context.Context, arg LockHostedRe
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) LockHostedReportQueueAccount(ctx context.Context, accountID int64) error {
+	return q.retrier.RetryQuery(ctx, "LockHostedReportQueueAccount", func() error {
+		return q.next.LockHostedReportQueueAccount(ctx, accountID)
+	})
 }
 
 func (q *retryingQuerier) LockInfrastructureDeviceForWrite(ctx context.Context, arg LockInfrastructureDeviceForWriteParams) (int64, error) {
@@ -11666,6 +12098,18 @@ func (q *retryingQuerier) ReportingContextSize(ctx context.Context, arg Reportin
 	return result, err
 }
 
+func (q *retryingQuerier) ReportingPeriodHasCoverage(ctx context.Context, arg ReportingPeriodHasCoverageParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "ReportingPeriodHasCoverage", func() error {
+		callResult, callErr := q.next.ReportingPeriodHasCoverage(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ReprepareUndispatchedPoolLifecycleRemoval(ctx context.Context, transitionID uuid.UUID) error {
 	return q.retrier.RetryQuery(ctx, "ReprepareUndispatchedPoolLifecycleRemoval", func() error {
 		return q.next.ReprepareUndispatchedPoolLifecycleRemoval(ctx, transitionID)
@@ -11978,6 +12422,18 @@ func (q *retryingQuerier) RetireDefaultReturnAssignments(ctx context.Context, ar
 	})
 }
 
+func (q *retryingQuerier) RetireHostedReportQueue(ctx context.Context, arg RetireHostedReportQueueParams) ([]HostedReportQueue, error) {
+	var result []HostedReportQueue
+	err := q.retrier.RetryQuery(ctx, "RetireHostedReportQueue", func() error {
+		callResult, callErr := q.next.RetireHostedReportQueue(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) RetirePoolConfigurationAssignment(ctx context.Context, arg RetirePoolConfigurationAssignmentParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "RetirePoolConfigurationAssignment", func() error {
@@ -12000,6 +12456,18 @@ func (q *retryingQuerier) RetryCurtailmentAutomationExecution(ctx context.Contex
 	return q.retrier.RetryQuery(ctx, "RetryCurtailmentAutomationExecution", func() error {
 		return q.next.RetryCurtailmentAutomationExecution(ctx, arg)
 	})
+}
+
+func (q *retryingQuerier) RetryHostedReportQueueNotification(ctx context.Context, arg RetryHostedReportQueueNotificationParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "RetryHostedReportQueueNotification", func() error {
+		callResult, callErr := q.next.RetryHostedReportQueueNotification(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
 }
 
 func (q *retryingQuerier) RetryPoolConfigurationTarget(ctx context.Context, arg RetryPoolConfigurationTargetParams) (int64, error) {
@@ -13652,6 +14120,18 @@ func (q *retryingQuerier) UpsertHashboardSlots(ctx context.Context, arg UpsertHa
 	})
 }
 
+func (q *retryingQuerier) UpsertHostedReportQueue(ctx context.Context, arg UpsertHostedReportQueueParams) (HostedReportQueue, error) {
+	var result HostedReportQueue
+	err := q.retrier.RetryQuery(ctx, "UpsertHostedReportQueue", func() error {
+		callResult, callErr := q.next.UpsertHostedReportQueue(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) UpsertMQTTSourceState(ctx context.Context, arg UpsertMQTTSourceStateParams) error {
 	return q.retrier.RetryQuery(ctx, "UpsertMQTTSourceState", func() error {
 		return q.next.UpsertMQTTSourceState(ctx, arg)
@@ -13668,6 +14148,18 @@ func (q *retryingQuerier) UpsertPermission(ctx context.Context, arg UpsertPermis
 	var result Permission
 	err := q.retrier.RetryQuery(ctx, "UpsertPermission", func() error {
 		callResult, callErr := q.next.UpsertPermission(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) UpsertReleaseChannelControllerSoftware(ctx context.Context, arg UpsertReleaseChannelControllerSoftwareParams) (ReleaseChannelControllerSoftware, error) {
+	var result ReleaseChannelControllerSoftware
+	err := q.retrier.RetryQuery(ctx, "UpsertReleaseChannelControllerSoftware", func() error {
+		callResult, callErr := q.next.UpsertReleaseChannelControllerSoftware(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

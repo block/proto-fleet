@@ -10,17 +10,20 @@ import FindNodeMinersModal from "@/protoFleet/features/settings/components/Nodes
 import NodeDetailsModal from "@/protoFleet/features/settings/components/Nodes/NodeDetailsModal";
 import NodeRole from "@/protoFleet/features/settings/components/Nodes/NodeRole";
 import NodeStatusBadge from "@/protoFleet/features/settings/components/Nodes/NodeStatusBadge";
+import NodeVersion from "@/protoFleet/features/settings/components/Nodes/NodeVersion";
 import RevokeNodeDialog from "@/protoFleet/features/settings/components/Nodes/RevokeNodeDialog";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import { useHasPermission } from "@/protoFleet/store";
-import { Checkmark } from "@/shared/assets/icons";
+import { Checkmark, Copy } from "@/shared/assets/icons";
+import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
 import { ColConfig, ColTitles } from "@/shared/components/List/types";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { usePoll } from "@/shared/hooks/usePoll";
 import { getRelativeTimeFromEpoch } from "@/shared/utils/datetime";
+import { copyToClipboard } from "@/shared/utils/utility";
 
 type NodeColumns = "name" | "ipAddresses" | "ranges" | "role" | "status" | "version" | "miners" | "lastSeen";
 type NodeTableItem = FleetNodeItem & { endsGroup: boolean };
@@ -43,6 +46,35 @@ const discoveryRangesLabel = (node: FleetNodeItem) => {
 };
 
 const activeCols: NodeColumns[] = ["name", "ipAddresses", "ranges", "role", "status", "version", "miners", "lastSeen"];
+
+// The row shows the first address only, so that is the one the button copies;
+// the details modal lists the rest.
+const NodeIpAddresses = ({ ipAddresses }: { ipAddresses: string[] }) => {
+  const [primary, ...others] = ipAddresses;
+  if (!primary) return <span>—</span>;
+  return (
+    <span className="inline-flex max-w-full items-center gap-1.5">
+      <span className="min-w-0 break-all" title={ipAddresses.join(", ")}>
+        {primary}
+        {others.length ? ` +${others.length}` : ""}
+      </span>
+      <Button
+        variant={variants.textOnly}
+        size={sizes.textOnly}
+        textColor="text-text-primary-50"
+        textOnlyUnderlineOnHover={false}
+        prefixIcon={<Copy width={iconSizes.small} />}
+        ariaLabel={`Copy IP address ${primary}`}
+        className="-m-1 shrink-0 p-1"
+        onClick={() => {
+          void copyToClipboard(primary)
+            .then(() => pushToast({ message: "IP address copied to clipboard", status: STATUSES.success }))
+            .catch(() => pushToast({ message: "Failed to copy IP address", status: STATUSES.error }));
+        }}
+      />
+    </span>
+  );
+};
 
 const NodesPage = () => {
   const { listFleetNodes, listFleetNodeDevices, revokeFleetNode, discoverOnFleetNode } = useFleetNodes();
@@ -286,18 +318,12 @@ const NodesPage = () => {
         width: "w-48",
       },
       ipAddresses: {
-        component: (node: FleetNodeItem) => (
-          <span className="break-all" title={node.ipAddresses.join(", ")}>
-            {node.ipAddresses.length
-              ? `${node.ipAddresses[0]}${node.ipAddresses.length > 1 ? ` +${node.ipAddresses.length - 1}` : ""}`
-              : "—"}
-          </span>
-        ),
+        component: (node: FleetNodeItem) => <NodeIpAddresses ipAddresses={node.ipAddresses} />,
         width: "w-44",
         allowWrap: true,
       },
       version: {
-        component: (node: FleetNodeItem) => <span className="break-all">{node.version || "—"}</span>,
+        component: (node: FleetNodeItem) => <NodeVersion node={node} />,
         width: "w-44",
         allowWrap: true,
       },

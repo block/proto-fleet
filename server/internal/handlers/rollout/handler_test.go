@@ -51,8 +51,29 @@ type fakeService struct {
 	lastModel            string
 	lastPage             int32
 	lastCursor           string
+	lastVersion          string
 	// err, when set, is returned by every mutation.
 	err error
+}
+
+func (f *fakeService) ListControllerSoftware(_ context.Context, orgID, channelID int64) ([]rollout.ControllerSoftware, error) {
+	f.lastOrgID, f.lastID = orgID, channelID
+	return []rollout.ControllerSoftware{f.controllerSoftware("1.5.0")}, nil
+}
+
+func (f *fakeService) SetControllerSoftware(_ context.Context, orgID, userID, channelID int64, manufacturer, model, version string) error {
+	f.lastOrgID, f.lastUserID, f.lastID = orgID, userID, channelID
+	f.lastManufacturer, f.lastModel, f.lastVersion = manufacturer, model, version
+	return f.err
+}
+
+func (f *fakeService) controllerSoftware(target string) rollout.ControllerSoftware {
+	return rollout.ControllerSoftware{Manufacturer: "Proto", Model: "CT1", TargetVersion: target, ContainerCount: 2, OnTargetCount: 1}
+}
+
+func (f *fakeService) ListControllerSoftwareContainers(_ context.Context, orgID, channelID int64, manufacturer, model string, pageSize int32, cursor string) ([]rollout.ChannelContainer, string, error) {
+	f.lastOrgID, f.lastID, f.lastManufacturer, f.lastModel, f.lastPage, f.lastCursor = orgID, channelID, manufacturer, model, pageSize, cursor
+	return []rollout.ChannelContainer{{DeviceIdentifier: "ct1:a", ControllerSoftwareVersion: "1.5.0", OnTarget: true}}, "next-page", nil
 }
 
 func (f *fakeService) ListChannels(_ context.Context, orgID int64, pageSize int32, cursor string) ([]rollout.Channel, string, error) {
@@ -241,6 +262,18 @@ func TestHandlerGatesEveryRPC(t *testing.T) {
 			_, err := h.PreviewReleaseChannelFirmware(ctx, connect.NewRequest(&pb.PreviewReleaseChannelFirmwareRequest{}))
 			return err
 		}},
+		{"ListReleaseChannelControllerSoftware", func() error {
+			_, err := h.ListReleaseChannelControllerSoftware(ctx, connect.NewRequest(&pb.ListReleaseChannelControllerSoftwareRequest{}))
+			return err
+		}},
+		{"ListReleaseChannelContainers", func() error {
+			_, err := h.ListReleaseChannelContainers(ctx, connect.NewRequest(&pb.ListReleaseChannelContainersRequest{}))
+			return err
+		}},
+		{"SetReleaseChannelControllerSoftware", func() error {
+			_, err := h.SetReleaseChannelControllerSoftware(ctx, connect.NewRequest(&pb.SetReleaseChannelControllerSoftwareRequest{}))
+			return err
+		}},
 		{"CreateReleaseChannel", func() error {
 			_, err := h.CreateReleaseChannel(ctx, connect.NewRequest(&pb.CreateReleaseChannelRequest{}))
 			return err
@@ -375,6 +408,63 @@ func newFakeService() *fakeService {
 			ConflictCount: 1,
 		},
 	}
+}
+
+func TestListReleaseChannelControllerSoftwareTranslatesCounts(t *testing.T) {
+	t.Parallel()
+	svc := newFakeService()
+	h := NewHandler(svc)
+	// Reading the target and who is behind it needs only the firmware permission.
+	ctx := ctxWithPermissions(t, authz.PermMinerFirmwareUpdate)
+
+	resp, err := h.ListReleaseChannelControllerSoftware(ctx, connect.NewRequest(&pb.ListReleaseChannelControllerSoftwareRequest{ChannelId: 3}))
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(7), svc.lastOrgID)
+	assert.Equal(t, int64(3), svc.lastID)
+	require.Len(t, resp.Msg.Models, 1)
+	m := resp.Msg.Models[0]
+	assert.Equal(t, "Proto", m.Manufacturer)
+	assert.Equal(t, "CT1", m.Model)
+	assert.Equal(t, "1.5.0", m.TargetVersion)
+	assert.Equal(t, int32(2), m.ContainerCount)
+	assert.Equal(t, int32(1), m.OnTargetCount)
+
+}
+
+// The target gates which controller software a container must run before it
+// takes firmware, so setting it takes both permissions; either alone is denied
+// before the service runs.
+func TestSetReleaseChannelControllerSoftwareRequiresBothPermissions(t *testing.T) {
+	t.Parallel()
+	request := func() *connect.Request[pb.SetReleaseChannelControllerSoftwareRequest] {
+		return connect.NewRequest(&pb.SetReleaseChannelControllerSoftwareRequest{ChannelId: 3, Manufacturer: "Proto", Model: "CT1", Version: "1.6.0"})
+	}
+	for name, permissions := range map[string][]string{
+		"firmware only":            {authz.PermMinerFirmwareUpdate},
+		"controller software only": {authz.PermControllerSoftwareUpdate},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			svc := newFakeService()
+			_, err := NewHandler(svc).SetReleaseChannelControllerSoftware(ctxWithPermissions(t, permissions...), request())
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+			assert.Empty(t, svc.lastVersion, "the service must not run")
+		})
+	}
+
+	svc := newFakeService()
+	ctx := ctxWithPermissions(t, authz.PermMinerFirmwareUpdate, authz.PermControllerSoftwareUpdate)
+	_, err := NewHandler(svc).SetReleaseChannelControllerSoftware(ctx, request())
+	require.NoError(t, err)
+	assert.Equal(t, int64(7), svc.lastOrgID)
+	assert.Equal(t, int64(42), svc.lastUserID)
+	assert.Equal(t, int64(3), svc.lastID)
+	assert.Equal(t, "Proto", svc.lastManufacturer)
+	assert.Equal(t, "CT1", svc.lastModel)
+	assert.Equal(t, "1.6.0", svc.lastVersion)
 }
 
 func TestCreateReleaseChannelTranslatesSpecAndView(t *testing.T) {
@@ -754,4 +844,21 @@ func TestListReleaseChannelMinersTranslatesPage(t *testing.T) {
 	assert.Equal(t, "miner-0", resp.Msg.Miners[0].DeviceIdentifier)
 	assert.True(t, resp.Msg.Miners[0].Conflicted)
 	assert.Equal(t, checksum, resp.Msg.Miners[0].LastDeployedFirmwareChecksum)
+}
+
+func TestListReleaseChannelContainersPreservesPageAndPair(t *testing.T) {
+	svc := newFakeService()
+	resp, err := NewHandler(svc).ListReleaseChannelContainers(ctxWithPermissions(t, authz.PermMinerFirmwareUpdate), connect.NewRequest(&pb.ListReleaseChannelContainersRequest{ChannelId: 3, Manufacturer: "Proto", Model: "CT1", PageSize: 100, Cursor: "page"}))
+	require.NoError(t, err)
+	assert.Equal(t, int64(7), svc.lastOrgID)
+	assert.Equal(t, int64(3), svc.lastID)
+	assert.Equal(t, "Proto", svc.lastManufacturer)
+	assert.Equal(t, "CT1", svc.lastModel)
+	assert.EqualValues(t, 100, svc.lastPage)
+	assert.Equal(t, "page", svc.lastCursor)
+	assert.Equal(t, "next-page", resp.Msg.Cursor)
+	require.Len(t, resp.Msg.Containers, 1)
+	assert.Equal(t, "ct1:a", resp.Msg.Containers[0].DeviceIdentifier)
+	assert.Equal(t, "1.5.0", resp.Msg.Containers[0].ControllerSoftwareVersion)
+	assert.True(t, resp.Msg.Containers[0].OnTarget)
 }

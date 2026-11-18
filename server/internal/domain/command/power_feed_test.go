@@ -14,19 +14,35 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type powerFeedCapabilities struct{ supported bool }
+type powerFeedCapabilities struct{ supported, control bool }
 
 func (p powerFeedCapabilities) GetRawCapabilitiesForDevice(context.Context, string, string, string) sdk.Capabilities {
-	return sdk.Capabilities{sdk.CapabilityContainerPowerFeed: p.supported}
+	return sdk.Capabilities{sdk.CapabilityContainerPowerFeed: p.supported, sdk.CapabilityContainerPowerFeedControl: p.control}
 }
 
 type powerFeedMiner struct {
 	*containerMiningSiteMiner
 	requests []sdk.ContainerPowerFeedRequest
+	// inspection overrides the default configured mapping with no reading.
+	inspection *sdk.ModulePowerFeedInspection
+	writeErr   error
 }
 
 func (m *powerFeedMiner) ContainerPowerFeed(_ context.Context, req sdk.ContainerPowerFeedRequest) (sdk.ContainerPowerFeedResult, error) {
 	m.requests = append(m.requests, req)
+	if !req.ReadOnly() {
+		if m.writeErr != nil {
+			return sdk.ContainerPowerFeedResult{}, m.writeErr
+		}
+		state := sdk.PowerFeedStateDisabled
+		if req.Action == sdk.ContainerPowerFeedTurnOn || req.Action == sdk.ContainerPowerFeedCycle {
+			state = sdk.PowerFeedStateEnabled
+		}
+		return sdk.ContainerPowerFeedResult{Applied: &sdk.PowerFeedReading{ID: req.FeedID, State: state, Overridden: req.Action != sdk.ContainerPowerFeedClearOverride}}, nil
+	}
+	if m.inspection != nil {
+		return sdk.ContainerPowerFeedResult{Inspection: m.inspection}, nil
+	}
 	return sdk.ContainerPowerFeedResult{Inspection: &sdk.ModulePowerFeedInspection{
 		ObservedAt: time.Now(), Mapping: sdk.PowerFeedMapping{Confidence: sdk.PowerFeedMappingConfigured, FeedID: "pdu-2-outlet-05"}, RecoveryCycleKnown: true,
 	}}, nil
@@ -44,8 +60,23 @@ func setupPowerFeedTest(t *testing.T, confirmed bool) (*containerMiningSiteTest,
 	require.NoError(t, f.conn.QueryRowContext(ctx, `INSERT INTO container_module(tank_id,position,reported_id,identity_confirmed,first_seen_at,last_seen_at,state) VALUES($1,5,'module-x',$2,now(),now(),'active') RETURNING id`, tank, confirmed).Scan(&module))
 	miner := &powerFeedMiner{containerMiningSiteMiner: f.miner}
 	f.execution.minerService = containerMiningSiteGetter{miner: miner}
-	f.svc.SetPluginCapabilitiesProvider(powerFeedCapabilities{supported: true})
+	f.svc.SetPluginCapabilitiesProvider(powerFeedCapabilities{supported: true, control: true})
 	return f, miner, module
+}
+
+// routeThroughFleetNode places the container behind a connected Fleet Node
+// that speaks version.
+func routeThroughFleetNode(t *testing.T, f *containerMiningSiteTest, version gatewaypb.CommandProtocolVersion) {
+	t.Helper()
+	var node int64
+	require.NoError(t, f.conn.QueryRowContext(t.Context(), `INSERT INTO fleet_node(org_id,name,identity_pubkey,encryption_pubkey,enrollment_status) VALUES($1,'feed-node',$2,$3,'CONFIRMED') RETURNING id`, f.orgID, []byte("feed-identity"), []byte("01234567890123456789012345678901")).Scan(&node))
+	_, err := f.conn.ExecContext(t.Context(), `INSERT INTO fleet_node_device(fleet_node_id,device_id,org_id) VALUES($1,$2,$3)`, node, f.deviceID, f.orgID)
+	require.NoError(t, err)
+	registry := control.NewRegistry()
+	stream, err := registry.RegisterAuthenticated(node, "session", version)
+	require.NoError(t, err)
+	t.Cleanup(stream.Unregister)
+	f.svc.SetCommandProtocolChecker(registry)
 }
 
 func TestReadModulePowerFeedAuthorizesAtSiteAndSendsConfirmedPlacement(t *testing.T) {
@@ -56,7 +87,7 @@ func TestReadModulePowerFeedAuthorizesAtSiteAndSendsConfirmedPlacement(t *testin
 			require.NotNil(t, site)
 			sites = append(sites, *site)
 			return nil
-		})
+		}, nil)
 		require.NoError(t, err)
 		require.NotEmpty(t, sites)
 		for _, site := range sites {
@@ -89,15 +120,7 @@ func TestReadModulePowerFeedRefusesBeforeControllerIO(t *testing.T) {
 			f.svc.SetPluginCapabilitiesProvider(powerFeedCapabilities{})
 		}, auth: allow, check: fleeterror.IsFailedPreconditionError},
 		{name: "fleet node below V13", setup: func(t *testing.T, f *containerMiningSiteTest) {
-			var node int64
-			require.NoError(t, f.conn.QueryRowContext(t.Context(), `INSERT INTO fleet_node(org_id,name,identity_pubkey,encryption_pubkey,enrollment_status) VALUES($1,'feed-node',$2,$3,'CONFIRMED') RETURNING id`, f.orgID, []byte("feed-identity"), []byte("01234567890123456789012345678901")).Scan(&node))
-			_, err := f.conn.ExecContext(t.Context(), `INSERT INTO fleet_node_device(fleet_node_id,device_id,org_id) VALUES($1,$2,$3)`, node, f.deviceID, f.orgID)
-			require.NoError(t, err)
-			registry := control.NewRegistry()
-			stream, err := registry.RegisterAuthenticated(node, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V11)
-			require.NoError(t, err)
-			t.Cleanup(stream.Unregister)
-			f.svc.SetCommandProtocolChecker(registry)
+			routeThroughFleetNode(t, f, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V11)
 		}, auth: allow, check: fleeterror.IsFailedPreconditionError},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -105,14 +128,14 @@ func TestReadModulePowerFeedRefusesBeforeControllerIO(t *testing.T) {
 			if tc.setup != nil {
 				tc.setup(t, f)
 			}
-			_, err := f.svc.ReadModulePowerFeed(authn.SetInfo(t.Context(), f.session), module, tc.auth)
+			_, err := f.svc.ReadModulePowerFeed(authn.SetInfo(t.Context(), f.session), module, tc.auth, nil)
 			require.True(t, tc.check(err), err)
 			require.Empty(t, miner.requests)
 		})
 	}
 	t.Run("unknown module", func(t *testing.T) {
 		f, miner, module := setupPowerFeedTest(t, true)
-		_, err := f.svc.ReadModulePowerFeed(authn.SetInfo(t.Context(), f.session), module+100, allow)
+		_, err := f.svc.ReadModulePowerFeed(authn.SetInfo(t.Context(), f.session), module+100, allow, nil)
 		require.True(t, fleeterror.IsNotFoundError(err), err)
 		require.Empty(t, miner.requests)
 	})
@@ -132,7 +155,7 @@ func TestReadModulePowerFeedReauthorizesAfterSiteChange(t *testing.T) {
 			return nil
 		}
 		return denied
-	})
+	}, nil)
 	require.ErrorIs(t, err, denied)
 	require.Equal(t, []int64{f.siteA, f.siteB}, sites)
 	require.Empty(t, miner.requests, "no request reaches the controller")

@@ -312,10 +312,10 @@ func TestReportingAuthorityRetainsDeletedSitesButCannotAddThem(t *testing.T) {
 	require.NoError(t, f.svc.SetReportingAuthority(t.Context(), f.host, f.org, account.AccountID, grant, 3))
 	grant.SiteIDs = append(grant.SiteIDs, unrelated)
 	require.ErrorContains(t, f.svc.SetReportingAuthority(t.Context(), f.host, f.org, account.AccountID, grant, 4), "account access denied")
-	got, err := f.svc.ReportingAuthorities(t.Context(), f.host, f.org, account.AccountID)
+	currentSetup, err := f.svc.HostReportingSetup(t.Context(), f.host, f.org, account.AccountID)
 	require.NoError(t, err)
 	found := false
-	for _, g := range got {
+	for _, g := range currentSetup.Authorities {
 		if g.UserID == id {
 			found = true
 			require.EqualValues(t, 4, g.Revision)
@@ -432,6 +432,7 @@ func TestReportingRepresentativeLookupPreservesDatabaseFailures(t *testing.T) {
 	f := setup(t)
 	account := f.client(t, "Representatives", f.user, hostedaccounts.AllCapabilities)
 	reportingBoundaryActors(t, f, account.AccountID)
+	require.NoError(t, f.svc.SetAncestorGrant(t.Context(), f.host, f.org, account.AccountID, f.root, hostedaccounts.View|hostedaccounts.ManageMembers))
 	var member, nonmember string
 	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT user_id FROM "user" WHERE id=$1`, f.user).Scan(&member))
 	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT user_id FROM "user" WHERE id=$1`, f.host).Scan(&nonmember))
@@ -440,6 +441,10 @@ func TestReportingRepresentativeLookupPreservesDatabaseFailures(t *testing.T) {
 	_, err := saveReportingInputsForTest(f.svc, t.Context(), f.host, f.org, account.AccountID, 0, "missing representative", input)
 	require.ErrorContains(t, err, "representative must be a current direct account teammate")
 	input.Configuration.Representatives[0].UserID = member
+	_, err = saveReportingInputsForTest(f.svc, t.Context(), f.host, f.org, account.AccountID, 0, "valid representative", input)
+	require.NoError(t, err)
+	// Preserve the saved recipients so the timed-out operation reaches their
+	// validation lookup rather than the separate team-management admission.
 	lock, err := f.db.BeginTx(t.Context(), nil)
 	require.NoError(t, err)
 	defer lock.Rollback()
@@ -449,7 +454,7 @@ func TestReportingRepresentativeLookupPreservesDatabaseFailures(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		_, e := saveReportingInputsForTest(f.svc, ctx, f.host, f.org, account.AccountID, 0, "timed out representative", input)
+		_, e := saveReportingInputsForTest(f.svc, ctx, f.host, f.org, account.AccountID, 1, "timed out representative", input)
 		done <- e
 	}()
 	require.Eventually(t, func() bool {
@@ -465,10 +470,13 @@ func TestReportingRepresentativeLookupPreservesDatabaseFailures(t *testing.T) {
 	require.NoError(t, lock.Rollback())
 	var count int
 	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_reporting_inputs`).Scan(&count))
-	require.Zero(t, count)
+	require.Equal(t, 1, count)
 	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM activity_log WHERE event_type='save_reporting_inputs'`).Scan(&count))
-	require.Zero(t, count)
-	_, err = saveReportingInputsForTest(f.svc, t.Context(), f.host, f.org, account.AccountID, 0, "valid representative", input)
+	require.Equal(t, 1, count)
+	var revision int64
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT revision FROM hosted_reporting_inputs WHERE account_id=$1`, account.ID).Scan(&revision))
+	require.EqualValues(t, 1, revision)
+	_, err = saveReportingInputsForTest(f.svc, t.Context(), f.host, f.org, account.AccountID, 1, "valid representative", input)
 	require.NoError(t, err)
 }
 
@@ -515,10 +523,10 @@ func TestReportingCreationRevocationAndAuthorityRevisionGuards(t *testing.T) {
 	require.Equal(t, connect.CodeFailedPrecondition, revisionError.GRPCCode, "stale revisions cannot restore creation")
 	err = f.svc.SetReportingAuthority(t.Context(), f.user, f.org, account.AccountID, grant, 2)
 	require.ErrorContains(t, err, "account access denied", "account membership does not grant account:manage")
-	authorities, err := f.svc.ReportingAuthorities(t.Context(), f.host, f.org, account.AccountID)
+	currentSetup, err := f.svc.HostReportingSetup(t.Context(), f.host, f.org, account.AccountID)
 	require.NoError(t, err)
 	found := false
-	for _, authority := range authorities {
+	for _, authority := range currentSetup.Authorities {
 		if authority.UserID == hostID {
 			found = true
 			require.False(t, authority.CanCreate)

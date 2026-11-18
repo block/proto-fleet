@@ -69,6 +69,9 @@ func serveUnary(state *ContainerState) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (res any, err error) {
 		started := time.Now()
 		defer func() { state.metrics.record(info.FullMethod, started, err != nil) }()
+		if selfServed(info.FullMethod) {
+			return handler(ctx, req)
+		}
 		if serveErr := state.serve(ctx, !boundToGET(info.FullMethod), func() { res, err = handler(ctx, req) }); serveErr != nil {
 			err = status.FromContextError(serveErr).Err()
 		}

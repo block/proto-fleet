@@ -18,7 +18,13 @@ export const capabilities = [
     label: "Allocate and recall assets",
     description: "Allocate assets to subclients and recall them to this account.",
   },
+  {
+    value: 32n,
+    label: "Generate ad hoc reports",
+    description: "Allow account administrators to generate reports.",
+  },
 ] as const;
+export const ticketingDescription = "Allow account teammates to submit and track maintenance tickets.";
 export const apiKeyCapabilities = capabilities.filter(
   (capability) => capability.value === 1n || capability.value === 2n,
 );
@@ -48,3 +54,9 @@ export const accountPath = (accountId: string, section = "overview") =>
   `/accounts/${encodeURIComponent(accountId)}/${section}`;
 export const accountManagementPath = (accountId: string, section = "assets") =>
   `/accounts/${encodeURIComponent(accountId)}/manage/${section}`;
+
+export const canManageAnalyses = (account: Account, readOnly = false) =>
+  !readOnly && account.role === AccountRole.ADMINISTRATOR && can(account, 1n);
+
+export const canGenerateAnalyses = (account: Account, readOnly = false) =>
+  canManageAnalyses(account, readOnly) && can(account, 32n);

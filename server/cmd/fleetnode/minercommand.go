@@ -1279,6 +1279,12 @@ func classifyMinerCommandError(stage string, err error) (pb.AckCode, string) {
 
 func classifyMinerActionError(stage string, mc *pb.MinerCommand, err error) (pb.AckCode, string) {
 	code, msg := classifyMinerCommandError(stage, err)
+	// A controller's refusal of a feed write keeps its reason, worded as the
+	// server words a refusal from a directly connected controller.
+	if st, ok := grpcstatus.FromError(err); ok && code == pb.AckCode_ACK_CODE_INTERNAL && mc.GetContainerPowerFeed() != nil &&
+		st.Code() == codes.FailedPrecondition && sdk.WriteEvidence(err).GetReason() == sdk.WriteNotDispatched {
+		return pb.AckCode_ACK_CODE_FAILED_PRECONDITION, "container power feed: " + st.Message()
+	}
 	if code != pb.AckCode_ACK_CODE_INTERNAL || mc.GetUpdateMinerPassword() == nil {
 		return code, msg
 	}

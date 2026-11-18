@@ -1,7 +1,6 @@
 package hostedaccounts
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -24,8 +23,6 @@ import (
 const reportArtifactChunkSize = 64 * 1024
 const reportEvidenceIntervalPageSize = 512
 
-// reportArtifactWriter persists exactly the bytes the renderer emitted. It never
-// holds more than one chunk and participates in the publication transaction.
 type reportArtifactWriter struct {
 	appendChunk    func(sequence int64, data []byte) error
 	q              sqlc.Querier
@@ -252,22 +249,12 @@ func (s *Service) PublishReport(ctx context.Context, actorID, orgID int64, accou
 		if err != nil {
 			return zero, fmt.Errorf("recalculate report for publication: %w", err)
 		}
-		actual, err := reporting.MarshalResultContext(ctx, recalculated)
-		if err != nil {
-			return zero, err
-		}
-		reviewed, err := reporting.MarshalResultContext(ctx, record.Result)
-		if err != nil {
-			return zero, err
-		}
-		if !bytes.Equal(actual, reviewed) {
+		if err := reporting.VerifySavedReviewedCalculation(ctx, recalculated, record.Result); err != nil {
 			return zero, fleeterror.NewFailedPreconditionError("reviewed report differs from current report context; regenerate before publication")
 		}
 		if !record.Result.Complete && strings.TrimSpace(exception) == "" {
 			return zero, fleeterror.NewFailedPreconditionError("incomplete reports require an explicit publication exception")
 		}
-		// A correction follows the latest issued version; a stale parallel correction
-		// cannot become the new default after a newer version has been issued.
 		if row.CorrectionOf.Valid {
 			latest, err := q.LatestIssuedHostedReport(ctx, sqlc.LatestIssuedHostedReportParams{OrganizationID: orgID, AccountID: a.account.ID, SeriesID: row.SeriesID})
 			if err != nil {
@@ -382,7 +369,6 @@ func (s *Service) ReportArtifactPage(ctx context.Context, actorID, orgID int64, 
 		if err != nil {
 			return out, err
 		}
-		// Bind the stream to the live authority revisions, not only its first check.
 		fingerprint := struct {
 			Path               []Account
 			MembershipRevision int64

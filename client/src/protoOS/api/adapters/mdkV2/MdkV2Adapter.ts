@@ -1,7 +1,13 @@
+import { createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { ALARM_MUTE_OUTCOME_UNKNOWN, ALARM_RESET_OUTCOME_UNKNOWN } from "../alarmMessages";
 import { BREAKER_OUTCOME_UNKNOWN } from "../breakerMessages";
 import type { ContainerHistoryRequest } from "../containerHistory";
+import {
+  FAN_REVERSAL_MAX_MINUTES,
+  FAN_REVERSAL_MIN_MINUTES,
+  FAN_REVERSAL_OUTCOME_UNKNOWN,
+} from "../fanReversalMessages";
 import type { PoolHistoryRequest } from "../poolHistory";
 import type {
   AdapterProbeMatch,
@@ -12,6 +18,7 @@ import type {
   HashboardStatus,
   MinerAdapter,
   MiningScope,
+  ModulePowerFeedTarget,
   ModuleRunInRequest,
   SystemLogs,
   SystemLogSource,
@@ -20,11 +27,14 @@ import type {
 } from "../types";
 import { mapWithConcurrency } from "../utils/async";
 import { parseIsoDurationMs } from "../utils/time";
+import { getRecoveryEvidence, listRecoveryEvidence, readBoardEvents } from "./boardHistory";
 import { createMdkV2Client, type MdkV2Client } from "./connectClient";
 import { queryContainerHistory } from "./containerHistory";
 import { toCanonicalControllerDiagnostics } from "./controllerDiagnostics";
 import { listControllerAuditEvents, readControllerLogs, withDeadline } from "./controllerRecords";
+import { toFanReversalStatus } from "./fanReversal";
 import { createHashboardFirmware } from "./firmware";
+import { createFrigateServerUpdate, type ServerUpdateClient } from "./frigateServerUpdate";
 import {
   Api,
   type TelemetryServiceQueryTimeSeriesParams,
@@ -33,11 +43,14 @@ import {
   V2PlantWriteConfirmationState,
   V2PLLAlgorithm,
 } from "./generated/generatedApi";
+import { ServerUpdateService } from "./generated/proto/mdk/v2/server_update_pb";
 import { followHashboardStatus } from "./hashboardStream";
+import { modulePowerFeedInspection } from "./modulePowerFeed";
 import { listModuleVoltageSettings, writeModuleVoltage } from "./moduleVoltage";
 import {
   type ContainerSeriesField,
   ct1ContainerId,
+  ct1ReportedModuleId,
   ct1RunInModuleId,
   toCanonicalContainer,
   toCanonicalContainerFans,
@@ -54,6 +67,13 @@ import {
   toCanonicalPools,
   toCanonicalSystemInfo,
 } from "./normalize";
+import {
+  POOL_READ_TIMEOUT_MS,
+  poolWriteError,
+  readContainerPoolConfiguration,
+  readMiningGroupPools,
+  requireContainerPoolMode,
+} from "./poolConfiguration";
 import { queryPoolHistory } from "./poolHistory";
 import { containerWriteError } from "./writeErrors";
 import type { CoolingMode, MiningTarget, MiningTargetUpdate } from "@/protoOS/store/contract";
@@ -73,6 +93,8 @@ const HASHBOARD_TIMESERIES_CACHE_MS = 5 * 60_000;
 // A diagnostics poll that stalls past this is reported as unavailable, well
 // before the 15-second role observations it would refresh go stale.
 export const CONTROLLER_DIAGNOSTICS_TIMEOUT_MS = 8_000;
+// Fleet's plugin gives the same reads ten seconds in all.
+export const POWER_FEED_READ_TIMEOUT_MS = 10_000;
 const SERIES_METRICS: Record<ContainerSeriesField, TelemetryServiceQueryTimeSeriesParams["metric"]> = {
   hashrate: "TIME_SERIES_METRIC_HASHRATE",
   temperature: "TIME_SERIES_METRIC_TEMPERATURE",
@@ -126,6 +148,9 @@ const ALARM_WRITES = {
   reset: { unchanged: "The alarm state was not changed.", outcomeUnknown: ALARM_RESET_OUTCOME_UNKNOWN },
 } as const;
 
+const fanReversalWriteError = (error: unknown) =>
+  containerWriteError(error, "The fan reversal did not start.", FAN_REVERSAL_OUTCOME_UNKNOWN);
+
 const toWireDeviceId = (value: string) => (value.startsWith("device:") ? value.slice("device:".length) : value);
 
 const toWirePerformanceMode = (value: MiningTargetUpdate["performanceMode"]) =>
@@ -144,18 +169,29 @@ const toWirePllAlgorithm = (value: string | undefined): V2PLLAlgorithm | undefin
 
 export class MdkV2Adapter implements MinerAdapter {
   readonly hashboardFirmware;
+  readonly frigateServerUpdate?: MinerAdapter["frigateServerUpdate"];
   readonly getControllerLogs?: MinerAdapter["getControllerLogs"];
   readonly listAuditEvents?: MinerAdapter["listAuditEvents"];
   readonly streamHashboardStatus?: MinerAdapter["streamHashboardStatus"];
+  readonly getBoardEvents?: MinerAdapter["getBoardEvents"];
+  readonly listRecoveryEvidence?: MinerAdapter["listRecoveryEvidence"];
+  readonly getRecoveryEvidence?: MinerAdapter["getRecoveryEvidence"];
   private deviceId: string | undefined;
   private readonly hashboardTimeSeriesCache = new Map<string, { expiresAtMs: number; data: QueryTimeSeriesResponse }>();
 
+  /**
+   * `serverUpdate` is Frigate's ServerUpdateService, which has no REST routes. Only a Connect transport provides it, so
+   * Fleet-hosted views, which use the REST client through Fleet's miner proxy, never offer local software updates.
+   */
   constructor(
     private readonly client: MdkV2Client,
     match: AdapterProbeMatch = {},
+    serverUpdate?: ServerUpdateClient,
   ) {
     this.deviceId = match.deviceId;
     this.hashboardFirmware = createHashboardFirmware(client, (params) => this.decorate(params));
+    if (serverUpdate)
+      this.frigateServerUpdate = createFrigateServerUpdate(serverUpdate, (params) => this.decorate(params));
     // Only the Connect client can bound the following log stream. The REST
     // client is generated with ListAuditEvents too, but its one caller, Fleet's
     // miner proxy, forwards neither route, so both reads follow the log reader.
@@ -171,6 +207,22 @@ export class MdkV2Adapter implements MinerAdapter {
       this.streamHashboardStatus = (identifier, params) =>
         followHashboardStatus(followAsicHealth, identifier, this.decorate(params));
     }
+    // Board history is Connect-only as well. The REST client is generated with
+    // these reads, but Fleet's miner proxy forwards none of their routes, so
+    // they follow the Connect-only ASIC stream.
+    const {
+      hashboardServiceGetHashboardEvents: getEvents,
+      hashboardServiceListRecoveryEvidence: listEvidence,
+      hashboardServiceGetRecoveryEvidence: getEvidence,
+    } = client;
+    if (followAsicHealth && getEvents && listEvidence && getEvidence) {
+      this.getBoardEvents = (identifier, query, params) =>
+        readBoardEvents(getEvents, identifier, query, this.decorate(params));
+      this.listRecoveryEvidence = (identifier, params) =>
+        listRecoveryEvidence(listEvidence, identifier, this.decorate(params));
+      this.getRecoveryEvidence = (evidenceId, params) =>
+        getRecoveryEvidence(getEvidence, evidenceId, this.decorate(params));
+    }
   }
 
   /**
@@ -180,11 +232,9 @@ export class MdkV2Adapter implements MinerAdapter {
    * class directly with a mock client.
    */
   static fromConfig(config: { baseUrl: string; protocol: MdkV2Protocol }, match: AdapterProbeMatch = {}): MdkV2Adapter {
-    const client: MdkV2Client =
-      config.protocol === "rest"
-        ? new Api({ baseUrl: config.baseUrl }).api
-        : createMdkV2Client(createConnectTransport({ baseUrl: config.baseUrl, useBinaryFormat: true }));
-    return new MdkV2Adapter(client, match);
+    if (config.protocol === "rest") return new MdkV2Adapter(new Api({ baseUrl: config.baseUrl }).api, match);
+    const transport = createConnectTransport({ baseUrl: config.baseUrl, useBinaryFormat: true });
+    return new MdkV2Adapter(createMdkV2Client(transport), match, createClient(ServerUpdateService, transport));
   }
 
   private containerDeviceId(context?: { deviceId: string }) {
@@ -294,7 +344,9 @@ export class MdkV2Adapter implements MinerAdapter {
   }
 
   async getPoolSettings(params: AdapterRequestOptions = {}) {
-    const { data } = await this.client.poolServiceListPools(this.decorate(params));
+    const { data } = await withDeadline(this.decorate(params), POOL_READ_TIMEOUT_MS, (options) =>
+      this.client.poolServiceListPools(options),
+    );
     return (data.pools ?? [])
       .map((pool) => {
         if (!pool.id) throw new Error("Pool identity was not reported");
@@ -311,27 +363,46 @@ export class MdkV2Adapter implements MinerAdapter {
       .sort((a, b) => a.priority - b.priority);
   }
 
+  getContainerPoolConfiguration(params: AdapterRequestOptions = {}) {
+    return readContainerPoolConfiguration(this.client, this.decorate(params));
+  }
+
+  getMiningGroupPoolSettings(groupId: string, revision: string, params: AdapterRequestOptions = {}) {
+    return readMiningGroupPools(this.client, groupId, revision, this.decorate(params));
+  }
+
   async savePoolSettings(pool: PoolInfo, id?: string, params: AdapterRequestOptions = {}) {
+    await requireContainerPoolMode(this.client, this.decorate(params));
     const { name, url, username, password, priority } = pool;
-    if (id) {
-      await this.client.poolServiceUpdatePool(
-        { poolId: id },
-        { pool: { name, url, username }, password: password || undefined, updateMask: "name,url,username" },
-        this.decorate(params),
-      );
-    } else {
-      await this.client.poolServiceCreatePool(
-        { pool: { name, url, username, priority, enabled: true }, password: password || undefined },
-        this.decorate(params),
-      );
+    try {
+      if (id) {
+        await this.client.poolServiceUpdatePool(
+          { poolId: id },
+          { pool: { name, url, username }, password: password || undefined, updateMask: "name,url,username" },
+          this.decorate(params),
+        );
+      } else {
+        await this.client.poolServiceCreatePool(
+          { pool: { name, url, username, priority, enabled: true }, password: password || undefined },
+          this.decorate(params),
+        );
+      }
+    } catch (error) {
+      throw poolWriteError(error);
     }
   }
 
   async deletePoolSettings(id: string, params: AdapterRequestOptions = {}) {
-    await this.client.poolServiceDeletePool({ id }, this.decorate(params));
+    await requireContainerPoolMode(this.client, this.decorate(params));
+    try {
+      await this.client.poolServiceDeletePool({ id }, this.decorate(params));
+    } catch (error) {
+      throw poolWriteError(error);
+    }
   }
 
   async reorderPoolSettings(ids: string[], params: AdapterRequestOptions = {}) {
+    const modeRevision = await requireContainerPoolMode(this.client, this.decorate(params));
     const pools = await this.getPoolSettings(params);
     if (
       ids.length !== pools.length ||
@@ -340,20 +411,35 @@ export class MdkV2Adapter implements MinerAdapter {
     ) {
       throw new Error("The pool configuration changed. Reload before reordering.");
     }
-    const changed = ids.filter((id, priority) => pools.find((pool) => pool.id === id)!.priority !== priority);
+    const changed = ids
+      .map((id, priority) => ({ id, priority }))
+      .filter(({ id, priority }) => pools.find((pool) => pool.id === id)!.priority !== priority);
     // CT1 rejects duplicate priorities on each write. Park changed entries in
     // unused slots before assigning the final order; preserve credentials and
     // weighted/enabled settings through priority-only field masks.
     const temporaryStart = Math.max(ids.length, ...pools.map((pool) => pool.priority + 1));
     if (temporaryStart + changed.length > 2147483647) throw new Error("Pool priorities exceed the supported range");
-    const setPriority = (id: string, priority: number) =>
-      this.client.poolServiceUpdatePool(
-        { poolId: id },
-        { pool: { priority }, updateMask: "priority" },
-        this.decorate(params),
-      );
-    for (const [index, id] of changed.entries()) await setPriority(id, temporaryStart + index);
-    for (const id of changed) await setPriority(id, ids.indexOf(id));
+    let savedPriorities = 0;
+    const setPriority = async (id: string, priority: number) => {
+      await requireContainerPoolMode(this.client, this.decorate(params), modeRevision);
+      try {
+        await this.client.poolServiceUpdatePool(
+          { poolId: id },
+          { pool: { priority }, updateMask: "priority" },
+          this.decorate(params),
+        );
+      } catch (error) {
+        throw poolWriteError(error);
+      }
+      savedPriorities++;
+    };
+    try {
+      for (const [index, { id }] of changed.entries()) await setPriority(id, temporaryStart + index);
+      for (const { id, priority } of changed) await setPriority(id, priority);
+    } catch (error) {
+      if (savedPriorities > 0) throw poolWriteError(error, savedPriorities);
+      throw error;
+    }
   }
 
   async getContainerSettings(params: AdapterRequestOptions = {}): Promise<ContainerSettings> {
@@ -388,6 +474,9 @@ export class MdkV2Adapter implements MinerAdapter {
         : {}),
       alarmMute: data.alarmMuteSupported === true,
       alarmReset: data.alarmResetSupported === true,
+      ...(data.dryCoolerFanReverseSupported === true
+        ? { dryCoolerFanReversal: { status: toFanReversalStatus(data.dryCoolerFanReverse) } }
+        : {}),
     };
   }
 
@@ -534,6 +623,32 @@ export class MdkV2Adapter implements MinerAdapter {
     await this.alarmWrite("reset", (decorated) => this.client.powerServiceResetContainerAlarm({}, decorated), params);
   }
 
+  /**
+   * One call, never retried: the controller holds it open until the PLC procedure ends. The
+   * terminal state comes from the controller, which reads it back from the PLC.
+   */
+  async runDryCoolerFanReversal(durationMinutes: number, params: AdapterRequestOptions = {}) {
+    if (
+      !Number.isInteger(durationMinutes) ||
+      durationMinutes < FAN_REVERSAL_MIN_MINUTES ||
+      durationMinutes > FAN_REVERSAL_MAX_MINUTES
+    ) {
+      throw Object.assign(
+        new Error(
+          `Choose a whole number of minutes from ${FAN_REVERSAL_MIN_MINUTES} to ${FAN_REVERSAL_MAX_MINUTES}. Nothing was sent.`,
+        ),
+        { writeOutcome: "refused" as const },
+      );
+    }
+    try {
+      const { data } = await this.client.powerServiceRunDryCoolerFanReverse({ durationMinutes }, this.decorate(params));
+      return toFanReversalStatus(data.status) ?? { state: "unknown" as const };
+    } catch (error) {
+      if (params.signal?.aborted) throw error;
+      throw fanReversalWriteError(error);
+    }
+  }
+
   private async alarmWrite(
     action: keyof typeof ALARM_WRITES,
     write: (params: AdapterRequestOptions) => Promise<unknown>,
@@ -558,6 +673,26 @@ export class MdkV2Adapter implements MinerAdapter {
     }
     throw new Error(
       "The command was sent, but controller readback is unavailable. Check the current setting before trying again.",
+    );
+  }
+
+  async getModulePowerFeed(target: ModulePowerFeedTarget, params: AdapterRequestOptions = {}) {
+    const decorated = this.decorate(params);
+    const read = <T>(request: (options: AdapterRequestOptions) => Promise<{ data: T }>) =>
+      withDeadline(decorated, POWER_FEED_READ_TIMEOUT_MS, (options) => request(options).then(({ data }) => data));
+    // Read together, like Fleet's plugin, so one inspection reflects one moment.
+    // Each read has its own deadline, so a stalled one cannot hold the others.
+    const [map, feeds, cycle] = await Promise.allSettled([
+      read((options) => this.client.hashboardServiceGetContainerMap(options)),
+      read((options) => this.client.powerServiceListPowerFeeds(options)),
+      read((options) => this.client.powerServiceGetActivePowerRecoveryCycle(options)),
+    ]);
+    if (map.status === "rejected") throw map.reason;
+    const { tank, module, moduleId } = target;
+    return modulePowerFeedInspection(
+      { tank, module, reportedId: ct1ReportedModuleId(moduleId) },
+      { map: map.value, feeds, cycle },
+      new Date(),
     );
   }
 

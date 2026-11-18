@@ -113,7 +113,7 @@ func (a *serverUpdateAPI) StageServerUpdate(stream mdk.ServerUpdateService_Stage
 }
 
 func (a *serverUpdateAPI) StartServerUpdate(ctx context.Context, in *mdk.StartServerUpdateRequest) (*mdk.StartServerUpdateResponse, error) {
-	rollout, err := a.sim.startRollout(in, a.actor(ctx))
+	rollout, err := a.sim.startRollout(in, a.actor(ctx), a.sim.activeFlashes())
 	if err != nil {
 		return nil, err
 	}

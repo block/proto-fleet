@@ -467,3 +467,11 @@ func rolloutToProto(r *rollout.Rollout) *pb.Rollout {
 	}
 	return out
 }
+
+func controllerSoftwareToProto(m *rollout.ControllerSoftware) *pb.ReleaseChannelControllerSoftware {
+	out := &pb.ReleaseChannelControllerSoftware{
+		Manufacturer: m.Manufacturer, Model: m.Model, TargetVersion: m.TargetVersion,
+		ContainerCount: m.ContainerCount, OnTargetCount: m.OnTargetCount,
+	}
+	return out
+}

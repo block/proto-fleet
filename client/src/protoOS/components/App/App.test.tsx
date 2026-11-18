@@ -115,6 +115,10 @@ vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({
   useMinerHosting: () => mocks.useMinerHosting(),
 }));
 
+vi.mock("@/protoOS/features/firmwareUpdate/components/ContainerFrigateUpdateDowntime", () => ({
+  default: () => <div>update during downtime</div>,
+}));
+
 vi.mock("@/protoOS/features/auth/components/LoginModal", () => ({
   default: (props: { onDismiss: () => void; onSuccess: () => void }) => {
     mocks.LoginModal(props);
@@ -399,6 +403,8 @@ describe("App auth gating", () => {
       render(<App title="App" />);
 
       expect(mocks.prefetchRoutes).not.toHaveBeenCalled();
+      // A controller software update stays reachable behind the booting screen.
+      expect(screen.getByText("update during downtime")).toBeInTheDocument();
     });
 
     it("does not call prefetchRoutes while isMiningDriverRunning is false", () => {
@@ -407,6 +413,7 @@ describe("App auth gating", () => {
       render(<App title="App" />);
 
       expect(mocks.prefetchRoutes).not.toHaveBeenCalled();
+      expect(screen.getByText("update during downtime")).toBeInTheDocument();
     });
 
     it("calls prefetchRoutes once both flags are true", () => {
@@ -415,6 +422,7 @@ describe("App auth gating", () => {
       render(<App title="App" />);
 
       expect(mocks.prefetchRoutes).toHaveBeenCalledTimes(1);
+      expect(screen.queryByText("update during downtime")).not.toBeInTheDocument();
     });
 
     it("schedules prefetch once flags transition from false to true", () => {

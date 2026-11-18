@@ -134,7 +134,9 @@ func (a *grpcAPI) GetContainerControls(context.Context, *mdk.GetContainerControl
 	out := new(mdk.GetContainerControlsResponse)
 	err := a.snapshot(func(s *ContainerState) any {
 		v := s.containerTelemetry()
+		fanReverse, fanReverseSupported := s.fanReverseControls()
 		return containerControlsResponse{
+			DryCoolerFanReverse: fanReverse, DryCoolerFanReverseSupported: fanReverseSupported,
 			Supported: true, Controls: v.Controls, Setpoints: v.Setpoints, MainCircuitBreakerSupported: false,
 			AlarmMuteSupported: true, AlarmResetSupported: !s.Config.AlarmResetUnsupported,
 		}

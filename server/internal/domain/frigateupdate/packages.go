@@ -123,14 +123,14 @@ func validateFilename(name string) error {
 
 func (s *Service) verify(statement, signature []byte) (frigaterelease.Verified, error) {
 	if s.verifier == nil {
-		return frigaterelease.Verified{}, fleeterror.NewFailedPreconditionError("Frigate package upload is disabled: no release keys are configured")
+		return frigaterelease.Verified{}, fleeterror.NewFailedPreconditionError("Controller software upload is disabled: no release keys are configured")
 	}
 	verified, err := s.verifier.Verify(statement, signature, "")
 	switch {
 	case err == nil:
 		return verified, nil
 	case errors.Is(err, frigaterelease.ErrNoTrustedKeys):
-		return frigaterelease.Verified{}, fleeterror.NewFailedPreconditionError("Frigate package upload is disabled: no release keys are configured")
+		return frigaterelease.Verified{}, fleeterror.NewFailedPreconditionError("Controller software upload is disabled: no release keys are configured")
 	case errors.Is(err, frigaterelease.ErrSignatureInvalid),
 		errors.Is(err, frigaterelease.ErrKeyIDMismatch),
 		errors.Is(err, frigaterelease.ErrStatementInvalid):
@@ -247,7 +247,7 @@ func (s *Service) ImportPackage(ctx context.Context, in ImportInput) (ImportResu
 	}
 
 	s.logPackageEvent(ctx, info.OrganizationID, packageUploadedEventType,
-		fmt.Sprintf("Uploaded Frigate package %s (%s)", statement.Version, statement.Architecture), row, info.ExternalUserID, info.Username)
+		fmt.Sprintf("Uploaded controller software %s (%s)", statement.Version, statement.Architecture), row, info.ExternalUserID, info.Username)
 	return ImportResult{Package: packageFromModel(row, info.Username)}, nil
 }
 
@@ -303,7 +303,7 @@ func controlError(err error) error {
 	case errors.Is(err, frigaterelease.ErrUnsupportedCompression):
 		return fleeterror.NewInvalidArgumentErrorf("the package cannot be checked by Fleet: %v. Rebuild it with a gzip-compressed control archive", err)
 	case errors.Is(err, frigaterelease.ErrPackageInvalid):
-		return fleeterror.NewInvalidArgumentErrorf("the uploaded file is not a valid Frigate package: %v", err)
+		return fleeterror.NewInvalidArgumentErrorf("the uploaded file is not a valid controller software package: %v", err)
 	default:
 		return fleeterror.NewInternalErrorf("failed to read the package: %v", err)
 	}
@@ -365,6 +365,30 @@ func (s *Service) ListPackages(ctx context.Context) ([]Package, error) {
 	return out, nil
 }
 
+// HasUpdatableContainer reports whether a container is paired at a site where
+// the caller may update controller software. Package management is offered to
+// callers by this answer rather than by which containers they can list, because
+// reading inventory and updating controller software are separate permissions.
+func (s *Service) HasUpdatableContainer(ctx context.Context) (bool, error) {
+	if err := s.auth.AuthorizeAnySite(ctx); err != nil {
+		return false, err
+	}
+	info, err := principal(ctx)
+	if err != nil {
+		return false, err
+	}
+	containers, err := s.queries.ListContainerPlacements(ctx, info.OrganizationID)
+	if err != nil {
+		return false, err
+	}
+	for _, c := range containers {
+		if s.auth.AuthorizeSite(ctx, siteArg(c.SiteID)) == nil {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // DeletePackage removes an uploaded package that no in-progress update uses.
 func (s *Service) DeletePackage(ctx context.Context, id uuid.UUID) error {
 	if err := s.auth.AuthorizeOrgWide(ctx); err != nil {
@@ -402,7 +426,7 @@ func (s *Service) DeletePackage(ctx context.Context, id uuid.UUID) error {
 		slog.Warn("failed to delete frigate package blob", "package_id", id, "error", err)
 	}
 	s.logPackageEvent(ctx, info.OrganizationID, packageDeletedEventType,
-		fmt.Sprintf("Deleted Frigate package %s (%s)", deleted.Version, deleted.Architecture), deleted, info.ExternalUserID, info.Username)
+		fmt.Sprintf("Deleted controller software %s (%s)", deleted.Version, deleted.Architecture), deleted, info.ExternalUserID, info.Username)
 	return nil
 }
 

@@ -780,7 +780,7 @@ func startRefusalSummary(reason string) string {
 	if strings.HasPrefix(reason, "FLEET_") {
 		return "Fleet stopped the update before starting it"
 	}
-	return "Frigate refused to start the update"
+	return "The controller refused to start the update"
 }
 
 // finishPendingCancel carries out an operator cancel that was recorded while a
@@ -893,7 +893,7 @@ func (s *Service) forwardCancel(ctx context.Context, updater interfaces.FrigateU
 		slog.WarnContext(ctx, "frigate refused a pending cancel", "job_id", job.ID, "error", err)
 		after := apply(ro, maintenance)
 		s.logJobEvent(ctx, after, "frigate_update_cancel_refused",
-			fmt.Sprintf("Frigate refused to cancel the update to %s", after.TargetVersion), activitymodels.ResultFailure,
+			fmt.Sprintf("The controller refused to cancel the update to %s", after.TargetVersion), activitymodels.ResultFailure,
 			withDetail(refusal.Reason, refusal.Message))
 	default:
 		s.markUnreachable(ctx, job.ID, err)
@@ -959,7 +959,7 @@ func (s *Service) startTimedOut(ctx context.Context, updater interfaces.FrigateU
 	// Re-check the lease under the job lock: job predates the status read, and
 	// a Start another runner leased since then may still be accepted.
 	s.failJobUnless(ctx, job.ID, CodeStartTimeout,
-		fmt.Sprintf("Frigate did not accept the update within %s and no controller has a record of it.", s.cfg.StartTimeout), true,
+		fmt.Sprintf("No controller accepted the update within %s or has a record of it.", s.cfg.StartTimeout), true,
 		s.startLeaseLive)
 }
 
@@ -1018,7 +1018,7 @@ func (s *Service) rolloutMissing(ctx context.Context, job sqlc.FrigateUpdateJob)
 		}
 		p.State = StateFailed
 		p.ErrorCode = CodeRolloutLost
-		p.ErrorMessage = "Frigate no longer has a record of this update."
+		p.ErrorMessage = "The controllers no longer have a record of this update."
 		p.NextStep = "Check the controllers' running version; start the update again if it did not install."
 		p.Retryable = false
 		p.Cancellable = false

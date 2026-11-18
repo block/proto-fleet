@@ -76,6 +76,14 @@ export function useFrigatePackages() {
     return response.packages;
   }, []);
 
+  // Whether a container is paired where this user may update controller
+  // software. Listing containers needs read access at their site, which this
+  // permission does not imply, so an empty container list cannot answer it.
+  const hasUpdatableContainer = useCallback(async (signal?: AbortSignal): Promise<boolean> => {
+    const response = await frigateUpdateClient.listPackages({}, { signal, timeoutMs: REQUEST_TIMEOUT_MS });
+    return response.hasUpdatableContainer;
+  }, []);
+
   const deletePackage = useCallback(async (packageId: string): Promise<void> => {
     await frigateUpdateClient.deletePackage({ packageId }, { timeoutMs: REQUEST_TIMEOUT_MS });
   }, []);
@@ -111,5 +119,8 @@ export function useFrigatePackages() {
     [upload],
   );
 
-  return useMemo(() => ({ listPackages, deletePackage, uploadPackage }), [listPackages, deletePackage, uploadPackage]);
+  return useMemo(
+    () => ({ listPackages, hasUpdatableContainer, deletePackage, uploadPackage }),
+    [listPackages, hasUpdatableContainer, deletePackage, uploadPackage],
+  );
 }

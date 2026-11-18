@@ -17,6 +17,7 @@ type connectAPI struct {
 	mdkv2connect.UnimplementedSystemServiceHandler
 	mdkv2connect.UnimplementedHashboardServiceHandler
 	mdkv2connect.UnimplementedMiningServiceHandler
+	mdkv2connect.UnimplementedMiningGroupServiceHandler
 	mdkv2connect.UnimplementedTelemetryServiceHandler
 	mdkv2connect.UnimplementedPowerServiceHandler
 	mdkv2connect.UnimplementedPoolServiceHandler
@@ -31,11 +32,16 @@ func registerConnectRoutes(mux *http.ServeMux, state *ContainerState) {
 	mux.Handle(mdkv2connect.NewSystemServiceHandler(api, options))
 	mux.Handle(mdkv2connect.NewHashboardServiceHandler(api, options))
 	mux.Handle(mdkv2connect.NewMiningServiceHandler(api, options))
+	mux.Handle(mdkv2connect.NewMiningGroupServiceHandler(api, options))
 	mux.Handle(mdkv2connect.NewTelemetryServiceHandler(api, options))
 	mux.Handle(mdkv2connect.NewPowerServiceHandler(api, options))
 	mux.Handle(mdkv2connect.NewPoolServiceHandler(api, options))
 	mux.Handle(mdkv2connect.NewRunInServiceHandler(api, options))
 	mux.Handle(mdkv2connect.NewFirmwareServiceHandler(api, options))
+	if state.ha != nil {
+		// Like native gRPC, update calls bypass the simulation lifecycle.
+		mux.Handle(mdkv2connect.NewServerUpdateServiceHandler(&connectServerUpdate{api: &serverUpdateAPI{sim: state.ha.sim, self: state.ha.self}}))
+	}
 }
 
 // simulationInterceptor gives each Connect call the shared request lifecycle
@@ -45,7 +51,13 @@ func simulationInterceptor(state *ContainerState) connect.UnaryInterceptorFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (res connect.AnyResponse, err error) {
 			started := time.Now()
 			defer func() { state.metrics.record(req.Spec().Procedure, started, err != nil) }()
-			if serveErr := state.serve(ctx, !boundToGET(req.Spec().Procedure), func() { res, err = next(ctx, req) }); serveErr != nil {
+			// While a rollout holds Frigate stopped, only the maintenance service answers.
+			if state.ha != nil && state.ha.sim.inMaintenance() {
+				return nil, connect.NewError(connect.CodeUnavailable, errors.New(maintenanceMessage))
+			}
+			if selfServed(req.Spec().Procedure) {
+				res, err = next(ctx, req)
+			} else if serveErr := state.serve(ctx, !boundToGET(req.Spec().Procedure), func() { res, err = next(ctx, req) }); serveErr != nil {
 				err = status.FromContextError(serveErr).Err()
 			}
 			if err == nil {
@@ -92,6 +104,26 @@ func (a *connectAPI) SetIdentifyLED(ctx context.Context, req *connect.Request[md
 
 func (a *connectAPI) GetMiningStatus(ctx context.Context, req *connect.Request[mdk.GetMiningStatusRequest]) (*connect.Response[mdk.GetMiningStatusResponse], error) {
 	return connectResult(a.native.GetMiningStatus(ctx, req.Msg))
+}
+
+func (a *connectAPI) GetMiningGroupCapability(ctx context.Context, req *connect.Request[mdk.GetMiningGroupCapabilityRequest]) (*connect.Response[mdk.GetMiningGroupCapabilityResponse], error) {
+	return connectResult(a.native.GetMiningGroupCapability(ctx, req.Msg))
+}
+
+func (a *connectAPI) ListMiningGroups(ctx context.Context, req *connect.Request[mdk.ListMiningGroupsRequest]) (*connect.Response[mdk.ListMiningGroupsResponse], error) {
+	return connectResult(a.native.ListMiningGroups(ctx, req.Msg))
+}
+
+func (a *connectAPI) ListMiningGroupMemberships(ctx context.Context, req *connect.Request[mdk.ListMiningGroupMembershipsRequest]) (*connect.Response[mdk.ListMiningGroupMembershipsResponse], error) {
+	return connectResult(a.native.ListMiningGroupMemberships(ctx, req.Msg))
+}
+
+func (a *connectAPI) ListMiningGroupPools(ctx context.Context, req *connect.Request[mdk.ListMiningGroupPoolsRequest]) (*connect.Response[mdk.ListMiningGroupPoolsResponse], error) {
+	return connectResult(a.native.ListMiningGroupPools(ctx, req.Msg))
+}
+
+func (a *connectAPI) GetMiningGroup(ctx context.Context, req *connect.Request[mdk.GetMiningGroupRequest]) (*connect.Response[mdk.GetMiningGroupResponse], error) {
+	return connectResult(a.native.GetMiningGroup(ctx, req.Msg))
 }
 
 func (a *connectAPI) GetTargetPower(ctx context.Context, req *connect.Request[mdk.GetTargetPowerRequest]) (*connect.Response[mdk.GetTargetPowerResponse], error) {
@@ -181,6 +213,18 @@ func (a *connectAPI) MuteContainerAlarm(ctx context.Context, req *connect.Reques
 
 func (a *connectAPI) ResetContainerAlarm(ctx context.Context, req *connect.Request[mdk.ResetContainerAlarmRequest]) (*connect.Response[mdk.ResetContainerAlarmResponse], error) {
 	return connectResult(a.native.ResetContainerAlarm(ctx, req.Msg))
+}
+
+func (a *connectAPI) RunDryCoolerFanReverse(ctx context.Context, req *connect.Request[mdk.RunDryCoolerFanReverseRequest]) (*connect.Response[mdk.RunDryCoolerFanReverseResponse], error) {
+	return connectResult(a.native.RunDryCoolerFanReverse(ctx, req.Msg))
+}
+
+func (a *connectAPI) ListPowerFeeds(ctx context.Context, req *connect.Request[mdk.ListPowerFeedsRequest]) (*connect.Response[mdk.ListPowerFeedsResponse], error) {
+	return connectResult(a.native.ListPowerFeeds(ctx, req.Msg))
+}
+
+func (a *connectAPI) GetActivePowerRecoveryCycle(ctx context.Context, req *connect.Request[mdk.GetActivePowerRecoveryCycleRequest]) (*connect.Response[mdk.GetActivePowerRecoveryCycleResponse], error) {
+	return connectResult(a.native.GetActivePowerRecoveryCycle(ctx, req.Msg))
 }
 
 func (a *connectAPI) ListPools(ctx context.Context, req *connect.Request[mdk.ListPoolsRequest]) (*connect.Response[mdk.ListPoolsResponse], error) {

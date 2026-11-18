@@ -61,7 +61,7 @@ func NewDevice(ctx context.Context, id string, info sdk.DeviceInfo, credentials 
 		verified, err := d.clients[0].Discover(ctx, info)
 		if err != nil {
 			_ = d.Close(ctx)
-			return nil, err
+			return nil, identityMismatchGuidance(authFailure(id, err))
 		}
 		d.info = verified
 		d.clients[0].memberID = verified.SerialNumber
@@ -69,7 +69,7 @@ func NewDevice(ctx context.Context, id string, info sdk.DeviceInfo, credentials 
 	return d, nil
 }
 func Capabilities() sdk.Capabilities {
-	return sdk.Capabilities{sdk.CapabilityWorkerNameDefaultNone: true, sdk.CapabilityFirmware: true, sdk.CapabilityManualUpload: true, sdk.CapabilityFirmwareSelfManaged: true, sdk.CapabilityContainerMining: true, sdk.CapabilityPoolConfig: true, sdk.CapabilityPoolClear: true, sdk.CapabilityPoolPriority: true, sdk.CapabilityMiningGroups: true, sdk.CapabilityMiningGroupPoolClear: true, sdk.CapabilityTankMining: true, sdk.CapabilityModuleMining: true, sdk.CapabilityBoardIdentify: true, sdk.CapabilityBoardASICStream: true, sdk.CapabilityControllerRecords: true, sdk.CapabilityContainerPowerFeed: true, sdk.CapabilityContainerControl: true, sdk.CapabilityContainerAlarm: true, sdk.CapabilityFrigateServerUpdate: true, sdk.CapabilityPollingHost: true, sdk.CapabilityDiscovery: true, sdk.CapabilityPairing: true, sdk.CapabilityRealtimeTelemetry: true, sdk.CapabilityHashrateReported: true, sdk.CapabilityPowerUsage: true, sdk.CapabilityGetErrors: true}
+	return sdk.Capabilities{sdk.CapabilityWorkerNameDefaultNone: true, sdk.CapabilityFirmware: true, sdk.CapabilityManualUpload: true, sdk.CapabilityFirmwareSelfManaged: true, sdk.CapabilityContainerMining: true, sdk.CapabilityPoolConfig: true, sdk.CapabilityPoolClear: true, sdk.CapabilityPoolPriority: true, sdk.CapabilityMiningGroups: true, sdk.CapabilityMiningGroupPoolClear: true, sdk.CapabilityTankMining: true, sdk.CapabilityModuleMining: true, sdk.CapabilityBoardIdentify: true, sdk.CapabilityBoardASICStream: true, sdk.CapabilityControllerRecords: true, sdk.CapabilityContainerPowerFeed: true, sdk.CapabilityContainerPowerFeedControl: true, sdk.CapabilityContainerControl: true, sdk.CapabilityContainerAlarm: true, sdk.CapabilityFrigateServerUpdate: true, sdk.CapabilityPollingHost: true, sdk.CapabilityDiscovery: true, sdk.CapabilityPairing: true, sdk.CapabilityRealtimeTelemetry: true, sdk.CapabilityHashrateReported: true, sdk.CapabilityPowerUsage: true, sdk.CapabilityGetErrors: true}
 }
 func (d *Device) ID() string { return d.id }
 func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabilities, error) {
@@ -78,7 +78,7 @@ func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabi
 		// Pairing verifies live identity here; reads and writes probe when used.
 		selected, _, err := d.probeControllers(ctx, false)
 		if err != nil {
-			return sdk.DeviceInfo{}, nil, err
+			return sdk.DeviceInfo{}, nil, authFailure(d.id, err)
 		}
 		info.FirmwareVersion = selected.state.GetVersion()
 		if info.SerialNumber == "" {
@@ -91,7 +91,7 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	selected, ha, err := d.probeControllers(ctx, false)
 	if err != nil {
 		d.pollFailed(ctx, err)
-		return sdk.DeviceMetrics{}, err
+		return sdk.DeviceMetrics{}, authFailure(d.id, err)
 	}
 	firmwareJobs := observeFirmwareJobs(ctx, selected)
 	metrics, evidence, err := selected.client.collect(ctx, d.id)
@@ -120,7 +120,7 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	if selected.state != nil {
 		metrics.FirmwareVersion = selected.state.GetVersion()
 	}
-	return metrics, err
+	return metrics, authFailure(d.id, err)
 }
 func (d *Device) Close(context.Context) error {
 	var errs []error

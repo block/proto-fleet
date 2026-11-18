@@ -19,6 +19,7 @@ import { V2HashboardIdentifyLEDMode, V2PerformanceMode } from "./generated/gener
 import { BucketSize, LogLevel, TimeSeriesMetric } from "./generated/proto/mdk/v2/common_pb";
 import { FirmwareService } from "./generated/proto/mdk/v2/firmware_pb";
 import { HashboardErrorCause, HashboardService } from "./generated/proto/mdk/v2/hashboard_pb";
+import { MiningGroupService } from "./generated/proto/mdk/v2/mining_group_pb";
 import { MiningService, PerformanceMode } from "./generated/proto/mdk/v2/mining_pb";
 import { PoolService } from "./generated/proto/mdk/v2/pool_pb";
 import { PowerService } from "./generated/proto/mdk/v2/power_pb";
@@ -69,6 +70,7 @@ const recordingClient = () => {
       FirmwareService,
       SystemService,
       MiningService,
+      MiningGroupService,
       HashboardService,
       PoolService,
       PowerService,
@@ -101,6 +103,36 @@ const rpcTable: [
   request: JsonValue,
   call: (client: MdkV2Client) => Promise<unknown>,
 ][] = [
+  [
+    "miningGroupServiceGetMiningGroupCapability",
+    "mdk.v2.MiningGroupService/GetMiningGroupCapability",
+    {},
+    (c) => c.miningGroupServiceGetMiningGroupCapability(),
+  ],
+  [
+    "miningGroupServiceListMiningGroups",
+    "mdk.v2.MiningGroupService/ListMiningGroups",
+    {},
+    (c) => c.miningGroupServiceListMiningGroups(),
+  ],
+  [
+    "miningGroupServiceListMiningGroupMemberships",
+    "mdk.v2.MiningGroupService/ListMiningGroupMemberships",
+    { groupId: "client-a" },
+    (c) => c.miningGroupServiceListMiningGroupMemberships({ groupId: "client-a" }),
+  ],
+  [
+    "miningGroupServiceListMiningGroupPools",
+    "mdk.v2.MiningGroupService/ListMiningGroupPools",
+    { groupId: "client-a" },
+    (c) => c.miningGroupServiceListMiningGroupPools({ groupId: "client-a" }),
+  ],
+  [
+    "miningGroupServiceGetMiningGroup",
+    "mdk.v2.MiningGroupService/GetMiningGroup",
+    { id: "client-a" },
+    (c) => c.miningGroupServiceGetMiningGroup({ id: "client-a" }),
+  ],
   [
     "firmwareServiceBeginFirmwareArtifactUpload",
     "mdk.v2.FirmwareService/BeginFirmwareArtifactUpload",
@@ -255,6 +287,29 @@ const rpcTable: [
     { identifier: "02:00:00:00:00:01" },
     (c) => c.hashboardServiceGetHashboardAsiCs({ identifier: "02:00:00:00:00:01" }),
   ],
+  [
+    "hashboardServiceGetHashboardEvents",
+    "mdk.v2.HashboardService/GetHashboardEvents",
+    { identifier: "02:00:00:00:00:01", window: { start: "2026-09-16T00:00:00Z", end: "2026-09-16T01:00:00Z" } },
+    (c) =>
+      c.hashboardServiceGetHashboardEvents!({
+        identifier: "02:00:00:00:00:01",
+        "window.start": "2026-09-16T00:00:00Z",
+        "window.end": "2026-09-16T01:00:00Z",
+      }),
+  ],
+  [
+    "hashboardServiceListRecoveryEvidence",
+    "mdk.v2.HashboardService/ListRecoveryEvidence",
+    { identifier: "02:00:00:00:00:01", limit: 20 },
+    (c) => c.hashboardServiceListRecoveryEvidence!({ identifier: "02:00:00:00:00:01", limit: 20 }),
+  ],
+  [
+    "hashboardServiceGetRecoveryEvidence",
+    "mdk.v2.HashboardService/GetRecoveryEvidence",
+    { evidenceId: "evidence-1" },
+    (c) => c.hashboardServiceGetRecoveryEvidence!({ evidenceId: "evidence-1" }),
+  ],
   ["poolServiceListPools", "mdk.v2.PoolService/ListPools", {}, (c) => c.poolServiceListPools()],
   [
     "poolServiceGetPoolDiagnostics",
@@ -285,6 +340,13 @@ const rpcTable: [
     {},
     (c) => c.powerServiceGetContainerControls(),
   ],
+  ["powerServiceListPowerFeeds", "mdk.v2.PowerService/ListPowerFeeds", {}, (c) => c.powerServiceListPowerFeeds()],
+  [
+    "powerServiceGetActivePowerRecoveryCycle",
+    "mdk.v2.PowerService/GetActivePowerRecoveryCycle",
+    {},
+    (c) => c.powerServiceGetActivePowerRecoveryCycle(),
+  ],
   [
     "powerServiceSetContainerControl",
     "mdk.v2.PowerService/SetContainerControl",
@@ -314,6 +376,12 @@ const rpcTable: [
     "mdk.v2.PowerService/ResetContainerAlarm",
     {},
     (c) => c.powerServiceResetContainerAlarm({}),
+  ],
+  [
+    "powerServiceRunDryCoolerFanReverse",
+    "mdk.v2.PowerService/RunDryCoolerFanReverse",
+    { durationMinutes: 4 },
+    (c) => c.powerServiceRunDryCoolerFanReverse({ durationMinutes: 4 }),
   ],
   [
     "runInServiceStartModuleRunIn",

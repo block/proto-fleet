@@ -36,6 +36,8 @@ export interface SecondaryNavItem {
   requiredFeature?: NavFeature;
   // Available only to hosts with an accessible account directory.
   requiresHostedAccounts?: boolean;
+  // Reporting authority is discovered independently of client-management access.
+  requiresReportingAccess?: boolean;
   // Whether the page honors the topbar SitePicker selection as a soft default
   // filter (schedules today). Org-wide pages (the default) deliberately ignore
   // the picker; SettingsLayout surfaces an OrgWideNotice on those so the
@@ -59,6 +61,12 @@ export const isNavItemAllowedByPermissions = (
 
   return hasRequiredPermission && hasAnyPermission;
 };
+
+export const getActiveSecondaryNavPath = (items: readonly SecondaryNavItem[], pathname: string) =>
+  items.reduce<string | undefined>((active, item) => {
+    if (pathname !== item.path && !pathname.startsWith(`${item.path}/`)) return active;
+    return !active || item.path.length > active.length ? item.path : active;
+  }, undefined);
 
 // Primary navigation items (shown in main nav menu)
 export const primaryNavItems: NavItem[] = [
@@ -146,8 +154,8 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     label: "Firmware",
     parent: "/settings",
     section: "Fleet",
-    // Miner firmware tabs need miner:firmware_update; the Frigate packages tab
-    // needs controller:software_update. Each tab checks its own permission.
+    // Miner firmware views need miner:firmware_update; controller software
+    // needs controller:software_update. Each view checks its own permission.
     requiredAnyPermission: ["miner:firmware_update", "controller:software_update"],
   },
   {
@@ -211,6 +219,13 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     parent: "/settings",
     section: "Admin",
     requiresHostedAccounts: true,
+  },
+  {
+    path: "/accounts/reports",
+    label: "Reports",
+    parent: "/settings",
+    section: "Admin",
+    requiresReportingAccess: true,
   },
   {
     path: "/settings/integrations",

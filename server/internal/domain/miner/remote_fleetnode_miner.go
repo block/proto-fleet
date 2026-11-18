@@ -385,6 +385,7 @@ func (m *RemoteFleetNodeMiner) errorFromAck(ack *gatewaypb.ControlAck) error {
 		return fleeterror.NewConnectionError(m.route.deviceIdentifier, errors.New(msg))
 	case gatewaypb.AckCode_ACK_CODE_REPORT_FAILED,
 		gatewaypb.AckCode_ACK_CODE_PARTIAL,
+		gatewaypb.AckCode_ACK_CODE_FAILED_PRECONDITION, // only device writes send it
 		gatewaypb.AckCode_ACK_CODE_INTERNAL,
 		gatewaypb.AckCode_ACK_CODE_UNSPECIFIED:
 		return fleeterror.NewInternalError(msg)

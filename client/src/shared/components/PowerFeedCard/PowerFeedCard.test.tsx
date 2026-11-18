@@ -79,6 +79,17 @@ it("flags an ambiguous mapping and explains why", () => {
   expect(value("State")).toBe("—");
 });
 
+it("says a partial controller map may hide other hardware on the feed", () => {
+  render(<PowerFeedCard feed={{ ...base, confidence: "ambiguous", reasons: ["topology_incomplete"] }} />);
+  expect(screen.getByRole("img", { name: "Power feed needs attention" })).toBeTruthy();
+  expect(value("Mapping")).toBe("Ambiguous");
+  expect(
+    within(screen.getByRole("list", { name: "Power feed notes" })).getByText(
+      "The controller map is incomplete, so other hardware on this feed cannot be ruled out.",
+    ),
+  ).toBeTruthy();
+});
+
 it("shows an active recovery cycle with its outlets and restore time", () => {
   render(
     <PowerFeedCard
@@ -97,4 +108,9 @@ it("shows an active recovery cycle with its outlets and restore time", () => {
   expect(
     screen.getByText(/Outlets pdu-1-outlet-05\. Phase: holding\. Restores after 11\/14\/26 at 12:00:30PM/),
   ).toBeTruthy();
+});
+
+it("renders caller actions in the card header", () => {
+  render(<PowerFeedCard feed={base} actions={<button>Feed actions</button>} />);
+  expect(screen.getByRole("button", { name: "Feed actions" })).toBeTruthy();
 });

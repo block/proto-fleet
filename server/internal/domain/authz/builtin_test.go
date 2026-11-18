@@ -37,6 +37,19 @@ func TestBuiltinRoles_AdminDoesNotSeedControllerSoftwareUpdate(t *testing.T) {
 	}
 }
 
+// Power feed control is an admin action: ADMIN and SUPER_ADMIN hold it, while
+// FIELD_TECH receives it only through an explicit grant.
+func TestBuiltinRoles_PowerFeedControlIsAdminOnly(t *testing.T) {
+	for _, key := range []BuiltinKey{BuiltinKeyAdmin, BuiltinKeySuperAdmin} {
+		if !permissionSet(builtinRoleByKey(t, key).SeedPermissions)[PermContainerPowerFeed] {
+			t.Fatalf("%s seed permissions missing %q", key, PermContainerPowerFeed)
+		}
+	}
+	if permissionSet(builtinRoleByKey(t, BuiltinKeyFieldTech).SeedPermissions)[PermContainerPowerFeed] {
+		t.Fatalf("FIELD_TECH seed permissions unexpectedly include %q", PermContainerPowerFeed)
+	}
+}
+
 func TestBuiltinRoles_SuperAdminSeedsInstanceUpdate(t *testing.T) {
 	superAdmin := builtinRoleByKey(t, BuiltinKeySuperAdmin)
 	perms := permissionSet(superAdmin.SeedPermissions)

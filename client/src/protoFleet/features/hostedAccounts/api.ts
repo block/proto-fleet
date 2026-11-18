@@ -26,7 +26,13 @@ export const createAccountTransport = (
     if (
       readOnly &&
       !/^(Get|List)/.test(request.method.name) &&
-      !["ExportAccountActivities", "CheckConfiguration", "ReadDevicePools"].includes(request.method.name)
+      ![
+        "ExportAccountActivities",
+        "ExportAccountReport",
+        "ExportAccountAnalysis",
+        "CheckConfiguration",
+        "ReadDevicePools",
+      ].includes(request.method.name)
     )
       throw new ConnectError("Actions are unavailable in this read-only preview.", Code.PermissionDenied);
     request.header.set("X-Fleet-Account-ID", accountId);

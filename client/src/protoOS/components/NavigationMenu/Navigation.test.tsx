@@ -6,6 +6,7 @@ import { navigationMenuTypes } from "./constants";
 import Navigation from "./Navigation";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useDeviceType } from "@/protoOS/store";
+import { buildVersionInfo } from "@/shared/utils/version";
 
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual("react-router-dom");
@@ -53,6 +54,16 @@ describe("Navigation", () => {
     const { getByText } = within(getByTestId("version-info-item"));
 
     expect(getByText(versionValue)).toBeInTheDocument();
+  });
+
+  test("renders the web client's build version separately from the firmware version", () => {
+    const { getByTestId } = render(
+      <Navigation versionInfo={{ loading: false, value: versionValue }} type={navigationMenuTypes.app} />,
+    );
+    const { getByText } = within(getByTestId("protoos-version-info-item"));
+
+    expect(getByText("ProtoOS Version")).toBeInTheDocument();
+    expect(getByText(buildVersionInfo.version)).toBeInTheDocument();
   });
 
   test("uses the container index route for the app logo in container mode", () => {
