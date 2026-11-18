@@ -1,4 +1,4 @@
-import { createClient } from "@connectrpc/connect";
+import { Code, createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { ALARM_MUTE_OUTCOME_UNKNOWN, ALARM_RESET_OUTCOME_UNKNOWN } from "../alarmMessages";
 import { BREAKER_OUTCOME_UNKNOWN } from "../breakerMessages";
@@ -46,7 +46,7 @@ import {
 } from "./generated/generatedApi";
 import { ServerUpdateService } from "./generated/proto/mdk/v2/server_update_pb";
 import { followHashboardStatus } from "./hashboardStream";
-import { modulePowerFeedInspection } from "./modulePowerFeed";
+import { modulePowerFeedInspection, recoveryCycle } from "./modulePowerFeed";
 import { listModuleVoltageSettings, writeModuleVoltage } from "./moduleVoltage";
 import {
   type ContainerSeriesField,
@@ -178,6 +178,8 @@ export class MdkV2Adapter implements MinerAdapter {
   readonly getBoardEvents?: MinerAdapter["getBoardEvents"];
   readonly listRecoveryEvidence?: MinerAdapter["listRecoveryEvidence"];
   readonly getRecoveryEvidence?: MinerAdapter["getRecoveryEvidence"];
+  readonly setPowerFeedState?: MinerAdapter["setPowerFeedState"];
+  readonly getActivePowerRecoveryCycle?: MinerAdapter["getActivePowerRecoveryCycle"];
   private deviceId: string | undefined;
   private readonly hashboardTimeSeriesCache = new Map<string, { expiresAtMs: number; data: QueryTimeSeriesResponse }>();
 
@@ -215,6 +217,25 @@ export class MdkV2Adapter implements MinerAdapter {
     if (followAsicHealth) {
       this.streamHashboardStatus = (identifier, params) =>
         followHashboardStatus(followAsicHealth, identifier, this.decorate(params));
+    }
+    // Outlet switches are Connect-only too. The REST client is generated with
+    // the feed write and the recovery read, but Fleet's miner proxy forwards
+    // neither route, so a Fleet-hosted view must not offer the switches.
+    if (followAsicHealth) {
+      this.setPowerFeedState = async (powerFeedId, enabled, params = {}) => {
+        await client.powerServiceSetPowerFeedState({ powerFeedId }, { disabled: !enabled }, this.decorate(params));
+      };
+      // Firmware without the recovery read has no recovery cycles to wait for.
+      // Any other failure is thrown, so the caller cannot take it for "no cycle".
+      this.getActivePowerRecoveryCycle = async (params = {}) => {
+        try {
+          const { data } = await client.powerServiceGetActivePowerRecoveryCycle(this.decorate(params));
+          return recoveryCycle(data);
+        } catch (error) {
+          if ((error as { error?: { code?: number } })?.error?.code === Code.Unimplemented) return null;
+          throw error;
+        }
+      };
     }
     // Board history is Connect-only as well. The REST client is generated with
     // these reads, but Fleet's miner proxy forwards none of their routes, so

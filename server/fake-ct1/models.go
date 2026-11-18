@@ -142,10 +142,12 @@ type ContainerState struct {
 	IPAddress string
 	StartTime time.Time
 
-	PerformanceMode    string
-	BalanceBays        bool
-	HashOnDisconnect   bool
-	ContainerControls  map[string]bool
+	PerformanceMode   string
+	BalanceBays       bool
+	HashOnDisconnect  bool
+	ContainerControls map[string]bool
+	// DisabledPowerFeeds holds the outlets an operator switched off; absent means enabled.
+	DisabledPowerFeeds map[string]bool
 	ContainerSetpoints map[string]float64
 
 	plantAlarms  []simulatedPlantAlarm
@@ -236,16 +238,17 @@ func NewContainerState(cfg ContainerConfig) *ContainerState {
 
 func newContainerState(cfg ContainerConfig, now time.Time) *ContainerState {
 	s := &ContainerState{
-		Config:          cfg,
-		now:             time.Now,
-		sampleTime:      now,
-		observedAt:      now,
-		ServerID:        cfg.ServerID,
-		Version:         cfg.Version,
-		Hostname:        cfg.Hostname,
-		IPAddress:       "127.0.0.1",
-		StartTime:       now,
-		PerformanceMode: "PERFORMANCE_MODE_MAXIMUM_HASHRATE",
+		Config:             cfg,
+		now:                time.Now,
+		sampleTime:         now,
+		observedAt:         now,
+		ServerID:           cfg.ServerID,
+		Version:            cfg.Version,
+		Hostname:           cfg.Hostname,
+		IPAddress:          "127.0.0.1",
+		StartTime:          now,
+		PerformanceMode:    "PERFORMANCE_MODE_MAXIMUM_HASHRATE",
+		DisabledPowerFeeds: map[string]bool{},
 		ContainerControls: map[string]bool{
 			"air_conditioner_1": true,
 			"air_conditioner_2": true,

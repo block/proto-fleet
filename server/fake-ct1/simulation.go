@@ -116,13 +116,19 @@ func (s *ContainerState) containerTelemetry() containerTelemetryResponse {
 					faulted = faulted || slot.Board.State == miningStateError
 				}
 			}
+			feedID := fmt.Sprintf("pdu-%d-outlet-%02d", tank.ID, m.ID)
+			state := powerFeedStateEnabled
+			if s.DisabledPowerFeeds[feedID] {
+				// A switched-off outlet carries no load; board state is left to the mining simulation.
+				power, state = 0, powerFeedStateDisabled
+			}
 			power /= psuEfficiency
 			ac += power
 			pdu.ActivePowerW += power
 			if power > 0 {
 				pdu.ActiveFeedCount++
 			}
-			feeds = append(feeds, powerFeed{PowerFeedID: fmt.Sprintf("pdu-%d-outlet-%02d", tank.ID, m.ID), Active: power > 0, Faulted: faulted, PowerW: power, VoltageV: voltage})
+			feeds = append(feeds, powerFeed{PowerFeedID: feedID, State: state, Active: power > 0, Faulted: faulted, PowerW: power, VoltageV: voltage})
 		}
 		pdus = append(pdus, pdu)
 	}

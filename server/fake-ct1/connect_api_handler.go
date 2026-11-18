@@ -225,6 +225,10 @@ func (a *connectAPI) ListPowerFeeds(ctx context.Context, req *connect.Request[md
 	return connectResult(a.native.ListPowerFeeds(ctx, req.Msg))
 }
 
+func (a *connectAPI) SetPowerFeedState(ctx context.Context, req *connect.Request[mdk.SetPowerFeedStateRequest]) (*connect.Response[mdk.SetPowerFeedStateResponse], error) {
+	return connectResult(a.native.SetPowerFeedState(ctx, req.Msg))
+}
+
 func (a *connectAPI) GetActivePowerRecoveryCycle(ctx context.Context, req *connect.Request[mdk.GetActivePowerRecoveryCycleRequest]) (*connect.Response[mdk.GetActivePowerRecoveryCycleResponse], error) {
 	return connectResult(a.native.GetActivePowerRecoveryCycle(ctx, req.Msg))
 }

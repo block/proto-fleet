@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
 import ContainerDiagnosticView from "./ContainerDiagnosticView";
+import { resetPowerFeedBatch } from "./usePowerFeeds";
 import {
   toCanonicalContainer,
   toCanonicalContainerTelemetry,
@@ -10,6 +11,7 @@ import {
 } from "@/protoOS/api/adapters/mdkV2/normalize";
 import type { MinerAdapter } from "@/protoOS/api/adapters/types";
 import { useTelemetry } from "@/protoOS/api/hooks/useTelemetry";
+import { FeedMappingContext, type FeedMappingState } from "@/protoOS/features/feedMapping/feedMappingContext";
 import { tanksFixture } from "@/protoOS/features/tanks/Tanks.fixtures";
 import { asComponentId, asEntityKey, type PlantTelemetry } from "@/protoOS/store/contract";
 import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
@@ -123,6 +125,7 @@ describe("Container diagnostics", () => {
   });
 
   afterEach(() => {
+    act(() => resetPowerFeedBatch());
     act(() => useMinerStore.getState().ui.setTemperatureUnit("C"));
   });
 
@@ -183,9 +186,9 @@ describe("Container diagnostics", () => {
     { reading: { activeFeedCount: 2, health: "offline" }, expected: "Offline" },
     { reading: { powered: false, activeFeedCount: 2 }, expected: "Offline" },
     { reading: { powered: true }, expected: "Online" },
-    { reading: { health: "ok" }, expected: "—" },
-    { reading: {}, expected: "—" },
-    { reading: undefined, expected: "—" },
+    { reading: { health: "ok" }, expected: "Unknown" },
+    { reading: {}, expected: "Unknown" },
+    { reading: undefined, expected: "Unknown" },
   ])("shows PDU status $expected for $reading", ({ reading, expected }) => {
     useMinerStore.getState().telemetry.clearAllData();
     if (reading) {
@@ -195,7 +198,12 @@ describe("Container diagnostics", () => {
     }
     render(<ContainerDiagnosticView />);
     fireEvent.mouseDown(screen.getByRole("button", { name: "Power" }));
-    expect(screen.getByText("PDU 1").nextElementSibling).toHaveTextContent(expected);
+    const dot = screen.getByRole("img", { name: `PDU 1 status: ${expected}` });
+    expect(dot).toHaveAttribute("title", expected);
+    // Only a status that needs attention is spelled out under the name.
+    const row = within(dot.closest("li")!);
+    if (expected === "Online") expect(row.queryByText("Online")).not.toBeInTheDocument();
+    else expect(row.getByText(expected)).toBeInTheDocument();
   });
 
   test.each([
@@ -270,13 +278,14 @@ describe("Container diagnostics", () => {
     telemetry.plant.set(plantId, {
       componentId: plantId,
       controls: [{ name: "dry_cooler_auto", enabled: false, stateKnown: true }],
+      setpoints: [{ name: "dry_cooler_manual_speed_percent", value: 65, unit: "%" }],
     });
     useMinerStore.getState().telemetry.mergeTelemetry(telemetry);
     render(<ContainerDiagnosticView />);
     fireEvent.click(screen.getByRole("button", { name: "Manage" }));
-    expect(screen.getByLabelText("Pump speed (RPM)")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Target °C")).not.toBeInTheDocument();
-    screen.getAllByRole("button", { name: "Save" }).forEach((button) => expect(button).toBeDisabled());
+    expect(screen.getByLabelText("Fan speed (%)")).toHaveValue("65");
+    expect(screen.queryByLabelText("Target inlet temperature (°C)")).not.toBeInTheDocument();
+    screen.getAllByRole("button", { name: "Save" }).forEach((button) => expect(button).toBeEnabled());
   });
 
   test("closes settings if advertised support disappears", () => {
@@ -424,6 +433,10 @@ describe("Container diagnostics", () => {
     expect(right.getAllByRole("article")).toHaveLength(3);
     expect(right.getByRole("article", { name: "Tank 4" })).toBeInTheDocument();
     fireEvent.click(left.getByRole("checkbox", { name: "Left tanks power" }));
+    expect(stopScopedMining).not.toHaveBeenCalled();
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Turn off Left tanks?" })).getByRole("button", { name: "Turn off" }),
+    );
     expect(stopScopedMining).toHaveBeenCalledWith(
       { modules: Array.from({ length: 16 }, (_, index) => ({ tank: 3, module: index + 1 })) },
       expect.anything(),
@@ -754,6 +767,16 @@ describe("Container diagnostics", () => {
     } as unknown as MinerAdapter;
     render(<ContainerDiagnosticView />);
     fireEvent.click(screen.getByRole("checkbox", { name: "Tank 1 power" }));
+    expect(stopScopedMining).not.toHaveBeenCalled();
+    expect(screen.getByRole("checkbox", { name: "Tank 1 power" })).toBeChecked();
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Turn off Tank 1?" })).getByRole("button", { name: "Cancel" }),
+    );
+    expect(stopScopedMining).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Tank 1 power" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Turn off Tank 1?" })).getByRole("button", { name: "Turn off" }),
+    );
     expect(stopScopedMining).toHaveBeenCalledWith(
       { modules: Array.from({ length: 16 }, (_, index) => ({ tank: 1, module: index + 1 })) },
       expect.anything(),
@@ -761,11 +784,45 @@ describe("Container diagnostics", () => {
     expect(screen.getByRole("checkbox", { name: "Left tanks power" })).toBeDisabled();
     await act(async () => command.resolve());
     fireEvent.click(screen.getByRole("checkbox", { name: "Left tanks power" }));
+    expect(stopScopedMining).toHaveBeenCalledTimes(1);
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Turn off Left tanks?" })).getByRole("button", { name: "Turn off" }),
+    );
     const scope = stopScopedMining.mock.calls[1][0] as { modules: { tank: number }[] };
     expect(scope.modules).toHaveLength(48);
     expect(new Set(scope.modules.map((module) => module.tank))).toEqual(new Set([1, 2, 3]));
     await act(async () => {});
   });
+
+  test.each(["Tank 1", "Left tanks"])(
+    "confirms turning on %s and allows dismissal without a command",
+    async (label) => {
+      const fixture = tanksFixture(6);
+      fixture.telemetry.rollupsByEntity.forEach((rollup) => {
+        rollup.miningStatus = "stopped";
+      });
+      useMinerStore.getState().telemetry.mergeTelemetry(fixture.telemetry);
+      const startScopedMining = vi.fn().mockResolvedValue(undefined);
+      hosting.adapter = {
+        startScopedMining,
+        stopScopedMining: vi.fn(),
+        getCurrentTelemetry: vi.fn().mockResolvedValue(createEmptyTelemetryState()),
+      } as unknown as MinerAdapter;
+      render(<ContainerDiagnosticView />);
+      fireEvent.click(screen.getByRole("checkbox", { name: `${label} power` }));
+      expect(startScopedMining).not.toHaveBeenCalled();
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(startScopedMining).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("checkbox", { name: `${label} power` }));
+      fireEvent.click(
+        within(screen.getByRole("dialog", { name: `Turn on ${label}?` })).getByRole("button", { name: "Turn on" }),
+      );
+      await waitFor(() => expect(startScopedMining).toHaveBeenCalledOnce());
+      const scope = startScopedMining.mock.calls[0][0];
+      expect(scope.modules).toHaveLength(label === "Tank 1" ? 16 : 48);
+    },
+  );
 
   test("writes supported controls and refreshes without optimistic state", async () => {
     const command = deferred<void>();
@@ -844,5 +901,195 @@ describe("Container diagnostics", () => {
       response.resolve(telemetryWithTarget(19));
     });
     expect(useMinerStore.getState().telemetry.plant.size).toBe(0);
+  });
+
+  const addFeeds = (states: Array<"ENABLED" | "DISABLED" | "UNSPECIFIED">) => {
+    const state = useMinerStore.getState();
+    const owner = state.hardware.plant.get(pduId)!.ref.owner;
+    const plant = new Map(state.hardware.plant);
+    const telemetry = createEmptyTelemetryState();
+    states.forEach((feedState, index) => {
+      const name = `PDU 1-outlet-0${index + 1}`;
+      const id = asComponentId(`container:ct1:power-feed:${name}`);
+      plant.set(id, { ref: { id, kind: "plant", owner }, kind: "powerFeed", name });
+      telemetry.plant.set(id, { componentId: id, operatingState: `POWER_FEED_STATE_${feedState}` });
+    });
+    state.hardware.replaceHardware({ ...state.hardware, plant });
+    state.telemetry.mergeTelemetry(telemetry);
+  };
+
+  test.each([
+    ["PDU 1 power", "PDU 1"],
+    ["All PDUs power", "all PDUs"],
+  ])("%s switches every enabled outlet off after confirmation", async (name, label) => {
+    const setPowerFeedState = vi.fn().mockResolvedValue(undefined);
+    hosting.adapter = {
+      setPowerFeedState,
+      getCurrentTelemetry: vi.fn().mockResolvedValue(createEmptyTelemetryState()),
+    } as unknown as MinerAdapter;
+    addFeeds(["ENABLED", "ENABLED"]);
+    render(<ContainerDiagnosticView />);
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Power" }));
+    expect(screen.getByRole("checkbox", { name })).toBeChecked();
+    fireEvent.click(screen.getByRole("checkbox", { name }));
+    expect(setPowerFeedState).not.toHaveBeenCalled();
+    const dialog = screen.getByRole("dialog", { name: `Power off ${label}?` });
+    expect(dialog).toHaveTextContent("cuts line power to 2 outlets");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Power off" }));
+    await waitFor(() => expect(hosting.adapter!.getCurrentTelemetry).toHaveBeenCalledWith(["miner"]));
+    expect(setPowerFeedState.mock.calls.map(([id, enabled]) => [id, enabled])).toEqual([
+      ["PDU 1-outlet-01", false],
+      ["PDU 1-outlet-02", false],
+    ]);
+  });
+
+  test("a partly-off PDU reads off, and its switch powers on only the outlets that are off", async () => {
+    const setPowerFeedState = vi.fn().mockResolvedValue(undefined);
+    hosting.adapter = {
+      setPowerFeedState,
+      getCurrentTelemetry: vi.fn().mockResolvedValue(createEmptyTelemetryState()),
+    } as unknown as MinerAdapter;
+    addFeeds(["ENABLED", "DISABLED"]);
+    render(<ContainerDiagnosticView />);
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Power" }));
+    expect(screen.getByRole("checkbox", { name: "PDU 1 power" })).not.toBeChecked();
+    expect(screen.getByText("1 of 2 off")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox", { name: "PDU 1 power" }));
+    const dialog = screen.getByRole("dialog", { name: "Power on PDU 1?" });
+    expect(dialog).toHaveTextContent("restores line power to 1 outlet on PDU 1");
+    expect(within(dialog).queryByRole("button", { name: "Power off" })).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Power on" }));
+    await waitFor(() => expect(setPowerFeedState).toHaveBeenCalledOnce());
+    expect(setPowerFeedState).toHaveBeenCalledWith("PDU 1-outlet-02", true, expect.anything());
+  });
+
+  test("outlets stay collapsed until a PDU is opened, then switch one at a time", async () => {
+    const setPowerFeedState = vi.fn().mockResolvedValue(undefined);
+    hosting.adapter = {
+      setPowerFeedState,
+      getCurrentTelemetry: vi.fn().mockResolvedValue(createEmptyTelemetryState()),
+    } as unknown as MinerAdapter;
+    addFeeds(["ENABLED", "DISABLED"]);
+    render(<ContainerDiagnosticView />);
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Power" }));
+    const toggle = screen.getByRole("button", { name: "PDU 1 outlets" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("region", { name: "PDU 1 outlets" })).not.toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    // The outlets open inside the row of the PDU they belong to.
+    expect(toggle.closest("li")).toContainElement(screen.getByRole("region", { name: "PDU 1 outlets" }));
+    const region = within(screen.getByRole("region", { name: "PDU 1 outlets" }));
+    expect(region.getByRole("checkbox", { name: "PDU 1-outlet-01 power" })).toBeChecked();
+    expect(region.getByRole("checkbox", { name: "PDU 1-outlet-02 power" })).not.toBeChecked();
+    expect(region.getByRole("img", { name: "Outlet 02 status: Offline" })).toBeInTheDocument();
+
+    fireEvent.click(region.getByRole("checkbox", { name: "PDU 1-outlet-01 power" }));
+    const dialog = screen.getByRole("dialog", { name: "Power off Outlet 01 on PDU 1?" });
+    expect(dialog).toHaveTextContent("cuts line power to the module on this outlet");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Power off" }));
+    await waitFor(() => expect(setPowerFeedState).toHaveBeenCalledOnce());
+    expect(setPowerFeedState).toHaveBeenCalledWith("PDU 1-outlet-01", false, expect.anything());
+
+    fireEvent.click(toggle);
+    expect(screen.queryByRole("region", { name: "PDU 1 outlets" })).not.toBeInTheDocument();
+  });
+
+  test("locks PDU switches while an outlet mapping run is active", () => {
+    hosting.adapter = { setPowerFeedState: vi.fn() } as unknown as MinerAdapter;
+    addFeeds(["ENABLED", "ENABLED"]);
+    render(
+      <FeedMappingContext.Provider value={{ run: { status: "running" } } as FeedMappingState}>
+        <ContainerDiagnosticView />
+      </FeedMappingContext.Provider>,
+    );
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Power" }));
+    expect(screen.getByText(/Outlet mapping is running/)).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "PDU 1 power" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "All PDUs power" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "PDU 1 outlets" }));
+    expect(screen.getByRole("checkbox", { name: "PDU 1-outlet-01 power" })).toBeDisabled();
+  });
+
+  test("sends nothing while the controller is power-cycling outlets", async () => {
+    const setPowerFeedState = vi.fn();
+    hosting.adapter = {
+      setPowerFeedState,
+      getActivePowerRecoveryCycle: vi.fn().mockResolvedValue({ phase: "off", outletIds: [], lastError: "" }),
+    } as unknown as MinerAdapter;
+    addFeeds(["ENABLED", "ENABLED"]);
+    render(<ContainerDiagnosticView />);
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Power" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "PDU 1 power" }));
+    fireEvent.click(screen.getByRole("button", { name: "Power off" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("power-cycling outlets");
+    expect(setPowerFeedState).not.toHaveBeenCalled();
+  });
+
+  test("sends nothing when the recovery state cannot be read", async () => {
+    const setPowerFeedState = vi.fn();
+    hosting.adapter = {
+      setPowerFeedState,
+      getActivePowerRecoveryCycle: vi.fn().mockRejectedValue(new Error("timeout")),
+    } as unknown as MinerAdapter;
+    addFeeds(["ENABLED", "ENABLED"]);
+    render(<ContainerDiagnosticView />);
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Power" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "PDU 1 power" }));
+    fireEvent.click(screen.getByRole("button", { name: "Power off" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("No outlets were switched");
+    expect(setPowerFeedState).not.toHaveBeenCalled();
+  });
+
+  test("keeps the switches locked when the panel is left and opened again during a batch", async () => {
+    let finish: () => void = () => {};
+    const setPowerFeedState = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)));
+    hosting.adapter = {
+      setPowerFeedState,
+      getCurrentTelemetry: vi.fn().mockResolvedValue(createEmptyTelemetryState()),
+    } as unknown as MinerAdapter;
+    addFeeds(["ENABLED"]);
+    render(<ContainerDiagnosticView />);
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Power" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "PDU 1 power" }));
+    fireEvent.click(screen.getByRole("button", { name: "Power off" }));
+    await waitFor(() => expect(setPowerFeedState).toHaveBeenCalledOnce());
+
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Tanks" }));
+    expect(screen.queryByRole("checkbox", { name: "PDU 1 power" })).not.toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Power" }));
+    expect(screen.getByRole("checkbox", { name: "PDU 1 power" })).toBeDisabled();
+
+    await act(async () => finish());
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: "PDU 1 power" })).toBeEnabled());
+  });
+
+  test("reports rejected outlets and still switches the rest", async () => {
+    const setPowerFeedState = vi.fn().mockRejectedValueOnce(new Error("rejected")).mockResolvedValue(undefined);
+    hosting.adapter = {
+      setPowerFeedState,
+      getCurrentTelemetry: vi.fn().mockResolvedValue(createEmptyTelemetryState()),
+    } as unknown as MinerAdapter;
+    addFeeds(["ENABLED", "ENABLED"]);
+    render(<ContainerDiagnosticView />);
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Power" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "PDU 1 power" }));
+    fireEvent.click(screen.getByRole("button", { name: "Power off" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not switch 1 of 2 outlets.");
+    expect(setPowerFeedState).toHaveBeenCalledTimes(2);
+  });
+
+  test.each([
+    ["no outlets are reported", [], true],
+    ["an outlet state is unknown", ["ENABLED", "UNSPECIFIED"], true],
+    ["the adapter cannot switch outlets", ["ENABLED"], false],
+  ] as const)("disables PDU switches when %s", (_, states, supported) => {
+    hosting.adapter = (supported ? { setPowerFeedState: vi.fn() } : {}) as unknown as MinerAdapter;
+    addFeeds([...states]);
+    render(<ContainerDiagnosticView />);
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Power" }));
+    expect(screen.getByRole("checkbox", { name: "PDU 1 power" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "All PDUs power" })).toBeDisabled();
   });
 });

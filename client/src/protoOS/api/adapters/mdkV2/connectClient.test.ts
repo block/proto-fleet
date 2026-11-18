@@ -363,6 +363,12 @@ const rpcTable: [
     (c) => c.powerServiceSetContainerSetpoint({ name: "dry_cooler_auto_temp_c" }, { value: 31.5 }),
   ],
   [
+    "powerServiceSetPowerFeedState",
+    "mdk.v2.PowerService/SetPowerFeedState",
+    { powerFeedId: "pdu-1-outlet-03", disabled: true },
+    (c) => c.powerServiceSetPowerFeedState({ powerFeedId: "pdu-1-outlet-03" }, { disabled: true }),
+  ],
+  [
     "powerServiceSetMainCircuitBreakerState",
     "mdk.v2.PowerService/SetMainCircuitBreakerState",
     { closed: true },

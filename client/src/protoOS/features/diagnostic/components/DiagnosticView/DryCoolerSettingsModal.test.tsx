@@ -106,7 +106,7 @@ describe("DryCoolerSettingsModal", () => {
       expect(updateToast).toHaveBeenCalledWith(
         1,
         expect.objectContaining({
-          message: "Could not confirm the target temperature was saved: Disconnected",
+          message: "Could not confirm the target inlet temperature was saved: Disconnected",
           status: "error",
         }),
       ),
@@ -142,7 +142,8 @@ describe("DryCoolerSettingsModal", () => {
       expect(updateToast).toHaveBeenCalledWith(
         1,
         expect.objectContaining({
-          message: "Could not confirm the target temperature was saved: temperature target must be between 20 and 55°C",
+          message:
+            "Could not confirm the target inlet temperature was saved: temperature target must be between 20 and 55°C",
           status: "error",
         }),
       ),
@@ -169,7 +170,7 @@ describe("DryCoolerSettingsModal", () => {
       expect(updateToast).toHaveBeenCalledWith(
         1,
         expect.objectContaining({
-          message: `Target temperature saved, but automatic mode could not be confirmed: Disconnected${refreshFails ? ". Readings could not be refreshed." : ""}`,
+          message: `Target inlet temperature saved, but automatic mode could not be confirmed: Disconnected${refreshFails ? ". Readings could not be refreshed." : ""}`,
           status: "error",
         }),
       ),
@@ -220,7 +221,7 @@ describe("DryCoolerSettingsModal", () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText("Target °C"), { target: { value: "19.5" } });
+    fireEvent.change(screen.getByLabelText("Target inlet temperature (°C)"), { target: { value: "19.5" } });
     fireEvent.click(screen.getAllByRole("button", { name: "Save" })[0]);
 
     await waitFor(() => expect(onDismiss).toHaveBeenCalled());
@@ -230,22 +231,38 @@ describe("DryCoolerSettingsModal", () => {
     expect(onSaved).toHaveBeenCalled();
   });
 
-  test("shows the supplied manual design without offering unsupported RPM writes", () => {
+  test.each([0, 65, 100])("switches from Auto to Manual and saves fan speed %s before changing mode", async (speed) => {
+    const miner = adapter();
+    const onDismiss = vi.fn();
     render(
       <DryCoolerSettingsModal
-        adapter={adapter()}
+        adapter={miner}
         initialMode="auto"
         initialTargetC={18.3}
         onSaved={vi.fn()}
-        onDismiss={vi.fn()}
+        onDismiss={onDismiss}
       />,
     );
-
     fireEvent.mouseDown(screen.getByRole("button", { name: "Manual" }));
-
-    expect(screen.getByLabelText("Pump speed (RPM)")).toBeDisabled();
-    expect(screen.getByLabelText("Fan speed (RPM)")).toBeDisabled();
-    screen.getAllByRole("button", { name: "Save" }).forEach((button) => expect(button).toBeDisabled());
-    expect(screen.queryByText(/container API|not yet exposed/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Target inlet temperature (°C)")).not.toBeInTheDocument();
+    const input = screen.getByLabelText("Fan speed (%)");
+    expect(input).toBeEnabled();
+    expect(screen.queryByLabelText("Pump speed (RPM)")).not.toBeInTheDocument();
+    for (const value of ["", "-1", "101", "."]) {
+      fireEvent.change(input, { target: { value } });
+      screen.getAllByRole("button", { name: "Save" }).forEach((button) => expect(button).toBeDisabled());
+    }
+    fireEvent.change(input, { target: { value: String(speed) } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Save" })[0]);
+    await waitFor(() => expect(onDismiss).toHaveBeenCalledOnce());
+    expect(miner.setContainerSetpoint).toHaveBeenCalledWith(
+      "dry_cooler_manual_speed_percent",
+      speed,
+      expect.anything(),
+    );
+    expect(miner.setContainerControl).toHaveBeenCalledWith("dry_cooler_auto", false, expect.anything());
+    expect(vi.mocked(miner.setContainerSetpoint!).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(miner.setContainerControl!).mock.invocationCallOrder[0],
+    );
   });
 });

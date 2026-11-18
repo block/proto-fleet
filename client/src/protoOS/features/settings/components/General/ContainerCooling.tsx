@@ -25,7 +25,7 @@ const controlLabels = {
 
 const setpointLabels = {
   coolant_pump_speed_hz: "Coolant pump speed",
-  dry_cooler_auto_temp_c: "Dry cooler target temperature",
+  dry_cooler_auto_temp_c: "Dry cooler target inlet temperature",
   dry_cooler_manual_speed_percent: "Dry cooler manual speed",
   air_conditioner_1_temp_c: "Air conditioner 1 target temperature",
   air_conditioner_2_temp_c: "Air conditioner 2 target temperature",

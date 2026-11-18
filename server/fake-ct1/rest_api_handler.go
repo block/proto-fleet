@@ -63,6 +63,7 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	register("POST /api/v2/power/container/setpoints/{name}", h.handleContainerSetpoint)
 	register("POST /api/v2/power/container/alarm/mute", h.handleContainerAlarm((*ContainerState).muteContainerAlarm))
 	register("POST /api/v2/power/container/alarm/reset", h.handleContainerAlarm((*ContainerState).resetContainerAlarm))
+	register("POST /api/v2/power/feeds/{powerFeedId}/state", h.handlePowerFeedState)
 
 	// Mining status and global lifecycle.
 	register("GET /api/v2/mining/status", h.handleMiningStatus)
@@ -394,8 +395,22 @@ type powerDistribution struct {
 	ActivePowerW    float64 `json:"activePowerW"`
 }
 
+const (
+	powerFeedStateEnabled  = "POWER_FEED_STATE_ENABLED"
+	powerFeedStateDisabled = "POWER_FEED_STATE_DISABLED"
+)
+
+type setPowerFeedStateRequest struct {
+	Disabled bool `json:"disabled"`
+}
+
+type setPowerFeedStateResponse struct {
+	PowerFeed powerFeed `json:"powerFeed"`
+}
+
 type powerFeed struct {
 	PowerFeedID string  `json:"powerFeedId"`
+	State       string  `json:"state,omitempty"`
 	Active      bool    `json:"active"`
 	Faulted     bool    `json:"faulted"`
 	PowerW      float64 `json:"powerW"`
@@ -928,6 +943,22 @@ func (h *RESTApiHandler) handleContainerControl(w http.ResponseWriter, r *http.R
 	writeJSON(w, http.StatusOK, setContainerControlResponse{Control: containerControl{
 		Name: name, Enabled: request.Enabled, StateKnown: true,
 	}})
+}
+
+func (h *RESTApiHandler) handlePowerFeedState(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("powerFeedId")
+	request := setPowerFeedStateRequest{}
+	if !decodeJSON(w, r, &request) {
+		return
+	}
+	h.state.mu.Lock()
+	feed, ok := h.state.setPowerFeedDisabled(id, request.Disabled)
+	h.state.mu.Unlock()
+	if !ok {
+		writeError(w, http.StatusNotFound, "unknown power feed")
+		return
+	}
+	writeJSON(w, http.StatusOK, setPowerFeedStateResponse{PowerFeed: feed})
 }
 
 func (h *RESTApiHandler) handleContainerSetpoint(w http.ResponseWriter, r *http.Request) {

@@ -41,8 +41,8 @@ test("unknown controls require an explicit state and refresh after acknowledgeme
 
 test("setpoints reject empty and non-finite input and save in reported units", async () => {
   render(<ContainerCooling />);
-  fireEvent.click(await screen.findByRole("button", { name: "Edit Dry cooler target temperature" }));
-  const input = screen.getByLabelText("Dry cooler target temperature (°C)");
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Dry cooler target inlet temperature" }));
+  const input = screen.getByLabelText("Dry cooler target inlet temperature (°C)");
   for (const value of ["", "NaN", "1e99"]) {
     fireEvent.change(input, { target: { value } });
     expect(screen.getByRole("button", { name: "Apply" })).toBeDisabled();
@@ -93,8 +93,8 @@ test("loading and failed reads show dashes without error or reload messages", as
 test("Fahrenheit inputs are converted to Celsius for the controller", async () => {
   preferences.temperatureUnit = "F";
   render(<ContainerCooling />);
-  fireEvent.click(await screen.findByRole("button", { name: "Edit Dry cooler target temperature" }));
-  fireEvent.change(screen.getByLabelText("Dry cooler target temperature (°F)"), { target: { value: "104" } });
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Dry cooler target inlet temperature" }));
+  fireEvent.change(screen.getByLabelText("Dry cooler target inlet temperature (°F)"), { target: { value: "104" } });
   fireEvent.click(screen.getByRole("button", { name: "Apply" }));
   await waitFor(() => expect(adapter.setContainerSetpoint).toHaveBeenCalledWith("dry_cooler_auto_temp_c", 40));
 });
@@ -118,7 +118,7 @@ test("dry cooler settings cannot be changed while a fan reversal runs", async ()
     setFanReversalOutcome(useMinerStore.getState().connectionGeneration, { phase: "running", durationMinutes: 5 }),
   );
   expect(screen.getByRole("button", { name: "Apply" })).toBeDisabled();
-  expect(screen.getByRole("button", { name: "Edit Dry cooler target temperature" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Edit Dry cooler target inlet temperature" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Edit Coolant pump" })).toBeEnabled();
   expect(screen.getByText("Dry cooler settings are locked while the fan reversal runs.")).toBeInTheDocument();
   expect(adapter.setContainerControl).not.toHaveBeenCalled();

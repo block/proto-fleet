@@ -24,7 +24,7 @@ import type {
   TelemetryState,
 } from "@/protoOS/store/contract";
 import type { AsicHardwareData, HashboardHardwareData } from "@/protoOS/store/types";
-import type { PowerFeedView } from "@/shared/components/PowerFeedCard";
+import type { PowerFeedView, PowerRecoveryCycleView } from "@/shared/components/PowerFeedCard";
 import type {
   BoardEventPage,
   BoardEventQuery,
@@ -304,6 +304,10 @@ export interface MinerAdapter {
   /** Restores automatic voltage tuning. Same failure contract as setModuleFixedVoltage. */
   clearModuleFixedVoltage?(moduleId: string, params?: AdapterRequestOptions): Promise<ModuleVoltageWriteResult>;
   setContainerControl?(name: string, enabled: boolean, params?: AdapterRequestOptions): Promise<void>;
+  /** Switches one container power feed (a PDU outlet). Idempotent: it sets a target state. */
+  setPowerFeedState?(powerFeedId: string, enabled: boolean, params?: AdapterRequestOptions): Promise<void>;
+  /** The outlet recovery cycle the controller is running, or null when there is none. */
+  getActivePowerRecoveryCycle?(params?: AdapterRequestOptions): Promise<PowerRecoveryCycleView | null>;
   setContainerSetpoint?(name: string, value: number, params?: AdapterRequestOptions): Promise<void>;
   /** Resolves only when controller readback matches the requested state. */
   setMainCircuitBreakerState?(closed: boolean, params?: AdapterRequestOptions): Promise<void>;

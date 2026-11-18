@@ -433,6 +433,26 @@ func TestConnectGatewayServesHAStatusWithUnreachablePeer(t *testing.T) {
 	}
 }
 
+func TestConnectSwitchesOnePowerFeed(t *testing.T) {
+	srv, _ := newConnectTestServer(t)
+	ctx := context.Background()
+	power := mdkv2connect.NewPowerServiceClient(http.DefaultClient, srv.URL)
+	off, err := power.SetPowerFeedState(ctx, connect.NewRequest(&mdk.SetPowerFeedStateRequest{PowerFeedId: "pdu-1-outlet-01", Disabled: true}))
+	if err != nil {
+		t.Fatalf("SetPowerFeedState: %v", err)
+	}
+	if feed := off.Msg.GetPowerFeed(); feed.GetState() != mdk.PowerFeedState_POWER_FEED_STATE_DISABLED || feed.GetActive() || feed.GetPowerW() != 0 {
+		t.Fatalf("disabled feed = %v", feed)
+	}
+	feeds, err := power.ListPowerFeeds(ctx, connect.NewRequest(&mdk.ListPowerFeedsRequest{}))
+	if err != nil || feeds.Msg.GetPowerFeeds()[0].GetState() != mdk.PowerFeedState_POWER_FEED_STATE_DISABLED {
+		t.Fatalf("listed feed = %v, err = %v", feeds.Msg.GetPowerFeeds()[0], err)
+	}
+	if _, err := power.SetPowerFeedState(ctx, connect.NewRequest(&mdk.SetPowerFeedStateRequest{PowerFeedId: "pdu-9-outlet-01", Disabled: true})); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("unknown feed err = %v", err)
+	}
+}
+
 func TestConnectServesModulePowerFeedReads(t *testing.T) {
 	srv, _ := newConnectTestServer(t)
 	ctx := context.Background()

@@ -1134,3 +1134,20 @@ func TestContainerControlsReadback(t *testing.T) {
 		t.Fatalf("missing existing setpoint: %+v", response.Setpoints)
 	}
 }
+
+func TestPowerFeedStateSwitchesOneOutlet(t *testing.T) {
+	srv, _ := newTestServer(t)
+	var response setPowerFeedStateResponse
+	if status := postJSON(t, srv, "/api/v2/power/feeds/pdu-1-outlet-01/state", setPowerFeedStateRequest{Disabled: true}, &response); status != http.StatusOK {
+		t.Fatalf("status = %d", status)
+	}
+	if response.PowerFeed.State != powerFeedStateDisabled || response.PowerFeed.Active || response.PowerFeed.PowerW != 0 {
+		t.Fatalf("disabled feed = %+v", response.PowerFeed)
+	}
+	if status := postJSON(t, srv, "/api/v2/power/feeds/pdu-1-outlet-01/state", setPowerFeedStateRequest{}, &response); status != http.StatusOK || response.PowerFeed.State != powerFeedStateEnabled {
+		t.Fatalf("status = %d, feed = %+v", status, response.PowerFeed)
+	}
+	if status := postJSON(t, srv, "/api/v2/power/feeds/pdu-9-outlet-01/state", setPowerFeedStateRequest{Disabled: true}, nil); status != http.StatusNotFound {
+		t.Fatalf("unknown feed status = %d", status)
+	}
+}

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { type ReactNode, useId, useMemo, useState } from "react";
 import clsx from "clsx";
 
 import ControllerDiagnostics from "./ControllerDiagnostics";
@@ -7,11 +7,14 @@ import DiagnosticStatusModal from "./DiagnosticStatusModal";
 import DryCoolerSettingsModal from "./DryCoolerSettingsModal";
 import { useContainerControl } from "./useContainerControl";
 import { useControllerDiagnosticsSupported } from "./useControllerDiagnostics";
-import type { TelemetryLevel } from "@/protoOS/api/adapters/types";
+import { usePowerFeeds } from "./usePowerFeeds";
+import { mappingRunActive } from "@/protoOS/api/adapters/feedMapping";
+import type { MiningScope, TelemetryLevel } from "@/protoOS/api/adapters/types";
 import { useTelemetry } from "@/protoOS/api/hooks/useTelemetry";
 import { ProtoOSStatusModal } from "@/protoOS/components/StatusModal";
 import { useScopeHealth } from "@/protoOS/components/StatusModal/useScopeHealth";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { useFeedMappingState } from "@/protoOS/features/feedMapping/feedMappingContext";
 import { tankSide } from "@/protoOS/features/tanks/tankSide";
 import { hashboardAttentionFill } from "@/protoOS/features/tanks/tankStatusColors";
 import {
@@ -37,10 +40,13 @@ import {
 import { useFlowUnit, useTemperatureUnit } from "@/protoOS/store/hooks/useUI";
 import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
 import useMinerStore from "@/protoOS/store/useMinerStore";
-import { Alert, Info } from "@/shared/assets/icons";
+import { Alert, ChevronDown, Info } from "@/shared/assets/icons";
 import Button, { variants } from "@/shared/components/Button";
+import Dialog from "@/shared/components/Dialog";
 import RadialGauge from "@/shared/components/RadialGauge";
 import SegmentedControl from "@/shared/components/SegmentedControl";
+import StatusCircle from "@/shared/components/StatusCircle";
+import type { StatusCircleStatus } from "@/shared/components/StatusCircle/constants";
 import Switch from "@/shared/components/Switch";
 import type { TemperatureUnit } from "@/shared/features/preferences/types";
 import { formatFlowRate } from "@/shared/utils/flowRate";
@@ -90,6 +96,17 @@ const formatTemperature = (value: number | undefined, unit: TemperatureUnit) => 
 const formatPressure = (pascals: number | undefined) =>
   pascals === undefined ? "—" : `${decimal(pascals / PASCALS_PER_PSI)} psi`;
 
+type PowerFeed = {
+  id: string;
+  enabled: boolean | undefined;
+  faulted: boolean;
+  /** The module this outlet powers, such as T2-M07, when the controller map names it. */
+  module?: string;
+};
+
+const feedEnabled = (state: string | undefined) =>
+  state === "POWER_FEED_STATE_ENABLED" ? true : state === "POWER_FEED_STATE_DISABLED" ? false : undefined;
+
 const useContainerDiagnostics = () => {
   const topology = useMinerStore((state) => state.hardware.topology);
   const plantHardware = useMinerStore((state) => state.hardware.plant);
@@ -107,9 +124,36 @@ const useContainerDiagnostics = () => {
       const number = hardware.name?.match(/(\d+)$/)?.[1] ?? index + 1;
       return { id, name: `Fan ${number}`, telemetry: fanTelemetry.get(id) };
     });
+    // Boards report the outlet that feeds them, which names the module on each outlet.
+    const feedModules = new Map<string, string>();
+    for (const board of topology.hashboards.values()) {
+      const module = topology.modules.get(board.moduleId);
+      const tank = module?.tankId ? topology.tanks.get(module.tankId) : undefined;
+      const slot = module?.location?.moduleSlot;
+      if (board.powerFeedId && tank?.slot !== undefined && slot !== undefined) {
+        feedModules.set(board.powerFeedId, `T${tank.slot}-M${String(slot).padStart(2, "0")}`);
+      }
+    }
+    const powerFeeds = [...plantHardware.entries()]
+      .filter(([, hardware]) => hardware.kind === "powerFeed")
+      .map(([id, hardware]): PowerFeed => {
+        const telemetry = plantTelemetry.get(id);
+        return {
+          id: hardware.name,
+          enabled: feedEnabled(telemetry?.operatingState),
+          faulted: telemetry?.health === "fault",
+          module: feedModules.get(hardware.name),
+        };
+      });
+    // The controller does not attribute outlets to a PDU; CT1 names them
+    // "<pdu>-outlet-NN", so the PDU's reported ID is the outlet prefix.
     const powerComponents = [...plantHardware.entries()]
       .filter(([, hardware]) => hardware.kind === "distribution")
-      .map(([id, hardware]) => ({ hardware, telemetry: plantTelemetry.get(id) }));
+      .map(([id, hardware]) => ({
+        hardware,
+        telemetry: plantTelemetry.get(id),
+        feeds: powerFeeds.filter((feed) => feed.id.startsWith(`${hardware.name}-`)),
+      }));
     return {
       topology,
       plant,
@@ -195,7 +239,10 @@ const healthLabels: Record<HealthState, string> = {
   unknown: "Unknown",
 };
 
-type TankPower = ReturnType<typeof useTankPower>;
+type PowerConfirmation = { scope: MiningScope; on: boolean; label: string; generation: number };
+type TankPower = ReturnType<typeof useTankPower> & {
+  requestPower: (scope: MiningScope | undefined, on: boolean, label: string) => void;
+};
 
 const tankPowerState = (status: MiningStatus | undefined) => ({
   on: status === "mining" || status === "degradedMining" || status === "poweringOn",
@@ -259,7 +306,7 @@ const TankDiagnosticCard = ({
               !powerControl.supported ||
               powerControl.pending
             }
-            setChecked={() => void powerControl.setPower(scope, !on)}
+            setChecked={() => powerControl.requestPower(scope, !on, tank.label ?? "Tank")}
           />
           <InfoButton label={`${tank.label ?? "Tank"} info`} onClick={() => setShowInfo(true)} />
         </div>
@@ -404,7 +451,7 @@ const TankBank = ({
             !powerControl.supported ||
             powerControl.pending
           }
-          setChecked={() => void powerControl.setPower(scope, !allOn)}
+          setChecked={() => powerControl.requestPower(scope, !allOn, `${side} tanks`)}
         />
       </Panel>
       <div className="grid gap-1 laptop:grid-cols-3">
@@ -417,7 +464,15 @@ const TankBank = ({
 };
 
 const TanksDiagnostics = ({ data }: { data: NonNullable<ReturnType<typeof useContainerDiagnostics>> }) => {
-  const powerControl = useTankPower();
+  const power = useTankPower();
+  const [confirmation, setConfirmation] = useState<PowerConfirmation>();
+  const generation = useMinerStore((state) => state.connectionGeneration);
+  const powerControl: TankPower = {
+    ...power,
+    requestPower: (scope, on, label) => {
+      if (scope) setConfirmation({ scope, on, label, generation });
+    },
+  };
   const unassigned = data.tanks.filter((tank) => tankSide(tank.slot) === undefined);
   return (
     <section className="space-y-10" aria-labelledby="container-diagnostics-tanks">
@@ -445,6 +500,29 @@ const TanksDiagnostics = ({ data }: { data: NonNullable<ReturnType<typeof useCon
           ))}
         </section>
       ) : null}
+      {confirmation && confirmation.generation === generation ? (
+        <Dialog
+          title={`${confirmation.on ? "Turn on" : "Turn off"} ${confirmation.label}?`}
+          subtitle={`This will ${confirmation.on ? "start" : "stop"} mining on ${confirmation.scope.modules?.length} modules in ${confirmation.label}.`}
+          manageFocus
+          preventScroll
+          onDismiss={() => setConfirmation(undefined)}
+          buttons={[
+            { text: "Cancel", variant: variants.secondary, onClick: () => setConfirmation(undefined) },
+            {
+              text: confirmation.on ? "Turn on" : "Turn off",
+              variant: variants.primary,
+              disabled: power.pending,
+              onClick: () => {
+                setConfirmation(undefined);
+                if (useMinerStore.getState().connectionGeneration === confirmation.generation) {
+                  void power.setPower(confirmation.scope, confirmation.on);
+                }
+              },
+            },
+          ]}
+        />
+      ) : null}
     </section>
   );
 };
@@ -459,8 +537,11 @@ const DryCoolerDiagnostics = ({ data }: { data: NonNullable<ReturnType<typeof us
   const pumpSpeed = latest(plant?.coolantPumpSpeed);
   const auto = plant?.controls?.find((control) => control.name === "dry_cooler_auto");
   const target = plant?.setpoints?.find((setpoint) => setpoint.name === "dry_cooler_auto_temp_c");
+  const fanSpeed = plant?.setpoints?.find((setpoint) => setpoint.name === "dry_cooler_manual_speed_percent");
   const mode = auto?.stateKnown && typeof auto.enabled === "boolean" ? (auto.enabled ? "auto" : "manual") : undefined;
-  const canManage = Boolean(adapter?.setContainerControl && adapter.setContainerSetpoint && mode && target);
+  const canManage = Boolean(
+    adapter?.setContainerControl && adapter.setContainerSetpoint && mode && (target || fanSpeed),
+  );
   const refreshTelemetry = async () => {
     if (!adapter || useMinerStore.getState().connectionGeneration !== connectionGeneration) return;
     const accept = beginStoreWrite("telemetry:current:miner");
@@ -564,6 +645,7 @@ const DryCoolerDiagnostics = ({ data }: { data: NonNullable<ReturnType<typeof us
           adapter={adapter}
           initialMode={mode}
           initialTargetC={target?.value}
+          initialFanSpeedPercent={fanSpeed?.value}
           onSaved={refreshTelemetry}
           onDismiss={() => setShowSettings(false)}
         />
@@ -572,37 +654,266 @@ const DryCoolerDiagnostics = ({ data }: { data: NonNullable<ReturnType<typeof us
   );
 };
 
-const distributionStatus = (telemetry: PlantTelemetry | undefined) => {
+type PowerStatus = "Online" | "Offline" | "Fault" | "Unknown";
+
+const distributionStatus = (telemetry: PlantTelemetry | undefined): PowerStatus => {
   if (telemetry?.health === "fault") return "Fault";
   if (telemetry?.powered === false || telemetry?.health === "offline" || telemetry?.activeFeedCount === 0) {
     return "Offline";
   }
   if (telemetry?.powered === true || (telemetry?.activeFeedCount ?? 0) > 0) return "Online";
-  return "—";
+  return "Unknown";
 };
 
-const PowerDiagnostics = ({ data }: { data: NonNullable<ReturnType<typeof useContainerDiagnostics>> }) => (
-  <section aria-labelledby="power-diagnostics-title">
-    <h2 id="power-diagnostics-title" className="mb-6 text-heading-200">
-      Power
-    </h2>
-    <Panel>
-      <dl className="grid grid-cols-2 gap-8 tablet:grid-cols-4 desktop:grid-cols-7">
-        <Stat
-          label="Container"
-          value={data.plant?.powered === undefined ? "—" : data.plant.powered ? "Online" : "Offline"}
-        />
-        {data.powerComponents.map(({ hardware, telemetry }) => (
-          <Stat
-            key={telemetry?.componentId ?? hardware.name}
-            label={hardware.name}
-            value={distributionStatus(telemetry)}
+const powerStatusColors: Record<PowerStatus, StatusCircleStatus> = {
+  Online: "normal",
+  Offline: "inactive",
+  Fault: "error",
+  Unknown: "pending",
+};
+
+// One full-width row per power source: a status dot, the name, a short summary,
+// and the switch that controls it. A row with outlets leads with the control
+// that opens them directly below, as the expandable rows in Fleet do.
+const PowerSource = ({
+  name,
+  status,
+  note,
+  expand,
+  outlets,
+  children,
+}: {
+  name: string;
+  status: PowerStatus;
+  note?: string;
+  /** Shows a control that opens this source's outlets in the region with this id. */
+  expand?: { open: boolean; controls: string; onToggle: () => void };
+  /** The open outlet list, shown under the row. */
+  outlets?: ReactNode;
+  children: ReactNode;
+}) => (
+  <li className="border-t border-border-10 first:border-t-0">
+    <div className="flex min-h-12 items-center gap-2">
+      {expand ? (
+        <button
+          type="button"
+          aria-label={`${name} outlets`}
+          aria-expanded={expand.open}
+          aria-controls={expand.controls}
+          onClick={expand.onToggle}
+          className="-ml-2 flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-sm focus-visible:outline-2 focus-visible:outline-core-accent-fill"
+        >
+          <ChevronDown
+            width="w-3"
+            className={clsx("text-text-primary-70 transition-transform", !expand.open && "-rotate-90")}
           />
-        ))}
-      </dl>
-    </Panel>
-  </section>
+        </button>
+      ) : (
+        <span className="-ml-2 size-8 shrink-0" />
+      )}
+      <span role="img" aria-label={`${name} status: ${status}`} title={status} className="flex shrink-0">
+        <StatusCircle status={powerStatusColors[status]} variant="simple" width="w-2" removeMargin />
+      </span>
+      <span className="flex min-w-0 flex-1 items-baseline gap-3">
+        <span className="truncate text-emphasis-300">{name}</span>
+        {note ? <span className="shrink-0 text-200 text-text-primary-70">{note}</span> : null}
+      </span>
+      <span className="flex shrink-0 items-center">{children}</span>
+    </div>
+    {outlets}
+  </li>
 );
+
+const outletName = (feed: PowerFeed, pdu: string) => {
+  const rest = feed.id.slice(pdu.length + 1);
+  const number = rest.match(/^outlet-(\d+)$/)?.[1];
+  return number ? `Outlet ${number}` : rest;
+};
+
+const outletStatus = (feed: PowerFeed): PowerStatus =>
+  feed.faulted ? "Fault" : feed.enabled === undefined ? "Unknown" : feed.enabled ? "Online" : "Offline";
+
+const statusNote = (status: PowerStatus) => (status === "Online" ? undefined : status);
+
+// A PDU that is not online says so; an online PDU with some outlets off says how many.
+const pduNote = (status: PowerStatus, feeds: PowerFeed[]) => {
+  const off = feeds.filter((feed) => feed.enabled === false).length;
+  return statusNote(status) ?? (off > 0 && off < feeds.length ? `${off} of ${feeds.length} off` : undefined);
+};
+
+const feedPowerState = (feeds: PowerFeed[]) => ({
+  on: feeds.length > 0 && feeds.every((feed) => feed.enabled === true),
+  known: feeds.length > 0 && feeds.every((feed) => feed.enabled !== undefined),
+});
+
+// A switch change waiting for confirmation: the direction the switch moves to,
+// and the outlets that are not in that state yet.
+type FeedConfirmation = {
+  on: boolean;
+  ids: string[];
+  label: string;
+  generation: number;
+  /** Set for one outlet: the module it powers, or undefined when the map does not name it. */
+  outlet?: { module?: string };
+};
+
+const PowerDiagnostics = ({ data }: { data: NonNullable<ReturnType<typeof useContainerDiagnostics>> }) => {
+  const power = usePowerFeeds();
+  const [confirmation, setConfirmation] = useState<FeedConfirmation>();
+  const generation = useMinerStore((state) => state.connectionGeneration);
+  // An outlet mapping run switches outlets itself, so the operator's switches wait for it.
+  const mappingActive = mappingRunActive(useFeedMappingState()?.run);
+  const allFeeds = data.powerComponents.flatMap((component) => component.feeds);
+  const all = feedPowerState(allFeeds);
+  // A switch reads on only when all its outlets are on, so it moves to off only
+  // from that state. From off or partly off it moves to on. Outlets already in
+  // the target state are left alone.
+  const requestPower = (feeds: PowerFeed[], label: string, outlet?: FeedConfirmation["outlet"]) => {
+    const on = !feedPowerState(feeds).on;
+    const ids = feeds.filter((feed) => feed.enabled === !on).map((feed) => feed.id);
+    if (ids.length) setConfirmation({ on, ids, label, generation, outlet });
+  };
+  // One PDU's outlets are open at a time, directly under that PDU.
+  const [openPdu, setOpenPdu] = useState<string>();
+  const outletsId = useId();
+  const outletTarget = confirmation?.outlet
+    ? confirmation.outlet.module
+      ? `module ${confirmation.outlet.module}`
+      : "the module on this outlet"
+    : undefined;
+  const outlets = (count: number) => `${count} ${count === 1 ? "outlet" : "outlets"}`;
+  const containerStatus: PowerStatus =
+    data.plant?.powered === undefined ? "Unknown" : data.plant.powered ? "Online" : "Offline";
+  const locked = !power.supported || power.pending || mappingActive;
+  const confirm = () => {
+    if (!confirmation) return;
+    setConfirmation(undefined);
+    if (useMinerStore.getState().connectionGeneration === confirmation.generation) {
+      void power.setFeeds(confirmation.ids, confirmation.on);
+    }
+  };
+  return (
+    <section aria-labelledby="power-diagnostics-title">
+      <h2 id="power-diagnostics-title" className="mb-6 text-heading-200">
+        Power
+      </h2>
+      {power.error ? (
+        <p role="alert" className="mb-4 text-intent-critical-fill">
+          {power.error}
+        </p>
+      ) : null}
+      {mappingActive ? (
+        <p className="mb-4 text-300 text-text-primary-70">
+          Outlet mapping is running. PDU switches are locked until it finishes.
+        </p>
+      ) : null}
+      <Panel>
+        <ul>
+          <PowerSource
+            name="Container"
+            status={containerStatus}
+            note={statusNote(containerStatus) ?? (data.powerComponents.length > 0 ? "All PDUs" : undefined)}
+          >
+            {data.powerComponents.length > 0 ? (
+              <Switch
+                ariaLabel="All PDUs power"
+                checked={all.on}
+                disabled={locked || !all.known}
+                setChecked={() => requestPower(allFeeds, "all PDUs")}
+              />
+            ) : null}
+          </PowerSource>
+          {data.powerComponents.map(({ hardware, telemetry, feeds }) => {
+            const state = feedPowerState(feeds);
+            const status = distributionStatus(telemetry);
+            const open = openPdu === hardware.name && feeds.length > 0;
+            const regionId = `${outletsId}-${hardware.name}`;
+            return (
+              <PowerSource
+                key={telemetry?.componentId ?? hardware.name}
+                name={hardware.name}
+                status={status}
+                note={pduNote(status, feeds) ?? (feeds.length > 0 ? outlets(feeds.length) : undefined)}
+                expand={
+                  feeds.length > 0
+                    ? {
+                        open,
+                        controls: regionId,
+                        onToggle: () => setOpenPdu(open ? undefined : hardware.name),
+                      }
+                    : undefined
+                }
+                outlets={
+                  open ? (
+                    <section id={regionId} aria-label={`${hardware.name} outlets`} className="pb-3 pl-6">
+                      <ul>
+                        {feeds.map((feed) => {
+                          const outlet = outletStatus(feed);
+                          const name = outletName(feed, hardware.name);
+                          const exception = outlet === "Fault" || outlet === "Unknown" ? outlet : undefined;
+                          return (
+                            <PowerSource
+                              key={feed.id}
+                              name={feed.module ?? name}
+                              status={outlet}
+                              note={feed.module ? [name, exception].filter(Boolean).join(" · ") : exception}
+                            >
+                              <Switch
+                                ariaLabel={`${feed.id} power`}
+                                checked={feed.enabled === true}
+                                disabled={locked || feed.enabled === undefined}
+                                setChecked={() =>
+                                  requestPower([feed], `${name} on ${hardware.name}`, { module: feed.module })
+                                }
+                              />
+                            </PowerSource>
+                          );
+                        })}
+                      </ul>
+                    </section>
+                  ) : undefined
+                }
+              >
+                <Switch
+                  ariaLabel={`${hardware.name} power`}
+                  checked={state.on}
+                  disabled={locked || !state.known}
+                  setChecked={() => requestPower(feeds, hardware.name)}
+                />
+              </PowerSource>
+            );
+          })}
+        </ul>
+      </Panel>
+      {confirmation && confirmation.generation === generation ? (
+        <Dialog
+          title={`${confirmation.on ? "Power on" : "Power off"} ${confirmation.label}?`}
+          subtitle={
+            outletTarget
+              ? confirmation.on
+                ? `This restores line power to ${outletTarget}. It will boot.`
+                : `This cuts line power to ${outletTarget}. It stops hashing and stays off until the outlet is powered on again.`
+              : confirmation.on
+                ? `This restores line power to ${outlets(confirmation.ids.length)} on ${confirmation.label}. Modules on those outlets will boot.`
+                : `This cuts line power to ${outlets(confirmation.ids.length)} on ${confirmation.label}. Modules on those outlets stop hashing and stay off until the outlets are powered on again.`
+          }
+          manageFocus
+          preventScroll
+          onDismiss={() => setConfirmation(undefined)}
+          buttons={[
+            { text: "Cancel", variant: variants.secondary, onClick: () => setConfirmation(undefined) },
+            {
+              text: confirmation.on ? "Power on" : "Power off",
+              variant: confirmation.on ? variants.primary : variants.danger,
+              disabled: locked,
+              onClick: confirm,
+            },
+          ]}
+        />
+      ) : null}
+    </section>
+  );
+};
 
 const controlLabels = [
   ["air_conditioner_1", "AC 1"],

@@ -17,6 +17,7 @@ interface DryCoolerSettingsModalProps {
   adapter: MinerAdapter;
   initialMode: DryCoolerMode;
   initialTargetC?: number;
+  initialFanSpeedPercent?: number;
   onDismiss: () => void;
   onSaved: () => Promise<void> | void;
 }
@@ -27,50 +28,61 @@ const DryCoolerSettingsModal = ({
   adapter,
   initialMode,
   initialTargetC,
+  initialFanSpeedPercent,
   onDismiss,
   onSaved,
 }: DryCoolerSettingsModalProps) => {
   const [mode, setMode] = useState<DryCoolerMode>(initialMode);
   const [target, setTarget] = useState(initialTargetC?.toString() ?? "");
+  const [fanSpeed, setFanSpeed] = useState(initialFanSpeedPercent?.toString() ?? "");
   const [pending, setPending] = useState(false);
   const authRetry = useAuthRetry();
   const targetValue = Number(target);
   const validTarget = target.trim() !== "" && Number.isFinite(targetValue);
+  const fanSpeedValue = Number(fanSpeed);
+  const validFanSpeed =
+    fanSpeed.trim() !== "" && Number.isFinite(fanSpeedValue) && fanSpeedValue >= 0 && fanSpeedValue <= 100;
   // The PLC owns the dry cooler during a fan reversal, wherever the run was started.
   const coolerHold = useDryCoolerHold();
-  const canSave = mode === "auto" && validTarget && !pending && !coolerHold;
+  const canSave = (mode === "auto" ? validTarget : validFanSpeed) && !pending && !coolerHold;
+  const settingLabel = mode === "auto" ? "Target inlet temperature" : "Fan speed";
+  const modeLabel = mode === "auto" ? "automatic" : "manual";
 
   const save = async () => {
     if (!canSave || !adapter.setContainerControl || !adapter.setContainerSetpoint) return;
     // Checked where the writes are sent, in case the hold began after this render.
     if (dryCoolerWriteHold("dry_cooler_auto")) return;
-    const setTarget = adapter.setContainerSetpoint.bind(adapter);
+    const setSetpoint = adapter.setContainerSetpoint.bind(adapter);
     const setControl = adapter.setContainerControl.bind(adapter);
     const generation = useMinerStore.getState().connectionGeneration;
     const isCurrent = () => useMinerStore.getState().connectionGeneration === generation;
     setPending(true);
     const toast = pushToast({ message: "Updating dry cooler settings…", status: "loading", ttl: false });
-    let targetSaved = false;
+    let setpointSaved = false;
     let saveError: string | undefined;
     await authRetry({
       shouldRetry: isCurrent,
       request: async (params) => {
         if (!isCurrent()) return;
         // Preserve completed writes when authentication retries the sequence.
-        if (!targetSaved) {
-          await setTarget("dry_cooler_auto_temp_c", targetValue, params);
-          targetSaved = true;
+        if (!setpointSaved) {
+          await setSetpoint(
+            mode === "auto" ? "dry_cooler_auto_temp_c" : "dry_cooler_manual_speed_percent",
+            mode === "auto" ? targetValue : fanSpeedValue,
+            params,
+          );
+          setpointSaved = true;
         }
         if (!isCurrent()) return;
-        await setControl("dry_cooler_auto", true, params);
+        await setControl("dry_cooler_auto", mode === "auto", params);
       },
       onError: (error) => {
         const message =
           (error as { error?: { message?: string } } | undefined)?.error?.message ||
           (error instanceof Error ? error.message : "The request did not complete");
-        saveError = targetSaved
-          ? `Target temperature saved, but automatic mode could not be confirmed: ${message}`
-          : `Could not confirm the target temperature was saved: ${message}`;
+        saveError = setpointSaved
+          ? `${settingLabel} saved, but ${modeLabel} mode could not be confirmed: ${message}`
+          : `Could not confirm the ${settingLabel.toLowerCase()} was saved: ${message}`;
       },
     });
     if (!isCurrent()) {
@@ -84,7 +96,7 @@ const DryCoolerSettingsModal = ({
     }
 
     let refreshFailed = false;
-    if (targetSaved) {
+    if (setpointSaved) {
       try {
         await onSaved();
       } catch {
@@ -132,8 +144,8 @@ const DryCoolerSettingsModal = ({
     >
       <div className="space-y-8 text-text-primary">
         {coolerHold ? <p className="text-200 text-text-primary-70">{coolerHold}</p> : null}
-        <div>
-          <div className="mb-3 text-emphasis-300">Mode</div>
+        <fieldset disabled={pending}>
+          <legend className="mb-3 text-emphasis-300">Mode</legend>
           <SegmentedControl
             segments={[
               { key: "auto", title: "Auto" },
@@ -142,14 +154,14 @@ const DryCoolerSettingsModal = ({
             initialSegmentKey={initialMode}
             onSelect={(key) => setMode(key as DryCoolerMode)}
           />
-        </div>
+        </fieldset>
 
         {mode === "auto" ? (
           <div>
             <div className="mb-3 text-emphasis-300">Inlet temperature settings</div>
             <Input
               id="dry-cooler-target-temperature"
-              label="Target °C"
+              label="Target inlet temperature (°C)"
               initValue={target}
               disabled={pending}
               inputMode="decimal"
@@ -160,13 +172,16 @@ const DryCoolerSettingsModal = ({
             />
           </div>
         ) : (
-          <div>
-            <div className="mb-3 text-emphasis-300">Settings</div>
-            <div className="grid gap-3 tablet:grid-cols-2">
-              <Input id="dry-cooler-pump-speed" label="Pump speed (RPM)" disabled />
-              <Input id="dry-cooler-fan-speed" label="Fan speed (RPM)" disabled />
-            </div>
-          </div>
+          <Input
+            id="dry-cooler-fan-speed"
+            label="Fan speed (%)"
+            initValue={fanSpeed}
+            disabled={pending}
+            inputMode="decimal"
+            sanitize={numericInput}
+            onChange={setFanSpeed}
+            error={fanSpeed.trim() !== "" && !validFanSpeed ? "Enter a fan speed from 0 to 100%" : false}
+          />
         )}
       </div>
     </Modal>

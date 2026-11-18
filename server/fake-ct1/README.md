@@ -86,6 +86,7 @@ is a write unless its `google.api.http` binding is a GET.
 | GET | `/api/v2/telemetry/shares/history` | deterministic demo history for pools 1–3; explicit pool filter + total grouping, aligned hour/day buckets, up to seven days |
 | GET | `/api/v2/telemetry/container` | plant (PUE), phase, fan, distribution, and feed telemetry |
 | GET | `/api/v2/power/container/controls` | six supported boolean controls and current known states, plus setpoints; dedicated main breaker unsupported |
+| POST | `/api/v2/power/feeds/{powerFeedId}/state` | enable or disable one PDU outlet; a disabled outlet reports no load and `POWER_FEED_STATE_DISABLED` |
 | POST | `/api/v2/power/container/controls/{name}` | explicit desired state; subsequent equipment and telemetry reads return the same state |
 | POST | `/api/v2/power/container/setpoints/{name}` | write one of five analog settings; controls and telemetry reads share the same values and units |
 | GET | `/api/v2/telemetry/timeseries` | recorded board and plant history, including fans, PDUs, phases and feed power/voltage |

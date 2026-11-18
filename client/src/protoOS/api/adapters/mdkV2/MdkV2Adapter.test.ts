@@ -128,6 +128,7 @@ describe("MdkV2Adapter", () => {
 
   test("container controls retain unknown states and only reported bounds", async () => {
     const setpoint = vi.fn().mockResolvedValue({ data: {} });
+    const feed = vi.fn().mockResolvedValue({ data: {} });
     const control = vi.fn().mockResolvedValue({ data: {} });
     const adapter = new MdkV2Adapter(
       client({
@@ -143,6 +144,8 @@ describe("MdkV2Adapter", () => {
         }),
         powerServiceSetContainerControl: control,
         powerServiceSetContainerSetpoint: setpoint,
+        powerServiceSetPowerFeedState: feed,
+        telemetryServiceFollowAsicHealth: vi.fn(),
       }),
     );
     const settings = await adapter.getContainerSettings();
@@ -150,6 +153,8 @@ describe("MdkV2Adapter", () => {
     expect(settings.setpoints[0]).toMatchObject({ value: 0, min: undefined, max: undefined });
     await adapter.setContainerControl("coolant_pump", false);
     expect(control).toHaveBeenCalledWith({ name: "coolant_pump" }, { enabled: false }, expect.anything());
+    await adapter.setPowerFeedState!("pdu-1-outlet-03", false);
+    expect(feed).toHaveBeenCalledWith({ powerFeedId: "pdu-1-outlet-03" }, { disabled: true }, expect.anything());
     await expect(adapter.setContainerSetpoint("temperature", Infinity)).rejects.toThrow("finite");
     await expect(adapter.setContainerSetpoint("temperature", 1e99)).rejects.toThrow("finite");
     expect(setpoint).not.toHaveBeenCalled();
@@ -1256,6 +1261,24 @@ describe("MdkV2Adapter", () => {
       }),
     ).rejects.toThrow("require explicit zero-based indexes");
     expect(queryTimeSeries).not.toHaveBeenCalled();
+  });
+
+  describe("outlet switches", () => {
+    test("are not offered on the REST client, which Fleet's miner proxy does not forward them for", () => {
+      const adapter = new MdkV2Adapter(client({ powerServiceSetPowerFeedState: vi.fn() }));
+      expect(adapter.setPowerFeedState).toBeUndefined();
+      expect(adapter.getActivePowerRecoveryCycle).toBeUndefined();
+    });
+
+    test("read no recovery cycle from firmware without the read, and throw other failures", async () => {
+      const read = vi.fn().mockRejectedValueOnce({ error: { code: Code.Unimplemented } });
+      const adapter = new MdkV2Adapter(
+        client({ powerServiceGetActivePowerRecoveryCycle: read, telemetryServiceFollowAsicHealth: vi.fn() }),
+      );
+      await expect(adapter.getActivePowerRecoveryCycle!()).resolves.toBeNull();
+      read.mockRejectedValueOnce({ error: { code: Code.Unavailable } });
+      await expect(adapter.getActivePowerRecoveryCycle!()).rejects.toBeDefined();
+    });
   });
 
   describe("controller logs and audit trail", () => {
