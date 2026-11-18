@@ -1752,6 +1752,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getTeamInvitationAuthorityFingerprintStmt, err = db.PrepareContext(ctx, getTeamInvitationAuthorityFingerprint); err != nil {
 		return nil, fmt.Errorf("error preparing query GetTeamInvitationAuthorityFingerprint: %w", err)
 	}
+	if q.getTelemetryEligibleDeviceIdentifiersStmt, err = db.PrepareContext(ctx, getTelemetryEligibleDeviceIdentifiers); err != nil {
+		return nil, fmt.Errorf("error preparing query GetTelemetryEligibleDeviceIdentifiers: %w", err)
+	}
 	if q.getTelemetryFreshnessSummaryStmt, err = db.PrepareContext(ctx, getTelemetryFreshnessSummary); err != nil {
 		return nil, fmt.Errorf("error preparing query GetTelemetryFreshnessSummary: %w", err)
 	}
@@ -6887,6 +6890,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getTeamInvitationAuthorityFingerprintStmt: %w", cerr)
 		}
 	}
+	if q.getTelemetryEligibleDeviceIdentifiersStmt != nil {
+		if cerr := q.getTelemetryEligibleDeviceIdentifiersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getTelemetryEligibleDeviceIdentifiersStmt: %w", cerr)
+		}
+	}
 	if q.getTelemetryFreshnessSummaryStmt != nil {
 		if cerr := q.getTelemetryFreshnessSummaryStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getTelemetryFreshnessSummaryStmt: %w", cerr)
@@ -11252,6 +11260,7 @@ type Queries struct {
 	getSiteBySlugStmt                                           *sql.Stmt
 	getTankRollupWatermarksStmt                                 *sql.Stmt
 	getTeamInvitationAuthorityFingerprintStmt                   *sql.Stmt
+	getTelemetryEligibleDeviceIdentifiersStmt                   *sql.Stmt
 	getTelemetryFreshnessSummaryStmt                            *sql.Stmt
 	getTotalDevicesPendingAuthStmt                              *sql.Stmt
 	getTotalMinerStateSnapshotsStmt                             *sql.Stmt
@@ -12584,6 +12593,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getSiteBySlugStmt:                                           q.getSiteBySlugStmt,
 		getTankRollupWatermarksStmt:                                 q.getTankRollupWatermarksStmt,
 		getTeamInvitationAuthorityFingerprintStmt:                   q.getTeamInvitationAuthorityFingerprintStmt,
+		getTelemetryEligibleDeviceIdentifiersStmt:                   q.getTelemetryEligibleDeviceIdentifiersStmt,
 		getTelemetryFreshnessSummaryStmt:                            q.getTelemetryFreshnessSummaryStmt,
 		getTotalDevicesPendingAuthStmt:                              q.getTotalDevicesPendingAuthStmt,
 		getTotalMinerStateSnapshotsStmt:                             q.getTotalMinerStateSnapshotsStmt,

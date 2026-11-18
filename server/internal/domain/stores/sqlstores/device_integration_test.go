@@ -30,6 +30,75 @@ func pairingStatusValues(statuses ...sqlc.PairingStatusEnum) []string {
 	return values
 }
 
+func TestGetTelemetryEligibleDeviceIdentifiers(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	database := testutil.NewDatabaseService(t, nil)
+	conn := database.DB
+	ctx := t.Context()
+	seedReconcileTestOrg(t, conn)
+	store := sqlstores.NewSQLDeviceStore(conn)
+
+	addNode := func(name, status string, deleted bool) int64 {
+		t.Helper()
+		var nodeID int64
+		require.NoError(t, conn.QueryRowContext(ctx, `
+			INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status, deleted_at)
+			VALUES (1, $1, $2, $3, $4, CASE WHEN $5::boolean THEN NOW() END)
+			RETURNING id
+		`, name, []byte(name), make([]byte, 32), status, deleted).Scan(&nodeID))
+		return nodeID
+	}
+
+	addDevice := func(status sqlc.PairingStatusEnum, nodeID int64, deleted bool) minermodels.DeviceIdentifier {
+		t.Helper()
+		device := database.CreateDevice(1, "proto")
+		_, err := conn.ExecContext(ctx, `INSERT INTO device_pairing (device_id, pairing_status) VALUES ($1, $2)`, device.DatabaseID, status)
+		require.NoError(t, err)
+		if nodeID != 0 {
+			_, err := conn.ExecContext(ctx, `INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`, nodeID, device.DatabaseID)
+			require.NoError(t, err)
+		}
+		if deleted {
+			_, err := conn.ExecContext(ctx, `UPDATE device SET deleted_at = NOW() WHERE id = $1`, device.DatabaseID)
+			require.NoError(t, err)
+		}
+		return minermodels.DeviceIdentifier(device.ID)
+	}
+
+	confirmed := addNode("confirmed", "CONFIRMED", false)
+	revoked := addNode("revoked", "REVOKED", false)
+	pending := addNode("pending", "PENDING", false)
+	deleted := addNode("deleted", "CONFIRMED", true)
+	paired := sqlc.PairingStatusEnumPAIRED
+	want := []minermodels.DeviceIdentifier{
+		addDevice(paired, 0, false),
+		addDevice(sqlc.PairingStatusEnumDEFAULTPASSWORD, 0, false),
+		addDevice(paired, confirmed, false),
+		addDevice(sqlc.PairingStatusEnumDEFAULTPASSWORD, confirmed, false),
+	}
+	// Eligible devices outside the request must stay out of the result.
+	addDevice(paired, 0, false)
+	addDevice(paired, confirmed, false)
+
+	requested := append(append([]minermodels.DeviceIdentifier{}, want...),
+		addDevice(paired, revoked, false),
+		addDevice(paired, pending, false),
+		addDevice(paired, deleted, false),
+		addDevice(paired, 0, true),
+		addDevice(paired, confirmed, true),
+		addDevice(sqlc.PairingStatusEnumUNPAIRED, 0, false),
+		addDevice(sqlc.PairingStatusEnumUNPAIRED, confirmed, false),
+		"unknown-device",
+	)
+
+	got, err := store.GetTelemetryEligibleDeviceIdentifiers(ctx, requested)
+	require.NoError(t, err)
+	require.ElementsMatch(t, want, got)
+}
+
 // TestGetOfflineDevices_DatabaseIntegration tests the GetOfflineDevices query
 // against a real PostgreSQL database to validate SQL syntax and JOIN conditions
 func TestGetOfflineDevices_DatabaseIntegration(t *testing.T) {

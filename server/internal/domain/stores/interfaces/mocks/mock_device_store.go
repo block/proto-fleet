@@ -487,6 +487,21 @@ func (mr *MockDeviceStoreMockRecorder) GetPairedDevicesByMACAddresses(ctx, macAd
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPairedDevicesByMACAddresses", reflect.TypeOf((*MockDeviceStore)(nil).GetPairedDevicesByMACAddresses), ctx, macAddresses, orgID)
 }
 
+// GetTelemetryEligibleDeviceIdentifiers mocks base method.
+func (m *MockDeviceStore) GetTelemetryEligibleDeviceIdentifiers(ctx context.Context, deviceIDs []models1.DeviceIdentifier) ([]models1.DeviceIdentifier, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetTelemetryEligibleDeviceIdentifiers", ctx, deviceIDs)
+	ret0, _ := ret[0].([]models1.DeviceIdentifier)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetTelemetryEligibleDeviceIdentifiers indicates an expected call of GetTelemetryEligibleDeviceIdentifiers.
+func (mr *MockDeviceStoreMockRecorder) GetTelemetryEligibleDeviceIdentifiers(ctx, deviceIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTelemetryEligibleDeviceIdentifiers", reflect.TypeOf((*MockDeviceStore)(nil).GetTelemetryEligibleDeviceIdentifiers), ctx, deviceIDs)
+}
+
 // GetTotalDevicesPendingAuth mocks base method.
 func (m *MockDeviceStore) GetTotalDevicesPendingAuth(ctx context.Context, orgID int64) (int64, error) {
 	m.ctrl.T.Helper()

@@ -519,6 +519,18 @@ func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]m
 	return deviceIDs, nil
 }
 
+func (s *SQLDeviceStore) GetTelemetryEligibleDeviceIdentifiers(ctx context.Context, deviceIDs []models.DeviceIdentifier) ([]models.DeviceIdentifier, error) {
+	identifiers := make([]string, len(deviceIDs))
+	for i, id := range deviceIDs {
+		identifiers[i] = id.String()
+	}
+	eligible, err := s.GetQueries(ctx).GetTelemetryEligibleDeviceIdentifiers(ctx, identifiers)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get telemetry-eligible device identifiers: %w", err)
+	}
+	return models.ToDeviceIdentifiers(eligible), nil
+}
+
 // GetDeviceOrgDriverAndSite returns the trusted (org_id, driver_name, site_id)
 // for a paired-like device. site_id is 0 when the device is not assigned to a site.
 func (s *SQLDeviceStore) GetDeviceOrgDriverAndSite(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (int64, string, int64, error) {

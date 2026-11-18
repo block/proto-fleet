@@ -486,12 +486,20 @@ func TestRemoveUnpairedDevicesPreservesReplacementPairing(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	deviceStore := storesMocks.NewMockDeviceStore(ctrl)
 	scheduler := mock.NewMockUpdateScheduler(ctrl)
-	deviceStore.EXPECT().GetAllPairedDeviceIdentifiers(gomock.Any()).Return([]models.DeviceIdentifier{"replacement"}, nil)
+	deviceStore.EXPECT().GetTelemetryEligibleDeviceIdentifiers(gomock.Any(), []models.DeviceIdentifier{"replacement", "revoked"}).
+		Return([]models.DeviceIdentifier{"replacement"}, nil)
+	scheduler.EXPECT().RemoveDevices(gomock.Any(), models.DeviceIdentifier("revoked")).Return(nil)
 	service := NewTelemetryService(Config{}, nil, nil, scheduler, deviceStore, nil)
-	service.devicesForStatusPolling.Store(models.DeviceIdentifier("replacement"), struct{}{})
+	for _, id := range []models.DeviceIdentifier{"replacement", "revoked", "unrelated"} {
+		service.devicesForStatusPolling.Store(id, struct{}{})
+	}
 
-	require.NoError(t, service.RemoveUnpairedDevices(t.Context(), "replacement"))
+	require.NoError(t, service.RemoveUnpairedDevices(t.Context(), "replacement", "revoked"))
 	_, tracked := service.devicesForStatusPolling.Load(models.DeviceIdentifier("replacement"))
+	require.True(t, tracked)
+	_, tracked = service.devicesForStatusPolling.Load(models.DeviceIdentifier("revoked"))
+	require.False(t, tracked)
+	_, tracked = service.devicesForStatusPolling.Load(models.DeviceIdentifier("unrelated"))
 	require.True(t, tracked)
 }
 
@@ -499,7 +507,7 @@ func TestRemoveUnpairedDevicesContinuesAfterSchedulerError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	deviceStore := storesMocks.NewMockDeviceStore(ctrl)
 	scheduler := mock.NewMockUpdateScheduler(ctrl)
-	deviceStore.EXPECT().GetAllPairedDeviceIdentifiers(gomock.Any()).Return(nil, nil)
+	deviceStore.EXPECT().GetTelemetryEligibleDeviceIdentifiers(gomock.Any(), []models.DeviceIdentifier{"first", "second"}).Return(nil, nil)
 	scheduler.EXPECT().RemoveDevices(gomock.Any(), models.DeviceIdentifier("first")).Return(errors.New("not managed"))
 	scheduler.EXPECT().RemoveDevices(gomock.Any(), models.DeviceIdentifier("second")).Return(nil)
 	service := NewTelemetryService(Config{}, nil, nil, scheduler, deviceStore, nil)
@@ -512,7 +520,7 @@ func TestLateFleetNodePairingScheduleDoesNotReadmitRevokedMiner(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	deviceStore := storesMocks.NewMockDeviceStore(ctrl)
 	scheduler := mock.NewMockUpdateScheduler(ctrl)
-	deviceStore.EXPECT().GetAllPairedDeviceIdentifiers(gomock.Any()).Return(nil, nil).Times(2)
+	deviceStore.EXPECT().GetTelemetryEligibleDeviceIdentifiers(gomock.Any(), []models.DeviceIdentifier{"revoked"}).Return(nil, nil).Times(2)
 	scheduler.EXPECT().RemoveDevices(gomock.Any(), models.DeviceIdentifier("revoked")).Return(nil)
 	service := NewTelemetryService(Config{}, nil, nil, scheduler, deviceStore, nil)
 	require.NoError(t, service.RemoveUnpairedDevices(t.Context(), "revoked"))
@@ -525,12 +533,15 @@ func TestReplacementFleetNodePairingScheduleAdmitsPairedMiner(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	deviceStore := storesMocks.NewMockDeviceStore(ctrl)
 	scheduler := mock.NewMockUpdateScheduler(ctrl)
-	deviceStore.EXPECT().GetAllPairedDeviceIdentifiers(gomock.Any()).Return([]models.DeviceIdentifier{"replacement"}, nil)
+	deviceStore.EXPECT().GetTelemetryEligibleDeviceIdentifiers(gomock.Any(), []models.DeviceIdentifier{"replacement", "revoked"}).
+		Return([]models.DeviceIdentifier{"replacement"}, nil)
 	scheduler.EXPECT().AddNewDevices(gomock.Any(), models.DeviceIdentifier("replacement")).Return(nil)
 	service := NewTelemetryService(Config{}, nil, nil, scheduler, deviceStore, nil)
-	require.NoError(t, service.AddPairedDevices(t.Context(), "replacement"))
+	require.NoError(t, service.AddPairedDevices(t.Context(), "replacement", "revoked"))
 	_, tracked := service.devicesForStatusPolling.Load(models.DeviceIdentifier("replacement"))
 	require.True(t, tracked)
+	_, tracked = service.devicesForStatusPolling.Load(models.DeviceIdentifier("revoked"))
+	require.False(t, tracked)
 }
 
 func TestPairedReloadFinishesBeforeRevocationRemoval(t *testing.T) {
@@ -546,7 +557,7 @@ func TestPairedReloadFinishesBeforeRevocationRemoval(t *testing.T) {
 			return []models.DeviceIdentifier{"revoked"}, nil
 		},
 	)
-	deviceStore.EXPECT().GetAllPairedDeviceIdentifiers(gomock.Any()).Return(nil, nil)
+	deviceStore.EXPECT().GetTelemetryEligibleDeviceIdentifiers(gomock.Any(), []models.DeviceIdentifier{"revoked"}).Return(nil, nil)
 	gomock.InOrder(
 		scheduler.EXPECT().AddNewDevices(gomock.Any(), models.DeviceIdentifier("revoked")).Return(nil),
 		scheduler.EXPECT().RemoveDevices(gomock.Any(), models.DeviceIdentifier("revoked")).Return(nil),
@@ -571,8 +582,8 @@ func TestReplacementScheduleWaitsForRevocationRemoval(t *testing.T) {
 	scheduler := mock.NewMockUpdateScheduler(ctrl)
 	queryStarted := make(chan struct{})
 	releaseQuery := make(chan struct{})
-	deviceStore.EXPECT().GetAllPairedDeviceIdentifiers(gomock.Any()).DoAndReturn(
-		func(context.Context) ([]models.DeviceIdentifier, error) {
+	deviceStore.EXPECT().GetTelemetryEligibleDeviceIdentifiers(gomock.Any(), []models.DeviceIdentifier{"replacement"}).DoAndReturn(
+		func(context.Context, []models.DeviceIdentifier) ([]models.DeviceIdentifier, error) {
 			close(queryStarted)
 			<-releaseQuery
 			return nil, nil

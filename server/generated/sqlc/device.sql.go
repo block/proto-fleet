@@ -2124,6 +2124,44 @@ func (q *Queries) GetPairedProtoDeviceIdentifiersByIdentifiers(ctx context.Conte
 	return items, nil
 }
 
+const getTelemetryEligibleDeviceIdentifiers = `-- name: GetTelemetryEligibleDeviceIdentifiers :many
+SELECT d.device_identifier
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
+LEFT JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+  AND fn.deleted_at IS NULL
+  AND fn.enrollment_status = 'CONFIRMED'
+WHERE d.device_identifier = ANY($1::text[])
+  AND d.deleted_at IS NULL
+  AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+  AND (fnd.device_id IS NULL OR fn.id IS NOT NULL)
+`
+
+// Apply the same eligibility rules as GetAllPairedDeviceIdentifiers.
+func (q *Queries) GetTelemetryEligibleDeviceIdentifiers(ctx context.Context, deviceIdentifiers []string) ([]string, error) {
+	rows, err := q.query(ctx, q.getTelemetryEligibleDeviceIdentifiersStmt, getTelemetryEligibleDeviceIdentifiers, pq.Array(deviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var device_identifier string
+		if err := rows.Scan(&device_identifier); err != nil {
+			return nil, err
+		}
+		items = append(items, device_identifier)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getTotalDevicesPendingAuth = `-- name: GetTotalDevicesPendingAuth :one
 SELECT COUNT(*)
 FROM device d

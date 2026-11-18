@@ -6488,6 +6488,18 @@ func (q *retryingQuerier) GetTeamInvitationAuthorityFingerprint(ctx context.Cont
 	return result, err
 }
 
+func (q *retryingQuerier) GetTelemetryEligibleDeviceIdentifiers(ctx context.Context, deviceIdentifiers []string) ([]string, error) {
+	var result []string
+	err := q.retrier.RetryQuery(ctx, "GetTelemetryEligibleDeviceIdentifiers", func() error {
+		callResult, callErr := q.next.GetTelemetryEligibleDeviceIdentifiers(ctx, deviceIdentifiers)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetTelemetryFreshnessSummary(ctx context.Context) ([]TelemetryFreshnessSummary, error) {
 	var result []TelemetryFreshnessSummary
 	err := q.retrier.RetryQuery(ctx, "GetTelemetryFreshnessSummary", func() error {

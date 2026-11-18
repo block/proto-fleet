@@ -489,7 +489,7 @@ func (s *TelemetryService) AddPairedDevices(ctx context.Context, deviceIDs ...mo
 	}
 	s.membershipMu.Lock()
 	defer s.membershipMu.Unlock()
-	pairedIDs, err := s.deviceStore.GetAllPairedDeviceIdentifiers(ctx)
+	pairedIDs, err := s.deviceStore.GetTelemetryEligibleDeviceIdentifiers(ctx, deviceIDs)
 	if err != nil {
 		return fmt.Errorf("load paired devices before telemetry admission: %w", err)
 	}
@@ -550,7 +550,7 @@ func (s *TelemetryService) RemoveUnpairedDevices(ctx context.Context, deviceIDs 
 	}
 	s.membershipMu.Lock()
 	defer s.membershipMu.Unlock()
-	pairedIDs, err := s.deviceStore.GetAllPairedDeviceIdentifiers(ctx)
+	pairedIDs, err := s.deviceStore.GetTelemetryEligibleDeviceIdentifiers(ctx, deviceIDs)
 	if err != nil {
 		return fmt.Errorf("load paired devices before telemetry removal: %w", err)
 	}

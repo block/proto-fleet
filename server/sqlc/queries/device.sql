@@ -422,6 +422,20 @@ WHERE d.deleted_at IS NULL
   AND fn.deleted_at IS NULL
   AND fn.enrollment_status = 'CONFIRMED';
 
+-- name: GetTelemetryEligibleDeviceIdentifiers :many
+-- Apply the same eligibility rules as GetAllPairedDeviceIdentifiers.
+SELECT d.device_identifier
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
+LEFT JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+  AND fn.deleted_at IS NULL
+  AND fn.enrollment_status = 'CONFIRMED'
+WHERE d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND d.deleted_at IS NULL
+  AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+  AND (fnd.device_id IS NULL OR fn.id IS NOT NULL);
+
 -- name: CountMinersByState :one
 -- Counts miners by their operational state for fleet health dashboard.
 -- Bucket rules must match InsertMinerStateSnapshot (miner_state_snapshots.sql);

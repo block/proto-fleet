@@ -1252,6 +1252,8 @@ type Querier interface {
 	GetSiteBySlug(ctx context.Context, arg GetSiteBySlugParams) (Site, error)
 	GetTankRollupWatermarks(ctx context.Context, deviceID int64) ([]GetTankRollupWatermarksRow, error)
 	GetTeamInvitationAuthorityFingerprint(ctx context.Context, arg GetTeamInvitationAuthorityFingerprintParams) (string, error)
+	// Apply the same eligibility rules as GetAllPairedDeviceIdentifiers.
+	GetTelemetryEligibleDeviceIdentifiers(ctx context.Context, deviceIdentifiers []string) ([]string, error)
 	GetTelemetryFreshnessSummary(ctx context.Context) ([]TelemetryFreshnessSummary, error)
 	GetTotalDevicesPendingAuth(ctx context.Context, orgID int64) (int64, error)
 	// Unified query that supports all filters including component error filtering
