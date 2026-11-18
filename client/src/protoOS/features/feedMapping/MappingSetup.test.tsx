@@ -18,7 +18,6 @@ const assessment: MappingAssessment = {
   hardMappingAvailable: true,
   configurationReasons: [],
   changes: [],
-  historyIncomplete: false,
   boards: [
     {
       mac: "aa:bb:cc:00:00:01",
@@ -61,8 +60,8 @@ test("explains the power cycle and starts mapping once after confirmation", asyn
   render(<MappingSetup mapping={mapping} deviceId="ct1" />);
   expect(await screen.findByText("1 hashboard has no assigned location.")).toBeInTheDocument();
   const dialog = await open();
-  expect(dialog).toHaveTextContent("changes power usage and reduces hashrate");
-  expect(dialog).toHaveTextContent("Some actions will not be available until mapping is complete");
+  expect(dialog).toHaveTextContent("changing power usage, reducing hashrate, and temporarily limiting some actions");
+  expect(dialog).toHaveTextContent("including those previously off; a failure can leave feeds off");
   expect(mapping.start).not.toHaveBeenCalled();
   const start = within(dialog).getByRole("button", { name: "Refresh mapping" });
   fireEvent.click(start);

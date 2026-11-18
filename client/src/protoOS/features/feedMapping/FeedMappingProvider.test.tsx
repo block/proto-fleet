@@ -25,7 +25,6 @@ const api = () =>
       boards: [],
       configurationReasons: [],
       changes: [],
-      historyIncomplete: false,
     }),
     active: vi.fn<FeedMapping["active"]>().mockResolvedValue(running),
     get: vi.fn<FeedMapping["get"]>().mockResolvedValue(running),

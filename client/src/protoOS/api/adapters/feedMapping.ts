@@ -29,7 +29,6 @@ export interface MappingAssessment {
   configurationReasons: string[];
   deferredReason?: string;
   changes: { at?: string; mac: string; detail: string }[];
-  historyIncomplete: boolean;
 }
 
 export const mappingBoardNeedsReview = (board: MappingBoard) =>
