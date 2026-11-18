@@ -17,6 +17,7 @@ import {
 } from "./connectClient";
 import { V2HashboardIdentifyLEDMode, V2PerformanceMode } from "./generated/generatedApi";
 import { BucketSize, LogLevel, TimeSeriesMetric } from "./generated/proto/mdk/v2/common_pb";
+import { FeedMappingService } from "./generated/proto/mdk/v2/feed_mapping_pb";
 import { FirmwareService } from "./generated/proto/mdk/v2/firmware_pb";
 import { HashboardErrorCause, HashboardService } from "./generated/proto/mdk/v2/hashboard_pb";
 import { MiningGroupService } from "./generated/proto/mdk/v2/mining_group_pb";
@@ -67,6 +68,7 @@ const recordingClient = () => {
   const calls: { rpc: string; request: JsonValue }[] = [];
   const transport = createRouterTransport((router) => {
     for (const service of [
+      FeedMappingService,
       FirmwareService,
       SystemService,
       MiningService,
@@ -103,6 +105,7 @@ const rpcTable: [
   request: JsonValue,
   call: (client: MdkV2Client) => Promise<unknown>,
 ][] = [
+  ["feedMappingClient", "mdk.v2.FeedMappingService/GetFeedMappingReport", {}, (c) => c.feedMappingClient!().report()],
   [
     "miningGroupServiceGetMiningGroupCapability",
     "mdk.v2.MiningGroupService/GetMiningGroupCapability",

@@ -68,4 +68,10 @@ describe("NoPoolsCallout utility", () => {
       });
     },
   );
+  it("suppresses only lost connections while mapping runs", () => {
+    const pools = [{ status: "Idle", url: "stratum+tcp://pool.example:3333" }];
+    expect(getNoPoolsCalloutState(pools, "/", true).shouldShowNoPoolsCallout).toBe(false);
+    expect(getNoPoolsCalloutState([], "/", true).shouldShowNoPoolsCallout).toBe(true);
+    expect(getNoPoolsCalloutState(pools, "/", false).shouldShowNoPoolsCallout).toBe(true);
+  });
 });

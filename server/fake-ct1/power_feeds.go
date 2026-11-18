@@ -10,18 +10,21 @@ import (
 
 // ListPowerFeeds reports one three-phase PDU outlet per module, the same
 // pdu-N-outlet-MM feeds named by the container map and container telemetry.
-// Every simulated outlet is enabled and not overridden; feed control is not
-// simulated.
+// Mapping can disable outlets; standalone feed control is not simulated.
 func (a *grpcAPI) ListPowerFeeds(ctx context.Context, _ *mdk.ListPowerFeedsRequest) (*mdk.ListPowerFeedsResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, status.FromContextError(err).Err()
 	}
-	a.state.mu.Lock()
+	a.state.mu.RLock()
+	defer a.state.mu.RUnlock()
 	feeds := a.state.containerTelemetry().PowerFeeds
-	a.state.mu.Unlock()
 	out := &mdk.ListPowerFeedsResponse{SnapshotReady: new(true), PowerFeeds: make([]*mdk.PowerFeed, 0, len(feeds))}
-	enabled := mdk.PowerFeedState_POWER_FEED_STATE_ENABLED
+
 	for _, feed := range feeds {
+		enabled := mdk.PowerFeedState_POWER_FEED_STATE_ENABLED
+		if !a.state.mappingFeedEnabled(feed.PowerFeedID) {
+			enabled = mdk.PowerFeedState_POWER_FEED_STATE_DISABLED
+		}
 		current := 0.0
 		if feed.VoltageV > 0 {
 			current = feed.PowerW / (math.Sqrt(3) * feed.VoltageV)

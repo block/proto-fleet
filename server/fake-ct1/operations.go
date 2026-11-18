@@ -118,6 +118,9 @@ func (s *ContainerState) targetPower(update *targetPowerUpdate) (targetPowerResp
 		return targetPowerResponse{}, &apiError{http.StatusConflict, codes.FailedPrecondition, "container has no hashboards"}
 	}
 	if update != nil {
+		if err := s.mappingWriteGuard(); err != nil {
+			return targetPowerResponse{}, err
+		}
 		if err := finiteWatts(update.watts); err != nil {
 			return targetPowerResponse{}, err
 		}

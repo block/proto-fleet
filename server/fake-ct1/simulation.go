@@ -13,6 +13,7 @@ const psuEfficiency = 14.9 / 15.5
 func (s *ContainerState) advance(now time.Time) {
 	s.sampleTime = now.Truncate(5 * time.Second)
 	s.observedAt = now
+	s.advanceFeedMapping(now)
 	for _, b := range s.eachBoard() {
 		if b.PreviousState != b.State {
 			b.StateChangedAt = s.sampleTime
@@ -42,6 +43,9 @@ type boardSample struct {
 }
 
 func (s *ContainerState) boardSample(b *Hashboard) boardSample {
+	if !s.mappingFeedEnabled(b.PowerFeedID) {
+		return boardSample{Timestamp: s.sampleTime}
+	}
 	// Offline readings retain their last simulated sample, while sample age grows.
 	if b.State == miningStateDisconnected && b.DisconnectedSample != nil {
 		return *b.DisconnectedSample

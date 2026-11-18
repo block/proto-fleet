@@ -23,6 +23,7 @@ type connectAPI struct {
 	mdkv2connect.UnimplementedPoolServiceHandler
 	mdkv2connect.UnimplementedRunInServiceHandler
 	mdkv2connect.UnimplementedFirmwareServiceHandler
+	mdkv2connect.UnimplementedFeedMappingServiceHandler
 	native *grpcAPI
 }
 
@@ -38,6 +39,7 @@ func registerConnectRoutes(mux *http.ServeMux, state *ContainerState) {
 	mux.Handle(mdkv2connect.NewPoolServiceHandler(api, options))
 	mux.Handle(mdkv2connect.NewRunInServiceHandler(api, options))
 	mux.Handle(mdkv2connect.NewFirmwareServiceHandler(api, options))
+	mux.Handle(mdkv2connect.NewFeedMappingServiceHandler(api, options))
 	if state.ha != nil {
 		// Like native gRPC, update calls bypass the simulation lifecycle.
 		mux.Handle(mdkv2connect.NewServerUpdateServiceHandler(&connectServerUpdate{api: &serverUpdateAPI{sim: state.ha.sim, self: state.ha.self}}))
@@ -279,4 +281,28 @@ func (a *connectAPI) ListFirmwareUpdates(ctx context.Context, req *connect.Reque
 
 func (a *connectAPI) CancelFirmwareUpdate(ctx context.Context, req *connect.Request[mdk.CancelFirmwareUpdateRequest]) (*connect.Response[mdk.CancelFirmwareUpdateResponse], error) {
 	return connectResult(a.native.CancelFirmwareUpdate(ctx, req.Msg))
+}
+
+func (a *connectAPI) PlanFeedMappingRun(ctx context.Context, req *connect.Request[mdk.PlanFeedMappingRunRequest]) (*connect.Response[mdk.PlanFeedMappingRunResponse], error) {
+	return connectResult(a.native.PlanFeedMappingRun(ctx, req.Msg))
+}
+
+func (a *connectAPI) StartFeedMappingRun(ctx context.Context, req *connect.Request[mdk.StartFeedMappingRunRequest]) (*connect.Response[mdk.StartFeedMappingRunResponse], error) {
+	return connectResult(a.native.StartFeedMappingRun(ctx, req.Msg))
+}
+
+func (a *connectAPI) GetActiveFeedMappingRun(ctx context.Context, req *connect.Request[mdk.GetActiveFeedMappingRunRequest]) (*connect.Response[mdk.GetActiveFeedMappingRunResponse], error) {
+	return connectResult(a.native.GetActiveFeedMappingRun(ctx, req.Msg))
+}
+
+func (a *connectAPI) GetFeedMappingRun(ctx context.Context, req *connect.Request[mdk.GetFeedMappingRunRequest]) (*connect.Response[mdk.GetFeedMappingRunResponse], error) {
+	return connectResult(a.native.GetFeedMappingRun(ctx, req.Msg))
+}
+
+func (a *connectAPI) CancelFeedMappingRun(ctx context.Context, req *connect.Request[mdk.CancelFeedMappingRunRequest]) (*connect.Response[mdk.CancelFeedMappingRunResponse], error) {
+	return connectResult(a.native.CancelFeedMappingRun(ctx, req.Msg))
+}
+
+func (a *connectAPI) GetFeedMappingReport(ctx context.Context, req *connect.Request[mdk.GetFeedMappingReportRequest]) (*connect.Response[mdk.GetFeedMappingReportResponse], error) {
+	return connectResult(a.native.GetFeedMappingReport(ctx, req.Msg))
 }

@@ -40,13 +40,18 @@ const hasPoolEmptyState = (pathname: string) => {
   );
 };
 
-export const getNoPoolsCalloutState = (poolsInfo: readonly PoolCalloutInfo[] | undefined, pathname: string) => {
+export const getNoPoolsCalloutState = (
+  poolsInfo: readonly PoolCalloutInfo[] | undefined,
+  pathname: string,
+  mappingRunning = false,
+) => {
   const arePoolsConfigured = hasConfiguredPools(poolsInfo);
   const noPoolsLive = hasNoLivePools(poolsInfo);
 
   return {
     arePoolsConfigured,
     noPoolsLive,
-    shouldShowNoPoolsCallout: noPoolsLive && !(hasPoolEmptyState(pathname) && !arePoolsConfigured),
+    shouldShowNoPoolsCallout:
+      noPoolsLive && !(mappingRunning && arePoolsConfigured) && !(hasPoolEmptyState(pathname) && !arePoolsConfigured),
   };
 };

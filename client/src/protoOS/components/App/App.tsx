@@ -15,7 +15,7 @@ import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultCont
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import { navigationMenuTypes } from "@/protoOS/components/NavigationMenu";
 import NoPoolsCallout from "@/protoOS/components/NoPoolsCallout";
-import { getNoPoolsCalloutState } from "@/protoOS/components/NoPoolsCallout/utility";
+import { useNoPoolsCalloutState } from "@/protoOS/components/NoPoolsCallout/useNoPoolsCalloutState";
 import { WarnWakeDialog } from "@/protoOS/components/Power";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import LoginModal from "@/protoOS/features/auth/components/LoginModal";
@@ -263,10 +263,7 @@ const App = ({
   // Suppress the global "No mining pools configured" banner on the Pools
   // page when it's already in its own null state — otherwise the user sees
   // the same empty-state message and CTA twice.
-  const { arePoolsConfigured, shouldShowNoPoolsCallout } = useMemo(
-    () => getNoPoolsCalloutState(poolsInfo, pathname),
-    [poolsInfo, pathname],
-  );
+  const { arePoolsConfigured, shouldShowNoPoolsCallout } = useNoPoolsCalloutState(poolsInfo, pathname);
 
   const hasVisibleCallout = isWarmingUp || isSleeping || shouldShowNoPoolsCallout;
 

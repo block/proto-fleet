@@ -1,5 +1,6 @@
 import type { ContainerHistoryRequest, ContainerHistoryResult } from "./containerHistory";
 import type { ControllerDiagnosticsResult } from "./controllerDiagnostics";
+import type { FeedMapping } from "./feedMapping";
 import type { FrigateServerUpdate } from "./frigateServerUpdate";
 import type { HashboardFirmware } from "./hashboardFirmware";
 import type { ChangePasswordRequest } from "./mdkV1";
@@ -231,6 +232,8 @@ export interface TimeSeriesQuery {
 }
 
 export interface MinerAdapter {
+  /** CT1 commissioning through a direct controller connection. */
+  feedMapping?: FeedMapping;
   hashboardFirmware?: HashboardFirmware;
   /** Frigate controller software update. Only on a direct CT1 connection. */
   frigateServerUpdate?: FrigateServerUpdate;

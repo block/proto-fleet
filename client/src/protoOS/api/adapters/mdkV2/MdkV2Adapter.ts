@@ -33,6 +33,7 @@ import { queryContainerHistory } from "./containerHistory";
 import { toCanonicalControllerDiagnostics } from "./controllerDiagnostics";
 import { listControllerAuditEvents, readControllerLogs, withDeadline } from "./controllerRecords";
 import { toFanReversalStatus } from "./fanReversal";
+import { createFeedMapping } from "./feedMapping";
 import { createHashboardFirmware } from "./firmware";
 import { createFrigateServerUpdate, type ServerUpdateClient } from "./frigateServerUpdate";
 import {
@@ -169,6 +170,7 @@ const toWirePllAlgorithm = (value: string | undefined): V2PLLAlgorithm | undefin
 
 export class MdkV2Adapter implements MinerAdapter {
   readonly hashboardFirmware;
+  readonly feedMapping?: MinerAdapter["feedMapping"];
   readonly frigateServerUpdate?: MinerAdapter["frigateServerUpdate"];
   readonly getControllerLogs?: MinerAdapter["getControllerLogs"];
   readonly listAuditEvents?: MinerAdapter["listAuditEvents"];
@@ -189,6 +191,13 @@ export class MdkV2Adapter implements MinerAdapter {
     serverUpdate?: ServerUpdateClient,
   ) {
     this.deviceId = match.deviceId;
+    const mapping = client.feedMappingClient?.();
+    if (mapping)
+      this.feedMapping = createFeedMapping(
+        mapping,
+        (params) => client.hashboardServiceGetContainerMap(params),
+        (params) => this.decorate(params),
+      );
     this.hashboardFirmware = createHashboardFirmware(client, (params) => this.decorate(params));
     if (serverUpdate)
       this.frigateServerUpdate = createFrigateServerUpdate(serverUpdate, (params) => this.decorate(params));

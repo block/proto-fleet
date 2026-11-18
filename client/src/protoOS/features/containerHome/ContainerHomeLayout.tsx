@@ -4,8 +4,9 @@ import type { HomeTab } from "./types";
 import type { TelemetryLevel } from "@/protoOS/api/adapters/types";
 import { useTelemetry } from "@/protoOS/api/hooks/useTelemetry";
 import NoPoolsCallout from "@/protoOS/components/NoPoolsCallout";
-import { getNoPoolsCalloutState } from "@/protoOS/components/NoPoolsCallout/utility";
+import { useNoPoolsCalloutState } from "@/protoOS/components/NoPoolsCallout/useNoPoolsCalloutState";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import ContainerMappingSetup from "@/protoOS/features/feedMapping/MappingSetup";
 import { useDuration, usePoolsInfo, useSetDuration } from "@/protoOS/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 
@@ -30,11 +31,12 @@ export default function ContainerHomeLayout() {
   const tab =
     (Object.keys(links) as HomeTab[]).find((key) => links[key].replace(/\/$/, "") === pathname.replace(/\/$/, "")) ??
     "overview";
-  const callout = getNoPoolsCalloutState(pools, pathname);
+  const callout = useNoPoolsCalloutState(pools, pathname);
   return (
     <ErrorBoundary>
       <div className="flex min-w-0 flex-col gap-6 p-4 tablet:p-10">
         {callout.shouldShowNoPoolsCallout ? <NoPoolsCallout arePoolsConfigured={callout.arePoolsConfigured} /> : null}
+        <ContainerMappingSetup />
         <ContainerHomeToolbar tab={tab} links={links} duration={duration} onDurationChange={setDuration} />
         {live.error ? (
           <p role="alert" className="text-300 text-text-critical">

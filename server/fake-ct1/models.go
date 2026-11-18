@@ -151,6 +151,7 @@ type ContainerState struct {
 	plantAlarms  []simulatedPlantAlarm
 	buzzerActive bool
 	fanReverse   simulatedFanReverse
+	feedMapping  simulatedFeedMapping
 
 	Tanks   []*Tank
 	Modules []*Module // flattened, in tree order

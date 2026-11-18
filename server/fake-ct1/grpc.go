@@ -25,6 +25,7 @@ type grpcAPI struct {
 	mdk.UnimplementedPoolServiceServer
 	mdk.UnimplementedRunInServiceServer
 	mdk.UnimplementedFirmwareServiceServer
+	mdk.UnimplementedFeedMappingServiceServer
 	state *ContainerState
 }
 
@@ -48,6 +49,7 @@ func newGRPCServer(state *ContainerState, options ...grpc.ServerOption) *grpc.Se
 	mdk.RegisterPoolServiceServer(server, api)
 	mdk.RegisterRunInServiceServer(server, api)
 	mdk.RegisterFirmwareServiceServer(server, api)
+	mdk.RegisterFeedMappingServiceServer(server, api)
 	if state.ha != nil {
 		mdk.RegisterServerUpdateServiceServer(server, &serverUpdateAPI{sim: state.ha.sim, self: state.ha.self})
 	}
@@ -241,8 +243,7 @@ func (a *grpcAPI) setGlobalMining(ctx context.Context, mining bool) error {
 	}
 	a.state.mu.Lock()
 	defer a.state.mu.Unlock()
-	a.state.setGlobalMining(mining)
-	return nil
+	return a.state.setGlobalMining(mining)
 }
 
 func (a *grpcAPI) StartMiningScoped(ctx context.Context, in *mdk.StartMiningScopedRequest) (*mdk.StartMiningScopedResponse, error) {

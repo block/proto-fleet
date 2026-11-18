@@ -156,6 +156,36 @@ Use **Reload pools** to refresh the configuration.
 Group edits and transfers are not offered by this view. Fleet-hosted ProtoOS
 keeps its existing read-only pool view; hosted assignments are managed in Fleet.
 
+### CT1 local hashboard mapping
+
+On a direct CT1 connection, Home shows a callout when hashboards have no physical
+location or report mapping conflicts. Tank 0 / module 0 is unlocated inventory.
+The mapping dialog shows CU1 identities, expected locations, observed feeds,
+verification evidence, and recent mapping changes. Failed reads retain the last
+result and block new mapping starts.
+
+In `manual` mode, **Refresh mapping** opens a confirmation dialog. Confirming
+starts a new run with a spinner and status updates. The dialog explains the power
+and hashrate effects. The run turns all controllable feeds off, maps each
+selected feed, then requests restoration of all feeds to on. This includes feeds
+that were off before the run. Failures can leave restoration incomplete.
+The dialog shows progress and cancellation. The lost-pool-connection callout is
+hidden during a confirmed running mapping, including restoration and cancellation.
+The no-pools-configured warning remains visible. Tracking continues across pages.
+The dialog recovers active runs after reload
+and retains unconfirmed starts until the operator checks the controller.
+
+In `switch_ports` mode, correct cable connections, CU1 conflicts, or the configured
+schedule, then select **Verify hashboards**. Verification can briefly stop and
+restart boards. It cannot rewrite the configured physical locations. `observe`
+mode permits inspection only. Fleet-hosted ProtoOS views do not expose these
+commissioning controls.
+
+The browser tests in `e2eTests/protoOS/standalone/feedMapping.spec.ts` use the
+isolated CT1 simulators with `CT1_UNLOCATED_BOARDS=all` and real mapping RPCs. They test
+confirmation, progress, reload recovery, and completed locations. They do not validate
+physical feed switching or deployed controller configuration.
+
 ### CT1 local hashboard firmware
 
 On a direct CT1 connection, **Settings → General → Firmware → Upload hashboard

@@ -675,7 +675,11 @@ func (s *ContainerState) containerMapDTO() containerMapResponse {
 				}
 				if slot.Board != nil {
 					sd.Hashboard = s.hashboardDTO(slot.Board)
-					if remaining > 0 {
+					unknown := remaining > 0
+					if unknown {
+						remaining--
+					}
+					if unknown && !s.feedMapping.mappedFeeds[slot.PowerFeedID] {
 						// Project unknown wiring without changing simulated hardware,
 						// identity, or telemetry. No physical slot is claimed twice.
 						sd.Hashboard.Location = hashboardLoc{}
@@ -684,7 +688,6 @@ func (s *ContainerState) containerMapDTO() containerMapResponse {
 						sd.BreakerID, sd.PowerFeedID = "", ""
 						sd.ConfiguredLocation = nil
 						unlocated = append(unlocated, sd)
-						remaining--
 						continue
 					}
 				}
@@ -766,26 +769,37 @@ func (s *ContainerState) miningStatusDTO() miningStatusResponse {
 
 func (h *RESTApiHandler) handleMiningStart(w http.ResponseWriter, r *http.Request) {
 	h.state.mu.Lock()
-	h.state.setGlobalMining(true)
+	err := h.state.setGlobalMining(true)
 	h.state.mu.Unlock()
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, struct{}{})
 }
 
 func (h *RESTApiHandler) handleMiningStop(w http.ResponseWriter, r *http.Request) {
 	h.state.mu.Lock()
-	h.state.setGlobalMining(false)
+	err := h.state.setGlobalMining(false)
 	h.state.mu.Unlock()
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, struct{}{})
 }
 
 // Caller holds mu. After activation, global lifecycle controls only default.
-func (s *ContainerState) setGlobalMining(mining bool) {
+func (s *ContainerState) setGlobalMining(mining bool) error {
+	if err := s.mappingWriteGuard(); err != nil {
+		return err
+	}
 	if s.miningGroups != nil && s.miningGroups.capability.Enabled {
 		group := s.miningGroups.groups["default"]
 		group.DesiredMining = mining
 		s.touchGroup(group)
 		s.applyGroupMining("default")
-		return
+		return nil
 	}
 	for _, b := range s.eachBoard() {
 		if mining {
@@ -796,6 +810,7 @@ func (s *ContainerState) setGlobalMining(mining bool) {
 			b.State = miningStateIdle
 		}
 	}
+	return nil
 }
 
 func demoPools() []poolDTO {
@@ -1084,6 +1099,10 @@ func (s *ContainerState) hashboardDTO(b *Hashboard) *hashboardDTO {
 	identity, electrical, thermal := s.modulePsu(b)
 	mining := b.isMining()
 	sample := s.boardSample(b)
+	current := 0.0
+	if sample.Voltage > 0 {
+		current = sample.Power / sample.Voltage
+	}
 	var maximumAsicTemperature *float64
 	var asicTemperatureObservedAt *time.Time
 	if s.Config.AsicsPerBoard > 0 {
@@ -1139,7 +1158,7 @@ func (s *ContainerState) hashboardDTO(b *Hashboard) *hashboardDTO {
 			HashrateIdeal:             boardIdealHashrateTHS,
 			Temperatures:              []float64{sample.BoardTemp - .2, sample.BoardTemp + .2},
 			Voltage:                   sample.Voltage,
-			Current:                   sample.Power / sample.Voltage,
+			Current:                   current,
 			Power:                     sample.Power,
 			Uptime:                    uint64str(math.Max(0, s.sampleTime.Sub(b.StartTime).Seconds())),
 			HashrailOK:                mining,
@@ -1328,7 +1347,10 @@ func (s *ContainerState) applyToScope(sc scope, fn func(*Hashboard) (bool, strin
 
 	results := make([]boardResult, 0, len(macs)+len(unresolved))
 	for _, mac := range macs {
-		applied, msg := fn(seen[mac])
+		applied, msg := false, "hashboard mapping is running"
+		if !s.mappingActive() {
+			applied, msg = fn(seen[mac])
+		}
 		results = append(results, boardResult{MACAddress: mac, Applied: applied, Message: msg})
 	}
 	sort.Strings(unresolved)
