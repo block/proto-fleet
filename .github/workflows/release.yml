@@ -297,12 +297,14 @@ jobs:
           [[ -n "$SIGNING_ROLE_ARN" ]] || missing+=(PROTOOS_RELEASE_SIGNING_ROLE_ARN)
           [[ -n "$KMS_KEY_ID" ]] || missing+=(PROTOOS_RELEASE_KMS_KEY_ID)
           [[ -n "$KMS_REGION" ]] || missing+=(PROTOOS_RELEASE_KMS_REGION)
-          if (( ${#missing[@]} == 3 )); then
+          [[ -n "$EXPECTED_KEY_ID" ]] || missing+=(PROTOOS_RELEASE_PUBLIC_KEY_ID)
+          # Skip only when no signing variable is set. A set key ID pin with
+          # no other variable is a partial configuration, and it must fail.
+          if (( ${#missing[@]} == 4 )); then
             echo "::warning::Skipping ProtoOS release signing; unset repository variables: ${missing[*]}. Flotilla will not offer this release to CT1 controllers."
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          [[ -n "$EXPECTED_KEY_ID" ]] || missing+=(PROTOOS_RELEASE_PUBLIC_KEY_ID)
           if (( ${#missing[@]} > 0 )); then
             echo "::error::ProtoOS release signing is partly configured; unset repository variables: ${missing[*]}"
             exit 1
