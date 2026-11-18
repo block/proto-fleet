@@ -1,139 +1,185 @@
 package scheduler
 
 import (
+	"container/heap"
 	"context"
 	"hash/fnv"
 	"log/slog"
-	"slices"
 	"sync"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 )
 
-// initialDevicePollSpread is a fixed optimistic startup ramp close to the
-// default effective telemetry cadence. Bulk discovery is distributed across
-// this window instead of releasing every miner at once.
-const initialDevicePollSpread = 15 * time.Second
-
 type scheduler struct {
-	// devices maps each managed device to its polling schedule.
-	devices map[models.DeviceIdentifier]scheduledDevice
-	// failedDevices tracks consecutive failure counts per device (int), transitioning to
-	// the device's LastUpdatedAt (time.Time) once MaxConsecutiveFailures is reached.
+	devices map[models.DeviceIdentifier]*scheduledDevice
+	queue   pollQueue
+	// Failure counts become the last update time when a device reaches the limit.
 	failedDevices sync.Map
-	// managedDevices tracks queue state per device: true = queued, false = checked out.
-	managedDevices sync.Map
-	mu             sync.Mutex
+	mu            sync.Mutex
 
-	config Config
-	now    func() time.Time
+	config        Config
+	pollPeriod    time.Duration
+	retryInterval time.Duration
+	minGap        time.Duration
+	now           func() time.Time
 }
 
-type scheduledDevice struct {
-	lastUpdated time.Time
-	notBefore   time.Time
-}
-
-//nolint:revive // It is okay and preferred to return a private type here, it forces the use of the constructor, and the scheduler should be managed and stored with interfaces client side.
-func NewScheduler(config Config) *scheduler {
+//nolint:revive // Callers use the constructor and store the scheduler through an interface.
+func NewScheduler(config Config, pollPeriod, retryInterval time.Duration) *scheduler {
+	if pollPeriod <= 0 {
+		pollPeriod = 20 * time.Second
+	}
+	if retryInterval <= 0 {
+		retryInterval = 5 * time.Second
+	}
 	return &scheduler{
-		devices:        make(map[models.DeviceIdentifier]scheduledDevice),
-		managedDevices: sync.Map{},
-		mu:             sync.Mutex{},
-		failedDevices:  sync.Map{},
-		config:         config,
-		now:            time.Now,
+		devices:       make(map[models.DeviceIdentifier]*scheduledDevice),
+		config:        config,
+		pollPeriod:    pollPeriod,
+		retryInterval: retryInterval,
+		minGap:        max(0, pollPeriod-retryInterval),
+		now:           time.Now,
 	}
 }
 
-// AddNewDevices adds new devices to the scheduler.
-func (s *scheduler) AddNewDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error {
-	var alreadyManaged []models.DeviceIdentifier
+// AddNewDevices makes a single device due immediately and spreads bulk additions across one poll period.
+func (s *scheduler) AddNewDevices(ctx context.Context, deviceIDs ...models.DeviceIdentifier) error {
+	var alreadyManaged duplicateDeviceLog
 	addedAt := s.now()
-	spreadBulk := len(deviceID) > 1
-
-	for _, id := range deviceID {
-		if _, exists := s.managedDevices.LoadOrStore(id, true); exists {
-			alreadyManaged = append(alreadyManaged, id)
-			continue
-		}
-		s.mu.Lock()
-		scheduled := scheduledDevice{}
-		if spreadBulk {
-			scheduled.notBefore = addedAt.Add(initialPollOffset(id))
-		}
-		s.devices[id] = scheduled
-		s.mu.Unlock()
-		slog.Debug("Added new device to scheduler", "device_id", id)
-		// TODO(Briano-block): do we want to fetch historical telemetry data for the new device?
-		// where does our responsibility for telemetry data start and end? at pairing?
-	}
-	logDuplicateSchedulerDevices("scheduler skipped already managed devices", alreadyManaged)
-	return nil
-}
-
-func initialPollOffset(deviceID models.DeviceIdentifier) time.Duration {
-	hasher := fnv.New32a()
-	_, _ = hasher.Write([]byte(deviceID))
-	spreadMilliseconds := uint32(initialDevicePollSpread / time.Millisecond)
-	return time.Duration(hasher.Sum32()%spreadMilliseconds) * time.Millisecond
-}
-
-// AddDevices adds a device back into the scheduler.
-func (s *scheduler) AddDevices(ctx context.Context, devices ...models.Device) error {
-	for _, device := range devices {
-		if _, ok := s.failedDevices.Load(device.ID); ok {
-			s.failedDevices.Delete(device.ID)
-		}
-	}
-	return s.addDevices(ctx, devices...)
-}
-
-// RequeueDevices adds checked-out devices back to the scheduler without changing
-// their consecutive failure history.
-func (s *scheduler) RequeueDevices(ctx context.Context, devices ...models.Device) error {
-	return s.addDevices(ctx, devices...)
-}
-
-func (s *scheduler) addDevices(ctx context.Context, devices ...models.Device) error {
-	var alreadyScheduled []models.DeviceIdentifier
 
 	s.mu.Lock()
-	for _, device := range devices {
-		inQueue, exists := s.managedDevices.Load(device.ID)
-		if !exists {
-			s.mu.Unlock()
-			logDuplicateSchedulerDevices("scheduler skipped already scheduled devices", alreadyScheduled)
-			return DeviceNotManagedErr{DeviceID: device.ID}
-		}
-		if value, ok := inQueue.(bool); ok && value {
-			alreadyScheduled = append(alreadyScheduled, device.ID)
+	for _, id := range deviceIDs {
+		if _, exists := s.devices[id]; exists {
+			alreadyManaged.add(id)
 			continue
 		}
-		s.managedDevices.Store(device.ID, true)
-		s.devices[device.ID] = scheduledDevice{lastUpdated: device.LastUpdatedAt}
+		due := addedAt
+		if len(deviceIDs) > 1 {
+			due = due.Add(initialPollOffset(id, s.pollPeriod))
+		}
+		entry := &scheduledDevice{device: models.Device{ID: id}, due: due}
+		s.devices[id] = entry
+		heap.Push(&s.queue, entry)
 	}
 	s.mu.Unlock()
 
-	logDuplicateSchedulerDevices("scheduler skipped already scheduled devices", alreadyScheduled)
+	alreadyManaged.log("scheduler skipped already managed devices")
 	return nil
 }
 
-func logDuplicateSchedulerDevices(message string, deviceIDs []models.DeviceIdentifier) {
-	if len(deviceIDs) == 0 {
+func initialPollOffset(deviceID models.DeviceIdentifier, period time.Duration) time.Duration {
+	if period <= 0 {
+		return 0
+	}
+	hasher := fnv.New64a()
+	_, _ = hasher.Write([]byte(deviceID))
+	return time.Duration(hasher.Sum64() % uint64(period)) // #nosec G115 -- The positive period bounds both conversions.
+}
+
+type returnReason uint8
+
+const (
+	pollCompleted returnReason = iota
+	pollBusy
+	pollUnsent
+	pollDeferred
+)
+
+// AddDevices schedules the next poll and clears consecutive failures.
+func (s *scheduler) AddDevices(ctx context.Context, devices ...models.Device) error {
+	return s.returnDevices(devices, pollCompleted)
+}
+
+// RequeueDevices schedules the next poll after a capacity rejection and keeps the failure count.
+func (s *scheduler) RequeueDevices(ctx context.Context, devices ...models.Device) error {
+	return s.returnDevices(devices, pollBusy)
+}
+
+// RestoreDevices returns unprocessed devices with their previous due times and failure counts.
+func (s *scheduler) RestoreDevices(ctx context.Context, devices ...models.Device) error {
+	return s.returnDevices(devices, pollUnsent)
+}
+
+// DeferDevices queues a poll skipped during another device operation.
+func (s *scheduler) DeferDevices(ctx context.Context, devices ...models.Device) error {
+	return s.returnDevices(devices, pollDeferred)
+}
+
+func (s *scheduler) returnDevices(devices []models.Device, reason returnReason) error {
+	var alreadyScheduled duplicateDeviceLog
+	var err error
+
+	s.mu.Lock()
+	for _, device := range devices {
+		entry, exists := s.devices[device.ID]
+		if !exists {
+			err = DeviceNotManagedErr{DeviceID: device.ID}
+			break
+		}
+		var recovered bool
+		if reason == pollCompleted {
+			state, _ := s.failedDevices.LoadAndDelete(device.ID)
+			_, recovered = state.(time.Time)
+		}
+		if entry.index >= 0 {
+			previousUpdate := entry.device.LastUpdatedAt
+			if reason != pollCompleted || previousUpdate.IsZero() || !device.LastUpdatedAt.After(previousUpdate) {
+				alreadyScheduled.add(device.ID)
+				continue
+			}
+			entry.device = device
+			if earliest := device.LastUpdatedAt.Add(s.minGap); entry.due.Before(earliest) {
+				entry.due = earliest
+			}
+			heap.Fix(&s.queue, entry.index)
+			continue
+		}
+		switch reason {
+		case pollUnsent:
+		case pollDeferred:
+			entry.due = s.now().Add(s.retryInterval)
+		case pollCompleted, pollBusy:
+			entry.device = device
+			earliest := device.LastUpdatedAt.Add(s.minGap)
+			entry.due = entry.due.Add(s.pollPeriod)
+			if recovered || entry.due.Before(earliest) {
+				entry.due = earliest
+			}
+		}
+		heap.Push(&s.queue, entry)
+	}
+	s.mu.Unlock()
+
+	alreadyScheduled.log("scheduler skipped already scheduled devices")
+	return err
+}
+
+type duplicateDeviceLog struct {
+	count  int
+	sample [5]models.DeviceIdentifier
+}
+
+func (d *duplicateDeviceLog) add(id models.DeviceIdentifier) {
+	if d.count < len(d.sample) {
+		d.sample[d.count] = id
+	}
+	d.count++
+}
+
+func (d *duplicateDeviceLog) log(message string) {
+	if d.count == 0 {
 		return
 	}
 
-	attrs := []any{"count", len(deviceIDs)}
-	sampleSize := min(len(deviceIDs), 5)
-	samples := make([]string, 0, sampleSize)
-	for _, id := range deviceIDs[:sampleSize] {
-		samples = append(samples, id.String())
+	attrs := []any{"count", d.count}
+	samples := make([]string, min(d.count, len(d.sample)))
+	for i := range samples {
+		samples[i] = d.sample[i].String()
 	}
 	attrs = append(attrs, "sample_device_ids", samples)
 
-	if len(deviceIDs) == 1 {
+	if d.count == 1 {
 		slog.Debug(message, attrs...)
 		return
 	}
@@ -141,86 +187,89 @@ func logDuplicateSchedulerDevices(message string, deviceIDs []models.DeviceIdent
 }
 
 func (s *scheduler) AddFailedDevices(ctx context.Context, devices ...models.Device) error {
-
+	retryAt := s.now().Add(s.retryInterval)
 	for _, device := range devices {
-		count, _ := s.failedDevices.LoadOrStore(device.ID, 0)
-
-		// A time.Time value means the device has already reached MaxConsecutiveFailures.
-		if _, isTime := count.(time.Time); isTime {
-			slog.Debug("Device is already marked as failed, skipping", "device_id", device.ID)
-			continue
-		}
-
-		failedCount, ok := count.(int)
-		if !ok {
-			slog.Error("Failed to convert failed count to int", "device_id", device.ID, "failed_count", count)
-			return DeviceNotManagedErr{
-				DeviceID: device.ID,
-			}
-		}
-
-		failedCount++
-		s.failedDevices.Store(device.ID, failedCount)
-
-		if failedCount >= s.config.MaxConsecutiveFailures {
-			slog.Warn("Device failed too many times, removing from scheduler", "device_id", device.ID, "failed_count", failedCount)
-			s.failedDevices.Store(device.ID, device.LastUpdatedAt)
-			continue
-		}
-		if err := s.addDevices(ctx, device); err != nil {
+		terminalFailures, err := s.recordFailure(device, retryAt)
+		if err != nil {
 			return err
+		}
+		if terminalFailures > 0 {
+			slog.Warn("Device failed too many times, removing from scheduler", "device_id", device.ID, "failed_count", terminalFailures)
 		}
 	}
 	return nil
 }
 
-// RemoveDevices removes a device from scheduler management.
-func (s *scheduler) RemoveDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error {
+func (s *scheduler) recordFailure(device models.Device, retryAt time.Time) (terminalFailures int, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for _, id := range deviceID {
-		if _, exists := s.managedDevices.LoadAndDelete(id); !exists {
-			return DeviceNotManagedErr{
-				DeviceID: id,
-			}
+	entry, exists := s.devices[device.ID]
+	if !exists {
+		return 0, DeviceNotManagedErr{DeviceID: device.ID}
+	}
+	state, exists := s.failedDevices.Load(device.ID)
+	if _, isFailed := state.(time.Time); isFailed {
+		return 0, nil
+	}
+	failedCount, ok := state.(int)
+	if exists && !ok {
+		return 0, DeviceNotManagedErr{DeviceID: device.ID}
+	}
+
+	failedCount++
+	if failedCount >= s.config.MaxConsecutiveFailures {
+		s.failedDevices.Store(device.ID, device.LastUpdatedAt)
+		return failedCount, nil
+	}
+	s.failedDevices.Store(device.ID, failedCount)
+	if entry.index < 0 {
+		entry.device = device
+		entry.due = retryAt
+		heap.Push(&s.queue, entry)
+	}
+	return 0, nil
+}
+
+func (s *scheduler) RemoveDevices(ctx context.Context, deviceIDs ...models.DeviceIdentifier) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, id := range deviceIDs {
+		entry, exists := s.devices[id]
+		if !exists {
+			return DeviceNotManagedErr{DeviceID: id}
+		}
+		if entry.index >= 0 {
+			heap.Remove(&s.queue, entry.index)
 		}
 		delete(s.devices, id)
+		s.failedDevices.Delete(id)
 	}
 	return nil
 }
 
-// FetchDevices returns all devices last updated before the given time, sorted oldest-first.
-// Returned devices are marked checked out and excluded from future fetches until re-added.
-func (s *scheduler) FetchDevices(ctx context.Context, before time.Time) ([]models.Device, error) {
+// FetchDue checks out up to limit devices in due-time order.
+func (s *scheduler) FetchDue(ctx context.Context, now time.Time, limit int) ([]models.Device, error) {
 	s.mu.Lock()
-	var stale []models.Device
-	now := s.now()
-	for id, scheduled := range s.devices {
-		if scheduled.lastUpdated.Before(before) && !scheduled.notBefore.After(now) {
-			stale = append(stale, models.Device{ID: id, LastUpdatedAt: scheduled.lastUpdated})
-			s.managedDevices.Store(id, false) // Mark as checked out
-			delete(s.devices, id)
-		}
-	}
-	s.mu.Unlock()
+	defer s.mu.Unlock()
 
-	if stale == nil {
-		return []models.Device{}, nil
+	due := []models.Device{}
+	for len(due) < limit && len(s.queue) > 0 && !s.queue[0].due.After(now) {
+		entry := s.queue[0]
+		heap.Pop(&s.queue)
+		due = append(due, entry.device)
 	}
-	slices.SortFunc(stale, func(a, b models.Device) int {
-		return a.LastUpdatedAt.Compare(b.LastUpdatedAt)
-	})
-	return stale, nil
+	return due, nil
 }
 
 func (s *scheduler) GetAllDevices(ctx context.Context) ([]models.Device, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	result := make([]models.Device, 0, len(s.devices))
-	for id, scheduled := range s.devices {
-		result = append(result, models.Device{ID: id, LastUpdatedAt: scheduled.lastUpdated})
+	result := make([]models.Device, 0, len(s.queue))
+	for _, entry := range s.queue {
+		result = append(result, entry.device)
 	}
 	return result, nil
 }
@@ -229,18 +278,7 @@ func (s *scheduler) GetDeviceCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return len(s.devices)
-}
-
-func (s *scheduler) GetManagedDeviceCount(ctx context.Context) (int, error) {
-	count := 0
-	s.managedDevices.Range(func(_, value any) bool {
-		if val, ok := value.(bool); ok && val {
-			count++
-		}
-		return true // continue iteration
-	})
-	return count, nil
+	return len(s.queue)
 }
 
 func (s *scheduler) IsFailedDevice(ctx context.Context, deviceID models.DeviceIdentifier) (bool, time.Time, error) {

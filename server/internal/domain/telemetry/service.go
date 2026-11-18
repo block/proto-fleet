@@ -39,11 +39,6 @@ The telemetry system uses a producer-consumer pattern with three main components
 
 # Component Details
 
-gatherMetricsRoutine: Periodically queries the scheduler for stale devices
-(those needing telemetry refresh) and dispatches them to workers via the
-tasks channel. Also handles new device polling to discover recently paired
-devices.
-
 workers: A pool of goroutines (sized by ConcurrencyLimit) that fetch
 telemetry and status from individual miners. Each worker pulls a device
 from the tasks channel, makes network calls to the miner, stores telemetry
@@ -103,6 +98,7 @@ const (
 	// Default intervals
 	defaultStatusUpdateInterval  = 1 * time.Second
 	defaultFetchInterval         = 5 * time.Second
+	pollDispatchInterval         = 250 * time.Millisecond
 	defaultDevicePollInterval    = 10 * time.Minute
 	defaultHeartbeatInterval     = 30 * time.Second
 	defaultStatusPollingInterval = 10 * time.Second
@@ -125,6 +121,8 @@ const (
 	// Batch limits
 	maxStatusBatchSize  = 500
 	maxMetricsBatchSize = 2000
+	// Bound overdue work while leaving headroom for 50,000 devices polled every 20 seconds.
+	maxPollCheckoutSize = 1500
 
 	// Default status flush interval if not configured.
 	defaultStatusFlushInterval = 1 * time.Second
@@ -178,8 +176,10 @@ type UpdateScheduler interface {
 	AddNewDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error
 	AddDevices(ctx context.Context, devices ...models.Device) error
 	RequeueDevices(ctx context.Context, devices ...models.Device) error
+	RestoreDevices(ctx context.Context, devices ...models.Device) error
+	DeferDevices(ctx context.Context, devices ...models.Device) error
 	AddFailedDevices(ctx context.Context, devices ...models.Device) error
-	FetchDevices(ctx context.Context, after time.Time) ([]models.Device, error)
+	FetchDue(ctx context.Context, now time.Time, limit int) ([]models.Device, error)
 	RemoveDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error
 	IsFailedDevice(ctx context.Context, deviceID models.DeviceIdentifier) (bool, time.Time, error)
 }
@@ -400,7 +400,6 @@ type TelemetryService struct {
 	deviceStore        stores.DeviceStore
 	errorPoller        ErrorPoller
 	metricsObserver    *metricsObserver
-	lookBackDuration   time.Duration
 	// Keep paired-device reloads and scheduler changes in one order. A reload
 	// started before revocation must finish admitting devices before cleanup.
 	membershipMu sync.Mutex
@@ -462,7 +461,6 @@ func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, m
 		updateScheduler:        scheduler,
 		deviceStore:            deviceStore,
 		errorPoller:            errorPoller,
-		lookBackDuration:       -1 * (config.StalenessThreshold - config.FetchInterval),
 		metricsObserver:        newMetricsObserver(NoMetrics()),
 		combinedMetricsFlights: make(map[string]*combinedMetricsFlight),
 	}
@@ -751,16 +749,18 @@ func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context, tasks chan<
 		fetchInterval = defaultFetchInterval
 	}
 	reportProgress := runtimejobs.TrackProgress(ctx, fetchInterval)
-	ticker := time.NewTicker(fetchInterval)
+	ticker := time.NewTicker(min(fetchInterval, pollDispatchInterval))
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if ctx.Err() != nil {
+				return
+			}
 			cycleStartedAt := time.Now()
-			lookback := time.Now().Add(s.lookBackDuration)
-			devices, err := s.updateScheduler.FetchDevices(ctx, lookback)
+			devices, err := s.updateScheduler.FetchDue(ctx, cycleStartedAt, maxPollCheckoutSize)
 			schedulerFetchDuration := time.Since(cycleStartedAt)
 			logSlowCycle := func(dispatched int) {
 				cycleDuration := time.Since(cycleStartedAt)
@@ -1018,7 +1018,7 @@ func (s *TelemetryService) worker(ctx context.Context, activation *telemetryActi
 			}
 			entry := s.newDeviceInFlightEntry(device.ID, inFlightKindFullTelemetry)
 			if _, alreadyClaimed := s.inFlight.LoadOrStore(device.ID, entry); alreadyClaimed {
-				if err := s.updateScheduler.AddDevices(ctx, device); err != nil {
+				if err := s.updateScheduler.DeferDevices(ctx, device); err != nil {
 					slog.Warn("failed to requeue skipped in-flight telemetry task", "deviceID", device.ID, "error", err)
 				}
 				continue
@@ -1183,8 +1183,7 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 // Recovery logic:
 //   - A device is considered "recovered" when it returns a healthy status (not offline/error).
 //   - If the device was marked as failed in the scheduler and now reports healthy, we re-add
-//     it to the scheduler with its original failedAt timestamp. This ensures the scheduler
-//     prioritizes it for immediate telemetry collection.
+//     it to the scheduler with its original failedAt timestamp.
 //   - Devices that remain offline/error stay in the failed state. They continue to be polled
 //     here but aren't re-added to the scheduler until they report a healthy status.
 //
@@ -1213,8 +1212,6 @@ func (s *TelemetryService) processStatusOnly(ctx context.Context, device models.
 		if err != nil {
 			slog.Warn("failed to check if device is failed", "deviceID", device.ID, "error", err)
 		} else if failed {
-			// Re-add with original failedAt timestamp so scheduler prioritizes it
-			// for immediate telemetry collection (stale devices are fetched first).
 			err := s.updateScheduler.AddDevices(ctx, models.Device{
 				ID:            device.ID,
 				LastUpdatedAt: failedAt,
