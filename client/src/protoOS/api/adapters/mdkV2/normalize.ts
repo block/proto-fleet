@@ -483,7 +483,14 @@ const plantComponents = (containerId: string, wire: V2GetContainerHealthResponse
   const telemetry = new Map<ComponentId, PlantTelemetry>();
   const fanHardware = new Map<ComponentId, FanHardware>();
   const fanTelemetry = new Map<ComponentId, FanTelemetry>();
-  const faultedComponents = new Set((wire.faults ?? []).map((fault) => fault.componentId).filter(Boolean));
+  // The controller sends a record for each component in every snapshot. A zero
+  // code and a zero error bitmap mean that the component has no fault.
+  const faultedComponents = new Set(
+    (wire.faults ?? [])
+      .filter((fault) => Number(fault.code ?? 0) !== 0 || Number(fault.errorBitmap ?? fault.errorCode ?? 0) !== 0)
+      .map((fault) => fault.componentId)
+      .filter(Boolean),
+  );
   const addPlantComponent = (id: ComponentId, kind: PlantHardware["kind"], name: string, value: PlantTelemetry) => {
     hardware.set(id, { ref: { id, kind: "plant", owner }, kind, name });
     telemetry.set(id, value);

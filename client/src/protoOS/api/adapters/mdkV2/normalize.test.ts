@@ -822,6 +822,34 @@ describe("MDK v2 CT1 normalization", () => {
   });
 });
 
+describe("plant component faults", () => {
+  test("reports a fault only for a non-zero code or error bitmap", () => {
+    const { hardware, telemetry } = toCanonicalContainer(
+      { containerMap: { tanks: [] } },
+      {},
+      {
+        powerDistributions: [{ componentId: "pdu-1" }, { componentId: "pdu-2" }, { componentId: "pdu-3" }],
+        coolingFans: [{ componentId: "heat-rejection-fan-1" }, { componentId: "heat-rejection-fan-2" }],
+        faults: [
+          { componentId: "pdu-1", code: 0 },
+          { componentId: "pdu-2", code: 7 },
+          { componentId: "pdu-3", code: 0, errorBitmap: 4 },
+          { componentId: "heat-rejection-fan-1", code: 0, errorBitmap: 0 },
+          { componentId: "heat-rejection-fan-2", code: 3 },
+        ],
+      },
+      "ct1-a",
+    );
+    const health = (name: string) =>
+      [...hardware.plant.entries()]
+        .filter(([, component]) => component.name === name)
+        .map(([id]) => telemetry.plant.get(id)?.health)[0];
+
+    expect(["pdu-1", "pdu-2", "pdu-3"].map(health)).toEqual(["ok", "fault", "fault"]);
+    expect([...telemetry.fans.values()].map((fan) => fan.health)).toEqual(["ok", "fault"]);
+  });
+});
+
 describe("plant alarm telemetry", () => {
   const plantTelemetry = (health: Parameters<typeof toCanonicalContainer>[2]) =>
     [...toCanonicalContainer({ containerMap: { tanks: [] } }, {}, health, "ct1-a").telemetry.plant.values()][0];
