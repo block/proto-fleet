@@ -10,6 +10,7 @@ interface HashboardCardProps {
   totalSlots?: number;
   threeColumns?: boolean;
   statusIcon?: ReactNode;
+  selectionControl?: ReactNode;
   onInfoClick?: () => void;
   actions?: ReactNode;
   children?: ReactNode;
@@ -23,10 +24,21 @@ export default function HashboardCard({
   totalSlots = 3,
   threeColumns = true,
   statusIcon,
+  selectionControl,
   onInfoClick,
   actions,
   children,
 }: HashboardCardProps) {
+  const indicator =
+    position !== undefined ? <HashboardIndicatorV2 width="w-4" position={position} totalSlots={totalSlots} /> : null;
+  const componentIcon = selectionControl ? (
+    <div className="flex items-center gap-3">
+      {selectionControl}
+      {indicator}
+    </div>
+  ) : (
+    indicator
+  );
   return (
     <article
       aria-label={title}
@@ -38,11 +50,7 @@ export default function HashboardCard({
         titleAs="h3"
         infoAriaLabel={`${title} info`}
         statusIcon={statusIcon}
-        componentIcon={
-          position !== undefined ? (
-            <HashboardIndicatorV2 width="w-4" position={position} totalSlots={totalSlots} />
-          ) : null
-        }
+        componentIcon={componentIcon}
         onInfoIconClick={onInfoClick}
         actions={actions}
       />

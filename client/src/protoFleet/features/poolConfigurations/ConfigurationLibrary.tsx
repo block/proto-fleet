@@ -4,7 +4,6 @@ import { useSearchParams } from "react-router-dom";
 import { usePoolConfigurationClient, usePoolConfigurationPermissions } from "./api";
 import { ConfigurationEditor } from "./ConfigurationEditor";
 import { ConfigurationUpdates } from "./ConfigurationUpdates";
-import { poolSlotLabel } from "./draft";
 import { OperationResults } from "./OperationResults";
 import type { Configuration } from "@/protoFleet/api/generated/poolconfigurations/v1/poolconfigurations_pb";
 import { ACCOUNT_READ_TIMEOUT_MS } from "@/protoFleet/features/hostedAccounts/api";
@@ -14,8 +13,9 @@ import { useAccountQuery } from "@/protoFleet/features/hostedAccounts/useAccount
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import Button, { sizes } from "@/shared/components/Button";
-import List from "@/shared/components/List";
 import Modal from "@/shared/components/Modal";
+import { ConfigurationDetails } from "@/shared/components/PoolConfigurations/ConfigurationDetails";
+import { ConfigurationLibraryTable } from "@/shared/components/PoolConfigurations/ConfigurationLibraryTable";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import RowActionsMenu from "@/shared/components/RowActionsMenu";
 
@@ -79,70 +79,33 @@ export default function ConfigurationLibrary() {
       ) : null}
       {query.data ? (
         <>
-          <List<Configuration, string, "name" | "destination" | "assigned" | "actions">
-            items={query.data.configurations}
-            itemKey="configurationId"
-            itemSelectable={false}
-            stickyFirstColumn={false}
-            applyColumnWidthsToCells
-            tableClassName="mb-0"
-            activeCols={manage ? ["name", "destination", "assigned", "actions"] : ["name", "destination", "assigned"]}
-            colTitles={{ name: "Name", destination: "Primary pool", assigned: "Assigned equipment", actions: "" }}
-            colConfig={{
-              name: {
-                width: "w-1/3 min-w-40",
-                component: (configuration) => (
-                  <div className="flex flex-col items-start">
-                    <Button
-                      variant="textOnly"
-                      textColor="text-text-primary"
-                      className="justify-start text-left font-normal"
-                      textOnlyUnderlineOnHover={false}
-                      text={configuration.name}
-                      onClick={() => setViewing(configuration)}
+          <ConfigurationLibraryTable
+            configurations={query.data.configurations}
+            onView={setViewing}
+            renderActions={
+              manage
+                ? (configuration) => (
+                    <RowActionsMenu
+                      ariaLabel={`Actions for ${configuration.name}`}
+                      actions={[
+                        {
+                          label: "Set as default",
+                          disabled: readOnly || configuration.isDefault,
+                          onClick: () => setDefaulting(configuration),
+                        },
+                        { label: "Edit configuration", disabled: readOnly, onClick: () => setEditing(configuration) },
+                        {
+                          label: "Delete configuration",
+                          disabled: readOnly,
+                          danger: true,
+                          onClick: () => setDeleting(configuration),
+                        },
+                      ]}
                     />
-                    {configuration.isDefault ? <span className="text-200 text-text-primary-50">Default</span> : null}
-                    {configuration.pools.length > 1 ? (
-                      <span className="text-200 text-text-primary-50">
-                        {configuration.pools.length - 1} backup{configuration.pools.length > 2 ? "s" : ""}
-                      </span>
-                    ) : null}
-                  </div>
-                ),
-              },
-              destination: {
-                width: "w-1/3 min-w-56",
-                allowWrap: true,
-                component: (configuration) => <span className="break-all">{configuration.pools[0]?.url || "—"}</span>,
-              },
-              assigned: {
-                width: "w-1/3 min-w-40",
-                component: (configuration) => <span>{configuration.assignedCount.toString()}</span>,
-              },
-              actions: {
-                width: "w-12",
-                component: (configuration) => (
-                  <RowActionsMenu
-                    ariaLabel={`Actions for ${configuration.name}`}
-                    actions={[
-                      {
-                        label: "Set as default",
-                        disabled: readOnly || configuration.isDefault,
-                        onClick: () => setDefaulting(configuration),
-                      },
-                      { label: "Edit configuration", disabled: readOnly, onClick: () => setEditing(configuration) },
-                      {
-                        label: "Delete configuration",
-                        disabled: readOnly,
-                        danger: true,
-                        onClick: () => setDeleting(configuration),
-                      },
-                    ]}
-                  />
-                ),
-              },
-            }}
-            noDataElement={
+                  )
+                : undefined
+            }
+            emptyState={
               <SettingsEmptyState
                 title={page ? "No configurations on this page" : "No pool configurations yet"}
                 description={
@@ -183,18 +146,9 @@ export default function ConfigurationLibrary() {
           manageFocus
           onDismiss={() => setViewing(undefined)}
         >
-          <div className="flex flex-col gap-6" data-dd-privacy="mask">
-            <p>{viewing.assignedCount.toString()} equipment assigned</p>
+          <ConfigurationDetails assignedCount={viewing.assignedCount} pools={viewing.pools}>
             <ConfigurationUpdates configurationId={viewing.configurationId} onOpen={openOperation} />
-            {viewing.pools.map((pool, index) => (
-              <div key={pool.slotId} className="flex flex-col gap-2 break-all">
-                <h3 className="text-heading-100">{poolSlotLabel(index)}</h3>
-                <p>{pool.url}</p>
-                <p>Username: {pool.username}</p>
-                <p>{pool.hasPassword ? "Password saved" : "No password"}</p>
-              </div>
-            ))}
-          </div>
+          </ConfigurationDetails>
         </Modal>
       ) : null}
       {operationId ? (

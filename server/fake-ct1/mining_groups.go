@@ -29,9 +29,14 @@ type miningGroupReceipt struct{ request, response proto.Message }
 
 func (s *ContainerState) initMiningGroups() *simulatedMiningGroups {
 	if s.miningGroups == nil {
+		now := timestamppb.New(s.now())
+		defaultGroup := &mdk.MiningGroupRecord{Id: "default", Name: "Default", Revision: 1, CreatedAt: now, UpdatedAt: now}
+		for _, board := range s.eachBoard() {
+			defaultGroup.DesiredMining = defaultGroup.DesiredMining || board.isMining()
+		}
 		s.miningGroups = &simulatedMiningGroups{
 			capability: &mdk.MiningGroupCapability{Name: "mining-groups-v1", Version: 1, StateRevision: 1, MaxGroups: 289, MaxPoolsPerGroup: 3, MaxBoardsPerGroup: 288, AssignmentGranularity: "PHYSICAL_HASHBOARD", SupportedPllAlgorithms: []string{"NONE"}},
-			groups:     map[string]*mdk.MiningGroupRecord{}, pools: map[string][]*mdk.MiningGroupPoolInput{}, members: map[string]*mdk.MiningGroupMembershipRecord{}, operations: map[string]*mdk.MiningGroupOperationRecord{}, receipts: map[string]miningGroupReceipt{},
+			groups:     map[string]*mdk.MiningGroupRecord{"default": defaultGroup}, pools: map[string][]*mdk.MiningGroupPoolInput{}, members: map[string]*mdk.MiningGroupMembershipRecord{}, operations: map[string]*mdk.MiningGroupOperationRecord{}, receipts: map[string]miningGroupReceipt{},
 		}
 	}
 	return s.miningGroups
@@ -116,9 +121,9 @@ func (a *grpcAPI) GetMiningGroupCapability(ctx context.Context, _ *mdk.GetMining
 
 func (a *grpcAPI) GetMiningGroup(ctx context.Context, request *mdk.GetMiningGroupRequest) (*mdk.GetMiningGroupResponse, error) {
 	return miningGroupRPC(ctx, a, "", nil, func(_ *ContainerState, groups *simulatedMiningGroups) (*mdk.GetMiningGroupResponse, error) {
-		group, err := groups.group(request.GetId(), 0)
-		if err != nil {
-			return nil, err
+		group := groups.groups[request.GetId()]
+		if group == nil {
+			return nil, status.Error(codes.NotFound, "unknown mining group")
 		}
 		return &mdk.GetMiningGroupResponse{Group: group}, nil
 	})
@@ -149,7 +154,9 @@ func (a *grpcAPI) DeactivateMiningGroups(ctx context.Context, r *mdk.DeactivateM
 				s.pools[id] = simulatedPool{pool: &mdk.Pool{Id: id, Name: p.Name, Url: p.Url, Username: p.Username, Priority: p.Priority, Enabled: p.Enabled, ShareWeight: p.ShareWeight}, password: input.GetPassword()}
 				s.nextPoolID = max(s.nextPoolID, id)
 			}
+			defaultGroup := g.groups["default"]
 			clear(g.groups)
+			g.groups["default"] = defaultGroup
 			clear(g.pools)
 			clear(g.members)
 			// Retain operation history, receipts and sequence numbers across modes.
@@ -168,6 +175,9 @@ func (a *grpcAPI) ActivateMiningGroups(ctx context.Context, r *mdk.ActivateMinin
 		if g.capability.Enabled {
 			return nil, status.Error(codes.FailedPrecondition, "mining groups already enabled")
 		}
+		if g.groups["default"].DesiredMining {
+			return nil, status.Error(codes.FailedPrecondition, "stop self mining before activating groups")
+		}
 		for _, b := range s.eachBoard() {
 			if b.isMining() {
 				return nil, status.Error(codes.FailedPrecondition, "stop self mining before activating groups")
@@ -177,7 +187,6 @@ func (a *grpcAPI) ActivateMiningGroups(ctx context.Context, r *mdk.ActivateMinin
 			}
 		}
 		now := timestamppb.New(s.now())
-		g.groups["default"] = &mdk.MiningGroupRecord{Id: "default", Name: "Default", Revision: 1, CreatedAt: now, UpdatedAt: now}
 		for _, p := range s.storedPools() {
 			password := s.pools[p.Id].password
 			g.pools["default"] = append(g.pools["default"], &mdk.MiningGroupPoolInput{Pool: &mdk.MiningGroupPoolRecord{Id: int32(p.Id), Name: p.Name, Url: p.Url, Username: p.Username, Priority: p.Priority, Enabled: p.Enabled, ShareWeight: p.ShareWeight}, Password: &password})
@@ -231,12 +240,55 @@ func (a *grpcAPI) CreateMiningGroup(ctx context.Context, r *mdk.CreateMiningGrou
 		return &mdk.CreateMiningGroupResponse{Group: group}, nil
 	})
 }
+func (a *grpcAPI) UpdateMiningGroup(ctx context.Context, r *mdk.UpdateMiningGroupRequest) (*mdk.UpdateMiningGroupResponse, error) {
+	return miningGroupRPC(ctx, a, r.IdempotencyKey, r, func(s *ContainerState, g *simulatedMiningGroups) (*mdk.UpdateMiningGroupResponse, error) {
+		if r.Id == "default" {
+			return nil, status.Error(codes.FailedPrecondition, "cannot update default group metadata")
+		}
+		if r.ExpectedRevision <= 0 || len(r.GetUpdateMask().GetPaths()) == 0 {
+			return nil, status.Error(codes.InvalidArgument, "group revision and metadata mask required")
+		}
+		for _, path := range r.UpdateMask.Paths {
+			switch path {
+			case "name":
+				if strings.TrimSpace(r.GetMetadata().GetName()) == "" {
+					return nil, status.Error(codes.InvalidArgument, "group name required")
+				}
+			case "external_ref":
+			default:
+				return nil, status.Error(codes.InvalidArgument, "unsupported metadata field")
+			}
+		}
+		group, err := g.group(r.Id, r.ExpectedRevision)
+		if err != nil {
+			return nil, err
+		}
+		for _, path := range r.UpdateMask.Paths {
+			switch path {
+			case "name":
+				group.Name = r.Metadata.Name
+			case "external_ref":
+				if r.Metadata == nil {
+					group.ExternalRef = nil
+				} else {
+					group.ExternalRef = r.Metadata.ExternalRef
+				}
+			}
+		}
+		s.touchGroup(group)
+		return &mdk.UpdateMiningGroupResponse{Group: group}, nil
+	})
+}
+
 func (a *grpcAPI) ListMiningGroupPools(ctx context.Context, r *mdk.ListMiningGroupPoolsRequest) (*mdk.ListMiningGroupPoolsResponse, error) {
 	return miningGroupRPC(ctx, a, "", nil, func(_ *ContainerState, g *simulatedMiningGroups) (*mdk.ListMiningGroupPoolsResponse, error) {
 		if _, err := g.group(r.GroupId, 0); err != nil {
 			return nil, err
 		}
 		out := &mdk.ListMiningGroupPoolsResponse{}
+		if r.GroupId == "default" {
+			return out, nil // This API reads hosted pools. Default uses legacy PoolService.
+		}
 		for _, p := range g.pools[r.GroupId] {
 			out.Pools = append(out.Pools, p.Pool)
 		}
@@ -245,6 +297,9 @@ func (a *grpcAPI) ListMiningGroupPools(ctx context.Context, r *mdk.ListMiningGro
 }
 func (a *grpcAPI) ReplaceMiningGroupPools(ctx context.Context, r *mdk.ReplaceMiningGroupPoolsRequest) (*mdk.ReplaceMiningGroupPoolsResponse, error) {
 	return miningGroupRPC(ctx, a, r.IdempotencyKey, r, func(s *ContainerState, g *simulatedMiningGroups) (*mdk.ReplaceMiningGroupPoolsResponse, error) {
+		if r.GroupId == "default" {
+			return nil, status.Error(codes.FailedPrecondition, "use legacy pool operations for the default group")
+		}
 		group, err := g.group(r.GroupId, r.ExpectedRevision)
 		if err != nil {
 			return nil, err
@@ -253,15 +308,28 @@ func (a *grpcAPI) ReplaceMiningGroupPools(ctx context.Context, r *mdk.ReplaceMin
 			return nil, status.Error(codes.InvalidArgument, "positive revision and at most three pools required")
 		}
 		ids := map[int32]bool{}
+		nextID := s.nextPoolID
 		pools := make([]*mdk.MiningGroupPoolInput, 0, len(r.Pools))
 		out := &mdk.ReplaceMiningGroupPoolsResponse{Group: group}
 		for _, input := range r.Pools {
 			p := input.GetPool()
-			if p == nil || p.Id <= 0 || ids[p.Id] || strings.TrimSpace(p.Url) == "" {
+			if p == nil || p.Id < 0 || (p.Id > 0 && ids[p.Id]) || strings.TrimSpace(p.Url) == "" {
 				return nil, status.Error(codes.InvalidArgument, "invalid or duplicate pool")
 			}
-			ids[p.Id] = true
 			copy := proto.Clone(input).(*mdk.MiningGroupPoolInput)
+			if p.Id == 0 {
+				nextID++
+				copy.Pool.Id = int32(nextID)
+			} else {
+				found := false
+				for _, old := range g.pools[group.Id] {
+					found = found || old.Pool.Id == p.Id
+				}
+				if !found {
+					return nil, status.Error(codes.InvalidArgument, "pool ID is outside this group")
+				}
+			}
+			ids[copy.Pool.Id] = true
 			if copy.Password == nil {
 				for _, old := range g.pools[group.Id] {
 					if old.Pool.Id == p.Id {
@@ -273,6 +341,7 @@ func (a *grpcAPI) ReplaceMiningGroupPools(ctx context.Context, r *mdk.ReplaceMin
 			out.Pools = append(out.Pools, copy.Pool)
 		}
 		g.pools[group.Id] = pools
+		s.nextPoolID = nextID
 		s.touchGroup(group)
 		s.applyGroupMining(group.Id)
 		return out, nil
@@ -280,6 +349,9 @@ func (a *grpcAPI) ReplaceMiningGroupPools(ctx context.Context, r *mdk.ReplaceMin
 }
 func (a *grpcAPI) UpdateMiningGroupIntent(ctx context.Context, r *mdk.UpdateMiningGroupIntentRequest) (*mdk.UpdateMiningGroupIntentResponse, error) {
 	return miningGroupRPC(ctx, a, r.IdempotencyKey, r, func(s *ContainerState, g *simulatedMiningGroups) (*mdk.UpdateMiningGroupIntentResponse, error) {
+		if r.Id == "default" {
+			return nil, status.Error(codes.InvalidArgument, "use legacy mining controls for the default group")
+		}
 		group, err := g.group(r.Id, r.ExpectedRevision)
 		if err != nil {
 			return nil, err

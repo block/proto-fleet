@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2/mdkv2connect"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -77,26 +79,24 @@ func TestConnectMiningGroupInspectionSharesNativeState(t *testing.T) {
 	if err != nil || len(members.Msg.GetMemberships()) != state.BoardCount() {
 		t.Fatalf("members = %v, %v", members, err)
 	}
-	group, err := client.GetMiningGroup(ctx, connect.NewRequest(&mdk.GetMiningGroupRequest{Id: "default"}))
-	if err != nil {
-		t.Fatal(err)
-	}
 	username := "account.region.worker-01"
 	password := "inspection-secret"
-	_, err = native.ReplaceMiningGroupPools(ctx, &mdk.ReplaceMiningGroupPoolsRequest{GroupId: "default", ExpectedRevision: group.Msg.Group.Revision, IdempotencyKey: "inspection-pools", Pools: []*mdk.MiningGroupPoolInput{
+	replaceDefaultPoolsLegacy(t, native, []*mdk.MiningGroupPoolInput{
 		{Pool: &mdk.MiningGroupPoolRecord{Id: 1, Name: "Inspection", Url: "stratum+tcp://pool.example:3333", Username: username, Enabled: true}, Password: &password},
-	}})
-	if err != nil {
-		t.Fatal(err)
+	})
+	hostedPools, err := client.ListMiningGroupPools(ctx, connect.NewRequest(&mdk.ListMiningGroupPoolsRequest{GroupId: "default"}))
+	if err != nil || len(hostedPools.Msg.GetPools()) != 0 {
+		t.Fatalf("Default is not stored in hosted pools: %v, %v", hostedPools, err)
 	}
-	pools, err := client.ListMiningGroupPools(ctx, connect.NewRequest(&mdk.ListMiningGroupPoolsRequest{GroupId: "default"}))
+	poolClient := mdkv2connect.NewPoolServiceClient(http.DefaultClient, srv.URL)
+	pools, err := poolClient.ListPools(ctx, connect.NewRequest(&mdk.ListPoolsRequest{}))
 	if err != nil || len(pools.Msg.GetPools()) != 1 || pools.Msg.Pools[0].Username != username {
 		t.Fatalf("pools = %v, %v", pools, err)
 	}
-	// Inspection must not accidentally expose the native mutation workflow.
-	_, err = client.CreateMiningGroup(ctx, connect.NewRequest(&mdk.CreateMiningGroupRequest{IdempotencyKey: "not-exposed"}))
+	// Other group controls remain outside the browser pool workflow.
+	_, err = client.SetPoolConnectionSharingEnabled(ctx, connect.NewRequest(&mdk.SetPoolConnectionSharingEnabledRequest{}))
 	if connect.CodeOf(err) != connect.CodeUnimplemented {
-		t.Fatalf("CreateMiningGroup = %v, want Unimplemented", err)
+		t.Fatalf("SetPoolConnectionSharingEnabled = %v, want Unimplemented", err)
 	}
 }
 
@@ -470,5 +470,109 @@ func TestConnectServesModulePowerFeedReads(t *testing.T) {
 	}
 	if cycle.Msg.GetCycle() != nil {
 		t.Fatalf("unexpected recovery cycle: %v", cycle.Msg.GetCycle())
+	}
+}
+
+func TestConnectSelectedBoardPoolAssignment(t *testing.T) {
+	srv, state := newConnectTestServer(t)
+	ctx := t.Context()
+	client := mdkv2connect.NewMiningGroupServiceClient(http.DefaultClient, srv.URL)
+	mining := mdkv2connect.NewMiningServiceClient(http.DefaultClient, srv.URL)
+	mode, err := client.GetMiningGroupCapability(ctx, connect.NewRequest(&mdk.GetMiningGroupCapabilityRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = mining.StopMining(ctx, connect.NewRequest(&mdk.StopMiningRequest{})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = client.ActivateMiningGroups(ctx, connect.NewRequest(&mdk.ActivateMiningGroupsRequest{ExpectedStateRevision: mode.Msg.Capability.StateRevision, IdempotencyKey: "local-activate"})); err != nil {
+		t.Fatal(err)
+	}
+	ref := "proto-os:pools:local-test"
+	created, err := client.CreateMiningGroup(ctx, connect.NewRequest(&mdk.CreateMiningGroupRequest{Metadata: &mdk.MiningGroupMetadata{Name: "Local pools", ExternalRef: &ref}, IdempotencyKey: "local-create"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	password := "local-secret"
+	configured, err := client.ReplaceMiningGroupPools(ctx, connect.NewRequest(&mdk.ReplaceMiningGroupPoolsRequest{GroupId: created.Msg.Group.Id, ExpectedRevision: created.Msg.Group.Revision, IdempotencyKey: "local-pools", Pools: []*mdk.MiningGroupPoolInput{{Pool: &mdk.MiningGroupPoolRecord{Name: "Primary", Url: "stratum+tcp://local.example:3333", Username: "account.region.worker-01", Enabled: true}, Password: &password}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configured.Msg.Pools[0].Id <= 3 {
+		t.Fatalf("new pool ID %d overlaps legacy pools", configured.Msg.Pools[0].Id)
+	}
+
+	started, err := client.UpdateMiningGroupIntent(ctx, connect.NewRequest(&mdk.UpdateMiningGroupIntentRequest{Id: configured.Msg.Group.Id, ExpectedRevision: configured.Msg.Group.Revision, DesiredMining: true, UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"desired_mining"}}, IdempotencyKey: "local-start"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := client.GetMiningGroup(ctx, connect.NewRequest(&mdk.GetMiningGroupRequest{Id: "default"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mac := strings.ToLower(state.eachBoard()[0].MAC)
+	moved, err := client.RequestMiningGroupTransfer(ctx, connect.NewRequest(&mdk.RequestMiningGroupTransferRequest{SourceGroupId: "default", DestinationGroupId: started.Msg.Group.Id, SourceExpectedRevision: source.Msg.Group.Revision, DestinationExpectedRevision: started.Msg.Group.Revision, MacAddresses: []string{mac}, IdempotencyKey: "local-transfer"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation, err := client.GetMiningGroupOperation(ctx, connect.NewRequest(&mdk.GetMiningGroupOperationRequest{Id: moved.Msg.Operation.Id}))
+	if err != nil || operation.Msg.GetOperation().GetPhase() != "COMPLETE" {
+		t.Fatalf("transfer status: %v, %v", operation, err)
+	}
+	diagnostics, err := client.GetMiningGroupPoolDiagnostics(ctx, connect.NewRequest(&mdk.GetMiningGroupPoolDiagnosticsRequest{GroupId: started.Msg.Group.Id}))
+	if err != nil || len(diagnostics.Msg.GetPools()) != 1 || diagnostics.Msg.Pools[0].PoolId != int64(configured.Msg.Pools[0].Id) {
+		t.Fatalf("scoped diagnostics: %v, %v", diagnostics, err)
+	}
+
+	members, err := (&grpcAPI{state: state}).ListMiningGroupMemberships(ctx, &mdk.ListMiningGroupMembershipsRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, member := range members.Memberships {
+		want := "default"
+		if member.MacAddress == mac {
+			want = started.Msg.Group.Id
+		}
+		if member.GroupId != want {
+			t.Fatalf("%s assigned to %s; want %s", member.MacAddress, member.GroupId, want)
+		}
+	}
+	pools, err := client.ListMiningGroupPools(ctx, connect.NewRequest(&mdk.ListMiningGroupPoolsRequest{GroupId: started.Msg.Group.Id}))
+	if err != nil || pools.Msg.GetPools()[0].Username != "account.region.worker-01" {
+		t.Fatalf("pool readback: %v, %v", pools, err)
+	}
+}
+
+func TestConnectPoolConfigurationMetadata(t *testing.T) {
+	srv, _ := newConnectTestServer(t)
+	ctx := t.Context()
+	client := mdkv2connect.NewMiningGroupServiceClient(http.DefaultClient, srv.URL)
+	mode, err := client.GetMiningGroupCapability(ctx, connect.NewRequest(&mdk.GetMiningGroupCapabilityRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mining := mdkv2connect.NewMiningServiceClient(http.DefaultClient, srv.URL)
+	if _, err := mining.StopMining(ctx, connect.NewRequest(&mdk.StopMiningRequest{})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.ActivateMiningGroups(ctx, connect.NewRequest(&mdk.ActivateMiningGroupsRequest{ExpectedStateRevision: mode.Msg.Capability.StateRevision, IdempotencyKey: "catalog-activate"})); err != nil {
+		t.Fatal(err)
+	}
+	created, err := client.CreateMiningGroup(ctx, connect.NewRequest(&mdk.CreateMiningGroupRequest{Metadata: &mdk.MiningGroupMetadata{Name: "Original"}, IdempotencyKey: "catalog-create"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	renamed, err := client.UpdateMiningGroup(ctx, connect.NewRequest(&mdk.UpdateMiningGroupRequest{Id: created.Msg.Group.Id, ExpectedRevision: created.Msg.Group.Revision, Metadata: &mdk.MiningGroupMetadata{Name: "Renamed"}, UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"name"}}, IdempotencyKey: "catalog-rename"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if renamed.Msg.Group.Name != "Renamed" {
+		t.Fatalf("name = %q", renamed.Msg.Group.Name)
+	}
+	if _, err := client.DeleteMiningGroup(ctx, connect.NewRequest(&mdk.DeleteMiningGroupRequest{Id: renamed.Msg.Group.Id, ExpectedRevision: renamed.Msg.Group.Revision, IdempotencyKey: "catalog-delete"})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.GetMiningGroup(ctx, connect.NewRequest(&mdk.GetMiningGroupRequest{Id: renamed.Msg.Group.Id})); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("deleted configuration: %v", err)
 	}
 }

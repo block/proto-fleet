@@ -28,6 +28,7 @@ type simulatedGroups struct {
 	receipts                map[string]sdk.MiningGroupResult
 	calls                   []sdk.MiningGroupRequest
 	lostCreate              bool
+	loseReplaceAck          bool
 	transfer                *sdk.MiningGroupRequest
 	created                 int
 	runtimePoolsRemain      bool
@@ -48,6 +49,16 @@ func (m *simulatedGroups) MiningGroups(_ context.Context, r sdk.MiningGroupReque
 	}
 	result := sdk.MiningGroupResult{}
 	switch r.Action {
+	case sdk.MiningGroupReadDefault:
+		if group, found := defaultGroup(m.snapshot); found {
+			if group.Pools == nil {
+				group.Pools = []sdk.MiningGroupPool{}
+			}
+			if len(r.DefaultURLSigningKey) != 0 {
+				group.DefaultURLFingerprint, _ = digest(group.Pools)
+			}
+			result.Group = &group
+		}
 	case "create":
 		id := "fleet-group"
 		if m.created > 0 {
@@ -129,6 +140,10 @@ func (m *simulatedGroups) MiningGroups(_ context.Context, r sdk.MiningGroupReque
 		m.lostCreate = true
 		return sdk.MiningGroupResult{}, fmt.Errorf("response lost after commit")
 	}
+	if r.Action == "replace_pools" && m.loseReplaceAck {
+		m.loseReplaceAck = false
+		return sdk.MiningGroupResult{}, fmt.Errorf("pool response lost after commit")
+	}
 	return result, nil
 }
 func TestDurableGroupReconciliationRecoversLostReplyAndWaitsForTransfer(t *testing.T) {
@@ -167,7 +182,7 @@ func testDurableGroupReconciliation(t *testing.T, archive bool) {
 	pools := hostedaccounts.NewPoolService(hostedaccounts.NewService(conn, nil), secrets, nil, nil)
 	password := "private-password"
 	config := seedLegacyHostPoolRevision(t, ctx, sqlc.New(conn), secrets, user.OrganizationID, poolconfigurations.RevisionOptions{Name: "Customer pools", Slots: []poolconfigurations.SlotOptions{{URL: "stratum+tcp://primary.example:3333", Username: "customer.worker", Password: &password}, {URL: "stratum+tcp://backup.example:3333", Username: "customer.worker"}}})
-	firmware := &simulatedGroups{snapshot: sdk.MiningGroupResult{Supported: true, Enabled: true, Revision: 1, MaxGroups: 289, Groups: []sdk.MiningGroup{{ID: "default", Revision: 1, MACs: []string{"02:00:00:00:00:01", "02:00:00:00:00:02"}}}}, receipts: map[string]sdk.MiningGroupResult{}}
+	firmware := &simulatedGroups{snapshot: sdk.MiningGroupResult{Supported: true, Enabled: true, Revision: 1, MaxGroups: 289, Groups: []sdk.MiningGroup{{ID: "default", Revision: 1, MACs: []string{"02:00:00:00:00:01", "02:00:00:00:00:02"}}}}, receipts: map[string]sdk.MiningGroupResult{}, loseReplaceAck: true}
 	service := NewService(conn, firmware, pools, secrets)
 	state, err := service.GetState(ctx, controller.ID)
 	require.NoError(t, err)
@@ -236,14 +251,21 @@ func testDurableGroupReconciliation(t *testing.T, archive bool) {
 	require.Equal(t, []string{"02:00:00:00:00:02"}, firmware.snapshot.Groups[0].MACs)
 	require.Equal(t, []string{"02:00:00:00:00:01"}, firmware.snapshot.Groups[1].MACs)
 	require.Len(t, firmware.snapshot.Groups[1].Pools, 2)
-	var creates []sdk.MiningGroupRequest
+	var creates, replacements []sdk.MiningGroupRequest
 	for _, call := range firmware.calls {
-		if call.Action == "create" {
+		switch call.Action {
+		case "create":
 			creates = append(creates, call)
+		case "replace_pools":
+			replacements = append(replacements, call)
 		}
 	}
 	require.Len(t, creates, 2)
 	require.Equal(t, creates[0].Key, creates[1].Key)
+	require.Len(t, replacements, 2)
+	require.Equal(t, []int32{0, 0}, replacements[0].PoolIDs)
+	require.Equal(t, []string{"Pool 1", "Pool 2"}, replacements[0].PoolNames)
+	require.Equal(t, replacements[0], replacements[1])
 	_, err = service.submitLegacyRequest(ctx, controller.ID, requestID, config.RevisionID, []int64{board + 1}, state.Record.Revision)
 	require.Error(t, err)
 	var privateSlots string
@@ -287,6 +309,21 @@ func testDurableGroupReconciliation(t *testing.T, archive bool) {
 	require.NoError(t, conn.QueryRowContext(ctx, `SELECT status FROM device_write_attempt WHERE attempt_id=$1`, state.Record.AttemptID.UUID).Scan(&status))
 	require.Equal(t, "complete", status)
 
+}
+
+func TestMiningGroupReplacementPreservesNamesAfterReorder(t *testing.T) {
+	existing := []sdk.MiningGroupPool{
+		{ID: 1, Name: "Pool 1", Priority: 1},
+		{ID: 2, Name: "Pool 2", Priority: 0},
+	}
+	ids, names := replacementPoolSlots(existing, 2)
+	require.Equal(t, []int32{2, 1}, ids)
+	require.Equal(t, []string{"Pool 2", "Pool 1"}, names)
+
+	existing[0].Name = "Pool 3"
+	ids, names = replacementPoolSlots(existing, 3)
+	require.Equal(t, []int32{2, 1, 0}, ids)
+	require.Equal(t, []string{"Pool 2", "Pool 3", "Pool 3 (2)"}, names)
 }
 
 // seedLegacyHostPoolRevision models an encrypted pre-cutover revision retained by

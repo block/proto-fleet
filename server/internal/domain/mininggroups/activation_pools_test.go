@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/poolapplications"
@@ -24,6 +25,7 @@ type activationPoolMiner struct {
 	stored         []dto.MiningPool
 	writes         int
 	loseActivation bool
+	loseResume     bool
 	observeErr     bool
 	running        bool
 	beforeCall     func(context.Context, sdk.MiningGroupRequest)
@@ -67,6 +69,15 @@ func (m *activationPoolMiner) MiningGroups(ctx context.Context, r sdk.MiningGrou
 		}
 	case "mining_status":
 		return sdk.MiningGroupResult{MiningStatus: &sdk.MiningGroupMiningStatus{Mining: m.running}}, nil
+	case sdk.MiningGroupReadDefault:
+		group, found := defaultGroup(m.snapshot)
+		if !found {
+			group = sdk.MiningGroup{ID: "default", Revision: m.snapshot.Revision}
+		}
+		if !m.snapshot.Enabled {
+			group.Mining = m.running
+		}
+		return sdk.MiningGroupResult{Group: &group}, nil
 	case "stop_legacy":
 		m.running = false
 		return sdk.MiningGroupResult{StopRequested: true}, nil
@@ -82,6 +93,19 @@ func (m *activationPoolMiner) MiningGroups(ctx context.Context, r sdk.MiningGrou
 			return sdk.MiningGroupResult{}, errors.New("activation reply lost")
 		}
 		return sdk.MiningGroupResult{Enabled: true}, nil
+	case "start":
+		if r.GroupID == "default" {
+			group := &m.snapshot.Groups[0]
+			if !group.Mining && group.Revision > r.Revision {
+				return sdk.MiningGroupResult{Group: group, DefaultResumeSuperseded: true}, nil
+			}
+			if m.loseResume {
+				m.loseResume = false
+				group.Mining = true
+				group.Revision++
+				return sdk.MiningGroupResult{}, errors.New("Default restart reply lost")
+			}
+		}
 	}
 	return m.simulatedGroups.MiningGroups(ctx, r)
 }
@@ -560,6 +584,58 @@ func TestActivationPoolHandoffRejectsDuplicateBoardIdentity(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.service.Activate(ctx, f.target.DeviceIdentifier, uuid.NewString())
 	require.ErrorContains(t, err, "ambiguous")
+	require.Equal(t, "idle", f.state(t).Status)
+}
+
+func TestActivationReleasesWorkflowWhenDefaultResumeIsSuperseded(t *testing.T) {
+	ctx, f, miner, _, _, _, _ := newActivationPoolFixture(t)
+	miner.running = true
+	miner.loseResume = true
+	_, err := f.service.Activate(ctx, f.target.DeviceIdentifier, uuid.NewString())
+	require.NoError(t, err)
+	f.prepareActivation(t, ctx)
+	f.reconcile(t, ctx) // Activate.
+	f.reconcile(t, ctx) // Prepare Default resume.
+	f.reconcile(t, ctx) // Resume commits. Fleet loses the reply.
+	require.True(t, miner.snapshot.Groups[0].Mining)
+	require.True(t, f.state(t).Step.Valid)
+	miner.snapshot.Groups[0].Mining = false
+	miner.snapshot.Groups[0].Revision++
+	f.reconcile(t, ctx)
+	state := f.state(t)
+	require.Equal(t, statusComplete, state.Status)
+	require.Contains(t, state.Message, "remains stopped")
+	require.False(t, state.Step.Valid)
+	require.False(t, miner.snapshot.Groups[0].Mining)
+}
+
+func TestActivationDoesNotResumeAgainAfterAcknowledgedStart(t *testing.T) {
+	ctx, f, miner, _, _, _, _ := newActivationPoolFixture(t)
+	miner.running = true
+	_, err := f.service.Activate(ctx, f.target.DeviceIdentifier, uuid.NewString())
+	require.NoError(t, err)
+	f.prepareActivation(t, ctx)
+	f.reconcile(t, ctx) // Activate.
+	f.reconcile(t, ctx) // Prepare Default resume.
+	f.reconcile(t, ctx) // Resume is acknowledged.
+	require.True(t, miner.snapshot.Groups[0].Mining)
+	require.False(t, f.state(t).Step.Valid)
+
+	miner.snapshot.Groups[0].Mining = false
+	miner.snapshot.Groups[0].Revision++
+	f.reconcile(t, ctx)
+	require.Equal(t, statusComplete, f.state(t).Status)
+	require.False(t, miner.snapshot.Groups[0].Mining)
+}
+
+func TestActivationChecksPermissionsBeforeReadingDefault(t *testing.T) {
+	ctx, f, miner, _, _, _, _ := newActivationPoolFixture(t)
+	setMiningGroupPermissions(t, ctx, f, []string{authz.PermSiteRead, authz.PermFleetRead, authz.PermMinerRead})
+	miner.beforeCall = func(_ context.Context, r sdk.MiningGroupRequest) {
+		require.NotEqual(t, sdk.MiningGroupReadDefault, r.Action)
+	}
+	_, err := f.service.Activate(ctx, f.target.DeviceIdentifier, uuid.NewString())
+	require.ErrorContains(t, err, "permission to manage this container is required")
 	require.Equal(t, "idle", f.state(t).Status)
 }
 

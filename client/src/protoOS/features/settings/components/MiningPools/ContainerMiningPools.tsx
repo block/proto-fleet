@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MiningGroupConfiguration from "./MiningGroupConfiguration";
 import MiningGroupOperations from "./MiningGroupOperations";
+import PoolConfigurationLibrary from "./PoolConfigurationLibrary";
 import ReadOnlyMiningPools from "./ReadOnlyMiningPools";
 import { isAuthenticationError } from "@/protoOS/api/adapters/errors";
 import { type ContainerPoolConfiguration, hasPendingPoolOperations } from "@/protoOS/api/adapters/poolConfiguration";
+import { validateContainerPoolURL } from "@/protoOS/api/adapters/poolURL";
 import type { MinerAdapter, SavedPoolSettings } from "@/protoOS/api/adapters/types";
 import Pools from "@/protoOS/components/MiningPools/Pools";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import useMinerStore from "@/protoOS/store/useMinerStore";
 import { Alert } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
 import Callout, { intents } from "@/shared/components/Callout";
@@ -25,23 +28,9 @@ const readFailureMessage = (error: unknown) => {
   return error instanceof Error ? error.message : POOL_READ_FAILED;
 };
 
-// CT1's ParsePoolURL also accepts host:port shorthand and DATUM gateways.
-const validateContainerPoolURL = (value: string): string | undefined => {
-  const url = value.trim();
-  try {
-    const parsed = new URL(url.includes("://") ? url : `stratum+tcp://${url}`);
-    if (!["stratum+tcp:", "stratum+ssl:", "tcp:", "ssl:", "datum:"].includes(parsed.protocol)) {
-      return "Use stratum+tcp://, stratum+ssl://, tcp://, ssl://, datum://, or host:port.";
-    }
-    if (parsed.hostname) return undefined;
-  } catch {
-    // Invalid addresses cannot be submitted to the container.
-  }
-  return "Enter a valid pool host or IP address.";
-};
-
 const ContainerMiningPools = () => {
   const { adapter } = useMinerHosting();
+  const connectionGeneration = useMinerStore((state) => state.connectionGeneration);
   const [snapshot, setSnapshot] = useState<{
     adapter: MinerAdapter;
     pools: SavedPoolSettings[];
@@ -173,6 +162,19 @@ const ContainerMiningPools = () => {
       /* The page displays the reconciled mutation error. */
     });
   };
+
+  if (configuration?.mode === "groups" && adapter?.poolAssignment && !unavailable)
+    return (
+      <>
+        <MiningGroupOperations operations={configuration.pendingOperations} />
+        <PoolConfigurationLibrary
+          key={`${connectionGeneration}:${revision}`}
+          service={adapter.poolAssignment}
+          configuration={configuration}
+          onReload={reloadPools}
+        />
+      </>
+    );
 
   return (
     <>

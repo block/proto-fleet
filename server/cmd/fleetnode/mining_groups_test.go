@@ -18,7 +18,7 @@ func TestMiningGroupsNodeRejectsPlaintextAndMismatchedCredentials(t *testing.T) 
 	require.NoError(t, err)
 	encrypted, err := poolconfig.Encrypt(public, "ct1", &pb.MiningPoolWriteConfiguration{Pools: []*pb.MiningPoolWriteConfig{{Url: "stratum+tcp://pool.example:3333", Username: "worker", Password: proto.String("private")}}})
 	require.NoError(t, err)
-	request := sdk.MiningGroupRequest{Action: "replace_pools", GroupID: "g", Key: "key", Revision: 1, Pools: []sdk.MiningGroupPoolInput{{URL: "stratum+tcp://pool.example:3333", Username: "worker"}}}
+	request := sdk.MiningGroupRequest{Action: "replace_pools", GroupID: "g", Key: "key", Revision: 1, PoolIDs: []int32{42}, PoolNames: []string{"Pool 2"}, Pools: []sdk.MiningGroupPoolInput{{URL: "stratum+tcp://pool.example:3333", Username: "worker"}}}
 	payload, err := json.Marshal(request)
 	require.NoError(t, err)
 	action := &pb.MiningGroupsAction{Request: payload, EncryptedPools: encrypted}
@@ -27,6 +27,8 @@ func TestMiningGroupsNodeRejectsPlaintextAndMismatchedCredentials(t *testing.T) 
 	prepared, err := newMiningGroupsCommand(private, target, command)
 	require.NoError(t, err)
 	require.Equal(t, "private", prepared.request.Pools[0].Password)
+	require.Equal(t, request.PoolIDs, prepared.request.PoolIDs)
+	require.Equal(t, request.PoolNames, prepared.request.PoolNames)
 	request.Pools[0].Username = "different"
 	action.Request, err = json.Marshal(request)
 	require.NoError(t, err)

@@ -117,18 +117,34 @@ containing this feature before operators can use it on-device.
 ### CT1 local pool configuration
 
 On a direct CT1 connection, **Settings → Pools** reads mining-group mode before
-offering container-wide edits. When groups are enabled, the page shows group
-membership, reported board locations, pending changes, and assignment issues.
-Open a group to read its configured pools, complete usernames, enabled state,
-priority, and any saved weights. Pool details load on demand. These are
-controller-reported settings, not proof that every board has applied them.
-Frigate stores the complete pool username; ProtoOS does not extract or infer a
-separate worker name.
+offering container-wide edits. With groups enabled, the page uses Fleet's shared
+configuration library table and details view. It shows named configurations,
+the primary pool, backup count, and assigned equipment count. It does not list
+groups or hashboards. The table shows 25 configurations per page. **Create
+configuration** saves an unused local pool set. **Edit configuration** uses the
+same primary/backup form as Fleet. Save configuration checks the current pool
+settings and assigned boards before writing. Existing passwords can be preserved only when the
+pool ID, URL, and complete username still match. **Delete configuration** requires
+an unused configuration that is neither Default nor managed elsewhere. It also requires
+the current revision. Fleet-owned and older configurations
+can be edited without changing their external reference, power or tuning policy,
+disabled pools, or pool weights. Configuration and membership changes invalidate
+the save; group writes also require the current controller revision.
 
-Hashboard counts stay visible on each group. **View hashboards** opens a separate
-list with search by MAC address or location and 25 rows per page. Boards sort by
-tank, module, and board number, with unknown locations last. Paging limits rows
-rendered in the browser; the controller still returns all assignment records.
+Default uses the same editor and the controller's legacy PoolService. Its name
+is fixed and it cannot be deleted. This API writes one pool at a time, so the
+client checks current settings before each write and stops on a conflict. A
+partial save or missing acknowledgement is reported as unconfirmed and is not
+retried automatically. Existing passwords can be kept or replaced, but this API
+cannot clear a saved password. Fleet's pairing-default action has no CT1
+equivalent, so ProtoOS does not show Set as default.
+
+Library catalogue reads are bounded and do not fetch the board inventory. The
+initial mode read keeps the existing configuration snapshot. Moving boards requires
+a current inventory read. Configuration deletion checks group membership.
+Controller-reported settings do not
+prove that every board has applied them. Frigate stores the complete pool username;
+ProtoOS does not extract or infer a separate worker name.
 
 Container-wide edits remain available when the controller reports the supported
 group protocol with groups disabled, no suspension, and no pending group change.
@@ -153,8 +169,60 @@ If the controller does not support the group protocol, saved container pools
 remain visible in a read-only list. Other capability-read failures keep the page
 unavailable. Pool reads time out after ten seconds so **Reload pools** stays usable.
 Use **Reload pools** to refresh the configuration.
-Group edits and transfers are not offered by this view. Fleet-hosted ProtoOS
-keeps its existing read-only pool view; hosted assignments are managed in Fleet.
+In **Modules**, choose **Edit
+pool** from a module's actions or the selected-module action bar. Module details
+also support selecting board cards before **Edit pool**, or editing one board
+from its actions. Module selection captures its currently reported physical
+boards.
+
+ProtoOS reuses Fleet's configuration picker table, primary/backup form, and
+modal presentation. It opens **Edit pool** directly without Fleet's password
+step. Choose a named configuration or **New pool configuration**. Saving a new
+configuration creates an unused local pool set and returns to the picker.
+**Assign** reviews the exact equipment and applies the selected configuration.
+Users never create mining groups themselves. ProtoOS handles groups behind the
+flow. Saved sets are reused by identity, never by guessing passwords from public
+URLs and usernames. Complete usernames are applied as entered. Pool passwords
+remain in memory until their write; recovery records contain no passwords.
+
+Local writes are available only on direct CT1 Connect connections. They may move
+boards from Default or groups without an external owner reference. Fleet-owned
+assignments cannot be moved here, but their pool configurations can be edited
+after checking all affected hashboards. Moves from groups with custom power or
+tuning policy are refused here. Isolated boards and mixed running/stopped selections
+are also refused. Each write respects the reported limits and uses
+revision checks. Existing mining intent is preserved. If groups are disabled,
+the review explains that all container mining must stop for activation; the
+previous default intent is restored before selected boards move.
+
+A nonsecret recovery record is stored per controller and attempt in the browser.
+**Pool assignment status** on Modules restores it after reload. Recovery only
+reads status, membership, and pool records; it never replays writes. A missing
+credential-write acknowledgement remains uncertain even when public pool fields
+match. Long-running transfers keep their status record; partial or failed changes
+require a fresh review for any remaining boards. Saved configuration and membership
+do not prove that every board has applied the settings.
+
+Fleet-hosted ProtoOS keeps its existing read-only pool view; hosted assignments
+are managed in Fleet.
+
+### CT1 configuration statistics
+
+With mining groups enabled on a direct CT1 connection, **Pools** lists the named
+configurations currently assigned to hashboards. It shows each configuration's
+active pool, assigned count, and share totals for the selected period. Open a row
+to use the existing Primary/Backup statistics view for that configuration.
+Saved configurations without equipment stay in **Settings → Pools**.
+
+Only the current page (25 configurations) or selected configuration loads pool
+readings and history. History joins by controller-assigned global pool IDs, never
+by endpoint, username, or the Primary/Backup label. Acceptance rate is computed
+from summed share counts. Missing pool history leaves the aggregate unavailable;
+partial coverage stays labeled. Group connection status uses scoped diagnostics,
+with reporting-board coverage shown when incomplete. Missing scoped diagnostics
+remain unknown and never fall back to Default's readings. CT1 labels complete
+pool credentials **Username**. R2 and Fleet-hosted pool statistics keep their
+existing flow. CT1 with groups disabled also keeps the legacy statistics layout.
 
 ### CT1 local hashboard mapping
 

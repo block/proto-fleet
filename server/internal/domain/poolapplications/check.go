@@ -189,6 +189,9 @@ func (c *Checker) CheckConfiguration(ctx context.Context, p poolconfigurations.P
 				if err != nil {
 					return nil //nolint:nilerr // Persist the unavailable observation without exposing driver errors.
 				}
+				observed = sdk.WithDefaultMiningPools(observed, func() (sdk.MiningGroup, error) {
+					return sdk.ReadDefaultMiningGroup(ctx, groups)
+				}, boards[0].MacAddress)
 				if configID == "" {
 					readback := reportedBoardPools(observed, boards[0].MacAddress)
 					if wholeContainerPoolMode(observed) {
@@ -277,6 +280,9 @@ func reportedBoardPools(observed sdk.MiningGroupResult, mac string) boardPoolRea
 	for _, group := range observed.Groups {
 		if !slices.Contains(group.MACs, mac) {
 			continue
+		}
+		if group.ID == "default" && group.Pools == nil {
+			return result
 		}
 		found++
 		result.UnsupportedPolicy = result.UnsupportedPolicy || group.CustomPolicy

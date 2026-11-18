@@ -124,8 +124,44 @@ func (a *connectAPI) ListMiningGroupPools(ctx context.Context, req *connect.Requ
 	return connectResult(a.native.ListMiningGroupPools(ctx, req.Msg))
 }
 
+func (a *connectAPI) GetMiningGroupPoolDiagnostics(ctx context.Context, req *connect.Request[mdk.GetMiningGroupPoolDiagnosticsRequest]) (*connect.Response[mdk.GetMiningGroupPoolDiagnosticsResponse], error) {
+	return connectResult(a.native.GetMiningGroupPoolDiagnostics(ctx, req.Msg))
+}
+
 func (a *connectAPI) GetMiningGroup(ctx context.Context, req *connect.Request[mdk.GetMiningGroupRequest]) (*connect.Response[mdk.GetMiningGroupResponse], error) {
 	return connectResult(a.native.GetMiningGroup(ctx, req.Msg))
+}
+
+func (a *connectAPI) UpdateMiningGroup(ctx context.Context, req *connect.Request[mdk.UpdateMiningGroupRequest]) (*connect.Response[mdk.UpdateMiningGroupResponse], error) {
+	return connectResult(a.native.UpdateMiningGroup(ctx, req.Msg))
+}
+
+func (a *connectAPI) DeleteMiningGroup(ctx context.Context, req *connect.Request[mdk.DeleteMiningGroupRequest]) (*connect.Response[mdk.DeleteMiningGroupResponse], error) {
+	return connectResult(a.native.DeleteMiningGroup(ctx, req.Msg))
+}
+
+func (a *connectAPI) CreateMiningGroup(ctx context.Context, req *connect.Request[mdk.CreateMiningGroupRequest]) (*connect.Response[mdk.CreateMiningGroupResponse], error) {
+	return connectResult(a.native.CreateMiningGroup(ctx, req.Msg))
+}
+
+func (a *connectAPI) ActivateMiningGroups(ctx context.Context, req *connect.Request[mdk.ActivateMiningGroupsRequest]) (*connect.Response[mdk.ActivateMiningGroupsResponse], error) {
+	return connectResult(a.native.ActivateMiningGroups(ctx, req.Msg))
+}
+
+func (a *connectAPI) ReplaceMiningGroupPools(ctx context.Context, req *connect.Request[mdk.ReplaceMiningGroupPoolsRequest]) (*connect.Response[mdk.ReplaceMiningGroupPoolsResponse], error) {
+	return connectResult(a.native.ReplaceMiningGroupPools(ctx, req.Msg))
+}
+
+func (a *connectAPI) UpdateMiningGroupIntent(ctx context.Context, req *connect.Request[mdk.UpdateMiningGroupIntentRequest]) (*connect.Response[mdk.UpdateMiningGroupIntentResponse], error) {
+	return connectResult(a.native.UpdateMiningGroupIntent(ctx, req.Msg))
+}
+
+func (a *connectAPI) RequestMiningGroupTransfer(ctx context.Context, req *connect.Request[mdk.RequestMiningGroupTransferRequest]) (*connect.Response[mdk.RequestMiningGroupTransferResponse], error) {
+	return connectResult(a.native.RequestMiningGroupTransfer(ctx, req.Msg))
+}
+
+func (a *connectAPI) GetMiningGroupOperation(ctx context.Context, req *connect.Request[mdk.GetMiningGroupOperationRequest]) (*connect.Response[mdk.GetMiningGroupOperationResponse], error) {
+	return connectResult(a.native.GetMiningGroupOperation(ctx, req.Msg))
 }
 
 func (a *connectAPI) GetTargetPower(ctx context.Context, req *connect.Request[mdk.GetTargetPowerRequest]) (*connect.Response[mdk.GetTargetPowerResponse], error) {

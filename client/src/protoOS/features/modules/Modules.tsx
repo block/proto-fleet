@@ -18,6 +18,8 @@ import { useModuleActions } from "./useModuleActions";
 import type { TelemetryLevel } from "@/protoOS/api/adapters/types";
 import { useTelemetry } from "@/protoOS/api/hooks/useTelemetry";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { modulePoolTarget } from "@/protoOS/features/poolAssignment/targets";
+import { usePoolAssignmentActions } from "@/protoOS/features/poolAssignment/usePoolAssignmentActions";
 import ModuleModal from "@/protoOS/features/tanks/components/ModuleModal/ModuleModal";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 import {
@@ -57,6 +59,11 @@ const Modules = () => {
     [topology, telemetry, errorsByOwner],
   );
   const actions = useModuleActions(rows, topology);
+  const poolActions = usePoolAssignmentActions();
+  const actionsFor = (ids: string[]) => [
+    ...actions.actionsFor(ids),
+    ...poolActions.action(topology?.kind === "container" ? modulePoolTarget(topology, ids) : undefined),
+  ];
   const filterOptions = useMemo(() => moduleFilters(rows), [rows]);
   const visibleRows = useMemo(
     () =>
@@ -106,15 +113,17 @@ const Modules = () => {
     );
   return (
     <>
+      {poolActions.dialog}
       <section
         aria-label="Module inventory"
-        inert={!!moduleId || !!actions.request}
+        inert={!!moduleId || !!actions.request || poolActions.open}
         className="w-max min-w-full pt-6 pb-28 laptop:pt-10"
       >
         <div className="sticky left-0 w-[100cqw] px-6 tablet:px-10 laptop:px-14">
           <h1 ref={heading} tabIndex={-1} className="mb-4 text-heading-300">
             Modules
           </h1>
+          {poolActions.recoveryButton}
           {error ? (
             <p role="alert" className="mb-4 text-300 text-text-critical">
               Could not refresh module readings. Displayed values may be out of date.
@@ -138,7 +147,7 @@ const Modules = () => {
             name: {
               ...moduleColConfig.name!,
               component: (row) => (
-                <ModuleName row={row} actions={actions.actionsFor([row.id])} onViewErrors={() => openModule(row)} />
+                <ModuleName row={row} actions={actionsFor([row.id])} onViewErrors={() => openModule(row)} />
               ),
             },
           }}
@@ -166,8 +175,8 @@ const Modules = () => {
             <ModuleActionBar
               selected={selected}
               clear={clear}
-              actions={actions.actionsFor(selected)}
-              hidden={!!moduleId || !!actions.request}
+              actions={actionsFor(selected)}
+              hidden={!!moduleId || !!actions.request || poolActions.open}
             />
           )}
           onRowClick={openModule}

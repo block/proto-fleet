@@ -16,6 +16,8 @@ func TestMiningGroupRequestRejectsIgnoredAndUnsafeFields(t *testing.T) {
 		{Action: "transfer", Key: "k", GroupID: "g", Revision: 1, MACs: []string{"02:00:00:00:00:01", "02:00:00:00:00:01"}},
 		{Action: "transfer", Key: "k", GroupID: "g", Revision: 1, MACs: []string{"module-1"}},
 		{Action: "start", Key: "k", GroupID: "g", Revision: 1, Pools: []MiningGroupPoolInput{{}}},
+		{Action: "clear_pools", Key: "k", GroupID: "g", Revision: 1, PoolIDs: []int32{0}},
+		{Action: "clear_pools", Key: "k", GroupID: "g", Revision: 1, PoolNames: []string{"Pool 1"}},
 		{Action: "replace_pools", Key: "k", GroupID: "g", Revision: 1, Pools: []MiningGroupPoolInput{{URL: "stratum+ssl://pool.example:3333", Username: "u"}}},
 	} {
 		require.Error(t, r.Validate(), "%s", r.Action)
@@ -24,13 +26,26 @@ func TestMiningGroupRequestRejectsIgnoredAndUnsafeFields(t *testing.T) {
 	require.Error(t, err)
 	_, err = DecodeMiningGroupRequest([]byte(`{"action":"observe"}{}`))
 	require.Error(t, err)
-	r := MiningGroupRequest{Action: "replace_pools", Key: "k", GroupID: "g", Revision: 1, Pools: []MiningGroupPoolInput{{URL: "stratum+tcp://pool.example:3333", Username: "u", Password: "secret"}}}
+	r := MiningGroupRequest{Action: "replace_pools", Key: "k", GroupID: "g", Revision: 1, PoolIDs: []int32{0}, PoolNames: []string{"Pool 2"}, Pools: []MiningGroupPoolInput{{URL: "stratum+tcp://pool.example:3333", Username: "u", Password: "secret"}}}
 	require.NotContains(t, fmt.Sprintf("%+v %#v", r, r), "secret")
 	data, err := json.Marshal(r)
 	require.NoError(t, err)
 	decoded, err := DecodeMiningGroupRequest(data)
 	require.NoError(t, err)
 	require.Equal(t, r, decoded)
+	r.PoolIDs = nil
+	require.Error(t, r.Validate())
+	r.PoolNames = nil
+	r.PoolIDs = []int32{-1}
+	require.Error(t, r.Validate())
+	r.PoolIDs = []int32{1, 2}
+	require.Error(t, r.Validate())
+	r.Pools = append(r.Pools, r.Pools[0])
+	r.PoolIDs = []int32{1, 1}
+	require.Error(t, r.Validate())
+	r.PoolIDs = []int32{1, 2}
+	r.PoolNames = []string{"Pool 2", "Pool 2"}
+	require.Error(t, r.Validate())
 }
 
 func TestMiningGroupActivationLifecycleContract(t *testing.T) {

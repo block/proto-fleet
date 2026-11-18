@@ -7,6 +7,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/poolconfig"
+	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -37,6 +38,18 @@ func TestMiningGroupsRequiresV6AndEncryptsEveryPoolPassword(t *testing.T) {
 	_, err = poolconfig.Decrypt(private, action.EncryptedPools, "another-controller")
 	require.Error(t, err)
 	require.Equal(t, "private-pool-password", r.Pools[0].Password, "redaction cannot mutate the caller's immutable replay request")
+
+	r.PoolIDs = []int32{42, 0}
+	r.PoolNames = []string{"Pool 2", "Pool 2 (2)"}
+	_, err = miner.MiningGroups(t.Context(), r)
+	require.NoError(t, err)
+	require.Equal(t, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V18, sender.minimumCommandProtocolVersion)
+	require.NoError(t, proto.Unmarshal(sender.cmd.Payload, &command))
+	decoded, err = sdk.DecodeMiningGroupRequest(command.GetMinerCommand().GetMiningGroups().Request)
+	require.NoError(t, err)
+	require.Equal(t, r.PoolIDs, decoded.PoolIDs)
+	require.Equal(t, r.PoolNames, decoded.PoolNames)
+	require.Empty(t, decoded.Pools[0].Password)
 }
 
 func TestMiningGroupsRejectsInvalidNodeResultsWithoutClaimingNoWrite(t *testing.T) {
@@ -55,6 +68,27 @@ func TestMiningGroupsRejectsInvalidNodeResultsWithoutClaimingNoWrite(t *testing.
 	require.Error(t, err)
 }
 
+func TestMiningGroupCreationRequiresV18BeforeDispatchForNonemptyPools(t *testing.T) {
+	registry := control.NewRegistry()
+	stream, err := registry.RegisterAuthenticated(7, "old-node", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V17)
+	require.NoError(t, err)
+	defer stream.Unregister()
+	request := sdk.MiningGroupRequest{Action: "create", Key: "create", ConfigID: "nonempty-config"}
+	_, err = newTestMiner(t, registry).MiningGroups(t.Context(), request)
+	require.ErrorIs(t, err, control.ErrCommandProtocolUpgradeRequired)
+	require.True(t, devicewrite.IsNotDispatched(err))
+
+	sender := &fakeSender{ack: &gatewaypb.ControlAck{Code: gatewaypb.AckCode_ACK_CODE_OK, Succeeded: true, Payload: []byte(`{"group":{"id":"group-1","revision":1}}`)}}
+	miner := newTestMiner(t, sender)
+	_, err = miner.MiningGroups(t.Context(), request)
+	require.NoError(t, err)
+	require.Equal(t, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V18, sender.minimumCommandProtocolVersion)
+	request.ConfigID = poolconfigurations.ClearedPoolIntent(1)
+	_, err = miner.MiningGroups(t.Context(), request)
+	require.NoError(t, err)
+	require.Equal(t, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6, sender.minimumCommandProtocolVersion)
+}
+
 func TestMiningGroupDeactivationCarriesExactRequestThroughNode(t *testing.T) {
 	sender := &fakeSender{ack: &gatewaypb.ControlAck{Code: gatewaypb.AckCode_ACK_CODE_OK, Succeeded: true, Payload: []byte(`{"deactivated":true}`)}}
 	request := sdk.MiningGroupRequest{Action: "deactivate", Key: "stable-deactivation", Revision: 9}
@@ -69,6 +103,24 @@ func TestMiningGroupDeactivationCarriesExactRequestThroughNode(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, request, decoded)
 	require.Nil(t, action.EncryptedPools)
+}
+
+func TestDefaultMiningOperationsRejectOlderNodesBeforeDispatch(t *testing.T) {
+	registry := control.NewRegistry()
+	stream, err := registry.RegisterAuthenticated(7, "old-node", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V17)
+	require.NoError(t, err)
+	defer stream.Unregister()
+	miner := newTestMiner(t, registry)
+	for _, request := range []sdk.MiningGroupRequest{
+		{Action: sdk.MiningGroupReadDefault},
+		{Action: "stop_legacy", Key: "stop"},
+		{Action: "activate", Key: "activate", Revision: 1},
+		{Action: "start", Key: "start", GroupID: "default", Revision: 1},
+	} {
+		_, err := miner.MiningGroups(t.Context(), request)
+		require.ErrorIs(t, err, control.ErrCommandProtocolUpgradeRequired)
+		require.True(t, devicewrite.IsNotDispatched(err))
+	}
 }
 
 func TestMiningGroupDeactivationRejectsOlderNodeBeforeDispatch(t *testing.T) {

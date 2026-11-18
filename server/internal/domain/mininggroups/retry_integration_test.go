@@ -54,6 +54,11 @@ func (m *retryMiner) MiningGroups(ctx context.Context, request sdk.MiningGroupRe
 		return sdk.MiningGroupResult{}, errors.New("controller unavailable")
 	}
 	switch request.Action {
+	case sdk.MiningGroupReadDefault:
+		if m.statusErr {
+			return sdk.MiningGroupResult{}, errors.New("Default intent unavailable")
+		}
+		return sdk.MiningGroupResult{Group: &sdk.MiningGroup{ID: "default", Revision: m.revision, Mining: m.mining}}, nil
 	case operationDeactivate:
 		m.enabled = false
 		m.deactivatedKey = request.Key

@@ -178,9 +178,11 @@ it("keeps the confirmed review when a pre-submit poll finishes after a lost repl
         }),
     );
   mocks.returnToDefault.mockRejectedValueOnce(new ConnectError("Lost reply", Code.Unavailable));
-  render(<ReturnHashboardsToDefaultDialog hashboardIds={[9n]} onClose={vi.fn()} onComplete={vi.fn()} />);
+  const view = render(<ReturnHashboardsToDefaultDialog hashboardIds={[9n]} onClose={vi.fn()} onComplete={vi.fn()} />);
   await screen.findByText("Mining: Running");
   act(() => poll());
+  expect(mocks.reviewReturnToDefault).toHaveBeenCalledOnce();
+  view.rerender(<ReturnHashboardsToDefaultDialog hashboardIds={[9n]} onClose={vi.fn()} onComplete={vi.fn()} />);
   await waitFor(() => expect(mocks.reviewReturnToDefault).toHaveBeenCalledTimes(2));
   fireEvent.click(screen.getByRole("button", { name: "Move hashboards" }));
   await screen.findByRole("alert");

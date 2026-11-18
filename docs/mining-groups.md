@@ -189,8 +189,12 @@ does not imply that earlier applied steps were undone. Host pool-profile creatio
 uses the same audit event as customer profile creation. These records exclude
 pool URLs, worker usernames, passwords, and encrypted credentials.
 
-Fleet Node requires command protocol v6 for these operations. Older nodes reject
-them before dispatch. Direct controllers use the same SDK operation contract.
+Fleet Node requires command protocol V6 for the original operations. Creating
+a group for a nonempty pool configuration and replacing pools with explicit
+controller pool IDs require V18. Activation and Return to Default also require
+V18. Fleet checks that the node can read the saved Default settings before
+stopping mining for activation or offering a return review.
+Direct controllers use the same SDK operation contract.
 The underlying MDK sources and pins are documented in [sdk/mdk](../sdk/mdk/README.md).
 
 Module and hashboard **Edit pool** actions are disabled until mining groups are
@@ -201,10 +205,11 @@ These menus refresh controller state while open; the assignment flow and server
 continue to validate prerequisites before accepting changes.
 
 Activation confirmation explains the automatic pause and conditional resume.
-The original running state is durable before the stop command, so retries and
+The saved Default mining intent is durable before the stop command, so retries and
 server restarts cannot overwrite it with a later stopped observation. Stop is
 an idempotent desired-state command; activation and resume retain their exact
-journaled request identities. Completion requires fresh confirmation of enabled
+journaled request identities. A newer stop supersedes an unresolved restart and
+leaves mining stopped. Completion requires fresh confirmation of enabled
 groups and, when needed, the default group's running intent (not proof of pool
 connectivity or hashrate). If activation is blocked after stopping, mining stays
 paused until the prerequisite is resolved and activation can finish. While waiting,

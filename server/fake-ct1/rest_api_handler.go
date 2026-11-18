@@ -809,10 +809,13 @@ func (s *ContainerState) setGlobalMining(mining bool) error {
 	if err := s.mappingWriteGuard(); err != nil {
 		return err
 	}
-	if s.miningGroups != nil && s.miningGroups.capability.Enabled {
-		group := s.miningGroups.groups["default"]
+	groups := s.initMiningGroups()
+	group := groups.groups["default"]
+	if group.DesiredMining != mining {
 		group.DesiredMining = mining
 		s.touchGroup(group)
+	}
+	if groups.capability.Enabled {
 		s.applyGroupMining("default")
 		return nil
 	}

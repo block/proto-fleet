@@ -1,9 +1,16 @@
 package ct1
 
 import (
+	"cmp"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
-	"sort"
+	"math"
+	"net/url"
+	"slices"
+	"strings"
 	"time"
 
 	mdk "github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2"
@@ -16,8 +23,9 @@ import (
 
 func (d *Device) MiningGroups(ctx context.Context, r sdk.MiningGroupRequest) (out sdk.MiningGroupResult, resultErr error) {
 	write := !r.ReadOnly()
+	resumeDefault := r.Action == "start" && r.GroupID == "default"
 	defer func() {
-		if write && status.Code(resultErr) == codes.Aborted {
+		if write && !resumeDefault && status.Code(resultErr) == codes.Aborted {
 			out = sdk.MiningGroupResult{RevisionConflict: true}
 			resultErr = nil
 		}
@@ -44,6 +52,45 @@ func (d *Device) MiningGroups(ctx context.Context, r sdk.MiningGroupRequest) (ou
 	}
 	var group *mdk.MiningGroupRecord
 	switch r.Action {
+	case sdk.MiningGroupReadDefault:
+		before, err := readDefaultGroup(ctx, client)
+		if err != nil {
+			return out, err
+		}
+		legacy := mdk.NewPoolServiceClient(c.conn)
+		pools, err := readWholePools(ctx, legacy)
+		if err != nil {
+			return out, err
+		}
+		if err := checkDefaultPools(ctx, legacy, pools); err != nil {
+			return out, err
+		}
+		after, err := readDefaultGroup(ctx, client)
+		if err != nil {
+			return out, err
+		}
+		if !proto.Equal(before, after) {
+			return out, fmt.Errorf("Default mining intent changed during observation; retry")
+		}
+		converted, err := defaultGroupWithPools(before, pools)
+		if err != nil {
+			return out, err
+		}
+		if len(r.DefaultURLSigningKey) != 0 {
+			urls := make([]string, 0, len(pools))
+			for _, pool := range pools {
+				urls = append(urls, pool.Url)
+			}
+			encoded, err := json.Marshal(urls)
+			if err != nil {
+				return out, fmt.Errorf("encode Default pool URLs for review: %w", err)
+			}
+			mac := hmac.New(sha256.New, r.DefaultURLSigningKey)
+			mac.Write(encoded)
+			converted.DefaultURLFingerprint = fmt.Sprintf("%x", mac.Sum(nil))
+		}
+		out.Group = &converted
+		return out, nil
 	case "mining_status":
 		v, e := c.mining.GetMiningStatus(ctx, &mdk.GetMiningStatusRequest{})
 		if e != nil {
@@ -99,15 +146,37 @@ func (d *Device) MiningGroups(ctx context.Context, r sdk.MiningGroupRequest) (ou
 	case "replace_pools", "clear_pools":
 		pools := make([]*mdk.MiningGroupPoolInput, 0, len(r.Pools))
 		for i, p := range r.Pools {
+			priority := [...]int32{0, 1, 2}[i]
 			password := p.Password
-			pools = append(pools, &mdk.MiningGroupPoolInput{Pool: &mdk.MiningGroupPoolRecord{Id: []int32{1, 2, 3}[i], Name: fmt.Sprintf("Pool %d", i+1), Url: p.URL, Username: p.Username, Priority: []int32{0, 1, 2}[i], Enabled: true}, Password: &password})
+			id := priority + 1
+			name := fmt.Sprintf("Pool %d", i+1)
+			if len(r.PoolIDs) != 0 {
+				id = r.PoolIDs[i]
+			}
+			if len(r.PoolNames) != 0 {
+				name = r.PoolNames[i]
+			}
+			pools = append(pools, &mdk.MiningGroupPoolInput{Pool: &mdk.MiningGroupPoolRecord{Id: id, Name: name, Url: p.URL, Username: p.Username, Priority: priority, Enabled: true}, Password: &password})
 		}
 		v, e := client.ReplaceMiningGroupPools(ctx, &mdk.ReplaceMiningGroupPoolsRequest{GroupId: r.GroupID, ExpectedRevision: r.Revision, IdempotencyKey: r.Key, Pools: pools})
 		if e != nil {
+			if r.Action == "replace_pools" && r.GroupID != "default" && len(r.PoolIDs) == 0 &&
+				(status.Code(e) == codes.Unavailable || status.Code(e) == codes.InvalidArgument) &&
+				legacyPoolIDsMissing(ctx, client, r) {
+				return sdk.MiningGroupResult{RevisionConflict: true}, nil
+			}
 			return out, e
 		}
 		group = v.Group
 	case "start", "stop":
+		if resumeDefault {
+			group, err = resumeDefaultMining(ctx, client, c.mining, r.Revision)
+			if err != nil {
+				return out, err
+			}
+			out.DefaultResumeSuperseded = !group.DesiredMining
+			break
+		}
 		v, e := client.UpdateMiningGroupIntent(ctx, &mdk.UpdateMiningGroupIntentRequest{Id: r.GroupID, ExpectedRevision: r.Revision, IdempotencyKey: r.Key, DesiredMining: r.Action == "start", UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"desired_mining"}}})
 		if e != nil {
 			return out, e
@@ -126,6 +195,119 @@ func (d *Device) MiningGroups(ctx context.Context, r sdk.MiningGroupRequest) (ou
 	}
 	return out, nil
 }
+
+// Replay the original request first. A stable expected revision and missing slot
+// prove the replacement could not have committed and cannot still apply.
+func legacyPoolIDsMissing(ctx context.Context, client mdk.MiningGroupServiceClient, r sdk.MiningGroupRequest) bool {
+	request := &mdk.GetMiningGroupRequest{Id: r.GroupID}
+	before, err := client.GetMiningGroup(ctx, request)
+	if err != nil || before.GetGroup().GetId() != r.GroupID || before.GetGroup().GetRevision() != r.Revision {
+		return false
+	}
+	pools, err := client.ListMiningGroupPools(ctx, &mdk.ListMiningGroupPoolsRequest{GroupId: r.GroupID})
+	if err != nil {
+		return false
+	}
+	after, err := client.GetMiningGroup(ctx, request)
+	if err != nil || after.GetGroup().GetId() != r.GroupID || after.GetGroup().GetRevision() != r.Revision {
+		return false
+	}
+	for i := range len(r.Pools) {
+		if !slices.ContainsFunc(pools.GetPools(), func(pool *mdk.MiningGroupPoolRecord) bool { return int(pool.GetId()) == i+1 }) {
+			return true
+		}
+	}
+	return false
+}
+
+func readDefaultGroup(ctx context.Context, groups mdk.MiningGroupServiceClient) (*mdk.MiningGroupRecord, error) {
+	response, err := groups.GetMiningGroup(ctx, &mdk.GetMiningGroupRequest{Id: "default"})
+	if err != nil {
+		return nil, fmt.Errorf("read Default mining intent: %w", err)
+	}
+	group := response.GetGroup()
+	if group.GetId() != "default" || group.GetRevision() <= 0 {
+		return nil, fmt.Errorf("invalid Default mining intent")
+	}
+	return group, nil
+}
+
+func resumeDefaultMining(ctx context.Context, groups mdk.MiningGroupServiceClient, mining mdk.MiningServiceClient, expectedRevision int64) (*mdk.MiningGroupRecord, error) {
+	mode, err := groups.GetMiningGroupCapability(ctx, &mdk.GetMiningGroupCapabilityRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("read mining group mode: %w", err)
+	}
+	if !mode.GetCapability().GetEnabled() || mode.GetCapability().GetSuspended() {
+		return nil, status.Errorf(codes.FailedPrecondition, "mining groups must be enabled and active to restore Default mining")
+	}
+	current, err := readDefaultGroup(ctx, groups)
+	if err != nil {
+		return nil, err
+	}
+	if current.DesiredMining || current.Revision > expectedRevision {
+		return current, nil
+	}
+	// A newer stopped intent can follow an unacknowledged start. Keep the saved
+	// revision, since replanning from that state could override an operator stop.
+	if current.Revision != expectedRevision {
+		return nil, status.Errorf(codes.FailedPrecondition, "Default mining intent changed before resume")
+	}
+	if _, err := mining.StartMining(ctx, &mdk.StartMiningRequest{}); err != nil {
+		return nil, fmt.Errorf("resume Default mining: %w", err)
+	}
+	current, err = readDefaultGroup(ctx, groups)
+	if err != nil {
+		return nil, err
+	}
+	if !current.DesiredMining && current.Revision <= expectedRevision {
+		return nil, fmt.Errorf("Default mining resume was not confirmed")
+	}
+	return current, nil
+}
+
+func publicDefaultPoolURL(raw string) string {
+	const shorthandScheme = "stratum+tcp://"
+	endpoint := raw
+	shorthand := !strings.Contains(raw, "://")
+	if shorthand {
+		endpoint = shorthandScheme + raw
+	}
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Hostname() == "" || u.Opaque != "" {
+		return ""
+	}
+	if u.User == nil && (u.Path == "" || u.Path == "/") && u.RawQuery == "" && !u.ForceQuery && !strings.Contains(raw, "#") {
+		return raw
+	}
+	if shorthand {
+		return u.Host
+	}
+	return u.Scheme + "://" + u.Host
+}
+
+func defaultGroupWithPools(group *mdk.MiningGroupRecord, pools []*mdk.Pool) (sdk.MiningGroup, error) {
+	converted := groupRecord(group)
+	converted.Pools = make([]sdk.MiningGroupPool, 0, len(pools))
+	for _, p := range pools {
+		if p.Id <= 0 || p.Id > math.MaxInt32 {
+			return sdk.MiningGroup{}, fmt.Errorf("invalid Default pool ID")
+		}
+		converted.Pools = append(converted.Pools, sdk.MiningGroupPool{ID: int32(p.Id), Name: p.Name, URL: publicDefaultPoolURL(p.Url), Username: p.Username, Priority: p.Priority, Enabled: p.Enabled, ShareWeight: p.ShareWeight})
+	}
+	return converted, nil
+}
+
+func checkDefaultPools(ctx context.Context, legacy mdk.PoolServiceClient, original []*mdk.Pool) error {
+	latest, err := readWholePools(ctx, legacy)
+	if err != nil {
+		return err
+	}
+	if !slices.EqualFunc(original, latest, func(a, b *mdk.Pool) bool { return proto.Equal(a, b) }) {
+		return fmt.Errorf("Default pools changed during observation; retry")
+	}
+	return nil
+}
+
 func groupRecord(g *mdk.MiningGroupRecord) sdk.MiningGroup {
 	return sdk.MiningGroup{ID: g.Id, Name: g.Name, Revision: g.Revision, Mining: g.DesiredMining, CustomPolicy: g.RequestedBoardWatts != nil || (g.PllAlgorithm != "" && g.PllAlgorithm != "NONE" && g.PllAlgorithm != "PLL_ALGORITHM_NONE")}
 }
@@ -169,14 +351,18 @@ func observeGroups(ctx context.Context, c mdk.MiningGroupServiceClient) (sdk.Min
 	for _, g := range before.Groups {
 		index[g.Id] = len(out.Groups)
 		converted := groupRecord(g)
-		pools, e := c.ListMiningGroupPools(ctx, &mdk.ListMiningGroupPoolsRequest{GroupId: g.Id})
-		if e != nil {
-			return out, e
+		if g.Id != "default" {
+			pools, e := c.ListMiningGroupPools(ctx, &mdk.ListMiningGroupPoolsRequest{GroupId: g.Id})
+			if e != nil {
+				return out, e
+			}
+			for _, p := range pools.Pools {
+				converted.Pools = append(converted.Pools, sdk.MiningGroupPool{ID: p.Id, Name: p.Name, URL: p.Url, Username: p.Username, Priority: p.Priority, Enabled: p.Enabled, ShareWeight: p.ShareWeight})
+			}
 		}
-		for _, p := range pools.Pools {
-			converted.Pools = append(converted.Pools, sdk.MiningGroupPool{ID: p.Id, Name: p.Name, URL: p.Url, Username: p.Username, Priority: p.Priority, Enabled: p.Enabled, ShareWeight: p.ShareWeight})
-		}
-		sort.Slice(converted.Pools, func(i, j int) bool { return converted.Pools[i].Priority < converted.Pools[j].Priority })
+		slices.SortFunc(converted.Pools, func(a, b sdk.MiningGroupPool) int {
+			return cmp.Or(cmp.Compare(a.Priority, b.Priority), cmp.Compare(a.ID, b.ID))
+		})
 		out.Groups = append(out.Groups, converted)
 	}
 	seen := map[string]bool{}
@@ -188,8 +374,7 @@ func observeGroups(ctx context.Context, c mdk.MiningGroupServiceClient) (sdk.Min
 		seen[m.MacAddress] = true
 		out.Groups[i].MACs = append(out.Groups[i].MACs, m.MacAddress)
 	}
-	// Each membership/pool write advances its group's revision. A second read
-	// prevents publishing a mixture observed across a concurrent mutation.
+	// A second read of the group and mode records detects other concurrent writes.
 	after, e := c.ListMiningGroups(ctx, &mdk.ListMiningGroupsRequest{})
 	if e != nil {
 		return out, e
@@ -204,7 +389,7 @@ func observeGroups(ctx context.Context, c mdk.MiningGroupServiceClient) (sdk.Min
 	out.Pending = len(before.PendingOperations) > 0
 	out.ObservedAt = time.Now().UTC()
 	for i := range out.Groups {
-		sort.Strings(out.Groups[i].MACs)
+		slices.Sort(out.Groups[i].MACs)
 	}
 	return out, nil
 }

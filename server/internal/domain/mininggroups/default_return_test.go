@@ -194,7 +194,7 @@ func TestDefaultReturnPersistsExactTransferAfterLostReplyAndKeepsSibling(t *test
 			require.Equal(t, prepared.StepKey.UUID.String(), call.Key)
 			require.Equal(t, []string{"02:00:00:00:00:01"}, call.MACs)
 		} else {
-			require.Contains(t, []string{"observe", "operation"}, call.Action, "return must not change Default's pools or mining intent")
+			require.True(t, call.ReadOnly(), "return must not change Default's pools or mining intent")
 		}
 	}
 	// A lost submission reply also returns its original accepted request.
@@ -232,8 +232,13 @@ func TestDefaultReturnRequiresFreshReviewAndSettledCleanup(t *testing.T) {
 			}
 			_, err := f.service.GetState(ctx, f.target.DeviceIdentifier)
 			require.NoError(t, err)
+			callsBeforeConfirm := len(firmware.calls)
 			_, err = f.service.ReturnToDefault(ctx, f.target.DeviceIdentifier, review.Token, uuid.NewString(), ids)
 			require.Error(t, err)
+			if change == "permission" {
+				require.ErrorContains(t, err, "permission to manage this container is required")
+				require.Len(t, firmware.calls, callsBeforeConfirm, "permission denial must not contact the controller")
+			}
 			require.Equal(t, "idle", f.state(t).Status)
 			require.Empty(t, firmware.receipts)
 		})
@@ -242,14 +247,13 @@ func TestDefaultReturnRequiresFreshReviewAndSettledCleanup(t *testing.T) {
 
 func TestDefaultReturnStopsWhenReviewedSettingsChangeAndCanBeRetried(t *testing.T) {
 	for _, prepared := range []bool{false, true} {
-		t.Run(map[bool]string{false: "before preparation", true: "revision conflict"}[prepared], func(t *testing.T) {
+		t.Run(map[bool]string{false: "before preparation", true: "before first send"}[prepared], func(t *testing.T) {
 			ctx, f, firmware, ids := newDefaultReturnFixture(t)
 			review := reviewDefaultReturn(t, ctx, f, ids)
 			_, err := f.service.ReturnToDefault(ctx, f.target.DeviceIdentifier, review.Token, uuid.NewString(), ids)
 			require.NoError(t, err)
 			if prepared {
 				f.reconcile(t, ctx)
-				firmware.rejectRevision = true
 			}
 			firmware.snapshot.Groups[0].Pools[0].Username = "new-host"
 			if prepared {
@@ -258,6 +262,9 @@ func TestDefaultReturnStopsWhenReviewedSettingsChangeAndCanBeRetried(t *testing.
 			f.reconcile(t, ctx)
 			require.Equal(t, "failed", f.state(t).Status)
 			require.Empty(t, firmware.snapshot.Groups[0].MACs)
+			for _, call := range firmware.calls {
+				require.NotEqual(t, "transfer", call.Action)
+			}
 			review = reviewDefaultReturn(t, ctx, f, ids)
 			_, err = f.service.ReturnToDefault(ctx, f.target.DeviceIdentifier, review.Token, uuid.NewString(), ids)
 			require.NoError(t, err)
@@ -496,7 +503,7 @@ func TestDefaultReturnReviewUsesMiningAssetNames(t *testing.T) {
 	require.Equal(t, "Hashboard CT1-0001", review.BoardNames[ids[0]])
 }
 
-func TestDefaultReturnReviewReusesFreshSnapshotsAndCurrentDatabaseBlockers(t *testing.T) {
+func TestDefaultReturnReviewReusesFreshMembershipAndChecksDefaultSettings(t *testing.T) {
 	ctx, f, firmware, ids := newDefaultReturnFixture(t)
 	firmware.calls = nil
 	firmware.observeErr = true
@@ -506,7 +513,11 @@ func TestDefaultReturnReviewReusesFreshSnapshotsAndCurrentDatabaseBlockers(t *te
 		require.Len(t, reviews, 1)
 		require.NotEmpty(t, reviews[0].Token)
 	}
-	require.Empty(t, firmware.calls, "routine reviews must not contact controllers")
+	require.Len(t, firmware.calls, 3, "each review confirms only the Default settings")
+	for _, call := range firmware.calls {
+		require.Equal(t, sdk.MiningGroupReadDefault, call.Action)
+	}
+	firmware.calls = nil
 	_, err := f.conn.ExecContext(ctx, `INSERT INTO pool_lifecycle_transition(organization_id,device_id,asset_kind,asset_id,reason) VALUES($1,$2,7,$3,'ownership')`, f.target.OrganizationID, f.target.DeviceID, ids[0])
 	require.NoError(t, err)
 	reviews, err := f.service.ReviewReturnToDefault(ctx, "", ids)
@@ -527,6 +538,9 @@ func TestDefaultReturnReviewRefreshesExpiredObservationOnce(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, reviews, 1)
 	}
-	require.Len(t, firmware.calls, 1)
+	require.Len(t, firmware.calls, 4)
 	require.Equal(t, "observe", firmware.calls[0].Action)
+	for _, call := range firmware.calls[1:] {
+		require.Equal(t, sdk.MiningGroupReadDefault, call.Action)
+	}
 }

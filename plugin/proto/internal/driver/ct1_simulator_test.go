@@ -291,8 +291,10 @@ func TestCT1SimulatorPoolConfigurationThenActivation(t *testing.T) {
 	require.Len(t, observed.Groups, 1)
 	require.Equal(t, "default", observed.Groups[0].ID)
 	require.Len(t, observed.Groups[0].MACs, 288)
-	require.Len(t, observed.Groups[0].Pools, 1)
-	require.Equal(t, desired[0].URL, observed.Groups[0].Pools[0].URL)
-	require.Equal(t, desired[0].WorkerName, observed.Groups[0].Pools[0].Username)
+	defaults, err := sdk.ReadDefaultMiningGroup(t.Context(), groups)
+	require.NoError(t, err)
+	require.Len(t, defaults.Pools, 1)
+	require.Equal(t, desired[0].URL, defaults.Pools[0].URL)
+	require.Equal(t, desired[0].WorkerName, defaults.Pools[0].Username)
 	require.Error(t, handle.Device.UpdateMiningPools(t.Context(), desired))
 }

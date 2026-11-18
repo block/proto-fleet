@@ -3,14 +3,23 @@ package mininggroups
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
+
+func defaultReadBlockedMessage(err error) string {
+	if errors.Is(err, control.ErrCommandProtocolUpgradeRequired) {
+		return "Upgrade the Fleet Node and reconnect it before changing Default mining settings."
+	}
+	return "Fleet cannot confirm Default mining settings. Reconnect the controller and try again."
+}
 
 // MDK currently supplies activation prerequisites as text, including through
 // Fleet Node's wrapped errors. Recognize its known reasons, but never publish
@@ -57,6 +66,10 @@ func (s *Service) reconcileActivation(ctx context.Context, q sqlc.Querier, row s
 		readback := observed
 		if err != nil {
 			readback = sdk.MiningGroupResult{}
+		} else {
+			readback = sdk.WithDefaultMiningPools(readback, func() (sdk.MiningGroup, error) {
+				return s.readDefault(ctx, row.DeviceID)
+			})
 		}
 		if saveErr := s.observeActivationPools(ctx, q, row, readback, capture); saveErr != nil {
 			return saveErr
@@ -104,11 +117,11 @@ func (s *Service) reconcileActivation(ctx context.Context, q sqlc.Querier, row s
 		return s.block(ctx, q, row, "Waiting for the default mining group before resuming mining")
 	}
 	if !row.ActivationResumeMining.Valid {
-		result, err := s.call(ctx, row.DeviceID, sdk.MiningGroupRequest{Action: "mining_status"})
-		if err != nil || result.MiningStatus == nil {
-			return s.block(ctx, q, row, "Waiting to confirm the current mining state before activation")
+		defaultGroup, err := s.readDefault(ctx, row.DeviceID)
+		if err != nil {
+			return s.block(ctx, q, row, defaultReadBlockedMessage(err))
 		}
-		row.ActivationResumeMining = sql.NullBool{Bool: result.MiningStatus.Mining || result.MiningStatus.ActiveBoards > 0, Valid: true}
+		row.ActivationResumeMining = sql.NullBool{Bool: defaultGroup.Mining, Valid: true}
 		row.Status = statusApplying
 		row.Message = "Preparing to pause mining"
 		return save(ctx, q, row)
@@ -121,6 +134,9 @@ func (s *Service) reconcileActivation(ctx context.Context, q sqlc.Querier, row s
 			return callErr
 		})
 		if err != nil || !stopped.StopRequested {
+			if errors.Is(err, control.ErrCommandProtocolUpgradeRequired) {
+				return s.block(ctx, q, row, defaultReadBlockedMessage(err))
+			}
 			return s.block(ctx, q, row, "Waiting for the controller to accept the mining stop; retrying automatically")
 		}
 		row.ActivationStopRequested = true

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
@@ -211,6 +212,26 @@ func (s *Service) call(ctx context.Context, id int64, r sdk.MiningGroupRequest) 
 	}
 	return sdk.MiningGroupResult{}, err
 }
+
+func (s *Service) readDefault(ctx context.Context, id int64) (sdk.MiningGroup, error) {
+	return s.readDefaultSettings(ctx, id, nil)
+}
+
+func (s *Service) readReviewedDefault(ctx context.Context, id int64) (sdk.MiningGroup, error) {
+	return s.readDefaultSettings(ctx, id, s.secrets.SigningKey(fmt.Sprintf("default-pool-url-review:%d", id)))
+}
+
+func (s *Service) readDefaultSettings(ctx context.Context, id int64, key []byte) (sdk.MiningGroup, error) {
+	request := sdk.MiningGroupRequest{Action: sdk.MiningGroupReadDefault, DefaultURLSigningKey: key}
+	response, err := s.call(ctx, id, request)
+	if err != nil {
+		return sdk.MiningGroup{}, err
+	}
+	if err := response.Validate(request); err != nil {
+		return sdk.MiningGroup{}, err
+	}
+	return *response.Group, nil
+}
 func (s *Service) Activate(ctx context.Context, identifier, requestID string) (uuid.UUID, error) {
 	return s.changeMode(ctx, identifier, requestID, operationActivate)
 }
@@ -282,14 +303,22 @@ func (s *Service) changeMode(ctx context.Context, identifier, requestID, kind st
 		}
 		return id, e
 	}
+	permission := authz.PermMinerActivateMiningGroups
+	if kind == operationDeactivate {
+		permission = authz.PermMinerDeactivateMiningGroups
+	}
+	if kind == operationActivate {
+		if err := authorize(ctx, s.queries, info.UserID, info.OrganizationID, target.SiteID, permission, authz.PermMinerStartMining, authz.PermMinerStopMining); err != nil {
+			return uuid.Nil, err
+		}
+		if _, err := s.readDefault(ctx, target.ID); err != nil {
+			return uuid.Nil, fleeterror.NewFailedPreconditionError(defaultReadBlockedMessage(err))
+		}
+	}
 	err = s.writes.BeginPoolWorkflow(ctx, info.OrganizationID, target.ID, func(ctx context.Context, q sqlc.Querier, attempt uuid.UUID, epoch int64) error {
 		current, err := q.LockContainerCommandTarget(ctx, sqlc.LockContainerCommandTargetParams{OrgID: info.OrganizationID, DeviceIdentifier: identifier})
 		if err != nil {
 			return err
-		}
-		permission := authz.PermMinerActivateMiningGroups
-		if kind == operationDeactivate {
-			permission = authz.PermMinerDeactivateMiningGroups
 		}
 		if err := authorize(ctx, q, info.UserID, info.OrganizationID, current.SiteID, permission, authz.PermMinerStartMining, authz.PermMinerStopMining); err != nil {
 			return err

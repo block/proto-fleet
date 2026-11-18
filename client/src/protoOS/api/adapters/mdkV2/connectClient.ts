@@ -17,6 +17,10 @@ import type {
   FirmwareServiceWriteFirmwareArtifactUploadChunkBody,
   HashboardServiceGetHashboardEventsParams,
   HashboardServiceListRecoveryEvidenceParams,
+  MiningGroupServiceDeleteMiningGroupParams,
+  MiningGroupServiceReplaceMiningGroupPoolsBody,
+  MiningGroupServiceUpdateMiningGroupBody,
+  MiningGroupServiceUpdateMiningGroupIntentBody,
   PoolServiceGetPoolDiagnosticsParams,
   PoolServiceUpdatePoolBody,
   SystemServiceGetLogsParams,
@@ -25,6 +29,8 @@ import type {
   TelemetryServiceQueryShareQualityHistoryParams,
   TelemetryServiceQueryTimeSeriesParams,
   V2AbortFirmwareArtifactUploadResponse,
+  V2ActivateMiningGroupsRequest,
+  V2ActivateMiningGroupsResponse,
   V2BeginFirmwareArtifactUploadRequest,
   V2BeginFirmwareArtifactUploadResponse,
   V2CancelFirmwareUpdateResponse,
@@ -32,8 +38,11 @@ import type {
   V2ClearPowerTargetScopedRequest,
   V2ClearPowerTargetScopedResponse,
   V2CommitFirmwareArtifactUploadResponse,
+  V2CreateMiningGroupRequest,
+  V2CreateMiningGroupResponse,
   V2CreatePoolRequest,
   V2CreatePoolResponse,
+  V2DeleteMiningGroupResponse,
   V2DeletePoolResponse,
   V2GetActivePowerRecoveryCycleResponse,
   V2GetContainerControlsResponse,
@@ -45,6 +54,8 @@ import type {
   V2GetHAStatusResponse,
   V2GetLogsResponse,
   V2GetMiningGroupCapabilityResponse,
+  V2GetMiningGroupOperationResponse,
+  V2GetMiningGroupPoolDiagnosticsResponse,
   V2GetMiningGroupResponse,
   V2GetMiningStatusResponse,
   V2GetPoolDiagnosticsResponse,
@@ -66,6 +77,9 @@ import type {
   V2MuteContainerAlarmResponse,
   V2QueryShareQualityHistoryResponse,
   V2QueryTimeSeriesResponse,
+  V2ReplaceMiningGroupPoolsResponse,
+  V2RequestMiningGroupTransferRequest,
+  V2RequestMiningGroupTransferResponse,
   V2ResetContainerAlarmRequest,
   V2ResetContainerAlarmResponse,
   V2RunDryCoolerFanReverseRequest,
@@ -89,6 +103,8 @@ import type {
   V2StartModuleRunInResponse,
   V2StopMiningScopedResponse,
   V2StreamASICHealthResponse,
+  V2UpdateMiningGroupIntentResponse,
+  V2UpdateMiningGroupResponse,
   V2UpdatePoolResponse,
   V2WriteFirmwareArtifactUploadChunkResponse,
 } from "./generated/generatedApi";
@@ -122,6 +138,45 @@ export interface LogTailRead {
 export interface MdkV2Client {
   /** The Fleet REST proxy does not expose commissioning RPCs. */
   feedMappingClient?(): FeedMappingClient;
+  miningGroupServiceGetMiningGroupPoolDiagnostics(
+    path: { groupId: string },
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2GetMiningGroupPoolDiagnosticsResponse>;
+  miningGroupServiceUpdateMiningGroup(
+    path: { id: string },
+    data: MiningGroupServiceUpdateMiningGroupBody,
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2UpdateMiningGroupResponse>;
+  miningGroupServiceDeleteMiningGroup(
+    query: MiningGroupServiceDeleteMiningGroupParams,
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2DeleteMiningGroupResponse>;
+  miningGroupServiceCreateMiningGroup(
+    data: V2CreateMiningGroupRequest,
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2CreateMiningGroupResponse>;
+  miningGroupServiceActivateMiningGroups(
+    data: V2ActivateMiningGroupsRequest,
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2ActivateMiningGroupsResponse>;
+  miningGroupServiceReplaceMiningGroupPools(
+    path: { groupId: string },
+    data: MiningGroupServiceReplaceMiningGroupPoolsBody,
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2ReplaceMiningGroupPoolsResponse>;
+  miningGroupServiceUpdateMiningGroupIntent(
+    path: { id: string },
+    data: MiningGroupServiceUpdateMiningGroupIntentBody,
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2UpdateMiningGroupIntentResponse>;
+  miningGroupServiceRequestMiningGroupTransfer(
+    data: V2RequestMiningGroupTransferRequest,
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2RequestMiningGroupTransferResponse>;
+  miningGroupServiceGetMiningGroupOperation(
+    path: { id: string },
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2GetMiningGroupOperationResponse>;
   miningGroupServiceGetMiningGroupCapability(
     params?: AdapterRequestOptions,
   ): HttpResponse<V2GetMiningGroupCapabilityResponse>;
@@ -609,6 +664,24 @@ export const createMdkV2Client = (transport: Transport): MdkV2Client => {
       verify: (macAddresses, params) =>
         unary(transport, FeedMappingService.method.requestWiringVerification, { macAddresses }, params),
     }),
+    miningGroupServiceGetMiningGroupPoolDiagnostics: (path, params) =>
+      unary(transport, miningGroup.getMiningGroupPoolDiagnostics, path, params),
+    miningGroupServiceUpdateMiningGroup: (path, data, params) =>
+      unary(transport, miningGroup.updateMiningGroup, { ...path, ...data }, params),
+    miningGroupServiceDeleteMiningGroup: (query, params) =>
+      unary(transport, miningGroup.deleteMiningGroup, query, params),
+    miningGroupServiceCreateMiningGroup: (data, params) =>
+      unary(transport, miningGroup.createMiningGroup, data, params),
+    miningGroupServiceActivateMiningGroups: (data, params) =>
+      unary(transport, miningGroup.activateMiningGroups, data, params),
+    miningGroupServiceReplaceMiningGroupPools: (path, data, params) =>
+      unary(transport, miningGroup.replaceMiningGroupPools, { ...path, ...data }, params),
+    miningGroupServiceUpdateMiningGroupIntent: (path, data, params) =>
+      unary(transport, miningGroup.updateMiningGroupIntent, { ...path, ...data }, params),
+    miningGroupServiceRequestMiningGroupTransfer: (data, params) =>
+      unary(transport, miningGroup.requestMiningGroupTransfer, data, params),
+    miningGroupServiceGetMiningGroupOperation: (path, params) =>
+      unary(transport, miningGroup.getMiningGroupOperation, path, params),
     miningGroupServiceGetMiningGroupCapability: (params) =>
       unary(transport, miningGroup.getMiningGroupCapability, {}, params),
     miningGroupServiceListMiningGroups: (params) => unary(transport, miningGroup.listMiningGroups, {}, params),

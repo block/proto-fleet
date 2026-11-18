@@ -1,6 +1,7 @@
 package mininggroups
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -15,12 +16,15 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/poolapplications"
 	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/google/uuid"
 	"github.com/sqlc-dev/pqtype"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // Fleet Node allows 25 seconds for a command. Leave additional time for
@@ -351,6 +355,12 @@ func (s *Service) Reconcile(ctx context.Context, orgID, deviceID int64, identifi
 				request = sdk.MiningGroupRequest{Action: actionReplacePools, GroupID: step.GroupID, Revision: step.ExpectedRevision, Pools: pools}
 				if poolconfigurations.IsClearedPoolIntent(step.ConfigRevision) {
 					request.Action = actionClearPools
+				} else {
+					group, err := observedGroupAtRevision(observed.Groups, request)
+					if err != nil {
+						return err
+					}
+					request.PoolIDs, request.PoolNames = replacementPoolSlots(group.Pools, len(pools))
 				}
 			case Stop:
 				request = sdk.MiningGroupRequest{Action: "stop", GroupID: step.GroupID, Revision: step.ExpectedRevision}
@@ -466,6 +476,16 @@ func (s *Service) plannerSnapshot(ctx context.Context, q sqlc.Querier, row sqlc.
 		b, managed := bindings[g.ID]
 		configured := false
 		if managed && b.Configured {
+			if g.ID == "default" && g.Pools == nil {
+				current, err := s.readDefault(ctx, row.DeviceID)
+				if err != nil {
+					return Snapshot{}, err
+				}
+				if current.Revision != g.Revision {
+					return Snapshot{}, fmt.Errorf("Default changed during observation")
+				}
+				g.Pools = current.Pools
+			}
 			pools, err := s.groupCredentials(ctx, q, row.OrganizationID, row.DeviceID, b.ConfigID)
 			if err != nil {
 				return Snapshot{}, err
@@ -489,6 +509,46 @@ func poolsMatch(observed []sdk.MiningGroupPool, want []sdk.MiningGroupPoolInput)
 	}
 	return true
 }
+
+// Resolve IDs and names before journaling so every retry sends the same pools.
+func replacementPoolSlots(existing []sdk.MiningGroupPool, count int) ([]int32, []string) {
+	sorted := slices.Clone(existing)
+	slices.SortFunc(sorted, func(a, b sdk.MiningGroupPool) int {
+		if a.Priority != b.Priority {
+			return cmp.Compare(a.Priority, b.Priority)
+		}
+		return cmp.Compare(a.ID, b.ID)
+	})
+	// The controller writes replacement rows before deleting unused rows.
+	usedNames := make(map[string]bool, len(existing))
+	for _, pool := range existing {
+		usedNames[pool.Name] = true
+	}
+	ids := make([]int32, count)
+	names := make([]string, count)
+	for i := range min(len(sorted), count) {
+		ids[i] = sorted[i].ID
+		names[i] = sorted[i].Name
+	}
+	legacySlots := true
+	for i, name := range names {
+		slotName := fmt.Sprintf("Pool %d", i+1)
+		if name == "" {
+			name = slotName
+			for suffix := 2; usedNames[name]; suffix++ {
+				name = fmt.Sprintf("%s (%d)", slotName, suffix)
+			}
+			usedNames[name] = true
+		}
+		names[i] = name
+		legacySlots = legacySlots && int64(ids[i]) == int64(i)+1 && name == slotName
+	}
+	if legacySlots {
+		return nil, nil
+	}
+	return ids, names
+}
+
 func (s *Service) apply(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, desired map[string]string) error {
 	var step savedStep
 	if err := decode(row.Step.RawMessage, &step); err != nil {
@@ -528,8 +588,18 @@ func (s *Service) apply(ctx context.Context, q sqlc.Querier, row sqlc.ContainerM
 			return s.blockWithDiagnostic(ctx, q, row, tracking.message, err)
 		}
 		message := "Controller has not confirmed the change; retrying the same request"
+		if (request.Action == "create" || len(request.PoolIDs) != 0) && errors.Is(err, control.ErrCommandProtocolUpgradeRequired) {
+			message = "Upgrade the Fleet Node and reconnect it to apply the pool configuration."
+		}
 		if request.Action == operationActivate {
 			message = activationWaitingMessage(err)
+		}
+		if request.Action == "start" && request.GroupID == "default" &&
+			(status.Code(err) == codes.FailedPrecondition || fleeterror.IsFailedPreconditionError(err)) {
+			message = "Default mining did not resume. Check the controller mode and mining intent."
+		}
+		if (request.Action == operationActivate || (request.Action == "start" && request.GroupID == "default")) && errors.Is(err, control.ErrCommandProtocolUpgradeRequired) {
+			message = defaultReadBlockedMessage(err)
 		}
 		return s.block(ctx, q, row, message)
 	}
@@ -571,8 +641,19 @@ func (s *Service) apply(ctx context.Context, q sqlc.Querier, row sqlc.ContainerM
 			return s.block(ctx, q, row, "Waiting for stopped group intent")
 		}
 	case "start":
+		if row.OperationKind == operationActivate && response.DefaultResumeSuperseded {
+			if err := response.Validate(request); err != nil {
+				return s.block(ctx, q, row, "Waiting for a valid mining intent receipt")
+			}
+			row.Step = pqtype.NullRawMessage{}
+			row.StepKey = uuid.NullUUID{}
+			return s.completeWithMessage(ctx, q, row, "Mining groups enabled. Default mining remains stopped after a newer change.")
+		}
 		if response.Group == nil || response.Group.ID != request.GroupID || !response.Group.Mining {
 			return s.block(ctx, q, row, "Waiting for a valid mining intent receipt")
+		}
+		if row.OperationKind == operationActivate && request.GroupID == "default" {
+			row.ActivationResumeMining = sql.NullBool{Valid: true}
 		}
 	case operationActivate:
 		if !response.Enabled {
@@ -597,6 +678,10 @@ func (s *Service) block(ctx context.Context, q sqlc.Querier, row sqlc.ContainerM
 	return save(ctx, q, row)
 }
 func (s *Service) complete(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState) error {
+	return s.completeWithMessage(ctx, q, row, "Configuration applied")
+}
+
+func (s *Service) completeWithMessage(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, message string) error {
 	// Verify the selected board's runtime before retiring its assignment.
 	if err := s.finishBoardRemoval(ctx, q, row); err != nil {
 		var pending *boardRemovalVerificationPending
@@ -624,7 +709,7 @@ func (s *Service) complete(ctx context.Context, q sqlc.Querier, row sqlc.Contain
 		return err
 	}
 	row.Status = statusComplete
-	row.Message = "Configuration applied"
+	row.Message = message
 	return save(ctx, q, row)
 }
 
@@ -743,16 +828,21 @@ func affectedBoardMACs(row sqlc.ContainerMiningGroupState, request sdk.MiningGro
 		if err := decode(row.Observed, &observed); err != nil {
 			return nil, err
 		}
-		for _, group := range observed.Groups {
-			if group.ID == request.GroupID && group.Revision == request.Revision {
-				return group.MACs, nil
-			}
-		}
-		return nil, fmt.Errorf("mining group step does not match its observation")
+		group, err := observedGroupAtRevision(observed.Groups, request)
+		return group.MACs, err
 	case "create", "remove":
 		// Creation and removal operate on empty groups.
 		return nil, nil
 	default:
 		return nil, fmt.Errorf("unknown pool assignment action %q", request.Action)
 	}
+}
+
+func observedGroupAtRevision(groups []sdk.MiningGroup, request sdk.MiningGroupRequest) (sdk.MiningGroup, error) {
+	for _, group := range groups {
+		if group.ID == request.GroupID && group.Revision == request.Revision {
+			return group, nil
+		}
+	}
+	return sdk.MiningGroup{}, fmt.Errorf("mining group step does not match its observation")
 }

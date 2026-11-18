@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -33,14 +34,15 @@ func DecodeMiningGroupResult(data []byte, request MiningGroupRequest) (MiningGro
 func (r MiningGroupResult) Validate(request MiningGroupRequest) error {
 	observation := r.Supported || r.Suspended || r.Revision != 0 || r.MaxGroups != 0 || !r.ObservedAt.IsZero() || len(r.Groups) != 0 || r.Pending
 	if r.RevisionConflict {
-		if request.ReadOnly() || observation || r.Enabled || r.Deactivated || r.Removed || r.Group != nil || r.Operation != nil || r.MiningStatus != nil || r.StopRequested || r.PoolsCleared != nil {
+		if request.ReadOnly() || observation || r.Enabled || r.Deactivated || r.Removed || r.Group != nil || r.Operation != nil || r.MiningStatus != nil || r.StopRequested || r.PoolsCleared != nil || r.DefaultResumeSuperseded {
 			return fmt.Errorf("invalid mining group revision conflict receipt")
 		}
 		return nil
 	}
-	groupAction := request.Action == "create" || request.Action == miningGroupActionReplacePools || request.Action == "start" || request.Action == "stop" || request.Action == miningGroupActionClearPools
+	groupAction := request.Action == "create" || request.Action == miningGroupActionReplacePools || request.Action == "start" || request.Action == "stop" || request.Action == miningGroupActionClearPools || request.Action == MiningGroupReadDefault
 	operationAction := request.Action == miningGroupActionTransfer || request.Action == miningGroupActionOperation
-	if (request.Action != miningGroupActionVerifyCleared && r.PoolsCleared != nil) ||
+	if (r.DefaultResumeSuperseded && (request.Action != "start" || request.GroupID != "default")) ||
+		(request.Action != miningGroupActionVerifyCleared && r.PoolsCleared != nil) ||
 		(request.Action != miningGroupActionDeactivate && r.Deactivated) ||
 		(request.Action != "observe" && observation) ||
 		(request.Action != "observe" && request.Action != miningGroupActionActivate && r.Enabled) ||
@@ -97,12 +99,29 @@ func (r MiningGroupResult) Validate(request MiningGroupRequest) error {
 		if !r.Removed {
 			return fmt.Errorf("missing mining group removal receipt")
 		}
+	case MiningGroupReadDefault:
+		if r.Group == nil || r.Group.ID != "default" {
+			return fmt.Errorf("missing Default mining group")
+		}
+		if len(request.DefaultURLSigningKey) != 0 {
+			fingerprint, err := hex.DecodeString(r.Group.DefaultURLFingerprint)
+			if err != nil || len(fingerprint) != 32 {
+				return fmt.Errorf("missing or invalid Default URL fingerprint")
+			}
+		}
+		return validateMiningGroup(*r.Group)
 	case "create", miningGroupActionReplacePools, "start", "stop", miningGroupActionClearPools:
 		if r.Group == nil {
 			return fmt.Errorf("missing mining group receipt")
 		}
 		if err := validateMiningGroup(*r.Group); err != nil {
 			return err
+		}
+		if r.DefaultResumeSuperseded {
+			if r.Group.ID != "default" || r.Group.Mining || r.Group.Revision <= request.Revision {
+				return fmt.Errorf("invalid superseded Default resume receipt")
+			}
+			return nil
 		}
 		if (request.Action != "create" && r.Group.ID != request.GroupID) || (request.Action == "start" && !r.Group.Mining) || (request.Action == "stop" && r.Group.Mining) {
 			return fmt.Errorf("mining group receipt does not match request")

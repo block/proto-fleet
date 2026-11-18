@@ -329,6 +329,8 @@ enum CommandProtocolVersion {
     // V17 adds command cancel, command frames and the on-demand CT1 board ASIC
     // stream that uses them.
     COMMAND_PROTOCOL_VERSION_V17 = 17;
+    // V18 supports durable pool replacements and reads of saved Default settings.
+    COMMAND_PROTOCOL_VERSION_V18 = 18;
 }
 
 message ControlHello {

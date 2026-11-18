@@ -106,7 +106,7 @@ describe("pool history", () => {
         grouping: "SHARE_QUALITY_HISTORY_GROUPING_TOTAL",
         poolId: 1,
       },
-      { signal, headers: { "X-Frigate-Actor": "proto-os" } },
+      { signal: expect.any(AbortSignal), headers: { "X-Frigate-Actor": "proto-os" } },
     );
     expect(query.mock.calls[1][0].poolId).toBe(2);
     expect(result.byPool[asPoolId("pool:1")]?.accepted).toBe(9);
@@ -282,4 +282,21 @@ describe("pool history", () => {
     expect(peak).toBe(3);
     expect(active).toBe(0);
   });
+});
+
+it("forwards caller cancellation through the pool-history deadline signal", async () => {
+  const controller = new AbortController();
+  let requestSignal: AbortSignal | undefined;
+  const query = vi.fn(
+    (_request, options) =>
+      new Promise((_resolve, reject) => {
+        requestSignal = options.signal;
+        options.signal.addEventListener("abort", () => reject(options.signal.reason), { once: true });
+      }),
+  );
+  const adapter = new MdkV2Adapter({ telemetryServiceQueryShareQualityHistory: query } as unknown as MdkV2Client);
+  const result = adapter.getPoolHistory(request, { signal: controller.signal });
+  controller.abort(new Error("selection changed"));
+  await expect(result).rejects.toThrow("selection changed");
+  expect(requestSignal?.aborted).toBe(true);
 });

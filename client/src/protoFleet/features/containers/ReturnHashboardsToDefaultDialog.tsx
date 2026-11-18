@@ -53,10 +53,12 @@ export default function ReturnHashboardsToDefaultDialog({
   useEffect(() => {
     const abort = new AbortController();
     let inFlight = false;
+    let reviewReady = false;
     const poll = async () => {
       if (inFlight || savingRef.current || !allowed) return;
-      inFlight = true;
       const reviewing = Object.keys(submissionsRef.current).length === 0;
+      if (reviewing && reviewReady) return;
+      inFlight = true;
       try {
         const submitted = Object.entries(submissionsRef.current);
         if (submitted.length) {
@@ -86,8 +88,10 @@ export default function ReturnHashboardsToDefaultDialog({
             { deviceIdentifier, hashboardIds },
             { signal: abort.signal },
           );
-          if (!abort.signal.aborted && current() && Object.keys(submissionsRef.current).length === 0)
+          if (!abort.signal.aborted && current() && Object.keys(submissionsRef.current).length === 0) {
             setReviews(response.containers);
+            reviewReady = response.containers.every((review) => review.reviewToken && !review.blockedReason);
+          }
         }
         if (!abort.signal.aborted && current()) setReadError("");
       } catch (cause) {
@@ -313,7 +317,7 @@ export default function ReturnHashboardsToDefaultDialog({
                     <ul className="list-disc pl-5">
                       {review.defaultGroup.pools.map((pool) => (
                         <li key={pool.id}>
-                          {pool.url} · {pool.username}
+                          {pool.url || "Endpoint unavailable"} · {pool.username}
                           {pool.enabled ? "" : " (disabled)"}
                         </li>
                       ))}

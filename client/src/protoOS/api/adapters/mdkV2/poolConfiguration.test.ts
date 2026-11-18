@@ -338,6 +338,17 @@ describe("CT1 pool configuration inspection", () => {
     await expect(adapter.getMiningGroupPoolSettings("a", "4")).rejects.toThrow("group changed");
   });
 
+  test("reads Default configuration details from the legacy pool service", async () => {
+    const { adapter, client } = fixture({
+      miningGroupServiceGetMiningGroup: vi
+        .fn()
+        .mockResolvedValue({ data: { group: { id: "default", revision: "4" } } }),
+    });
+    expect(await adapter.getMiningGroupPoolSettings("default", "4")).toMatchObject([{ id: "1" }, { id: "2" }]);
+    expect(client.poolServiceListPools).toHaveBeenCalledOnce();
+    expect(client.miningGroupServiceListMiningGroupPools).not.toHaveBeenCalled();
+  });
+
   test("aborting a read cancels the controller requests", async () => {
     const read = vi.fn<MdkV2Client["miningGroupServiceGetMiningGroupCapability"]>(async (options) => {
       options?.signal?.throwIfAborted();

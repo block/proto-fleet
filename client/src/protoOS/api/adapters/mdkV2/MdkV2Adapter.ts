@@ -8,7 +8,9 @@ import {
   FAN_REVERSAL_MIN_MINUTES,
   FAN_REVERSAL_OUTCOME_UNKNOWN,
 } from "../fanReversalMessages";
+import type { PoolAssignmentService } from "../poolAssignment";
 import type { PoolHistoryRequest } from "../poolHistory";
+import type { PoolConfigurationStatisticsService } from "../poolStatistics";
 import type {
   AdapterProbeMatch,
   AdapterRequestOptions,
@@ -68,6 +70,7 @@ import {
   toCanonicalPools,
   toCanonicalSystemInfo,
 } from "./normalize";
+import { createPoolAssignment } from "./poolAssignment";
 import {
   POOL_READ_TIMEOUT_MS,
   poolWriteError,
@@ -76,6 +79,7 @@ import {
   requireContainerPoolMode,
 } from "./poolConfiguration";
 import { queryPoolHistory } from "./poolHistory";
+import { createPoolStatistics } from "./poolStatistics";
 import { containerWriteError } from "./writeErrors";
 import type { CoolingMode, MiningTarget, MiningTargetUpdate } from "@/protoOS/store/contract";
 import { getHashboardId } from "@/protoOS/store/utils/entityIds";
@@ -181,6 +185,8 @@ export class MdkV2Adapter implements MinerAdapter {
   readonly setPowerFeedState?: MinerAdapter["setPowerFeedState"];
   readonly getActivePowerRecoveryCycle?: MinerAdapter["getActivePowerRecoveryCycle"];
   private deviceId: string | undefined;
+  readonly poolAssignment?: PoolAssignmentService;
+  readonly poolStatistics?: PoolConfigurationStatisticsService;
   private readonly hashboardTimeSeriesCache = new Map<string, { expiresAtMs: number; data: QueryTimeSeriesResponse }>();
 
   /**
@@ -191,6 +197,7 @@ export class MdkV2Adapter implements MinerAdapter {
     private readonly client: MdkV2Client,
     match: AdapterProbeMatch = {},
     serverUpdate?: ServerUpdateClient,
+    directConnection = false,
   ) {
     this.deviceId = match.deviceId;
     const mapping = client.feedMappingClient?.();
@@ -200,6 +207,10 @@ export class MdkV2Adapter implements MinerAdapter {
         (params) => client.hashboardServiceGetContainerMap(params),
         (params) => this.decorate(params),
       );
+    if (directConnection) {
+      this.poolAssignment = createPoolAssignment(client, (params) => this.decorate(params));
+      this.poolStatistics = createPoolStatistics(client, (params) => this.decorate(params));
+    }
     this.hashboardFirmware = createHashboardFirmware(client, (params) => this.decorate(params));
     if (serverUpdate)
       this.frigateServerUpdate = createFrigateServerUpdate(serverUpdate, (params) => this.decorate(params));
@@ -264,7 +275,7 @@ export class MdkV2Adapter implements MinerAdapter {
   static fromConfig(config: { baseUrl: string; protocol: MdkV2Protocol }, match: AdapterProbeMatch = {}): MdkV2Adapter {
     if (config.protocol === "rest") return new MdkV2Adapter(new Api({ baseUrl: config.baseUrl }).api, match);
     const transport = createConnectTransport({ baseUrl: config.baseUrl, useBinaryFormat: true });
-    return new MdkV2Adapter(createMdkV2Client(transport), match, createClient(ServerUpdateService, transport));
+    return new MdkV2Adapter(createMdkV2Client(transport), match, createClient(ServerUpdateService, transport), true);
   }
 
   private containerDeviceId(context?: { deviceId: string }) {
@@ -370,7 +381,9 @@ export class MdkV2Adapter implements MinerAdapter {
   }
 
   getPoolHistory(request: PoolHistoryRequest, params: AdapterRequestOptions = {}) {
-    return queryPoolHistory(this.client, request, this.decorate(params));
+    return withDeadline(this.decorate(params), POOL_READ_TIMEOUT_MS, (options) =>
+      queryPoolHistory(this.client, request, options),
+    );
   }
 
   async getPoolSettings(params: AdapterRequestOptions = {}) {

@@ -32,7 +32,11 @@ func (s *clearedGroupServer) ListMiningGroups(context.Context, *mdk.ListMiningGr
 	if s.changed {
 		revision += int64(s.reads)
 	}
-	return &mdk.ListMiningGroupsResponse{Groups: []*mdk.MiningGroupRecord{{Id: "g", Revision: revision, DesiredMining: s.mining}}}, nil
+	return &mdk.ListMiningGroupsResponse{Groups: []*mdk.MiningGroupRecord{{Id: "g", Revision: revision, DesiredMining: s.mining}, {Id: "default", Revision: 4}}}, nil
+}
+
+func (*clearedGroupServer) ListPools(context.Context, *mdk.ListPoolsRequest) (*mdk.ListPoolsResponse, error) {
+	return nil, fmt.Errorf("read legacy pools: %w", status.Error(codes.Unavailable, "legacy pool read unavailable"))
 }
 func (s *clearedGroupServer) ListMiningGroupPools(ctx context.Context, r *mdk.ListMiningGroupPoolsRequest) (*mdk.ListMiningGroupPoolsResponse, error) {
 	if s.storedPools {

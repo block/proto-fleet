@@ -261,12 +261,17 @@ actions become available after Fleet observes completed activation.
 
 The browser Connect gateway also exposes capability, group, membership, and
 group-pool reads for ProtoOS Settings → Pools. These share native state. Group
-mutations remain on native gRPC; the browser inspection view cannot enable,
-create, or transfer groups.
+assignment writes also share that state. The browser bridge exposes activation,
+local group creation, pool replacement, mining-intent updates, exact-board
+transfers, operation reads, metadata updates, and unused-group deletion.
+Metadata updates require a revision and an explicit name/external-reference mask;
+they preserve mining intent.
 
 The fixture supports capability and membership reads, group creation, ordered
 pool replacement (including explicit empty replacements), exact-board transfers, mining intent, operation receipts, and
-empty-group deletion. New groups start stopped. Groups without enabled pools do
+empty-group deletion. New pool slots send ID zero and receive a controller ID
+from the same sequence as legacy pools. Existing IDs must belong to the edited
+group. New groups start stopped. Groups without enabled pools do
 not mine or fall back to default pools. Once activated, container start/stop
 changes only the default group. Revisions and successful idempotency receipts
 are checked; pool credentials never appear in readback. Group pool diagnostics

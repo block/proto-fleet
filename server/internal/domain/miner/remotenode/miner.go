@@ -345,14 +345,11 @@ func (m *Miner) sendInSlot(ctx context.Context, mc *gatewaypb.MinerCommand) (*ga
 	} else if mc.GetContainerMining() != nil {
 		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V8
 	} else if mc.GetMiningGroups() != nil {
-		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6
 		request, err := sdk.DecodeMiningGroupRequest(mc.GetMiningGroups().Request)
 		if err != nil {
 			return nil, devicewrite.NotDispatched(err)
 		}
-		if request.Action == "deactivate" {
-			version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V15
-		}
+		version = miningGroupCommandVersion(request)
 	} else if mc.GetSetModuleMining() != nil {
 		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V5
 	} else if mc.GetSetTankMining() != nil {
