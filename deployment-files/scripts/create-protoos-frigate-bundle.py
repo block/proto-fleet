@@ -776,11 +776,6 @@ def verify_deb(
             raise BundleError("The embedded manifest does not match the package files")
 
 
-def statement_asset(tag):
-    """Name of the release asset that carries the statement for tag's package."""
-    return f"proto-os_{tag}_all.deb.statement.json"
-
-
 def parse_issued_at(text):
     """Accept only Frigate's issued_at layout: UTC RFC 3339, whole seconds."""
     try:
@@ -884,7 +879,7 @@ def main(argv):
             print(f"Verified {args.verify_deb}")
             if args.write_statement:
                 issued_at = args.issued_at or datetime.datetime.now(
-                    datetime.timezone.utc
+                    datetime.UTC
                 ).strftime(ISSUED_AT_FORMAT)
                 write_statement(
                     args.write_statement,
