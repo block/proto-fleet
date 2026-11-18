@@ -159,8 +159,18 @@ sudo install -m 0644 frigate-release.pem <install>/artifacts/frigate-release-key
 echo 'FRIGATE_UPDATE_RELEASE_KEYS_DIR=/app/frigate-release-keys' | sudo tee -a <install>/deployment/.env
 ```
 
-Then recreate `fleet-api` so it picks up the variable. Later key changes need no
-restart. HA deployments do not mount this directory yet.
+Then rerun `run-fleet.sh` so `fleet-api` is recreated with the variable, the
+same way as any other `.env` change. It restarts the stack using the install's
+project name, profile and enabled overlays, which a plain `docker compose up -d`
+would miss:
+
+```bash
+cd <install>/deployment
+./run-fleet.sh
+```
+
+Later key changes need no restart. HA deployments do not mount this directory
+yet.
 
 A key file may be a symlink (Kubernetes secret mounts and `ln -s` rotations are
 followed; a dangling link is an error). A `.pem` file that holds no key, or any
