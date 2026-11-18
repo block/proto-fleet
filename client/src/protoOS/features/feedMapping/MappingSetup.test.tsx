@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
+import { readMappingAttempts } from "./attemptStorage";
 import { FeedMappingProvider } from "./FeedMappingProvider";
 import ContainerMappingSetup from "./MappingSetup";
 import type { FeedMapping, MappingAssessment, MappingRun } from "@/protoOS/api/adapters/feedMapping";
@@ -176,7 +177,7 @@ test("refreshes hardware and automatically hides a successful result with a heal
   await waitFor(() => expect(onSettled).toHaveBeenCalledTimes(1));
   await waitFor(() => expect(screen.queryByText("Hashboard mapping finished")).not.toBeInTheDocument());
   expect(screen.queryByRole("button", { name: "Refresh mapping" })).not.toBeInTheDocument();
-  expect(localStorage.getItem("proto-os:feed-mapping:ct1")).toBeNull();
+  expect(readMappingAttempts("ct1")).toEqual([]);
 });
 
 test("a second uncertain start cannot be dismissed as the previous completed run", async () => {

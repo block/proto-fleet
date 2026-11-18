@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  type MappingAttempt as Attempt,
+  isMappingAttemptKey,
+  readMappingAttempt,
+  readMappingAttempts,
+  removeMappingAttempt,
+  saveMappingAttempt,
+} from "./attemptStorage";
+import {
   type FeedMapping,
   type MappingAssessment,
   mappingBoardNeedsReview,
@@ -12,27 +20,10 @@ import { pushToast } from "@/shared/features/toaster";
 import { usePoll } from "@/shared/hooks/usePoll";
 import { withDeadline } from "@/shared/utils/withDeadline";
 
-interface Attempt {
-  token: string;
-  runId?: string;
-}
 // Direct controllers can serve ProtoOS over HTTP, where randomUUID is unavailable.
 const newAttemptToken = () =>
   Array.from(crypto.getRandomValues(new Uint8Array(16)), (value) => value.toString(16).padStart(2, "0")).join("");
-const storageKey = (deviceId: string) => `proto-os:feed-mapping:${encodeURIComponent(deviceId)}`;
 const sameAttempt = (a: Attempt | undefined, b: Attempt | undefined) => a?.token === b?.token && a?.runId === b?.runId;
-const load = (deviceId: string): Attempt | undefined => {
-  // A failed read is not a deletion. Let callers retain state and report the failure.
-  const stored = localStorage.getItem(storageKey(deviceId));
-  try {
-    const value = JSON.parse(stored || "null");
-    return value && typeof value.token === "string" && (value.runId === undefined || typeof value.runId === "string")
-      ? value
-      : undefined;
-  } catch {
-    return undefined;
-  }
-};
 
 /** Mounted with a key for the device and connection generation; writes never follow a changed connection. */
 export function useFeedMapping(
@@ -45,12 +36,13 @@ export function useFeedMapping(
   const [runningConfirmed, setRunningConfirmed] = useState(false);
   const [attempt, setAttempt] = useState(() => {
     try {
-      return load(deviceId);
+      return readMappingAttempt(deviceId);
     } catch {
       return undefined; // The first poll reports storage failures.
     }
   });
   const current = useRef(attempt);
+  const load = () => readMappingAttempt(deviceId, current.current?.token);
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [activity, setActivity] = useState<string>();
@@ -82,10 +74,10 @@ export function useFeedMapping(
   }, []);
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
-      if (event.key !== null && event.key !== storageKey(deviceId)) return;
+      if (!isMappingAttemptKey(deviceId, event.key)) return;
       try {
         if (event.storageArea !== localStorage) return;
-        syncAttempt(load(deviceId));
+        syncAttempt(readMappingAttempt(deviceId, current.current?.token));
         setRevision((value) => value + 1);
       } catch (failure) {
         setError(mappingError(failure));
@@ -98,15 +90,15 @@ export function useFeedMapping(
   }, [deviceId, syncAttempt]);
 
   const save = (value: Attempt | undefined, expected: Attempt | undefined) => {
-    // A delayed response must not restore a deleted record or replace a newer attempt.
-    const saved = load(deviceId);
-    if (!sameAttempt(saved, expected)) {
-      syncAttempt(saved);
+    // Update only this token's record. Other tokens can be added or removed while a request is in flight.
+    const saved = expected && readMappingAttempts(deviceId).find((record) => record.token === expected.token);
+    if (expected && !sameAttempt(saved, expected)) {
+      syncAttempt(load());
       return false;
     }
-    if (value) localStorage.setItem(storageKey(deviceId), JSON.stringify(value));
-    else localStorage.removeItem(storageKey(deviceId));
-    syncAttempt(value);
+    if (value) saveMappingAttempt(deviceId, value);
+    else if (expected) removeMappingAttempt(deviceId, expected.token);
+    syncAttempt(value ?? load());
     return true;
   };
   const refresh = () => setRevision((value) => value + 1);
@@ -122,7 +114,7 @@ export function useFeedMapping(
       const abort = () => controller.abort();
       signal.addEventListener("abort", abort, { once: true });
       try {
-        const saved = load(deviceId);
+        const saved = load();
         syncAttempt(saved);
         const result = await withDeadline(
           async () => {
@@ -145,7 +137,7 @@ export function useFeedMapping(
           15000,
         );
         if (signal.aborted || !mounted.current) return;
-        const latest = load(deviceId);
+        const latest = load();
         if (!sameAttempt(saved, latest)) {
           syncAttempt(latest);
           refresh();
@@ -156,8 +148,12 @@ export function useFeedMapping(
         if (result.assessment.status === "fulfilled") setAssessment(result.assessment.value);
         if (result.missing) setRun(undefined);
         if (result.observed) {
-          const tracked = { token: result.saved?.token ?? newAttemptToken(), runId: result.observed.id };
-          if (!save(tracked, saved)) {
+          // An active run may belong to another tab. Never overwrite a different run's saved result.
+          const existing =
+            readMappingAttempts(deviceId).find((record) => record.runId === result.observed!.id) ??
+            (saved && !saved.runId ? saved : undefined);
+          const tracked = { token: existing?.token ?? newAttemptToken(), runId: result.observed.id };
+          if (!save(tracked, existing)) {
             refresh();
             return;
           }
@@ -186,7 +182,7 @@ export function useFeedMapping(
               save(undefined, tracked)
             ) {
               // Retain the result for an open dialog, but stop tracking it across navigation or reloads.
-              setRun(result.observed);
+              if (!current.current) setRun(result.observed);
               setNotice(undefined);
               if (notifiedRun.current !== result.observed.id) {
                 notifiedRun.current = result.observed.id;
@@ -260,7 +256,7 @@ export function useFeedMapping(
     start: (plan: MappingRun) => {
       if (!canRemap) return Promise.resolve(undefined);
       return perform("Starting", async (options) => {
-        const previous = load(deviceId);
+        const previous = load();
         if (!sameAttempt(previous, current.current)) {
           syncAttempt(previous);
           throw new Error("The saved mapping attempt changed. Check its status before starting another run.");
@@ -270,7 +266,8 @@ export function useFeedMapping(
         options.signal?.throwIfAborted();
         if (!mounted.current) return;
         if (active) {
-          if (save({ token: newAttemptToken(), runId: active.id }, previous)) {
+          const existing = readMappingAttempts(deviceId).find((record) => record.runId === active.id);
+          if (save({ token: existing?.token ?? newAttemptToken(), runId: active.id }, existing)) {
             setRun(active);
             setRunningConfirmed(active.status === "running");
           }
@@ -279,7 +276,13 @@ export function useFeedMapping(
         if (fresh.mode !== "manual" || !fresh.hardMappingAvailable || fresh.unavailable)
           throw new Error("Mapping availability changed. Review the current mapping before you continue.");
         const token = newAttemptToken();
-        // Failure to persist, or a newer attempt from another tab, refuses Start.
+        // This check avoids sequential duplicate starts. It is advisory: simultaneous starts keep separate records.
+        if (
+          !sameAttempt(previous, load()) ||
+          readMappingAttempts(deviceId).some((record) => record.token !== previous?.token)
+        )
+          throw new Error("The saved mapping attempt changed. Check its status before starting another run.");
+        // Failure to persist refuses Start. Keep earlier run results until they are explicitly released.
         if (!save({ token }, previous))
           throw new Error("The saved mapping attempt changed. Check its status before starting another run.");
         setRun(undefined);
@@ -297,7 +300,10 @@ export function useFeedMapping(
           }
           return started;
         } catch (failure) {
-          if ((failure as { writeOutcome?: string })?.writeOutcome === "refused") save(undefined, { token });
+          if ((failure as { writeOutcome?: string })?.writeOutcome === "refused") {
+            removeMappingAttempt(deviceId, token);
+            syncAttempt(load());
+          }
           throw failure;
         }
       });

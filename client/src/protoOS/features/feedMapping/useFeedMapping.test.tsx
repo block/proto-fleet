@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { readMappingAttempts, saveMappingAttempt } from "./attemptStorage";
 import { useFeedMappingState } from "./feedMappingContext";
 import { FeedMappingProvider } from "./FeedMappingProvider";
 import type { FeedMapping, MappingAssessment, MappingRun } from "@/protoOS/api/adapters/feedMapping";
@@ -8,7 +9,8 @@ import { pushToast } from "@/shared/features/toaster";
 
 vi.mock("@/shared/features/toaster", () => ({ pushToast: vi.fn() }));
 
-const key = "proto-os:feed-mapping:ct1";
+const keyFor = (token: string) => `proto-os:feed-mapping:ct1:${token}`;
+const key = keyFor("saved-token");
 const assessment: MappingAssessment = {
   mode: "manual",
   hardMappingAvailable: true,
@@ -65,7 +67,7 @@ test.each(["start", "recover", "preflight"])("supports HTTP without randomUUID d
     });
   }
   await waitFor(() => expect(result.current.run?.id).toBe(running.id));
-  expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ token: expect.any(String), runId: running.id });
+  expect(readMappingAttempts("ct1")).toEqual([{ token: expect.any(String), runId: running.id }]);
   expect(mapping.start).toHaveBeenCalledTimes(path === "start" ? 1 : 0);
 });
 
@@ -146,13 +148,14 @@ test("does not restore a dismissed record when a saved-run read finishes late", 
 });
 
 test("does not delete a newer attempt from another tab", async () => {
-  localStorage.setItem(key, JSON.stringify({ token: "old-token" }));
+  localStorage.setItem(keyFor("old-token"), JSON.stringify({ token: "old-token" }));
   const { result } = mount(api());
   await waitFor(() => expect(result.current.ready).toBe(true));
   const newer = JSON.stringify({ token: "new-token" });
-  localStorage.setItem(key, newer);
+  localStorage.setItem(keyFor("new-token"), newer);
   act(() => result.current.clear());
-  expect(localStorage.getItem(key)).toBe(newer);
+  expect(localStorage.getItem(keyFor("new-token"))).toBe(newer);
+  expect(localStorage.getItem(keyFor("old-token"))).toBeNull();
   expect(result.current.unresolved).toBe(true);
 });
 
@@ -187,14 +190,18 @@ test("refuses Start if another tab saves an attempt during preflight", async () 
   });
   await waitFor(() => expect(resolve).toBeDefined());
   const newer = JSON.stringify({ token: "another-tab" });
-  localStorage.setItem(key, newer);
-  act(() => window.dispatchEvent(new StorageEvent("storage", { key, newValue: newer, storageArea: localStorage })));
+  localStorage.setItem(keyFor("another-tab"), newer);
+  act(() =>
+    window.dispatchEvent(
+      new StorageEvent("storage", { key: keyFor("another-tab"), newValue: newer, storageArea: localStorage }),
+    ),
+  );
   await act(async () => {
     resolve(assessment);
     await start;
   });
   expect(mapping.start).not.toHaveBeenCalled();
-  expect(localStorage.getItem(key)).toBe(newer);
+  expect(localStorage.getItem(keyFor("another-tab"))).toBe(newer);
   expect(result.current.unresolved).toBe(true);
 });
 
@@ -319,4 +326,105 @@ test("retains the result if the post-completion assessment fails", async () => {
   await waitFor(() => expect(result.current.error).toBe("Assessment unavailable"));
   expect(localStorage.getItem(key)).not.toBeNull();
   expect(pushToast).not.toHaveBeenCalled();
+});
+
+test.each(["accepted first", "refused first"])("concurrent starts preserve the accepted run (%s)", async (order) => {
+  const acceptedApi = api();
+  const refusedApi = api();
+  let accept!: (run: MappingRun) => void;
+  let refuse!: (error: Error) => void;
+  acceptedApi.start.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        accept = resolve;
+      }),
+  );
+  refusedApi.start.mockImplementation(
+    () =>
+      new Promise((_resolve, reject) => {
+        refuse = reject;
+      }),
+  );
+  const accepted = mount(acceptedApi);
+  const refused = mount(refusedApi);
+  await waitFor(() => expect(accepted.result.current.canRemap && refused.result.current.canRemap).toBe(true));
+
+  // Force both tabs' last advisory reads to see the same empty snapshot. Their writes remain real and shared.
+  const getItem = Storage.prototype.getItem;
+  const staleReads = vi.spyOn(Storage.prototype, "getItem").mockImplementation(function (this: Storage, storageKey) {
+    return storageKey.startsWith("proto-os:feed-mapping:") ? null : getItem.call(this, storageKey);
+  });
+  let acceptedStart!: Promise<MappingRun | undefined>;
+  let refusedStart!: Promise<MappingRun | undefined>;
+  act(() => {
+    acceptedStart = accepted.result.current.start({ ...running, status: "planned" });
+    refusedStart = refused.result.current.start({ ...running, status: "planned" });
+  });
+  await waitFor(() => {
+    expect(acceptedApi.start).toHaveBeenCalledTimes(1);
+    expect(refusedApi.start).toHaveBeenCalledTimes(1);
+  });
+  staleReads.mockRestore();
+  const saved = () =>
+    Object.keys(localStorage)
+      .filter((storageKey) => storageKey.startsWith("proto-os:feed-mapping:"))
+      .map((storageKey) => JSON.parse(localStorage.getItem(storageKey)!));
+  expect(saved()).toHaveLength(2);
+
+  // Close both tabs before any recovery poll can hide data loss. Start responses must still persist their result.
+  accepted.unmount();
+  refused.unmount();
+  const acceptRun = async () => {
+    accept(running);
+    await acceptedStart;
+  };
+  const refuseRun = async () => {
+    refuse(Object.assign(new Error("Run already active"), { writeOutcome: "refused" }));
+    await refusedStart;
+  };
+  await act(async () => {
+    if (order === "accepted first") {
+      await acceptRun();
+      await refuseRun();
+    } else {
+      await refuseRun();
+      await acceptRun();
+    }
+  });
+  expect(saved()).toEqual([{ token: expect.any(String), runId: running.id }]);
+
+  // Once the run has finished, active() cannot recover it. Only the saved ID can retrieve restoration warnings.
+  const reopenedApi = api();
+  reopenedApi.get.mockResolvedValue({ ...running, status: "completed", warnings: ["Check feed restoration"] });
+  const reopened = mount(reopenedApi);
+  await waitFor(() => expect(reopened.result.current.run?.warnings).toEqual(["Check feed restoration"]));
+  expect(reopenedApi.get).toHaveBeenCalledWith(running.id, expect.anything());
+});
+
+test("recovers multiple saved runs one at a time without dropping the next result", async () => {
+  saveMappingAttempt("ct1", { token: "first", runId: "run-1" });
+  saveMappingAttempt("ct1", { token: "second", runId: "run-2" });
+  const mapping = api();
+  mapping.get.mockImplementation(async (id) => ({ ...running, id, status: "canceled", warnings: [id] }));
+  const { result } = mount(mapping);
+  await waitFor(() => expect(result.current.run?.id).toBe("run-1"));
+  act(() => result.current.clear());
+  await waitFor(() => expect(result.current.run?.id).toBe("run-2"));
+  expect(result.current.run?.warnings).toEqual(["run-2"]);
+  expect(readMappingAttempts("ct1")).toEqual([{ token: "second", runId: "run-2" }]);
+});
+
+test("observing a different active run does not overwrite a saved run's recovery data", async () => {
+  saveMappingAttempt("ct1", { token: "older", runId: "older-run" });
+  const mapping = api();
+  mapping.active.mockResolvedValue(running);
+  const { result } = mount(mapping);
+  await waitFor(() => expect(result.current.run?.id).toBe(running.id));
+  expect(readMappingAttempts("ct1")).toEqual(
+    expect.arrayContaining([
+      { token: "older", runId: "older-run" },
+      { token: expect.any(String), runId: running.id },
+    ]),
+  );
+  expect(readMappingAttempts("ct1")).toHaveLength(2);
 });
