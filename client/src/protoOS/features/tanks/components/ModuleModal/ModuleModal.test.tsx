@@ -56,7 +56,7 @@ test("keeps the module on screen until a voltage write settles", () => {
 
   fireEvent.click(screen.getByRole("button", { name: "start write" }));
   exits().forEach((button) => expect(button).toBeDisabled());
-  expect(screen.getByRole("status")).toHaveTextContent("Changing the module voltage.");
+  expect(screen.getByText(/^Changing the module voltage\./)).toHaveAttribute("role", "status");
   fireEvent.keyDown(document, { key: "Escape" });
   fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
   expect(screen.getByTestId("path")).toHaveTextContent("/tanks/1/modules/1");
