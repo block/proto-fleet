@@ -33,7 +33,9 @@ func TestHostedReportPublicationRetainsHostRawMeterEvidenceAndFreezesClientShare
 	input.Configuration.Sources = []reporting.Source{{ID: "meter", Metric: "meter", Certified: true, SourceRef: "meter certification"}}
 	input.Orders = []reporting.Order{{ID: "order", Name: "Client order", Start: p.Start, SourceRef: "signed order"}}
 	input.Coverage = []reporting.CoverageSegment{{ID: "coverage", AllocationIntervalID: interval, Kind: 5, AssetID: miner, SiteID: site, ContainerID: miner, OrderID: "order", Start: p.Start, CapacityTHS: "100", SourceRef: "commercial coverage"}}
-	input.Meters = []reporting.MeterInterval{{ID: "meter", MeterID: "shared-physical", SourceID: "meter", SiteID: site, ContainerID: miner, OrderID: "order", Start: p.Start, End: p.End, KWh: "98765.4321000000000000001", AllocationFraction: "0.25", Quality: "measured", SourceRef: "approved meter reading"}}
+	// The private values have more fractional digits than a timestamp, so a
+	// substring match in the archive is always a leak and never an issue time.
+	input.Meters = []reporting.MeterInterval{{ID: "meter", MeterID: "shared-physical", SourceID: "meter", SiteID: site, ContainerID: miner, OrderID: "order", Start: p.Start, End: p.End, KWh: "98765.4321000000000000001", AllocationFraction: "0.250000000001", Quality: "measured", SourceRef: "approved meter reading"}}
 	savedReportInputs(t, f, client.AccountID, reviewer, input, 0)
 	draft, err := f.svc.PrepareReport(t.Context(), f.host, f.org, client.AccountID, hostedaccounts.DraftReportOptions{Period: p, InputRevision: 1, OwnerUserID: owner})
 	require.NoError(t, err)
@@ -54,12 +56,12 @@ func TestHostedReportPublicationRetainsHostRawMeterEvidenceAndFreezesClientShare
 		data, err := io.ReadAll(r)
 		require.NoError(t, err)
 		require.NoError(t, r.Close())
-		for _, private := range []string{input.Meters[0].KWh, "0.25", "allocation_fraction", "allocationFraction"} {
+		for _, private := range []string{input.Meters[0].KWh, input.Meters[0].AllocationFraction, "allocation_fraction", "allocationFraction"} {
 			require.NotContains(t, string(data), private, file.Name)
 		}
 		if file.Name == "inputs/meters.csv" {
 			found = true
-			require.Contains(t, string(data), "24691.358025000000000000025")
+			require.Contains(t, string(data), "24691.3580250987654321000250000000001")
 		}
 	}
 	require.True(t, found)

@@ -33,10 +33,13 @@ func TestAccountAnalysisEnergySelectsSiteAndPeriodBeforePayloadBudget(t *testing
 	require.NoError(t, err)
 	revision := saved.Revision
 	const otherRows, historicalRows = 10001, 201
+	// The excluded reading has a fractional part, so it cannot match a part of
+	// the random analysis identifier or the creation time in the response.
+	const excludedKWh = "999.000000000000000001"
 	for offset := 0; offset < otherRows+historicalRows; offset += 200 {
 		changes := []reporting.FactMutation{}
 		for i := offset; i < min(offset+200, otherRows+historicalRows); i++ {
-			m := reporting.MeterInterval{ID: fmt.Sprintf("irrelevant-%05d", i), MeterID: fmt.Sprintf("private-%05d-%s", i, strings.Repeat("m", 1800)), SourceID: "meter", SiteID: otherSite, ContainerID: other, OrderID: c.OrderID, Start: p.Start, End: p.End, KWh: "999", Quality: "measured", SourceRef: strings.Repeat("s", 1900)}
+			m := reporting.MeterInterval{ID: fmt.Sprintf("irrelevant-%05d", i), MeterID: fmt.Sprintf("private-%05d-%s", i, strings.Repeat("m", 1800)), SourceID: "meter", SiteID: otherSite, ContainerID: other, OrderID: c.OrderID, Start: p.Start, End: p.End, KWh: excludedKWh, Quality: "measured", SourceRef: strings.Repeat("s", 1900)}
 			if i >= otherRows {
 				m.SiteID, m.ContainerID = c.SiteID, c.ContainerID
 				m.Start, m.End = p.Start.AddDate(-1, 0, 0), p.Start.AddDate(-1, 0, 0).Add(time.Hour)
@@ -80,7 +83,7 @@ func TestAccountAnalysisEnergySelectsSiteAndPeriodBeforePayloadBudget(t *testing
 	require.Equal(t, "7", generated.Tables[0].Rows[0].Cells[1])
 	require.Len(t, generated.Tables[1].Rows, 1)
 	require.Equal(t, []int64{c.SiteID}, generated.SiteIds)
-	require.NotContains(t, generated.String(), "999")
+	require.NotContains(t, generated.String(), excludedKWh)
 	require.NoError(t, f.svc.ConfigureSites(t.Context(), f.user, f.org, account.AccountID, true, []int64{c.SiteID}))
 	request.SiteId, request.RequestId = nil, uuid.NewString()
 	restricted, err := f.svc.GenerateAnalysis(ctx, f.user, f.org, request)
