@@ -7,11 +7,16 @@ import useMinerStore from "@/protoOS/store/useMinerStore";
 import Button from "@/shared/components/Button";
 import type { RowAction } from "@/shared/components/RowActionsMenu";
 
-export function usePoolAssignmentActions() {
+export function usePoolAssignmentActions(onPoolsChanged?: () => void) {
   const { adapter, isFleetHosted } = useMinerHosting();
   const identity = useMinerStore((state) => state.systemInfo.data?.identity);
   const generation = useMinerStore((state) => state.connectionGeneration);
-  const [request, setRequest] = useState<{ target: PoolAssignmentTarget; generation: number }>();
+  const [request, setRequest] = useState<{
+    target: PoolAssignmentTarget;
+    generation: number;
+    selectedCount?: number;
+    openStatus?: boolean;
+  }>();
   const service = !isFleetHosted ? adapter?.poolAssignment : undefined;
   const controllerId = identity?.deviceId;
   const recoveryController = service ? controllerId : undefined;
@@ -26,7 +31,7 @@ export function usePoolAssignmentActions() {
   }, [recoveryController]);
   const tracked = recovery?.controller === recoveryController ? recovery?.attempt : undefined;
   const available = Boolean(service && controllerId);
-  const action = (target?: PoolAssignmentTarget): RowAction[] =>
+  const action = (target?: PoolAssignmentTarget, selectedCount?: number): RowAction[] =>
     available
       ? [
           {
@@ -34,7 +39,7 @@ export function usePoolAssignmentActions() {
             testId: "set-board-pools",
             disabled: !target?.macs.length,
             onClick: () => {
-              if (target?.macs.length) setRequest({ target, generation });
+              if (target?.macs.length) setRequest({ target, generation, selectedCount });
             },
           },
         ]
@@ -48,7 +53,7 @@ export function usePoolAssignmentActions() {
         <Button
           className="mb-4"
           variant="secondary"
-          onClick={() => setRequest({ target: { macs: tracked.macs }, generation })}
+          onClick={() => setRequest({ target: { macs: tracked.macs }, generation, openStatus: true })}
         >
           Pool assignment status
         </Button>
@@ -60,6 +65,10 @@ export function usePoolAssignmentActions() {
           service={service}
           controllerId={controllerId}
           target={request.target}
+          selectedCount={request.selectedCount}
+          openStatus={request.openStatus}
+          onConfigurationSaved={onPoolsChanged}
+          onAssignmentSaved={onPoolsChanged}
           onDismiss={() => setRequest(undefined)}
         />
       ) : null,

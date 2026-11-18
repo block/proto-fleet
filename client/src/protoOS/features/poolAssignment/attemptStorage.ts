@@ -1,3 +1,4 @@
+import { poolRecoveryFingerprint, recoveryPoolURL } from "@/protoOS/api/adapters/mdkV2/poolRecoveryEvidence";
 import type { PoolAssignmentAttempt } from "@/protoOS/api/adapters/poolAssignment";
 
 const prefix = (controller: string) => `proto-os:pool-assignment:${encodeURIComponent(controller)}:`;
@@ -40,6 +41,23 @@ const isPoolAttempt = (value: unknown, key: string, storagePrefix: string): valu
   );
 };
 
+const safePoolEvidence = ({ pools, poolFingerprint }: PoolAssignmentAttempt) => {
+  const publicPools = pools.map(({ id, name, url, username, priority, enabled, shareWeight }) => ({
+    id,
+    name,
+    url: recoveryPoolURL(url),
+    username,
+    priority,
+    enabled,
+    shareWeight,
+  }));
+  const redacted = publicPools.some(({ url }, index) => url !== pools[index].url);
+  return {
+    pools: publicPools,
+    poolFingerprint: poolFingerprint ?? (redacted ? poolRecoveryFingerprint(pools) : undefined),
+  };
+};
+
 export function readPoolAttempts(controller: string): PoolAssignmentAttempt[] {
   const records: PoolAssignmentAttempt[] = [];
   const storagePrefix = prefix(controller);
@@ -49,7 +67,13 @@ export function readPoolAttempts(controller: string): PoolAssignmentAttempt[] {
       if (!key?.startsWith(storagePrefix)) continue;
       try {
         const value: unknown = JSON.parse(localStorage.getItem(key) || "null");
-        if (isPoolAttempt(value, key, storagePrefix)) records.push(value);
+        if (isPoolAttempt(value, key, storagePrefix)) {
+          if (value.pools.some(({ url }) => recoveryPoolURL(url) !== url)) {
+            const sanitized = { ...value, ...safePoolEvidence(value) };
+            records.push(sanitized);
+            localStorage.setItem(key, JSON.stringify(sanitized));
+          } else records.push(value);
+        }
       } catch {
         /* Ignore a damaged record without hiding the other attempts. */
       }
@@ -75,15 +99,6 @@ export const savePoolAttempt = (controller: string, attempt: PoolAssignmentAttem
     phase,
     restoreLegacyMining,
   } = attempt;
-  const pools = attempt.pools.map(({ id, name, url, username, priority, enabled, shareWeight }) => ({
-    id,
-    name,
-    url,
-    username,
-    priority,
-    enabled,
-    shareWeight,
-  }));
   localStorage.setItem(
     prefix(controller) + id,
     JSON.stringify({
@@ -96,7 +111,7 @@ export const savePoolAttempt = (controller: string, attempt: PoolAssignmentAttem
       destinationRef,
       configurationOnly,
       configurationConfirmed,
-      pools,
+      ...safePoolEvidence(attempt),
       operationIds,
       phase,
       restoreLegacyMining,

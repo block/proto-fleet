@@ -38,6 +38,7 @@ export interface PoolAssignmentInspection {
   boards: PoolBoardAssignment[];
   savedPools: SavedPoolSet[];
   currentPoolSetId?: string;
+  mixedConfigurations: boolean;
   maxPools: number;
   requiresActivation: boolean;
 }
@@ -70,9 +71,10 @@ export interface PoolAssignmentAttempt {
   destinationRef: string;
   pools: MiningGroupPoolSettings[];
   configurationConfirmed: boolean;
+  poolFingerprint?: string;
   operationIds: string[];
   phase: string;
-  /** Legacy mining was running before activation and still needs a safe, idempotent restore. */
+  /** Legacy mining was running before activation. Check its state before closing recovery. */
   restoreLegacyMining?: boolean;
 }
 export interface PoolAssignmentStatus {
@@ -112,8 +114,9 @@ export interface PoolAssignmentService {
     params?: AdapterRequestOptions,
   ): Promise<PoolAssignmentStatus>;
   status(attempt: PoolAssignmentAttempt, params?: AdapterRequestOptions): Promise<PoolAssignmentStatus>;
-  restoreMining(
+  checkMiningRecovery(
     attempt: PoolAssignmentAttempt,
+    controllerId: string,
     track: (attempt: PoolAssignmentAttempt) => void,
     params?: AdapterRequestOptions,
   ): Promise<PoolAssignmentStatus>;

@@ -1,5 +1,5 @@
-import type { ConfigurationChange } from "./ConfigurationReview";
 import type { Configuration, PoolInput } from "@/protoFleet/api/generated/poolconfigurations/v1/poolconfigurations_pb";
+import type { ConfigurationChange } from "@/shared/components/PoolConfigurations/ConfigurationChanges";
 import { poolSlotLabel } from "@/shared/components/PoolConfigurations/types";
 
 export const minerWorkerTemplate = "{miner_name}";

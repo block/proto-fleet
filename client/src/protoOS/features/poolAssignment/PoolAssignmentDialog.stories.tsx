@@ -49,7 +49,7 @@ const createService = (): PoolAssignmentService => {
       );
     },
     async inspect() {
-      return { boards, savedPools: configurations, maxPools: 3, requiresActivation: false };
+      return { boards, savedPools: configurations, mixedConfigurations: false, maxPools: 3, requiresActivation: false };
     },
     async review(target, choice) {
       return {
@@ -95,7 +95,7 @@ const createService = (): PoolAssignmentService => {
       });
       return {
         state: "saved",
-        message: "Pool settings and assignments are saved. This does not confirm that every board has applied them.",
+        message: "Pool assignment saved.",
         confirmed: plan.target.macs.length,
         total: plan.target.macs.length,
         blockers: [],
@@ -112,7 +112,7 @@ const createService = (): PoolAssignmentService => {
         ],
       };
     },
-    async restoreMining(attempt, track) {
+    async checkMiningRecovery(attempt, _controllerId, track) {
       const restored = { ...attempt, restoreLegacyMining: false };
       track(restored);
       return {
@@ -175,6 +175,7 @@ export const Pending = () => {
       service={service}
       controllerId="storybook-pool-pending"
       target={{ macs: boards.slice(0, 3).map((board) => board.mac) }}
+      openStatus
       onDismiss={action("dismiss pool assignment")}
     />
   ) : null;

@@ -122,8 +122,8 @@ configuration library table and details view. It shows named configurations,
 the primary pool, backup count, and assigned equipment count. It does not list
 groups or hashboards. The table shows 25 configurations per page. **Create
 configuration** saves an unused local pool set. **Edit configuration** uses the
-same primary/backup form as Fleet. Save configuration checks the current pool
-settings and assigned boards before writing. Existing passwords can be preserved only when the
+same primary/backup form as Fleet. If hashboards use the configuration, review
+the changes and affected boards before saving. Existing passwords can be preserved only when the
 pool ID, URL, and complete username still match. **Delete configuration** requires
 an unused configuration that is neither Default nor managed elsewhere. It also requires
 the current revision. Fleet-owned and older configurations
@@ -175,26 +175,32 @@ also support selecting board cards before **Edit pool**, or editing one board
 from its actions. Module selection captures its currently reported physical
 boards.
 
-ProtoOS reuses Fleet's configuration picker table, primary/backup form, and
+ProtoOS reuses Fleet's configuration picker, primary/backup form, and
 modal presentation. It opens **Edit pool** directly without Fleet's password
 step. Choose a named configuration or **New pool configuration**. Saving a new
 configuration creates an unused local pool set and returns to the picker.
-**Assign** reviews the exact equipment and applies the selected configuration.
+**Assign** checks the exact equipment. A single selected hashboard or module
+applies the configuration immediately. For multiple selected items, confirm the
+number of affected hashboards before ProtoOS applies the configuration. The
+picker identifies selections with mixed configurations. It closes and shows a
+notification when the controller confirms the saved assignment.
 Users never create mining groups themselves. ProtoOS handles groups behind the
 flow. Saved sets are reused by identity, never by guessing passwords from public
 URLs and usernames. Complete usernames are applied as entered. Pool passwords
 remain in memory until their write; recovery records contain no passwords.
 
-Local writes are available only on direct CT1 Connect connections. They may move
-boards from Default or groups without an external owner reference. Fleet-owned
-assignments cannot be moved here, but their pool configurations can be edited
-after checking all affected hashboards. Moves from groups with custom power or
-tuning policy are refused here. Isolated boards and mixed running/stopped selections
-are also refused. Each write respects the reported limits and uses
-revision checks. Existing mining intent is preserved. If groups are disabled,
-the review explains that all container mining must stop for activation. A
-previously running container needs an explicit start. Review the assignment
-again before moving boards after activation.
+Local writes are available only on direct CT1 Connect connections. The picker
+can assign the controller's Default configuration, configurations created in
+ProtoOS, and configurations without an external owner reference. A destination
+needs at least one configured pool and must preserve the selected boards' mining
+intent. Fleet-owned assignments can be moved in Fleet. You can edit their pool
+configurations in ProtoOS after checking all affected hashboards. ProtoOS
+blocks moves involving custom power or tuning settings. It also blocks moves
+for isolated boards or selections that mix running and stopped boards. Each
+write respects the reported limits and uses revision checks. If groups are
+disabled, the review explains that all container mining must stop for activation.
+Start mining from the controller's mining controls if you want it to resume.
+Review the assignment again before moving boards after activation.
 
 A nonsecret recovery record is stored per controller and attempt in the browser.
 **Pool assignment status** on Modules restores it after reload. Recovery only
@@ -203,6 +209,10 @@ credential-write acknowledgement remains uncertain even when public pool fields
 match. Long-running transfers keep their status record; partial or failed changes
 require a fresh review for any remaining boards. Saved configuration and membership
 do not prove that every board has applied the settings.
+After an interrupted activation, **Check mining** reads the original controller's
+mining state. If mining is stopped, use the controller's mining controls to resume it.
+When you select **Edit pool**, ProtoOS checks any stored attempt before opening
+the picker. It clears the record if the controller confirms the save.
 
 Fleet-hosted ProtoOS keeps its existing read-only pool view; hosted assignments
 are managed in Fleet.

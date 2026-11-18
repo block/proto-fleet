@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { AssignmentPool, SavedPoolSet } from "@/protoOS/api/adapters/poolAssignment";
+import type { AssignmentPool, LocalPoolConfiguration } from "@/protoOS/api/adapters/poolAssignment";
 import { validateContainerPoolURL, validateMiningGroupPoolURL } from "@/protoOS/api/adapters/poolURL";
 import { newUUID } from "@/protoOS/utils/uuid";
 import { ActionModal } from "@/shared/components/ActionModal";
@@ -24,13 +24,13 @@ export default function ConfigurationEditor({
   maxPools,
   busy,
   error,
-  onSaved,
+  onSubmit,
   onDismiss,
 }: {
-  original?: SavedPoolSet;
+  original?: LocalPoolConfiguration;
   draft?: { name: string; pools: AssignmentPool[] };
   maxPools: number;
-  onSaved: (name: string, pools: AssignmentPool[]) => Promise<boolean>;
+  onSubmit: (name: string, pools: AssignmentPool[]) => void;
   busy?: boolean;
   error?: string;
   onDismiss: () => void;
@@ -68,13 +68,13 @@ export default function ConfigurationEditor({
   return (
     <ActionModal
       title={original ? "Edit pool configuration" : "Create pool configuration"}
-      confirm="Save configuration"
+      confirm={original && original.assignedCount > 0 ? "Review changes" : "Save configuration"}
       busy={busy}
       error={error}
       valid={valid}
       onDismiss={onDismiss}
       onSubmit={() =>
-        onSaved(
+        onSubmit(
           name.trim(),
           pools.map((pool, index) => ({
             id: pool.id,

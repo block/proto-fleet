@@ -7,9 +7,11 @@ import {
   PoolDeletionUnconfirmed,
 } from "@/protoOS/api/adapters/poolAssignment";
 import type { ContainerPoolConfiguration } from "@/protoOS/api/adapters/poolConfiguration";
+import { savePoolAttempt } from "@/protoOS/features/poolAssignment/attemptStorage";
 
-vi.mock("@/protoOS/features/poolAssignment/usePoolAssignmentActions", () => ({
-  usePoolAssignmentActions: () => ({ recoveryButton: null, dialog: null }),
+const hosting = vi.hoisted(() => ({ poolAssignment: undefined as PoolAssignmentService | undefined }));
+vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({
+  useMinerHosting: () => ({ adapter: hosting, isFleetHosted: false }),
 }));
 vi.mock("@/protoOS/store/useMinerStore", () => ({
   default: (select: (state: unknown) => unknown) =>
@@ -52,17 +54,51 @@ const fixture = (configurations = [local]) =>
       total: configurations.length,
     })),
     deleteConfiguration: vi.fn().mockResolvedValue(undefined),
-    inspect: vi
-      .fn()
-      .mockResolvedValue({ boards: [], savedPools: configurations, maxPools: 3, requiresActivation: false }),
+    inspect: vi.fn().mockResolvedValue({
+      boards: [],
+      savedPools: configurations,
+      mixedConfigurations: false,
+      maxPools: 3,
+      requiresActivation: false,
+    }),
     review: vi.fn(),
     apply: vi.fn(),
     status: vi.fn(),
-    restoreMining: vi.fn(),
+    checkMiningRecovery: vi.fn(),
   }) satisfies PoolAssignmentService;
 beforeEach(() => {
+  hosting.poolAssignment = undefined;
   localStorage.clear();
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 20, 240, 40));
+});
+
+test("reloads assignment counts when an operator clears a completed recovery record", async () => {
+  const service = fixture([{ ...local, assignedCount: 4 }]);
+  service.listConfigurationPage.mockResolvedValueOnce({ configurations: [local], total: 1 });
+  service.status.mockResolvedValue({
+    state: "saved",
+    message: "Pool assignment saved.",
+    confirmed: 1,
+    total: 1,
+    blockers: [],
+  });
+  hosting.poolAssignment = service;
+  savePoolAttempt("ct1", {
+    id: "saved",
+    macs: ["aa:bb:cc:00:00:01"],
+    destinationId: local.id,
+    destinationRef: "proto-os:pools:local",
+    pools: local.pools,
+    configurationConfirmed: true,
+    operationIds: [],
+    phase: "Checking assignments",
+  });
+
+  render(<PoolConfigurationLibrary service={service} configuration={configuration} onReload={vi.fn()} />);
+  expect(await screen.findByRole("cell", { name: "3" })).toBeVisible();
+  fireEvent.click(await screen.findByRole("button", { name: "Pool assignment status" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Done" }));
+  expect(await screen.findByRole("cell", { name: "4" })).toBeVisible();
 });
 
 test("uses Fleet's library and pool details without hashboard or group controls", async () => {
@@ -133,7 +169,7 @@ test("Default allows editing, keeps deletion disabled, and has no Set as default
   expect(within(editor).getByLabelText("Name")).toHaveAttribute("readonly");
   fireEvent.click(within(editor).getByRole("checkbox", { name: "Keep saved password" }));
   expect(within(editor).getByLabelText("Pool password")).toBeInTheDocument();
-  expect(within(editor).getByRole("button", { name: "Save configuration" })).toBeDisabled();
+  expect(within(editor).getByRole("button", { name: "Review changes" })).toBeDisabled();
 });
 
 test("non-default configurations allow editing and deletion", async () => {

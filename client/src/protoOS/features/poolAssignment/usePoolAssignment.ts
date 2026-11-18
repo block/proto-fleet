@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { readPoolAttempts, removePoolAttempt, savePoolAttempt } from "./attemptStorage";
+import { withPoolWriteLock } from "./poolWriteLock";
 import { isAuthenticationError } from "@/protoOS/api/adapters/errors";
 import type {
   AssignmentPool,
@@ -24,28 +25,38 @@ export function usePoolAssignment(
   service: PoolAssignmentService,
   controllerId: string,
   target: PoolAssignmentTarget,
-  onConfigurationSaved?: () => void,
+  {
+    openStatus,
+    onConfigurationSaved,
+    onAssignmentSaved,
+  }: {
+    openStatus: boolean;
+    onConfigurationSaved: () => void;
+    onAssignmentSaved: (status: PoolAssignmentStatus) => void;
+  },
 ) {
   const [inspection, setInspection] = useState<PoolAssignmentInspection>();
   const [reviewedPlan, setReviewedPlan] = useState<{ plan: PoolAssignmentPlan; replacesAttemptId?: string }>();
-  const [attempt, setAttempt] = useState(() => readPoolAttempts(controllerId)[0]);
+  const [attempt, setAttempt] = useState<PoolAssignmentAttempt | undefined>(() => readPoolAttempts(controllerId)[0]);
+  const [openingAttemptId] = useState(attempt?.id);
   const [createdId, setCreatedId] = useState<string>();
   const [status, setStatus] = useState<PoolAssignmentStatus>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const checkingPrevious = Boolean(
+    !openStatus && target.macs.length && attempt && attempt.id === openingAttemptId && !attempt.restoreLegacyMining,
+  );
   const request = useRef<AbortController | null>(null);
   const run = async (operation: (signal: AbortSignal) => Promise<void>) => {
-    if (request.current) return false;
+    if (request.current) return;
     const controller = new AbortController();
     request.current = controller;
     setBusy(true);
     setError(undefined);
     try {
       await operation(controller.signal);
-      return !controller.signal.aborted;
     } catch (error) {
       if (!controller.signal.aborted) setError(message(error));
-      return false;
     } finally {
       if (request.current === controller) {
         request.current = null;
@@ -61,26 +72,46 @@ export function usePoolAssignment(
     [service, controllerId],
   );
   const inspect = () => run(async (signal) => setInspection(await service.inspect(target, { signal })));
+  const forgetAttempt = (id: string) => {
+    removePoolAttempt(controllerId, id);
+    setAttempt(readPoolAttempts(controllerId)[0]);
+    setStatus(undefined);
+  };
+  const recordStatus = (record: PoolAssignmentAttempt, result: PoolAssignmentStatus) => {
+    if (checkingPrevious && result.state === "saved") {
+      // Another tab may have updated the record while this status read was in flight.
+      const latest = readPoolAttempts(controllerId).find((entry) => entry.id === record.id);
+      if (!latest || JSON.stringify(latest) === JSON.stringify(record)) forgetAttempt(record.id);
+      else {
+        setAttempt(latest);
+        setStatus(undefined);
+      }
+    } else setStatus(result);
+    setError(undefined);
+  };
   const check = () =>
     run(async (signal) => {
-      if (attempt) setStatus(await service.status(attempt, { signal }));
-    });
-  const restoreMining = () =>
-    run(async (signal) => {
-      if (!attempt?.restoreLegacyMining) return;
-      const track = (record: PoolAssignmentAttempt) => {
-        savePoolAttempt(controllerId, record);
-        setAttempt(record);
-      };
-      setStatus(await service.restoreMining(attempt, track, { signal }));
-    });
-  const review = (pools: AssignmentPool[], savedPoolSetId?: string, selectedMacs = target.macs, name?: string) =>
-    run(async (signal) => {
-      setReviewedPlan(undefined);
-      const plan = await service.review({ ...target, macs: selectedMacs }, { name, pools, savedPoolSetId }, { signal });
+      if (!attempt) return;
+      const result = await service.status(attempt, { signal });
       signal.throwIfAborted();
-      setReviewedPlan({ plan });
+      recordStatus(attempt, result);
     });
+  const checkMiningRecovery = () =>
+    run((signal) =>
+      withPoolWriteLock(controllerId, signal, async (writeSignal) => {
+        const current = readPoolAttempts(controllerId).find(({ id }) => id === attempt?.id);
+        if (!current?.restoreLegacyMining) {
+          setAttempt(current);
+          setStatus(undefined);
+          return;
+        }
+        const track = (record: PoolAssignmentAttempt) => {
+          savePoolAttempt(controllerId, record);
+          setAttempt(record);
+        };
+        setStatus(await service.checkMiningRecovery(current, controllerId, track, { signal: writeSignal }));
+      }),
+    );
   const reviewRemaining = () =>
     run(async (signal) => {
       if (!attempt?.destinationId || !status?.remainingMacs?.length) return;
@@ -104,24 +135,38 @@ export function usePoolAssignment(
       setAttempt(record);
     };
     try {
-      const tracked = readPoolAttempts(controllerId);
-      if (tracked.some((record) => record.id !== replacesAttemptId))
-        throw new Error("Another pool assignment is tracked in this browser. Check its status first.");
-      if (replacesAttemptId && !tracked.length)
-        throw new Error("The original pool assignment is no longer tracked. Check its status first.");
-      const result = await service.apply(planned, track, { signal });
-      if (planned.configurationOnly && result.state === "saved" && !latest?.restoreLegacyMining) {
-        setCreatedId(latest?.destinationId);
-        removePoolAttempt(controllerId, planned.id);
-        setAttempt(readPoolAttempts(controllerId)[0]);
-        setStatus(undefined);
-        if (target.macs.length) setInspection(undefined);
-        onConfigurationSaved?.();
-      } else setStatus(result);
+      await withPoolWriteLock(controllerId, signal, async (writeSignal) => {
+        const tracked = readPoolAttempts(controllerId);
+        if (tracked.some((record) => record.id !== replacesAttemptId))
+          throw new Error("Another pool assignment is tracked in this browser. Check its status first.");
+        if (replacesAttemptId && !tracked.length)
+          throw new Error("The original pool assignment is no longer tracked. Check its status first.");
+        const result = await service.apply(planned, track, { signal: writeSignal });
+        writeSignal.throwIfAborted();
+        if (result.state !== "saved" || latest?.restoreLegacyMining) {
+          setStatus(result);
+          return;
+        }
+        forgetAttempt(planned.id);
+        if (planned.configurationOnly) {
+          setCreatedId(latest?.destinationId);
+          if (target.macs.length) setInspection(undefined);
+          onConfigurationSaved();
+        } else {
+          onAssignmentSaved(result);
+        }
+      });
     } finally {
       setReviewedPlan(undefined);
     }
   };
+  const assign = (savedPoolSetId: string, name: string, singleSelection: boolean) =>
+    run(async (signal) => {
+      const plan = await service.review(target, { name, pools: [], savedPoolSetId }, { signal });
+      signal.throwIfAborted();
+      if (singleSelection && !plan.requiresActivation) await applyPlan(plan, signal);
+      else setReviewedPlan({ plan });
+    });
   const create = (name: string, pools: AssignmentPool[], original?: SavedPoolSet) =>
     run(async (signal) => {
       const planned = await service.review(
@@ -136,7 +181,9 @@ export function usePoolAssignment(
         },
         { signal },
       );
-      if (planned.requiresActivation) setReviewedPlan({ plan: planned });
+      signal.throwIfAborted();
+      if (planned.requiresActivation || (planned.editingRevision && planned.target.macs.length))
+        setReviewedPlan({ plan: planned });
       else await applyPlan(planned, signal);
     });
   const confirm = () =>
@@ -163,15 +210,12 @@ export function usePoolAssignment(
     enabled: !!attempt && !busy && (status === undefined || status.state === "pending"),
     poll: true,
     pollIntervalMs: 3000,
-    params: attempt?.id,
+    params: attempt,
     fetchData: async (signal) => {
       if (!attempt) return;
       try {
         const value = await service.status(attempt, { signal });
-        if (!signal.aborted) {
-          setStatus(value);
-          setError(undefined);
-        }
+        if (!signal.aborted) recordStatus(attempt, value);
       } catch (error) {
         if (!signal.aborted) setError(message(error));
       }
@@ -182,23 +226,19 @@ export function usePoolAssignment(
     createdId,
     create,
     plan: reviewedPlan?.plan,
-    attempt,
+    attempt: checkingPrevious && status === undefined && !error ? undefined : attempt,
     status,
     error,
     busy,
     inspect,
-    review,
+    assign,
     reviewRemaining,
     confirm,
     check,
-    restoreMining,
+    checkMiningRecovery,
     back: () => setReviewedPlan(undefined),
     clear: () => {
-      if (!busy && attempt) {
-        removePoolAttempt(controllerId, attempt.id);
-        setAttempt(readPoolAttempts(controllerId)[0]);
-        setStatus(undefined);
-      }
+      if (!busy && attempt) forgetAttempt(attempt.id);
     },
   };
 }

@@ -13,8 +13,11 @@ import { ActionModal } from "@/protoFleet/features/hostedAccounts/components/Act
 import AffectedEquipment from "@/shared/components/AffectedEquipment";
 import Input from "@/shared/components/Input";
 import { fleetUsernameHelperText } from "@/shared/components/MiningPools/PoolForm/constants";
+import {
+  type ConfigurationChange,
+  ConfigurationChanges,
+} from "@/shared/components/PoolConfigurations/ConfigurationChanges";
 
-export type ConfigurationChange = { field: string; before: string; after: string };
 export type ConfigurationReviewData = {
   reviewId: string;
   configuration?: Configuration;
@@ -102,16 +105,7 @@ export const ConfigurationReview = ({
       />
       <div className="flex flex-col gap-3" data-dd-privacy="mask">
         {changes?.length ? (
-          <dl className="flex flex-col gap-3">
-            {changes.map((change) => (
-              <div key={change.field}>
-                <dt className="font-medium">{change.field}</dt>
-                <dd className="break-all">
-                  <span className="text-text-primary-50">{change.before || "None"}</span> → {change.after || "None"}
-                </dd>
-              </div>
-            ))}
-          </dl>
+          <ConfigurationChanges changes={changes} />
         ) : (
           editing &&
           review.configuration?.pools.map((pool, i) => (

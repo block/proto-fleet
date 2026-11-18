@@ -489,6 +489,23 @@ func TestDefaultReturnReviewDoesNotClaimCompletionAfterReadFailure(t *testing.T)
 	require.ErrorContains(t, err, "refresh its mining-group state")
 }
 
+func TestDefaultReturnReviewIncludesBoardsMovedOutOfCachedDefault(t *testing.T) {
+	ctx, f, firmware, ids := newDefaultReturnFixture(t)
+	mac := "02:00:00:00:00:01"
+	firmware.snapshot.Groups[0].MACs = []string{mac}
+	firmware.snapshot.Groups[1].MACs = nil
+	_, err := f.service.GetState(ctx, f.target.DeviceIdentifier)
+	require.NoError(t, err)
+	firmware.snapshot.Groups[0].MACs = nil
+	firmware.snapshot.Groups[0].Revision++
+	firmware.snapshot.Groups[1].MACs = []string{mac}
+	firmware.snapshot.Groups[1].Revision++
+
+	review := reviewDefaultReturn(t, ctx, f, ids)
+	require.Len(t, review.Boards, 1)
+	require.Equal(t, mac, review.Boards[0].MacAddress)
+}
+
 func TestDefaultReturnReviewUsesMiningAssetNames(t *testing.T) {
 	ctx, f, _, ids := newDefaultReturnFixture(t)
 	review := reviewDefaultReturn(t, ctx, f, ids)

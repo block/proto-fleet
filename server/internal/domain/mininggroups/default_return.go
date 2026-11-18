@@ -83,6 +83,24 @@ func currentDefaultReturnObservation(state State) bool {
 	return state.Record.ObservedAt.Valid && time.Since(state.Record.ObservedAt.Time) <= 2*time.Minute && time.Until(state.Record.ObservedAt.Time) <= 5*time.Second && state.Observed.Supported
 }
 
+func checkDefaultReturnInventory(observed sdk.MiningGroupResult, boards []sqlc.ListDefaultReturnBoardsRow) error {
+	known := make(map[string]bool, len(boards))
+	for _, board := range boards {
+		known[board.MacAddress] = true
+	}
+	for _, group := range observed.Groups {
+		if group.ID == "default" {
+			continue
+		}
+		for _, mac := range group.MACs {
+			if !known[mac] {
+				return fleeterror.NewFailedPreconditionError("Refresh the container inventory. Some boards outside Default have no current installation.")
+			}
+		}
+	}
+	return nil
+}
+
 // Routine review polls use committed observations. Confirmation still checks
 // permissions, installations, pool work, and live controller revisions again.
 func (s *Service) defaultReturnReviewState(ctx context.Context, orgID, userID int64, identifier string) (State, error) {
@@ -131,19 +149,8 @@ func (s *Service) ReviewReturnToDefault(ctx context.Context, identifier string, 
 		return nil, fleeterror.NewFailedPreconditionError("Board installations changed. Review the recalled boards again.")
 	}
 	if containerState != nil && len(ids) == 0 {
-		known := map[string]bool{}
-		for _, board := range boards {
-			known[board.MacAddress] = true
-		}
-		for _, group := range containerState.Observed.Groups {
-			if group.ID == "default" {
-				continue
-			}
-			for _, mac := range group.MACs {
-				if !known[mac] {
-					return nil, fleeterror.NewFailedPreconditionError("Refresh the container inventory. Some boards outside Default have no current installation.")
-				}
-			}
+		if err := checkDefaultReturnInventory(containerState.Observed, boards); err != nil {
+			return nil, err
 		}
 	}
 	type reviewSelection struct {
@@ -170,6 +177,26 @@ func (s *Service) ReviewReturnToDefault(ctx context.Context, identifier string, 
 				return nil, fleeterror.NewFailedPreconditionError("Reconnect the controller and refresh its mining-group state.")
 			}
 		}
+		current, _ := defaultGroup(state.Observed)
+		if slices.ContainsFunc(selection, func(board sqlc.ListDefaultReturnBoardsRow) bool {
+			return board.ClientID == 0 && slices.Contains(current.MACs, board.MacAddress)
+		}) {
+			// A cached Default membership must never turn a requested move into
+			// a no-op. ProtoOS can move a board after Fleet's last observation.
+			state, err = s.GetState(ctx, selection[0].DeviceIdentifier)
+			if err != nil {
+				return nil, err
+			}
+			if !currentDefaultReturnObservation(state) || !state.Observed.Enabled || state.Observed.Suspended || state.Observed.Pending {
+				return nil, fleeterror.NewFailedPreconditionError("Reconnect the controller and refresh its mining-group state.")
+			}
+			if containerState != nil && len(ids) == 0 {
+				if err := checkDefaultReturnInventory(state.Observed, selection); err != nil {
+					return nil, err
+				}
+			}
+			current, _ = defaultGroup(state.Observed)
+		}
 		selected := make([]int64, 0, len(selection))
 		for _, board := range selection {
 			if board.ClientID != 0 {
@@ -178,13 +205,7 @@ func (s *Service) ReviewReturnToDefault(ctx context.Context, identifier string, 
 				}
 				continue
 			}
-			inDefault := false
-			for _, group := range state.Observed.Groups {
-				if group.ID == "default" && slices.Contains(group.MACs, board.MacAddress) {
-					inDefault = true
-				}
-			}
-			if !inDefault {
+			if !slices.Contains(current.MACs, board.MacAddress) {
 				selected = append(selected, board.HashboardID)
 			}
 		}

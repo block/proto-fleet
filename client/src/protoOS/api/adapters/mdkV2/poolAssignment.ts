@@ -18,7 +18,9 @@ import type { MdkV2Client } from "./connectClient";
 import { withDeadline } from "./controllerRecords";
 import type { V2MiningGroupRecord } from "./generated/generatedApi";
 import { groupStamp, toPoolSettings } from "./miningGroupRecords";
+import { ct1DeviceId } from "./normalize";
 import { defaultPoolSetError, publicPools, readDefaultPools, saveDefaultPools } from "./poolEdits";
+import { poolRecoveryFingerprint } from "./poolRecoveryEvidence";
 import { slotPosition } from "./slotPosition";
 import { CONTAINER_REFUSAL_CODES, containerWriteError } from "./writeErrors";
 import { isMacAddress } from "@/protoOS/utils/macAddress";
@@ -237,6 +239,11 @@ export function createPoolAssignment(
       };
     });
   type Snapshot = Awaited<ReturnType<typeof snapshot>>;
+  const canAssignTo = (state: Snapshot, group: V2MiningGroupRecord, mining: boolean) =>
+    mayMove(group) &&
+    !customPolicy(group) &&
+    ((group.desiredMining ?? false) === mining ||
+      (group.id !== "default" && !groupHasMembers(state.membership, group.id)));
   const selected = (state: Snapshot, target: PoolAssignmentTarget) => {
     const selectedMacs = macs(target.macs);
     if (
@@ -362,14 +369,14 @@ export function createPoolAssignment(
         };
       if (destination && (attempt.configurationOnly || confirmed === attempt.macs.length)) {
         const currentRevision = revision(destination);
-        const currentCredentials =
-          destination.id === "default"
-            ? justSavedDefault
-            : currentRevision === attempt.destinationRevision ||
-              (!attempt.configurationOnly && currentRevision === attempt.unconfirmedTransferRevision);
+        const editingDefault = destination.id === "default" && attempt.configurationOnly;
+        const currentCredentials = editingDefault
+          ? justSavedDefault
+          : currentRevision === attempt.destinationRevision ||
+            (!attempt.configurationOnly && currentRevision === attempt.unconfirmedTransferRevision);
         if (!attempt.configurationConfirmed || !currentCredentials) {
           let message = "Board assignments match, but the latest pool credentials could not be confirmed.";
-          if (destination.id === "default")
+          if (editingDefault)
             message =
               "Some Default pool changes may be saved. Reload pools and check which pools are enabled before editing again.";
           else if (attempt.configurationOnly)
@@ -381,7 +388,10 @@ export function createPoolAssignment(
           };
         }
         const saved = await poolSet(destination, options);
-        if (same(publicPools(saved.pools), publicPools(attempt.pools))) {
+        const poolsMatch = attempt.poolFingerprint
+          ? poolRecoveryFingerprint(saved.pools) === attempt.poolFingerprint
+          : same(publicPools(saved.pools), publicPools(attempt.pools));
+        if (poolsMatch) {
           if (attempt.name && saved.name !== attempt.name)
             return {
               ...common,
@@ -398,8 +408,7 @@ export function createPoolAssignment(
           return {
             ...common,
             state: "saved",
-            message:
-              "Pool settings and assignments are saved. This does not confirm that every board has applied them.",
+            message: "Pool assignment saved.",
           };
         }
       }
@@ -469,14 +478,27 @@ export function createPoolAssignment(
         throw new PoolDeletionUnconfirmed(error);
       }
     },
-    async restoreMining(attempt, track, params) {
+    async checkMiningRecovery(attempt, controllerId, track, params) {
       if (!attempt.restoreLegacyMining) return status(attempt, params);
-      const restoring = { ...attempt, phase: "Restoring container mining" };
-      track(restoring);
-      await read(params, (options) => client.miningServiceStartMining(options));
-      const restored = { ...restoring, restoreLegacyMining: false, phase: "Checking saved pools and membership" };
-      track(restored);
-      return status(restored, params);
+      const mining = await read(params, async (options) => {
+        const { data } = await client.systemServiceGetSystemInfo(options);
+        if (!data.info?.id || ct1DeviceId(data.info.id) !== controllerId)
+          throw new Error("The controller changed. Reconnect to the original controller to check mining.");
+        const { data: current } = await client.miningGroupServiceGetMiningGroup({ id: "default" }, options);
+        if (current.group?.id !== "default" || typeof current.group.desiredMining !== "boolean")
+          throw new Error("The controller did not report its mining state. Check mining on the controller.");
+        return current.group.desiredMining;
+      });
+      const checked = { ...attempt, restoreLegacyMining: false, phase: "Checking saved pools and membership" };
+      const result = await status(checked, params);
+      params?.signal?.throwIfAborted();
+      track(checked);
+      return mining
+        ? result
+        : {
+            ...result,
+            message: `${result.message} Default mining is set to stop. Resume it on the controller if needed.`,
+          };
     },
     async inspect(target, params) {
       const state = await snapshot(params, { inventory: target.macs.length ? "required" : "none" });
@@ -485,23 +507,20 @@ export function createPoolAssignment(
         state.capability.enabled && target.macs.length
           ? await read(params, (options) =>
               mapWithConcurrency(
-                state.groups.filter(
-                  (group) =>
-                    owned(group) &&
-                    !customPolicy(group) &&
-                    (group.desiredMining === selection.mining || !groupHasMembers(state.membership, group.id)),
-                ),
+                state.groups.filter((group) => canAssignTo(state, group, selection.mining)),
                 4,
                 (group) => poolSet(group, options),
                 options.signal ?? undefined,
               ),
             )
           : [];
+      const assignablePools = savedPools.filter((set) => set.pools.length > 0);
+      const currentIds = new Set(selection.macs.map((mac) => state.membership.get(mac)));
       return {
         boards: selection.macs.map((mac) => state.boards.get(mac)!),
-        savedPools: savedPools.filter((set) => set.pools.length > 0),
-        currentPoolSetId: savedPools.find((set) => selection.macs.every((mac) => state.membership.get(mac) === set.id))
-          ?.id,
+        savedPools: assignablePools,
+        currentPoolSetId: currentIds.size === 1 ? assignablePools.find((set) => currentIds.has(set.id))?.id : undefined,
+        mixedConfigurations: state.capability.enabled === true && currentIds.size > 1,
         maxPools: state.capability.maxPoolsPerGroup!,
         requiresActivation: !state.capability.enabled,
       };
@@ -541,14 +560,10 @@ export function createPoolAssignment(
       let savedPoolSet: SavedPoolSet | undefined;
       if (choice.savedPoolSetId) {
         const group = state.groups.find((group) => group.id === choice.savedPoolSetId);
-        if (
-          !group ||
-          !owned(group) ||
-          customPolicy(group) ||
-          (group.desiredMining !== selection.mining && groupHasMembers(state.membership, group.id))
-        )
+        if (!state.capability.enabled || !group || !canAssignTo(state, group, selection.mining))
           throw new Error("The saved pool set is no longer available for this selection.");
         savedPoolSet = await poolSet(group, params);
+        if (!savedPoolSet.pools.length) throw new Error("The saved pool set no longer contains any pools.");
       }
       const maxPools =
         editing?.id === "default"
@@ -685,7 +700,7 @@ export function createPoolAssignment(
       const destinationId = destination!.id!;
       await refresh();
       destination = state.groups.find((group) => group.id === destinationId);
-      if (!destination || (!plan.editingRevision && (!owned(destination) || customPolicy(destination))))
+      if (!destination || (!plan.editingRevision && !canAssignTo(state, destination, plan.mining)))
         throw new Error("The destination configuration is no longer available. Check status.");
       if (
         plan.editingRevision &&
@@ -693,8 +708,8 @@ export function createPoolAssignment(
           !same(macs(groupMemberMacs(state.membership, destinationId)), plan.target.macs))
       )
         throw new Error("The configuration changed. Reload and review it again.");
-      if (destination.id === "default") {
-        if (!plan.editingRevision || !plan.configurationOnly || !plan.originalPools || plan.name !== destination.name)
+      if (destination.id === "default" && plan.editingRevision) {
+        if (!plan.configurationOnly || !plan.originalPools || plan.name !== destination.name)
           throw new Error("Reload Default pools and review the edit again.");
         const assignments = (current: Snapshot) =>
           JSON.stringify([current.capability, groupStamp(current.groups), [...current.membership].sort()]);
@@ -774,7 +789,7 @@ export function createPoolAssignment(
         attempt = { ...attempt, destinationRevision: revision(destination) };
         track(attempt);
       }
-      if (!plan.configurationOnly && destination!.desiredMining !== plan.mining) {
+      if (!plan.configurationOnly && (destination!.desiredMining ?? false) !== plan.mining) {
         const response = await write("Preserving the selected boards' mining intent", (options) =>
           client.miningGroupServiceUpdateMiningGroupIntent(
             { id: destinationId },
@@ -797,13 +812,19 @@ export function createPoolAssignment(
         destination = state.groups.find((group) => group.id === destinationId);
         if (
           !destination ||
-          !owned(destination) ||
+          !mayMove(destination) ||
           customPolicy(destination) ||
-          destination.desiredMining !== plan.mining
+          (destination.desiredMining ?? false) !== plan.mining
         )
           throw new Error("The destination policy changed. Check the saved assignments.");
         if (revision(destination) !== expectedDestinationRevision)
           throw new Error("The destination configuration changed. Check the saved assignments.");
+        // Default pool settings can change through the legacy API without a group revision change.
+        if (
+          plan.savedPoolSet?.id === "default" &&
+          !same((await poolSet(destination, params)).pools, plan.savedPoolSet.pools)
+        )
+          throw new Error("Default pool settings changed. Reload and review again.");
         const source = state.groups.find((group) => group.id === transfer.source);
         if (transfer.macs.some((mac) => (state.membership.get(mac) ?? "") !== transfer.source))
           throw new Error("Board membership changed. Check the saved assignments.");

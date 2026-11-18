@@ -54,7 +54,10 @@ const ModuleModal = ({
   );
   const selectedBoards =
     boardSelection.moduleId === module.id ? boardSelection.macs.filter((mac) => visibleMacs.has(mac)) : [];
-  const selectedPoolAction = poolActions.action({ macs: selectedBoards, modules: poolTarget?.modules })[0];
+  const selectedPoolAction = poolActions.action(
+    { macs: selectedBoards, modules: poolTarget?.modules },
+    selectedBoards.length,
+  )[0];
   const modulePoolAction = poolActions.action(poolTarget)[0];
   const bodyRef = useRef<HTMLDivElement>(null);
   useEffect(() => {

@@ -7,6 +7,12 @@ import type {
   PoolAssignmentPlan,
   PoolAssignmentService,
 } from "@/protoOS/api/adapters/poolAssignment";
+import { pushToast } from "@/shared/features/toaster";
+
+vi.mock("@/shared/features/toaster", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/shared/features/toaster")>()),
+  pushToast: vi.fn(),
+}));
 
 const A = "aa:bb:cc:00:00:01",
   B = "aa:bb:cc:00:00:02";
@@ -42,6 +48,7 @@ const fixture = () => {
     inspect: vi.fn().mockResolvedValue({
       boards,
       savedPools: [saved],
+      mixedConfigurations: false,
       maxPools: 3,
       requiresActivation: false,
     }),
@@ -65,7 +72,7 @@ const fixture = () => {
         track({ ...attempt, id: plan.id });
         return {
           state: "saved",
-          message: "Pool settings and assignments are saved.",
+          message: "Pool assignment saved.",
           confirmed: 1,
           total: 1,
           blockers: [],
@@ -73,12 +80,12 @@ const fixture = () => {
       }),
     status: vi.fn().mockResolvedValue({
       state: "saved",
-      message: "Pool settings and assignments are saved.",
+      message: "Pool assignment saved.",
       confirmed: 1,
       total: 1,
       blockers: [],
     }),
-    restoreMining: vi.fn().mockImplementation(async (current, track) => {
+    checkMiningRecovery: vi.fn().mockImplementation(async (current, _controllerId, track) => {
       track({ ...current, restoreLegacyMining: false });
       return { state: "unknown", message: "Check saved changes.", confirmed: 0, total: 0, blockers: [] };
     }),
@@ -86,7 +93,25 @@ const fixture = () => {
   return { service };
 };
 beforeEach(() => {
+  const locks = new Map<string, Promise<void>>();
+  Object.defineProperty(navigator, "locks", {
+    configurable: true,
+    value: {
+      request: (key: string, { signal }: { signal: AbortSignal }, callback: () => Promise<void>) => {
+        const pending = (locks.get(key) ?? Promise.resolve()).then(() => {
+          signal.throwIfAborted();
+          return callback();
+        });
+        locks.set(
+          key,
+          pending.catch(() => {}),
+        );
+        return pending;
+      },
+    },
+  });
   localStorage.clear();
+  vi.mocked(pushToast).mockClear();
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 20, 240, 40));
 });
 
@@ -123,36 +148,116 @@ test("reviews only the remaining boards after a partial transfer", async () => {
 
   fireEvent.click(screen.getByRole("button", { name: "Review remaining boards" }));
   fireEvent.click(await screen.findByRole("button", { name: "Assign" }));
-  expect(await screen.findByText("Pool settings and assignments are saved.")).toBeInTheDocument();
-  expect(readPoolAttempts("ct1")).toEqual([{ ...attempt, id: "next-attempt" }]);
+  await waitFor(() => expect(pushToast).toHaveBeenCalledWith({ message: "Pool assignment saved.", status: "success" }));
+  expect(readPoolAttempts("ct1")).toEqual([]);
 });
 
-test("uses Fleet's configuration picker and confirms the captured equipment selection", async () => {
+test("keeps Fleet's short confirmation for multiple selected boards in one module", async () => {
   const { service } = fixture();
-  render(<PoolAssignmentDialog service={service} controllerId="ct1" target={target} onDismiss={vi.fn()} />);
-  expect(await screen.findByRole("dialog", { name: "Edit pool" })).toBeInTheDocument();
+  service.inspect.mockResolvedValue({
+    boards,
+    savedPools: [saved],
+    mixedConfigurations: true,
+    maxPools: 3,
+    requiresActivation: false,
+  });
+  const dismiss = vi.fn();
+  const selection = { ...target, modules: [[A, B]] };
+  render(
+    <PoolAssignmentDialog
+      service={service}
+      controllerId="ct1"
+      target={selection}
+      selectedCount={2}
+      onDismiss={dismiss}
+    />,
+  );
+  const picker = within(await screen.findByRole("dialog", { name: "Edit pool" }));
   expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   expect(screen.queryByLabelText("Your password")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Assign" })).toBeDisabled();
-  fireEvent.click(await screen.findByRole("radio", { name: "Saved pools" }));
+  const savedPool = await picker.findByRole("radio", { name: "Saved pools" });
+  expect(picker.getByText("Mixed configurations")).toBeVisible();
+  expect(picker.getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
+    "Name",
+    "Primary pool",
+    "Backup pool",
+  ]);
+  fireEvent.click(savedPool);
   fireEvent.click(screen.getByRole("button", { name: "Assign" }));
   const confirmation = await screen.findByRole("dialog", { name: "Assign pool configuration to 2 hashboards?" });
+  expect(
+    within(confirmation).getByText("Assign Saved pools? Pool changes may briefly interrupt mining."),
+  ).toBeVisible();
+  expect(within(confirmation).queryByText(pool.url)).not.toBeInTheDocument();
+  expect(within(confirmation).queryByText(/Affected hashboards/)).not.toBeInTheDocument();
   expect(service.review).toHaveBeenCalledWith(
-    { macs: [A, B] },
+    selection,
     { name: "Saved pools", pools: [], savedPoolSetId: "saved" },
     expect.objectContaining({ signal: expect.any(AbortSignal) }),
   );
   expect(service.apply).not.toHaveBeenCalled();
   fireEvent.click(within(confirmation).getByRole("button", { name: "Assign" }));
-  expect(await screen.findByText("Pool settings and assignments are saved.")).toBeInTheDocument();
+  await waitFor(() => expect(dismiss).toHaveBeenCalledOnce());
   expect(service.apply).toHaveBeenCalledTimes(1);
 });
 
-test("reload recovers status and never repeats the write", async () => {
+test.each([
+  { label: "one hashboard", selection: { macs: [A] } },
+  { label: "one module with multiple hashboards", selection: { macs: [A, B], modules: [[A, B]] } },
+])("assigns $label after the first Assign click", async ({ selection }) => {
+  const { service } = fixture();
+  const dismiss = vi.fn();
+  render(<PoolAssignmentDialog service={service} controllerId="ct1" target={selection} onDismiss={dismiss} />);
+  fireEvent.click(await screen.findByRole("radio", { name: "Saved pools" }));
+  fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+
+  await waitFor(() => expect(dismiss).toHaveBeenCalledOnce());
+  expect(pushToast).toHaveBeenCalledWith({ message: "Pool assignment saved.", status: "success" });
+  expect(readPoolAttempts("ct1")).toEqual([]);
+  expect(service.apply).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ target: selection }),
+    expect.any(Function),
+    expect.objectContaining({ signal: expect.any(AbortSignal) }),
+  );
+  expect(screen.queryByRole("dialog", { name: /Assign pool configuration to/ })).not.toBeInTheDocument();
+});
+
+test("requires confirmation for a single assignment when the plan would pause container mining", async () => {
+  const { service } = fixture();
+  const review = service.review.getMockImplementation()!;
+  service.review.mockImplementationOnce(async (selection) => ({
+    ...(await review(selection)),
+    requiresActivation: true,
+  }));
+  render(<PoolAssignmentDialog service={service} controllerId="ct1" target={{ macs: [A] }} onDismiss={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("radio", { name: "Saved pools" }));
+  fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+
+  expect(await screen.findByText("Container mining must pause to enable pool assignments.")).toBeVisible();
+  expect(service.apply).not.toHaveBeenCalled();
+});
+
+test("Edit pool checks and clears a saved attempt before loading the new selection", async () => {
   savePoolAttempt("ct1", attempt);
   const { service } = fixture();
-  render(<PoolAssignmentDialog service={service} controllerId="ct1" target={target} onDismiss={vi.fn()} />);
-  expect(await screen.findByText("Pool settings and assignments are saved.")).toBeInTheDocument();
+  const selection = { macs: [A] };
+  render(<PoolAssignmentDialog service={service} controllerId="ct1" target={selection} onDismiss={vi.fn()} />);
+
+  expect(screen.getByRole("dialog", { name: "Edit pool" })).toBeInTheDocument();
+  expect(await screen.findByRole("radio", { name: "Saved pools" })).toBeVisible();
+  expect(screen.queryByRole("dialog", { name: "Pool assignment status" })).not.toBeInTheDocument();
+  expect(service.status).toHaveBeenCalledWith(attempt, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  expect(service.inspect).toHaveBeenCalledWith(selection, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  expect(service.apply).not.toHaveBeenCalled();
+  expect(readPoolAttempts("ct1")).toEqual([]);
+});
+
+test("opening assignment status after reload shows the result and never repeats the write", async () => {
+  savePoolAttempt("ct1", attempt);
+  const { service } = fixture();
+  render(<PoolAssignmentDialog service={service} controllerId="ct1" target={target} openStatus onDismiss={vi.fn()} />);
+  expect(await screen.findByText("Pool assignment saved.")).toBeInTheDocument();
   expect(service.inspect).not.toHaveBeenCalled();
   expect(service.review).not.toHaveBeenCalled();
   expect(service.apply).not.toHaveBeenCalled();
@@ -176,12 +281,12 @@ test("refreshes the configuration library after a recovered configuration save",
   expect(onSaved).toHaveBeenCalledTimes(1);
 });
 
-test("offers to restore mining after an interrupted activation", async () => {
+test("checks mining after an interrupted activation", async () => {
   savePoolAttempt("ct1", { ...attempt, restoreLegacyMining: true });
   const { service } = fixture();
   render(<PoolAssignmentDialog service={service} controllerId="ct1" target={target} onDismiss={vi.fn()} />);
-  fireEvent.click(await screen.findByRole("button", { name: "Start mining" }));
-  await waitFor(() => expect(service.restoreMining).toHaveBeenCalledTimes(1));
+  fireEvent.click(await screen.findByRole("button", { name: "Check mining" }));
+  await waitFor(() => expect(service.checkMiningRecovery).toHaveBeenCalledTimes(1));
   expect(readPoolAttempts("ct1")[0].restoreLegacyMining).toBe(false);
 });
 
@@ -193,7 +298,7 @@ test("can keep mining stopped after activation", async () => {
 
   fireEvent.click(await screen.findByRole("button", { name: "Keep stopped" }));
 
-  expect(service.restoreMining).not.toHaveBeenCalled();
+  expect(service.checkMiningRecovery).not.toHaveBeenCalled();
   expect(readPoolAttempts("ct1")).toEqual([]);
   expect(onDismiss).toHaveBeenCalledOnce();
 });
@@ -206,6 +311,52 @@ test("recovery records omit credentials even if a caller passes extra fields", (
   expect(serialized).not.toContain("hidden");
   expect(serialized).not.toContain("password");
   expect(readPoolAttempts("another-controller")).toEqual([]);
+});
+
+test("redacts private pool URLs in new and existing recovery records", () => {
+  const url = "stratum+tcp://private-user:private-pass@pool.example:3333/path?token=private-token";
+  const record = { ...attempt, pools: [{ ...pool, url }] };
+  const key = "proto-os:pool-assignment:ct1:" + record.id;
+  const expectRedaction = () => {
+    const serialized = localStorage.getItem(key);
+    expect(serialized).not.toContain("private");
+    expect(JSON.parse(serialized!)).toMatchObject({
+      poolFingerprint: expect.stringMatching(/^[0-9a-f]{64}$/),
+      pools: [{ ...pool, url: "stratum+tcp://pool.example:3333" }],
+    });
+  };
+  savePoolAttempt("ct1", record);
+  expectRedaction();
+  localStorage.setItem(key, JSON.stringify(record));
+  expect(readPoolAttempts("ct1")).toHaveLength(1);
+  expectRedaction();
+});
+
+test("serializes controller writes across separate dialogs", async () => {
+  const { service } = fixture();
+  let rejectFirstWrite: (reason: Error) => void;
+  service.apply.mockImplementationOnce(
+    () =>
+      new Promise<never>((_, reject) => {
+        rejectFirstWrite = reject;
+      }),
+  );
+  const props = { service, controllerId: "ct1", target: { macs: [A] }, onDismiss: vi.fn() };
+  render(
+    <>
+      <PoolAssignmentDialog {...props} />
+      <PoolAssignmentDialog {...props} />
+    </>,
+  );
+  const [first, second] = await screen.findAllByRole("dialog", { name: "Edit pool" });
+  for (const dialog of [first, second]) {
+    fireEvent.click(await within(dialog).findByRole("radio", { name: "Saved pools" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Assign" }));
+  }
+  await waitFor(() => expect(service.review).toHaveBeenCalledTimes(2));
+  expect(service.apply).toHaveBeenCalledTimes(1);
+  rejectFirstWrite!(new Error("No changes were saved"));
+  await waitFor(() => expect(service.apply).toHaveBeenCalledTimes(2));
 });
 
 test("failed inspection offers retry without a save action", async () => {
@@ -266,6 +417,7 @@ test("new configurations use Fleet's primary and backup form before returning to
       service.inspect.mockResolvedValue({
         boards: [{ mac: A }, { mac: B }],
         savedPools: [saved, created],
+        mixedConfigurations: false,
         maxPools: 3,
         requiresActivation: false,
       });
@@ -294,7 +446,7 @@ test("recovers standalone configuration writes with no selected equipment", () =
   expect(readPoolAttempts("ct1")[0]).toMatchObject({ name: "Production", configurationOnly: true, macs: [] });
 });
 
-test("saves an assigned configuration from the editor without another review screen", async () => {
+test.each([false, true])("reviews edits only if hashboards use the configuration (%s)", async (assigned) => {
   const { service } = fixture();
   service.inspect.mockRejectedValue(new Error("Unrelated configuration changed"));
   service.review.mockImplementation(async (_current, choice) => ({
@@ -302,8 +454,8 @@ test("saves an assigned configuration from the editor without another review scr
     name: choice.name,
     configurationOnly: true,
     editingRevision: saved.revision,
-    target,
-    boards,
+    target: assigned ? target : { macs: [] },
+    boards: assigned ? boards : [],
     stamp: "review",
     pools: choice.pools,
     mining: true,
@@ -322,18 +474,28 @@ test("saves an assigned configuration from the editor without another review scr
       service={service}
       controllerId="ct1"
       target={{ macs: [] }}
-      configuration={saved}
+      configuration={{ ...saved, assignedCount: assigned ? boards.length : 0, deletable: true, isDefault: false }}
       onConfigurationSaved={onSaved}
       onDismiss={vi.fn()}
     />,
   );
   const editor = await screen.findByRole("dialog", { name: "Edit pool configuration" });
   fireEvent.change(within(editor).getByLabelText("Name"), { target: { value: "Edited draft" } });
-  fireEvent.click(within(editor).getByRole("button", { name: "Save configuration" }));
+  fireEvent.click(within(editor).getByRole("button", { name: assigned ? "Review changes" : "Save configuration" }));
+  if (assigned) {
+    const review = await screen.findByRole("dialog", { name: "Review pool configuration changes" });
+    expect(within(review).getByText(`Tank 1 · Module 1 · Board 1 · ${A}`)).toBeVisible();
+    expect(within(review).getByText("Edited draft", { exact: false })).toBeVisible();
+    expect(service.apply).not.toHaveBeenCalled();
+    fireEvent.click(within(review).getByRole("button", { name: "Cancel" }));
+    const restored = await screen.findByRole("dialog", { name: "Edit pool configuration" });
+    expect(within(restored).getByLabelText("Name")).toHaveValue("Edited draft");
+    fireEvent.click(within(restored).getByRole("button", { name: "Review changes" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save and update equipment" }));
+  }
   await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
   expect(screen.queryByText("Unrelated configuration changed")).not.toBeInTheDocument();
   expect(service.inspect).not.toHaveBeenCalled();
-  expect(screen.queryByRole("dialog", { name: "Review pool configuration changes" })).not.toBeInTheDocument();
   expect(service.review).toHaveBeenCalledWith(
     { macs: [] },
     expect.objectContaining({ editPoolSetId: saved.id, expectedRevision: saved.revision }),

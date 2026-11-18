@@ -52,13 +52,13 @@ export default function PoolConfigurationLibrary({
   const deletion = useRef<AbortController | undefined>(undefined);
   useEffect(() => () => deletion.current?.abort(), [service, generation]);
   const [page, setPage] = useState(0);
-  const recovery = usePoolAssignmentActions();
   const locked = !controllerId || configuration.suspended || hasPendingPoolOperations(configuration.pendingOperations);
   const refresh = () => {
     setData(undefined);
     setError(undefined);
     setRevision((value) => value + 1);
   };
+  const recovery = usePoolAssignmentActions(refresh);
   const deleteSelectedConfiguration = async () => {
     if (busy || !deleting) return;
     const request = new AbortController();
@@ -103,7 +103,7 @@ export default function PoolConfigurationLibrary({
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
-        <Header title="Pools" titleSize="text-heading-300" />
+        <Header title="Pool configurations" titleSize="text-heading-300" />
         <Button
           variant="primary"
           size="compact"
@@ -117,8 +117,8 @@ export default function PoolConfigurationLibrary({
         <Callout intent="warning" prefixIcon={<Alert />} title="Container mining is paused." />
       ) : null}
       {error ? (
-        <div role="alert" className="flex flex-col gap-4">
-          <Callout intent="danger" prefixIcon={<Alert />} title={error} />
+        <div role="alert" className="flex flex-col items-center gap-4">
+          <SettingsEmptyState title="Unable to load configurations" description={error} />
           <Button variant="secondary" text="Retry" onClick={refresh} />
         </div>
       ) : null}
@@ -156,7 +156,7 @@ export default function PoolConfigurationLibrary({
             )}
             emptyState={
               <SettingsEmptyState
-                title="No pool configurations yet"
+                title={page ? "No configurations on this page" : "No pool configurations yet"}
                 description="Create a configuration with a primary pool and up to two backups."
               />
             }

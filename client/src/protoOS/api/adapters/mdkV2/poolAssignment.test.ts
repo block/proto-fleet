@@ -3,6 +3,7 @@ import type { PoolAssignmentAttempt } from "../poolAssignment";
 import type { MdkV2Client } from "./connectClient";
 import type { V2MiningGroupPoolRecord, V2MiningGroupRecord } from "./generated/generatedApi";
 import { createPoolAssignment } from "./poolAssignment";
+import { poolRecoveryFingerprint, recoveryPoolURL } from "./poolRecoveryEvidence";
 
 const A = "aa:bb:cc:00:00:01",
   B = "aa:bb:cc:00:00:02",
@@ -51,6 +52,7 @@ const fixture = () => {
   const response = <T>(data: T) => Promise.resolve({ data: clone(data) });
   let poolSequence = 3;
   const client = {
+    systemServiceGetSystemInfo: vi.fn(() => response({ info: { id: "ct1" } })),
     poolServiceListPools: vi.fn(() =>
       response({ pools: (state.pools.get("default") ?? []).map((pool) => ({ ...pool, id: String(pool.id) })) }),
     ),
@@ -103,6 +105,7 @@ const fixture = () => {
     miningServiceGetMiningStatus: vi.fn(() => response({ mining: state.mining, activeBoards: state.mining ? 3 : 0 })),
     miningServiceStopMining: vi.fn(() => {
       state.mining = false;
+      group("default").desiredMining = false;
       return response({});
     }),
     miningServiceStartMining: vi.fn(() => {
@@ -212,6 +215,88 @@ describe("CT1 selected-board pool assignment", () => {
     expect(client.miningGroupServiceCreateMiningGroup).not.toHaveBeenCalled();
     expect(client.miningGroupServiceReplaceMiningGroupPools).not.toHaveBeenCalled();
   });
+  test("lists Default and assigns a board to it using the controller's saved pools", async () => {
+    const { service, state, client, addLocal } = fixture();
+    addLocal([A, B]);
+    expect((await service.inspect({ macs: [A] })).savedPools.map((set) => set.id)).toEqual(["default", "saved"]);
+
+    const plan = await service.review({ macs: [A] }, { pools: [], savedPoolSetId: "default" });
+    expect(await service.apply(plan, vi.fn())).toMatchObject({ state: "saved", confirmed: 1 });
+    expect(state.members.get(A)).toBe("default");
+    expect(state.members.get(B)).toBe("saved");
+    expect(client.miningGroupServiceCreateMiningGroup).not.toHaveBeenCalled();
+    expect(client.miningGroupServiceReplaceMiningGroupPools).not.toHaveBeenCalled();
+    expect(client.poolServiceUpdatePool).not.toHaveBeenCalled();
+    expect(client.miningGroupServiceUpdateMiningGroupIntent).not.toHaveBeenCalled();
+    expect((await service.inspect({ macs: [A] })).currentPoolSetId).toBe("default");
+  });
+  test("checks saved pool identity from redacted recovery data", async () => {
+    const { service, state, addLocal } = fixture();
+    addLocal([A]);
+    const url = "stratum+tcp://pool.example:3333?token=original";
+    state.pools.set("default", [{ ...publicPool, url }]);
+    const plan = await service.review({ macs: [A] }, { pools: [], savedPoolSetId: "default" });
+    const track = vi.fn<(attempt: PoolAssignmentAttempt) => void>();
+    await service.apply(plan, track);
+    const [attempt] = track.mock.lastCall!;
+    const recovered = {
+      ...attempt,
+      pools: attempt.pools.map((pool) => ({ ...pool, url: recoveryPoolURL(pool.url) })),
+      poolFingerprint: poolRecoveryFingerprint(attempt.pools),
+    };
+    expect((await service.status(recovered)).state).toBe("saved");
+    state.pools.set("default", [{ ...publicPool, url: url.replace("original", "new") }]);
+    expect((await service.status(recovered)).state).not.toBe("saved");
+  });
+  test("reuses an existing pool set without an ownership marker", async () => {
+    const { service, state, client, addLocal } = fixture();
+    addLocal([C]);
+    delete state.groups[1].externalRef;
+    expect((await service.inspect({ macs: [A] })).savedPools.map((set) => set.id)).toContain("saved");
+
+    const plan = await service.review({ macs: [A] }, { pools: [], savedPoolSetId: "saved" });
+    expect(await service.apply(plan, vi.fn())).toMatchObject({ state: "saved", confirmed: 1 });
+    expect(state.members.get(A)).toBe("saved");
+    expect(client.miningGroupServiceUpdateMiningGroup).not.toHaveBeenCalled();
+  });
+  test("reports mixed assignments without choosing a current configuration", async () => {
+    const { service, addLocal } = fixture();
+    addLocal([C]);
+    expect(await service.inspect({ macs: [A, C] })).toMatchObject({
+      mixedConfigurations: true,
+      currentPoolSetId: undefined,
+    });
+    expect(await service.inspect({ macs: [A, B] })).toMatchObject({
+      mixedConfigurations: false,
+      currentPoolSetId: "default",
+    });
+  });
+  test("excludes a pool set managed outside ProtoOS", async () => {
+    const { service, state, addLocal } = fixture();
+    addLocal([C]);
+    state.groups[1].externalRef = "fleet-configuration-id";
+    expect((await service.inspect({ macs: [A] })).savedPools.map((set) => set.id)).toEqual(["default"]);
+    await expect(service.review({ macs: [A] }, { pools: [], savedPoolSetId: "saved" })).rejects.toThrow(
+      "no longer available",
+    );
+  });
+  test("excludes Default if using it would change the selected board's mining intent", async () => {
+    const { service, state, addLocal } = fixture();
+    addLocal([A, B, C]);
+    state.groups[0].desiredMining = false;
+    expect((await service.inspect({ macs: [A] })).savedPools.map((set) => set.id)).toEqual(["saved"]);
+    await expect(service.review({ macs: [A] }, { pools: [], savedPoolSetId: "default" })).rejects.toThrow(
+      "no longer available",
+    );
+  });
+  test("refuses to move a board if Default pool settings changed after review", async () => {
+    const { service, state, client, addLocal } = fixture();
+    addLocal([A]);
+    const plan = await service.review({ macs: [A] }, { pools: [], savedPoolSetId: "default" });
+    state.pools.set("default", [{ ...publicPool, url: "stratum+tcp://changed.example:3333" }]);
+    await expect(service.apply(plan, vi.fn())).rejects.toThrow("Default pool settings changed");
+    expect(client.miningGroupServiceRequestMiningGroupTransfer).not.toHaveBeenCalled();
+  });
   test.each([{ members: [] }, { members: [A] }])(
     "keeps a saved set with members $members when assigning new pools",
     async ({ members }) => {
@@ -295,7 +380,8 @@ describe("CT1 selected-board pool assignment", () => {
     expect(await service.status(attempt!)).toMatchObject({ state: "unknown" });
     expect(client.miningServiceStartMining).not.toHaveBeenCalled();
 
-    expect(await service.restoreMining(attempt!, track)).toMatchObject({ state: "unknown" });
+    await client.miningServiceStartMining();
+    expect(await service.checkMiningRecovery(attempt!, "device:ct1", track)).toMatchObject({ state: "unknown" });
     expect(attempt?.restoreLegacyMining).toBe(false);
     expect(client.miningServiceStartMining).toHaveBeenCalledTimes(1);
     const reviewed = await service.review({ macs: [A] }, { pools: [pool] });
@@ -339,7 +425,7 @@ describe("CT1 selected-board pool assignment", () => {
     expect(client.miningGroupServiceActivateMiningGroups).toHaveBeenCalledTimes(1);
     expect(client.miningServiceStartMining).not.toHaveBeenCalled();
   });
-  test("persists a recovery action when activation fails after stopping legacy mining", async () => {
+  test("checks the original controller without starting mining after failed activation", async () => {
     const { service, state, client } = fixture();
     state.capability.enabled = false;
     client.miningGroupServiceActivateMiningGroups.mockRejectedValueOnce(new Error("activation failed"));
@@ -351,11 +437,38 @@ describe("CT1 selected-board pool assignment", () => {
       }),
     ).rejects.toThrow("activation failed");
     expect(attempt?.restoreLegacyMining).toBe(true);
-    await service.restoreMining(attempt!, (record) => {
+    const track = vi.fn();
+    await expect(service.checkMiningRecovery(attempt!, "device:other-ct1", track)).rejects.toThrow(
+      "The controller changed.",
+    );
+    expect(track).not.toHaveBeenCalled();
+    const result = await service.checkMiningRecovery(attempt!, "device:ct1", (record) => {
       attempt = record;
     });
-    expect(client.miningServiceStartMining).toHaveBeenCalledTimes(1);
+    expect(result.message).toContain("Default mining is set to stop.");
+    expect(client.miningServiceStartMining).not.toHaveBeenCalled();
     expect(attempt?.restoreLegacyMining).toBe(false);
+  });
+  test("does not replay an unacknowledged start after a later operator stop", async () => {
+    const { service, state, client } = fixture();
+    state.capability.enabled = false;
+    const start = client.miningServiceStartMining.getMockImplementation()!;
+    client.miningServiceStartMining.mockImplementationOnce(async () => {
+      await start();
+      throw new Error("start response lost");
+    });
+    const plan = await service.review({ macs: [A] }, { pools: [pool] });
+    const track = vi.fn<(attempt: PoolAssignmentAttempt) => void>();
+    expect(await service.apply(plan, track)).toMatchObject({ state: "unknown" });
+    await expect(client.miningServiceStartMining()).rejects.toThrow("start response lost");
+    expect(state.groups[0].desiredMining).toBe(true);
+    const [attempt] = track.mock.lastCall!;
+    await client.miningServiceStopMining();
+
+    const result = await service.checkMiningRecovery(attempt, "device:ct1", track);
+    expect(result.message).toContain("Default mining is set to stop.");
+    expect(client.miningServiceStartMining).toHaveBeenCalledTimes(1);
+    expect(state.groups[0].desiredMining).toBe(false);
   });
   test("refuses a second transfer after a concurrent destination edit", async () => {
     const { service, state, client } = fixture();
