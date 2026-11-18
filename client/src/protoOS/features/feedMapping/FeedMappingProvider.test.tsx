@@ -125,3 +125,57 @@ test("does not suppress pool warnings for an unconfirmed run status", async () =
   await waitFor(() => expect(screen.getByLabelText("Mapping phase")).toHaveTextContent("UNKNOWN"));
   expect(screen.getByText(lostConnection)).toBeInTheDocument();
 });
+
+test("restores pool warnings after failed status reads and suppresses them after recovery", async () => {
+  const mapping = api();
+  render(
+    <MemoryRouter>
+      <FeedMappingProvider mapping={mapping} deviceId="ct1">
+        <PoolStatus />
+      </FeedMappingProvider>
+    </MemoryRouter>,
+  );
+  await waitFor(() => expect(screen.queryByText(lostConnection)).not.toBeInTheDocument());
+  mapping.active.mockRejectedValue(new Error("Connection lost"));
+  mapping.get.mockRejectedValue(new Error("Connection lost"));
+  fireEvent.click(screen.getByRole("button", { name: "Read mapping status" }));
+  expect(await screen.findByText(lostConnection)).toBeInTheDocument();
+  mapping.active.mockResolvedValue(running);
+  fireEvent.click(screen.getByRole("button", { name: "Read mapping status" }));
+  await waitFor(() => expect(screen.queryByText(lostConnection)).not.toBeInTheDocument());
+});
+
+test("keeps suppression when a run read succeeds despite an assessment failure", async () => {
+  const mapping = api();
+  mapping.assess.mockRejectedValue(new Error("Topology unavailable"));
+  render(
+    <MemoryRouter>
+      <FeedMappingProvider mapping={mapping} deviceId="ct1">
+        <PoolStatus />
+      </FeedMappingProvider>
+    </MemoryRouter>,
+  );
+  await waitFor(() => expect(screen.getByLabelText("Mapping phase")).toHaveTextContent("WAITING_OFFLINE"));
+  expect(screen.queryByText(lostConnection)).not.toBeInTheDocument();
+});
+
+test("offers recovery and shows pool warnings when a running run disappears", async () => {
+  const mapping = api();
+  render(
+    <MemoryRouter>
+      <FeedMappingProvider mapping={mapping} deviceId="ct1">
+        <PoolStatus />
+        <ContainerMappingSetup />
+      </FeedMappingProvider>
+    </MemoryRouter>,
+  );
+  await screen.findByText("Hashboard mapping is running");
+  mapping.active.mockResolvedValue(null);
+  mapping.get.mockResolvedValue(null);
+  fireEvent.click(screen.getByRole("button", { name: "Read mapping status" }));
+  expect(await screen.findByText("Mapping outcome is unknown")).toBeInTheDocument();
+  expect(screen.getByText(lostConnection)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Refresh mapping" }));
+  expect(screen.getByRole("button", { name: "Clear saved attempt" })).toBeEnabled();
+  expect(mapping.start).not.toHaveBeenCalled();
+});

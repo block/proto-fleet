@@ -68,6 +68,22 @@ describe("CT1 mapping transport", () => {
     await expect(adapter.feedMapping!.start(["feed"])).rejects.toMatchObject({ writeOutcome: "unknown" });
   });
 
+  it("treats only NotFound as a missing saved run", async () => {
+    let code = Code.NotFound;
+    const adapter = new MdkV2Adapter(
+      createMdkV2Client(
+        createRouterTransport((router) => {
+          router.rpc(FeedMappingService.method.getFeedMappingRun, () => {
+            throw new ConnectError("run unavailable", code);
+          });
+        }),
+      ),
+    );
+    expect(await adapter.feedMapping!.get("lost-run")).toBeNull();
+    code = Code.Unavailable;
+    await expect(adapter.feedMapping!.get("lost-run")).rejects.toThrow();
+  });
+
   it("preserves 0/0 inventory through the binary Connect response", async () => {
     const adapter = new MdkV2Adapter(
       createMdkV2Client(

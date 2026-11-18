@@ -2,7 +2,14 @@ import { expect, test } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 import { FeedMappingPage } from "../pages/feedMapping";
 
-test("unlocated hashboards can be remapped with confirmation and reload recovery", async ({ page }, testInfo) => {
+test("unlocated hashboards can be remapped with confirmation, reload recovery, and cross-tab dismissal", async ({
+  page,
+  context,
+}, testInfo) => {
+  // Localhost is a secure context. Remove this API to exercise the LAN HTTP path.
+  await context.addInitScript(() => {
+    Object.defineProperty(Crypto.prototype, "randomUUID", { value: undefined, configurable: true });
+  });
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("response", (response) => {
@@ -46,7 +53,13 @@ test("unlocated hashboards can be remapped with confirmation and reload recovery
   await expect(mapping.dialog().getByText("Mapping complete", { exact: true })).toBeVisible({ timeout: 35_000 });
   await expect(mapping.dialog().getByTestId("mapping-progress-spinner")).toHaveCount(0);
   await expect(page.getByText("12 hashboards have no assigned location.", { exact: true })).toHaveCount(0);
+  const otherTab = await context.newPage();
+  await otherTab.goto(page.url());
+  await expect(otherTab.getByText("Hashboard mapping finished", { exact: true })).toBeVisible();
   await mapping.dismiss();
+  await expect(otherTab.getByText("Hashboard mapping finished", { exact: true })).toHaveCount(0);
+  await expect(otherTab.getByRole("button", { name: "Refresh mapping", exact: true })).toHaveCount(0);
+  await otherTab.close();
   await expect(page.getByText("Hashboard mapping needs attention", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Hashboard mapping finished", { exact: true })).toHaveCount(0);
   expect(starts).toBe(1);

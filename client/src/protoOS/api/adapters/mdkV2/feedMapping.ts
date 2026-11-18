@@ -171,6 +171,14 @@ export function createFeedMapping(
   readMap: (params?: AdapterRequestOptions) => Response<V2GetContainerMapResponse>,
   decorate: (params?: AdapterRequestOptions) => AdapterRequestOptions,
 ): FeedMapping {
+  const readRun = async (request: () => Response<V2GetFeedMappingRunResponse>): Promise<MappingRun | null> => {
+    try {
+      return mappingRun((await request()).data.run);
+    } catch (error) {
+      if ((error as { error?: { code?: number } })?.error?.code === Code.NotFound) return null;
+      throw error;
+    }
+  };
   const write = async <T>(request: () => Promise<T>): Promise<T> => {
     try {
       return await request();
@@ -200,17 +208,8 @@ export function createFeedMapping(
         report.status === "rejected" ? mappingError(report.reason) : undefined,
       );
     },
-    async active(params) {
-      try {
-        return mappingRun((await client.active(decorate(params))).data.run);
-      } catch (error) {
-        if ((error as { error?: { code?: number } })?.error?.code === Code.NotFound) return null;
-        throw error;
-      }
-    },
-    async get(id, params) {
-      return mappingRun((await client.get(id, decorate(params))).data.run);
-    },
+    active: (params) => readRun(() => client.active(decorate(params))),
+    get: (id, params) => readRun(() => client.get(id, decorate(params))),
     async plan(params) {
       return mappingRun((await client.plan({ dryRun: true, restoreAllOn: true }, decorate(params))).data.plan);
     },

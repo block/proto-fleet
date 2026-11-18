@@ -215,8 +215,8 @@ export function MappingSetup({ state }: { state: FeedMappingState }) {
             ) : null}
             {unknown ? (
               <p className="text-300">
-                The controller did not confirm the previous start. Check the controller and feed states before clearing
-                this result. No new run will start automatically.
+                The controller cannot confirm the outcome of the previous mapping run. Check the controller and feed
+                states before clearing this result. No new run will start automatically.
               </p>
             ) : null}
             {mode === "observe" ? (

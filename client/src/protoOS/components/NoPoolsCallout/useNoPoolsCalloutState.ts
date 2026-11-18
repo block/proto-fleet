@@ -3,5 +3,5 @@ import { useFeedMappingState } from "@/protoOS/features/feedMapping/feedMappingC
 
 export function useNoPoolsCalloutState(pools: Parameters<typeof getNoPoolsCalloutState>[0], pathname: string) {
   const mapping = useFeedMappingState();
-  return getNoPoolsCalloutState(pools, pathname, mapping?.run?.status === "running");
+  return getNoPoolsCalloutState(pools, pathname, mapping?.runningConfirmed === true);
 }

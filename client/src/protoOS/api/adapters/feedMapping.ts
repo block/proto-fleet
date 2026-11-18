@@ -45,7 +45,8 @@ export interface MappingRun {
 export interface FeedMapping {
   assess(params?: AdapterRequestOptions): Promise<MappingAssessment>;
   active(params?: AdapterRequestOptions): Promise<MappingRun | null>;
-  get(id: string, params?: AdapterRequestOptions): Promise<MappingRun>;
+  /** Null means the controller no longer has this run; other read failures reject. */
+  get(id: string, params?: AdapterRequestOptions): Promise<MappingRun | null>;
   plan(params?: AdapterRequestOptions): Promise<MappingRun>;
   start(feedIds: string[], params?: AdapterRequestOptions): Promise<MappingRun>;
   cancel(id: string, params?: AdapterRequestOptions): Promise<MappingRun>;
