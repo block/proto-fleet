@@ -487,6 +487,20 @@ func (q *Queries) SetLocalTransactionTimeout(ctx context.Context, timeoutMillise
 	return err
 }
 
+const touchProcessingMessage = `-- name: TouchProcessingMessage :exec
+UPDATE queue_message
+SET updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+  AND status = 'PROCESSING'
+`
+
+// Records that a PROCESSING command's device reported progress, so periodic
+// reaping measures its idle time from that report.
+func (q *Queries) TouchProcessingMessage(ctx context.Context, id int64) error {
+	_, err := q.exec(ctx, q.touchProcessingMessageStmt, touchProcessingMessage, id)
+	return err
+}
+
 const updateMessageAfterFailure = `-- name: UpdateMessageAfterFailure :execresult
 UPDATE queue_message
 SET status = CASE

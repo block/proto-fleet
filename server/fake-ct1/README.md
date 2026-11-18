@@ -334,6 +334,51 @@ pointing to a built fake-ct1 binary; the Proto Plugin CI job builds one and
 sets the variable. Simulator unit tests also cover
 partial failures. Synthetic test images are not signed production firmware.
 
+## PSU firmware in Fleet
+
+The native gRPC listener implements `PSUFirmwareService`: streamed capsule
+upload, the capsule list, per-board PSU firmware status, and start, get, list,
+and cancel for module update jobs. The chunked upload calls and the Connect and
+REST routes are not implemented. Capsules are checked like Fleet checks them
+(structure, digests, and the signature against the embedded certificate), and
+at most 32 are cached.
+
+Jobs follow Frigate's rules. One module updates at a time; a queued module keeps
+mining. A job stops the module's boards, stages and validates the capsule,
+applies it, and restores mining, over four seconds. The module's PSU then
+reports the capsule's firmware version in `psuIdentity.firmwareVersion`. A
+capsule the PSU already runs ends without apply unless `force` is set. A
+capsule for another PSU revision fails with `TARGET_MISMATCH` and the module
+keeps mining. A job can be cancelled until apply starts. A module being flashed
+by a hashboard firmware job cannot start a PSU job, and the reverse.
+
+`CT1_PSU_FIRMWARE_FAULT_MODULES` makes the next programming attempt of the
+listed modules fail. That PSU then needs recovery: the job fails, the module
+stays out of mining and refuses mining starts, a plain job is refused, and a
+`recover` job with the same capsule finishes the update.
+
+Real capsules are not published, and a real capsule names no firmware version.
+Write a placeholder capsule for the simulator, then upload it for Proto CT1 and
+use the container's **Update firmware** action. Fleet refuses that action while
+a release channel assigns CT1 firmware to the container:
+
+```bash
+cd server/fake-ct1
+GOWORK=off go run . -write-psu-capsule /tmp/ct1-psu.psucap -psu-capsule-version 'app=1410;bl=1110'
+```
+
+`-psu-capsule-revision` sets the PSU revision the capsule applies to; simulated
+PSUs are `HA1200000` and report `app=1310;bl=1110` until updated. A placeholder
+capsule is signed with a throwaway key and must never be sent to real hardware.
+For any other capsule the simulator reports a version derived from its last
+image's digest.
+
+Module IDs are positional names such as `T1-M01`, not Frigate's 16 hexadecimal
+characters. The simulator models one controller, so it does not emulate modules
+owned by an HA peer, and capsules and jobs reset on restart. The plugin's
+`TestPSUFirmwareSimulatorUpdatesAndRecoversAContainer` runs a full-container
+update, a programming failure, and its recovery against the built simulator.
+
 ## Environment variables
 
 | Variable                 | Description                                                                                                                                    | Default           |
@@ -361,6 +406,8 @@ partial failures. Synthetic test images are not signed production firmware.
 | `FAKE_MINER_RESPONSE_DELAY` | Nonnegative Go duration before each REST, Connect or native gRPC operation, outside simulation locks and canceled by request deadlines. Set `5ms` for the load campaign. | `0` |
 | `FAKE_MINER_METRICS_FILE` | Append cumulative operation counts, errors and latency sums as JSONL every ten seconds and on graceful shutdown; omit to disable file output. | unset |
 | `CT1_UNLOCATED_BOARDS` | Number of existing boards to report under tank/module zero, or `all` for entirely unlocated inventory | `0` |
+| `CT1_PSU_FIRMWARE_FAULT_MODULES` | Comma-separated `tank/module` coordinates, such as `1/2,3/5`, whose next PSU programming attempt fails and leaves the PSU needing recovery. Invalid values fail before listening. | unset |
+| `CT1_PSU_FIRMWARE_SPEED` | Positive integer that divides the four-second duration of a module PSU update | `1` |
 | `CT1_LOG_SCENARIO` | Log and audit failure scenario: `logs-unavailable`, `logs-interrupted` or `audit-unavailable` (see [Logs and audit trail](#implemented-endpoints)) | unset |
 | `CT1_BOARD_HISTORY_SCENARIO` | Board history failure scenario: `events-unavailable` or `evidence-unavailable` (see [Board history](#implemented-endpoints)) | unset |
 | `CT1_MODULE_VOLTAGE_SCENARIO` | Module voltage write failure scenario: `write-refused` or `write-unknown` (see [Module voltage](#implemented-endpoints)) | unset |

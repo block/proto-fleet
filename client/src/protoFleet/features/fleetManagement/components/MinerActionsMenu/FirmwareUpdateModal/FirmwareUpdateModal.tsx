@@ -3,8 +3,10 @@ import clsx from "clsx";
 import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
 import {
   DEFAULT_HASHBOARD_BUILD,
+  firmwareComponentForFile,
   hasCompleteFirmwareTarget,
   isCT1FirmwareTarget,
+  PSU_FIRMWARE_COMPONENT,
   useFirmwareApi,
 } from "@/protoFleet/api/useFirmwareApi";
 import {
@@ -30,7 +32,8 @@ import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimesta
 interface FirmwareUpdateModalProps {
   open?: boolean;
   target?: FirmwareUpdateTarget | null;
-  onConfirm: (firmwareFileId: string) => void;
+  /** component is set when the chosen file is not the target's main firmware. */
+  onConfirm: (firmwareFileId: string, component?: string) => void;
   onDismiss: () => void;
 }
 
@@ -101,7 +104,8 @@ const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpd
     (file: File) => {
       setSelectedExistingFileId(null);
       setShowUploadZone(true);
-      processFile(file, uploadTarget);
+      const component = firmwareComponentForFile(file.name);
+      processFile(file, component ? { ...uploadTarget, hashboardBuild: undefined, component } : uploadTarget);
     },
     [processFile, uploadTarget],
   );
@@ -114,16 +118,22 @@ const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpd
     return existingFiles.filter((file) => minerTargetKey(file.target_manufacturer, file.target_model) === targetKey);
   }, [existingFiles, target]);
 
+  const selectedComponent = selectedExistingFileId
+    ? visibleExistingFiles.find((file) => file.id === selectedExistingFileId)?.component
+    : firmwareComponentForFile(uploadFile?.name);
+  const psuSelected = selectedComponent === PSU_FIRMWARE_COMPONENT;
+
   const handleConfirm = useCallback(() => {
     if (effectiveFirmwareFileId) {
-      onConfirm(effectiveFirmwareFileId);
+      if (selectedComponent) onConfirm(effectiveFirmwareFileId, selectedComponent);
+      else onConfirm(effectiveFirmwareFileId);
       reset();
       setSelectedExistingFileId(null);
       setExistingFiles(null);
       setShowUploadZone(false);
       setFirmwareVersion("");
     }
-  }, [effectiveFirmwareFileId, onConfirm, reset]);
+  }, [effectiveFirmwareFileId, onConfirm, reset, selectedComponent]);
 
   const handleDismiss = useCallback(() => {
     reset();
@@ -147,9 +157,11 @@ const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpd
   return (
     <Modal open={open} title="Add firmware payload" onDismiss={handleDismiss} buttons={buttons} divider={false}>
       <div className="mt-2 text-300 text-text-primary-70">
-        {isCT1FirmwareTarget(uploadTarget)
-          ? "Update all hashboards in this container. Mining pauses while each hashboard updates."
-          : "Select a firmware payload to update your miners. They will reboot automatically after installation completes."}
+        {psuSelected
+          ? "Update the PSU in every module of this container, one module per controller at a time. A module stops mining while its PSU updates. The update stops if a PSU is left needing recovery."
+          : isCT1FirmwareTarget(uploadTarget)
+            ? "Update all hashboards in this container. Mining pauses while each hashboard updates."
+            : "Select a firmware payload to update your miners. They will reboot automatically after installation completes."}
       </div>
       <div className="mt-6 flex flex-col gap-4">
         {showLoadingSpinner ? (
@@ -197,6 +209,7 @@ const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpd
                     <div className="truncate text-300 text-text-primary">{f.filename}</div>
                     <div className="text-200 text-text-primary-70">
                       {f.target_manufacturer} {f.target_model}
+                      {f.component === PSU_FIRMWARE_COMPONENT ? " PSU" : ""}
                       {f.firmware_version ? ` · ${f.firmware_version}` : ""} · {formatFileSize(f.size)} ·{" "}
                       {formatTimestamp(isoToEpochSeconds(f.uploaded_at))}
                     </div>
@@ -248,7 +261,7 @@ const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpd
               disabled={uploadMetadataLocked}
               required
             />
-            {isCT1FirmwareTarget(uploadTarget) ? (
+            {isCT1FirmwareTarget(uploadTarget) && firmwareComponentForFile(uploadFile?.name) === undefined ? (
               <HashboardBuildField
                 value={hashboardBuild}
                 onChange={setHashboardBuild}

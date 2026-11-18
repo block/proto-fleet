@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CT1_FIRMWARE_TARGET,
   DEFAULT_HASHBOARD_BUILD,
+  firmwareComponentForFile,
   hasCompleteFirmwareTarget,
   isCT1FirmwareTarget,
 } from "@/protoFleet/api/useFirmwareApi";
@@ -60,14 +61,20 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
   const showProcessingStatus = isProcessing && file != null;
   const showError = state === "error" && errorMessage != null;
 
+  // A PSU capsule has no hashboard build to choose.
+  const component = firmwareComponentForFile((pendingFile ?? file)?.name);
   const target = useMemo(
     () => ({
       targetManufacturer,
       targetModel: resolvedModel,
       firmwareVersion,
-      ...(isCT1FirmwareTarget({ targetManufacturer, targetModel: resolvedModel }) ? { hashboardBuild } : {}),
+      ...(component
+        ? { component }
+        : isCT1FirmwareTarget({ targetManufacturer, targetModel: resolvedModel })
+          ? { hashboardBuild }
+          : {}),
     }),
-    [firmwareVersion, targetManufacturer, resolvedModel, hashboardBuild],
+    [component, firmwareVersion, targetManufacturer, resolvedModel, hashboardBuild],
   );
   const hasCompleteTarget = hasCompleteFirmwareTarget(target);
 
@@ -142,7 +149,7 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
               onModelChange={setTargetModel}
               onVersionChange={setFirmwareVersion}
             />
-            {isCT1FirmwareTarget(target) ? (
+            {isCT1FirmwareTarget(target) && !component ? (
               <HashboardBuildField value={hashboardBuild} onChange={setHashboardBuild} disabled={metadataLocked} />
             ) : null}
             {state === "idle" ? (

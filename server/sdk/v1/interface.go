@@ -522,6 +522,8 @@ type FirmwareFile struct {
 	FilePath string // On-disk path for gRPC bridge passthrough (plugins share the server's filesystem)
 	// RequestID is stable across automatic retries of one Fleet command and
 	// unique to that command, even across Fleet databases; empty when unknown.
+	// Fleet sends the same file and RequestID again when the device reports
+	// FirmwareStateContinue.
 	RequestID string
 }
 
@@ -533,6 +535,12 @@ type DeviceMaintenance interface {
 	Unpair(ctx context.Context) error
 }
 
+// FirmwareStateContinue is the FirmwareUpdateStatus.State a device reports
+// when its update has a further step that changes the device. Fleet then
+// calls FirmwareUpdate again with the same file and RequestID, which passes
+// write admission like the first call, and resumes polling.
+const FirmwareStateContinue = "continue"
+
 // FirmwareUpdateStatus represents the current firmware installation state on a device.
 type FirmwareUpdateStatus struct {
 	// "current", "downloading", "downloaded", "installing", "installed",
@@ -540,7 +548,13 @@ type FirmwareUpdateStatus struct {
 	// CapabilityFirmwareSelfManaged report "completed" once the updater
 	// rebooted and verified every component, or "failed" once it finished with
 	// component failures; Fleet neither reboots nor automatically retries them.
-	State    string
+	// They report FirmwareStateContinue between steps that each need
+	// FirmwareUpdate to start them.
+	State string
+	// Progress is the install percentage, 0 to 100. While State is
+	// "installing", "downloaded", or FirmwareStateContinue, each report higher
+	// than every earlier one restarts the firmware command's timeout, so an
+	// update that keeps advancing is not timed out.
 	Progress *int
 	Error    *string
 }
@@ -548,6 +562,9 @@ type FirmwareUpdateStatus struct {
 // FirmwareUpdateStatusProvider is an optional interface that devices can implement
 // to report firmware installation progress after a file has been uploaded.
 // Plugins that do not support install status polling should not implement this.
+// GetFirmwareUpdateStatus must only read: Fleet does not admit it as a device
+// write, so it must never start or change an update. An update that needs
+// another step reports FirmwareStateContinue and starts it in FirmwareUpdate.
 type FirmwareUpdateStatusProvider interface {
 	GetFirmwareUpdateStatus(ctx context.Context) (*FirmwareUpdateStatus, error)
 }

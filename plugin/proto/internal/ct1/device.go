@@ -94,6 +94,7 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 		return sdk.DeviceMetrics{}, authFailure(d.id, err)
 	}
 	firmwareJobs := observeFirmwareJobs(ctx, selected)
+	psuFirmwareJobs := observePSUFirmwareJobs(ctx, selected)
 	metrics, evidence, err := selected.client.collect(ctx, d.id)
 	if err != nil && selected.standby != nil && ctx.Err() == nil {
 		// Reuse this poll's verified standby. Only telemetry and error polling
@@ -114,7 +115,7 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	}
 	if metrics.Container != nil {
 		metrics.Container.HA = ha
-		enrichFirmwareBoards(metrics.Container, <-firmwareJobs, time.Now().UTC())
+		enrichFirmwareEvidence(metrics.Container, <-firmwareJobs, <-psuFirmwareJobs, time.Now().UTC())
 	}
 	metrics.FirmwareVersion = d.info.FirmwareVersion
 	if selected.state != nil {

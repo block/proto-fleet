@@ -818,7 +818,7 @@ func (s *ContainerState) setGlobalMining(mining bool) error {
 	}
 	for _, b := range s.eachBoard() {
 		if mining {
-			if !b.Isolated {
+			if b.canMine() {
 				b.State = miningStateMining
 			}
 		} else {

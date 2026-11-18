@@ -115,13 +115,20 @@ type ContainerConfig struct {
 	FanReverseUnsupported bool
 	// FanReverseMinute is the wall time of one simulated procedure minute.
 	FanReverseMinute time.Duration
+
+	// PSUFirmwareFaults lists tank/module coordinates whose next PSU
+	// programming attempt fails and leaves the PSU needing recovery.
+	PSUFirmwareFaults [][2]int
+	// PSUFirmwareSpeed divides the simulated duration of a module PSU update.
+	PSUFirmwareSpeed int
 }
 
 // ContainerState holds the full simulated container tree and shared metadata.
 // All reads and writes go through mu.
 type ContainerState struct {
-	firmware *simulatedFirmware
-	mu       sync.RWMutex
+	firmware    *simulatedFirmware
+	psuFirmware *simulatedPSUFirmware
+	mu          sync.RWMutex
 	// requests serializes API calls from every transport; see serve.
 	requests     sync.Mutex
 	metrics      operationMetrics
@@ -182,6 +189,11 @@ type Module struct {
 	// Who last changed the voltage setting, and when; zero until first changed.
 	VoltageUpdatedBy string
 	VoltageUpdatedAt time.Time
+
+	// PSURevision is the manufacturer revision a capsule must name to apply.
+	PSURevision        string
+	PSUFirmwareVersion string
+	psu                modulePSUFirmware
 }
 
 // Slot is a physical hashboard position, possibly empty.
@@ -204,6 +216,9 @@ type Hashboard struct {
 
 	State    string // one of the miningState* constants
 	Isolated bool
+	// PSUFirmwareHold keeps the board out of mining during a module PSU
+	// update and after one that left the PSU needing recovery.
+	PSUFirmwareHold bool
 
 	// Identify LED: the desired mode recorded by SetIdentifyLED and, for blink,
 	// when the controller stops blinking on its own.
@@ -262,6 +277,7 @@ func newContainerState(cfg ContainerConfig, now time.Time) *ContainerState {
 		boardsBySerial:     make(map[string]*Hashboard),
 		modulesByID:        make(map[string]*Module),
 		firmware:           newSimulatedFirmware(),
+		psuFirmware:        newSimulatedPSUFirmware(),
 		fanReverse:         simulatedFanReverse{durationMinutes: fanReverseDefaultDuration},
 	}
 	for _, point := range containerSetpointDefaults {
@@ -281,7 +297,7 @@ func newContainerState(cfg ContainerConfig, now time.Time) *ContainerState {
 			if cfg.IdentityNamespace != "" {
 				moduleID = cfg.IdentityNamespace + ":" + moduleID
 			}
-			module := &Module{ID: m, ModuleID: moduleID, TankID: t}
+			module := &Module{ID: m, ModuleID: moduleID, TankID: t, PSURevision: defaultPSURevision, PSUFirmwareVersion: defaultPSUFirmwareVersion}
 			for sl := range cfg.SlotsPerModule {
 				globalBoard++
 				var board *Hashboard
@@ -308,6 +324,11 @@ func newContainerState(cfg ContainerConfig, now time.Time) *ContainerState {
 			s.modulesByID[moduleID] = module
 		}
 		s.Tanks = append(s.Tanks, tank)
+	}
+	for _, fault := range cfg.PSUFirmwareFaults {
+		if fault[0] <= len(s.Tanks) && fault[1] <= len(s.Tanks[fault[0]-1].Modules) {
+			s.psuFirmware.faults[s.Tanks[fault[0]-1].Modules[fault[1]-1].ModuleID]++
+		}
 	}
 	for _, b := range s.eachBoard() {
 		if b.State == miningStateDisconnected {
@@ -400,6 +421,11 @@ func (b *Hashboard) targetWatts() float64 {
 // reported status.
 func (b *Hashboard) isMining() bool {
 	return !b.Isolated && b.State == miningStateMining
+}
+
+// canMine reports whether a start request may put the board into mining.
+func (b *Hashboard) canMine() bool {
+	return !b.Isolated && !b.PSUFirmwareHold
 }
 
 func boardMAC(cfg ContainerConfig, position int) string {

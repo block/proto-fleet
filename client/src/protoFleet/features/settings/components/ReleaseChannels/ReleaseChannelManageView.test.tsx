@@ -678,6 +678,13 @@ describe("release channel firmware assignments", () => {
     expect(onApply).not.toHaveBeenCalled();
   });
 
+  test("does not offer PSU firmware, which a channel cannot enforce", () => {
+    renderManage(assignedChannel(), undefined, false, [{ ...replacementFile, component: "psu" }]);
+    fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    expect(screen.getByRole("option", { name: "No firmware" })).toBeVisible();
+  });
+
   test.each([
     { reason: "255 Unicode code points after trimming", version: `\u0085${"🚀".repeat(255)}\u3000` },
     { reason: "Unicode version", version: "版本-🚀" },

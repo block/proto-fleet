@@ -191,3 +191,36 @@ it("keeps PSU details open when data expires and restores focus on dismissal", (
   fireEvent.click(screen.getByRole("button", { name: "Done" }));
   expect(screen.getByRole("button", { name: "PSU 1 info" })).toHaveFocus();
 });
+
+it("flags a PSU that needs recovery and shows its firmware update in PSU details", () => {
+  const props = fixture();
+  props.module.moduleIssues!.items = [];
+  const update = {
+    state: "PSU_FIRMWARE_UPDATE_STATE_FAILED",
+    serverId: "ct1-a",
+    recoveryRequired: true,
+    miningHeld: true,
+    message: "PSU firmware update failed in PSU_FW_PHASE_RECOVERY_REQUIRED: PSU_FW_ERROR_I2C",
+    observedAt: new Date(props.now).toISOString(),
+  };
+  for (const slot of props.slots) slot.board!.metadata = { ...slot.board!.metadata, psuFirmwareUpdate: update };
+  render(<ModulePsuCard {...props} />);
+  expect(screen.getByRole("img", { name: "PSU 1 needs attention" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "PSU 1 info" }));
+  const dialog = screen.getByRole("dialog", { name: "PSU 1 status" });
+  expect(dialog).toHaveTextContent("Recovery required");
+  expect(dialog).toHaveTextContent("PSU_FW_ERROR_I2C");
+  expect(dialog).toHaveTextContent("Stopped. Send the same PSU firmware again to recover.");
+  expect(dialog).toHaveTextContent("ct1-a");
+});
+
+it("does not flag a PSU whose firmware update succeeded", () => {
+  const props = fixture();
+  props.module.moduleIssues!.items = [];
+  const update = { state: "PSU_FIRMWARE_UPDATE_STATE_SUCCEEDED", observedAt: new Date(props.now).toISOString() };
+  for (const slot of props.slots) slot.board!.metadata = { ...slot.board!.metadata, psuFirmwareUpdate: update };
+  render(<ModulePsuCard {...props} />);
+  expect(screen.queryByRole("img", { name: "PSU 1 needs attention" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "PSU 1 info" }));
+  expect(screen.getByRole("dialog", { name: "PSU 1 status" })).toHaveTextContent("Updated");
+});

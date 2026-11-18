@@ -103,7 +103,7 @@ func (s *ContainerState) applyGroupMining(id string) {
 			continue
 		}
 		b.State = miningStateIdle
-		if mining && hasPool {
+		if mining && hasPool && b.canMine() {
 			b.State = miningStateMining
 		}
 	}

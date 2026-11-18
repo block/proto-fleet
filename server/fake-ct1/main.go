@@ -25,6 +25,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/block/proto-fleet/sdk/mdk/psucap/psucaptest"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 )
@@ -36,7 +37,16 @@ const (
 
 func main() {
 	webRoot := flag.String("web-root", "", "Serve a built ProtoOS directory on the API origin (disabled by default)")
+	psuCapsule := flag.String("write-psu-capsule", "", "Write a placeholder PSU firmware capsule for this simulator to the given path and exit")
+	psuCapsuleVersion := flag.String("psu-capsule-version", psucaptest.DefaultVersion, "PSU firmware version the placeholder capsule installs")
+	psuCapsuleRevision := flag.String("psu-capsule-revision", psucaptest.DefaultRevision, "PSU revision the placeholder capsule applies to")
 	flag.Parse()
+	if *psuCapsule != "" {
+		if err := writePSUCapsule(*psuCapsule, *psuCapsuleVersion, *psuCapsuleRevision); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 
 	cfg, err := containerConfigFromEnv()
 	if err != nil {
@@ -116,6 +126,11 @@ func containerConfigFromEnv() (ContainerConfig, error) {
 		return ContainerConfig{}, err
 	}
 	cfg.ResponseDelay, err = parseResponseDelay(os.Getenv("FAKE_MINER_RESPONSE_DELAY"))
+	if err != nil {
+		return ContainerConfig{}, err
+	}
+	cfg.PSUFirmwareSpeed = getEnvInt("CT1_PSU_FIRMWARE_SPEED", 1)
+	cfg.PSUFirmwareFaults, err = parsePSUFirmwareFaults(os.Getenv("CT1_PSU_FIRMWARE_FAULT_MODULES"))
 	return cfg, err
 }
 

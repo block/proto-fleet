@@ -1024,6 +1024,7 @@ func TestFirmwareUpdateAutoReboot(t *testing.T) {
 					uploadCompletedAt,
 					&sdk.FirmwareUpdateStatus{State: state},
 					nil,
+					nil,
 				)
 
 				require.NoError(t, err)
@@ -1061,6 +1062,7 @@ func TestFirmwareUpdateAutoReboot(t *testing.T) {
 					time.Now(),
 					&sdk.FirmwareUpdateStatus{State: state, Error: &rigErr},
 					nil,
+					nil,
 				)
 
 				require.Error(t, err)
@@ -1087,7 +1089,7 @@ func TestFirmwareUpdateAutoReboot(t *testing.T) {
 
 				shouldReboot, err := svc.doPollFirmwareInstall(ctx, mockMiner, mockProvider, devID, 42,
 					time.Now().Add(-firmwareInstallGraceWindow-time.Second),
-					&sdk.FirmwareUpdateStatus{State: state, Error: &rigErr}, nil)
+					&sdk.FirmwareUpdateStatus{State: state, Error: &rigErr}, nil, nil)
 
 				require.ErrorContains(t, err, "reverted to '"+state+"'")
 				assert.ErrorContains(t, err, rigErr)
@@ -1183,7 +1185,7 @@ func TestFirmwareUpdateAutoReboot(t *testing.T) {
 		mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
 		svc := &ExecutionService{}
 
-		installVerified, err := svc.pollFirmwareInstallStatus(t.Context(), mockMiner, 42, time.Now())
+		installVerified, err := svc.pollFirmwareInstallStatus(t.Context(), mockMiner, 42, time.Now(), nil)
 
 		require.NoError(t, err)
 		assert.True(t, installVerified)
@@ -1200,7 +1202,7 @@ func TestFirmwareUpdateAutoReboot(t *testing.T) {
 		svc := &ExecutionService{}
 		miner := firmwareStatusMiner{Miner: mockMiner, FirmwareUpdateStatusProvider: mockProvider}
 
-		installVerified, err := svc.pollFirmwareInstallStatus(t.Context(), miner, 42, time.Now())
+		installVerified, err := svc.pollFirmwareInstallStatus(t.Context(), miner, 42, time.Now(), nil)
 
 		require.NoError(t, err)
 		assert.True(t, installVerified)

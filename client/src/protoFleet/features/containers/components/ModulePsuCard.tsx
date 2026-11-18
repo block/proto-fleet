@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { isCurrentObservation } from "../moduleDetail";
 import { ModuleIssues } from "../ModuleIssues";
-import { modulePsu } from "../modulePsu";
+import { modulePsu, psuNeedsRecovery } from "../modulePsu";
+import PsuFirmwareStatus from "../PsuFirmwareStatus";
 import type { HashboardSlot, InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { useTemperatureUnit } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
@@ -26,6 +27,7 @@ export default function ModulePsuCard({
   const issues =
     evidence?.items.filter((issue) => issue.component === "psu" && isCurrentObservation(issue.observedAt, now)) ?? [];
   const available = !!psu || issues.length > 0;
+  const needsRecovery = psuNeedsRecovery(psu?.firmwareUpdate);
   const [hasDetails, setHasDetails] = useState(false);
   if (available && !hasDetails) setHasDetails(true);
   const temperature = (value: number | undefined) =>
@@ -65,7 +67,7 @@ export default function ModulePsuCard({
               onInfoClick={open}
               infoAriaLabel="PSU 1 info"
               statusIcon={
-                hasIssues ? (
+                hasIssues || needsRecovery ? (
                   <span role="img" aria-label="PSU 1 needs attention">
                     <Alert width="w-4" className="text-intent-critical-fill" />
                   </span>
@@ -80,6 +82,7 @@ export default function ModulePsuCard({
       }
     >
       <ComponentMetadata metadata={metadata} />
+      <PsuFirmwareStatus update={psu?.firmwareUpdate} now={now} />
     </ModuleIssues>
   );
 }

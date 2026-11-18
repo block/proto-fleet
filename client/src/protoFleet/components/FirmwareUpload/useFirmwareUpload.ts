@@ -126,6 +126,7 @@ export function useFirmwareUpload(active: boolean): UseFirmwareUploadReturn {
           targetModel: target.targetModel,
           firmwareVersion: target.firmwareVersion,
           hashboardBuild: target.hashboardBuild,
+          component: target.component,
           onProgress: setUploadProgress,
           signal: controller.signal,
         });

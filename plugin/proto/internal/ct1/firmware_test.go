@@ -205,12 +205,12 @@ func TestFirmwareFailureMessageFitsStatusBound(t *testing.T) {
 	rules, ok := proto.GetExtension(field.Options(), validate.E_Field).(*validate.FieldRules)
 	require.True(t, ok)
 	require.Equal(t, uint64(maxFirmwareStatusErrorBytes), rules.GetString().GetMaxLen(), "Fleet Node rejects longer status errors")
-	message := firmwareFailureMessage(failures)
+	message := firmwareFailureMessage("hashboard", failures)
 	require.LessOrEqual(t, len(message), maxFirmwareStatusErrorBytes)
 	require.True(t, utf8.ValidString(message))
 	require.True(t, strings.HasPrefix(message, "288 hashboard firmware failures: "))
 	require.Regexp(t, `; \.\.\. and \d+ more$`, message)
-	require.Equal(t, "1 hashboard firmware failures: one", firmwareFailureMessage([]string{"one"}))
+	require.Equal(t, "1 hashboard firmware failures: one", firmwareFailureMessage("hashboard", []string{"one"}))
 }
 
 type fakeStart struct {

@@ -203,6 +203,9 @@ func startBoard(b *Hashboard) (bool, string) {
 	if b.Isolated {
 		return false, "board isolated"
 	}
+	if b.PSUFirmwareHold {
+		return false, "module is held out of mining by a PSU firmware update"
+	}
 	b.State = miningStateMining
 	return true, ""
 }

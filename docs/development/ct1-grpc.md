@@ -283,6 +283,147 @@ can verify a container, a mixed one is drift that enforcement corrects, and an
 unknown one neither verifies nor reopens a converged container, so it never
 triggers a reflash on its own.
 
+## PSU firmware updates
+
+The boards of a CT1 module share one PSU. Frigate's `PSUFirmwareService`
+updates it, one module per job, from a signed PSUCAP v1 capsule. Fleet stores a
+capsule as CT1 firmware with the `psu` component (see the
+[rollout API](firmware-rollout-api.md#ct1-psu-capsules)) and sends it with the
+same firmware command as a hashboard archive. The plugin tells the two apart by
+the file's first bytes. Release channels refuse PSU firmware.
+
+Frigate keeps capsules, jobs, and job history on the controller that owns a
+module's boards. It picks each job's task ID, keeps jobs in memory only, and
+runs one module job at a time per controller. The plugin therefore addresses
+each owning controller directly instead of the write primary. It reads the
+container map, refuses a partial map as it does for hashboards, and groups
+occupied, located boards by module ID. Frigate addresses a module by that ID,
+so a position whose occupied boards report none fails as a module of its own
+instead of being left out, and the command is refused when no board reports
+one. Before it changes anything, every owning controller must be paired with
+Fleet and answer, and its job list must be readable. A controller gets the
+capsule only when it has a module to start.
+
+Each module is planned from its newest job on its controller:
+
+| Newest job on the owning controller | What the plugin does |
+| --- | --- |
+| None, cancelled, or succeeded with another capsule | Updates the module |
+| Succeeded with this capsule | Leaves the module alone if its PSU still reports what that job installed (below); otherwise updates the module |
+| Running with this capsule | Tracks that job instead of starting another |
+| Running with another capsule | Refuses the whole command |
+| Failed | Reads PSU firmware status from the module's boards, then decides (below) |
+
+Frigate keeps a successful job, and the boards keep their record of the
+capsule, after a PSU is replaced, so neither shows which PSU is installed now.
+The plugin therefore reads PSU firmware status from the board that led the
+job. The module counts as updated only when that board still leads the PSU,
+reports the capsule as applied, and reports the same PSU application and
+bootloader revisions the job recorded when it finished. Otherwise the module
+gets a new job, and Frigate ends that job without applying if the PSU already
+runs the capsule.
+
+After a failed job the board that leads the PSU still journals the update, and
+that record outlives Frigate's job history. If it reports that the PSU needs
+recovery with this capsule, the plugin starts the job with `recover`. If
+recovery needs another capsule, or an earlier apply is still running, the
+module fails without a job being started. Otherwise the module is updated
+again. When no board answers, the failed job's last leader status decides.
+
+The command is therefore safe to send again: it finishes what is left, recovers
+what the capsule left half programmed, and leaves updated modules alone. `force`
+is never set, so Frigate ends a job without applying when the PSU already runs
+the capsule.
+
+The plugin starts one module per controller and starts the next only after that
+job ended. It reads the jobs of every controller before it starts a module on
+any of them, so a failure on one controller stops the others in the same pass.
+No further module is started once:
+
+- a module is left out of mining, because its PSU needs recovery or the outcome
+  of its apply is unresolved;
+- a job failed after its apply may have reached the PSU, the leader's last
+  status is not final, and Frigate restarted no board of the module. Frigate
+  holds such a module out of mining but records that only on boards that were
+  mining before the job, so on a module that was not mining this is the only
+  sign that the PSU may still be programming. A board that Frigate did restart
+  shows that it resolved the apply as never started, and the update goes on;
+- board firmware rejects the capsule itself (format, digest, signature, or
+  trust), which every other module would do too;
+- a controller no longer has a running job, which happens when Frigate restarts
+  and leaves the PSU's state unknown;
+- a controller answers as a different controller.
+
+Other failures do not stop the update. A capsule for another PSU revision is
+refused by that module's board before anything changes, and a start that
+Frigate refuses creates no job; in both cases the next module is started. If
+Frigate refuses a plain job because the PSU needs recovery, which it does when
+a restart erased the failed job, the plugin reads the boards' status and
+retries once as a recovery of this capsule. A start whose answer was lost is
+looked up in the controller's job list before it is sent again.
+
+Only the firmware command starts a module. Fleet admits that command as a
+device write and checks the admission again each time it sends it. Fleet does
+not admit a status poll, so a poll only reads the controllers' jobs and never
+starts, recovers, or repeats one. When a controller is ready for its next
+module the poll reports `continue`, and Fleet sends the same command again,
+with the same capsule and request ID, which starts that module. At most one
+send follows each poll. A command that lost write admission, because its queue
+message was reaped or the container's write fence was reserved, is refused at
+that send and starts nothing further.
+
+An update whose command stopped therefore stops after its running jobs end. An
+automatic retry of the same command resumes it. Any other firmware command is
+refused while the update was polled within the last minute; after that a new
+PSU command replaces the stopped update and takes over its running jobs. PSU
+and hashboard updates use the same boards: a PSU update is refused while a
+hashboard job is unfinished or its controllers are unreachable, and a hashboard
+update is refused while a PSU update is being polled.
+
+The command reports the percentage of modules that finished, updated or
+failed, with `installing` while a job runs and with `continue` when a module is
+ready to start. It reports `completed` when every module runs the capsule, and
+`failed` when the update ended with failed or unattempted modules. The failure summary names each module with Frigate's
+reason, bounded to the Fleet Node status limit. Neither result reboots the
+controller.
+
+Each poll also reads the PSU job lists of the verified controllers, within one
+second, and attaches a module's newest job to the metadata of each of its
+boards as `psuFirmwareUpdate`: task, controller, capsule, state, the leader's
+phase, progress, and whether the PSU needs recovery or the module was left out
+of mining. Fleet shows it in the module's PSU details and flags a PSU that
+needs recovery on its card. The PSU firmware version in those details is the
+`psuIdentity.firmwareVersion` Frigate reports; BOCO PSUs report
+`app=<revision>;bl=<revision>`.
+
+Limits:
+
+- **Duration.** One module updates at a time per controller, so a full
+  container takes hours. A firmware command's timeout (15 minutes by default)
+  restarts whenever the device reports a higher install percentage, and each
+  module that finishes, updated or failed, raises it, so the command stays
+  open while modules keep finishing. It times out when no module finishes
+  within that time. The queue
+  then retries the command, which resumes the update, up to five attempts. A
+  Fleet restart fails the command and the update stops. In both cases sending
+  the capsule again continues it.
+- **Version.** A capsule does not name the firmware version it installs. The
+  version stored with the file is the uploader's label, and the plugin judges
+  an update by Frigate's job results. It compares the revisions a PSU reports
+  only with the revisions that PSU's own successful job recorded, to tell
+  whether the PSU that job updated is still installed.
+- **Split modules.** Frigate does not update a module whose boards two
+  controllers own. The plugin fails such a module without starting a job.
+- **Capsule cache.** Frigate caches at most 32 capsules per controller and has
+  no call to delete one.
+- **Release channels.** A channel cannot hold PSU firmware, and Fleet skips a
+  direct firmware command for a container whose channel assigns CT1 firmware.
+  Such a container cannot take a capsule until that assignment is cleared or
+  the container leaves the channel's scope; see the
+  [rollout API](firmware-rollout-api.md#ct1-psu-capsules).
+- **Validation.** This has run against `server/fake-ct1` only, not against
+  Frigate or CT1 hardware.
+
 ## Collection and controls
 
 Each active CT1 owns a reusable gRPC connection per saved endpoint, closed by

@@ -105,3 +105,15 @@ it("uses the health observation time when optional PSU sample ages are omitted",
   });
   expect(modulePsu([value], 91n, now + 120_000)).toBeUndefined();
 });
+
+it("returns the module's PSU firmware update, even when it is all the boards report about the PSU", () => {
+  const update = { state: "PSU_FIRMWARE_UPDATE_STATE_FAILED", recoveryRequired: true };
+  const reporting = slot(2);
+  reporting.board!.metadata = { ...reporting.board!.metadata, psuFirmwareUpdate: update };
+  expect(modulePsu([slot(1), reporting], 91n, now)?.firmwareUpdate).toEqual(update);
+
+  const only = slot();
+  only.board!.metadata = { psuFirmwareUpdate: update };
+  only.board!.health = {};
+  expect(modulePsu([only], 91n, now)).toMatchObject({ identity: undefined, firmwareUpdate: update });
+});

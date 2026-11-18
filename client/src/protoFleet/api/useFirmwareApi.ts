@@ -69,6 +69,8 @@ async function fetchFirmwareConfig(logout: () => void): Promise<FirmwareConfig> 
 }
 
 export interface FirmwareMetadataInput {
+  /** Set only when the file is not the target's main firmware: "psu" for a CT1 PSU capsule. */
+  component?: string;
   hashboardBuild?: string;
   targetManufacturer: string;
   targetModel: string;
@@ -102,6 +104,7 @@ export function validateFirmwareFile(
 }
 
 export interface FirmwareFileInfo {
+  component?: string;
   hashboard_build?: string;
   id: string;
   filename: string;
@@ -122,6 +125,13 @@ export const HASHBOARD_BUILDS = ["prod", "dev", "mfgtest"] as const;
 export type HashboardBuild = (typeof HASHBOARD_BUILDS)[number];
 export const DEFAULT_HASHBOARD_BUILD: HashboardBuild = "prod";
 export const CT1_FIRMWARE_TARGET = { targetManufacturer: "Proto", targetModel: "CT1" } as const;
+export const PSU_FIRMWARE_COMPONENT = "psu";
+const PSU_CAPSULE_EXTENSION = ".psucap";
+
+/** A CT1 PSU capsule is recognized by its file name. The server verifies its content. */
+export function firmwareComponentForFile(fileName: string | undefined): string | undefined {
+  return fileName?.toLowerCase().endsWith(PSU_CAPSULE_EXTENSION) ? PSU_FIRMWARE_COMPONENT : undefined;
+}
 
 export function isCT1FirmwareTarget(target: Partial<FirmwareMetadataInput>): boolean {
   return (
@@ -132,7 +142,11 @@ export function isCT1FirmwareTarget(target: Partial<FirmwareMetadataInput>): boo
 
 /** The client mirror of the server's upload metadata completeness rule. */
 export function hasCompleteFirmwareTarget(target: Partial<FirmwareMetadataInput>): boolean {
-  if (isCT1FirmwareTarget(target) && !(HASHBOARD_BUILDS as readonly string[]).includes(target.hashboardBuild ?? ""))
+  if (
+    isCT1FirmwareTarget(target) &&
+    target.component !== PSU_FIRMWARE_COMPONENT &&
+    !(HASHBOARD_BUILDS as readonly string[]).includes(target.hashboardBuild ?? "")
+  )
     return false;
   return Boolean(target.targetManufacturer?.trim() && target.targetModel?.trim() && target.firmwareVersion?.trim());
 }
@@ -142,7 +156,12 @@ function firmwareMetadataFields(target: FirmwareMetadataInput): Record<string, s
     target_manufacturer: target.targetManufacturer.trim(),
     target_model: target.targetModel.trim(),
     firmware_version: target.firmwareVersion.trim(),
-    ...(isCT1FirmwareTarget(target) ? { hashboard_build: target.hashboardBuild ?? "" } : {}),
+    // A PSU capsule carries no hashboard build; any other CT1 file is a hashboard archive.
+    ...(target.component
+      ? { component: target.component }
+      : isCT1FirmwareTarget(target)
+        ? { hashboard_build: target.hashboardBuild ?? "" }
+        : {}),
   };
 }
 
@@ -193,8 +212,14 @@ export const useFirmwareApi = () => {
   const uploadFirmwareFile = useCallback(
     async (file: File, options: FirmwareUploadOptions): Promise<string> => {
       const config = await fetchFirmwareConfig(logout);
-      const { targetManufacturer = "", targetModel = "", firmwareVersion = "", hashboardBuild } = options ?? {};
-      const target = { targetManufacturer, targetModel, firmwareVersion, hashboardBuild };
+      const {
+        targetManufacturer = "",
+        targetModel = "",
+        firmwareVersion = "",
+        hashboardBuild,
+        component,
+      } = options ?? {};
+      const target = { targetManufacturer, targetModel, firmwareVersion, hashboardBuild, component };
       if (!hasCompleteFirmwareTarget(target)) {
         throw new Error(FIRMWARE_TARGET_REQUIRED_MESSAGE);
       }

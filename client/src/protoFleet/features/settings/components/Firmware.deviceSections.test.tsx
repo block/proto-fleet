@@ -65,6 +65,15 @@ const hashboardFile = {
   target_model: "CT1",
   hashboard_build: "prod",
 };
+const psuCapsule = {
+  id: "psu",
+  filename: "boco-psu-1410-0123abcd.psucap",
+  size: 4096,
+  uploaded_at: "2026-06-03T12:00:00Z",
+  target_manufacturer: "Proto",
+  target_model: "CT1",
+  component: "psu",
+};
 
 const section = (heading: string) => {
   const found = screen.getByRole("heading", { name: heading }).closest("section");
@@ -112,6 +121,21 @@ describe("Firmware files by device type", () => {
     expect(section("Hashboard firmware").getByText(hashboardFile.filename)).toBeInTheDocument();
     expect(section("Proto Containers").getByRole("heading", { name: "Hashboard firmware" })).toBeInTheDocument();
     expect(section("Proto Containers").queryByText(rigFile.filename)).not.toBeInTheDocument();
+  });
+
+  it("lists PSU capsules under their own heading after hashboard firmware", async () => {
+    setPermissions(["miner:firmware_update"]);
+    mocks.listFirmwareFiles.mockResolvedValue([psuCapsule, hashboardFile]);
+    render(page());
+
+    await screen.findByText(psuCapsule.filename);
+    expect(section("PSU firmware").getByText(psuCapsule.filename)).toBeInTheDocument();
+    expect(section("PSU firmware").queryByText(hashboardFile.filename)).not.toBeInTheDocument();
+    expect(section("Hashboard firmware").queryByText(psuCapsule.filename)).not.toBeInTheDocument();
+    const headings = section("Proto Containers")
+      .getAllByRole("heading")
+      .map((heading) => heading.textContent);
+    expect(headings.indexOf("Hashboard firmware")).toBeLessThan(headings.indexOf("PSU firmware"));
   });
 
   it("shows only the container section when every file targets a container", async () => {

@@ -42,6 +42,9 @@ func logFirmwareUploadActivity(
 	if build := result.Metadata.HashboardBuild; build != "" {
 		event.Metadata["hashboard_build"] = build
 	}
+	if component := result.Metadata.Component; component != "" {
+		event.Metadata["component"] = component
+	}
 	stampFirmwareActor(ctx, &event)
 	activitySvc.Log(ctx, event)
 }
@@ -62,12 +65,18 @@ func logFirmwareMetadataUpdatedActivity(
 	if current.HashboardBuild != "" {
 		metadata["current_hashboard_build"] = current.HashboardBuild
 	}
+	if current.Component != "" {
+		metadata["current_component"] = current.Component
+	}
 	if previous != nil {
 		metadata["previous_target_manufacturer"] = previous.TargetManufacturer
 		metadata["previous_target_model"] = previous.TargetModel
 		metadata["previous_firmware_version"] = previous.FirmwareVersion
 		if previous.HashboardBuild != "" {
 			metadata["previous_hashboard_build"] = previous.HashboardBuild
+		}
+		if previous.Component != "" {
+			metadata["previous_component"] = previous.Component
 		}
 	}
 

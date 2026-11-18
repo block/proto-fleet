@@ -26,6 +26,7 @@ type grpcAPI struct {
 	mdk.UnimplementedRunInServiceServer
 	mdk.UnimplementedFirmwareServiceServer
 	mdk.UnimplementedFeedMappingServiceServer
+	mdk.UnimplementedPSUFirmwareServiceServer
 	state *ContainerState
 }
 
@@ -50,6 +51,7 @@ func newGRPCServer(state *ContainerState, options ...grpc.ServerOption) *grpc.Se
 	mdk.RegisterRunInServiceServer(server, api)
 	mdk.RegisterFirmwareServiceServer(server, api)
 	mdk.RegisterFeedMappingServiceServer(server, api)
+	mdk.RegisterPSUFirmwareServiceServer(server, api)
 	if state.ha != nil {
 		mdk.RegisterServerUpdateServiceServer(server, &serverUpdateAPI{sim: state.ha.sim, self: state.ha.self})
 	}
@@ -116,7 +118,11 @@ func (a *grpcAPI) GetSystemStatus(context.Context, *mdk.GetSystemStatusRequest) 
 
 func (a *grpcAPI) GetContainerMap(context.Context, *mdk.GetContainerMapRequest) (*mdk.GetContainerMapResponse, error) {
 	out := new(mdk.GetContainerMapResponse)
-	err := a.snapshot(func(s *ContainerState) any { return s.containerMapDTO() }, out)
+	err := a.snapshot(func(s *ContainerState) any {
+		// Boards stop and resume mining, and PSUs change version, as module updates run.
+		s.advancePSUFirmware()
+		return s.containerMapDTO()
+	}, out)
 	return out, err
 }
 func (a *grpcAPI) GetMiningStatus(context.Context, *mdk.GetMiningStatusRequest) (*mdk.GetMiningStatusResponse, error) {

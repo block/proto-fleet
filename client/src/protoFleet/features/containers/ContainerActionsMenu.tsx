@@ -20,7 +20,7 @@ import { controllerLogsPath, useOpenContainerView } from "./useOpenContainerView
 import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import type { UpdateJob } from "@/protoFleet/api/generated/frigateupdate/v1/frigateupdate_pb";
 import { FirmwareUpdateRequestSchema } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
-import { CT1_FIRMWARE_TARGET } from "@/protoFleet/api/useFirmwareApi";
+import { CT1_FIRMWARE_TARGET, PSU_FIRMWARE_COMPONENT } from "@/protoFleet/api/useFirmwareApi";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import {
   ACTION_PERMISSIONS,
@@ -261,7 +261,7 @@ export default function ContainerActionsMenu({
           open
           target={CT1_FIRMWARE_TARGET}
           onDismiss={() => setFirmwareOpen(false)}
-          onConfirm={(firmwareFileId) => {
+          onConfirm={(firmwareFileId, component) => {
             setFirmwareOpen(false);
             void firmwareUpdate({
               firmwareUpdateRequest: create(FirmwareUpdateRequestSchema, {
@@ -272,7 +272,10 @@ export default function ContainerActionsMenu({
               }),
               onSuccess: () =>
                 pushToast({
-                  message: "Hashboard firmware update queued. Board progress is available in module details.",
+                  message:
+                    component === PSU_FIRMWARE_COMPONENT
+                      ? "PSU firmware update queued. PSU progress is available in module details."
+                      : "Hashboard firmware update queued. Board progress is available in module details.",
                   status: STATUSES.success,
                 }),
               onError: (message) => pushToast({ message, status: STATUSES.error }),

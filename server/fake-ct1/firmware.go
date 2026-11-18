@@ -149,6 +149,9 @@ func (a *grpcAPI) StartFirmwareUpdate(_ context.Context, req *mdk.StartFirmwareU
 				}
 			}
 		}
+		if s.boardInPSUUpdate(mac) {
+			return nil, status.Error(codes.FailedPrecondition, "hashboard is reserved by a PSU firmware update")
+		}
 		job.Targets = append(job.Targets, &mdk.FirmwareUpdateTarget{MacAddress: mac, Serial: board.Serial, FromVersion: board.FirmwareVersion, ToVersion: version, Status: mdk.FirmwareTargetStatus_FIRMWARE_TARGET_STATUS_QUEUED, UpdatedAt: timestamppb.New(s.now())})
 	}
 	s.firmware.jobs[id] = job

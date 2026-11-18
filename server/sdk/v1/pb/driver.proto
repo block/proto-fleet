@@ -604,6 +604,9 @@ message GetFirmwareUpdateStatusResponse {
   // firmware_self_managed report "completed" once the updater rebooted and
   // verified every component, or "failed" once it finished with component
   // failures; the server neither reboots nor automatically retries them.
+  // They report "continue" between steps that each change the device: the
+  // server then calls FirmwareUpdate again with the same file and request ID.
+  // This call must only read and must never start or change an update.
   string state = 1;
   optional int32 progress = 2; // Install progress percentage (0-100)
   optional string error = 3;   // Error message if installation failed

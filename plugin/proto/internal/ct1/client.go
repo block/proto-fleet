@@ -40,6 +40,7 @@ type Client struct {
 	power        mdk.PowerServiceClient
 	serverUpdate mdk.ServerUpdateServiceClient
 	firmware     mdk.FirmwareServiceClient
+	psu          mdk.PSUFirmwareServiceClient
 	pollMu       sync.Mutex
 }
 
@@ -81,7 +82,7 @@ func NewClient(info sdk.DeviceInfo, access sdk.UsernamePassword) (*Client, error
 	if err != nil {
 		return nil, fmt.Errorf("create CT1 connection: %w", err)
 	}
-	return &Client{endpoint: info, conn: conn, system: mdk.NewSystemServiceClient(conn), boards: mdk.NewHashboardServiceClient(conn), mining: mdk.NewMiningServiceClient(conn), telemetry: mdk.NewTelemetryServiceClient(conn), power: mdk.NewPowerServiceClient(conn), serverUpdate: mdk.NewServerUpdateServiceClient(conn), firmware: mdk.NewFirmwareServiceClient(conn)}, nil
+	return &Client{endpoint: info, conn: conn, system: mdk.NewSystemServiceClient(conn), boards: mdk.NewHashboardServiceClient(conn), mining: mdk.NewMiningServiceClient(conn), telemetry: mdk.NewTelemetryServiceClient(conn), power: mdk.NewPowerServiceClient(conn), serverUpdate: mdk.NewServerUpdateServiceClient(conn), firmware: mdk.NewFirmwareServiceClient(conn), psu: mdk.NewPSUFirmwareServiceClient(conn)}, nil
 }
 func (c *Client) Close() error {
 	c.closeOnce.Do(func() { c.closeErr = c.conn.Close() })

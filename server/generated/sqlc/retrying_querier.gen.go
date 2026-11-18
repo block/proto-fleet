@@ -13316,6 +13316,12 @@ func (q *retryingQuerier) SweepExpiredFleetNodeSessions(ctx context.Context, exp
 	return result, err
 }
 
+func (q *retryingQuerier) TouchProcessingMessage(ctx context.Context, id int64) error {
+	return q.retrier.RetryQuery(ctx, "TouchProcessingMessage", func() error {
+		return q.next.TouchProcessingMessage(ctx, id)
+	})
+}
+
 func (q *retryingQuerier) TouchRepairTicket(ctx context.Context, arg TouchRepairTicketParams) error {
 	return q.retrier.RetryQuery(ctx, "TouchRepairTicket", func() error {
 		return q.next.TouchRepairTicket(ctx, arg)

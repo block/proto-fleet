@@ -85,6 +85,46 @@ retains channel enforcement, retry, pause, and cancellation scheduling. Cancelin
 a Fleet rollout does not cancel an already-dispatched Frigate job. Per-board
 progress and owner/failure evidence appear in container module details.
 
+## CT1 PSU capsules
+
+For `target_manufacturer=Proto` and `target_model=CT1`, upload a signed PSUCAP
+v1 capsule (`.psucap`, at most 512 KiB) with `component` set to `psu` and no
+`hashboard_build`. This snake_case field is accepted by multipart uploads and
+upload metadata, and returned in firmware file information. Other firmware
+omits it. The Fleet upload dialogs set it for a `.psucap` file, and
+`fleetcli firmware` upload, check, and metadata commands accept
+`--component psu`.
+
+Fleet checks the capsule's structure, digests, and outer signature against its
+embedded certificate, then stores it byte for byte, so the stored checksum is
+the capsule ID Frigate uses. Frigate and the hashboards remain responsible for
+the certificate chain and for matching a capsule to a PSU. A capsule uploaded
+without the component is refused, as is any other file uploaded with it. Stored
+filenames name the PSU vendor, the PSU revision the capsule applies to, and the
+start of the capsule ID.
+
+A capsule does not name the firmware version it installs. `firmware_version`
+is the uploader's label, and Fleet does not compare it with the version PSUs
+report (BOCO PSUs report `app=<revision>;bl=<revision>`). A metadata edit can
+change that label but not the component.
+
+Release channels refuse PSU firmware: previewing or applying an assignment of a
+capsule fails with `failed_precondition`. A channel holds one assignment per
+manufacturer and model and verifies a container by its hashboard version, so it
+can neither hold nor verify a second component. Update a container with its
+**Update firmware** action or the firmware update command instead; see
+[PSU firmware updates](ct1-grpc.md#psu-firmware-updates).
+
+That path is closed for a container whose release channel assigns CT1
+firmware. Fleet skips every direct firmware command for a miner whose channel
+has an assignment for its manufacturer and model, whatever file the command
+carries. The capsule is not sent, and the command reports that the channel
+manages the container's firmware. To update such a container's PSUs, first
+clear the channel's CT1 assignment or take the container out of the channel's
+scope. A finished firmware command also clears Fleet's record of what it last
+deployed to the container, so assigning the hashboard firmware again afterwards
+sends it to that container again.
+
 ## CT1 controller software version
 
 A container's controllers install the firmware that a channel assigns to it. A

@@ -17,13 +17,20 @@ import (
 	"unicode/utf8"
 
 	hbfirmware "github.com/block/proto-fleet/sdk/mdk/firmware"
+	"github.com/block/proto-fleet/sdk/mdk/psucap"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/infrastructure/id"
 )
 
+// FirmwareComponentPSU marks CT1 PSU module firmware: one signed PSUCAP
+// capsule. An empty component is the target's main firmware, which for CT1 is
+// a hashboard archive.
+const FirmwareComponentPSU = "psu"
+
 // FirmwareFileInfo holds metadata about a stored firmware file.
 type FirmwareFileInfo struct {
+	Component          string    `json:"component,omitempty"`
 	HashboardBuild     string    `json:"hashboard_build,omitempty"`
 	ID                 string    `json:"id"`
 	Filename           string    `json:"filename"`
@@ -38,6 +45,7 @@ type FirmwareFileInfo struct {
 
 // FirmwareMetadata describes the single miner type a firmware file targets.
 type FirmwareMetadata struct {
+	Component          string `json:"component,omitempty"`
 	HashboardBuild     string `json:"hashboard_build,omitempty"`
 	TargetManufacturer string `json:"target_manufacturer"`
 	TargetModel        string `json:"target_model"`
@@ -75,9 +83,10 @@ const defaultMaxFirmwareFileSize int64 = 500 * 1024 * 1024 // 500 MB
 const maxFirmwareMetadataLength = 255
 
 // allowedFirmwareExtensions lists file suffixes accepted for firmware uploads.
-// .swu is the Proto Rig MDK firmware format, .tar.gz is the standard Antminer format.
+// .swu is the Proto Rig MDK firmware format, .tar.gz is the standard Antminer
+// format, .zip is a CT1 hashboard release, and .psucap is a CT1 PSU capsule.
 // Checked case-insensitively via hasAllowedFirmwareExtension.
-var allowedFirmwareExtensions = []string{".swu", ".tar.gz", ".zip"}
+var allowedFirmwareExtensions = []string{".swu", ".tar.gz", ".zip", psucap.Extension}
 
 // AllowedFirmwareExtensions returns a copy of the allowed firmware file extensions.
 func AllowedFirmwareExtensions() []string {
@@ -92,6 +101,7 @@ func getFirmwareDirPath(fileID string) string {
 
 func (m FirmwareMetadata) normalized() FirmwareMetadata {
 	return FirmwareMetadata{
+		Component:          strings.ToLower(strings.TrimSpace(m.Component)),
 		HashboardBuild:     strings.ToLower(strings.TrimSpace(m.HashboardBuild)),
 		TargetManufacturer: strings.TrimSpace(m.TargetManufacturer),
 		TargetModel:        strings.TrimSpace(m.TargetModel),
@@ -103,6 +113,7 @@ func (m FirmwareMetadata) matches(other FirmwareMetadata) bool {
 	m = m.normalized()
 	other = other.normalized()
 	return m.TargetManufacturer == other.TargetManufacturer &&
+		m.Component == other.Component &&
 		m.HashboardBuild == other.HashboardBuild &&
 		m.TargetModel == other.TargetModel &&
 		m.FirmwareVersion == other.FirmwareVersion
@@ -114,6 +125,11 @@ func (m FirmwareMetadata) matches(other FirmwareMetadata) bool {
 // case-insensitively, and a device with unknown manufacturer or model never
 // matches.
 func (m FirmwareMetadata) IsCT1() bool { return m.MatchesTarget("Proto", "CT1") }
+
+// IsPSU reports whether the firmware is a CT1 PSU capsule.
+func (m FirmwareMetadata) IsPSU() bool {
+	return strings.ToLower(strings.TrimSpace(m.Component)) == FirmwareComponentPSU
+}
 
 func (m FirmwareMetadata) MatchesTarget(manufacturer, model string) bool {
 	m = m.normalized()
@@ -166,11 +182,20 @@ func ValidateFirmwareUploadMetadata(metadata FirmwareMetadata) error {
 	if err := ValidateFirmwareAssignmentMetadata(metadata); err != nil {
 		return err
 	}
-	if metadata.IsCT1() {
+	if metadata.Component != "" && !metadata.IsPSU() {
+		return fleeterror.NewInvalidArgumentError("component must be psu when set")
+	}
+	switch {
+	case metadata.IsPSU() && !metadata.IsCT1():
+		return fleeterror.NewInvalidArgumentError("component psu is only supported for CT1 firmware")
+	case metadata.IsPSU() && metadata.HashboardBuild != "":
+		return fleeterror.NewInvalidArgumentError("hashboard_build does not apply to CT1 PSU firmware")
+	case metadata.IsPSU():
+	case metadata.IsCT1():
 		if !hbfirmware.ValidBuild(metadata.HashboardBuild) {
 			return fleeterror.NewInvalidArgumentError("hashboard_build must be prod, dev, or mfgtest for CT1 firmware")
 		}
-	} else if metadata.HashboardBuild != "" {
+	case metadata.HashboardBuild != "":
 		return fleeterror.NewInvalidArgumentError("hashboard_build is only supported for CT1 firmware")
 	}
 	return nil
@@ -432,7 +457,14 @@ func (s *Service) SaveFirmwareUploadFromPath(ctx context.Context, filename strin
 	if err := ValidateFirmwareUploadMetadata(metadata); err != nil {
 		return result, err
 	}
-	if metadata.IsCT1() {
+	switch capsule, err := readPSUCapsule(srcPath, filename, metadata.IsPSU()); {
+	case err != nil:
+		return result, err
+	case capsule != nil:
+		// A capsule is stored as uploaded: its SHA-256 is the identity
+		// Frigate and the hashboards know it by.
+		filename = psuCapsuleFilename(capsule)
+	case metadata.IsCT1():
 		selected, version, build, err := stageSelectedHashboardFirmware(ctx, srcPath, metadata)
 		if err != nil {
 			return result, err
@@ -485,6 +517,67 @@ func (s *Service) SaveFirmwareUploadFromPath(ctx context.Context, filename strin
 		Metadata:       metadata,
 		StoredFilename: sanitizeFirmwareFilename(filename),
 	}, nil
+}
+
+// readPSUCapsule verifies a file uploaded as CT1 PSU firmware and returns nil
+// for any other firmware. A capsule uploaded without the psu component is
+// refused, so it can never be dispatched as hashboard firmware.
+func readPSUCapsule(path, filename string, psu bool) (*psucap.Capsule, error) {
+	isCapsule, err := isPSUCapsuleFile(path)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to read firmware upload: %v", err)
+	}
+	if !psu {
+		if isCapsule || strings.HasSuffix(strings.ToLower(filename), psucap.Extension) {
+			return nil, fleeterror.NewInvalidArgumentError("a PSU firmware capsule must be uploaded for Proto CT1 with component psu")
+		}
+		return nil, nil
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to read firmware upload: %v", err)
+	}
+	if !isCapsule || info.Size() > psucap.MaxSize {
+		return nil, fleeterror.NewInvalidArgumentErrorf("invalid PSU firmware: expected a PSUCAP capsule of at most %d bytes", psucap.MaxSize)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to read firmware upload: %v", err)
+	}
+	capsule, err := psucap.Verify(data)
+	if err != nil {
+		return nil, fleeterror.NewInvalidArgumentErrorf("invalid PSU firmware: %v", err)
+	}
+	return capsule, nil
+}
+
+func isPSUCapsuleFile(path string) (bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return false, fmt.Errorf("open firmware file: %w", err)
+	}
+	defer file.Close()
+	header := make([]byte, 8)
+	n, err := io.ReadFull(file, header)
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return false, fmt.Errorf("read firmware file: %w", err)
+	}
+	return psucap.IsCapsule(header[:n]), nil
+}
+
+// psuCapsuleFilename names a stored capsule after the PSU it applies to and
+// its identity. Manufacturer text is printable ASCII; anything outside a
+// conservative file name alphabet is replaced.
+func psuCapsuleFilename(capsule *psucap.Capsule) string {
+	safe := func(value string) string {
+		return strings.Map(func(r rune) rune {
+			if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '-' || r == '_' {
+				return r
+			}
+			return '_'
+		}, value)
+	}
+	return "psu-firmware-" + strings.ToLower(safe(capsule.Vendor)) + "-" + safe(capsule.ManufacturerRevision) + "-" + capsule.ID[:12] + psucap.Extension
 }
 
 func stageSelectedHashboardFirmware(ctx context.Context, srcPath string, metadata FirmwareMetadata) (string, string, string, error) {
@@ -682,13 +775,20 @@ func (s *Service) UpdateFirmwareMetadata(ctx context.Context, fileID string, met
 		return FirmwareMetadataUpdateResult{}, err
 	}
 	hashboardChecked := false
-	if metadata.IsCT1() {
-		metadata.FirmwareVersion = strings.TrimPrefix(metadata.FirmwareVersion, "v")
-		if path, pathErr := getFirmwareFilePathForCanonicalID(canonical); pathErr == nil {
+	hashboard := metadata.IsCT1() && !metadata.IsPSU()
+	if path, pathErr := getFirmwareFilePathForCanonicalID(canonical); pathErr == nil {
+		// The payload is immutable, so what it is cannot change with its metadata.
+		if isCapsule, sniffErr := isPSUCapsuleFile(path); sniffErr == nil && isCapsule != metadata.IsPSU() {
+			return FirmwareMetadataUpdateResult{}, fleeterror.NewInvalidArgumentError("firmware component must match the stored file; upload a new artifact to change it")
+		}
+		if hashboard {
+			metadata.FirmwareVersion = strings.TrimPrefix(metadata.FirmwareVersion, "v")
 			if hashboardChecked, err = checkStoredHashboardFirmware(ctx, path, metadata); err != nil {
 				return FirmwareMetadataUpdateResult{}, err
 			}
 		}
+	} else if hashboard {
+		metadata.FirmwareVersion = strings.TrimPrefix(metadata.FirmwareVersion, "v")
 	}
 
 	// Serialize metadata replacement with checksum reuse lookups so a lookup
@@ -718,7 +818,7 @@ func (s *Service) UpdateFirmwareMetadata(ctx context.Context, fileID string, met
 	if err != nil {
 		return FirmwareMetadataUpdateResult{}, err
 	}
-	if metadata.IsCT1() && !hashboardChecked {
+	if hashboard && !hashboardChecked {
 		readable, err := checkStoredHashboardFirmware(ctx, filePath, metadata)
 		if err != nil {
 			return FirmwareMetadataUpdateResult{}, err
@@ -870,6 +970,7 @@ func (s *Service) openFirmwareFileWithInfo(fileID, expectedChecksum string) (rea
 		Filename:           filepath.Base(filePath),
 		Size:               info.Size(),
 		SHA256:             checksum,
+		Component:          metadata.Component,
 		HashboardBuild:     metadata.HashboardBuild,
 		FilePath:           filePath,
 		TargetManufacturer: metadata.TargetManufacturer,
@@ -1152,6 +1253,7 @@ func (s *Service) ListFirmwareFiles() ([]FirmwareFileInfo, error) {
 			Filename:           filepath.Base(filePath),
 			Size:               fileInfo.Size(),
 			SHA256:             checksum,
+			Component:          metadata.Component,
 			HashboardBuild:     metadata.HashboardBuild,
 			UploadedAt:         uploadedAt,
 			TargetManufacturer: metadata.TargetManufacturer,

@@ -7,6 +7,7 @@ import {
   type FirmwareFileInfo,
   type FirmwareMetadataInput,
   isCT1FirmwareTarget,
+  PSU_FIRMWARE_COMPONENT,
   useFirmwareApi,
 } from "@/protoFleet/api/useFirmwareApi";
 import { useFrigatePackages } from "@/protoFleet/api/useFrigatePackages";
@@ -43,6 +44,7 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimestamp";
 
 type FirmwareFileData = {
+  component?: string;
   hashboardBuild?: string;
   id: string;
   filename: string;
@@ -151,6 +153,7 @@ function toFileData(info: FirmwareFileInfo): FirmwareFileData {
     targetModel: info.target_model,
     firmwareVersion: info.firmware_version ?? "",
     hashboardBuild: info.hashboard_build,
+    component: info.component,
     checksum: info.sha256 ?? "",
     size: info.size,
     uploadedAt: isoToEpochSeconds(info.uploaded_at),
@@ -164,8 +167,9 @@ const isContainerFirmware = (file: FirmwareFileData): boolean =>
 // The kinds of firmware file a Proto Container takes, each listed under its
 // own heading in this order. A file belongs to the first kind that accepts it.
 const CONTAINER_FIRMWARE_KINDS: { key: string; title: string; accepts: (file: FirmwareFileData) => boolean }[] = [
-  // Every container file that no other kind accepts is a hashboard archive.
-  { key: "hashboard", title: "Hashboard firmware", accepts: () => true },
+  // Every container file that is not a PSU capsule is a hashboard archive.
+  { key: "hashboard", title: "Hashboard firmware", accepts: (file) => file.component !== PSU_FIRMWARE_COMPONENT },
+  { key: "psu", title: "PSU firmware", accepts: (file) => file.component === PSU_FIRMWARE_COMPONENT },
 ];
 
 /** Container files grouped by kind; a kind with no file is left out. */

@@ -9,8 +9,11 @@ import { ContainerSchema } from "@/protoFleet/api/generated/containers/v1/contai
 import { STATUSES } from "@/shared/features/toaster";
 
 vi.mock("@/protoFleet/features/fleetManagement/components/MinerActionsMenu/FirmwareUpdateModal", () => ({
-  default: ({ onConfirm }: { onConfirm: (id: string) => void }) => (
-    <button onClick={() => onConfirm("ct1-firmware")}>Confirm hashboard update</button>
+  default: ({ onConfirm }: { onConfirm: (id: string, component?: string) => void }) => (
+    <>
+      <button onClick={() => onConfirm("ct1-firmware")}>Confirm hashboard update</button>
+      <button onClick={() => onConfirm("ct1-psu-firmware", "psu")}>Confirm PSU update</button>
+    </>
   ),
 }));
 
@@ -829,7 +832,28 @@ describe("container firmware update", () => {
       ),
     );
     await waitFor(() =>
-      expect(state.pushToast).toHaveBeenCalledWith(expect.objectContaining({ status: STATUSES.success })),
+      expect(state.pushToast).toHaveBeenCalledWith({
+        message: "Hashboard firmware update queued. Board progress is available in module details.",
+        status: STATUSES.success,
+      }),
+    );
+  });
+
+  it("queues PSU firmware through the same command and says where its progress is", async () => {
+    state.firmwareUpdate.mockResolvedValue({ batchIdentifier: "batch-psu" });
+    renderMenu();
+    await openAction("Update firmware");
+    fireEvent.click(screen.getByRole("button", { name: "Confirm PSU update" }));
+    await waitFor(() =>
+      expect(state.firmwareUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ firmwareFileId: "ct1-psu-firmware" }),
+      ),
+    );
+    await waitFor(() =>
+      expect(state.pushToast).toHaveBeenCalledWith({
+        message: "PSU firmware update queued. PSU progress is available in module details.",
+        status: STATUSES.success,
+      }),
     );
   });
 

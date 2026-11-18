@@ -474,7 +474,13 @@ needed. The three boards report one module-owned PSU: Fleet picks the freshest e
 and temperature snapshots independently, accounting for source time and embedded sample
 age, and never sums duplicate PSU readings. Missing or expired metrics show a dash.
 The info button opens PSU-only collected issues and available manufacturer metadata;
-the issue indicator is non-interactive.
+the issue indicator is non-interactive. In Fleet those details also show the module's
+latest PSU firmware update from the collected `psuFirmwareUpdate` payload: its state and
+progress, the controller that ran it, and the failure reason. A PSU that an update left
+needing recovery is named there, and its card shows the issue indicator. PSU firmware is
+sent with the container's **Update firmware** action; uploading a `.psucap` file stores
+it as CT1 PSU firmware. Fleet refuses that action for a container whose release channel
+assigns CT1 firmware.
 
 Performance shows module history using the existing paginated Fleet history API. The page fetches all pages for a fixed time window, refreshes once per
 minute, and clears failed results. Requests are cancelled on navigation and

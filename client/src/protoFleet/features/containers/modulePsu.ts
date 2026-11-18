@@ -7,6 +7,11 @@ const object = (value: unknown): JsonObject | undefined =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as JsonObject) : undefined;
 const number = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : undefined);
 
+/** A failed update can leave the PSU half programmed. It is recovered by sending the same firmware again. */
+export function psuNeedsRecovery(update: JsonObject | undefined): boolean {
+  return update?.recoveryRequired === true;
+}
+
 /** The boards carry duplicate snapshots of one module-owned PSU, never additive power readings. */
 export function modulePsu(slots: HashboardSlot[], moduleId: bigint, now: number) {
   const boards = slots.flatMap((slot) =>
@@ -15,6 +20,9 @@ export function modulePsu(slots: HashboardSlot[], moduleId: bigint, now: number)
       : [],
   );
   const identity = boards.map((board) => object(board.metadata?.psuIdentity)).find((value) => value !== undefined);
+  const firmwareUpdate = boards
+    .map((board) => object(board.metadata?.psuFirmwareUpdate))
+    .find((value) => value !== undefined);
   const current = boards.filter((board) => isCurrentObservation(board.observedAt, now));
   const freshest = (field: "psuElectrical" | "psuThermal", ageField: string) =>
     current
@@ -29,13 +37,18 @@ export function modulePsu(slots: HashboardSlot[], moduleId: bigint, now: number)
   const electrical = freshest("psuElectrical", "sampleAgeMs");
   const thermal = freshest("psuThermal", "temperaturesAgeMs");
   // Retain a known PSU card when its readings expire, with unavailable metrics.
-  if (!identity && !boards.some((board) => object(board.health?.psuElectrical) || object(board.health?.psuThermal)))
+  if (
+    !identity &&
+    !firmwareUpdate &&
+    !boards.some((board) => object(board.health?.psuElectrical) || object(board.health?.psuThermal))
+  )
     return undefined;
   const temperatures = [thermal?.inletTemperature, thermal?.srHeatsinkTemperature, thermal?.pfcHeatsinkTemperature]
     .map(number)
     .filter((value): value is number => value !== undefined);
   return {
     identity,
+    firmwareUpdate,
     inputVoltage: number(electrical?.inputVoltage),
     inputPower: number(electrical?.inputPower),
     outputVoltage: number(electrical?.outputVoltage),

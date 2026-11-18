@@ -4720,6 +4720,9 @@ type GetFirmwareUpdateStatusResponse struct {
 	// firmware_self_managed report "completed" once the updater rebooted and
 	// verified every component, or "failed" once it finished with component
 	// failures; the server neither reboots nor automatically retries them.
+	// They report "continue" between steps that each change the device: the
+	// server then calls FirmwareUpdate again with the same file and request ID.
+	// This call must only read and must never start or change an update.
 	State         string  `protobuf:"bytes,1,opt,name=state,proto3" json:"state,omitempty"`
 	Progress      *int32  `protobuf:"varint,2,opt,name=progress,proto3,oneof" json:"progress,omitempty"` // Install progress percentage (0-100)
 	Error         *string `protobuf:"bytes,3,opt,name=error,proto3,oneof" json:"error,omitempty"`        // Error message if installation failed

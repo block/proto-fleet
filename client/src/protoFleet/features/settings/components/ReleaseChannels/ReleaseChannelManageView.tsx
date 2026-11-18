@@ -99,6 +99,8 @@ const supportsFirmwareFileAssignment = (file: FirmwareFileInfo): boolean => {
   const version = trimMinerTarget(file.firmware_version ?? "");
   return (
     supportsFirmwareAssignment(file.target_manufacturer, file.target_model) &&
+    // A channel holds one assignment per model, so the server refuses a second component such as PSU firmware.
+    !file.component &&
     version !== "" &&
     !version.includes("\u0000") &&
     Array.from(version).length <= 255

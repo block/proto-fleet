@@ -229,4 +229,22 @@ describe("FirmwareUploadDialog", () => {
       hashboardBuild: "mfgtest",
     });
   });
+  it("uploads a capsule as CT1 PSU firmware, which has no build to choose", async () => {
+    mockGetMinerModelGroups.mockResolvedValue([]);
+    mockSelectedFile = new File(["capsule"], "boco-1.4.0.psucap");
+    render(<FirmwareUploadDialog open onSuccess={vi.fn()} onDismiss={vi.fn()} />);
+    await screen.findByTestId("file-drop-zone");
+    fireEvent.click(screen.getByTestId("firmware-target-manufacturer"));
+    fireEvent.click(screen.getByTestId("firmware-target-model"));
+    expect(screen.getByTestId("hashboard-firmware-build")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("file-drop-zone"));
+    expect(screen.queryByTestId("hashboard-firmware-build")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Upload"));
+    expect(mockProcessFile).toHaveBeenCalledWith(mockSelectedFile, {
+      targetManufacturer: "Proto",
+      targetModel: "CT1",
+      firmwareVersion: "1.4.0",
+      component: "psu",
+    });
+  });
 });

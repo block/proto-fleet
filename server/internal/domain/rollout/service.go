@@ -1271,6 +1271,13 @@ func (s *Service) resolveAssignments(ctx context.Context, channel sqlc.ReleaseCh
 					"firmware file %q targets %s %s, not %s %s", a.FirmwareFileID,
 					artifact.Metadata.TargetManufacturer, artifact.Metadata.TargetModel, pair.Manufacturer, pair.Model)
 			}
+			// A channel holds one assignment per manufacturer and model and
+			// verifies it against the hashboard version a container reports,
+			// so it can neither hold nor verify PSU firmware.
+			if artifact.Metadata.IsPSU() {
+				return nil, reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonArtifactMismatch},
+					"firmware file %q is PSU firmware, which release channels do not support; update the container directly", a.FirmwareFileID)
+			}
 			r.artifact = &artifact
 		}
 		resolved = append(resolved, r)

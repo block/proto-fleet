@@ -3693,6 +3693,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.sweepExpiredFleetNodeSessionsStmt, err = db.PrepareContext(ctx, sweepExpiredFleetNodeSessions); err != nil {
 		return nil, fmt.Errorf("error preparing query SweepExpiredFleetNodeSessions: %w", err)
 	}
+	if q.touchProcessingMessageStmt, err = db.PrepareContext(ctx, touchProcessingMessage); err != nil {
+		return nil, fmt.Errorf("error preparing query TouchProcessingMessage: %w", err)
+	}
 	if q.touchRepairTicketStmt, err = db.PrepareContext(ctx, touchRepairTicket); err != nil {
 		return nil, fmt.Errorf("error preparing query TouchRepairTicket: %w", err)
 	}
@@ -10125,6 +10128,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing sweepExpiredFleetNodeSessionsStmt: %w", cerr)
 		}
 	}
+	if q.touchProcessingMessageStmt != nil {
+		if cerr := q.touchProcessingMessageStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing touchProcessingMessageStmt: %w", cerr)
+		}
+	}
 	if q.touchRepairTicketStmt != nil {
 		if cerr := q.touchRepairTicketStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing touchRepairTicketStmt: %w", cerr)
@@ -11907,6 +11915,7 @@ type Queries struct {
 	sweepExpiredEnrollmentsStmt                                 *sql.Stmt
 	sweepExpiredFleetNodeAuthChallengesStmt                     *sql.Stmt
 	sweepExpiredFleetNodeSessionsStmt                           *sql.Stmt
+	touchProcessingMessageStmt                                  *sql.Stmt
 	touchRepairTicketStmt                                       *sql.Stmt
 	transferDiscoveredDeviceAttributionStmt                     *sql.Stmt
 	unassignDeviceBuildingsByRackStmt                           *sql.Stmt
@@ -13240,6 +13249,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		sweepExpiredEnrollmentsStmt:                                 q.sweepExpiredEnrollmentsStmt,
 		sweepExpiredFleetNodeAuthChallengesStmt:                     q.sweepExpiredFleetNodeAuthChallengesStmt,
 		sweepExpiredFleetNodeSessionsStmt:                           q.sweepExpiredFleetNodeSessionsStmt,
+		touchProcessingMessageStmt:                                  q.touchProcessingMessageStmt,
 		touchRepairTicketStmt:                                       q.touchRepairTicketStmt,
 		transferDiscoveredDeviceAttributionStmt:                     q.transferDiscoveredDeviceAttributionStmt,
 		unassignDeviceBuildingsByRackStmt:                           q.unassignDeviceBuildingsByRackStmt,

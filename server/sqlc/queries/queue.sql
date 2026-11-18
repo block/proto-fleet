@@ -83,6 +83,14 @@ SET status = 'FAILED'::queue_status_enum,
 WHERE id = $2
   AND status = 'PROCESSING';
 
+-- name: TouchProcessingMessage :exec
+-- Records that a PROCESSING command's device reported progress, so periodic
+-- reaping measures its idle time from that report.
+UPDATE queue_message
+SET updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+  AND status = 'PROCESSING';
+
 -- name: ClaimMessageForProcessing :execresult
 UPDATE queue_message
 SET status = 'PROCESSING'::queue_status_enum,

@@ -2915,6 +2915,9 @@ type Querier interface {
 	SweepExpiredEnrollments(ctx context.Context, expiresAt time.Time) (int64, error)
 	SweepExpiredFleetNodeAuthChallenges(ctx context.Context, expiresAt time.Time) (int64, error)
 	SweepExpiredFleetNodeSessions(ctx context.Context, expiresAt time.Time) (int64, error)
+	// Records that a PROCESSING command's device reported progress, so periodic
+	// reaping measures its idle time from that report.
+	TouchProcessingMessage(ctx context.Context, id int64) error
 	TouchRepairTicket(ctx context.Context, arg TouchRepairTicketParams) error
 	// Pairing makes the fleet node the discovery owner so its future reports refresh
 	// the row (the upsert keys refreshability on discovered_by_fleet_node_id);

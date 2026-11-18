@@ -1,6 +1,7 @@
 package ct1
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 
 	hbfirmware "github.com/block/proto-fleet/sdk/mdk/firmware"
 	mdk "github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2"
+	"github.com/block/proto-fleet/sdk/mdk/psucap"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
@@ -35,10 +37,14 @@ const (
 	firmwareStateFailed     = "failed"
 )
 
+// firmwareState is a container's firmware work in this plugin process. At
+// most one of attempt (hashboards) and psu is set: the two update the same
+// boards, so the latest one is the update a status poll reports.
 type firmwareState struct {
 	mu      sync.Mutex
 	busy    bool
 	attempt *firmwareAttempt
+	psu     *psuAttempt
 }
 
 var firmwareStates = struct {
@@ -84,6 +90,15 @@ func (d *Device) FirmwareUpdate(ctx context.Context, file sdk.FirmwareFile) erro
 		return sdk.WriteRefused(fmt.Errorf("another CT1 firmware update is being prepared"), sdk.WriteStageValidation, sdk.WriteReasonRejected)
 	}
 	defer d.releaseFirmware()
+	// A PSU capsule and a hashboard archive arrive through the same command.
+	reader := bufio.NewReader(file.Reader)
+	if header, _ := reader.Peek(8); psucap.IsCapsule(header) {
+		return d.psuFirmwareUpdate(ctx, reader, file)
+	}
+	file.Reader = reader
+	if psu := d.currentPSUAttempt(); psu != nil && psu.live(time.Now()) {
+		return sdk.WriteRefused(fmt.Errorf("a CT1 PSU firmware update is running"), sdk.WriteStageValidation, sdk.WriteReasonRejected)
+	}
 	if current := d.currentFirmwareAttempt(); current != nil && file.RequestID != "" && current.requestID == file.RequestID {
 		return nil
 	}
@@ -192,6 +207,9 @@ func (d *Device) setFirmwareAttempt(attempt *firmwareAttempt) {
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	state.attempt = attempt
+	if attempt != nil {
+		state.psu = nil
+	}
 }
 
 func (d *Device) settledFirmwareAttempt(ctx context.Context) (*firmwareAttempt, error) {
@@ -371,6 +389,9 @@ func uploadFirmware(ctx context.Context, c *Client, archive *hbfirmware.Archive,
 }
 
 func (d *Device) GetFirmwareUpdateStatus(ctx context.Context) (*sdk.FirmwareUpdateStatus, error) {
+	if psu := d.currentPSUAttempt(); psu != nil {
+		return d.psuFirmwareStatus(ctx, psu), nil
+	}
 	attempt := d.currentFirmwareAttempt()
 	if attempt == nil {
 		return nil, fmt.Errorf("no CT1 firmware job is associated with this device handle")
@@ -445,7 +466,7 @@ func (d *Device) firmwareAttemptStatus(ctx context.Context, attempt *firmwareAtt
 	}
 	result := &sdk.FirmwareUpdateStatus{State: firmwareStateInstalling, Progress: &progress}
 	if len(failures) > 0 && allTerminal {
-		message := firmwareFailureMessage(failures)
+		message := firmwareFailureMessage("hashboard", failures)
 		result.State, result.Error = firmwareStateFailed, &message
 	} else if finished == expected && allTerminal {
 		result.State = firmwareStateCompleted
@@ -453,10 +474,10 @@ func (d *Device) firmwareAttemptStatus(ctx context.Context, attempt *firmwareAtt
 	return result, missing == len(attempt.owners), nil
 }
 
-func firmwareFailureMessage(failures []string) string {
+func firmwareFailureMessage(component string, failures []string) string {
 	sort.Strings(failures)
 	var b strings.Builder
-	_, _ = fmt.Fprintf(&b, "%d hashboard firmware failures", len(failures))
+	_, _ = fmt.Fprintf(&b, "%d %s firmware failures", len(failures), component)
 	for i, failure := range failures {
 		separator := "; "
 		if i == 0 {

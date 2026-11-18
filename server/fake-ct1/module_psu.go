@@ -4,10 +4,12 @@ import "math"
 
 // The module's three boards expose the same physical PSU snapshot.
 type psuIdentity struct {
-	Serial  string `json:"serial"`
-	Vendor  string `json:"vendor"`
-	Model   string `json:"model"`
-	PsuType string `json:"psuType"`
+	Serial          string `json:"serial"`
+	Vendor          string `json:"vendor"`
+	Model           string `json:"model"`
+	PsuType         string `json:"psuType"`
+	Revision        string `json:"revision"`
+	FirmwareVersion string `json:"firmwareVersion"`
 }
 
 type psuElectricalHealth struct {
@@ -57,7 +59,7 @@ func (s *ContainerState) modulePsu(b *Hashboard) (psuIdentity, psuElectricalHeal
 	if warning {
 		inlet, sr, pfc = 80, 88, 85
 	}
-	return psuIdentity{Serial: "PSU-" + b.ModuleID, Vendor: "Proto simulator", Model: "CT1 PSU", PsuType: "CT1"},
+	return psuIdentity{Serial: "PSU-" + b.ModuleID, Vendor: "Proto simulator", Model: "CT1 PSU", PsuType: "CT1", Revision: m.PSURevision, FirmwareVersion: m.PSUFirmwareVersion},
 		psuElectricalHealth{InputVoltage: 480 + 5*s.waveAt(sample.Timestamp, 600, 300), InputPower: power / psuEfficiency, OutputVoltage: sample.Voltage, OutputPower: power, SampleAgeMs: age},
 		psuThermalHealth{InletTemperature: inlet, SrHeatsinkTemperature: sr, PfcHeatsinkTemperature: pfc, OverTemperatureWarning: warning, ThermalStateValid: valid, TemperaturesAgeMs: age, ThermalStateAgeMs: age}
 }

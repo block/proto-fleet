@@ -599,18 +599,30 @@ func (es *ExecutionService) startQueueProcessorThread(run *executionRun) error {
 			// cannot finish before all worker registrations are complete.
 			run.wg.Go(func() {
 				defer func() { <-es.workerSemaphore }()
-
-				timeout := es.config.WorkerExecutionTimeout
-				if message.CommandType == commandtype.FirmwareUpdate {
-					timeout = es.config.FirmwareUpdateTimeout
-				}
-				workerCtx, cancel := context.WithTimeout(run.workCtx, timeout)
-				defer cancel()
-
-				es.workerProcessCommand(workerCtx, message)
+				es.processWithinTimeout(run.workCtx, message)
 			})
 		}
 	}
+}
+
+// processWithinTimeout runs one dequeued command under its worker timeout. A
+// firmware update also gets a progress window, so its install polling can
+// outlast that timeout while the device keeps reporting progress.
+func (es *ExecutionService) processWithinTimeout(workCtx context.Context, message queue.Message) {
+	timeout := es.config.WorkerExecutionTimeout
+	parent := workCtx
+	if message.CommandType == commandtype.FirmwareUpdate {
+		timeout = es.config.FirmwareUpdateTimeout
+		window := newFirmwareProgressWindow(workCtx, timeout, func() {
+			es.touchProcessingMessage(workCtx, message.ID)
+		})
+		defer window.stop()
+		parent = withFirmwareProgressWindow(parent, window)
+	}
+	workerCtx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+
+	es.workerProcessCommand(workerCtx, message)
 }
 
 func (es *ExecutionService) reserveWorkerSlots(ctx context.Context) (int32, error) {
@@ -912,15 +924,17 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 			err = fleeterror.NewInternalErrorf("error unmarshalling firmware update payload: %v", fwErr)
 			break
 		}
-		// Keep the resolved path available while plugins reopen it or a Fleet
-		// Node downloads the exact ID. A saved checksum remains authoritative
-		// if the enqueue-time upload was replaced while this command waited.
-		reader, info, openErr := es.filesService.OpenFirmwareFileForExecution(p.FirmwareFileID, p.FirmwareChecksum)
-		if openErr != nil {
-			err = fleeterror.NewInternalErrorf("error opening firmware file: %v", openErr)
-			break
-		}
-		err = func() error {
+		// send delivers the firmware. It keeps the resolved path available
+		// while plugins reopen it or a Fleet Node downloads the exact ID. A
+		// saved checksum remains authoritative if the enqueue-time upload was
+		// replaced while this command waited. A device that updates in steps
+		// is sent the same file and request ID once per step, so each step
+		// passes write admission like the first.
+		send := func(ctx context.Context) error {
+			reader, info, openErr := es.filesService.OpenFirmwareFileForExecution(p.FirmwareFileID, p.FirmwareChecksum)
+			if openErr != nil {
+				return fleeterror.NewInternalErrorf("error opening firmware file: %v", openErr)
+			}
 			defer reader.Close()
 			return minerInfo.FirmwareUpdate(ctx, sdk.FirmwareFile{
 				Reader:    reader,
@@ -931,24 +945,28 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 				FilePath:  info.FilePath,
 				RequestID: fmt.Sprintf("%s/%d", message.BatchLogUUID, message.ID),
 			})
-		}()
-		if err != nil {
+		}
+		if err = send(ctx); err != nil {
 			break
 		}
 		// Capture this before the first status probe: the miner may reboot while
 		// that probe is in flight or between later install-status polls.
 		uploadCompletedAt := time.Now()
-		shouldReboot, pollErr := es.pollFirmwareInstallStatus(ctx, minerInfo, message.DeviceID, uploadCompletedAt)
+		// The upload above keeps the worker's fixed timeout. Polling and the
+		// reboot last as long as the device keeps reporting install progress.
+		installCtx, stopInstall := firmwareProgressWindowFrom(ctx).context(ctx)
+		defer stopInstall()
+		shouldReboot, pollErr := es.pollFirmwareInstallStatus(installCtx, minerInfo, message.DeviceID, uploadCompletedAt, send)
 		if pollErr != nil {
 			err = pollErr
 			break
 		}
 		if shouldReboot {
-			if ctx.Err() != nil {
-				err = ctx.Err()
+			if installCtx.Err() != nil {
+				err = context.Cause(installCtx)
 				break
 			}
-			err = es.rebootAfterFirmwareInstall(ctx, minerInfo, message.DeviceID)
+			err = es.rebootAfterFirmwareInstall(installCtx, minerInfo, message.DeviceID)
 		}
 	case commandtype.Unpair:
 		err = minerInfo.Unpair(ctx)
@@ -1534,10 +1552,94 @@ func (es *ExecutionService) handleUnpairPostProcessing(ctx context.Context, devi
 	return nil
 }
 
-const (
-	firmwareInstallPollInterval = 10 * time.Second
-	firmwareInstallGraceWindow  = 60 * time.Second
-)
+const firmwareInstallGraceWindow = 60 * time.Second
+
+// firmwareInstallPollInterval is a var so tests can shorten it.
+var firmwareInstallPollInterval = 10 * time.Second
+
+// firmwareProgressWindow is the time a firmware command has left. It starts
+// as the firmware update timeout and restarts whenever the device reports a
+// higher install percentage than before. An update that keeps advancing, such
+// as a container that updates one module at a time, is therefore not timed
+// out, and one that stops advancing is timed out as before. Progress is a
+// whole percentage from 0 to 100, which bounds how often the window restarts.
+type firmwareProgressWindow struct {
+	ctx       context.Context //nolint:containedctx // The window is the lifetime of one command's install polling.
+	cancel    context.CancelCauseFunc
+	timer     *time.Timer
+	timeout   time.Duration
+	best      int
+	onAdvance func()
+}
+
+type firmwareProgressWindowKey struct{}
+
+func newFirmwareProgressWindow(parent context.Context, timeout time.Duration, onAdvance func()) *firmwareProgressWindow {
+	ctx, cancel := context.WithCancelCause(parent)
+	return &firmwareProgressWindow{
+		ctx: ctx, cancel: cancel, timeout: timeout, best: -1, onAdvance: onAdvance,
+		timer: time.AfterFunc(timeout, func() { cancel(context.DeadlineExceeded) }),
+	}
+}
+
+func withFirmwareProgressWindow(ctx context.Context, window *firmwareProgressWindow) context.Context {
+	return context.WithValue(ctx, firmwareProgressWindowKey{}, window)
+}
+
+// firmwareProgressWindowFrom returns nil when the command has no window, in
+// which case its context alone bounds it.
+func firmwareProgressWindowFrom(ctx context.Context) *firmwareProgressWindow {
+	window, _ := ctx.Value(firmwareProgressWindowKey{}).(*firmwareProgressWindow)
+	return window
+}
+
+func (w *firmwareProgressWindow) stop() {
+	w.timer.Stop()
+	w.cancel(context.Canceled)
+}
+
+// advance restarts the window when progress is a percentage higher than any
+// reported before.
+func (w *firmwareProgressWindow) advance(progress *int) {
+	if w == nil || progress == nil || *progress <= w.best || *progress > 100 || w.ctx.Err() != nil {
+		return
+	}
+	w.best = *progress
+	w.timer.Reset(w.timeout)
+	if w.onAdvance != nil {
+		w.onAdvance()
+	}
+}
+
+// context returns a context that keeps ctx's values and ends with the window
+// instead of with ctx. Without a window it returns ctx.
+func (w *firmwareProgressWindow) context(ctx context.Context) (context.Context, context.CancelFunc) {
+	if w == nil {
+		return ctx, func() {}
+	}
+	windowed, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
+	stop := context.AfterFunc(w.ctx, func() { cancel(context.Cause(w.ctx)) })
+	return windowed, func() {
+		stop()
+		cancel(context.Canceled)
+	}
+}
+
+// touchProcessingMessage keeps the periodic reaper from failing a command
+// whose device still reports progress.
+func (es *ExecutionService) touchProcessingMessage(ctx context.Context, messageID int64) {
+	if es.conn == nil {
+		return
+	}
+	dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
+	defer cancel()
+	err := db.WithTransactionNoResult(dbCtx, es.conn, func(q sqlc.Querier) error {
+		return q.TouchProcessingMessage(dbCtx, messageID)
+	})
+	if err != nil {
+		slog.Warn("failed to record firmware update progress on its queue message", "message_id", messageID, "error", err)
+	}
+}
 
 // clearFirmwareUpdateStatus resets stale firmware statuses back to ACTIVE after
 // a reboot command or firmware cleanup path, allowing telemetry to take over
@@ -1606,11 +1708,16 @@ func (es *ExecutionService) clearFirmwareUpdateStatusForDevice(ctx context.Conte
 // REBOOT_REQUIRED on installation. Post-boot states also check uptime before
 // requesting another reboot; confirmation state alone is insufficient because
 // older firmware can reconstruct it after only an API-service restart.
+//
+// Status polls are not admitted as device writes. A device whose update has a
+// further step that changes it reports sdk.FirmwareStateContinue, and resend
+// delivers the firmware command again so that step passes write admission.
 func (es *ExecutionService) pollFirmwareInstallStatus(
 	ctx context.Context,
 	minerInfo interfaces.Miner,
 	deviceID int64,
 	uploadCompletedAt time.Time,
+	resend func(context.Context) error,
 ) (bool, error) {
 	provider, canPoll := minerInfo.(interfaces.FirmwareUpdateStatusProvider)
 	if !canPoll {
@@ -1635,7 +1742,7 @@ func (es *ExecutionService) pollFirmwareInstallStatus(
 
 	devID := tmodels.DeviceIdentifier(deviceIdentifier)
 
-	shouldReboot, pollResult := es.doPollFirmwareInstall(ctx, minerInfo, provider, devID, deviceID, uploadCompletedAt, probeStatus, probeErr)
+	shouldReboot, pollResult := es.doPollFirmwareInstall(ctx, minerInfo, provider, devID, deviceID, uploadCompletedAt, probeStatus, probeErr, resend)
 
 	if pollResult != nil {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
@@ -1665,7 +1772,7 @@ func (es *ExecutionService) markFirmwareRebootRequired(ctx context.Context, devi
 	}
 }
 
-func (es *ExecutionService) doPollFirmwareInstall(ctx context.Context, minerInfo interfaces.Miner, provider interfaces.FirmwareUpdateStatusProvider, devID tmodels.DeviceIdentifier, deviceID int64, uploadCompletedAt time.Time, probeStatus *sdk.FirmwareUpdateStatus, probeErr error) (bool, error) {
+func (es *ExecutionService) doPollFirmwareInstall(ctx context.Context, minerInfo interfaces.Miner, provider interfaces.FirmwareUpdateStatusProvider, devID tmodels.DeviceIdentifier, deviceID int64, uploadCompletedAt time.Time, probeStatus *sdk.FirmwareUpdateStatus, probeErr error, resend func(context.Context) error) (bool, error) {
 	if upsertErr := es.deviceStore.UpsertDeviceStatus(ctx, devID, models.MinerStatusUpdating, ""); upsertErr != nil {
 		slog.Warn("failed to set device status to UPDATING", "device_id", deviceID, "error", upsertErr)
 	}
@@ -1713,6 +1820,18 @@ func (es *ExecutionService) doPollFirmwareInstall(ctx context.Context, minerInfo
 
 		case "installing", "downloaded":
 			slog.Debug("firmware install in progress", "device_id", deviceID, "state", status.State, "progress", status.Progress)
+			firmwareProgressWindowFrom(ctx).advance(status.Progress)
+
+		case sdk.FirmwareStateContinue:
+			// The next step changes the device, and a status poll is not
+			// admitted as a device write. Sending the command again rechecks
+			// admission; a command that lost it ends here, so the device
+			// starts nothing further. At most one send follows each poll.
+			slog.Debug("firmware update ready for its next step", "device_id", deviceID, "progress", status.Progress)
+			firmwareProgressWindowFrom(ctx).advance(status.Progress)
+			if err := resend(ctx); err != nil {
+				return true, false, err
+			}
 
 		case "current", "available":
 			if revertErr := firmwareInstallRevertedError(deviceID, status, time.Since(uploadCompletedAt)); revertErr != nil {
