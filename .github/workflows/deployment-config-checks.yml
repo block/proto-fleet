@@ -23,6 +23,7 @@ jobs:
             deployment-files/scripts/compose-project.sh \
             deployment-files/scripts/create-release-manifest.sh \
             deployment-files/scripts/docker-daemon.sh \
+            deployment-files/scripts/sign-protoos-release.sh \
             deployment-files/uninstall.sh \
             deployment-files/tests/test-install-overlay-migration.sh \
             deployment-files/tests/test-profiles.sh \
@@ -79,7 +80,7 @@ jobs:
         with:
           preinstall: "false"
 
-      - name: Validate ProtoOS Frigate bundle manifest and .deb package
+      - name: Validate ProtoOS Frigate bundle manifest, .deb package and release signing
         run: python3 deployment-files/tests/test_protoos_frigate_bundle.py
 
   fleetnode-installer:

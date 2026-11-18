@@ -22,6 +22,19 @@ change the archive), where FRIGATE is a Frigate checkout:
         <fixtures>/frigate-protoos-manifest.json
 
 The archive root must be `dist/protoOS` and must have no `dist/` entry.
+
+Frigate's `releasesig.MarshalCanonical` is the reference for the release
+statement bytes. `proto-os_v0.6.2-internal.14_all.deb` is a small proto-os
+package and `proto-os_v0.6.2-internal.14_all.deb.statement.json` is the
+statement Frigate's release-statement tool wrote for it. To refresh it:
+
+    cd "$FRIGATE" && . bin/activate-hermit
+    cp <fixtures>/proto-os_v0.6.2-internal.14_all.deb build/
+    go run ./cmd/frigate-release-statement create \
+        --deb build/proto-os_v0.6.2-internal.14_all.deb \
+        --repository btc-mining/proto-fleet-internal \
+        --issued-at 2026-11-18T12:00:00Z
+    cp build/proto-os_v0.6.2-internal.14_all.deb.statement.json <fixtures>/
 """
 
 import gzip
@@ -593,7 +606,9 @@ def control_text(tag=TAG, **overrides):
     return "".join(f"{k}: {v}\n" for k, v in fields.items() if v is not None)
 
 
-class DebVerificationTests(TemporaryDirectoryCase):
+class DebBuilder:
+    """Build proto-os packages from a staged tree in a TemporaryDirectoryCase."""
+
     def setUp(self):
         super().setUp()
         self.source = make_tree(self.root / "src")
@@ -639,6 +654,8 @@ class DebVerificationTests(TemporaryDirectoryCase):
         path.write_bytes(ar_archive(parts))
         return path
 
+
+class DebVerificationTests(DebBuilder, TemporaryDirectoryCase):
     def verify(self, deb, **kwargs):
         bundle.verify_deb(deb, REPOSITORY, TAG, COMMIT, self.archive, **kwargs)
 
@@ -1111,6 +1128,398 @@ class CommandLineTests(TemporaryDirectoryCase):
             ).returncode,
             2,
         )
+
+
+GOLDEN_DEB = FIXTURES / f"proto-os_{TAG}_all.deb"
+GOLDEN_STATEMENT = FIXTURES / f"proto-os_{TAG}_all.deb.statement.json"
+GOLDEN_REPOSITORY = "btc-mining/proto-fleet-internal"
+GOLDEN_ISSUED_AT = "2026-11-18T12:00:00Z"
+SIGN_SCRIPT = TESTS.parent / "scripts/sign-protoos-release.sh"
+
+
+class ReleaseStatementTests(TemporaryDirectoryCase):
+    def test_matches_frigate_bytes(self):
+        statement = bundle.release_statement(
+            GOLDEN_DEB, GOLDEN_REPOSITORY, TAG, GOLDEN_ISSUED_AT
+        )
+        self.assertEqual(statement, GOLDEN_STATEMENT.read_bytes())
+
+    def test_fields(self):
+        statement = json.loads(
+            bundle.release_statement(GOLDEN_DEB, REPOSITORY, TAG, GOLDEN_ISSUED_AT)
+        )
+        data = GOLDEN_DEB.read_bytes()
+        self.assertEqual(
+            statement,
+            {
+                "schema": "frigate-release-statement/v1",
+                "package": "proto-os",
+                "version": expected_debian_version(TAG),
+                "architecture": "all",
+                "repository": REPOSITORY,
+                "sha256": hashlib.sha256(data).hexdigest(),
+                "size": len(data),
+                "min_installed_version": "",
+                "issued_at": GOLDEN_ISSUED_AT,
+            },
+        )
+        self.assertEqual(
+            list(statement),
+            [
+                "schema",
+                "package",
+                "version",
+                "architecture",
+                "repository",
+                "sha256",
+                "size",
+                "min_installed_version",
+                "issued_at",
+            ],
+        )
+
+    def test_version_follows_the_tag(self):
+        for tag in TAG_CASES:
+            with self.subTest(tag=tag):
+                statement = json.loads(
+                    bundle.release_statement(
+                        GOLDEN_DEB, REPOSITORY, tag, GOLDEN_ISSUED_AT
+                    )
+                )
+                self.assertEqual(statement["version"], expected_debian_version(tag))
+
+    def test_rejects_bad_issued_at(self):
+        for issued_at in (
+            "",
+            "2026-11-18T12:00:00",
+            "2026-11-18T12:00:00.5Z",
+            "2026-11-18T12:00:00+00:00",
+            "2026-11-18 12:00:00Z",
+            "2026-11-18T2:00:00Z",
+            "2026-02-30T12:00:00Z",
+            "2026-11-18T12:00:00Z\n",
+            None,
+        ):
+            with self.subTest(issued_at=issued_at):
+                with self.assertRaises(bundle.BundleError):
+                    bundle.release_statement(GOLDEN_DEB, REPOSITORY, TAG, issued_at)
+
+    def test_rejects_bad_inputs(self):
+        empty = self.root / "empty.deb"
+        empty.write_bytes(b"")
+        link = self.root / "link.deb"
+        link.symlink_to(GOLDEN_DEB)
+        cases = (
+            (GOLDEN_DEB, "no-slash", TAG),
+            (GOLDEN_DEB, "owner/name/extra", TAG),
+            (GOLDEN_DEB, "-owner/name", TAG),
+            (GOLDEN_DEB, REPOSITORY, "0.6.2"),
+            (empty, REPOSITORY, TAG),
+            (link, REPOSITORY, TAG),
+            (self.root, REPOSITORY, TAG),
+            (self.root / "missing.deb", REPOSITORY, TAG),
+        )
+        for deb, repository, tag in cases:
+            with self.subTest(deb=deb.name, repository=repository, tag=tag):
+                with self.assertRaises(bundle.BundleError):
+                    bundle.release_statement(deb, repository, tag, GOLDEN_ISSUED_AT)
+
+    def test_rejects_oversized_package(self):
+        limits = bundle.PackageLimits(
+            **{**bundle.DEFAULT_PACKAGE_LIMITS._asdict(), "max_package_bytes": 10}
+        )
+        with self.assertRaises(bundle.BundleError):
+            bundle.release_statement(
+                GOLDEN_DEB, REPOSITORY, TAG, GOLDEN_ISSUED_AT, package_limits=limits
+            )
+
+    def test_write_statement_never_replaces(self):
+        path = self.root / "statement.json"
+        bundle.write_statement(path, b"first")
+        with self.assertRaises(FileExistsError):
+            bundle.write_statement(path, b"second")
+        self.assertEqual(path.read_bytes(), b"first")
+
+
+class StatementCommandLineTests(DebBuilder, TemporaryDirectoryCase):
+    run_script = CommandLineTests.run_script
+    common = CommandLineTests.common
+
+    def test_verify_and_write_statement(self):
+        deb = self.build()
+        statement_path = self.root / "statement.json"
+        result = self.run_script(
+            *self.common(),
+            "--verify-deb",
+            str(deb),
+            "--write-statement",
+            str(statement_path),
+            "--issued-at",
+            GOLDEN_ISSUED_AT,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            statement_path.read_bytes(),
+            bundle.release_statement(deb, REPOSITORY, TAG, GOLDEN_ISSUED_AT),
+        )
+        result = self.run_script(
+            *self.common(),
+            "--verify-deb",
+            str(deb),
+            "--write-statement",
+            str(statement_path),
+        )
+        self.assertEqual(result.returncode, 1)
+
+    def test_default_issued_at_is_now(self):
+        deb = self.build()
+        statement_path = self.root / "statement.json"
+        result = self.run_script(
+            *self.common(),
+            "--verify-deb",
+            str(deb),
+            "--write-statement",
+            str(statement_path),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        issued_at = json.loads(statement_path.read_bytes())["issued_at"]
+        self.assertEqual(bundle.parse_issued_at(issued_at), issued_at)
+
+    def test_rejected_package_writes_no_statement(self):
+        deb = self.build(control=control_text(Package="other"))
+        statement_path = self.root / "statement.json"
+        result = self.run_script(
+            *self.common(),
+            "--verify-deb",
+            str(deb),
+            "--write-statement",
+            str(statement_path),
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertFalse(statement_path.exists())
+
+    def test_argument_errors(self):
+        source = make_tree(self.root / "src2")
+        for args in (
+            (
+                "--source",
+                str(source),
+                "--output",
+                str(self.root / "out"),
+                "--write-statement",
+                str(self.root / "s.json"),
+            ),
+            ("--verify-deb", "x", "--issued-at", GOLDEN_ISSUED_AT),
+        ):
+            with self.subTest(args=args):
+                self.assertEqual(self.run_script(*self.common(), *args).returncode, 2)
+
+
+FAKE_AWS = r"""#!/bin/sh
+# Fake AWS CLI: answers kms get-public-key and kms sign from local key files.
+set -eu
+[ "$1" = kms ] || exit 64
+case "$2" in
+  get-public-key)
+    openssl pkey -in "$FAKE_AWS_PUBLIC_KEY_PRIVATE" -pubout -outform DER | base64
+    ;;
+  sign)
+    message=""
+    for arg in "$@"; do
+      case "$arg" in fileb://*) message="${arg#fileb://}" ;; esac
+    done
+    if [ -n "${FAKE_AWS_SIGNATURE:-}" ]; then
+      base64 < "$FAKE_AWS_SIGNATURE"
+    else
+      openssl dgst -sha256 -sign "$FAKE_AWS_SIGNING_KEY" "$message" | base64
+    fi
+    ;;
+  *) exit 64 ;;
+esac
+"""
+
+
+@unittest.skipUnless(
+    shutil.which("openssl") and shutil.which("bash") and shutil.which("sha256sum"),
+    "needs openssl, bash and sha256sum",
+)
+class SignScriptTests(DebBuilder, TemporaryDirectoryCase):
+    def setUp(self):
+        super().setUp()
+        self.assets = self.root / "assets"
+        self.assets.mkdir()
+        self.deb = self.assets / f"proto-os_{TAG}_all.deb"
+        self.build().rename(self.deb)
+        shutil.copy(self.archive, self.assets / self.archive.name)
+        self.write_sidecar()
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        aws = self.bin / "aws"
+        aws.write_text(FAKE_AWS)
+        aws.chmod(0o755)
+        self.key = self.make_key("kms", "prime256v1")
+
+    def make_key(self, name, curve):
+        path = self.root / f"{name}.pem"
+        subprocess.run(
+            ["openssl", "ecparam", "-name", curve, "-genkey", "-noout", "-out", path],
+            check=True,
+            capture_output=True,
+        )
+        return path
+
+    def key_id(self, key):
+        der = subprocess.run(
+            ["openssl", "pkey", "-in", key, "-pubout", "-outform", "DER"],
+            check=True,
+            capture_output=True,
+        ).stdout
+        return "sha256:" + hashlib.sha256(der).hexdigest()
+
+    def write_sidecar(self, digest=None):
+        digest = digest or hashlib.sha256(self.deb.read_bytes()).hexdigest()
+        (self.assets / f"{self.deb.name}.sha256").write_text(
+            f"{digest}  {self.deb.name}\n"
+        )
+
+    def sign(self, *extra, public=None, signer=None, signature=None):
+        env = dict(os.environ)
+        env["PATH"] = f"{self.bin}{os.pathsep}{env['PATH']}"
+        env["FAKE_AWS_PUBLIC_KEY_PRIVATE"] = str(public or self.key)
+        env["FAKE_AWS_SIGNING_KEY"] = str(signer or self.key)
+        env.pop("FAKE_AWS_SIGNATURE", None)
+        if signature is not None:
+            env["FAKE_AWS_SIGNATURE"] = str(signature)
+        return subprocess.run(
+            [
+                "bash",
+                str(SIGN_SCRIPT),
+                "--dir",
+                str(self.assets),
+                "--tag",
+                TAG,
+                "--repository",
+                REPOSITORY,
+                "--commit",
+                COMMIT,
+                "--kms-key-id",
+                "alias/protoos-release",
+                *extra,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+        )
+
+    def outputs(self):
+        statement = Path(f"{self.deb}.statement.json")
+        return statement, Path(f"{self.deb}.statement.sig")
+
+    def assert_refused(self, result, message):
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn(message, result.stderr)
+        for path in self.outputs():
+            self.assertFalse(path.exists(), path)
+
+    def test_signs_and_verifies(self):
+        result = self.sign(
+            "--issued-at",
+            GOLDEN_ISSUED_AT,
+            "--expected-key-id",
+            self.key_id(self.key),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), self.key_id(self.key))
+        statement, signature = self.outputs()
+        self.assertEqual(
+            statement.read_bytes(),
+            bundle.release_statement(self.deb, REPOSITORY, TAG, GOLDEN_ISSUED_AT),
+        )
+        public = self.root / "public.pem"
+        subprocess.run(
+            ["openssl", "pkey", "-in", self.key, "-pubout", "-out", public],
+            check=True,
+            capture_output=True,
+        )
+        verified = subprocess.run(
+            [
+                "openssl",
+                "dgst",
+                "-sha256",
+                "-verify",
+                public,
+                "-signature",
+                signature,
+                statement,
+            ],
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(verified.returncode, 0, verified.stderr)
+        # A second run never replaces the signed files.
+        self.assert_refused_keeps(self.sign(), "already exists")
+
+    def assert_refused_keeps(self, result, message):
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(message, result.stderr)
+        for path in self.outputs():
+            self.assertTrue(path.exists(), path)
+
+    def test_refuses_unbound_sidecar(self):
+        self.write_sidecar("0" * 64)
+        self.assert_refused(self.sign(), "is not bound")
+
+    def test_refuses_package_that_fails_the_contract(self):
+        rejected = self.build(control=control_text(Package="other"))
+        self.deb.write_bytes(rejected.read_bytes())
+        self.write_sidecar()
+        self.assert_refused(self.sign(), "")
+
+    def test_refuses_unpinned_key(self):
+        other = self.make_key("other", "prime256v1")
+        self.assert_refused(
+            self.sign("--expected-key-id", self.key_id(other)), "is not the expected"
+        )
+
+    def test_refuses_malformed_pin(self):
+        self.assert_refused(
+            self.sign("--expected-key-id", "sha256:XYZ"), "--expected-key-id"
+        )
+
+    def test_refuses_other_curve(self):
+        key = self.make_key("p384", "secp384r1")
+        self.assert_refused(
+            self.sign(public=key, signer=key), "is not an ECDSA P-256 key"
+        )
+
+    def test_refuses_signature_from_another_key(self):
+        other = self.make_key("other", "prime256v1")
+        self.assert_refused(self.sign(signer=other), "does not verify")
+
+    def test_refuses_oversized_signature(self):
+        blob = self.root / "big.sig"
+        blob.write_bytes(b"\x30" * 129)
+        self.assert_refused(self.sign(signature=blob), "Frigate accepts 1 to 128")
+
+    def test_refuses_empty_signature(self):
+        blob = self.root / "empty.sig"
+        blob.write_bytes(b"")
+        self.assert_refused(self.sign(signature=blob), "Frigate accepts 1 to 128")
+
+    def test_refuses_missing_assets(self):
+        (self.assets / self.archive.name).unlink()
+        self.assert_refused(self.sign(), "is missing")
+
+    def test_usage(self):
+        result = subprocess.run(
+            ["bash", str(SIGN_SCRIPT), "--dir"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Usage", result.stderr)
 
 
 if __name__ == "__main__":

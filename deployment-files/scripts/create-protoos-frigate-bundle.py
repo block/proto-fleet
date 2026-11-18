@@ -8,7 +8,10 @@ the release tarball and the R2 .ipk stay unchanged.
 Verify mode opens a built .deb with the standard library only. It applies the
 same closed contract as Frigate's root update helper: the Debian control data,
 the absence of maintainer scripts, the allowed paths, the archive framing, the
-size limits, and the manifest against the files in the package.
+size limits, and the manifest against the files in the package. With
+`--write-statement` it then writes the release statement that the release
+workflow signs, byte for byte what Frigate's `releasesig.MarshalCanonical`
+produces for the same package.
 
 Frigate is the reference for every rule and for the manifest bytes. These
 files in the Frigate repository define the rules:
@@ -16,11 +19,13 @@ files in the Frigate repository define the rules:
 * `internal/tool/stageprotoos/main.go` (bundle validation and manifest bytes).
 * `cmd/frigate/protoos.go` (path segments and runtime limits).
 * `internal/protoosdeb/` (the package contract and its size limits).
+* `pkg/releasesig/statement.go` (the release statement bytes).
 
 Keep this script and `tests/fixtures/protoos-frigate-bundle/` in step with them.
 """
 
 import argparse
+import datetime
 import hashlib
 import json
 import os
@@ -58,6 +63,16 @@ RELEASE_TAG_PATTERN = re.compile(
 )
 CONTROL_NAME_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9-]*")
 MD5_LINE_PATTERN = re.compile(r"[0-9a-f]{32}  (.+)")
+
+# Release statement, as in Frigate's pkg/releasesig. The statement is the only
+# thing the release key signs, and Frigate's root update helper refuses a
+# proto-os package unless the statement verifies against a trusted ProtoOS key
+# and describes exactly that package.
+STATEMENT_SCHEMA = "frigate-release-statement/v1"
+STATEMENT_ARCHITECTURE = "all"
+STATEMENT_REPOSITORY_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+")
+MAX_STATEMENT_BYTES = 4096
+ISSUED_AT_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 # Public bundle limits. The path limits leave room for the "var/www/" prefix
 # inside the package, where Frigate's root helper allows 1024 bytes in total.
@@ -761,6 +776,66 @@ def verify_deb(
             raise BundleError("The embedded manifest does not match the package files")
 
 
+def statement_asset(tag):
+    """Name of the release asset that carries the statement for tag's package."""
+    return f"proto-os_{tag}_all.deb.statement.json"
+
+
+def parse_issued_at(text):
+    """Accept only Frigate's issued_at layout: UTC RFC 3339, whole seconds."""
+    try:
+        parsed = datetime.datetime.strptime(text, ISSUED_AT_FORMAT)
+    except (TypeError, ValueError) as error:
+        raise BundleError(f"Invalid issued-at time {text!r}") from error
+    if parsed.strftime(ISSUED_AT_FORMAT) != text:
+        raise BundleError(f"Invalid issued-at time {text!r}")
+    return text
+
+
+def release_statement(
+    deb, repository, tag, issued_at, package_limits=DEFAULT_PACKAGE_LIMITS
+):
+    """Return the canonical release statement bytes for a ProtoOS package.
+
+    The fields, their order and their encoding are those of Frigate's
+    `releasesig.MarshalCanonical`: compact JSON with no trailing newline.
+    `min_installed_version` is always empty, because Frigate refuses a ProtoOS
+    statement that sets it. Call this only for a package that `verify_deb`
+    accepted; the statement attests these exact bytes.
+    """
+    if not STATEMENT_REPOSITORY_PATTERN.fullmatch(repository):
+        raise BundleError(f"Invalid statement repository {repository!r}")
+    version = debian_version(tag)
+    deb = Path(deb)
+    if deb.is_symlink() or not deb.is_file():
+        raise BundleError(f"{deb} is not a regular file")
+    digest, size = sha256_file(deb, package_limits.max_package_bytes)
+    if size <= 0:
+        raise BundleError(f"{deb} is empty")
+    statement = go_json(
+        {
+            "schema": STATEMENT_SCHEMA,
+            "package": PACKAGE_NAME,
+            "version": version,
+            "architecture": STATEMENT_ARCHITECTURE,
+            "repository": repository,
+            "sha256": digest,
+            "size": size,
+            "min_installed_version": "",
+            "issued_at": parse_issued_at(issued_at),
+        }
+    )
+    if len(statement) > MAX_STATEMENT_BYTES:
+        raise BundleError("The release statement is larger than Frigate accepts")
+    return statement
+
+
+def write_statement(path, statement):
+    """Write statement to a new file; never replace an existing statement."""
+    with open(path, "xb") as handle:
+        handle.write(statement)
+
+
 def parse_args(argv):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--repository", required=True, help="GitHub owner/name")
@@ -776,10 +851,22 @@ def parse_args(argv):
         help="Modification time of staged files (default: SOURCE_DATE_EPOCH)",
     )
     parser.add_argument("--verify-deb", help="Built .deb to verify (verify mode)")
+    parser.add_argument(
+        "--write-statement",
+        help="After verifying, write the package's release statement here (verify mode)",
+    )
+    parser.add_argument(
+        "--issued-at",
+        help="Statement issue time, UTC RFC 3339 with whole seconds (default: now)",
+    )
     args = parser.parse_args(argv)
+    if args.issued_at is not None and not args.write_statement:
+        parser.error("--issued-at requires --write-statement")
     if args.verify_deb:
         if args.source or args.output:
             parser.error("--verify-deb does not accept --source or --output")
+    elif args.write_statement:
+        parser.error("--write-statement requires --verify-deb")
     elif not (args.source and args.output):
         parser.error("--source and --output are required unless --verify-deb is set")
     elif args.source_date_epoch is None or args.source_date_epoch < 0:
@@ -795,6 +882,17 @@ def main(argv):
                 args.verify_deb, args.repository, args.tag, args.commit, args.archive
             )
             print(f"Verified {args.verify_deb}")
+            if args.write_statement:
+                issued_at = args.issued_at or datetime.datetime.now(
+                    datetime.timezone.utc
+                ).strftime(ISSUED_AT_FORMAT)
+                write_statement(
+                    args.write_statement,
+                    release_statement(
+                        args.verify_deb, args.repository, args.tag, issued_at
+                    ),
+                )
+                print(f"Wrote release statement {args.write_statement}")
         else:
             stage_bundle(
                 args.source,
