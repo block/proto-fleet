@@ -53,6 +53,8 @@ export function useFeedMapping(
   const request = useRef<AbortController | undefined>(undefined);
   const refreshedRun = useRef<string | undefined>(undefined);
   const notifiedRun = useRef<string | undefined>(undefined);
+  // A run whose record another tab released before this tab observed its result.
+  const releasedRun = useRef<string | undefined>(undefined);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -67,8 +69,13 @@ export function useFeedMapping(
     if (!mounted.current) return;
     setAttempt(value);
     if (changed) {
-      // Another tab can clear a clean success while this tab still has its progress dialog open.
-      setRun((previous) => (!value && previous?.status === "completed" ? previous : undefined));
+      // Another tab can clear a clean success while this tab still has its progress dialog open. An active run
+      // cannot be dismissed, so a released active run finished there; keep it until this tab loads its result.
+      setRun((previous) => {
+        const released = !value && mappingRunActive(previous);
+        releasedRun.current = released ? previous!.id : undefined;
+        return !value && (released || previous?.status === "completed") ? previous : undefined;
+      });
       setRunningConfirmed(false);
     }
   }, []);
@@ -116,6 +123,7 @@ export function useFeedMapping(
       try {
         const saved = load();
         syncAttempt(saved);
+        const released = saved ? undefined : releasedRun.current;
         const result = await withDeadline(
           async () => {
             const options = { signal: controller.signal };
@@ -123,9 +131,10 @@ export function useFeedMapping(
             let observed = active.status === "fulfilled" ? active.value : undefined;
             let missing = false;
             let statusError: unknown;
-            if (!observed && saved?.runId) {
+            const runId = saved?.runId ?? released;
+            if (!observed && runId) {
               try {
-                observed = await mapping.get(saved.runId, options);
+                observed = await mapping.get(runId, options);
                 missing = observed === null;
               } catch (failure) {
                 statusError = failure;
@@ -146,16 +155,24 @@ export function useFeedMapping(
         confirmedRunning = result.observed?.status === "running";
         setRunningConfirmed(confirmedRunning);
         if (result.assessment.status === "fulfilled") setAssessment(result.assessment.value);
-        if (result.missing) setRun(undefined);
+        if (result.missing) {
+          releasedRun.current = undefined;
+          setRun(undefined);
+        }
         if (result.observed) {
-          // An active run may belong to another tab. Never overwrite a different run's saved result.
-          const existing =
-            readMappingAttempts(deviceId).find((record) => record.runId === result.observed!.id) ??
-            (saved && !saved.runId ? saved : undefined);
-          const tracked = { token: existing?.token ?? newAttemptToken(), runId: result.observed.id };
-          if (!save(tracked, existing)) {
-            refresh();
-            return;
+          // The tab that released this run already confirmed and announced its result. Do not track it again.
+          const adopted = !!released && result.observed.id === released;
+          let tracked: Attempt | undefined;
+          if (!adopted) {
+            // An active run may belong to another tab. Never overwrite a different run's saved result.
+            const existing =
+              readMappingAttempts(deviceId).find((record) => record.runId === result.observed!.id) ??
+              (saved && !saved.runId ? saved : undefined);
+            tracked = { token: existing?.token ?? newAttemptToken(), runId: result.observed.id };
+            if (!save(tracked, existing)) {
+              refresh();
+              return;
+            }
           }
           setRun(result.observed);
           setRunningConfirmed(confirmedRunning);
@@ -171,6 +188,7 @@ export function useFeedMapping(
             result.assessment = { status: "fulfilled", value: fresh };
             setAssessment(fresh);
             if (
+              tracked &&
               result.active.status === "fulfilled" &&
               !fresh.unavailable &&
               !fresh.deferredReason &&
@@ -190,6 +208,8 @@ export function useFeedMapping(
               }
             }
           }
+          // Only the released ID can read this run again. Keep it until an aborted or failed poll is retried.
+          if (adopted && !mappingRunActive(result.observed)) releasedRun.current = undefined;
         }
         const failure =
           result.statusError ??

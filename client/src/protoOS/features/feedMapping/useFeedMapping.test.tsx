@@ -273,6 +273,63 @@ test("clears a successful run only after a fresh healthy assessment and emits on
   expect(pushToast).toHaveBeenCalledTimes(1);
 });
 
+test("shows a success that another tab confirmed while this tab still showed the run as running", async () => {
+  localStorage.setItem(key, JSON.stringify({ token: "saved-token", runId: running.id }));
+  const mapping = api();
+  mapping.active.mockResolvedValue(running);
+  const first = mount(mapping);
+  const second = mount(mapping);
+  await waitFor(() => expect(first.result.current.runningConfirmed).toBe(true));
+  await waitFor(() => expect(second.result.current.runningConfirmed).toBe(true));
+  const completed = { ...running, status: "completed" as const };
+  mapping.active.mockResolvedValue(null);
+  mapping.get.mockResolvedValue(completed);
+  act(() => second.result.current.refresh());
+  await waitFor(() => expect(second.result.current.completedSuccessfully).toBe(true));
+  expect(localStorage.getItem(key)).toBeNull();
+  expect(first.result.current.run?.status).toBe("running");
+
+  act(() => window.dispatchEvent(new StorageEvent("storage", { key, newValue: null, storageArea: localStorage })));
+  await waitFor(() => expect(first.result.current.completedSuccessfully).toBe(true));
+  expect(first.result.current.run).toEqual(completed);
+  expect(first.result.current.unresolved).toBe(false);
+  expect(readMappingAttempts("ct1")).toEqual([]);
+  expect(pushToast).toHaveBeenCalledOnce();
+});
+
+test("retries the hardware refresh for a released run after the poll aborts it", async () => {
+  localStorage.setItem(key, JSON.stringify({ token: "saved-token", runId: running.id }));
+  const mapping = api();
+  mapping.active.mockResolvedValue(running);
+  const settled = vi
+    .fn<(signal: AbortSignal) => Promise<void>>()
+    .mockImplementationOnce(
+      (signal) =>
+        new Promise((_resolve, reject) =>
+          signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true }),
+        ),
+    )
+    .mockResolvedValue(undefined);
+  const first = renderHook(() => useFeedMappingState()!, {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <FeedMappingProvider mapping={mapping} deviceId="ct1" onSettled={settled}>
+        {children}
+      </FeedMappingProvider>
+    ),
+  });
+  await waitFor(() => expect(first.result.current.runningConfirmed).toBe(true));
+  mapping.active.mockResolvedValue(null);
+  mapping.get.mockResolvedValue({ ...running, status: "completed" });
+  localStorage.removeItem(key);
+
+  // The run leaves the 3-second poll interval when it completes, which aborts the first refresh.
+  act(() => window.dispatchEvent(new StorageEvent("storage", { key, newValue: null, storageArea: localStorage })));
+  await waitFor(() => expect(settled).toHaveBeenCalledTimes(2));
+  expect(settled.mock.calls[0][0].aborted).toBe(true);
+  expect(first.result.current.completedSuccessfully).toBe(true);
+  expect(mapping.get).toHaveBeenLastCalledWith(running.id, expect.anything());
+});
+
 test.each([
   { name: "failed run", run: { ...running, status: "failed" as const }, assessment },
   { name: "canceled run", run: { ...running, status: "canceled" as const }, assessment },
