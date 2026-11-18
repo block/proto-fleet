@@ -3,11 +3,13 @@ package devicewrite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/google/uuid"
 )
 
@@ -110,10 +112,10 @@ func MayAffectPools(operationKind, commandName string) bool {
 // requireNoActivePoolRemoval also protects legacy commands and mining-group
 // workflows, which do not use the pool configuration review service.
 func requireNoActivePoolRemoval(ctx context.Context, q sqlc.Querier, organizationID, deviceID int64) error {
-	return requirePoolRemovalAdmission(ctx, q, organizationID, deviceID, commandtype.Type(-1))
+	return requirePoolRemovalAdmission(ctx, q, organizationID, deviceID, commandtype.Type(-1), nil)
 }
 
-func requirePoolRemovalAdmission(ctx context.Context, q sqlc.Querier, organizationID, deviceID int64, kind commandtype.Type) error {
+func requirePoolRemovalAdmission(ctx context.Context, q sqlc.Querier, organizationID, deviceID int64, kind commandtype.Type, payload []byte) error {
 	nativeCurtailment := false
 	if kind.IsCurtailmentControl() {
 		binding, err := q.GetPoolConfigurationRuntime(ctx, sqlc.GetPoolConfigurationRuntimeParams{OrgID: organizationID, ID: deviceID})
@@ -126,7 +128,7 @@ func requirePoolRemovalAdmission(ctx context.Context, q sqlc.Querier, organizati
 	}
 	if !nativeCurtailment {
 		if kind.MayAffectPools() {
-			if err := RequireNoPendingActivationPoolHandoff(ctx, q, organizationID, deviceID); err != nil {
+			if err := requireActivationPoolCommand(ctx, q, organizationID, deviceID, kind, payload); err != nil {
 				return err
 			}
 		}
@@ -187,4 +189,43 @@ func RequireNoMiningGroupDeactivation(ctx context.Context, q sqlc.Querier, organ
 		return nil
 	}
 	return fleeterror.NewFailedPreconditionError("Mining groups are being disabled. Wait for this change or recovery to finish before submitting device changes.")
+}
+
+// Placement alone must not prevent an operator from stopping or rebooting.
+// Keep this separate from MayAffectPools: these commands still conflict with
+// physical pool writes and must not interrupt an unfinished activation.
+func requireActivationPoolCommand(ctx context.Context, q sqlc.Querier, organizationID, deviceID int64, kind commandtype.Type, payload []byte) error {
+	pending, err := q.HasPendingMiningGroupPoolHandoff(ctx, sqlc.HasPendingMiningGroupPoolHandoffParams{OrganizationID: organizationID, DeviceID: deviceID})
+	if err != nil || !pending {
+		return err
+	}
+	allowed := kind == commandtype.StopMining || kind == commandtype.Reboot
+	if kind == commandtype.ContainerMining {
+		// Decode the same request envelope used by the queue executor. ContainerMining
+		// also carries start and power changes, which do not get this exception.
+		var command struct {
+			Request sdk.ContainerMiningRequest `json:"request"`
+		}
+		allowed = json.Unmarshal(payload, &command) == nil && command.Request.Validate() == nil && command.Request.Action == "set_mining" && !*command.Request.Mining
+	}
+	if !allowed {
+		return fleeterror.NewFailedPreconditionError(ActivationPoolPlacementPending)
+	}
+	state, err := q.GetMiningGroupState(ctx, sqlc.GetMiningGroupStateParams{OrganizationID: organizationID, DeviceID: deviceID})
+	if err != nil {
+		return err
+	}
+	if state.OperationKind != "activate" || state.Status != "complete" {
+		return fleeterror.NewFailedPreconditionError("Mining group activation is unfinished. Wait for activation or recovery to finish before stopping or rebooting.")
+	}
+	attempts, err := q.ListUnresolvedDeviceWriteAttempts(ctx, sqlc.ListUnresolvedDeviceWriteAttemptsParams{OrganizationID: organizationID, DeviceID: deviceID})
+	if err != nil {
+		return err
+	}
+	for _, attempt := range attempts {
+		if MayAffectPools(attempt.OperationKind, attempt.CommandType) {
+			return fleeterror.NewFailedPreconditionErrorf("%w", mutationConflictError("device write is fenced by an unresolved configuration operation"))
+		}
+	}
+	return nil
 }

@@ -29,6 +29,12 @@ the assignment to those installations. Otherwise, Fleet enables mining groups
 and retains the container assignment and complete board identity list. Pool
 changes and ownership changes remain blocked until the transfer completes or an
 operator cancels it. Placement-only inventory updates remain allowed.
+After activation completes, pending placement alone does not block stop or
+reboot. This includes the container stop action. These controls still require
+normal authorization and a valid device binding. Unfinished activation,
+unresolved configuration writes, and active pool removal still block them.
+Starting mining and changing container power do not get this exception. Stop
+and reboot preserve the retained assignment and pending transfer.
 State refreshes and the readiness worker retry this database-only transfer after
 placement is corrected. They recheck the original identities, ownership, and
 default-group membership. No replacement board receives the captured assignment.

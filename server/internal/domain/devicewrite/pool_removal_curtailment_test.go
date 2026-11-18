@@ -15,7 +15,7 @@ func TestPoolRemovalPreservesNativeCurtailmentAdmission(t *testing.T) {
 	database, org := shared.database, shared.org
 	for _, state := range []string{"applying", "uncertain"} {
 		for _, driver := range []string{"proto", "unclassified-pool-fallback"} {
-			for _, kind := range []commandtype.Type{commandtype.Curtail, commandtype.Uncurtail, commandtype.ApplyCurtailmentConfig, commandtype.UpdateMiningPools} {
+			for _, kind := range []commandtype.Type{commandtype.Curtail, commandtype.Uncurtail, commandtype.ApplyCurtailmentConfig, commandtype.UpdateMiningPools, commandtype.StopMining, commandtype.Reboot} {
 				t.Run(state+"/"+driver+"/"+kind.String(), func(t *testing.T) {
 					device, message := shared.queueDevice(t, kind)
 					_, err := database.DB.ExecContext(t.Context(), `UPDATE discovered_device SET driver_name=$1,device_class=1 WHERE id=(SELECT discovered_device_id FROM device WHERE id=$2)`, driver, device)

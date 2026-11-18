@@ -8,6 +8,8 @@ import (
 
 	"connectrpc.com/authn"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/commandtype"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/poolapplications"
@@ -198,4 +200,35 @@ func TestActivationHandoffInventoryReadDoesNotLockOrganization(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, applied)
 	require.True(t, called)
+}
+
+func TestPendingActivationAllowsStopAndReboot(t *testing.T) {
+	ctx, f, _, _, _, boards, _ := newActivationPoolFixture(t)
+	completePendingActivation(t, ctx, f, boards[0])
+	q := sqlc.New(f.conn)
+	before, err := q.GetPoolConfigurationAssignment(ctx, sqlc.GetPoolConfigurationAssignmentParams{OrganizationID: f.target.OrganizationID, TargetKind: poolconfigurations.TargetDevice, TargetID: f.target.DeviceID})
+	require.NoError(t, err)
+	for _, kind := range []commandtype.Type{commandtype.StopMining, commandtype.Reboot, commandtype.StartMining, commandtype.UpdateMiningPools, commandtype.ContainerMining, commandtype.ControlPowerFeed, commandtype.Type(-1)} {
+		called := false
+		err := f.service.writes.WithHostAttempt(ctx, f.target.OrganizationID, f.target.DeviceID, f.state(t).WriteEpoch, kind, func(context.Context) error { called = true; return nil })
+		if kind == commandtype.StopMining || kind == commandtype.Reboot {
+			require.NoError(t, err)
+		} else {
+			require.ErrorContains(t, err, devicewrite.ActivationPoolPlacementPending)
+		}
+		require.Equal(t, kind == commandtype.StopMining || kind == commandtype.Reboot, called)
+	}
+	after, err := q.GetPoolConfigurationAssignment(ctx, sqlc.GetPoolConfigurationAssignmentParams{OrganizationID: f.target.OrganizationID, TargetKind: poolconfigurations.TargetDevice, TargetID: f.target.DeviceID})
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+	require.ErrorContains(t, devicewrite.RequireNoPendingActivationPoolHandoff(ctx, q, f.target.OrganizationID, f.target.DeviceID), devicewrite.ActivationPoolPlacementPending)
+	// A pending placement is not permission to interrupt unfinished activation.
+	for _, status := range []string{"pending", "applying", "blocked", "failed"} {
+		_, err = f.conn.ExecContext(ctx, `UPDATE container_mining_group_state SET status=$1 WHERE device_id=$2`, status, f.target.DeviceID)
+		require.NoError(t, err)
+		for _, kind := range []commandtype.Type{commandtype.StopMining, commandtype.Reboot} {
+			err = f.service.writes.WithHostAttempt(ctx, f.target.OrganizationID, f.target.DeviceID, f.state(t).WriteEpoch, kind, func(context.Context) error { t.Fatal("unfinished activation must block control"); return nil })
+			require.Error(t, err)
+		}
+	}
 }

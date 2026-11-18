@@ -107,3 +107,25 @@ func TestContainerMiningExecutionRejectsInvalidQueuedScope(t *testing.T) {
 		})
 	}
 }
+
+func TestPendingActivationContainerStop(t *testing.T) {
+	for _, mining := range []bool{false, true} {
+		t.Run(fmt.Sprint(mining), func(t *testing.T) {
+			f := setupContainerMiningSiteTest(t)
+			_, err := f.conn.ExecContext(t.Context(), `INSERT INTO container_mining_group_state(device_id,organization_id,operation_kind,status) VALUES($1,$2,'activate','complete')`, f.deviceID, f.orgID)
+			require.NoError(t, err)
+			_, err = f.conn.ExecContext(t.Context(), `WITH request AS (INSERT INTO mining_group_request(organization_id,request_id,device_id,fingerprint) VALUES($1,gen_random_uuid(),$2,'test') RETURNING *) INSERT INTO mining_group_pool_handoff(organization_id,operation_id,device_id,captured,placement_pending) SELECT organization_id,request_id,device_id,'{}',true FROM request`, f.orgID, f.deviceID)
+			require.NoError(t, err)
+			message := f.enqueue(t, sdk.ContainerMiningRequest{Action: "set_mining", Mining: new(mining)}, 0)
+			_, _, err = f.execution.executeQueuedCommand(t.Context(), message)
+			if mining {
+				require.ErrorContains(t, err, devicewrite.ActivationPoolPlacementPending)
+				require.Zero(t, f.miner.calls)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, 1, f.miner.calls)
+				require.False(t, *f.miner.request.Mining)
+			}
+		})
+	}
+}
