@@ -181,20 +181,11 @@ export function MappingSetup({ state }: { state: FeedMappingState }) {
         >
           <div className="flex flex-col gap-4">
             {mode === "manual" && !active && !unknown ? (
-              <div className="flex flex-col gap-3 text-300">
-                <p>
-                  Refreshing starts a new hashboard mapping run. It turns all controllable feeds off, then maps them one
-                  at a time.
-                </p>
-                <p>
-                  This changes power usage and reduces hashrate while mapping runs. Some actions will not be available
-                  until mapping is complete.
-                </p>
-                <p>
-                  After completion or cancellation, all feeds are set to turn on, including feeds that were off before
-                  the run. A failure can leave feeds off.
-                </p>
-              </div>
+              <p className="text-300">
+                Refreshing turns all controllable feeds off, then maps them one at a time, changing power usage,
+                reducing hashrate, and temporarily limiting some actions. Completion or cancellation sets all feeds to
+                turn on, including those previously off; a failure can leave feeds off.
+              </p>
             ) : null}
             {active || state.activity ? (
               <div role="status" className="flex items-center gap-3">
@@ -238,11 +229,13 @@ export function MappingSetup({ state }: { state: FeedMappingState }) {
                 schedule for conflicts. After correction, verify the affected hashboards.
               </p>
             ) : null}
-            {state.assessment?.configurationReasons.map((reason) => (
-              <p className="text-200" key={reason}>
-                {words(reason)}
-              </p>
-            ))}
+            {state.assessment?.configurationReasons
+              .filter((reason) => reason !== "switch_engine_pins_required")
+              .map((reason) => (
+                <p className="text-200" key={reason}>
+                  {words(reason)}
+                </p>
+              ))}
             {state.assessment?.deferredReason ? (
               <p className="text-200">Verification is deferred: {words(state.assessment.deferredReason)}.</p>
             ) : null}
@@ -267,9 +260,6 @@ export function MappingSetup({ state }: { state: FeedMappingState }) {
                   <p className="mt-2 text-200">
                     Some feeds timed out. Check the remaining mapping problems and feed states before you retry.
                   </p>
-                ) : null}
-                {state.run.status === "failed" || state.run.status === "canceled" ? (
-                  <p className="mt-2 text-200">Check feed power states. Restoration may be incomplete.</p>
                 ) : null}
               </section>
             ) : null}
@@ -329,9 +319,6 @@ export function MappingSetup({ state }: { state: FeedMappingState }) {
                   ))}
                 </ul>
               </details>
-            ) : null}
-            {state.assessment?.historyIncomplete ? (
-              <p className="text-200 text-text-primary-70">Mapping history is incomplete.</p>
             ) : null}
           </div>
         </Dialog>

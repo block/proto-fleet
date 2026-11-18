@@ -17,7 +17,6 @@ const assessment: MappingAssessment = {
   boards: [],
   configurationReasons: [],
   changes: [],
-  historyIncomplete: false,
 };
 const running: MappingRun = {
   id: "run-1",

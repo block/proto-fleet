@@ -136,7 +136,6 @@ export function assessMapping(
         })),
       )
       .sort((a, b) => (b.at ?? "").localeCompare(a.at ?? "")),
-    historyIncomplete: report?.changesTruncated === true || report?.changesUnavailable === true,
   };
 }
 

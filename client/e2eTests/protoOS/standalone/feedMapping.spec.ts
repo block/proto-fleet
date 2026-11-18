@@ -27,8 +27,10 @@ test("unlocated hashboards can be remapped with confirmation, reload recovery, a
     path: fileURLToPath(new URL(`../../../../.context/mapping-${testInfo.project.name}.png`, import.meta.url)),
   });
   await mapping.review();
-  await expect(mapping.dialog()).toContainText("changes power usage and reduces hashrate");
-  await expect(mapping.dialog()).toContainText("Some actions will not be available until mapping is complete");
+  await expect(mapping.dialog()).toContainText(
+    "changing power usage, reducing hashrate, and temporarily limiting some actions",
+  );
+  await expect(mapping.dialog()).toContainText("including those previously off; a failure can leave feeds off");
   await mapping.dialog().screenshot({
     path: fileURLToPath(new URL(`../../../../.context/mapping-dialog-${testInfo.project.name}.png`, import.meta.url)),
     animations: "disabled",
