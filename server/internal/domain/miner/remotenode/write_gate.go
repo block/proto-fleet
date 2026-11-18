@@ -8,6 +8,7 @@ import (
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 )
 
 // withPhysicalWriteAdmission classifies terminal write acknowledgements while the
@@ -49,19 +50,15 @@ func (m *Miner) withPhysicalWriteAdmission(ctx context.Context, command *gateway
 
 // Only explicitly classified reads and indicator control bypass physical-write admission.
 // Future actions remain fenced until their behavior has been classified.
+// control.MinerCommandReadOnly holds that classification, which the node's
+// command cancel follows too.
 func physicalWriteKind(command *gatewaypb.MinerCommand) (commandtype.Type, bool) {
+	write := !control.MinerCommandReadOnly(command)
 	switch command.GetAction().(type) {
 	case *gatewaypb.MinerCommand_ContainerMining:
-		r, err := sdk.DecodeContainerMiningRequest(command.GetContainerMining().Request)
-		return commandtype.ContainerMining, err != nil || !r.ReadOnly()
+		return commandtype.ContainerMining, write
 	case *gatewaypb.MinerCommand_ContainerPowerFeed:
-		r, err := sdk.DecodeContainerPowerFeedRequest(command.GetContainerPowerFeed().Request)
-		return commandtype.ControlPowerFeed, err != nil || !r.ReadOnly()
-	case *gatewaypb.MinerCommand_MiningGroups:
-		r, err := sdk.DecodeMiningGroupRequest(command.GetMiningGroups().Request)
-		return commandtype.Type(-1), err != nil || !r.ReadOnly()
-	case *gatewaypb.MinerCommand_VerifyPoolsCleared, *gatewaypb.MinerCommand_GetCoolingMode, *gatewaypb.MinerCommand_GetErrors, *gatewaypb.MinerCommand_GetMiningPools, *gatewaypb.MinerCommand_GetFirmwareUpdateStatus, *gatewaypb.MinerCommand_DownloadLogs, *gatewaypb.MinerCommand_BlinkLed, *gatewaypb.MinerCommand_SetBoardIdentify, *gatewaypb.MinerCommand_ControllerRecords:
-		return commandtype.Type(-1), false
+		return commandtype.ControlPowerFeed, write
 	case *gatewaypb.MinerCommand_Reboot:
 		return commandtype.Reboot, true
 	case *gatewaypb.MinerCommand_StartMining:
@@ -93,6 +90,6 @@ func physicalWriteKind(command *gatewaypb.MinerCommand) (commandtype.Type, bool)
 	case *gatewaypb.MinerCommand_RunContainerAlarmAction:
 		return commandtype.ContainerAlarmAction, true
 	default:
-		return commandtype.Type(-1), true
+		return commandtype.Type(-1), write
 	}
 }

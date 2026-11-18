@@ -76,6 +76,10 @@ type RunCmd struct {
 	controlDeferrableReadSlots chan struct{}  `kong:"-"`
 	controlDiscoverySlot       chan struct{}  `kong:"-"`
 	controlWorkers             sync.WaitGroup `kong:"-"`
+	// controlCancels holds the cancel function of each in-flight command a
+	// ControlCancel may stop.
+	controlCancels   commandCancels       `kong:"-"`
+	boardASICStreams boardASICStreamLimit `kong:"-"`
 }
 
 type gatewayClient interface {

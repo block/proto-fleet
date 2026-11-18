@@ -182,6 +182,7 @@ type artifactExpectation struct {
 type connection struct {
 	discoveryConfig           *gatewaypb.DiscoveryConfig
 	outgoing                  chan *gatewaypb.ControlCommand // commands to the ControlStream handler (buffered, never closed)
+	cancels                   chan string                    // command_ids to cancel on the node (buffered, never closed)
 	done                      chan struct{}                  // closed once on evict/Unregister; wakes the handler and blocked senders
 	cmds                      map[string]*inflightCommand    // in-flight commands by command_id
 	maxCommandProtocolVersion gatewaypb.CommandProtocolVersion
@@ -211,6 +212,9 @@ type inflightCommand struct {
 
 	artifacts []artifactExpectation
 	web       *minerWebResult // only for a restricted miner-web command; guarded by Registry.mu
+	// frames holds the newest unread frame of a streaming command. nil for
+	// every other command.
+	frames *commandFrames
 
 	done chan struct{} // closed once on teardown/free; wakes the waiter
 }
@@ -397,6 +401,9 @@ func (r *Registry) addCmd(fleetNodeID int64, minimumCommandProtocolVersion gatew
 		if count >= MaxConcurrentMinerWebRequestsPerNode {
 			return nil, nil, fleeterror.NewUnavailableErrorf("fleet node embedded view capacity reached")
 		}
+	}
+	if c.frames != nil && commandStreamsLocked(conn) >= MaxConcurrentCommandStreamsPerNode {
+		return nil, nil, ErrCommandStreamCapacity
 	}
 	conn.cmds[c.id] = c
 	return conn.outgoing, conn.done, nil

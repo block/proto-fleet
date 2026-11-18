@@ -345,6 +345,10 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		case received <- struct{}{}:
 		default:
 		}
+		if cancel := msg.GetCancel(); cancel != nil {
+			r.controlCancels.cancel(cancel.GetCommandId())
+			continue
+		}
 		cmd := msg.GetCommand()
 		if cmd == nil {
 			continue
@@ -356,14 +360,18 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		admissionClass, commandKind := fleetnodecontrol.AdmissionForCommand(env)
 		releaseSlot, rejectReason, acquired := r.tryAcquireControlCommandSlotDetailed(admissionClass)
 		if acquired {
+			// Registered before the worker starts, so a cancel that follows the
+			// command on the stream always finds it.
+			workerCtx, forget := r.controlCancels.track(sessionCtx, cmd.GetCommandId(), fleetnodecontrol.CommandCancellable(env))
 			r.controlWorkers.Add(1)
 			// All loop-scoped values the handler needs are passed as arguments so each
 			// goroutine releases exactly the permits acquired for that command class.
-			go func(c *pb.ControlCommand, e *pb.AgentCommand, pErr error, release func(), class controlCommandAdmissionClass, kind string) {
+			go func(workerCtx context.Context, forget func(), c *pb.ControlCommand, e *pb.AgentCommand, pErr error, release func(), class controlCommandAdmissionClass, kind string) {
 				defer r.controlWorkers.Done()
+				defer forget()
 				started := time.Now()
 				workerAcker := &observedAcker{inner: sender}
-				commandCtx, commandSpan := startFleetNodeCommandSpan(sessionCtx, st.FleetNodeID, c, kind, class)
+				commandCtx, commandSpan := startFleetNodeCommandSpan(workerCtx, st.FleetNodeID, c, kind, class)
 				defer commandSpan.End()
 				defer func() {
 					recordFleetNodeCommandResult(commandSpan, workerAcker.ack, workerAcker.sendErr)
@@ -388,7 +396,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 					logger.Debug("control command completed", attrs...)
 				}()
 				r.handleCommand(commandCtx, client, workerAcker, c, e, pErr, logger)
-			}(cmd, env, parseErr, releaseSlot, admissionClass, commandKind)
+			}(workerCtx, forget, cmd, env, parseErr, releaseSlot, admissionClass, commandKind)
 		} else {
 			sharedActive, deferrableActive, exclusiveActive := r.controlSlotOccupancy()
 			logger.Warn("agent at capacity; rejecting command",

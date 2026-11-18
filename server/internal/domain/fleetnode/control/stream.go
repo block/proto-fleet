@@ -20,7 +20,9 @@ type Stream struct {
 	fleetNodeID int64
 	conn        *connection
 	Outgoing    <-chan *gatewaypb.ControlCommand
-	Done        <-chan struct{}
+	// Cancels carries command_ids the handler sends to the node as ControlCancel.
+	Cancels <-chan string
+	Done    <-chan struct{}
 }
 
 // Register installs a connection for fleetNodeID, newest-wins: any existing one
@@ -72,6 +74,7 @@ func (r *Registry) registerLocked(
 	delete(r.disconnectedAt, fleetNodeID)
 	conn := &connection{
 		outgoing:                  make(chan *gatewaypb.ControlCommand, outgoingBuffer),
+		cancels:                   make(chan string, cancelBuffer),
 		done:                      make(chan struct{}),
 		cmds:                      make(map[string]*inflightCommand),
 		maxCommandProtocolVersion: maxCommandProtocolVersion,
@@ -81,7 +84,7 @@ func (r *Registry) registerLocked(
 		opt(conn)
 	}
 	r.conns[fleetNodeID] = conn
-	return &Stream{r: r, fleetNodeID: fleetNodeID, conn: conn, Outgoing: conn.outgoing, Done: conn.done}
+	return &Stream{r: r, fleetNodeID: fleetNodeID, conn: conn, Outgoing: conn.outgoing, Cancels: conn.cancels, Done: conn.done}
 }
 
 // ReplaceSession fences out streams authenticated with older credentials and

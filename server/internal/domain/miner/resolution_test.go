@@ -15,12 +15,14 @@ import (
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/poolconfig"
 	"github.com/block/proto-fleet/server/internal/domain/miner"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 type fakeCommandSender struct {
@@ -250,6 +252,67 @@ func TestMinerService_DoesNotRouteUnpairedFleetNodeBoundDevice(t *testing.T) {
 
 	// Assert: not PAIRED -> neither the fleet-node nor the direct path resolves it.
 	require.Error(t, err)
+}
+
+type fakeBoardASICStreamSender struct {
+	fakeCommandSender
+	fleetNodeID int64
+	stream      *gatewaypb.ControlCommand
+}
+
+func (f *fakeBoardASICStreamSender) StreamCommand(_ context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand, stream control.CommandStream) (*gatewaypb.ControlAck, error) {
+	f.fleetNodeID, f.stream = fleetNodeID, cmd
+	// Marshaling these fixed messages cannot fail.
+	frame, _ := proto.Marshal(&gatewaypb.BoardASICStreamFrame{MacAddress: "02:00:00:00:00:0a"})
+	if err := stream.OnFrame(frame); err != nil {
+		return nil, err
+	}
+	payload, _ := proto.Marshal(&gatewaypb.StreamBoardASICReadingsResult{End: gatewaypb.BoardASICStreamEnd_BOARD_ASIC_STREAM_END_CONTROLLER_ENDED})
+	return &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK, Payload: payload}, nil
+}
+
+// The board ASIC stream reaches a Fleet Node only if the miner the command
+// service resolves is itself a streamer.
+func TestMinerService_FleetNodeCommandMinerStreamsBoardASICReadings(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	db, encryptService, filesService := setupTestDB(t)
+	userStore := sqlstores.NewSQLUserStore(db)
+	deviceIdentifier := "fleetnode-board-stream-device"
+	deviceID := createTestDevice(t, db, deviceIdentifier)
+	fleetNodeID := createTestFleetNode(t, db, "board-stream-fleet-node", []byte("identity-pubkey"))
+	_, err := db.Exec(
+		`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`,
+		fleetNodeID, deviceID)
+	require.NoError(t, err)
+
+	sender := &fakeBoardASICStreamSender{}
+	svc := miner.NewMinerService(db, userStore, encryptService, filesService, &fakePluginManager{driverName: "antminer"}).
+		WithCommandSender(sender)
+
+	m, err := svc.GetMinerForCommand(t.Context(), deviceID)
+	require.NoError(t, err)
+	streamer, ok := m.(sdk.DeviceBoardASICStreamer)
+	require.True(t, ok, "fleet-node command miner should stream board ASIC readings")
+
+	board := sdk.BoardIdentifyTarget{Tank: 1, Module: 2, Slot: 3, ModuleReportedID: "module-a", MACAddress: "02:00:00:00:00:0a"}
+	var frames []sdk.BoardASICFrame
+	require.NoError(t, streamer.StreamBoardASICReadings(t.Context(), board, func(frame sdk.BoardASICFrame) error {
+		frames = append(frames, frame)
+		return nil
+	}))
+
+	require.Len(t, frames, 1)
+	assert.Equal(t, board.MACAddress, frames[0].MACAddress)
+	assert.Equal(t, fleetNodeID, sender.fleetNodeID)
+	var env gatewaypb.AgentCommand
+	require.NoError(t, proto.Unmarshal(sender.stream.GetPayload(), &env))
+	action := env.GetMinerCommand().GetStreamBoardAsicReadings()
+	require.NotNil(t, action)
+	assert.Equal(t, board.MACAddress, action.GetMacAddress())
+	assert.Equal(t, int32(3), action.GetSlot())
 }
 
 func TestMinerService_RoutesDefaultPasswordFleetNodeDeviceForCommands(t *testing.T) {

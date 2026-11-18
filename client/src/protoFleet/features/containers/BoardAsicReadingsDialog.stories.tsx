@@ -48,10 +48,10 @@ const interrupted: OpenBoardAsicStream = async function* () {
   throw new ConnectError("the controller stopped sending ASIC readings: board offline", Code.Unavailable);
 };
 
-const fleetNode: OpenBoardAsicStream = async function* () {
+const oldFleetNode: OpenBoardAsicStream = async function* () {
   yield* [];
   throw new ConnectError(
-    "Live ASIC readings are not yet available for containers reached through a Fleet Node.",
+    "Live ASIC readings need a newer Fleet Node. Update the Fleet Node that reaches this container, then reopen the board.",
     Code.FailedPrecondition,
   );
 };
@@ -74,4 +74,4 @@ export const Connecting: Story = { args: { openStream: connecting } };
 export const Live: Story = {};
 export const SampleStalled: Story = { args: { openStream: stalled } };
 export const Reconnecting: Story = { args: { openStream: interrupted } };
-export const ThroughFleetNode: Story = { args: { openStream: fleetNode } };
+export const FleetNodeNeedsUpdate: Story = { args: { openStream: oldFleetNode } };

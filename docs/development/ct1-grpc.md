@@ -379,6 +379,36 @@ the command slots or device handles reserved for operator commands.
 fake-ct1 reports every simulated outlet as enabled with no active recovery
 cycle.
 
+A board's live ASIC readings reach Fleet over the same stream whether the
+container is direct or behind a Fleet Node. Through a Fleet Node, the stream is
+one `stream_board_asic_readings` command. The node sends each controller frame
+as a `CommandFrame`: the command id and an opaque payload of at most 512 KiB,
+here a `BoardASICStreamFrame`. One ack follows, whose payload names how the
+stream ended (controller ended, cancelled, board changed, unsupported,
+unavailable or at capacity). Controller error text stays in the node log.
+fleetd relays payloads without reading them. The caller decodes and validates
+each one, and an invalid payload ends the stream as unavailable. fleetd relays
+only the newest frame to a slow viewer, carrying the layout of a skipped frame
+onto it.
+
+When the viewer leaves, fleetd sends `ControlCancel` with the command id. A
+frame for a command fleetd no longer tracks gets another cancel, and the node
+ends any stream after six minutes, so a lost cancel cannot leave one running.
+`ControlCancel` is not specific to the stream. A node stops any in-flight
+command that only reads: telemetry, discovery and a miner command the
+device-write gate classes as a read, other than an LED or board identify
+indicator. It ignores a cancel for everything else, so a physical write, an
+indicator change, pairing or a credential key change is never interrupted
+part way and its ack always reports what it did. fleetd sends cancels only for
+streaming commands today.
+
+Each node relays at most four streams at once. A fifth viewer is told the node
+is showing as many live ASIC views as it can, and the view starts when another
+one closes. Streams use deferrable-read capacity and skip the device-write
+gate. Command cancel, command frames and the stream require command protocol
+V17. Older nodes are refused before enqueue with a message to update the Fleet
+Node.
+
 Module power-feed control calls `PowerService.SetPowerFeedState` (turn on or
 off), `CyclePowerFeed` or `ClearPowerFeedOverride` for the one feed the
 operator confirmed. It requires the `container:power_feed` permission and the

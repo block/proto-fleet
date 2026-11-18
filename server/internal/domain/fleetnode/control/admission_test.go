@@ -44,6 +44,14 @@ func TestCommandAdmissionPolicy(t *testing.T) {
 			wantKind:  "get_errors",
 		},
 		{
+			name: "board ASIC stream",
+			command: minerAgentCommand(&gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_StreamBoardAsicReadings{
+				StreamBoardAsicReadings: &gatewaypb.StreamBoardASICReadingsAction{},
+			}}),
+			wantClass: CommandAdmissionDeferrableRead,
+			wantKind:  "stream_board_asic_readings",
+		},
+		{
 			name:      "power feed inspection",
 			command:   minerAgentCommand(powerFeedCommand(`{"action":"inspect","module":{"tank":1,"module":1}}`)),
 			wantClass: CommandAdmissionDeferrableRead,

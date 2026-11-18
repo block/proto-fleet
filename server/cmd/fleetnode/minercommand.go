@@ -159,6 +159,14 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 	}
 	cmdCtx, cancel := context.WithTimeout(ctx, minerCommandActionTimeout(mc))
 	defer cancel()
+	if mc.GetStreamBoardAsicReadings() != nil {
+		end, ok := r.boardASICStreams.start()
+		if !ok {
+			r.sendAckWithPayload(stream, commandID, pb.AckCode_ACK_CODE_BUSY, "live ASIC reading capacity reached", boardASICStreamAtCapacity(), logger)
+			return
+		}
+		defer end()
+	}
 
 	pool := r.getDeviceHandlePool()
 	class, _ := fleetnodecontrol.AdmissionForMinerCommand(mc)
@@ -189,7 +197,7 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 		MacAddress:   target.GetMacAddress(),
 	}
 	// This action addresses the controller, never a derived module or a rig.
-	if mc.GetContainerMining() != nil || mc.GetSetContainerControl() != nil || mc.GetSetTankMining() != nil || mc.GetSetModuleMining() != nil || mc.GetSetBoardIdentify() != nil || mc.GetRunContainerAlarmAction() != nil || mc.GetControllerRecords() != nil || mc.GetContainerPowerFeed() != nil || mc.GetMiningGroups() != nil {
+	if mc.GetContainerMining() != nil || mc.GetSetContainerControl() != nil || mc.GetSetTankMining() != nil || mc.GetSetModuleMining() != nil || mc.GetSetBoardIdentify() != nil || mc.GetRunContainerAlarmAction() != nil || mc.GetControllerRecords() != nil || mc.GetContainerPowerFeed() != nil || mc.GetMiningGroups() != nil || mc.GetStreamBoardAsicReadings() != nil {
 		deviceInfo.DeviceClass = sdk.DeviceClassContainer
 	}
 	result, err := driver.NewDevice(cmdCtx, handleID, deviceInfo, bundle)
@@ -217,6 +225,11 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 		return
 	}
 
+	if action := mc.GetStreamBoardAsicReadings(); action != nil {
+		code, message, payload := runBoardASICStream(cmdCtx, stream, commandID, dev, action, logger)
+		r.sendAckWithPayload(stream, commandID, code, message, payload, logger)
+		return
+	}
 	var payload []byte
 	if passwordUpdate != nil {
 		payload, err = passwordUpdate.run(cmdCtx, dev, bundle, r.minerSecrets)
@@ -358,6 +371,9 @@ func (u *passwordUpdateCommand) run(ctx context.Context, dev sdk.Device, bundle 
 func minerCommandActionTimeout(mc *pb.MinerCommand) time.Duration {
 	if mc.GetFirmwareUpdate() != nil {
 		return firmwareMinerCommandTimeout
+	}
+	if mc.GetStreamBoardAsicReadings() != nil {
+		return boardASICStreamNodeLifetime
 	}
 	return minerCommandTimeout
 }

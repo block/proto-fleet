@@ -199,6 +199,7 @@ func TestPhysicalWriteKindCoversEveryProtocolAction(t *testing.T) {
 	readAndIndicator := map[protoreflect.Name]bool{
 		"get_errors": true, "get_cooling_mode": true, "get_mining_pools": true, "verify_pools_cleared": true,
 		"get_firmware_update_status": true, "download_logs": true, "blink_led": true, "set_board_identify": true, "controller_records": true,
+		"stream_board_asic_readings": true,
 	}
 	mutationKinds := map[protoreflect.Name]commandtype.Type{
 		"reboot": commandtype.Reboot, "start_mining": commandtype.StartMining, "stop_mining": commandtype.StopMining,

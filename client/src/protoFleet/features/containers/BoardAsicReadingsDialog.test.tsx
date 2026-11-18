@@ -123,15 +123,29 @@ it("stops without retrying when the board cannot stream", async () => {
   await act(async () =>
     opened[0].fail(
       new ConnectError(
-        "Live ASIC readings are not yet available for containers reached through a Fleet Node.",
+        "Live ASIC readings need a newer Fleet Node. Update the Fleet Node that reaches this container, then reopen the board.",
         Code.FailedPrecondition,
       ),
     ),
   );
   expect(screen.getByText("Live ASIC readings stopped")).toBeInTheDocument();
-  expect(screen.getByText(/reached through a Fleet Node/)).toBeInTheDocument();
+  expect(screen.getByText(/need a newer Fleet Node/)).toBeInTheDocument();
   await act(async () => vi.advanceTimersByTime(60_000));
   expect(opened).toHaveLength(1);
+});
+
+it("says the Fleet Node is at capacity and starts when a view frees up", async () => {
+  const { opened } = renderDialog();
+  const message =
+    "This container's Fleet Node is showing as many live ASIC views as it can. This view starts when another one closes.";
+  await act(async () => opened[0].fail(new ConnectError(message, Code.ResourceExhausted)));
+  expect(screen.getByText(message)).toBeInTheDocument();
+  expect(screen.queryByText("Live ASIC readings stopped")).toBeNull();
+  await act(async () => vi.advanceTimersByTime(BOARD_ASIC_STREAM_RETRY_MS));
+  expect(opened).toHaveLength(2);
+  await act(async () => opened[1].push(boardAsicFrame()));
+  expect(screen.getByRole("status")).toHaveTextContent("Live.");
+  expect(screen.queryByText(message)).toBeNull();
 });
 
 const slot = create(HashboardSlotSchema, {

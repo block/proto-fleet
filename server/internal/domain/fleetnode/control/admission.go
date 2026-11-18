@@ -88,6 +88,11 @@ func AdmissionForMinerCommand(command *gatewaypb.MinerCommand) (CommandAdmission
 		return CommandAdmissionGeneral, "mining_groups"
 	case *gatewaypb.MinerCommand_SetModuleMining:
 		return CommandAdmissionGeneral, "set_module_mining"
+	case *gatewaypb.MinerCommand_StreamBoardAsicReadings:
+		// A viewer-opened observation, bounded per node by
+		// MaxConcurrentCommandStreamsPerNode, so it stays out of the slots
+		// reserved for operator writes.
+		return CommandAdmissionDeferrableRead, "stream_board_asic_readings"
 	case *gatewaypb.MinerCommand_ControllerRecords:
 		return CommandAdmissionGeneral, "controller_records"
 	case *gatewaypb.MinerCommand_SetBoardIdentify:

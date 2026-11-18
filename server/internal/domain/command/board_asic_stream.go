@@ -39,8 +39,8 @@ const (
 	boardASICStreamChangedReason     = "This board moved or was replaced. Reopen it from its module."
 	boardASICStreamIdentityReason    = "Board identity is unavailable. Refresh the module and check its controller connection."
 	boardASICStreamUnsupportedReason = "Live ASIC readings are not supported by this controller."
-	boardASICStreamFleetNodeReason   = "Live ASIC readings are not yet available for containers reached through a Fleet Node."
 	boardASICStreamStoppedReason     = "The controller stopped sending ASIC readings."
+	boardASICStreamCapacityReason    = "This container's Fleet Node is showing as many live ASIC views as it can. This view starts when another one closes."
 )
 
 // StreamBoardASICReadings relays one installed board's live ASIC readings to
@@ -92,10 +92,10 @@ func (s *Service) StreamBoardASICReadings(ctx context.Context, target BoardIdent
 	if err != nil {
 		return err
 	}
-	// Fleet Node routed miners do not relay the stream yet.
+	// Direct plugin miners and Fleet Node routed miners both stream.
 	streamer, ok := miner.(sdk.DeviceBoardASICStreamer)
 	if !ok {
-		return fleeterror.NewFailedPreconditionError(boardASICStreamFleetNodeReason)
+		return fleeterror.NewUnimplementedError(boardASICStreamUnsupportedReason)
 	}
 
 	lifetimeCtx, cancel := context.WithTimeout(ctx, boardASICStreamLifetime)
@@ -174,6 +174,9 @@ func boardASICStreamError(deviceID int64, err error) error {
 		return fleeterror.NewUnimplementedError(boardASICStreamUnsupportedReason)
 	case codes.Canceled:
 		return fleeterror.NewCanceledError()
+	case codes.ResourceExhausted:
+		// Not final for the viewer, which keeps retrying until a view closes.
+		return fleeterror.NewResourceExhaustedErrorf(boardASICStreamCapacityReason)
 	default:
 		slog.Warn("board ASIC stream failed", "device_id", deviceID, "code", status.Code(err).String(), "error", err)
 		return fleeterror.NewUnavailableErrorf(boardASICStreamStoppedReason)

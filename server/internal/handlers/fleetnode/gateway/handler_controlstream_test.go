@@ -17,6 +17,7 @@ import (
 
 	"connectrpc.com/authn"
 	"connectrpc.com/connect"
+	"connectrpc.com/validate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/http2"
@@ -826,4 +827,120 @@ func (a agentSubjectInjector) WrapStreamingHandler(next connect.StreamingHandler
 	return func(ctx context.Context, conn connect.StreamingHandlerConn) error {
 		return next(authn.SetInfo(ctx, a.subject), conn)
 	}
+}
+
+func TestControlStream_RelaysCommandFramesAndCancels(t *testing.T) {
+	h := newControlHarness(t)
+	client := startControlServer(t, h)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	stream := client.ControlStream(ctx)
+	t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
+	require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{
+		MaxCommandProtocolVersion: control.CommandStreamProtocolVersion,
+	}}}))
+	accepted, err := stream.Receive()
+	require.NoError(t, err)
+	require.NotNil(t, accepted.GetAccepted())
+
+	viewerGone := errors.New("viewer gone")
+	frames := make(chan []byte, 1)
+	results := make(chan error, 1)
+	go func() {
+		_, err := h.registry.StreamCommand(ctx, h.fleetNodeID, &pb.ControlCommand{CommandId: "asic-stream", Payload: []byte{1}}, control.CommandStream{
+			Kind: "test", MinimumVersion: control.CommandStreamProtocolVersion,
+			OnFrame: func(payload []byte) error {
+				frames <- payload
+				return viewerGone
+			},
+		})
+		results <- err
+	}()
+	dispatched, err := stream.Receive()
+	require.NoError(t, err)
+	require.Equal(t, "asic-stream", dispatched.GetCommand().GetCommandId())
+
+	require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_CommandFrame{CommandFrame: &pb.CommandFrame{
+		CommandId: "asic-stream", Payload: []byte("frame"),
+	}}}))
+	select {
+	case payload := <-frames:
+		require.Equal(t, []byte("frame"), payload)
+	case <-ctx.Done():
+		t.Fatal("command frame did not reach the caller")
+	}
+	require.ErrorIs(t, <-results, viewerGone)
+	cancelled, err := stream.Receive()
+	require.NoError(t, err)
+	require.Equal(t, "asic-stream", cancelled.GetCancel().GetCommandId(), "the node is told to stop the stream")
+}
+
+// An oversized command frame ends its own stream. It must not fail message
+// validation, which would end the node's control session and every command on it.
+func TestControlStream_OversizedCommandFrameEndsOnlyItsStream(t *testing.T) {
+	const fleetNodeID = 42
+	registry := control.NewRegistry()
+	mux := http.NewServeMux()
+	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(
+		gateway.NewHandler(nil, nil, nil, registry, nil),
+		// The interceptors fleetd puts in front of the gateway.
+		connect.WithInterceptors(
+			interceptors.NewErrorMappingInterceptor(),
+			validate.NewInterceptor(),
+			agentSubjectInjector{subject: &auth.Subject{FleetNodeID: fleetNodeID, OrgID: 1, Name: "agent-control"}},
+		),
+	))
+	srv := testutil.NewH2CServer(t, mux)
+	client := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(testutil.NewH2CClient(), srv.URL, connect.WithGRPC())
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	stream := client.ControlStream(ctx)
+	t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
+	require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{
+		MaxCommandProtocolVersion: control.CommandStreamProtocolVersion,
+	}}}))
+	accepted, err := stream.Receive()
+	require.NoError(t, err)
+	require.NotNil(t, accepted.GetAccepted())
+
+	type result struct {
+		ack *pb.ControlAck
+		err error
+	}
+	open := func(id string, frames chan<- []byte) <-chan result {
+		done := make(chan result, 1)
+		go func() {
+			ack, err := registry.StreamCommand(ctx, fleetNodeID, &pb.ControlCommand{CommandId: id, Payload: []byte{1}}, control.CommandStream{
+				Kind: "test", MinimumVersion: control.CommandStreamProtocolVersion,
+				OnFrame: func(payload []byte) error { frames <- payload; return nil },
+			})
+			done <- result{ack, err}
+		}()
+		dispatched, err := stream.Receive()
+		require.NoError(t, err)
+		require.Equal(t, id, dispatched.GetCommand().GetCommandId())
+		return done
+	}
+	frame := func(id string, payload []byte) *pb.ControlStreamRequest {
+		return &pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_CommandFrame{CommandFrame: &pb.CommandFrame{CommandId: id, Payload: payload}}}
+	}
+	bigFrames, otherFrames := make(chan []byte, 1), make(chan []byte, 1)
+	big := open("big", bigFrames)
+	other := open("other", otherFrames)
+
+	require.NoError(t, stream.Send(frame("big", make([]byte, control.MaxCommandFrameBytes+1))))
+	got := <-big
+	require.True(t, fleeterror.IsUnavailableError(got.err), "got %v", got.err)
+	require.Empty(t, bigFrames, "the oversized payload never reaches the caller")
+	cancelled, err := stream.Receive()
+	require.NoError(t, err, "the control session stays up")
+	require.Equal(t, "big", cancelled.GetCancel().GetCommandId(), "the node is told to stop the stream")
+
+	// The other command on the same session still relays frames and its ack.
+	require.NoError(t, stream.Send(frame("other", []byte("frame"))))
+	require.Equal(t, []byte("frame"), <-otherFrames)
+	require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Ack{Ack: &pb.ControlAck{CommandId: "other", Code: pb.AckCode_ACK_CODE_OK, Succeeded: true}}}))
+	done := <-other
+	require.NoError(t, done.err)
+	require.True(t, done.ack.GetSucceeded())
 }

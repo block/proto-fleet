@@ -50,8 +50,8 @@ func (m *boardStreamMiner) StreamBoardASICReadings(ctx context.Context, board sd
 	return m.err
 }
 
-// fleetNodeMiner stands in for a Fleet Node routed miner, which cannot stream.
-type fleetNodeMiner struct{ interfaces.Miner }
+// nonStreamingMiner stands in for a miner whose transport cannot stream.
+type nonStreamingMiner struct{ interfaces.Miner }
 
 type boardStreamGetter struct {
 	command.CachedMinerGetter
@@ -142,9 +142,8 @@ func TestBoardASICStreamRefusesBeforeOpeningTheController(t *testing.T) {
 	require.True(t, fleeterror.IsUnimplementedError(err))
 	require.Empty(t, miner.boards, "refused streams never reach the controller")
 
-	_, err = collectBoardStream(ctx, newBoardStreamService(t, conn, true, fleetNodeMiner{}), target, allow)
-	require.True(t, fleeterror.IsFailedPreconditionError(err))
-	require.ErrorContains(t, err, "Fleet Node")
+	_, err = collectBoardStream(ctx, newBoardStreamService(t, conn, true, nonStreamingMiner{}), target, allow)
+	require.True(t, fleeterror.IsUnimplementedError(err))
 }
 
 func TestBoardASICStreamMapsControllerOutcomes(t *testing.T) {
@@ -176,6 +175,10 @@ func TestBoardASICStreamMapsControllerOutcomes(t *testing.T) {
 	_, err = collectBoardStream(ctx, newBoardStreamService(t, conn, true, &boardStreamMiner{err: status.Error(codes.DataLoss, `controller streamed readings for "aa:00:00:00:00:09"`)}), target, allow)
 	require.True(t, fleeterror.IsUnavailableError(err))
 	require.NotContains(t, err.Error(), "aa:00", "another board's identity stays in the server log")
+
+	_, err = collectBoardStream(ctx, newBoardStreamService(t, conn, true, &boardStreamMiner{err: status.Error(codes.ResourceExhausted, "fleet node already relays its maximum")}), target, allow)
+	require.True(t, fleeterror.IsResourceExhaustedError(err), "%v", err)
+	require.ErrorContains(t, err, "showing as many live ASIC views as it can", "a full Fleet Node gets its own message")
 
 	closed := errors.New("client went away")
 	svc := newBoardStreamService(t, conn, true, &boardStreamMiner{frames: []sdk.BoardASICFrame{{}}})

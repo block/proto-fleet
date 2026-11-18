@@ -888,7 +888,9 @@ type controlFakeBehavior struct {
 	// closeOnSignal lets tests force a server-side stream close at a precise
 	// moment (e.g., after the agent has started executing a command). The
 	// fake closes its ControlStream handler when this channel becomes ready.
-	closeOnSignal  <-chan struct{}
+	closeOnSignal <-chan struct{}
+	// cancelOnSignal sends a ControlCancel for each command id it receives.
+	cancelOnSignal <-chan string
 	rejectWithCode connect.Code
 	reportErr      error
 	pairReportErr  error
@@ -1034,6 +1036,7 @@ func (f *controlFakeGateway) ControlStream(ctx context.Context, stream *connect.
 	f.mu.Lock()
 	closeNow := f.behavior.closeAfterAccepted
 	closeOnSignal := f.behavior.closeOnSignal
+	cancelOnSignal := f.behavior.cancelOnSignal
 	acceptedLiveness := f.behavior.acceptedLiveness
 	pending := f.pending
 	f.pending = nil
@@ -1079,6 +1082,10 @@ func (f *controlFakeGateway) ControlStream(ctx context.Context, stream *connect.
 			// Test triggered a server-side stream close. nil chan blocks
 			// forever, so this case is inert unless closeOnSignal was set.
 			return nil
+		case id := <-cancelOnSignal:
+			if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Cancel{Cancel: &pb.ControlCancel{CommandId: id}}}); err != nil {
+				return fmt.Errorf("send cancel: %w", err)
+			}
 		case r := <-incoming:
 			if r.err != nil {
 				if errors.Is(r.err, io.EOF) {
@@ -1577,6 +1584,13 @@ func TestClassifyControlCommand(t *testing.T) {
 			name: "get errors",
 			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
 				Action: &pb.MinerCommand_GetErrors{GetErrors: &pb.GetErrorsAction{}},
+			}}},
+			want: controlCommandAdmissionDeferrableRead,
+		},
+		{
+			name: "stream board ASIC readings",
+			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
+				Action: &pb.MinerCommand_StreamBoardAsicReadings{StreamBoardAsicReadings: &pb.StreamBoardASICReadingsAction{}},
 			}}},
 			want: controlCommandAdmissionDeferrableRead,
 		},

@@ -274,6 +274,7 @@ message ControlStreamRequest {
         ControlAck   ack   = 2;
         ControlPing  ping  = 3;
         MinerWebResponseChunk miner_web_response = 4;
+        CommandFrame command_frame = 5;
     }
 }
 
@@ -283,6 +284,8 @@ message ControlStreamResponse {
 
         ControlAccepted accepted = 1;
         ControlCommand  command  = 2;
+        // Sent only to V17 nodes.
+        ControlCancel   cancel   = 3;
     }
 }
 
@@ -323,6 +326,9 @@ enum CommandProtocolVersion {
     COMMAND_PROTOCOL_VERSION_V15 = 15;
     // V16 adds CT1 module power-feed on, off, cycle and override clearing.
     COMMAND_PROTOCOL_VERSION_V16 = 16;
+    // V17 adds command cancel, command frames and the on-demand CT1 board ASIC
+    // stream that uses them.
+    COMMAND_PROTOCOL_VERSION_V17 = 17;
 }
 
 message ControlHello {
@@ -345,6 +351,27 @@ message ControlAccepted {
 }
 
 message ControlPing {}
+
+// Asks the node to stop one in-flight command the server no longer needs. The
+// node stops a command that only reads: telemetry, discovery, and a miner
+// command that reads or drives an indicator. It ignores a cancel for anything
+// else, so a physical write is never interrupted part way. A cancelled command
+// still sends its terminal ack, which the server may have stopped waiting for.
+message ControlCancel {
+    string command_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+}
+
+// One message of output from a command that reports before its terminal ack,
+// bound to that command on the authenticated node's current ControlStream. The
+// command defines the payload's type. The server keeps only the newest unread
+// frame of a command.
+message CommandFrame {
+    string command_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+    // At most 512 KiB. The server checks the size per command, not as a
+    // validation rule: a message that fails validation ends the whole
+    // ControlStream, while an oversized payload ends only its own command.
+    bytes payload = 2;
+}
 
 // TraceContext carries W3C trace propagation fields for one server-issued
 // command. Fleet nodes treat missing or invalid context as a new trace.
@@ -524,6 +551,7 @@ message MinerCommand {
         ControllerRecordsAction controller_records = 26;
         ContainerPowerFeedAction container_power_feed = 27;
         RunContainerAlarmAction run_container_alarm_action = 28;
+        StreamBoardASICReadingsAction stream_board_asic_readings = 29;
     }
 }
 
@@ -804,6 +832,77 @@ message SetBoardIdentifyAction {
   string module_reported_id = 4 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
   string mac_address = 5 [(buf.validate.field).string = {min_len: 1, max_len: 64}];
   string mode = 6 [(buf.validate.field).string = {in: ["blink", "off"]}];
+}
+
+// Follows one confirmed board's live ASIC readings, addressed like
+// SetBoardIdentifyAction. The node sends each sample as a CommandFrame whose
+// payload is a BoardASICStreamFrame, until the controller ends the stream, the
+// server sends ControlCancel, or the node's own lifetime passes. The terminal
+// ack payload is StreamBoardASICReadingsResult.
+message StreamBoardASICReadingsAction {
+  int32 tank = 1 [(buf.validate.field).int32.gt = 0];
+  int32 module = 2 [(buf.validate.field).int32.gt = 0];
+  int32 slot = 3 [(buf.validate.field).int32 = {gte: 1, lte: 3}];
+  string module_reported_id = 4 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  string mac_address = 5 [(buf.validate.field).string = {min_len: 1, max_len: 64}];
+}
+
+// Why a node's board ASIC stream ended. The server maps it to the same outcome
+// a directly reached controller's stream would have.
+enum BoardASICStreamEnd {
+  BOARD_ASIC_STREAM_END_UNSPECIFIED = 0;
+  // The controller ended the stream.
+  BOARD_ASIC_STREAM_END_CONTROLLER_ENDED = 1;
+  // The server cancelled the command, or the node's lifetime for it passed.
+  BOARD_ASIC_STREAM_END_CANCELED = 2;
+  // The controller no longer places the confirmed board at its slot.
+  BOARD_ASIC_STREAM_END_BOARD_CHANGED = 3;
+  // The node's driver or the controller cannot stream ASIC readings.
+  BOARD_ASIC_STREAM_END_UNSUPPORTED = 4;
+  // The controller or its connection failed.
+  BOARD_ASIC_STREAM_END_UNAVAILABLE = 5;
+  // The node already relays its maximum number of streams; none was started.
+  BOARD_ASIC_STREAM_END_AT_CAPACITY = 6;
+}
+
+message StreamBoardASICReadingsResult {
+  BoardASICStreamEnd end = 1 [(buf.validate.field).enum.defined_only = true];
+}
+
+message BoardASICStreamPosition {
+  int32 index = 1;
+  int32 stack_id = 2;
+  int32 stack_index = 3;
+  int32 x = 4;
+  int32 y = 5;
+}
+
+message BoardASICStreamLayout {
+  int32 stack_count = 1;
+  int32 asics_per_stack = 2;
+  int32 total_asics = 3;
+  repeated BoardASICStreamPosition positions = 4 [(buf.validate.field).repeated.max_items = 4096];
+}
+
+message BoardASICStreamReading {
+  int32 index = 1;
+  double temperature_c = 2;
+  double hashrate_ghs = 3;
+  double voltage_v = 4;
+  double frequency_mhz = 5;
+  double pass_rate_percent = 6;
+  // Absent when the controller did not report thermal quarantine.
+  optional bool thermal_quarantined = 7;
+}
+
+// One sample of a board's ASIC readings, the CommandFrame payload of a
+// StreamBoardASICReadings command. layout is set on the first frame and
+// whenever the board's topology changes.
+message BoardASICStreamFrame {
+  string mac_address = 1 [(buf.validate.field).string.max_len = 64];
+  google.protobuf.Timestamp observed_at = 2;
+  BoardASICStreamLayout layout = 3;
+  repeated BoardASICStreamReading asics = 4 [(buf.validate.field).repeated.max_items = 4096];
 }
 
 // A single plant alarm pulse. Success acknowledges the pulse, not its effect.
