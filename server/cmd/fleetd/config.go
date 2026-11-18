@@ -27,6 +27,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/logging"
 	"github.com/block/proto-fleet/server/internal/infrastructure/metrics"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
+	"github.com/block/proto-fleet/server/internal/infrastructure/runtimemetrics"
 	"github.com/block/proto-fleet/server/internal/infrastructure/sysmon"
 	"github.com/block/proto-fleet/server/internal/infrastructure/timescaledb"
 )
@@ -79,6 +80,7 @@ type Config struct {
 	Files          files.Config                 `embed:"" prefix:"files-" envprefix:"FILES_"`
 	FrigateUpdate  frigateUpdateDomain.Config   `embed:"" prefix:"frigate-update-" envprefix:"FRIGATE_UPDATE_"`
 	FleetTelemetry fleet_telemetry.Config       `embed:"" prefix:"fleet-telemetry-" envprefix:"FLEET_TELEMETRY_"`
+	RuntimeMetrics runtimemetrics.Config        `embed:"" prefix:"runtime-metrics-" envprefix:"FLEET_RUNTIME_METRICS_"`
 	Metrics        metrics.Config               `embed:"" prefix:"metrics-" envprefix:"FLEET_ALERTS_"`
 	HA             ha.Config                    `embed:"" prefix:"ha-" envprefix:"FLEET_HA_"`
 

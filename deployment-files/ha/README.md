@@ -116,6 +116,18 @@ to a release supporting this key before adding it to existing `fleet.env` files:
 older HA tools reject unknown keys. Setting the process environment on
 `fleet-ha update` does not change installed configuration.
 
+Operational runtime metrics are off by default. HA installation and
+`prepare-external` accept `FLEET_RUNTIME_METRICS_ENABLED=true` or `false` and
+persist it in `/etc/proto-fleet/ha/fleet.env`. Before enabling, check that
+`127.0.0.1:9090` is available on both Fleet hosts (for example, with
+`sudo ss -ltnp 'sport = :9090'`). The HA profile uses this fixed host-network
+port; a bind failure prevents Fleet startup. Free the port or set the flag to
+`false` and use the controlled HA restart workflow to recover.
+Upgrade both hosts to a release supporting this key before adding it to their
+`fleet.env` files. Before rolling back to an older release, remove the key from
+both hosts' files; older HA tools reject unknown keys. See
+[runtime metrics](../../docs/runtime-metrics.md) for the collector contract.
+
 Committed telemetry freshness tracking is off by default. HA installation and
 `prepare-external` accept `TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS=true` or `false`,
 persist it in `/etc/proto-fleet/ha/fleet.env`, and pass it to the API container.

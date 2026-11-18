@@ -50,6 +50,7 @@ import (
 	fleet_telemetry "github.com/block/proto-fleet/server/internal/infrastructure/fleet-telemetry"
 	"github.com/block/proto-fleet/server/internal/infrastructure/logging"
 	"github.com/block/proto-fleet/server/internal/infrastructure/metrics"
+	"github.com/block/proto-fleet/server/internal/infrastructure/runtimemetrics"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
@@ -288,9 +289,27 @@ func start(config *Config) (result error) {
 		}
 	}()
 
-	conn, err := db.ConnectAndMigrate(&config.DB)
+	runtimeMetrics, err := runtimemetrics.Start(config.RuntimeMetrics)
+	if err != nil {
+		return fmt.Errorf("start runtime metrics: %w", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		if err := runtimeMetrics.Shutdown(ctx); err != nil {
+			slog.Error("runtime metrics shutdown failed", "error", err)
+		}
+	}()
+	observeConnect, err := runtimeMetrics.ConnectionObserver("application")
+	if err != nil {
+		return fmt.Errorf("observe database connections: %w", err)
+	}
+	conn, err := db.ConnectAndMigrateObserved(&config.DB, observeConnect)
 	if err != nil {
 		return err
+	}
+	if err := runtimeMetrics.ObservePool("application", conn.Stats); err != nil {
+		return fmt.Errorf("observe database pool: %w", err)
 	}
 
 	metricsProvider, err := metrics.Setup(context.Background(), version, config.Metrics, conn)

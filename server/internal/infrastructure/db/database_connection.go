@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"io"
@@ -18,7 +19,7 @@ import (
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	migratesource "github.com/golang-migrate/migrate/v4/source"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
-	_ "github.com/jackc/pgx/v5/stdlib" // PostgreSQL driver
+	"github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/block/proto-fleet/server/migrations"
 )
@@ -33,13 +34,26 @@ const (
 // ConnectToDatabase establishes a connection to the database using the provided config.
 // Returns a sql.DB connection with configured connection pooling settings.
 func ConnectToDatabase(config *Config) (*sql.DB, error) {
+	return connectToDatabaseObserved(config, nil)
+}
+
+func connectToDatabaseObserved(config *Config, observe func(context.Context, error)) (*sql.DB, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	conn, err := sql.Open("pgx", config.DSN())
+	driverContext, ok := stdlib.GetDefaultDriver().(driver.DriverContext)
+	if !ok {
+		return nil, errors.New("pgx driver does not support connectors")
+	}
+	connector, err := driverContext.OpenConnector(config.DSN())
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database connection for %s: %w", config.ConnectionTarget(), err)
 	}
+
+	if observe != nil {
+		connector = &observedConnector{Connector: connector, observe: observe}
+	}
+	conn := sql.OpenDB(connector)
 
 	conn.SetMaxOpenConns(config.MaxOpenConns)
 	conn.SetMaxIdleConns(config.MaxIdleConns)
@@ -94,11 +108,17 @@ func verifyConnectionEstablished(ctx context.Context, conn *sql.DB, config *Conf
 // ConnectAndMigrate connects to the database and runs all pending migrations.
 // Returns the database connection ready for use.
 func ConnectAndMigrate(config *Config) (*sql.DB, error) {
+	return ConnectAndMigrateObserved(config, nil)
+}
+
+// ConnectAndMigrateObserved observes every physical connection attempt, including
+// replacement connections after startup. The callback must not block.
+func ConnectAndMigrateObserved(config *Config, observe func(context.Context, error)) (*sql.DB, error) {
 	if config.MaxOpenConns == 1 {
 		return nil, fmt.Errorf("DB_MAX_OPEN_CONNS cannot be 1: database migrations require at least two connections")
 	}
 
-	connection, err := ConnectToDatabase(config)
+	connection, err := connectToDatabaseObserved(config, observe)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
@@ -405,4 +425,16 @@ func newMigratorThrough(
 		return nil, fmt.Errorf("failed to create bounded migrate instance: %w", err)
 	}
 	return m, nil
+}
+
+// observedConnector preserves the driver's connection behavior and error identity.
+type observedConnector struct {
+	driver.Connector
+	observe func(context.Context, error)
+}
+
+func (c *observedConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	conn, err := c.Connector.Connect(ctx)
+	c.observe(ctx, err)
+	return conn, err //nolint:wrapcheck // Preserve driver sentinel identity and database/sql retry semantics.
 }

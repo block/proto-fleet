@@ -12,6 +12,7 @@ import (
 
 var fleetDeploymentEnvironmentKeys = []string{
 	"HTTP_TRUSTED_PROXY_CIDRS",
+	"FLEET_RUNTIME_METRICS_ENABLED",
 	"TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS",
 	"DD_API_KEY",
 	"DD_ENV",
@@ -91,7 +92,7 @@ func fleetApplicationProfileFromValues(values map[string]string, defaultBetaAler
 			profile[key] = value
 		}
 	}
-	for _, key := range []string{"MARKET_DATA_ENABLED", "TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS"} {
+	for _, key := range []string{"MARKET_DATA_ENABLED", "TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS", "FLEET_RUNTIME_METRICS_ENABLED"} {
 		if _, ok := profile[key]; ok {
 			enabled, err := fleetFeatureFlagOrDefault(profile, key, false)
 			if err != nil {
