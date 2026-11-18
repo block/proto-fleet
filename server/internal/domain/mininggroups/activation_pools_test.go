@@ -25,7 +25,6 @@ type activationPoolMiner struct {
 	stored         []dto.MiningPool
 	writes         int
 	loseActivation bool
-	loseResume     bool
 	observeErr     bool
 	running        bool
 	beforeCall     func(context.Context, sdk.MiningGroupRequest)
@@ -93,19 +92,7 @@ func (m *activationPoolMiner) MiningGroups(ctx context.Context, r sdk.MiningGrou
 			return sdk.MiningGroupResult{}, errors.New("activation reply lost")
 		}
 		return sdk.MiningGroupResult{Enabled: true}, nil
-	case "start":
-		if r.GroupID == "default" {
-			group := &m.snapshot.Groups[0]
-			if !group.Mining && group.Revision > r.Revision {
-				return sdk.MiningGroupResult{Group: group, DefaultResumeSuperseded: true}, nil
-			}
-			if m.loseResume {
-				m.loseResume = false
-				group.Mining = true
-				group.Revision++
-				return sdk.MiningGroupResult{}, errors.New("Default restart reply lost")
-			}
-		}
+
 	}
 	return m.simulatedGroups.MiningGroups(ctx, r)
 }
@@ -373,7 +360,7 @@ func TestActivationPoolHandoffRetriesAndObservations(t *testing.T) {
 			var inherited string
 			require.NoError(t, f.conn.QueryRowContext(ctx, `SELECT inherited_worker_name FROM pool_configuration_assignment WHERE target_kind='hashboard_installation' AND target_id=$1`, got.Assignments[0].InstallationID).Scan(&inherited))
 			require.Equal(t, "controller-worker", inherited)
-			require.Equal(t, scenario == "running", miner.snapshot.Groups[0].Mining)
+			require.False(t, miner.snapshot.Groups[0].Mining)
 			checked, err := service.CheckConfiguration(ctx, "", config.ID, poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetInstallation, ID: got.Assignments[0].InstallationID})
 			require.NoError(t, err)
 			require.Equal(t, expectedState, checked.State)
@@ -508,7 +495,7 @@ func TestActivationPoolHandoffRejectsExternallyEnabledControllerWithStaleCache(t
 	require.Empty(t, got.Assignments[0].ConfigurationID)
 }
 
-func TestActivationPoolHandoffRechecksOwnershipBeforeResume(t *testing.T) {
+func TestActivationRechecksOwnershipBeforeFinishingSavedWorkflow(t *testing.T) {
 	for _, scenario := range []string{"ownership generation", "board replaced", "permission revoked"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx, f, miner, _, _, boards, _ := newActivationPoolFixture(t)
@@ -517,8 +504,12 @@ func TestActivationPoolHandoffRechecksOwnershipBeforeResume(t *testing.T) {
 			require.NoError(t, err)
 			f.prepareActivation(t, ctx)
 			f.reconcile(t, ctx) // activate
-			f.reconcile(t, ctx) // handoff; journal start-default before dispatch
-			require.True(t, f.state(t).Step.Valid)
+			row := f.state(t)
+			require.NoError(t, db.WithTransactionNoResult(ctx, f.conn, func(q sqlc.Querier) error {
+				return f.service.prepareStep(ctx, q, row, sdk.MiningGroupRequest{
+					Action: "start", GroupID: "default", Revision: miner.snapshot.Groups[0].Revision,
+				}, "", "Resuming mining")
+			}))
 			switch scenario {
 			case "ownership generation":
 				_, err = f.conn.ExecContext(ctx, `INSERT INTO hosted_account_asset(organization_id,kind,asset_id,hashboard_id,device_id,revision) VALUES($1,7,$2,$2,$3,2)`, f.target.OrganizationID, boards[0], f.target.DeviceID)
@@ -587,45 +578,32 @@ func TestActivationPoolHandoffRejectsDuplicateBoardIdentity(t *testing.T) {
 	require.Equal(t, "idle", f.state(t).Status)
 }
 
-func TestActivationReleasesWorkflowWhenDefaultResumeIsSuperseded(t *testing.T) {
+func TestActivationDiscardsSavedDefaultStartWithoutDispatch(t *testing.T) {
 	ctx, f, miner, _, _, _, _ := newActivationPoolFixture(t)
 	miner.running = true
-	miner.loseResume = true
 	_, err := f.service.Activate(ctx, f.target.DeviceIdentifier, uuid.NewString())
 	require.NoError(t, err)
 	f.prepareActivation(t, ctx)
 	f.reconcile(t, ctx) // Activate.
-	f.reconcile(t, ctx) // Prepare Default resume.
-	f.reconcile(t, ctx) // Resume commits. Fleet loses the reply.
-	require.True(t, miner.snapshot.Groups[0].Mining)
-	require.True(t, f.state(t).Step.Valid)
-	miner.snapshot.Groups[0].Mining = false
-	miner.snapshot.Groups[0].Revision++
+	row := f.state(t)
+	group := &miner.snapshot.Groups[0]
+	require.False(t, group.Mining)
+
+	// A previous server version saved a restart. The operator stopped again
+	// before the saved request could run.
+	require.NoError(t, db.WithTransactionNoResult(ctx, f.conn, func(q sqlc.Querier) error {
+		return f.service.prepareStep(ctx, q, row, sdk.MiningGroupRequest{Action: "start", GroupID: "default", Revision: group.Revision}, "", "Resuming mining")
+	}))
+	group.Revision++
+	miner.beforeCall = func(_ context.Context, request sdk.MiningGroupRequest) {
+		require.NotEqual(t, "start", request.Action)
+	}
 	f.reconcile(t, ctx)
-	state := f.state(t)
-	require.Equal(t, statusComplete, state.Status)
-	require.Contains(t, state.Message, "remains stopped")
-	require.False(t, state.Step.Valid)
-	require.False(t, miner.snapshot.Groups[0].Mining)
-}
-
-func TestActivationDoesNotResumeAgainAfterAcknowledgedStart(t *testing.T) {
-	ctx, f, miner, _, _, _, _ := newActivationPoolFixture(t)
-	miner.running = true
-	_, err := f.service.Activate(ctx, f.target.DeviceIdentifier, uuid.NewString())
-	require.NoError(t, err)
-	f.prepareActivation(t, ctx)
-	f.reconcile(t, ctx) // Activate.
-	f.reconcile(t, ctx) // Prepare Default resume.
-	f.reconcile(t, ctx) // Resume is acknowledged.
-	require.True(t, miner.snapshot.Groups[0].Mining)
 	require.False(t, f.state(t).Step.Valid)
-
-	miner.snapshot.Groups[0].Mining = false
-	miner.snapshot.Groups[0].Revision++
 	f.reconcile(t, ctx)
 	require.Equal(t, statusComplete, f.state(t).Status)
-	require.False(t, miner.snapshot.Groups[0].Mining)
+	require.Equal(t, "Mining groups enabled. Start mining in ProtoOS when ready.", f.state(t).Message)
+	require.False(t, group.Mining)
 }
 
 func TestActivationChecksPermissionsBeforeReadingDefault(t *testing.T) {
@@ -640,7 +618,7 @@ func TestActivationChecksPermissionsBeforeReadingDefault(t *testing.T) {
 }
 
 func TestActivationControllerIODoesNotBlockHostedReads(t *testing.T) {
-	for _, action := range []string{"observe", "stop_legacy", "activate", "start"} {
+	for _, action := range []string{"observe", "stop_legacy", "activate"} {
 		t.Run(action, func(t *testing.T) {
 			ctx, f, miner, _, _, _, _ := newActivationPoolFixture(t)
 			miner.running = true
@@ -651,10 +629,6 @@ func TestActivationControllerIODoesNotBlockHostedReads(t *testing.T) {
 				f.reconcile(t, ctx)
 			case "activate":
 				f.prepareActivation(t, ctx)
-			case "start":
-				f.prepareActivation(t, ctx)
-				f.reconcile(t, ctx)
-				f.reconcile(t, ctx)
 			}
 			entered, release := make(chan struct{}), make(chan struct{})
 			miner.beforeCall = func(ctx context.Context, r sdk.MiningGroupRequest) {

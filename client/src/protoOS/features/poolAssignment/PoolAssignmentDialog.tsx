@@ -54,7 +54,7 @@ export default function PoolAssignmentDialog({
     const settled = state.status && state.status.state !== "pending";
     const restoreRequired = state.attempt.restoreLegacyMining === true;
     let confirm = "Check status";
-    if (restoreRequired) confirm = "Restore mining";
+    if (restoreRequired) confirm = "Start mining";
     else if (state.status?.remainingMacs?.length && state.attempt.destinationId) confirm = "Review remaining boards";
     else if (settled) confirm = "Done";
     return (
@@ -80,7 +80,7 @@ export default function PoolAssignmentDialog({
             intent={intents.warning}
             prefixIcon={<Alert />}
             title="Container mining was running before this change."
-            subtitle="Restore mining before you clear this recovery record."
+            subtitle="Start mining when you are ready, or keep the container stopped."
           />
         ) : null}
         <p role="status">
@@ -102,7 +102,21 @@ export default function PoolAssignmentDialog({
         {state.status && ["partial", "unknown", "failed"].includes(state.status.state) ? (
           <p>Completed changes are kept. Check status before reviewing a new assignment for any remaining boards.</p>
         ) : null}
-        {settled ? <Button variant="secondary" text="Check status" onClick={() => void state.check()} /> : null}
+        {restoreRequired ? (
+          <Button
+            variant="secondary"
+            text="Keep stopped"
+            disabled={state.busy}
+            onClick={() => {
+              state.clear();
+              if (state.attempt?.configurationOnly) onConfigurationSaved?.();
+              close();
+            }}
+          />
+        ) : null}
+        {settled && !restoreRequired ? (
+          <Button variant="secondary" text="Check status" onClick={() => void state.check()} />
+        ) : null}
         {state.status?.remainingMacs?.length && state.attempt.destinationId ? (
           <Button
             variant="secondary"
@@ -153,7 +167,11 @@ export default function PoolAssignmentDialog({
             intent={intents.warning}
             prefixIcon={<Alert />}
             title="Container mining must pause to enable pool assignments."
-            subtitle="All hashboards stop. The previous default mining intent is restored before selected boards move."
+            subtitle={
+              plan.mining
+                ? "All hashboards stop. Start mining again when you are ready."
+                : "All hashboards must be stopped to continue."
+            }
           />
         ) : null}
         <div className="flex flex-col gap-3" data-dd-privacy="mask">

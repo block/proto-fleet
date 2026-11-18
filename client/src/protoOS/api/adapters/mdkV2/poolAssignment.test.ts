@@ -276,26 +276,42 @@ describe("CT1 selected-board pool assignment", () => {
       "Each pool",
     );
   });
-  test("enables scoped assignments only after stopping legacy mining, then restores default intent", async () => {
+  test("pauses assignment after activation until an operator starts mining", async () => {
     const { service, state, client } = fixture();
     state.capability.enabled = false;
     const plan = await service.review({ macs: [A] }, { pools: [pool] });
     expect(plan.requiresActivation).toBe(true);
-    expect(await service.apply(plan, vi.fn())).toMatchObject({ state: "saved" });
+    let attempt: PoolAssignmentAttempt | undefined;
+    const track = (record: PoolAssignmentAttempt) => {
+      attempt = record;
+    };
+    expect(await service.apply(plan, track)).toMatchObject({ state: "unknown" });
     expect(client.miningServiceStopMining.mock.invocationCallOrder[0]).toBeLessThan(
       client.miningGroupServiceActivateMiningGroups.mock.invocationCallOrder[0],
     );
-    expect(state.groups.find((group) => group.id === "default")?.desiredMining).toBe(true);
+    expect(client.miningServiceStartMining).not.toHaveBeenCalled();
+    expect(client.miningGroupServiceRequestMiningGroupTransfer).not.toHaveBeenCalled();
+    expect(state.groups.find((group) => group.id === "default")?.desiredMining).toBe(false);
+    expect(await service.status(attempt!)).toMatchObject({ state: "unknown" });
+    expect(client.miningServiceStartMining).not.toHaveBeenCalled();
+
+    expect(await service.restoreMining(attempt!, track)).toMatchObject({ state: "unknown" });
+    expect(attempt?.restoreLegacyMining).toBe(false);
+    expect(client.miningServiceStartMining).toHaveBeenCalledTimes(1);
+    const reviewed = await service.review({ macs: [A] }, { pools: [pool] });
+    expect(await service.apply(reviewed, track)).toMatchObject({ state: "saved" });
     expect(state.members.get(B)).toBe("default");
   });
-  test("restores saved mining intent even if no boards are active", async () => {
+  test("offers manual start for saved running intent even if no boards are active", async () => {
     const { service, state, client } = fixture();
     state.capability.enabled = false;
     state.mining = false;
     const plan = await service.review({ macs: [A] }, { pools: [pool] });
     expect(plan.mining).toBe(true);
-    await service.apply(plan, vi.fn());
-    expect(client.miningServiceStartMining).toHaveBeenCalledTimes(1);
+    const track = vi.fn();
+    await service.apply(plan, track);
+    expect(track).toHaveBeenLastCalledWith(expect.objectContaining({ restoreLegacyMining: true }));
+    expect(client.miningServiceStartMining).not.toHaveBeenCalled();
   });
   test("does not restart stopped mining when boards are still draining", async () => {
     const { service, state, client } = fixture();
@@ -318,10 +334,10 @@ describe("CT1 selected-board pool assignment", () => {
         expect(client.miningGroupServiceActivateMiningGroups).not.toHaveBeenCalled();
         return { data: { mining: false, activeBoards: 0 } };
       });
-    expect(await service.apply(plan, vi.fn())).toMatchObject({ state: "saved" });
+    expect(await service.apply(plan, vi.fn())).toMatchObject({ state: "unknown" });
     expect(client.miningServiceStopMining).toHaveBeenCalledTimes(1);
     expect(client.miningGroupServiceActivateMiningGroups).toHaveBeenCalledTimes(1);
-    expect(client.miningServiceStartMining).toHaveBeenCalledTimes(1);
+    expect(client.miningServiceStartMining).not.toHaveBeenCalled();
   });
   test("persists a recovery action when activation fails after stopping legacy mining", async () => {
     const { service, state, client } = fixture();
@@ -452,14 +468,18 @@ describe("CT1 selected-board pool assignment", () => {
       expect.arrayContaining([expect.objectContaining({ name: "Production pools" })]),
     );
   });
-  test("configuration creation during activation restores default intent without transferring boards", async () => {
+  test("saves an unused configuration during activation without starting mining", async () => {
     const { service, state, client } = fixture();
     state.capability.enabled = false;
     const plan = await service.review({ macs: [A] }, { name: "First configuration", pools: [pool], createOnly: true });
-    expect(await service.apply(plan, vi.fn())).toMatchObject({ state: "saved" });
+    const track = vi.fn();
+    expect(await service.apply(plan, track)).toMatchObject({ state: "saved" });
+    expect(track).toHaveBeenLastCalledWith(expect.objectContaining({ restoreLegacyMining: true }));
     expect(client.miningGroupServiceRequestMiningGroupTransfer).not.toHaveBeenCalled();
+    expect(client.miningGroupServiceUpdateMiningGroupIntent).not.toHaveBeenCalled();
+    expect(client.miningServiceStartMining).not.toHaveBeenCalled();
     expect([...state.members.values()]).toEqual(["default", "default", "default"]);
-    expect(state.groups.find((group) => group.id === "default")?.desiredMining).toBe(true);
+    expect(state.groups.find((group) => group.id === "default")?.desiredMining).toBe(false);
   });
 });
 

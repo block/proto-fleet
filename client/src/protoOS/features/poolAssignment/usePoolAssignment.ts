@@ -110,7 +110,7 @@ export function usePoolAssignment(
       if (replacesAttemptId && !tracked.length)
         throw new Error("The original pool assignment is no longer tracked. Check its status first.");
       const result = await service.apply(planned, track, { signal });
-      if (planned.configurationOnly && result.state === "saved") {
+      if (planned.configurationOnly && result.state === "saved" && !latest?.restoreLegacyMining) {
         setCreatedId(latest?.destinationId);
         removePoolAttempt(controllerId, planned.id);
         setAttempt(readPoolAttempts(controllerId)[0]);

@@ -385,7 +385,7 @@ it("shows activation progress and only says Done after completion", async () => 
   render(<MiningGroupsDialog deviceIdentifier="ct1" onClose={onClose} />);
   expect(
     screen.getByText(
-      "Fleet will pause mining to enable mining groups, then resume with the existing pools if this container was running. A stopped container will stay stopped. Any Fleet pool assignment will follow the installed hashboards and be checked against their reported settings.",
+      "Fleet will stop mining before it enables mining groups. Start mining in ProtoOS when you are ready. Fleet keeps existing pool assignments and checks the settings reported by the installed hashboards.",
     ),
   ).toBeInTheDocument();
   const enable = screen.getByRole("button", { name: "Enable mining groups" });
@@ -411,7 +411,8 @@ it("shows activation progress and only says Done after completion", async () => 
       supported: true,
       enabled: true,
       status: "complete",
-      message: "Configuration applied",
+      message: "Mining groups enabled. Start mining in ProtoOS when ready.",
+      groups: [{ id: "default", mining: false }],
       observedAt: timestampFromDate(new Date()),
       revision: 2n,
     }),
@@ -422,6 +423,7 @@ it("shows activation progress and only says Done after completion", async () => 
     }
   });
   await screen.findByText("Mining groups enabled.");
+  expect(screen.getByText("Start mining in ProtoOS when you are ready.")).toBeInTheDocument();
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Done" }));
   expect(onClose).toHaveBeenCalledOnce();

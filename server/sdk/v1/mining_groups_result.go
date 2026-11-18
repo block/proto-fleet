@@ -34,15 +34,14 @@ func DecodeMiningGroupResult(data []byte, request MiningGroupRequest) (MiningGro
 func (r MiningGroupResult) Validate(request MiningGroupRequest) error {
 	observation := r.Supported || r.Suspended || r.Revision != 0 || r.MaxGroups != 0 || !r.ObservedAt.IsZero() || len(r.Groups) != 0 || r.Pending
 	if r.RevisionConflict {
-		if request.ReadOnly() || observation || r.Enabled || r.Deactivated || r.Removed || r.Group != nil || r.Operation != nil || r.MiningStatus != nil || r.StopRequested || r.PoolsCleared != nil || r.DefaultResumeSuperseded {
+		if request.ReadOnly() || observation || r.Enabled || r.Deactivated || r.Removed || r.Group != nil || r.Operation != nil || r.MiningStatus != nil || r.StopRequested || r.PoolsCleared != nil {
 			return fmt.Errorf("invalid mining group revision conflict receipt")
 		}
 		return nil
 	}
 	groupAction := request.Action == "create" || request.Action == miningGroupActionReplacePools || request.Action == "start" || request.Action == "stop" || request.Action == miningGroupActionClearPools || request.Action == MiningGroupReadDefault
 	operationAction := request.Action == miningGroupActionTransfer || request.Action == miningGroupActionOperation
-	if (r.DefaultResumeSuperseded && (request.Action != "start" || request.GroupID != "default")) ||
-		(request.Action != miningGroupActionVerifyCleared && r.PoolsCleared != nil) ||
+	if (request.Action != miningGroupActionVerifyCleared && r.PoolsCleared != nil) ||
 		(request.Action != miningGroupActionDeactivate && r.Deactivated) ||
 		(request.Action != "observe" && observation) ||
 		(request.Action != "observe" && request.Action != miningGroupActionActivate && r.Enabled) ||
@@ -116,12 +115,6 @@ func (r MiningGroupResult) Validate(request MiningGroupRequest) error {
 		}
 		if err := validateMiningGroup(*r.Group); err != nil {
 			return err
-		}
-		if r.DefaultResumeSuperseded {
-			if r.Group.ID != "default" || r.Group.Mining || r.Group.Revision <= request.Revision {
-				return fmt.Errorf("invalid superseded Default resume receipt")
-			}
-			return nil
 		}
 		if (request.Action != "create" && r.Group.ID != request.GroupID) || (request.Action == "start" && !r.Group.Mining) || (request.Action == "stop" && r.Group.Mining) {
 			return fmt.Errorf("mining group receipt does not match request")

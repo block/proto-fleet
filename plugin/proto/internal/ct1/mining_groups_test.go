@@ -31,7 +31,6 @@ type groupsServer struct {
 	deactivation         *mdk.DeactivateMiningGroupsRequest
 	defaultGroup         *mdk.MiningGroupRecord
 	starts               int
-	lostStartAck         bool
 	legacyPoolReads      int
 	changingDefaultPools bool
 	legacyPoolURL        string
@@ -62,10 +61,6 @@ func (s *groupsServer) StartMining(context.Context, *mdk.StartMiningRequest) (*m
 	s.starts++
 	s.defaultGroup.DesiredMining = true
 	s.defaultGroup.Revision++
-	if s.lostStartAck {
-		s.lostStartAck = false
-		return nil, fmt.Errorf("start Default: %w", status.Error(codes.Unavailable, "response lost after commit"))
-	}
 	return &mdk.StartMiningResponse{}, nil
 }
 func (s *groupsServer) GetMiningGroup(_ context.Context, request *mdk.GetMiningGroupRequest) (*mdk.GetMiningGroupResponse, error) {
@@ -214,28 +209,19 @@ func TestMiningGroupsNativeTransport(t *testing.T) {
 	require.True(t, result.RevisionConflict)
 }
 
-func TestResumeDefaultMiningReplaysReadbackAndRespectsLaterStop(t *testing.T) {
-	stub := &groupsServer{defaultGroup: &mdk.MiningGroupRecord{Id: "default", Revision: 7}, lostStartAck: true}
+func TestMiningGroupsDefaultStartCannotOverrideAnOperatorStop(t *testing.T) {
+	stub := &groupsServer{defaultGroup: &mdk.MiningGroupRecord{Id: "default", Revision: 7}}
 	device := newMiningGroupsTestDevice(t, stub)
 	request := sdk.MiningGroupRequest{Action: "start", GroupID: "default", Revision: 7, Key: "resume"}
-	_, err := device.MiningGroups(t.Context(), request)
-	require.Equal(t, codes.Unavailable, status.Code(err))
-	receipt, err := device.MiningGroups(t.Context(), request)
-	require.NoError(t, err)
-	require.NoError(t, receipt.Validate(request))
-	require.True(t, receipt.Group.Mining)
-	require.Equal(t, 1, stub.starts)
-	require.Nil(t, stub.intent, "Default must use the legacy API")
 
-	stub.defaultGroup.DesiredMining = false
-	stub.defaultGroup.Revision++
-	receipt, err = device.MiningGroups(t.Context(), request)
-	require.NoError(t, err)
-	require.NoError(t, receipt.Validate(request))
-	require.True(t, receipt.DefaultResumeSuperseded)
-	require.False(t, receipt.Group.Mining)
-	require.False(t, receipt.RevisionConflict, "Fleet must keep the original resume revision")
-	require.Equal(t, 1, stub.starts, "retry must respect the later stop")
+	for range 2 {
+		_, err := device.MiningGroups(t.Context(), request)
+		require.Equal(t, codes.FailedPrecondition, status.Code(err))
+		stub.defaultGroup.Revision++
+	}
+	require.Zero(t, stub.starts)
+	require.False(t, stub.defaultGroup.DesiredMining)
+	require.Nil(t, stub.intent)
 }
 
 func TestDefaultPoolEndpointsRemovePrivateURLComponents(t *testing.T) {

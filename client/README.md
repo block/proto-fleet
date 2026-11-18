@@ -192,8 +192,9 @@ after checking all affected hashboards. Moves from groups with custom power or
 tuning policy are refused here. Isolated boards and mixed running/stopped selections
 are also refused. Each write respects the reported limits and uses
 revision checks. Existing mining intent is preserved. If groups are disabled,
-the review explains that all container mining must stop for activation; the
-previous default intent is restored before selected boards move.
+the review explains that all container mining must stop for activation. A
+previously running container needs an explicit start. Review the assignment
+again before moving boards after activation.
 
 A nonsecret recovery record is stored per controller and attempt in the browser.
 **Pool assignment status** on Modules restores it after reload. Recovery only

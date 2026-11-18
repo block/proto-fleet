@@ -46,9 +46,8 @@ func activationWaitingMessage(err error) string {
 	}
 }
 
-// The original running state is committed before any physical write. The stop
-// is an idempotent desired-state command; retries never recapture its outcome
-// as the original state. Activation and resume use the usual durable journal.
+// Capture the original mining intent before stopping. Activation uses the
+// durable journal. Starting Default after activation requires an operator.
 func (s *Service) reconcileActivation(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState) error {
 	beforeObservation := row
 	capture, done, err := s.activationPoolCapture(ctx, q, row)
@@ -105,16 +104,14 @@ func (s *Service) reconcileActivation(ctx context.Context, q sqlc.Querier, row s
 		if !row.ActivationResumeMining.Valid || !row.ActivationResumeMining.Bool {
 			return s.complete(ctx, q, row)
 		}
-		for _, group := range observed.Groups {
-			if group.ID != "default" {
-				continue
-			}
-			if group.Mining {
-				return s.complete(ctx, q, row)
-			}
-			return s.prepareStep(ctx, q, row, sdk.MiningGroupRequest{Action: "start", GroupID: "default", Revision: group.Revision}, "", "Resuming mining with the existing pools")
+		group, found := defaultGroup(observed)
+		if !found {
+			return s.block(ctx, q, row, "Waiting for the Default mining group")
 		}
-		return s.block(ctx, q, row, "Waiting for the default mining group before resuming mining")
+		if !group.Mining {
+			return s.completeWithMessage(ctx, q, row, "Mining groups enabled. Start mining in ProtoOS when ready.")
+		}
+		return s.complete(ctx, q, row)
 	}
 	if !row.ActivationResumeMining.Valid {
 		defaultGroup, err := s.readDefault(ctx, row.DeviceID)

@@ -180,9 +180,22 @@ test("offers to restore mining after an interrupted activation", async () => {
   savePoolAttempt("ct1", { ...attempt, restoreLegacyMining: true });
   const { service } = fixture();
   render(<PoolAssignmentDialog service={service} controllerId="ct1" target={target} onDismiss={vi.fn()} />);
-  fireEvent.click(await screen.findByRole("button", { name: "Restore mining" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Start mining" }));
   await waitFor(() => expect(service.restoreMining).toHaveBeenCalledTimes(1));
   expect(readPoolAttempts("ct1")[0].restoreLegacyMining).toBe(false);
+});
+
+test("can keep mining stopped after activation", async () => {
+  const { service } = fixture();
+  const onDismiss = vi.fn();
+  savePoolAttempt("ct1", { ...attempt, restoreLegacyMining: true });
+  render(<PoolAssignmentDialog service={service} controllerId="ct1" target={target} onDismiss={onDismiss} />);
+
+  fireEvent.click(await screen.findByRole("button", { name: "Keep stopped" }));
+
+  expect(service.restoreMining).not.toHaveBeenCalled();
+  expect(readPoolAttempts("ct1")).toEqual([]);
+  expect(onDismiss).toHaveBeenCalledOnce();
 });
 
 test("recovery records omit credentials even if a caller passes extra fields", () => {

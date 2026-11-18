@@ -23,8 +23,6 @@ import (
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/google/uuid"
 	"github.com/sqlc-dev/pqtype"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // Fleet Node allows 25 seconds for a command. Leave additional time for
@@ -581,6 +579,11 @@ func (s *Service) apply(ctx context.Context, q sqlc.Querier, row sqlc.ContainerM
 			}
 		}
 	}
+	// Earlier versions could journal a Default start. Discard that step after
+	// observation so an old request cannot start mining on an older Fleet Node.
+	if row.OperationKind == operationActivate && request.Action == "start" && request.GroupID == "default" {
+		return finishStep(ctx, q, row)
+	}
 	response, err := s.dispatchStep(ctx, row, request)
 	if err != nil {
 		var tracking *stepDispatchError
@@ -594,11 +597,7 @@ func (s *Service) apply(ctx context.Context, q sqlc.Querier, row sqlc.ContainerM
 		if request.Action == operationActivate {
 			message = activationWaitingMessage(err)
 		}
-		if request.Action == "start" && request.GroupID == "default" &&
-			(status.Code(err) == codes.FailedPrecondition || fleeterror.IsFailedPreconditionError(err)) {
-			message = "Default mining did not resume. Check the controller mode and mining intent."
-		}
-		if (request.Action == operationActivate || (request.Action == "start" && request.GroupID == "default")) && errors.Is(err, control.ErrCommandProtocolUpgradeRequired) {
+		if request.Action == operationActivate && errors.Is(err, control.ErrCommandProtocolUpgradeRequired) {
 			message = defaultReadBlockedMessage(err)
 		}
 		return s.block(ctx, q, row, message)
@@ -641,19 +640,8 @@ func (s *Service) apply(ctx context.Context, q sqlc.Querier, row sqlc.ContainerM
 			return s.block(ctx, q, row, "Waiting for stopped group intent")
 		}
 	case "start":
-		if row.OperationKind == operationActivate && response.DefaultResumeSuperseded {
-			if err := response.Validate(request); err != nil {
-				return s.block(ctx, q, row, "Waiting for a valid mining intent receipt")
-			}
-			row.Step = pqtype.NullRawMessage{}
-			row.StepKey = uuid.NullUUID{}
-			return s.completeWithMessage(ctx, q, row, "Mining groups enabled. Default mining remains stopped after a newer change.")
-		}
 		if response.Group == nil || response.Group.ID != request.GroupID || !response.Group.Mining {
 			return s.block(ctx, q, row, "Waiting for a valid mining intent receipt")
-		}
-		if row.OperationKind == operationActivate && request.GroupID == "default" {
-			row.ActivationResumeMining = sql.NullBool{Valid: true}
 		}
 	case operationActivate:
 		if !response.Enabled {

@@ -23,15 +23,17 @@ import (
 
 func (d *Device) MiningGroups(ctx context.Context, r sdk.MiningGroupRequest) (out sdk.MiningGroupResult, resultErr error) {
 	write := !r.ReadOnly()
-	resumeDefault := r.Action == "start" && r.GroupID == "default"
 	defer func() {
-		if write && !resumeDefault && status.Code(resultErr) == codes.Aborted {
+		if write && status.Code(resultErr) == codes.Aborted {
 			out = sdk.MiningGroupResult{RevisionConflict: true}
 			resultErr = nil
 		}
 	}()
 	if err := r.Validate(); err != nil {
 		return out, err
+	}
+	if r.Action == "start" && r.GroupID == "default" {
+		return out, fmt.Errorf("mining group start refused: %w", status.Error(codes.FailedPrecondition, "Start Default mining from the container's mining controls"))
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
@@ -169,14 +171,6 @@ func (d *Device) MiningGroups(ctx context.Context, r sdk.MiningGroupRequest) (ou
 		}
 		group = v.Group
 	case "start", "stop":
-		if resumeDefault {
-			group, err = resumeDefaultMining(ctx, client, c.mining, r.Revision)
-			if err != nil {
-				return out, err
-			}
-			out.DefaultResumeSuperseded = !group.DesiredMining
-			break
-		}
 		v, e := client.UpdateMiningGroupIntent(ctx, &mdk.UpdateMiningGroupIntentRequest{Id: r.GroupID, ExpectedRevision: r.Revision, IdempotencyKey: r.Key, DesiredMining: r.Action == "start", UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"desired_mining"}}})
 		if e != nil {
 			return out, e
@@ -230,39 +224,6 @@ func readDefaultGroup(ctx context.Context, groups mdk.MiningGroupServiceClient) 
 		return nil, fmt.Errorf("invalid Default mining intent")
 	}
 	return group, nil
-}
-
-func resumeDefaultMining(ctx context.Context, groups mdk.MiningGroupServiceClient, mining mdk.MiningServiceClient, expectedRevision int64) (*mdk.MiningGroupRecord, error) {
-	mode, err := groups.GetMiningGroupCapability(ctx, &mdk.GetMiningGroupCapabilityRequest{})
-	if err != nil {
-		return nil, fmt.Errorf("read mining group mode: %w", err)
-	}
-	if !mode.GetCapability().GetEnabled() || mode.GetCapability().GetSuspended() {
-		return nil, status.Errorf(codes.FailedPrecondition, "mining groups must be enabled and active to restore Default mining")
-	}
-	current, err := readDefaultGroup(ctx, groups)
-	if err != nil {
-		return nil, err
-	}
-	if current.DesiredMining || current.Revision > expectedRevision {
-		return current, nil
-	}
-	// A newer stopped intent can follow an unacknowledged start. Keep the saved
-	// revision, since replanning from that state could override an operator stop.
-	if current.Revision != expectedRevision {
-		return nil, status.Errorf(codes.FailedPrecondition, "Default mining intent changed before resume")
-	}
-	if _, err := mining.StartMining(ctx, &mdk.StartMiningRequest{}); err != nil {
-		return nil, fmt.Errorf("resume Default mining: %w", err)
-	}
-	current, err = readDefaultGroup(ctx, groups)
-	if err != nil {
-		return nil, err
-	}
-	if !current.DesiredMining && current.Revision <= expectedRevision {
-		return nil, fmt.Errorf("Default mining resume was not confirmed")
-	}
-	return current, nil
 }
 
 func publicDefaultPoolURL(raw string) string {

@@ -220,18 +220,17 @@ type MiningGroupResult struct {
 	StopRequested bool                     `json:"stop_requested,omitempty"`
 	Removed       bool                     `json:"removed,omitempty"`
 	// RevisionConflict proves the original request was rejected before applying a write.
-	RevisionConflict        bool                  `json:"revision_conflict,omitempty"`
-	DefaultResumeSuperseded bool                  `json:"default_resume_superseded,omitempty"`
-	Supported               bool                  `json:"supported"`
-	Enabled                 bool                  `json:"enabled"`
-	Suspended               bool                  `json:"suspended"`
-	Revision                int64                 `json:"revision"`
-	MaxGroups               int                   `json:"max_groups"`
-	ObservedAt              time.Time             `json:"observed_at"`
-	Groups                  []MiningGroup         `json:"groups"`
-	Pending                 bool                  `json:"pending"`
-	Group                   *MiningGroup          `json:"group,omitempty"`
-	Operation               *MiningGroupOperation `json:"operation,omitempty"`
+	RevisionConflict bool                  `json:"revision_conflict,omitempty"`
+	Supported        bool                  `json:"supported"`
+	Enabled          bool                  `json:"enabled"`
+	Suspended        bool                  `json:"suspended"`
+	Revision         int64                 `json:"revision"`
+	MaxGroups        int                   `json:"max_groups"`
+	ObservedAt       time.Time             `json:"observed_at"`
+	Groups           []MiningGroup         `json:"groups"`
+	Pending          bool                  `json:"pending"`
+	Group            *MiningGroup          `json:"group,omitempty"`
+	Operation        *MiningGroupOperation `json:"operation,omitempty"`
 }
 type DeviceMiningGroups interface {
 	MiningGroups(ctx context.Context, request MiningGroupRequest) (MiningGroupResult, error)

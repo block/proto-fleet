@@ -204,14 +204,11 @@ groups**. The container activation action is also hidden after activation.
 These menus refresh controller state while open; the assignment flow and server
 continue to validate prerequisites before accepting changes.
 
-Activation confirmation explains the automatic pause and conditional resume.
-The saved Default mining intent is durable before the stop command, so retries and
-server restarts cannot overwrite it with a later stopped observation. Stop is
-an idempotent desired-state command; activation and resume retain their exact
-journaled request identities. A newer stop supersedes an unresolved restart and
-leaves mining stopped. Completion requires fresh confirmation of enabled
-groups and, when needed, the default group's running intent (not proof of pool
-connectivity or hashrate). If activation is blocked after stopping, mining stays
+Activation confirmation explains that Fleet stops mining before it enables
+groups. Fleet records the original Default intent before stopping and uses a
+durable request to enable groups. Completion requires fresh confirmation that
+groups are enabled. Start Default mining from the container's mining controls
+when ready. If activation is blocked after stopping, mining stays
 paused until the prerequisite is resolved and activation can finish. While waiting,
 known controller prerequisites produce specific guidance; unknown failures use a
 neutral retry message without exposing raw controller errors. The open dialog

@@ -408,7 +408,9 @@ export function createPoolAssignment(
         state: confirmed ? "partial" : "unknown",
         ...(confirmed && destination && attempt.configurationConfirmed ? { remainingMacs } : {}),
         message:
-          "The final assignment is not confirmed. Some changes may be saved. Check status before making another change.",
+          !destination && attempt.restoreLegacyMining
+            ? "Review the pool change again when you are ready to continue."
+            : "The final assignment is not confirmed. Some changes may be saved. Check status before making another change.",
       };
     });
   };
@@ -630,7 +632,7 @@ export function createPoolAssignment(
         state = await snapshotForPlan();
         if (
           checkMining &&
-          !plan.editingRevision &&
+          !plan.configurationOnly &&
           plan.target.macs.length &&
           selected(state, plan.target).mining !== plan.mining
         )
@@ -659,12 +661,7 @@ export function createPoolAssignment(
           ),
         );
         await refresh(false);
-        if (plan.mining) {
-          await write("Restoring container mining intent", (options) => client.miningServiceStartMining(options));
-          attempt = { ...attempt, restoreLegacyMining: false };
-          track(attempt);
-          await refresh();
-        }
+        if (attempt.restoreLegacyMining && !plan.configurationOnly) return status(attempt, params);
       }
       let destination = state.groups.find((group) => group.id === plan.destinationId);
       if (!destination) {
@@ -777,7 +774,7 @@ export function createPoolAssignment(
         attempt = { ...attempt, destinationRevision: revision(destination) };
         track(attempt);
       }
-      if (destination!.desiredMining !== plan.mining) {
+      if (!plan.configurationOnly && destination!.desiredMining !== plan.mining) {
         const response = await write("Preserving the selected boards' mining intent", (options) =>
           client.miningGroupServiceUpdateMiningGroupIntent(
             { id: destinationId },

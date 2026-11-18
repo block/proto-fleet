@@ -138,7 +138,10 @@ func testMiningGroupsSimulator(t *testing.T, dev *Device) {
 	source := observed.Groups[0]
 	originalPools := call(sdk.MiningGroupRequest{Action: sdk.MiningGroupReadDefault}).Group.Pools
 	require.NotEmpty(t, originalPools)
-	call(sdk.MiningGroupRequest{Action: "start", GroupID: "default", Revision: source.Revision, Key: "resume"})
+	_, err := dev.MiningGroups(t.Context(), sdk.MiningGroupRequest{Action: "start", GroupID: "default", Revision: source.Revision, Key: "resume"})
+	require.ErrorContains(t, err, "Start Default mining")
+	_, err = dev.clients[0].mining.StartMining(t.Context(), &mdk.StartMiningRequest{})
+	require.NoError(t, err)
 	// A legacy stop replay after activation must leave resumed default mining alone.
 	call(sdk.MiningGroupRequest{Action: "stop_legacy", Key: "stop"})
 	resumed := call(sdk.MiningGroupRequest{Action: "observe"})
@@ -146,9 +149,8 @@ func testMiningGroupsSimulator(t *testing.T, dev *Device) {
 	require.Equal(t, originalPools, call(sdk.MiningGroupRequest{Action: sdk.MiningGroupReadDefault}).Group.Pools)
 	require.Positive(t, call(sdk.MiningGroupRequest{Action: "mining_status"}).MiningStatus.ActiveBoards)
 	// Stop default for the existing exact-board assignment checks below.
-	_, err := dev.clients[0].mining.StopMining(t.Context(), &mdk.StopMiningRequest{})
+	_, err = dev.clients[0].mining.StopMining(t.Context(), &mdk.StopMiningRequest{})
 	require.NoError(t, err)
-	require.True(t, call(sdk.MiningGroupRequest{Action: "start", GroupID: "default", Revision: source.Revision, Key: "resume"}).DefaultResumeSuperseded)
 	source = call(sdk.MiningGroupRequest{Action: "observe"}).Groups[0]
 	created := call(sdk.MiningGroupRequest{Action: "create", ConfigID: "customer", Key: "create"})
 	require.False(t, created.Group.Mining)
