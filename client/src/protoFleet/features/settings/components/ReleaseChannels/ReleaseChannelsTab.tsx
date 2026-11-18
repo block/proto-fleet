@@ -5,6 +5,7 @@ import ChannelHistoryModal from "./ChannelHistoryModal";
 import type { ControllerSoftwareApi } from "./controllerSoftwareUtils";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import ReleaseChannelsTable from "./ReleaseChannelsTable";
+import { mixedDeviceNouns } from "./rolloutStatus";
 import { useChannelHistory } from "./useChannelHistory";
 import { useRefreshingRead } from "./useRefreshingRead";
 import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
@@ -83,7 +84,7 @@ const ReleaseChannelsTab = ({
   } = api;
   const { listFirmwareFiles } = useFirmwareApi();
   const { listPackages } = useFrigatePackages();
-  // The version gates hashboard firmware and names controller software, so
+  // The version gates firmware updates and names controller software, so
   // setting it takes both permissions; the server enforces the same pair.
   const canUpdateFirmware = useHasPermission("miner:firmware_update");
   const canUpdateControllerSoftware = useHasPermission("controller:software_update");
@@ -145,6 +146,9 @@ const ReleaseChannelsTab = ({
     () => channels.filter((channel) => !currentWrites?.deleted.some(({ id }) => id === channel.id)),
     [channels, currentWrites],
   );
+  // What the fleet's devices are called where no single channel says: miners,
+  // containers, or devices when the channels hold both.
+  const fleetNouns = mixedDeviceNouns(visibleChannels.flatMap((channel) => channel.modelGroups));
   if (acknowledgedWrites.authSessionIdentity !== authSessionIdentity) {
     setAcknowledgedWrites({ authSessionIdentity, created: null, deleted: [] });
   } else if (hasLoaded && error === null) {
@@ -407,6 +411,7 @@ const ReleaseChannelsTab = ({
           listChannelMiners={listChannelMiners}
           listRolloutDevices={listRolloutDevices}
           controllerSoftware={controllerSoftware}
+          fleetNouns={fleetNouns}
           onSave={async (draft) => {
             await updateChannel(managedChannel.id, draft);
           }}
@@ -423,7 +428,7 @@ const ReleaseChannelsTab = ({
       ) : visibleChannels.length === 0 ? (
         <SettingsEmptyState
           title="No release channels"
-          description="Create a release channel, choose which miners it applies to, and assign firmware per model to roll out updates."
+          description={`Create a release channel, choose which ${fleetNouns.plural} it applies to, and assign firmware per model to roll out updates.`}
         />
       ) : (
         <ReleaseChannelsTable
@@ -452,6 +457,7 @@ const ReleaseChannelsTab = ({
           previewScope={previewScope}
           listChannelMiners={listChannelMiners}
           listRolloutDevices={listRolloutDevices}
+          fleetNouns={fleetNouns}
           onSave={async (draft) => {
             const created = await createChannel(draft);
             if (!created || !isCurrentSession()) return;

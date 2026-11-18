@@ -4,12 +4,12 @@ import type {
   ReleaseChannelControllerSoftware,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 
-// The row names the artifact, as the hashboard firmware row beneath it does.
+// The row names the artifact, as the firmware rows beneath it do.
 export const CONTROLLER_SOFTWARE_COMPONENT = "Controller software";
 
 // A channel names the controller software version its containers should run.
 // Nothing installs it from here: operators update each container themselves,
-// and a container that is behind takes no hashboard firmware until they do.
+// and a container that is behind takes no firmware from the channel until they do.
 export interface ControllerSoftwareApi {
   // Setting the version takes both the firmware and the controller software
   // permission. Everyone who can manage the channel can read it.
@@ -45,7 +45,7 @@ export const controllerSoftwareStatus = (software: ReleaseChannelControllerSoftw
       };
 };
 
-/** Why a container model's hashboard firmware is waiting, or null when no container is behind. */
+/** Why a container model's firmware update is waiting, or null when no container is behind. */
 export const controllerSoftwareHoldMessage = (
   software: ReleaseChannelControllerSoftware | undefined,
 ): string | null => {

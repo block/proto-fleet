@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 
-import { planReadout } from "./behaviorUtils";
+import { planReadout, rolloutBehaviorErrors } from "./behaviorUtils";
 import {
   activeRigRollout,
   batchedAutoBehavior,
@@ -24,6 +24,8 @@ import {
   channelAssignmentKey,
   channelMembersLabel,
   channelUpdateStatus,
+  CONTAINER_NOUNS,
+  DEVICE_NOUNS,
   deviceCountLabel,
   deviceCounts,
   evidenceScopeLabel,
@@ -31,9 +33,13 @@ import {
   hasUnavailableAssignedFirmware,
   isContainerPair,
   lastFinishedByChannelAssignment,
+  methodHelp,
   metricDisplay,
+  MINER_NOUNS,
+  mixedDeviceNouns,
   modelFirmwareLabel,
   modelUpdateStatus,
+  nounCountLabel,
   pacingSummary,
   pairKey,
   rolloutDeviceCounts,
@@ -109,6 +115,38 @@ describe("device wording by model pair", () => {
     const group = { ...rigGroup, ...containerPair, minerCount: 0 };
     expect(modelUpdateStatus(group, undefined, undefined).label).toBe("No containers");
     expect(modelUpdateStatus({ ...rigGroup, minerCount: 0 }, undefined, undefined).label).toBe("No miners");
+  });
+
+  it("calls several pairs devices only when miners and containers are both among them", () => {
+    expect(mixedDeviceNouns([rigPair, { manufacturer: "Bitmain", model: "S21" }])).toBe(MINER_NOUNS);
+    expect(mixedDeviceNouns([containerPair])).toBe(CONTAINER_NOUNS);
+    expect(mixedDeviceNouns([rigPair, containerPair])).toBe(DEVICE_NOUNS);
+    // With nothing to go by, the caller's fallback applies; miners by default.
+    expect(mixedDeviceNouns([])).toBe(MINER_NOUNS);
+    expect(mixedDeviceNouns([], DEVICE_NOUNS)).toBe(DEVICE_NOUNS);
+    expect(nounCountLabel(DEVICE_NOUNS, 1)).toBe("1 device");
+    expect(nounCountLabel(DEVICE_NOUNS, 2000)).toBe("2,000 devices");
+  });
+
+  it("describes update methods and plans with the channel's nouns", () => {
+    expect(methodHelp(RolloutMethod.ALL_AT_ONCE)).toBe("Every miner not on the new version updates at once.");
+    expect(methodHelp(RolloutMethod.UNSPECIFIED)).toBe(methodHelp(RolloutMethod.ALL_AT_ONCE));
+    expect(methodHelp(RolloutMethod.ALL_AT_ONCE, DEVICE_NOUNS)).toBe(
+      "Every device not on the new version updates at once.",
+    );
+    expect(methodHelp(RolloutMethod.BATCHED, CONTAINER_NOUNS)).toMatch(/^Containers update in batches/);
+    expect(methodHelp(RolloutMethod.PILOT_THEN_CONTINUE, DEVICE_NOUNS)).toContain("The remaining devices wait");
+    expect(methodHelp(RolloutMethod.DELEGATED, CONTAINER_NOUNS)).toContain("which containers update and when");
+    expect(planReadout(batchedAutoBehavior, 48, DEVICE_NOUNS)).toBe("~24 batches of 2 across 48 devices");
+    expect(planReadout(singleBatchBehavior, 2, CONTAINER_NOUNS)).toBe("2 containers in a single batch");
+    expect(
+      rolloutBehaviorErrors(create(RolloutBehaviorSchema, { ...batchedAutoBehavior, batchSize: 0 })),
+    ).toMatchObject({
+      batchSize: "Enter at least 1 miner.",
+    });
+    expect(
+      rolloutBehaviorErrors(create(RolloutBehaviorSchema, { ...batchedAutoBehavior, batchSize: 0 }), DEVICE_NOUNS),
+    ).toMatchObject({ batchSize: "Enter at least 1 device." });
   });
 
   it("splits a channel's members by device type", () => {
@@ -737,7 +775,7 @@ describe("channel and model status", () => {
 describe("scope summary", () => {
   it("labels populated dimensions", () => {
     expect(scopeSummary(canaryChannel.scope!)).toBe("1 rack, 2 miners");
-    expect(scopeSummary(create(ReleaseChannelScopeSchema))).toBe("No miners selected");
+    expect(scopeSummary(create(ReleaseChannelScopeSchema))).toBe("Nothing selected");
     expect(isScopeEmpty(create(ReleaseChannelScopeSchema))).toBe(true);
     expect(isScopeEmpty(canaryChannel.scope!)).toBe(false);
   });

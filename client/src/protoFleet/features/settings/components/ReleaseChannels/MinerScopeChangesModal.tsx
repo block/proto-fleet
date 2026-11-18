@@ -1,6 +1,7 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { MinerScopeChanges } from "./channelSettingsChangesUtils";
+import { capitalize, nounCountLabel } from "./rolloutStatus";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import Modal, { sizes } from "@/shared/components/Modal";
@@ -27,13 +28,14 @@ export default function MinerScopeChangesModal({
       (miner) => miner.name.toLocaleLowerCase().includes(query) || miner.identifier.toLocaleLowerCase().includes(query),
     );
   }, [changes.miners, search]);
+  const { nouns } = changes;
   const start = page * PAGE_SIZE;
   const end = Math.min(start + PAGE_SIZE, miners.length);
 
   return (
     <Modal
-      title="Miner changes"
-      description="Compare the miners selected directly in Applies to."
+      title={`${capitalize(nouns.singular)} changes`}
+      description={`Compare the ${nouns.plural} selected directly in Applies to.`}
       size={sizes.large}
       zIndex="z-70"
       testId="miner-scope-changes-modal"
@@ -43,7 +45,7 @@ export default function MinerScopeChangesModal({
       <div className="grid gap-4">
         <Input
           id={searchId}
-          label="Search miners"
+          label={`Search ${nouns.plural}`}
           autoFocus
           onKeyDown={(key) => {
             if (key === "Escape") onClose();
@@ -54,11 +56,11 @@ export default function MinerScopeChangesModal({
           }}
         />
         <div ref={tableContainer} className="max-h-[50dvh] overflow-y-auto">
-          <table aria-label="Miner changes" className="w-full table-fixed text-left text-200">
+          <table aria-label={`${capitalize(nouns.singular)} changes`} className="w-full table-fixed text-left text-200">
             <thead className="sticky top-0 bg-surface-elevated-base text-text-primary-50">
               <tr className="border-b border-border-5">
                 <th scope="col" className="w-1/2 py-2 pr-3 font-normal">
-                  Miner
+                  {capitalize(nouns.singular)}
                 </th>
                 <th scope="col" className="py-2 pr-3 font-normal">
                   Original
@@ -84,11 +86,13 @@ export default function MinerScopeChangesModal({
             </tbody>
           </table>
         </div>
-        {miners.length === 0 ? <p className="text-200 text-text-primary-70">No miners match your search.</p> : null}
+        {miners.length === 0 ? (
+          <p className="text-200 text-text-primary-70">No {nouns.plural} match your search.</p>
+        ) : null}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p role="status" className="text-200 text-text-primary-70">
             {miners.length > 0 ? `${(start + 1).toLocaleString()}–${end.toLocaleString()} of ` : ""}
-            {miners.length.toLocaleString()} {miners.length === 1 ? "miner" : "miners"}
+            {nounCountLabel(nouns, miners.length)}
           </p>
           {miners.length > PAGE_SIZE ? (
             <div className="flex gap-2">

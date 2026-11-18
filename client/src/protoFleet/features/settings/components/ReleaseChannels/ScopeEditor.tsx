@@ -2,6 +2,7 @@ import { type ReactElement, useEffect, useMemo, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 
 import ContainerSelectionModal from "./ContainerSelectionModal";
+import { mixedDeviceNouns, nounCountLabel } from "./rolloutStatus";
 import { applyPickerEdits, isScopeEmpty, scopeSummary, scopeValidationErrors } from "./scopeUtils";
 import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import {
@@ -356,36 +357,31 @@ const ScopePreview = ({
         {previousPreview && !editingExistingChannel ? (
           <p className="text-text-primary-50">
             Last valid preview: {summarize(previousPreview.request.scope)} · covers{" "}
-            {previousPreview.value.minerCount.toLocaleString()}{" "}
-            {previousPreview.value.minerCount === 1 ? "miner" : "miners"}.
+            {nounCountLabel(mixedDeviceNouns(previousPreview.value.models), previousPreview.value.minerCount)}.
           </p>
         ) : null}
       </div>
     );
   }
   if (editingExistingChannel && preview.conflicts.length === 0) return null;
+  // A scope can cover miners, containers, or both; the preview's models say which.
+  const nouns = mixedDeviceNouns(preview.models);
   const models = preview.models.map((m) => `${m.minerCount.toLocaleString()} ${m.model || "unknown model"}`).join(", ");
   return (
     <div className="flex flex-col gap-1 text-200" data-testid="scope-preview">
       {!editingExistingChannel ? (
         <span className="text-text-primary">
-          {summarize(scope)} · covers {preview.minerCount.toLocaleString()}{" "}
-          {preview.minerCount === 1 ? "miner" : "miners"}
+          {summarize(scope)} · covers {nounCountLabel(nouns, preview.minerCount)}
           {models ? ` (${models})` : ""}
         </span>
       ) : null}
       {preview.conflicts.length > 0 ? (
         <span className="text-text-critical" data-testid="scope-conflicts">
           Overlaps{" "}
-          {preview.conflicts
-            .map(
-              (c) => `${c.channelName} (${c.minerCount.toLocaleString()} ${c.minerCount === 1 ? "miner" : "miners"})`,
-            )
-            .join(", ")}
-          .{" "}
+          {preview.conflicts.map((c) => `${c.channelName} (${nounCountLabel(nouns, c.minerCount)})`).join(", ")}.{" "}
           {editingExistingChannel
             ? "Existing overlaps can remain. Changes that add new overlaps cannot be saved."
-            : "Remove those miners from one of the channels before saving."}
+            : `Remove those ${nouns.plural} from one of the channels before saving.`}
         </span>
       ) : null}
     </div>

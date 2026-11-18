@@ -45,14 +45,27 @@ export const methodLabels: Record<RolloutMethod, string> = {
   [RolloutMethod.DELEGATED]: "Controlled externally",
 };
 
-export const methodHelpText: Record<RolloutMethod, string> = {
-  [RolloutMethod.UNSPECIFIED]: "",
-  [RolloutMethod.ALL_AT_ONCE]: "Every miner not on the new version updates at once.",
-  [RolloutMethod.BATCHED]:
-    "Miners update in batches of a fixed size. Review after each batch, or let batches follow one another.",
-  [RolloutMethod.PILOT_THEN_CONTINUE]:
-    "A pilot batch updates first. The remaining miners wait until the pilot is reviewed and the update continued.",
-  [RolloutMethod.DELEGATED]: "An external controller decides which miners update and when, through the API.",
+/** What operators call a set of devices: miners, containers, or devices when it holds both. */
+export interface DeviceNouns {
+  singular: string;
+  plural: string;
+}
+
+export const MINER_NOUNS: DeviceNouns = { singular: "miner", plural: "miners" };
+export const CONTAINER_NOUNS: DeviceNouns = { singular: "container", plural: "containers" };
+export const DEVICE_NOUNS: DeviceNouns = { singular: "device", plural: "devices" };
+
+export const methodHelp = (method: RolloutMethod, nouns: DeviceNouns = MINER_NOUNS): string => {
+  switch (method) {
+    case RolloutMethod.BATCHED:
+      return `${capitalize(nouns.plural)} update in batches of a fixed size. Review after each batch, or let batches follow one another.`;
+    case RolloutMethod.PILOT_THEN_CONTINUE:
+      return `A pilot batch updates first. The remaining ${nouns.plural} wait until the pilot is reviewed and the update continued.`;
+    case RolloutMethod.DELEGATED:
+      return `An external controller decides which ${nouns.plural} update and when, through the API.`;
+    default:
+      return `Every ${nouns.singular} not on the new version updates at once.`;
+  }
 };
 
 export const orderLabels: Record<RolloutOrder, string> = {
@@ -523,16 +536,36 @@ export const isContainerPair = (pair: { manufacturer: string; model: string }): 
   isCT1FirmwareTarget({ targetManufacturer: pair.manufacturer, targetModel: pair.model });
 
 /** What operators call the devices of one model pair: miners, or containers. */
-export const deviceNouns = (pair: { manufacturer: string; model: string }): { singular: string; plural: string } =>
-  isContainerPair(pair) ? { singular: "container", plural: "containers" } : { singular: "miner", plural: "miners" };
+export const deviceNouns = (pair: { manufacturer: string; model: string }): DeviceNouns =>
+  isContainerPair(pair) ? CONTAINER_NOUNS : MINER_NOUNS;
+
+/**
+ * What operators call the devices of several model pairs at once, such as a
+ * channel's or a scope preview's: "devices" only when miners and containers
+ * are both among them. With no pairs to go by, the fallback applies.
+ */
+export function mixedDeviceNouns(
+  pairs: ReadonlyArray<{ manufacturer: string; model: string }>,
+  fallback: DeviceNouns = MINER_NOUNS,
+): DeviceNouns {
+  const containers = pairs.some(isContainerPair);
+  const miners = pairs.some((pair) => !isContainerPair(pair));
+  if (containers && miners) return DEVICE_NOUNS;
+  if (containers) return CONTAINER_NOUNS;
+  return miners ? MINER_NOUNS : fallback;
+}
+
+/** "1 miner" or "2,000 devices": a count worded with the given nouns. */
+export const nounCountLabel = (nouns: DeviceNouns, count: number): string =>
+  `${count.toLocaleString()} ${count === 1 ? nouns.singular : nouns.plural}`;
 
 /** "1 miner" or "2,000 containers": a count of one model pair's devices. */
-export const deviceCountLabel = (pair: { manufacturer: string; model: string }, count: number): string => {
-  const { singular, plural } = deviceNouns(pair);
-  return `${count.toLocaleString()} ${count === 1 ? singular : plural}`;
-};
+export const deviceCountLabel = (pair: { manufacturer: string; model: string }, count: number): string =>
+  nounCountLabel(deviceNouns(pair), count);
 
-export const capitalize = (text: string): string => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+export function capitalize(text: string): string {
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+}
 
 /**
  * "6 miners, 2 containers": a channel's members by device type. The total is
@@ -545,11 +578,9 @@ export function channelMembersLabel(
   const inContainerGroups = groups.filter(isContainerPair).reduce((sum, group) => sum + group.minerCount, 0);
   const containers = Math.min(total, inContainerGroups);
   const miners = total - containers;
-  const count = (value: number, singular: string, plural: string) =>
-    `${value.toLocaleString()} ${value === 1 ? singular : plural}`;
-  if (containers === 0) return count(miners, "miner", "miners");
-  if (miners === 0) return count(containers, "container", "containers");
-  return `${count(miners, "miner", "miners")}, ${count(containers, "container", "containers")}`;
+  if (containers === 0) return nounCountLabel(MINER_NOUNS, miners);
+  if (miners === 0) return nounCountLabel(CONTAINER_NOUNS, containers);
+  return `${nounCountLabel(MINER_NOUNS, miners)}, ${nounCountLabel(CONTAINER_NOUNS, containers)}`;
 }
 
 // Device identifiers can also be names inherited from Object.prototype.

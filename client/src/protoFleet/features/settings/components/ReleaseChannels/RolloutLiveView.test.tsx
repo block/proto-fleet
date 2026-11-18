@@ -83,7 +83,7 @@ it("words a container model's update as containers, not miners", () => {
   expect(screen.getByTestId("rollout-performance")).toHaveTextContent(
     "Compares the baseline before the update with telemetry after containers come back.",
   );
-  // The hold reason in the same banner is the server's own text and is not reworded here.
+  // The hold reason in the same banner is the server's text, which names containers itself.
 });
 
 it("keeps refresh failures, failed miners, and review hold reasons visible when collapsed", () => {

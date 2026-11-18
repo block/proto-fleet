@@ -488,7 +488,7 @@ func (s *Service) validateScopeTargets(ctx context.Context, orgID int64, scope, 
 			}
 			for _, id := range addedMiners {
 				if !known[id] {
-					return fleeterror.NewInvalidArgumentErrorf("unknown miner %q", id)
+					return fleeterror.NewInvalidArgumentErrorf("unknown device %q", id)
 				}
 			}
 		}
@@ -572,7 +572,8 @@ func (s *Service) rejectOverlap(ctx context.Context, orgID int64, scope Scope, e
 	sort.Slice(conflicts, func(i, j int) bool { return conflicts[i].ChannelID < conflicts[j].ChannelID })
 	parts := make([]string, 0, min(len(conflicts), PreviewListLimit))
 	for _, c := range conflicts[:min(len(conflicts), PreviewListLimit)] {
-		parts = append(parts, fmt.Sprintf("%s (%d miners)", c.ChannelName, c.MinerCount))
+		// The overlapping members may be miners or containers.
+		parts = append(parts, fmt.Sprintf("%s (%s)", c.ChannelName, anyDeviceNoun.count(int(c.MinerCount))))
 	}
 	return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonScopeOverlap},
 		"scope overlaps release channel %s", strings.Join(parts, ", "))

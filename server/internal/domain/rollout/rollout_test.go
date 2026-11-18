@@ -228,7 +228,7 @@ func TestAutoContinueHoldsOnMissingEvidence(t *testing.T) {
 	f.svc.EnforceTick(ctx)
 	gated := f.rollout(t, started.ID)
 	assert.Equal(t, StageAwaitingReview, gated.Stage)
-	assert.Contains(t, gated.Evidence.HoldReason, "Recent hashrate sample covers 0 of 1 verified miners")
+	assert.Contains(t, gated.Evidence.HoldReason, "Recent hashrate sample covers 0 of 1 verified miner")
 }
 
 func TestAutoContinueChecksEveryThreshold(t *testing.T) {

@@ -83,7 +83,7 @@ type ListDevicesBehindControllerSoftwareRow struct {
 
 // Of the given devices, the containers whose channel sets a controller software
 // target for their pair that they do not report. The rollout engine holds
-// hashboard firmware for these until they match.
+// firmware for these until they match.
 func (q *Queries) ListDevicesBehindControllerSoftware(ctx context.Context, arg ListDevicesBehindControllerSoftwareParams) ([]ListDevicesBehindControllerSoftwareRow, error) {
 	rows, err := q.query(ctx, q.listDevicesBehindControllerSoftwareStmt, listDevicesBehindControllerSoftware, arg.ChannelID, pq.Array(arg.DeviceIds))
 	if err != nil {
@@ -284,7 +284,7 @@ type UpsertReleaseChannelControllerSoftwareParams struct {
 
 // A release channel's target controller software version for a container
 // model. The target starts no update: it marks which containers are behind and
-// holds their hashboard firmware updates until they match.
+// holds the channel's firmware updates to them until they match.
 // Sets a pair's target. The stored pair keeps the spelling it was first
 // written with.
 func (q *Queries) UpsertReleaseChannelControllerSoftware(ctx context.Context, arg UpsertReleaseChannelControllerSoftwareParams) (ReleaseChannelControllerSoftware, error) {

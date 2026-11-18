@@ -88,7 +88,7 @@ func TestChannelScopeUsesExactDeviceIdentifiers(t *testing.T) {
 	assert.Zero(t, preview.MinerCount)
 	assert.Empty(t, preview.Conflicts)
 	_, err = f.svc.UpdateChannel(ctx, f.orgID, channel.ID, ChannelSpec{Name: "Opaque identifiers", Scope: missingScope})
-	require.ErrorContains(t, err, `unknown miner "miner-0 "`)
+	require.ErrorContains(t, err, `unknown device "miner-0 "`)
 	channel, err = f.svc.GetChannel(ctx, f.orgID, channel.ID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{whitespaceID}, channel.Scope.DeviceIdentifiers)

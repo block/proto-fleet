@@ -23,7 +23,7 @@ func TestScopeOverlapCarriesDomainReason(t *testing.T) {
 				_, err = f.svc.UpdateChannel(ctx, f.orgID, empty.ID, spec)
 			}
 			require.True(t, fleeterror.IsFailedPreconditionError(err), "%v", err)
-			require.ErrorContains(t, err, "scope overlaps release channel Test channel (1 miners)")
+			require.ErrorContains(t, err, "scope overlaps release channel Test channel (1 device)")
 			info, ok := ReasonOf(err)
 			require.True(t, ok, "a real scope conflict must carry its machine-readable domain reason")
 			require.Equal(t, ReasonScopeOverlap, info.Reason)

@@ -24,11 +24,16 @@ import RolloutControls, { type RolloutNumberDraft } from "./RolloutControls";
 import RolloutProgressIndicator from "./RolloutProgressIndicator";
 import {
   activeRolloutForGroup,
+  capitalize,
   channelAssignmentKey,
   channelMembersLabel,
+  type DeviceNouns,
+  deviceNouns,
   hasUnavailableAssignedFirmware,
   isContainerPair,
   lastFinishedByChannelAssignment,
+  MINER_NOUNS,
+  mixedDeviceNouns,
   pacingSummary,
   pairKey,
   pairLabel,
@@ -71,12 +76,12 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 const MAX_FIRMWARE_ASSIGNMENTS = 100;
 const assignmentLimitMessage =
   "Apply up to 100 model changes at a time. Revert some selections or discard them and choose fewer models.";
-const scopeAndFirmwareMessage =
-  "Changing Applies to with an existing firmware assignment could send the previous firmware to newly included miners. Keep the current scope, apply your firmware changes, then edit Applies to.";
-const unsupportedTargetMessage =
-  "Release channels require manufacturer and model names of 1–255 printable ASCII characters. Correct the miner's reported identity before assigning firmware.";
+const scopeAndFirmwareMessage = (nouns: DeviceNouns): string =>
+  `Changing Applies to with an existing firmware assignment could send the previous firmware to newly included ${nouns.plural}. Keep the current scope, apply your firmware changes, then edit Applies to.`;
+const unsupportedTargetMessage = (nouns: DeviceNouns): string =>
+  `Release channels require manufacturer and model names of 1–255 printable ASCII characters. Correct the ${nouns.singular}'s reported identity before assigning firmware.`;
 // A container model has a row per component: the controller software version
-// the channel names, then the firmware its hashboards run. The controller
+// the channel names, then the firmware the channel assigns. The controller
 // installs that firmware, so its row comes first.
 const CONTAINER_FIRMWARE_COMPONENT = "Hashboard firmware";
 
@@ -223,7 +228,7 @@ const FirmwarePickerCell = ({
       : undefined;
   const targetError = supportsFirmwareAssignment(group.manufacturer, group.model)
     ? undefined
-    : unsupportedTargetMessage;
+    : unsupportedTargetMessage(deviceNouns(group));
 
   return (
     <div className="grid gap-1">
@@ -272,8 +277,10 @@ interface ReleaseChannelManageViewProps {
   ) => Promise<ReleaseChannelMiner[]>;
   listRolloutDevices: (rolloutId: bigint, signal?: AbortSignal) => Promise<RolloutDevice[]>;
   // Controller software versions for the channel's containers. Without it the
-  // container table lists hashboard firmware only.
+  // container table lists assigned firmware only.
   controllerSoftware?: ControllerSoftwareApi;
+  // What the fleet's devices are called when this channel has none to go by.
+  fleetNouns?: DeviceNouns;
   onSave: (draft: ReleaseChannelDraft) => Promise<void>;
   onCancelCreate?: () => void;
   onDelete?: (channel: ChannelView) => void;
@@ -298,6 +305,7 @@ const ReleaseChannelManageView = ({
   listChannelMiners,
   listRolloutDevices,
   controllerSoftware,
+  fleetNouns = MINER_NOUNS,
   onSave,
   onCancelCreate,
   onDelete,
@@ -505,6 +513,13 @@ const ReleaseChannelManageView = ({
   ];
   const activeCount = new Set(modelGroups.map((group) => activeForGroup(group)?.id).filter((id) => id !== undefined))
     .size;
+  // Channel-wide copy names the devices by what the channel holds or is about
+  // to: miners, containers, or devices when both. A new channel goes by its
+  // scope preview, and an empty one by the rest of the fleet.
+  const nouns = mixedDeviceNouns(
+    channel ? [...liveGroups, ...addedGroups] : (currentPreview?.models ?? []),
+    fleetNouns,
+  );
   // Each device type gets its own assignment table. A channel with no
   // container model keeps the single miner table, which also carries the
   // empty state.
@@ -593,7 +608,9 @@ const ReleaseChannelManageView = ({
     scope: savedSettings?.scope ?? create(ReleaseChannelScopeSchema),
     behavior: savedSettings?.behavior ?? create(RolloutBehaviorSchema),
   };
-  const settingsChanges = dirty ? getChannelSettingsChanges(savedSettingsDraft, settingsDraft, minerNames) : null;
+  const settingsChanges = dirty
+    ? getChannelSettingsChanges(savedSettingsDraft, settingsDraft, minerNames, nouns)
+    : null;
   const pendingChangeCount =
     dirtyAssignments.length +
     (settingsChanges ? settingsChanges.changes.length + settingsChanges.scopeChanges.length : 0);
@@ -796,7 +813,7 @@ const ReleaseChannelManageView = ({
   const scopeAndFirmwareWarning = scopeAndFirmwareBlocked ? (
     <div className="grid justify-items-start gap-2">
       <p role="alert" className="text-200 text-intent-critical-fill">
-        {scopeAndFirmwareMessage}
+        {scopeAndFirmwareMessage(nouns)}
       </p>
       <Button
         text="Keep current scope"
@@ -843,6 +860,7 @@ const ReleaseChannelManageView = ({
         <RolloutControls
           behavior={behavior}
           onChange={setBehavior}
+          nouns={nouns}
           numberDraft={{ values: numberDraft, onChange: setNumberDraft }}
           allowDelegated={savedSettings?.behavior?.method === RolloutMethod.DELEGATED}
           disabled={isWriting}
@@ -853,8 +871,8 @@ const ReleaseChannelManageView = ({
         title="Applies to"
         subtext={
           channel
-            ? "Choose which miners belong to this channel. Changes stay pending until you apply them."
-            : "Choose which miners belong to this channel. Firmware can be assigned after creating it."
+            ? `Choose which ${nouns.plural} belong to this channel. Changes stay pending until you apply them.`
+            : `Choose which ${nouns.plural} belong to this channel. Firmware can be assigned after creating it.`
         }
       >
         <ScopeEditor
@@ -874,7 +892,7 @@ const ReleaseChannelManageView = ({
       <Modal
         open
         title="Create release channel"
-        description="Group miners into a release channel, then assign firmware per model. Miners update automatically to their assigned version using the channel's update behavior."
+        description={`Group ${nouns.plural} into a release channel, then assign firmware per model. ${capitalize(nouns.plural)} update automatically to their assigned version using the channel's update behavior.`}
         testId="create-release-channel-modal"
         onDismiss={() => {
           if (!writeInFlightRef.current && !isWriting) onCancelCreate?.();
@@ -969,7 +987,7 @@ const ReleaseChannelManageView = ({
           subtext={
             containers
               ? controllerSoftware
-                ? "Grouped by container model and component. Hashboard firmware waits for containers that are behind on controller software."
+                ? "Grouped by container model and component. Firmware updates wait for containers that are behind on controller software."
                 : "Grouped by container model and component. Choose a version for each, or view the individual containers."
               : "Grouped by hardware model. Choose a firmware version for each model, or view its individual miners."
           }
@@ -981,7 +999,7 @@ const ReleaseChannelManageView = ({
           ) : null}
           {groups.length === 0 ? (
             <span className="text-300 text-text-primary-50">
-              No miners in scope yet. Open Channel settings and change Applies to to include miners.
+              No {nouns.plural} in scope yet. Open Channel settings and change Applies to to include {nouns.plural}.
             </span>
           ) : (
             <table

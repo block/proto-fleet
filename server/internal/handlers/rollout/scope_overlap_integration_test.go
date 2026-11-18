@@ -52,7 +52,7 @@ func TestScopeOverlapReturnsStructuredReasonFromRealDomain(t *testing.T) {
 					ChannelId: editedID, Name: "Rejected edit", Description: "Must not persist", Scope: scope,
 				}))
 			}
-			require.ErrorContains(t, err, "scope overlaps release channel Owner (1 miners)")
+			require.ErrorContains(t, err, "scope overlaps release channel Owner (1 device)")
 			var rpcError *connect.Error
 			require.ErrorAs(t, err, &rpcError)
 			require.Equal(t, connect.CodeFailedPrecondition, rpcError.Code())

@@ -640,7 +640,9 @@ func (s *Service) dispatchHoldReason(ctx context.Context, r sqlc.FirmwareRollout
 		return "", fleeterror.NewInternalErrorf("load rollout offline slots: %w", err)
 	}
 	if len(slots) >= int(channel.MaxConcurrentOffline) {
-		return fmt.Sprintf("Waiting for offline capacity: %d of %d slots are in use. Wait for miners to recover or change the channel's offline limit.", len(slots), channel.MaxConcurrentOffline), nil
+		// Other models in the channel can hold these slots.
+		return fmt.Sprintf("Waiting for offline capacity: %d of %d slots are in use. Wait for devices to recover or change the channel's offline limit.",
+			len(slots), channel.MaxConcurrentOffline), nil
 	}
 	return "", nil
 }
@@ -746,7 +748,8 @@ func (s *Service) dispatchLockedBatch(ctx context.Context, r sqlc.FirmwareRollou
 	if len(incompatible) > 0 {
 		if err := q.HaltFirmwareRolloutDevices(ctx, sqlc.HaltFirmwareRolloutDevicesParams{
 			RolloutID: r.ID, DeviceIds: incompatible, HaltReason: HaltReasonFailed,
-			LastError: "Reported manufacturer or model changed before the update verified; no further update was sent. Review this miner's identity and firmware compatibility before retrying.",
+			LastError: fmt.Sprintf("Reported manufacturer or model changed before the update verified; no further update was sent. Review this %s's identity and firmware compatibility before retrying.",
+				nounFor(r.Manufacturer, r.Model).singular),
 		}); err != nil {
 			return 0, nil, fleeterror.NewInternalErrorf("fail incompatible rollout devices: %w", err)
 		}
@@ -932,6 +935,7 @@ func (s *Service) evaluate(r sqlc.FirmwareRollout, scope []target) Evidence {
 	}
 
 	th := behaviorFromRollout(r).Thresholds
+	noun := nounFor(r.Manufacturer, r.Model)
 	// covered reports whether an aggregate samples enough verified miners
 	// for its limit to be judged; the gate fails closed otherwise.
 	covered := func(a Aggregate) bool {
@@ -951,27 +955,27 @@ func (s *Service) evaluate(r sqlc.FirmwareRollout, scope []target) Evidence {
 	case !r.BehaviorSnapshot.AutoContinue:
 		ev.HoldReason = "Manual review"
 	case ev.Failed > 0:
-		ev.HoldReason = fmt.Sprintf("%d miners failed to update", ev.Failed)
+		ev.HoldReason = noun.count(int(ev.Failed)) + " failed to update"
 	case ev.Verified+ev.Excluded+ev.Skipped < ev.DevicesTotal:
-		ev.HoldReason = fmt.Sprintf("%d of %d miners not yet verified", ev.DevicesTotal-ev.Verified-ev.Excluded-ev.Skipped, ev.DevicesTotal)
+		ev.HoldReason = fmt.Sprintf("%d of %s not yet verified", ev.DevicesTotal-ev.Verified-ev.Excluded-ev.Skipped, noun.count(int(ev.DevicesTotal)))
 	case offline > 0:
-		ev.HoldReason = fmt.Sprintf("Waiting for %d updated miners to come back online", offline)
+		ev.HoldReason = fmt.Sprintf("Waiting for %d updated %s to come back online", offline, noun.of(offline))
 	case notHashing > 0:
-		ev.HoldReason = fmt.Sprintf("Waiting for %d updated miners to resume hashing", notHashing)
+		ev.HoldReason = fmt.Sprintf("Waiting for %d updated %s to resume hashing", notHashing, noun.of(notHashing))
 	case th.MaxHashrateDropPercent != nil && !covered(ev.HashRateHs):
-		ev.HoldReason = coverageHold("hashrate", ev.HashRateHs, ev.Verified)
+		ev.HoldReason = coverageHold("hashrate", ev.HashRateHs, ev.Verified, noun)
 	case th.MaxHashrateDropPercent != nil && ev.HashrateChangePercent == nil:
 		ev.HoldReason = "Hashrate change undefined: baseline hashrate was zero"
 	case th.MaxHashrateDropPercent != nil && *ev.HashrateChangePercent < -*th.MaxHashrateDropPercent:
 		ev.HoldReason = fmt.Sprintf("Hashrate down %.1f%% (limit %.0f%%)", -*ev.HashrateChangePercent, *th.MaxHashrateDropPercent)
 	case th.MaxEfficiencyIncreasePercent != nil && !covered(ev.EfficiencyJh):
-		ev.HoldReason = coverageHold("efficiency", ev.EfficiencyJh, ev.Verified)
+		ev.HoldReason = coverageHold("efficiency", ev.EfficiencyJh, ev.Verified, noun)
 	case th.MaxEfficiencyIncreasePercent != nil && ev.EfficiencyChangePercent == nil:
 		ev.HoldReason = "Efficiency change undefined: baseline efficiency was zero"
 	case th.MaxEfficiencyIncreasePercent != nil && *ev.EfficiencyChangePercent > *th.MaxEfficiencyIncreasePercent:
 		ev.HoldReason = fmt.Sprintf("Efficiency worse by %.1f%% (limit %.0f%%)", *ev.EfficiencyChangePercent, *th.MaxEfficiencyIncreasePercent)
 	case th.MaxTempIncreaseC != nil && !covered(ev.TempC):
-		ev.HoldReason = coverageHold("temperature", ev.TempC, ev.Verified)
+		ev.HoldReason = coverageHold("temperature", ev.TempC, ev.Verified, noun)
 	case th.MaxTempIncreaseC != nil && *ev.TemperatureChangeC > *th.MaxTempIncreaseC:
 		ev.HoldReason = fmt.Sprintf("Temperature up %.1f°C (limit %.0f°C)", *ev.TemperatureChangeC, *th.MaxTempIncreaseC)
 	case th.MaxNewErrors != nil && ev.NewErrors > *th.MaxNewErrors:
@@ -988,8 +992,8 @@ func (s *Service) evaluate(r sqlc.FirmwareRollout, scope []target) Evidence {
 	return ev
 }
 
-func coverageHold(metric string, a Aggregate, verified int32) string {
-	return fmt.Sprintf("Recent %s sample covers %d of %d verified miners", metric, a.SampledDevices, verified)
+func coverageHold(metric string, a Aggregate, verified int32, noun deviceNoun) string {
+	return fmt.Sprintf("Recent %s sample covers %d of %d verified %s", metric, a.SampledDevices, verified, noun.of(int(verified)))
 }
 
 // percentChange is nil when either half is missing or the baseline is zero,

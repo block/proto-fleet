@@ -396,7 +396,7 @@ func newFakeService() *fakeService {
 			DeviceCounts:       rollout.DeviceCounts{Failed: 1},
 			CurrentBatchCounts: rollout.DeviceCounts{},
 			Evidence: &rollout.Evidence{
-				DevicesTotal: 1, Failed: 1, HoldReason: "1 miners failed to update",
+				DevicesTotal: 1, Failed: 1, HoldReason: "1 miner failed to update",
 				HashRateHs: rollout.Aggregate{Metric: rollout.Metric{Baseline: ptr(100.0), Current: ptr(90.0)}, SampledDevices: 1},
 			},
 		},
@@ -669,7 +669,7 @@ func TestRolloutViewTranslatesStatesPhasesAndEvidence(t *testing.T) {
 
 	require.NotNil(t, r.Evidence)
 	assert.Equal(t, int32(1), r.Evidence.Failed)
-	assert.Equal(t, "1 miners failed to update", r.Evidence.HoldReason)
+	assert.Equal(t, "1 miner failed to update", r.Evidence.HoldReason)
 	assert.Equal(t, int32(1), r.Evidence.HashRateHs.SampledDevices)
 	assert.Nil(t, r.Evidence.HashrateChangePercent, "absent change stays absent")
 	assert.Equal(t, checksum, d.LastDeployedFirmwareChecksum)

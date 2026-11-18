@@ -87,9 +87,10 @@ progress and owner/failure evidence appear in container module details.
 
 ## CT1 controller software version
 
-A container's controllers install its hashboard firmware, so a channel can name
-the controller software version its containers should run before they take
-firmware. Set it per container manufacturer/model pair:
+A container's controllers install the firmware that a channel assigns to it. A
+channel can therefore name the controller software version its containers
+should run before they take firmware. Set it per container manufacturer/model
+pair:
 
 ```sh
 curl -X PUT "$FLEET/api/v1/release-channels/$CHANNEL/controller-software" \
@@ -117,9 +118,10 @@ curl -X PUT "$FLEET/api/v1/release-channels/$CHANNEL/controller-software" \
   1000 and pass each response's `cursor` until it is empty.
   Versions compare after trimming whitespace and one leading `v`. A container
   that reports no version is not on the target.
-- While a target is set, a rollout sends hashboard firmware only to containers
-  on it. A container that is behind stays `QUEUED`: it uses no attempt and
-  does not fail. When every container due an update is waiting, the rollout's
+- While a target is set, a rollout sends firmware only to containers on it.
+  This applies to every firmware update the channel sends to a container. A
+  container that is behind stays `QUEUED`: it uses no attempt and does not
+  fail. When every container due an update is waiting, the rollout's
   `evidence.holdReason` names the version and how many containers need it. The
   rollout stays active until those containers are updated, skipped, or
   canceled, or the target is cleared.

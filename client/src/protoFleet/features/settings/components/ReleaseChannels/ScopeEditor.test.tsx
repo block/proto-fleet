@@ -431,6 +431,37 @@ describe("release-channel scope containers", () => {
     expect(useContainers).toHaveBeenLastCalledWith([], false, false);
   });
 
+  it("words the preview and its overlaps by what the scope covers", async () => {
+    const previewOf = (...models: { manufacturer: string; model: string; minerCount: number }[]) =>
+      vi.fn().mockResolvedValue(
+        create(PreviewReleaseChannelScopeResponseSchema, {
+          minerCount: 3,
+          models,
+          conflicts: [{ channelId: 2n, channelName: "Other", minerCount: 1 }],
+        }),
+      );
+    const props = { scope: mixedScope, onChange: vi.fn() };
+    const { rerender } = render(
+      <ScopeEditor {...props} previewScope={previewOf({ manufacturer: "Proto", model: "CT1", minerCount: 3 })} />,
+    );
+    await waitFor(() => expect(screen.getByTestId("scope-preview")).toHaveTextContent("covers 3 containers"));
+    expect(screen.getByTestId("scope-conflicts")).toHaveTextContent("Overlaps Other (1 container).");
+    expect(screen.getByTestId("scope-conflicts")).toHaveTextContent("Remove those containers from one of the channels");
+
+    rerender(
+      <ScopeEditor
+        {...props}
+        previewScope={previewOf(
+          { manufacturer: "Proto", model: "CT1", minerCount: 1 },
+          { manufacturer: "Proto", model: "Rig", minerCount: 2 },
+        )}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId("scope-preview")).toHaveTextContent("covers 3 devices"));
+    expect(screen.getByTestId("scope-conflicts")).toHaveTextContent("Overlaps Other (1 device).");
+    expect(screen.getByTestId("scope-conflicts")).toHaveTextContent("Remove those devices from one of the channels");
+  });
+
   it("holds the miner and container counts until the catalog can tell them apart", () => {
     grant();
     useContainers.mockReturnValue({ containers: [], error: undefined, loading: true });

@@ -69,7 +69,7 @@ export function scopeValidationErrors(scope: ReleaseChannelScope): string[] {
     );
 }
 
-// One label per populated dimension ("2 racks, 5 miners"); "No miners
+// One label per populated dimension ("2 racks, 5 miners"); "Nothing
 // selected" when the scope is empty. Containers share deviceIdentifiers with
 // miners, so the caller says how many of those identifiers are containers.
 export function scopeSummary(scope: ReleaseChannelScope, containerCount = 0): string {
@@ -81,7 +81,7 @@ export function scopeSummary(scope: ReleaseChannelScope, containerCount = 0): st
   const minerCount = scope.deviceIdentifiers.length - containerCount;
   if (minerCount > 0) parts.push(getTargetButtonLabel(minerCount, "miner"));
   if (containerCount > 0) parts.push(getTargetButtonLabel(containerCount, "container"));
-  return parts.length > 0 ? parts.join(", ") : "No miners selected";
+  return parts.length > 0 ? parts.join(", ") : "Nothing selected";
 }
 
 export const isScopeEmpty = (scope: ReleaseChannelScope): boolean =>

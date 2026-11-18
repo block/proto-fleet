@@ -659,7 +659,7 @@ export const batchedRigRollout: Rollout = rolloutWithDevices(
       hashRateHs: aggregate(112 * TH, 112 * TH, 1),
       hashrateChangePercent: 0,
       newErrors: 2,
-      holdReason: "1 miners failed to update",
+      holdReason: "1 miner failed to update",
       powerW: aggregate(112 * 30, 112 * 30 + 40, 1),
       efficiencyJh: aggregate(30, 30.4, 1),
       efficiencyChangePercent: 1.3,

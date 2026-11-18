@@ -2,9 +2,10 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
-import { manageViewProps } from "./__tests__/helpers";
+import { manageViewProps, openChannelSettings } from "./__tests__/helpers";
 import { defaultBehavior } from "./behaviorUtils";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
+import { DEVICE_NOUNS } from "./rolloutStatus";
 import {
   ReleaseChannelMinerSchema,
   ReleaseChannelModelGroupSchema,
@@ -120,6 +121,33 @@ describe("release channel assignments by device type", () => {
     expect(screen.getByText("Assigned miners")).toBeInTheDocument();
     expect(screen.getByText(/No miners in scope yet/)).toBeInTheDocument();
     expect(screen.queryByText("Assigned Proto Containers")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["miners only", [rigGroup, s21Group], "miner", "miners"],
+    ["containers only", [containerGroup], "container", "containers"],
+    ["miners and containers", [rigGroup, containerGroup], "device", "devices"],
+  ] as const)("words channel settings for a channel of %s", (_, groups, singular, plural) => {
+    renderManage(channelWith(...groups));
+    openChannelSettings();
+    const settings = within(screen.getByTestId("channel-settings-modal"));
+
+    expect(settings.getByText(`Every ${singular} not on the new version updates at once.`)).toBeInTheDocument();
+    expect(settings.getByLabelText(`Max ${plural} offline at once (0 for no limit)`)).toBeInTheDocument();
+    expect(
+      settings.getByText(`Choose which ${plural} belong to this channel. Changes stay pending until you apply them.`),
+    ).toBeInTheDocument();
+  });
+
+  it("falls back to the fleet's wording for a channel with nothing in scope", () => {
+    const props = { ...manageViewProps(), channel: channelWith(), firmwareFiles: [] };
+    const { rerender } = render(<ReleaseChannelManageView {...props} />);
+    expect(screen.getByText(/No miners in scope yet/)).toBeInTheDocument();
+
+    rerender(<ReleaseChannelManageView {...props} fleetNouns={DEVICE_NOUNS} />);
+    expect(
+      screen.getByText("No devices in scope yet. Open Channel settings and change Applies to to include devices."),
+    ).toBeInTheDocument();
   });
 
   it("assigns hashboard firmware to a container model", async () => {

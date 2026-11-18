@@ -179,8 +179,8 @@ export function useChannelControllerSoftware({
           }
           subtitle={
             pending.version === ""
-              ? `Hashboard firmware updates for ${pending.label} in ${channelName} will no longer wait for controller software ${pending.current}.`
-              : `${pending.label} containers in ${channelName} that aren't on ${pending.version} won't receive hashboard firmware until their controller software is updated. This doesn't update any container.`
+              ? `Firmware updates for ${pending.label} in ${channelName} will no longer wait for controller software ${pending.current}.`
+              : `${pending.label} containers in ${channelName} that aren't on ${pending.version} won't receive firmware updates until their controller software is updated. This doesn't update any container.`
           }
           testId="controller-software-dialog"
           onDismiss={() => {

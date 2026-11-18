@@ -97,8 +97,8 @@ has are not enough.
 | `SetReleaseChannelControllerSoftware` (rollout service) | at organization scope, together with `miner:firmware_update` |
 
 A release channel can name the controller software version its containers
-should run. That target starts no update here; it holds hashboard firmware
-from containers that are behind. See
+should run. That target starts no update here; it holds the channel's firmware
+updates from containers that are behind. See
 [CT1 controller software version](firmware-rollout-api.md#ct1-controller-software-version).
 
 `ListPackages` also returns `has_updatable_container`: whether a container is

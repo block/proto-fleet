@@ -212,7 +212,9 @@ describe("controller software in a release channel", () => {
     fireEvent.click(await screen.findByRole("option", { name: "Not set" }));
     const dialog = screen.getByTestId("controller-software-dialog");
     expect(dialog).toHaveTextContent("Stop requiring a controller software version?");
-    expect(dialog).toHaveTextContent("will no longer wait for controller software 1.6.0");
+    expect(dialog).toHaveTextContent(
+      "Firmware updates for proto CT1 in Production will no longer wait for controller software 1.6.0.",
+    );
 
     await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "Clear version" })));
     expect(within(dialog).getByRole("alert")).toHaveTextContent("permission denied");

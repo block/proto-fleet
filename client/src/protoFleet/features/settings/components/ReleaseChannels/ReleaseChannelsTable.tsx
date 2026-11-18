@@ -4,10 +4,12 @@ import clsx from "clsx";
 import { ModelStatusCell, StatusCell } from "./channelStatus";
 import {
   activeRolloutForGroup,
+  capitalize,
   channelAssignmentKey,
   channelUpdateStatus,
   hasUnavailableAssignedFirmware,
   lastFinishedByChannelAssignment,
+  mixedDeviceNouns,
   modelFirmwareLabel,
   pairKey,
   pairLabel,
@@ -46,13 +48,15 @@ type ChannelColumn = "name" | "miners" | "firmware" | "status" | "actions";
 
 const channelColumns: ChannelColumn[] = ["name", "miners", "firmware", "status", "actions"];
 
-const channelColTitles: ColTitles<ChannelColumn> = {
+// The count column is headed by what the listed channels hold: miners,
+// containers, or devices when both appear.
+const channelColTitles = (channels: ChannelView[]): ColTitles<ChannelColumn> => ({
   name: "Release channel",
-  miners: "Miners",
+  miners: capitalize(mixedDeviceNouns(channels.flatMap((channel) => channel.modelGroups)).plural),
   firmware: "Firmware",
   status: "Update status",
   actions: "",
-};
+});
 
 // The release channels overview on the shared List: one disclosure row per
 // channel with aggregate counts, and per-model rows carrying firmware targets
@@ -215,7 +219,7 @@ const ReleaseChannelsTable = ({
     <div className="flex flex-col gap-6" data-testid="channels-table">
       <List<ChannelTableRow, string, ChannelColumn>
         activeCols={channelColumns}
-        colTitles={channelColTitles}
+        colTitles={channelColTitles(channels)}
         colConfig={colConfig}
         items={rows}
         itemKey="id"

@@ -37,7 +37,7 @@ describe("controller software in a channel", () => {
     expect(controllerSoftwareStatus(software("1.6.0", 0, 0))).toBeNull();
   });
 
-  it("explains a held hashboard firmware update by container count", () => {
+  it("explains a held firmware update by container count", () => {
     expect(controllerSoftwareHoldMessage(software("1.6.0", 2, 2))).toBeNull();
     expect(controllerSoftwareHoldMessage(software("", 2, 0))).toBeNull();
     expect(controllerSoftwareHoldMessage(software("1.6.0", 2, 1))).toBe(

@@ -46,7 +46,7 @@ func TestScopesResolvePlacementAndRejectOverlap(t *testing.T) {
 
 	// The group shares miner-1 with the rack: rejected, naming the channel.
 	_, err = f.svc.CreateChannel(ctx, f.orgID, 1, ChannelSpec{Name: "Group channel", Scope: Scope{GroupIDs: []int64{group}}})
-	require.ErrorContains(t, err, "overlaps release channel Rack channel (1 miners)")
+	require.ErrorContains(t, err, "overlaps release channel Rack channel (1 device)")
 	preview, err = f.svc.PreviewScope(ctx, f.orgID, Scope{GroupIDs: []int64{group}}, 0)
 	require.NoError(t, err)
 	assert.Equal(t, []ScopeConflict{{ChannelID: rackChannel.ID, ChannelName: "Rack channel", MinerCount: 1}}, preview.Conflicts)
@@ -60,7 +60,7 @@ func TestScopesResolvePlacementAndRejectOverlap(t *testing.T) {
 	_, err = f.svc.UpdateChannel(ctx, f.orgID, rackChannel.ID, ChannelSpec{
 		Name: "Rack channel", Scope: Scope{DeviceIdentifiers: []string{"ghost-9"}},
 	})
-	assert.ErrorContains(t, err, `unknown miner "ghost-9"`)
+	assert.ErrorContains(t, err, `unknown device "ghost-9"`)
 	edited, err := f.svc.GetChannel(ctx, f.orgID, rackChannel.ID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"miner-4"}, edited.Scope.DeviceIdentifiers, "identifiers round-trip through storage")
@@ -204,8 +204,8 @@ func TestScopePreviewCountsMinersOnceAcrossConflictingChannels(t *testing.T) {
 	}, preview.Conflicts)
 
 	_, err = f.svc.CreateChannel(ctx, f.orgID, 1, ChannelSpec{Name: "Candidate", Scope: scope})
-	require.ErrorContains(t, err, "Channel A (1 miners)")
-	require.ErrorContains(t, err, "Channel B (1 miners)")
+	require.ErrorContains(t, err, "Channel A (1 device)")
+	require.ErrorContains(t, err, "Channel B (1 device)")
 	channels, _, err := f.svc.ListChannels(ctx, f.orgID, 0, "")
 	require.NoError(t, err)
 	assert.Len(t, channels, 2, "the rejected save must not create a channel")

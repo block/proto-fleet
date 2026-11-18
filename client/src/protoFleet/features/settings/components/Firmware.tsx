@@ -161,6 +161,20 @@ function toFileData(info: FirmwareFileInfo): FirmwareFileData {
 const isContainerFirmware = (file: FirmwareFileData): boolean =>
   isCT1FirmwareTarget({ targetManufacturer: file.targetManufacturer, targetModel: file.targetModel });
 
+// The kinds of firmware file a Proto Container takes, each listed under its
+// own heading in this order. A file belongs to the first kind that accepts it.
+const CONTAINER_FIRMWARE_KINDS: { key: string; title: string; accepts: (file: FirmwareFileData) => boolean }[] = [
+  // Every container file that no other kind accepts is a hashboard archive.
+  { key: "hashboard", title: "Hashboard firmware", accepts: () => true },
+];
+
+/** Container files grouped by kind; a kind with no file is left out. */
+const containerFirmwareSections = (files: FirmwareFileData[]) =>
+  CONTAINER_FIRMWARE_KINDS.map((kind) => ({
+    kind,
+    files: files.filter((file) => CONTAINER_FIRMWARE_KINDS.find((candidate) => candidate.accepts(file)) === kind),
+  })).filter((section) => section.files.length > 0);
+
 /**
  * Whether a Proto Container is paired, as far as this caller is concerned.
  * `hasContainers` is undefined while that is unknown: still loading, not
@@ -448,9 +462,13 @@ const FirmwareFilesSection = ({
       {fileContent}
       {showContainers ? (
         <FirmwareDeviceSection title="Proto Containers">
-          {showContainerFiles ? (
-            <FirmwareArtifactSection title="Hashboard firmware">{renderFiles(containerFiles)}</FirmwareArtifactSection>
-          ) : null}
+          {showContainerFiles
+            ? containerFirmwareSections(containerFiles).map(({ kind, files: kindFiles }) => (
+                <FirmwareArtifactSection key={kind.key} title={kind.title}>
+                  {renderFiles(kindFiles)}
+                </FirmwareArtifactSection>
+              ))
+            : null}
           {showFrigatePackages ? <FrigatePackages /> : null}
         </FirmwareDeviceSection>
       ) : null}

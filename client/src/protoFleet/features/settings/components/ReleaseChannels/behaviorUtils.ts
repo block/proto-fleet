@@ -1,6 +1,6 @@
 import { create, equals } from "@bufbuild/protobuf";
 
-import { methodHelpText, methodLabels, orderLabels } from "./rolloutStatus";
+import { type DeviceNouns, methodHelp, methodLabels, MINER_NOUNS, nounCountLabel, orderLabels } from "./rolloutStatus";
 import {
   RolloutAutomationThresholdsSchema,
   type RolloutBehavior,
@@ -24,9 +24,12 @@ export const defaultBehavior = (): RolloutBehavior =>
     thresholds: create(RolloutAutomationThresholdsSchema, { maxHashrateDropPercent: 10, maxNewErrors: 0 }),
   });
 
-export const methodOptions = [RolloutMethod.ALL_AT_ONCE, RolloutMethod.BATCHED, RolloutMethod.PILOT_THEN_CONTINUE].map(
-  (method) => ({ value: String(method), label: methodLabels[method], description: methodHelpText[method] }),
-);
+export const methodOptions = (nouns: DeviceNouns = MINER_NOUNS) =>
+  [RolloutMethod.ALL_AT_ONCE, RolloutMethod.BATCHED, RolloutMethod.PILOT_THEN_CONTINUE].map((method) => ({
+    value: String(method),
+    label: methodLabels[method],
+    description: methodHelp(method, nouns),
+  }));
 
 export const orderOptions = [RolloutOrder.LEAST_EFFICIENT_FIRST, RolloutOrder.RANDOM].map((order) => ({
   value: String(order),
@@ -97,8 +100,8 @@ export type RolloutNumericField =
   | "maxNewErrors";
 
 const MAX_INT32 = 2_147_483_647;
-const integerError = (value: number, minimum = 0): string | undefined => {
-  if (minimum === 1 && value < 1) return "Enter at least 1 miner.";
+const integerError = (value: number, minimum = 0, nouns: DeviceNouns = MINER_NOUNS): string | undefined => {
+  if (minimum === 1 && value < 1) return `Enter at least 1 ${nouns.singular}.`;
   return Number.isInteger(value) && value >= minimum && value <= MAX_INT32
     ? undefined
     : `Enter a whole number from ${minimum} to 2,147,483,647.`;
@@ -106,10 +109,13 @@ const integerError = (value: number, minimum = 0): string | undefined => {
 
 // Validate only fields the selected method will send. Hidden draft values stay
 // available for correction if the operator switches back to that method.
-export function rolloutBehaviorErrors(behavior: RolloutBehavior): Partial<Record<RolloutNumericField, string>> {
+export function rolloutBehaviorErrors(
+  behavior: RolloutBehavior,
+  nouns: DeviceNouns = MINER_NOUNS,
+): Partial<Record<RolloutNumericField, string>> {
   const errors: Partial<Record<RolloutNumericField, string>> = {};
   const checkInteger = (field: RolloutNumericField, value: number, minimum = 0) => {
-    const error = integerError(value, minimum);
+    const error = integerError(value, minimum, nouns);
     if (error) errors[field] = error;
   };
   const checkDuration = (field: "waitBetweenBatchesSeconds" | "stabilizationSeconds", value: number) => {
@@ -149,22 +155,26 @@ export function rolloutBehaviorErrors(behavior: RolloutBehavior): Partial<Record
   return errors;
 }
 
-// Live plan readout: "~3 batches of 10" for the miners currently in scope.
-export function planReadout(behavior: RolloutBehavior, inScopeCount: number): string | null {
+// Live plan readout: "~3 batches of 10" for the devices currently in scope.
+export function planReadout(
+  behavior: RolloutBehavior,
+  inScopeCount: number,
+  nouns: DeviceNouns = MINER_NOUNS,
+): string | null {
   if (inScopeCount <= 0) return null;
   switch (behavior.method) {
     case RolloutMethod.BATCHED: {
       if (behavior.batchSize <= 0) return null;
       const batches = Math.ceil(inScopeCount / behavior.batchSize);
-      return `~${batches.toLocaleString()} ${batches === 1 ? "batch" : "batches"} of ${behavior.batchSize.toLocaleString()} across ${inScopeCount.toLocaleString()} miners`;
+      return `~${batches.toLocaleString()} ${batches === 1 ? "batch" : "batches"} of ${behavior.batchSize.toLocaleString()} across ${inScopeCount.toLocaleString()} ${nouns.plural}`;
     }
     case RolloutMethod.PILOT_THEN_CONTINUE: {
       const pilot = Math.min(behavior.pilotSize, inScopeCount);
       return `Pilot batch of ${pilot.toLocaleString()}, then ${Math.max(inScopeCount - pilot, 0).toLocaleString()} remaining`;
     }
     case RolloutMethod.DELEGATED:
-      return `${inScopeCount.toLocaleString()} ${inScopeCount === 1 ? "miner" : "miners"} in scope; an external controller decides which miners update and when`;
+      return `${nounCountLabel(nouns, inScopeCount)} in scope; an external controller decides which ${nouns.plural} update and when`;
     default:
-      return `${inScopeCount.toLocaleString()} miners in a single batch`;
+      return `${inScopeCount.toLocaleString()} ${nouns.plural} in a single batch`;
   }
 }
