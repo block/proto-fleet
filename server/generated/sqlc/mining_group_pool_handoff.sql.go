@@ -73,7 +73,7 @@ func (q *Queries) GetAdoptedPoolBoardSnapshot(ctx context.Context, arg GetAdopte
 }
 
 const getMiningGroupPoolHandoff = `-- name: GetMiningGroupPoolHandoff :one
-SELECT organization_id, operation_id, device_id, captured, completed_at FROM mining_group_pool_handoff WHERE organization_id=$1 AND operation_id=$2 AND device_id=$3
+SELECT organization_id, operation_id, device_id, captured, completed_at, placement_pending FROM mining_group_pool_handoff WHERE organization_id=$1 AND operation_id=$2 AND device_id=$3
 `
 
 type GetMiningGroupPoolHandoffParams struct {
@@ -91,6 +91,133 @@ func (q *Queries) GetMiningGroupPoolHandoff(ctx context.Context, arg GetMiningGr
 		&i.DeviceID,
 		&i.Captured,
 		&i.CompletedAt,
+		&i.PlacementPending,
 	)
 	return i, err
+}
+
+const hasPendingMiningGroupPoolHandoff = `-- name: HasPendingMiningGroupPoolHandoff :one
+SELECT EXISTS(SELECT 1 FROM mining_group_pool_handoff
+ WHERE organization_id=$1 AND device_id=$2 AND placement_pending)::boolean
+`
+
+type HasPendingMiningGroupPoolHandoffParams struct {
+	OrganizationID int64
+	DeviceID       int64
+}
+
+func (q *Queries) HasPendingMiningGroupPoolHandoff(ctx context.Context, arg HasPendingMiningGroupPoolHandoffParams) (bool, error) {
+	row := q.queryRow(ctx, q.hasPendingMiningGroupPoolHandoffStmt, hasPendingMiningGroupPoolHandoff, arg.OrganizationID, arg.DeviceID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const listActivationPoolInventory = `-- name: ListActivationPoolInventory :many
+WITH input AS (SELECT value->>'mac_address' AS mac_address,value->>'serial' AS serial FROM jsonb_array_elements($3::jsonb))
+SELECT h.id AS hashboard_id, x.mac_address::text AS mac_address, x.serial::text AS serial,
+ COALESCE(a.subclient_id,a.client_id,0)::bigint AS account_id,
+ COALESCE(a.revision,0)::bigint AS revision,
+ (o.device_id=$1 AND o.released_at IS NULL
+  AND o.site_id IS NOT DISTINCT FROM d.site_id
+  AND o.last_seen_at>now()-INTERVAL '2 minutes'
+  AND o.last_seen_at<=now()+INTERVAL '5 seconds')::boolean AS ready
+FROM input x
+JOIN hashboard_identity mac ON mac.org_id=$2 AND mac.kind='mac' AND mac.value=x.mac_address
+JOIN hashboard_identity serial ON serial.org_id=mac.org_id AND serial.kind='serial' AND serial.value=x.serial AND serial.hashboard_id=mac.hashboard_id
+JOIN hashboard h ON h.id=mac.hashboard_id AND h.org_id=mac.org_id
+JOIN hashboard_observation o ON o.hashboard_id=h.id
+JOIN device d ON d.id=$1 AND d.org_id=h.org_id AND d.deleted_at IS NULL
+LEFT JOIN hosted_account_asset a ON a.organization_id=h.org_id AND a.kind=7 AND a.asset_id=h.id
+ORDER BY h.id
+`
+
+type ListActivationPoolInventoryParams struct {
+	DeviceID       int64
+	OrganizationID int64
+	Boards         json.RawMessage
+}
+
+type ListActivationPoolInventoryRow struct {
+	HashboardID int64
+	MacAddress  string
+	Serial      string
+	AccountID   int64
+	Revision    int64
+	Ready       bool
+}
+
+// Resolve both aliases to the same physical board. Placement is not identity.
+func (q *Queries) ListActivationPoolInventory(ctx context.Context, arg ListActivationPoolInventoryParams) ([]ListActivationPoolInventoryRow, error) {
+	rows, err := q.query(ctx, q.listActivationPoolInventoryStmt, listActivationPoolInventory, arg.DeviceID, arg.OrganizationID, arg.Boards)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListActivationPoolInventoryRow
+	for rows.Next() {
+		var i ListActivationPoolInventoryRow
+		if err := rows.Scan(
+			&i.HashboardID,
+			&i.MacAddress,
+			&i.Serial,
+			&i.AccountID,
+			&i.Revision,
+			&i.Ready,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setMiningGroupPoolHandoffPlacementPending = `-- name: SetMiningGroupPoolHandoffPlacementPending :exec
+UPDATE mining_group_pool_handoff SET placement_pending=$4
+WHERE organization_id=$1 AND operation_id=$2 AND device_id=$3
+`
+
+type SetMiningGroupPoolHandoffPlacementPendingParams struct {
+	OrganizationID   int64
+	OperationID      uuid.UUID
+	DeviceID         int64
+	PlacementPending bool
+}
+
+func (q *Queries) SetMiningGroupPoolHandoffPlacementPending(ctx context.Context, arg SetMiningGroupPoolHandoffPlacementPendingParams) error {
+	_, err := q.exec(ctx, q.setMiningGroupPoolHandoffPlacementPendingStmt, setMiningGroupPoolHandoffPlacementPending,
+		arg.OrganizationID,
+		arg.OperationID,
+		arg.DeviceID,
+		arg.PlacementPending,
+	)
+	return err
+}
+
+const updateMiningGroupPoolHandoffCapture = `-- name: UpdateMiningGroupPoolHandoffCapture :exec
+UPDATE mining_group_pool_handoff SET captured=$4
+WHERE organization_id=$1 AND operation_id=$2 AND device_id=$3
+`
+
+type UpdateMiningGroupPoolHandoffCaptureParams struct {
+	OrganizationID int64
+	OperationID    uuid.UUID
+	DeviceID       int64
+	Captured       json.RawMessage
+}
+
+func (q *Queries) UpdateMiningGroupPoolHandoffCapture(ctx context.Context, arg UpdateMiningGroupPoolHandoffCaptureParams) error {
+	_, err := q.exec(ctx, q.updateMiningGroupPoolHandoffCaptureStmt, updateMiningGroupPoolHandoffCapture,
+		arg.OrganizationID,
+		arg.OperationID,
+		arg.DeviceID,
+		arg.Captured,
+	)
+	return err
 }

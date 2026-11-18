@@ -10,6 +10,7 @@ import (
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	"github.com/block/proto-fleet/server/internal/domain/session"
@@ -121,6 +122,9 @@ func (s *PoolService) poolEquipmentAccess(ctx context.Context, q sqlc.Querier, s
 	if !siteAllowed(policy, device.SiteID.Int64) {
 		return nil, denied()
 	}
+	if err := devicewrite.RequireNoPendingActivationPoolHandoff(ctx, q, scope.OrganizationID, deviceID); err != nil {
+		return nil, err
+	}
 	access := &poolEquipmentAccess{device: device, host: host,
 		ownersByBoard: make(map[[2]int64][]sqlc.ListPoolEquipmentModuleOwnersRow),
 		installations: make(map[int64]sqlc.ListPoolEquipmentInstallationsRow)}
@@ -191,6 +195,9 @@ func (a *poolEquipmentAccess) authorize(scope poolconfigurations.Scope, target p
 		return "", fleeterror.NewFailedPreconditionError("equipment inventory is unavailable; refresh and review again")
 	}
 	for _, owner := range owners {
+		if owner.AccountID < 0 {
+			return "", fleeterror.NewFailedPreconditionError("Hashboard inventory has missing or conflicting locations. Refresh the controller inventory before changing pools.")
+		}
 		if owner.AccountID != scope.AccountID {
 			return "", denied()
 		}

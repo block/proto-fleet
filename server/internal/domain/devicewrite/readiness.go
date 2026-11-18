@@ -43,6 +43,9 @@ func RequireNoConflictingPoolWrites(ctx context.Context, q sqlc.Querier, organiz
 // journal while still refusing every unresolved physical attempt except its own.
 // Recovery uses this only to observe and finish the original removal.
 func RequireNoConflictingPoolWritesForRemoval(ctx context.Context, q sqlc.Querier, organizationID, deviceID int64, removalID uuid.UUID) error {
+	if err := RequireNoPendingActivationPoolHandoff(ctx, q, organizationID, deviceID); err != nil {
+		return err
+	}
 	attempts, err := q.ListUnresolvedDeviceWriteAttempts(ctx, sqlc.ListUnresolvedDeviceWriteAttemptsParams{OrganizationID: organizationID, DeviceID: deviceID})
 	if err != nil {
 		return err
@@ -115,6 +118,11 @@ func requirePoolRemovalAdmission(ctx context.Context, q sqlc.Querier, organizati
 		nativeCurtailment = binding.DriverName == "proto"
 	}
 	if !nativeCurtailment {
+		if kind.MayAffectPools() {
+			if err := RequireNoPendingActivationPoolHandoff(ctx, q, organizationID, deviceID); err != nil {
+				return err
+			}
+		}
 		if err := RequireNoMiningGroupDeactivation(ctx, q, organizationID, deviceID); err != nil {
 			return err
 		}
@@ -135,6 +143,21 @@ func requirePoolRemovalAdmission(ctx context.Context, q sqlc.Querier, organizati
 			return nil
 		}
 		return fleeterror.NewFailedPreconditionError("pool removal is unfinished; check its result before another device change")
+	}
+	return nil
+}
+
+const ActivationPoolPlacementPending = "Mining groups are enabled. The container pool assignment is retained until all hashboard locations are confirmed. Pool changes are blocked."
+
+// This fence outlives the activation workflow. It protects retained intent
+// while identity is known but assignment placement is still unavailable.
+func RequireNoPendingActivationPoolHandoff(ctx context.Context, q sqlc.Querier, organizationID, deviceID int64) error {
+	pending, err := q.HasPendingMiningGroupPoolHandoff(ctx, sqlc.HasPendingMiningGroupPoolHandoffParams{OrganizationID: organizationID, DeviceID: deviceID})
+	if err != nil {
+		return err
+	}
+	if pending {
+		return fleeterror.NewFailedPreconditionError(ActivationPoolPlacementPending)
 	}
 	return nil
 }

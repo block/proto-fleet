@@ -1288,6 +1288,7 @@ type Querier interface {
 	HasIssuedHostedOriginalReport(ctx context.Context, arg HasIssuedHostedOriginalReportParams) (bool, error)
 	HasPendingContainerCommand(ctx context.Context, arg HasPendingContainerCommandParams) (bool, error)
 	HasPendingDefaultReturnPoolPolicy(ctx context.Context, arg HasPendingDefaultReturnPoolPolicyParams) (sql.NullBool, error)
+	HasPendingMiningGroupPoolHandoff(ctx context.Context, arg HasPendingMiningGroupPoolHandoffParams) (bool, error)
 	HasPoolAssignmentKindConflict(ctx context.Context, arg HasPoolAssignmentKindConflictParams) (bool, error)
 	HasPoolConfigurationCutover(ctx context.Context, organizationID int64) (bool, error)
 	// Confirmation holds the review lock and checks replay/expiry first. Use that
@@ -1396,6 +1397,8 @@ type Querier interface {
 	ListAccountRepairTicketComments(ctx context.Context, arg ListAccountRepairTicketCommentsParams) ([]ListAccountRepairTicketCommentsRow, error)
 	ListAccountRepairTicketTargets(ctx context.Context, arg ListAccountRepairTicketTargetsParams) ([]RepairTicketTarget, error)
 	ListAccountRepairTickets(ctx context.Context, arg ListAccountRepairTicketsParams) ([]RepairTicket, error)
+	// Resolve both aliases to the same physical board. Placement is not identity.
+	ListActivationPoolInventory(ctx context.Context, arg ListActivationPoolInventoryParams) ([]ListActivationPoolInventoryRow, error)
 	// The delivery-path read: only windows covering sqlc.arg('now'), so the expired tail never loads.
 	ListActiveAlertMaintenanceWindows(ctx context.Context, arg ListActiveAlertMaintenanceWindowsParams) ([]AlertMaintenanceWindow, error)
 	// Devices locked in a non-terminal event; excluded from candidates to
@@ -2782,6 +2785,7 @@ type Querier interface {
 	SetLocalTelemetryLockTimeout(ctx context.Context, timeoutMilliseconds int64) error
 	SetLocalTransactionTimeout(ctx context.Context, timeoutMilliseconds int64) error
 	SetMQTTSourceConfigEnabled(ctx context.Context, arg SetMQTTSourceConfigEnabledParams) (SetMQTTSourceConfigEnabledRow, error)
+	SetMiningGroupPoolHandoffPlacementPending(ctx context.Context, arg SetMiningGroupPoolHandoffPlacementPendingParams) error
 	// Policy ordering uses save time after serialization locks, not transaction start.
 	// Explicitly returning retired equipment must not resurrect its former intent
 	// while the new reviewed operation is pending or if admission later fails.
@@ -3063,6 +3067,7 @@ type Querier interface {
 	UpdateMessagePermanentlyFailed(ctx context.Context, arg UpdateMessagePermanentlyFailedParams) (sql.Result, error)
 	UpdateMessageStatus(ctx context.Context, arg UpdateMessageStatusParams) (sql.Result, error)
 	UpdateMinerPassword(ctx context.Context, arg UpdateMinerPasswordParams) (int64, error)
+	UpdateMiningGroupPoolHandoffCapture(ctx context.Context, arg UpdateMiningGroupPoolHandoffCaptureParams) error
 	UpdateOrganization(ctx context.Context, arg UpdateOrganizationParams) error
 	UpdatePool(ctx context.Context, arg UpdatePoolParams) error
 	UpdateRackInfo(ctx context.Context, arg UpdateRackInfoParams) error

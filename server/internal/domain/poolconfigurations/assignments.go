@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/google/uuid"
 )
@@ -78,6 +79,9 @@ func (r *Repository) Assign(ctx context.Context, q sqlc.Querier, scope Scope, ac
 		return cmp.Or(cmp.Compare(a.Target.Kind, b.Target.Kind), cmp.Compare(a.Target.ID, b.Target.ID))
 	})
 	for i, change := range changes {
+		if err := devicewrite.RequireNoPendingActivationPoolHandoff(ctx, q, scope.OrganizationID, change.Target.DeviceID); err != nil {
+			return Operation{}, err
+		}
 		target := change.Target
 		if automatic {
 			event, err := AuthorizeLifecycleTransition(ctx, q, scope, target.DeviceID)
@@ -155,6 +159,9 @@ func staleAssignment() error {
 func (r *Repository) RetireAssignment(ctx context.Context, q sqlc.Querier, scope Scope, target AssignmentTarget, expectedVersion int64) error {
 	if _, err := q.LockPoolConfigurationImportOrganization(ctx, scope.OrganizationID); err != nil {
 		return storageError(err)
+	}
+	if err := devicewrite.RequireNoPendingActivationPoolHandoff(ctx, q, scope.OrganizationID, target.DeviceID); err != nil {
+		return err
 	}
 	n, err := q.RetirePoolConfigurationAssignment(ctx, sqlc.RetirePoolConfigurationAssignmentParams{DeviceID: target.DeviceID, OrganizationID: scope.OrganizationID, AccountID: scope.account(), TargetKind: target.Kind, TargetID: target.ID, ExpectedVersion: expectedVersion})
 	if err := targetMutationResult(n, err); err != nil {

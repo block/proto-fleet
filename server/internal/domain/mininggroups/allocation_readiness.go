@@ -24,7 +24,7 @@ func (s *Service) refreshAllocationReadiness(ctx context.Context, orgID, deviceI
 	if err != nil {
 		return err
 	}
-	return s.writes.WithHostObservation(ctx, orgID, deviceID, target.Epoch, func(ctx context.Context) error {
+	err = s.writes.WithHostObservation(ctx, orgID, deviceID, target.Epoch, func(ctx context.Context) error {
 		return s.writes.WithExclusiveBindingObservation(ctx, deviceID, func(sqlc.Querier) error {
 			return s.queries.MarkMiningGroupObservationPending(ctx, sqlc.MarkMiningGroupObservationPendingParams{OrganizationID: orgID, DeviceID: deviceID})
 		}, func(ctx context.Context) error {
@@ -54,4 +54,8 @@ func (s *Service) refreshAllocationReadiness(ctx context.Context, orgID, deviceI
 			})
 		})
 	})
+	if err != nil {
+		return err
+	}
+	return s.finishPendingActivationPlacement(ctx, orgID, deviceID)
 }

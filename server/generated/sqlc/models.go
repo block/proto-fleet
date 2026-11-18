@@ -2787,11 +2787,12 @@ type MinerStateSnapshotDeviceHourly struct {
 }
 
 type MiningGroupPoolHandoff struct {
-	OrganizationID int64
-	OperationID    uuid.UUID
-	DeviceID       int64
-	Captured       json.RawMessage
-	CompletedAt    sql.NullTime
+	OrganizationID   int64
+	OperationID      uuid.UUID
+	DeviceID         int64
+	Captured         json.RawMessage
+	CompletedAt      sql.NullTime
+	PlacementPending bool
 }
 
 type MiningGroupRequest struct {

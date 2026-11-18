@@ -51,11 +51,18 @@ func activationWaitingMessage(err error) string {
 func (s *Service) reconcileActivation(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState) error {
 	beforeObservation := row
 	capture, done, err := s.activationPoolCapture(ctx, q, row)
-	if err == nil && capture.SnapshotID != "" {
+	if err == nil && (capture.Inventory != nil || capture.SnapshotID != "") {
 		err = s.validateActivationPools(ctx, q, row, capture, done)
 	}
 	if err != nil {
+		if isInventoryStale(err) {
+			return s.block(ctx, q, row, "Controller inventory is unavailable. Waiting for a fresh identity inventory before continuing activation.")
+		}
 		if fleeterror.IsFailedPreconditionError(err) || fleeterror.IsForbiddenError(err) {
+			var refusal fleeterror.FleetError
+			if errors.As(err, &refusal) {
+				return s.interrupt(ctx, q, row, refusal.DebugMessage)
+			}
 			return s.interrupt(ctx, q, row, activationPoolRecovery)
 		}
 		return err
@@ -85,6 +92,19 @@ func (s *Service) reconcileActivation(ctx context.Context, q sqlc.Querier, row s
 	if !observed.Supported {
 		return s.block(ctx, q, row, "Controller firmware does not support mining groups")
 	}
+	if capture.Inventory != nil && observed.Enabled {
+		known := make(map[string]bool, len(capture.Inventory))
+		for _, board := range capture.Inventory {
+			known[board.MAC] = true
+		}
+		for _, group := range observed.Groups {
+			for _, mac := range group.MACs {
+				if !known[mac] {
+					return s.interrupt(ctx, q, row, "Mining-group membership does not match the verified hashboard inventory. Refresh the container inventory before resuming mining.")
+				}
+			}
+		}
+	}
 	if observed.Enabled {
 		// A cached disabled observation at admission is not proof these boards
 		// were present before an external activation. The original mining state
@@ -99,6 +119,13 @@ func (s *Service) reconcileActivation(ctx context.Context, q sqlc.Querier, row s
 			return s.block(ctx, q, row, "Waiting for mining-group activation to settle")
 		}
 		if !done {
+			foundDefault := false
+			for _, group := range observed.Groups {
+				foundDefault = foundDefault || group.ID == "default"
+			}
+			if !foundDefault {
+				return s.block(ctx, q, row, "Waiting for the default mining group before transferring pool assignments")
+			}
 			return &activationPoolHandoffReady{row: beforeObservation, observed: observed, observedAt: row.ObservedAt.Time}
 		}
 		if !row.ActivationResumeMining.Valid || !row.ActivationResumeMining.Bool {

@@ -6758,6 +6758,18 @@ func (q *retryingQuerier) HasPendingDefaultReturnPoolPolicy(ctx context.Context,
 	return result, err
 }
 
+func (q *retryingQuerier) HasPendingMiningGroupPoolHandoff(ctx context.Context, arg HasPendingMiningGroupPoolHandoffParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "HasPendingMiningGroupPoolHandoff", func() error {
+		callResult, callErr := q.next.HasPendingMiningGroupPoolHandoff(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) HasPoolAssignmentKindConflict(ctx context.Context, arg HasPoolAssignmentKindConflictParams) (bool, error) {
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "HasPoolAssignmentKindConflict", func() error {
@@ -7350,6 +7362,18 @@ func (q *retryingQuerier) ListAccountRepairTickets(ctx context.Context, arg List
 	var result []RepairTicket
 	err := q.retrier.RetryQuery(ctx, "ListAccountRepairTickets", func() error {
 		callResult, callErr := q.next.ListAccountRepairTickets(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListActivationPoolInventory(ctx context.Context, arg ListActivationPoolInventoryParams) ([]ListActivationPoolInventoryRow, error) {
+	var result []ListActivationPoolInventoryRow
+	err := q.retrier.RetryQuery(ctx, "ListActivationPoolInventory", func() error {
+		callResult, callErr := q.next.ListActivationPoolInventory(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -12818,6 +12842,12 @@ func (q *retryingQuerier) SetMQTTSourceConfigEnabled(ctx context.Context, arg Se
 	return result, err
 }
 
+func (q *retryingQuerier) SetMiningGroupPoolHandoffPlacementPending(ctx context.Context, arg SetMiningGroupPoolHandoffPlacementPendingParams) error {
+	return q.retrier.RetryQuery(ctx, "SetMiningGroupPoolHandoffPlacementPending", func() error {
+		return q.next.SetMiningGroupPoolHandoffPlacementPending(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) SetPoolConfigurationAssignment(ctx context.Context, arg SetPoolConfigurationAssignmentParams) (PoolConfigurationAssignment, error) {
 	var result PoolConfigurationAssignment
 	err := q.retrier.RetryQuery(ctx, "SetPoolConfigurationAssignment", func() error {
@@ -13758,6 +13788,12 @@ func (q *retryingQuerier) UpdateMinerPassword(ctx context.Context, arg UpdateMin
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) UpdateMiningGroupPoolHandoffCapture(ctx context.Context, arg UpdateMiningGroupPoolHandoffCaptureParams) error {
+	return q.retrier.RetryQuery(ctx, "UpdateMiningGroupPoolHandoffCapture", func() error {
+		return q.next.UpdateMiningGroupPoolHandoffCapture(ctx, arg)
+	})
 }
 
 func (q *retryingQuerier) UpdateOrganization(ctx context.Context, arg UpdateOrganizationParams) error {

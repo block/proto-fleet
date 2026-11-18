@@ -17,6 +17,24 @@ enables groups. Default keeps its pools and stays stopped until an operator
 starts it. Release factory-test reservations before activation. Every configured
 controller must also meet Frigate's activation prerequisites.
 
+Activation reads the complete controller map through Fleet Node. It verifies
+each MAC and serial against one stored hashboard identity and its current owner.
+Unlocated boards and conflicting slot positions do not prevent this check.
+Missing identities, duplicate identities, stale observations, conflicting
+controller attribution, and customer ownership prevent activation.
+
+If Fleet has a container pool assignment, activation preserves its revision and
+rendered worker names. When all boards have valid installations, Fleet transfers
+the assignment to those installations. Otherwise, Fleet enables mining groups
+and retains the container assignment and complete board identity list. Pool
+changes and ownership changes remain blocked until the transfer completes.
+State refreshes and the readiness worker retry this database-only transfer after
+placement is corrected. They recheck the original identities, ownership, and
+default-group membership. No replacement board receives the captured assignment.
+This requires an updated Fleet Node and Proto plugin that support the
+`activation_inventory` read. Activation remains a Fleet UI operation; it does
+not require an account API request from the user.
+
 Pool assignment through mining groups requires `miner:update_pools`,
 `miner:start_mining`, and `miner:stop_mining` at the container's site, in addition
 to the existing read permissions. Both workflows check all required permissions

@@ -385,7 +385,7 @@ it("shows activation progress and only says Done after completion", async () => 
   render(<MiningGroupsDialog deviceIdentifier="ct1" onClose={onClose} />);
   expect(
     screen.getByText(
-      "Fleet will stop mining before it enables mining groups. Fleet keeps existing pool assignments and checks the settings reported by the installed hashboards. When ready, choose Wake default mining group from the Fleet container menu.",
+      "Fleet will stop mining before it enables mining groups. Fleet preserves pool intent for every identified hashboard. Pool changes stay blocked until the assignment transfer is complete. When ready, choose Wake default mining group from the Fleet container menu.",
     ),
   ).toBeInTheDocument();
   const enable = screen.getByRole("button", { name: "Enable mining groups" });
@@ -428,6 +428,23 @@ it("shows activation progress and only says Done after completion", async () => 
   fireEvent.click(screen.getByRole("button", { name: "Done" }));
   expect(onClose).toHaveBeenCalledOnce();
   expect(mocks.activate).toHaveBeenCalledOnce();
+});
+
+it("shows retained pool assignment guidance after activation completes", async () => {
+  const message =
+    "Mining groups are enabled. The container pool assignment is retained until all hashboard locations are confirmed. Pool changes are blocked.";
+  mocks.getState.mockResolvedValue(
+    create(GetStateResponseSchema, {
+      supported: true,
+      enabled: true,
+      status: "complete",
+      message,
+      observedAt: timestampFromDate(new Date()),
+    }),
+  );
+  render(<MiningGroupsDialog deviceIdentifier="ct1" onClose={vi.fn()} />);
+  await screen.findByText(message);
+  expect(screen.getByRole("button", { name: "Done" })).toBeEnabled();
 });
 
 it("can close a pending activation without resubmitting it", async () => {

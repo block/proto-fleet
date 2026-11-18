@@ -162,7 +162,7 @@ function MiningGroupsForm({ deviceIdentifier, onClose, mode = "activate" }: Mini
   else if (started) buttonLabel = "Close";
 
   let introduction =
-    "Fleet will stop mining before it enables mining groups. Fleet keeps existing pool assignments and checks the settings reported by the installed hashboards. When ready, choose Wake default mining group from the Fleet container menu.";
+    "Fleet will stop mining before it enables mining groups. Fleet preserves pool intent for every identified hashboard. Pool changes stay blocked until the assignment transfer is complete. When ready, choose Wake default mining group from the Fleet container menu.";
   if (deactivating) introduction = "The container will keep the default group’s pools and mining settings.";
   const disableBlocked = deactivating && !started && !complete && !!prerequisite;
   const canMove = disableBlocked && allowed && fresh && !observationError && state?.canReturnToDefault;
@@ -173,7 +173,7 @@ function MiningGroupsForm({ deviceIdentifier, onClose, mode = "activate" }: Mini
     progressMessage = state.message;
     progressRole = "alert";
   } else if (complete) {
-    progressMessage = deactivating ? "Mining groups disabled." : "Mining groups enabled.";
+    progressMessage = deactivating ? "Mining groups disabled." : state.message || "Mining groups enabled.";
   } else if (started) {
     progressMessage = state?.message;
     if (!progressMessage) progressMessage = deactivating ? "Disabling mining groups…" : "Enabling mining groups…";

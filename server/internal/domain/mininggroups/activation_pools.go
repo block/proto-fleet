@@ -28,6 +28,8 @@ type activationPoolBoard struct {
 // Only immutable references and credential-free bindings enter the journal.
 // Encrypted execution material lives in the existing group snapshot store.
 type activationPoolCapture struct {
+	Inventory  []activationPoolIdentity
+	Deferred   bool
 	WorkerName *string
 	Source     sqlc.GetPoolConfigurationAssignmentRow
 	Runtime    sqlc.GetPoolConfigurationRuntimeRow
@@ -42,7 +44,12 @@ func (s *Service) captureActivationPools(ctx context.Context, q sqlc.Querier, ro
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return capture, err
 	}
-	if err == nil && !source.RetiredAt.Valid {
+	hasSource := err == nil && !source.RetiredAt.Valid
+	capture.Inventory, capture.Ownership, err = s.readActivationInventory(ctx, q, row, hasSource)
+	if err != nil {
+		return capture, err
+	}
+	if hasSource {
 		// Without a pre-activation selection, current membership cannot prove which
 		// physical installations inherited the former whole-container assignment.
 		if observed.Enabled {
@@ -66,10 +73,6 @@ func (s *Service) captureActivationPools(ctx context.Context, q sqlc.Querier, ro
 		}
 		scope := poolconfigurations.Scope{OrganizationID: row.OrganizationID}
 		capture.Source = source
-		capture.Ownership, err = s.pools.AuthorizePoolEquipment(ctx, q, scope, row.ActorID.Int64, poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetDevice, ID: row.DeviceID, DeviceID: row.DeviceID})
-		if err != nil {
-			return capture, err
-		}
 		capture.Runtime, err = q.GetPoolConfigurationRuntime(ctx, sqlc.GetPoolConfigurationRuntimeParams{OrgID: row.OrganizationID, ID: row.DeviceID})
 		if err != nil {
 			return capture, err
@@ -95,7 +98,7 @@ func (s *Service) captureActivationPools(ctx context.Context, q sqlc.Querier, ro
 			if err := decode([]byte(work.ReviewedBinding), &binding); err != nil {
 				return capture, err
 			}
-			if binding.Ownership != capture.Ownership || !slices.Equal(binding.Device.IdentityKeys, capture.Runtime.IdentityKeys) || len(binding.Usernames) != len(slots) {
+			if !sameActivationPoolOwner(binding.Ownership, capture.Ownership) || !slices.Equal(binding.Device.IdentityKeys, capture.Runtime.IdentityKeys) || len(binding.Usernames) != len(slots) {
 				return capture, fleeterror.NewFailedPreconditionError(activationPoolRecovery)
 			}
 			usernames = binding.Usernames
@@ -121,54 +124,12 @@ func (s *Service) captureActivationPools(ctx context.Context, q sqlc.Querier, ro
 				usernames = append(usernames, username)
 			}
 		}
-		owners, err := q.ListPoolEquipmentModuleOwners(ctx, sqlc.ListPoolEquipmentModuleOwnersParams{OrgID: row.OrganizationID, ID: row.DeviceID})
+		var complete bool
+		capture.Boards, complete, err = activationPoolPlacements(ctx, q, row, capture.Inventory)
 		if err != nil {
 			return capture, err
 		}
-		var boardIDs []int64
-		for _, owner := range owners {
-			if owner.HashboardID > 0 {
-				boardIDs = append(boardIDs, owner.HashboardID)
-			}
-		}
-		slices.Sort(boardIDs)
-		boardIDs = slices.Compact(boardIDs)
-		boards, err := q.ListPoolSelectionBoards(ctx, sqlc.ListPoolSelectionBoardsParams{OrgID: row.OrganizationID, HashboardIds: boardIDs})
-		if err != nil {
-			return capture, err
-		}
-		if len(boards) == 0 || len(boards) != len(boardIDs) {
-			return capture, fleeterror.NewFailedPreconditionError("Refresh complete hashboard inventory before enabling mining groups")
-		}
-		targets := make([]poolconfigurations.AssignmentTarget, len(boards))
-		seenMACs := make(map[string]bool, len(boards))
-		for i, board := range boards {
-			if seenMACs[board.MacAddress] {
-				return capture, fleeterror.NewFailedPreconditionError("Hashboard identity is ambiguous; refresh the controller inventory")
-			}
-			seenMACs[board.MacAddress] = true
-			if !board.Ready || board.DeviceID != row.DeviceID {
-				return capture, fleeterror.NewFailedPreconditionError("Refresh complete hashboard inventory before enabling mining groups")
-			}
-			targets[i] = poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetInstallation, ID: board.InstallationID, DeviceID: row.DeviceID}
-			if _, err := q.GetPoolConfigurationAssignment(ctx, sqlc.GetPoolConfigurationAssignmentParams{OrganizationID: row.OrganizationID, TargetKind: targets[i].Kind, TargetID: targets[i].ID}); !errors.Is(err, sql.ErrNoRows) {
-				if err != nil {
-					return capture, err
-				}
-				return capture, fleeterror.NewFailedPreconditionError(activationPoolRecovery)
-			}
-		}
-		ownership, err := s.pools.AuthorizePoolEquipmentBatch(ctx, q, scope, row.ActorID.Int64, targets)
-		if err != nil {
-			return capture, err
-		}
-		for i, board := range boards {
-			owner, ok := ownership[i]
-			if !ok {
-				return capture, fleeterror.NewForbiddenError("Hashboard ownership changed")
-			}
-			capture.Boards = append(capture.Boards, activationPoolBoard{Binding: poolapplications.BoardBinding{InstallationID: board.InstallationID, HashboardID: board.HashboardID, ModuleID: board.ModuleID, Position: board.Position, MAC: board.MacAddress}, Ownership: owner})
-		}
+		capture.Deferred = !complete
 		for i := range slots {
 			slots[i].Username = usernames[i]
 			slots[i].WorkerTemplate = ""
@@ -213,6 +174,9 @@ func (s *Service) activationPoolCapture(ctx context.Context, q sqlc.Querier, row
 }
 
 func (s *Service) validateActivationPools(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, capture activationPoolCapture, transferred bool) error {
+	if capture.Inventory != nil {
+		return s.validateActivationInventory(ctx, q, row, capture, transferred)
+	}
 	scope := poolconfigurations.Scope{OrganizationID: row.OrganizationID}
 	if !transferred {
 		source, err := q.GetPoolConfigurationAssignment(ctx, sqlc.GetPoolConfigurationAssignmentParams{OrganizationID: row.OrganizationID, TargetKind: poolconfigurations.TargetDevice, TargetID: row.DeviceID})
@@ -281,7 +245,7 @@ func (s *Service) validateActivationPools(ctx context.Context, q sqlc.Querier, r
 
 // Handoff is database-only, after a settled activation observation. Retirement,
 // installation intent, unverified status, and provenance commit together.
-func (s *Service) finishActivationPools(ctx context.Context, q sqlc.Querier, row *sqlc.ContainerMiningGroupState, observed sdk.MiningGroupResult, capture activationPoolCapture) error {
+func (s *Service) adoptActivationPoolAssignments(ctx context.Context, q sqlc.Querier, row *sqlc.ContainerMiningGroupState, capture activationPoolCapture) error {
 	scope := poolconfigurations.Scope{OrganizationID: row.OrganizationID}
 	repository := poolconfigurations.NewRepository(s.secrets)
 	name := capture.Runtime.WorkerName
@@ -325,6 +289,17 @@ func (s *Service) finishActivationPools(ctx context.Context, q sqlc.Querier, row
 			return err
 		}
 	}
+	return nil
+}
+
+func (s *Service) finishActivationPools(ctx context.Context, q sqlc.Querier, row *sqlc.ContainerMiningGroupState, observed sdk.MiningGroupResult, capture activationPoolCapture) error {
+	if capture.Deferred {
+		if err := q.SetMiningGroupPoolHandoffPlacementPending(ctx, sqlc.SetMiningGroupPoolHandoffPlacementPendingParams{OrganizationID: row.OrganizationID, OperationID: row.OperationID.UUID, DeviceID: row.DeviceID, PlacementPending: true}); err != nil {
+			return err
+		}
+	} else if err := s.adoptActivationPoolAssignments(ctx, q, row, capture); err != nil {
+		return err
+	}
 	bindings := map[string]binding{}
 	if err := decode(row.Bindings, &bindings); err != nil {
 		return err
@@ -353,6 +328,9 @@ func (s *Service) finishActivationPools(ctx context.Context, q sqlc.Querier, row
 // Called under the observation transaction's binding and authority locks, after
 // validating the adopted assignments. Never verify using pre-handoff readback.
 func (s *Service) observeActivationPools(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, observed sdk.MiningGroupResult, capture activationPoolCapture) error {
+	if capture.Deferred {
+		return nil
+	}
 	snapshot, err := q.GetPoolGroupSnapshot(ctx, sqlc.GetPoolGroupSnapshotParams{OrganizationID: row.OrganizationID, DeviceID: row.DeviceID, SnapshotID: capture.SnapshotID})
 	if err != nil {
 		return err

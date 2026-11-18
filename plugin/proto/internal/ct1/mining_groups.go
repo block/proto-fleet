@@ -93,6 +93,13 @@ func (d *Device) MiningGroups(ctx context.Context, r sdk.MiningGroupRequest) (ou
 		}
 		out.Group = &converted
 		return out, nil
+	case "activation_inventory":
+		wire, e := c.boards.GetContainerMap(ctx, &mdk.GetContainerMapRequest{})
+		if e != nil {
+			return out, e
+		}
+		out.Inventory, e = activationInventory(wire, time.Now().UTC())
+		return out, e
 	case "mining_status":
 		v, e := c.mining.GetMiningStatus(ctx, &mdk.GetMiningStatusRequest{})
 		if e != nil {

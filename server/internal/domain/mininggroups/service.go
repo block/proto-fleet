@@ -191,6 +191,22 @@ func (s *Service) GetState(ctx context.Context, identifier string) (State, error
 	// Advisory checks can use another device call or fail on a database read.
 	// Run them after commit so they cannot discard a successful observation.
 	if err == nil && result.Record.ObservedAt.Valid && result.Observed.Supported && result.Observed.Enabled {
+		// Placement recovery changes database intent only and uses its own lock order.
+		recoveryErr := s.finishPendingActivationPlacement(ctx, info.OrganizationID, target.ID)
+		if recoveryErr == nil {
+			if refreshed, readErr := s.queries.GetMiningGroupState(ctx, sqlc.GetMiningGroupStateParams{OrganizationID: info.OrganizationID, DeviceID: target.ID}); readErr == nil {
+				result.Record = refreshed
+			}
+		}
+		s.activationPlacementMessage(ctx, &result.Record)
+		if recoveryErr != nil {
+			var refusal fleeterror.FleetError
+			if errors.As(recoveryErr, &refusal) {
+				result.Record.Message = "Pool assignment transfer is pending. " + refusal.DebugMessage
+			} else {
+				result.Record.Message = "Pool assignment transfer is pending. Fleet could not verify the saved assignment. Refresh the container to retry."
+			}
+		}
 		readiness, checkErr := s.deactivationReadiness(ctx, s.queries, result.Record, result.Observed)
 		if checkErr != nil {
 			result.DeactivationBlockedReason = "Fleet cannot confirm that mining groups can be disabled. Refresh the controller and try again."
@@ -270,6 +286,9 @@ func (s *Service) changeMode(ctx context.Context, identifier, requestID, kind st
 	info, err := OperatorPrincipal(ctx)
 	if err != nil {
 		return uuid.Nil, err
+	}
+	if _, accountScoped := hostedaccounts.RequestAccountID(ctx); accountScoped || info.Actor != "" {
+		return uuid.Nil, fleeterror.NewForbiddenError("operator access required")
 	}
 	id, err := uuid.Parse(requestID)
 	if err != nil {
