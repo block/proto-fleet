@@ -1300,6 +1300,7 @@ class StatementCommandLineTests(DebBuilder, TemporaryDirectoryCase):
             str(statement_path),
         )
         self.assertEqual(result.returncode, 1)
+        self.assertIn("Unexpected control fields", result.stderr)
         self.assertFalse(statement_path.exists())
 
     def test_argument_errors(self):
@@ -1516,7 +1517,7 @@ class SignScriptTests(DebBuilder, TemporaryDirectoryCase):
         rejected = self.build(control=control_text(Package="other"))
         self.deb.write_bytes(rejected.read_bytes())
         self.write_sidecar()
-        self.assert_refused(self.sign(), "")
+        self.assert_refused(self.sign(), "Unexpected control fields")
 
     def test_refuses_unpinned_key(self):
         other = self.make_key("other", "prime256v1")
