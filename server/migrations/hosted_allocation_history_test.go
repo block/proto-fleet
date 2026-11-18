@@ -154,6 +154,14 @@ func TestAllocationHistoryMigrationFencesConcurrentRecall(t *testing.T) {
 // Remove the newest dependent schema before testing a legacy migration.
 func rollbackEmptyHashboardAllocations(t *testing.T, conn *sql.DB) {
 	t.Helper()
+	var activationInventory bool
+	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT to_regprocedure('protect_activation_hashboard_owner()') IS NOT NULL`).Scan(&activationInventory))
+	if activationInventory {
+		source, err := migrations.Current.ReadFile("current/001098_internal_activation_pool_inventory.down.sql")
+		require.NoError(t, err)
+		_, err = conn.ExecContext(t.Context(), string(source))
+		require.NoError(t, err, "remove empty activation inventory guards before historical rollback")
+	}
 	rollbackEmptyReportingLifecycle(t, conn)
 	var exists bool
 	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT to_regclass('hosted_account_reporting_hour') IS NOT NULL`).Scan(&exists))

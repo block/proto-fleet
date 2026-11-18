@@ -27,10 +27,24 @@ If Fleet has a container pool assignment, activation preserves its revision and
 rendered worker names. When all boards have valid installations, Fleet transfers
 the assignment to those installations. Otherwise, Fleet enables mining groups
 and retains the container assignment and complete board identity list. Pool
-changes and ownership changes remain blocked until the transfer completes.
+changes and ownership changes remain blocked until the transfer completes or an
+operator cancels it. Placement-only inventory updates remain allowed.
 State refreshes and the readiness worker retry this database-only transfer after
 placement is corrected. They recheck the original identities, ownership, and
 default-group membership. No replacement board receives the captured assignment.
+This database-only recovery does not depend on the original operator retaining
+access. Controller inventory reads occur before the organization update lock;
+Fleet rechecks identity, ownership, freshness, and saved intent under the lock.
+
+If a board is permanently removed or placement cannot be repaired, an operator
+can remove the retained container assignment with **Keep device settings**.
+This requires current activation and pool-update permissions at the container's
+site. Confirmation cancels the pending transfer and retires its assignment in
+one transaction, with the normal removal audit record. It sends no controller
+write and keeps the frozen default-group settings. It cannot clear device pools
+or bypass unresolved physical operations. Customer sessions cannot cancel the
+transfer. A stale removal review must be reviewed again.
+
 This requires an updated Fleet Node and Proto plugin that support the
 `activation_inventory` read. Activation remains a Fleet UI operation; it does
 not require an account API request from the user.

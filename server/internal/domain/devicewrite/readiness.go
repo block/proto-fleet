@@ -46,6 +46,13 @@ func RequireNoConflictingPoolWritesForRemoval(ctx context.Context, q sqlc.Querie
 	if err := RequireNoPendingActivationPoolHandoff(ctx, q, organizationID, deviceID); err != nil {
 		return err
 	}
+	return RequireNoUnresolvedPoolWrites(ctx, q, organizationID, deviceID, removalID)
+}
+
+// RequireNoUnresolvedPoolWrites checks physical work independently of retained
+// activation intent. Only assignment-only recovery may use this without also
+// checking the pending activation fence; it must authorize that recovery itself.
+func RequireNoUnresolvedPoolWrites(ctx context.Context, q sqlc.Querier, organizationID, deviceID int64, removalID uuid.UUID) error {
 	attempts, err := q.ListUnresolvedDeviceWriteAttempts(ctx, sqlc.ListUnresolvedDeviceWriteAttemptsParams{OrganizationID: organizationID, DeviceID: deviceID})
 	if err != nil {
 		return err
@@ -147,7 +154,7 @@ func requirePoolRemovalAdmission(ctx context.Context, q sqlc.Querier, organizati
 	return nil
 }
 
-const ActivationPoolPlacementPending = "Mining groups are enabled. The container pool assignment is retained until all hashboard locations are confirmed. Pool changes are blocked."
+const ActivationPoolPlacementPending = "Mining groups are enabled. The container pool assignment is retained until all hashboard locations are confirmed. Pool changes are blocked. To cancel the transfer, remove the container assignment and keep device settings."
 
 // This fence outlives the activation workflow. It protects retained intent
 // while identity is known but assignment placement is still unavailable.

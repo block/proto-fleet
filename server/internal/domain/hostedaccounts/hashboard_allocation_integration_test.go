@@ -352,6 +352,7 @@ func TestHashboardAllocationMigrationPreservesLegacyBoundaries(t *testing.T) {
 			_, err = f.db.ExecContext(t.Context(), `DROP TRIGGER hosted_allocation_pool_transition ON hosted_account_asset; DROP TRIGGER device_pairing_pool_transition ON device_pairing`)
 			require.NoError(t, err)
 			for _, name := range []string{
+				"001098_internal_activation_pool_inventory",
 				"001052_internal_hashboard_allocation_consumers",
 				"001051_internal_hashboard_allocation_order",
 				"001050_internal_automatic_hashboard_allocation",

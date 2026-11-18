@@ -45,6 +45,7 @@ func NewReviewer(authority Authority, capabilities Capabilities) *Reviewer {
 // observation timestamps: refreshing unchanged telemetry must not invalidate a
 // review. Ownership generations, physical identity, mode and worker inputs do.
 type Binding struct {
+	ActivationHandoff bool `json:"activation_handoff,omitempty"`
 	// EffectiveWorkerName includes the plugin default when metadata is unset.
 	// Keep the raw metadata in Device/Board for stale-review and retry checks.
 	EffectiveWorkerName string

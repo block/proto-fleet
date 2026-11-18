@@ -92,3 +92,28 @@ func rollbackEmptyActivationPoolHandoff(t *testing.T, conn *sql.DB) {
 	_, err = conn.ExecContext(t.Context(), string(down))
 	require.NoError(t, err)
 }
+
+func TestActivationInventoryRollbackRestoresAllocationRetirement(t *testing.T) {
+	conn, org, device := miningGroupRollbackFixture(t)
+	ctx := t.Context()
+	id := uuid.New()
+	_, err := conn.ExecContext(ctx, `INSERT INTO mining_group_request(organization_id,request_id,device_id,fingerprint) VALUES($1,$2,$3,'activation')`, org, id, device)
+	require.NoError(t, err)
+	_, err = conn.ExecContext(ctx, `INSERT INTO mining_group_pool_handoff(organization_id,operation_id,device_id,captured,completed_at,placement_pending) VALUES($1,$2,$3,'{}',now(),true)`, org, id, device)
+	require.NoError(t, err)
+	down, err := migrations.Current.ReadFile("current/001098_internal_activation_pool_inventory.down.sql")
+	require.NoError(t, err)
+	_, err = conn.ExecContext(ctx, string(down))
+	require.ErrorContains(t, err, "before rollback")
+	_, err = conn.ExecContext(ctx, `UPDATE mining_group_pool_handoff SET placement_pending=false WHERE operation_id=$1`, id)
+	require.NoError(t, err)
+	_, err = conn.ExecContext(ctx, string(down))
+	require.NoError(t, err)
+	var body string
+	require.NoError(t, conn.QueryRowContext(ctx, `SELECT pg_get_functiondef('retire_reallocated_pool_assignments(bigint,bigint,integer,bigint)'::regprocedure)`).Scan(&body))
+	require.NotContains(t, body, "placement_pending")
+	up, err := migrations.Current.ReadFile("current/001098_internal_activation_pool_inventory.up.sql")
+	require.NoError(t, err)
+	_, err = conn.ExecContext(ctx, string(up))
+	require.NoError(t, err)
+}

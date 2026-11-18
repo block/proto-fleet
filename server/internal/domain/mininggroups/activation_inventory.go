@@ -31,35 +31,60 @@ type activationOwnership struct {
 	Owners []sqlc.ListPoolEquipmentModuleOwnersRow
 }
 
-func (s *Service) readActivationInventory(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, requirePools bool) ([]activationPoolIdentity, string, error) {
+func authorizeActivationInventory(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, requirePools bool) error {
 	device, err := q.GetPoolEquipmentDevice(ctx, sqlc.GetPoolEquipmentDeviceParams{OrgID: row.OrganizationID, ID: row.DeviceID})
 	if err != nil {
-		return nil, "", err
+		return err
 	}
 	permissions := []string{authz.PermMinerActivateMiningGroups, authz.PermMinerStartMining, authz.PermMinerStopMining}
 	if requirePools {
 		permissions = append(permissions, authz.PermMinerUpdatePools)
 	}
 	if err := authorize(ctx, q, row.ActorID.Int64, row.OrganizationID, device.SiteID, permissions...); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Service) fetchActivationInventory(ctx context.Context, deviceID int64) (*sdk.MiningGroupInventory, error) {
+	result, err := s.call(ctx, deviceID, sdk.MiningGroupRequest{Action: "activation_inventory"})
+	if err != nil || result.Inventory == nil {
+		return nil, fleeterror.NewFailedPreconditionErrorf("%w", newInventoryStaleError("Fleet cannot verify the complete hashboard identity inventory. Refresh the controller and check that its Fleet Node supports this inventory read."))
+	}
+	return result.Inventory, nil
+}
+
+func (s *Service) readActivationInventory(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, requirePools bool) ([]activationPoolIdentity, string, error) {
+	if err := authorizeActivationInventory(ctx, q, row, requirePools); err != nil {
+		return nil, "", err
+	}
+	inventory, err := s.fetchActivationInventory(ctx, row.DeviceID)
+	if err != nil {
+		return nil, "", err
+	}
+	return resolveActivationInventory(ctx, q, row, requirePools, inventory)
+}
+
+// Resolve a controller read against locked database evidence. No device I/O or
+// actor authorization occurs here; completed handoffs retain their saved intent.
+func resolveActivationInventory(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, requirePools bool, inventory *sdk.MiningGroupInventory) ([]activationPoolIdentity, string, error) {
+	device, err := q.GetPoolEquipmentDevice(ctx, sqlc.GetPoolEquipmentDeviceParams{OrgID: row.OrganizationID, ID: row.DeviceID})
+	if err != nil {
 		return nil, "", err
 	}
 	if err := q.LockHostedAccountAssetInventory(ctx, []int64{row.DeviceID}); err != nil {
 		return nil, "", err
 	}
-	result, err := s.call(ctx, row.DeviceID, sdk.MiningGroupRequest{Action: "activation_inventory"})
-	if err != nil || result.Inventory == nil {
-		return nil, "", fleeterror.NewFailedPreconditionErrorf("%w", newInventoryStaleError("Fleet cannot verify the complete hashboard identity inventory. Refresh the controller and check that its Fleet Node supports this inventory read."))
-	}
-	if err := result.Inventory.Validate(); err != nil {
+	if err := inventory.Validate(); err != nil {
 		return nil, "", fleeterror.NewFailedPreconditionError(err.Error())
 	}
-	if requirePools && len(result.Inventory.Boards) == 0 {
+	if requirePools && len(inventory.Boards) == 0 {
 		return nil, "", fleeterror.NewFailedPreconditionError("Hashboard inventory is empty. Fleet cannot transfer the container pool assignment.")
 	}
-	if age := time.Since(result.Inventory.ObservedAt); age > 2*time.Minute || age < -5*time.Second {
+	if age := time.Since(inventory.ObservedAt); age > 2*time.Minute || age < -5*time.Second {
 		return nil, "", fleeterror.NewFailedPreconditionError("Hashboard inventory is stale. Refresh the controller inventory before enabling mining groups.")
 	}
-	data, err := json.Marshal(result.Inventory.Boards)
+	data, err := json.Marshal(inventory.Boards)
 	if err != nil {
 		return nil, "", fmt.Errorf("encode activation inventory: %w", err)
 	}
@@ -67,7 +92,7 @@ func (s *Service) readActivationInventory(ctx context.Context, q sqlc.Querier, r
 	if err != nil {
 		return nil, "", err
 	}
-	if len(boards) != len(result.Inventory.Boards) {
+	if len(boards) != len(inventory.Boards) {
 		return nil, "", fleeterror.NewFailedPreconditionError("Hashboard inventory contains an identity that Fleet cannot verify. Wait for a fresh inventory before enabling mining groups.")
 	}
 	identities := make([]activationPoolIdentity, 0, len(boards))
@@ -144,6 +169,10 @@ func (s *Service) validateActivationInventory(ctx context.Context, q sqlc.Querie
 	if err != nil {
 		return err
 	}
+	return validateActivationPoolEvidence(ctx, q, row, capture, transferred, inventory, owner)
+}
+
+func validateActivationPoolEvidence(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, capture activationPoolCapture, transferred bool, inventory []activationPoolIdentity, owner string) error {
 	if !reflect.DeepEqual(inventory, capture.Inventory) || (capture.SnapshotID != "" && owner != capture.Ownership) {
 		return fleeterror.NewFailedPreconditionError("Hashboard inventory or ownership changed during activation. Refresh the container and review its pool assignment.")
 	}
@@ -208,6 +237,23 @@ func (s *Service) finishPendingActivationPlacement(ctx context.Context, orgID, d
 	if err != nil || !pending {
 		return err
 	}
+	// Obtain the read under normal observation admission, before the organization
+	// lock. Recheck its identities, freshness and runtime binding inside the commit.
+	runtime, err := s.queries.GetPoolConfigurationRuntime(ctx, sqlc.GetPoolConfigurationRuntimeParams{OrgID: orgID, ID: deviceID})
+	if err != nil {
+		return err
+	}
+	var inventory *sdk.MiningGroupInventory
+	err = s.writes.WithHostObservation(ctx, orgID, deviceID, runtime.Epoch, func(ctx context.Context) error {
+		return s.writes.WithBindingObservation(ctx, deviceID, func(sqlc.Querier) error { return nil }, func(ctx context.Context) error {
+			var readErr error
+			inventory, readErr = s.fetchActivationInventory(ctx, deviceID)
+			return readErr
+		})
+	})
+	if err != nil {
+		return err
+	}
 	return s.writes.WithBindingUpdateTransaction(ctx, func(ctx context.Context, q sqlc.Querier) error {
 		if _, err := q.LockPoolConfigurationImportOrganization(ctx, orgID); err != nil {
 			return err
@@ -228,7 +274,11 @@ func (s *Service) finishPendingActivationPlacement(ctx context.Context, orgID, d
 			if err := decode(journal.Captured, &capture); err != nil {
 				return err
 			}
-			if err := s.validateActivationInventory(ctx, q, row, capture, true); err != nil {
+			identities, owner, err := resolveActivationInventory(ctx, q, row, true, inventory)
+			if err != nil {
+				return err
+			}
+			if err := validateActivationPoolEvidence(ctx, q, row, capture, true, identities, owner); err != nil {
 				return err
 			}
 			var observed sdk.MiningGroupResult

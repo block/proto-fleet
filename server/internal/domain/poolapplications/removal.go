@@ -22,6 +22,9 @@ import (
 
 // Board removals use the controller's durable reconciliation journal.
 type BoardRemovalCoordinator interface {
+	AuthorizeActivationPoolRemoval(ctx context.Context, q sqlc.Querier, principal poolconfigurations.Principal, target poolconfigurations.AssignmentTarget) error
+	ReviewActivationPoolRemoval(ctx context.Context, q sqlc.Querier, principal poolconfigurations.Principal, target poolconfigurations.AssignmentTarget) (string, error)
+	AbandonActivationPoolTransfer(ctx context.Context, q sqlc.Querier, principal poolconfigurations.Principal, target poolconfigurations.AssignmentTarget) error
 	ReviewBoardRemoval(ctx context.Context, q sqlc.Querier, principal poolconfigurations.Principal, target poolconfigurations.AssignmentTarget) error
 	BeginBoardRemoval(ctx context.Context, principal poolconfigurations.Principal, removal sqlc.GetPoolRemovalRow, proof poolconfigurations.CredentialProof) error
 }
@@ -62,7 +65,16 @@ func (c *Checker) removalBinding(ctx context.Context, q sqlc.Querier, p poolconf
 	if err := lockPoolBindings(ctx, q, p.Scope, []poolconfigurations.AssignmentTarget{target}, true); err != nil {
 		return a, binding, err
 	}
-	if err := devicewrite.RequireNoConflictingPoolWritesForRemoval(ctx, q, p.Scope.OrganizationID, target.DeviceID, removalID); err != nil {
+	pending, err := q.HasPendingMiningGroupPoolHandoff(ctx, sqlc.HasPendingMiningGroupPoolHandoffParams{OrganizationID: p.Scope.OrganizationID, DeviceID: target.DeviceID})
+	if err != nil {
+		return a, binding, err
+	}
+	if pending && (target.Kind != poolconfigurations.TargetDevice || p.Scope.AccountID != 0 || c.boardRemovals == nil) {
+		return a, binding, fleeterror.NewFailedPreconditionError(devicewrite.ActivationPoolPlacementPending)
+	}
+	// Pending recovery only offers keep-settings removal. All physical work is
+	// still fenced, including unresolved activation and previously queued commands.
+	if err := devicewrite.RequireNoUnresolvedPoolWrites(ctx, q, p.Scope.OrganizationID, target.DeviceID, removalID); err != nil {
 		return a, binding, err
 	}
 	frozen, err := q.PoolConfigurationWritersFrozen(ctx, p.Scope.OrganizationID)
@@ -72,7 +84,12 @@ func (c *Checker) removalBinding(ctx context.Context, q sqlc.Querier, p poolconf
 	if frozen {
 		return a, binding, fleeterror.NewFailedPreconditionError("pool configuration maintenance is in progress")
 	}
-	owner, err := c.reviewer.authority.AuthorizePoolEquipment(ctx, q, p.Scope, p.ActorID, target)
+	var owner string
+	if pending {
+		owner, err = c.boardRemovals.ReviewActivationPoolRemoval(ctx, q, p, target)
+	} else {
+		owner, err = c.reviewer.authority.AuthorizePoolEquipment(ctx, q, p.Scope, p.ActorID, target)
+	}
 	if err != nil {
 		return a, binding, err
 	}
@@ -92,7 +109,7 @@ func (c *Checker) removalBinding(ctx context.Context, q sqlc.Querier, p poolconf
 			return a, binding, fleeterror.NewFailedPreconditionError("wait for the pool configuration update to finish before removing it")
 		}
 	}
-	binding = Binding{Version: 1, Ownership: owner, Device: device}
+	binding = Binding{Version: 1, Ownership: owner, Device: device, ActivationHandoff: pending}
 	if commonpb.DeviceClass(device.DeviceClass) == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
 		state, err := q.LockMiningGroupState(ctx, sqlc.LockMiningGroupStateParams{OrganizationID: p.Scope.OrganizationID, DeviceID: a.DeviceID})
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -156,6 +173,9 @@ func (c *Checker) ReviewRemoval(ctx context.Context, p poolconfigurations.Princi
 	}
 	caps := c.reviewer.capabilities.GetRawCapabilitiesForDevice(observationCtx, binding.Device.DriverName, binding.Device.Manufacturer, binding.Device.Model)
 	supported := target.Kind == poolconfigurations.TargetDevice && caps[sdk.CapabilityPoolClear] || target.Kind == poolconfigurations.TargetInstallation && c.boardRemovals != nil && caps[sdk.CapabilityMiningGroupPoolClear]
+	if binding.ActivationHandoff {
+		supported = false
+	}
 	if supported {
 		// Static driver capability is insufficient for firmware that lacks durable
 		// clearing/readback. Probe the live scope while holding authority locks.
@@ -250,7 +270,16 @@ func (c *Checker) GetRemoval(ctx context.Context, p poolconfigurations.Principal
 		if err != nil {
 			return poolconfigurations.Removal{}, err
 		}
-		_, err = c.reviewer.authority.AuthorizePoolEquipment(ctx, q, p.Scope, p.ActorID, poolconfigurations.AssignmentTarget{Kind: row.TargetKind, ID: row.TargetID, DeviceID: row.DeviceID})
+		var binding Binding
+		if err := json.Unmarshal([]byte(row.ReviewedBinding), &binding); err != nil {
+			return poolconfigurations.Removal{}, fleeterror.NewInternalError("invalid removal binding")
+		}
+		target := poolconfigurations.AssignmentTarget{Kind: row.TargetKind, ID: row.TargetID, DeviceID: row.DeviceID}
+		if binding.ActivationHandoff && c.boardRemovals != nil {
+			err = c.boardRemovals.AuthorizeActivationPoolRemoval(ctx, q, p, target)
+		} else {
+			_, err = c.reviewer.authority.AuthorizePoolEquipment(ctx, q, p.Scope, p.ActorID, target)
+		}
 		return removalResult(row), err
 	})
 }
@@ -289,6 +318,13 @@ func (c *Checker) EnqueueRemoval(ctx context.Context, q sqlc.Querier, p poolconf
 			return fleeterror.NewFailedPreconditionError("this removal was already confirmed with a different choice")
 		}
 		return nil
+	}
+	var binding Binding
+	if err := json.Unmarshal([]byte(row.ReviewedBinding), &binding); err != nil {
+		return fleeterror.NewInternalError("invalid removal binding")
+	}
+	if binding.ActivationHandoff && !keep {
+		return fleeterror.NewFailedPreconditionError("Keep device settings to cancel the pending assignment transfer.")
 	}
 	if !keep && (!row.ClearSupported || (row.VerificationState != "verified" && row.VerificationState != "different")) {
 		return fleeterror.NewFailedPreconditionError("recheck verification or keep the device settings to remove only the assignment")
@@ -366,6 +402,18 @@ func (c *Checker) FinishRemoval(ctx context.Context, q sqlc.Querier, p poolconfi
 			}
 		}
 		return poolconfigurations.RecordRemovalAudit(ctx, q, p, row.RemovalID.String(), "", false)
+	}
+	var binding Binding
+	if err := json.Unmarshal([]byte(row.ReviewedBinding), &binding); err != nil {
+		return fleeterror.NewInternalError("invalid removal binding")
+	}
+	if binding.ActivationHandoff {
+		if !keep || c.boardRemovals == nil {
+			return fleeterror.NewFailedPreconditionError("Keep device settings to cancel the pending assignment transfer.")
+		}
+		if err := c.boardRemovals.AbandonActivationPoolTransfer(ctx, q, p, target); err != nil {
+			return err
+		}
 	}
 	if err := poolconfigurations.NewRepository(c.secrets).RetireAssignment(ctx, q, p.Scope, target, row.AssignmentVersion); err != nil {
 		return err

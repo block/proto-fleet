@@ -365,7 +365,16 @@ func (*activationPoolHandoffReady) Error() string { return "activation pool hand
 
 func (s *Service) commitActivationPoolHandoff(ctx context.Context, ready *activationPoolHandoffReady) (bool, error) {
 	applied := false
-	err := s.writes.WithBindingUpdateTransaction(ctx, func(ctx context.Context, q sqlc.Querier) error {
+	var inventory *sdk.MiningGroupInventory
+	err := s.writes.WithBindingObservation(ctx, ready.row.DeviceID, func(sqlc.Querier) error { return nil }, func(ctx context.Context) error {
+		var readErr error
+		inventory, readErr = s.fetchActivationInventory(ctx, ready.row.DeviceID)
+		return readErr
+	})
+	if err != nil {
+		return false, err
+	}
+	err = s.writes.WithBindingUpdateTransaction(ctx, func(ctx context.Context, q sqlc.Querier) error {
 		applied = false
 		if _, err := q.LockPoolConfigurationImportOrganization(ctx, ready.row.OrganizationID); err != nil {
 			return err
@@ -384,7 +393,14 @@ func (s *Service) commitActivationPoolHandoff(ctx context.Context, ready *activa
 			if err != nil || done {
 				return err
 			}
-			if err := s.validateActivationPools(ctx, q, row, capture, false); err != nil {
+			if err := authorizeActivationInventory(ctx, q, row, capture.SnapshotID != ""); err != nil {
+				return err
+			}
+			identities, owner, err := resolveActivationInventory(ctx, q, row, capture.SnapshotID != "", inventory)
+			if err != nil {
+				return err
+			}
+			if err := validateActivationPoolEvidence(ctx, q, row, capture, false, identities, owner); err != nil {
 				return err
 			}
 			// Activation authority may be revoked independently of pool-update authority.
