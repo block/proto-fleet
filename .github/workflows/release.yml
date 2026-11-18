@@ -69,6 +69,10 @@ jobs:
       release_repository: ${{ github.repository }}
       version: ${{ github.ref_name }}
       retention_days: 1
+      # The signing job downloads the ProtoOS artifact after the environment
+      # approval. Keep this small artifact for the time that the approval can
+      # take. The other artifacts are large, and no later job needs them.
+      protoos_retention_days: 7
       channel: release
       is_prerelease: ${{ contains(github.ref_name, '-') }}
     secrets: inherit
