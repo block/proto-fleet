@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "repository": "example-org/proto-fleet",
+  "tag": "v0.6.2-internal.14",
+  "commit": "0123456789abcdef0123456789abcdef01234567",
+  "asset": "proto-os-v0.6.2-internal.14.tar.gz",
+  "sha256": "4cbd887f7aada4aefa507cdb106bf5a2a125872b6999439cd20a3107a846252e",
+  "archive_root": "dist/protoOS"
+}

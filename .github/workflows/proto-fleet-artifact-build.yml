@@ -442,6 +442,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Hermit
         uses: ./.github/actions/hermit-setup
@@ -487,6 +489,50 @@ jobs:
         env:
           VERSION: ${{ needs.metadata.outputs.version }}
 
+      # Only v* release tags map to a valid Debian version. Nightly builds skip the CT1 package.
+      # SOURCE_DATE_EPOCH comes from the commit time, so the same staged tree and tarball give
+      # the same .deb. A new run of the same tag gives a different .deb. Release builds do not
+      # set build_date, so the build date is the time of the run, and the manifest records the
+      # tarball SHA-256.
+      - name: Stage ProtoOS bundle for CT1 Frigate
+        if: startsWith(needs.metadata.outputs.version, 'v')
+        working-directory: ./client
+        env:
+          COMMIT: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" >> "$GITHUB_ENV"
+          export SOURCE_DATE_EPOCH
+          python3 -I ../deployment-files/scripts/create-protoos-frigate-bundle.py \
+            --repository "$REPOSITORY" \
+            --tag "$VERSION" \
+            --commit "$COMMIT" \
+            --archive "proto-os-${VERSION}.tar.gz" \
+            --source dist/protoOS \
+            --output dist/protoOS-frigate
+
+      - name: Build ProtoOS CT1 .deb package
+        if: startsWith(needs.metadata.outputs.version, 'v')
+        working-directory: ./client
+        run: |
+          nfpm package --config nfpm-proto-os-deb.yaml --packager deb --target "proto-os_${VERSION}_all.deb"
+          sha256sum "proto-os_${VERSION}_all.deb" > "proto-os_${VERSION}_all.deb.sha256"
+
+      - name: Verify ProtoOS CT1 .deb package
+        if: startsWith(needs.metadata.outputs.version, 'v')
+        working-directory: ./client
+        env:
+          COMMIT: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 -I ../deployment-files/scripts/create-protoos-frigate-bundle.py \
+            --repository "$REPOSITORY" \
+            --tag "$VERSION" \
+            --commit "$COMMIT" \
+            --archive "proto-os-${VERSION}.tar.gz" \
+            --verify-deb "proto-os_${VERSION}_all.deb"
+
       - name: Upload ProtoOS artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -494,6 +540,8 @@ jobs:
           path: |
             ./client/proto-os-${{ needs.metadata.outputs.version }}.tar.gz
             ./client/proto-os_${{ needs.metadata.outputs.version }}.ipk
+            ./client/proto-os_${{ needs.metadata.outputs.version }}_all.deb
+            ./client/proto-os_${{ needs.metadata.outputs.version }}_all.deb.sha256
           retention-days: ${{ inputs.retention_days }}
 
   build-timescaledb-image:

@@ -297,7 +297,28 @@ The MDK v2 host packaging flow consumes the existing protoOS artifact:
 - The host verifies the release identity, checksum and archive, and owns any installation-time integrity metadata. Controller images consume the packaged bundle; this repository does not install it.
 - The MDK v2 host serves the bundle on the same listener as `/api/v2/`. Follow the host's installation and service-restart procedures when updating the dashboard.
 
-The existing artifact workflow supplies `proto-os-${VERSION}.tar.gz` with archive root **`dist/protoOS`**. Preserve `index.html`, `config.js`, `version.txt`, all `assets/` lazy chunks, and optional favicon/fonts. `version.txt` must identify the release tag and full source commit. Do not flatten the archive or include links, unrelated files, or host-generated integrity metadata. `nfpm-proto-os.yaml` and the `.ipk` remain **R2/OpenWRT-only**, not the MDK v2 CT1 deployment path.
+The existing artifact workflow supplies `proto-os-${VERSION}.tar.gz` with archive root **`dist/protoOS`**. Preserve `index.html`, `config.js`, `version.txt`, all `assets/` lazy chunks, and optional favicon/fonts. `version.txt` must identify the release tag and full source commit. Do not flatten the archive or include links, unrelated files, or host-generated integrity metadata. The tarball never contains the Frigate manifest that is described below. `nfpm-proto-os.yaml` and the `.ipk` remain **R2/OpenWRT-only**, not the MDK v2 CT1 deployment path.
+
+Each `v*` release tag also publishes a separate CT1 Debian package, `proto-os_${VERSION}_all.deb`, and its `.sha256` file. Nightly builds do not publish this package, because a nightly version is not a valid Debian version. Frigate installs the package with its own root update helper. That helper accepts only a static package, so the package contract is exact:
+
+- The package name is `proto-os`, the architecture is `all`, and the maintainer is `Block Inc.`. The Debian version comes from the tag: remove the `v` and change the first `-` to `~`. For example, `v0.6.2-internal.14` becomes `0.6.2~internal.14`, and `v0.2.5-fw-auth-compat-2b0fcc4e7` becomes `0.2.5~fw-auth-compat-2b0fcc4e7`. The release tag must follow SemVer 2.0 without build metadata (`release.yml` checks this before any build).
+- `Pre-Depends` is `frigate-protoos-host (>= 1)`. The package has no other relationship fields.
+- The package has no maintainer scripts, triggers, or conffiles. Both archives in the package use gzip.
+- The data holds only `/var/www/` and `/etc/web_dashboard_version`. The version file holds the tag. All files have mode `0644`, all directories have mode `0755`, and root owns all of them. The package has no links or special files.
+
+`/var/www/` holds the `dist/protoOS` files and one generated file, `/var/www/.frigate-protoos-manifest.json`. The script `deployment-files/scripts/create-protoos-frigate-bundle.py` makes this file. The script copies `dist/protoOS` to `dist/protoOS-frigate`, checks and hashes the copy, and writes the manifest into the copy. `dist/protoOS` stays unchanged, so the tarball and the `.ipk` stay unchanged. The manifest records the repository, tag, commit, tarball name and tarball SHA-256, and the size and SHA-256 of each public file. Frigate verifies the generation hash in the manifest and checks the size and SHA-256 of each file against the manifest. Frigate rejects a bundle that differs.
+
+The script fails the build when the tree has something that Frigate does not allow:
+
+- The tree can hold only `index.html`, `config.js`, `version.txt`, `favicon.png`, `assets/`, and `fonts/`. It must have at least one file in `assets/`, and it cannot have symbolic links or special files.
+- A path must be valid UTF-8. It cannot have a control character (U+0000 to U+001F, or U+007F) or a backslash. It cannot have an empty segment or a segment that starts with a dot.
+- A path can have 32 segments at most. Each segment can have 255 bytes at most. The path can have 1016 bytes at most, so that the path with the `var/www/` prefix stays in the 1024 bytes that Frigate's installer allows.
+- The tree can have 4094 files and directories at most, so that the package stays in the 4096 entries that Frigate's installer allows. A file can have 32 MiB at most, and all files together can have 128 MiB at most. The tarball can have 32 MiB at most.
+- Other characters are allowed, for example `[`, `]`, `&`, `<`, a space, and non-ASCII letters. The manifest uses the same JSON escapes as Frigate.
+
+`nfpm-proto-os-deb.yaml` builds the package from `dist/protoOS-frigate`. The workflow sets `SOURCE_DATE_EPOCH` to the commit time, and the script sets the same time on the staged files. Thus the same staged tree and tarball give the same `.deb` bytes. A new run of the same tag gives different bytes. The build date in `version.txt` and in the built JavaScript is the time of the run, and the manifest records the tarball SHA-256. Use the nfpm version that Hermit pins in `bin/`. That version writes `./` before the paths in `md5sums`, and Frigate accepts one optional `./`.
+
+After the build, `create-protoos-frigate-bundle.py --verify-deb` applies the checks of Frigate's installer: the control data, the archive framing, the paths, the file modes, the size limits, `md5sums`, and the manifest in the package. The publish job of `release.yml` checks that the `.sha256` file matches the `.deb`, and it runs `--verify-deb` again on the downloaded package before it publishes. The test `deployment-files/tests/test_protoos_frigate_bundle.py` compares the manifest with the manifest that Frigate's own Go stager writes for the same fixture, and it builds a real package. The test file explains how to refresh that fixture.
 
 To verify a fresh production build against an isolated same-origin CT1 simulator, activate Hermit from the repository root, then run:
 
