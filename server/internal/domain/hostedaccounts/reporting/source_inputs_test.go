@@ -74,6 +74,34 @@ func TestSourceInputsKeepPriorYearAndEpisodeContext(t *testing.T) {
 	}
 }
 
+func TestSourceInputsKeepOriginalPrePeriodCommercialContext(t *testing.T) {
+	p, in := calculationFixture()
+	before := in.Coverage[0]
+	before.ID, before.Start, before.End = "frozen-observation-context", p.Start.Add(-2*time.Hour), p.Start.Add(-time.Hour)
+	future := before
+	future.ID, future.Start, future.End = "future-commercial-context", p.End, p.End.Add(time.Hour)
+	in.Coverage = append(in.Coverage, before, future)
+	selected, err := sourceInputs(t.Context(), p, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, c := range selected.Coverage {
+		if c.ID == before.ID {
+			found = true
+			if c != before {
+				t.Fatal("host commercial context lost original values")
+			}
+		}
+		if c.ID == future.ID {
+			t.Fatal("future-only commercial context was retained")
+		}
+	}
+	if !found {
+		t.Fatal("host source lost pre-period coverage needed to explain frozen observations")
+	}
+}
+
 type sourceStreamSink struct{ total, maxWrite int }
 
 func (s *sourceStreamSink) Write(p []byte) (int, error) {

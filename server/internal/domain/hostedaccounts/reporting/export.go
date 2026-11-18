@@ -24,11 +24,98 @@ import (
 )
 
 // evidenceSchemaVersion versions the public evidence archive. Its manifest and
-// the media type stored on the issued artifact both name it.
-const evidenceSchemaVersion = "hosted-report-evidence/v3"
+// the media type stored on the issued artifact both name it. v4 applies the
+// shared public field policy to hourly evidence; clients cannot download v3 or
+// earlier archives or their standalone HTML.
+const evidenceSchemaVersion = "hosted-report-evidence/v4"
 
 // PublicEvidenceMediaType identifies archives that contain only client-attributed consumption.
 const PublicEvidenceMediaType = `application/zip; profile="` + evidenceSchemaVersion + `"`
+
+const curtailmentControlCategory = "curtailment_control"
+
+func observedInPeriod(p Period, start, through time.Time) bool {
+	_, ok := intersect(window{start, minTime(through, p.AsOf)}, periodWindow(p))
+	return ok
+}
+
+// PublicResult applies the same field policy to client detail, written HTML and
+// archive tables. Metric evidence and required current explanations remain;
+// prior-only prose, private tickets and internal control identities do not.
+// It leaves the stored, reviewed result untouched and is safe to apply again.
+func PublicResult(result Result) Result {
+	result.Obligations = slices.Clone(result.Obligations)
+	for i := range result.Obligations {
+		result.Obligations[i].TicketRef = ""
+	}
+	result.Interruptions = slices.Clone(result.Interruptions)
+	controlRefs := map[string]string{}
+	controlIDs := map[string]string{}
+	controls := []Interruption{}
+	for _, v := range result.Interruptions {
+		if v.Category == curtailmentControlCategory && strings.HasPrefix(v.SourceRef, "curtailment-confirmation:") {
+			controls = append(controls, v)
+		}
+	}
+	sort.Slice(controls, func(i, j int) bool {
+		if controls[i].SourceRef == controls[j].SourceRef {
+			return controls[i].ID < controls[j].ID
+		}
+		return controls[i].SourceRef < controls[j].SourceRef
+	})
+	windows := map[string]int{}
+	for _, v := range controls {
+		ref, exists := controlRefs[v.SourceRef]
+		if !exists {
+			ref = fmt.Sprintf("operational-observation:%d", len(controlRefs)+1)
+			controlRefs[v.SourceRef] = ref
+		}
+		windows[ref]++
+		controlIDs[v.ID] = fmt.Sprintf("%s:window:%d", ref, windows[ref])
+	}
+	for i := range result.Interruptions {
+		v := &result.Interruptions[i]
+		if !observedInPeriod(result.Period, v.Start, v.ObservedThrough) {
+			v.Summary, v.RootCause, v.ClaimedExclusion = "", "", ""
+		}
+		if v.Category == curtailmentControlCategory && strings.HasPrefix(v.SourceRef, "curtailment-confirmation:") {
+			v.ID, v.SourceRef = controlIDs[v.ID], controlRefs[v.SourceRef]
+		}
+	}
+	projectRefs := func(refs []string) []string {
+		refs = slices.Clone(refs)
+		for i, ref := range refs {
+			if replacement, ok := controlRefs[ref]; ok {
+				refs[i] = replacement
+			}
+		}
+		return refs
+	}
+	projectMetrics := func(metrics map[string]Metric) map[string]Metric {
+		if metrics == nil {
+			return nil
+		}
+		out := make(map[string]Metric, len(metrics))
+		for key, metric := range metrics {
+			metric.Sources = projectRefs(metric.Sources)
+			out[key] = metric
+		}
+		return out
+	}
+	result.Metrics = projectMetrics(result.Metrics)
+	result.Containers = slices.Clone(result.Containers)
+	for i := range result.Containers {
+		result.Containers[i].Metrics = projectMetrics(result.Containers[i].Metrics)
+	}
+	result.Orders = slices.Clone(result.Orders)
+	for i := range result.Orders {
+		result.Orders[i].Metrics = projectMetrics(result.Orders[i].Metrics)
+	}
+	result.Deadlines.Contract.Sources = projectRefs(result.Deadlines.Contract.Sources)
+	result.Deadlines.Internal.Sources = projectRefs(result.Deadlines.Internal.Sources)
+	result.Sources = projectRefs(result.Sources)
+	return result
+}
 
 // ErrPublicReference identifies rejected public artifact references.
 var ErrPublicReference = errors.New("invalid public evidence reference")
@@ -329,17 +416,130 @@ func validateTableReferences(ctx context.Context, t evidenceTable) error {
 	return nil
 }
 
-func publicEvidenceInputTables(ctx context.Context, p Period, in Inputs) ([]evidenceTable, error) {
-	cs := coverage(p, in, scope{})
+// publicEvidenceConfiguration projects configuration for the client archive,
+// not for validation or calculation. The caller must still validate and
+// authorize the complete input; this does not classify references as safe.
+func publicEvidenceConfiguration(ctx context.Context, result Result, in Inputs) (Configuration, error) {
+	p := result.Period
+	deps, err := collectPublicationDependencies(ctx, result, in)
+	if err != nil {
+		return Configuration{}, err
+	}
+	original := in.Configuration
+	// Configuration is an allowlist projection. Host owners, representatives,
+	// delivery configuration and schedules never become public metadata.
+	c := Configuration{ContractRef: original.ContractRef, Timezone: original.Timezone, ReportingYearMonth: original.ReportingYearMonth, ReportingYearDay: original.ReportingYearDay}
+
+	var priorStart time.Time
+	if p.Kind == "annual" {
+		priorStart = p.Start.In(mustLocation(p.Timezone)).AddDate(-1, 0, 0)
+	}
+	for _, r := range in.Configuration.Registers {
+		if err := ctx.Err(); err != nil {
+			return Configuration{}, fmt.Errorf("project report configuration: %w", err)
+		}
+		current := slices.Contains([]string{"coverage", "fees", "incidents", "obligations"}, r.Kind) && overlaps(p.Start, p.End, r.Start, r.End)
+		// The prior comparison uses energy, hashrate and maintenance. Its
+		// coverage and incident completeness affect their status and sources.
+		previous := !priorStart.IsZero() && (r.Kind == "coverage" || r.Kind == "incidents") && overlaps(priorStart, p.Start, r.Start, r.End)
+		if current || previous {
+			c.Registers = append(c.Registers, r)
+		}
+	}
+
+	shared := false
+	meterPeriods := []Period{p}
+	if p.Kind == "annual" {
+		prior := p
+		prior.Kind = "ad_hoc"
+		prior.Start = priorStart
+		prior.End = p.Start
+		meterPeriods = append(meterPeriods, prior)
+	}
+	for _, period := range meterPeriods {
+		cs := coverage(period, in, scope{})
+		for _, v := range in.Meters {
+			if err := ctx.Err(); err != nil {
+				return Configuration{}, fmt.Errorf("project report configuration: %w", err)
+			}
+			if (v.Quality != meterQualityMeasured && v.Quality != meterQualityEstimated) || v.Start.Before(period.Start) || v.End.After(period.End) || !meterAttributed(period, cs, v) {
+				continue
+			}
+			shared = shared || v.AllocationFraction != ""
+		}
+	}
+	for _, v := range in.Configuration.Sources {
+		if err := ctx.Err(); err != nil {
+			return Configuration{}, fmt.Errorf("project report configuration: %w", err)
+		}
+		if deps.sources[publicationSourceKey{v.ID, v.Metric}] {
+			v.Certified = original.Certified(v.ID, v.Metric)
+			if !v.Certified {
+				v.SourceRef = ""
+			}
+			c.Sources = append(c.Sources, v)
+		}
+	}
+	if shared {
+		c.SharedAllocationRef = original.SharedAllocationRef
+	}
+	for _, g := range in.Configuration.Prerequisites {
+		if deps.prerequisites[g.Key] {
+			g.Ready = original.Ready(g.Key)
+			g.Owner = ""
+			if !g.Ready {
+				g.SourceRef = ""
+			}
+			c.Prerequisites = append(c.Prerequisites, g)
+		}
+	}
+	if p.Kind == "monthly" || p.Kind == reportKindQuarterly {
+		last := p.End.In(mustLocation(p.Timezone)).AddDate(0, 0, -1)
+		contract := addBusinessDays(last, 15, in.Configuration.Holidays).Format("2006-01-02")
+		first := last.Format("2006-01-02")
+		for _, h := range in.Configuration.Holidays {
+			if err := ctx.Err(); err != nil {
+				return Configuration{}, fmt.Errorf("project report configuration: %w", err)
+			}
+			day, err := time.Parse("2006-01-02", h)
+			if err != nil {
+				return Configuration{}, fmt.Errorf("project report configuration: invalid holiday: %w", err)
+			}
+			if h > first && h <= contract && day.Weekday() != time.Saturday && day.Weekday() != time.Sunday {
+				c.Holidays = append(c.Holidays, h)
+			}
+		}
+	}
+	return c, nil
+}
+
+func publicEvidenceInputTables(ctx context.Context, result Result, in Inputs) ([]evidenceTable, error) {
+	p := result.Period
+	type meterWindow struct {
+		name     string
+		period   Period
+		coverage []CoverageSegment
+	}
+	meterWindows := []meterWindow{{name: "current", period: p, coverage: coverage(p, in, scope{})}}
+	if p.Kind == "annual" {
+		prior := p
+		prior.Kind = "ad_hoc"
+		prior.Start = p.Start.In(mustLocation(p.Timezone)).AddDate(-1, 0, 0)
+		prior.End = p.Start
+		meterWindows = append(meterWindows, meterWindow{name: "prior_year", period: prior, coverage: coverage(prior, in, scope{})})
+	}
 	config := table("inputs/configuration", "contract_ref timezone reporting_year_month:n reporting_year_day:n shared_allocation_ref")
-	c := in.Configuration
+	c, err := publicEvidenceConfiguration(ctx, result, in)
+	if err != nil {
+		return nil, err
+	}
 	config.add(c.ContractRef, c.Timezone, c.ReportingYearMonth, c.ReportingYearDay, c.SharedAllocationRef)
 	prerequisites := table("inputs/prerequisites", "key ready source_ref")
 	for _, v := range c.Prerequisites {
 		if err := ctx.Err(); err != nil {
 			return nil, fmt.Errorf("prepare report output: %w", err)
 		}
-		prerequisites.add(v.Key, c.Ready(v.Key), v.SourceRef)
+		prerequisites.add(v.Key, v.Ready, v.SourceRef)
 	}
 	calendar := table("inputs/holidays", "date")
 	for _, v := range c.Holidays {
@@ -353,7 +553,7 @@ func publicEvidenceInputTables(ctx context.Context, p Period, in Inputs) ([]evid
 		if err := ctx.Err(); err != nil {
 			return nil, fmt.Errorf("prepare report output: %w", err)
 		}
-		sources.add(v.ID, v.Metric, c.Certified(v.ID, v.Metric), v.SourceRef)
+		sources.add(v.ID, v.Metric, v.Certified, v.SourceRef)
 	}
 	registers := table("inputs/register_completeness", "kind start end source_ref")
 	for _, v := range c.Registers {
@@ -383,19 +583,22 @@ func publicEvidenceInputTables(ctx context.Context, p Period, in Inputs) ([]evid
 		}
 		moduleCoverage.add(v.ID, v.ModuleID, v.SiteID, v.ContainerID, v.OrderID, exportInstant(v.Start), exportInstant(v.End), strings.Join(v.BoardCoverageIDs, ";"), v.WholeModule, v.SourceRef)
 	}
-	meters := table("inputs/meters", "id meter_id source_id site_id:n container_id:n order_id start end attributed_kwh:n quality source_ref")
+	meters := table("inputs/meters", "id meter_id source_id site_id:n container_id:n order_id start end attributed_kwh:n quality source_ref comparison_window")
 	for _, v := range in.Meters {
 		if err := ctx.Err(); err != nil {
 			return nil, fmt.Errorf("prepare report output: %w", err)
 		}
-		if v.Start.Before(p.Start) || v.End.After(p.End) || !overlaps(p.Start, p.End, v.Start, v.End) || !covers(attributedWindows(p, cs, v.SiteID, v.ContainerID, v.OrderID), window{v.Start, v.End}) {
-			continue
+		for _, w := range meterWindows {
+			if v.Start.Before(w.period.Start) || v.End.After(w.period.End) || !overlaps(w.period.Start, w.period.End, v.Start, v.End) || !covers(attributedWindows(w.period, w.coverage, v.SiteID, v.ContainerID, v.OrderID), window{v.Start, v.End}) {
+				continue
+			}
+			amount, err := AttributedMeterEnergy(v)
+			if err != nil {
+				return nil, fmt.Errorf("attribute public meter interval: %w", err)
+			}
+			meters.add(v.ID, v.MeterID, v.SourceID, v.SiteID, v.ContainerID, v.OrderID, exportInstant(v.Start), exportInstant(v.End), amount, v.Quality, v.SourceRef, w.name)
+			break
 		}
-		amount, err := AttributedMeterEnergy(v)
-		if err != nil {
-			return nil, fmt.Errorf("attribute public meter interval: %w", err)
-		}
-		meters.add(v.ID, v.MeterID, v.SourceID, v.SiteID, v.ContainerID, v.OrderID, exportInstant(v.Start), exportInstant(v.End), amount, v.Quality, v.SourceRef)
 	}
 	fees := table("inputs/fees", "id site_id:n container_id:n order_id start end amount:n currency source_ref")
 	for _, v := range in.Fees {
@@ -404,12 +607,21 @@ func publicEvidenceInputTables(ctx context.Context, p Period, in Inputs) ([]evid
 		}
 		fees.add(v.ID, v.SiteID, v.ContainerID, v.OrderID, exportInstant(v.Start), exportInstant(v.End), v.Amount, v.Currency, v.SourceRef)
 	}
-	incidents := table("inputs/incidents", "id site_id:n container_id:n order_id true_start end as_of category summary root_cause exclusion_clause source_ref")
+	incidents := table("inputs/incidents", "id site_id:n container_id:n order_id true_start end as_of category summary root_cause exclusion_clause source_ref root_cause_recorded narrative_redacted")
 	for _, v := range in.Incidents {
 		if err := ctx.Err(); err != nil {
 			return nil, fmt.Errorf("prepare report output: %w", err)
 		}
-		incidents.add(v.ID, v.SiteID, v.ContainerID, v.OrderID, exportInstant(v.Start), exportInstant(v.End), exportInstant(v.AsOf), v.Category, v.Summary, v.RootCause, v.ExclusionClause, v.SourceRef)
+		// Prior-only incidents can affect annual maintenance and its causes,
+		// including whether a root cause was recorded. Their narrative and
+		// exclusion claim are not used in that comparison. Do not change the
+		// reviewed input used by the calculator or the frozen host artifact.
+		redacted := !observedInPeriod(p, v.Start, boundedEnd(v.End, minTime(v.AsOf, p.AsOf)))
+		summary, rootCause, exclusion := v.Summary, v.RootCause, v.ExclusionClause
+		if redacted {
+			summary, rootCause, exclusion = "", "", ""
+		}
+		incidents.add(v.ID, v.SiteID, v.ContainerID, v.OrderID, exportInstant(v.Start), exportInstant(v.End), exportInstant(v.AsOf), v.Category, summary, rootCause, exclusion, v.SourceRef, v.RootCause != "", redacted)
 	}
 	hashrates := table("inputs/hashrates", "id asset_id:n kind:n site_id:n container_id:n order_id source_id start end hashrate_hs:n complete source_ref")
 	for _, v := range in.Hashrates {
@@ -519,7 +731,7 @@ func resultTables(ctx context.Context, r Result) ([]evidenceTable, error) {
 		if err := ctx.Err(); err != nil {
 			return nil, fmt.Errorf("prepare report output: %w", err)
 		}
-		interruptions.add(v.ID, v.SiteID, v.ContainerID, v.OrderID, exportInstant(v.Start), exportInstant(maxTime(v.Start, r.Period.Start)), exportInstant(minTime(v.ObservedThrough, r.Period.End)), exportInstant(v.End), exportInstant(v.ObservedThrough), v.Open, v.Category, v.Summary, v.RootCause, v.ClaimedExclusion, v.ExclusionStatus, v.SourceRef)
+		interruptions.add(v.ID, v.SiteID, v.ContainerID, v.OrderID, exportInstant(v.Start), exportInstant(maxTime(v.Start, r.Period.Start)), exportInstant(maxTime(maxTime(v.Start, r.Period.Start), minTime(v.ObservedThrough, r.Period.End))), exportInstant(v.End), exportInstant(v.ObservedThrough), v.Open, v.Category, v.Summary, v.RootCause, v.ClaimedExclusion, v.ExclusionStatus, v.SourceRef)
 	}
 	obligations := table("obligations", "id episode_id asset_id:n site_id:n container_id:n order_id true_episode_start interval_start period_clipped_start period_clipped_end interval_end observed_through severity ticket_at submitted_at received_at diagnosed_at responded_at approved_at deadline restored_at closed_at qualified source_ref")
 	for _, v := range r.Obligations {
@@ -676,6 +888,7 @@ func WriteEvidence(w io.Writer, result Result, inputs Inputs, identity Identity,
 // PreflightArtifacts checks the public input projection and bounded HTML before
 // a draft is retained. Monitoring evidence stays streamed at publication.
 func PreflightArtifacts(ctx context.Context, result Result, inputs Inputs, identity Identity) error {
+	result = PublicResult(result)
 	for _, ref := range result.Sources {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("preflight report artifacts: %w", err)
@@ -684,7 +897,11 @@ func PreflightArtifacts(ctx context.Context, result Result, inputs Inputs, ident
 			return err
 		}
 	}
-	if _, err := publicEvidenceInputTables(ctx, result.Period, inputs); err != nil {
+	selected, err := SelectPublicEvidence(ctx, result.Period, inputs, ObservationSource{})
+	if err != nil {
+		return err
+	}
+	if _, err := publicEvidenceInputTables(ctx, result, selected); err != nil {
 		return err
 	}
 	return WriteWrittenReport(ctx, io.Discard, result, identity)
@@ -699,24 +916,40 @@ const (
 )
 
 func WriteEvidenceContext(ctx context.Context, w io.Writer, result Result, inputs Inputs, identity Identity, observations ObservationSource) error {
-	return writeEvidenceContext(ctx, w, result, inputs, identity, observations, MaxEvidenceZIPBytes, MaxEvidenceContentBytes)
+	_, err := WriteSelectedEvidenceContext(ctx, w, result, inputs, identity, observations)
+	return err
 }
 
-func writeEvidenceContext(ctx context.Context, w io.Writer, result Result, inputs Inputs, identity Identity, observations ObservationSource, archiveBytes, contentBytes int64) error {
+// WriteSelectedEvidenceContext writes the evidence archive and returns the
+// public evidence it selected while streaming the observations once. Callers
+// verify that selection rather than reading the observations a second time.
+func WriteSelectedEvidenceContext(ctx context.Context, w io.Writer, result Result, inputs Inputs, identity Identity, observations ObservationSource) (Inputs, error) {
+	var selected Inputs
+	err := writeEvidenceContext(ctx, w, result, inputs, identity, observations, MaxEvidenceZIPBytes, MaxEvidenceContentBytes, &selected)
+	return selected, err
+}
+
+func writeEvidenceContext(ctx context.Context, w io.Writer, result Result, inputs Inputs, identity Identity, observations ObservationSource, archiveBytes, contentBytes int64, selected *Inputs) error {
 	if err := resultLimits(ctx, result); err != nil {
 		return err
 	}
+	result = PublicResult(result)
 	w = &outputWriter{checkCtx: ctx.Err, writer: w, remaining: archiveBytes, bounded: true}
-
-	input, err := publicEvidenceInputTables(ctx, result.Period, inputs)
-	if err != nil {
-		return err
-	}
 	calculated, err := resultTables(ctx, result)
 	if err != nil {
 		return err
 	}
-	manifest := evidenceManifest{SchemaVersion: evidenceSchemaVersion, InputVersion: "hosted-report-inputs/v1", CalculationVersion: result.Version, Identity: identity, Period: publicPeriod(result.Period), Complete: result.Complete, Status: Provisional, Sites: inputs.Sites(), CoverageRows: len(inputs.Coverage), Sources: uniqueStrings(result.Sources), Files: []manifestMember{}, Limitations: []string{"Container and order views are alternative breakdowns; each reconciles to its own report total.", "Private ticket references, representatives, internal ownership and raw infrastructure diagnostics are omitted.", "Meter rows contain only attributed consumption; raw readings and allocation fractions remain in host-reviewed inputs. Intervals crossing report or commercial coverage boundaries are omitted without estimation.", "Source references and narrative must be checked for client visibility before publication.", "CSV text cells with formula prefixes are apostrophe-prefixed; numeric columns retain their exact values.", "Manifest hashes cover uncompressed member bytes; the archive digest is stored by the issuing service.", evidenceObservationLimitation}}
+	manifest := evidenceManifest{SchemaVersion: evidenceSchemaVersion, InputVersion: "hosted-report-inputs/v1", CalculationVersion: result.Version, Identity: identity, Period: publicPeriod(result.Period), Complete: result.Complete, Status: Provisional, Sources: uniqueStrings(result.Sources), Files: []manifestMember{}, Limitations: []string{
+		"Container and order views are alternative breakdowns; each reconciles to its own report total.",
+		"Private tickets, representatives, internal ownership, delivery configuration and raw infrastructure diagnostics are omitted. Control references use report-local labels; frozen monitoring interval identities remain available.",
+		"Meter rows contain only attributed consumption; raw readings and allocation fractions remain in host-reviewed inputs. Intervals crossing report or commercial coverage boundaries are omitted without estimation. Annual comparison windows are labeled current and prior_year.",
+		"Prior-only annual incident narratives and exclusion claims are omitted. Incident prose requires an observed interval within the report period and as-of boundary; stale-open gaps retain evidence without earlier prose. root_cause_recorded preserves the consumed predicate and narrative_redacted identifies the omission.",
+		"Current incident and operational control explanations, deadline request references and frozen observations are independent required report evidence. Source qualifications identify actual calculator consultations and effective certification in the original reviewed configuration.",
+		"Source references and narrative must be checked for client visibility before publication.",
+		"CSV text cells with formula prefixes are apostrophe-prefixed; numeric columns retain their exact values.",
+		"Manifest hashes cover uncompressed member bytes; the archive digest is stored by the issuing service.",
+		evidenceObservationLimitation,
+	}}
 	if result.Complete {
 		manifest.Status = Authoritative
 	}
@@ -743,18 +976,7 @@ func writeEvidenceContext(ctx context.Context, w io.Writer, result Result, input
 		manifest.Files = append(manifest.Files, manifestMember{Name: name, MediaType: media, SHA256: hex.EncodeToString(digest.Sum(nil)), Bytes: counter.n, Rows: rows})
 		return nil
 	}
-	for _, t := range append(calculated, input...) {
-		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("write report evidence: %w", err)
-		}
-		if err := write(t.name+".csv", "text/csv; charset=utf-8", int64(len(t.rows)), t.writeCSV); err != nil {
-			return err
-		}
-	}
 	scopeSites := map[int64]bool{}
-	for _, site := range manifest.Sites {
-		scopeSites[site] = true
-	}
 	count := int64(0)
 	// Each row is checked and written as it arrives. The first failure is kept,
 	// because a source may swallow the error its yield returned.
@@ -793,25 +1015,39 @@ func writeEvidenceContext(ctx context.Context, w io.Writer, result Result, input
 		if e := csvWriter.Write(headers); e != nil {
 			return fmt.Errorf("write observation CSV headers: %w", e)
 		}
-		var sourceErr error
+		// Select and stream the same frozen membership in one pass. Rows are
+		// checked, selected and written as they arrive; none are buffered.
+		source := ObservationSource{}
 		if daily {
 			if observations.Days != nil {
-				sourceErr = observations.Days(func(v ObservationDay) error {
-					row, err := observationDayRow(v)
-					return add(v.IntervalID, v.SiteID, v.Day, row, err)
-				})
+				source.Days = func(yield func(ObservationDay) error) error {
+					return observations.Days(func(v ObservationDay) error {
+						if err := yield(v); err != nil {
+							return err
+						}
+						row, err := observationDayRow(v)
+						return add(v.IntervalID, v.SiteID, v.Day, row, err)
+					})
+				}
 			}
 		} else if observations.Hours != nil {
-			sourceErr = observations.Hours(func(v Observation) error {
-				row, err := observationRow(v)
-				return add(v.IntervalID, v.SiteID, v.Bucket, row, err)
-			})
+			source.Hours = func(yield func(Observation) error) error {
+				return observations.Hours(func(v Observation) error {
+					if err := yield(v); err != nil {
+						return err
+					}
+					row, err := observationRow(v)
+					return add(v.IntervalID, v.SiteID, v.Bucket, row, err)
+				})
+			}
 		}
+		var selectErr error
+		inputs, selectErr = SelectPublicEvidence(ctx, result.Period, inputs, source)
 		if failure != nil {
 			return failure
 		}
-		if sourceErr != nil {
-			return sourceErr
+		if selectErr != nil {
+			return selectErr
 		}
 		csvWriter.Flush()
 		if err := csvWriter.Error(); err != nil {
@@ -823,6 +1059,22 @@ func writeEvidenceContext(ctx context.Context, w io.Writer, result Result, input
 		return err
 	}
 	manifest.Files[len(manifest.Files)-1].Rows = count
+	manifest.CoverageRows = len(inputs.Coverage)
+	for _, site := range inputs.Sites() {
+		scopeSites[site] = true
+	}
+	input, err := publicEvidenceInputTables(ctx, result, inputs)
+	if err != nil {
+		return err
+	}
+	for _, t := range append(calculated, input...) {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("write report evidence: %w", err)
+		}
+		if err := write(t.name+".csv", "text/csv; charset=utf-8", int64(len(t.rows)), t.writeCSV); err != nil {
+			return err
+		}
+	}
 	manifest.Sites = make([]int64, 0, len(scopeSites))
 	for site := range scopeSites {
 		manifest.Sites = append(manifest.Sites, site)
@@ -841,6 +1093,9 @@ func writeEvidenceContext(ctx context.Context, w io.Writer, result Result, input
 	}
 	if err := archive.Close(); err != nil {
 		return fmt.Errorf("close evidence archive: %w", err)
+	}
+	if selected != nil {
+		*selected = inputs
 	}
 	return nil
 }
@@ -944,6 +1199,7 @@ func BuildWrittenReportContext(ctx context.Context, result Result, identity Iden
 
 // WriteWrittenReport renders to bounded output without holding the full HTML in memory.
 func WriteWrittenReport(ctx context.Context, w io.Writer, result Result, identity Identity) error {
+	result = PublicResult(result)
 	if err := resultLimits(ctx, result); err != nil {
 		return err
 	}

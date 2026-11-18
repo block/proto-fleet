@@ -28,6 +28,8 @@ func TestHostedReportStreamRechecksRevocationBeforeEveryStoredChunk(t *testing.T
 	}{
 		{name: "viewer membership revoked", change: "membership"},
 		{name: "viewer site policy narrowed", change: "policy"},
+		{name: "viewer evidence ZIP membership revoked", file: "evidence.zip", change: "membership"},
+		{name: "viewer evidence ZIP site policy narrowed", file: "evidence.zip", change: "policy"},
 		{name: "host reporting grant narrowed", host: true, change: "grant"},
 		{name: "viewer initially lacks one frozen site", initial: true, change: "policy"},
 		{name: "host initially lacks one frozen site", host: true, initial: true, change: "grant"},
@@ -60,10 +62,16 @@ func TestHostedReportStreamRechecksRevocationBeforeEveryStoredChunk(t *testing.T
 			var input int64
 			require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO hosted_reporting_inputs(organization_id,account_id,revision,updated_by,source_ref,configuration,site_ids) VALUES($1,$2,1,$3,'fixture','{}',ARRAY[$4::bigint,$5::bigint]) RETURNING revision`, f.org, account.ID, f.host, sites[0], sites[1]).Scan(&input))
 			require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO hosted_report(report_id,organization_id,account_id,series_id,number,kind,period_start,period_end,as_of,timezone,period,input_revision,result,site_ids,created_by,owner_id,status,evidence_cutoff) VALUES($1,$2,$3,$1,1,'monthly','2026-09-01','2026-10-01',now(),'UTC','{}',$4,'{}',ARRAY[$6::bigint,$7::bigint],$5,$5,'draft',now()) RETURNING id`, reportID, f.org, account.ID, input, f.host, sites[0], sites[1]).Scan(&reportInternal))
-			_, err = f.db.ExecContext(t.Context(), `INSERT INTO hosted_report_artifact(report_internal_id,name,media_type) VALUES($1,'evidence.zip',$2)`, reportInternal, reporting.PublicEvidenceMediaType)
-			require.NoError(t, err)
 			var artifact int64
-			require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO hosted_report_artifact(report_internal_id,name,media_type) VALUES($1,$2,'application/json') RETURNING id`, reportInternal, file).Scan(&artifact))
+			media := "application/json"
+			if file == "report.html" {
+				media = "text/html; charset=utf-8"
+				_, err = f.db.ExecContext(t.Context(), `INSERT INTO hosted_report_artifact(report_internal_id,name,media_type,sha256,byte_count,chunk_count) VALUES($1,'evidence.zip',$2,repeat('2',64),0,0)`, reportInternal, reporting.PublicEvidenceMediaType)
+				require.NoError(t, err)
+			} else if file == "evidence.zip" {
+				media = reporting.PublicEvidenceMediaType
+			}
+			require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO hosted_report_artifact(report_internal_id,name,media_type) VALUES($1,$2,$3) RETURNING id`, reportInternal, file, media).Scan(&artifact))
 			_, err = f.db.ExecContext(t.Context(), `INSERT INTO hosted_report_artifact_chunk(artifact_id,sequence,data) VALUES($1,0,'first authorized bytes'::bytea),($1,1,'must never arrive after revocation'::bytea)`, artifact)
 			require.NoError(t, err)
 			_, err = f.db.ExecContext(t.Context(), `UPDATE hosted_report_artifact SET sha256=repeat('1',64),byte_count=53,chunk_count=2 WHERE id=$1`, artifact)

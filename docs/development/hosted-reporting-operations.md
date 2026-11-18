@@ -122,11 +122,14 @@ budget. The down migration refuses to discard any captured confirmations.
    material, internal ticket notes and infrastructure errors out of source
    references and narratives. Validate register completeness explicitly, including
    genuinely empty registers; absence of rows is not proof of zero activity.
-3. Save the validated inputs. Each account has one editable current input set;
-   saves replace it using a revision counter to reject concurrent edits. The
-   audit records who changed it, when, the source reference and changed sections,
-   without retaining previous contents. Later input changes invalidate an older
-   draft's eligibility for publication; recalculate it against the current inputs.
+3. Save configuration and changed register rows using the current account revision.
+   Each accepted batch changes only its specified rows, increments the revision,
+   and records the actor, time, source reference and changed sections without
+   retaining previous contents. Imports commit bounded batches and show committed
+   progress; a later failure leaves earlier accepted batches intact. Register
+   pages carry that revision, so a concurrent change requires reloading before
+   continuing. Later input changes invalidate an older draft's eligibility for
+   publication; recalculate it against the current facts.
 4. Generate the period draft and inspect metric causes, source windows and both
    alternative breakdowns. Container and order totals describe the same estate;
    they must each reconcile and must not be added together.
@@ -134,8 +137,10 @@ budget. The down migration refuses to discard any captured confirmations.
    with Create reports can publish. An incomplete issue requires an explicit exception explaining
    the missing evidence; the exception does not make its values authoritative.
 6. Download the printable HTML and evidence ZIP. The ZIP includes CSV tables and
-   a JSON manifest with exact values, units, provenance and file digests. Stored
-   artifact bytes are frozen within the publication transaction. Client meter
+   a JSON manifest with exact values, units, provenance and file digests. The
+   client evidence profile `hosted-report-evidence/v4` keeps report-period client
+   tables separate from the host-only source JSON; older profiles remain subject
+   to their publication safety checks. Stored artifact bytes are frozen within the publication transaction. Client meter
    tables contain attributed consumption only; original readings and allocation
    fractions remain host-only. **Download source inputs** in the host report
    actions menu provides the relevant original inputs frozen at publication,
@@ -148,11 +153,45 @@ budget. The down migration refuses to discard any captured confirmations.
    publication alone does not confirm delivery. Keep failed attempts and their
    follow-up visible until a supported confirmation is recorded.
 
-Each preparation accepts at most 10,000 facts, including orders, and 1,024 combined
-container and order breakdowns. Results are limited to 8 MiB of JSON and written
-reports to 16 MiB of HTML. Preparation, publication and queue calculation honor
-cancellation and operation deadlines. Evidence ZIPs stream into stored chunks.
-Exceeding a preparation or publication limit rolls back the operation.
+The authoritative current facts are indexed rows. There is no 10,000-fact or
+8 MiB account-lifetime quota. One mutation request accepts at most 200 changes
+and 1 MiB of canonical mutation JSON; configuration has a separate 1 MiB bound.
+Each accepted batch validates its final relations and physical witnesses and
+writes facts, scope, revision and audit together in a five-second transaction.
+Register reads return at most 200 rows and 2 MiB of encoded page data, with
+revision-bound cursors.
+
+Preparation and publication select only the complete current/comparison/support
+context needed for that report. Metadata preflight limits selected canonical
+payloads to 32 MiB and estimates heap use against 256 MiB before decoding them;
+selection has a 45-second deadline. One ordered metadata query returns the
+preflight-approved keys, then payload reads remain page- and byte-bounded. This
+is an operation budget, not a fact-count
+limit. It does not establish peak resident memory or guarantee every continuous
+fleet workload fits. Host source JSON is streamed fact by fact into stored chunks
+and has a separate 64 MiB output bound. A report that exceeds these bounds fails
+without changing its draft, artifacts or audit; small mutations and bounded
+register reads remain available.
+
+Control observations are captured in one SQL statement so an atomic restoration
+cannot become partly visible between reads. The fixed-width capture buffer has a
+separate 16 MiB estimated memory budget (512 bytes per window), with one extra row
+detecting exhaustion; the existing result-byte and 45-second capture bounds still
+apply. This bounds one report operation, not retained account facts.
+
+Preparation admits at most 1,024 combined container and order breakdowns. Results
+have an 8 MiB conservative JSON budget and written reports a 16 MiB HTML cap.
+Preparation and publication each have a 60-second operation and transaction
+deadline; cancellation or failure rolls back the operation.
+
+Artifacts are persisted in 64 KiB chunks. This bounds a chunk buffer, not the
+total archive bytes, total storage, or the complete calculation's memory. Every
+evidence hour selected by the report's evidence cutoff is exported, hourly or as
+day rollups (see [Evidence export](hosted-reporting-evidence.md#evidence-export));
+there is no evidence-row admission cap. A timeout can therefore be the effective
+boundary. Do
+not truncate required evidence or enlarge a limit to represent an unsupported
+workload as complete.
 
 Reports open as a workbook with one grid at a time. Results use one row per
 container, hosting order or account, with measures as columns. The alternative
@@ -193,6 +232,10 @@ their data-quality qualifications and work history remain available. With no
 approved contractual calendar, displayed internal targets remain provisional;
 there is no invented contractual overdue determination.
 
+Account discovery has a five-second query deadline. If discovery times out, the
+worker retries on its next tick without cancelling the long-lived worker
+context. Per-account transaction bounds and notification claims remain separate.
+
 Notification work uses persisted claims, generations and retry history alongside
 the existing alert delivery infrastructure. Configure and verify the normal alert
 routes before relying on notification delivery. A successful internal notification
@@ -224,7 +267,11 @@ calling the reporting process contractually ready:
 | G4   | Measured evidence/artifact growth, retention budget, backup controls and a successful restore rehearsal on the intended estate.     |
 | G5   | Agreed timezone/calendar, first required periods, representatives, operational owner and client delivery procedure.                 |
 
-A readiness flag cannot supply a missing formula or source. Reviewed external
+G1 includes obtaining the contractual formula/source decision and tracked
+implementation in [issue 272](https://github.com/btc-mining/proto-fleet-internal/issues/272).
+Signed definitions and worked examples must cover uptime, exclusions, remedy and
+credit calculations, episode continuity and backlog conventions. A readiness
+flag cannot supply a missing formula or source. Reviewed external
 calculation results remain explicitly provisional, with their supporting
 reference. Missing contractual definitions produce unavailable values. Power is
 not metered energy, positive hashrate is not contractual uptime or pool reporting,
@@ -248,10 +295,15 @@ module windows so boards and repeated episodes do not multiply module counts.
 Unmapped/shared windows qualify supported counts; the unknown module population
 remains unavailable. Ticket counts retain their independent register-completeness
 and observation qualifications. A mapping never supplies outage, SLA or credit
-rules; those still require explicit reviewed obligations and contractual evidence. Qualified contractual
-ticket adapters remain integration work; allocation transfer alone does not
-establish hosting order coverage or contractual uptime. Reconcile the source contracts and approved
-G1–G3 evidence before replacing reviewed imports. Runtime counter capture remains
+rules; those still require explicit reviewed obligations and contractual evidence.
+
+[PR 344](https://github.com/btc-mining/proto-fleet-internal/pull/344) being merged
+does not establish that qualified ticket capture is deployed, active or complete
+for this account. Verify the deployed build, source semantics, account visibility,
+coverage start, receipt/correction handling and the consuming report field before
+calling that adapter an authoritative contractual source. Allocation transfer
+alone does not establish hosting order coverage or contractual uptime. Reconcile
+the source contracts and approved G1–G3 evidence before replacing reviewed imports. Runtime counter capture remains
 deferred until an approved report field consumes it.
 
 Before the first contractual delivery, name the interim reporting/on-call owner,
@@ -267,3 +319,179 @@ limits described in [Hosted reporting evidence](hosted-reporting-evidence.md).
 Issued input/evidence links and artifact chunks are preserved without an automatic
 purge. Populated-history down migrations refuse destructive rollback; plan
 forward corrections and verify storage/backup acceptance before deployment.
+
+## Reproduce the sampled lifecycle workload
+
+`TestHostedReportingWorkloadLifecycle` exercises bounded mutations → Prepare → Publish →
+all three stored artifact downloads through the real service and a disposable
+Postgres/Timescale database. It creates a synthetic account with one CT1,
+six tanks, 96 modules, 288 allocated boards, 96 explicit qualified historical
+module mappings and one hosting order. Bulk SQL constructs the historical
+fixture; actual board metrics and diagnostic writes use the existing
+normalization/capture triggers. It does not benchmark controller ingestion or
+establish a production client's estate.
+
+| Profile | Aggregate fact dimensions | Total |
+| --- | --- | ---: |
+| September 2026, 30 days | 288 board coverage + 96 module mappings + 1 order + 8,640 daily board hashrate intervals + 30 container meter intervals + 1 fee + 4 incidents + 8 module obligations + 288 pool observations | 9,356 |
+| Calendar 2025, compared with 2024 | Same coverage/mappings/order + 6,912 monthly board hashrate intervals over both years + 24 meter intervals + 24 fees + 4 incidents + 8 module obligations + 288 pool observations | 7,645 |
+
+These facts are aggregate daily/monthly intervals, not five-minute or full-density
+telemetry. The annual case supplies distinct prior/current hash and meter values,
+asserts the calculated year-over-year changes, and checks that the host source
+JSON retains both comparison years. Only current-report-period monitoring hours
+are frozen; prior-year typed facts do not imply prior-year frozen monitoring.
+The fixture leaves prerequisites unapproved and sources uncertified, publishes
+with an explicit synthetic exception, and asserts the result remains incomplete.
+
+From the repository root, use Hermit and a dedicated local test database:
+
+```sh
+eval "$(./bin/hermit env --activate)"
+cd server
+DB_ADDRESS=127.0.0.1:58769 DB_PASSWORD=fleet HOSTED_REPORT_WORKLOAD=1 \
+  go test ./internal/domain/hostedaccounts \
+  -run '^TestHostedReportingWorkloadLifecycle$' -count=1 -v
+```
+
+Use the database address for the intended disposable test instance. The harness
+creates and drops a separate database per test. `HOSTED_REPORT_WORKLOAD_POLLS`
+accepts 20 (default), 200 or 1000 sampled hours. Each sample writes one closed
+evidence hour for each of the 288 board intervals, so twenty samples freeze 5,760
+hours. One hour is corrected with a second revision before preparation and
+frozen at that revision; a third revision written after preparation has a bucket
+inside the period and is excluded by the draft's evidence cutoff. The monthly
+profile exports hourly observations; the annual profile exceeds the hourly limit
+and exports day rollups. These samples are sparse across the month/year; the
+multiplier is not a cadence.
+
+The test logs exact input/result bytes, mutation/Prepare/Publish duration, frozen
+membership, and each download's bytes, chunk count, duration and SHA-256. It
+streams service chunks to temporary files, verifies stable authority fingerprints
+and outer digests, then verifies ZIP member byte counts/digests and CSV row counts.
+The cancelled-publication attempt must leave no artifacts or publication audit.
+`TestHostedReportingWorkloadInputBudgetsPreserveCurrentRecord` separately rejects
+oversized mutation count/bytes while preserving current facts, scope, revision
+and audit, and verifies bounded reads still work. The selected-context exhaustion
+test rejects oversized report work before payload decoding or report changes,
+then accepts a small update and a bounded read. Existing output-limit and
+publication rollback tests cover excess breakdowns, oversized result/HTML and
+transactional failures; there is no evidence-row cap.
+
+On 2026-11-09, the integrated indexed-fact and publication implementation passed
+both default 20-sample profiles against isolated local Docker Postgres/Timescale.
+That run predates hourly evidence: it froze raw monitoring events, so the evidence
+archive figures it recorded do not apply and are omitted here. For hourly
+evidence export measurements, see
+[Evidence export](hosted-reporting-evidence.md#evidence-export).
+
+| Bounded-fact observation | Monthly | Annual with prior year |
+| --- | ---: | ---: |
+| Input fixture JSON bytes | 2,624,555 | 2,136,216 |
+| Facts | 9,356 | 7,645 |
+| All bounded mutation batches | 26.595 s | 22.232 s |
+| Prepare / 60 s | 0.861 s | 0.784 s |
+| Publish / 60 s | 2.461 s | 2.571 s |
+| Result JSON bytes / 8,388,608 | 67,870 | 69,904 |
+| Combined breakdowns / 1,024 | 2 | 2 |
+| Written HTML bytes / 16,777,216 | 77,312 | 78,889 |
+| Host source JSON bytes | 2,624,792 | 2,136,452 |
+| HTML / source download | 15.3 / 147.9 ms | 17.2 / 105.8 ms |
+
+Mutation duration is the sum of many accepted operations, each with its own
+five-second transaction budget. It is not one atomic whole-file transaction.
+These local sequential latencies exclude fixture construction, network delivery,
+production concurrency, WAL and backups, and are not an SLA. Digests are checked
+on every run rather than fixed as snapshot constants, because report identities
+and capture times change. Browser memory and native/fallback file saving are
+verified separately; this service fixture does not measure browser delivery.
+The earlier whole-input implementation passed a 200-sample profile, but that
+historical run does not validate the current implementation at that density.
+No current 200- or 1000-sample run, full-cadence year, or
+32/128/512-container/order sweep is established by these results.
+
+`TestHostedReportingLargeAccountLifecycle` separately exercises two accounts
+through legal 200-change mutations, every bounded register page, preparation,
+inspection, publication and all three immutable downloads:
+
+| Large-account observation | Irrelevant accumulated history | Relevant fee stream |
+| --- | ---: | ---: |
+| Current facts | 12,002 | 10,203, including 10,201 relevant fees |
+| Canonical fact payload bytes | 14,268,372 | 12,129,361 |
+| Complete register traversal pages | 240 | 206 |
+| All bounded mutation batches | 19.620 s | 17.678 s |
+| Prepare | 105.1 ms | 440.1 ms |
+| Publish | 121.6 ms | 946.0 ms |
+| Frozen host source JSON bytes | 1,004 | 12,140,193 |
+| Frozen host source chunks | 1 | 186 |
+
+The history case reproduces the small baseline exactly and omits irrelevant fees
+from its selected source. The relevant case checks every original fee identity,
+exact amount, full interval and source reference in a source artifact above
+8 MiB. Both traverse every stored fact exactly once without a response exceeding
+200 rows or 2 MiB. Every downloaded artifact matches its outer SHA-256; every ZIP
+member has one manifest entry whose byte count, digest and CSV row count match.
+Client source-artifact access remains denied. These are synthetic commercial
+facts, not a claim that arbitrary telemetry density or estate size fits the
+selected-report operation budget.
+
+The pure-calculation output guard continues to reject repeated source lists
+before constructing a result above the existing 8 MiB budget. The breakdown cap
+alone does not establish useful throughput at its maximum cardinality.
+
+## Evidence density and production capacity
+
+Typed-fact admission and evidence volume are independent. Hourly evidence
+storage, closing cost, export representation and the publication deadline are
+measured in [Hosted reporting evidence](hosted-reporting-evidence.md#sizing).
+
+G4 commissioning must record the real client/CT1/board estate, cadence,
+correction rate, evidence volume, fact aggregation granularity, concurrent
+report load, storage and WAL growth, backup duration, and restore acceptance.
+Rehearse the complete month/year lifecycle and restore on representative retained
+history; record the build, migration catalog, hardware and measured boundary.
+Restore checks must include evidence hours and revisions, report evidence
+cutoffs, allocation identities, artifact byte counts/digests and access after
+restore. A benchmark pass or a merged PR is not storage/backup/restore acceptance.
+
+If required evidence exceeds a transaction's measured capacity, record the
+failing stage/count/bytes and keep the contractual limitation visible. A
+followup must address freeze/export/retention representation without omitting
+required evidence. Any future incremental fact store must specify backfill,
+atomic revision/site/audit maintenance, full validation, consuming service/UI
+wiring and cutover before being represented as complete. No new cap,
+asynchronous job system or source certification is implied by these
+measurements.
+
+## Migration and recovery checkpoints
+
+Reporting builds include these internal migrations. 1077 replaced the earlier
+1055 raw-event hold with hourly evidence; see
+[Hosted reporting evidence](hosted-reporting-evidence.md#upgrade-and-rollback). Startup applies pending migrations; upgrading a binary is not
+a preparation-only action. Follow the supported catalog/checkpoint procedure in
+[database migrations](migrations.md), rehearse with writers stopped and preserve a
+coordinated backup. A version number alone does not prove an equivalent catalog.
+
+| Migration | Maintained behavior |
+| --- | --- |
+| 1071`internal_hosted_reporting_inputs` | Explicit reporting authority, current configuration/revision and indexed current facts. |
+| 1077`internal_hourly_reporting_evidence` | Append-only hourly monitoring evidence and gaps; drops the 1055 raw-event hold. |
+| 1079`internal_hosted_reports` | Draft/issued reports, evidence cutoffs, delivery attempts and requests. |
+| 1080`internal_hosted_report_artifacts` | Immutable artifact metadata and stored chunks. |
+| 1086`internal_hosted_report_queue` | Durable queue generations, notification claims and events. |
+| 1087`internal_hosted_report_request_fulfillment` | Recorded external request fulfillment. |
+| 1088`internal_hosted_account_analyses` | Immutable saved account analyses and generation receipts. |
+| 1089`internal_hosted_reporting_delivery` | Persisted notification destinations and retry/delivery state. |
+| 1090`internal_account_analysis_deletion` | Metadata-only deletion receipts for saved analyses. |
+| 1091`internal_hosted_report_generation_permission` | Account generation capability and permission propagation. |
+| 1092`internal_hosted_curtailment_observations` | Prospective curtailment confirmations and original asset scope. |
+
+Do not edit a deployed migration or force a mismatched checkpoint to bypass its
+checks. Populated reporting down migrations protect retained history; inspect
+the specific migration guard and prefer a forward correction. A coordinated
+restore requires the matching application build and database backup, stopped
+writers, explicit accounting for observations lost after the backup, and digest
+verification before restarting reporting. Apply the evidence runbook's storage
+alerts, named operations owner and pause/resume gap recording before production
+capture. This document does not grant a release approval or attest a deployed
+source, contract formula or delivery procedure.

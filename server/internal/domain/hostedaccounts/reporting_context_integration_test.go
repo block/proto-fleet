@@ -257,6 +257,23 @@ func TestReportingContextByteBudgetRejectsBeforeDraftMutation(t *testing.T) {
 	var drafts int
 	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_report WHERE account_id=$1`, account.ID).Scan(&drafts))
 	require.Zero(t, drafts)
+	var artifacts, audits int
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_report_artifact`).Scan(&artifacts))
+	require.Zero(t, artifacts)
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM activity_log WHERE event_type IN ('prepare_report','publish_report')`).Scan(&audits))
+	require.Zero(t, audits)
+	// A per-report resource failure does not impose an account-lifetime quota.
+	fee := reporting.FeeLine{ID: "later-small-update", SiteID: c.SiteID, ContainerID: c.ContainerID, OrderID: c.OrderID, Start: p.Start, End: p.End, Amount: "1", Currency: "USD", SourceRef: "small reviewed update"}
+	metadata, err := f.svc.MutateReportingInputs(t.Context(), f.host, f.org, account.AccountID, revision, "small update after report exhaustion", nil, []reporting.FactMutation{reportingUpsertForTest(t, fee)})
+	require.NoError(t, err)
+	require.Equal(t, revision+1, metadata.Revision)
+	page, err := f.svc.ReportingFactPage(t.Context(), f.host, f.org, account.AccountID, reporting.FactPoolObservation, metadata.Revision, "", 1)
+	require.NoError(t, err)
+	require.Len(t, page.Facts, 1)
+	require.NotEmpty(t, page.NextCursor)
+	encoded, err := json.Marshal(page)
+	require.NoError(t, err)
+	require.LessOrEqual(t, len(encoded), hostedaccounts.MaxReportingFactPageBytes)
 }
 
 func TestReportingContextChecksStoredScopeBeforeRevision(t *testing.T) {

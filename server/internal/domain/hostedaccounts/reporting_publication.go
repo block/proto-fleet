@@ -279,6 +279,12 @@ func (s *Service) PublishReport(ctx context.Context, actorID, orgID int64, accou
 		}
 		identity := reporting.Identity{ReportID: record.ReportID, Version: record.Number, AccountID: accountID, AccountName: a.account.Name, IssuedAt: issuedAt, CorrectionOf: record.CorrectionOf, CorrectionReason: record.CorrectionReason, Exception: strings.TrimSpace(exception)}
 
+		// The draft's evidence cutoff, not a new telemetry query, defines the frozen
+		// observation stream. The evidence archive replays it once under this
+		// transaction, rechecking current site authority, and returns the public
+		// evidence it selected.
+		var selected reporting.Inputs
+
 		for _, file := range []struct {
 			name, media string
 			render      func(io.Writer) error
@@ -290,7 +296,9 @@ func (s *Service) PublishReport(ctx context.Context, actorID, orgID int64, accou
 				return reporting.WriteWrittenReport(ctx, w, record.Result, identity)
 			}},
 			{"evidence.zip", reporting.PublicEvidenceMediaType, func(w io.Writer) error {
-				return reporting.WriteEvidenceContext(ctx, w, record.Result, inputs.Inputs, identity, reportEvidence(ctx, q, row.ID, a.sitesAllowed))
+				var err error
+				selected, err = reporting.WriteSelectedEvidenceContext(ctx, w, record.Result, inputs.Inputs, identity, reportEvidence(ctx, q, row.ID, a.sitesAllowed))
+				return err
 			}},
 		} {
 			artifact, err := q.CreateHostedReportArtifact(ctx, sqlc.CreateHostedReportArtifactParams{ReportInternalID: row.ID, Name: file.name, MediaType: file.media})
@@ -307,6 +315,11 @@ func (s *Service) PublishReport(ctx context.Context, actorID, orgID int64, accou
 			if err = writer.finish(ctx); err != nil {
 				return zero, err
 			}
+		}
+		// Check parity on the selection the archive used. A mismatch rolls back
+		// every artifact written above, so publication still fails closed.
+		if err := reporting.VerifyPublicEvidenceCalculation(ctx, record.Period, selected, recalculated); err != nil {
+			return zero, fmt.Errorf("verify public report evidence: %w", err)
 		}
 		issued, err := q.IssueHostedReport(ctx, sqlc.IssueHostedReportParams{ID: row.ID, Revision: expected, IssuedBy: sql.NullInt64{Int64: actorID, Valid: true}, IncompleteException: strings.TrimSpace(exception), IssuedAt: sql.NullTime{Time: issuedAt, Valid: true}})
 		if errors.Is(err, sql.ErrNoRows) {
@@ -361,6 +374,19 @@ func (s *Service) ReportArtifactPage(ctx context.Context, actorID, orgID int64, 
 		}
 		if err != nil {
 			return out, err
+		}
+		if !host {
+			profile := artifact.MediaType
+			if name == "report.html" {
+				evidence, err := q.GetHostedReportArtifact(ctx, sqlc.GetHostedReportArtifactParams{OrganizationID: orgID, AccountID: account.ID, ReportID: reportID, Name: "evidence.zip"})
+				if err != nil && !errors.Is(err, sql.ErrNoRows) {
+					return out, err
+				}
+				profile = evidence.MediaType
+			}
+			if profile != reporting.PublicEvidenceMediaType {
+				return out, fleeterror.NewFailedPreconditionError("Prepare and publish a correction to provide client-safe evidence")
+			}
 		}
 		if sequence >= artifact.ChunkCount {
 			return out, fleeterror.NewInvalidArgumentError("report artifact page is outside its frozen length")

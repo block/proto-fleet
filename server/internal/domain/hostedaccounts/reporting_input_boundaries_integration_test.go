@@ -323,7 +323,7 @@ func TestReportingAuthorityRetainsDeletedSitesButCannotAddThem(t *testing.T) {
 			require.False(t, g.CanCreate)
 		}
 	}
-	require.True(t, found, "retained reporting authority remains listed")
+	require.True(t, found, "the disabled grant must retain its historical site after the rejected update")
 }
 
 func TestReportingAuditNormalizesEmptyModuleCoverage(t *testing.T) {

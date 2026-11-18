@@ -59,16 +59,26 @@ func number(v *big.Rat, unit, method string, causes, sources []string) Metric {
 func count(n int, unit, method string, causes, sources []string) Metric {
 	return number(big.NewRat(int64(n), 1), unit, method, causes, sources)
 }
-func gate(c Configuration, key string, causes, sources *[]string) {
+func gate(ctx context.Context, c Configuration, key string, causes, sources *[]string) {
+	ready := prerequisiteReady(ctx, c, key)
 	for _, g := range c.Prerequisites {
-		if g.Key == key && c.Ready(key) {
+		if g.Key == key && ready {
 			*sources = append(*sources, g.SourceRef)
 			return
 		}
 	}
 	*causes = append(*causes, "missing_"+key)
 }
-func certify(c Configuration, id, metric string, causes, sources *[]string) {
+func certify(ctx context.Context, c Configuration, id, metric string, causes, sources *[]string) {
+	if deps := consultedDependencies(ctx); deps != nil {
+		deps.sources[publicationSourceKey{id, metric}] = true
+		for _, source := range c.Sources {
+			if source.ID == id && source.Metric == metric && source.Certified && strings.TrimSpace(source.SourceRef) != "" {
+				prerequisiteReady(ctx, c, "G2")
+				break
+			}
+		}
+	}
 	if !c.Certified(id, metric) {
 		*causes = append(*causes, "uncertified_"+metric+"_source")
 		return
@@ -78,7 +88,7 @@ func certify(c Configuration, id, metric string, causes, sources *[]string) {
 			*sources = append(*sources, v.SourceRef)
 		}
 	}
-	gate(c, "G2", causes, sources)
+	gate(ctx, c, "G2", causes, sources)
 }
 func intersect(a, b window) (window, bool) {
 	w := window{start: maxTime(a.start, b.start), end: minTime(a.end, b.end)}
@@ -288,7 +298,7 @@ func CalculateStoredContext(ctx context.Context, p Period, in Inputs) (Result, e
 	if len(containers)+len(orders) > MaxReportBreakdowns {
 		return Result{}, fmt.Errorf("report exceeds %d supported breakdowns", MaxReportBreakdowns)
 	}
-	r := Result{Version: "hosted-report-calculation/v1", Period: p, Metrics: calculateScope(ctx, p, in, scope{}), Containers: []Breakdown{}, Orders: []Breakdown{}, Reconciliations: []Reconciliation{}, Interruptions: interruptions(p, in), Obligations: obligationDetails(p, in), Deadlines: deadlines(p, in.Configuration)}
+	r := Result{Version: "hosted-report-calculation/v1", Period: p, Metrics: calculateScope(ctx, p, in, scope{}), Containers: []Breakdown{}, Orders: []Breakdown{}, Reconciliations: []Reconciliation{}, Interruptions: interruptions(p, in), Obligations: obligationDetails(p, in), Deadlines: deadlinesContext(ctx, p, in.Configuration)}
 	remaining := int64(MaxResultJSONBytes)
 	if err := jsonBudget(ctx, reflect.ValueOf(r), &remaining); err != nil {
 		return Result{}, err
@@ -415,7 +425,7 @@ func calculateScope(ctx context.Context, p Period, in Inputs, s scope) map[strin
 			return nil
 		}
 		m[k] = unavailable("", "approved_contract_formula_unimplemented")
-		if !in.Configuration.Ready("G1") {
+		if !prerequisiteReady(dependencyGroup(ctx, "contract"), in.Configuration, "G1") {
 			v := m[k]
 			v.Causes = append(v.Causes, "missing_G1")
 			m[k] = v
@@ -432,13 +442,13 @@ func calculateScope(ctx context.Context, p Period, in Inputs, s scope) map[strin
 		}
 		return m
 	}
-	meters(ctx, p, in, s, cs, m)
-	fees(ctx, p, in, s, cs, m)
-	hashrates(ctx, p, in, s, cs, m)
-	incidentMetrics(ctx, p, in, s, cs, m)
-	backlog(ctx, p, in, s, cs, m)
-	reportingCounts(ctx, p, in, cs, m)
-	externalMetrics(ctx, p, in, s, cs, m)
+	meters(dependencyGroup(ctx, "energy"), p, in, s, cs, m)
+	fees(dependencyGroup(ctx, "fees"), p, in, s, cs, m)
+	hashrates(dependencyGroup(ctx, "hashrate"), p, in, s, cs, m)
+	incidentMetrics(dependencyGroup(ctx, "maintenance"), p, in, s, cs, m)
+	backlog(dependencyGroup(ctx, "backlog"), p, in, s, cs, m)
+	reportingCounts(dependencyGroup(ctx, "counts"), p, in, cs, m)
+	externalMetrics(dependencyGroup(ctx, "external"), p, in, s, cs, m)
 	if p.Kind == "annual" {
 		annualComparisons(ctx, p, in, s, m)
 	} else {
@@ -505,7 +515,7 @@ func meters(ctx context.Context, p Period, in Inputs, s scope, cs []CoverageSegm
 		if v.Quality == meterQualityEstimated {
 			causes = append(causes, "estimated_meter_energy")
 		}
-		certify(in.Configuration, v.SourceID, "meter", &causes, &sources)
+		certify(ctx, in.Configuration, v.SourceID, "meter", &causes, &sources)
 	}
 	for _, c := range cs {
 		if ctx.Err() != nil {
@@ -516,7 +526,7 @@ func meters(ctx context.Context, p Period, in Inputs, s scope, cs []CoverageSegm
 			causes = append(causes, "meter_interval_coverage_gap")
 		}
 	}
-	gate(in.Configuration, "G3", &causes, &sources)
+	gate(ctx, in.Configuration, "G3", &causes, &sources)
 	if supported == 0 {
 		v := unavailable("kWh", "meter_energy_unavailable")
 		v.Causes = uniqueStrings(append(v.Causes, causes...))
@@ -589,7 +599,7 @@ func fees(ctx context.Context, p Period, in Inputs, s scope, cs []CoverageSegmen
 			causes = append(causes, "fee_accrual_coverage_gap")
 		}
 	}
-	gate(in.Configuration, "G3", &causes, &sources)
+	gate(ctx, in.Configuration, "G3", &causes, &sources)
 	if len(totals) == 0 {
 		if complete && len(causes) == 0 {
 			m["accrued_hosting_fees"] = number(new(big.Rat), "currency", "no_accruals_in_complete_register; no_currency_assumed", causes, sources)
@@ -669,13 +679,13 @@ func hashrates(ctx context.Context, p Period, in Inputs, s scope, cs []CoverageS
 			supported = true
 			integral.Add(integral, new(big.Rat).Mul(rational(h.HashrateHS), big.NewRat(b.Sub(a).Nanoseconds(), 1)))
 			sources = append(sources, h.SourceRef)
-			certify(in.Configuration, h.SourceID, "hashrate", &causes, &sources)
+			certify(ctx, in.Configuration, h.SourceID, "hashrate", &causes, &sources)
 			if !h.Complete {
 				causes = append(causes, "incomplete_hashrate_interval")
 			}
 		}
 	}
-	gate(in.Configuration, "G3", &causes, &sources)
+	gate(ctx, in.Configuration, "G3", &causes, &sources)
 	if !supported {
 		for _, key := range []string{"hashrate_performance_hs", "hashrate_performance_percent"} {
 			if ctx.Err() != nil {
@@ -790,7 +800,7 @@ func incidentMetrics(ctx context.Context, p Period, in Inputs, s scope, cs []Cov
 	if records == 0 && !complete {
 		return
 	}
-	gate(in.Configuration, "G3", &causes, &sources)
+	gate(ctx, in.Configuration, "G3", &causes, &sources)
 	for key, category := range map[string]string{"interruption_duration_hours": "all", "scheduled_maintenance_hours": "scheduled_maintenance", "unscheduled_maintenance_hours": "unscheduled_maintenance", "maintenance_hours": "maintenance", "curtailment_duration_hours": "curtailment"} {
 		if ctx.Err() != nil {
 			return
@@ -907,8 +917,8 @@ func ticketMetrics(ctx context.Context, p Period, in Inputs, s scope, m map[stri
 	if !complete && len(episodes) == 0 && len(ticketSources) == 0 {
 		return
 	}
-	gate(in.Configuration, "G1", &causes, &sources)
-	gate(in.Configuration, "G3", &causes, &sources)
+	gate(ctx, in.Configuration, "G1", &causes, &sources)
+	gate(ctx, in.Configuration, "G3", &causes, &sources)
 	m["ticket_history"] = count(len(episodes), "episodes", "reviewed_ticket_timestamp_details", causes, sources)
 	m["open_S3_items"] = count(open, "tickets", "reviewed_open_S3_at_period_end", append(slices.Clone(causes), ticketCauses...), append(slices.Clone(sources), ticketSources...))
 }
@@ -1068,8 +1078,8 @@ func backlog(ctx context.Context, p Period, in Inputs, s scope, cs []CoverageSeg
 			causes = append(causes, "obligation_history_coverage_unavailable")
 		}
 	}
-	gate(in.Configuration, "G1", &causes, &sources)
-	gate(in.Configuration, "G3", &causes, &sources)
+	gate(ctx, in.Configuration, "G1", &causes, &sources)
+	gate(ctx, in.Configuration, "G3", &causes, &sources)
 	for _, category := range backlogCategories() {
 		if ctx.Err() != nil {
 			return
@@ -1087,7 +1097,7 @@ func backlog(ctx context.Context, p Period, in Inputs, s scope, cs []CoverageSeg
 		}
 		if category == backlogBeyondDeadline {
 			categoryCauses = append(categoryCauses, deadlineCauses...)
-			gate(in.Configuration, "G5", &categoryCauses, &sources)
+			gate(ctx, in.Configuration, "G5", &categoryCauses, &sources)
 		}
 		if !supported && category != "unknown_coverage" {
 			continue
@@ -1190,7 +1200,7 @@ func reportingCounts(ctx context.Context, p Period, in Inputs, cs []CoverageSegm
 	}
 	sources := scopeSources(cs)
 	causes := []string{}
-	gate(in.Configuration, "G3", &causes, &sources)
+	gate(ctx, in.Configuration, "G3", &causes, &sources)
 	m["covered_units"] = count(len(active), "units", "commercial_coverage_at_period_end", causes, sources)
 	states := map[string]int{}
 	causes = append(causes, "pool_observation_freshness_rule_unimplemented")
@@ -1223,7 +1233,7 @@ func reportingCounts(ctx context.Context, p Period, in Inputs, cs []CoverageSegm
 			}
 			if assetKey(v.Kind, v.AssetID) == asset && v.SourceAt.Equal(latest.SourceAt) && !v.ReceivedAt.After(p.AsOf) {
 				sources = append(sources, v.SourceRef)
-				certify(in.Configuration, v.SourceID, "pool", &causes, &sources)
+				certify(ctx, in.Configuration, v.SourceID, "pool", &causes, &sources)
 				if v.State != latest.State {
 					conflict = true
 				}
@@ -1290,8 +1300,8 @@ func externalMetrics(ctx context.Context, p Period, in Inputs, s scope, cs []Cov
 		r := matches[0]
 		causes := []string{"externally_calculated_formula_unimplemented"}
 		sources := append(scopeSources(cs), r.SourceRef, r.CalculationRef)
-		gate(in.Configuration, "G1", &causes, &sources)
-		gate(in.Configuration, "G3", &causes, &sources)
+		gate(ctx, in.Configuration, "G1", &causes, &sources)
+		gate(ctx, in.Configuration, "G3", &causes, &sources)
 		m[key] = number(rational(r.Value), r.Unit, "external", causes, sources)
 	}
 }
@@ -1311,7 +1321,7 @@ func annualComparisons(ctx context.Context, p Period, in Inputs, s scope, m map[
 		}
 		return
 	}
-	pm := calculateScope(ctx, prior, in, s)
+	pm := calculateScope(priorDependencies(ctx), prior, in, s)
 	for key, base := range keys {
 		if ctx.Err() != nil {
 			return
@@ -1330,12 +1340,16 @@ func annualComparisons(ctx context.Context, p Period, in Inputs, s scope, m map[
 	}
 }
 func deadlines(p Period, c Configuration) Deadlines {
+	return deadlinesContext(context.Background(), p, c)
+}
+
+func deadlinesContext(ctx context.Context, p Period, c Configuration) Deadlines {
 	if p.Kind == "ad_hoc" {
 		if !p.RequestReceivedAt.IsZero() {
 			loc, _ := time.LoadLocation(p.Timezone)
 			causes := []string{"reasonable_efforts_target"}
 			sources := []string{p.RequestRef}
-			gate(c, "G5", &causes, &sources)
+			gate(ctx, c, "G5", &causes, &sources)
 			return Deadlines{Contract: Target{Date: p.RequestReceivedAt.In(loc).AddDate(0, 0, 30).Format("2006-01-02"), Status: Provisional, Causes: uniqueStrings(causes), Sources: uniqueStrings(sources), Basis: "30_calendar_days_after_request_receipt", ReasonableEfforts: true}, Internal: Target{Status: Unavailable, Causes: []string{"ad_hoc_internal_target_unconfigured"}, Basis: "operational_target_unconfigured", ReasonableEfforts: true}}
 		}
 		return Deadlines{Contract: Target{Status: Unavailable, Causes: []string{"ad_hoc_request_receipt_unavailable"}, Basis: "30_calendar_days_after_request_receipt", ReasonableEfforts: true}, Internal: Target{Status: Unavailable, Causes: []string{"ad_hoc_request_receipt_unavailable"}, Basis: "operational_target_unconfigured", ReasonableEfforts: true}}
@@ -1350,7 +1364,7 @@ func deadlines(p Period, c Configuration) Deadlines {
 		basis = "business_days_after_period_last_date"
 	}
 	causes, sources := []string{}, []string{}
-	gate(c, "G5", &causes, &sources)
+	gate(ctx, c, "G5", &causes, &sources)
 	status := Authoritative
 	if len(causes) > 0 {
 		status = Provisional

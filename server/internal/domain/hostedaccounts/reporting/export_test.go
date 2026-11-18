@@ -16,12 +16,25 @@ import (
 	"mime"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestArtifactPreflightUsesPublicEvidenceProjection(t *testing.T) {
+	r, in, id, _ := exportFixture()
+	old := in.Fees[0]
+	old.ID = "prior-only"
+	old.Start, old.End = r.Period.Start.AddDate(-2, 0, 0), r.Period.Start.AddDate(-1, 0, 0)
+	old.SourceRef = "https://example.test/private?token=private"
+	in.Fees = append(in.Fees, old)
+	if err := PreflightArtifacts(t.Context(), r, in, id); err != nil {
+		t.Fatalf("preflight validated an omitted historical reference: %v", err)
+	}
+}
 
 func TestEvidenceBudgetsBoundCompressedAndUncompressedOutput(t *testing.T) {
 	r, in, id, obs := exportFixture()
@@ -45,7 +58,7 @@ func TestEvidenceBudgetsBoundCompressedAndUncompressedOutput(t *testing.T) {
 					}
 				}
 				return nil
-			}}, archiveBytes, contentBytes)
+			}}, archiveBytes, contentBytes, nil)
 			if !errors.Is(err, ErrOutputLimit) {
 				t.Fatalf("expected output budget failure, got %v", err)
 			}
@@ -268,7 +281,7 @@ func TestBuildArtifactsDeterministicDigestsAndFrozenBytes(t *testing.T) {
 	secondOrder := r.Orders[0]
 	secondOrder.OrderID = "other"
 	r.Orders = append(r.Orders, secondOrder)
-	obs = append(obs, Observation{IntervalID: 11, AssetID: 101, SiteID: 3, Kind: 7, Bucket: r.Period.Start, CapturedAt: r.Period.End, CaptureReason: "gap", GapReason: "closer fell behind past the correction window"})
+	obs = append(obs, Observation{IntervalID: 12, AssetID: 100, SiteID: 3, Kind: 6, Bucket: obs[0].Bucket.Add(time.Hour), CapturedAt: r.Period.End, CaptureReason: "gap", GapReason: "closer fell behind past the correction window"})
 	r.Metrics["metered_energy_kwh"] = Metric{Status: Provisional, Value: "12.25", Exact: "49/4", Unit: "kWh", Causes: []string{"z", "a"}, Sources: []string{"z-ref", "a-ref"}}
 	first := buildExport(t, r, in, id, obs)
 	slices.Reverse(in.Orders)
@@ -556,7 +569,7 @@ func TestPublicEvidenceMetersContainOnlySupportedAttributedConsumption(t *testin
 	if values["shared"] != "24691.358025000000000000025" || values["direct"] != "19.125" || values["missing"] != "" || values["reset"] != "" {
 		t.Fatalf("attributed consumption %+v", values)
 	}
-	if !bytes.Contains(members["inputs/source_qualifications.csv"], []byte("meter qualification")) || !bytes.Contains(members["manifest.json"], []byte("hosted-report-evidence/v3")) {
+	if bytes.Contains(members["inputs/source_qualifications.csv"], []byte("meter qualification")) || !bytes.Contains(members["inputs/source_qualifications.csv"], []byte("meter")) || !bytes.Contains(members["manifest.json"], []byte("hosted-report-evidence/v4")) {
 		t.Fatal("missing source qualification or export policy")
 	}
 	after, err := json.Marshal(in)
@@ -598,10 +611,14 @@ func TestEvidenceExportsGapHoursAndDailyRollupsForLongPeriods(t *testing.T) {
 	require.True(t, DailyObservations(span, many))
 	many[0].Start, many[1].Start = span.End, span.End
 	require.False(t, DailyObservations(span, many), "coverage outside the period does not count")
-	// A single interval reaches the limit only over a very long period.
+	// Enough covered intervals switch a valid report period to day rollups.
+	hours := int64((r.Period.End.Sub(r.Period.Start) + time.Hour - 1) / time.Hour)
 	in.Coverage = []CoverageSegment{covered}
-	r.Period.End = r.Period.Start.Add((MaxHourlyObservations + 1) * time.Hour)
-	r.Period.AsOf = r.Period.End
+	for i := range int64(MaxHourlyObservations) / hours {
+		other := covered
+		other.ID, other.AllocationIntervalID = "covered-"+strconv.FormatInt(i, 10), 1000+i
+		in.Coverage = append(in.Coverage, other)
+	}
 	require.True(t, DailyObservations(r.Period, in.Coverage))
 	day := obs[0].Bucket.Truncate(24 * time.Hour)
 	sum := 7.5

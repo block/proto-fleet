@@ -552,11 +552,7 @@ func (s *Service) readReport(ctx context.Context, actorID, orgID int64, accountI
 	})
 }
 func clientReportRecord(record ReportRecord) ReportRecord {
-	result := record.Result
-	result.Obligations = slices.Clone(result.Obligations)
-	for i := range result.Obligations {
-		result.Obligations[i].TicketRef = ""
-	}
+	result := reporting.PublicResult(record.Result)
 	return ReportRecord{ReportID: record.ReportID, SeriesID: record.SeriesID, AccountID: record.AccountID, AccountName: record.AccountName, Number: record.Number, Revision: record.Revision, Period: record.Period, Result: result, Status: record.Status, IssuedAt: record.IssuedAt, CorrectionOf: record.CorrectionOf, CorrectionReason: record.CorrectionReason, Exception: record.Exception, SiteIDs: slices.Clone(record.SiteIDs), DeliveryStatus: record.DeliveryStatus}
 }
 func reportingEvidenceTimeLimit() time.Time {

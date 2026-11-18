@@ -197,6 +197,19 @@ it("keeps event rows concise and opens full details from any cell", async () => 
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 });
 
+it("keeps omitted exclusion claims unspecified", async () => {
+  const user = userEvent.setup();
+  const value = report();
+  value.result!.interruptions[0].claimedExclusion = "";
+  value.result!.interruptions[0].exclusionStatus = "unavailable";
+  render(<ReportContent report={value} />);
+  await user.click(screen.getByRole("button", { name: "Events" }));
+  await user.click(screen.getByText("Cooling interruption"));
+  const dialog = screen.getByRole("dialog", { name: "Event details" });
+  expect(within(dialog).getByText("Exclusion", { exact: true }).nextElementSibling).toHaveTextContent(/^—$/);
+  expect(within(dialog).queryByText("None claimed")).not.toBeInTheDocument();
+});
+
 it.each(["{Enter}", " "])("opens event details with %s and restores focus on Escape", async (key) => {
   const user = userEvent.setup();
   const value = report();

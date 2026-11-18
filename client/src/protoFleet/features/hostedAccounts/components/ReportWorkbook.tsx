@@ -129,7 +129,7 @@ const Events = ({ interruptions, timezone }: { interruptions: ReportingInterrupt
           : time(entry.end),
         observedThrough: entry.open ? time(entry.observedThrough) : "",
         cause: entry.rootCause,
-        exclusion: entry.claimedExclusion || "None claimed",
+        exclusion: entry.claimedExclusion,
         exclusionStatus: entry.exclusionStatus ? reportLabel(entry.exclusionStatus) : "",
         source: entry.sourceRef,
       }))}

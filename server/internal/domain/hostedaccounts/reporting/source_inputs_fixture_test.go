@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// WriteSourceInputs freezes the host's source values once at publication. Keep
+// The fixture freezes original host source values through the streaming writer. Keep
 // original intervals (including crossings), prior-year comparison evidence and
 // earlier episode/installation context; these are evidence, not prorated values.
 func writeFixtureSourceInputs(ctx context.Context, w io.Writer, p Period, in Inputs) error {
@@ -124,7 +124,7 @@ func sourceInputs(ctx context.Context, p Period, in Inputs) (Inputs, error) {
 		if err := ctx.Err(); err != nil {
 			return Inputs{}, fmt.Errorf("select report source inputs: %w", err)
 		}
-		if relevant(v.Start, v.End) || boards[v.ID] || (v.Kind == 6 && modules[v.AssetID]) {
+		if v.Start.Before(p.End) || boards[v.ID] {
 			out.Coverage = append(out.Coverage, v)
 		}
 	}

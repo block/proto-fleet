@@ -19,9 +19,24 @@ func TestHostedReportClientReadsOmitPrivateTicketAndDeliveryFields(t *testing.T)
 	require.NoError(t, err)
 	_, err = f.db.ExecContext(t.Context(), `UPDATE hosted_report SET result=$1 WHERE id=$2`, result, draft.ID)
 	require.NoError(t, err)
+	snapshot := func() string {
+		var value string
+		require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT jsonb_build_object(
+ 'report',(SELECT to_jsonb(r) FROM hosted_report r WHERE id=$1),
+ 'artifacts',(SELECT COALESCE(jsonb_agg(to_jsonb(a) ORDER BY id),'[]') FROM hosted_report_artifact a),
+ 'chunks',(SELECT COALESCE(jsonb_agg(to_jsonb(c) ORDER BY artifact_id,sequence),'[]') FROM hosted_report_artifact_chunk c),
+ 'audit',(SELECT COALESCE(jsonb_agg(to_jsonb(a) ORDER BY event_id),'[]') FROM activity_log a WHERE event_type='publish_report')
+ )::text`, draft.ID).Scan(&value))
+		return value
+	}
+	before := snapshot()
+	_, err = f.svc.PublishReport(t.Context(), reviewer, f.org, client.AccountID, draft.ReportID, draft.Revision, "reviewed source limitations")
+	require.ErrorContains(t, err, "reviewed report differs from current report context")
+	require.Equal(t, before, snapshot(), "tampered reviewed result cannot issue artifacts or audit")
+	// This synthetic stored legacy fixture isolates the read projection. Real
+	// issuance correctly rejects it above; the helper does not test publication.
 	issueStoredReport(t, f, draft, reviewer)
-	issued, err := f.svc.HostReport(t.Context(), reviewer, f.org, client.AccountID, draft.ReportID)
-	require.NoError(t, err)
+	issued := draft
 	sent := time.Now().UTC()
 	require.NoError(t, f.svc.RecordReportDelivery(t.Context(), f.host, f.org, client.AccountID, issued.ReportID, hostedaccounts.DeliveryEvidence{RequestKey: uuid.NewString(), Channel: "private-channel", Status: "confirmed", SentAt: &sent, SourceRef: "private-delivery-source", Evidence: "private-delivery-evidence"}))
 	require.NoError(t, f.svc.RecordReportDelivery(t.Context(), f.host, f.org, client.AccountID, issued.ReportID, hostedaccounts.DeliveryEvidence{RequestKey: uuid.NewString(), Channel: "private-channel", Status: "failed", SourceRef: "later-send-log", FailureCategory: "unavailable"}))
