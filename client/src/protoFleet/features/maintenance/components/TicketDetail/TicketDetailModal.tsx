@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getComponentIcon, getComponentIconColor } from "../../componentIcons";
+import { getComponentOptions } from "../../componentOptions";
 import CompletionForm from "./CompletionForm";
 import { ResolutionSectionContent } from "./ResolutionSection";
 import { RmaSectionContent } from "./RmaSection";
@@ -23,6 +24,7 @@ import Divider from "@/shared/components/Divider";
 import Modal from "@/shared/components/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Row from "@/shared/components/Row";
+import Select from "@/shared/components/Select";
 import Textarea from "@/shared/components/Textarea";
 
 interface TicketDetailModalProps {
@@ -378,11 +380,9 @@ const TicketDetailModal = ({
               {ticket.description || [ticket.component, ticket.diagnosis].filter(Boolean).join(": ")}
             </h2>
             <div className="flex flex-wrap items-center gap-2">
-              {!ticket.sharedWithClients ? (
-                <span className="inline-flex items-center rounded-full bg-core-primary-5 px-2 py-0.5 text-200 whitespace-nowrap text-text-primary-70">
-                  Internal
-                </span>
-              ) : null}
+              <span className="inline-flex items-center rounded-full bg-core-primary-5 px-2 py-0.5 text-200 whitespace-nowrap text-text-primary-70">
+                {ticket.sharedWithClients ? "Shared with clients" : "Internal"}
+              </span>
               <span>{ticket.assigneeName ?? "Unassigned"}</span>
               {canManageTicket && !ticket.sharedWithClients && ticket.audiences.length > 0 ? (
                 <Button
@@ -399,6 +399,18 @@ const TicketDetailModal = ({
               ) : null}
             </div>
           </div>
+          <Select
+            id="ticket-component"
+            label="Component"
+            value={ticket.component || "Unknown"}
+            options={getComponentOptions(ticket.category, ticket.component)}
+            disabled={!canMutate || submitting || !ticket.updatedAtSnapshot}
+            onChange={(component) => {
+              const expectedUpdatedAt = ticket.updatedAtSnapshot;
+              if (!canMutate || !expectedUpdatedAt || component === ticket.component) return;
+              void submitMutation(() => detail.update({ component, expectedUpdatedAt }));
+            }}
+          />
           {editor === "share" ? (
             <div className="flex flex-col gap-3 rounded-xl bg-surface-5 p-4">
               <h3 className="text-emphasis-300 font-medium">Share ticket</h3>

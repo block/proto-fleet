@@ -13,7 +13,10 @@ import {
   ListAssigneesResponseSchema,
   ListTicketAssetOptionsResponseSchema,
   RepairTicketSchema,
+  SetTicketCommentVisibilityResponseSchema,
+  ShareRepairTicketResponseSchema,
   TicketCategory,
+  TicketCommentSchema,
   TicketStatus,
   UpdateRepairTicketResponseSchema,
   UpdateTicketTargetResponseSchema,
@@ -176,7 +179,7 @@ export const AssignmentError: Story = {
   },
 };
 
-const moduleIncident = () => {
+const moduleIncident = (sharedWithClients = false, component = "Hashboard") => {
   const previousPermissions = useFleetStore.getState().auth.permissions;
   useFleetStore.setState((store) => {
     store.auth.permissions = ["maintenance:read", "maintenance:manage"];
@@ -186,19 +189,38 @@ const moduleIncident = () => {
     ticketNumber: "TK-0272",
     category: TicketCategory.MODULE,
     status: TicketStatus.IN_PROGRESS,
-    component: "Hashboard",
+    component,
+    sharedWithClients,
     description: "Module stopped hashing",
     diagnosis: "Investigating power delivery",
     updatedAt: { seconds: 1793335200n, nanos: 123456789 },
     targets: [{ kind: TicketCategory.MODULE, id: 51n, label: "Module 51", model: "Model A" }],
     audiences: [{ accountId: "11111111-1111-4111-8111-111111111111", name: "Northstar Mining" }],
   });
+  const comments = [
+    create(TicketCommentSchema, {
+      id: 1n,
+      userName: "Technician",
+      text: "Checking the original module",
+      internal: true,
+    }),
+    ...(sharedWithClients
+      ? [
+          create(TicketCommentSchema, {
+            id: 2n,
+            userName: "Technician",
+            text: "We are investigating the module's power delivery.",
+            internal: false,
+          }),
+        ]
+      : []),
+  ];
   const mocks = [
     spyOn(maintenanceClient, "getRepairTicket").mockImplementation(async () =>
       create(GetRepairTicketResponseSchema, {
         detail: {
           ticket,
-          comments: [{ id: 1n, userName: "Technician", text: "Checking the original module", internal: true }],
+          comments,
         },
       }),
     ),
@@ -222,10 +244,30 @@ const moduleIncident = () => {
       Object.assign(ticket.targets[0], request);
       return create(UpdateTicketTargetResponseSchema, { ticket });
     }),
-    spyOn(maintenanceClient, "updateRepairTicket").mockImplementation(async () =>
-      create(UpdateRepairTicketResponseSchema, { ticket }),
-    ),
-    spyOn(maintenanceClient, "createTicketComment").mockResolvedValue(create(CreateTicketCommentResponseSchema)),
+    spyOn(maintenanceClient, "updateRepairTicket").mockImplementation(async (request) => {
+      if (request.component !== undefined) ticket.component = request.component;
+      if (request.diagnosis !== undefined) ticket.diagnosis = request.diagnosis;
+      return create(UpdateRepairTicketResponseSchema, { ticket });
+    }),
+    spyOn(maintenanceClient, "createTicketComment").mockImplementation(async (request) => {
+      const comment = create(TicketCommentSchema, {
+        id: BigInt(comments.length + 1),
+        userName: "Technician",
+        text: request.text,
+        internal: request.internal ?? true,
+      });
+      comments.push(comment);
+      return create(CreateTicketCommentResponseSchema, { comment });
+    }),
+    spyOn(maintenanceClient, "shareRepairTicket").mockImplementation(async () => {
+      ticket.sharedWithClients = true;
+      return create(ShareRepairTicketResponseSchema, { ticket });
+    }),
+    spyOn(maintenanceClient, "setTicketCommentVisibility").mockImplementation(async (request) => {
+      const comment = comments.find((item) => item.id === request.commentId);
+      if (comment) comment.internal = request.internal ?? false;
+      return create(SetTicketCommentVisibilityResponseSchema);
+    }),
   ];
   return () => {
     mocks.forEach((mock) => mock.mockRestore());
@@ -234,10 +276,18 @@ const moduleIncident = () => {
     });
   };
 };
-export const ModuleIncident: Story = { args: { ticketId: "272" }, beforeEach: moduleIncident };
+export const ModuleIncident: Story = { args: { ticketId: "272" }, beforeEach: () => moduleIncident() };
+export const SharedWithClients: Story = {
+  args: { ticketId: "272" },
+  beforeEach: () => moduleIncident(true),
+};
+export const InternalComponentTriage: Story = {
+  args: { ticketId: "272" },
+  beforeEach: () => moduleIncident(false, "Unknown"),
+};
 export const TargetEvidence: Story = {
   args: { ticketId: "272" },
-  beforeEach: moduleIncident,
+  beforeEach: () => moduleIncident(),
   play: async ({ canvasElement }) => {
     await userEvent.click(
       await within(canvasElement.ownerDocument.body).findByRole("button", { name: "Edit Module 51 evidence" }),
@@ -246,7 +296,7 @@ export const TargetEvidence: Story = {
 };
 export const HistoricalBoards: Story = {
   args: { ticketId: "272" },
-  beforeEach: moduleIncident,
+  beforeEach: () => moduleIncident(),
   play: async ({ canvasElement }) => {
     await userEvent.click(
       await within(canvasElement.ownerDocument.body).findByRole("button", { name: "Add affected boards" }),

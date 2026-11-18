@@ -1,16 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { INFRA_COMPONENTS, MINER_COMPONENTS } from "../../componentOptions";
+import { getComponentOptions } from "../../componentOptions";
 import { useTicketOperationKey } from "../../idempotency";
-import { ticketAssetLabel, ticketAssetSelection } from "../../ticketAssets";
+import { ticketAssetKey, ticketAssetLabel, ticketAssetSelection, ticketCategoryForAssets } from "../../ticketAssets";
 import TicketAssetPicker from "../TicketAssetPicker";
-import MinerTicketPicker from "./MinerTicketPicker";
 import { type TicketAsset, TicketCategory } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
-import { useMaintenanceApi } from "@/protoFleet/api/maintenance";
+import { type TicketAssetPage, useMaintenanceApi } from "@/protoFleet/api/maintenance";
 import { createAccountConnection } from "@/protoFleet/features/hostedAccounts/api";
 import { useHostedAccounts } from "@/protoFleet/features/hostedAccounts/HostedAccountsContext";
 import { useAccountQuery } from "@/protoFleet/features/hostedAccounts/useAccountQuery";
 import { useMaintenanceOptions } from "@/protoFleet/features/maintenance/hooks/useMaintenanceOptions";
-import { useHasPermission } from "@/protoFleet/store";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
@@ -27,20 +25,17 @@ interface CreateTicketModalProps {
 const CATEGORY_OPTIONS = [
   { value: "miner", label: "Miner" },
   { value: "infrastructure", label: "Infrastructure" },
-  { value: "module", label: "Module" },
-  { value: "hashboard", label: "Hashboard" },
+  { value: "other", label: "Other" },
 ];
-type Category = "miner" | "infrastructure" | "module" | "hashboard";
+type Category = "miner" | "infrastructure" | "other";
 const CATEGORY_ENUMS = {
   miner: TicketCategory.MINER,
   infrastructure: TicketCategory.INFRASTRUCTURE,
-  module: TicketCategory.MODULE,
-  hashboard: TicketCategory.HASHBOARD,
+  other: TicketCategory.OTHER,
 };
 
 const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalProps) => {
   const activeSite = useFleetStore((state) => state.ui.activeSite);
-  const canReadMiners = useHasPermission("miner:read");
   const { createTicket, listTicketAssets } = useMaintenanceApi();
   const directory = useHostedAccounts();
   const rootId = directory?.accounts.find((account) => account.depth === 0)?.accountId;
@@ -62,9 +57,8 @@ const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalP
   const { keyFor: operationKey } = useTicketOperationKey();
   const options = useMaintenanceOptions();
   const [category, setCategory] = useState<Category>("miner");
-  const [component, setComponent] = useState(prefill?.component ?? "");
+  const [component, setComponent] = useState(prefill?.component || "Unknown");
   const [minerIdentifier, setMinerIdentifier] = useState(prefill?.minerIdentifier ?? "");
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [description, setDescription] = useState(prefill?.description ?? "");
   const [siteId, setSiteId] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
@@ -72,7 +66,7 @@ const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalP
   const [shareWithClients, setShareWithClients] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const components = category === "infrastructure" ? INFRA_COMPONENTS : MINER_COMPONENTS;
+  const components = getComponentOptions(category, component);
   const siteOptions = useMemo(
     () => options.manageableSites.map((site) => ({ value: site.id, label: site.name })),
     [options.manageableSites],
@@ -85,23 +79,26 @@ const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalP
   }, [activeSite, options.manageableSites, prefill?.siteId]);
   const resolvedSiteId = options.manageableSites.some((site) => site.id === siteId) ? siteId : defaultSiteId;
   const loadAssets = useCallback(
-    async (search: string, signal: AbortSignal) =>
-      new Promise<TicketAsset[]>((resolve, reject) => {
+    async (search: string, signal: AbortSignal, pageToken: string) =>
+      new Promise<TicketAssetPage>((resolve, reject) => {
         void listTicketAssets({
           siteIds: options.manageableSites.map((site) => BigInt(site.id)),
-          kind: CATEGORY_ENUMS[category],
+          includeUnassigned: true,
           search,
+          pageToken,
           signal,
           onSuccess: resolve,
           onError: (message) => reject(new Error(message)),
         });
       }),
-    [listTicketAssets, options.manageableSites, category],
+    [listTicketAssets, options.manageableSites],
   );
+  const explicitClientIds = rootId ? clientAccountIds : clientIdsText.split(/[,\s]+/).filter(Boolean);
+  const assetFree = category !== "miner";
   const canSubmit = Boolean(
-    component &&
     description.trim() &&
-    (category === "miner" ? minerIdentifier : category === "infrastructure" ? resolvedSiteId : targets.length) &&
+    (assetFree ? resolvedSiteId : targets.length || minerIdentifier.trim()) &&
+    (!shareWithClients || category !== "other" || explicitClientIds.length) &&
     !submitting,
   );
   const assigneeOptions = useMemo(
@@ -121,18 +118,13 @@ const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalP
     const payload = {
       shareWithClients,
       description: description.trim(),
-      category: CATEGORY_ENUMS[category],
+      category: category === "miner" && targets.length ? ticketCategoryForAssets(targets) : CATEGORY_ENUMS[category],
       component,
       urgent,
-      minerIdentifier: category === "miner" ? minerIdentifier : undefined,
+      minerIdentifier: category === "miner" && !targets.length ? minerIdentifier.trim() : undefined,
       targets: targets.map(ticketAssetSelection),
-      clientAccountIds:
-        category === "infrastructure"
-          ? rootId
-            ? clientAccountIds
-            : clientIdsText.split(/[,\s]+/).filter(Boolean)
-          : [],
-      siteId: category === "infrastructure" && resolvedSiteId ? BigInt(resolvedSiteId) : undefined,
+      clientAccountIds: assetFree ? explicitClientIds : [],
+      siteId: assetFree && resolvedSiteId ? BigInt(resolvedSiteId) : undefined,
       assigneeUserId: assigneeId ? BigInt(assigneeId) : undefined,
       alertId: prefill?.alertId,
     };
@@ -157,9 +149,8 @@ const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalP
     urgent,
     shareWithClients,
     targets,
-    rootId,
-    clientAccountIds,
-    clientIdsText,
+    assetFree,
+    explicitClientIds,
     operationKey,
   ]);
   return (
@@ -188,8 +179,9 @@ const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalP
               value={category}
               onChange={(value) => {
                 setCategory(value as Category);
-                setComponent("");
+                setComponent("Unknown");
                 setTargets([]);
+                setMinerIdentifier("");
               }}
               forceBelow
             />
@@ -203,15 +195,17 @@ const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalP
             />
           </div>
           {category === "miner" ? (
-            <div>
-              <Input id="miner-id" label="Miner ID" initValue={minerIdentifier} onChange={setMinerIdentifier} />
-              {canReadMiners ? (
-                <button type="button" className="mt-2 text-300 underline" onClick={() => setPickerOpen(true)}>
-                  Select miner
-                </button>
-              ) : null}
+            <div className="flex flex-col gap-2">
+              {targets.length ? (
+                targets.map((asset) => <p key={ticketAssetKey(asset)}>{ticketAssetLabel(asset)}</p>)
+              ) : (
+                <Input id="miner-id" label="Miner ID" initValue={minerIdentifier} onChange={setMinerIdentifier} />
+              )}
+              <button type="button" className="text-left text-300 underline" onClick={() => setAssetPicker(true)}>
+                Select affected equipment
+              </button>
             </div>
-          ) : category === "infrastructure" ? (
+          ) : (
             <Select
               id="site"
               label="Site"
@@ -220,17 +214,8 @@ const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalP
               onChange={setSiteId}
               forceBelow
             />
-          ) : (
-            <div className="flex flex-col gap-2">
-              {targets.map((asset) => (
-                <p key={String(asset.id)}>{ticketAssetLabel(asset)}</p>
-              ))}
-              <button type="button" className="text-left text-300 underline" onClick={() => setAssetPicker(true)}>
-                Select {category === "module" ? "modules" : "hashboards"}
-              </button>
-            </div>
           )}
-          {category === "infrastructure" ? (
+          {assetFree ? (
             rootId ? (
               <fieldset className="flex flex-col gap-2">
                 <legend className="text-300">Affected clients (optional)</legend>
@@ -296,22 +281,14 @@ const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalP
       </Modal>
       {assetPicker ? (
         <TicketAssetPicker
+          singleParent
+          initialSelected={targets}
           load={loadAssets}
           onDismiss={() => setAssetPicker(false)}
           onSelect={(assets) => {
             setTargets(assets);
+            setMinerIdentifier("");
             setAssetPicker(false);
-          }}
-        />
-      ) : null}
-      {pickerOpen && canReadMiners ? (
-        <MinerTicketPicker
-          selected={minerIdentifier}
-          manageableSiteIds={options.manageableSites.map((site) => site.id)}
-          onDismiss={() => setPickerOpen(false)}
-          onSelect={(identifier) => {
-            setMinerIdentifier(identifier);
-            setPickerOpen(false);
           }}
         />
       ) : null}

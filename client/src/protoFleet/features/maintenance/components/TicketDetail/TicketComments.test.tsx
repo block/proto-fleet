@@ -13,7 +13,7 @@ it("opens the comment editor when randomUUID is unavailable", async () => {
 
     await user.click(screen.getByRole("button", { name: "Add comment" }));
 
-    expect(screen.getByLabelText("Add a comment")).toBeInTheDocument();
+    expect(screen.getByLabelText("Internal note")).toBeInTheDocument();
   } finally {
     vi.unstubAllGlobals();
   }
@@ -30,7 +30,7 @@ it("keeps cancellation disabled while a comment submission is pending", async ()
   const user = userEvent.setup();
   render(<TicketComments ticketId="7" comments={[]} canManage onAdd={onAdd} onDelete={vi.fn()} />);
   await user.click(screen.getByRole("button", { name: "Add comment" }));
-  await user.type(screen.getByLabelText("Add a comment"), "Replaced fan");
+  await user.type(screen.getByLabelText("Internal note"), "Replaced fan");
 
   await user.click(screen.getByRole("button", { name: "Post" }));
 
@@ -48,7 +48,7 @@ it("reuses one comment idempotency key across a failed retry", async () => {
 
   render(<TicketComments ticketId="7" comments={[]} canManage error={null} onAdd={onAdd} onDelete={vi.fn()} />);
   await user.click(screen.getByRole("button", { name: "Add comment" }));
-  await user.type(screen.getByLabelText("Add a comment"), "Replaced fan");
+  await user.type(screen.getByLabelText("Internal note"), "Replaced fan");
   await user.click(screen.getByRole("button", { name: "Post" }));
   await user.click(screen.getByRole("button", { name: "Post" }));
 
@@ -63,11 +63,12 @@ it("defaults to an internal note and requires an explicit client reply", async (
   render(<TicketComments ticketId="7" comments={[]} canManage sharedWithClients onAdd={onAdd} onDelete={vi.fn()} />);
   await user.click(screen.getByRole("button", { name: "Add comment" }));
   expect(screen.getByRole("checkbox", { name: "Internal only" })).toBeChecked();
-  await user.type(screen.getByLabelText("Add a comment"), "Replaced fan");
+  await user.type(screen.getByLabelText("Internal note"), "Replaced fan");
   await user.click(screen.getByRole("button", { name: "Post" }));
   expect(onAdd).toHaveBeenLastCalledWith("Replaced fan", expect.any(String), { internal: true });
   const firstKey = onAdd.mock.calls[0][1];
   await user.click(screen.getByRole("checkbox", { name: "Internal only" }));
+  expect(screen.getByLabelText("Client-visible reply")).toHaveValue("Replaced fan");
   await user.click(screen.getByRole("button", { name: "Post" }));
   expect(onAdd).toHaveBeenLastCalledWith("Replaced fan", expect.any(String), { internal: false });
   expect(onAdd.mock.calls[1][1]).not.toBe(firstKey);
@@ -79,7 +80,7 @@ it("starts a new operation when the same comment text is posted again after succ
   render(<TicketComments ticketId="7" comments={[]} canManage onAdd={onAdd} onDelete={vi.fn()} />);
   for (let index = 0; index < 2; index++) {
     await user.click(screen.getByRole("button", { name: "Add comment" }));
-    await user.type(screen.getByLabelText("Add a comment"), "Checked again");
+    await user.type(screen.getByLabelText("Internal note"), "Checked again");
     await user.click(screen.getByRole("button", { name: "Post" }));
   }
   expect(onAdd).toHaveBeenCalledTimes(2);
@@ -117,6 +118,7 @@ it("requires confirmation before turning off Internal only for a host note", asy
   );
   const toggle = screen.getByRole("checkbox", { name: "Internal only" });
   expect(toggle).toBeChecked();
+  expect(screen.getByText("Internal note")).toBeInTheDocument();
   await user.click(toggle);
   expect(onVisibilityChange).not.toHaveBeenCalled();
   expect(toggle).toBeChecked();
@@ -211,6 +213,7 @@ it("does not offer visibility changes for client-authored replies", () => {
     />,
   );
   expect(screen.queryByRole("checkbox", { name: "Internal only" })).not.toBeInTheDocument();
+  expect(screen.getByText("Client-visible reply")).toBeInTheDocument();
   expect(screen.getByText("Visible to Demo Client")).toBeInTheDocument();
 });
 
@@ -261,9 +264,9 @@ it("preserves a rejected comment draft and disables mutations during another tic
   const props = { ticketId: "7", comments: [hostNote], canManage: true, onAdd, onDelete: vi.fn() };
   const { rerender } = render(<TicketComments {...props} />);
   await user.click(screen.getByRole("button", { name: "Add comment" }));
-  await user.type(screen.getByLabelText("Add a comment"), "Retain this draft");
+  await user.type(screen.getByLabelText("Internal note"), "Retain this draft");
   await user.click(screen.getByRole("button", { name: "Post" }));
-  expect(screen.getByLabelText("Add a comment")).toHaveValue("Retain this draft");
+  expect(screen.getByLabelText("Internal note")).toHaveValue("Retain this draft");
   rerender(<TicketComments {...props} disabled />);
   expect(screen.getByRole("button", { name: "Post" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Delete comment" })).toBeDisabled();

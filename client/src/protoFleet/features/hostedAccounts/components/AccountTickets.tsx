@@ -16,13 +16,13 @@ import {
   TicketStatus,
 } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import { getComponentOptions } from "@/protoFleet/features/maintenance/componentOptions";
 import TicketAssetPicker from "@/protoFleet/features/maintenance/components/TicketAssetPicker";
 import { useTicketOperationKey } from "@/protoFleet/features/maintenance/idempotency";
 import { toTicketStatus } from "@/protoFleet/features/maintenance/mappers";
 import { ticketAssetKey, ticketAssetLabel, ticketAssetSelection } from "@/protoFleet/features/maintenance/ticketAssets";
 import { useFleetStore } from "@/protoFleet/store";
 import Button, { sizes } from "@/shared/components/Button";
-import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
 import Modal from "@/shared/components/Modal";
 import Select from "@/shared/components/Select";
@@ -58,19 +58,19 @@ const NewAccountTicket = ({
 }) => {
   const { account, client, invalidateAccount, signal: accountSignal } = useRequiredAccountScope();
   const [description, setDescription] = useState("");
-  const [component, setComponent] = useState("");
-  const [asset, setAsset] = useState<TicketAsset | null>(null);
+  const [component, setComponent] = useState("Unknown");
+  const [assets, setAssets] = useState<TicketAsset[]>([]);
   const [picking, setPicking] = useState(false);
   const { keyFor: operationKey } = useTicketOperationKey();
   const loadAssets = useCallback(
-    async (search: string, signal: AbortSignal) => {
+    async (search: string, signal: AbortSignal, pageToken: string) => {
       const generation = useFleetStore.getState().auth.sessionGeneration;
       try {
         const response = await client.listAccountTicketAssets(
-          { accountId: account.accountId, search },
+          { accountId: account.accountId, search, pageToken, pageSize: 50 },
           { timeoutMs: ACCOUNT_READ_TIMEOUT_MS, signal },
         );
-        return response.assets;
+        return response;
       } catch (cause) {
         if (!signal.aborted && !accountSignal.aborted) {
           if (ConnectError.from(cause).code === Code.PermissionDenied) invalidateAccount();
@@ -97,7 +97,7 @@ const NewAccountTicket = ({
             accountId: account.accountId,
             description: description.trim(),
             component: component.trim(),
-            targets: asset ? [ticketAssetSelection(asset)] : [],
+            targets: assets.map(ticketAssetSelection),
           };
           const response = await client.createAccountTicket({ ...payload, idempotencyKey: operationKey(payload) });
           if (!response.detail) throw new Error("Ticket could not be loaded. Refresh the ticket list before retrying.");
@@ -113,17 +113,27 @@ const NewAccountTicket = ({
           onChange={setDescription}
           rows={4}
         />
-        <Input
+        <Select
           id="account-ticket-component"
-          label="Component (optional)"
-          maxLength={255}
-          initValue={component}
+          label="Component"
+          value={component}
+          options={getComponentOptions(assets.length ? "miner" : "account", component)}
           onChange={setComponent}
+          forceBelow
         />
-        {asset ? (
-          <div className="flex flex-wrap items-center gap-3">
-            <span>{ticketAssetLabel(asset)}</span>
-            <Button text="Clear asset" variant="textOnly" onClick={() => setAsset(null)} />
+        {assets.length ? (
+          <div className="flex flex-col gap-3">
+            {assets.map((asset) => (
+              <p key={ticketAssetKey(asset)}>{ticketAssetLabel(asset)}</p>
+            ))}
+            <Button
+              text="Clear asset"
+              variant="textOnly"
+              onClick={() => {
+                setAssets([]);
+                setComponent("Unknown");
+              }}
+            />
           </div>
         ) : null}
         <Button
@@ -135,11 +145,12 @@ const NewAccountTicket = ({
       </ActionModal>
       {picking ? (
         <TicketAssetPicker
-          multiple={false}
+          singleParent
+          initialSelected={assets}
           load={loadAssets}
           onDismiss={() => setPicking(false)}
           onSelect={(assets) => {
-            setAsset(assets[0]);
+            setAssets(assets);
             setPicking(false);
           }}
         />

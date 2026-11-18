@@ -90,6 +90,12 @@ describe("maintenance mappers", () => {
     expect(result.notes).toBe("Private diagnostic details");
     expect(result.resolutionNote).toBe("Equipment repaired and verified");
   });
+  it("maps host Other separately from client account tickets", () => {
+    expect(toTicketItem(create(RepairTicketSummarySchema, { ticket: { category: 6 } })).category).toBe("other");
+    expect(
+      toTicketItem(create(RepairTicketSummarySchema, { ticket: { category: TicketCategory.ACCOUNT } })).category,
+    ).toBe("account");
+  });
   it("rejects malformed summaries", () => {
     expect(() => toTicketItem(create(RepairTicketSummarySchema))).toThrow("missing its ticket");
   });

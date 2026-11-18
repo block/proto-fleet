@@ -46,3 +46,19 @@ func TestHostTicketCreationRejectsAccountCategoryInContract(t *testing.T) {
 	request := &pb.CreateRepairTicketRequest{Category: pb.TicketCategory_TICKET_CATEGORY_ACCOUNT, Component: "Account", Description: "Account issue", IdempotencyKey: "account-category"}
 	require.Error(t, protovalidate.Validate(request))
 }
+
+func TestHostOtherTicketAllowsOmittedComponent(t *testing.T) {
+	site := int64(1)
+	request := &pb.CreateRepairTicketRequest{Category: pb.TicketCategory(6), Description: "General site issue", SiteId: &site, IdempotencyKey: "other"}
+	require.NoError(t, protovalidate.Validate(request))
+	params, err := toCreateParams(request, 2)
+	require.NoError(t, err)
+	require.Equal(t, "Unknown", params.Component)
+	require.False(t, params.ShareWithClients)
+}
+
+func TestHostOtherTicketCategoryCanBeFiltered(t *testing.T) {
+	filter, err := toListFilter(&pb.ListRepairTicketsRequest{Filter: &pb.TicketFilter{Categories: []pb.TicketCategory{pb.TicketCategory(6)}}}, 2)
+	require.NoError(t, err)
+	require.Equal(t, []int16{6}, filter.Categories)
+}

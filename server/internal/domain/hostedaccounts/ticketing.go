@@ -218,11 +218,16 @@ func (s *Service) CreateAccountTicket(ctx context.Context, actorID, orgID int64,
 	}
 	component := strings.TrimSpace(request.Component)
 	if component == "" {
-		component = "Unspecified"
+		component = "Unknown"
 	}
 	params := models.CreateParams{ShareWithClients: true, OrgID: orgID, IdempotencyKey: strings.TrimSpace(request.IdempotencyKey), Description: description, Component: component, Category: models.TicketCategoryAccount, Targets: targets}
 	if len(targets) > 0 {
 		params.Category = targets[0].Kind
+		for _, target := range targets {
+			if target.Kind == models.TicketCategoryModule {
+				params.Category = models.TicketCategoryModule
+			}
+		}
 	}
 	return withAccountTickets(ctx, s, actorID, orgID, request.AccountId, true, func(ctx context.Context, q sqlc.Querier, e miningEstate) (*pb.AccountTicketDetail, error) {
 		params.CreatedByAccountID = &e.account.ID
@@ -340,11 +345,29 @@ func (s *Service) ListAccountTicketAssets(ctx context.Context, actorID, orgID in
 				return &pb.ListAccountTicketAssetsResponse{}, nil
 			}
 		}
-		rows, err := q.ListRepairTicketAssetOptions(ctx, sqlc.ListRepairTicketAssetOptionsParams{OrgID: orgID, AccountInternalID: sql.NullInt64{Int64: e.account.ID, Valid: true}, SiteIds: sites, Search: strings.TrimSpace(request.Search)})
+		search := strings.TrimSpace(request.Search)
+		query := models.TicketAssetQuery{Scope: "account-assets", OrgID: orgID, AccountID: e.account.ID, SiteIDs: sites, Search: search}.Fingerprint()
+		size, cursor, err := models.ParseTicketAssetPagination(request.PageSize, request.PageToken, query)
+		if err != nil {
+			return nil, err
+		}
+		authority, err := e.physicalReadAuthority()
+		if err != nil {
+			return nil, err
+		}
+		rows, err := q.ListRepairTicketAssetOptions(ctx, sqlc.ListRepairTicketAssetOptionsParams{HostAuthority: authority, OrgID: orgID, AccountInternalID: sql.NullInt64{Int64: e.account.ID, Valid: true}, SiteIds: sites, Search: search, CursorKind: int16(cursor.Kind), CursorID: cursor.ID, ResultLimit: size + 1})
 		if err != nil {
 			return nil, err
 		}
 		result := &pb.ListAccountTicketAssetsResponse{}
+		if len(rows) > int(size) {
+			rows = rows[:size]
+			last := rows[len(rows)-1]
+			result.NextPageToken, err = (models.TicketAssetCursor{Kind: models.TicketCategory(last.Kind), ID: last.ID, Fingerprint: query}).Encode()
+			if err != nil {
+				return nil, err
+			}
+		}
 		for _, row := range rows {
 			site := int64(0)
 			if row.SiteID.Valid {

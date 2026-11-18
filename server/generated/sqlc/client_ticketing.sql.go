@@ -482,10 +482,15 @@ LEFT JOIN hosted_account_asset_projection a ON a.organization_id=o.org_id AND a.
 WHERE o.org_id=$1
  AND ($2::smallint IS NULL OR o.kind=$2)
  AND ($3::bigint IS NULL OR a.client_id=$3 OR a.subclient_id=$3)
- AND ($4::bigint[] IS NULL OR o.site_id=ANY($4::bigint[]))
- AND ($5::bigint[] IS NULL OR o.site_id IS NULL OR NOT(o.site_id=ANY($5::bigint[])))
- AND ($6::text='' OR strpos(lower(o.label),lower($6))>0)
-ORDER BY o.kind,o.id LIMIT 200
+ AND ($4::bigint[] IS NULL OR o.site_id=ANY($4::bigint[]) OR ($5::boolean AND o.site_id IS NULL))
+ AND ($6::bigint[] IS NULL OR o.site_id IS NULL OR NOT(o.site_id=ANY($6::bigint[])))
+ AND ($7::text='' OR strpos(lower(o.label),lower($7))>0)
+ AND NOT EXISTS (
+  SELECT 1 FROM jsonb_to_recordset($8::jsonb) AS h(org_wide boolean,sites bigint[])
+  WHERE NOT (CASE WHEN h.org_wide THEN o.site_id IS NULL OR NOT(o.site_id=ANY(h.sites)) ELSE COALESCE(o.site_id=ANY(h.sites),FALSE) END)
+ )
+ AND (o.kind,o.id) > ($9::smallint,$10::bigint)
+ORDER BY o.kind,o.id LIMIT $11
 `
 
 type ListRepairTicketAssetOptionsParams struct {
@@ -493,8 +498,13 @@ type ListRepairTicketAssetOptionsParams struct {
 	Kind              sql.NullInt16
 	AccountInternalID sql.NullInt64
 	SiteIds           []int64
+	IncludeUnassigned bool
 	ExcludedSiteIds   []int64
 	Search            string
+	HostAuthority     json.RawMessage
+	CursorKind        int16
+	CursorID          int64
+	ResultLimit       int32
 }
 
 func (q *Queries) ListRepairTicketAssetOptions(ctx context.Context, arg ListRepairTicketAssetOptionsParams) ([]RepairTicketAssetOption, error) {
@@ -503,8 +513,13 @@ func (q *Queries) ListRepairTicketAssetOptions(ctx context.Context, arg ListRepa
 		arg.Kind,
 		arg.AccountInternalID,
 		pq.Array(arg.SiteIds),
+		arg.IncludeUnassigned,
 		pq.Array(arg.ExcludedSiteIds),
 		arg.Search,
+		arg.HostAuthority,
+		arg.CursorKind,
+		arg.CursorID,
+		arg.ResultLimit,
 	)
 	if err != nil {
 		return nil, err
@@ -544,24 +559,37 @@ func (q *Queries) ListRepairTicketAssetOptions(ctx context.Context, arg ListRepa
 }
 
 const listRepairTicketBoardOptions = `-- name: ListRepairTicketBoardOptions :many
-SELECT DISTINCT jsonb_build_object('kind',4,'id',b.id,'moduleId',p.module_id,'installationId',i.id,'containerId',p.container_id,'position',i.position,'siteId',p.site_id,'model',p.model,
+WITH options AS (
+SELECT DISTINCT ON (b.id) b.id AS board_id, jsonb_build_object('kind',4,'id',b.id,'moduleId',p.module_id,'installationId',i.id,'containerId',p.container_id,'position',i.position,'siteId',p.site_id,'model',p.model,
  'label','Hashboard '||COALESCE((SELECT value FROM hashboard_identity WHERE hashboard_id=b.id AND kind='serial' ORDER BY value LIMIT 1),b.id::text)||' / Module '||p.module_id||' / slot '||i.position)::jsonb AS payload
 FROM repair_ticket_target p JOIN repair_ticket r ON r.org_id=p.org_id AND r.id=p.ticket_id
 JOIN hashboard_installation i ON i.module_id=p.module_id AND i.installed_at<=r.created_at AND (i.removed_at IS NULL OR i.removed_at>r.created_at)
 JOIN hashboard b ON b.id=i.hashboard_id AND b.org_id=p.org_id
-WHERE p.org_id=$1 AND p.ticket_id=$2
- AND ($3::text='' OR b.id::text=$3 OR EXISTS(SELECT 1 FROM hashboard_identity x WHERE x.hashboard_id=b.id AND strpos(lower(x.value),lower($3))>0))
-LIMIT 200
+WHERE p.org_id=$2 AND p.ticket_id=$3
+ AND ($4::text='' OR b.id::text=$4 OR EXISTS(SELECT 1 FROM hashboard_identity x WHERE x.hashboard_id=b.id AND strpos(lower(x.value),lower($4))>0))
+ AND NOT EXISTS(SELECT 1 FROM repair_ticket_target t WHERE t.org_id=p.org_id AND t.ticket_id=p.ticket_id AND t.kind=4 AND t.asset_id=b.id)
+ AND b.id > $5::bigint
+ORDER BY b.id,p.kind,p.asset_id
+)
+SELECT payload FROM options ORDER BY board_id LIMIT $1
 `
 
 type ListRepairTicketBoardOptionsParams struct {
-	OrgID    int64
-	TicketID int64
-	Search   string
+	ResultLimit int32
+	OrgID       int64
+	TicketID    int64
+	Search      string
+	CursorID    int64
 }
 
 func (q *Queries) ListRepairTicketBoardOptions(ctx context.Context, arg ListRepairTicketBoardOptionsParams) ([]json.RawMessage, error) {
-	rows, err := q.query(ctx, q.listRepairTicketBoardOptionsStmt, listRepairTicketBoardOptions, arg.OrgID, arg.TicketID, arg.Search)
+	rows, err := q.query(ctx, q.listRepairTicketBoardOptionsStmt, listRepairTicketBoardOptions,
+		arg.ResultLimit,
+		arg.OrgID,
+		arg.TicketID,
+		arg.Search,
+		arg.CursorID,
+	)
 	if err != nil {
 		return nil, err
 	}

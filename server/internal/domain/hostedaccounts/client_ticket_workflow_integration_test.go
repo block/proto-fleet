@@ -2,6 +2,7 @@ package hostedaccounts_test
 
 import (
 	"database/sql"
+	"strings"
 	"testing"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/hosted/v1"
@@ -19,6 +20,21 @@ func ticketServiceForTest(conn *sql.DB) *maintenance.Service {
 	store := sqlstores.NewSQLMaintenanceStore(conn)
 	return maintenance.NewService(store, store, sqlstores.NewSQLInventoryStore(conn), sqlstores.NewSQLTransactor(conn), nil)
 }
+
+// Historical multi-machine tickets must remain readable even though creation now rejects them.
+func seedLegacyClientTicket(t *testing.T, f fixture, account hostedaccounts.Account, params models.CreateParams) *pb.AccountTicketDetail {
+	t.Helper()
+	params.OrgID = f.org
+	params.CreatedByAccountID = &account.ID
+	params.ShareWithClients = true
+	params.IdempotencyKey = uuid.NewString()
+	params.CreateRequestHash = strings.Repeat("0", 64)
+	ticket, err := sqlstores.NewSQLMaintenanceStore(f.db).CreateRepairTicket(t.Context(), params, "TK-9999")
+	require.NoError(t, err)
+	detail, err := f.svc.GetAccountTicket(t.Context(), f.user, f.org, &pb.GetAccountTicketRequest{AccountId: account.AccountID, TicketId: ticket.ID})
+	require.NoError(t, err)
+	return detail
+}
 func createClientIssue(t *testing.T, f fixture, actor int64, accountID, description string) *pb.AccountTicketDetail {
 	t.Helper()
 	result, err := f.svc.CreateAccountTicket(t.Context(), actor, f.org, &pb.CreateAccountTicketRequest{AccountId: accountID, Description: description, IdempotencyKey: uuid.NewString()})
@@ -31,7 +47,7 @@ func TestClientTicketDescriptionOnlyAndTeammateLifecycle(t *testing.T) {
 	require.NoError(t, f.svc.SetMembership(t.Context(), f.user, f.org, a.AccountID, f.host, hostedaccounts.RoleViewer))
 	created := createClientIssue(t, f, f.user, a.AccountID, "All assigned equipment is missing")
 	require.Equal(t, mpb.TicketCategory_TICKET_CATEGORY_ACCOUNT, created.Ticket.Category)
-	require.Equal(t, "Unspecified", created.Ticket.Component)
+	require.Equal(t, "Unknown", created.Ticket.Component)
 	require.Empty(t, created.Ticket.Diagnosis)
 	require.True(t, created.CanClose)
 	require.Equal(t, a.AccountID, created.Ticket.CreatedByAccountId)
@@ -170,4 +186,47 @@ func TestClientTicketPrivateConversationsAndLiveAccess(t *testing.T) {
 	require.True(t, fleeterror.IsForbiddenError(err))
 	_, err = service.GetRepairTicket(t.Context(), f.org, hostTicket.ID)
 	require.NoError(t, err, "disabling client access never removes host records")
+}
+
+func TestClientEquipmentTicketsUseOneParentAndOrderIndependentCategory(t *testing.T) {
+	f := setup(t)
+	account := f.client(t, "Equipment client", f.user, hostedaccounts.DefaultCapabilities)
+	module, _ := f.miningModule(t)
+	other, _ := f.miningModule(t)
+	for _, id := range []int64{module, other} {
+		require.NoError(t, f.allocate(t, f.host, f.root, account.AccountID, pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, selected(6, id, 0)))
+	}
+	rows, err := f.db.QueryContext(t.Context(), "SELECT hashboard_id FROM hashboard_installation WHERE module_id=$1 AND removed_at IS NULL ORDER BY position", module)
+	require.NoError(t, err)
+	defer rows.Close()
+	var boards []int64
+	for rows.Next() {
+		var board int64
+		require.NoError(t, rows.Scan(&board))
+		boards = append(boards, board)
+	}
+	require.NoError(t, rows.Err())
+	require.Len(t, boards, 3)
+	moduleTarget := &mpb.TicketAssetSelection{Kind: mpb.TicketCategory_TICKET_CATEGORY_MODULE, Id: module}
+	boardA := &mpb.TicketAssetSelection{Kind: mpb.TicketCategory_TICKET_CATEGORY_HASHBOARD, Id: boards[0], ParentModuleId: &module}
+	boardB := &mpb.TicketAssetSelection{Kind: mpb.TicketCategory_TICKET_CATEGORY_HASHBOARD, Id: boards[1], ParentModuleId: &module}
+	for _, scenario := range []struct {
+		name     string
+		targets  []*mpb.TicketAssetSelection
+		category mpb.TicketCategory
+	}{
+		{"module first", []*mpb.TicketAssetSelection{moduleTarget, boardA}, mpb.TicketCategory_TICKET_CATEGORY_MODULE},
+		{"board first", []*mpb.TicketAssetSelection{boardA, moduleTarget}, mpb.TicketCategory_TICKET_CATEGORY_MODULE},
+		{"same parent boards", []*mpb.TicketAssetSelection{boardA, boardB}, mpb.TicketCategory_TICKET_CATEGORY_HASHBOARD},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			created, err := f.svc.CreateAccountTicket(t.Context(), f.user, f.org, &pb.CreateAccountTicketRequest{AccountId: account.AccountID, Description: "Hardware fault", IdempotencyKey: uuid.NewString(), Targets: scenario.targets})
+			require.NoError(t, err)
+			require.Equal(t, scenario.category, created.Ticket.Category)
+			require.Equal(t, "Unknown", created.Ticket.Component)
+			require.Len(t, created.Ticket.Targets, len(scenario.targets))
+		})
+	}
+	_, err = f.svc.CreateAccountTicket(t.Context(), f.user, f.org, &pb.CreateAccountTicketRequest{AccountId: account.AccountID, Description: "Hardware fault", IdempotencyKey: uuid.NewString(), Targets: []*mpb.TicketAssetSelection{moduleTarget, {Kind: mpb.TicketCategory_TICKET_CATEGORY_MODULE, Id: other}}})
+	require.True(t, fleeterror.IsInvalidArgumentError(err), "%v", err)
 }

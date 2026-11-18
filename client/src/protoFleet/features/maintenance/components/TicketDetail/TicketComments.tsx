@@ -127,7 +127,10 @@ const TicketComments = ({
                 ) : null}
               </div>
               <span className="text-300 wrap-anywhere whitespace-pre-wrap">{comment.text}</span>
-              <div className="mt-1 flex items-center">
+              <div className="mt-1 flex flex-wrap items-center gap-3">
+                <span className="text-200 text-text-primary-50">
+                  {comment.internal ? "Internal note" : "Client-visible reply"}
+                </span>
                 {canManage && !comment.accountId && onVisibilityChange ? (
                   <Switch
                     label="Internal only"
@@ -142,15 +145,11 @@ const TicketComments = ({
                       } else void changeVisibility(comment.id, true, ticketVersion);
                     }}
                   />
-                ) : (
+                ) : !comment.internal ? (
                   <span className="text-200 text-text-primary-50">
-                    {comment.internal
-                      ? "Internal only"
-                      : comment.accountId
-                        ? `Visible to ${comment.accountName}`
-                        : "Visible to all affected clients"}
+                    {comment.accountId ? `Visible to ${comment.accountName}` : "Visible to all affected clients"}
                   </span>
-                )}
+                ) : null}
               </div>
             </div>
           </div>
@@ -170,7 +169,7 @@ const TicketComments = ({
         <div className="flex flex-col gap-3">
           <Textarea
             id={`comment-${ticketId}`}
-            label="Add a comment"
+            label={internal ? "Internal note" : "Client-visible reply"}
             initValue={text}
             disabled={blocked}
             maxLength={4096}

@@ -39,13 +39,13 @@ func TestClientTicketAssetsUseRackSiteForPickerAndCreate(t *testing.T) {
 		require.NoError(t, f.svc.ConfigureSites(rootCtx, f.host, f.org, account.AccountID, true, []int64{policySite}))
 		options, err := f.svc.ListAccountTicketAssets(t.Context(), f.user, f.org, &pb.ListAccountTicketAssetsRequest{AccountId: account.AccountID})
 		require.NoError(t, err)
-		hostOptions, err := ticketServiceForTest(f.db).ListTicketAssetOptions(t.Context(), f.org, []int64{policySite}, nil, models.TicketCategoryMiner, "")
+		hostOptions, err := ticketServiceForTest(f.db).ListTicketAssetOptions(t.Context(), models.TicketAssetOptionsParams{OrgID: f.org, SiteIDs: []int64{policySite}, Kind: models.TicketCategoryMiner})
 		require.NoError(t, err)
 		request := &pb.CreateAccountTicketRequest{AccountId: account.AccountID, Description: "Rack miner fault", IdempotencyKey: uuid.NewString(), Targets: []*mpb.TicketAssetSelection{{Kind: mpb.TicketCategory_TICKET_CATEGORY_MINER, Id: miner}}}
 		created, err := f.svc.CreateAccountTicket(t.Context(), f.user, f.org, request)
 		if !allowed {
 			require.Empty(t, options.Assets, "a mismatching site policy must hide rack-only equipment")
-			require.Empty(t, hostOptions)
+			require.Empty(t, hostOptions.Assets)
 			require.True(t, fleeterror.IsForbiddenError(err), "%v", err)
 			var count int
 			require.NoError(t, f.db.QueryRowContext(t.Context(), "SELECT count(*) FROM repair_ticket WHERE org_id=$1", f.org).Scan(&count))
@@ -56,9 +56,9 @@ func TestClientTicketAssetsUseRackSiteForPickerAndCreate(t *testing.T) {
 		require.Len(t, options.Assets, 1, "one-rack-per-device membership must produce one picker entry")
 		require.Equal(t, miner, options.Assets[0].Id)
 		require.Equal(t, &site, options.Assets[0].SiteId)
-		require.Len(t, hostOptions, 1)
-		require.Equal(t, miner, hostOptions[0].ID)
-		require.Equal(t, &site, hostOptions[0].SiteID)
+		require.Len(t, hostOptions.Assets, 1)
+		require.Equal(t, miner, hostOptions.Assets[0].ID)
+		require.Equal(t, &site, hostOptions.Assets[0].SiteID)
 		detail, err := ticketServiceForTest(f.db).GetRepairTicket(t.Context(), f.org, created.Ticket.Id)
 		require.NoError(t, err)
 		require.Equal(t, &site, detail.Ticket.SiteID)

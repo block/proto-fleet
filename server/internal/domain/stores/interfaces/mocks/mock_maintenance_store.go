@@ -574,33 +574,33 @@ func (mr *MockMaintenanceReferenceStoreMockRecorder) ListAssignees(ctx, orgID an
 }
 
 // ListTicketAssetOptions mocks base method.
-func (m *MockMaintenanceReferenceStore) ListTicketAssetOptions(ctx context.Context, orgID int64, siteIDs, excludedSiteIDs []int64, kind models.TicketCategory, search string) ([]models.TicketAsset, error) {
+func (m *MockMaintenanceReferenceStore) ListTicketAssetOptions(ctx context.Context, p models.TicketAssetOptionsParams) (*models.TicketAssetPage, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListTicketAssetOptions", ctx, orgID, siteIDs, excludedSiteIDs, kind, search)
-	ret0, _ := ret[0].([]models.TicketAsset)
+	ret := m.ctrl.Call(m, "ListTicketAssetOptions", ctx, p)
+	ret0, _ := ret[0].(*models.TicketAssetPage)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListTicketAssetOptions indicates an expected call of ListTicketAssetOptions.
-func (mr *MockMaintenanceReferenceStoreMockRecorder) ListTicketAssetOptions(ctx, orgID, siteIDs, excludedSiteIDs, kind, search any) *gomock.Call {
+func (mr *MockMaintenanceReferenceStoreMockRecorder) ListTicketAssetOptions(ctx, p any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTicketAssetOptions", reflect.TypeOf((*MockMaintenanceReferenceStore)(nil).ListTicketAssetOptions), ctx, orgID, siteIDs, excludedSiteIDs, kind, search)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTicketAssetOptions", reflect.TypeOf((*MockMaintenanceReferenceStore)(nil).ListTicketAssetOptions), ctx, p)
 }
 
 // ListTicketBoardOptions mocks base method.
-func (m *MockMaintenanceReferenceStore) ListTicketBoardOptions(ctx context.Context, orgID, ticketID int64, search string) ([]models.TicketAsset, error) {
+func (m *MockMaintenanceReferenceStore) ListTicketBoardOptions(ctx context.Context, p models.TicketAssetOptionsParams) (*models.TicketAssetPage, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListTicketBoardOptions", ctx, orgID, ticketID, search)
-	ret0, _ := ret[0].([]models.TicketAsset)
+	ret := m.ctrl.Call(m, "ListTicketBoardOptions", ctx, p)
+	ret0, _ := ret[0].(*models.TicketAssetPage)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListTicketBoardOptions indicates an expected call of ListTicketBoardOptions.
-func (mr *MockMaintenanceReferenceStoreMockRecorder) ListTicketBoardOptions(ctx, orgID, ticketID, search any) *gomock.Call {
+func (mr *MockMaintenanceReferenceStoreMockRecorder) ListTicketBoardOptions(ctx, p any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTicketBoardOptions", reflect.TypeOf((*MockMaintenanceReferenceStore)(nil).ListTicketBoardOptions), ctx, orgID, ticketID, search)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTicketBoardOptions", reflect.TypeOf((*MockMaintenanceReferenceStore)(nil).ListTicketBoardOptions), ctx, p)
 }
 
 // LockBuildingForTicket mocks base method.

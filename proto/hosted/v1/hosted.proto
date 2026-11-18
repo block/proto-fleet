@@ -647,8 +647,16 @@ message ChangeAccountTicketStatusRequest {
 message ListAccountTicketAssetsRequest {
   string account_id = 1 [(buf.validate.field).string.uuid = true];
   string search = 2 [(buf.validate.field).string.max_len = 255];
+  // Maximum assets per page. 0 selects the default of 50; the maximum is 200.
+  int32 page_size = 3 [(buf.validate.field).int32 = {gte: 0, lte: 200}];
+  // Continuation token from a previous response. Valid only with the same
+  // account and search; otherwise the request fails with INVALID_ARGUMENT.
+  string page_token = 4 [(buf.validate.field).string.max_len = 2048];
 }
-message ListAccountTicketAssetsResponse { repeated maintenance.v1.TicketAsset assets = 1; }
+message ListAccountTicketAssetsResponse {
+  repeated maintenance.v1.TicketAsset assets = 1;
+  string next_page_token = 2;
+}
 
 message GetAccountTicketResponse { AccountTicketDetail detail = 1; }
 message CreateAccountTicketResponse { AccountTicketDetail detail = 1; }

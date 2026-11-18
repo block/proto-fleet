@@ -3,6 +3,7 @@ package sqlstores_test
 import (
 	"testing"
 
+	"github.com/block/proto-fleet/server/internal/domain/maintenance"
 	"github.com/block/proto-fleet/server/internal/domain/maintenance/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
@@ -42,12 +43,15 @@ func TestMaintenanceBoardTriageRetainsOpeningOwnerAndRemovedInstallation(t *test
 	// The physical board has already been removed by the time triage identifies it.
 	_, err = db.ExecContext(ctx, `UPDATE hashboard_installation SET removed_at=clock_timestamp() WHERE id=$1`, installation)
 	require.NoError(t, err)
-	options, err := store.ListTicketBoardOptions(ctx, org, ticket.ID, "")
+	options, err := store.ListTicketBoardOptions(ctx, models.TicketAssetOptionsParams{OrgID: org, TicketID: ticket.ID})
 	require.NoError(t, err)
-	require.Len(t, options, 1, "triage picker must find the original detached board")
-	require.Equal(t, board, options[0].ID)
-	require.Equal(t, &installation, options[0].InstallationID)
+	require.Len(t, options.Assets, 1, "triage picker must find the original detached board")
+	require.Equal(t, board, options.Assets[0].ID)
+	require.Equal(t, &installation, options.Assets[0].InstallationID)
 	require.NoError(t, store.AddRepairTicketBoard(ctx, org, ticket.ID, board, module))
+	remaining, err := store.ListTicketBoardOptions(ctx, models.TicketAssetOptionsParams{OrgID: org, TicketID: ticket.ID})
+	require.NoError(t, err)
+	require.Empty(t, remaining.Assets, "boards already recorded on the ticket must not consume picker pages")
 	got, err := store.GetRepairTicket(ctx, org, ticket.ID)
 	require.NoError(t, err)
 	require.Len(t, got.Targets, 2)
@@ -57,4 +61,62 @@ func TestMaintenanceBoardTriageRetainsOpeningOwnerAndRemovedInstallation(t *test
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT client_id FROM repair_ticket_target WHERE org_id=$1 AND ticket_id=$2 AND kind=4`, org, ticket.ID).Scan(&inherited))
 	require.Equal(t, accountA, inherited)
 	require.NotEqual(t, accountB, inherited)
+}
+
+func TestMaintenanceBoardTriageSupportsHistoricalMultiModuleTickets(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+	org := insertMaintenanceTestOrg(t, db, "legacy-triage")
+	site := insertMaintenanceTestSite(t, db, org, "Original site")
+	_, moduleA, boardA := insertMaintenancePhysicalTargets(t, db, org, site, "parent-a")
+	_, moduleB, boardB := insertMaintenancePhysicalTargets(t, db, org, site, "parent-b")
+	store := sqlstores.NewSQLMaintenanceStore(db)
+	// Seed the historical shape through storage; new creation requires one parent.
+	ticket, err := store.CreateRepairTicket(ctx, models.CreateParams{
+		OrgID: org, SiteID: &site, Category: models.TicketCategoryModule, Component: "Unknown",
+		IdempotencyKey: "historical-triage", CreateRequestHash: maintenanceCreateRequestHash,
+		Targets: []models.TicketAssetSelection{{Kind: models.TicketCategoryModule, ID: moduleA}, {Kind: models.TicketCategoryModule, ID: moduleB}},
+	}, "TK-0001")
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, "UPDATE hashboard_installation SET removed_at=clock_timestamp() WHERE hashboard_id=$1 AND module_id=$2", boardA, moduleA)
+	require.NoError(t, err)
+	service := maintenance.NewService(store, store, sqlstores.NewSQLInventoryStore(db), sqlstores.NewSQLTransactor(db), nil)
+	request := models.TicketAssetOptionsParams{OrgID: org, TicketID: ticket.ID, PageSize: 1}
+	first, err := service.ListTicketBoardOptions(ctx, request)
+	require.NoError(t, err)
+	require.Len(t, first.Assets, 1)
+	require.NotEmpty(t, first.NextPageToken)
+	request.PageToken = first.NextPageToken
+	second, err := service.ListTicketBoardOptions(ctx, request)
+	require.NoError(t, err)
+	require.Len(t, second.Assets, 1)
+	require.Empty(t, second.NextPageToken)
+	openingBoards := make(map[int64]models.TicketAsset)
+	for _, board := range append(first.Assets, second.Assets...) {
+		openingBoards[board.ID] = board
+	}
+	component := "Hashboard"
+	updated, err := service.UpdateRepairTicket(ctx, models.UpdateParams{
+		OrgID: org, ID: ticket.ID, ExpectedUpdatedAt: ticket.UpdatedAt, Component: &component,
+		AffectedBoards: []models.TicketAssetSelection{
+			{Kind: models.TicketCategoryHashboard, ID: boardA, ParentModuleID: &moduleA},
+			{Kind: models.TicketCategoryHashboard, ID: boardB, ParentModuleID: &moduleB},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, component, updated.Component, "the accompanying triage update must also be saved")
+	require.Len(t, updated.Targets, 4)
+	var recordedBoards []int64
+	for _, target := range updated.Targets {
+		if target.Kind != models.TicketCategoryHashboard {
+			continue
+		}
+		recordedBoards = append(recordedBoards, target.ID)
+		opening, found := openingBoards[target.ID]
+		require.True(t, found)
+		require.Equal(t, opening.ModuleID, target.ModuleID)
+		require.NotNil(t, target.InstallationID)
+		require.Equal(t, opening.InstallationID, target.InstallationID)
+	}
+	require.ElementsMatch(t, []int64{boardA, boardB}, recordedBoards)
 }

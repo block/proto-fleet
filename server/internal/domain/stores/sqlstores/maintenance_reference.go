@@ -183,8 +183,13 @@ func (s *SQLMaintenanceStore) LockModuleModelSite(ctx context.Context, orgID, mo
 	}
 	return nullInt64ToPtr(site), nil
 }
-func (s *SQLMaintenanceStore) ListTicketAssetOptions(ctx context.Context, orgID int64, siteIDs, excludedSiteIDs []int64, kind models.TicketCategory, search string) ([]models.TicketAsset, error) {
-	rows, err := s.GetQueries(ctx).ListRepairTicketAssetOptions(ctx, sqlc.ListRepairTicketAssetOptionsParams{OrgID: orgID, SiteIds: maintenanceNilIfEmpty(siteIDs), ExcludedSiteIds: maintenanceNilIfEmpty(excludedSiteIDs), Kind: sql.NullInt16{Int16: int16(kind), Valid: kind != models.TicketCategoryUnspecified}, Search: search})
+func (s *SQLMaintenanceStore) ListTicketAssetOptions(ctx context.Context, p models.TicketAssetOptionsParams) (*models.TicketAssetPage, error) {
+	query := models.TicketAssetQuery{Scope: "options", OrgID: p.OrgID, SiteIDs: p.SiteIDs, ExcludedSiteIDs: p.ExcludedSiteIDs, Kind: p.Kind, Search: p.Search, IncludeUnassigned: p.IncludeUnassigned}.Fingerprint()
+	size, cursor, err := models.ParseTicketAssetPagination(p.PageSize, p.PageToken, query)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.GetQueries(ctx).ListRepairTicketAssetOptions(ctx, sqlc.ListRepairTicketAssetOptionsParams{HostAuthority: json.RawMessage("[]"), OrgID: p.OrgID, SiteIds: maintenanceNilIfEmpty(p.SiteIDs), IncludeUnassigned: p.IncludeUnassigned, ExcludedSiteIds: maintenanceNilIfEmpty(p.ExcludedSiteIDs), Kind: sql.NullInt16{Int16: int16(p.Kind), Valid: p.Kind != models.TicketCategoryUnspecified}, Search: p.Search, CursorKind: int16(cursor.Kind), CursorID: cursor.ID, ResultLimit: size + 1})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("list physical ticket assets: %w", err)
 	}
@@ -192,7 +197,7 @@ func (s *SQLMaintenanceStore) ListTicketAssetOptions(ctx context.Context, orgID 
 	for _, row := range rows {
 		out = append(out, ticketAssetFromOption(row))
 	}
-	return out, nil
+	return models.TicketAssetPageFromRows(out, size, query)
 }
 func ticketAssetFromOption(row sqlc.RepairTicketAssetOption) models.TicketAsset {
 	var position *int32
@@ -202,8 +207,16 @@ func ticketAssetFromOption(row sqlc.RepairTicketAssetOption) models.TicketAsset 
 	return models.TicketAsset{Kind: models.TicketCategory(row.Kind), ID: row.ID, Label: row.Label, Model: row.Model, SiteID: nullInt64ToPtr(row.SiteID), ModuleID: nullInt64ToPtr(row.ModuleID), InstallationID: nullInt64ToPtr(row.InstallationID), ContainerID: nullInt64ToPtr(row.ContainerID), Position: position}
 }
 
-func (s *SQLMaintenanceStore) ListTicketBoardOptions(ctx context.Context, orgID, ticketID int64, search string) ([]models.TicketAsset, error) {
-	payloads, err := s.GetQueries(ctx).ListRepairTicketBoardOptions(ctx, sqlc.ListRepairTicketBoardOptionsParams{OrgID: orgID, TicketID: ticketID, Search: search})
+func (s *SQLMaintenanceStore) ListTicketBoardOptions(ctx context.Context, p models.TicketAssetOptionsParams) (*models.TicketAssetPage, error) {
+	query := models.TicketAssetQuery{Scope: "board-options", OrgID: p.OrgID, TicketID: p.TicketID, Search: p.Search}.Fingerprint()
+	size, cursor, err := models.ParseTicketAssetPagination(p.PageSize, p.PageToken, query)
+	if err != nil {
+		return nil, err
+	}
+	if p.PageToken != "" && cursor.Kind != models.TicketCategoryHashboard {
+		return nil, fleeterror.NewInvalidArgumentError("invalid board page token")
+	}
+	payloads, err := s.GetQueries(ctx).ListRepairTicketBoardOptions(ctx, sqlc.ListRepairTicketBoardOptionsParams{OrgID: p.OrgID, TicketID: p.TicketID, Search: p.Search, CursorID: cursor.ID, ResultLimit: size + 1})
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +228,7 @@ func (s *SQLMaintenanceStore) ListTicketBoardOptions(ctx context.Context, orgID,
 		}
 		result = append(result, asset)
 	}
-	return result, nil
+	return models.TicketAssetPageFromRows(result, size, query)
 }
 
 // LockTicketAssetPlacements follows rack → device → module → installation order, with

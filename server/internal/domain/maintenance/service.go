@@ -109,7 +109,7 @@ func (s *Service) CreateRepairTicket(ctx context.Context, params models.CreatePa
 	}
 	params.Component = strings.TrimSpace(params.Component)
 	if params.Component == "" {
-		return nil, false, fleeterror.NewInvalidArgumentError("component is required")
+		params.Component = "Unknown"
 	}
 	if params.Diagnosis != nil {
 		trimmed := strings.TrimSpace(*params.Diagnosis)
@@ -118,21 +118,35 @@ func (s *Service) CreateRepairTicket(ctx context.Context, params models.CreatePa
 			params.Diagnosis = nil
 		}
 	}
-	if params.Category < models.TicketCategoryMiner || params.Category > models.TicketCategoryAccount {
+	if params.Category < models.TicketCategoryMiner || params.Category > models.TicketCategoryOther {
 		return nil, false, fleeterror.NewInvalidArgumentError("invalid ticket category")
 	}
 	if params.MinerIdentifier != nil {
 		identifier := strings.TrimSpace(*params.MinerIdentifier)
 		params.MinerIdentifier = &identifier
 	}
-	if len(params.ClientAccountIDs) > 0 && params.Category != models.TicketCategoryInfrastructure {
-		return nil, false, fleeterror.NewInvalidArgumentError("explicit client audiences require infrastructure category")
+	if len(params.ClientAccountIDs) > 0 && params.Category != models.TicketCategoryInfrastructure && params.Category != models.TicketCategoryOther {
+		return nil, false, fleeterror.NewInvalidArgumentError("explicit client audiences require infrastructure or Other category")
 	}
 	if params.Category == models.TicketCategoryAccount && (params.CreatedByAccountID == nil || len(params.Targets) > 0) {
 		return nil, false, fleeterror.NewInvalidArgumentError("account tickets require an account creator and no assets")
 	}
 	if (params.Category == models.TicketCategoryModule || params.Category == models.TicketCategoryHashboard) && len(params.Targets) == 0 {
 		return nil, false, fleeterror.NewInvalidArgumentError("physical targets are required")
+	}
+	if params.Category == models.TicketCategoryOther {
+		if strings.TrimSpace(params.Description) == "" {
+			return nil, false, fleeterror.NewInvalidArgumentError("description is required")
+		}
+		if params.SiteID == nil {
+			return nil, false, fleeterror.NewInvalidArgumentError("site_id is required for Other tickets")
+		}
+		if len(params.Targets) > 0 || params.MinerIdentifier != nil || params.RackID != nil || params.RackLabel != nil || params.GroupLabel != nil {
+			return nil, false, fleeterror.NewInvalidArgumentError("Other tickets cannot select equipment")
+		}
+		if params.ShareWithClients && len(params.ClientAccountIDs) == 0 {
+			return nil, false, fleeterror.NewInvalidArgumentError("sharing Other tickets requires explicit affected clients")
+		}
 	}
 	if params.Category == models.TicketCategoryInfrastructure && len(params.Targets) > 0 {
 		return nil, false, fleeterror.NewInvalidArgumentError("infrastructure tickets cannot select physical assets")
@@ -179,9 +193,10 @@ func (s *Service) CreateRepairTicket(ctx context.Context, params models.CreatePa
 			}
 		}
 		var initialMinerContext *models.AssetContext
+		var openingTargets []models.TicketAsset
 		if len(params.Targets) > 0 {
 			for i, selection := range params.Targets {
-				if selection.Kind != params.Category {
+				if selection.Kind != params.Category && !(params.Category == models.TicketCategoryModule && selection.Kind == models.TicketCategoryHashboard) {
 					return fleeterror.NewInvalidArgumentError("target kind must match ticket category")
 				}
 				asset, err := s.resolveAuthorizedTarget(txCtx, params.OrgID, selection)
@@ -191,7 +206,12 @@ func (s *Service) CreateRepairTicket(ctx context.Context, params models.CreatePa
 				if i > 0 && !optionalInt64Equal(params.SiteID, asset.SiteID) {
 					return fleeterror.NewInvalidArgumentError("ticket targets must belong to the same site")
 				}
+				asset.Kind = selection.Kind
+				openingTargets = append(openingTargets, *asset)
 				params.SiteID = asset.SiteID
+			}
+			if err := validateTicketParent(openingTargets); err != nil {
+				return err
 			}
 			params.BuildingID, params.RackID, params.MinerIdentifier = nil, nil, nil
 		}
@@ -220,7 +240,7 @@ func (s *Service) CreateRepairTicket(ctx context.Context, params models.CreatePa
 			params.SiteID, params.BuildingID = asset.SiteID, asset.BuildingID
 			params.Zone, params.RackID = asset.Zone, asset.RackID
 			params.RackLabel, params.GroupLabel = asset.RackLabel, asset.GroupLabel
-		case params.Category == models.TicketCategoryInfrastructure:
+		case params.Category == models.TicketCategoryInfrastructure || params.Category == models.TicketCategoryOther:
 			if params.SiteID == nil {
 				return fleeterror.NewInvalidArgumentError("site_id is required for infrastructure tickets")
 			}
@@ -243,7 +263,7 @@ func (s *Service) CreateRepairTicket(ctx context.Context, params models.CreatePa
 				return err
 			}
 		}
-		if params.Category == models.TicketCategoryInfrastructure && params.BuildingID != nil {
+		if (params.Category == models.TicketCategoryInfrastructure || params.Category == models.TicketCategoryOther) && params.BuildingID != nil {
 			location, err := s.refs.ResolveLocationContext(txCtx, params.OrgID, params.SiteID, params.BuildingID)
 			if err != nil {
 				return err
@@ -254,6 +274,7 @@ func (s *Service) CreateRepairTicket(ctx context.Context, params models.CreatePa
 			if err := s.refs.LockTicketAssetPlacements(txCtx, params.OrgID, params.Targets); err != nil {
 				return err
 			}
+			var lockedTargets []models.TicketAsset
 			for _, selection := range params.Targets {
 				asset, err := s.resolveAuthorizedTarget(txCtx, params.OrgID, selection)
 				if err != nil {
@@ -262,6 +283,11 @@ func (s *Service) CreateRepairTicket(ctx context.Context, params models.CreatePa
 				if !optionalInt64Equal(params.SiteID, asset.SiteID) {
 					return fleeterror.NewFailedPreconditionError("ticket target placement changed while creating the repair ticket; retry the request")
 				}
+				asset.Kind = selection.Kind
+				lockedTargets = append(lockedTargets, *asset)
+			}
+			if err := validateTicketParent(lockedTargets); err != nil {
+				return err
 			}
 		}
 		if initialMinerContext != nil {
@@ -1494,6 +1520,25 @@ func derefInt64(v *int64) any {
 	return *v
 }
 
+func validateTicketParent(targets []models.TicketAsset) error {
+	var parentKind models.TicketCategory
+	var parentID int64
+	for i, target := range targets {
+		kind, id := target.Kind, target.ID
+		if kind == models.TicketCategoryHashboard {
+			if target.ModuleID == nil {
+				return fleeterror.NewInvalidArgumentError("hashboard target requires a parent module")
+			}
+			kind, id = models.TicketCategoryModule, *target.ModuleID
+		}
+		if i > 0 && (kind != parentKind || id != parentID) {
+			return fleeterror.NewInvalidArgumentError("equipment tickets must concern one parent miner or module")
+		}
+		parentKind, parentID = kind, id
+	}
+	return nil
+}
+
 func (s *Service) resolveAuthorizedTarget(ctx context.Context, orgID int64, selection models.TicketAssetSelection) (*models.TicketAsset, error) {
 	if selection.ID <= 0 || (selection.Kind != models.TicketCategoryMiner && selection.Kind != models.TicketCategoryModule && selection.Kind != models.TicketCategoryHashboard) {
 		return nil, fleeterror.NewInvalidArgumentError("invalid physical target")
@@ -1513,8 +1558,8 @@ func (s *Service) resolveAuthorizedTarget(ctx context.Context, orgID int64, sele
 	}
 	return asset, nil
 }
-func (s *Service) ListTicketAssetOptions(ctx context.Context, orgID int64, siteIDs, excludedSiteIDs []int64, kind models.TicketCategory, search string) ([]models.TicketAsset, error) {
-	return s.refs.ListTicketAssetOptions(ctx, orgID, siteIDs, excludedSiteIDs, kind, search)
+func (s *Service) ListTicketAssetOptions(ctx context.Context, p models.TicketAssetOptionsParams) (*models.TicketAssetPage, error) {
+	return s.refs.ListTicketAssetOptions(ctx, p)
 }
 
 // UpdateTicketTarget records host evidence against the opening physical identity.
@@ -1645,13 +1690,13 @@ func (s *Service) UpdateTicketTarget(ctx context.Context, p models.UpdateTargetP
 	return ticket, nil
 }
 
-func (s *Service) ListTicketBoardOptions(ctx context.Context, orgID, ticketID int64, search string) ([]models.TicketAsset, error) {
-	ticket, err := s.store.GetRepairTicket(ctx, orgID, ticketID)
+func (s *Service) ListTicketBoardOptions(ctx context.Context, p models.TicketAssetOptionsParams) (*models.TicketAssetPage, error) {
+	ticket, err := s.store.GetRepairTicket(ctx, p.OrgID, p.TicketID)
 	if err != nil {
 		return nil, err
 	}
 	if err = verifyAuthorizedSite(ctx, ticket.SiteID); err != nil {
 		return nil, err
 	}
-	return s.refs.ListTicketBoardOptions(ctx, orgID, ticketID, search)
+	return s.refs.ListTicketBoardOptions(ctx, p)
 }

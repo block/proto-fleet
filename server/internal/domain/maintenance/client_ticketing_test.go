@@ -81,20 +81,20 @@ func TestTargetEvidenceRejectsSamePhysicalBoardReplacement(t *testing.T) {
 	require.ErrorContains(t, err, "different physical hashboard")
 }
 
-func TestCreateRejectsTargetsAcrossSitesBeforePersisting(t *testing.T) {
+func TestCreateRejectsTargetsAcrossParentsBeforePersisting(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockMaintenanceStore(ctrl)
 	refs := mocks.NewMockMaintenanceReferenceStore(ctrl)
 	tx := mocks.NewMockTransactor(ctrl)
 	service := NewService(store, refs, mocks.NewMockInventoryStore(ctrl), tx, nil)
-	site1, site2 := int64(100), int64(101)
+	site1, site2 := int64(100), int64(100)
 	tx.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(runTx)
 	store.EXPECT().LockRepairTicketCreateKey(gomock.Any(), int64(2), "cross-site").Return(nil)
 	store.EXPECT().GetRepairTicketByIdempotencyKey(gomock.Any(), int64(2), "cross-site").Return(nil, "", fleeterror.NewNotFoundError("new key"))
 	refs.EXPECT().ResolveTicketAsset(gomock.Any(), int64(2), models.TicketCategoryModule, int64(10)).Return(&models.TicketAsset{ID: 10, SiteID: &site1}, nil)
 	refs.EXPECT().ResolveTicketAsset(gomock.Any(), int64(2), models.TicketCategoryModule, int64(11)).Return(&models.TicketAsset{ID: 11, SiteID: &site2}, nil)
 	_, _, err := service.CreateRepairTicket(t.Context(), models.CreateParams{OrgID: 2, IdempotencyKey: "cross-site", Category: models.TicketCategoryModule, Component: "Power", Targets: []models.TicketAssetSelection{{Kind: models.TicketCategoryModule, ID: 10}, {Kind: models.TicketCategoryModule, ID: 11}}})
-	require.ErrorContains(t, err, "same site")
+	require.ErrorContains(t, err, "one parent")
 }
 
 func TestCommentIdempotencyIncludesVisibility(t *testing.T) {
@@ -110,7 +110,7 @@ func TestCommentIdempotencyIncludesVisibility(t *testing.T) {
 }
 
 func TestCreateRechecksTargetSiteAfterPlacementLocks(t *testing.T) {
-	for _, kind := range []models.TicketCategory{models.TicketCategoryModule, models.TicketCategoryHashboard, models.TicketCategoryMiner} {
+	for _, kind := range []models.TicketCategory{models.TicketCategoryModule, models.TicketCategoryHashboard} {
 		t.Run(fmt.Sprintf("kind=%d", kind), func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			store := mocks.NewMockMaintenanceStore(ctrl)
@@ -118,13 +118,11 @@ func TestCreateRechecksTargetSiteAfterPlacementLocks(t *testing.T) {
 			tx := mocks.NewMockTransactor(ctrl)
 			service := NewService(store, refs, mocks.NewMockInventoryStore(ctrl), tx, nil)
 			site, deniedSite, parent := int64(100), int64(101), int64(20)
-			selections := []models.TicketAssetSelection{{Kind: kind, ID: 10}}
-			if kind == models.TicketCategoryMiner {
-				selections = append(selections, models.TicketAssetSelection{Kind: kind, ID: 11})
-			}
+			selection := models.TicketAssetSelection{Kind: kind, ID: 10}
 			if kind == models.TicketCategoryHashboard {
-				selections[0].ParentModuleID = &parent
+				selection.ParentModuleID = &parent
 			}
+			selections := []models.TicketAssetSelection{selection}
 			tx.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(runTx)
 			store.EXPECT().LockRepairTicketCreateKey(gomock.Any(), int64(2), "moving-target").Return(nil)
 			store.EXPECT().GetRepairTicketByIdempotencyKey(gomock.Any(), int64(2), "moving-target").Return(nil, "", fleeterror.NewNotFoundError("new key"))
@@ -184,19 +182,20 @@ func TestCreateRejectsSplitTargetSitesAfterPlacementLocks(t *testing.T) {
 	tx := mocks.NewMockTransactor(ctrl)
 	service := NewService(store, refs, mocks.NewMockInventoryStore(ctrl), tx, nil)
 	site, destination := int64(100), int64(101)
-	selections := []models.TicketAssetSelection{{Kind: models.TicketCategoryModule, ID: 10}, {Kind: models.TicketCategoryModule, ID: 11}}
+	parent := int64(20)
+	selections := []models.TicketAssetSelection{{Kind: models.TicketCategoryHashboard, ID: 10, ParentModuleID: &parent}, {Kind: models.TicketCategoryHashboard, ID: 11, ParentModuleID: &parent}}
 	tx.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(runTx)
 	store.EXPECT().LockRepairTicketCreateKey(gomock.Any(), int64(2), "split-targets").Return(nil)
 	store.EXPECT().GetRepairTicketByIdempotencyKey(gomock.Any(), int64(2), "split-targets").Return(nil, "", fleeterror.NewNotFoundError("new key"))
 	gomock.InOrder(
-		refs.EXPECT().ResolveTicketAsset(gomock.Any(), int64(2), models.TicketCategoryModule, int64(10)).Return(&models.TicketAsset{ID: 10, SiteID: &site}, nil),
-		refs.EXPECT().ResolveTicketAsset(gomock.Any(), int64(2), models.TicketCategoryModule, int64(11)).Return(&models.TicketAsset{ID: 11, SiteID: &site}, nil),
+		refs.EXPECT().ResolveTicketAsset(gomock.Any(), int64(2), models.TicketCategoryHashboard, int64(10)).Return(&models.TicketAsset{ID: 10, SiteID: &site, ModuleID: &parent}, nil),
+		refs.EXPECT().ResolveTicketAsset(gomock.Any(), int64(2), models.TicketCategoryHashboard, int64(11)).Return(&models.TicketAsset{ID: 11, SiteID: &site, ModuleID: &parent}, nil),
 		refs.EXPECT().LockSiteForTicket(gomock.Any(), int64(2), site).Return(nil),
 		refs.EXPECT().LockTicketAssetPlacements(gomock.Any(), int64(2), selections).Return(nil),
-		refs.EXPECT().ResolveTicketAsset(gomock.Any(), int64(2), models.TicketCategoryModule, int64(10)).Return(&models.TicketAsset{ID: 10, SiteID: &site}, nil),
-		refs.EXPECT().ResolveTicketAsset(gomock.Any(), int64(2), models.TicketCategoryModule, int64(11)).Return(&models.TicketAsset{ID: 11, SiteID: &destination}, nil),
+		refs.EXPECT().ResolveTicketAsset(gomock.Any(), int64(2), models.TicketCategoryHashboard, int64(10)).Return(&models.TicketAsset{ID: 10, SiteID: &site, ModuleID: &parent}, nil),
+		refs.EXPECT().ResolveTicketAsset(gomock.Any(), int64(2), models.TicketCategoryHashboard, int64(11)).Return(&models.TicketAsset{ID: 11, SiteID: &destination, ModuleID: &parent}, nil),
 	)
 	ctx := authz.WithAuthorizedSiteScope(t.Context(), authz.AuthorizedSiteScope{SiteIDs: []int64{site, destination}})
-	_, _, err := service.CreateRepairTicket(ctx, models.CreateParams{OrgID: 2, IdempotencyKey: "split-targets", Category: models.TicketCategoryModule, Component: "Power", Targets: selections})
+	_, _, err := service.CreateRepairTicket(ctx, models.CreateParams{OrgID: 2, IdempotencyKey: "split-targets", Category: models.TicketCategoryHashboard, Component: "Power", Targets: selections})
 	require.True(t, fleeterror.IsFailedPreconditionError(err), "%v", err)
 }

@@ -31,6 +31,7 @@ export const toTicketCategory = (value: TicketCategory): TicketCategoryValue => 
   if (value === TicketCategory.MODULE) return "module";
   if (value === TicketCategory.HASHBOARD) return "hashboard";
   if (value === TicketCategory.ACCOUNT) return "account";
+  if (value === TicketCategory.OTHER) return "other";
   if (value === TicketCategory.MINER) return "miner";
   if (value === TicketCategory.INFRASTRUCTURE) return "infrastructure";
   return "unknown";

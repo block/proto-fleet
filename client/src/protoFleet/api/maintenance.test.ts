@@ -34,14 +34,32 @@ describe("useMaintenanceApi", () => {
     vi.clearAllMocks();
     handleAuthErrors.mockImplementation(({ onError, error }) => onError?.(error));
   });
-  it("forwards the asset kind so the server filters before limiting results", async () => {
-    clients.listTicketAssetOptions.mockResolvedValue({ assets: [] });
+  it("forwards asset filters and pagination and returns the continuation token", async () => {
+    const response = { assets: [], nextPageToken: "next-page" };
+    clients.listTicketAssetOptions.mockResolvedValue(response);
+    const onSuccess = vi.fn();
     const { result } = renderHook(() => useMaintenanceApi());
-    await act(() => result.current.listTicketAssets({ kind: TicketCategory.HASHBOARD, siteIds: [9n] }));
+    await act(() =>
+      result.current.listTicketAssets({
+        kind: TicketCategory.HASHBOARD,
+        siteIds: [9n],
+        includeUnassigned: true,
+        pageSize: 25,
+        pageToken: "current-page",
+        onSuccess,
+      }),
+    );
     expect(clients.listTicketAssetOptions).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: TicketCategory.HASHBOARD, siteIds: [9n] }),
+      expect.objectContaining({
+        kind: TicketCategory.HASHBOARD,
+        siteIds: [9n],
+        includeUnassigned: true,
+        pageSize: 25,
+        pageToken: "current-page",
+      }),
       expect.anything(),
     );
+    expect(onSuccess).toHaveBeenCalledWith(response);
   });
   it("maps filters, cursor, sort, and abort signal", async () => {
     clients.listRepairTickets.mockResolvedValue({ tickets: [], nextPageToken: "next", totalCount: 7 });

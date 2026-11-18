@@ -86,15 +86,38 @@ func TestMaintenanceAssetKindFilterPrecedesResultLimit(t *testing.T) {
 		kind models.TicketCategory
 		id   int64
 	}{{models.TicketCategoryModule, module}, {models.TicketCategoryHashboard, board}} {
-		assets, err := ticketServiceForTest(f.db).ListTicketAssetOptions(t.Context(), f.org, nil, nil, target.kind, "")
+		assets, err := ticketServiceForTest(f.db).ListTicketAssetOptions(t.Context(), models.TicketAssetOptionsParams{OrgID: f.org, Kind: target.kind})
 		require.NoError(t, err)
 		expected := 1
 		if target.kind == models.TicketCategoryHashboard {
 			expected = 3
 		}
-		require.Len(t, assets, expected, "earlier equipment kinds cannot consume the selected kind's result limit")
-		require.Equal(t, target.id, assets[0].ID)
+		require.Len(t, assets.Assets, expected, "earlier equipment kinds cannot consume the selected kind's result limit")
+		require.Equal(t, target.id, assets.Assets[0].ID)
 	}
+	// Walk the combined picker past the old global cap without knowing a label.
+	var all []models.TicketAsset
+	request := models.TicketAssetOptionsParams{OrgID: f.org}
+	for {
+		page, err := ticketServiceForTest(f.db).ListTicketAssetOptions(t.Context(), request)
+		require.NoError(t, err)
+		require.LessOrEqual(t, len(page.Assets), 50)
+		all = append(all, page.Assets...)
+		if page.NextPageToken == "" {
+			break
+		}
+		require.NotEqual(t, request.PageToken, page.NextPageToken)
+		request.PageToken = page.NextPageToken
+	}
+	require.Len(t, all, 204)
+	seen := make(map[models.TicketAssetCursor]bool)
+	for _, asset := range all {
+		key := models.TicketAssetCursor{Kind: asset.Kind, ID: asset.ID}
+		require.False(t, seen[key], "pagination must not repeat an asset")
+		seen[key] = true
+	}
+	require.True(t, seen[models.TicketAssetCursor{Kind: models.TicketCategoryModule, ID: module}])
+	require.True(t, seen[models.TicketAssetCursor{Kind: models.TicketCategoryHashboard, ID: board}])
 }
 
 func TestTicketModelChangeRequiresCurrentModuleSiteAuthority(t *testing.T) {
@@ -206,8 +229,7 @@ func TestSharedTicketRedactsOtherClientAssetsAndClosureConversation(t *testing.T
 	assign := pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN
 	require.NoError(t, f.allocate(t, f.host, f.root, parent.AccountID, assign, selected(6, delegated, 0), selected(6, retained, 0)))
 	require.NoError(t, f.allocate(t, f.user, parent.AccountID, child.AccountID, assign, selected(6, delegated, 1)))
-	created, err := f.svc.CreateAccountTicket(t.Context(), f.user, f.org, &pb.CreateAccountTicketRequest{AccountId: parent.AccountID, Description: "Private client submission", Component: "Private client component details", IdempotencyKey: uuid.NewString(), Targets: []*mpb.TicketAssetSelection{{Kind: mpb.TicketCategory_TICKET_CATEGORY_MODULE, Id: delegated}, {Kind: mpb.TicketCategory_TICKET_CATEGORY_MODULE, Id: retained}}})
-	require.NoError(t, err)
+	created := seedLegacyClientTicket(t, f, parent, models.CreateParams{Category: models.TicketCategoryModule, Description: "Private client submission", Component: "Private client component details", Targets: []models.TicketAssetSelection{{Kind: models.TicketCategoryModule, ID: delegated}, {Kind: models.TicketCategoryModule, ID: retained}}})
 	require.Equal(t, "Private client component details", created.Ticket.Component)
 	view, err := f.svc.GetAccountTicket(t.Context(), f.host, f.org, &pb.GetAccountTicketRequest{AccountId: child.AccountID, TicketId: created.Ticket.Id})
 	require.NoError(t, err)

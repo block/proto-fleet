@@ -21,6 +21,7 @@ const (
 	TicketCategoryModule         TicketCategory = 3
 	TicketCategoryHashboard      TicketCategory = 4
 	TicketCategoryAccount        TicketCategory = 5
+	TicketCategoryOther          TicketCategory = 6
 )
 
 // TicketStatus mirrors repair_ticket.status.

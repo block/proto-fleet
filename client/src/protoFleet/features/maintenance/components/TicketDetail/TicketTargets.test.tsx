@@ -72,9 +72,12 @@ it("requires a distinct replacement module with the same actual model", () => {
 });
 it("uses the incident's historical boards when adding affected boards", async () => {
   listTicketAssets.mockImplementation(async ({ onSuccess }) =>
-    onSuccess([
-      { kind: TicketCategory.HASHBOARD, id: 84n, label: "HB-84", moduleId: 51n, siteId: 1n, model: "Model A" },
-    ]),
+    onSuccess({
+      assets: [
+        { kind: TicketCategory.HASHBOARD, id: 84n, label: "HB-84", moduleId: 51n, siteId: 1n, model: "Model A" },
+      ],
+      nextPageToken: "",
+    }),
   );
   render(
     <MemoryRouter>
@@ -319,7 +322,10 @@ it("keeps a target draft across a refresh and only adopts the current version af
 
 it("routes board additions through the same gate and disables target controls while another action saves", async () => {
   listTicketAssets.mockImplementation(async ({ onSuccess }) =>
-    onSuccess([{ kind: TicketCategory.HASHBOARD, id: 84n, label: "HB-84", moduleId: 51n }]),
+    onSuccess({
+      assets: [{ kind: TicketCategory.HASHBOARD, id: 84n, label: "HB-84", moduleId: 51n }],
+      nextPageToken: "",
+    }),
   );
   const submitMutation = vi.fn(async (mutation: () => Promise<boolean>) => mutation());
   updateTicket.mockImplementation(async ({ onSuccess }) => onSuccess());

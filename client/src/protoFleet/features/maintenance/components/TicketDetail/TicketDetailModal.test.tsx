@@ -151,6 +151,7 @@ describe("TicketDetailModal", () => {
     detailState.loading = false;
     detailState.error = null;
     ticket.status = "in_progress";
+    ticket.component = "Fan";
     ticket.notes = "";
     ticket.diagnosis = "Broken";
     ticket.targets = [];
@@ -170,6 +171,50 @@ describe("TicketDetailModal", () => {
     maintenanceOptions.manageableSites = [{ id: "1", name: "Denver" }];
     maintenanceOptions.loading = false;
     maintenanceOptions.error = null;
+  });
+
+  it.each([false, true])("labels ticket visibility when sharedWithClients is %s", (sharedWithClients) => {
+    ticket.sharedWithClients = sharedWithClients;
+    render(<TicketDetailModal ticketId="1" onDismiss={vi.fn()} />);
+    expect(screen.getByText(sharedWithClients ? "Shared with clients" : "Internal")).toBeInTheDocument();
+  });
+
+  it("corrects an unknown component during triage without requiring a diagnosis", async () => {
+    ticket.component = "Unknown";
+    ticket.diagnosis = "";
+    update.mockResolvedValue(true);
+    render(<TicketDetailModal ticketId="1" onDismiss={vi.fn()} />);
+    // The shared popover hides triggers with jsdom's default zero-size bounds.
+    vi.spyOn(screen.getByRole("button", { name: "Component" }).parentElement!, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(20, 20, 240, 40),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Component" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Fan" }));
+    await waitFor(() => expect(update).toHaveBeenCalledWith({ component: "Fan", expectedUpdatedAt: version }));
+  });
+
+  it("preserves custom component labels while offering named choices, Unknown, and Other", async () => {
+    ticket.component = "Controller connector";
+    render(<TicketDetailModal ticketId="1" onDismiss={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Component" })).toHaveTextContent("Controller connector");
+    // The shared popover hides triggers with jsdom's default zero-size bounds.
+    vi.spyOn(screen.getByRole("button", { name: "Component" }).parentElement!, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(20, 20, 240, 40),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Component" }));
+    expect(await screen.findByRole("option", { name: "Controller connector" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByRole("option", { name: "Fan" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Unknown" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Other" })).toBeInTheDocument();
+  });
+
+  it("keeps component triage read-only outside manageable sites", () => {
+    maintenanceOptions.manageableSites = [];
+    render(<TicketDetailModal ticketId="1" onDismiss={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Component" })).toBeDisabled();
   });
 
   it("forwards note-publication errors into the note confirmation dialog", async () => {
@@ -587,7 +632,7 @@ describe("TicketDetailModal", () => {
       </MemoryRouter>,
     );
     fireEvent.click(screen.getByRole("button", { name: "Add comment" }));
-    fireEvent.change(screen.getByLabelText("Add a comment"), { target: { value: "Wrong ticket draft" } });
+    fireEvent.change(screen.getByLabelText("Internal note"), { target: { value: "Wrong ticket draft" } });
     expect(screen.getByDisplayValue("Wrong ticket draft")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Next ticket" }));
@@ -623,7 +668,7 @@ describe("TicketDetailModal", () => {
       </MemoryRouter>,
     );
     fireEvent.click(screen.getByRole("button", { name: "Add comment" }));
-    fireEvent.change(screen.getByLabelText("Add a comment"), { target: { value: "Checked" } });
+    fireEvent.change(screen.getByLabelText("Internal note"), { target: { value: "Checked" } });
     fireEvent.click(screen.getByRole("button", { name: "Post" }));
     fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
     expect(dismiss).not.toHaveBeenCalled();
@@ -645,7 +690,7 @@ describe("TicketDetailModal", () => {
     const dismiss = vi.fn();
     render(<TicketDetailModal ticketId="1" ticketIds={["1", "2"]} onDismiss={dismiss} />);
     fireEvent.click(screen.getByRole("button", { name: "Add comment" }));
-    fireEvent.change(screen.getByLabelText("Add a comment"), { target: { value: "Retain comment" } });
+    fireEvent.change(screen.getByLabelText("Internal note"), { target: { value: "Retain comment" } });
     act(() => {
       void targetGate!(saveTarget);
       fireEvent.click(screen.getByRole("button", { name: "Post" }));
@@ -656,7 +701,7 @@ describe("TicketDetailModal", () => {
     expect(addComment).not.toHaveBeenCalled();
     expect(dismiss).not.toHaveBeenCalled();
     expect(screen.getByText("1 of 2 tickets")).toBeInTheDocument();
-    expect(screen.getByLabelText("Add a comment")).toHaveValue("Retain comment");
+    expect(screen.getByLabelText("Internal note")).toHaveValue("Retain comment");
     expect(screen.getByRole("button", { name: "Post" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Delete comment" })).toBeDisabled();
     expect(screen.getByRole("alert")).toHaveTextContent("Another ticket action is still saving");

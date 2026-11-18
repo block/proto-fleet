@@ -150,8 +150,8 @@ type MaintenanceReferenceStore interface {
 	// CanAccountCloseTicket is checked while the caller holds the ticket row lock.
 	CanAccountCloseTicket(ctx context.Context, orgID, ticketID, accountID int64) (bool, error)
 	ResolveTicketAsset(ctx context.Context, orgID int64, kind models.TicketCategory, id int64) (*models.TicketAsset, error)
-	ListTicketAssetOptions(ctx context.Context, orgID int64, siteIDs, excludedSiteIDs []int64, kind models.TicketCategory, search string) ([]models.TicketAsset, error)
-	ListTicketBoardOptions(ctx context.Context, orgID, ticketID int64, search string) ([]models.TicketAsset, error)
+	ListTicketAssetOptions(ctx context.Context, p models.TicketAssetOptionsParams) (*models.TicketAssetPage, error)
+	ListTicketBoardOptions(ctx context.Context, p models.TicketAssetOptionsParams) (*models.TicketAssetPage, error)
 	LockModuleModelSite(ctx context.Context, orgID, moduleID int64) (*int64, error)
 	// LockSiteForTicket and LockBuildingForTicket take shared locks on live
 	// locations while a ticket is created so location deletion cannot race the

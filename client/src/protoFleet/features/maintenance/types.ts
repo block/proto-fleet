@@ -1,6 +1,6 @@
 import type { TicketAsset, TicketAudience } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 
-export type TicketCategoryValue = "miner" | "infrastructure" | "module" | "hashboard" | "account" | "unknown";
+export type TicketCategoryValue = "miner" | "infrastructure" | "module" | "hashboard" | "account" | "other" | "unknown";
 export type TicketStatusValue = "open" | "in_progress" | "on_hold" | "sent_to_vendor" | "completed" | "unknown";
 export type TicketResolutionValue =
   "repaired" | "replaced" | "deferred" | "unrepairable" | "no_action_needed" | "unknown";

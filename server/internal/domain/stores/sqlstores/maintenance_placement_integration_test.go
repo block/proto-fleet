@@ -28,8 +28,7 @@ func TestMaintenanceCreateRechecksSiteAfterPhysicalPlacementLockWait(t *testing.
 			if kind == models.TicketCategoryHashboard {
 				selections[0].ID, selections[0].ParentModuleID = board, &module
 			} else if kind == models.TicketCategoryMiner {
-				second, _, _ := insertMaintenancePhysicalTargets(t, db, org, site, "stationary-target")
-				selections = []models.TicketAssetSelection{{Kind: kind, ID: controller}, {Kind: kind, ID: second}}
+				selections = []models.TicketAssetSelection{{Kind: kind, ID: controller}}
 			}
 			store := sqlstores.NewSQLMaintenanceStore(db)
 			service := maintenance.NewService(store, store, sqlstores.NewSQLInventoryStore(db), sqlstores.NewSQLTransactor(db), nil)
@@ -50,7 +49,11 @@ func TestMaintenanceCreateRechecksSiteAfterPhysicalPlacementLockWait(t *testing.
 			require.NoError(t, moving.Commit())
 			select {
 			case createErr := <-result:
-				require.True(t, fleeterror.IsForbiddenError(createErr), "%v", createErr)
+				if kind == models.TicketCategoryMiner {
+					require.True(t, fleeterror.IsFailedPreconditionError(createErr), "%v", createErr)
+				} else {
+					require.True(t, fleeterror.IsForbiddenError(createErr), "%v", createErr)
+				}
 			case <-time.After(5 * time.Second):
 				t.Fatal("ticket create did not finish after placement committed")
 			}

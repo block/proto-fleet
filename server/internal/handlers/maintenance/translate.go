@@ -20,9 +20,16 @@ func toCreateParams(req *pb.CreateRepairTicketRequest, orgID int64) (models.Crea
 	if description == "" {
 		return models.CreateParams{}, fleeterror.NewInvalidArgumentError("description is required")
 	}
-	category, err := checkedEnumValue(int32(req.GetCategory()), 1, 4, "category")
+	category, err := checkedEnumValue(int32(req.GetCategory()), 1, 6, "category")
 	if err != nil {
 		return models.CreateParams{}, err
+	}
+	if models.TicketCategory(category) == models.TicketCategoryAccount {
+		return models.CreateParams{}, fleeterror.NewInvalidArgumentError("account category is reserved for client tickets")
+	}
+	component := strings.TrimSpace(req.GetComponent())
+	if component == "" {
+		component = "Unknown"
 	}
 	warrantyStatus, err := checkedEnumValue(int32(req.GetWarrantyStatus()), 0, 3, "warranty_status")
 	if err != nil {
@@ -38,7 +45,7 @@ func toCreateParams(req *pb.CreateRepairTicketRequest, orgID int64) (models.Crea
 		IdempotencyKey: req.GetIdempotencyKey(),
 		Category:       models.TicketCategory(category),
 		Urgent:         req.GetUrgent(),
-		Component:      req.GetComponent(),
+		Component:      component,
 		WarrantyStatus: models.WarrantyStatus(warrantyStatus),
 	}
 	if req.GetDiagnosis() != "" {
@@ -226,7 +233,7 @@ func toListFilter(req *pb.ListRepairTicketsRequest, orgID int64) (models.ListFil
 	if len(requestFilter.GetCategories()) > 0 {
 		filter.Categories = make([]int16, len(requestFilter.GetCategories()))
 		for i, c := range requestFilter.GetCategories() {
-			value, err := checkedEnumValue(int32(c), 1, 5, "filter.categories")
+			value, err := checkedEnumValue(int32(c), 1, 6, "filter.categories")
 			if err != nil {
 				return models.ListFilter{}, err
 			}

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 import type { Meta, StoryObj } from "@storybook/react";
-import { userEvent, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
 
 import { type AccountScope, AccountScopeContext } from "../AccountScope";
 import AccountTickets from "./AccountTickets";
@@ -76,6 +76,7 @@ const AccountTicketPreview = ({
       listAccountTickets: async () => ({ tickets: [incident.ticket], nextBeforeId: 0n }),
       getAccountTicket: async () => ({ detail: incident }),
       listAccountTicketAssets: async ({ search }: { search: string }) => ({
+        nextPageToken: "",
         assets: assets.filter((asset) => `${asset.label} ${asset.id}`.toLowerCase().includes(search.toLowerCase())),
       }),
       createAccountTicket: async ({
@@ -139,6 +140,9 @@ export const NewTicket: Story = {
   render: () => <AccountTicketPreview />,
   play: async ({ canvasElement }) => {
     await userEvent.click(await within(canvasElement.ownerDocument.body).findByRole("button", { name: "New ticket" }));
+    await expect(within(canvasElement.ownerDocument.body).getByRole("button", { name: "Component" })).toHaveTextContent(
+      "Unknown",
+    );
   },
 };
 export const ClientTicketDetail: Story = { render: () => <AccountTicketPreview detail /> };

@@ -112,6 +112,21 @@ describe("TicketQueue", () => {
     };
   });
 
+  it.each([
+    ["Miner", [1, 3, 4]],
+    ["Other", [5, 6]],
+  ])("groups the %s category filter without losing typed categories", (label, categories) => {
+    render(
+      <MemoryRouter>
+        <TicketQueue />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByTestId("filter-nested-add-filter"));
+    fireEvent.click(screen.getByText("Category", { exact: true }));
+    fireEvent.click(screen.getByText(label as string, { exact: true }));
+    expect(queue.setFilter).toHaveBeenCalledWith(expect.objectContaining({ categories }));
+  });
+
   it("uses an accessible spinner for the initial ticket load", () => {
     queue.data = [];
     queue.loading = true;

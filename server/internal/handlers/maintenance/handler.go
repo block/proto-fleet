@@ -50,6 +50,18 @@ func intersectSiteIDs(requested, allowed []int64) []int64 {
 	return intersection
 }
 
+// ticketAssetSiteFilter resolves the effective picker site filter from the
+// caller's maintenance read scope. Org-wide callers see every site except those
+// the scope carves out, and may also see site-less assets. Site-scoped callers
+// are limited to their own sites and never see site-less assets, so
+// includeUnassigned is dropped for them.
+func ticketAssetSiteFilter(orgWide bool, scopedSites, requested []int64, includeUnassigned bool) (sites, excluded []int64, unassigned bool) {
+	if orgWide {
+		return requested, scopedSites, includeUnassigned
+	}
+	return intersectSiteIDs(requested, scopedSites), nil, false
+}
+
 // ---------------------------------------------------------------
 // Ticket CRUD
 // ---------------------------------------------------------------
@@ -376,19 +388,19 @@ func (h *Handler) ListTicketAssetOptions(ctx context.Context, req *connect.Reque
 		return nil, err
 	}
 	if req.Msg.TicketId != nil {
-		if len(req.Msg.SiteIds) > 0 || req.Msg.Kind != nil {
+		if len(req.Msg.SiteIds) > 0 || req.Msg.Kind != nil || req.Msg.GetIncludeUnassigned() {
 			return nil, fleeterror.NewInvalidArgumentError("ticket history cannot use picker filters")
 		}
 		scopedCtx, err := bindMaintenanceScope(ctx, authz.PermMaintenanceRead)
 		if err != nil {
 			return nil, err
 		}
-		assets, err := h.service.ListTicketBoardOptions(scopedCtx, info.OrganizationID, req.Msg.GetTicketId(), req.Msg.GetSearch())
+		assets, err := h.service.ListTicketBoardOptions(scopedCtx, models.TicketAssetOptionsParams{OrgID: info.OrganizationID, TicketID: req.Msg.GetTicketId(), Search: req.Msg.GetSearch(), PageSize: req.Msg.GetPageSize(), PageToken: req.Msg.GetPageToken()})
 		if err != nil {
 			return nil, err
 		}
-		out := &pb.ListTicketAssetOptionsResponse{}
-		for _, asset := range assets {
+		out := &pb.ListTicketAssetOptionsResponse{NextPageToken: assets.NextPageToken}
+		for _, asset := range assets.Assets {
 			out.Assets = append(out.Assets, toProtoTicketAsset(asset))
 		}
 		return connect.NewResponse(out), nil
@@ -397,15 +409,9 @@ func (h *Handler) ListTicketAssetOptions(ctx context.Context, req *connect.Reque
 	if err != nil {
 		return nil, err
 	}
-	sites := req.Msg.GetSiteIds()
-	var excluded []int64
-	if orgWide {
-		excluded = scopedSites
-	} else {
-		sites = intersectSiteIDs(sites, scopedSites)
-		if len(sites) == 0 {
-			return connect.NewResponse(&pb.ListTicketAssetOptionsResponse{}), nil
-		}
+	sites, excluded, includeUnassigned := ticketAssetSiteFilter(orgWide, scopedSites, req.Msg.GetSiteIds(), req.Msg.GetIncludeUnassigned())
+	if !orgWide && len(sites) == 0 {
+		return connect.NewResponse(&pb.ListTicketAssetOptionsResponse{}), nil
 	}
 	kind := models.TicketCategoryUnspecified
 	if req.Msg.Kind != nil {
@@ -415,12 +421,12 @@ func (h *Handler) ListTicketAssetOptions(ctx context.Context, req *connect.Reque
 			return nil, fleeterror.NewInvalidArgumentError("kind must identify physical equipment")
 		}
 	}
-	assets, err := h.service.ListTicketAssetOptions(ctx, info.OrganizationID, sites, excluded, kind, req.Msg.GetSearch())
+	assets, err := h.service.ListTicketAssetOptions(ctx, models.TicketAssetOptionsParams{OrgID: info.OrganizationID, SiteIDs: sites, ExcludedSiteIDs: excluded, IncludeUnassigned: includeUnassigned, Kind: kind, Search: req.Msg.GetSearch(), PageSize: req.Msg.GetPageSize(), PageToken: req.Msg.GetPageToken()})
 	if err != nil {
 		return nil, err
 	}
-	out := &pb.ListTicketAssetOptionsResponse{}
-	for _, asset := range assets {
+	out := &pb.ListTicketAssetOptionsResponse{NextPageToken: assets.NextPageToken}
+	for _, asset := range assets.Assets {
 		out.Assets = append(out.Assets, toProtoTicketAsset(asset))
 	}
 	return connect.NewResponse(out), nil

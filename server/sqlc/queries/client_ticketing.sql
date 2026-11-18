@@ -7,10 +7,15 @@ LEFT JOIN hosted_account_asset_projection a ON a.organization_id=o.org_id AND a.
 WHERE o.org_id=sqlc.arg(org_id)
  AND (sqlc.narg(kind)::smallint IS NULL OR o.kind=sqlc.narg(kind))
  AND (sqlc.narg(account_internal_id)::bigint IS NULL OR a.client_id=sqlc.narg(account_internal_id) OR a.subclient_id=sqlc.narg(account_internal_id))
- AND (sqlc.narg(site_ids)::bigint[] IS NULL OR o.site_id=ANY(sqlc.narg(site_ids)::bigint[]))
+ AND (sqlc.narg(site_ids)::bigint[] IS NULL OR o.site_id=ANY(sqlc.narg(site_ids)::bigint[]) OR (sqlc.arg(include_unassigned)::boolean AND o.site_id IS NULL))
  AND (sqlc.narg(excluded_site_ids)::bigint[] IS NULL OR o.site_id IS NULL OR NOT(o.site_id=ANY(sqlc.narg(excluded_site_ids)::bigint[])))
  AND (sqlc.arg(search)::text='' OR strpos(lower(o.label),lower(sqlc.arg(search)))>0)
-ORDER BY o.kind,o.id LIMIT 200;
+ AND NOT EXISTS (
+  SELECT 1 FROM jsonb_to_recordset(sqlc.arg(host_authority)::jsonb) AS h(org_wide boolean,sites bigint[])
+  WHERE NOT (CASE WHEN h.org_wide THEN o.site_id IS NULL OR NOT(o.site_id=ANY(h.sites)) ELSE COALESCE(o.site_id=ANY(h.sites),FALSE) END)
+ )
+ AND (o.kind,o.id) > (sqlc.arg(cursor_kind)::smallint,sqlc.arg(cursor_id)::bigint)
+ORDER BY o.kind,o.id LIMIT sqlc.arg(result_limit);
 
 -- name: ResolveRepairTicketAsset :one
 SELECT o.* FROM repair_ticket_asset_option o
@@ -101,14 +106,19 @@ SELECT EXISTS (
 )::boolean;
 
 -- name: ListRepairTicketBoardOptions :many
-SELECT DISTINCT jsonb_build_object('kind',4,'id',b.id,'moduleId',p.module_id,'installationId',i.id,'containerId',p.container_id,'position',i.position,'siteId',p.site_id,'model',p.model,
+WITH options AS (
+SELECT DISTINCT ON (b.id) b.id AS board_id, jsonb_build_object('kind',4,'id',b.id,'moduleId',p.module_id,'installationId',i.id,'containerId',p.container_id,'position',i.position,'siteId',p.site_id,'model',p.model,
  'label','Hashboard '||COALESCE((SELECT value FROM hashboard_identity WHERE hashboard_id=b.id AND kind='serial' ORDER BY value LIMIT 1),b.id::text)||' / Module '||p.module_id||' / slot '||i.position)::jsonb AS payload
 FROM repair_ticket_target p JOIN repair_ticket r ON r.org_id=p.org_id AND r.id=p.ticket_id
 JOIN hashboard_installation i ON i.module_id=p.module_id AND i.installed_at<=r.created_at AND (i.removed_at IS NULL OR i.removed_at>r.created_at)
 JOIN hashboard b ON b.id=i.hashboard_id AND b.org_id=p.org_id
 WHERE p.org_id=sqlc.arg(org_id) AND p.ticket_id=sqlc.arg(ticket_id)
  AND (sqlc.arg(search)::text='' OR b.id::text=sqlc.arg(search) OR EXISTS(SELECT 1 FROM hashboard_identity x WHERE x.hashboard_id=b.id AND strpos(lower(x.value),lower(sqlc.arg(search)))>0))
-LIMIT 200;
+ AND NOT EXISTS(SELECT 1 FROM repair_ticket_target t WHERE t.org_id=p.org_id AND t.ticket_id=p.ticket_id AND t.kind=4 AND t.asset_id=b.id)
+ AND b.id > sqlc.arg(cursor_id)::bigint
+ORDER BY b.id,p.kind,p.asset_id
+)
+SELECT payload FROM options ORDER BY board_id LIMIT sqlc.arg(result_limit);
 
 -- name: ShareRepairTicket :exec
 UPDATE repair_ticket SET shared_with_clients=TRUE,updated_at=clock_timestamp()

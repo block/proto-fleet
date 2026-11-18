@@ -42,16 +42,26 @@ The account response's `ticket_access` field reports this derived eligibility;
 it is not an independently configurable permission.
 
 Ticket creation requires a problem description. Clients can submit it without an
-asset or diagnosis. Diagnosis is optional host-only investigation information,
-recorded later in repair details. Physical targets
-use stable miner, module and hashboard identities, with server-verified current
-allocation and board parentage. Asset audiences are recorded when the ticket
-opens. Transfers and later board triage preserve that audience and the original
-installation; a new owner does not inherit previous tickets. Infrastructure
-audiences are explicitly selected by the host. Tickets with multiple targets use
-one target category and site, matching the host queue's site authorization. Miner
-targets retain their identifier and opening building/rack, so queue filters match
-any affected miner's original placement after equipment moves.
+asset or diagnosis. Component defaults to Unknown until the failed part is
+identified; Other identifies a known component absent from the named choices.
+Hosts can correct the component and record their internal diagnosis during triage.
+
+Host work categories are Miner, Infrastructure and Other. Miner groups standalone
+miners, modules and tracked hashboards while retaining their distinct target kinds.
+New equipment tickets concern one parent miner or module, optionally with that
+module's affected boards, at one site. The server verifies stable identities,
+current allocation and board parentage before saving and after placement locks.
+Existing multi-machine tickets retain their original targets and history.
+
+Host-created Other tickets require a site and description, without an equipment
+target. Sharing requires explicitly selected affected clients, as for infrastructure
+audiences. Client submissions without equipment retain the existing account-scoped
+general ticket flow and do not require a site.
+
+Asset audiences are recorded when the ticket opens. Transfers and later board
+triage preserve that audience and the original installation; a new owner does not
+inherit previous tickets. Miner targets retain their identifier and opening
+building/rack, so queue filters match the opening placement after equipment moves.
 
 Clients see only their own target snapshots, component text and conversation.
 Current site policy and host physical-read authority redact target labels, models,

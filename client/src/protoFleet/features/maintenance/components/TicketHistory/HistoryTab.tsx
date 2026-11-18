@@ -5,6 +5,7 @@ import TicketDetailModal from "../TicketDetail/TicketDetailModal";
 import type { Assignee } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import {
   SortDirection,
+  TicketCategory,
   TicketResolution,
   TicketSortField,
 } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
@@ -90,7 +91,10 @@ const HistoryTab = () => {
                       ? summary.ticket.targets.map(ticketAssetLabel).join(", ")
                       : summary.ticket.audiences.map((item) => item.name).join(", ") ||
                         summary.ticket.minerIdentifier ||
-                        null,
+                        (summary.ticket.category === TicketCategory.ACCOUNT ||
+                        summary.ticket.category === TicketCategory.OTHER
+                          ? "Other"
+                          : null),
                     resolution: resolutionLabels[summary.ticket.resolution] ?? "Unknown",
                     assigneeName: summary.ticket.assigneeName || null,
                     completedAt: summary.ticket.completedAt

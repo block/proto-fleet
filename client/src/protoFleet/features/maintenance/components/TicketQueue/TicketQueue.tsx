@@ -2,17 +2,12 @@ import { useCallback, useMemo, useState } from "react";
 import clsx from "clsx";
 
 import { getComponentIcon, getComponentIconColor } from "../../componentIcons";
-import { ticketAssetLabel } from "../../ticketAssets";
+import { ticketAssetLabel, ticketCategoryFilters } from "../../ticketAssets";
 import type { TicketItem } from "../../types";
 import BulkCloseModal from "../BulkClose/BulkCloseModal";
 import CreateTicketModal from "../CreateTicket/CreateTicketModal";
 import TicketDetailModal from "../TicketDetail/TicketDetailModal";
-import {
-  SortDirection,
-  TicketCategory,
-  TicketSortField,
-  TicketStatus,
-} from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
+import { SortDirection, TicketSortField, TicketStatus } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import type { TicketVersion } from "@/protoFleet/api/maintenance";
 import ListPagination from "@/protoFleet/components/ListPagination";
 import ListSearchInput from "@/protoFleet/components/ListSearchInput";
@@ -45,22 +40,13 @@ const STATUS_OPTIONS = [
 const CATEGORY_OPTIONS = [
   { id: "miner", label: "Miner" },
   { id: "infrastructure", label: "Infrastructure" },
-  { id: "module", label: "Module" },
-  { id: "hashboard", label: "Hashboard" },
-  { id: "account", label: "Account" },
+  { id: "other", label: "Other" },
 ];
 const statusEnums: Record<string, TicketStatus> = {
   open: TicketStatus.OPEN,
   in_progress: TicketStatus.IN_PROGRESS,
   on_hold: TicketStatus.ON_HOLD,
   sent_to_vendor: TicketStatus.SENT_TO_VENDOR,
-};
-const categoryEnums: Record<string, TicketCategory> = {
-  miner: TicketCategory.MINER,
-  infrastructure: TicketCategory.INFRASTRUCTURE,
-  module: TicketCategory.MODULE,
-  hashboard: TicketCategory.HASHBOARD,
-  account: TicketCategory.ACCOUNT,
 };
 const formatStatus = (status: string) =>
   ({
@@ -134,7 +120,7 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
       queue.setFilter({
         excludeCompleted: true,
         statuses: (next.status ?? []).map((v) => statusEnums[v]).filter(Boolean),
-        categories: (next.category ?? []).map((v) => categoryEnums[v]).filter(Boolean),
+        categories: (next.category ?? []).flatMap((value) => ticketCategoryFilters[value] ?? []),
         siteIds: (next.site ?? []).map(BigInt),
         assigneeUserId: mine && options.currentAssignee ? BigInt(options.currentAssignee.id) : undefined,
         searchQuery: search,
@@ -223,8 +209,8 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
             <span>
               {t.targets.length
                 ? t.targets.map(ticketAssetLabel).join(", ")
-                : t.category === "account"
-                  ? t.audiences.map((item) => item.name).join(", ") || "Client account"
+                : t.category === "account" || t.category === "other"
+                  ? t.audiences.map((item) => item.name).join(", ") || "Other"
                   : (t.minerIdentifier ?? t.component)}
             </span>
             <span className="text-300 text-text-primary-70">{t.buildingName ?? "—"}</span>

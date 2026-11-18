@@ -9,7 +9,7 @@ import {
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { type TicketAsset, TicketCategory } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import { lookupMinerByIdentifier } from "@/protoFleet/api/lookupMinerByIdentifier";
-import { useMaintenanceApi } from "@/protoFleet/api/maintenance";
+import { type TicketAssetPage, useMaintenanceApi } from "@/protoFleet/api/maintenance";
 import Button, { sizes } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import Textarea from "@/shared/components/Textarea";
@@ -307,24 +307,18 @@ const TicketTargets = ({
   const [busy, setBusy] = useState(false);
   const blocked = busy || disabled;
   const loadBoards = useCallback(
-    async (search: string, signal: AbortSignal) =>
-      new Promise<TicketAsset[]>((resolve, reject) => {
+    async (search: string, signal: AbortSignal, pageToken: string) =>
+      new Promise<TicketAssetPage>((resolve, reject) => {
         void listTicketAssets({
           ticketId: BigInt(ticket.id),
           search,
+          pageToken,
           signal,
-          onSuccess: (assets) => {
-            const existingKeys = new Set(ticket.targets.map(ticketAssetKey));
-            resolve(
-              assets.filter(
-                (asset) => asset.kind === TicketCategory.HASHBOARD && !existingKeys.has(ticketAssetKey(asset)),
-              ),
-            );
-          },
+          onSuccess: resolve,
           onError: (message) => reject(new Error(message)),
         });
       }),
-    [listTicketAssets, ticket.id, ticket.targets],
+    [listTicketAssets, ticket.id],
   );
   const sectionTitle = ticket.targets.length ? "Affected equipment" : "Affected clients";
   return (

@@ -34,6 +34,8 @@ type Callbacks<T> = {
   onFinally?: () => void;
 };
 
+export type TicketAssetPage = { assets: TicketAsset[]; nextPageToken: string };
+
 export type ListTicketsProps = Callbacks<{
   tickets: RepairTicketSummary[];
   nextPageToken: string;
@@ -457,25 +459,31 @@ export const useMaintenanceApi = () => {
   const listTicketAssets = useCallback(
     async ({
       siteIds = [],
+      includeUnassigned = false,
       ticketId,
       kind,
       search = "",
+      pageSize = 50,
+      pageToken = "",
       signal,
       onSuccess,
       onError,
       onFinally,
-    }: Callbacks<TicketAsset[]> & {
+    }: Callbacks<TicketAssetPage> & {
       siteIds?: bigint[];
+      includeUnassigned?: boolean;
       ticketId?: bigint;
       kind?: TicketCategory;
       search?: string;
+      pageSize?: number;
+      pageToken?: string;
     }) => {
       try {
         const response = await maintenanceClient.listTicketAssetOptions(
-          { siteIds, ticketId, kind, search },
+          { siteIds, includeUnassigned, ticketId, kind, search, pageSize, pageToken },
           { signal },
         );
-        if (!signal?.aborted) onSuccess?.(response.assets);
+        if (!signal?.aborted) onSuccess?.(response);
       } catch (error) {
         report(error, signal, onError);
       } finally {

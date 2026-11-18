@@ -9,7 +9,13 @@ import userEvent from "@testing-library/user-event";
 import { type AccountScope, AccountScopeContext } from "../AccountScope";
 import AccountTickets from "./AccountTickets";
 import { AccountSchema, AccountTicketDetailSchema } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
-import { TicketCommentSchema, TicketStatus } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
+import {
+  type TicketAsset,
+  TicketAssetSchema,
+  TicketCategory,
+  TicketCommentSchema,
+  TicketStatus,
+} from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 
 const setup = (closed = false, canClose = true, readOnly = false) => {
@@ -31,7 +37,7 @@ const setup = (closed = false, canClose = true, readOnly = false) => {
     createAccountTicket: vi.fn().mockResolvedValue({ detail }),
     commentAccountTicket: vi.fn().mockResolvedValue({ detail }),
     changeAccountTicketStatus: vi.fn().mockResolvedValue({ detail }),
-    listAccountTicketAssets: vi.fn().mockResolvedValue({ assets: [] }),
+    listAccountTicketAssets: vi.fn().mockResolvedValue({ assets: [] as TicketAsset[], nextPageToken: "" }),
   };
   const scope: AccountScope = {
     account: create(AccountSchema, { accountId: "client", ticketAccess: true, ticketingEnabled: true }),
@@ -104,6 +110,8 @@ describe("Account tickets", () => {
     await user.click(screen.getByRole("button", { name: "New ticket" }));
     const form = within(screen.getByRole("dialog", { name: "New ticket" }));
     expect(form.queryByLabelText("Assignee")).not.toBeInTheDocument();
+    expect(form.queryByLabelText("Category")).not.toBeInTheDocument();
+    expect(form.getByRole("button", { name: "Component" })).toHaveTextContent("Unknown");
     expect(form.queryByLabelText("Suspected cause (optional)")).not.toBeInTheDocument();
     expect(form.queryByLabelText("Warranty")).not.toBeInTheDocument();
     await user.type(form.getByLabelText("Description"), "Please check my equipment");
@@ -113,8 +121,49 @@ describe("Account tickets", () => {
         expect.objectContaining({
           accountId: "client",
           description: "Please check my equipment",
+          component: "Unknown",
           targets: [],
           idempotencyKey: expect.any(String),
+        }),
+      ),
+    );
+  });
+  it("submits one module and its affected boards using their physical identities", async () => {
+    const user = userEvent.setup();
+    const { client } = setup();
+    client.listAccountTicketAssets.mockResolvedValue({
+      nextPageToken: "",
+      assets: [
+        create(TicketAssetSchema, { kind: TicketCategory.MODULE, id: 51n, siteId: 8n, label: "Module 51" }),
+        create(TicketAssetSchema, {
+          kind: TicketCategory.HASHBOARD,
+          id: 84n,
+          moduleId: 51n,
+          siteId: 8n,
+          label: "HB-84",
+        }),
+      ],
+    });
+    await user.click(screen.getByRole("button", { name: "New ticket" }));
+    await user.click(screen.getByRole("button", { name: "Select affected asset (optional)" }));
+    const picker = within(screen.getByRole("dialog", { name: "Select affected assets" }));
+    const checkboxes = await picker.findAllByRole("checkbox");
+    await user.click(checkboxes[0]);
+    await user.click(checkboxes[1]);
+    await user.click(picker.getByRole("button", { name: "Select assets" }));
+    const form = within(screen.getByRole("dialog", { name: "New ticket" }));
+    await user.click(form.getByRole("button", { name: "Component" }));
+    await user.click(screen.getByText("Other", { exact: true }));
+    await user.type(form.getByLabelText("Description"), "Module and board stopped reporting");
+    await user.click(form.getByRole("button", { name: "Create ticket" }));
+    await waitFor(() =>
+      expect(client.createAccountTicket).toHaveBeenCalledWith(
+        expect.objectContaining({
+          component: "Other",
+          targets: [
+            { kind: 3, id: 51n },
+            { kind: 4, id: 84n, parentModuleId: 51n },
+          ],
         }),
       ),
     );
