@@ -1,0 +1,76 @@
+name: Prepare private release for Fleet staging
+
+on:
+  workflow_call:
+
+jobs:
+  upload:
+    # AWS trusts this workflow on main. Never execute code from the release tag here.
+    if: github.event.repository.private && github.repository == 'btc-mining/proto-fleet-internal' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Verify the published AMD64 bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]
+          bundle="proto-fleet-${TAG}-amd64.tar.gz"
+          api="repos/$GITHUB_REPOSITORY/releases"
+          gh api "$api/tags/$TAG" > release.json
+          jq -e --arg tag "$TAG" --arg name "$bundle" --arg repo "$GITHUB_REPOSITORY" '
+            def asset($filename; $max):
+              [.assets[] | select(.name == $filename)] |
+              if length == 1 and .[0].state == "uploaded" and
+                 (.[0].size > 0 and .[0].size <= $max) then .[0].id
+              else error("Missing or invalid release asset: " + $filename) end;
+            select(.draft == false and .tag_name == $tag) |
+            {repository: $repo, version: $tag, release_id: .id,
+             bundle_asset_id: asset($name; 4294967296), checksum_asset_id: asset($name + ".sha256"; 4096)}
+          ' release.json > identity.json
+          gh api -H 'Accept: application/octet-stream' "$api/assets/$(jq .checksum_asset_id identity.json)" > published.sha256
+          gh api -H 'Accept: application/octet-stream' "$api/assets/$(jq .bundle_asset_id identity.json)" > "$bundle"
+          sha256sum "$bundle" > actual.sha256
+          cmp actual.sha256 published.sha256
+          read -r digest _ < actual.sha256
+          jq --arg digest "$digest" '. + {sha256: $digest}' identity.json > receipt.json
+
+      - name: Assume the staging upload role
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          aws-region: us-west-2
+          role-to-assume: arn:aws:iam::241533149619:role/protofleet-staging-release-upload
+
+      - name: Upload the verified bundle and record the staging pin
+        env:
+          TAG: ${{ github.ref_name }}
+          BUCKET: protofleet-staging-ha-releases-241533149619
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          digest=$(jq -er '.sha256' receipt.json)
+          checksum=$(python3 -c 'import base64, sys; print(base64.b64encode(bytes.fromhex(sys.argv[1])).decode())' "$digest")
+          identity=$(printf '%s\n%s' "$GITHUB_REPOSITORY" "$TAG" | sha256sum | cut -d' ' -f1)
+          key="releases/identities/$identity.json"
+          aws s3api put-object --bucket "$BUCKET" --key "releases/$digest.tar.gz" \
+            --body "proto-fleet-${TAG}-amd64.tar.gz" --checksum-sha256 "$checksum" > /dev/null
+          # A retry may find an existing receipt. Accept only the same published asset IDs and digest.
+          if ! aws s3api put-object --bucket "$BUCKET" --key "$key" --body receipt.json --if-none-match '*' > /dev/null; then
+            aws s3api get-object --bucket "$BUCKET" --key "$key" previous.json > /dev/null
+            if ! jq -e -s 'length == 2 and .[0] == .[1]' previous.json receipt.json > /dev/null; then
+              echo "::error::s3://$BUCKET/$key records a different release for $TAG. Existing: $(jq -c . previous.json) New: $(jq -c . receipt.json). The upload role cannot replace a receipt. Ask a staging bucket administrator to remove it, then run this job again."
+              exit 1
+            fi
+          fi
+          {
+            echo 'Staging release pin for `tfvars/staging/fleet-release.tfvars`'
+            echo '~~~hcl'
+            jq -r '"fleet_repository = \(.repository | @json)", "fleet_version    = \(.version | @json)", "fleet_sha256     = \(.sha256 | @json)"' receipt.json
+            echo '~~~'
+          } >> "$GITHUB_STEP_SUMMARY"
