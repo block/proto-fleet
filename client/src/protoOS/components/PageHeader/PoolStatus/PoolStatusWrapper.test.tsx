@@ -113,8 +113,8 @@ describe("PoolStatusWrapper view-pools navigation", () => {
         ...nightShift,
         observedBoards: 8,
         pools: [
-          { id: asPoolId("pool:2"), url: "primary.example.com", status: "Active", priority: 0 },
-          { id: asPoolId("pool:3"), url: "secondary.example.com", status: "Alive", priority: 1 },
+          { id: asPoolId("pool:2"), name: "Primary", url: "primary.example.com", status: "Active", priority: 0 },
+          { id: asPoolId("pool:3"), name: "Secondary", url: "secondary.example.com", status: "Alive", priority: 1 },
           { id: asPoolId("pool:4"), url: "backup.example.com", status: "Idle", priority: 2 },
         ],
       },
@@ -123,7 +123,9 @@ describe("PoolStatusWrapper view-pools navigation", () => {
     await act(async () => {});
 
     fireEvent.click(screen.getByRole("button", { name: "Mining pools" }));
-    expect(await screen.findByText("Active pools")).toBeInTheDocument();
+    expect(await screen.findByText("Connected")).toBeInTheDocument();
+    expect(screen.getByText("Primary")).toBeInTheDocument();
+    expect(screen.getByText("Secondary")).toBeInTheDocument();
     expect(screen.getByText("primary.example.com")).toBeInTheDocument();
     expect(screen.getByText("secondary.example.com")).toBeInTheDocument();
     expect(screen.queryByText("backup.example.com")).not.toBeInTheDocument();
@@ -139,7 +141,7 @@ describe("PoolStatusWrapper view-pools navigation", () => {
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Mining pools" })));
     expect(screen.getByText("Night shift · 12 hashboards")).toBeInTheDocument();
     expect(screen.getByText("View pools")).toBeInTheDocument();
-    expect(screen.queryByText(/Active pool/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Connected")).not.toBeInTheDocument();
   });
 
   test("keeps View pools available when the assignment summary is unavailable", async () => {

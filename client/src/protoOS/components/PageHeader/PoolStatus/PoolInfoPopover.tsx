@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
+import ConnectedPoolsCard from "./ConnectedPoolsCard";
 import PoolInfoRow from "./PoolInfoRow";
 import { PoolInfo } from "./types";
 import { getTexts } from "./utility";
 import type { PoolInfo as NormalizedPoolInfo } from "@/protoOS/store/contract";
-import { Alert, Success } from "@/shared/assets/icons";
+import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Card, { cardType } from "@/shared/components/Card";
 import Popover from "@/shared/components/Popover";
@@ -28,7 +29,7 @@ const PoolInfoPopover = ({
   poolsInfo,
   showPoolStatusLink,
 }: PoolInfoPopoverProps) => {
-  const { title, subtitle, button, cardTitle } = getTexts({
+  const { title, subtitle, button } = getTexts({
     isConnected,
     index: poolInfo?.index,
     url: poolInfo?.url,
@@ -50,28 +51,20 @@ const PoolInfoPopover = ({
       testId="pool-info-popover"
     >
       {assignmentSummary}
-      {poolInfo?.url && cardTitle ? (
-        <Card title={cardTitle} type={isConnected ? cardType.success : cardType.warning}>
-          {isConnected ? (
+      {!showPoolStatusLink && poolInfo?.url && isConnected ? (
+        <ConnectedPoolsCard pools={[{ id: poolInfo.index, priority: poolInfo.index, url: poolInfo.url }]} />
+      ) : null}
+      {!showPoolStatusLink && poolInfo?.url && !isConnected ? (
+        <Card title="Not connected" type={cardType.warning}>
+          {poolsInfo?.map((pool, index) => (
             <PoolInfoRow
-              index={poolInfo.index}
-              url={poolInfo.url}
-              suffixIcon={<Success className="text-intent-success-fill" />}
-              hasDivider={!poolsInfo?.length}
+              key={pool.priority}
+              index={index}
+              url={pool.url}
+              suffixIcon={<Alert className="text-intent-critical-fill" />}
+              hasDivider={index < poolsInfo.length - 1}
             />
-          ) : (
-            <>
-              {poolsInfo?.map((pool, index) => (
-                <PoolInfoRow
-                  key={pool.priority}
-                  index={index}
-                  url={pool.url}
-                  suffixIcon={<Alert className="text-intent-critical-fill" />}
-                  hasDivider={index < poolsInfo.length - 1}
-                />
-              ))}
-            </>
-          )}
+          ))}
         </Card>
       ) : null}
     </Popover>

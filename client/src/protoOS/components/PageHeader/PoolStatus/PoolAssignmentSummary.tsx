@@ -1,4 +1,5 @@
 import { useState } from "react";
+import ConnectedPoolsCard from "./ConnectedPoolsCard";
 import {
   isActivePool,
   type PoolConfigurationReadings,
@@ -59,19 +60,10 @@ export default function PoolAssignmentSummary({ service }: { service: PoolConfig
     <div className="space-y-3" role="status">
       <p className="text-300 wrap-anywhere text-text-primary-70">{summary}</p>
       {activePools.length > 0 ? (
-        <div className="space-y-1">
-          <p className="text-emphasis-200 text-text-primary">
-            {activePools.length === 1 ? "Active pool" : "Active pools"}
-          </p>
-          <ul className="space-y-1">
-            {activePools.map((pool) => (
-              <li className="text-200 wrap-anywhere text-text-primary-70" key={pool.id}>
-                {pool.url}
-              </li>
-            ))}
-          </ul>
+        <>
+          <ConnectedPoolsCard pools={activePools} />
           {coverage ? <p className="text-200 text-text-primary-70">{coverage}</p> : null}
-        </div>
+        </>
       ) : null}
     </div>
   ) : null;
