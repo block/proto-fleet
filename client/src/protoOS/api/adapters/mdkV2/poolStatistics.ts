@@ -14,6 +14,9 @@ const isMissingConfiguration = (cause: unknown) => {
   return error?.status === 404 || error?.error?.code === Code.NotFound;
 };
 
+const defaultPoolsStamp = (pools: Awaited<ReturnType<typeof readDefaultPools>>) =>
+  JSON.stringify([...pools].sort((a, b) => a.id.localeCompare(b.id)));
+
 export function createPoolStatistics(
   client: MdkV2Client,
   decorate: (params?: AdapterRequestOptions) => AdapterRequestOptions,
@@ -83,16 +86,17 @@ export function createPoolStatistics(
           configurations,
           4,
           async (configuration) => {
+            const defaultSettings =
+              configuration.id === "default" ? await readDefaultPools(client, options) : undefined;
             const settings =
-              configuration.id === "default"
-                ? await readDefaultPools(client, options)
-                : await client
-                    .miningGroupServiceListMiningGroupPools({ groupId: configuration.id }, options)
-                    .then(({ data }) => data.pools ?? [])
-                    .catch((cause: unknown) => {
-                      if (isMissingConfiguration(cause)) return undefined;
-                      throw cause;
-                    });
+              defaultSettings ??
+              (await client
+                .miningGroupServiceListMiningGroupPools({ groupId: configuration.id }, options)
+                .then(({ data }) => data.pools ?? [])
+                .catch((cause: unknown) => {
+                  if (isMissingConfiguration(cause)) return undefined;
+                  throw cause;
+                }));
             if (!settings) return undefined;
             if (
               settings.some(
@@ -104,7 +108,7 @@ export function createPoolStatistics(
             let observedBoards: number | undefined;
             let error: string | undefined;
             try {
-              if (configuration.id === "default")
+              if (defaultSettings)
                 diagnostics = (await client.poolServiceGetPoolDiagnostics({ includeLastRecordedShares: true }, options))
                   .data;
               else {
@@ -122,6 +126,12 @@ export function createPoolStatistics(
               observedBoards = undefined;
               error = "Connection status is unavailable.";
             }
+            // Legacy Default edits do not change the group revision.
+            if (
+              defaultSettings &&
+              defaultPoolsStamp(await readDefaultPools(client, options)) !== defaultPoolsStamp(defaultSettings)
+            )
+              return undefined;
             const shares = toCanonicalPoolRecordedShares(diagnostics);
             const pools = toCanonicalPools(
               { pools: settings.map((pool) => ({ ...pool, id: String(pool.id) })) },

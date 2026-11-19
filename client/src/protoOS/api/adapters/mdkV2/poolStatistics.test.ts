@@ -6,6 +6,14 @@ const configs = [
   { id: "default", name: "Default", revision: "1", assignedCount: 1 },
   { id: "client", name: "Client A", revision: "2", assignedCount: 1 },
 ];
+const defaultPool = {
+  id: "1",
+  name: "Primary",
+  url: "stratum+tcp://same.pool:3333",
+  username: "default",
+  enabled: true,
+  priority: 0,
+};
 const fixture = () => {
   const groups = [
     ...configs.map((configuration) => ({ ...configuration })),
@@ -14,20 +22,7 @@ const fixture = () => {
   const capability = { name: "mining-groups-v1", version: 1, enabled: true, stateRevision: "2" };
   const response = <T>(data: T) => Promise.resolve({ data });
   const client = {
-    poolServiceListPools: vi.fn(() =>
-      response({
-        pools: [
-          {
-            id: "1",
-            name: "Primary",
-            url: "stratum+tcp://same.pool:3333",
-            username: "default",
-            enabled: true,
-            priority: 0,
-          },
-        ],
-      }),
-    ),
+    poolServiceListPools: vi.fn(() => response({ pools: [defaultPool] })),
     miningGroupServiceGetMiningGroupCapability: vi.fn(() => response({ capability })),
     miningGroupServiceListMiningGroups: vi.fn(() => response({ groups })),
     miningGroupServiceListMiningGroupMemberships: vi.fn(() =>
@@ -84,7 +79,7 @@ test("separates identical endpoints by controller pool identity and configuratio
     expect.anything(),
   );
   expect(client.poolServiceGetPoolDiagnostics).toHaveBeenCalledTimes(1);
-  expect(client.poolServiceListPools).toHaveBeenCalledTimes(1);
+  expect(client.poolServiceListPools).toHaveBeenCalledTimes(2);
   expect(client.miningGroupServiceListMiningGroups).toHaveBeenCalledTimes(1);
   expect(client.miningGroupServiceListMiningGroups).toHaveBeenCalledAfter(
     client.miningGroupServiceGetMiningGroupPoolDiagnostics,
@@ -94,6 +89,28 @@ test("separates identical endpoints by controller pool identity and configuratio
     { groupId: "default" },
     expect.anything(),
   );
+});
+test("withholds Default readings if the same pool ID changes during diagnostics", async () => {
+  const { service, client } = fixture();
+  client.poolServiceGetPoolDiagnostics.mockImplementationOnce(async () => {
+    client.poolServiceListPools.mockResolvedValueOnce({
+      data: { pools: [{ ...defaultPool, url: "stratum+tcp://new.pool:3333" }] },
+    });
+    return { data: { pools: [{ poolId: defaultPool.id, isActive: true, currentDifficulty: 50 }] } };
+  });
+  const [changed, unchanged] = await service.read(configs);
+  expect(changed).toEqual({ ...configs[0], pools: [], stale: true });
+  expect(unchanged.pools[0]).toMatchObject({ id: "pool:4", difficulty: 80 });
+});
+test("treats Default pool settings as unchanged when equally ranked records change order", async () => {
+  const { service, client } = fixture();
+  const disabledPool = { ...defaultPool, id: "2", name: "Backup", enabled: false };
+  client.poolServiceListPools
+    .mockResolvedValueOnce({ data: { pools: [defaultPool, disabledPool] } })
+    .mockResolvedValueOnce({ data: { pools: [disabledPool, defaultPool] } });
+  const [reading] = await service.read([configs[0]]);
+  expect(reading.stale).toBeUndefined();
+  expect(reading.pools[0]).toMatchObject({ id: "pool:1", difficulty: 20 });
 });
 test("marks the changed configuration stale and keeps the other configuration readings", async () => {
   const { service, client } = fixture();

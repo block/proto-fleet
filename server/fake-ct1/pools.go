@@ -52,21 +52,35 @@ func (s *ContainerState) validatePoolWrite(p *mdk.Pool) error {
 	if p.ShareWeight != nil && (*p.ShareWeight <= 0 || math.IsNaN(*p.ShareWeight) || math.IsInf(*p.ShareWeight, 0)) {
 		return status.Error(codes.InvalidArgument, "pool weight must be finite and positive")
 	}
-	weighted := p.ShareWeight != nil
-	for _, existing := range s.pools {
-		weighted = weighted || (existing.pool.Enabled && existing.pool.ShareWeight != nil)
+	enabled := make([]*mdk.Pool, 0, len(s.pools)+1)
+	if p.Enabled {
+		enabled = append(enabled, p)
 	}
 	for id, existing := range s.pools {
-		if id != p.Id && existing.pool.Name == p.Name {
+		if id == p.Id {
+			continue
+		}
+		if existing.pool.Name == p.Name {
 			return status.Error(codes.AlreadyExists, "pool name must be unique")
 		}
-		duplicatePool := existing.pool.Url == p.Url
-		if weighted {
-			duplicatePool = duplicatePool && existing.pool.Username == p.Username
+		if existing.pool.Enabled {
+			enabled = append(enabled, existing.pool)
 		}
-		if id != p.Id && p.Enabled && existing.pool.Enabled && (duplicatePool || existing.pool.Priority == p.Priority) {
+	}
+	weighted := slices.ContainsFunc(enabled, func(pool *mdk.Pool) bool { return pool.ShareWeight != nil })
+	type identity struct{ url, username string }
+	identities := make(map[identity]bool, len(enabled))
+	priorities := make(map[int32]bool, len(enabled))
+	for _, pool := range enabled {
+		key := identity{url: pool.Url}
+		if weighted {
+			key.username = pool.Username
+		}
+		if identities[key] || priorities[pool.Priority] {
 			return status.Error(codes.AlreadyExists, "enabled pool URL and priority must be unique")
 		}
+		identities[key] = true
+		priorities[pool.Priority] = true
 	}
 	return nil
 }

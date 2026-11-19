@@ -156,6 +156,18 @@ describe("DeviceSetList", () => {
     expect(onSort).toHaveBeenCalledWith("issues", "desc");
   });
 
+  it("shows the reporting tooltip when the stat cell info button has focus", () => {
+    const deviceSet = createMockDeviceSet(1n, "Group A");
+    const stats = { ...createMockStats(1n), efficiencyReportingCount: 3 };
+    render(<DeviceSetList {...defaultProps} deviceSets={[deviceSet]} statsMap={new Map([[1n, stats]])} />);
+
+    const info = screen.getByRole("button", { name: "3 of 5 miners reporting" });
+    fireEvent.focus(info);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Some devices do not make this data available.");
+    fireEvent.keyDown(info, { key: "Escape" });
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  });
+
   it("shows controlled row checkboxes when selection props are supplied", () => {
     const deviceSet = createMockDeviceSet(7n, "Rack A");
     const stats = createMockStats(7n);

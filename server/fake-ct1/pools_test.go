@@ -119,6 +119,40 @@ func TestWeightedPoolsMayShareAURLWithDifferentUsernames(t *testing.T) {
 	}
 }
 
+func TestClearingLastPoolWeightValidatesAllEnabledURLs(t *testing.T) {
+	state := NewContainerState(ContainerConfig{ServerID: "weighted", Tanks: 1, ModulesPerTank: 1, SlotsPerModule: 1, Seed: 1})
+	api := &grpcAPI{state: state}
+	ctx := t.Context()
+	weighted, err := api.CreatePool(ctx, &mdk.CreatePoolRequest{Pool: &mdk.Pool{
+		Name: "Weighted", Url: "stratum+tcp://weighted.example:3333", Username: "worker", Priority: 3, Enabled: true, ShareWeight: new(2.0),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	duplicate, err := api.CreatePool(ctx, &mdk.CreatePoolRequest{Pool: &mdk.Pool{
+		Name: "Duplicate URL", Url: defaultActivePool, Username: "another.worker", Priority: 4, Enabled: true,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	weighted.Pool.ShareWeight = nil
+	clearWeight := &mdk.UpdatePoolRequest{Pool: weighted.Pool, UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"share_weight"}}}
+	if _, err := api.UpdatePool(ctx, clearWeight); status.Code(err) != codes.AlreadyExists {
+		t.Fatalf("clear weight with duplicate enabled URL: got %v, want AlreadyExists", err)
+	}
+	if saved := state.pools[weighted.Pool.Id].pool.GetShareWeight(); saved != 2 {
+		t.Fatalf("saved weight = %v after rejected update, want 2", saved)
+	}
+	if _, err := api.UpdatePool(ctx, &mdk.UpdatePoolRequest{
+		Pool: &mdk.Pool{Id: duplicate.Pool.Id, Enabled: false}, UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"enabled"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if updated, err := api.UpdatePool(ctx, clearWeight); err != nil || updated.GetPool().ShareWeight != nil {
+		t.Fatalf("clear weight after disabling duplicate URL: pool=%v err=%v", updated.GetPool(), err)
+	}
+}
+
 func TestLegacyPoolRemovalUpdatesDefaultMiningState(t *testing.T) {
 	s := NewContainerState(ContainerConfig{ServerID: "default-pools", Tanks: 1, ModulesPerTank: 1, SlotsPerModule: 1, Seed: 1})
 	api := &grpcAPI{state: s}
