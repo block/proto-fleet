@@ -243,8 +243,24 @@ func snapshotEvidence(wire MapResponse, now time.Time, collect *errorCollector) 
 			reportedID := ""
 			identityUnavailable := false
 			hashboards := hashboardObservations(m.Slots, now)
+			// Conflicting physical positions do not erase distinct identities.
+			// Store these boards without installations; the three slots remain unknown.
+			if len(m.Slots) > boardsPerModule {
+				for _, slot := range m.Slots {
+					if slot.Hashboard != nil || slot.Occupied {
+						result.UnlocatedHashboards = append(result.UnlocatedHashboards, hashboardObservation(slot, 0, now))
+					}
+				}
+				for i := range hashboards {
+					hashboards[i].IdentityClaims = nil
+				}
+			}
 			for index := range hashboards {
 				observation := &hashboards[index]
+				if len(m.Slots) <= boardsPerModule && index < len(m.Slots) && observation.UnavailableReason == sdk.HashboardAmbiguousSlot {
+					result.UnlocatedHashboards = append(result.UnlocatedHashboards, hashboardObservation(m.Slots[index], 0, now))
+					observation.IdentityClaims = nil
+				}
 				if index < len(m.Slots) {
 					observation.Feed = m.Slots[index].Feed
 				}
@@ -265,7 +281,7 @@ func snapshotEvidence(wire MapResponse, now time.Time, collect *errorCollector) 
 				if observation.Occupancy == "unknown" {
 					out.TopologyComplete = false
 				}
-				if observation.Occupancy != "occupied" {
+				if observation.Occupancy != occupiedHashboard {
 					if observation.Occupancy != "empty" {
 						identityUnavailable = true
 					}

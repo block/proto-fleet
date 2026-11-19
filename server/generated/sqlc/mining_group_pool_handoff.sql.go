@@ -7,10 +7,29 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
+
+const anyPendingActivationPoolHandoff = `-- name: AnyPendingActivationPoolHandoff :one
+SELECT EXISTS(SELECT 1 FROM mining_group_pool_handoff
+ WHERE organization_id=$1 AND device_id=ANY($2::bigint[]) AND placement_pending)::boolean
+`
+
+type AnyPendingActivationPoolHandoffParams struct {
+	OrganizationID int64
+	DeviceIds      []int64
+}
+
+func (q *Queries) AnyPendingActivationPoolHandoff(ctx context.Context, arg AnyPendingActivationPoolHandoffParams) (bool, error) {
+	row := q.queryRow(ctx, q.anyPendingActivationPoolHandoffStmt, anyPendingActivationPoolHandoff, arg.OrganizationID, pq.Array(arg.DeviceIds))
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
 
 const completeMiningGroupPoolHandoff = `-- name: CompleteMiningGroupPoolHandoff :exec
 UPDATE mining_group_pool_handoff SET completed_at=clock_timestamp()
@@ -25,6 +44,38 @@ type CompleteMiningGroupPoolHandoffParams struct {
 
 func (q *Queries) CompleteMiningGroupPoolHandoff(ctx context.Context, arg CompleteMiningGroupPoolHandoffParams) error {
 	_, err := q.exec(ctx, q.completeMiningGroupPoolHandoffStmt, completeMiningGroupPoolHandoff, arg.OrganizationID, arg.OperationID, arg.DeviceID)
+	return err
+}
+
+const createActivationPoolBoardIntent = `-- name: CreateActivationPoolBoardIntent :exec
+INSERT INTO activation_pool_board_intent(organization_id,device_id,hashboard_id,operation_id,snapshot_id,mac_address,serial,account_id,ownership_revision)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+`
+
+type CreateActivationPoolBoardIntentParams struct {
+	OrganizationID    int64
+	DeviceID          int64
+	HashboardID       int64
+	OperationID       uuid.UUID
+	SnapshotID        string
+	MacAddress        string
+	Serial            string
+	AccountID         int64
+	OwnershipRevision int64
+}
+
+func (q *Queries) CreateActivationPoolBoardIntent(ctx context.Context, arg CreateActivationPoolBoardIntentParams) error {
+	_, err := q.exec(ctx, q.createActivationPoolBoardIntentStmt, createActivationPoolBoardIntent,
+		arg.OrganizationID,
+		arg.DeviceID,
+		arg.HashboardID,
+		arg.OperationID,
+		arg.SnapshotID,
+		arg.MacAddress,
+		arg.Serial,
+		arg.AccountID,
+		arg.OwnershipRevision,
+	)
 	return err
 }
 
@@ -46,6 +97,21 @@ func (q *Queries) CreateMiningGroupPoolHandoff(ctx context.Context, arg CreateMi
 		arg.DeviceID,
 		arg.Captured,
 	)
+	return err
+}
+
+const deleteActivationPoolBoardIntent = `-- name: DeleteActivationPoolBoardIntent :exec
+DELETE FROM activation_pool_board_intent WHERE organization_id=$1 AND device_id=$2 AND hashboard_id=$3
+`
+
+type DeleteActivationPoolBoardIntentParams struct {
+	OrganizationID int64
+	DeviceID       int64
+	HashboardID    int64
+}
+
+func (q *Queries) DeleteActivationPoolBoardIntent(ctx context.Context, arg DeleteActivationPoolBoardIntentParams) error {
+	_, err := q.exec(ctx, q.deleteActivationPoolBoardIntentStmt, deleteActivationPoolBoardIntent, arg.OrganizationID, arg.DeviceID, arg.HashboardID)
 	return err
 }
 
@@ -73,7 +139,7 @@ func (q *Queries) GetAdoptedPoolBoardSnapshot(ctx context.Context, arg GetAdopte
 }
 
 const getMiningGroupPoolHandoff = `-- name: GetMiningGroupPoolHandoff :one
-SELECT organization_id, operation_id, device_id, captured, completed_at FROM mining_group_pool_handoff WHERE organization_id=$1 AND operation_id=$2 AND device_id=$3
+SELECT organization_id, operation_id, device_id, captured, completed_at, placement_pending FROM mining_group_pool_handoff WHERE organization_id=$1 AND operation_id=$2 AND device_id=$3
 `
 
 type GetMiningGroupPoolHandoffParams struct {
@@ -91,6 +157,329 @@ func (q *Queries) GetMiningGroupPoolHandoff(ctx context.Context, arg GetMiningGr
 		&i.DeviceID,
 		&i.Captured,
 		&i.CompletedAt,
+		&i.PlacementPending,
 	)
 	return i, err
+}
+
+const hasActivationPoolInstallationAssignments = `-- name: HasActivationPoolInstallationAssignments :one
+SELECT EXISTS(SELECT 1 FROM pool_configuration_assignment
+ WHERE organization_id=$1 AND target_kind='hashboard_installation'
+ AND target_id=ANY($2::bigint[]))::boolean
+`
+
+type HasActivationPoolInstallationAssignmentsParams struct {
+	OrganizationID  int64
+	InstallationIds []int64
+}
+
+// Include retired rows: activation must not overwrite an earlier assignment generation.
+func (q *Queries) HasActivationPoolInstallationAssignments(ctx context.Context, arg HasActivationPoolInstallationAssignmentsParams) (bool, error) {
+	row := q.queryRow(ctx, q.hasActivationPoolInstallationAssignmentsStmt, hasActivationPoolInstallationAssignments, arg.OrganizationID, pq.Array(arg.InstallationIds))
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const hasPendingActivationPoolTarget = `-- name: HasPendingActivationPoolTarget :one
+SELECT COALESCE(EXISTS(SELECT 1 FROM mining_group_pool_handoff h
+ WHERE h.organization_id=$1 AND h.device_id=$2 AND h.placement_pending
+ AND ($3::text='device' OR NOT COALESCE((h.captured->>'PartialTransfer')::boolean,false)))
+ OR EXISTS(SELECT 1 FROM activation_pool_board_intent p JOIN hashboard_installation i ON i.hashboard_id=p.hashboard_id
+ WHERE p.organization_id=$1 AND i.id=$4
+ AND $3::text='hashboard_installation') ,false)::boolean AS pending
+`
+
+type HasPendingActivationPoolTargetParams struct {
+	OrganizationID int64
+	DeviceID       int64
+	TargetKind     string
+	TargetID       int64
+}
+
+func (q *Queries) HasPendingActivationPoolTarget(ctx context.Context, arg HasPendingActivationPoolTargetParams) (bool, error) {
+	row := q.queryRow(ctx, q.hasPendingActivationPoolTargetStmt, hasPendingActivationPoolTarget,
+		arg.OrganizationID,
+		arg.DeviceID,
+		arg.TargetKind,
+		arg.TargetID,
+	)
+	var pending bool
+	err := row.Scan(&pending)
+	return pending, err
+}
+
+const hasPendingMiningGroupPoolHandoff = `-- name: HasPendingMiningGroupPoolHandoff :one
+SELECT EXISTS(SELECT 1 FROM mining_group_pool_handoff
+ WHERE organization_id=$1 AND device_id=$2 AND placement_pending)::boolean
+`
+
+type HasPendingMiningGroupPoolHandoffParams struct {
+	OrganizationID int64
+	DeviceID       int64
+}
+
+func (q *Queries) HasPendingMiningGroupPoolHandoff(ctx context.Context, arg HasPendingMiningGroupPoolHandoffParams) (bool, error) {
+	row := q.queryRow(ctx, q.hasPendingMiningGroupPoolHandoffStmt, hasPendingMiningGroupPoolHandoff, arg.OrganizationID, arg.DeviceID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const hasRetainedContainerPoolHandoff = `-- name: HasRetainedContainerPoolHandoff :one
+SELECT EXISTS(SELECT 1 FROM mining_group_pool_handoff
+ WHERE organization_id=$1 AND device_id=$2 AND placement_pending
+ AND NOT COALESCE((captured->>'PartialTransfer')::boolean,false))::boolean
+`
+
+type HasRetainedContainerPoolHandoffParams struct {
+	OrganizationID int64
+	DeviceID       int64
+}
+
+func (q *Queries) HasRetainedContainerPoolHandoff(ctx context.Context, arg HasRetainedContainerPoolHandoffParams) (bool, error) {
+	row := q.queryRow(ctx, q.hasRetainedContainerPoolHandoffStmt, hasRetainedContainerPoolHandoff, arg.OrganizationID, arg.DeviceID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const listActivationPoolBoardIntents = `-- name: ListActivationPoolBoardIntents :many
+SELECT organization_id, device_id, hashboard_id, operation_id, snapshot_id, mac_address, serial, account_id, ownership_revision FROM activation_pool_board_intent WHERE organization_id=$1 AND device_id=$2 ORDER BY hashboard_id
+`
+
+type ListActivationPoolBoardIntentsParams struct {
+	OrganizationID int64
+	DeviceID       int64
+}
+
+func (q *Queries) ListActivationPoolBoardIntents(ctx context.Context, arg ListActivationPoolBoardIntentsParams) ([]ActivationPoolBoardIntent, error) {
+	rows, err := q.query(ctx, q.listActivationPoolBoardIntentsStmt, listActivationPoolBoardIntents, arg.OrganizationID, arg.DeviceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ActivationPoolBoardIntent
+	for rows.Next() {
+		var i ActivationPoolBoardIntent
+		if err := rows.Scan(
+			&i.OrganizationID,
+			&i.DeviceID,
+			&i.HashboardID,
+			&i.OperationID,
+			&i.SnapshotID,
+			&i.MacAddress,
+			&i.Serial,
+			&i.AccountID,
+			&i.OwnershipRevision,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listActivationPoolInventory = `-- name: ListActivationPoolInventory :many
+WITH input AS (SELECT value->>'mac_address' AS mac_address,value->>'serial' AS serial FROM jsonb_array_elements($3::jsonb))
+SELECT h.id AS hashboard_id, x.mac_address::text AS mac_address, x.serial::text AS serial,
+ COALESCE(a.subclient_id,a.client_id,0)::bigint AS account_id,
+ COALESCE(a.revision,0)::bigint AS revision,
+ (o.device_id=$1 AND o.released_at IS NULL
+  AND o.site_id IS NOT DISTINCT FROM d.site_id)::boolean AS binding_ready,
+ (o.last_seen_at>now()-INTERVAL '2 minutes'
+  AND o.last_seen_at<=now()+INTERVAL '5 seconds')::boolean AS observation_fresh,
+ (o.device_id=$1 AND o.released_at IS NULL
+  AND o.site_id IS NOT DISTINCT FROM d.site_id
+  AND o.last_seen_at>now()-INTERVAL '2 minutes'
+  AND o.last_seen_at<=now()+INTERVAL '5 seconds')::boolean AS ready
+FROM input x
+JOIN hashboard_identity mac ON mac.org_id=$2 AND mac.kind='mac' AND mac.value=x.mac_address
+JOIN hashboard_identity serial ON serial.org_id=mac.org_id AND serial.kind='serial' AND serial.value=x.serial AND serial.hashboard_id=mac.hashboard_id
+JOIN hashboard h ON h.id=mac.hashboard_id AND h.org_id=mac.org_id
+JOIN hashboard_observation o ON o.hashboard_id=h.id
+JOIN device d ON d.id=$1 AND d.org_id=h.org_id AND d.deleted_at IS NULL
+LEFT JOIN hosted_account_asset a ON a.organization_id=h.org_id AND a.kind=7 AND a.asset_id=h.id
+ORDER BY h.id
+`
+
+type ListActivationPoolInventoryParams struct {
+	DeviceID       int64
+	OrganizationID int64
+	Boards         json.RawMessage
+}
+
+type ListActivationPoolInventoryRow struct {
+	HashboardID      int64
+	MacAddress       string
+	Serial           string
+	AccountID        int64
+	Revision         int64
+	BindingReady     bool
+	ObservationFresh bool
+	Ready            bool
+}
+
+// Resolve both aliases to the same physical board. Placement is not identity.
+func (q *Queries) ListActivationPoolInventory(ctx context.Context, arg ListActivationPoolInventoryParams) ([]ListActivationPoolInventoryRow, error) {
+	rows, err := q.query(ctx, q.listActivationPoolInventoryStmt, listActivationPoolInventory, arg.DeviceID, arg.OrganizationID, arg.Boards)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListActivationPoolInventoryRow
+	for rows.Next() {
+		var i ListActivationPoolInventoryRow
+		if err := rows.Scan(
+			&i.HashboardID,
+			&i.MacAddress,
+			&i.Serial,
+			&i.AccountID,
+			&i.Revision,
+			&i.BindingReady,
+			&i.ObservationFresh,
+			&i.Ready,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPendingActivationBoardAssignments = `-- name: ListPendingActivationBoardAssignments :many
+SELECT COALESCE(i.id,0)::bigint AS installation_id,p.hashboard_id,COALESCE(i.module_id,0)::bigint AS module_id,
+ p.device_id,d.device_identifier,d.site_id,c.configuration_id,c.name,''::text AS operation_id,
+ 'placement_pending'::text AS state,''::text AS result_code,d.created_at AS updated_at
+FROM activation_pool_board_intent p
+JOIN device d ON d.id=p.device_id AND d.org_id=p.organization_id AND d.deleted_at IS NULL
+JOIN pool_configuration_group_snapshot s ON s.organization_id=p.organization_id AND s.snapshot_id=p.snapshot_id
+JOIN pool_configuration c ON c.organization_id=s.organization_id AND c.configuration_id=s.configuration_id
+LEFT JOIN hosted_account_asset owner ON owner.organization_id=p.organization_id AND owner.kind=7 AND owner.asset_id=p.hashboard_id
+LEFT JOIN LATERAL (SELECT id, hashboard_id, module_id, position, site_id, installed_at, last_seen_at, removed_at, metadata, device_id, tank_id, module_position, installed_order, removed_order FROM hashboard_installation inst WHERE inst.hashboard_id=p.hashboard_id
+ AND inst.device_id=p.device_id AND inst.removed_at IS NULL ORDER BY inst.id DESC LIMIT 1) i ON true
+WHERE p.organization_id=$1
+ AND c.account_id IS NOT DISTINCT FROM $2::bigint
+ AND COALESCE(owner.subclient_id,owner.client_id,0)=COALESCE(c.account_id,0)
+ AND (p.hashboard_id=ANY($3::bigint[]) OR i.module_id=ANY($4::bigint[]))
+ORDER BY p.hashboard_id
+`
+
+type ListPendingActivationBoardAssignmentsParams struct {
+	OrganizationID int64
+	AccountID      sql.NullInt64
+	HashboardIds   []int64
+	ModuleIds      []int64
+}
+
+type ListPendingActivationBoardAssignmentsRow struct {
+	InstallationID   int64
+	HashboardID      int64
+	ModuleID         int64
+	DeviceID         int64
+	DeviceIdentifier string
+	SiteID           sql.NullInt64
+	ConfigurationID  string
+	Name             string
+	OperationID      string
+	State            string
+	ResultCode       string
+	UpdatedAt        sql.NullTime
+}
+
+func (q *Queries) ListPendingActivationBoardAssignments(ctx context.Context, arg ListPendingActivationBoardAssignmentsParams) ([]ListPendingActivationBoardAssignmentsRow, error) {
+	rows, err := q.query(ctx, q.listPendingActivationBoardAssignmentsStmt, listPendingActivationBoardAssignments,
+		arg.OrganizationID,
+		arg.AccountID,
+		pq.Array(arg.HashboardIds),
+		pq.Array(arg.ModuleIds),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPendingActivationBoardAssignmentsRow
+	for rows.Next() {
+		var i ListPendingActivationBoardAssignmentsRow
+		if err := rows.Scan(
+			&i.InstallationID,
+			&i.HashboardID,
+			&i.ModuleID,
+			&i.DeviceID,
+			&i.DeviceIdentifier,
+			&i.SiteID,
+			&i.ConfigurationID,
+			&i.Name,
+			&i.OperationID,
+			&i.State,
+			&i.ResultCode,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setMiningGroupPoolHandoffPlacementPending = `-- name: SetMiningGroupPoolHandoffPlacementPending :exec
+UPDATE mining_group_pool_handoff SET placement_pending=$4
+WHERE organization_id=$1 AND operation_id=$2 AND device_id=$3
+`
+
+type SetMiningGroupPoolHandoffPlacementPendingParams struct {
+	OrganizationID   int64
+	OperationID      uuid.UUID
+	DeviceID         int64
+	PlacementPending bool
+}
+
+func (q *Queries) SetMiningGroupPoolHandoffPlacementPending(ctx context.Context, arg SetMiningGroupPoolHandoffPlacementPendingParams) error {
+	_, err := q.exec(ctx, q.setMiningGroupPoolHandoffPlacementPendingStmt, setMiningGroupPoolHandoffPlacementPending,
+		arg.OrganizationID,
+		arg.OperationID,
+		arg.DeviceID,
+		arg.PlacementPending,
+	)
+	return err
+}
+
+const updateMiningGroupPoolHandoffCapture = `-- name: UpdateMiningGroupPoolHandoffCapture :exec
+UPDATE mining_group_pool_handoff SET captured=$4
+WHERE organization_id=$1 AND operation_id=$2 AND device_id=$3
+`
+
+type UpdateMiningGroupPoolHandoffCaptureParams struct {
+	OrganizationID int64
+	OperationID    uuid.UUID
+	DeviceID       int64
+	Captured       json.RawMessage
+}
+
+func (q *Queries) UpdateMiningGroupPoolHandoffCapture(ctx context.Context, arg UpdateMiningGroupPoolHandoffCaptureParams) error {
+	_, err := q.exec(ctx, q.updateMiningGroupPoolHandoffCaptureStmt, updateMiningGroupPoolHandoffCapture,
+		arg.OrganizationID,
+		arg.OperationID,
+		arg.DeviceID,
+		arg.Captured,
+	)
+	return err
 }

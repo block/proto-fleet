@@ -710,6 +710,18 @@ func (s *Service) completeWithMessage(ctx context.Context, q sqlc.Querier, row s
 	}
 	row.Status = statusComplete
 	row.Message = message
+	if row.OperationKind == operationActivate {
+		if message == "Configuration applied" {
+			row.Message = "Mining groups enabled."
+		}
+		pending, err := q.HasPendingMiningGroupPoolHandoff(ctx, sqlc.HasPendingMiningGroupPoolHandoffParams{OrganizationID: row.OrganizationID, DeviceID: row.DeviceID})
+		if err != nil {
+			return err
+		}
+		if pending {
+			row.Message = devicewrite.ActivationPoolPlacementPending
+		}
+	}
 	return save(ctx, q, row)
 }
 

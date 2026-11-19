@@ -1,7 +1,9 @@
 package remotenode
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
@@ -148,4 +150,44 @@ func TestMiningGroupDeactivationRequiresLiveCompatibleNode(t *testing.T) {
 	require.NoError(t, miner.CheckMiningGroupDeactivation(t.Context()))
 	stream.Unregister()
 	require.ErrorContains(t, miner.CheckMiningGroupDeactivation(t.Context()), "reconnect")
+}
+
+func TestActivationInventoryRejectsOlderNodesBeforeDispatch(t *testing.T) {
+	registry := control.NewRegistry()
+	stream, err := registry.RegisterAuthenticated(7, "old-node", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V18)
+	require.NoError(t, err)
+	defer stream.Unregister()
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	_, err = newTestMiner(t, registry).MiningGroups(ctx, sdk.MiningGroupRequest{Action: "activation_inventory"})
+	require.ErrorIs(t, err, control.ErrCommandProtocolUpgradeRequired)
+	require.True(t, devicewrite.IsNotDispatched(err))
+}
+
+func TestActivationInventoryPreflightRequiresLiveV19Node(t *testing.T) {
+	registry := control.NewRegistry()
+	miner := newTestMiner(t, registry)
+	require.ErrorContains(t, miner.CheckMiningGroupActivationInventory(t.Context()), "reconnect")
+	old, err := registry.RegisterAuthenticated(7, "old", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V18)
+	require.NoError(t, err)
+	require.ErrorContains(t, miner.CheckMiningGroupActivationInventory(t.Context()), "Upgrade the Fleet Node")
+	old.Unregister()
+	current, err := registry.RegisterAuthenticated(7, "current", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V19)
+	require.NoError(t, err)
+	require.NoError(t, miner.CheckMiningGroupActivationInventory(t.Context()))
+	current.Unregister()
+	require.ErrorContains(t, miner.CheckMiningGroupActivationInventory(t.Context()), "reconnect")
+}
+
+func TestActivationInventoryUsesV19AndDecodesNodeEvidence(t *testing.T) {
+	sender := &fakeSender{ack: &gatewaypb.ControlAck{Code: gatewaypb.AckCode_ACK_CODE_OK, Succeeded: true, Payload: []byte(`{"inventory":{"observed_at":"2026-11-19T15:00:00Z","boards":[]}}`)}}
+	result, err := newTestMiner(t, sender).MiningGroups(t.Context(), sdk.MiningGroupRequest{Action: "activation_inventory"})
+	require.NoError(t, err)
+	require.NotNil(t, result.Inventory)
+	require.Equal(t, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V19, sender.minimumCommandProtocolVersion)
+	var command gatewaypb.AgentCommand
+	require.NoError(t, proto.Unmarshal(sender.cmd.Payload, &command))
+	request, err := sdk.DecodeMiningGroupRequest(command.GetMinerCommand().GetMiningGroups().Request)
+	require.NoError(t, err)
+	require.Equal(t, "activation_inventory", request.Action)
 }

@@ -124,15 +124,15 @@ export const PoolAssignments = ({
     () => ({
       byIdentifier: new Map(
         assignments
-          .filter((assignment) => !assignment.installationId)
+          .filter((assignment) => !assignment.hashboardId && !assignment.installationId)
           .map((assignment) => [assignment.deviceIdentifier, assignment]),
       ),
       byId: new Map(
         assignments
-          .filter((assignment) => !assignment.installationId)
+          .filter((assignment) => !assignment.hashboardId && !assignment.installationId)
           .map((assignment) => [String(assignment.deviceId), assignment]),
       ),
-      boards: assignments.filter((assignment) => assignment.installationId) ?? [],
+      boards: assignments.filter((assignment) => assignment.hashboardId || assignment.installationId) ?? [],
       readable: enabled && read,
       refresh,
       loadedAt: query.data?.requestedAt,

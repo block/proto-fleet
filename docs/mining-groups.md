@@ -17,6 +17,57 @@ enables groups. Default keeps its pools and stays stopped until an operator
 starts it. Release factory-test reservations before activation. Every configured
 controller must also meet Frigate's activation prerequisites.
 
+Activation reads the complete controller map through Fleet Node. It verifies
+each MAC and serial against one stored hashboard identity and its current owner.
+Unlocated boards and conflicting slot positions do not prevent this check.
+Missing identities, duplicate identities, stale observations, conflicting
+controller attribution, and customer ownership prevent activation. During an
+accepted activation, stale observation timestamps block progress until fresh
+evidence arrives. Identity and ownership conflicts end the operation.
+Activation leaves the default group stopped. Choose **Wake default mining group**
+from the Fleet container menu when ready.
+
+If Fleet has a container pool assignment, activation preserves its revision and
+rendered worker names for every identified board. Fleet transfers the assignment
+to each valid installation immediately. For an unresolved board, it saves pending
+intent by physical board identity, with the original owner and allocation revision.
+It retires the container assignment in the same transaction. The device keeps its
+existing pools.
+
+Mapped boards can receive pool changes while other boards remain unresolved.
+An unresolved board shows **Assignment pending** and cannot receive pool changes.
+Module selections still require complete placement for the selected module;
+individual mapped boards do not require complete sibling slots. Pool plans keep
+pending boards in the inherited default group and cannot change their pools.
+
+State refreshes and the readiness worker retry the database transfer after
+placement is corrected. Recovery checks only pending boards against their saved
+identities, ownership, controller binding, and default-group membership. It does
+not overwrite assignments already transferred or edited. The pending records
+survive Fleet restarts and later pool operations. A replacement board cannot
+receive the captured assignment. Changed ownership or allocation revisions leave
+the affected intent pending instead of assigning the previous owner's pools.
+
+Recovery does not require the original operator to retain access. Controller
+inventory reads occur before the organization update lock. Identity, ownership,
+freshness, and saved intent are checked under the lock with batch inventory and
+assignment queries. Recovery creates assignment records but sends no pool write.
+
+After activation completes, pending placement alone does not block stop or reboot,
+including the container stop action. Normal authorization, binding, and unfinished
+write checks still apply. Mode changes and container-wide pool changes remain
+blocked while board intent is pending.
+
+Container deletion is blocked while a pool transfer is pending. Complete recovery
+or remove the pending assignment with **Keep device settings** before deletion.
+Older retained container transfers also block allocation of uncaptured boards.
+Partial transfers permit allocation and pool changes for unrelated mapped boards.
+
+This requires Fleet Node command protocol V19 and a Proto plugin that supports
+the `activation_inventory` read. Fleet checks the live node version before
+reading inventory. Activation remains a Fleet UI operation; it does
+not require an account API request from the user.
+
 Pool assignment through mining groups requires `miner:update_pools`,
 `miner:start_mining`, and `miner:stop_mining` at the container's site, in addition
 to the existing read permissions. Both workflows check all required permissions

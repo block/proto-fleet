@@ -28,21 +28,39 @@ type activationPoolBoard struct {
 // Only immutable references and credential-free bindings enter the journal.
 // Encrypted execution material lives in the existing group snapshot store.
 type activationPoolCapture struct {
-	WorkerName *string
-	Source     sqlc.GetPoolConfigurationAssignmentRow
-	Runtime    sqlc.GetPoolConfigurationRuntimeRow
-	Ownership  string
-	SnapshotID string
-	Boards     []activationPoolBoard
+	PartialTransfer bool
+	Inventory       []activationPoolIdentity
+	Deferred        bool
+	WorkerName      *string
+	Source          sqlc.GetPoolConfigurationAssignmentRow
+	Runtime         sqlc.GetPoolConfigurationRuntimeRow
+	Ownership       string
+	SnapshotID      string
+	Boards          []activationPoolBoard
 }
 
-func (s *Service) captureActivationPools(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, observed sdk.MiningGroupResult) (activationPoolCapture, error) {
-	capture := activationPoolCapture{}
+func (s *Service) captureActivationPools(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, observed sdk.MiningGroupResult, evidence activationInventoryEvidence) (activationPoolCapture, error) {
+	capture := activationPoolCapture{PartialTransfer: true}
 	source, err := q.GetPoolConfigurationAssignment(ctx, sqlc.GetPoolConfigurationAssignmentParams{OrganizationID: row.OrganizationID, TargetKind: poolconfigurations.TargetDevice, TargetID: row.DeviceID})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return capture, err
 	}
-	if err == nil && !source.RetiredAt.Valid {
+	hasSource := err == nil && !source.RetiredAt.Valid
+	if err := authorizeActivationInventory(ctx, q, row, hasSource); err != nil {
+		return capture, err
+	}
+	runtime, err := q.GetPoolConfigurationRuntime(ctx, sqlc.GetPoolConfigurationRuntimeParams{OrgID: row.OrganizationID, ID: row.DeviceID})
+	if err != nil {
+		return capture, err
+	}
+	if !reflect.DeepEqual(runtime, evidence.Runtime) {
+		return capture, fleeterror.NewFailedPreconditionError(activationInventoryBindingChanged)
+	}
+	capture.Inventory, capture.Ownership, err = resolveActivationInventory(ctx, q, row, hasSource, evidence.Inventory)
+	if err != nil {
+		return capture, err
+	}
+	if hasSource {
 		// Without a pre-activation selection, current membership cannot prove which
 		// physical installations inherited the former whole-container assignment.
 		if observed.Enabled {
@@ -66,14 +84,7 @@ func (s *Service) captureActivationPools(ctx context.Context, q sqlc.Querier, ro
 		}
 		scope := poolconfigurations.Scope{OrganizationID: row.OrganizationID}
 		capture.Source = source
-		capture.Ownership, err = s.pools.AuthorizePoolEquipment(ctx, q, scope, row.ActorID.Int64, poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetDevice, ID: row.DeviceID, DeviceID: row.DeviceID})
-		if err != nil {
-			return capture, err
-		}
-		capture.Runtime, err = q.GetPoolConfigurationRuntime(ctx, sqlc.GetPoolConfigurationRuntimeParams{OrgID: row.OrganizationID, ID: row.DeviceID})
-		if err != nil {
-			return capture, err
-		}
+		capture.Runtime = runtime
 		revision, err := q.GetPoolConfigurationRevision(ctx, sqlc.GetPoolConfigurationRevisionParams{OrganizationID: row.OrganizationID, AccountID: source.AccountID, ConfigurationID: source.ConfigurationID, RevisionID: source.RevisionID})
 		if err != nil {
 			return capture, err
@@ -95,7 +106,7 @@ func (s *Service) captureActivationPools(ctx context.Context, q sqlc.Querier, ro
 			if err := decode([]byte(work.ReviewedBinding), &binding); err != nil {
 				return capture, err
 			}
-			if binding.Ownership != capture.Ownership || !slices.Equal(binding.Device.IdentityKeys, capture.Runtime.IdentityKeys) || len(binding.Usernames) != len(slots) {
+			if !sameActivationPoolOwner(binding.Ownership, capture.Ownership) || !slices.Equal(binding.Device.IdentityKeys, capture.Runtime.IdentityKeys) || len(binding.Usernames) != len(slots) {
 				return capture, fleeterror.NewFailedPreconditionError(activationPoolRecovery)
 			}
 			usernames = binding.Usernames
@@ -121,54 +132,12 @@ func (s *Service) captureActivationPools(ctx context.Context, q sqlc.Querier, ro
 				usernames = append(usernames, username)
 			}
 		}
-		owners, err := q.ListPoolEquipmentModuleOwners(ctx, sqlc.ListPoolEquipmentModuleOwnersParams{OrgID: row.OrganizationID, ID: row.DeviceID})
+		var complete bool
+		capture.Boards, complete, err = activationPoolPlacements(ctx, q, row, capture.Inventory)
 		if err != nil {
 			return capture, err
 		}
-		var boardIDs []int64
-		for _, owner := range owners {
-			if owner.HashboardID > 0 {
-				boardIDs = append(boardIDs, owner.HashboardID)
-			}
-		}
-		slices.Sort(boardIDs)
-		boardIDs = slices.Compact(boardIDs)
-		boards, err := q.ListPoolSelectionBoards(ctx, sqlc.ListPoolSelectionBoardsParams{OrgID: row.OrganizationID, HashboardIds: boardIDs})
-		if err != nil {
-			return capture, err
-		}
-		if len(boards) == 0 || len(boards) != len(boardIDs) {
-			return capture, fleeterror.NewFailedPreconditionError("Refresh complete hashboard inventory before enabling mining groups")
-		}
-		targets := make([]poolconfigurations.AssignmentTarget, len(boards))
-		seenMACs := make(map[string]bool, len(boards))
-		for i, board := range boards {
-			if seenMACs[board.MacAddress] {
-				return capture, fleeterror.NewFailedPreconditionError("Hashboard identity is ambiguous; refresh the controller inventory")
-			}
-			seenMACs[board.MacAddress] = true
-			if !board.Ready || board.DeviceID != row.DeviceID {
-				return capture, fleeterror.NewFailedPreconditionError("Refresh complete hashboard inventory before enabling mining groups")
-			}
-			targets[i] = poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetInstallation, ID: board.InstallationID, DeviceID: row.DeviceID}
-			if _, err := q.GetPoolConfigurationAssignment(ctx, sqlc.GetPoolConfigurationAssignmentParams{OrganizationID: row.OrganizationID, TargetKind: targets[i].Kind, TargetID: targets[i].ID}); !errors.Is(err, sql.ErrNoRows) {
-				if err != nil {
-					return capture, err
-				}
-				return capture, fleeterror.NewFailedPreconditionError(activationPoolRecovery)
-			}
-		}
-		ownership, err := s.pools.AuthorizePoolEquipmentBatch(ctx, q, scope, row.ActorID.Int64, targets)
-		if err != nil {
-			return capture, err
-		}
-		for i, board := range boards {
-			owner, ok := ownership[i]
-			if !ok {
-				return capture, fleeterror.NewForbiddenError("Hashboard ownership changed")
-			}
-			capture.Boards = append(capture.Boards, activationPoolBoard{Binding: poolapplications.BoardBinding{InstallationID: board.InstallationID, HashboardID: board.HashboardID, ModuleID: board.ModuleID, Position: board.Position, MAC: board.MacAddress}, Ownership: owner})
-		}
+		capture.Deferred = !complete
 		for i := range slots {
 			slots[i].Username = usernames[i]
 			slots[i].WorkerTemplate = ""
@@ -213,6 +182,9 @@ func (s *Service) activationPoolCapture(ctx context.Context, q sqlc.Querier, row
 }
 
 func (s *Service) validateActivationPools(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, capture activationPoolCapture, transferred bool) error {
+	if capture.Inventory != nil {
+		return s.validateActivationInventory(ctx, q, row, capture, transferred)
+	}
 	scope := poolconfigurations.Scope{OrganizationID: row.OrganizationID}
 	if !transferred {
 		source, err := q.GetPoolConfigurationAssignment(ctx, sqlc.GetPoolConfigurationAssignmentParams{OrganizationID: row.OrganizationID, TargetKind: poolconfigurations.TargetDevice, TargetID: row.DeviceID})
@@ -281,9 +253,27 @@ func (s *Service) validateActivationPools(ctx context.Context, q sqlc.Querier, r
 
 // Handoff is database-only, after a settled activation observation. Retirement,
 // installation intent, unverified status, and provenance commit together.
-func (s *Service) finishActivationPools(ctx context.Context, q sqlc.Querier, row *sqlc.ContainerMiningGroupState, observed sdk.MiningGroupResult, capture activationPoolCapture) error {
-	scope := poolconfigurations.Scope{OrganizationID: row.OrganizationID}
+func (s *Service) adoptActivationPoolAssignments(ctx context.Context, q sqlc.Querier, row *sqlc.ContainerMiningGroupState, capture activationPoolCapture) error {
+	// Recover old journal worker metadata before retiring its source assignment.
+	if capture.WorkerName == nil && capture.Source.OperationID.Valid {
+		work, err := q.GetPoolConfigurationWork(ctx, sqlc.GetPoolConfigurationWorkParams{OrganizationID: row.OrganizationID, OperationID: capture.Source.OperationID.String, TargetKind: poolconfigurations.TargetDevice, TargetID: row.DeviceID})
+		if err != nil {
+			return err
+		}
+		var saved poolapplications.Binding
+		if err := decode([]byte(work.ReviewedBinding), &saved); err != nil {
+			return err
+		}
+		capture.WorkerName = &saved.Device.WorkerName
+	}
 	repository := poolconfigurations.NewRepository(s.secrets)
+	if err := repository.RetireAssignment(ctx, q, poolconfigurations.Scope{OrganizationID: row.OrganizationID}, poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetDevice, ID: row.DeviceID, DeviceID: row.DeviceID}, capture.Source.Version); err != nil {
+		return err
+	}
+	return s.adoptActivationPoolBoards(ctx, q, row, capture)
+}
+
+func (s *Service) adoptActivationPoolBoards(ctx context.Context, q sqlc.Querier, row *sqlc.ContainerMiningGroupState, capture activationPoolCapture) error {
 	name := capture.Runtime.WorkerName
 	if capture.WorkerName != nil {
 		name = *capture.WorkerName
@@ -299,9 +289,6 @@ func (s *Service) finishActivationPools(ctx context.Context, q sqlc.Querier, row
 			return err
 		}
 		name = binding.Device.WorkerName
-	}
-	if err := repository.RetireAssignment(ctx, q, scope, poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetDevice, ID: row.DeviceID, DeviceID: row.DeviceID}, capture.Source.Version); err != nil {
-		return err
 	}
 	for _, board := range capture.Boards {
 		if err := q.InitializeHashboardWorkerName(ctx, sqlc.InitializeHashboardWorkerNameParams{OrgID: row.OrganizationID, HashboardID: board.Binding.HashboardID, WorkerName: name}); err != nil {
@@ -322,6 +309,50 @@ func (s *Service) finishActivationPools(ctx context.Context, q sqlc.Querier, row
 		// The controller observation predates the lock gap. Adopt the durable
 		// assignment evidence now, but verify only from the next fresh readback.
 		if err := q.SavePoolConfigurationObservation(ctx, sqlc.SavePoolConfigurationObservationParams{OrganizationID: row.OrganizationID, TargetKind: poolconfigurations.TargetInstallation, TargetID: board.Binding.InstallationID, AssignmentVersion: 1, State: "applied_unverified", ResultCode: "readback_unavailable"}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) finishActivationPools(ctx context.Context, q sqlc.Querier, row *sqlc.ContainerMiningGroupState, observed sdk.MiningGroupResult, capture activationPoolCapture) error {
+	if capture.PartialTransfer {
+		boards, complete, err := activationPoolPlacements(ctx, q, *row, capture.Inventory)
+		if err != nil {
+			return err
+		}
+		capture.Boards, capture.Deferred = boards, !complete
+		encoded, err := encode(capture)
+		if err != nil {
+			return err
+		}
+		if err := q.UpdateMiningGroupPoolHandoffCapture(ctx, sqlc.UpdateMiningGroupPoolHandoffCaptureParams{OrganizationID: row.OrganizationID, DeviceID: row.DeviceID, OperationID: row.OperationID.UUID, Captured: encoded}); err != nil {
+			return err
+		}
+	}
+	if err := s.adoptActivationPoolAssignments(ctx, q, row, capture); err != nil {
+		return err
+	}
+	if capture.Deferred {
+		mapped := map[int64]bool{}
+		for _, board := range capture.Boards {
+			mapped[board.Binding.HashboardID] = true
+		}
+		for _, board := range capture.Inventory {
+			if mapped[board.HashboardID] {
+				continue
+			}
+			if err := q.CreateActivationPoolBoardIntent(ctx, sqlc.CreateActivationPoolBoardIntentParams{
+				OrganizationID: row.OrganizationID, DeviceID: row.DeviceID, HashboardID: board.HashboardID,
+				OperationID: row.OperationID.UUID, SnapshotID: capture.SnapshotID, MacAddress: board.MAC, Serial: board.Serial,
+				AccountID: board.AccountID, OwnershipRevision: board.Revision,
+			}); err != nil {
+				return err
+			}
+		}
+		if err := q.SetMiningGroupPoolHandoffPlacementPending(ctx, sqlc.SetMiningGroupPoolHandoffPlacementPendingParams{
+			OrganizationID: row.OrganizationID, DeviceID: row.DeviceID, OperationID: row.OperationID.UUID, PlacementPending: true,
+		}); err != nil {
 			return err
 		}
 	}
@@ -353,6 +384,9 @@ func (s *Service) finishActivationPools(ctx context.Context, q sqlc.Querier, row
 // Called under the observation transaction's binding and authority locks, after
 // validating the adopted assignments. Never verify using pre-handoff readback.
 func (s *Service) observeActivationPools(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, observed sdk.MiningGroupResult, capture activationPoolCapture) error {
+	if capture.Deferred {
+		return nil
+	}
 	snapshot, err := q.GetPoolGroupSnapshot(ctx, sqlc.GetPoolGroupSnapshotParams{OrganizationID: row.OrganizationID, DeviceID: row.DeviceID, SnapshotID: capture.SnapshotID})
 	if err != nil {
 		return err
@@ -387,7 +421,24 @@ func (*activationPoolHandoffReady) Error() string { return "activation pool hand
 
 func (s *Service) commitActivationPoolHandoff(ctx context.Context, ready *activationPoolHandoffReady) (bool, error) {
 	applied := false
-	err := s.writes.WithBindingUpdateTransaction(ctx, func(ctx context.Context, q sqlc.Querier) error {
+	// Older persisted journals have installation evidence but no identity inventory.
+	// They must retain their original validation path and API requirements.
+	capture, done, err := s.activationPoolCapture(ctx, s.queries, ready.row)
+	if err != nil || done {
+		return false, err
+	}
+	var inventory *sdk.MiningGroupInventory
+	if capture.Inventory != nil {
+		err = s.writes.WithBindingObservation(ctx, ready.row.DeviceID, func(sqlc.Querier) error { return nil }, func(ctx context.Context) error {
+			var readErr error
+			inventory, readErr = s.fetchActivationInventory(ctx, ready.row.DeviceID)
+			return readErr
+		})
+		if err != nil {
+			return false, err
+		}
+	}
+	err = s.writes.WithBindingUpdateTransaction(ctx, func(ctx context.Context, q sqlc.Querier) error {
 		applied = false
 		if _, err := q.LockPoolConfigurationImportOrganization(ctx, ready.row.OrganizationID); err != nil {
 			return err
@@ -406,8 +457,24 @@ func (s *Service) commitActivationPoolHandoff(ctx context.Context, ready *activa
 			if err != nil || done {
 				return err
 			}
-			if err := s.validateActivationPools(ctx, q, row, capture, false); err != nil {
-				return err
+			if capture.Inventory == nil {
+				if err := s.validateActivationPools(ctx, q, row, capture, false); err != nil {
+					return err
+				}
+			} else {
+				if inventory == nil {
+					return nil // Capture changed while observation locks were released.
+				}
+				if err := authorizeActivationInventory(ctx, q, row, capture.SnapshotID != ""); err != nil {
+					return err
+				}
+				identities, owner, err := resolveActivationInventory(ctx, q, row, capture.SnapshotID != "", inventory)
+				if err != nil {
+					return err
+				}
+				if err := validateActivationPoolEvidence(ctx, q, row, capture, false, identities, owner); err != nil {
+					return err
+				}
 			}
 			// Activation authority may be revoked independently of pool-update authority.
 			target, err := q.LockContainerCommandTarget(ctx, sqlc.LockContainerCommandTargetParams{OrgID: row.OrganizationID, DeviceIdentifier: capture.Runtime.DeviceIdentifier})

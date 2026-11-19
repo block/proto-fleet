@@ -23,11 +23,12 @@ WHERE d.org_id=$1 AND d.id=$2 AND t.present AND m.retired_at IS NULL
 ORDER BY m.id,b.id;
 
 -- name: ListPoolEquipmentInstallations :many
-SELECT i.id,i.module_id,i.hashboard_id FROM hashboard_installation i
+SELECT i.id,i.module_id,i.hashboard_id,COALESCE(owner.subclient_id,owner.client_id,0)::bigint AS account_id,COALESCE(owner.revision,0)::bigint AS revision FROM hashboard_installation i
 JOIN hashboard h ON h.id=i.hashboard_id
 JOIN container_module m ON m.id=i.module_id JOIN container_tank t ON t.id=m.tank_id
 JOIN device d ON d.id=t.device_id
 JOIN hashboard_slot s ON s.module_id=i.module_id AND s.position=i.position AND s.hashboard_id=i.hashboard_id
+LEFT JOIN hosted_account_asset owner ON owner.organization_id=h.org_id AND owner.kind=7 AND owner.asset_id=h.id
 WHERE h.org_id=sqlc.arg(org_id) AND d.org_id=sqlc.arg(org_id)
  AND i.id=ANY(sqlc.arg(installation_ids)::bigint[]) AND d.id=sqlc.arg(device_id) AND i.device_id=sqlc.arg(device_id)
  AND i.removed_at IS NULL AND m.retired_at IS NULL AND t.present AND d.deleted_at IS NULL

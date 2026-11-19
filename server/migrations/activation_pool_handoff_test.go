@@ -15,6 +15,7 @@ func TestActivationPoolHandoffRollback(t *testing.T) {
 	for _, state := range []string{"empty", "pending", "completed"} {
 		t.Run(state, func(t *testing.T) {
 			conn, org, device := miningGroupRollbackFixture(t)
+			rollbackEmptyActivationBoardIntent(t, conn)
 			ctx := t.Context()
 			if state != "empty" {
 				id := uuid.New()
@@ -87,7 +88,64 @@ func TestActivationPoolHandoffRollbackSeesConcurrentCapture(t *testing.T) {
 
 func rollbackEmptyActivationPoolHandoff(t *testing.T, conn *sql.DB) {
 	t.Helper()
+	rollbackEmptyActivationBoardIntent(t, conn)
+	rollbackEmptyActivationInventory(t, conn)
 	down, err := migrations.Current.ReadFile("current/001070_internal_activation_pool_handoff.down.sql")
+	require.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), string(down))
+	require.NoError(t, err)
+}
+
+func TestActivationInventoryRollbackRestoresAllocationRetirement(t *testing.T) {
+	conn, org, device := miningGroupRollbackFixture(t)
+	ctx := t.Context()
+	id := uuid.New()
+	_, err := conn.ExecContext(ctx, `INSERT INTO mining_group_request(organization_id,request_id,device_id,fingerprint) VALUES($1,$2,$3,'activation')`, org, id, device)
+	require.NoError(t, err)
+	_, err = conn.ExecContext(ctx, `INSERT INTO mining_group_pool_handoff(organization_id,operation_id,device_id,captured,completed_at,placement_pending) VALUES($1,$2,$3,'{}',now(),true)`, org, id, device)
+	require.NoError(t, err)
+	down, err := migrations.Current.ReadFile("current/001098_internal_activation_pool_inventory.down.sql")
+	require.NoError(t, err)
+	_, err = conn.ExecContext(ctx, string(down))
+	require.ErrorContains(t, err, "before rollback")
+	_, err = conn.ExecContext(ctx, `UPDATE mining_group_pool_handoff SET placement_pending=false WHERE operation_id=$1`, id)
+	require.NoError(t, err)
+	_, err = conn.ExecContext(ctx, string(down))
+	require.NoError(t, err)
+	var body string
+	require.NoError(t, conn.QueryRowContext(ctx, `SELECT pg_get_functiondef('retire_reallocated_pool_assignments(bigint,bigint,integer,bigint)'::regprocedure)`).Scan(&body))
+	require.NotContains(t, body, "placement_pending")
+	up, err := migrations.Current.ReadFile("current/001098_internal_activation_pool_inventory.up.sql")
+	require.NoError(t, err)
+	_, err = conn.ExecContext(ctx, string(up))
+	require.NoError(t, err)
+}
+
+func rollbackEmptyActivationBoardIntent(t *testing.T, conn *sql.DB) {
+	t.Helper()
+	var exists bool
+	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT to_regclass('activation_pool_board_intent') IS NOT NULL`).Scan(&exists))
+	if !exists {
+		return
+	}
+	guards, err := migrations.Current.ReadFile("current/001100_internal_activation_review_guards.down.sql")
+	require.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), string(guards))
+	require.NoError(t, err)
+	down, err := migrations.Current.ReadFile("current/001099_internal_activation_board_intent.down.sql")
+	require.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), string(down))
+	require.NoError(t, err)
+}
+
+func rollbackEmptyActivationInventory(t *testing.T, conn *sql.DB) {
+	t.Helper()
+	var exists bool
+	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT to_regprocedure('protect_activation_hashboard_owner()') IS NOT NULL`).Scan(&exists))
+	if !exists {
+		return
+	}
+	down, err := migrations.Current.ReadFile("current/001098_internal_activation_pool_inventory.down.sql")
 	require.NoError(t, err)
 	_, err = conn.ExecContext(t.Context(), string(down))
 	require.NoError(t, err)

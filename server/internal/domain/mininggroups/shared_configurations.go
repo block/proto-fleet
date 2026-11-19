@@ -64,7 +64,7 @@ func (s *Service) ExecutePoolConfiguration(ctx context.Context, orgID int64, ope
 	}
 	// Admission checks durable authority and binding only. Reconciliation owns
 	// the fresh controller observation before planning any hardware mutation.
-	err = s.writes.BeginPoolWorkflow(ctx, orgID, deviceID, func(ctx context.Context, q sqlc.Querier, attempt uuid.UUID, epoch int64) error {
+	err = s.writes.BeginBoardPoolWorkflow(ctx, orgID, deviceID, func(ctx context.Context, q sqlc.Querier, attempt uuid.UUID, epoch int64) error {
 		current, err := q.ListPoolGroupWork(ctx, sqlc.ListPoolGroupWorkParams{OrganizationID: orgID, OperationID: operationID, DeviceID: deviceID})
 		if err != nil {
 			return err
@@ -350,6 +350,18 @@ func (s *Service) sharedIntents(ctx context.Context, q sqlc.Querier, row sqlc.Co
 	}
 	requiredBoards := []poolconfigurations.AssignmentTarget{}
 	desired := map[string]string{}
+	pending, err := q.ListActivationPoolBoardIntents(ctx, sqlc.ListActivationPoolBoardIntentsParams{OrganizationID: row.OrganizationID, DeviceID: row.DeviceID})
+	if err != nil {
+		return nil, err
+	}
+	for _, intent := range pending {
+		for _, mac := range affected {
+			if mac == intent.MacAddress {
+				return nil, newInventoryStaleError("Pool changes cannot affect a board waiting for placement recovery.")
+			}
+		}
+		desired[intent.MacAddress] = intent.SnapshotID
+	}
 	if len(intents) == 0 {
 		return desired, nil
 	}

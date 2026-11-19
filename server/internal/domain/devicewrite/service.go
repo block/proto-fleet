@@ -82,7 +82,7 @@ func (s *Service) BeginQueuedHost(ctx context.Context, message queue.Message) (*
 			return nil, blocked()
 		}
 		if MayAffectPools(operationMutation, message.CommandType.String()) {
-			if err := requirePoolRemovalAdmission(ctx, q, message.OrgID, message.DeviceID, message.CommandType); err != nil {
+			if err := requirePoolRemovalAdmission(ctx, q, message.OrgID, message.DeviceID, message.CommandType, message.Payload); err != nil {
 				return nil, err
 			}
 		}
@@ -117,7 +117,7 @@ func (a *Attempt) Recheck(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		return requirePoolRemovalAdmission(ctx, a.service.bindingQueries(ctx), a.organizationID, a.deviceID, kind)
+		return requirePoolRemovalAdmission(ctx, a.service.bindingQueries(ctx), a.organizationID, a.deviceID, kind, nil)
 	}
 	return nil
 }
@@ -383,7 +383,7 @@ func (s *Service) beginHost(ctx context.Context, organizationID, deviceID, epoch
 			kind = operationObservation
 		}
 		if !observation && MayAffectPools(operationMutation, commandKind.String()) {
-			if err := requirePoolRemovalAdmission(ctx, q, organizationID, deviceID, commandKind); err != nil {
+			if err := requirePoolRemovalAdmission(ctx, q, organizationID, deviceID, commandKind, nil); err != nil {
 				return nil, err
 			}
 		}

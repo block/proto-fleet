@@ -22,7 +22,15 @@ func TestSharedWorkflowWaitsForMissingInventoryAndResumes(t *testing.T) {
 			firmware.calls = nil
 			f.reconcile(t, ctx)
 			after := f.state(t)
-			require.Equal(t, "blocked", after.Status)
+			if position == 1 {
+				require.Equal(t, "blocked", after.Status)
+			} else {
+				for i := 0; i < 30 && active(f.state(t).Status); i++ {
+					f.reconcile(t, ctx)
+				}
+				require.Equal(t, statusComplete, f.state(t).Status, "unrelated slot placement does not block a mapped board")
+				return
+			}
 			require.Equal(t, before.AttemptID, after.AttemptID)
 			for _, call := range firmware.calls {
 				require.True(t, call.ReadOnly(), "missing inventory must prevent mutations without ending the workflow")

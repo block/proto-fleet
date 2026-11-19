@@ -12,6 +12,8 @@ import { usePermissions } from "@/protoFleet/store";
 import { createOperationID } from "@/protoFleet/utils/crypto";
 import Modal from "@/shared/components/Modal";
 
+const defaultWakeMessage = "Choose Wake default mining group from the Fleet container menu.";
+
 type MiningGroupsDialogProps = {
   deviceIdentifier: string;
   mode?: "activate" | "deactivate";
@@ -162,7 +164,7 @@ function MiningGroupsForm({ deviceIdentifier, onClose, mode = "activate" }: Mini
   else if (started) buttonLabel = "Close";
 
   let introduction =
-    "Fleet will stop mining before it enables mining groups. Fleet keeps existing pool assignments and checks the settings reported by the installed hashboards. When ready, choose Wake default mining group from the Fleet container menu.";
+    "Fleet will stop mining before it enables mining groups. Fleet preserves pool intent for every identified hashboard. Mapped boards can receive pool changes immediately. Assignments for boards with unresolved locations stay pending until their locations are confirmed. When ready, choose Wake default mining group from the Fleet container menu.";
   if (deactivating) introduction = "The container will keep the default group’s pools and mining settings.";
   const disableBlocked = deactivating && !started && !complete && !!prerequisite;
   const canMove = disableBlocked && allowed && fresh && !observationError && state?.canReturnToDefault;
@@ -173,7 +175,7 @@ function MiningGroupsForm({ deviceIdentifier, onClose, mode = "activate" }: Mini
     progressMessage = state.message;
     progressRole = "alert";
   } else if (complete) {
-    progressMessage = deactivating ? "Mining groups disabled." : "Mining groups enabled.";
+    progressMessage = deactivating ? "Mining groups disabled." : state.message || "Mining groups enabled.";
   } else if (started) {
     progressMessage = state?.message;
     if (!progressMessage) progressMessage = deactivating ? "Disabling mining groups…" : "Enabling mining groups…";
@@ -243,8 +245,11 @@ function MiningGroupsForm({ deviceIdentifier, onClose, mode = "activate" }: Mini
         {!started && !complete && !disableBlocked ? <p>{introduction}</p> : null}
         {prerequisite ? <p role="status">{prerequisite}</p> : null}
         {progressMessage && !disableBlocked ? <p role={progressRole}>{progressMessage}</p> : null}
-        {complete && !deactivating && state?.groups.some((group) => group.id === "default" && !group.mining) ? (
-          <p>Choose Wake default mining group from the Fleet container menu.</p>
+        {complete &&
+        !deactivating &&
+        !progressMessage?.includes(defaultWakeMessage) &&
+        state?.groups.some((group) => group.id === "default" && !group.mining) ? (
+          <p>{defaultWakeMessage}</p>
         ) : null}
         {error || observationError ? (
           <p role="alert" className="text-intent-critical-fill">

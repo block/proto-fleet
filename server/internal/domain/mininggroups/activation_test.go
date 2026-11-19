@@ -47,7 +47,7 @@ func TestActivationReportsBlockerAndCompletesAfterItClears(t *testing.T) {
 	require.Equal(t, statusApplying, f.state(t).Status)
 	require.NoError(t, f.service.Reconcile(ctx, f.target.OrganizationID, f.target.DeviceID, f.target.DeviceIdentifier))
 	require.Equal(t, statusComplete, f.state(t).Status)
-	require.Equal(t, "Configuration applied", f.state(t).Message)
+	require.Equal(t, "Mining groups enabled.", f.state(t).Message)
 }
 
 func TestActivationLeavesDefaultStoppedUntilOperatorStartsIt(t *testing.T) {

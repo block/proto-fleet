@@ -34,15 +34,16 @@ func TestMiningGroupResultValidationAtPluginBoundaries(t *testing.T) {
 	group := &MiningGroup{ID: "g", Revision: 2, Mining: true}
 	operation := &MiningGroupOperation{ID: "op", Phase: "QUIESCING", BlockedMACs: []string{"02:00:00:00:00:01"}}
 	requests := map[string]MiningGroupRequest{
-		"observe":       {Action: "observe"},
-		"activate":      {Action: "activate", Key: "k", Revision: 1},
-		"deactivate":    {Action: "deactivate", Key: "k", Revision: 1},
-		"create":        {Action: "create", Key: "k", ConfigID: "config"},
-		"start":         {Action: "start", Key: "k", GroupID: "g", Revision: 1},
-		"remove":        {Action: "remove", Key: "k", GroupID: "g", Revision: 1},
-		"replace_pools": {Action: "replace_pools", Key: "k", GroupID: "g", Revision: 1, Pools: []MiningGroupPoolInput{{URL: "stratum+tcp://pool.example:3333", Username: "worker"}}},
-		"transfer":      {Action: "transfer", Key: "k", GroupID: "g", Revision: 1, MACs: []string{"02:00:00:00:00:01"}},
-		"operation":     {Action: "operation", GroupID: "op"},
+		"activation_inventory": {Action: "activation_inventory"},
+		"observe":              {Action: "observe"},
+		"activate":             {Action: "activate", Key: "k", Revision: 1},
+		"deactivate":           {Action: "deactivate", Key: "k", Revision: 1},
+		"create":               {Action: "create", Key: "k", ConfigID: "config"},
+		"start":                {Action: "start", Key: "k", GroupID: "g", Revision: 1},
+		"remove":               {Action: "remove", Key: "k", GroupID: "g", Revision: 1},
+		"replace_pools":        {Action: "replace_pools", Key: "k", GroupID: "g", Revision: 1, Pools: []MiningGroupPoolInput{{URL: "stratum+tcp://pool.example:3333", Username: "worker"}}},
+		"transfer":             {Action: "transfer", Key: "k", GroupID: "g", Revision: 1, MACs: []string{"02:00:00:00:00:01"}},
+		"operation":            {Action: "operation", GroupID: "op"},
 	}
 	for _, tc := range []struct {
 		name   string
@@ -50,6 +51,10 @@ func TestMiningGroupResultValidationAtPluginBoundaries(t *testing.T) {
 		result MiningGroupResult
 		valid  bool
 	}{
+		{"activation inventory", "activation_inventory", MiningGroupResult{Inventory: &MiningGroupInventory{ObservedAt: time.Now().UTC(), Boards: []HashboardIdentityClaim{{MACAddress: "02:00:00:00:00:01", Serial: "board-1"}}}}, true},
+		{"missing activation inventory", "activation_inventory", MiningGroupResult{}, false},
+		{"unexpected activation inventory", "activate", MiningGroupResult{Enabled: true, Inventory: &MiningGroupInventory{ObservedAt: time.Now().UTC(), Boards: []HashboardIdentityClaim{}}}, false},
+		{"conflicting activation inventory", "activate", MiningGroupResult{RevisionConflict: true, Inventory: &MiningGroupInventory{ObservedAt: time.Now().UTC(), Boards: []HashboardIdentityClaim{}}}, false},
 		{"supported observation", "observe", observed, true},
 		{"unsupported observation", "observe", MiningGroupResult{}, true},
 		{"activation receipt", "activate", MiningGroupResult{Enabled: true}, true},

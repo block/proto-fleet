@@ -3,11 +3,13 @@ package devicewrite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/google/uuid"
 )
 
@@ -43,6 +45,16 @@ func RequireNoConflictingPoolWrites(ctx context.Context, q sqlc.Querier, organiz
 // journal while still refusing every unresolved physical attempt except its own.
 // Recovery uses this only to observe and finish the original removal.
 func RequireNoConflictingPoolWritesForRemoval(ctx context.Context, q sqlc.Querier, organizationID, deviceID int64, removalID uuid.UUID) error {
+	if err := requireNoRetainedContainerHandoff(ctx, q, organizationID, deviceID); err != nil {
+		return err
+	}
+	return RequireNoUnresolvedPoolWrites(ctx, q, organizationID, deviceID, removalID)
+}
+
+// RequireNoUnresolvedPoolWrites checks physical work independently of retained
+// activation intent. Only assignment-only recovery may use this without also
+// checking the pending activation fence; it must authorize that recovery itself.
+func RequireNoUnresolvedPoolWrites(ctx context.Context, q sqlc.Querier, organizationID, deviceID int64, removalID uuid.UUID) error {
 	attempts, err := q.ListUnresolvedDeviceWriteAttempts(ctx, sqlc.ListUnresolvedDeviceWriteAttemptsParams{OrganizationID: organizationID, DeviceID: deviceID})
 	if err != nil {
 		return err
@@ -100,10 +112,10 @@ func MayAffectPools(operationKind, commandName string) bool {
 // requireNoActivePoolRemoval also protects legacy commands and mining-group
 // workflows, which do not use the pool configuration review service.
 func requireNoActivePoolRemoval(ctx context.Context, q sqlc.Querier, organizationID, deviceID int64) error {
-	return requirePoolRemovalAdmission(ctx, q, organizationID, deviceID, commandtype.Type(-1))
+	return requirePoolRemovalAdmission(ctx, q, organizationID, deviceID, commandtype.Type(-1), nil)
 }
 
-func requirePoolRemovalAdmission(ctx context.Context, q sqlc.Querier, organizationID, deviceID int64, kind commandtype.Type) error {
+func requirePoolRemovalAdmission(ctx context.Context, q sqlc.Querier, organizationID, deviceID int64, kind commandtype.Type, payload []byte) error {
 	nativeCurtailment := false
 	if kind.IsCurtailmentControl() {
 		binding, err := q.GetPoolConfigurationRuntime(ctx, sqlc.GetPoolConfigurationRuntimeParams{OrgID: organizationID, ID: deviceID})
@@ -115,6 +127,11 @@ func requirePoolRemovalAdmission(ctx context.Context, q sqlc.Querier, organizati
 		nativeCurtailment = binding.DriverName == "proto"
 	}
 	if !nativeCurtailment {
+		if kind.MayAffectPools() {
+			if err := requireActivationPoolCommand(ctx, q, organizationID, deviceID, kind, payload); err != nil {
+				return err
+			}
+		}
 		if err := RequireNoMiningGroupDeactivation(ctx, q, organizationID, deviceID); err != nil {
 			return err
 		}
@@ -139,6 +156,44 @@ func requirePoolRemovalAdmission(ctx context.Context, q sqlc.Querier, organizati
 	return nil
 }
 
+const ActivationPoolPlacementPending = "Mining groups are enabled. Some pool assignments are waiting for board locations or ownership checks. Mapped boards remain editable."
+
+// This fence outlives the activation workflow. It protects retained intent
+// while identity is known but assignment placement is still unavailable.
+func RequireNoPendingActivationPoolHandoff(ctx context.Context, q sqlc.Querier, organizationID, deviceID int64) error {
+	pending, err := q.HasPendingMiningGroupPoolHandoff(ctx, sqlc.HasPendingMiningGroupPoolHandoffParams{OrganizationID: organizationID, DeviceID: deviceID})
+	if err != nil {
+		return err
+	}
+	if pending {
+		return fleeterror.NewFailedPreconditionError(ActivationPoolPlacementPending)
+	}
+	return nil
+}
+
+func requireNoRetainedContainerHandoff(ctx context.Context, q sqlc.Querier, orgID, deviceID int64) error {
+	pending, err := q.HasRetainedContainerPoolHandoff(ctx, sqlc.HasRetainedContainerPoolHandoffParams{OrganizationID: orgID, DeviceID: deviceID})
+	if err != nil {
+		return err
+	}
+	if pending {
+		return fleeterror.NewFailedPreconditionError(ActivationPoolPlacementPending)
+	}
+	return nil
+}
+
+// Installation writes are independent once activation has saved identity intent.
+func RequireNoPendingActivationPoolTarget(ctx context.Context, q sqlc.Querier, orgID, deviceID int64, kind string, id int64) error {
+	pending, err := q.HasPendingActivationPoolTarget(ctx, sqlc.HasPendingActivationPoolTargetParams{OrganizationID: orgID, DeviceID: deviceID, TargetKind: kind, TargetID: id})
+	if err != nil {
+		return err
+	}
+	if pending {
+		return fleeterror.NewFailedPreconditionError("This pool assignment is waiting for hashboard location or ownership recovery.")
+	}
+	return nil
+}
+
 // Call under the device fence before enqueueing or admitting a mutation. An
 // accepted deactivation reserves mode changes until its exact journal settles.
 func RequireNoMiningGroupDeactivation(ctx context.Context, q sqlc.Querier, organizationID, deviceID int64) error {
@@ -157,4 +212,46 @@ func RequireNoMiningGroupDeactivation(ctx context.Context, q sqlc.Querier, organ
 		return nil
 	}
 	return fleeterror.NewFailedPreconditionError("Mining groups are being disabled. Wait for this change or recovery to finish before submitting device changes.")
+}
+
+// Placement alone must not prevent an operator from stopping or rebooting.
+// Keep this separate from MayAffectPools: these commands still conflict with
+// physical pool writes and must not interrupt an unfinished activation.
+func requireActivationPoolCommand(ctx context.Context, q sqlc.Querier, organizationID, deviceID int64, kind commandtype.Type, payload []byte) error {
+	pending, err := q.HasPendingMiningGroupPoolHandoff(ctx, sqlc.HasPendingMiningGroupPoolHandoffParams{OrganizationID: organizationID, DeviceID: deviceID})
+	if err != nil || !pending {
+		return err
+	}
+	if boardWorkflow, _ := ctx.Value(boardPoolWorkflowKey{}).(bool); boardWorkflow {
+		return requireNoRetainedContainerHandoff(ctx, q, organizationID, deviceID)
+	}
+	allowed := kind == commandtype.StopMining || kind == commandtype.Reboot
+	if kind == commandtype.ContainerMining {
+		// Decode the same request envelope used by the queue executor. ContainerMining
+		// also carries start and power changes, which do not get this exception.
+		var command struct {
+			Request sdk.ContainerMiningRequest `json:"request"`
+		}
+		allowed = json.Unmarshal(payload, &command) == nil && command.Request.Validate() == nil && command.Request.Action == "set_mining" && !*command.Request.Mining
+	}
+	if !allowed {
+		return fleeterror.NewFailedPreconditionError(ActivationPoolPlacementPending)
+	}
+	state, err := q.GetMiningGroupState(ctx, sqlc.GetMiningGroupStateParams{OrganizationID: organizationID, DeviceID: deviceID})
+	if err != nil {
+		return err
+	}
+	if active := state.Status == "pending" || state.Status == "applying" || state.Status == "blocked"; active || state.Status == "failed" {
+		return fleeterror.NewFailedPreconditionError("Mining group activation is unfinished. Wait for activation or recovery to finish before stopping or rebooting.")
+	}
+	attempts, err := q.ListUnresolvedDeviceWriteAttempts(ctx, sqlc.ListUnresolvedDeviceWriteAttemptsParams{OrganizationID: organizationID, DeviceID: deviceID})
+	if err != nil {
+		return err
+	}
+	for _, attempt := range attempts {
+		if MayAffectPools(attempt.OperationKind, attempt.CommandType) {
+			return fleeterror.NewFailedPreconditionErrorf("%w", mutationConflictError("device write is fenced by an unresolved configuration operation"))
+		}
+	}
+	return nil
 }

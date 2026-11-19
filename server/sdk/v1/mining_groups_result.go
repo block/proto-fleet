@@ -34,14 +34,15 @@ func DecodeMiningGroupResult(data []byte, request MiningGroupRequest) (MiningGro
 func (r MiningGroupResult) Validate(request MiningGroupRequest) error {
 	observation := r.Supported || r.Suspended || r.Revision != 0 || r.MaxGroups != 0 || !r.ObservedAt.IsZero() || len(r.Groups) != 0 || r.Pending
 	if r.RevisionConflict {
-		if request.ReadOnly() || observation || r.Enabled || r.Deactivated || r.Removed || r.Group != nil || r.Operation != nil || r.MiningStatus != nil || r.StopRequested || r.PoolsCleared != nil {
+		if request.ReadOnly() || observation || r.Enabled || r.Deactivated || r.Removed || r.Group != nil || r.Operation != nil || r.MiningStatus != nil || r.StopRequested || r.PoolsCleared != nil || r.Inventory != nil {
 			return fmt.Errorf("invalid mining group revision conflict receipt")
 		}
 		return nil
 	}
 	groupAction := request.Action == "create" || request.Action == miningGroupActionReplacePools || request.Action == "start" || request.Action == "stop" || request.Action == miningGroupActionClearPools || request.Action == MiningGroupReadDefault
 	operationAction := request.Action == miningGroupActionTransfer || request.Action == miningGroupActionOperation
-	if (request.Action != miningGroupActionVerifyCleared && r.PoolsCleared != nil) ||
+	if (request.Action != miningGroupActionActivationInventory && r.Inventory != nil) ||
+		(request.Action != miningGroupActionVerifyCleared && r.PoolsCleared != nil) ||
 		(request.Action != miningGroupActionDeactivate && r.Deactivated) ||
 		(request.Action != "observe" && observation) ||
 		(request.Action != "observe" && request.Action != miningGroupActionActivate && r.Enabled) ||
@@ -51,6 +52,11 @@ func (r MiningGroupResult) Validate(request MiningGroupRequest) error {
 		return fmt.Errorf("unexpected mining group result fields")
 	}
 	switch request.Action {
+	case miningGroupActionActivationInventory:
+		if r.Inventory == nil {
+			return fmt.Errorf("missing activation inventory")
+		}
+		return r.Inventory.Validate()
 	case miningGroupActionVerifyCleared:
 		if r.PoolsCleared == nil {
 			return fmt.Errorf("missing pool clear observation")

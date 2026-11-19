@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/google/uuid"
 )
@@ -78,6 +79,9 @@ func (r *Repository) Assign(ctx context.Context, q sqlc.Querier, scope Scope, ac
 		return cmp.Or(cmp.Compare(a.Target.Kind, b.Target.Kind), cmp.Compare(a.Target.ID, b.Target.ID))
 	})
 	for i, change := range changes {
+		if err := devicewrite.RequireNoPendingActivationPoolTarget(ctx, q, scope.OrganizationID, change.Target.DeviceID, change.Target.Kind, change.Target.ID); err != nil {
+			return Operation{}, err
+		}
 		target := change.Target
 		if automatic {
 			event, err := AuthorizeLifecycleTransition(ctx, q, scope, target.DeviceID)
@@ -95,6 +99,19 @@ func (r *Repository) Assign(ctx context.Context, q sqlc.Querier, scope Scope, ac
 		}
 		if _, err := q.GetPoolAssignmentDevice(ctx, sqlc.GetPoolAssignmentDeviceParams{OrgID: scope.OrganizationID, ID: target.DeviceID}); err != nil {
 			return Operation{}, storageError(err)
+		}
+		// Return an actionable conflict before the mixed-kind consistency trigger
+		// rejects the write as an opaque internal error. The automatic lifecycle path
+		// retires the prior kind in order, so this guard is for operator writes; the
+		// trigger remains the final consistency guard for both.
+		if !automatic {
+			conflict, err := q.HasPoolAssignmentKindConflict(ctx, sqlc.HasPoolAssignmentKindConflictParams{OrganizationID: scope.OrganizationID, DeviceID: target.DeviceID, TargetKind: target.Kind})
+			if err != nil {
+				return Operation{}, storageError(err)
+			}
+			if conflict {
+				return Operation{}, assignmentKindConflict(target.Kind)
+			}
 		}
 		if target.Kind == TargetInstallation {
 			if _, err := q.GetPoolAssignmentInstallation(ctx, sqlc.GetPoolAssignmentInstallationParams{OrgID: scope.OrganizationID, ID: target.ID, DeviceID: target.DeviceID}); err != nil {
@@ -149,12 +166,25 @@ func staleAssignment() error {
 	return fleeterror.NewFailedPreconditionError("equipment assignment changed; refresh and review again")
 }
 
+// assignmentKindConflict reports that an incompatible active assignment of the
+// other kind still holds the container. Whole-device and per-hashboard intent
+// cannot coexist; the operator must remove the retained one before assigning.
+func assignmentKindConflict(kind string) error {
+	if kind == TargetInstallation {
+		return fleeterror.NewFailedPreconditionError("A whole-container pool assignment is still active on this container. Remove it before assigning hashboards.")
+	}
+	return fleeterror.NewFailedPreconditionError("Hashboard pool assignments are still active on this container. Remove them before assigning the whole container.")
+}
+
 // RetireAssignment preserves the generation and history while ending ongoing
 // updates. Mode transitions retire whole-container intent before establishing
 // board intent; physical write fencing remains the transition's responsibility.
 func (r *Repository) RetireAssignment(ctx context.Context, q sqlc.Querier, scope Scope, target AssignmentTarget, expectedVersion int64) error {
 	if _, err := q.LockPoolConfigurationImportOrganization(ctx, scope.OrganizationID); err != nil {
 		return storageError(err)
+	}
+	if err := devicewrite.RequireNoPendingActivationPoolTarget(ctx, q, scope.OrganizationID, target.DeviceID, target.Kind, target.ID); err != nil {
+		return err
 	}
 	n, err := q.RetirePoolConfigurationAssignment(ctx, sqlc.RetirePoolConfigurationAssignmentParams{DeviceID: target.DeviceID, OrganizationID: scope.OrganizationID, AccountID: scope.account(), TargetKind: target.Kind, TargetID: target.ID, ExpectedVersion: expectedVersion})
 	if err := targetMutationResult(n, err); err != nil {

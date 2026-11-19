@@ -57,6 +57,8 @@ func (m *retryMiner) MiningGroups(ctx context.Context, request sdk.MiningGroupRe
 			return sdk.MiningGroupResult{}, errors.New("Default intent unavailable")
 		}
 		return sdk.MiningGroupResult{Group: &sdk.MiningGroup{ID: "default", Revision: m.revision, Mining: m.mining}}, nil
+	case "activation_inventory":
+		return sdk.MiningGroupResult{Inventory: &sdk.MiningGroupInventory{ObservedAt: time.Now().UTC(), Boards: []sdk.HashboardIdentityClaim{}}}, nil
 	case operationDeactivate:
 		m.enabled = false
 		m.deactivatedKey = request.Key

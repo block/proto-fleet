@@ -28,6 +28,7 @@ type activationPoolMiner struct {
 	observeErr     bool
 	running        bool
 	beforeCall     func(context.Context, sdk.MiningGroupRequest)
+	inventory      *sdk.MiningGroupInventory
 }
 
 func (m *activationPoolMiner) GetMinerForCommand(context.Context, int64) (interfaces.Miner, error) {
@@ -62,6 +63,8 @@ func (m *activationPoolMiner) MiningGroups(ctx context.Context, r sdk.MiningGrou
 		m.beforeCall(ctx, r)
 	}
 	switch r.Action {
+	case "activation_inventory":
+		return sdk.MiningGroupResult{Inventory: m.inventory}, nil
 	case "observe":
 		if m.observeErr {
 			return sdk.MiningGroupResult{}, errors.New("controller unavailable")
@@ -120,6 +123,15 @@ func newActivationPoolFixtureWithWorker(t *testing.T, workerName string, extraBo
 	miner := &activationPoolMiner{simulatedGroups: &simulatedGroups{snapshot: sdk.MiningGroupResult{Supported: true, Revision: 1, MaxGroups: 4, Groups: []sdk.MiningGroup{{ID: "default", Revision: 1, MACs: []string{"02:00:00:00:00:01"}}}}, receipts: map[string]sdk.MiningGroupResult{}}}
 	if len(boards) == 2 {
 		miner.snapshot.Groups[0].MACs = append(miner.snapshot.Groups[0].MACs, "02:00:00:00:00:02")
+	}
+	miner.inventory = &sdk.MiningGroupInventory{ObservedAt: time.Now().UTC()}
+	for i, id := range boards {
+		mac, serial := fmt.Sprintf("02:00:00:00:00:%02d", i+1), fmt.Sprintf("board-%d", i+1)
+		miner.inventory.Boards = append(miner.inventory.Boards, sdk.HashboardIdentityClaim{MACAddress: mac, Serial: serial})
+		_, err := f.conn.ExecContext(ctx, `INSERT INTO hashboard_identity(org_id,kind,value,hashboard_id) VALUES($1,'mac',$2,$4),($1,'serial',$3,$4)`, f.target.OrganizationID, mac, serial, id)
+		require.NoError(t, err)
+		_, err = f.conn.ExecContext(ctx, `INSERT INTO hashboard_observation(hashboard_id,device_id,site_id,last_seen_at) SELECT $1,id,site_id,now() FROM device WHERE id=$2 ON CONFLICT(hashboard_id) DO UPDATE SET last_seen_at=now()`, id, f.target.DeviceID)
+		require.NoError(t, err)
 	}
 	f.service.miners = miner
 	_, err := f.service.GetState(ctx, f.target.DeviceIdentifier)
@@ -570,11 +582,12 @@ func TestActivationHandoffPreservesUnselectedBoardOnLaterAssignment(t *testing.T
 }
 
 func TestActivationPoolHandoffRejectsDuplicateBoardIdentity(t *testing.T) {
-	ctx, f, _, _, _, boards, _ := newActivationPoolFixture(t, true)
+	ctx, f, miner, _, _, boards, _ := newActivationPoolFixture(t, true)
 	_, err := f.conn.ExecContext(ctx, `UPDATE hashboard_installation SET metadata='{"macAddress":"02:00:00:00:00:01"}' WHERE hashboard_id=$1`, boards[1])
 	require.NoError(t, err)
+	miner.inventory.Boards[1].MACAddress = miner.inventory.Boards[0].MACAddress
 	_, err = f.service.Activate(ctx, f.target.DeviceIdentifier, uuid.NewString())
-	require.ErrorContains(t, err, "ambiguous")
+	require.ErrorContains(t, err, "inventory")
 	require.Equal(t, "idle", f.state(t).Status)
 }
 

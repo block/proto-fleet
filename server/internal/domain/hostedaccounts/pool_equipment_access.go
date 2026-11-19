@@ -10,6 +10,7 @@ import (
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	"github.com/block/proto-fleet/server/internal/domain/session"
@@ -121,6 +122,11 @@ func (s *PoolService) poolEquipmentAccess(ctx context.Context, q sqlc.Querier, s
 	if !siteAllowed(policy, device.SiteID.Int64) {
 		return nil, denied()
 	}
+	for _, target := range targets {
+		if err := devicewrite.RequireNoPendingActivationPoolTarget(ctx, q, scope.OrganizationID, deviceID, target.Kind, target.ID); err != nil {
+			return nil, err
+		}
+	}
 	access := &poolEquipmentAccess{device: device, host: host,
 		ownersByBoard: make(map[[2]int64][]sqlc.ListPoolEquipmentModuleOwnersRow),
 		installations: make(map[int64]sqlc.ListPoolEquipmentInstallationsRow)}
@@ -150,6 +156,9 @@ func (s *PoolService) poolEquipmentAccess(ctx context.Context, q sqlc.Querier, s
 			}
 			for _, installation := range installations {
 				access.installations[installation.ID] = installation
+				access.ownersByBoard[[2]int64{installation.ModuleID, installation.HashboardID}] = []sqlc.ListPoolEquipmentModuleOwnersRow{{
+					AssetID: installation.ModuleID, HashboardID: installation.HashboardID, AccountID: installation.AccountID, Revision: installation.Revision,
+				}}
 			}
 		}
 	case commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED:
@@ -191,6 +200,9 @@ func (a *poolEquipmentAccess) authorize(scope poolconfigurations.Scope, target p
 		return "", fleeterror.NewFailedPreconditionError("equipment inventory is unavailable; refresh and review again")
 	}
 	for _, owner := range owners {
+		if owner.AccountID < 0 {
+			return "", fleeterror.NewFailedPreconditionError("Hashboard inventory has missing or conflicting locations. Refresh the controller inventory before changing pools.")
+		}
 		if owner.AccountID != scope.AccountID {
 			return "", denied()
 		}

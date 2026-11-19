@@ -323,6 +323,18 @@ func (ns NullWorkerNamePoolSyncStatusEnum) Value() (driver.Value, error) {
 	return string(ns.WorkerNamePoolSyncStatusEnum), nil
 }
 
+type ActivationPoolBoardIntent struct {
+	OrganizationID    int64
+	DeviceID          int64
+	HashboardID       int64
+	OperationID       uuid.UUID
+	SnapshotID        string
+	MacAddress        string
+	Serial            string
+	AccountID         int64
+	OwnershipRevision int64
+}
+
 type ActivityLog struct {
 	ID             int64
 	EventID        uuid.UUID
@@ -2787,11 +2799,12 @@ type MinerStateSnapshotDeviceHourly struct {
 }
 
 type MiningGroupPoolHandoff struct {
-	OrganizationID int64
-	OperationID    uuid.UUID
-	DeviceID       int64
-	Captured       json.RawMessage
-	CompletedAt    sql.NullTime
+	OrganizationID   int64
+	OperationID      uuid.UUID
+	DeviceID         int64
+	Captured         json.RawMessage
+	CompletedAt      sql.NullTime
+	PlacementPending bool
 }
 
 type MiningGroupRequest struct {

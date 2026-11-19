@@ -12,6 +12,8 @@ import (
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
+const occupiedHashboard = "occupied"
+
 func normalizedBoardMAC(value string) string {
 	mac := strings.ToLower(strings.TrimSpace(value))
 	if parsed, err := net.ParseMAC(mac); err == nil {
@@ -120,7 +122,7 @@ func hashboardObservation(slot Slot, position int32, now time.Time) sdk.Containe
 		return unavailable("")
 	}
 	b := slot.Hashboard
-	v := sdk.ContainerHashboard{Position: position, Occupancy: "occupied", MACAddress: normalizedBoardMAC(b.MACAddress), Serial: strings.TrimSpace(b.Serial)}
+	v := sdk.ContainerHashboard{Position: position, Occupancy: occupiedHashboard, MACAddress: normalizedBoardMAC(b.MACAddress), Serial: strings.TrimSpace(b.Serial)}
 	if !sdk.SafeHashboardIdentity(v.MACAddress) || !sdk.SafeHashboardIdentity(v.Serial) || !sdk.SafeHashboardIdentity(b.MiningState) {
 		return unavailable(sdk.HashboardInvalidObservation)
 	}
@@ -155,7 +157,7 @@ func hashboardObservation(slot Slot, position int32, now time.Time) sdk.Containe
 		}
 		if p := location["hashboardPosition"]; len(p) > 0 {
 			resolved, err := strconv.ParseInt(strings.Trim(string(p), "\""), 10, 32)
-			if err != nil || (resolved != 0 && resolved != int64(position)) {
+			if err != nil || (position != 0 && resolved != 0 && resolved != int64(position)) {
 				return unavailable(sdk.HashboardAmbiguousSlot)
 			}
 		}

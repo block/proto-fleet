@@ -43,6 +43,9 @@ SELECT ct1_hashboard_allocation_ready(sqlc.arg(organization_id)::bigint,sqlc.arg
 -- Explain a refused allocation under the same fence and journal locks. This
 -- diagnostic never authorizes allocation or treats stale mode as current.
 SELECT CASE
+ WHEN EXISTS (SELECT 1 FROM mining_group_pool_handoff h WHERE h.organization_id=sqlc.arg(organization_id)
+  AND h.device_id=sqlc.arg(device_id) AND h.placement_pending AND NOT COALESCE((h.captured->>'PartialTransfer')::boolean,false))
+  THEN 'Complete or cancel the retained pool assignment transfer before allocating hashboards.'
  WHEN s.status IN ('pending','applying','blocked')
   THEN 'Wait for pending mining-group changes or recovery to finish before allocating hashboards.'
  WHEN s.observed_at IS NULL OR s.observed_at<f.updated_at

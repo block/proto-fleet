@@ -95,8 +95,31 @@ type BoardAssignments struct {
 }
 
 func (s *Service) GetBoardAssignments(ctx context.Context, accountID string, selection BoardSelection) (BoardAssignments, error) {
+	if err := selection.validate(); err != nil {
+		return BoardAssignments{}, err
+	}
 	return withAuthority(ctx, s, accountID, Read, func(q sqlc.Querier, p Principal) (BoardAssignments, error) {
-		rows, err := resolveBoards(ctx, q, p, selection, false)
+		pending, err := q.ListPendingActivationBoardAssignments(ctx, sqlc.ListPendingActivationBoardAssignmentsParams{OrganizationID: p.Scope.OrganizationID, AccountID: p.Scope.account(), HashboardIds: selection.HashboardIDs, ModuleIds: selection.ModuleIDs})
+		if err != nil {
+			return BoardAssignments{}, storageError(err)
+		}
+		pendingIDs := map[int64]bool{}
+		for _, row := range pending {
+			pendingIDs[row.HashboardID] = true
+		}
+		mapped := selection
+		mapped.HashboardIDs = nil
+		for _, id := range selection.HashboardIDs {
+			if !pendingIDs[id] {
+				mapped.HashboardIDs = append(mapped.HashboardIDs, id)
+			}
+		}
+		var rows []sqlc.ListPoolSelectionBoardsRow
+		if len(mapped.HashboardIDs)+len(mapped.ModuleIDs) > 0 {
+			rows, err = resolveBoards(ctx, q, p, mapped, false)
+		} else {
+			err = selection.validate()
+		}
 		if err != nil {
 			return BoardAssignments{}, err
 		}
@@ -176,6 +199,31 @@ func (s *Service) GetBoardAssignments(ctx context.Context, accountID string, sel
 				a.Name = device.Name
 			}
 		}
-		return BoardAssignments{Assignments: assignments, SelectedCount: int64(len(ids))}, nil
+		// Pending intent has no writable installation. It remains visible by
+		// physical identity even when its former slot disappeared.
+		filtered := assignments[:0]
+		for _, a := range assignments {
+			if !pendingIDs[a.HashboardID] {
+				filtered = append(filtered, a)
+			}
+		}
+		assignments = filtered
+		for _, a := range pending {
+			if visible(a.SiteID) {
+				assignments = append(assignments, sqlc.ListPoolBoardAssignmentsRow{InstallationID: a.InstallationID, HashboardID: a.HashboardID, ModuleID: a.ModuleID, DeviceID: a.DeviceID, DeviceIdentifier: a.DeviceIdentifier, SiteID: a.SiteID, ConfigurationID: a.ConfigurationID, Name: a.Name, State: a.State, UpdatedAt: a.UpdatedAt.Time})
+			}
+		}
+		selected := map[int64]bool{}
+		for _, row := range rows {
+			if row.AccountID == p.Scope.AccountID && visible(row.SiteID) {
+				selected[row.HashboardID] = true
+			}
+		}
+		for _, row := range pending {
+			if visible(row.SiteID) {
+				selected[row.HashboardID] = true
+			}
+		}
+		return BoardAssignments{Assignments: assignments, SelectedCount: int64(len(selected))}, nil
 	})
 }

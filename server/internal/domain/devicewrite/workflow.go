@@ -24,6 +24,15 @@ func (s *Service) BeginPoolWorkflow(ctx context.Context, orgID, deviceID int64, 
 	return s.beginWorkflow(ctx, orgID, deviceID, true, record)
 }
 
+type boardPoolWorkflowKey struct{}
+
+// BeginBoardPoolWorkflow permits independent installation work while identity
+// intents wait for placement. The callback must authorize every target before
+// committing. Mode changes and legacy commands retain the container-wide fence.
+func (s *Service) BeginBoardPoolWorkflow(ctx context.Context, orgID, deviceID int64, record func(context.Context, sqlc.Querier, uuid.UUID, int64) error) error {
+	return s.beginWorkflow(context.WithValue(ctx, boardPoolWorkflowKey{}, true), orgID, deviceID, true, record)
+}
+
 func (s *Service) beginWorkflow(ctx context.Context, orgID, deviceID int64, pools bool, record func(context.Context, sqlc.Querier, uuid.UUID, int64) error) error {
 	return db.WithTransactionTimeoutNoResult(ctx, s.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) error {
 		if pools {

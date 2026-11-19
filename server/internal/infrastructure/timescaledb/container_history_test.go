@@ -39,6 +39,7 @@ func TestStoredContainerRollupsMigrationRollback(t *testing.T) {
 	_, err := r.db.ExecContext(t.Context(), "TRUNCATE hashboard_metrics")
 	require.NoError(t, err)
 	for _, migrationName := range []string{
+		"001098_internal_activation_pool_inventory.down",
 		"001051_internal_hashboard_allocation_order.down",
 		"001050_internal_automatic_hashboard_allocation.down",
 		"001049_internal_hashboard_allocations.down",

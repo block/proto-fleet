@@ -245,6 +245,17 @@ func TestHashboardObservationMigrationPreservesExistingAttribution(t *testing.T)
 	for _, released := range []bool{false, true} {
 		t.Run(map[bool]string{false: "active", true: "removed"}[released], func(t *testing.T) {
 			r := newContainerRollupRig(t)
+			// Remove dependent activation guards before dropping their schema.
+			for _, name := range []string{
+				"current/001100_internal_activation_review_guards.down.sql",
+				"current/001099_internal_activation_board_intent.down.sql",
+				"current/001098_internal_activation_pool_inventory.down.sql",
+			} {
+				guards, err := migrations.Current.ReadFile(name)
+				require.NoError(t, err)
+				_, err = r.db.ExecContext(t.Context(), string(guards))
+				require.NoError(t, err)
+			}
 			// Remove the later allocation views before exercising the older schema.
 			allocationDown, err := migrations.Current.ReadFile("current/001049_internal_hashboard_allocations.down.sql")
 			require.NoError(t, err)

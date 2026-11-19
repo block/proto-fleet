@@ -17,16 +17,17 @@ const CapabilityMiningGroups = "mining_groups"
 const CapabilityMiningGroupPoolClear = "mining_group_pool_clear"
 
 const (
-	MiningGroupReadDefault         = "read_default"
-	miningGroupActionVerifyCleared = "verify_cleared"
-	miningGroupActionClearPools    = "clear_pools"
-	miningGroupActionMiningStatus  = "mining_status"
-	miningGroupActionStopLegacy    = "stop_legacy"
-	miningGroupActionOperation     = "operation"
-	miningGroupActionActivate      = "activate"
-	miningGroupActionDeactivate    = "deactivate"
-	miningGroupActionReplacePools  = "replace_pools"
-	miningGroupActionTransfer      = "transfer"
+	MiningGroupReadDefault               = "read_default"
+	miningGroupActionActivationInventory = "activation_inventory"
+	miningGroupActionVerifyCleared       = "verify_cleared"
+	miningGroupActionClearPools          = "clear_pools"
+	miningGroupActionMiningStatus        = "mining_status"
+	miningGroupActionStopLegacy          = "stop_legacy"
+	miningGroupActionOperation           = "operation"
+	miningGroupActionActivate            = "activate"
+	miningGroupActionDeactivate          = "deactivate"
+	miningGroupActionReplacePools        = "replace_pools"
+	miningGroupActionTransfer            = "transfer"
 )
 
 // MiningGroupRequest is a closed, versioned controller operation. Passwords are
@@ -59,7 +60,7 @@ type MiningGroupPoolInput struct {
 func (MiningGroupRequest) String() string   { return "MiningGroupRequest{[redacted]}" }
 func (MiningGroupRequest) GoString() string { return "MiningGroupRequest{[redacted]}" }
 func (r MiningGroupRequest) ReadOnly() bool {
-	return r.Action == "observe" || r.Action == MiningGroupReadDefault || r.Action == miningGroupActionVerifyCleared || r.Action == miningGroupActionMiningStatus || r.Action == miningGroupActionOperation
+	return r.Action == miningGroupActionActivationInventory || r.Action == "observe" || r.Action == MiningGroupReadDefault || r.Action == miningGroupActionVerifyCleared || r.Action == miningGroupActionMiningStatus || r.Action == miningGroupActionOperation
 }
 func (r MiningGroupRequest) Validate() error {
 	if len(r.DefaultURLSigningKey) != 0 && (r.Action != MiningGroupReadDefault || len(r.DefaultURLSigningKey) != 32) {
@@ -70,7 +71,7 @@ func (r MiningGroupRequest) Validate() error {
 	}
 	allowed := map[string]bool{}
 	switch r.Action {
-	case "observe", MiningGroupReadDefault, miningGroupActionMiningStatus, miningGroupActionStopLegacy:
+	case miningGroupActionActivationInventory, "observe", MiningGroupReadDefault, miningGroupActionMiningStatus, miningGroupActionStopLegacy:
 	case miningGroupActionOperation:
 		allowed["group"] = true
 		if r.GroupID == "" {
@@ -214,6 +215,7 @@ type MiningGroupMiningStatus struct {
 	ActiveBoards int32 `json:"active_boards"`
 }
 type MiningGroupResult struct {
+	Inventory     *MiningGroupInventory    `json:"inventory,omitempty"`
 	Deactivated   bool                     `json:"deactivated,omitempty"`
 	PoolsCleared  *bool                    `json:"pools_cleared,omitempty"`
 	MiningStatus  *MiningGroupMiningStatus `json:"mining_status,omitempty"`

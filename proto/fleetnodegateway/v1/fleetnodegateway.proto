@@ -331,6 +331,8 @@ enum CommandProtocolVersion {
     COMMAND_PROTOCOL_VERSION_V17 = 17;
     // V18 supports durable pool replacements and reads of saved Default settings.
     COMMAND_PROTOCOL_VERSION_V18 = 18;
+    // V19 reads complete hashboard identity inventory before mining-group activation.
+    COMMAND_PROTOCOL_VERSION_V19 = 19;
 }
 
 message ControlHello {
