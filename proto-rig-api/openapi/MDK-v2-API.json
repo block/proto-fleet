@@ -51,6 +51,39 @@
     "ManufacturingServiceAdoptManufacturingBoardBody": {
       "type": "object"
     },
+    "MiningGroupServiceCopyMiningGroupPoolsBody": {
+      "properties": {
+        "expectedRevision": {
+          "format": "int64",
+          "type": "string"
+        },
+        "idempotencyKey": {
+          "type": "string"
+        },
+        "pools": {
+          "description": "Include every source pool exactly once.",
+          "items": {
+            "$ref": "#/definitions/v2MiningGroupPoolCopy",
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "sourceExpectedDefaultPoolRevision": {
+          "description": "Required for Default. Guards changes to settings, including passwords.",
+          "format": "int64",
+          "type": "string"
+        },
+        "sourceExpectedRevision": {
+          "format": "int64",
+          "type": "string"
+        },
+        "sourceGroupId": {
+          "description": "May be \"default\" to copy the legacy pool set.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "MiningGroupServiceReplaceMiningGroupPoolsBody": {
       "properties": {
         "expectedRevision": {
@@ -1327,6 +1360,21 @@
       ],
       "type": "object"
     },
+    "v2CopyMiningGroupPoolsResponse": {
+      "properties": {
+        "group": {
+          "$ref": "#/definitions/v2MiningGroupRecord"
+        },
+        "pools": {
+          "items": {
+            "$ref": "#/definitions/v2MiningGroupPoolRecord",
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
     "v2CreateMiningGroupRequest": {
       "properties": {
         "idempotencyKey": {
@@ -1390,6 +1438,19 @@
       "properties": {
         "capability": {
           "$ref": "#/definitions/v2MiningGroupCapability"
+        }
+      },
+      "type": "object"
+    },
+    "v2DefaultMiningGroupWorkerNameUpdate": {
+      "properties": {
+        "poolId": {
+          "format": "int64",
+          "type": "string"
+        },
+        "username": {
+          "description": "The complete pool username, including the account and worker name.",
+          "type": "string"
         }
       },
       "type": "object"
@@ -5534,6 +5595,14 @@
         "assignmentGranularity": {
           "type": "string"
         },
+        "defaultPoolWorkerNameUpdateSupported": {
+          "description": "This controller can atomically update the saved Default pool usernames.\nFalse when the store lacks support or native DATUM overrides Default pools.",
+          "type": "boolean"
+        },
+        "defaultPoolWritesSupported": {
+          "description": "True when the controller uses the saved legacy pools for Default.\nFalse when native DATUM overrides them.",
+          "type": "boolean"
+        },
         "enabled": {
           "type": "boolean"
         },
@@ -5551,6 +5620,10 @@
         },
         "name": {
           "type": "string"
+        },
+        "poolCopySupported": {
+          "description": "This controller implements CopyMiningGroupPools on its local MDK API.",
+          "type": "boolean"
         },
         "stateRevision": {
           "format": "int64",
@@ -5734,6 +5807,19 @@
       },
       "type": "object"
     },
+    "v2MiningGroupPoolCopy": {
+      "properties": {
+        "source": {
+          "$ref": "#/definitions/v2MiningGroupPoolRecord",
+          "description": "The complete public source pool record from the operator's review."
+        },
+        "username": {
+          "description": "The complete new pool username. Use the current value to keep that username.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "v2MiningGroupPoolInput": {
       "properties": {
         "password": {
@@ -5803,6 +5889,11 @@
       "properties": {
         "createdAt": {
           "format": "date-time",
+          "type": "string"
+        },
+        "defaultPoolRevision": {
+          "description": "Present for Default. Changes when any saved legacy pool setting changes.",
+          "format": "int64",
           "type": "string"
         },
         "deletedAt": {
@@ -8199,6 +8290,11 @@
           },
           "type": "array"
         },
+        "sourceExpectedDefaultPoolRevision": {
+          "description": "When supplied, require that Default still has the reviewed pool settings.",
+          "format": "int64",
+          "type": "string"
+        },
         "sourceExpectedRevision": {
           "format": "int64",
           "type": "string"
@@ -10204,6 +10300,47 @@
       },
       "type": "object"
     },
+    "v2UpdateDefaultMiningGroupWorkerNamesRequest": {
+      "properties": {
+        "expectedDefaultPoolRevision": {
+          "format": "int64",
+          "type": "string"
+        },
+        "expectedRevision": {
+          "description": "The reviewed Default group revision and legacy pool revision.",
+          "format": "int64",
+          "type": "string"
+        },
+        "idempotencyKey": {
+          "type": "string"
+        },
+        "updates": {
+          "description": "Include only the pool usernames to change, with one update per ID.",
+          "items": {
+            "$ref": "#/definitions/v2DefaultMiningGroupWorkerNameUpdate",
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "v2UpdateDefaultMiningGroupWorkerNamesResponse": {
+      "properties": {
+        "group": {
+          "$ref": "#/definitions/v2MiningGroupRecord"
+        },
+        "pools": {
+          "description": "All saved Default pools, including inactive pools, without passwords.",
+          "items": {
+            "$ref": "#/definitions/v2Pool",
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
     "v2UpdateMiningGroupIntentResponse": {
       "description": "Success means the desired intent committed, not that owners have applied it.\nGetMiningGroupTelemetry reports allocation, application, and pending owners.",
       "properties": {
@@ -10224,6 +10361,7 @@
     "v2UpdatePSUFirmwareResponse": {
       "properties": {
         "accepted": {
+          "description": "All selected commands were scheduled, not necessarily received or flashed.\nAn unknown outcome must not be treated as a safe-to-retry rejection.",
           "type": "boolean"
         },
         "message": {
@@ -10527,7 +10665,7 @@
   "info": {
     "description": "Latest MDK v2 REST contract. Device support depends on product and firmware version.",
     "title": "Proto MDK v2",
-    "version": "2-38eb3f68b66035c6"
+    "version": "2-43ff7b686bba04e5"
   },
   "paths": {
     "/api/v2/alerts": {
@@ -12447,6 +12585,47 @@
         ]
       }
     },
+    "/api/v2/mining-groups/by-id/{groupId}/pools/copy": {
+      "post": {
+        "operationId": "MiningGroupService_CopyMiningGroupPools",
+        "parameters": [
+          {
+            "description": "An existing non-default destination with no pools, boards, or pending transfers.",
+            "in": "path",
+            "name": "groupId",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/MiningGroupServiceCopyMiningGroupPoolsBody"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v2CopyMiningGroupPoolsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "summary": "CopyMiningGroupPools copies a reviewed pool set into an empty group. The\ncontroller keeps the source endpoints and passwords and changes only the\nrequested usernames. Copying pools does not transfer any boards.",
+        "tags": [
+          "Mining groups",
+          "CT1"
+        ]
+      }
+    },
     "/api/v2/mining-groups/by-id/{groupId}/pools/{poolId}/test": {
       "post": {
         "operationId": "MiningGroupService_TestMiningGroupPoolConnection",
@@ -12853,6 +13032,40 @@
             }
           }
         },
+        "tags": [
+          "Mining groups",
+          "CT1"
+        ]
+      }
+    },
+    "/api/v2/mining-groups/default/worker-names": {
+      "post": {
+        "operationId": "MiningGroupService_UpdateDefaultMiningGroupWorkerNames",
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v2UpdateDefaultMiningGroupWorkerNamesRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v2UpdateDefaultMiningGroupWorkerNamesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "summary": "UpdateDefaultMiningGroupWorkerNames atomically updates only reviewed Default\npool usernames. Endpoints, passwords, and other pool settings stay intact.",
         "tags": [
           "Mining groups",
           "CT1"
@@ -15325,6 +15538,7 @@
         "operationId": "SystemService_UpdatePSUFirmware",
         "parameters": [
           {
+            "description": "PSU ID from ListPowerSupplies, or \"*\" for all connected PSUs.\nR2 IDs are canonical slot strings \"1\", \"2\", and \"3\". Empty is invalid.",
             "in": "path",
             "name": "psuId",
             "required": true,
@@ -15345,7 +15559,7 @@
             }
           }
         },
-        "summary": "UpdatePSUFirmware initiates a firmware update on a PSU.",
+        "summary": "UpdatePSUFirmware schedules installed firmware on a selected PSU.\nUse psu_id \"*\" to select all connected PSUs. Acceptance is not completion.",
         "tags": [
           "System"
         ]

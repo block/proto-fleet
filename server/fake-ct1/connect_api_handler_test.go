@@ -17,6 +17,7 @@ import (
 	"github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2/mdkv2connect"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -473,6 +474,130 @@ func TestConnectServesModulePowerFeedReads(t *testing.T) {
 	}
 }
 
+func TestConnectUpdatesDefaultWorkerNamesAtomically(t *testing.T) {
+	srv, state := newConnectTestServer(t)
+	ctx := t.Context()
+	client := mdkv2connect.NewMiningGroupServiceClient(http.DefaultClient, srv.URL)
+	legacy := mdkv2connect.NewPoolServiceClient(http.DefaultClient, srv.URL)
+	mining := mdkv2connect.NewMiningServiceClient(http.DefaultClient, srv.URL)
+	weighted, err := legacy.CreatePool(ctx, connect.NewRequest(&mdk.CreatePoolRequest{Pool: &mdk.Pool{
+		Name: "Weighted", Url: defaultActivePool, Username: "other.worker", Priority: 3,
+		Enabled: true, ShareWeight: proto.Float64(2),
+	}, Password: "weighted-password"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const primaryID, draftID = 1, 3
+	weightedID := weighted.Msg.Pool.Id
+	// Model an older disabled draft with a blank username. The new write must leave it alone.
+	state.mu.Lock()
+	draft := state.pools[draftID]
+	draft.pool.Enabled = false
+	draft.pool.Username = ""
+	state.mu.Unlock()
+	mode, err := client.GetMiningGroupCapability(ctx, connect.NewRequest(&mdk.GetMiningGroupCapabilityRequest{}))
+	if err != nil || !mode.Msg.GetCapability().GetDefaultPoolWorkerNameUpdateSupported() {
+		t.Fatalf("Default worker name capability: %v, %v", mode, err)
+	}
+	if _, err := mining.StopMining(ctx, connect.NewRequest(&mdk.StopMiningRequest{})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.ActivateMiningGroups(ctx, connect.NewRequest(&mdk.ActivateMiningGroupsRequest{
+		ExpectedStateRevision: mode.Msg.Capability.StateRevision, IdempotencyKey: "activate",
+	})); err != nil {
+		t.Fatal(err)
+	}
+	getDefault := func() *mdk.MiningGroupRecord {
+		t.Helper()
+		response, err := client.GetMiningGroup(ctx, connect.NewRequest(&mdk.GetMiningGroupRequest{Id: "default"}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return response.Msg.Group
+	}
+	listPools := func() *mdk.ListPoolsResponse {
+		t.Helper()
+		response, err := legacy.ListPools(ctx, connect.NewRequest(&mdk.ListPoolsRequest{}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return response.Msg
+	}
+	update := func(request *mdk.UpdateDefaultMiningGroupWorkerNamesRequest) (*mdk.UpdateDefaultMiningGroupWorkerNamesResponse, error) {
+		response, err := client.UpdateDefaultMiningGroupWorkerNames(ctx, connect.NewRequest(request))
+		if err != nil {
+			return nil, err
+		}
+		return response.Msg, nil
+	}
+	reviewed := getDefault()
+	before := listPools()
+	request := &mdk.UpdateDefaultMiningGroupWorkerNamesRequest{
+		ExpectedRevision: reviewed.Revision, ExpectedDefaultPoolRevision: reviewed.GetDefaultPoolRevision(), IdempotencyKey: "swap",
+		Updates: []*mdk.DefaultMiningGroupWorkerNameUpdate{{PoolId: primaryID, Username: weighted.Msg.Pool.Username}, {PoolId: weightedID, Username: defaultPoolUsername}},
+	}
+	conflict := proto.CloneOf(request)
+	conflict.Updates = conflict.Updates[:1] // This would give both enabled pools the same URL and username.
+	if _, err := update(conflict); connect.CodeOf(err) != connect.CodeInvalidArgument || !proto.Equal(listPools(), before) {
+		t.Fatalf("conflicting update wrote pool changes or accepted a duplicate: %v", err)
+	}
+	if _, err := legacy.UpdatePool(ctx, connect.NewRequest(&mdk.UpdatePoolRequest{
+		Pool: &mdk.Pool{Id: primaryID}, Password: "rotated-password", UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"id"}},
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := update(request); connect.CodeOf(err) != connect.CodeAborted || !proto.Equal(listPools(), before) {
+		t.Fatalf("stale update changed pool usernames or returned the wrong error: %v", err)
+	}
+
+	request.ExpectedDefaultPoolRevision = getDefault().GetDefaultPoolRevision()
+	state.mu.Lock()
+	state.miningGroups.operations["pending"] = &mdk.MiningGroupOperationRecord{SourceGroupId: "default", Phase: "STOPPING"}
+	state.mu.Unlock()
+	if _, err := update(request); connect.CodeOf(err) != connect.CodeFailedPrecondition || !proto.Equal(listPools(), before) {
+		t.Fatalf("update with a pending transfer changed pool usernames or returned the wrong error: %v", err)
+	}
+	state.mu.Lock()
+	delete(state.miningGroups.operations, "pending")
+	state.mu.Unlock()
+
+	saved, err := update(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pool := range before.Pools {
+		switch pool.Id {
+		case primaryID:
+			pool.Username = weighted.Msg.Pool.Username
+		case weightedID:
+			pool.Username = defaultPoolUsername
+		}
+	}
+	if !proto.Equal(listPools(), before) || !proto.Equal(&mdk.ListPoolsResponse{Pools: saved.Pools}, before) {
+		t.Fatal("username swap changed metadata or left the Default pools inconsistent")
+	}
+	if saved.Group.Revision != request.ExpectedRevision || saved.Group.GetDefaultPoolRevision() != request.ExpectedDefaultPoolRevision+2 {
+		t.Fatal("username swap returned incorrect revisions")
+	}
+	if replay, err := update(request); err != nil || !proto.Equal(saved, replay) {
+		t.Fatalf("lost username update receipt on retry: %v", err)
+	}
+	noChange := proto.CloneOf(request)
+	noChange.IdempotencyKey = "no-change"
+	noChange.ExpectedDefaultPoolRevision = saved.Group.GetDefaultPoolRevision()
+	if same, err := update(noChange); err != nil || !proto.Equal(saved, same) {
+		t.Fatalf("no-op username update changed state: %v", err)
+	}
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.pools[primaryID].password != "rotated-password" || state.pools[weightedID].password != "weighted-password" {
+		t.Fatal("username update lost a stored password")
+	}
+	if state.miningGroups.pools["default"][0].GetPool().GetUsername() != weighted.Msg.Pool.Username {
+		t.Fatal("username update did not reach Default's active pool configuration")
+	}
+}
+
 func TestConnectSelectedBoardPoolAssignment(t *testing.T) {
 	srv, state := newConnectTestServer(t)
 	ctx := t.Context()
@@ -541,6 +666,42 @@ func TestConnectSelectedBoardPoolAssignment(t *testing.T) {
 	if err != nil || pools.Msg.GetPools()[0].Username != "account.region.worker-01" {
 		t.Fatalf("pool readback: %v, %v", pools, err)
 	}
+
+	copyGroup, err := client.CreateMiningGroup(ctx, connect.NewRequest(&mdk.CreateMiningGroupRequest{
+		Metadata: &mdk.MiningGroupMetadata{Name: "New worker"}, IdempotencyKey: "copy-group",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hosted, err := client.GetMiningGroup(ctx, connect.NewRequest(&mdk.GetMiningGroupRequest{Id: started.Msg.Group.Id}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	copyRequest := &mdk.CopyMiningGroupPoolsRequest{
+		GroupId: copyGroup.Msg.Group.Id, ExpectedRevision: copyGroup.Msg.Group.Revision,
+		SourceGroupId: hosted.Msg.Group.Id, SourceExpectedRevision: hosted.Msg.Group.Revision,
+		IdempotencyKey: "copy-hosted",
+		Pools:          []*mdk.MiningGroupPoolCopy{{Source: pools.Msg.Pools[0], Username: "account.new"}},
+	}
+	copied, err := client.CopyMiningGroupPools(ctx, connect.NewRequest(copyRequest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := client.CopyMiningGroupPools(ctx, connect.NewRequest(copyRequest))
+	if err != nil || !proto.Equal(copied.Msg, replayed.Msg) {
+		t.Fatalf("copy replay: %v, %v", replayed, err)
+	}
+	if copied.Msg.Group.Revision != copyGroup.Msg.Group.Revision+1 || len(copied.Msg.Pools) != 1 ||
+		copied.Msg.Pools[0].Id == pools.Msg.Pools[0].Id || copied.Msg.Pools[0].Username != "account.new" {
+		t.Fatalf("unexpected copy receipt: %v", copied.Msg)
+	}
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	saved := state.miningGroups.pools[copyGroup.Msg.Group.Id][0]
+	if saved.GetPassword() != password || state.miningGroups.members[mac].GetGroupId() != hosted.Msg.Group.Id {
+		t.Fatal("copy did not preserve the saved password or changed board membership")
+	}
+
 }
 
 func TestConnectPoolConfigurationMetadata(t *testing.T) {

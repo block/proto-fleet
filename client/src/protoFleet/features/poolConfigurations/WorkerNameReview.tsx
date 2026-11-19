@@ -6,7 +6,8 @@ import { ConfirmationError, useReviewedConfirmation } from "./useReviewedConfirm
 import type { ReviewWorkerNamesResponse } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { useAccountScope } from "@/protoFleet/features/hostedAccounts/AccountScope";
 import { ACCOUNT_READ_TIMEOUT_MS } from "@/protoFleet/features/hostedAccounts/api";
-import { ActionModal } from "@/protoFleet/features/hostedAccounts/components/ActionModal";
+import { useAccountMutation } from "@/protoFleet/features/hostedAccounts/useAccountMutation";
+import { WorkerNameReviewDialog } from "@/shared/components/PoolConfigurations/WorkerNameReviewDialog";
 
 export type WorkerNameUpdateResult = {
   updatedCount: number;
@@ -14,6 +15,13 @@ export type WorkerNameUpdateResult = {
   failedCount: number;
   unknownCount?: number;
   notSubmittedCount?: number;
+};
+
+type Outcome = "submitted" | "unknown" | "failed";
+
+const outcomeLabels: Partial<Record<Outcome, string>> = {
+  submitted: "update submitted",
+  unknown: "confirmation unknown",
 };
 
 export const WorkerNameReview = ({
@@ -30,7 +38,7 @@ export const WorkerNameReview = ({
   const { client, accountId } = usePoolConfigurationClient();
   const confirmation = useReviewedConfirmation();
   const scope = useAccountScope();
-  type Outcome = "submitted" | "unknown" | "failed";
+  const { busy, error, run, clearError } = useAccountMutation();
   const [outcomes, setOutcomes] = useState<Record<string, Outcome>>({});
   const changed = review.reviews.flatMap((item) => item.changes);
   const attempted = Object.keys(outcomes).length > 0;
@@ -53,13 +61,32 @@ export const WorkerNameReview = ({
   };
   if (!confirmation.current()) return null;
   return (
-    <ActionModal
-      title="Review worker names"
-      confirm={attempted ? "Retry confirmation" : "Save and update equipment"}
-      cancel={attempted ? "Close" : "Cancel"}
-      presentation="dialog"
+    <WorkerNameReviewDialog
+      confirm={attempted ? "Retry confirmation" : undefined}
+      cancel={attempted ? "Close" : undefined}
       valid={!!password}
+      busy={busy}
+      error={error}
+      readOnly={scope?.readOnly}
+      summary={
+        <p>
+          Save {changed.length} worker names and reapply each target’s current pool configuration. Pool changes may
+          briefly interrupt mining.
+        </p>
+      }
+      groups={review.reviews.map(({ reviewId, configurationName, changes }) => ({
+        id: reviewId,
+        name: configurationName,
+        status: outcomeLabels[outcomes[reviewId]],
+        changes: changes.map(({ deviceIdentifier, hashboardId, displayName, before, after }) => ({
+          id: `${deviceIdentifier}:${hashboardId}`,
+          label: displayName || (hashboardId ? `Hashboard ${hashboardId}` : deviceIdentifier),
+          before,
+          after,
+        })),
+      }))}
       onDismiss={() => {
+        clearError();
         if (!confirmation.current()) return;
         if (attempted) finish(outcomes);
         else {
@@ -67,73 +94,48 @@ export const WorkerNameReview = ({
           onCancel();
         }
       }}
-      onSubmit={async () => {
-        const completed = { ...outcomes };
-        // After an interrupted batch, an explicit retry resolves only attempted
-        // groups. Untouched groups require a new review and confirmation.
-        const items = review.reviews.filter((item) => !attempted || completed[item.reviewId]);
-        if (!confirmation.current()) return;
-        if (!attempted) {
-          await client.authorizeWorkerNameReviews(
-            { reviewIds: items.map((item) => item.reviewId), password },
-            { signal: scope?.signal, timeoutMs: ACCOUNT_READ_TIMEOUT_MS },
-          );
-        }
-        for (const item of items) {
+      onSubmit={() =>
+        void run(async () => {
+          const completed = { ...outcomes };
+          // After an interrupted batch, an explicit retry resolves only attempted
+          // groups. Untouched groups require a new review and confirmation.
+          const items = review.reviews.filter((item) => !attempted || completed[item.reviewId]);
           if (!confirmation.current()) return;
-          if (completed[item.reviewId] === "submitted") continue;
-          try {
-            const saved = await confirmation.confirm(
-              {
-                reviewId: item.reviewId,
-                configurationId: item.configurationId,
-                name: item.configurationName,
-                kind: "worker_names",
-                deviceIdentifiers: item.changes.map((change) => change.deviceIdentifier),
-              },
-              "",
+          if (!attempted) {
+            await client.authorizeWorkerNameReviews(
+              { reviewIds: items.map((item) => item.reviewId), password },
+              { signal: scope?.signal, timeoutMs: ACCOUNT_READ_TIMEOUT_MS },
             );
-            if (!saved || !confirmation.current()) return;
-            completed[item.reviewId] = "submitted";
-            setOutcomes({ ...completed });
-            void trackPoolOperation(client, accountId, saved.configuration, saved.operationId, [], scope?.signal);
-          } catch (error) {
-            if (!confirmation.current()) return;
-            completed[item.reviewId] = error instanceof ConfirmationError && !error.uncertain ? "failed" : "unknown";
-            setOutcomes({ ...completed });
-            throw error;
           }
-        }
-        finish(completed);
-      }}
+          for (const item of items) {
+            if (!confirmation.current()) return;
+            if (completed[item.reviewId] === "submitted") continue;
+            try {
+              const saved = await confirmation.confirm(
+                {
+                  reviewId: item.reviewId,
+                  configurationId: item.configurationId,
+                  name: item.configurationName,
+                  kind: "worker_names",
+                  deviceIdentifiers: item.changes.map((change) => change.deviceIdentifier),
+                },
+                "",
+              );
+              if (!saved || !confirmation.current()) return;
+              completed[item.reviewId] = "submitted";
+              setOutcomes({ ...completed });
+              void trackPoolOperation(client, accountId, saved.configuration, saved.operationId, [], scope?.signal);
+            } catch (error) {
+              if (!confirmation.current()) return;
+              completed[item.reviewId] = error instanceof ConfirmationError && !error.uncertain ? "failed" : "unknown";
+              setOutcomes({ ...completed });
+              throw error;
+            }
+          }
+          finish(completed);
+        })
+      }
     >
-      <p>
-        Save {changed.length} worker names and reapply each target’s current pool configuration. Pool changes may
-        briefly interrupt mining.
-      </p>
-      <div className="max-h-72 overflow-auto" data-dd-privacy="mask">
-        {review.reviews.map((item) => (
-          <section key={item.reviewId} className="my-4">
-            <h3 className="font-medium">
-              {item.configurationName}
-              {outcomes[item.reviewId] === "submitted"
-                ? " — update submitted"
-                : outcomes[item.reviewId] === "unknown"
-                  ? " — confirmation unknown"
-                  : ""}
-            </h3>
-            <ul>
-              {item.changes.map((change) => (
-                <li key={`${change.deviceIdentifier}:${change.hashboardId}`}>
-                  {change.displayName ||
-                    (change.hashboardId ? `Hashboard ${change.hashboardId}` : change.deviceIdentifier)}
-                  : {change.before || "No worker name"} → {change.after || "No worker name"}
-                </li>
-              ))}
-            </ul>
-          </section>
-        ))}
-      </div>
       {review.failedCount > 0 ? (
         <p role="status">{review.failedCount} worker names could not be generated and will stay unchanged.</p>
       ) : null}
@@ -143,6 +145,6 @@ export const WorkerNameReview = ({
           submitted require a new review.
         </p>
       ) : null}
-    </ActionModal>
+    </WorkerNameReviewDialog>
   );
 };

@@ -5,7 +5,7 @@ import {
   bulkRenameModes,
   type BulkRenamePreferences,
   createDefaultBulkRenamePreferences,
-} from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/bulkRenameDefinitions";
+} from "@/shared/components/BulkRename/bulkRenameDefinitions";
 import type { FleetDuration } from "@/shared/components/DurationSelector";
 import type { TemperatureUnit, Theme, ThemeColor } from "@/shared/features/preferences";
 

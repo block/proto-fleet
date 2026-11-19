@@ -3,8 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"maps"
+	"math"
 	"slices"
 	"strings"
+	"unicode"
 
 	mdk "github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2"
 	"google.golang.org/grpc/codes"
@@ -30,13 +33,22 @@ type miningGroupReceipt struct{ request, response proto.Message }
 func (s *ContainerState) initMiningGroups() *simulatedMiningGroups {
 	if s.miningGroups == nil {
 		now := timestamppb.New(s.now())
-		defaultGroup := &mdk.MiningGroupRecord{Id: "default", Name: "Default", Revision: 1, CreatedAt: now, UpdatedAt: now}
+		defaultGroup := &mdk.MiningGroupRecord{
+			Id: "default", Name: "Default", Revision: 1, DefaultPoolRevision: proto.Int64(s.defaultPoolRevision),
+			CreatedAt: now, UpdatedAt: now,
+		}
 		for _, board := range s.eachBoard() {
 			defaultGroup.DesiredMining = defaultGroup.DesiredMining || board.isMining()
 		}
 		s.miningGroups = &simulatedMiningGroups{
-			capability: &mdk.MiningGroupCapability{Name: "mining-groups-v1", Version: 1, StateRevision: 1, MaxGroups: 289, MaxPoolsPerGroup: 3, MaxBoardsPerGroup: 288, AssignmentGranularity: "PHYSICAL_HASHBOARD", SupportedPllAlgorithms: []string{"NONE"}},
-			groups:     map[string]*mdk.MiningGroupRecord{"default": defaultGroup}, pools: map[string][]*mdk.MiningGroupPoolInput{}, members: map[string]*mdk.MiningGroupMembershipRecord{}, operations: map[string]*mdk.MiningGroupOperationRecord{}, receipts: map[string]miningGroupReceipt{},
+			capability: &mdk.MiningGroupCapability{
+				Name: "mining-groups-v1", Version: 1, StateRevision: 1,
+				MaxGroups: 289, MaxPoolsPerGroup: 3, MaxBoardsPerGroup: 288,
+				PoolCopySupported: true, DefaultPoolWritesSupported: proto.Bool(true),
+				DefaultPoolWorkerNameUpdateSupported: proto.Bool(true),
+				AssignmentGranularity:                "PHYSICAL_HASHBOARD", SupportedPllAlgorithms: []string{"NONE"},
+			},
+			groups: map[string]*mdk.MiningGroupRecord{"default": defaultGroup}, pools: map[string][]*mdk.MiningGroupPoolInput{}, members: map[string]*mdk.MiningGroupMembershipRecord{}, operations: map[string]*mdk.MiningGroupOperationRecord{}, receipts: map[string]miningGroupReceipt{},
 		}
 	}
 	return s.miningGroups
@@ -88,6 +100,20 @@ func (g *simulatedMiningGroups) group(id string, revision int64) (*mdk.MiningGro
 	}
 	return group, nil
 }
+
+func checkDefaultPoolRevision(source *mdk.MiningGroupRecord, expected *int64) error {
+	if expected == nil {
+		return nil
+	}
+	if source.GetId() != "default" || *expected <= 0 {
+		return status.Error(codes.InvalidArgument, "a positive Default pool revision requires a Default source")
+	}
+	if source.GetDefaultPoolRevision() != *expected {
+		return status.Error(codes.Aborted, "Default pool settings changed")
+	}
+	return nil
+}
+
 func (s *ContainerState) touchGroup(group *mdk.MiningGroupRecord) {
 	group.Revision++
 	group.UpdatedAt = timestamppb.New(s.now())
@@ -347,6 +373,135 @@ func (a *grpcAPI) ReplaceMiningGroupPools(ctx context.Context, r *mdk.ReplaceMin
 		return out, nil
 	})
 }
+func (a *grpcAPI) CopyMiningGroupPools(ctx context.Context, r *mdk.CopyMiningGroupPoolsRequest) (*mdk.CopyMiningGroupPoolsResponse, error) {
+	return miningGroupRPC(ctx, a, r.GetIdempotencyKey(), r, func(s *ContainerState, g *simulatedMiningGroups) (*mdk.CopyMiningGroupPoolsResponse, error) {
+		if r.GroupId == "default" || r.GroupId == r.SourceGroupId || r.ExpectedRevision <= 0 ||
+			r.SourceExpectedRevision <= 0 || len(r.Pools) == 0 || len(r.Pools) > int(g.capability.MaxPoolsPerGroup) {
+			return nil, status.Error(codes.InvalidArgument, "distinct groups, positive revisions and reviewed pools required")
+		}
+		group, err := g.group(r.GroupId, r.ExpectedRevision)
+		if err != nil {
+			return nil, err
+		}
+		sourceGroup, err := g.group(r.SourceGroupId, r.SourceExpectedRevision)
+		if err != nil {
+			return nil, err
+		}
+		if sourceGroup.Id == "default" && r.SourceExpectedDefaultPoolRevision == nil {
+			return nil, status.Error(codes.InvalidArgument, "Default source pool revision required")
+		}
+		if err := checkDefaultPoolRevision(sourceGroup, r.SourceExpectedDefaultPoolRevision); err != nil {
+			return nil, err
+		}
+		if len(g.pools[group.Id]) != 0 {
+			return nil, status.Error(codes.FailedPrecondition, "destination already has pools")
+		}
+		for _, member := range g.members {
+			if member.GroupId == group.Id {
+				return nil, status.Error(codes.FailedPrecondition, "destination already has boards")
+			}
+		}
+		// Transfers in this simulator complete synchronously.
+		source := g.pools[r.SourceGroupId]
+		if len(source) != len(r.Pools) {
+			return nil, status.Error(codes.Aborted, "source pools changed")
+		}
+		reviewed := make(map[int32]*mdk.MiningGroupPoolCopy, len(r.Pools))
+		for _, item := range r.Pools {
+			id := item.GetSource().GetId()
+			if id <= 0 || reviewed[id] != nil || strings.TrimSpace(item.GetUsername()) == "" {
+				return nil, status.Error(codes.InvalidArgument, "distinct reviewed pools and usernames required")
+			}
+			reviewed[id] = item
+		}
+		nextID := s.nextPoolID
+		pools := make([]*mdk.MiningGroupPoolInput, 0, len(source))
+		out := &mdk.CopyMiningGroupPoolsResponse{Group: group}
+		for _, saved := range source {
+			item := reviewed[saved.Pool.Id]
+			if !proto.Equal(saved.Pool, item.GetSource()) {
+				return nil, status.Error(codes.Aborted, "source pools changed")
+			}
+			copied := proto.CloneOf(saved)
+			nextID++
+			copied.Pool.Id = int32(nextID)
+			copied.Pool.Username = item.GetUsername()
+			pools = append(pools, copied)
+			out.Pools = append(out.Pools, copied.Pool)
+		}
+		g.pools[group.Id] = pools
+		s.nextPoolID = nextID
+		s.touchGroup(group)
+		return out, nil
+	})
+}
+
+func (a *grpcAPI) UpdateDefaultMiningGroupWorkerNames(ctx context.Context, r *mdk.UpdateDefaultMiningGroupWorkerNamesRequest) (*mdk.UpdateDefaultMiningGroupWorkerNamesResponse, error) {
+	return miningGroupRPC(ctx, a, r.IdempotencyKey, r, func(s *ContainerState, g *simulatedMiningGroups) (*mdk.UpdateDefaultMiningGroupWorkerNamesResponse, error) {
+		if r.ExpectedRevision <= 0 || r.ExpectedDefaultPoolRevision <= 0 || len(r.Updates) == 0 || len(r.Updates) > 48 {
+			return nil, status.Error(codes.InvalidArgument, "positive revisions and one to 48 worker name updates required")
+		}
+		group, err := g.group("default", r.ExpectedRevision)
+		if err != nil {
+			return nil, err
+		}
+		if g.capability.Suspended {
+			return nil, status.Error(codes.FailedPrecondition, "mining groups are suspended")
+		}
+		if err := checkDefaultPoolRevision(group, &r.ExpectedDefaultPoolRevision); err != nil {
+			return nil, err
+		}
+		for _, operation := range g.operations {
+			if (operation.SourceGroupId == group.Id || operation.DestinationGroupId == group.Id) &&
+				operation.Phase != "COMPLETE" && operation.Phase != "FAILED" {
+				return nil, status.Error(codes.FailedPrecondition, "Default has an unfinished mining group operation")
+			}
+		}
+
+		updates := make(map[int64]simulatedPool, len(r.Updates))
+		var changed int64
+		for _, update := range r.Updates {
+			id, username := update.GetPoolId(), update.GetUsername()
+			if id <= 0 || id > math.MaxInt32 || len(username) == 0 || len(username) > 255 ||
+				strings.ContainsFunc(username, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) || r == '\uFEFF' }) {
+				return nil, status.Error(codes.InvalidArgument, "positive pool IDs and nonblank usernames without spaces are required")
+			}
+			if _, duplicate := updates[id]; duplicate {
+				return nil, status.Error(codes.InvalidArgument, "worker name updates require distinct pool IDs")
+			}
+			saved, exists := s.pools[id]
+			if !exists {
+				return nil, status.Error(codes.InvalidArgument, "unknown Default pool ID")
+			}
+			if saved.pool.Username != username {
+				saved.pool = proto.CloneOf(saved.pool)
+				saved.pool.Username = username
+				changed++
+			}
+			updates[id] = saved
+		}
+
+		// Check the resulting enabled pools together, so a username swap remains valid.
+		enabled := make([]*mdk.Pool, 0, len(s.pools))
+		for id, saved := range s.pools {
+			if updated, exists := updates[id]; exists {
+				saved = updated
+			}
+			if saved.pool.Enabled {
+				enabled = append(enabled, saved.pool)
+			}
+		}
+		if hasConflictingEnabledPools(enabled) {
+			return nil, status.Error(codes.InvalidArgument, "enabled pool URL and priority must be unique")
+		}
+		if changed > 0 {
+			maps.Copy(s.pools, updates)
+			s.syncDefaultPools(changed)
+		}
+		return &mdk.UpdateDefaultMiningGroupWorkerNamesResponse{Group: group, Pools: s.storedPools()}, nil
+	})
+}
+
 func (a *grpcAPI) UpdateMiningGroupIntent(ctx context.Context, r *mdk.UpdateMiningGroupIntentRequest) (*mdk.UpdateMiningGroupIntentResponse, error) {
 	return miningGroupRPC(ctx, a, r.IdempotencyKey, r, func(s *ContainerState, g *simulatedMiningGroups) (*mdk.UpdateMiningGroupIntentResponse, error) {
 		if r.Id == "default" {
@@ -383,6 +538,9 @@ func (a *grpcAPI) RequestMiningGroupTransfer(ctx context.Context, r *mdk.Request
 			if r.SourceExpectedRevision <= 0 {
 				return nil, status.Error(codes.InvalidArgument, "source revision required")
 			}
+		}
+		if err := checkDefaultPoolRevision(source, r.SourceExpectedDefaultPoolRevision); err != nil {
+			return nil, err
 		}
 		seen := map[string]bool{}
 		for _, mac := range r.MacAddresses {

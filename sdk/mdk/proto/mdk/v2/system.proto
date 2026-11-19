@@ -52,7 +52,8 @@ service SystemService {
     option (google.api.http) = {get: "/api/v2/system/psu"};
   }
 
-  // UpdatePSUFirmware initiates a firmware update on a PSU.
+  // UpdatePSUFirmware schedules installed firmware on a selected PSU.
+  // Use psu_id "*" to select all connected PSUs. Acceptance is not completion.
   rpc UpdatePSUFirmware(UpdatePSUFirmwareRequest) returns (UpdatePSUFirmwareResponse) {
     option (mdk.v2.product) = PRODUCT_COMMON;
     option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
@@ -709,10 +710,14 @@ message ListPowerSuppliesResponse {
 }
 
 message UpdatePSUFirmwareRequest {
+  // PSU ID from ListPowerSupplies, or "*" for all connected PSUs.
+  // R2 IDs are canonical slot strings "1", "2", and "3". Empty is invalid.
   string psu_id = 1;
 }
 
 message UpdatePSUFirmwareResponse {
+  // All selected commands were scheduled, not necessarily received or flashed.
+  // An unknown outcome must not be treated as a safe-to-retry rejection.
   bool accepted = 1;
   string message = 2;
 }

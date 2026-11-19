@@ -13,7 +13,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file mdk/v2/server_update.proto.
  */
 export const file_mdk_v2_server_update: GenFile = /*@__PURE__*/
-  fileDesc("ChptZGsvdjIvc2VydmVyX3VwZGF0ZS5wcm90bxIGbWRrLnYyIh8KHUdldFNlcnZlclVwZGF0ZVN1cHBvcnRSZXF1ZXN0ItEDCh5HZXRTZXJ2ZXJVcGRhdGVTdXBwb3J0UmVzcG9uc2USEwoLaW5zdGFuY2VfaWQYASABKAkSGAoQcGVlcl9pbnN0YW5jZV9pZBgCIAEoCRIXCg9ydW5uaW5nX3ZlcnNpb24YAyABKAkSFAoMYXJjaGl0ZWN0dXJlGAQgASgJEjkKEWluc3RhbGxhdGlvbl90eXBlGAUgASgOMh4ubWRrLnYyLlNlcnZlckluc3RhbGxhdGlvblR5cGUSGAoQaGVscGVyX2F2YWlsYWJsZRgGIAEoCBIXCg9zdXBwb3J0X21lc3NhZ2UYByABKAkSEgoKY2x1c3Rlcl9pZBgIIAEoCRIVCg1hY3RpdmVfam9iX2lkGAkgASgJEhgKEHNwb29sX2ZyZWVfYnl0ZXMYCiABKAMSGgoSZXRjZF9tZW1iZXJzX3RvdGFsGAsgASgNEhwKFGV0Y2RfbWVtYmVyc19oZWFsdGh5GAwgASgNEh8KF3RydXN0ZWRfcmVsZWFzZV9rZXlfaWRzGA0gAygJEiMKG3NlbGZfY29vcmRpbmF0aW9uX3N1cHBvcnRlZBgOIAEoCBIeChZyZW1vdGVfdHJpZ2dlcl9hbGxvd2VkGA8gASgIIqcEChRTZXJ2ZXJVcGRhdGVNYW5pZmVzdBIOCgZqb2JfaWQYASABKAkSDwoHc2l0ZV9pZBgCIAEoCRIUCgxjb250YWluZXJfaWQYAyABKAkSEwoLaW5zdGFuY2VfaWQYBCABKAkSHQoVZXhwZWN0ZWRfaW5zdGFuY2VfaWRzGAUgAygJEhMKC3JlbGVhc2VfdGFnGAYgASgJEhYKDnRhcmdldF92ZXJzaW9uGAcgASgJEhAKCGFzc2V0X2lkGAggASgDEhIKCmFzc2V0X25hbWUYCSABKAkSDgoGc2hhMjU2GAogASgJEhIKCnNpemVfYnl0ZXMYCyABKAMSDQoFYWN0b3IYDCABKAkSGQoRbWFpbnRlbmFuY2VfdG9rZW4YDSABKAkSGAoQZmxvdGlsbGFfYWRkcmVzcxgOIAEoCRIXCg90bHNfc2VydmVyX25hbWUYDyABKAkSFAoMcm9vdF9jYV9maWxlGBAgASgJEh8KF2NsaWVudF9jZXJ0aWZpY2F0ZV9maWxlGBEgASgJEhcKD2NsaWVudF9rZXlfZmlsZRgSIAEoCRISCgpzaXRlX3Rva2VuGBMgASgJEjYKDGNvb3JkaW5hdGlvbhgUIAEoDjIgLm1kay52Mi5TZXJ2ZXJVcGRhdGVDb29yZGluYXRpb24SGQoRcmVsZWFzZV9zdGF0ZW1lbnQYFSABKAwSGQoRcmVsZWFzZV9zaWduYXR1cmUYFiABKAwirQIKGFN0YXJ0U2VydmVyVXBkYXRlUmVxdWVzdBIOCgZqb2JfaWQYASABKAkSFgoOdGFyZ2V0X3ZlcnNpb24YAiABKAkSHQoVZXhwZWN0ZWRfaW5zdGFuY2VfaWRzGAMgAygJEhIKCnN0YWdlX29ubHkYBCABKAgSFwoPaWRlbXBvdGVuY3lfa2V5GAUgASgJEl4KGGV4cGVjdGVkX21hbmlmZXN0X3NoYTI1NhgGIAMoCzI8Lm1kay52Mi5TdGFydFNlcnZlclVwZGF0ZVJlcXVlc3QuRXhwZWN0ZWRNYW5pZmVzdFNoYTI1NkVudHJ5Gj0KG0V4cGVjdGVkTWFuaWZlc3RTaGEyNTZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIkkKGVN0YXJ0U2VydmVyVXBkYXRlUmVzcG9uc2USLAoHcm9sbG91dBgBIAEoCzIbLm1kay52Mi5TZXJ2ZXJVcGRhdGVSb2xsb3V0Ii4KHEdldFNlcnZlclVwZGF0ZVN0YXR1c1JlcXVlc3QSDgoGam9iX2lkGAEgASgJImwKHUdldFNlcnZlclVwZGF0ZVN0YXR1c1Jlc3BvbnNlEiwKB3JvbGxvdXQYASABKAsyGy5tZGsudjIuU2VydmVyVXBkYXRlUm9sbG91dBIdChVzZXJ2ZWRfYnlfbWFpbnRlbmFuY2UYAiABKAgiQwoYUmV0cnlTZXJ2ZXJVcGRhdGVSZXF1ZXN0Eg4KBmpvYl9pZBgBIAEoCRIXCg9pZGVtcG90ZW5jeV9rZXkYAiABKAkiSQoZUmV0cnlTZXJ2ZXJVcGRhdGVSZXNwb25zZRIsCgdyb2xsb3V0GAEgASgLMhsubWRrLnYyLlNlcnZlclVwZGF0ZVJvbGxvdXQiRAoZQ2FuY2VsU2VydmVyVXBkYXRlUmVxdWVzdBIOCgZqb2JfaWQYASABKAkSFwoPaWRlbXBvdGVuY3lfa2V5GAIgASgJIkoKGkNhbmNlbFNlcnZlclVwZGF0ZVJlc3BvbnNlEiwKB3JvbGxvdXQYASABKAsyGy5tZGsudjIuU2VydmVyVXBkYXRlUm9sbG91dCKxBQoTU2VydmVyVXBkYXRlUm9sbG91dBIOCgZqb2JfaWQYASABKAkSFgoOdGFyZ2V0X3ZlcnNpb24YAiABKAkSLwoFcGhhc2UYAyABKA4yIC5tZGsudjIuU2VydmVyVXBkYXRlUm9sbG91dFBoYXNlEjcKCWluc3RhbmNlcxgEIAMoCzIkLm1kay52Mi5TZXJ2ZXJVcGRhdGVJbnN0YW5jZVByb2dyZXNzEhoKEmRyaXZlcl9pbnN0YW5jZV9pZBgFIAEoCRImCh5taWdyYXRpb25fZXhlY3V0b3JfaW5zdGFuY2VfaWQYBiABKAkSEgoKZXJyb3JfY29kZRgHIAEoCRIVCg1lcnJvcl9tZXNzYWdlGAggASgJEhEKCW5leHRfc3RlcBgJIAEoCRISCgpzdGFnZV9vbmx5GAogASgIEhoKEmRpc3J1cHRpb25fc3RhcnRlZBgLIAEoCBIRCglyZXRyeWFibGUYDCABKAgSEwoLY2FuY2VsbGFibGUYDSABKAgSGQoRYXV0b21hdGljX3JldHJpZXMYDiABKA0SDQoFYWN0b3IYDyABKAkSLgoKY3JlYXRlZF9hdBgQIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgRIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKc3RvcHBlZF9hdBgSIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKZXhwaXJlc19hdBgTIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASFAoMZnJvbV92ZXJzaW9uGBQgASgJEhYKDnBhY2thZ2Vfc2hhMjU2GBUgASgJEhYKDnJlbGVhc2Vfa2V5X2lkGBYgASgJIqUCChxTZXJ2ZXJVcGRhdGVJbnN0YW5jZVByb2dyZXNzEhMKC2luc3RhbmNlX2lkGAEgASgJEi4KBXBoYXNlGAIgASgOMh8ubWRrLnYyLkZyaWdhdGVVcGRhdGVBZ2VudFBoYXNlEjAKDGxhc3RfY29udGFjdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASFwoPcnVubmluZ192ZXJzaW9uGAQgASgJEhoKEm1pZ3JhdGlvbl9leGVjdXRlZBgFIAEoCBISCgplcnJvcl9jb2RlGAYgASgJEhUKDWVycm9yX21lc3NhZ2UYByABKAkSFwoPbWFuaWZlc3Rfc2hhMjU2GAggASgJEhUKDWNvbnRhY3Rfc3RhbGUYCSABKAgiaAoYU3RhZ2VTZXJ2ZXJVcGRhdGVSZXF1ZXN0EjAKCG1hbmlmZXN0GAEgASgLMhwubWRrLnYyLlNlcnZlclVwZGF0ZU1hbmlmZXN0SAASDwoFY2h1bmsYAiABKAxIAEIJCgdwYXlsb2FkIlEKGVN0YWdlU2VydmVyVXBkYXRlUmVzcG9uc2USDgoGam9iX2lkGAEgASgJEhQKDGJ5dGVzX3N0YWdlZBgCIAEoAxIOCgZzaGEyNTYYAyABKAkiTwodQmVnaW5TZXJ2ZXJVcGRhdGVTdGFnZVJlcXVlc3QSLgoIbWFuaWZlc3QYASABKAsyHC5tZGsudjIuU2VydmVyVXBkYXRlTWFuaWZlc3QiaAoeQXBwZW5kU2VydmVyVXBkYXRlU3RhZ2VSZXF1ZXN0Eg4KBmpvYl9pZBgBIAEoCRIXCg9tYW5pZmVzdF9zaGEyNTYYAiABKAkSDgoGb2Zmc2V0GAMgASgDEg0KBWNodW5rGAQgASgMIkkKHkNvbW1pdFNlcnZlclVwZGF0ZVN0YWdlUmVxdWVzdBIOCgZqb2JfaWQYASABKAkSFwoPbWFuaWZlc3Rfc2hhMjU2GAIgASgJIkgKHUFib3J0U2VydmVyVXBkYXRlU3RhZ2VSZXF1ZXN0Eg4KBmpvYl9pZBgBIAEoCRIXCg9tYW5pZmVzdF9zaGEyNTYYAiABKAkiIAoeQWJvcnRTZXJ2ZXJVcGRhdGVTdGFnZVJlc3BvbnNlInIKHkJlZ2luU2VydmVyVXBkYXRlU3RhZ2VSZXNwb25zZRIOCgZqb2JfaWQYASABKAkSFwoPbWFuaWZlc3Rfc2hhMjU2GAIgASgJEhMKC25leHRfb2Zmc2V0GAMgASgDEhIKCnNpemVfYnl0ZXMYBCABKAMicwofQXBwZW5kU2VydmVyVXBkYXRlU3RhZ2VSZXNwb25zZRIOCgZqb2JfaWQYASABKAkSFwoPbWFuaWZlc3Rfc2hhMjU2GAIgASgJEhMKC25leHRfb2Zmc2V0GAMgASgDEhIKCnNpemVfYnl0ZXMYBCABKAMiVwofQ29tbWl0U2VydmVyVXBkYXRlU3RhZ2VSZXNwb25zZRIOCgZqb2JfaWQYASABKAkSFAoMYnl0ZXNfc3RhZ2VkGAIgASgDEg4KBnNoYTI1NhgDIAEoCSK+AgoYRnJpZ2F0ZVVwZGF0ZUFnZW50U3RhdHVzEg4KBmpvYl9pZBgBIAEoCRIPCgdzaXRlX2lkGAIgASgJEhQKDGNvbnRhaW5lcl9pZBgDIAEoCRITCgtpbnN0YW5jZV9pZBgEIAEoCRIZChFtYWludGVuYW5jZV90b2tlbhgFIAEoCRIuCgVwaGFzZRgGIAEoDjIfLm1kay52Mi5GcmlnYXRlVXBkYXRlQWdlbnRQaGFzZRIXCg9ydW5uaW5nX3ZlcnNpb24YByABKAkSGgoSbWlncmF0aW9uX2V4ZWN1dGVkGAggASgIEg0KBWVycm9yGAkgASgJEi4KCnVwZGF0ZWRfYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhcKD21hbmlmZXN0X3NoYTI1NhgLIAEoCSJ6ChlGcmlnYXRlVXBkYXRlQWdlbnRDb21tYW5kEjAKBmFjdGlvbhgBIAEoDjIgLm1kay52Mi5GcmlnYXRlVXBkYXRlQWdlbnRBY3Rpb24SDwoHbWVzc2FnZRgCIAEoCRIaChJwb2xsX2FmdGVyX3NlY29uZHMYAyABKA0qmwEKFlNlcnZlckluc3RhbGxhdGlvblR5cGUSKAokU0VSVkVSX0lOU1RBTExBVElPTl9UWVBFX1VOU1BFQ0lGSUVEEAASKwonU0VSVkVSX0lOU1RBTExBVElPTl9UWVBFX0RFQklBTl9QQUNLQUdFEAESKgomU0VSVkVSX0lOU1RBTExBVElPTl9UWVBFX0RJUkVDVF9CSU5BUlkQAirhAgoXRnJpZ2F0ZVVwZGF0ZUFnZW50UGhhc2USKgomRlJJR0FURV9VUERBVEVfQUdFTlRfUEhBU0VfVU5TUEVDSUZJRUQQABIpCiVGUklHQVRFX1VQREFURV9BR0VOVF9QSEFTRV9DT05ORUNUSU5HEAESJQohRlJJR0FURV9VUERBVEVfQUdFTlRfUEhBU0VfU1RBR0VEEAISJgoiRlJJR0FURV9VUERBVEVfQUdFTlRfUEhBU0VfU1RPUFBFRBADEigKJEZSSUdBVEVfVVBEQVRFX0FHRU5UX1BIQVNFX0lOU1RBTExFRBAEEicKI0ZSSUdBVEVfVVBEQVRFX0FHRU5UX1BIQVNFX01JR1JBVEVEEAUSJgoiRlJJR0FURV9VUERBVEVfQUdFTlRfUEhBU0VfU1RBUlRFRBAGEiUKIUZSSUdBVEVfVVBEQVRFX0FHRU5UX1BIQVNFX0ZBSUxFRBAHKrICChhGcmlnYXRlVXBkYXRlQWdlbnRBY3Rpb24SKwonRlJJR0FURV9VUERBVEVfQUdFTlRfQUNUSU9OX1VOU1BFQ0lGSUVEEAASJAogRlJJR0FURV9VUERBVEVfQUdFTlRfQUNUSU9OX1dBSVQQARIkCiBGUklHQVRFX1VQREFURV9BR0VOVF9BQ1RJT05fU1RPUBACEicKI0ZSSUdBVEVfVVBEQVRFX0FHRU5UX0FDVElPTl9JTlNUQUxMEAMSJwojRlJJR0FURV9VUERBVEVfQUdFTlRfQUNUSU9OX01JR1JBVEUQBBIlCiFGUklHQVRFX1VQREFURV9BR0VOVF9BQ1RJT05fU1RBUlQQBRIkCiBGUklHQVRFX1VQREFURV9BR0VOVF9BQ1RJT05fRVhJVBAGKmsKGFNlcnZlclVwZGF0ZUNvb3JkaW5hdGlvbhIqCiZTRVJWRVJfVVBEQVRFX0NPT1JESU5BVElPTl9VTlNQRUNJRklFRBAAEiMKH1NFUlZFUl9VUERBVEVfQ09PUkRJTkFUSU9OX1NFTEYQASrwAwoYU2VydmVyVXBkYXRlUm9sbG91dFBoYXNlEisKJ1NFUlZFUl9VUERBVEVfUk9MTE9VVF9QSEFTRV9VTlNQRUNJRklFRBAAEikKJVNFUlZFUl9VUERBVEVfUk9MTE9VVF9QSEFTRV9WRVJJRllJTkcQARIoCiRTRVJWRVJfVVBEQVRFX1JPTExPVVRfUEhBU0VfU1RPUFBJTkcQAhIqCiZTRVJWRVJfVVBEQVRFX1JPTExPVVRfUEhBU0VfSU5TVEFMTElORxADEikKJVNFUlZFUl9VUERBVEVfUk9MTE9VVF9QSEFTRV9NSUdSQVRJTkcQBBIoCiRTRVJWRVJfVVBEQVRFX1JPTExPVVRfUEhBU0VfU1RBUlRJTkcQBRIpCiVTRVJWRVJfVVBEQVRFX1JPTExPVVRfUEhBU0VfU1VDQ0VFREVEEAYSJgoiU0VSVkVSX1VQREFURV9ST0xMT1VUX1BIQVNFX0ZBSUxFRBAHEikKJVNFUlZFUl9VUERBVEVfUk9MTE9VVF9QSEFTRV9DQU5DRUxMRUQQCBIoCiRTRVJWRVJfVVBEQVRFX1JPTExPVVRfUEhBU0VfVkVSSUZJRUQQCRIpCiVTRVJWRVJfVVBEQVRFX1JPTExPVVRfUEhBU0VfQUJBTkRPTkVEEAoy3wgKE1NlcnZlclVwZGF0ZVNlcnZpY2UScQoWR2V0U2VydmVyVXBkYXRlU3VwcG9ydBIlLm1kay52Mi5HZXRTZXJ2ZXJVcGRhdGVTdXBwb3J0UmVxdWVzdBomLm1kay52Mi5HZXRTZXJ2ZXJVcGRhdGVTdXBwb3J0UmVzcG9uc2UiCIC1GAKItRgBEmQKEVN0YWdlU2VydmVyVXBkYXRlEiAubWRrLnYyLlN0YWdlU2VydmVyVXBkYXRlUmVxdWVzdBohLm1kay52Mi5TdGFnZVNlcnZlclVwZGF0ZVJlc3BvbnNlIgiAtRgCiLUYAigBEnEKFkJlZ2luU2VydmVyVXBkYXRlU3RhZ2USJS5tZGsudjIuQmVnaW5TZXJ2ZXJVcGRhdGVTdGFnZVJlcXVlc3QaJi5tZGsudjIuQmVnaW5TZXJ2ZXJVcGRhdGVTdGFnZVJlc3BvbnNlIgiAtRgCiLUYAhJ0ChdBcHBlbmRTZXJ2ZXJVcGRhdGVTdGFnZRImLm1kay52Mi5BcHBlbmRTZXJ2ZXJVcGRhdGVTdGFnZVJlcXVlc3QaJy5tZGsudjIuQXBwZW5kU2VydmVyVXBkYXRlU3RhZ2VSZXNwb25zZSIIgLUYAoi1GAISdAoXQ29tbWl0U2VydmVyVXBkYXRlU3RhZ2USJi5tZGsudjIuQ29tbWl0U2VydmVyVXBkYXRlU3RhZ2VSZXF1ZXN0GicubWRrLnYyLkNvbW1pdFNlcnZlclVwZGF0ZVN0YWdlUmVzcG9uc2UiCIC1GAKItRgCEnEKFkFib3J0U2VydmVyVXBkYXRlU3RhZ2USJS5tZGsudjIuQWJvcnRTZXJ2ZXJVcGRhdGVTdGFnZVJlcXVlc3QaJi5tZGsudjIuQWJvcnRTZXJ2ZXJVcGRhdGVTdGFnZVJlc3BvbnNlIgiAtRgCiLUYAhJiChFTdGFydFNlcnZlclVwZGF0ZRIgLm1kay52Mi5TdGFydFNlcnZlclVwZGF0ZVJlcXVlc3QaIS5tZGsudjIuU3RhcnRTZXJ2ZXJVcGRhdGVSZXNwb25zZSIIgLUYAoi1GAISbgoVR2V0U2VydmVyVXBkYXRlU3RhdHVzEiQubWRrLnYyLkdldFNlcnZlclVwZGF0ZVN0YXR1c1JlcXVlc3QaJS5tZGsudjIuR2V0U2VydmVyVXBkYXRlU3RhdHVzUmVzcG9uc2UiCIC1GAKItRgBEmIKEVJldHJ5U2VydmVyVXBkYXRlEiAubWRrLnYyLlJldHJ5U2VydmVyVXBkYXRlUmVxdWVzdBohLm1kay52Mi5SZXRyeVNlcnZlclVwZGF0ZVJlc3BvbnNlIgiAtRgCiLUYAhJlChJDYW5jZWxTZXJ2ZXJVcGRhdGUSIS5tZGsudjIuQ2FuY2VsU2VydmVyVXBkYXRlUmVxdWVzdBoiLm1kay52Mi5DYW5jZWxTZXJ2ZXJVcGRhdGVSZXNwb25zZSIIgLUYAoi1GAIycgofRnJpZ2F0ZVVwZGF0ZU1haW50ZW5hbmNlU2VydmljZRJPCghFeGNoYW5nZRIgLm1kay52Mi5GcmlnYXRlVXBkYXRlQWdlbnRTdGF0dXMaIS5tZGsudjIuRnJpZ2F0ZVVwZGF0ZUFnZW50Q29tbWFuZEKVAQoKY29tLm1kay52MkIRU2VydmVyVXBkYXRlUHJvdG9QAVo7Z2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZGsvbWRrL2dlbmVyYXRlZC9tZGsvdjI7bWRrdjKiAgNNWFiqAgZNZGsuVjLKAgZNZGtcVjLiAhJNZGtcVjJcR1BCTWV0YWRhdGHqAgdNZGs6OlYyYgZwcm90bzM", [file_google_protobuf_timestamp, file_mdk_v2_options]);
+  fileDesc("ChptZGsvdjIvc2VydmVyX3VwZGF0ZS5wcm90bxIGbWRrLnYyIh8KHUdldFNlcnZlclVwZGF0ZVN1cHBvcnRSZXF1ZXN0IsQFCh5HZXRTZXJ2ZXJVcGRhdGVTdXBwb3J0UmVzcG9uc2USEwoLaW5zdGFuY2VfaWQYASABKAkSGAoQcGVlcl9pbnN0YW5jZV9pZBgCIAEoCRIXCg9ydW5uaW5nX3ZlcnNpb24YAyABKAkSFAoMYXJjaGl0ZWN0dXJlGAQgASgJEjkKEWluc3RhbGxhdGlvbl90eXBlGAUgASgOMh4ubWRrLnYyLlNlcnZlckluc3RhbGxhdGlvblR5cGUSGAoQaGVscGVyX2F2YWlsYWJsZRgGIAEoCBIXCg9zdXBwb3J0X21lc3NhZ2UYByABKAkSEgoKY2x1c3Rlcl9pZBgIIAEoCRIVCg1hY3RpdmVfam9iX2lkGAkgASgJEhgKEHNwb29sX2ZyZWVfYnl0ZXMYCiABKAMSGgoSZXRjZF9tZW1iZXJzX3RvdGFsGAsgASgNEhwKFGV0Y2RfbWVtYmVyc19oZWFsdGh5GAwgASgNEh8KF3RydXN0ZWRfcmVsZWFzZV9rZXlfaWRzGA0gAygJEiMKG3NlbGZfY29vcmRpbmF0aW9uX3N1cHBvcnRlZBgOIAEoCBIeChZyZW1vdGVfdHJpZ2dlcl9hbGxvd2VkGA8gASgIEiIKGnByb3RvX29zX3BhY2thZ2Vfc3VwcG9ydGVkGBAgASgIEiIKGnByb3RvX29zX2luc3RhbGxlZF92ZXJzaW9uGBEgASgJEjQKD3Byb3RvX29zX3NlcnZlZBgSIAEoCzIbLm1kay52Mi5Qcm90b09TQnVuZGxlU3RhdHVzEi8KDHByb3RvX29zX2pvYhgTIAEoCzIZLm1kay52Mi5Qcm90b09TUGFja2FnZUpvYhIgChhwcm90b19vc19zdXBwb3J0X21lc3NhZ2UYFCABKAkSIAoYcHJvdG9fb3Nfc2lnbmVkX3BhY2thZ2VzGBUgASgIIrIBChNQcm90b09TQnVuZGxlU3RhdHVzEisKBnNvdXJjZRgBIAEoDjIbLm1kay52Mi5Qcm90b09TQnVuZGxlU291cmNlEhMKC3JlbGVhc2VfdGFnGAIgASgJEhYKDnJlbGVhc2VfY29tbWl0GAMgASgJEhIKCmdlbmVyYXRpb24YBCABKAkSLQoJbG9hZGVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCLAAQoRUHJvdG9PU1BhY2thZ2VKb2ISDgoGam9iX2lkGAEgASgJEhMKC3JlbGVhc2VfdGFnGAIgASgJEhYKDnRhcmdldF92ZXJzaW9uGAMgASgJEi0KBXN0YXRlGAQgASgOMh4ubWRrLnYyLlByb3RvT1NQYWNrYWdlSm9iU3RhdGUSDwoHbWVzc2FnZRgFIAEoCRIuCgp1cGRhdGVkX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCLVBAoUU2VydmVyVXBkYXRlTWFuaWZlc3QSDgoGam9iX2lkGAEgASgJEg8KB3NpdGVfaWQYAiABKAkSFAoMY29udGFpbmVyX2lkGAMgASgJEhMKC2luc3RhbmNlX2lkGAQgASgJEh0KFWV4cGVjdGVkX2luc3RhbmNlX2lkcxgFIAMoCRITCgtyZWxlYXNlX3RhZxgGIAEoCRIWCg50YXJnZXRfdmVyc2lvbhgHIAEoCRIQCghhc3NldF9pZBgIIAEoAxISCgphc3NldF9uYW1lGAkgASgJEg4KBnNoYTI1NhgKIAEoCRISCgpzaXplX2J5dGVzGAsgASgDEg0KBWFjdG9yGAwgASgJEhkKEW1haW50ZW5hbmNlX3Rva2VuGA0gASgJEhgKEGZsb3RpbGxhX2FkZHJlc3MYDiABKAkSFwoPdGxzX3NlcnZlcl9uYW1lGA8gASgJEhQKDHJvb3RfY2FfZmlsZRgQIAEoCRIfChdjbGllbnRfY2VydGlmaWNhdGVfZmlsZRgRIAEoCRIXCg9jbGllbnRfa2V5X2ZpbGUYEiABKAkSEgoKc2l0ZV90b2tlbhgTIAEoCRI2Cgxjb29yZGluYXRpb24YFCABKA4yIC5tZGsudjIuU2VydmVyVXBkYXRlQ29vcmRpbmF0aW9uEhkKEXJlbGVhc2Vfc3RhdGVtZW50GBUgASgMEhkKEXJlbGVhc2Vfc2lnbmF0dXJlGBYgASgMEiwKB3BhY2thZ2UYFyABKA4yGy5tZGsudjIuU2VydmVyVXBkYXRlUGFja2FnZSKtAgoYU3RhcnRTZXJ2ZXJVcGRhdGVSZXF1ZXN0Eg4KBmpvYl9pZBgBIAEoCRIWCg50YXJnZXRfdmVyc2lvbhgCIAEoCRIdChVleHBlY3RlZF9pbnN0YW5jZV9pZHMYAyADKAkSEgoKc3RhZ2Vfb25seRgEIAEoCBIXCg9pZGVtcG90ZW5jeV9rZXkYBSABKAkSXgoYZXhwZWN0ZWRfbWFuaWZlc3Rfc2hhMjU2GAYgAygLMjwubWRrLnYyLlN0YXJ0U2VydmVyVXBkYXRlUmVxdWVzdC5FeHBlY3RlZE1hbmlmZXN0U2hhMjU2RW50cnkaPQobRXhwZWN0ZWRNYW5pZmVzdFNoYTI1NkVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiSQoZU3RhcnRTZXJ2ZXJVcGRhdGVSZXNwb25zZRIsCgdyb2xsb3V0GAEgASgLMhsubWRrLnYyLlNlcnZlclVwZGF0ZVJvbGxvdXQiLgocR2V0U2VydmVyVXBkYXRlU3RhdHVzUmVxdWVzdBIOCgZqb2JfaWQYASABKAkibAodR2V0U2VydmVyVXBkYXRlU3RhdHVzUmVzcG9uc2USLAoHcm9sbG91dBgBIAEoCzIbLm1kay52Mi5TZXJ2ZXJVcGRhdGVSb2xsb3V0Eh0KFXNlcnZlZF9ieV9tYWludGVuYW5jZRgCIAEoCCJDChhSZXRyeVNlcnZlclVwZGF0ZVJlcXVlc3QSDgoGam9iX2lkGAEgASgJEhcKD2lkZW1wb3RlbmN5X2tleRgCIAEoCSJJChlSZXRyeVNlcnZlclVwZGF0ZVJlc3BvbnNlEiwKB3JvbGxvdXQYASABKAsyGy5tZGsudjIuU2VydmVyVXBkYXRlUm9sbG91dCJEChlDYW5jZWxTZXJ2ZXJVcGRhdGVSZXF1ZXN0Eg4KBmpvYl9pZBgBIAEoCRIXCg9pZGVtcG90ZW5jeV9rZXkYAiABKAkiSgoaQ2FuY2VsU2VydmVyVXBkYXRlUmVzcG9uc2USLAoHcm9sbG91dBgBIAEoCzIbLm1kay52Mi5TZXJ2ZXJVcGRhdGVSb2xsb3V0IrEFChNTZXJ2ZXJVcGRhdGVSb2xsb3V0Eg4KBmpvYl9pZBgBIAEoCRIWCg50YXJnZXRfdmVyc2lvbhgCIAEoCRIvCgVwaGFzZRgDIAEoDjIgLm1kay52Mi5TZXJ2ZXJVcGRhdGVSb2xsb3V0UGhhc2USNwoJaW5zdGFuY2VzGAQgAygLMiQubWRrLnYyLlNlcnZlclVwZGF0ZUluc3RhbmNlUHJvZ3Jlc3MSGgoSZHJpdmVyX2luc3RhbmNlX2lkGAUgASgJEiYKHm1pZ3JhdGlvbl9leGVjdXRvcl9pbnN0YW5jZV9pZBgGIAEoCRISCgplcnJvcl9jb2RlGAcgASgJEhUKDWVycm9yX21lc3NhZ2UYCCABKAkSEQoJbmV4dF9zdGVwGAkgASgJEhIKCnN0YWdlX29ubHkYCiABKAgSGgoSZGlzcnVwdGlvbl9zdGFydGVkGAsgASgIEhEKCXJldHJ5YWJsZRgMIAEoCBITCgtjYW5jZWxsYWJsZRgNIAEoCBIZChFhdXRvbWF0aWNfcmV0cmllcxgOIAEoDRINCgVhY3RvchgPIAEoCRIuCgpjcmVhdGVkX2F0GBAgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgp1cGRhdGVkX2F0GBEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgpzdG9wcGVkX2F0GBIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgpleHBpcmVzX2F0GBMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIUCgxmcm9tX3ZlcnNpb24YFCABKAkSFgoOcGFja2FnZV9zaGEyNTYYFSABKAkSFgoOcmVsZWFzZV9rZXlfaWQYFiABKAkipQIKHFNlcnZlclVwZGF0ZUluc3RhbmNlUHJvZ3Jlc3MSEwoLaW5zdGFuY2VfaWQYASABKAkSLgoFcGhhc2UYAiABKA4yHy5tZGsudjIuRnJpZ2F0ZVVwZGF0ZUFnZW50UGhhc2USMAoMbGFzdF9jb250YWN0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIXCg9ydW5uaW5nX3ZlcnNpb24YBCABKAkSGgoSbWlncmF0aW9uX2V4ZWN1dGVkGAUgASgIEhIKCmVycm9yX2NvZGUYBiABKAkSFQoNZXJyb3JfbWVzc2FnZRgHIAEoCRIXCg9tYW5pZmVzdF9zaGEyNTYYCCABKAkSFQoNY29udGFjdF9zdGFsZRgJIAEoCCJoChhTdGFnZVNlcnZlclVwZGF0ZVJlcXVlc3QSMAoIbWFuaWZlc3QYASABKAsyHC5tZGsudjIuU2VydmVyVXBkYXRlTWFuaWZlc3RIABIPCgVjaHVuaxgCIAEoDEgAQgkKB3BheWxvYWQiUQoZU3RhZ2VTZXJ2ZXJVcGRhdGVSZXNwb25zZRIOCgZqb2JfaWQYASABKAkSFAoMYnl0ZXNfc3RhZ2VkGAIgASgDEg4KBnNoYTI1NhgDIAEoCSJPCh1CZWdpblNlcnZlclVwZGF0ZVN0YWdlUmVxdWVzdBIuCghtYW5pZmVzdBgBIAEoCzIcLm1kay52Mi5TZXJ2ZXJVcGRhdGVNYW5pZmVzdCJoCh5BcHBlbmRTZXJ2ZXJVcGRhdGVTdGFnZVJlcXVlc3QSDgoGam9iX2lkGAEgASgJEhcKD21hbmlmZXN0X3NoYTI1NhgCIAEoCRIOCgZvZmZzZXQYAyABKAMSDQoFY2h1bmsYBCABKAwiSQoeQ29tbWl0U2VydmVyVXBkYXRlU3RhZ2VSZXF1ZXN0Eg4KBmpvYl9pZBgBIAEoCRIXCg9tYW5pZmVzdF9zaGEyNTYYAiABKAkiSAodQWJvcnRTZXJ2ZXJVcGRhdGVTdGFnZVJlcXVlc3QSDgoGam9iX2lkGAEgASgJEhcKD21hbmlmZXN0X3NoYTI1NhgCIAEoCSIgCh5BYm9ydFNlcnZlclVwZGF0ZVN0YWdlUmVzcG9uc2UicgoeQmVnaW5TZXJ2ZXJVcGRhdGVTdGFnZVJlc3BvbnNlEg4KBmpvYl9pZBgBIAEoCRIXCg9tYW5pZmVzdF9zaGEyNTYYAiABKAkSEwoLbmV4dF9vZmZzZXQYAyABKAMSEgoKc2l6ZV9ieXRlcxgEIAEoAyJzCh9BcHBlbmRTZXJ2ZXJVcGRhdGVTdGFnZVJlc3BvbnNlEg4KBmpvYl9pZBgBIAEoCRIXCg9tYW5pZmVzdF9zaGEyNTYYAiABKAkSEwoLbmV4dF9vZmZzZXQYAyABKAMSEgoKc2l6ZV9ieXRlcxgEIAEoAyJXCh9Db21taXRTZXJ2ZXJVcGRhdGVTdGFnZVJlc3BvbnNlEg4KBmpvYl9pZBgBIAEoCRIUCgxieXRlc19zdGFnZWQYAiABKAMSDgoGc2hhMjU2GAMgASgJIr4CChhGcmlnYXRlVXBkYXRlQWdlbnRTdGF0dXMSDgoGam9iX2lkGAEgASgJEg8KB3NpdGVfaWQYAiABKAkSFAoMY29udGFpbmVyX2lkGAMgASgJEhMKC2luc3RhbmNlX2lkGAQgASgJEhkKEW1haW50ZW5hbmNlX3Rva2VuGAUgASgJEi4KBXBoYXNlGAYgASgOMh8ubWRrLnYyLkZyaWdhdGVVcGRhdGVBZ2VudFBoYXNlEhcKD3J1bm5pbmdfdmVyc2lvbhgHIAEoCRIaChJtaWdyYXRpb25fZXhlY3V0ZWQYCCABKAgSDQoFZXJyb3IYCSABKAkSLgoKdXBkYXRlZF9hdBgKIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASFwoPbWFuaWZlc3Rfc2hhMjU2GAsgASgJInoKGUZyaWdhdGVVcGRhdGVBZ2VudENvbW1hbmQSMAoGYWN0aW9uGAEgASgOMiAubWRrLnYyLkZyaWdhdGVVcGRhdGVBZ2VudEFjdGlvbhIPCgdtZXNzYWdlGAIgASgJEhoKEnBvbGxfYWZ0ZXJfc2Vjb25kcxgDIAEoDSqbAQoWU2VydmVySW5zdGFsbGF0aW9uVHlwZRIoCiRTRVJWRVJfSU5TVEFMTEFUSU9OX1RZUEVfVU5TUEVDSUZJRUQQABIrCidTRVJWRVJfSU5TVEFMTEFUSU9OX1RZUEVfREVCSUFOX1BBQ0tBR0UQARIqCiZTRVJWRVJfSU5TVEFMTEFUSU9OX1RZUEVfRElSRUNUX0JJTkFSWRACKuECChdGcmlnYXRlVXBkYXRlQWdlbnRQaGFzZRIqCiZGUklHQVRFX1VQREFURV9BR0VOVF9QSEFTRV9VTlNQRUNJRklFRBAAEikKJUZSSUdBVEVfVVBEQVRFX0FHRU5UX1BIQVNFX0NPTk5FQ1RJTkcQARIlCiFGUklHQVRFX1VQREFURV9BR0VOVF9QSEFTRV9TVEFHRUQQAhImCiJGUklHQVRFX1VQREFURV9BR0VOVF9QSEFTRV9TVE9QUEVEEAMSKAokRlJJR0FURV9VUERBVEVfQUdFTlRfUEhBU0VfSU5TVEFMTEVEEAQSJwojRlJJR0FURV9VUERBVEVfQUdFTlRfUEhBU0VfTUlHUkFURUQQBRImCiJGUklHQVRFX1VQREFURV9BR0VOVF9QSEFTRV9TVEFSVEVEEAYSJQohRlJJR0FURV9VUERBVEVfQUdFTlRfUEhBU0VfRkFJTEVEEAcqsgIKGEZyaWdhdGVVcGRhdGVBZ2VudEFjdGlvbhIrCidGUklHQVRFX1VQREFURV9BR0VOVF9BQ1RJT05fVU5TUEVDSUZJRUQQABIkCiBGUklHQVRFX1VQREFURV9BR0VOVF9BQ1RJT05fV0FJVBABEiQKIEZSSUdBVEVfVVBEQVRFX0FHRU5UX0FDVElPTl9TVE9QEAISJwojRlJJR0FURV9VUERBVEVfQUdFTlRfQUNUSU9OX0lOU1RBTEwQAxInCiNGUklHQVRFX1VQREFURV9BR0VOVF9BQ1RJT05fTUlHUkFURRAEEiUKIUZSSUdBVEVfVVBEQVRFX0FHRU5UX0FDVElPTl9TVEFSVBAFEiQKIEZSSUdBVEVfVVBEQVRFX0FHRU5UX0FDVElPTl9FWElUEAYqawoYU2VydmVyVXBkYXRlQ29vcmRpbmF0aW9uEioKJlNFUlZFUl9VUERBVEVfQ09PUkRJTkFUSU9OX1VOU1BFQ0lGSUVEEAASIwofU0VSVkVSX1VQREFURV9DT09SRElOQVRJT05fU0VMRhABKvADChhTZXJ2ZXJVcGRhdGVSb2xsb3V0UGhhc2USKwonU0VSVkVSX1VQREFURV9ST0xMT1VUX1BIQVNFX1VOU1BFQ0lGSUVEEAASKQolU0VSVkVSX1VQREFURV9ST0xMT1VUX1BIQVNFX1ZFUklGWUlORxABEigKJFNFUlZFUl9VUERBVEVfUk9MTE9VVF9QSEFTRV9TVE9QUElORxACEioKJlNFUlZFUl9VUERBVEVfUk9MTE9VVF9QSEFTRV9JTlNUQUxMSU5HEAMSKQolU0VSVkVSX1VQREFURV9ST0xMT1VUX1BIQVNFX01JR1JBVElORxAEEigKJFNFUlZFUl9VUERBVEVfUk9MTE9VVF9QSEFTRV9TVEFSVElORxAFEikKJVNFUlZFUl9VUERBVEVfUk9MTE9VVF9QSEFTRV9TVUNDRUVERUQQBhImCiJTRVJWRVJfVVBEQVRFX1JPTExPVVRfUEhBU0VfRkFJTEVEEAcSKQolU0VSVkVSX1VQREFURV9ST0xMT1VUX1BIQVNFX0NBTkNFTExFRBAIEigKJFNFUlZFUl9VUERBVEVfUk9MTE9VVF9QSEFTRV9WRVJJRklFRBAJEikKJVNFUlZFUl9VUERBVEVfUk9MTE9VVF9QSEFTRV9BQkFORE9ORUQQCipgChNTZXJ2ZXJVcGRhdGVQYWNrYWdlEiUKIVNFUlZFUl9VUERBVEVfUEFDS0FHRV9VTlNQRUNJRklFRBAAEiIKHlNFUlZFUl9VUERBVEVfUEFDS0FHRV9QUk9UT19PUxABKqYBChNQcm90b09TQnVuZGxlU291cmNlEiYKIlBST1RPX09TX0JVTkRMRV9TT1VSQ0VfVU5TUEVDSUZJRUQQABIfChtQUk9UT19PU19CVU5ETEVfU09VUkNFX05PTkUQARIiCh5QUk9UT19PU19CVU5ETEVfU09VUkNFX1BBQ0tBR0UQAhIiCh5QUk9UT19PU19CVU5ETEVfU09VUkNFX0JVTkRMRUQQAyrnAQoWUHJvdG9PU1BhY2thZ2VKb2JTdGF0ZRIqCiZQUk9UT19PU19QQUNLQUdFX0pPQl9TVEFURV9VTlNQRUNJRklFRBAAEiUKIVBST1RPX09TX1BBQ0tBR0VfSk9CX1NUQVRFX1FVRVVFRBABEikKJVBST1RPX09TX1BBQ0tBR0VfSk9CX1NUQVRFX0lOU1RBTExJTkcQAhIoCiRQUk9UT19PU19QQUNLQUdFX0pPQl9TVEFURV9TVUNDRUVERUQQAxIlCiFQUk9UT19PU19QQUNLQUdFX0pPQl9TVEFURV9GQUlMRUQQBDLfCAoTU2VydmVyVXBkYXRlU2VydmljZRJxChZHZXRTZXJ2ZXJVcGRhdGVTdXBwb3J0EiUubWRrLnYyLkdldFNlcnZlclVwZGF0ZVN1cHBvcnRSZXF1ZXN0GiYubWRrLnYyLkdldFNlcnZlclVwZGF0ZVN1cHBvcnRSZXNwb25zZSIIgLUYAoi1GAESZAoRU3RhZ2VTZXJ2ZXJVcGRhdGUSIC5tZGsudjIuU3RhZ2VTZXJ2ZXJVcGRhdGVSZXF1ZXN0GiEubWRrLnYyLlN0YWdlU2VydmVyVXBkYXRlUmVzcG9uc2UiCIC1GAKItRgCKAEScQoWQmVnaW5TZXJ2ZXJVcGRhdGVTdGFnZRIlLm1kay52Mi5CZWdpblNlcnZlclVwZGF0ZVN0YWdlUmVxdWVzdBomLm1kay52Mi5CZWdpblNlcnZlclVwZGF0ZVN0YWdlUmVzcG9uc2UiCIC1GAKItRgCEnQKF0FwcGVuZFNlcnZlclVwZGF0ZVN0YWdlEiYubWRrLnYyLkFwcGVuZFNlcnZlclVwZGF0ZVN0YWdlUmVxdWVzdBonLm1kay52Mi5BcHBlbmRTZXJ2ZXJVcGRhdGVTdGFnZVJlc3BvbnNlIgiAtRgCiLUYAhJ0ChdDb21taXRTZXJ2ZXJVcGRhdGVTdGFnZRImLm1kay52Mi5Db21taXRTZXJ2ZXJVcGRhdGVTdGFnZVJlcXVlc3QaJy5tZGsudjIuQ29tbWl0U2VydmVyVXBkYXRlU3RhZ2VSZXNwb25zZSIIgLUYAoi1GAIScQoWQWJvcnRTZXJ2ZXJVcGRhdGVTdGFnZRIlLm1kay52Mi5BYm9ydFNlcnZlclVwZGF0ZVN0YWdlUmVxdWVzdBomLm1kay52Mi5BYm9ydFNlcnZlclVwZGF0ZVN0YWdlUmVzcG9uc2UiCIC1GAKItRgCEmIKEVN0YXJ0U2VydmVyVXBkYXRlEiAubWRrLnYyLlN0YXJ0U2VydmVyVXBkYXRlUmVxdWVzdBohLm1kay52Mi5TdGFydFNlcnZlclVwZGF0ZVJlc3BvbnNlIgiAtRgCiLUYAhJuChVHZXRTZXJ2ZXJVcGRhdGVTdGF0dXMSJC5tZGsudjIuR2V0U2VydmVyVXBkYXRlU3RhdHVzUmVxdWVzdBolLm1kay52Mi5HZXRTZXJ2ZXJVcGRhdGVTdGF0dXNSZXNwb25zZSIIgLUYAoi1GAESYgoRUmV0cnlTZXJ2ZXJVcGRhdGUSIC5tZGsudjIuUmV0cnlTZXJ2ZXJVcGRhdGVSZXF1ZXN0GiEubWRrLnYyLlJldHJ5U2VydmVyVXBkYXRlUmVzcG9uc2UiCIC1GAKItRgCEmUKEkNhbmNlbFNlcnZlclVwZGF0ZRIhLm1kay52Mi5DYW5jZWxTZXJ2ZXJVcGRhdGVSZXF1ZXN0GiIubWRrLnYyLkNhbmNlbFNlcnZlclVwZGF0ZVJlc3BvbnNlIgiAtRgCiLUYAjJyCh9GcmlnYXRlVXBkYXRlTWFpbnRlbmFuY2VTZXJ2aWNlEk8KCEV4Y2hhbmdlEiAubWRrLnYyLkZyaWdhdGVVcGRhdGVBZ2VudFN0YXR1cxohLm1kay52Mi5GcmlnYXRlVXBkYXRlQWdlbnRDb21tYW5kQpUBCgpjb20ubWRrLnYyQhFTZXJ2ZXJVcGRhdGVQcm90b1ABWjtnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3Nkay9tZGsvZ2VuZXJhdGVkL21kay92MjttZGt2MqICA01YWKoCBk1kay5WMsoCBk1ka1xWMuICEk1ka1xWMlxHUEJNZXRhZGF0YeoCB01kazo6VjJiBnByb3RvMw", [file_google_protobuf_timestamp, file_mdk_v2_options]);
 
 /**
  * @generated from message mdk.v2.GetServerUpdateSupportRequest
@@ -123,6 +123,57 @@ export type GetServerUpdateSupportResponse = Message<"mdk.v2.GetServerUpdateSupp
    * @generated from field: bool remote_trigger_allowed = 15;
    */
   remoteTriggerAllowed: boolean;
+
+  /**
+   * proto_os_package_supported is true only when the root update helper can
+   * install a static proto-os package without stopping Frigate. Callers must
+   * not stage a SERVER_UPDATE_PACKAGE_PROTO_OS manifest unless it is true.
+   *
+   * @generated from field: bool proto_os_package_supported = 16;
+   */
+  protoOsPackageSupported: boolean;
+
+  /**
+   * proto_os_installed_version is the dpkg version of the installed proto-os
+   * package. It is empty when the package is not installed.
+   *
+   * @generated from field: string proto_os_installed_version = 17;
+   */
+  protoOsInstalledVersion: string;
+
+  /**
+   * proto_os_served describes the ProtoOS bundle this instance serves now.
+   *
+   * @generated from field: mdk.v2.ProtoOSBundleStatus proto_os_served = 18;
+   */
+  protoOsServed?: ProtoOSBundleStatus | undefined;
+
+  /**
+   * proto_os_job is the most recent proto-os package job on this instance.
+   *
+   * @generated from field: mdk.v2.ProtoOSPackageJob proto_os_job = 19;
+   */
+  protoOsJob?: ProtoOSPackageJob | undefined;
+
+  /**
+   * proto_os_support_message explains why proto_os_package_supported is
+   * false, for example a disabled browser UI. It is empty when supported.
+   *
+   * @generated from field: string proto_os_support_message = 20;
+   */
+  protoOsSupportMessage: string;
+
+  /**
+   * proto_os_signed_packages is true when this instance requires every
+   * SERVER_UPDATE_PACKAGE_PROTO_OS manifest to carry a release_statement and
+   * release_signature, and its root helper verifies them against the
+   * separately shipped ProtoOS release keys before dpkg runs. Callers must not
+   * stage a PROTO_OS manifest on an instance that reports false: older
+   * instances install unsigned packages.
+   *
+   * @generated from field: bool proto_os_signed_packages = 21;
+   */
+  protoOsSignedPackages: boolean;
 };
 
 /**
@@ -131,6 +182,95 @@ export type GetServerUpdateSupportResponse = Message<"mdk.v2.GetServerUpdateSupp
  */
 export const GetServerUpdateSupportResponseSchema: GenMessage<GetServerUpdateSupportResponse> = /*@__PURE__*/
   messageDesc(file_mdk_v2_server_update, 1);
+
+/**
+ * @generated from message mdk.v2.ProtoOSBundleStatus
+ */
+export type ProtoOSBundleStatus = Message<"mdk.v2.ProtoOSBundleStatus"> & {
+  /**
+   * @generated from field: mdk.v2.ProtoOSBundleSource source = 1;
+   */
+  source: ProtoOSBundleSource;
+
+  /**
+   * release_tag is the ProtoOS release tag recorded in the bundle manifest.
+   *
+   * @generated from field: string release_tag = 2;
+   */
+  releaseTag: string;
+
+  /**
+   * release_commit is the ProtoOS commit recorded in the bundle manifest.
+   *
+   * @generated from field: string release_commit = 3;
+   */
+  releaseCommit: string;
+
+  /**
+   * generation is the manifest generation digest of the served bundle.
+   *
+   * @generated from field: string generation = 4;
+   */
+  generation: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp loaded_at = 5;
+   */
+  loadedAt?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message mdk.v2.ProtoOSBundleStatus.
+ * Use `create(ProtoOSBundleStatusSchema)` to create a new message.
+ */
+export const ProtoOSBundleStatusSchema: GenMessage<ProtoOSBundleStatus> = /*@__PURE__*/
+  messageDesc(file_mdk_v2_server_update, 2);
+
+/**
+ * @generated from message mdk.v2.ProtoOSPackageJob
+ */
+export type ProtoOSPackageJob = Message<"mdk.v2.ProtoOSPackageJob"> & {
+  /**
+   * @generated from field: string job_id = 1;
+   */
+  jobId: string;
+
+  /**
+   * @generated from field: string release_tag = 2;
+   */
+  releaseTag: string;
+
+  /**
+   * target_version is the Debian version of the staged proto-os package.
+   *
+   * @generated from field: string target_version = 3;
+   */
+  targetVersion: string;
+
+  /**
+   * @generated from field: mdk.v2.ProtoOSPackageJobState state = 4;
+   */
+  state: ProtoOSPackageJobState;
+
+  /**
+   * message is a bounded, operator-readable outcome. It never holds secrets.
+   *
+   * @generated from field: string message = 5;
+   */
+  message: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp updated_at = 6;
+   */
+  updatedAt?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message mdk.v2.ProtoOSPackageJob.
+ * Use `create(ProtoOSPackageJobSchema)` to create a new message.
+ */
+export const ProtoOSPackageJobSchema: GenMessage<ProtoOSPackageJob> = /*@__PURE__*/
+  messageDesc(file_mdk_v2_server_update, 3);
 
 /**
  * @generated from message mdk.v2.ServerUpdateManifest
@@ -241,7 +381,8 @@ export type ServerUpdateManifest = Message<"mdk.v2.ServerUpdateManifest"> & {
 
   /**
    * release_statement holds the exact signed bytes of the release statement
-   * (frigate-release-statement/v1 JSON). Required when coordination is SELF.
+   * (frigate-release-statement/v1 JSON). Required when coordination is SELF
+   * or package is PROTO_OS; forbidden otherwise.
    *
    * @generated from field: bytes release_statement = 21;
    */
@@ -249,11 +390,25 @@ export type ServerUpdateManifest = Message<"mdk.v2.ServerUpdateManifest"> & {
 
   /**
    * release_signature holds the DER ECDSA P-256 signature over
-   * release_statement. Required when coordination is SELF.
+   * release_statement. Required when coordination is SELF or package is
+   * PROTO_OS; forbidden otherwise. A PROTO_OS signature must verify against
+   * the ProtoOS release keys, never the Frigate release keys.
    *
    * @generated from field: bytes release_signature = 22;
    */
   releaseSignature: Uint8Array;
+
+  /**
+   * package selects the Debian package this manifest installs. UNSPECIFIED is
+   * frigate. PROTO_OS requires proto_os_package_supported and
+   * proto_os_signed_packages, coordination UNSPECIFIED, an asset named
+   * proto-os_<release_tag>_all.deb, the Debian version of that package in
+   * target_version, and a release statement and signature for exactly that
+   * package.
+   *
+   * @generated from field: mdk.v2.ServerUpdatePackage package = 23;
+   */
+  package: ServerUpdatePackage;
 };
 
 /**
@@ -261,7 +416,7 @@ export type ServerUpdateManifest = Message<"mdk.v2.ServerUpdateManifest"> & {
  * Use `create(ServerUpdateManifestSchema)` to create a new message.
  */
 export const ServerUpdateManifestSchema: GenMessage<ServerUpdateManifest> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 2);
+  messageDesc(file_mdk_v2_server_update, 4);
 
 /**
  * @generated from message mdk.v2.StartServerUpdateRequest
@@ -323,7 +478,7 @@ export type StartServerUpdateRequest = Message<"mdk.v2.StartServerUpdateRequest"
  * Use `create(StartServerUpdateRequestSchema)` to create a new message.
  */
 export const StartServerUpdateRequestSchema: GenMessage<StartServerUpdateRequest> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 3);
+  messageDesc(file_mdk_v2_server_update, 5);
 
 /**
  * @generated from message mdk.v2.StartServerUpdateResponse
@@ -340,7 +495,7 @@ export type StartServerUpdateResponse = Message<"mdk.v2.StartServerUpdateRespons
  * Use `create(StartServerUpdateResponseSchema)` to create a new message.
  */
 export const StartServerUpdateResponseSchema: GenMessage<StartServerUpdateResponse> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 4);
+  messageDesc(file_mdk_v2_server_update, 6);
 
 /**
  * @generated from message mdk.v2.GetServerUpdateStatusRequest
@@ -362,7 +517,7 @@ export type GetServerUpdateStatusRequest = Message<"mdk.v2.GetServerUpdateStatus
  * Use `create(GetServerUpdateStatusRequestSchema)` to create a new message.
  */
 export const GetServerUpdateStatusRequestSchema: GenMessage<GetServerUpdateStatusRequest> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 5);
+  messageDesc(file_mdk_v2_server_update, 7);
 
 /**
  * @generated from message mdk.v2.GetServerUpdateStatusResponse
@@ -387,7 +542,7 @@ export type GetServerUpdateStatusResponse = Message<"mdk.v2.GetServerUpdateStatu
  * Use `create(GetServerUpdateStatusResponseSchema)` to create a new message.
  */
 export const GetServerUpdateStatusResponseSchema: GenMessage<GetServerUpdateStatusResponse> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 6);
+  messageDesc(file_mdk_v2_server_update, 8);
 
 /**
  * @generated from message mdk.v2.RetryServerUpdateRequest
@@ -409,7 +564,7 @@ export type RetryServerUpdateRequest = Message<"mdk.v2.RetryServerUpdateRequest"
  * Use `create(RetryServerUpdateRequestSchema)` to create a new message.
  */
 export const RetryServerUpdateRequestSchema: GenMessage<RetryServerUpdateRequest> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 7);
+  messageDesc(file_mdk_v2_server_update, 9);
 
 /**
  * @generated from message mdk.v2.RetryServerUpdateResponse
@@ -426,7 +581,7 @@ export type RetryServerUpdateResponse = Message<"mdk.v2.RetryServerUpdateRespons
  * Use `create(RetryServerUpdateResponseSchema)` to create a new message.
  */
 export const RetryServerUpdateResponseSchema: GenMessage<RetryServerUpdateResponse> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 8);
+  messageDesc(file_mdk_v2_server_update, 10);
 
 /**
  * @generated from message mdk.v2.CancelServerUpdateRequest
@@ -448,7 +603,7 @@ export type CancelServerUpdateRequest = Message<"mdk.v2.CancelServerUpdateReques
  * Use `create(CancelServerUpdateRequestSchema)` to create a new message.
  */
 export const CancelServerUpdateRequestSchema: GenMessage<CancelServerUpdateRequest> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 9);
+  messageDesc(file_mdk_v2_server_update, 11);
 
 /**
  * @generated from message mdk.v2.CancelServerUpdateResponse
@@ -465,7 +620,7 @@ export type CancelServerUpdateResponse = Message<"mdk.v2.CancelServerUpdateRespo
  * Use `create(CancelServerUpdateResponseSchema)` to create a new message.
  */
 export const CancelServerUpdateResponseSchema: GenMessage<CancelServerUpdateResponse> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 10);
+  messageDesc(file_mdk_v2_server_update, 12);
 
 /**
  * ServerUpdateRollout is the site-wide state of one self-coordinated update.
@@ -522,8 +677,11 @@ export type ServerUpdateRollout = Message<"mdk.v2.ServerUpdateRollout"> & {
    * UPDATE_INSUFFICIENT_SPACE, UPDATE_COOLDOWN, UPDATE_OUTSIDE_WINDOW,
    * UPDATE_HELPER_UNAVAILABLE, UPDATE_NOT_FOUND, UPDATE_NOT_RETRYABLE,
    * UPDATE_NOT_CANCELLABLE, UPDATE_SELF_COORDINATION_UNSUPPORTED,
-   * UPDATE_IDEMPOTENCY_CONFLICT (same idempotency key, different request) and
-   * UPDATE_MANIFEST_INVALID (malformed manifest).
+   * UPDATE_IDEMPOTENCY_CONFLICT (same idempotency key, different request),
+   * UPDATE_MANIFEST_INVALID (malformed manifest) and UPDATE_FIRMWARE_ACTIVE (a
+   * hashboard or PSU firmware update is running on an instance; retry after it
+   * finishes). While a rollout that can stop Frigate is in progress, hashboard
+   * and PSU firmware updates are refused with FIRMWARE_SERVER_UPDATE_ACTIVE.
    *
    * Runtime failures recorded while a rollout runs: UPDATE_PACKAGE_REJECTED
    * (digest, architecture, version or package control data check failed),
@@ -635,7 +793,7 @@ export type ServerUpdateRollout = Message<"mdk.v2.ServerUpdateRollout"> & {
  * Use `create(ServerUpdateRolloutSchema)` to create a new message.
  */
 export const ServerUpdateRolloutSchema: GenMessage<ServerUpdateRollout> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 11);
+  messageDesc(file_mdk_v2_server_update, 13);
 
 /**
  * @generated from message mdk.v2.ServerUpdateInstanceProgress
@@ -707,7 +865,7 @@ export type ServerUpdateInstanceProgress = Message<"mdk.v2.ServerUpdateInstanceP
  * Use `create(ServerUpdateInstanceProgressSchema)` to create a new message.
  */
 export const ServerUpdateInstanceProgressSchema: GenMessage<ServerUpdateInstanceProgress> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 12);
+  messageDesc(file_mdk_v2_server_update, 14);
 
 /**
  * @generated from message mdk.v2.StageServerUpdateRequest
@@ -736,7 +894,7 @@ export type StageServerUpdateRequest = Message<"mdk.v2.StageServerUpdateRequest"
  * Use `create(StageServerUpdateRequestSchema)` to create a new message.
  */
 export const StageServerUpdateRequestSchema: GenMessage<StageServerUpdateRequest> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 13);
+  messageDesc(file_mdk_v2_server_update, 15);
 
 /**
  * @generated from message mdk.v2.StageServerUpdateResponse
@@ -763,7 +921,7 @@ export type StageServerUpdateResponse = Message<"mdk.v2.StageServerUpdateRespons
  * Use `create(StageServerUpdateResponseSchema)` to create a new message.
  */
 export const StageServerUpdateResponseSchema: GenMessage<StageServerUpdateResponse> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 14);
+  messageDesc(file_mdk_v2_server_update, 16);
 
 /**
  * @generated from message mdk.v2.BeginServerUpdateStageRequest
@@ -780,7 +938,7 @@ export type BeginServerUpdateStageRequest = Message<"mdk.v2.BeginServerUpdateSta
  * Use `create(BeginServerUpdateStageRequestSchema)` to create a new message.
  */
 export const BeginServerUpdateStageRequestSchema: GenMessage<BeginServerUpdateStageRequest> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 15);
+  messageDesc(file_mdk_v2_server_update, 17);
 
 /**
  * @generated from message mdk.v2.AppendServerUpdateStageRequest
@@ -812,7 +970,7 @@ export type AppendServerUpdateStageRequest = Message<"mdk.v2.AppendServerUpdateS
  * Use `create(AppendServerUpdateStageRequestSchema)` to create a new message.
  */
 export const AppendServerUpdateStageRequestSchema: GenMessage<AppendServerUpdateStageRequest> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 16);
+  messageDesc(file_mdk_v2_server_update, 18);
 
 /**
  * @generated from message mdk.v2.CommitServerUpdateStageRequest
@@ -834,7 +992,7 @@ export type CommitServerUpdateStageRequest = Message<"mdk.v2.CommitServerUpdateS
  * Use `create(CommitServerUpdateStageRequestSchema)` to create a new message.
  */
 export const CommitServerUpdateStageRequestSchema: GenMessage<CommitServerUpdateStageRequest> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 17);
+  messageDesc(file_mdk_v2_server_update, 19);
 
 /**
  * @generated from message mdk.v2.AbortServerUpdateStageRequest
@@ -856,7 +1014,7 @@ export type AbortServerUpdateStageRequest = Message<"mdk.v2.AbortServerUpdateSta
  * Use `create(AbortServerUpdateStageRequestSchema)` to create a new message.
  */
 export const AbortServerUpdateStageRequestSchema: GenMessage<AbortServerUpdateStageRequest> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 18);
+  messageDesc(file_mdk_v2_server_update, 20);
 
 /**
  * @generated from message mdk.v2.AbortServerUpdateStageResponse
@@ -869,7 +1027,7 @@ export type AbortServerUpdateStageResponse = Message<"mdk.v2.AbortServerUpdateSt
  * Use `create(AbortServerUpdateStageResponseSchema)` to create a new message.
  */
 export const AbortServerUpdateStageResponseSchema: GenMessage<AbortServerUpdateStageResponse> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 19);
+  messageDesc(file_mdk_v2_server_update, 21);
 
 /**
  * @generated from message mdk.v2.BeginServerUpdateStageResponse
@@ -901,7 +1059,7 @@ export type BeginServerUpdateStageResponse = Message<"mdk.v2.BeginServerUpdateSt
  * Use `create(BeginServerUpdateStageResponseSchema)` to create a new message.
  */
 export const BeginServerUpdateStageResponseSchema: GenMessage<BeginServerUpdateStageResponse> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 20);
+  messageDesc(file_mdk_v2_server_update, 22);
 
 /**
  * @generated from message mdk.v2.AppendServerUpdateStageResponse
@@ -933,7 +1091,7 @@ export type AppendServerUpdateStageResponse = Message<"mdk.v2.AppendServerUpdate
  * Use `create(AppendServerUpdateStageResponseSchema)` to create a new message.
  */
 export const AppendServerUpdateStageResponseSchema: GenMessage<AppendServerUpdateStageResponse> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 21);
+  messageDesc(file_mdk_v2_server_update, 23);
 
 /**
  * @generated from message mdk.v2.CommitServerUpdateStageResponse
@@ -960,7 +1118,7 @@ export type CommitServerUpdateStageResponse = Message<"mdk.v2.CommitServerUpdate
  * Use `create(CommitServerUpdateStageResponseSchema)` to create a new message.
  */
 export const CommitServerUpdateStageResponseSchema: GenMessage<CommitServerUpdateStageResponse> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 22);
+  messageDesc(file_mdk_v2_server_update, 24);
 
 /**
  * @generated from message mdk.v2.FrigateUpdateAgentStatus
@@ -1030,7 +1188,7 @@ export type FrigateUpdateAgentStatus = Message<"mdk.v2.FrigateUpdateAgentStatus"
  * Use `create(FrigateUpdateAgentStatusSchema)` to create a new message.
  */
 export const FrigateUpdateAgentStatusSchema: GenMessage<FrigateUpdateAgentStatus> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 23);
+  messageDesc(file_mdk_v2_server_update, 25);
 
 /**
  * @generated from message mdk.v2.FrigateUpdateAgentCommand
@@ -1057,7 +1215,7 @@ export type FrigateUpdateAgentCommand = Message<"mdk.v2.FrigateUpdateAgentComman
  * Use `create(FrigateUpdateAgentCommandSchema)` to create a new message.
  */
 export const FrigateUpdateAgentCommandSchema: GenMessage<FrigateUpdateAgentCommand> = /*@__PURE__*/
-  messageDesc(file_mdk_v2_server_update, 24);
+  messageDesc(file_mdk_v2_server_update, 26);
 
 /**
  * @generated from enum mdk.v2.ServerInstallationType
@@ -1295,6 +1453,111 @@ export enum ServerUpdateRolloutPhase {
  */
 export const ServerUpdateRolloutPhaseSchema: GenEnum<ServerUpdateRolloutPhase> = /*@__PURE__*/
   enumDesc(file_mdk_v2_server_update, 4);
+
+/**
+ * ServerUpdatePackage selects the Debian package that a staged manifest
+ * installs.
+ *
+ * @generated from enum mdk.v2.ServerUpdatePackage
+ */
+export enum ServerUpdatePackage {
+  /**
+   * UNSPECIFIED is the frigate package. Legacy manifests use it.
+   *
+   * @generated from enum value: SERVER_UPDATE_PACKAGE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * PROTO_OS is the arch-independent, static proto-os web UI package. The root
+   * helper installs it on one instance without stopping Frigate or holding
+   * HA peers at barriers.
+   *
+   * @generated from enum value: SERVER_UPDATE_PACKAGE_PROTO_OS = 1;
+   */
+  PROTO_OS = 1,
+}
+
+/**
+ * Describes the enum mdk.v2.ServerUpdatePackage.
+ */
+export const ServerUpdatePackageSchema: GenEnum<ServerUpdatePackage> = /*@__PURE__*/
+  enumDesc(file_mdk_v2_server_update, 5);
+
+/**
+ * ProtoOSBundleSource identifies where the served ProtoOS bundle comes from.
+ *
+ * @generated from enum mdk.v2.ProtoOSBundleSource
+ */
+export enum ProtoOSBundleSource {
+  /**
+   * @generated from enum value: PROTO_OS_BUNDLE_SOURCE_UNSPECIFIED = 0;
+   */
+  PROTO_OS_BUNDLE_SOURCE_UNSPECIFIED = 0,
+
+  /**
+   * NONE means no valid bundle is served; the API runs headless.
+   *
+   * @generated from enum value: PROTO_OS_BUNDLE_SOURCE_NONE = 1;
+   */
+  PROTO_OS_BUNDLE_SOURCE_NONE = 1,
+
+  /**
+   * PACKAGE is the separately installed proto-os package under web_root.
+   *
+   * @generated from enum value: PROTO_OS_BUNDLE_SOURCE_PACKAGE = 2;
+   */
+  PROTO_OS_BUNDLE_SOURCE_PACKAGE = 2,
+
+  /**
+   * BUNDLED is the fallback copy embedded in the frigate package.
+   *
+   * @generated from enum value: PROTO_OS_BUNDLE_SOURCE_BUNDLED = 3;
+   */
+  PROTO_OS_BUNDLE_SOURCE_BUNDLED = 3,
+}
+
+/**
+ * Describes the enum mdk.v2.ProtoOSBundleSource.
+ */
+export const ProtoOSBundleSourceSchema: GenEnum<ProtoOSBundleSource> = /*@__PURE__*/
+  enumDesc(file_mdk_v2_server_update, 6);
+
+/**
+ * @generated from enum mdk.v2.ProtoOSPackageJobState
+ */
+export enum ProtoOSPackageJobState {
+  /**
+   * @generated from enum value: PROTO_OS_PACKAGE_JOB_STATE_UNSPECIFIED = 0;
+   */
+  PROTO_OS_PACKAGE_JOB_STATE_UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: PROTO_OS_PACKAGE_JOB_STATE_QUEUED = 1;
+   */
+  PROTO_OS_PACKAGE_JOB_STATE_QUEUED = 1,
+
+  /**
+   * @generated from enum value: PROTO_OS_PACKAGE_JOB_STATE_INSTALLING = 2;
+   */
+  PROTO_OS_PACKAGE_JOB_STATE_INSTALLING = 2,
+
+  /**
+   * @generated from enum value: PROTO_OS_PACKAGE_JOB_STATE_SUCCEEDED = 3;
+   */
+  PROTO_OS_PACKAGE_JOB_STATE_SUCCEEDED = 3,
+
+  /**
+   * @generated from enum value: PROTO_OS_PACKAGE_JOB_STATE_FAILED = 4;
+   */
+  PROTO_OS_PACKAGE_JOB_STATE_FAILED = 4,
+}
+
+/**
+ * Describes the enum mdk.v2.ProtoOSPackageJobState.
+ */
+export const ProtoOSPackageJobStateSchema: GenEnum<ProtoOSPackageJobState> = /*@__PURE__*/
+  enumDesc(file_mdk_v2_server_update, 7);
 
 /**
  * ServerUpdateService stages one verified Frigate package on an exact host and,

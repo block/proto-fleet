@@ -113,7 +113,8 @@ type SystemServiceClient interface {
 	GetHardwareInfo(context.Context, *connect.Request[v2.GetHardwareInfoRequest]) (*connect.Response[v2.GetHardwareInfoResponse], error)
 	// ListPowerSupplies returns information about installed PSUs.
 	ListPowerSupplies(context.Context, *connect.Request[v2.ListPowerSuppliesRequest]) (*connect.Response[v2.ListPowerSuppliesResponse], error)
-	// UpdatePSUFirmware initiates a firmware update on a PSU.
+	// UpdatePSUFirmware schedules installed firmware on a selected PSU.
+	// Use psu_id "*" to select all connected PSUs. Acceptance is not completion.
 	UpdatePSUFirmware(context.Context, *connect.Request[v2.UpdatePSUFirmwareRequest]) (*connect.Response[v2.UpdatePSUFirmwareResponse], error)
 	// ListTags returns the system's tag set.
 	ListTags(context.Context, *connect.Request[v2.ListTagsRequest]) (*connect.Response[v2.ListTagsResponse], error)
@@ -438,7 +439,8 @@ type SystemServiceHandler interface {
 	GetHardwareInfo(context.Context, *connect.Request[v2.GetHardwareInfoRequest]) (*connect.Response[v2.GetHardwareInfoResponse], error)
 	// ListPowerSupplies returns information about installed PSUs.
 	ListPowerSupplies(context.Context, *connect.Request[v2.ListPowerSuppliesRequest]) (*connect.Response[v2.ListPowerSuppliesResponse], error)
-	// UpdatePSUFirmware initiates a firmware update on a PSU.
+	// UpdatePSUFirmware schedules installed firmware on a selected PSU.
+	// Use psu_id "*" to select all connected PSUs. Acceptance is not completion.
 	UpdatePSUFirmware(context.Context, *connect.Request[v2.UpdatePSUFirmwareRequest]) (*connect.Response[v2.UpdatePSUFirmwareResponse], error)
 	// ListTags returns the system's tag set.
 	ListTags(context.Context, *connect.Request[v2.ListTagsRequest]) (*connect.Response[v2.ListTagsResponse], error)

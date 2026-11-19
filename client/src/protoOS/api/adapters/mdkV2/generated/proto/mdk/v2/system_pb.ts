@@ -1656,6 +1656,9 @@ export const ListPowerSuppliesResponseSchema: GenMessage<ListPowerSuppliesRespon
  */
 export type UpdatePSUFirmwareRequest = Message<"mdk.v2.UpdatePSUFirmwareRequest"> & {
   /**
+   * PSU ID from ListPowerSupplies, or "*" for all connected PSUs.
+   * R2 IDs are canonical slot strings "1", "2", and "3". Empty is invalid.
+   *
    * @generated from field: string psu_id = 1;
    */
   psuId: string;
@@ -1673,6 +1676,9 @@ export const UpdatePSUFirmwareRequestSchema: GenMessage<UpdatePSUFirmwareRequest
  */
 export type UpdatePSUFirmwareResponse = Message<"mdk.v2.UpdatePSUFirmwareResponse"> & {
   /**
+   * All selected commands were scheduled, not necessarily received or flashed.
+   * An unknown outcome must not be treated as a safe-to-retry rejection.
+   *
    * @generated from field: bool accepted = 1;
    */
   accepted: boolean;
@@ -3266,7 +3272,8 @@ export const SystemService: GenService<{
     output: typeof ListPowerSuppliesResponseSchema;
   },
   /**
-   * UpdatePSUFirmware initiates a firmware update on a PSU.
+   * UpdatePSUFirmware schedules installed firmware on a selected PSU.
+   * Use psu_id "*" to select all connected PSUs. Acceptance is not completion.
    *
    * @generated from rpc mdk.v2.SystemService.UpdatePSUFirmware
    */

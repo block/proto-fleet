@@ -2,11 +2,11 @@ import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react";
 import { action } from "storybook/actions";
 
-import { createDefaultBulkRenamePreferences } from "./bulkRenameDefinitions";
-import BulkRenamePreviewPanel, { type PreviewRow } from "./BulkRenamePreviewPanel";
-import BulkRenamePropertyForm from "./BulkRenamePropertyForm";
-import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
+import { createDefaultBulkRenamePreferences } from "@/shared/components/BulkRename/bulkRenameDefinitions";
+import BulkRenamePreviewPanel, { type PreviewRow } from "@/shared/components/BulkRename/BulkRenamePreviewPanel";
+import BulkRenamePropertyForm from "@/shared/components/BulkRename/BulkRenamePropertyForm";
 import { variants } from "@/shared/components/Button";
+import FullScreenTwoPaneModal from "@/shared/components/FullScreenTwoPaneModal";
 import { Toaster as ToasterComponent } from "@/shared/features/toaster";
 
 const samplePreviewRows: PreviewRow[] = [

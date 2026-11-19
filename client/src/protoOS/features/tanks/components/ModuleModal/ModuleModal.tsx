@@ -20,10 +20,13 @@ import type { ContainerTopology, ModuleNode, TankNode } from "@/protoOS/store/co
 import useMinerStore from "@/protoOS/store/useMinerStore";
 import { moduleRouteValue, tankRouteValue } from "@/protoOS/topologyRouteParams";
 import { isMacAddress } from "@/protoOS/utils/macAddress";
-import Button from "@/shared/components/Button";
+import { ChevronDown } from "@/shared/assets/icons";
+import { iconSizes } from "@/shared/assets/icons/constants";
+import ActionBar, { ActionBarSelectionControls } from "@/shared/components/ActionBar";
 import InlineSelector from "@/shared/components/InlineSelector";
 import Modal from "@/shared/components/Modal";
 import { PopoverProvider } from "@/shared/components/Popover";
+import RowActionsMenu from "@/shared/components/RowActionsMenu";
 
 const ModuleModal = ({
   module,
@@ -47,18 +50,18 @@ const ModuleModal = ({
     moduleId: module.id,
     macs: [],
   });
-  const visibleMacs = new Set(
-    boards.flatMap((board) =>
-      board.identity.kind === "mac" && isMacAddress(board.identity.value) ? [board.identity.value.toLowerCase()] : [],
-    ),
-  );
+  const slots = [1, 2, 3].map((slot) => {
+    const board = boards.find((item) => item.location?.slot === slot);
+    const mac =
+      board?.identity.kind === "mac" && isMacAddress(board.identity.value)
+        ? board.identity.value.toLowerCase()
+        : undefined;
+    return { slot, board, mac };
+  });
+  const visibleMacs = new Set(slots.flatMap(({ mac }) => (mac ? [mac] : [])));
   const selectedBoards =
     boardSelection.moduleId === module.id ? boardSelection.macs.filter((mac) => visibleMacs.has(mac)) : [];
-  const selectedPoolAction = poolActions.action(
-    { macs: selectedBoards, modules: poolTarget?.modules },
-    selectedBoards.length,
-  )[0];
-  const modulePoolAction = poolActions.action(poolTarget)[0];
+  const selectBoards = (macs: string[]) => setBoardSelection({ moduleId: module.id, macs });
   const bodyRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const dialog = bodyRef.current?.closest<HTMLElement>('[role="dialog"]');
@@ -110,6 +113,8 @@ const ModuleModal = ({
     getModulePath?.(item) ??
     `${tankPath}/modules/${moduleRouteValue(item, modules.findIndex((candidate) => candidate.id === item.id) + 1)}`;
   const modulePath = pathForModule(module);
+  const showActionBar = poolActions.available && selectedBoards.length > 0;
+  const footerInert = poolActions.open || voltageWriting;
 
   return (
     <Modal
@@ -119,6 +124,35 @@ const ModuleModal = ({
       onDismiss={voltageWriting ? undefined : (onClose ?? (() => navigate(tankPath)))}
       buttons={[{ text: "Done", variant: "primary", disabled: voltageWriting }]}
       bodyClassName="text-text-primary"
+      className="overflow-y-auto"
+      fixedFooter={
+        showActionBar ? (
+          <div inert={footerInert} className={footerInert ? "invisible" : undefined}>
+            <ActionBar
+              selectedItems={selectedBoards}
+              itemNoun={{ singular: "hashboard", plural: "hashboards" }}
+              onClose={() => selectBoards([])}
+              selectionControls={
+                <ActionBarSelectionControls
+                  onSelectAll={visibleMacs.size > 1 ? () => selectBoards([...visibleMacs]) : undefined}
+                  onSelectNone={() => selectBoards([])}
+                />
+              }
+              renderActions={() => (
+                <RowActionsMenu
+                  actions={poolActions.action({ macs: selectedBoards, modules: poolTarget?.modules })}
+                  ariaLabel="Actions for selected hashboards"
+                  triggerLabel="Actions"
+                  triggerVariant="secondary"
+                  triggerClassName="bg-grayscale-white-10! text-grayscale-white-90!"
+                  triggerSuffixIcon={<ChevronDown width={iconSizes.xSmall} />}
+                  testIdPrefix="selected-hashboard-actions"
+                />
+              )}
+            />
+          </div>
+        ) : undefined
+      }
     >
       {poolActions.dialog}
       <div
@@ -147,18 +181,8 @@ const ModuleModal = ({
             </PopoverProvider>
           </div>
         </div>
-        <div className="flex flex-wrap justify-start gap-3">
+        <div className="flex">
           <HealthStatusButton key={module.id} scope={{ kind: "module", id: module.id }} />
-          {modulePoolAction ? (
-            <Button
-              variant="secondary"
-              size="compact"
-              disabled={voltageWriting || modulePoolAction.disabled}
-              onClick={() => modulePoolAction.onClick?.()}
-            >
-              Edit pool
-            </Button>
-          ) : null}
         </div>
         {voltageWriting ? (
           <p role="status" className="text-200 text-text-primary-70">
@@ -167,28 +191,8 @@ const ModuleModal = ({
         ) : null}
         {error ? <p role="alert">Could not refresh ASIC readings. Displayed values may be out of date.</p> : null}
         <ComponentSection title="Hashboards">
-          {poolActions.available && selectedBoards.length > 0 ? (
-            <div className="flex flex-wrap items-center gap-3">
-              <p>{selectedBoards.length} selected</p>
-              <Button variant="secondary" disabled={voltageWriting} onClick={() => selectedPoolAction?.onClick()}>
-                Edit pool
-              </Button>
-              <Button
-                variant="textOnly"
-                disabled={voltageWriting}
-                onClick={() => setBoardSelection({ moduleId: module.id, macs: [] })}
-              >
-                Clear selection
-              </Button>
-            </div>
-          ) : null}
           <div className="grid grid-cols-1 gap-2 laptop:grid-cols-3" aria-busy={pending}>
-            {[1, 2, 3].map((slot) => {
-              const board = boards.find((item) => item.location?.slot === slot);
-              const mac =
-                board?.identity.kind === "mac" && isMacAddress(board.identity.value)
-                  ? board.identity.value.toLowerCase()
-                  : undefined;
+            {slots.map(({ slot, board, mac }) => {
               return board ? (
                 <HashboardStatusCard
                   key={board.id}
@@ -199,12 +203,11 @@ const ModuleModal = ({
                           checked: selectedBoards.includes(mac),
                           disabled: voltageWriting,
                           onChange: (checked) =>
-                            setBoardSelection({
-                              moduleId: module.id,
-                              macs: checked
+                            selectBoards(
+                              checked
                                 ? [...selectedBoards, mac]
                                 : selectedBoards.filter((selected) => selected !== mac),
-                            }),
+                            ),
                         }
                       : undefined
                   }

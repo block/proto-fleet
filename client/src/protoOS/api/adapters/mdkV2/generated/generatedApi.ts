@@ -221,6 +221,28 @@ export interface MdkV2Tag {
   value?: string;
 }
 
+export interface MiningGroupServiceCopyMiningGroupPoolsBody {
+  /** @format int64 */
+  expectedRevision?: string;
+  idempotencyKey?: string;
+  /** Include every source pool exactly once. */
+  pools?: V2MiningGroupPoolCopy[];
+  /**
+   * Required for Default. Guards changes to settings, including passwords.
+   * @format int64
+   */
+  sourceExpectedDefaultPoolRevision?: string;
+  /** @format int64 */
+  sourceExpectedRevision?: string;
+  /** May be "default" to copy the legacy pool set. */
+  sourceGroupId?: string;
+}
+
+export interface MiningGroupServiceCopyMiningGroupPoolsParams {
+  /** An existing non-default destination with no pools, boards, or pending transfers. */
+  groupId: string;
+}
+
 export interface MiningGroupServiceDeleteMiningGroupParams {
   /** @format int64 */
   expectedRevision?: string;
@@ -733,6 +755,10 @@ export interface SystemServiceListAuditEventsParams {
 }
 
 export interface SystemServiceUpdatePsuFirmwareParams {
+  /**
+   * PSU ID from ListPowerSupplies, or "*" for all connected PSUs.
+   * R2 IDs are canonical slot strings "1", "2", and "3". Empty is invalid.
+   */
   psuId: string;
 }
 
@@ -1659,6 +1685,11 @@ export interface V2CoolingFanStatus {
   speedPercent?: number;
 }
 
+export interface V2CopyMiningGroupPoolsResponse {
+  group?: V2MiningGroupRecord;
+  pools?: V2MiningGroupPoolRecord[];
+}
+
 export interface V2CreateMiningGroupRequest {
   idempotencyKey?: string;
   /** Writable customer metadata only; operating policy uses the intent RPC. */
@@ -1700,6 +1731,13 @@ export interface V2DeactivateMiningGroupsRequest {
 
 export interface V2DeactivateMiningGroupsResponse {
   capability?: V2MiningGroupCapability;
+}
+
+export interface V2DefaultMiningGroupWorkerNameUpdate {
+  /** @format int64 */
+  poolId?: string;
+  /** The complete pool username, including the account and worker name. */
+  username?: string;
 }
 
 export type V2DeleteMiningGroupResponse = object;
@@ -4389,6 +4427,16 @@ export interface V2MiningGroupBoardTelemetryRecord {
 
 export interface V2MiningGroupCapability {
   assignmentGranularity?: string;
+  /**
+   * This controller can atomically update the saved Default pool usernames.
+   * False when the store lacks support or native DATUM overrides Default pools.
+   */
+  defaultPoolWorkerNameUpdateSupported?: boolean;
+  /**
+   * True when the controller uses the saved legacy pools for Default.
+   * False when native DATUM overrides them.
+   */
+  defaultPoolWritesSupported?: boolean;
   enabled?: boolean;
   /** @format int64 */
   maxBoardsPerGroup?: number;
@@ -4397,6 +4445,8 @@ export interface V2MiningGroupCapability {
   /** @format int64 */
   maxPoolsPerGroup?: number;
   name?: string;
+  /** This controller implements CopyMiningGroupPools on its local MDK API. */
+  poolCopySupported?: boolean;
   /** @format int64 */
   stateRevision?: string;
   supportedPllAlgorithms?: string[];
@@ -4477,6 +4527,13 @@ export interface V2MiningGroupOperationRecord {
   updatedAt?: string;
 }
 
+export interface V2MiningGroupPoolCopy {
+  /** The complete public source pool record from the operator's review. */
+  source?: V2MiningGroupPoolRecord;
+  /** The complete new pool username. Use the current value to keep that username. */
+  username?: string;
+}
+
 export interface V2MiningGroupPoolInput {
   /** Write-only; absent preserves an existing pool's credential. */
   password?: string;
@@ -4509,6 +4566,11 @@ export interface V2MiningGroupPoweredBoard {
 export interface V2MiningGroupRecord {
   /** @format date-time */
   createdAt?: string;
+  /**
+   * Present for Default. Changes when any saved legacy pool setting changes.
+   * @format int64
+   */
+  defaultPoolRevision?: string;
   /** @format date-time */
   deletedAt?: string;
   desiredMining?: boolean;
@@ -5964,6 +6026,11 @@ export interface V2RequestMiningGroupTransferRequest {
   destinationGroupId?: string;
   idempotencyKey?: string;
   macAddresses?: string[];
+  /**
+   * When supplied, require that Default still has the reviewed pool settings.
+   * @format int64
+   */
+  sourceExpectedDefaultPoolRevision?: string;
   /** @format int64 */
   sourceExpectedRevision?: string;
   /** Empty for explicit adoption of verified unassigned boards. */
@@ -7256,6 +7323,25 @@ export interface V2UnlockStatus {
   unlocked?: boolean;
 }
 
+export interface V2UpdateDefaultMiningGroupWorkerNamesRequest {
+  /** @format int64 */
+  expectedDefaultPoolRevision?: string;
+  /**
+   * The reviewed Default group revision and legacy pool revision.
+   * @format int64
+   */
+  expectedRevision?: string;
+  idempotencyKey?: string;
+  /** Include only the pool usernames to change, with one update per ID. */
+  updates?: V2DefaultMiningGroupWorkerNameUpdate[];
+}
+
+export interface V2UpdateDefaultMiningGroupWorkerNamesResponse {
+  group?: V2MiningGroupRecord;
+  /** All saved Default pools, including inactive pools, without passwords. */
+  pools?: V2Pool[];
+}
+
 /**
  * Success means the desired intent committed, not that owners have applied it.
  * GetMiningGroupTelemetry reports allocation, application, and pending owners.
@@ -7269,6 +7355,10 @@ export interface V2UpdateMiningGroupResponse {
 }
 
 export interface V2UpdatePSUFirmwareResponse {
+  /**
+   * All selected commands were scheduled, not necessarily received or flashed.
+   * An unknown outcome must not be treated as a safe-to-retry rejection.
+   */
   accepted?: boolean;
   message?: string;
 }
@@ -7669,7 +7759,7 @@ export class HttpClient<SecurityDataType = unknown> {
 
 /**
  * @title Proto MDK v2
- * @version 2-38eb3f68b66035c6
+ * @version 2-43ff7b686bba04e5
  *
  * Latest MDK v2 REST contract. Device support depends on product and firmware version.
  */
@@ -8801,6 +8891,28 @@ export class Api<
      * No description
      *
      * @tags Mining groups, CT1
+     * @name MiningGroupServiceCopyMiningGroupPools
+     * @summary CopyMiningGroupPools copies a reviewed pool set into an empty group. The controller keeps the source endpoints and passwords and changes only the requested usernames. Copying pools does not transfer any boards.
+     * @request POST:/api/v2/mining-groups/by-id/{groupId}/pools/copy
+     */
+    miningGroupServiceCopyMiningGroupPools: (
+      { groupId }: MiningGroupServiceCopyMiningGroupPoolsParams,
+      body: MiningGroupServiceCopyMiningGroupPoolsBody,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2CopyMiningGroupPoolsResponse, RpcStatus>({
+        path: `/api/v2/mining-groups/by-id/${groupId}/pools/copy`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Mining groups, CT1
      * @name MiningGroupServiceTestMiningGroupPoolConnection
      * @request POST:/api/v2/mining-groups/by-id/{groupId}/pools/{poolId}/test
      */
@@ -9024,6 +9136,27 @@ export class Api<
     ) =>
       this.request<V2DeactivateMiningGroupsResponse, RpcStatus>({
         path: `/api/v2/mining-groups/deactivate`,
+        method: "POST",
+        body: body,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * No description
+     *
+     * @tags Mining groups, CT1
+     * @name MiningGroupServiceUpdateDefaultMiningGroupWorkerNames
+     * @summary UpdateDefaultMiningGroupWorkerNames atomically updates only reviewed Default pool usernames. Endpoints, passwords, and other pool settings stay intact.
+     * @request POST:/api/v2/mining-groups/default/worker-names
+     */
+    miningGroupServiceUpdateDefaultMiningGroupWorkerNames: (
+      body: V2UpdateDefaultMiningGroupWorkerNamesRequest,
+      params: RequestParams = {},
+    ) =>
+      this.request<V2UpdateDefaultMiningGroupWorkerNamesResponse, RpcStatus>({
+        path: `/api/v2/mining-groups/default/worker-names`,
         method: "POST",
         body: body,
         type: ContentType.Json,
@@ -10515,7 +10648,7 @@ export class Api<
      *
      * @tags System
      * @name SystemServiceUpdatePsuFirmware
-     * @summary UpdatePSUFirmware initiates a firmware update on a PSU.
+     * @summary UpdatePSUFirmware schedules installed firmware on a selected PSU. Use psu_id "*" to select all connected PSUs. Acceptance is not completion.
      * @request POST:/api/v2/system/psu/{psuId}/update
      */
     systemServiceUpdatePsuFirmware: (

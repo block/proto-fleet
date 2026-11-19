@@ -127,6 +127,46 @@ const rpcTable: [
       }),
   ],
   [
+    "miningGroupServiceCopyMiningGroupPools",
+    "mdk.v2.MiningGroupService/CopyMiningGroupPools",
+    {
+      groupId: "local",
+      expectedRevision: "9007199254740993",
+      sourceGroupId: "default",
+      sourceExpectedRevision: "2",
+      idempotencyKey: "copy",
+      pools: [{ source: { id: 1, username: "account.old", enabled: true }, username: "account.new" }],
+    },
+    (c) =>
+      c.miningGroupServiceCopyMiningGroupPools(
+        { groupId: "local" },
+        {
+          expectedRevision: "9007199254740993",
+          sourceGroupId: "default",
+          sourceExpectedRevision: "2",
+          idempotencyKey: "copy",
+          pools: [{ source: { id: 1, username: "account.old", enabled: true }, username: "account.new" }],
+        },
+      ),
+  ],
+  [
+    "miningGroupServiceUpdateDefaultMiningGroupWorkerNames",
+    "mdk.v2.MiningGroupService/UpdateDefaultMiningGroupWorkerNames",
+    {
+      expectedRevision: "9007199254740993",
+      expectedDefaultPoolRevision: "9007199254740994",
+      idempotencyKey: "default-worker-names",
+      updates: [{ poolId: "1", username: "account.new" }],
+    },
+    (c) =>
+      c.miningGroupServiceUpdateDefaultMiningGroupWorkerNames({
+        expectedRevision: "9007199254740993",
+        expectedDefaultPoolRevision: "9007199254740994",
+        idempotencyKey: "default-worker-names",
+        updates: [{ poolId: "1", username: "account.new" }],
+      }),
+  ],
+  [
     "miningGroupServiceReplaceMiningGroupPools",
     "mdk.v2.MiningGroupService/ReplaceMiningGroupPools",
     {

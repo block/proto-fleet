@@ -10,11 +10,11 @@ import type {
   CurtailmentResponseProfileOption,
   CurtailmentSiteOption,
 } from "@/protoFleet/api/curtailmentTypes";
-import type { FullScreenTwoPaneModalProps } from "@/protoFleet/components/FullScreenTwoPaneModal";
 import { buildStartCurtailmentRequest } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 import CurtailmentStartModal from "@/protoFleet/features/energy/CurtailmentStartModal";
 import type { FacilityFanDeviceOption } from "@/protoFleet/features/energy/FacilityFanSelectionModal";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
+import type { FullScreenTwoPaneModalProps } from "@/shared/components/FullScreenTwoPaneModal";
 
 type MockFullScreenTwoPaneModalProps = Pick<
   FullScreenTwoPaneModalProps,
@@ -51,7 +51,7 @@ vi.mock("@/protoFleet/features/energy/useCurtailmentPlanPreview", () => ({
   useCurtailmentPlanPreview: mockUseCurtailmentPlanPreview,
 }));
 
-vi.mock("@/protoFleet/components/FullScreenTwoPaneModal", () => ({
+vi.mock("@/shared/components/FullScreenTwoPaneModal", () => ({
   default: ({ title, isBusy, buttons, abovePanes, primaryPane, secondaryPane }: MockFullScreenTwoPaneModalProps) => (
     <div role="dialog" aria-label={title} data-busy={isBusy ? "true" : "false"}>
       {buttons?.map((button) => (

@@ -20,28 +20,30 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	MiningGroupService_GetMiningGroupCapability_FullMethodName          = "/mdk.v2.MiningGroupService/GetMiningGroupCapability"
-	MiningGroupService_ListMiningGroups_FullMethodName                  = "/mdk.v2.MiningGroupService/ListMiningGroups"
-	MiningGroupService_GetMiningGroup_FullMethodName                    = "/mdk.v2.MiningGroupService/GetMiningGroup"
-	MiningGroupService_CreateMiningGroup_FullMethodName                 = "/mdk.v2.MiningGroupService/CreateMiningGroup"
-	MiningGroupService_UpdateMiningGroup_FullMethodName                 = "/mdk.v2.MiningGroupService/UpdateMiningGroup"
-	MiningGroupService_UpdateMiningGroupIntent_FullMethodName           = "/mdk.v2.MiningGroupService/UpdateMiningGroupIntent"
-	MiningGroupService_DeleteMiningGroup_FullMethodName                 = "/mdk.v2.MiningGroupService/DeleteMiningGroup"
-	MiningGroupService_ActivateMiningGroups_FullMethodName              = "/mdk.v2.MiningGroupService/ActivateMiningGroups"
-	MiningGroupService_DeactivateMiningGroups_FullMethodName            = "/mdk.v2.MiningGroupService/DeactivateMiningGroups"
-	MiningGroupService_SetContainerMiningSuspended_FullMethodName       = "/mdk.v2.MiningGroupService/SetContainerMiningSuspended"
-	MiningGroupService_ListMiningGroupMemberships_FullMethodName        = "/mdk.v2.MiningGroupService/ListMiningGroupMemberships"
-	MiningGroupService_RequestMiningGroupTransfer_FullMethodName        = "/mdk.v2.MiningGroupService/RequestMiningGroupTransfer"
-	MiningGroupService_GetMiningGroupOperation_FullMethodName           = "/mdk.v2.MiningGroupService/GetMiningGroupOperation"
-	MiningGroupService_GetMiningGroupTelemetry_FullMethodName           = "/mdk.v2.MiningGroupService/GetMiningGroupTelemetry"
-	MiningGroupService_QueryMiningGroupHistory_FullMethodName           = "/mdk.v2.MiningGroupService/QueryMiningGroupHistory"
-	MiningGroupService_ListMiningGroupPools_FullMethodName              = "/mdk.v2.MiningGroupService/ListMiningGroupPools"
-	MiningGroupService_ReplaceMiningGroupPools_FullMethodName           = "/mdk.v2.MiningGroupService/ReplaceMiningGroupPools"
-	MiningGroupService_GetMiningGroupPoolDiagnostics_FullMethodName     = "/mdk.v2.MiningGroupService/GetMiningGroupPoolDiagnostics"
-	MiningGroupService_TestMiningGroupPoolConnection_FullMethodName     = "/mdk.v2.MiningGroupService/TestMiningGroupPoolConnection"
-	MiningGroupService_GetPoolConnectionSharingState_FullMethodName     = "/mdk.v2.MiningGroupService/GetPoolConnectionSharingState"
-	MiningGroupService_SetPoolConnectionSharingEnabled_FullMethodName   = "/mdk.v2.MiningGroupService/SetPoolConnectionSharingEnabled"
-	MiningGroupService_RetryPoolConnectionSharingProfile_FullMethodName = "/mdk.v2.MiningGroupService/RetryPoolConnectionSharingProfile"
+	MiningGroupService_GetMiningGroupCapability_FullMethodName            = "/mdk.v2.MiningGroupService/GetMiningGroupCapability"
+	MiningGroupService_ListMiningGroups_FullMethodName                    = "/mdk.v2.MiningGroupService/ListMiningGroups"
+	MiningGroupService_GetMiningGroup_FullMethodName                      = "/mdk.v2.MiningGroupService/GetMiningGroup"
+	MiningGroupService_CreateMiningGroup_FullMethodName                   = "/mdk.v2.MiningGroupService/CreateMiningGroup"
+	MiningGroupService_UpdateMiningGroup_FullMethodName                   = "/mdk.v2.MiningGroupService/UpdateMiningGroup"
+	MiningGroupService_UpdateMiningGroupIntent_FullMethodName             = "/mdk.v2.MiningGroupService/UpdateMiningGroupIntent"
+	MiningGroupService_DeleteMiningGroup_FullMethodName                   = "/mdk.v2.MiningGroupService/DeleteMiningGroup"
+	MiningGroupService_ActivateMiningGroups_FullMethodName                = "/mdk.v2.MiningGroupService/ActivateMiningGroups"
+	MiningGroupService_DeactivateMiningGroups_FullMethodName              = "/mdk.v2.MiningGroupService/DeactivateMiningGroups"
+	MiningGroupService_SetContainerMiningSuspended_FullMethodName         = "/mdk.v2.MiningGroupService/SetContainerMiningSuspended"
+	MiningGroupService_ListMiningGroupMemberships_FullMethodName          = "/mdk.v2.MiningGroupService/ListMiningGroupMemberships"
+	MiningGroupService_RequestMiningGroupTransfer_FullMethodName          = "/mdk.v2.MiningGroupService/RequestMiningGroupTransfer"
+	MiningGroupService_GetMiningGroupOperation_FullMethodName             = "/mdk.v2.MiningGroupService/GetMiningGroupOperation"
+	MiningGroupService_GetMiningGroupTelemetry_FullMethodName             = "/mdk.v2.MiningGroupService/GetMiningGroupTelemetry"
+	MiningGroupService_QueryMiningGroupHistory_FullMethodName             = "/mdk.v2.MiningGroupService/QueryMiningGroupHistory"
+	MiningGroupService_ListMiningGroupPools_FullMethodName                = "/mdk.v2.MiningGroupService/ListMiningGroupPools"
+	MiningGroupService_ReplaceMiningGroupPools_FullMethodName             = "/mdk.v2.MiningGroupService/ReplaceMiningGroupPools"
+	MiningGroupService_CopyMiningGroupPools_FullMethodName                = "/mdk.v2.MiningGroupService/CopyMiningGroupPools"
+	MiningGroupService_UpdateDefaultMiningGroupWorkerNames_FullMethodName = "/mdk.v2.MiningGroupService/UpdateDefaultMiningGroupWorkerNames"
+	MiningGroupService_GetMiningGroupPoolDiagnostics_FullMethodName       = "/mdk.v2.MiningGroupService/GetMiningGroupPoolDiagnostics"
+	MiningGroupService_TestMiningGroupPoolConnection_FullMethodName       = "/mdk.v2.MiningGroupService/TestMiningGroupPoolConnection"
+	MiningGroupService_GetPoolConnectionSharingState_FullMethodName       = "/mdk.v2.MiningGroupService/GetPoolConnectionSharingState"
+	MiningGroupService_SetPoolConnectionSharingEnabled_FullMethodName     = "/mdk.v2.MiningGroupService/SetPoolConnectionSharingEnabled"
+	MiningGroupService_RetryPoolConnectionSharingProfile_FullMethodName   = "/mdk.v2.MiningGroupService/RetryPoolConnectionSharingProfile"
 )
 
 // MiningGroupServiceClient is the client API for MiningGroupService service.
@@ -66,6 +68,13 @@ type MiningGroupServiceClient interface {
 	QueryMiningGroupHistory(ctx context.Context, in *QueryMiningGroupHistoryRequest, opts ...grpc.CallOption) (*QueryMiningGroupHistoryResponse, error)
 	ListMiningGroupPools(ctx context.Context, in *ListMiningGroupPoolsRequest, opts ...grpc.CallOption) (*ListMiningGroupPoolsResponse, error)
 	ReplaceMiningGroupPools(ctx context.Context, in *ReplaceMiningGroupPoolsRequest, opts ...grpc.CallOption) (*ReplaceMiningGroupPoolsResponse, error)
+	// CopyMiningGroupPools copies a reviewed pool set into an empty group. The
+	// controller keeps the source endpoints and passwords and changes only the
+	// requested usernames. Copying pools does not transfer any boards.
+	CopyMiningGroupPools(ctx context.Context, in *CopyMiningGroupPoolsRequest, opts ...grpc.CallOption) (*CopyMiningGroupPoolsResponse, error)
+	// UpdateDefaultMiningGroupWorkerNames atomically updates only reviewed Default
+	// pool usernames. Endpoints, passwords, and other pool settings stay intact.
+	UpdateDefaultMiningGroupWorkerNames(ctx context.Context, in *UpdateDefaultMiningGroupWorkerNamesRequest, opts ...grpc.CallOption) (*UpdateDefaultMiningGroupWorkerNamesResponse, error)
 	GetMiningGroupPoolDiagnostics(ctx context.Context, in *GetMiningGroupPoolDiagnosticsRequest, opts ...grpc.CallOption) (*GetMiningGroupPoolDiagnosticsResponse, error)
 	TestMiningGroupPoolConnection(ctx context.Context, in *TestMiningGroupPoolConnectionRequest, opts ...grpc.CallOption) (*TestMiningGroupPoolConnectionResponse, error)
 	GetPoolConnectionSharingState(ctx context.Context, in *GetPoolConnectionSharingStateRequest, opts ...grpc.CallOption) (*GetPoolConnectionSharingStateResponse, error)
@@ -234,6 +243,24 @@ func (c *miningGroupServiceClient) ReplaceMiningGroupPools(ctx context.Context, 
 	return out, nil
 }
 
+func (c *miningGroupServiceClient) CopyMiningGroupPools(ctx context.Context, in *CopyMiningGroupPoolsRequest, opts ...grpc.CallOption) (*CopyMiningGroupPoolsResponse, error) {
+	out := new(CopyMiningGroupPoolsResponse)
+	err := c.cc.Invoke(ctx, MiningGroupService_CopyMiningGroupPools_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *miningGroupServiceClient) UpdateDefaultMiningGroupWorkerNames(ctx context.Context, in *UpdateDefaultMiningGroupWorkerNamesRequest, opts ...grpc.CallOption) (*UpdateDefaultMiningGroupWorkerNamesResponse, error) {
+	out := new(UpdateDefaultMiningGroupWorkerNamesResponse)
+	err := c.cc.Invoke(ctx, MiningGroupService_UpdateDefaultMiningGroupWorkerNames_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *miningGroupServiceClient) GetMiningGroupPoolDiagnostics(ctx context.Context, in *GetMiningGroupPoolDiagnosticsRequest, opts ...grpc.CallOption) (*GetMiningGroupPoolDiagnosticsResponse, error) {
 	out := new(GetMiningGroupPoolDiagnosticsResponse)
 	err := c.cc.Invoke(ctx, MiningGroupService_GetMiningGroupPoolDiagnostics_FullMethodName, in, out, opts...)
@@ -301,6 +328,13 @@ type MiningGroupServiceServer interface {
 	QueryMiningGroupHistory(context.Context, *QueryMiningGroupHistoryRequest) (*QueryMiningGroupHistoryResponse, error)
 	ListMiningGroupPools(context.Context, *ListMiningGroupPoolsRequest) (*ListMiningGroupPoolsResponse, error)
 	ReplaceMiningGroupPools(context.Context, *ReplaceMiningGroupPoolsRequest) (*ReplaceMiningGroupPoolsResponse, error)
+	// CopyMiningGroupPools copies a reviewed pool set into an empty group. The
+	// controller keeps the source endpoints and passwords and changes only the
+	// requested usernames. Copying pools does not transfer any boards.
+	CopyMiningGroupPools(context.Context, *CopyMiningGroupPoolsRequest) (*CopyMiningGroupPoolsResponse, error)
+	// UpdateDefaultMiningGroupWorkerNames atomically updates only reviewed Default
+	// pool usernames. Endpoints, passwords, and other pool settings stay intact.
+	UpdateDefaultMiningGroupWorkerNames(context.Context, *UpdateDefaultMiningGroupWorkerNamesRequest) (*UpdateDefaultMiningGroupWorkerNamesResponse, error)
 	GetMiningGroupPoolDiagnostics(context.Context, *GetMiningGroupPoolDiagnosticsRequest) (*GetMiningGroupPoolDiagnosticsResponse, error)
 	TestMiningGroupPoolConnection(context.Context, *TestMiningGroupPoolConnectionRequest) (*TestMiningGroupPoolConnectionResponse, error)
 	GetPoolConnectionSharingState(context.Context, *GetPoolConnectionSharingStateRequest) (*GetPoolConnectionSharingStateResponse, error)
@@ -363,6 +397,12 @@ func (UnimplementedMiningGroupServiceServer) ListMiningGroupPools(context.Contex
 }
 func (UnimplementedMiningGroupServiceServer) ReplaceMiningGroupPools(context.Context, *ReplaceMiningGroupPoolsRequest) (*ReplaceMiningGroupPoolsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReplaceMiningGroupPools not implemented")
+}
+func (UnimplementedMiningGroupServiceServer) CopyMiningGroupPools(context.Context, *CopyMiningGroupPoolsRequest) (*CopyMiningGroupPoolsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CopyMiningGroupPools not implemented")
+}
+func (UnimplementedMiningGroupServiceServer) UpdateDefaultMiningGroupWorkerNames(context.Context, *UpdateDefaultMiningGroupWorkerNamesRequest) (*UpdateDefaultMiningGroupWorkerNamesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateDefaultMiningGroupWorkerNames not implemented")
 }
 func (UnimplementedMiningGroupServiceServer) GetMiningGroupPoolDiagnostics(context.Context, *GetMiningGroupPoolDiagnosticsRequest) (*GetMiningGroupPoolDiagnosticsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetMiningGroupPoolDiagnostics not implemented")
@@ -698,6 +738,42 @@ func _MiningGroupService_ReplaceMiningGroupPools_Handler(srv interface{}, ctx co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MiningGroupService_CopyMiningGroupPools_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CopyMiningGroupPoolsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MiningGroupServiceServer).CopyMiningGroupPools(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MiningGroupService_CopyMiningGroupPools_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MiningGroupServiceServer).CopyMiningGroupPools(ctx, req.(*CopyMiningGroupPoolsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MiningGroupService_UpdateDefaultMiningGroupWorkerNames_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateDefaultMiningGroupWorkerNamesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MiningGroupServiceServer).UpdateDefaultMiningGroupWorkerNames(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MiningGroupService_UpdateDefaultMiningGroupWorkerNames_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MiningGroupServiceServer).UpdateDefaultMiningGroupWorkerNames(ctx, req.(*UpdateDefaultMiningGroupWorkerNamesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _MiningGroupService_GetMiningGroupPoolDiagnostics_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetMiningGroupPoolDiagnosticsRequest)
 	if err := dec(in); err != nil {
@@ -862,6 +938,14 @@ var MiningGroupService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReplaceMiningGroupPools",
 			Handler:    _MiningGroupService_ReplaceMiningGroupPools_Handler,
+		},
+		{
+			MethodName: "CopyMiningGroupPools",
+			Handler:    _MiningGroupService_CopyMiningGroupPools_Handler,
+		},
+		{
+			MethodName: "UpdateDefaultMiningGroupWorkerNames",
+			Handler:    _MiningGroupService_UpdateDefaultMiningGroupWorkerNames_Handler,
 		},
 		{
 			MethodName: "GetMiningGroupPoolDiagnostics",

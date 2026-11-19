@@ -46,23 +46,26 @@ const local: LocalPoolConfiguration = {
     },
   ],
 };
+const capacity = { groupsUsed: 1, maxGroups: 10, maxBoards: 4, maxPools: 3 };
 const fixture = (configurations = [local]) =>
   ({
     listConfigurations: vi.fn().mockResolvedValue(configurations),
     listConfigurationPage: vi.fn().mockImplementation(async (offset, limit) => ({
       configurations: configurations.slice(offset, offset + limit),
       total: configurations.length,
+      capacity,
     })),
     deleteConfiguration: vi.fn().mockResolvedValue(undefined),
     inspect: vi.fn().mockResolvedValue({
-      boards: [],
-      savedPools: configurations,
+      savedPools: [],
       mixedConfigurations: false,
-      maxPools: 3,
-      requiresActivation: false,
+      capacity,
     }),
     review: vi.fn(),
     apply: vi.fn(),
+    inspectWorkerNames: vi.fn(),
+    reviewWorkerNames: vi.fn(),
+    applyWorkerNames: vi.fn(),
     status: vi.fn(),
     checkMiningRecovery: vi.fn(),
   }) satisfies PoolAssignmentService;
@@ -74,7 +77,7 @@ beforeEach(() => {
 
 test("reloads assignment counts when an operator clears a completed recovery record", async () => {
   const service = fixture([{ ...local, assignedCount: 4 }]);
-  service.listConfigurationPage.mockResolvedValueOnce({ configurations: [local], total: 1 });
+  service.listConfigurationPage.mockResolvedValueOnce({ configurations: [local], total: 1, capacity });
   service.status.mockResolvedValue({
     state: "saved",
     message: "Pool assignment saved.",

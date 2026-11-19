@@ -6,7 +6,6 @@ import {
   type FixedValueOptionsValues,
   type QualifierOptionsValues,
 } from "./RenameOptionsModals/types";
-import { FixedValueType, QualifierType } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 export const bulkRenameSeparatorIds = {
   dash: "dash",
@@ -38,8 +37,10 @@ export const bulkRenameSeparators: Record<
 };
 
 type PropertyKind = "custom" | "fixed" | "qualifier";
-type QualifierPropertySpec = readonly [string, string, QualifierType];
-type FixedPropertySpec = readonly [string, string, FixedValueType, boolean];
+type QualifierField = "rackLabel" | "rackPosition";
+type FixedField = "macAddress" | "serialNumber" | "model" | "manufacturer" | "workerName" | "minerName";
+type QualifierPropertySpec = readonly [string, string, QualifierField];
+type FixedPropertySpec = readonly [string, string, FixedField, boolean];
 
 type KebabCase<Value extends string> = Value extends `${infer First}${infer Rest}`
   ? Rest extends Uncapitalize<Rest>
@@ -66,8 +67,8 @@ export interface BulkRenamePropertyDefinition {
   kind: PropertyKind;
   defaultOptions: BulkRenamePropertyOptions;
   guaranteesUniqueness?: boolean;
-  fixedValueType?: FixedValueType;
-  qualifierType?: QualifierType;
+  fixedField?: FixedField;
+  qualifierField?: QualifierField;
 }
 
 export interface BulkRenamePreviewMiner {
@@ -116,17 +117,17 @@ const defaultCustomOptions = {
   stringValue: "",
 } satisfies CustomPropertyOptionsValues;
 
-// [code key, UI label, backend FixedValueType, guaranteesUniqueness]
+// [code key, UI label, source field, guaranteesUniqueness]
 const sharedFixedPropertySpecs = [
-  ["fixedMacAddress", "MAC address", FixedValueType.MAC_ADDRESS, true],
-  ["fixedSerialNumber", "Serial number", FixedValueType.SERIAL_NUMBER, true],
-  ["fixedModel", "Model", FixedValueType.MODEL, false],
-  ["fixedManufacturer", "Manufacturer", FixedValueType.MANUFACTURER, false],
+  ["fixedMacAddress", "MAC address", "macAddress", true],
+  ["fixedSerialNumber", "Serial number", "serialNumber", true],
+  ["fixedModel", "Model", "model", false],
+  ["fixedManufacturer", "Manufacturer", "manufacturer", false],
 ] as const;
 
-const renameOnlyFixedPropertySpecs = [["fixedWorkerName", "Worker name", FixedValueType.WORKER_NAME, false]] as const;
+const renameOnlyFixedPropertySpecs = [["fixedWorkerName", "Worker name", "workerName", false]] as const;
 
-const workerOnlyFixedPropertySpecs = [["fixedMinerName", "Miner name", FixedValueType.MINER_NAME, false]] as const;
+const workerOnlyFixedPropertySpecs = [["fixedMinerName", "Miner name", "minerName", false]] as const;
 
 const fixedPropertySpecs = [
   ...sharedFixedPropertySpecs,
@@ -134,10 +135,10 @@ const fixedPropertySpecs = [
   ...workerOnlyFixedPropertySpecs,
 ] as const satisfies readonly FixedPropertySpec[];
 
-// [code key, UI label, backend QualifierType]
+// [code key, UI label, source field]
 const workerQualifierPropertySpecs = [
-  ["qualifierRack", "Rack", QualifierType.RACK],
-  ["qualifierRackPosition", "Rack position", QualifierType.RACK_POSITION],
+  ["qualifierRack", "Rack", "rackLabel"],
+  ["qualifierRackPosition", "Rack position", "rackPosition"],
 ] as const satisfies readonly QualifierPropertySpec[];
 
 const customPropertySpec = ["custom", "Custom"] as const;
@@ -157,21 +158,21 @@ export type BulkRenamePropertyId = (typeof bulkRenamePropertyIds)[keyof typeof b
 const createQualifierPropertyDefinition = (
   key: string,
   label: string,
-  qualifierType: QualifierType,
+  qualifierField: QualifierField,
 ): BulkRenamePropertyDefinition => ({
   id: bulkRenamePropertyIds[key as keyof typeof bulkRenamePropertyIds],
   label,
   kind: "qualifier",
-  qualifierType,
+  qualifierField,
   defaultOptions: { prefix: "", suffix: "" } satisfies QualifierOptionsValues,
 });
 
 const BULK_RENAME_PROPERTY_DEFINITIONS: BulkRenamePropertyDefinition[] = [
-  ...fixedPropertySpecs.map(([key, label, fixedValueType, guaranteesUniqueness]) => ({
+  ...fixedPropertySpecs.map(([key, label, fixedField, guaranteesUniqueness]) => ({
     id: bulkRenamePropertyIds[key],
     label,
     kind: "fixed" as const,
-    fixedValueType,
+    fixedField,
     guaranteesUniqueness,
     defaultOptions: defaultFixedValueOptions,
   })),

@@ -3750,8 +3750,10 @@ func (x *ListPowerSuppliesResponse) GetPowerSupplies() []*PowerSupply {
 }
 
 type UpdatePSUFirmwareRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	PsuId         string                 `protobuf:"bytes,1,opt,name=psu_id,json=psuId,proto3" json:"psu_id,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// PSU ID from ListPowerSupplies, or "*" for all connected PSUs.
+	// R2 IDs are canonical slot strings "1", "2", and "3". Empty is invalid.
+	PsuId         string `protobuf:"bytes,1,opt,name=psu_id,json=psuId,proto3" json:"psu_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3794,9 +3796,11 @@ func (x *UpdatePSUFirmwareRequest) GetPsuId() string {
 }
 
 type UpdatePSUFirmwareResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Accepted      bool                   `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`
-	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// All selected commands were scheduled, not necessarily received or flashed.
+	// An unknown outcome must not be treated as a safe-to-retry rejection.
+	Accepted      bool   `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`
+	Message       string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

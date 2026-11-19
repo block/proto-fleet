@@ -152,6 +152,14 @@ func (a *connectAPI) ReplaceMiningGroupPools(ctx context.Context, req *connect.R
 	return connectResult(a.native.ReplaceMiningGroupPools(ctx, req.Msg))
 }
 
+func (a *connectAPI) CopyMiningGroupPools(ctx context.Context, req *connect.Request[mdk.CopyMiningGroupPoolsRequest]) (*connect.Response[mdk.CopyMiningGroupPoolsResponse], error) {
+	return connectResult(a.native.CopyMiningGroupPools(ctx, req.Msg))
+}
+
+func (a *connectAPI) UpdateDefaultMiningGroupWorkerNames(ctx context.Context, req *connect.Request[mdk.UpdateDefaultMiningGroupWorkerNamesRequest]) (*connect.Response[mdk.UpdateDefaultMiningGroupWorkerNamesResponse], error) {
+	return connectResult(a.native.UpdateDefaultMiningGroupWorkerNames(ctx, req.Msg))
+}
+
 func (a *connectAPI) UpdateMiningGroupIntent(ctx context.Context, req *connect.Request[mdk.UpdateMiningGroupIntentRequest]) (*connect.Response[mdk.UpdateMiningGroupIntentResponse], error) {
 	return connectResult(a.native.UpdateMiningGroupIntent(ctx, req.Msg))
 }

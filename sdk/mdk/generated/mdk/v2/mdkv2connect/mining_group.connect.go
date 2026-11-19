@@ -85,6 +85,12 @@ const (
 	// MiningGroupServiceReplaceMiningGroupPoolsProcedure is the fully-qualified name of the
 	// MiningGroupService's ReplaceMiningGroupPools RPC.
 	MiningGroupServiceReplaceMiningGroupPoolsProcedure = "/mdk.v2.MiningGroupService/ReplaceMiningGroupPools"
+	// MiningGroupServiceCopyMiningGroupPoolsProcedure is the fully-qualified name of the
+	// MiningGroupService's CopyMiningGroupPools RPC.
+	MiningGroupServiceCopyMiningGroupPoolsProcedure = "/mdk.v2.MiningGroupService/CopyMiningGroupPools"
+	// MiningGroupServiceUpdateDefaultMiningGroupWorkerNamesProcedure is the fully-qualified name of the
+	// MiningGroupService's UpdateDefaultMiningGroupWorkerNames RPC.
+	MiningGroupServiceUpdateDefaultMiningGroupWorkerNamesProcedure = "/mdk.v2.MiningGroupService/UpdateDefaultMiningGroupWorkerNames"
 	// MiningGroupServiceGetMiningGroupPoolDiagnosticsProcedure is the fully-qualified name of the
 	// MiningGroupService's GetMiningGroupPoolDiagnostics RPC.
 	MiningGroupServiceGetMiningGroupPoolDiagnosticsProcedure = "/mdk.v2.MiningGroupService/GetMiningGroupPoolDiagnostics"
@@ -122,6 +128,13 @@ type MiningGroupServiceClient interface {
 	QueryMiningGroupHistory(context.Context, *connect.Request[v2.QueryMiningGroupHistoryRequest]) (*connect.Response[v2.QueryMiningGroupHistoryResponse], error)
 	ListMiningGroupPools(context.Context, *connect.Request[v2.ListMiningGroupPoolsRequest]) (*connect.Response[v2.ListMiningGroupPoolsResponse], error)
 	ReplaceMiningGroupPools(context.Context, *connect.Request[v2.ReplaceMiningGroupPoolsRequest]) (*connect.Response[v2.ReplaceMiningGroupPoolsResponse], error)
+	// CopyMiningGroupPools copies a reviewed pool set into an empty group. The
+	// controller keeps the source endpoints and passwords and changes only the
+	// requested usernames. Copying pools does not transfer any boards.
+	CopyMiningGroupPools(context.Context, *connect.Request[v2.CopyMiningGroupPoolsRequest]) (*connect.Response[v2.CopyMiningGroupPoolsResponse], error)
+	// UpdateDefaultMiningGroupWorkerNames atomically updates only reviewed Default
+	// pool usernames. Endpoints, passwords, and other pool settings stay intact.
+	UpdateDefaultMiningGroupWorkerNames(context.Context, *connect.Request[v2.UpdateDefaultMiningGroupWorkerNamesRequest]) (*connect.Response[v2.UpdateDefaultMiningGroupWorkerNamesResponse], error)
 	GetMiningGroupPoolDiagnostics(context.Context, *connect.Request[v2.GetMiningGroupPoolDiagnosticsRequest]) (*connect.Response[v2.GetMiningGroupPoolDiagnosticsResponse], error)
 	TestMiningGroupPoolConnection(context.Context, *connect.Request[v2.TestMiningGroupPoolConnectionRequest]) (*connect.Response[v2.TestMiningGroupPoolConnectionResponse], error)
 	GetPoolConnectionSharingState(context.Context, *connect.Request[v2.GetPoolConnectionSharingStateRequest]) (*connect.Response[v2.GetPoolConnectionSharingStateResponse], error)
@@ -224,6 +237,16 @@ func NewMiningGroupServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			baseURL+MiningGroupServiceReplaceMiningGroupPoolsProcedure,
 			opts...,
 		),
+		copyMiningGroupPools: connect.NewClient[v2.CopyMiningGroupPoolsRequest, v2.CopyMiningGroupPoolsResponse](
+			httpClient,
+			baseURL+MiningGroupServiceCopyMiningGroupPoolsProcedure,
+			opts...,
+		),
+		updateDefaultMiningGroupWorkerNames: connect.NewClient[v2.UpdateDefaultMiningGroupWorkerNamesRequest, v2.UpdateDefaultMiningGroupWorkerNamesResponse](
+			httpClient,
+			baseURL+MiningGroupServiceUpdateDefaultMiningGroupWorkerNamesProcedure,
+			opts...,
+		),
 		getMiningGroupPoolDiagnostics: connect.NewClient[v2.GetMiningGroupPoolDiagnosticsRequest, v2.GetMiningGroupPoolDiagnosticsResponse](
 			httpClient,
 			baseURL+MiningGroupServiceGetMiningGroupPoolDiagnosticsProcedure,
@@ -254,28 +277,30 @@ func NewMiningGroupServiceClient(httpClient connect.HTTPClient, baseURL string, 
 
 // miningGroupServiceClient implements MiningGroupServiceClient.
 type miningGroupServiceClient struct {
-	getMiningGroupCapability          *connect.Client[v2.GetMiningGroupCapabilityRequest, v2.GetMiningGroupCapabilityResponse]
-	listMiningGroups                  *connect.Client[v2.ListMiningGroupsRequest, v2.ListMiningGroupsResponse]
-	getMiningGroup                    *connect.Client[v2.GetMiningGroupRequest, v2.GetMiningGroupResponse]
-	createMiningGroup                 *connect.Client[v2.CreateMiningGroupRequest, v2.CreateMiningGroupResponse]
-	updateMiningGroup                 *connect.Client[v2.UpdateMiningGroupRequest, v2.UpdateMiningGroupResponse]
-	updateMiningGroupIntent           *connect.Client[v2.UpdateMiningGroupIntentRequest, v2.UpdateMiningGroupIntentResponse]
-	deleteMiningGroup                 *connect.Client[v2.DeleteMiningGroupRequest, v2.DeleteMiningGroupResponse]
-	activateMiningGroups              *connect.Client[v2.ActivateMiningGroupsRequest, v2.ActivateMiningGroupsResponse]
-	deactivateMiningGroups            *connect.Client[v2.DeactivateMiningGroupsRequest, v2.DeactivateMiningGroupsResponse]
-	setContainerMiningSuspended       *connect.Client[v2.SetContainerMiningSuspendedRequest, v2.SetContainerMiningSuspendedResponse]
-	listMiningGroupMemberships        *connect.Client[v2.ListMiningGroupMembershipsRequest, v2.ListMiningGroupMembershipsResponse]
-	requestMiningGroupTransfer        *connect.Client[v2.RequestMiningGroupTransferRequest, v2.RequestMiningGroupTransferResponse]
-	getMiningGroupOperation           *connect.Client[v2.GetMiningGroupOperationRequest, v2.GetMiningGroupOperationResponse]
-	getMiningGroupTelemetry           *connect.Client[v2.GetMiningGroupTelemetryRequest, v2.GetMiningGroupTelemetryResponse]
-	queryMiningGroupHistory           *connect.Client[v2.QueryMiningGroupHistoryRequest, v2.QueryMiningGroupHistoryResponse]
-	listMiningGroupPools              *connect.Client[v2.ListMiningGroupPoolsRequest, v2.ListMiningGroupPoolsResponse]
-	replaceMiningGroupPools           *connect.Client[v2.ReplaceMiningGroupPoolsRequest, v2.ReplaceMiningGroupPoolsResponse]
-	getMiningGroupPoolDiagnostics     *connect.Client[v2.GetMiningGroupPoolDiagnosticsRequest, v2.GetMiningGroupPoolDiagnosticsResponse]
-	testMiningGroupPoolConnection     *connect.Client[v2.TestMiningGroupPoolConnectionRequest, v2.TestMiningGroupPoolConnectionResponse]
-	getPoolConnectionSharingState     *connect.Client[v2.GetPoolConnectionSharingStateRequest, v2.GetPoolConnectionSharingStateResponse]
-	setPoolConnectionSharingEnabled   *connect.Client[v2.SetPoolConnectionSharingEnabledRequest, v2.SetPoolConnectionSharingEnabledResponse]
-	retryPoolConnectionSharingProfile *connect.Client[v2.RetryPoolConnectionSharingProfileRequest, v2.RetryPoolConnectionSharingProfileResponse]
+	getMiningGroupCapability            *connect.Client[v2.GetMiningGroupCapabilityRequest, v2.GetMiningGroupCapabilityResponse]
+	listMiningGroups                    *connect.Client[v2.ListMiningGroupsRequest, v2.ListMiningGroupsResponse]
+	getMiningGroup                      *connect.Client[v2.GetMiningGroupRequest, v2.GetMiningGroupResponse]
+	createMiningGroup                   *connect.Client[v2.CreateMiningGroupRequest, v2.CreateMiningGroupResponse]
+	updateMiningGroup                   *connect.Client[v2.UpdateMiningGroupRequest, v2.UpdateMiningGroupResponse]
+	updateMiningGroupIntent             *connect.Client[v2.UpdateMiningGroupIntentRequest, v2.UpdateMiningGroupIntentResponse]
+	deleteMiningGroup                   *connect.Client[v2.DeleteMiningGroupRequest, v2.DeleteMiningGroupResponse]
+	activateMiningGroups                *connect.Client[v2.ActivateMiningGroupsRequest, v2.ActivateMiningGroupsResponse]
+	deactivateMiningGroups              *connect.Client[v2.DeactivateMiningGroupsRequest, v2.DeactivateMiningGroupsResponse]
+	setContainerMiningSuspended         *connect.Client[v2.SetContainerMiningSuspendedRequest, v2.SetContainerMiningSuspendedResponse]
+	listMiningGroupMemberships          *connect.Client[v2.ListMiningGroupMembershipsRequest, v2.ListMiningGroupMembershipsResponse]
+	requestMiningGroupTransfer          *connect.Client[v2.RequestMiningGroupTransferRequest, v2.RequestMiningGroupTransferResponse]
+	getMiningGroupOperation             *connect.Client[v2.GetMiningGroupOperationRequest, v2.GetMiningGroupOperationResponse]
+	getMiningGroupTelemetry             *connect.Client[v2.GetMiningGroupTelemetryRequest, v2.GetMiningGroupTelemetryResponse]
+	queryMiningGroupHistory             *connect.Client[v2.QueryMiningGroupHistoryRequest, v2.QueryMiningGroupHistoryResponse]
+	listMiningGroupPools                *connect.Client[v2.ListMiningGroupPoolsRequest, v2.ListMiningGroupPoolsResponse]
+	replaceMiningGroupPools             *connect.Client[v2.ReplaceMiningGroupPoolsRequest, v2.ReplaceMiningGroupPoolsResponse]
+	copyMiningGroupPools                *connect.Client[v2.CopyMiningGroupPoolsRequest, v2.CopyMiningGroupPoolsResponse]
+	updateDefaultMiningGroupWorkerNames *connect.Client[v2.UpdateDefaultMiningGroupWorkerNamesRequest, v2.UpdateDefaultMiningGroupWorkerNamesResponse]
+	getMiningGroupPoolDiagnostics       *connect.Client[v2.GetMiningGroupPoolDiagnosticsRequest, v2.GetMiningGroupPoolDiagnosticsResponse]
+	testMiningGroupPoolConnection       *connect.Client[v2.TestMiningGroupPoolConnectionRequest, v2.TestMiningGroupPoolConnectionResponse]
+	getPoolConnectionSharingState       *connect.Client[v2.GetPoolConnectionSharingStateRequest, v2.GetPoolConnectionSharingStateResponse]
+	setPoolConnectionSharingEnabled     *connect.Client[v2.SetPoolConnectionSharingEnabledRequest, v2.SetPoolConnectionSharingEnabledResponse]
+	retryPoolConnectionSharingProfile   *connect.Client[v2.RetryPoolConnectionSharingProfileRequest, v2.RetryPoolConnectionSharingProfileResponse]
 }
 
 // GetMiningGroupCapability calls mdk.v2.MiningGroupService.GetMiningGroupCapability.
@@ -363,6 +388,17 @@ func (c *miningGroupServiceClient) ReplaceMiningGroupPools(ctx context.Context, 
 	return c.replaceMiningGroupPools.CallUnary(ctx, req)
 }
 
+// CopyMiningGroupPools calls mdk.v2.MiningGroupService.CopyMiningGroupPools.
+func (c *miningGroupServiceClient) CopyMiningGroupPools(ctx context.Context, req *connect.Request[v2.CopyMiningGroupPoolsRequest]) (*connect.Response[v2.CopyMiningGroupPoolsResponse], error) {
+	return c.copyMiningGroupPools.CallUnary(ctx, req)
+}
+
+// UpdateDefaultMiningGroupWorkerNames calls
+// mdk.v2.MiningGroupService.UpdateDefaultMiningGroupWorkerNames.
+func (c *miningGroupServiceClient) UpdateDefaultMiningGroupWorkerNames(ctx context.Context, req *connect.Request[v2.UpdateDefaultMiningGroupWorkerNamesRequest]) (*connect.Response[v2.UpdateDefaultMiningGroupWorkerNamesResponse], error) {
+	return c.updateDefaultMiningGroupWorkerNames.CallUnary(ctx, req)
+}
+
 // GetMiningGroupPoolDiagnostics calls mdk.v2.MiningGroupService.GetMiningGroupPoolDiagnostics.
 func (c *miningGroupServiceClient) GetMiningGroupPoolDiagnostics(ctx context.Context, req *connect.Request[v2.GetMiningGroupPoolDiagnosticsRequest]) (*connect.Response[v2.GetMiningGroupPoolDiagnosticsResponse], error) {
 	return c.getMiningGroupPoolDiagnostics.CallUnary(ctx, req)
@@ -409,6 +445,13 @@ type MiningGroupServiceHandler interface {
 	QueryMiningGroupHistory(context.Context, *connect.Request[v2.QueryMiningGroupHistoryRequest]) (*connect.Response[v2.QueryMiningGroupHistoryResponse], error)
 	ListMiningGroupPools(context.Context, *connect.Request[v2.ListMiningGroupPoolsRequest]) (*connect.Response[v2.ListMiningGroupPoolsResponse], error)
 	ReplaceMiningGroupPools(context.Context, *connect.Request[v2.ReplaceMiningGroupPoolsRequest]) (*connect.Response[v2.ReplaceMiningGroupPoolsResponse], error)
+	// CopyMiningGroupPools copies a reviewed pool set into an empty group. The
+	// controller keeps the source endpoints and passwords and changes only the
+	// requested usernames. Copying pools does not transfer any boards.
+	CopyMiningGroupPools(context.Context, *connect.Request[v2.CopyMiningGroupPoolsRequest]) (*connect.Response[v2.CopyMiningGroupPoolsResponse], error)
+	// UpdateDefaultMiningGroupWorkerNames atomically updates only reviewed Default
+	// pool usernames. Endpoints, passwords, and other pool settings stay intact.
+	UpdateDefaultMiningGroupWorkerNames(context.Context, *connect.Request[v2.UpdateDefaultMiningGroupWorkerNamesRequest]) (*connect.Response[v2.UpdateDefaultMiningGroupWorkerNamesResponse], error)
 	GetMiningGroupPoolDiagnostics(context.Context, *connect.Request[v2.GetMiningGroupPoolDiagnosticsRequest]) (*connect.Response[v2.GetMiningGroupPoolDiagnosticsResponse], error)
 	TestMiningGroupPoolConnection(context.Context, *connect.Request[v2.TestMiningGroupPoolConnectionRequest]) (*connect.Response[v2.TestMiningGroupPoolConnectionResponse], error)
 	GetPoolConnectionSharingState(context.Context, *connect.Request[v2.GetPoolConnectionSharingStateRequest]) (*connect.Response[v2.GetPoolConnectionSharingStateResponse], error)
@@ -507,6 +550,16 @@ func NewMiningGroupServiceHandler(svc MiningGroupServiceHandler, opts ...connect
 		svc.ReplaceMiningGroupPools,
 		opts...,
 	)
+	miningGroupServiceCopyMiningGroupPoolsHandler := connect.NewUnaryHandler(
+		MiningGroupServiceCopyMiningGroupPoolsProcedure,
+		svc.CopyMiningGroupPools,
+		opts...,
+	)
+	miningGroupServiceUpdateDefaultMiningGroupWorkerNamesHandler := connect.NewUnaryHandler(
+		MiningGroupServiceUpdateDefaultMiningGroupWorkerNamesProcedure,
+		svc.UpdateDefaultMiningGroupWorkerNames,
+		opts...,
+	)
 	miningGroupServiceGetMiningGroupPoolDiagnosticsHandler := connect.NewUnaryHandler(
 		MiningGroupServiceGetMiningGroupPoolDiagnosticsProcedure,
 		svc.GetMiningGroupPoolDiagnostics,
@@ -568,6 +621,10 @@ func NewMiningGroupServiceHandler(svc MiningGroupServiceHandler, opts ...connect
 			miningGroupServiceListMiningGroupPoolsHandler.ServeHTTP(w, r)
 		case MiningGroupServiceReplaceMiningGroupPoolsProcedure:
 			miningGroupServiceReplaceMiningGroupPoolsHandler.ServeHTTP(w, r)
+		case MiningGroupServiceCopyMiningGroupPoolsProcedure:
+			miningGroupServiceCopyMiningGroupPoolsHandler.ServeHTTP(w, r)
+		case MiningGroupServiceUpdateDefaultMiningGroupWorkerNamesProcedure:
+			miningGroupServiceUpdateDefaultMiningGroupWorkerNamesHandler.ServeHTTP(w, r)
 		case MiningGroupServiceGetMiningGroupPoolDiagnosticsProcedure:
 			miningGroupServiceGetMiningGroupPoolDiagnosticsHandler.ServeHTTP(w, r)
 		case MiningGroupServiceTestMiningGroupPoolConnectionProcedure:
@@ -653,6 +710,14 @@ func (UnimplementedMiningGroupServiceHandler) ListMiningGroupPools(context.Conte
 
 func (UnimplementedMiningGroupServiceHandler) ReplaceMiningGroupPools(context.Context, *connect.Request[v2.ReplaceMiningGroupPoolsRequest]) (*connect.Response[v2.ReplaceMiningGroupPoolsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mdk.v2.MiningGroupService.ReplaceMiningGroupPools is not implemented"))
+}
+
+func (UnimplementedMiningGroupServiceHandler) CopyMiningGroupPools(context.Context, *connect.Request[v2.CopyMiningGroupPoolsRequest]) (*connect.Response[v2.CopyMiningGroupPoolsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mdk.v2.MiningGroupService.CopyMiningGroupPools is not implemented"))
+}
+
+func (UnimplementedMiningGroupServiceHandler) UpdateDefaultMiningGroupWorkerNames(context.Context, *connect.Request[v2.UpdateDefaultMiningGroupWorkerNamesRequest]) (*connect.Response[v2.UpdateDefaultMiningGroupWorkerNamesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mdk.v2.MiningGroupService.UpdateDefaultMiningGroupWorkerNames is not implemented"))
 }
 
 func (UnimplementedMiningGroupServiceHandler) GetMiningGroupPoolDiagnostics(context.Context, *connect.Request[v2.GetMiningGroupPoolDiagnosticsRequest]) (*connect.Response[v2.GetMiningGroupPoolDiagnosticsResponse], error) {

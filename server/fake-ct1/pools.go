@@ -20,6 +20,7 @@ type simulatedPool struct {
 
 func (s *ContainerState) initPools() {
 	s.pools = make(map[int64]simulatedPool)
+	s.defaultPoolRevision = 1
 	for _, p := range demoPools() {
 		id := int64(p.ID)
 		s.pools[id] = simulatedPool{pool: &mdk.Pool{Id: id, Name: p.Name, Url: p.URL, Username: p.Username, Priority: p.Priority, Enabled: p.Enabled}}
@@ -67,6 +68,13 @@ func (s *ContainerState) validatePoolWrite(p *mdk.Pool) error {
 			enabled = append(enabled, existing.pool)
 		}
 	}
+	if hasConflictingEnabledPools(enabled) {
+		return status.Error(codes.AlreadyExists, "enabled pool URL and priority must be unique")
+	}
+	return nil
+}
+
+func hasConflictingEnabledPools(enabled []*mdk.Pool) bool {
 	weighted := slices.ContainsFunc(enabled, func(pool *mdk.Pool) bool { return pool.ShareWeight != nil })
 	type identity struct{ url, username string }
 	identities := make(map[identity]bool, len(enabled))
@@ -77,17 +85,22 @@ func (s *ContainerState) validatePoolWrite(p *mdk.Pool) error {
 			key.username = pool.Username
 		}
 		if identities[key] || priorities[pool.Priority] {
-			return status.Error(codes.AlreadyExists, "enabled pool URL and priority must be unique")
+			return true
 		}
 		identities[key] = true
 		priorities[pool.Priority] = true
 	}
-	return nil
+	return false
 }
 
 // Legacy pool CRUD edits the built-in Default configuration, including in group mode.
-func (s *ContainerState) syncDefaultPools() {
-	if s.miningGroups == nil || !s.miningGroups.capability.Enabled {
+func (s *ContainerState) syncDefaultPools(revisionDelta int64) {
+	s.defaultPoolRevision += revisionDelta
+	if s.miningGroups == nil {
+		return
+	}
+	s.miningGroups.groups["default"].DefaultPoolRevision = proto.Int64(s.defaultPoolRevision)
+	if !s.miningGroups.capability.Enabled {
 		return
 	}
 	var pools []*mdk.MiningGroupPoolInput
@@ -126,7 +139,7 @@ func (a *grpcAPI) CreatePool(ctx context.Context, in *mdk.CreatePoolRequest) (*m
 	p.Id = s.nextPoolID
 	p.CreatedAt = timestamppb.New(s.now())
 	s.pools[p.Id] = simulatedPool{pool: p, password: in.Password}
-	s.syncDefaultPools()
+	s.syncDefaultPools(1)
 	return &mdk.CreatePoolResponse{Pool: proto.CloneOf(p)}, nil
 }
 
@@ -179,7 +192,7 @@ func (a *grpcAPI) UpdatePool(ctx context.Context, in *mdk.UpdatePoolRequest) (*m
 		password = in.Password
 	}
 	s.pools[p.Id] = simulatedPool{pool: p, password: password}
-	s.syncDefaultPools()
+	s.syncDefaultPools(1)
 	return &mdk.UpdatePoolResponse{Pool: proto.CloneOf(p)}, nil
 }
 
@@ -194,6 +207,6 @@ func (a *grpcAPI) DeletePool(ctx context.Context, in *mdk.DeletePoolRequest) (*m
 		return nil, status.Error(codes.NotFound, "pool not found")
 	}
 	delete(s.pools, in.Id)
-	s.syncDefaultPools()
+	s.syncDefaultPools(1)
 	return &mdk.DeletePoolResponse{}, nil
 }

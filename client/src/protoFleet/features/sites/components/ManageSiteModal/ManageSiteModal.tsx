@@ -13,12 +13,12 @@ import {
 import { type Building, type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type Site, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { type SiteFormValues } from "@/protoFleet/api/sites";
-import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
 import BuildingSettingsModal from "@/protoFleet/features/buildings/components/BuildingSettingsModal";
 import { formatSiteAddress } from "@/protoFleet/features/sites/formatAddress";
 import { Alert, Ellipsis } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
+import FullScreenTwoPaneModal from "@/shared/components/FullScreenTwoPaneModal";
 import Header from "@/shared/components/Header";
 import PlaceholderBlock from "@/shared/components/PlaceholderBlock";
 import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";

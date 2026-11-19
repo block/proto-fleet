@@ -9,7 +9,6 @@ import {
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useFleet from "@/protoFleet/api/useFleet";
 import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
-import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
 import { siteFilterFromActive, useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import TargetSelectButton, { getTargetButtonLabel } from "@/protoFleet/components/TargetSelectButton";
 import BuildingSelectionModal from "@/protoFleet/features/settings/components/Schedules/BuildingSelectionModal";
@@ -45,6 +44,7 @@ import {
 import { useHasPermission } from "@/protoFleet/store";
 import { variants } from "@/shared/components/Button";
 import { DatePickerField } from "@/shared/components/DatePicker";
+import FullScreenTwoPaneModal from "@/shared/components/FullScreenTwoPaneModal";
 import Input from "@/shared/components/Input";
 import Select from "@/shared/components/Select";
 import { pushToast, STATUSES } from "@/shared/features/toaster";

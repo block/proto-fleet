@@ -2,10 +2,10 @@ import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react";
 import { action } from "storybook/actions";
 
-import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
 import { DismissCircle } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
+import FullScreenTwoPaneModal from "@/shared/components/FullScreenTwoPaneModal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { Toaster as ToasterComponent } from "@/shared/features/toaster";
 

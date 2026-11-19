@@ -25,23 +25,20 @@ fake-proto-rig simulator is updated for the `lines=0` and `message` changes.
 
 ### MDK v2
 
-- Published mirror: btc-mining/proto-api
-  - Source path: `mdk/v2/spec-all.json`
-  - Specification version: `2-38eb3f68b66035c6`
-  - Mirror commit SHA: 01a18d903adcc1be8d1a37894aab6ab869362719
-  - Extraction Date: 2026-11-11
-- Contract source: Frigate (private)
+- Development export: Frigate `bin/task api:export`
+  - Source path: `gen/mdkv2-public/spec-all.json`
+  - Specification version: `2-43ff7b686bba04e5`
+  - SHA-256: `b5e7ca0b1b8a60fb38ba6a153dd1a3aa835b971626182c689232dbe8b46a7b2b`
+  - Extraction Date: 2026-11-19
+- Contract source: Frigate [PR #1044](https://github.com/btc-mining/frigate/pull/1044)
   - Source path: `proto/mdk/v2/`
-  - Commit SHA: fc06e9c3f71c8b23d03262387c68a790e4b7fcbd
-  - Commit Date: 2026-11-11
+  - Commit SHA: 4df958de2aa3ea77510198d6d7b937b81252fab9
+  - Commit Date: 2026-11-19
 
-`openapi/MDK-v2-API.json` is the mirror's `spec-all.json`, byte for byte; its
-SHA-256 matches the mirror's `source.json`. Frigate publishes that mirror from
-`bin/task api:export`. Running the export at the Frigate commit above
-reproduces all four mirror files and the specification version exactly, so
-this snapshot and the protos in `sdk/mdk/proto/mdk/v2` come from the same
-Frigate commit. `spec-all.json` covers every product; `spec-ct1.json` is a
-strict subset of it with identical shared paths and definitions.
+This development export supplies pool copy and guarded Default worker-name
+updates while the Frigate PR is in review. Refresh this snapshot and the
+vendored protos together when the merged contract is available in the published
+mirror.
 
 The snapshot documents the protobuf-first `/api/v2/...` REST/JSON gateway.
 ProtoOS generates a private TypeScript client from it under the MDK v2 adapter,

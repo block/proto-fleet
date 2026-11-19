@@ -20,9 +20,16 @@ const pools = [
   },
 ];
 const saved = { id: "local", name: "Primary pools", revision: "1", mining: true, pools };
+const capacity = { groupsUsed: 2, maxGroups: 289, maxBoards: 288, maxPools: 3 };
+const workerNamesUnavailable = async (): Promise<never> => {
+  throw new Error("Use a CT1 controller or simulator to update worker names.");
+};
 const createService = (): PoolAssignmentService => {
   const configurations = [saved];
   return {
+    inspectWorkerNames: workerNamesUnavailable,
+    reviewWorkerNames: workerNamesUnavailable,
+    applyWorkerNames: workerNamesUnavailable,
     async listConfigurations() {
       return configurations.map((set) => ({
         ...set,
@@ -40,6 +47,7 @@ const createService = (): PoolAssignmentService => {
           isDefault: false,
         })),
         total: configurations.length,
+        capacity,
       };
     },
     async deleteConfiguration(id) {
@@ -48,8 +56,12 @@ const createService = (): PoolAssignmentService => {
         1,
       );
     },
-    async inspect() {
-      return { boards, savedPools: configurations, mixedConfigurations: false, maxPools: 3, requiresActivation: false };
+    async inspect(target) {
+      return {
+        savedPools: configurations.map((set) => ({ ...set, projectedBoards: target.macs.length })),
+        mixedConfigurations: false,
+        capacity,
+      };
     },
     async review(target, choice) {
       return {
@@ -61,6 +73,12 @@ const createService = (): PoolAssignmentService => {
         stamp: "story",
         pools: choice.pools,
         savedPoolSet: configurations.find((set) => set.id === choice.savedPoolSetId),
+        usernameSource: choice.usernameSource,
+        capacity: {
+          ...capacity,
+          groupsUsed: configurations.length + (choice.savedPoolSetId ? 1 : 2),
+          destinationBoards: choice.createOnly ? 0 : target.macs.length,
+        },
         mining: true,
         requiresActivation: false,
         destinationId: "local",
@@ -79,8 +97,8 @@ const createService = (): PoolAssignmentService => {
           enabled: true,
           priority,
         }));
-      const destinationId = plan.configurationOnly ? newUUID() : "local";
-      if (plan.configurationOnly)
+      const destinationId = plan.savedPoolSet?.id ?? newUUID();
+      if (!plan.savedPoolSet)
         configurations.push({ ...saved, id: destinationId, name: plan.name, pools: configuredPools });
       track({
         configurationOnly: plan.configurationOnly,

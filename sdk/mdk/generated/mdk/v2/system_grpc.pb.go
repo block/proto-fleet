@@ -59,7 +59,8 @@ type SystemServiceClient interface {
 	GetHardwareInfo(ctx context.Context, in *GetHardwareInfoRequest, opts ...grpc.CallOption) (*GetHardwareInfoResponse, error)
 	// ListPowerSupplies returns information about installed PSUs.
 	ListPowerSupplies(ctx context.Context, in *ListPowerSuppliesRequest, opts ...grpc.CallOption) (*ListPowerSuppliesResponse, error)
-	// UpdatePSUFirmware initiates a firmware update on a PSU.
+	// UpdatePSUFirmware schedules installed firmware on a selected PSU.
+	// Use psu_id "*" to select all connected PSUs. Acceptance is not completion.
 	UpdatePSUFirmware(ctx context.Context, in *UpdatePSUFirmwareRequest, opts ...grpc.CallOption) (*UpdatePSUFirmwareResponse, error)
 	// ListTags returns the system's tag set.
 	ListTags(ctx context.Context, in *ListTagsRequest, opts ...grpc.CallOption) (*ListTagsResponse, error)
@@ -402,7 +403,8 @@ type SystemServiceServer interface {
 	GetHardwareInfo(context.Context, *GetHardwareInfoRequest) (*GetHardwareInfoResponse, error)
 	// ListPowerSupplies returns information about installed PSUs.
 	ListPowerSupplies(context.Context, *ListPowerSuppliesRequest) (*ListPowerSuppliesResponse, error)
-	// UpdatePSUFirmware initiates a firmware update on a PSU.
+	// UpdatePSUFirmware schedules installed firmware on a selected PSU.
+	// Use psu_id "*" to select all connected PSUs. Acceptance is not completion.
 	UpdatePSUFirmware(context.Context, *UpdatePSUFirmwareRequest) (*UpdatePSUFirmwareResponse, error)
 	// ListTags returns the system's tag set.
 	ListTags(context.Context, *ListTagsRequest) (*ListTagsResponse, error)

@@ -1,28 +1,35 @@
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useId, useRef, useState } from "react";
 import { readPoolAttempts, removePoolAttempt, savePoolAttempt } from "./attemptStorage";
 import { withPoolWriteLock } from "./poolWriteLock";
-import { isAuthenticationError } from "@/protoOS/api/adapters/errors";
+import { poolAssignmentErrorMessage, startWorkerNameUpdate } from "./workerNameUpdates";
 import type {
   AssignmentPool,
   PoolAssignmentAttempt,
+  PoolAssignmentChoice,
   PoolAssignmentInspection,
   PoolAssignmentPlan,
   PoolAssignmentService,
   PoolAssignmentStatus,
   PoolAssignmentTarget,
   SavedPoolSet,
+  WorkerNameChoice,
+  WorkerNameReview,
+  WorkerNameSource,
 } from "@/protoOS/api/adapters/poolAssignment";
+import {
+  bulkRenameModes,
+  type BulkRenamePreferences,
+  createDefaultBulkRenamePreferences,
+} from "@/shared/components/BulkRename/bulkRenameDefinitions";
 import { usePoll } from "@/shared/hooks/usePoll";
+
+interface WorkerNameDraft {
+  sources: WorkerNameSource[];
+  preferences: BulkRenamePreferences;
+}
 
 const STATUS_POLL_INTERVAL_MS = 3_000;
 const MAX_STATUS_POLL_INTERVAL_MS = 60_000;
-
-const message = (error: unknown) => {
-  if (isAuthenticationError(error))
-    return "Sign in to the controller, then check assignment status. Writes were not retried.";
-  if (error instanceof Error) return error.message;
-  return "The controller could not confirm the assignment. Check status before trying again.";
-};
 
 export function usePoolAssignment(
   service: PoolAssignmentService,
@@ -30,15 +37,23 @@ export function usePoolAssignment(
   target: PoolAssignmentTarget,
   {
     openStatus,
+    workerNames,
     onConfigurationSaved,
     onAssignmentSaved,
+    onDismiss,
+    workerNameUpdateOwner,
   }: {
     openStatus: boolean;
+    workerNames: boolean;
     onConfigurationSaved: () => void;
-    onAssignmentSaved: (status: PoolAssignmentStatus) => void;
+    onAssignmentSaved: (message: string, toastAlreadyShown?: boolean) => void;
+    onDismiss: () => void;
+    workerNameUpdateOwner?: string;
   },
 ) {
   const [inspection, setInspection] = useState<PoolAssignmentInspection>();
+  const [workerNameDraft, setWorkerNameDraft] = useState<WorkerNameDraft>();
+  const [workerNameReview, setWorkerNameReview] = useState<WorkerNameReview>();
   const [reviewedPlan, setReviewedPlan] = useState<{ plan: PoolAssignmentPlan; replacesAttemptId?: string }>();
   const [attempt, setAttempt] = useState<PoolAssignmentAttempt | undefined>(() => readPoolAttempts(controllerId)[0]);
   const [openingAttemptId] = useState(attempt?.id);
@@ -46,6 +61,8 @@ export function usePoolAssignment(
   const [status, setStatus] = useState<PoolAssignmentStatus>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [updatingWorkerNames, setUpdatingWorkerNames] = useState(false);
+  const fallbackOwner = useId();
   const statusPollDelayMs = useRef(0);
   const checkingPrevious = Boolean(
     !openStatus && target.macs.length && attempt && attempt.id === openingAttemptId && !attempt.restoreLegacyMining,
@@ -60,7 +77,7 @@ export function usePoolAssignment(
     try {
       await operation(controller.signal);
     } catch (error) {
-      if (!controller.signal.aborted) setError(message(error));
+      if (!controller.signal.aborted) setError(poolAssignmentErrorMessage(error));
     } finally {
       if (request.current === controller) {
         request.current = null;
@@ -75,7 +92,21 @@ export function usePoolAssignment(
     },
     [service, controllerId],
   );
-  const inspect = () => run(async (signal) => setInspection(await service.inspect(target, { signal })));
+  const inspectSelection = async (signal: AbortSignal) => {
+    if (workerNames) {
+      const sources = await service.inspectWorkerNames(target, { signal });
+      signal.throwIfAborted();
+      setWorkerNameDraft((edited) => ({
+        sources,
+        preferences: edited?.preferences ?? createDefaultBulkRenamePreferences(bulkRenameModes.worker),
+      }));
+    } else {
+      const value = await service.inspect(target, { signal });
+      signal.throwIfAborted();
+      setInspection(value);
+    }
+  };
+  const inspect = () => run(inspectSelection);
   const forgetAttempt = (id: string) => {
     removePoolAttempt(controllerId, id);
     setAttempt(readPoolAttempts(controllerId)[0]);
@@ -105,7 +136,7 @@ export function usePoolAssignment(
         Math.max(statusPollDelayMs.current, STATUS_POLL_INTERVAL_MS) * 2,
         MAX_STATUS_POLL_INTERVAL_MS,
       );
-      setError(message(error));
+      setError(poolAssignmentErrorMessage(error));
     }
   };
   const check = () =>
@@ -169,19 +200,48 @@ export function usePoolAssignment(
           if (target.macs.length) setInspection(undefined);
           onConfigurationSaved();
         } else {
-          onAssignmentSaved(result);
+          onAssignmentSaved(result.message);
         }
       });
     } finally {
       setReviewedPlan(undefined);
     }
   };
-  const assign = (savedPoolSetId: string, name: string, singleSelection: boolean) =>
+  const reviewPoolChoice = (choice: PoolAssignmentChoice) =>
     run(async (signal) => {
-      const plan = await service.review(target, { name, pools: [], savedPoolSetId }, { signal });
+      const plan = await service.review(target, choice, { signal });
       signal.throwIfAborted();
-      if (singleSelection && !plan.requiresActivation) await applyPlan(plan, signal);
-      else setReviewedPlan({ plan });
+      setReviewedPlan({ plan });
+    });
+  const reviewAssignment = (savedPoolSetId: string, name: string) =>
+    reviewPoolChoice({ name, pools: [], savedPoolSetId });
+  const editUsernames = (name: string, pools: AssignmentPool[], usernameSource: SavedPoolSet) =>
+    reviewPoolChoice({ name, pools, usernameSource });
+  const reviewWorkerNames = (choice: WorkerNameChoice) =>
+    run(async (signal) => {
+      const review = await service.reviewWorkerNames(target, choice, { signal });
+      signal.throwIfAborted();
+      if (review.groups.length) setWorkerNameReview(review);
+      else onAssignmentSaved("Worker names are unchanged.");
+    });
+  const confirmWorkerNames = () =>
+    run(async (signal) => {
+      if (!workerNameReview?.groups.length) return;
+      const update = startWorkerNameUpdate(
+        service,
+        controllerId,
+        workerNameUpdateOwner ?? fallbackOwner,
+        workerNameReview,
+      );
+      if (!update) throw new Error("A worker name update is already running on this controller.");
+      setUpdatingWorkerNames(true);
+      setWorkerNameReview(undefined);
+      const result = await update;
+      if (signal.aborted) return;
+      setUpdatingWorkerNames(false);
+      if (result.state === "saved") onAssignmentSaved(result.message, true);
+      else if (result.state === "interrupted" || result.dismiss) onDismiss();
+      else setError(result.message);
     });
   const create = (name: string, pools: AssignmentPool[], original?: SavedPoolSet) =>
     run(async (signal) => {
@@ -207,18 +267,15 @@ export function usePoolAssignment(
       if (reviewedPlan) await applyPlan(reviewedPlan.plan, signal, reviewedPlan.replacesAttemptId);
     });
   usePoll({
-    enabled: target.macs.length > 0 && !inspection && !attempt,
+    enabled: target.macs.length > 0 && !openStatus && !(workerNames ? workerNameDraft : inspection) && !attempt,
     poll: false,
     params: target,
     fetchData: async (signal) => {
       try {
-        const value = await service.inspect(target, { signal });
-        if (!signal.aborted) {
-          setInspection(value);
-          setError(undefined);
-        }
+        await inspectSelection(signal);
+        if (!signal.aborted) setError(undefined);
       } catch (error) {
-        if (!signal.aborted) setError(message(error));
+        if (!signal.aborted) setError(poolAssignmentErrorMessage(error));
       }
     },
   });
@@ -252,7 +309,15 @@ export function usePoolAssignment(
     error,
     busy,
     inspect,
-    assign,
+    reviewAssignment,
+    editUsernames,
+    workerNameDraft,
+    setWorkerNameDraft,
+    workerNameReview,
+    updatingWorkerNames,
+    reviewWorkerNames,
+    confirmWorkerNames,
+    backFromWorkerNames: () => setWorkerNameReview(undefined),
     reviewRemaining,
     confirm,
     check,

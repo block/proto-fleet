@@ -139,8 +139,9 @@ type ContainerState struct {
 	miningGroups *simulatedMiningGroups
 	pools        map[int64]simulatedPool
 	// ha is non-nil when this controller is one member of a CT1_HA_PAIR.
-	ha         *haInstance
-	nextPoolID int64
+	ha                  *haInstance
+	nextPoolID          int64
+	defaultPoolRevision int64
 
 	Config    ContainerConfig
 	ServerID  string

@@ -16,7 +16,7 @@ export const publicPools = (pools: MiningGroupPoolSettings[]) =>
       enabled,
       shareWeight,
     }))
-    .sort((a, b) => a.priority - b.priority);
+    .sort((a, b) => a.priority - b.priority || Number(a.id) - Number(b.id));
 
 export async function readDefaultPools(client: MdkV2Client, options: AdapterRequestOptions) {
   const { data } = await withDeadline(options, 10_000, (params) => client.poolServiceListPools(params));

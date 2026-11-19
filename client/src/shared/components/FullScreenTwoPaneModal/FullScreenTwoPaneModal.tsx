@@ -1,11 +1,11 @@
 import { type ReactNode } from "react";
 import clsx from "clsx";
 
-import FullScreenModalHeaderActions from "@/protoFleet/components/FullScreenModalHeaderActions";
 import { Dismiss } from "@/shared/assets/icons";
 import { type ButtonProps } from "@/shared/components/ButtonGroup";
 import Header from "@/shared/components/Header";
 import Modal, { sizes as modalSizes } from "@/shared/components/Modal";
+import ModalHeaderActions from "@/shared/components/ModalHeaderActions";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 const defaultPaneContainerClassName =
@@ -32,6 +32,7 @@ interface FullScreenTwoPaneModalProps {
   secondaryPaneClassName?: string;
   className?: string;
   zIndex?: string;
+  dialogLabel?: string;
 }
 
 const FullScreenTwoPaneModal = ({
@@ -51,6 +52,7 @@ const FullScreenTwoPaneModal = ({
   secondaryPaneClassName,
   className,
   zIndex,
+  dialogLabel,
 }: FullScreenTwoPaneModalProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
   const useCompactHeaderActions = isPhone || isTablet;
@@ -63,6 +65,8 @@ const FullScreenTwoPaneModal = ({
       size={modalSizes.fullscreen}
       showHeader={false}
       zIndex={zIndex}
+      dialogLabel={dialogLabel}
+      manageFocus={Boolean(dialogLabel)}
       testId="full-screen-two-pane-modal"
       className="!p-0"
       bodyClassName={clsx(
@@ -88,9 +92,7 @@ const FullScreenTwoPaneModal = ({
           buttonsWrapperClassName={useCompactHeaderActions ? undefined : "hidden laptop:block"}
           buttons={useCompactHeaderActions ? undefined : buttons}
         >
-          {useCompactHeaderActions ? (
-            <FullScreenModalHeaderActions buttons={buttons} renderWhen="phone-tablet" />
-          ) : null}
+          {useCompactHeaderActions ? <ModalHeaderActions buttons={buttons} renderWhen="phone-tablet" /> : null}
         </Header>
       </div>
 

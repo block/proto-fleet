@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   type LocalPoolConfiguration,
+  type LocalPoolConfigurationPage,
+  MINING_GROUP_LIMIT_MESSAGE,
   type PoolAssignmentService,
   type PoolAssignmentTarget,
   PoolDeletionUnconfirmed,
@@ -41,7 +43,7 @@ export default function PoolConfigurationLibrary({
 }) {
   const controllerId = useMinerStore((state) => state.systemInfo.data?.identity.deviceId);
   const generation = useMinerStore((state) => state.connectionGeneration);
-  const [data, setData] = useState<{ configurations: LocalPoolConfiguration[]; total: number }>();
+  const [data, setData] = useState<LocalPoolConfigurationPage>();
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState<string>();
   const [editing, setEditing] = useState<LocalPoolConfiguration | "new">();
@@ -58,7 +60,7 @@ export default function PoolConfigurationLibrary({
     setError(undefined);
     setRevision((value) => value + 1);
   };
-  const recovery = usePoolAssignmentActions(refresh);
+  const recovery = usePoolAssignmentActions({ onPoolsChanged: refresh, showRecovery: true });
   const deleteSelectedConfiguration = async () => {
     if (busy || !deleting) return;
     const request = new AbortController();
@@ -99,6 +101,7 @@ export default function PoolConfigurationLibrary({
     },
   });
   const configurations = (data?.configurations ?? []).map((item) => ({ ...item, configurationId: item.id }));
+  const noGroupSpace = data && data.capacity.groupsUsed >= data.capacity.maxGroups;
   const canConfirmDeletion = deleting?.assignedCount === 0 && !deleteError?.unconfirmed;
   return (
     <div className="flex flex-col gap-6">
@@ -107,12 +110,13 @@ export default function PoolConfigurationLibrary({
         <Button
           variant="primary"
           size="compact"
-          disabled={locked || !data || Boolean(error)}
+          disabled={locked || !data || noGroupSpace || Boolean(error)}
           className="shrink-0 phone:w-full"
           text="Create configuration"
           onClick={() => setEditing("new")}
         />
       </div>
+      {noGroupSpace ? <p role="status">{MINING_GROUP_LIMIT_MESSAGE}</p> : null}
       {configuration.suspended ? (
         <Callout intent="warning" prefixIcon={<Alert />} title="Container mining is paused." />
       ) : null}
@@ -155,10 +159,7 @@ export default function PoolConfigurationLibrary({
               />
             )}
             emptyState={
-              <SettingsEmptyState
-                title={page ? "No configurations on this page" : "No pool configurations yet"}
-                description="Create a configuration with a primary pool and up to two backups."
-              />
+              <SettingsEmptyState title={page ? "No configurations on this page" : "No pool configurations yet"} />
             }
           />
           <PageControls
@@ -172,13 +173,14 @@ export default function PoolConfigurationLibrary({
       <Button variant="secondary" text="Reload pools" className="self-start" onClick={onReload} disabled={busy} />
       {recovery.recoveryButton}
       {recovery.dialog}
-      {editing && controllerId ? (
+      {editing && controllerId && data ? (
         <PoolAssignmentDialog
           key={editing === "new" ? "new" : editing.id}
           service={service}
           controllerId={controllerId}
           target={CONFIGURATION_TARGET}
           configuration={editing}
+          configurationCapacity={data.capacity}
           onDismiss={() => setEditing(undefined)}
           onConfigurationSaved={() => {
             setEditing(undefined);
