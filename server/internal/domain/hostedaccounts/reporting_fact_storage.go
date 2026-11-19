@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts/reporting"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
@@ -244,9 +245,13 @@ func (s *Service) MutateReportingInputs(ctx context.Context, actorID, orgID int6
 			if err != nil {
 				return zero, accessError(err)
 			}
-			grant, err := q.GetReportingAuthority(ctx, sqlc.GetReportingAuthorityParams{OrganizationID: orgID, AccountID: a.account.ID, UserID: owner})
+			ownerPermissions, err := authz.LoadEffectiveForShare(ctx, q, owner, orgID)
 			if err != nil {
-				return zero, accessError(err)
+				return zero, err
+			}
+			grant, err := reportingGrant(ctx, q, ownerPermissions, orgID, a.account.ID, owner)
+			if err != nil {
+				return zero, err
 			}
 			if !grant.CanCreate {
 				return zero, denied()

@@ -400,6 +400,46 @@ func (q *Queries) ListHostReportingAccounts(ctx context.Context, arg ListHostRep
 	return items, nil
 }
 
+const listReportingAccountManagers = `-- name: ListReportingAccountManagers :many
+SELECT DISTINCT u.id,u.user_id AS user_uuid,u.username FROM "user" u
+JOIN user_organization membership ON membership.user_id=u.id AND membership.organization_id=$1 AND membership.deleted_at IS NULL
+JOIN user_organization_role uor ON uor.user_id=u.id AND uor.organization_id=$1 AND uor.scope_type='org' AND uor.deleted_at IS NULL
+JOIN role r ON r.id=uor.role_id AND r.organization_id=uor.organization_id AND r.deleted_at IS NULL
+JOIN role_permission rp ON rp.role_id=r.id
+JOIN permission p ON p.id=rp.permission_id AND p.key='account:manage'
+WHERE u.deleted_at IS NULL ORDER BY u.user_id
+`
+
+type ListReportingAccountManagersRow struct {
+	ID       int64
+	UserUuid string
+	Username string
+}
+
+// Without a stored grant, account managers hold implicit all-site reporting authority.
+func (q *Queries) ListReportingAccountManagers(ctx context.Context, organizationID int64) ([]ListReportingAccountManagersRow, error) {
+	rows, err := q.query(ctx, q.listReportingAccountManagersStmt, listReportingAccountManagers, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListReportingAccountManagersRow
+	for rows.Next() {
+		var i ListReportingAccountManagersRow
+		if err := rows.Scan(&i.ID, &i.UserUuid, &i.Username); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listReportingAllocationIntervals = `-- name: ListReportingAllocationIntervals :many
 SELECT id, organization_id, kind, asset_id, device_id, site_id, device_identifier, client_id, subclient_id, started_at, ended_at FROM hosted_account_asset_interval
 WHERE id=ANY($1::bigint[]) AND organization_id=$2

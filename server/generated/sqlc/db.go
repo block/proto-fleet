@@ -2616,6 +2616,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listRepairTicketsStmt, err = db.PrepareContext(ctx, listRepairTickets); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRepairTickets: %w", err)
 	}
+	if q.listReportingAccountManagersStmt, err = db.PrepareContext(ctx, listReportingAccountManagers); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReportingAccountManagers: %w", err)
+	}
 	if q.listReportingAllocationIntervalsStmt, err = db.PrepareContext(ctx, listReportingAllocationIntervals); err != nil {
 		return nil, fmt.Errorf("error preparing query ListReportingAllocationIntervals: %w", err)
 	}
@@ -8360,6 +8363,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listRepairTicketsStmt: %w", cerr)
 		}
 	}
+	if q.listReportingAccountManagersStmt != nil {
+		if cerr := q.listReportingAccountManagersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReportingAccountManagersStmt: %w", cerr)
+		}
+	}
 	if q.listReportingAllocationIntervalsStmt != nil {
 		if cerr := q.listReportingAllocationIntervalsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listReportingAllocationIntervalsStmt: %w", cerr)
@@ -11628,6 +11636,7 @@ type Queries struct {
 	listRepairTicketCommentsStmt                                *sql.Stmt
 	listRepairTicketPartsStmt                                   *sql.Stmt
 	listRepairTicketsStmt                                       *sql.Stmt
+	listReportingAccountManagersStmt                            *sql.Stmt
 	listReportingAllocationIntervalsStmt                        *sql.Stmt
 	listReportingAssetSupportMetadataStmt                       *sql.Stmt
 	listReportingAuthoritiesStmt                                *sql.Stmt
@@ -12971,6 +12980,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listRepairTicketCommentsStmt:                                q.listRepairTicketCommentsStmt,
 		listRepairTicketPartsStmt:                                   q.listRepairTicketPartsStmt,
 		listRepairTicketsStmt:                                       q.listRepairTicketsStmt,
+		listReportingAccountManagersStmt:                            q.listReportingAccountManagersStmt,
 		listReportingAllocationIntervalsStmt:                        q.listReportingAllocationIntervalsStmt,
 		listReportingAssetSupportMetadataStmt:                       q.listReportingAssetSupportMetadataStmt,
 		listReportingAuthoritiesStmt:                                q.listReportingAuthoritiesStmt,

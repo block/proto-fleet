@@ -422,8 +422,10 @@ describe("reporting access and recorded requests", () => {
     const form = within(screen.getByRole("dialog", { name: "Reporting permissions" }));
     await user.click(form.getByRole("button", { name: "Operator" }));
     await user.click(await screen.findByRole("option", { name: "Casey" }));
-    await user.click(form.getByLabelText("Create reports"));
-    expect(form.getByRole("radio", { name: "Specific sites" })).toBeChecked();
+    // An owner without a stored grant is a manager with implicit all-site authority.
+    expect(form.getByLabelText("Create reports")).toBeChecked();
+    expect(form.getByRole("radio", { name: "All account sites" })).toBeChecked();
+    await user.click(form.getByRole("radio", { name: "Specific sites" }));
     expect(form.getByText("Site choices are unavailable.")).toBeInTheDocument();
     await user.click(form.getByRole("radio", { name: "All account sites" }));
     expect(form.getByRole("radio", { name: "Specific sites" })).not.toBeChecked();

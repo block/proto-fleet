@@ -9782,6 +9782,18 @@ func (q *retryingQuerier) ListRepairTickets(ctx context.Context, arg ListRepairT
 	return result, err
 }
 
+func (q *retryingQuerier) ListReportingAccountManagers(ctx context.Context, organizationID int64) ([]ListReportingAccountManagersRow, error) {
+	var result []ListReportingAccountManagersRow
+	err := q.retrier.RetryQuery(ctx, "ListReportingAccountManagers", func() error {
+		callResult, callErr := q.next.ListReportingAccountManagers(ctx, organizationID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListReportingAllocationIntervals(ctx context.Context, arg ListReportingAllocationIntervalsParams) ([]HostedAccountAssetInterval, error) {
 	var result []HostedAccountAssetInterval
 	err := q.retrier.RetryQuery(ctx, "ListReportingAllocationIntervals", func() error {

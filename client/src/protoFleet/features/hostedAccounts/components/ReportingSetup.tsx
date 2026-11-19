@@ -677,12 +677,18 @@ const ReportingSetup = ({
             options={users.map((user) => ({ value: user.userId, label: user.username }))}
             onChange={(value) => {
               const authority = setup.authorities.find((item) => item.userId === value);
+              // An owner without a stored grant is an account manager with implicit all-site authority.
+              const implicit = !authority && setup.owners.some((owner) => owner.userId === value);
               setUserId(value);
-              setCanCreate(authority?.canCreate ?? false);
-              setAllSites(authority?.allSites ?? false);
+              setCanCreate(authority?.canCreate ?? implicit);
+              setAllSites(authority?.allSites ?? implicit);
               setSiteIds(authority?.siteIds ?? []);
             }}
           />
+          <p className="text-200 text-text-primary-70">
+            People who can manage client accounts can create reports for every site unless you save permissions for them
+            here.
+          </p>
           {directory.error ? <ReportingError error={directory.error} /> : null}
           <ReportingCheck label="Create reports" checked={canCreate} onChange={setCanCreate} />
           <fieldset className="flex flex-col gap-4">

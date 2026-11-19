@@ -232,7 +232,8 @@ func TestReportingInputAdmissionPrecedesFactValidation(t *testing.T) {
 	client := f.client(t, "Reporting client", f.user, hostedaccounts.AllCapabilities)
 	input := reportingInputs(t, f, client.AccountID, f.host)
 	input.Configuration.Timezone = "invalid/timezone"
-	_, err := saveReportingInputsForTest(f.svc, t.Context(), f.host, f.org, client.AccountID, 0, "source", input)
+	other := addUser(t, f.db, f.org)
+	_, err := saveReportingInputsForTest(f.svc, t.Context(), other, f.org, client.AccountID, 0, "source", input)
 	require.ErrorContains(t, err, "account access denied", "missing reporting authority is checked before validating facts")
 	reportingBoundaryActors(t, f, client.AccountID)
 	_, err = saveReportingInputsForTest(f.svc, t.Context(), f.host, f.org, client.AccountID, 0, "source", input)

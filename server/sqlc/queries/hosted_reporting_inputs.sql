@@ -5,6 +5,16 @@ WHERE u.user_id=$1 AND o.organization_id=$2 AND u.deleted_at IS NULL AND o.delet
 -- name: GetReportingAuthority :one
 SELECT * FROM hosted_reporting_authority WHERE organization_id=$1 AND account_id=$2 AND user_id=$3;
 
+-- name: ListReportingAccountManagers :many
+-- Without a stored grant, account managers hold implicit all-site reporting authority.
+SELECT DISTINCT u.id,u.user_id AS user_uuid,u.username FROM "user" u
+JOIN user_organization membership ON membership.user_id=u.id AND membership.organization_id=$1 AND membership.deleted_at IS NULL
+JOIN user_organization_role uor ON uor.user_id=u.id AND uor.organization_id=$1 AND uor.scope_type='org' AND uor.deleted_at IS NULL
+JOIN role r ON r.id=uor.role_id AND r.organization_id=uor.organization_id AND r.deleted_at IS NULL
+JOIN role_permission rp ON rp.role_id=r.id
+JOIN permission p ON p.id=rp.permission_id AND p.key='account:manage'
+WHERE u.deleted_at IS NULL ORDER BY u.user_id;
+
 -- name: ListReportingAuthorities :many
 SELECT a.*,u.user_id AS user_uuid,u.username FROM hosted_reporting_authority a JOIN "user" u ON u.id=a.user_id
 WHERE a.organization_id=$1 AND a.account_id=$2 ORDER BY u.user_id;
