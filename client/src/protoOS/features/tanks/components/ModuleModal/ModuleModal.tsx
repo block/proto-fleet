@@ -13,10 +13,14 @@ import ComponentSection from "@/protoOS/features/diagnostic/components/Component
 import EmptySlotCard from "@/protoOS/features/diagnostic/components/EmptySlotCard";
 import HashboardStatusCard from "@/protoOS/features/diagnostic/components/HashboardStatusCard";
 import PsuStatusCard from "@/protoOS/features/diagnostic/components/PsuStatusCard";
+import { modulePoolTarget } from "@/protoOS/features/poolAssignment/targets";
+import { usePoolAssignmentActions } from "@/protoOS/features/poolAssignment/usePoolAssignmentActions";
 import { moduleHashboards, tankModules } from "@/protoOS/features/tanks/tankView";
 import type { ContainerTopology, ModuleNode, TankNode } from "@/protoOS/store/contract";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 import { moduleRouteValue, tankRouteValue } from "@/protoOS/topologyRouteParams";
+import { isMacAddress } from "@/protoOS/utils/macAddress";
+import Button from "@/shared/components/Button";
 import InlineSelector from "@/shared/components/InlineSelector";
 import Modal from "@/shared/components/Modal";
 import { PopoverProvider } from "@/shared/components/Popover";
@@ -36,6 +40,25 @@ const ModuleModal = ({
   modulePath?: (module: ModuleNode) => string;
   moduleLabel?: (module: ModuleNode) => string;
 }) => {
+  const poolActions = usePoolAssignmentActions();
+  const boards = moduleHashboards(module, topology);
+  const poolTarget = modulePoolTarget(topology, [module.id]);
+  const [boardSelection, setBoardSelection] = useState<{ moduleId: string; macs: string[] }>({
+    moduleId: module.id,
+    macs: [],
+  });
+  const visibleMacs = new Set(
+    boards.flatMap((board) =>
+      board.identity.kind === "mac" && isMacAddress(board.identity.value) ? [board.identity.value.toLowerCase()] : [],
+    ),
+  );
+  const selectedBoards =
+    boardSelection.moduleId === module.id ? boardSelection.macs.filter((mac) => visibleMacs.has(mac)) : [];
+  const selectedPoolAction = poolActions.action(
+    { macs: selectedBoards, modules: poolTarget?.modules },
+    selectedBoards.length,
+  )[0];
+  const modulePoolAction = poolActions.action(poolTarget)[0];
   const bodyRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const dialog = bodyRef.current?.closest<HTMLElement>('[role="dialog"]');
@@ -46,15 +69,19 @@ const ModuleModal = ({
       if (event.key !== "Tab" || [...document.querySelectorAll('[role="dialog"]')].slice(-1)[0] !== dialog) return;
       // The picker uses a portal; include its visible buttons in this modal's
       // tab order while keeping the tank page behind the modal out of it.
-      const buttons = [
-        ...dialog.querySelectorAll<HTMLButtonElement>("button"),
-        ...document.querySelectorAll<HTMLButtonElement>("[data-inline-selector-menu] button"),
-      ].filter((button) => !button.disabled && button.getClientRects().length > 0);
-      if (!buttons.length) return;
-      const index = buttons.findIndex((button) => button === document.activeElement);
-      if (index < 0 || (event.shiftKey && index === 0) || (!event.shiftKey && index === buttons.length - 1)) {
+      const controls = [
+        ...dialog.querySelectorAll<HTMLElement>("button, input:not([disabled])"),
+        ...document.querySelectorAll<HTMLElement>(
+          "[data-inline-selector-menu] button, [data-testid$='-popover'] button",
+        ),
+      ].filter(
+        (control) => !(control instanceof HTMLButtonElement && control.disabled) && control.getClientRects().length > 0,
+      );
+      if (!controls.length) return;
+      const index = controls.findIndex((control) => control === document.activeElement);
+      if (index < 0 || (event.shiftKey && index === 0) || (!event.shiftKey && index === controls.length - 1)) {
         event.preventDefault();
-        buttons[event.shiftKey ? buttons.length - 1 : 0].focus();
+        controls[event.shiftKey ? controls.length - 1 : 0].focus();
       }
     };
     document.addEventListener("keydown", trapFocus);
@@ -69,7 +96,6 @@ const ModuleModal = ({
   const { search } = useLocation();
   const { minerRoot } = useMinerHosting();
   const modules = tankModules(tank, topology);
-  const boards = moduleHashboards(module, topology);
   const serials = useMinerStore(
     useShallow((state) =>
       module.hashboardIds.flatMap((id) => {
@@ -94,7 +120,12 @@ const ModuleModal = ({
       buttons={[{ text: "Done", variant: "primary", disabled: voltageWriting }]}
       bodyClassName="text-text-primary"
     >
-      <div ref={bodyRef} className="mx-auto flex max-w-[1600px] flex-col gap-7 px-0 py-6 tablet:px-4 laptop:px-10">
+      {poolActions.dialog}
+      <div
+        inert={poolActions.open}
+        ref={bodyRef}
+        className="mx-auto flex max-w-[1600px] flex-col gap-7 px-0 py-6 tablet:px-4 laptop:px-10"
+      >
         <div className="flex items-center gap-2">
           <LocationBreadcrumb topology={topology} moduleId={module.id} />
           <div className="shrink-0">
@@ -116,8 +147,18 @@ const ModuleModal = ({
             </PopoverProvider>
           </div>
         </div>
-        <div className="flex justify-start">
+        <div className="flex flex-wrap justify-start gap-3">
           <HealthStatusButton key={module.id} scope={{ kind: "module", id: module.id }} />
+          {modulePoolAction ? (
+            <Button
+              variant="secondary"
+              size="compact"
+              disabled={voltageWriting || modulePoolAction.disabled}
+              onClick={() => modulePoolAction.onClick?.()}
+            >
+              Edit pool
+            </Button>
+          ) : null}
         </div>
         {voltageWriting ? (
           <p role="status" className="text-200 text-text-primary-70">
@@ -126,13 +167,48 @@ const ModuleModal = ({
         ) : null}
         {error ? <p role="alert">Could not refresh ASIC readings. Displayed values may be out of date.</p> : null}
         <ComponentSection title="Hashboards">
+          {poolActions.available && selectedBoards.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <p>{selectedBoards.length} selected</p>
+              <Button variant="secondary" disabled={voltageWriting} onClick={() => selectedPoolAction?.onClick()}>
+                Edit pool
+              </Button>
+              <Button
+                variant="textOnly"
+                disabled={voltageWriting}
+                onClick={() => setBoardSelection({ moduleId: module.id, macs: [] })}
+              >
+                Clear selection
+              </Button>
+            </div>
+          ) : null}
           <div className="grid grid-cols-1 gap-2 laptop:grid-cols-3" aria-busy={pending}>
             {[1, 2, 3].map((slot) => {
               const board = boards.find((item) => item.location?.slot === slot);
+              const mac =
+                board?.identity.kind === "mac" && isMacAddress(board.identity.value)
+                  ? board.identity.value.toLowerCase()
+                  : undefined;
               return board ? (
                 <HashboardStatusCard
                   key={board.id}
                   identifier={board.identity.value}
+                  selection={
+                    poolActions.available && mac
+                      ? {
+                          checked: selectedBoards.includes(mac),
+                          disabled: voltageWriting,
+                          onChange: (checked) =>
+                            setBoardSelection({
+                              moduleId: module.id,
+                              macs: checked
+                                ? [...selectedBoards, mac]
+                                : selectedBoards.filter((selected) => selected !== mac),
+                            }),
+                        }
+                      : undefined
+                  }
+                  actions={voltageWriting || !mac ? undefined : poolActions.action({ macs: [mac] })}
                   viewTo={`${modulePath}/${encodeURIComponent(board.identity.value)}${search}`}
                   viewDisabled={voltageWriting}
                 />

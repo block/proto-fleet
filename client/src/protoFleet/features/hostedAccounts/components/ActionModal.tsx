@@ -2,11 +2,8 @@ import { type ReactNode } from "react";
 
 import { useAccountMutation } from "../useAccountMutation";
 import { useAccountScope } from "@/protoFleet/features/hostedAccounts/AccountScope";
-import { Alert } from "@/shared/assets/icons";
+import { ActionModal as SharedActionModal } from "@/shared/components/ActionModal";
 import { type ButtonProps } from "@/shared/components/ButtonGroup";
-import Callout from "@/shared/components/Callout";
-import Dialog from "@/shared/components/Dialog";
-import Modal from "@/shared/components/Modal";
 
 export const ActionModal = ({
   title,
@@ -35,55 +32,26 @@ export const ActionModal = ({
 }) => {
   const scope = useAccountScope();
   const { run, busy, error, clearError } = useAccountMutation();
-  const dismissalLocked = busy && !allowDismissWhileBusy;
-  const submit = () => {
-    if (valid) void run(onSubmit);
-  };
-  const confirmButton: ButtonProps = {
-    text: confirm,
-    variant: confirmVariant,
-    onClick: submit,
-    loading: busy,
-    disabled: !valid || scope?.readOnly,
-  };
-  const buttons: ButtonProps[] = [
-    {
-      text: cancel,
-      variant: "secondary",
-      onClick: () => {
+  return (
+    <SharedActionModal
+      title={title}
+      confirm={confirm}
+      allowDismissWhileBusy={allowDismissWhileBusy}
+      confirmVariant={confirmVariant}
+      cancel={cancel}
+      valid={valid}
+      presentation={presentation}
+      initialFocus={initialFocus}
+      busy={busy}
+      error={error}
+      readOnly={scope?.readOnly}
+      onSubmit={() => void run(onSubmit)}
+      onDismiss={() => {
         clearError();
         onDismiss();
-      },
-      disabled: dismissalLocked,
-    },
-    confirmButton,
-  ];
-  const content = (
-    <div className="flex flex-col gap-4">
-      <fieldset className="flex flex-col gap-4" disabled={busy || scope?.readOnly}>
-        {children}
-      </fieldset>
-      {error ? <Callout title={error} intent="danger" prefixIcon={<Alert />} /> : null}
-    </div>
-  );
-  if (presentation === "dialog") {
-    return (
-      <Dialog open title={title} onDismiss={dismissalLocked ? undefined : onDismiss} manageFocus buttons={buttons}>
-        {content}
-      </Dialog>
-    );
-  }
-  return (
-    <Modal
-      open
-      title={title}
-      dialogLabel={title}
-      onDismiss={dismissalLocked ? undefined : onDismiss}
-      manageFocus
-      initialFocus={initialFocus}
-      buttons={buttons.map((button) => ({ ...button, dismissModalOnClick: false }))}
+      }}
     >
-      {content}
-    </Modal>
+      {children}
+    </SharedActionModal>
   );
 };

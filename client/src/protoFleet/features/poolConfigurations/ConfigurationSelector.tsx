@@ -3,7 +3,6 @@ import { useCallback, useRef, useState } from "react";
 import { usePoolConfigurationClient, usePoolConfigurationPermissions } from "./api";
 import { trackPoolOperation } from "./assignmentProgress";
 import { ConfigurationEditor } from "./ConfigurationEditor";
-import { ConfigurationOptions } from "./ConfigurationOptions";
 import type { ConfigurationReviewData } from "./ConfigurationReview";
 import { RemoveConfigurationDialog } from "./RemoveConfigurationDialog";
 import { ConfirmationError, useReviewedConfirmation } from "./useReviewedConfirmation";
@@ -18,8 +17,8 @@ import { ACCOUNT_READ_TIMEOUT_MS } from "@/protoFleet/features/hostedAccounts/ap
 import { ActionModal } from "@/protoFleet/features/hostedAccounts/components/ActionModal";
 import { useAccountQuery } from "@/protoFleet/features/hostedAccounts/useAccountQuery";
 import { useFleetStore } from "@/protoFleet/store";
-import { Plus } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
+import { PoolConfigurationPicker } from "@/shared/components/PoolConfigurations/PoolConfigurationPicker";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
 export type BoardSelectionInput = { moduleIds?: bigint[]; hashboardIds?: bigint[] };
@@ -307,48 +306,33 @@ const ConfigurationPicker = ({
         else setReview(reviewed);
       }}
     >
-      <p>
-        {selectionDescription ??
+      <PoolConfigurationPicker
+        selectionDescription={
+          selectionDescription ??
           (boards
             ? `${deviceIds.length ? `${deviceIds.length} miners and ` : ""}${(current?.selectedCount ?? BigInt(deviceIds.length)) - BigInt(deviceIds.length)} hashboards selected. Selected boards will start mining with this configuration.`
             : filter && selectedCount === undefined
               ? "Existing paired miners"
-              : `${selectedCount ?? deviceIdentifiers.length + deviceIds.length} miners selected`)}
-      </p>
-      {mixed ? <p>Mixed configurations</p> : null}
-      {manage || current?.assignments.some((a) => a.configurationId) ? (
-        <div className="flex flex-wrap gap-3">
-          {manage ? (
-            <Button
-              variant="secondary"
-              prefixIcon={<Plus />}
-              text="New pool configuration"
-              onClick={() => setCreating(true)}
-            />
-          ) : null}
-          {current?.assignments.some((a) => a.configurationId) ? (
+              : `${selectedCount ?? deviceIdentifiers.length + deviceIds.length} miners selected`)
+        }
+        mixed={mixed}
+        onCreate={manage ? () => setCreating(true) : undefined}
+        additionalAction={
+          current?.assignments.some((a) => a.configurationId) ? (
             <Button
               variant="danger"
               text="Remove pool configuration"
               onClick={() => setRemoving(current.assignments)}
             />
-          ) : null}
-        </div>
-      ) : null}
-      {query.loading ? (
-        <div className="flex justify-center py-10">
-          <ProgressCircular indeterminate />
-        </div>
-      ) : null}
-      {query.error ? (
-        <div role="alert">
-          <p>{query.error}</p>
-          <Button variant="secondary" text="Retry" onClick={query.refresh} />
-        </div>
-      ) : null}
-      {query.data ? (
-        <ConfigurationOptions configurations={query.data.configurations} selected={selected} onSelect={setSelected} />
-      ) : null}
+          ) : null
+        }
+        loading={query.loading}
+        error={query.error}
+        onRetry={query.refresh}
+        configurations={query.data?.configurations}
+        selected={selected}
+        onSelect={setSelected}
+      />
     </ActionModal>
   );
 };

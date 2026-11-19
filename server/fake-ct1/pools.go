@@ -3,6 +3,7 @@ package main
 import (
 	"cmp"
 	"context"
+	"math"
 	"slices"
 
 	mdk "github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2"
@@ -45,21 +46,60 @@ func (s *ContainerState) poolDTOs() []poolDTO {
 }
 
 func (s *ContainerState) validatePoolWrite(p *mdk.Pool) error {
-	if s.initMiningGroups().capability.Enabled {
-		return status.Error(codes.FailedPrecondition, "whole-container pools cannot change while mining groups are enabled")
-	}
 	if p == nil || p.Name == "" || p.Url == "" || p.Username == "" || p.Priority < 0 {
 		return status.Error(codes.InvalidArgument, "pool name, URL, username and nonnegative priority required")
 	}
-	if p.ShareWeight != nil {
-		return status.Error(codes.Unimplemented, "simulator supports priority pools only")
+	if p.ShareWeight != nil && (*p.ShareWeight <= 0 || math.IsNaN(*p.ShareWeight) || math.IsInf(*p.ShareWeight, 0)) {
+		return status.Error(codes.InvalidArgument, "pool weight must be finite and positive")
+	}
+	enabled := make([]*mdk.Pool, 0, len(s.pools)+1)
+	if p.Enabled {
+		enabled = append(enabled, p)
 	}
 	for id, existing := range s.pools {
-		if id != p.Id && p.Enabled && existing.pool.Enabled && (existing.pool.Url == p.Url || existing.pool.Priority == p.Priority) {
-			return status.Error(codes.AlreadyExists, "enabled pool URL and priority must be unique")
+		if id == p.Id {
+			continue
+		}
+		if existing.pool.Name == p.Name {
+			return status.Error(codes.AlreadyExists, "pool name must be unique")
+		}
+		if existing.pool.Enabled {
+			enabled = append(enabled, existing.pool)
 		}
 	}
+	weighted := slices.ContainsFunc(enabled, func(pool *mdk.Pool) bool { return pool.ShareWeight != nil })
+	type identity struct{ url, username string }
+	identities := make(map[identity]bool, len(enabled))
+	priorities := make(map[int32]bool, len(enabled))
+	for _, pool := range enabled {
+		key := identity{url: pool.Url}
+		if weighted {
+			key.username = pool.Username
+		}
+		if identities[key] || priorities[pool.Priority] {
+			return status.Error(codes.AlreadyExists, "enabled pool URL and priority must be unique")
+		}
+		identities[key] = true
+		priorities[pool.Priority] = true
+	}
 	return nil
+}
+
+// Legacy pool CRUD edits the built-in Default configuration, including in group mode.
+func (s *ContainerState) syncDefaultPools() {
+	if s.miningGroups == nil || !s.miningGroups.capability.Enabled {
+		return
+	}
+	var pools []*mdk.MiningGroupPoolInput
+	for _, p := range s.storedPools() {
+		password := s.pools[p.Id].password
+		pools = append(pools, &mdk.MiningGroupPoolInput{Pool: &mdk.MiningGroupPoolRecord{
+			Id: int32(p.Id), Name: p.Name, Url: p.Url, Username: p.Username,
+			Priority: p.Priority, Enabled: p.Enabled, ShareWeight: p.ShareWeight,
+		}, Password: &password})
+	}
+	s.miningGroups.pools["default"] = pools
+	s.applyGroupMining("default")
 }
 
 func (a *grpcAPI) ListPools(context.Context, *mdk.ListPoolsRequest) (*mdk.ListPoolsResponse, error) {
@@ -86,6 +126,7 @@ func (a *grpcAPI) CreatePool(ctx context.Context, in *mdk.CreatePoolRequest) (*m
 	p.Id = s.nextPoolID
 	p.CreatedAt = timestamppb.New(s.now())
 	s.pools[p.Id] = simulatedPool{pool: p, password: in.Password}
+	s.syncDefaultPools()
 	return &mdk.CreatePoolResponse{Pool: proto.CloneOf(p)}, nil
 }
 
@@ -138,6 +179,7 @@ func (a *grpcAPI) UpdatePool(ctx context.Context, in *mdk.UpdatePoolRequest) (*m
 		password = in.Password
 	}
 	s.pools[p.Id] = simulatedPool{pool: p, password: password}
+	s.syncDefaultPools()
 	return &mdk.UpdatePoolResponse{Pool: proto.CloneOf(p)}, nil
 }
 
@@ -148,12 +190,10 @@ func (a *grpcAPI) DeletePool(ctx context.Context, in *mdk.DeletePoolRequest) (*m
 	s := a.state
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.initMiningGroups().capability.Enabled {
-		return nil, status.Error(codes.FailedPrecondition, "whole-container pools cannot change while mining groups are enabled")
-	}
 	if _, ok := s.pools[in.GetId()]; !ok {
 		return nil, status.Error(codes.NotFound, "pool not found")
 	}
 	delete(s.pools, in.Id)
+	s.syncDefaultPools()
 	return &mdk.DeletePoolResponse{}, nil
 }

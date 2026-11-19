@@ -162,7 +162,7 @@ function MiningGroupsForm({ deviceIdentifier, onClose, mode = "activate" }: Mini
   else if (started) buttonLabel = "Close";
 
   let introduction =
-    "Fleet will pause mining to enable mining groups, then resume with the existing pools if this container was running. A stopped container will stay stopped. Any Fleet pool assignment will follow the installed hashboards and be checked against their reported settings.";
+    "Fleet will stop mining before it enables mining groups. Fleet keeps existing pool assignments and checks the settings reported by the installed hashboards. When ready, choose Wake default mining group from the Fleet container menu.";
   if (deactivating) introduction = "The container will keep the default group’s pools and mining settings.";
   const disableBlocked = deactivating && !started && !complete && !!prerequisite;
   const canMove = disableBlocked && allowed && fresh && !observationError && state?.canReturnToDefault;
@@ -243,6 +243,9 @@ function MiningGroupsForm({ deviceIdentifier, onClose, mode = "activate" }: Mini
         {!started && !complete && !disableBlocked ? <p>{introduction}</p> : null}
         {prerequisite ? <p role="status">{prerequisite}</p> : null}
         {progressMessage && !disableBlocked ? <p role={progressRole}>{progressMessage}</p> : null}
+        {complete && !deactivating && state?.groups.some((group) => group.id === "default" && !group.mining) ? (
+          <p>Choose Wake default mining group from the Fleet container menu.</p>
+        ) : null}
         {error || observationError ? (
           <p role="alert" className="text-intent-critical-fill">
             {error || observationError}

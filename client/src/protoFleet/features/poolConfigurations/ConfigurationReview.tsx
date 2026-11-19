@@ -10,11 +10,14 @@ import type {
 } from "@/protoFleet/api/generated/poolconfigurations/v1/poolconfigurations_pb";
 import { useAccountScope } from "@/protoFleet/features/hostedAccounts/AccountScope";
 import { ActionModal } from "@/protoFleet/features/hostedAccounts/components/ActionModal";
-import Button from "@/shared/components/Button";
+import AffectedEquipment from "@/shared/components/AffectedEquipment";
 import Input from "@/shared/components/Input";
 import { fleetUsernameHelperText } from "@/shared/components/MiningPools/PoolForm/constants";
+import {
+  type ConfigurationChange,
+  ConfigurationChanges,
+} from "@/shared/components/PoolConfigurations/ConfigurationChanges";
 
-export type ConfigurationChange = { field: string; before: string; after: string };
 export type ConfigurationReviewData = {
   reviewId: string;
   configuration?: Configuration;
@@ -43,7 +46,6 @@ export const ConfigurationReview = ({
   const confirmation = useReviewedConfirmation();
   const [attempted, setAttempted] = useState(false);
   const [password, setPassword] = useState(initialPassword);
-  const [visibleEquipment, setVisibleEquipment] = useState(25);
   if (!confirmation.current()) return null;
   return (
     <ActionModal
@@ -95,37 +97,15 @@ export const ConfigurationReview = ({
         <p>This will also update {review.affectedHashboards.toString()} hashboards.</p>
       ) : null}
       <p>Pool changes may briefly interrupt mining.</p>
-      {review.equipment?.length ? (
-        <section aria-label="Affected equipment">
-          <h3 className="font-medium">Affected equipment ({review.equipment.length})</h3>
-          <ul className="mt-3 max-h-48 list-inside list-disc overflow-y-auto" data-dd-privacy="mask">
-            {review.equipment.slice(0, visibleEquipment).map((equipment) => (
-              <li key={`${equipment.kind}:${equipment.targetId}`}>
-                {equipment.label || `${equipment.kind === "device" ? "Miner" : "Hashboard"} ${equipment.targetId}`}
-              </li>
-            ))}
-          </ul>
-          {visibleEquipment < review.equipment.length ? (
-            <Button
-              variant="textOnly"
-              text="Show more equipment"
-              onClick={() => setVisibleEquipment((count) => count + 25)}
-            />
-          ) : null}
-        </section>
-      ) : null}
+      <AffectedEquipment
+        items={(review.equipment ?? []).map((equipment) => ({
+          id: `${equipment.kind}:${equipment.targetId}`,
+          label: equipment.label || `${equipment.kind === "device" ? "Miner" : "Hashboard"} ${equipment.targetId}`,
+        }))}
+      />
       <div className="flex flex-col gap-3" data-dd-privacy="mask">
         {changes?.length ? (
-          <dl className="flex flex-col gap-3">
-            {changes.map((change) => (
-              <div key={change.field}>
-                <dt className="font-medium">{change.field}</dt>
-                <dd className="break-all">
-                  <span className="text-text-primary-50">{change.before || "None"}</span> → {change.after || "None"}
-                </dd>
-              </div>
-            ))}
-          </dl>
+          <ConfigurationChanges changes={changes} />
         ) : (
           editing &&
           review.configuration?.pools.map((pool, i) => (

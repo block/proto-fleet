@@ -50,7 +50,7 @@ func TestActivationReportsBlockerAndCompletesAfterItClears(t *testing.T) {
 	require.Equal(t, "Configuration applied", f.state(t).Message)
 }
 
-func TestActivationAutomaticallyRestoresOriginalMiningState(t *testing.T) {
+func TestActivationLeavesDefaultStoppedUntilOperatorStartsIt(t *testing.T) {
 	for _, running := range []bool{false, true} {
 		t.Run(fmt.Sprint(running), func(t *testing.T) {
 			ctx, f := newRetryFixture(t)
@@ -61,21 +61,14 @@ func TestActivationAutomaticallyRestoresOriginalMiningState(t *testing.T) {
 			f.reconcile(t, ctx) // activate
 			require.True(t, f.miner.enabled)
 			require.NotEqual(t, statusComplete, f.state(t).Status)
-			f.reconcile(t, ctx) // prepare resume, or finish if originally stopped
-			if running {
-				require.True(t, f.state(t).Step.Valid)
-				require.NotEqual(t, statusComplete, f.state(t).Status)
-				f.reconcile(t, ctx) // start default
-				require.NotEqual(t, statusComplete, f.state(t).Status)
-				f.reconcile(t, ctx) // verify default intent
-			}
+			f.reconcile(t, ctx) // confirm activation
 			require.Equal(t, statusComplete, f.state(t).Status)
-			require.Equal(t, running, f.miner.mining)
+			require.False(t, f.miner.mining)
+			if running {
+				require.Equal(t, "Mining groups enabled. Choose Wake default mining group from the Fleet container menu.", f.state(t).Message)
+			}
 			for _, call := range f.miner.calls {
-				if call.Action == "start" {
-					require.True(t, running)
-					require.Equal(t, "default", call.GroupID)
-				}
+				require.NotEqual(t, "start", call.Action, "activation must not start Default")
 				require.NotEqual(t, "replace_pools", call.Action, "activation preserves existing pools")
 				require.NotEqual(t, "transfer", call.Action, "activation does not reassign boards")
 			}
@@ -115,7 +108,8 @@ func TestActivationWaitsForShutdownAndPreservesStateAfterLostStopReply(t *testin
 		f.reconcile(t, ctx)
 	}
 	require.Equal(t, statusComplete, f.state(t).Status)
-	require.True(t, f.miner.mining, "restart must not replace the original running state with the stopped observation")
+	require.False(t, f.miner.mining)
+	require.Equal(t, "Mining groups enabled. Choose Wake default mining group from the Fleet container menu.", f.state(t).Message)
 }
 
 func TestActivationRequiresInitialStatusBeforeStopping(t *testing.T) {
@@ -135,7 +129,7 @@ func TestActivationRequiresInitialStatusBeforeStopping(t *testing.T) {
 	}
 }
 
-func TestActivationReplaysLostActivationAndResumeReceipts(t *testing.T) {
+func TestActivationReplaysLostActivationReceiptWithoutStartingDefault(t *testing.T) {
 	ctx, f := newRetryFixture(t)
 	f.miner.mining = true
 	f.prepareActivation(t, ctx)
@@ -147,32 +141,15 @@ func TestActivationReplaysLostActivationAndResumeReceipts(t *testing.T) {
 	f.service = NewService(f.conn, f.miner, f.service.pools, f.service.secrets)
 	f.reconcile(t, ctx) // replay activation despite enabled observation
 	require.False(t, f.state(t).Step.Valid)
-	f.reconcile(t, ctx) // prepare resume
-	oldKey := f.state(t).StepKey
-	f.miner.startConflict = true
-	f.reconcile(t, ctx)
-	require.False(t, f.state(t).Step.Valid)
-	f.reconcile(t, ctx) // replan resume at current revision
-	resumeKey := f.state(t).StepKey
-	require.NotEqual(t, oldKey, resumeKey)
-	f.miner.loseStart = true
-	f.reconcile(t, ctx)
-	require.True(t, f.miner.mining)
-	require.Equal(t, resumeKey, f.state(t).StepKey)
-	require.NotEqual(t, statusComplete, f.state(t).Status)
-	f.service = NewService(f.conn, f.miner, f.service.pools, f.service.secrets)
-	f.reconcile(t, ctx) // replay exact start even though observed intent is running
-	f.reconcile(t, ctx)
+	f.reconcile(t, ctx) // verify activation
 	require.Equal(t, statusComplete, f.state(t).Status)
-	var activationKeys, resumeKeys []string
+	require.False(t, f.miner.mining)
+	var activationKeys []string
 	for _, call := range f.miner.calls {
-		switch call.Action {
-		case "activate":
+		require.NotEqual(t, "start", call.Action)
+		if call.Action == "activate" {
 			activationKeys = append(activationKeys, call.Key)
-		case "start":
-			resumeKeys = append(resumeKeys, call.Key)
 		}
 	}
 	require.Equal(t, []string{activationKey.UUID.String(), activationKey.UUID.String()}, activationKeys)
-	require.Equal(t, []string{oldKey.UUID.String(), resumeKey.UUID.String(), resumeKey.UUID.String()}, resumeKeys)
 }

@@ -34,9 +34,7 @@ type retryMiner struct {
 	loseActivate   bool
 	loseDeactivate bool
 	deactivatedKey string
-	loseStart      bool
 	statusErr      bool
-	startConflict  bool
 	revision       int64
 }
 
@@ -54,6 +52,11 @@ func (m *retryMiner) MiningGroups(ctx context.Context, request sdk.MiningGroupRe
 		return sdk.MiningGroupResult{}, errors.New("controller unavailable")
 	}
 	switch request.Action {
+	case sdk.MiningGroupReadDefault:
+		if m.statusErr {
+			return sdk.MiningGroupResult{}, errors.New("Default intent unavailable")
+		}
+		return sdk.MiningGroupResult{Group: &sdk.MiningGroup{ID: "default", Revision: m.revision, Mining: m.mining}}, nil
 	case operationDeactivate:
 		m.enabled = false
 		m.deactivatedKey = request.Key
@@ -87,18 +90,7 @@ func (m *retryMiner) MiningGroups(ctx context.Context, request sdk.MiningGroupRe
 			return sdk.MiningGroupResult{}, errors.New("lost activation reply")
 		}
 		return sdk.MiningGroupResult{Enabled: true}, nil
-	case "start":
-		if m.startConflict {
-			m.startConflict = false
-			m.revision++
-			return sdk.MiningGroupResult{RevisionConflict: true}, nil
-		}
-		m.mining = true
-		if m.loseStart {
-			m.loseStart = false
-			return sdk.MiningGroupResult{}, errors.New("lost start reply")
-		}
-		return sdk.MiningGroupResult{Group: &sdk.MiningGroup{ID: "default", Revision: m.revision, Mining: true}}, nil
+
 	}
 	out := sdk.MiningGroupResult{Supported: true, Enabled: m.enabled, Revision: 1, MaxGroups: 289}
 	if m.enabled {

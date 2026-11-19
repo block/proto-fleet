@@ -29,6 +29,7 @@ const resultOutcome = {
 } as const;
 
 interface Props {
+  usernameLabel?: "Worker" | "Username";
   pools?: PoolInfo[];
   history?: PoolHistoryResult;
   duration: PoolDuration;
@@ -85,8 +86,10 @@ function PoolSection({
   index,
   statistics,
   unavailable,
+  usernameLabel,
 }: {
   pool: PoolInfo;
+  usernameLabel: "Worker" | "Username";
   index: number;
   statistics?: PoolShareStatistics;
   unavailable: boolean;
@@ -122,7 +125,9 @@ function PoolSection({
             {status}
           </span>
         </div>
-        <p className="mt-2 text-300 break-all text-text-primary-50">Worker: {pool.username || "—"}</p>
+        <p className="mt-2 text-300 break-all text-text-primary-50">
+          {usernameLabel}: {pool.username || "—"}
+        </p>
       </div>
       <div className={clsx(active && "rounded-xl bg-core-primary-5 p-4 tablet:p-10")}>
         <div className="grid grid-cols-2 gap-x-4 gap-y-6 desktop:grid-cols-4">
@@ -166,6 +171,7 @@ function PoolSection({
 
 export default function PoolStatisticsView({
   pools,
+  usernameLabel = "Worker",
   history,
   duration,
   onDurationChange,
@@ -197,6 +203,7 @@ export default function PoolStatisticsView({
         <PoolSection
           key={pool.id}
           pool={pool}
+          usernameLabel={usernameLabel}
           index={index}
           statistics={history?.byPool[pool.id]}
           unavailable={history?.unavailable.includes(pool.id) ?? false}

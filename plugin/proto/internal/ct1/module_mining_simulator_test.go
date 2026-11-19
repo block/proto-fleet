@@ -121,32 +121,40 @@ func testMiningGroupsSimulator(t *testing.T, dev *Device) {
 	observed := call(sdk.MiningGroupRequest{Action: "observe"})
 	require.True(t, observed.Supported)
 	require.False(t, observed.Enabled)
+	defaultBefore := call(sdk.MiningGroupRequest{Action: sdk.MiningGroupReadDefault})
+	require.True(t, defaultBefore.Group.Mining)
+	require.NotEmpty(t, defaultBefore.Group.Pools)
 	initial := call(sdk.MiningGroupRequest{Action: "mining_status"})
 	require.True(t, initial.MiningStatus.Mining)
 	call(sdk.MiningGroupRequest{Action: "stop_legacy", Key: "stop"})
 	stopped := call(sdk.MiningGroupRequest{Action: "mining_status"})
 	require.False(t, stopped.MiningStatus.Mining)
 	require.Zero(t, stopped.MiningStatus.ActiveBoards)
+	require.False(t, call(sdk.MiningGroupRequest{Action: sdk.MiningGroupReadDefault}).Group.Mining)
 	call(sdk.MiningGroupRequest{Action: "activate", Revision: observed.Revision, Key: "activate"})
 	observed = call(sdk.MiningGroupRequest{Action: "observe"})
 	require.True(t, observed.Enabled)
 	require.Len(t, observed.Groups, 1)
 	source := observed.Groups[0]
-	originalPools := source.Pools
-	call(sdk.MiningGroupRequest{Action: "start", GroupID: "default", Revision: source.Revision, Key: "resume"})
+	originalPools := call(sdk.MiningGroupRequest{Action: sdk.MiningGroupReadDefault}).Group.Pools
+	require.NotEmpty(t, originalPools)
+	_, err := dev.MiningGroups(t.Context(), sdk.MiningGroupRequest{Action: "start", GroupID: "default", Revision: source.Revision, Key: "resume"})
+	require.ErrorContains(t, err, "Start Default mining")
+	_, err = dev.clients[0].mining.StartMining(t.Context(), &mdk.StartMiningRequest{})
+	require.NoError(t, err)
 	// A legacy stop replay after activation must leave resumed default mining alone.
 	call(sdk.MiningGroupRequest{Action: "stop_legacy", Key: "stop"})
 	resumed := call(sdk.MiningGroupRequest{Action: "observe"})
 	require.True(t, resumed.Groups[0].Mining)
-	require.Equal(t, originalPools, resumed.Groups[0].Pools)
+	require.Equal(t, originalPools, call(sdk.MiningGroupRequest{Action: sdk.MiningGroupReadDefault}).Group.Pools)
 	require.Positive(t, call(sdk.MiningGroupRequest{Action: "mining_status"}).MiningStatus.ActiveBoards)
 	// Stop default for the existing exact-board assignment checks below.
-	_, err := dev.clients[0].mining.StopMining(t.Context(), &mdk.StopMiningRequest{})
+	_, err = dev.clients[0].mining.StopMining(t.Context(), &mdk.StopMiningRequest{})
 	require.NoError(t, err)
 	source = call(sdk.MiningGroupRequest{Action: "observe"}).Groups[0]
 	created := call(sdk.MiningGroupRequest{Action: "create", ConfigID: "customer", Key: "create"})
 	require.False(t, created.Group.Mining)
-	configured := call(sdk.MiningGroupRequest{Action: "replace_pools", GroupID: created.Group.ID, Revision: created.Group.Revision, Key: "pools", Pools: []sdk.MiningGroupPoolInput{
+	configured := call(sdk.MiningGroupRequest{Action: "replace_pools", GroupID: created.Group.ID, Revision: created.Group.Revision, Key: "pools", PoolIDs: []int32{0, 0}, Pools: []sdk.MiningGroupPoolInput{
 		{URL: "stratum+tcp://primary.example.com:3333", Username: "customer.worker", Password: "secret"},
 		{URL: "stratum+tcp://backup.example.com:3333", Username: "customer.backup", Password: "backup-secret"},
 	}})

@@ -946,7 +946,13 @@ clear awaiting a proven-safe retry still counts as unfinished work.
 
 For remote controllers, upgrade the Fleet Node to command protocol V15 before
 disabling mining groups. Fleet checks the live node version before committing
-deactivation. Existing mining-group reads and commands still require only V6.
+deactivation. Creating a group for a nonempty pool configuration and replacing
+pools with explicit controller pool IDs require V18. Activation and confirming
+Default pools before a return transfer also require V18. After activation, use
+**Wake default mining group** from the Fleet container menu.
+Fleet saves those IDs with the request before dispatch so a retry sends the
+same pool IDs after the controller allocates IDs for new pools. Reads and
+commands that use the original request format still require V6.
 
 Deactivation uses the existing durable mining-group journal. Fleet commits the
 exact request before sending it and retains its identity after a lost response.

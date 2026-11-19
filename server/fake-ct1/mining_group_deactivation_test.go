@@ -6,8 +6,29 @@ import (
 
 	mdk "github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
+
+func replaceDefaultPoolsLegacy(t testing.TB, api *grpcAPI, pools []*mdk.MiningGroupPoolInput) {
+	t.Helper()
+	current, err := api.ListPools(t.Context(), &mdk.ListPoolsRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pool := range current.Pools {
+		if _, err = api.DeletePool(t.Context(), &mdk.DeletePoolRequest{Id: pool.Id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, input := range pools {
+		pool := input.GetPool()
+		if _, err = api.CreatePool(t.Context(), &mdk.CreatePoolRequest{Pool: &mdk.Pool{
+			Name: pool.Name, Url: pool.Url, Username: pool.Username, Priority: pool.Priority,
+			Enabled: pool.Enabled, ShareWeight: pool.ShareWeight,
+		}, Password: input.GetPassword()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
 
 func TestMiningGroupModeCyclesPreserveDefaultPolicy(t *testing.T) {
 	for _, tc := range []struct {
@@ -41,14 +62,14 @@ func TestMiningGroupModeCyclesPreserveDefaultPolicy(t *testing.T) {
 				var pools []*mdk.MiningGroupPoolInput
 				if !tc.empty {
 					password, weight := "current-secret", 2.0
-					pools = []*mdk.MiningGroupPoolInput{{Pool: &mdk.MiningGroupPoolRecord{Id: 9, Name: "Current", Url: "stratum+tcp://current.example:3333", Username: "current.worker", Priority: 2, Enabled: true, ShareWeight: &weight}, Password: &password}}
+					pools = []*mdk.MiningGroupPoolInput{{Pool: &mdk.MiningGroupPoolRecord{Name: "Current", Url: "stratum+tcp://current.example:3333", Username: "current.worker", Priority: 2, Enabled: true, ShareWeight: &weight}, Password: &password}}
 				}
-				if _, err := api.ReplaceMiningGroupPools(ctx, &mdk.ReplaceMiningGroupPoolsRequest{GroupId: "default", ExpectedRevision: s.miningGroups.groups["default"].Revision, IdempotencyKey: "replace-default", Pools: pools}); err != nil {
+				replaceDefaultPoolsLegacy(t, api, pools)
+			}
+			if tc.mining {
+				if _, err := api.StartMining(ctx, &mdk.StartMiningRequest{}); err != nil {
 					t.Fatal(err)
 				}
-			}
-			if _, err := api.UpdateMiningGroupIntent(ctx, &mdk.UpdateMiningGroupIntentRequest{Id: "default", ExpectedRevision: s.miningGroups.groups["default"].Revision, IdempotencyKey: "mining-intent", DesiredMining: tc.mining, UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"desired_mining"}}}); err != nil {
-				t.Fatal(err)
 			}
 			expected := make([]*mdk.MiningGroupPoolInput, 0, len(s.miningGroups.pools["default"]))
 			for _, pool := range s.miningGroups.pools["default"] {

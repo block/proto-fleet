@@ -201,6 +201,17 @@ func (c *Checker) readControllerPools(ctx context.Context, p poolconfigurations.
 					if err != nil {
 						return err
 					}
+					var macs []string
+					for i, binding := range bindings {
+						if targets[i].Kind == poolconfigurations.TargetInstallation {
+							macs = append(macs, binding.board.MAC)
+						}
+					}
+					if len(macs) > 0 {
+						observed = sdk.WithDefaultMiningPools(observed, func() (sdk.MiningGroup, error) {
+							return sdk.ReadDefaultMiningGroup(ctx, groups)
+						}, macs...)
+					}
 				}
 				// Hashboards without groups inherit the one whole-container stack.
 				// Keep that observation shared across the authorized board selection.

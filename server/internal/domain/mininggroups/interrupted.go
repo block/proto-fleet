@@ -3,6 +3,7 @@ package mininggroups
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -56,6 +57,10 @@ func (s *Service) recordTransfer(ctx context.Context, q sqlc.Querier, row sqlc.C
 // durable dispatch tracking proves it never left Fleet. Unknown outcomes retain
 // their identity and admission; known transfers settle through receipt polling.
 func (s *Service) interrupt(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, message string) error {
+	return s.interruptWithDefaultSettings(ctx, q, row, message, nil)
+}
+
+func (s *Service) interruptWithDefaultSettings(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, message string, settings *sdk.MiningGroup) error {
 	if row.Step.Valid {
 		unsent, err := q.MiningGroupStepIsUnsent(ctx, sqlc.MiningGroupStepIsUnsentParams{StepKey: row.StepKey.UUID, AttemptID: row.AttemptID.UUID})
 		if err != nil {
@@ -86,7 +91,7 @@ func (s *Service) interrupt(ctx context.Context, q sqlc.Querier, row sqlc.Contai
 			return s.block(ctx, q, row, "Waiting for mining to stop before ending the interrupted activation")
 		}
 	}
-	row.Observed, err = encode(observed)
+	row.Observed, err = encodeDefaultReturnObservation(observed, settings)
 	if err != nil {
 		return err
 	}
@@ -102,12 +107,8 @@ func (s *Service) interrupt(ctx context.Context, q sqlc.Querier, row sqlc.Contai
 	if row.OperationKind == operationReturnDefault {
 		return s.finishDefaultReturn(ctx, q, row, false, message)
 	}
-	snapshot, err := s.plannerSnapshot(ctx, q, row, observed)
-	if err != nil {
-		return s.block(ctx, q, row, "Pool configuration unavailable; waiting to verify applied assignments")
-	}
-	// Cleanup and admission release commit together. Pruning earlier could erase
-	// the evidence of interruption while an observation or transfer is pending.
+	// The observed controller state is settled. Detached installation intents
+	// cannot supply evidence for the assignments that this attempt applied.
 	if err := pruneDetachedIntents(ctx, q, row.OrganizationID, row.DeviceID); err != nil {
 		return err
 	}
@@ -131,6 +132,13 @@ func (s *Service) interrupt(ctx context.Context, q sqlc.Querier, row sqlc.Contai
 	}
 	for _, intent := range intents {
 		desired[intent.MacAddress] = intent.GroupSnapshotID.String
+	}
+	snapshot, err := s.plannerSnapshot(ctx, q, row, observed, desired)
+	if err != nil {
+		if errors.Is(err, errDefaultSettingsUnavailable) {
+			return s.block(ctx, q, row, defaultReadBlockedMessage(err))
+		}
+		return s.block(ctx, q, row, "Pool configuration unavailable; waiting to verify applied assignments")
 	}
 	return s.failOperation(ctx, q, row, desired, snapshot, message)
 }

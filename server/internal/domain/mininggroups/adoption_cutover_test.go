@@ -60,9 +60,10 @@ func TestImportRetainsCanonicalBoardIntentAndDistinctControllerGroups(t *testing
 		{ID: "retained-a", Revision: 7, Mining: true, MACs: macs[:1], Pools: []sdk.MiningGroupPool{{URL: "stratum+tcp://pool.example:3333", Username: "worker", Enabled: true}}},
 		{ID: "retained-b", Revision: 11, Mining: true, MACs: macs[1:], Pools: []sdk.MiningGroupPool{{URL: "stratum+tcp://pool.example:3333", Username: "worker", Enabled: true}}},
 	}}
-	before, err := f.service.plannerSnapshot(ctx, f.service.queries, row, observed)
+	legacyDesired := map[string]string{macs[0]: firstRevision, macs[1]: secondRevision}
+	before, err := f.service.plannerSnapshot(ctx, f.service.queries, row, observed, legacyDesired)
 	require.NoError(t, err)
-	step, err := Plan(map[string]string{macs[0]: firstRevision, macs[1]: secondRevision}, before)
+	step, err := Plan(legacyDesired, before)
 	require.NoError(t, err)
 	require.Equal(t, Done, step.Kind, "the source state already matches the controller")
 	controllerCalls := len(f.miner.calls)
@@ -102,7 +103,7 @@ func TestImportRetainsCanonicalBoardIntentAndDistinctControllerGroups(t *testing
 			require.Equal(t, password, string(secret))
 			desired[intent.MacAddress] = intent.GroupSnapshotID.String
 		}
-		after, err := f.service.plannerSnapshot(ctx, f.service.queries, row, observed)
+		after, err := f.service.plannerSnapshot(ctx, f.service.queries, row, observed, desired)
 		require.NoError(t, err)
 		step, err = Plan(desired, after)
 		require.NoError(t, err)
@@ -139,7 +140,7 @@ func TestImportRetainsCanonicalBoardIntentAndDistinctControllerGroups(t *testing
 	desired, err := f.service.liveIntent(ctx, canonicalQueries, f.state(t), nil)
 	require.NoError(t, err)
 	require.Len(t, desired, 2)
-	after, err := f.service.plannerSnapshot(ctx, canonicalQueries, f.state(t), observed)
+	after, err := f.service.plannerSnapshot(ctx, canonicalQueries, f.state(t), observed, desired)
 	require.NoError(t, err)
 	step, err = Plan(desired, after)
 	require.NoError(t, err)

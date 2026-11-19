@@ -107,6 +107,124 @@ const rpcTable: [
 ][] = [
   ["feedMappingClient", "mdk.v2.FeedMappingService/GetFeedMappingReport", {}, (c) => c.feedMappingClient!().report()],
   [
+    "miningGroupServiceCreateMiningGroup",
+    "mdk.v2.MiningGroupService/CreateMiningGroup",
+    { metadata: { name: "Local pools", externalRef: "proto-os:pools:opaque-id" }, idempotencyKey: "create" },
+    (c) =>
+      c.miningGroupServiceCreateMiningGroup({
+        metadata: { name: "Local pools", externalRef: "proto-os:pools:opaque-id" },
+        idempotencyKey: "create",
+      }),
+  ],
+  [
+    "miningGroupServiceActivateMiningGroups",
+    "mdk.v2.MiningGroupService/ActivateMiningGroups",
+    { expectedStateRevision: "9007199254740993", idempotencyKey: "activate" },
+    (c) =>
+      c.miningGroupServiceActivateMiningGroups({
+        expectedStateRevision: "9007199254740993",
+        idempotencyKey: "activate",
+      }),
+  ],
+  [
+    "miningGroupServiceReplaceMiningGroupPools",
+    "mdk.v2.MiningGroupService/ReplaceMiningGroupPools",
+    {
+      groupId: "local",
+      expectedRevision: "9007199254740993",
+      idempotencyKey: "pools",
+      pools: [
+        {
+          pool: { id: 1, url: "stratum+tcp://pool:3333", username: "account.region.worker", enabled: true },
+          password: "secret",
+        },
+      ],
+    },
+    (c) =>
+      c.miningGroupServiceReplaceMiningGroupPools(
+        { groupId: "local" },
+        {
+          expectedRevision: "9007199254740993",
+          idempotencyKey: "pools",
+          pools: [
+            {
+              pool: { id: 1, url: "stratum+tcp://pool:3333", username: "account.region.worker", enabled: true },
+              password: "secret",
+            },
+          ],
+        },
+      ),
+  ],
+  [
+    "miningGroupServiceUpdateMiningGroup",
+    "mdk.v2.MiningGroupService/UpdateMiningGroup",
+    {
+      id: "local",
+      expectedRevision: "9007199254740993",
+      metadata: { name: "Renamed" },
+      updateMask: "name",
+      idempotencyKey: "rename",
+    },
+    (c) =>
+      c.miningGroupServiceUpdateMiningGroup(
+        { id: "local" },
+        {
+          expectedRevision: "9007199254740993",
+          metadata: { name: "Renamed" },
+          updateMask: "name",
+          idempotencyKey: "rename",
+        },
+      ),
+  ],
+  [
+    "miningGroupServiceDeleteMiningGroup",
+    "mdk.v2.MiningGroupService/DeleteMiningGroup",
+    { id: "local", expectedRevision: "9007199254740993", idempotencyKey: "delete" },
+    (c) =>
+      c.miningGroupServiceDeleteMiningGroup({
+        id: "local",
+        expectedRevision: "9007199254740993",
+        idempotencyKey: "delete",
+      }),
+  ],
+  [
+    "miningGroupServiceUpdateMiningGroupIntent",
+    "mdk.v2.MiningGroupService/UpdateMiningGroupIntent",
+    { id: "local", expectedRevision: "4", desiredMining: true, updateMask: "desiredMining", idempotencyKey: "intent" },
+    (c) =>
+      c.miningGroupServiceUpdateMiningGroupIntent(
+        { id: "local" },
+        { expectedRevision: "4", desiredMining: true, updateMask: "desiredMining", idempotencyKey: "intent" },
+      ),
+  ],
+  [
+    "miningGroupServiceRequestMiningGroupTransfer",
+    "mdk.v2.MiningGroupService/RequestMiningGroupTransfer",
+    {
+      sourceGroupId: "default",
+      destinationGroupId: "local",
+      sourceExpectedRevision: "4",
+      destinationExpectedRevision: "5",
+      macAddresses: ["aa:bb:cc:00:00:01"],
+      idempotencyKey: "transfer",
+    },
+    (c) =>
+      c.miningGroupServiceRequestMiningGroupTransfer({
+        sourceGroupId: "default",
+        destinationGroupId: "local",
+        sourceExpectedRevision: "4",
+        destinationExpectedRevision: "5",
+        macAddresses: ["aa:bb:cc:00:00:01"],
+        idempotencyKey: "transfer",
+      }),
+  ],
+  [
+    "miningGroupServiceGetMiningGroupOperation",
+    "mdk.v2.MiningGroupService/GetMiningGroupOperation",
+    { id: "operation" },
+    (c) => c.miningGroupServiceGetMiningGroupOperation({ id: "operation" }),
+  ],
+  [
     "miningGroupServiceGetMiningGroupCapability",
     "mdk.v2.MiningGroupService/GetMiningGroupCapability",
     {},
@@ -129,6 +247,12 @@ const rpcTable: [
     "mdk.v2.MiningGroupService/ListMiningGroupPools",
     { groupId: "client-a" },
     (c) => c.miningGroupServiceListMiningGroupPools({ groupId: "client-a" }),
+  ],
+  [
+    "miningGroupServiceGetMiningGroupPoolDiagnostics",
+    "mdk.v2.MiningGroupService/GetMiningGroupPoolDiagnostics",
+    { groupId: "customer" },
+    (c) => c.miningGroupServiceGetMiningGroupPoolDiagnostics({ groupId: "customer" }),
   ],
   [
     "miningGroupServiceGetMiningGroup",
@@ -924,4 +1048,9 @@ describe("MDK v2 Connect log tail read", () => {
 
     await expect(client.systemServiceReadLogTail!({ tail: 10 }, { signal: controller.signal })).rejects.toBe(reason);
   });
+});
+
+it("offers local pool assignment only on the direct Connect adapter", () => {
+  expect(MdkV2Adapter.fromConfig({ baseUrl: "http://ct1.example", protocol: "rest" }).poolAssignment).toBeUndefined();
+  expect(MdkV2Adapter.fromConfig({ baseUrl: "http://ct1.example", protocol: "connect" }).poolAssignment).toBeDefined();
 });

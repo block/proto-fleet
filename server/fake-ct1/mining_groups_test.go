@@ -100,7 +100,11 @@ func TestMiningGroupsWorkflow(t *testing.T) {
 		t.Fatal("new group must be stopped")
 	}
 	selected := members.Memberships[0].MacAddress
-	transfer := &mdk.RequestMiningGroupTransferRequest{SourceGroupId: "default", DestinationGroupId: created.Group.Id, SourceExpectedRevision: 1, DestinationExpectedRevision: created.Group.Revision, MacAddresses: []string{selected}, IdempotencyKey: "transfer"}
+	defaultGroup, err := client.GetMiningGroup(ctx, &mdk.GetMiningGroupRequest{Id: "default"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transfer := &mdk.RequestMiningGroupTransferRequest{SourceGroupId: "default", DestinationGroupId: created.Group.Id, SourceExpectedRevision: defaultGroup.GetGroup().GetRevision(), DestinationExpectedRevision: created.Group.Revision, MacAddresses: []string{selected}, IdempotencyKey: "transfer"}
 	invalid := proto.Clone(transfer).(*mdk.RequestMiningGroupTransferRequest)
 	invalid.IdempotencyKey = "invalid"
 	invalid.MacAddresses = append(invalid.MacAddresses, "missing")
@@ -131,8 +135,8 @@ func TestMiningGroupsWorkflow(t *testing.T) {
 	}
 	primary, backup := "primary-secret", "backup-secret"
 	replace := &mdk.ReplaceMiningGroupPoolsRequest{GroupId: created.Group.Id, ExpectedRevision: started.Group.Revision, IdempotencyKey: "pools", Pools: []*mdk.MiningGroupPoolInput{
-		{Pool: &mdk.MiningGroupPoolRecord{Id: 1, Url: "stratum+tcp://primary.example.com:3333", Username: "worker", Enabled: true}, Password: &primary},
-		{Pool: &mdk.MiningGroupPoolRecord{Id: 2, Url: "stratum+tcp://backup.example.com:3333", Username: "backup-worker", Priority: 1, Enabled: true}, Password: &backup},
+		{Pool: &mdk.MiningGroupPoolRecord{Url: "stratum+tcp://primary.example.com:3333", Username: "worker", Enabled: true}, Password: &primary},
+		{Pool: &mdk.MiningGroupPoolRecord{Url: "stratum+tcp://backup.example.com:3333", Username: "backup-worker", Priority: 1, Enabled: true}, Password: &backup},
 	}}
 	configured, err := client.ReplaceMiningGroupPools(ctx, replace)
 	if err != nil {
@@ -225,7 +229,11 @@ func TestMiningGroupPoolClearDiagnostics(t *testing.T) {
 		t.Fatal(err)
 	}
 	mac := members.Memberships[0].MacAddress
-	_, err = api.RequestMiningGroupTransfer(ctx, &mdk.RequestMiningGroupTransferRequest{SourceGroupId: "default", DestinationGroupId: group.Group.Id, SourceExpectedRevision: 1, DestinationExpectedRevision: 1, MacAddresses: []string{mac}, IdempotencyKey: "move"})
+	defaultGroup, err := api.GetMiningGroup(ctx, &mdk.GetMiningGroupRequest{Id: "default"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = api.RequestMiningGroupTransfer(ctx, &mdk.RequestMiningGroupTransferRequest{SourceGroupId: "default", DestinationGroupId: group.Group.Id, SourceExpectedRevision: defaultGroup.GetGroup().GetRevision(), DestinationExpectedRevision: group.Group.Revision, MacAddresses: []string{mac}, IdempotencyKey: "move"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,5 +265,27 @@ func TestMiningGroupPoolClearDiagnostics(t *testing.T) {
 	_, err = api.GetMiningGroupPoolDiagnostics(ctx, &mdk.GetMiningGroupPoolDiagnosticsRequest{GroupId: "default"})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatal(err)
+	}
+}
+
+func TestDefaultGroupUsesLegacyMutationAPIs(t *testing.T) {
+	s := NewContainerState(ContainerConfig{ServerID: "default-contract", Tanks: 1, ModulesPerTank: 1, SlotsPerModule: 1, Seed: 1})
+	api := &grpcAPI{state: s}
+	ctx := t.Context()
+	if _, err := api.StopMining(ctx, &mdk.StopMiningRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.ActivateMiningGroups(ctx, &mdk.ActivateMiningGroupsRequest{ExpectedStateRevision: 1, IdempotencyKey: "activate"}); err != nil {
+		t.Fatal(err)
+	}
+	revision := s.miningGroups.groups["default"].Revision
+	if _, err := api.UpdateMiningGroup(ctx, &mdk.UpdateMiningGroupRequest{Id: "default", ExpectedRevision: revision, IdempotencyKey: "metadata", Metadata: &mdk.MiningGroupMetadata{Name: "Renamed"}, UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"name"}}}); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("default metadata update: %v", err)
+	}
+	if _, err := api.ReplaceMiningGroupPools(ctx, &mdk.ReplaceMiningGroupPoolsRequest{GroupId: "default", ExpectedRevision: revision, IdempotencyKey: "pools"}); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("default pool replace: %v", err)
+	}
+	if _, err := api.UpdateMiningGroupIntent(ctx, &mdk.UpdateMiningGroupIntentRequest{Id: "default", ExpectedRevision: revision, IdempotencyKey: "intent", DesiredMining: true, UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"desired_mining"}}}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("default intent update: %v", err)
 	}
 }

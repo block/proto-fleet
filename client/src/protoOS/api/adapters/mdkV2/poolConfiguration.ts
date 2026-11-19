@@ -10,6 +10,8 @@ import type { AdapterRequestOptions } from "../types";
 import type { MdkV2Client } from "./connectClient";
 import { withDeadline } from "./controllerRecords";
 import type { V2GetContainerMapResponse, V2MiningGroupOperationRecord } from "./generated/generatedApi";
+import { toPoolSettings } from "./miningGroupRecords";
+import { readDefaultPools } from "./poolEdits";
 import { slotPosition } from "./slotPosition";
 import { containerWriteError } from "./writeErrors";
 
@@ -172,20 +174,15 @@ export function readMiningGroupPools(
 ) {
   return withDeadline(params, POOL_READ_TIMEOUT_MS, async (options): Promise<MiningGroupPoolSettings[]> => {
     if (!groupId || !revision) throw new Error("Reload the group assignments before reading pools.");
-    const { data } = await client.miningGroupServiceListMiningGroupPools({ groupId }, options);
+    const pools =
+      groupId === "default"
+        ? await readDefaultPools(client, options)
+        : ((await client.miningGroupServiceListMiningGroupPools({ groupId }, options)).data.pools ?? []).map(
+            toPoolSettings,
+          );
     const current = (await client.miningGroupServiceGetMiningGroup({ id: groupId }, options)).data.group;
     if (current?.revision !== revision) throw new Error("This group changed. Reload the group assignments.");
-    return (data.pools ?? [])
-      .map((pool) => ({
-        id: String(pool.id ?? ""),
-        name: pool.name ?? "",
-        url: pool.url ?? "",
-        username: pool.username ?? "",
-        priority: pool.priority ?? 0,
-        enabled: pool.enabled === true,
-        shareWeight: pool.shareWeight,
-      }))
-      .sort((a, b) => a.priority - b.priority);
+    return pools.sort((a, b) => a.priority - b.priority);
   });
 }
 

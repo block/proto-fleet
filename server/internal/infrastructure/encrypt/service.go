@@ -3,7 +3,9 @@ package encrypt
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"io"
 
@@ -12,6 +14,13 @@ import (
 
 type Service struct {
 	serviceMasterKey []byte
+}
+
+// SigningKey derives a separate key for one purpose without exposing the encryption key.
+func (s *Service) SigningKey(purpose string) []byte {
+	mac := hmac.New(sha256.New, s.serviceMasterKey)
+	mac.Write([]byte(purpose))
+	return mac.Sum(nil)
 }
 
 func NewService(config *Config) (*Service, error) {

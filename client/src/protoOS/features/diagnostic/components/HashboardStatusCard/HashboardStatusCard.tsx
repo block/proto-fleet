@@ -16,21 +16,25 @@ import { Alert } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import AsicTablePreview from "@/shared/components/AsicTablePreview";
 import Button from "@/shared/components/Button";
+import Checkbox from "@/shared/components/Checkbox";
 import EfficiencyValue from "@/shared/components/EfficiencyValue";
 import HashboardCard from "@/shared/components/HashboardCard";
 import HashRateValue from "@/shared/components/HashRateValue";
 import PowerValue from "@/shared/components/PowerValue";
+import RowActionsMenu, { type RowAction } from "@/shared/components/RowActionsMenu";
 import TemperatureValue from "@/shared/components/TemperatureValue";
 
 interface HashboardStatusCardProps {
   /** Board identity value: CT1 MAC address or R2 serial number. */
   identifier: string;
+  actions?: RowAction[];
+  selection?: { checked: boolean; disabled?: boolean; onChange: (checked: boolean) => void };
   viewTo?: string;
   /** Keeps the View action from navigating away, for a host with work in flight. */
   viewDisabled?: boolean;
 }
 
-function HashboardStatusCard({ identifier, viewTo, viewDisabled }: HashboardStatusCardProps) {
+function HashboardStatusCard({ identifier, viewTo, viewDisabled, actions, selection }: HashboardStatusCardProps) {
   // Fetch data directly from store
   const hashboardData = useMinerHashboard(identifier);
   const slot = useHashboardSlot(identifier);
@@ -91,10 +95,25 @@ function HashboardStatusCard({ identifier, viewTo, viewDisabled }: HashboardStat
       ]
     : [...temperatures, powerStat, rateStat];
 
+  const viewButton = (
+    <Button variant="secondary" size="compact" disabled={viewDisabled} onClick={handleViewClick}>
+      View
+    </Button>
+  );
   return (
     <>
       <HashboardCard
         title={name}
+        selectionControl={
+          selection ? (
+            <Checkbox
+              checked={selection.checked}
+              disabled={selection.disabled}
+              ariaLabel={`Select ${name}`}
+              onChange={(event) => selection.onChange(event.target.checked)}
+            />
+          ) : undefined
+        }
         statusIcon={
           hasErrors ? (
             <span role="img" aria-label={`${name} needs attention`}>
@@ -108,9 +127,14 @@ function HashboardStatusCard({ identifier, viewTo, viewDisabled }: HashboardStat
         metrics={stats}
         onInfoClick={component ? () => setShowComponentStatusModal(true) : undefined}
         actions={
-          <Button variant="secondary" size="compact" disabled={viewDisabled} onClick={handleViewClick}>
-            View
-          </Button>
+          actions?.length ? (
+            <div className="flex items-center gap-3">
+              {viewButton}
+              <RowActionsMenu actions={actions} ariaLabel={`Actions for ${name}`} />
+            </div>
+          ) : (
+            viewButton
+          )
         }
       >
         <AsicTablePreview asics={asicData} rowHeight={layout.card.previewRowHeight} />

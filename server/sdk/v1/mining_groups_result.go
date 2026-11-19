@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -38,7 +39,7 @@ func (r MiningGroupResult) Validate(request MiningGroupRequest) error {
 		}
 		return nil
 	}
-	groupAction := request.Action == "create" || request.Action == miningGroupActionReplacePools || request.Action == "start" || request.Action == "stop" || request.Action == miningGroupActionClearPools
+	groupAction := request.Action == "create" || request.Action == miningGroupActionReplacePools || request.Action == "start" || request.Action == "stop" || request.Action == miningGroupActionClearPools || request.Action == MiningGroupReadDefault
 	operationAction := request.Action == miningGroupActionTransfer || request.Action == miningGroupActionOperation
 	if (request.Action != miningGroupActionVerifyCleared && r.PoolsCleared != nil) ||
 		(request.Action != miningGroupActionDeactivate && r.Deactivated) ||
@@ -97,6 +98,17 @@ func (r MiningGroupResult) Validate(request MiningGroupRequest) error {
 		if !r.Removed {
 			return fmt.Errorf("missing mining group removal receipt")
 		}
+	case MiningGroupReadDefault:
+		if r.Group == nil || r.Group.ID != "default" {
+			return fmt.Errorf("missing Default mining group")
+		}
+		if len(request.DefaultURLSigningKey) != 0 {
+			fingerprint, err := hex.DecodeString(r.Group.DefaultURLFingerprint)
+			if err != nil || len(fingerprint) != 32 {
+				return fmt.Errorf("missing or invalid Default URL fingerprint")
+			}
+		}
+		return validateMiningGroup(*r.Group)
 	case "create", miningGroupActionReplacePools, "start", "stop", miningGroupActionClearPools:
 		if r.Group == nil {
 			return fmt.Errorf("missing mining group receipt")

@@ -8,7 +8,7 @@ import { prefetchRoutes } from "@/shared/utils/prefetchRoutes";
 
 const SettingsContentLayout = ({ children }: ContentLayoutProps) => {
   const { pathname } = useLocation();
-  const wide = useDeviceType() === "container" && /\/settings\/hardware\/?$/.test(pathname);
+  const wide = useDeviceType() === "container" && /\/settings\/(hardware|mining-pools)\/?$/.test(pathname);
   // Warm sibling /settings/* tab chunks at idle.
   useEffect(() => {
     return prefetchRoutes(settingsRoutePrefetch);

@@ -10,7 +10,6 @@ import {
   minerWorkerTemplate,
   type PoolDraft,
   poolInput,
-  poolSlotLabel,
 } from "./draft";
 import { PoolConnectionTest } from "./PoolConnectionTest";
 import type {
@@ -18,10 +17,8 @@ import type {
   ReviewEditResponse,
 } from "@/protoFleet/api/generated/poolconfigurations/v1/poolconfigurations_pb";
 import { ActionModal } from "@/protoFleet/features/hostedAccounts/components/ActionModal";
-import Button from "@/shared/components/Button";
-import Checkbox from "@/shared/components/Checkbox";
-import Input from "@/shared/components/Input";
 import { fleetUsernameHelperText, validateURLScheme } from "@/shared/components/MiningPools/PoolForm/constants";
+import { ConfigurationForm } from "@/shared/components/PoolConfigurations/ConfigurationForm";
 
 export const ConfigurationEditor = ({
   original,
@@ -36,14 +33,6 @@ export const ConfigurationEditor = ({
   const [name, setName] = useState(original?.name ?? "");
   const [pools, setPools] = useState(() => configurationDraft(original));
   const [review, setReview] = useState<ReviewEditResponse>();
-  const update = (key: string, patch: Partial<PoolDraft>) =>
-    setPools((items) => items.map((pool) => (pool.key === key ? { ...pool, ...patch } : pool)));
-  const move = (index: number, by: number) =>
-    setPools((items) => {
-      const reordered = [...items];
-      [reordered[index], reordered[index + by]] = [reordered[index + by], reordered[index]];
-      return reordered;
-    });
   const validPool = (pool: PoolDraft) =>
     !!pool.url &&
     !validateURLScheme(pool.url) &&
@@ -97,89 +86,24 @@ export const ConfigurationEditor = ({
         }
       }}
     >
-      <Input id="pool-configuration-name" label="Name" initValue={name} onChange={setName} maxLength={255} />
-      {pools.map((pool, i) => (
-        <div
-          key={pool.key}
-          role="group"
-          aria-label={poolSlotLabel(i)}
-          className="flex flex-col gap-4 rounded-xl border border-border-10 p-4"
-          data-dd-privacy="mask"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-heading-100">{poolSlotLabel(i)}</h3>
-            <div className="flex gap-3">
-              {i > 0 ? <Button variant="textOnly" text="Move up" onClick={() => move(i, -1)} /> : null}
-              {i < pools.length - 1 ? <Button variant="textOnly" text="Move down" onClick={() => move(i, 1)} /> : null}
-              {pools.length > 1 ? (
-                <Button
-                  variant="textOnly"
-                  text="Remove"
-                  onClick={() => setPools((items) => items.filter((item) => item.key !== pool.key))}
-                />
-              ) : null}
-            </div>
-          </div>
-          <Input
-            id={`pool-url-${pool.key}`}
-            label="Pool URL"
-            initValue={pool.url}
-            sanitize={(value) => value.trim()}
-            onChange={(url) => update(pool.key, { url })}
-            error={validateURLScheme(pool.url)}
-            maxLength={256}
-          />
-          <Input
-            id={`pool-username-${pool.key}`}
-            label="Username"
-            initValue={pool.username}
-            onChange={(username) => update(pool.key, { username })}
-            maxLength={255}
-          />
-          <p className="text-200 text-text-primary-50">
-            {pool.workerTemplate === minerWorkerTemplate
-              ? fleetUsernameHelperText
-              : pool.workerTemplate
-                ? "Saved worker naming will be preserved."
-                : "This username is applied as entered."}
-          </p>
-          {original?.pools.some((saved) => saved.slotId === pool.slotId && saved.hasPassword) ? (
-            <label className="flex items-center gap-3">
-              <Checkbox
-                checked={pool.preservePassword}
-                onChange={(event) => update(pool.key, { preservePassword: event.target.checked })}
-              />
-              Keep saved password
-            </label>
-          ) : null}
-          {pool.preservePassword ? (
-            <p className="text-200 text-text-primary-50">
-              {canPreservePassword(pool, original)
-                ? "The saved password stays hidden."
-                : "The URL or username changed. Uncheck Keep saved password to replace or clear it."}
-            </p>
-          ) : (
-            <Input
-              id={`pool-password-${pool.key}`}
-              label="Pool password (optional)"
-              type="password"
-              initValue={pool.password}
-              onChange={(password) => update(pool.key, { password })}
-              autoComplete="new-password"
-              maxLength={255}
-            />
-          )}
-          <PoolConnectionTest pool={pool} original={original} valid={validPool(pool)} />
-        </div>
-      ))}
-      {pools.length < 3 ? (
-        <Button
-          variant="secondary"
-          text="Add backup pool"
-          className="self-start"
-          onClick={() => setPools((items) => [...items, blankPool()])}
-        />
-      ) : null}
+      <ConfigurationForm
+        name={name}
+        onChangeName={setName}
+        pools={pools}
+        onChangePools={setPools}
+        newPool={blankPool}
+        validateURL={validateURLScheme}
+        hasSavedPassword={(pool) =>
+          original?.pools.some((saved) => saved.slotId === pool.slotId && saved.hasPassword) ?? false
+        }
+        canPreservePassword={(pool) => canPreservePassword(pool, original)}
+        usernameHelp={(pool) => {
+          if (pool.workerTemplate === minerWorkerTemplate) return fleetUsernameHelperText;
+          if (pool.workerTemplate) return "Saved worker naming will be preserved.";
+          return "This username is applied as entered.";
+        }}
+        connectionTest={(pool) => <PoolConnectionTest pool={pool} original={original} valid={validPool(pool)} />}
+      />
     </ActionModal>
   );
 };

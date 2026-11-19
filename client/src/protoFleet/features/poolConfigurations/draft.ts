@@ -1,10 +1,10 @@
-import type { ConfigurationChange } from "./ConfigurationReview";
 import type { Configuration, PoolInput } from "@/protoFleet/api/generated/poolconfigurations/v1/poolconfigurations_pb";
+import type { ConfigurationChange } from "@/shared/components/PoolConfigurations/ConfigurationChanges";
+import { poolSlotLabel } from "@/shared/components/PoolConfigurations/types";
 
 export const minerWorkerTemplate = "{miner_name}";
 
-// Pool slots are labelled "Primary pool", "Backup 1", "Backup 2", … by index.
-export const poolSlotLabel = (index: number) => (index === 0 ? "Primary pool" : `Backup ${index}`);
+export { poolSlotLabel } from "@/shared/components/PoolConfigurations/types";
 
 export type PoolDraft = Omit<PoolInput, "$typeName" | "password"> & {
   key: string;
