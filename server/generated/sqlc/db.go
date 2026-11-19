@@ -1527,11 +1527,17 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getOrgDeviceIDsWithIdentifiersStmt, err = db.PrepareContext(ctx, getOrgDeviceIDsWithIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrgDeviceIDsWithIdentifiers: %w", err)
 	}
+	if q.getOrgDeviceMetricsDailyAggregatesStmt, err = db.PrepareContext(ctx, getOrgDeviceMetricsDailyAggregates); err != nil {
+		return nil, fmt.Errorf("error preparing query GetOrgDeviceMetricsDailyAggregates: %w", err)
+	}
 	if q.getOrgDeviceMetricsHourlyAggregatesStmt, err = db.PrepareContext(ctx, getOrgDeviceMetricsHourlyAggregates); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrgDeviceMetricsHourlyAggregates: %w", err)
 	}
 	if q.getOrgDeviceMetricsRawBucketAggregatesStmt, err = db.PrepareContext(ctx, getOrgDeviceMetricsRawBucketAggregates); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrgDeviceMetricsRawBucketAggregates: %w", err)
+	}
+	if q.getOrgDeviceStatusDailyAggregatesStmt, err = db.PrepareContext(ctx, getOrgDeviceStatusDailyAggregates); err != nil {
+		return nil, fmt.Errorf("error preparing query GetOrgDeviceStatusDailyAggregates: %w", err)
 	}
 	if q.getOrgDeviceStatusHourlyAggregatesStmt, err = db.PrepareContext(ctx, getOrgDeviceStatusHourlyAggregates); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrgDeviceStatusHourlyAggregates: %w", err)
@@ -6548,6 +6554,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getOrgDeviceIDsWithIdentifiersStmt: %w", cerr)
 		}
 	}
+	if q.getOrgDeviceMetricsDailyAggregatesStmt != nil {
+		if cerr := q.getOrgDeviceMetricsDailyAggregatesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getOrgDeviceMetricsDailyAggregatesStmt: %w", cerr)
+		}
+	}
 	if q.getOrgDeviceMetricsHourlyAggregatesStmt != nil {
 		if cerr := q.getOrgDeviceMetricsHourlyAggregatesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getOrgDeviceMetricsHourlyAggregatesStmt: %w", cerr)
@@ -6556,6 +6567,11 @@ func (q *Queries) Close() error {
 	if q.getOrgDeviceMetricsRawBucketAggregatesStmt != nil {
 		if cerr := q.getOrgDeviceMetricsRawBucketAggregatesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getOrgDeviceMetricsRawBucketAggregatesStmt: %w", cerr)
+		}
+	}
+	if q.getOrgDeviceStatusDailyAggregatesStmt != nil {
+		if cerr := q.getOrgDeviceStatusDailyAggregatesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getOrgDeviceStatusDailyAggregatesStmt: %w", cerr)
 		}
 	}
 	if q.getOrgDeviceStatusHourlyAggregatesStmt != nil {
@@ -11273,8 +11289,10 @@ type Queries struct {
 	getOfflineDevicesStmt                                       *sql.Stmt
 	getOfflineFleetNodeDevicesStmt                              *sql.Stmt
 	getOrgDeviceIDsWithIdentifiersStmt                          *sql.Stmt
+	getOrgDeviceMetricsDailyAggregatesStmt                      *sql.Stmt
 	getOrgDeviceMetricsHourlyAggregatesStmt                     *sql.Stmt
 	getOrgDeviceMetricsRawBucketAggregatesStmt                  *sql.Stmt
+	getOrgDeviceStatusDailyAggregatesStmt                       *sql.Stmt
 	getOrgDeviceStatusHourlyAggregatesStmt                      *sql.Stmt
 	getOrgFleetMetricRollupsStmt                                *sql.Stmt
 	getOrgScopeAssignmentForUserStmt                            *sql.Stmt
@@ -12617,8 +12635,10 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getOfflineDevicesStmt:                                       q.getOfflineDevicesStmt,
 		getOfflineFleetNodeDevicesStmt:                              q.getOfflineFleetNodeDevicesStmt,
 		getOrgDeviceIDsWithIdentifiersStmt:                          q.getOrgDeviceIDsWithIdentifiersStmt,
+		getOrgDeviceMetricsDailyAggregatesStmt:                      q.getOrgDeviceMetricsDailyAggregatesStmt,
 		getOrgDeviceMetricsHourlyAggregatesStmt:                     q.getOrgDeviceMetricsHourlyAggregatesStmt,
 		getOrgDeviceMetricsRawBucketAggregatesStmt:                  q.getOrgDeviceMetricsRawBucketAggregatesStmt,
+		getOrgDeviceStatusDailyAggregatesStmt:                       q.getOrgDeviceStatusDailyAggregatesStmt,
 		getOrgDeviceStatusHourlyAggregatesStmt:                      q.getOrgDeviceStatusHourlyAggregatesStmt,
 		getOrgFleetMetricRollupsStmt:                                q.getOrgFleetMetricRollupsStmt,
 		getOrgScopeAssignmentForUserStmt:                            q.getOrgScopeAssignmentForUserStmt,

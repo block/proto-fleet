@@ -1109,10 +1109,14 @@ type Querier interface {
 	// Resolves caller-supplied identifiers within one organization. Identifiers
 	// owned by another organization are omitted exactly like unknown ones.
 	GetOrgDeviceIDsWithIdentifiers(ctx context.Context, arg GetOrgDeviceIDsWithIdentifiersParams) ([]GetOrgDeviceIDsWithIdentifiersRow, error)
+	// Returns daily aggregates for the current devices in an org.
+	GetOrgDeviceMetricsDailyAggregates(ctx context.Context, arg GetOrgDeviceMetricsDailyAggregatesParams) ([]DeviceMetricsDaily, error)
 	// Returns hourly aggregates for the current devices in an org.
 	// COALESCE handles NULL values from AVG() when all source values are NULL
 	GetOrgDeviceMetricsHourlyAggregates(ctx context.Context, arg GetOrgDeviceMetricsHourlyAggregatesParams) ([]DeviceMetricsHourly, error)
 	GetOrgDeviceMetricsRawBucketAggregates(ctx context.Context, arg GetOrgDeviceMetricsRawBucketAggregatesParams) ([]GetOrgDeviceMetricsRawBucketAggregatesRow, error)
+	// Returns daily status aggregates for the current devices in an org.
+	GetOrgDeviceStatusDailyAggregates(ctx context.Context, arg GetOrgDeviceStatusDailyAggregatesParams) ([]DeviceStatusDaily, error)
 	// Returns hourly status aggregates for the current devices in an org.
 	GetOrgDeviceStatusHourlyAggregates(ctx context.Context, arg GetOrgDeviceStatusHourlyAggregatesParams) ([]DeviceStatusHourly, error)
 	GetOrgFleetMetricRollups(ctx context.Context, arg GetOrgFleetMetricRollupsParams) ([]GetOrgFleetMetricRollupsRow, error)

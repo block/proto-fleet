@@ -5576,6 +5576,18 @@ func (q *retryingQuerier) GetOrgDeviceIDsWithIdentifiers(ctx context.Context, ar
 	return result, err
 }
 
+func (q *retryingQuerier) GetOrgDeviceMetricsDailyAggregates(ctx context.Context, arg GetOrgDeviceMetricsDailyAggregatesParams) ([]DeviceMetricsDaily, error) {
+	var result []DeviceMetricsDaily
+	err := q.retrier.RetryQuery(ctx, "GetOrgDeviceMetricsDailyAggregates", func() error {
+		callResult, callErr := q.next.GetOrgDeviceMetricsDailyAggregates(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetOrgDeviceMetricsHourlyAggregates(ctx context.Context, arg GetOrgDeviceMetricsHourlyAggregatesParams) ([]DeviceMetricsHourly, error) {
 	var result []DeviceMetricsHourly
 	err := q.retrier.RetryQuery(ctx, "GetOrgDeviceMetricsHourlyAggregates", func() error {
@@ -5592,6 +5604,18 @@ func (q *retryingQuerier) GetOrgDeviceMetricsRawBucketAggregates(ctx context.Con
 	var result []GetOrgDeviceMetricsRawBucketAggregatesRow
 	err := q.retrier.RetryQuery(ctx, "GetOrgDeviceMetricsRawBucketAggregates", func() error {
 		callResult, callErr := q.next.GetOrgDeviceMetricsRawBucketAggregates(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetOrgDeviceStatusDailyAggregates(ctx context.Context, arg GetOrgDeviceStatusDailyAggregatesParams) ([]DeviceStatusDaily, error) {
+	var result []DeviceStatusDaily
+	err := q.retrier.RetryQuery(ctx, "GetOrgDeviceStatusDailyAggregates", func() error {
+		callResult, callErr := q.next.GetOrgDeviceStatusDailyAggregates(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

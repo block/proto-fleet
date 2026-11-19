@@ -553,6 +553,34 @@ WHERE bucket >= $1
   AND bucket <= $2
 ORDER BY bucket ASC;
 
+-- name: GetOrgDeviceMetricsDailyAggregates :many
+-- Returns daily aggregates for the current devices in an org.
+WITH latest_device AS (
+    SELECT DISTINCT ON (d.device_identifier)
+        d.device_identifier,
+        d.org_id
+    FROM device d
+    ORDER BY d.device_identifier, (d.deleted_at IS NULL) DESC, d.updated_at DESC, d.id DESC
+)
+SELECT
+    dmd.bucket,
+    dmd.device_identifier,
+    COALESCE(dmd.avg_hash_rate, 0) AS avg_hash_rate,
+    dmd.max_hash_rate,
+    dmd.min_hash_rate,
+    COALESCE(dmd.avg_temp, 0) AS avg_temp,
+    dmd.max_temp,
+    dmd.min_temp,
+    COALESCE(dmd.avg_power, 0) AS avg_power,
+    COALESCE(dmd.avg_efficiency, 0) AS avg_efficiency,
+    dmd.data_points
+FROM device_metrics_daily dmd
+JOIN latest_device d USING (device_identifier)
+WHERE d.org_id = sqlc.arg('org_id')
+  AND dmd.bucket >= sqlc.arg('start_time')
+  AND dmd.bucket <= sqlc.arg('end_time')
+ORDER BY dmd.bucket ASC;
+
 -- =====================================================
 -- Status aggregate queries (temperature histogram + uptime)
 -- =====================================================
@@ -692,6 +720,40 @@ FROM device_status_daily
 WHERE bucket >= $1
   AND bucket <= $2
 ORDER BY bucket ASC;
+
+-- name: GetOrgDeviceStatusDailyAggregates :many
+-- Returns daily status aggregates for the current devices in an org.
+WITH latest_device AS (
+    SELECT DISTINCT ON (d.device_identifier)
+        d.device_identifier,
+        d.org_id
+    FROM device d
+    ORDER BY d.device_identifier, (d.deleted_at IS NULL) DESC, d.updated_at DESC, d.id DESC
+)
+SELECT
+    dsd.bucket,
+    dsd.device_identifier,
+    dsd.temp_below_0,
+    dsd.temp_0_10,
+    dsd.temp_10_20,
+    dsd.temp_20_30,
+    dsd.temp_30_40,
+    dsd.temp_40_50,
+    dsd.temp_50_60,
+    dsd.temp_60_70,
+    dsd.temp_70_80,
+    dsd.temp_80_90,
+    dsd.temp_90_100,
+    dsd.temp_100_plus,
+    dsd.hashing_count,
+    dsd.not_hashing_count,
+    dsd.data_points
+FROM device_status_daily dsd
+JOIN latest_device d USING (device_identifier)
+WHERE d.org_id = sqlc.arg('org_id')
+  AND dsd.bucket >= sqlc.arg('start_time')
+  AND dsd.bucket <= sqlc.arg('end_time')
+ORDER BY dsd.bucket ASC;
 
 -- name: DisableSyncCommit :exec
 SET LOCAL synchronous_commit = off;

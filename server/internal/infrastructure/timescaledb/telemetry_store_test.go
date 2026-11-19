@@ -1249,6 +1249,88 @@ func TestTelemetryStore_GetCombinedMetrics_OrgHourlyBodyMatchesRawTailScope(t *t
 	assert.Equal(t, int32(0), bodyTemp.CriticalCount)
 }
 
+func TestTelemetryStore_GetCombinedMetrics_HistoricalTemperatureUsesRetainedRollups(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	orgID := dbSvc.CreateSuperAdminUser().OrganizationID
+	otherOrgID := dbSvc.CreateSuperAdminUser2().OrganizationID
+	device := dbSvc.CreateDevice(orgID, "proto")
+	otherDevice := dbSvc.CreateDevice(otherOrgID, "proto")
+
+	const day = 24 * time.Hour
+	cutoffDay := time.Now().UTC().Add(-88 * day).Truncate(day)
+	oldDay := cutoffDay.Add(-day)
+	recentDay := cutoffDay.Add(day)
+	recentHour := recentDay.Add(time.Hour)
+	insertTestMetrics(t, db, device.ID, oldDay.Add(2*time.Hour), 100, 50)
+	insertTestMetrics(t, db, otherDevice.ID, oldDay.Add(2*time.Hour), 100, 95)
+	insertTestMetrics(t, db, device.ID, cutoffDay.Add(15*time.Hour), 100, 95)
+	insertTestMetrics(t, db, device.ID, recentHour.Add(10*time.Minute), 100, 80)
+
+	refreshEnd := cutoffDay.Add(2 * day)
+	testutil.RefreshContinuousAggregate(t, db, "device_status_hourly", &oldDay, &refreshEnd)
+	testutil.RefreshContinuousAggregate(t, db, "device_status_daily", &oldDay, &refreshEnd)
+	testutil.RefreshContinuousAggregate(t, db, "device_metrics_daily", &oldDay, &cutoffDay)
+	_, err = db.ExecContext(ctx, `DELETE FROM device_metrics`)
+	require.NoError(t, err)
+
+	t.Run("daily metrics use the requested organization", func(t *testing.T) {
+		start := oldDay.Add(-10 * day)
+		result, err := store.GetCombinedMetrics(t.Context(), models.CombinedMetricsQuery{
+			OrganizationID:   orgID,
+			MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate},
+			TimeRange:        models.TimeRange{StartTime: &start, EndTime: &cutoffDay},
+		})
+		require.NoError(t, err)
+		require.Len(t, result.Metrics, 1)
+		assert.True(t, result.Metrics[0].OpenTime.Equal(oldDay))
+		assert.Equal(t, int32(1), result.Metrics[0].DeviceCount)
+		assert.Equal(t, float64(100), aggValues(result.Metrics[0].AggregatedValues)[models.AggregationTypeAverage])
+	})
+
+	getCounts := func(start, end time.Time, deviceIDs ...models.DeviceIdentifier) []models.TemperatureStatusCount {
+		result, err := store.GetCombinedMetrics(ctx, models.CombinedMetricsQuery{
+			OrganizationID:   orgID,
+			DeviceIDs:        deviceIDs,
+			MeasurementTypes: []models.MeasurementType{models.MeasurementTypeTemperature},
+			TimeRange:        models.TimeRange{StartTime: &start, EndTime: &end},
+		})
+		require.NoError(t, err)
+		return result.TemperatureStatusCounts
+	}
+
+	counts := getCounts(oldDay, refreshEnd)
+	require.Len(t, counts, 3)
+	assert.True(t, counts[0].Timestamp.Equal(oldDay))
+	assert.Equal(t, int32(1), counts[0].OkCount)
+	assert.Zero(t, counts[0].CriticalCount, "exclude devices from other organizations")
+	assert.True(t, counts[1].Timestamp.Equal(cutoffDay))
+	assert.Equal(t, int32(1), counts[1].CriticalCount)
+	assert.True(t, counts[2].Timestamp.Equal(recentDay), "use daily buckets for the full range across the cutoff")
+	assert.Equal(t, int32(1), counts[2].HotCount)
+
+	tailSample := recentDay.Add(6 * time.Hour)
+	insertTestMetrics(t, db, device.ID, tailSample, 100, 95)
+	counts = getCounts(recentDay, recentDay.Add(7*time.Hour))
+	require.Len(t, counts, 2, "keep the hourly body and raw tail within hourly retention")
+	assert.True(t, counts[0].Timestamp.Equal(recentHour), "use hourly buckets within hourly retention")
+	assert.True(t, counts[1].Timestamp.Equal(tailSample))
+	assert.Equal(t, int32(1), counts[1].CriticalCount)
+
+	counts = getCounts(oldDay, cutoffDay, models.DeviceIdentifier(device.ID))
+	require.Len(t, counts, 1)
+	assert.True(t, counts[0].Timestamp.Equal(oldDay))
+	assert.Empty(t, getCounts(oldDay.Add(time.Hour), oldDay.Add(4*time.Hour)))
+}
+
 func TestTelemetryStore_GetCombinedMetrics_RawTailCoversUnmaterializedCompletedHours(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")

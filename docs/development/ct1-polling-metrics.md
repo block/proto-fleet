@@ -156,9 +156,11 @@ job per raw source rotates catch-up and recent refreshes, with smaller batches
 after interrupted attempts and gradual growth after fast successes. A shared write
 gate waits for in-flight writers before finalization; stale cached readings are
 skipped without rolling back live ingestion. Recent refreshes continue during catch-up at their
-30-minute/hourly and 6-hour/daily cadences. Measurement summaries still retain
-three months hourly and three years daily; status summaries keep their existing
-absence of a retention policy.
+30-minute/hourly and 6-hour/daily cadences. Measurement summaries retain
+three months of hourly data and three years of daily data. Migration 1109
+sets the same retention for miner status summaries. If a miner temperature
+request starts more than 88 days ago, Fleet reads counts from the daily status
+summary for complete UTC days in the range.
 See [telemetry summary recovery](telemetry-summary-recovery.md) for late-data
 assumptions, upgrade boundaries, monitoring, and recovery procedures.
 
