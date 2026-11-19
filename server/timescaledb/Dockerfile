@@ -36,23 +36,19 @@ FROM ubuntu:24.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-# Versions — pin every package from the PGDG and Timescale repositories.
-# Upstream publishes extension builds per PostgreSQL minor release (the
-# TimescaleDB "-1806" suffix means "built for 18.6"); an unpinned extension can
-# require a newer PostgreSQL than PG_VERSION and break the build. Change these
-# together, using versions that exist for both amd64 and arm64.
+# Versions — pin each package that the apt-get install command names.
+# Change the pins together. Each version must exist for amd64 and arm64.
+# Do not decrease TIMESCALEDB_VERSION or TOOLKIT_VERSION: a database needs the
+# library for the extension version that created it. See README.md.
 ARG PG_MAJOR=18
-# PostgreSQL 18.7 makes every TimescaleDB background job fail on exit with
-# 'cannot drop portal "" while it is being set up' (seen with TimescaleDB
-# 2.31.0 and 2.32.0): the job's work commits, but the run is recorded as
-# failed. Hold the server and client at 18.6 until a TimescaleDB release
-# supports 18.7.
+# PostgreSQL 18.7 makes TimescaleDB background jobs record a failure. Hold
+# 18.6 until a TimescaleDB release supports 18.7.
 ARG PG_VERSION=18.6-1.pgdg24.04+2
-# Newer pgvector builds require PostgreSQL 18.7; this is the last one for 18.6.
+# The last pgvector build for PostgreSQL 18.6.
 ARG PGVECTOR_VERSION=0.8.7-1.pgdg24.04+1
-# Used for both the extension and its loader, which must match.
-ARG TIMESCALEDB_VERSION=2.32.0~ubuntu24.04-1806
-ARG TOOLKIT_VERSION=1:1.27.0~ubuntu24.04
+# The extension and its loader use this version. "-1806" is the 18.6 build.
+ARG TIMESCALEDB_VERSION=2.32.1~ubuntu24.04-1806
+ARG TOOLKIT_VERSION=1:1.28.0~ubuntu24.04
 
 # Create postgres user/group with UID/GID 999 matching the official postgres Docker
 # image convention. Note: the HA image used UID 1000 — the entrypoint handles

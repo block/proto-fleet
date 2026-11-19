@@ -80,20 +80,33 @@ Proto Fleet does not use:
 | Component | Version |
 |---|---|
 | PostgreSQL | 18.6 |
-| TimescaleDB | 2.32.0 |
-| timescaledb_toolkit | 1.27.0 |
+| TimescaleDB | 2.32.1 |
+| timescaledb_toolkit | 1.28.0 |
 | pgvector | 0.8.7 |
 | timescaledb-tune | 0.18.1 |
 
-The Dockerfile pins every package that it installs from the PGDG and
-Timescale repositories (`PG_VERSION`, `PGVECTOR_VERSION`,
-`TIMESCALEDB_VERSION`, and `TOOLKIT_VERSION`). The repositories publish
-extension builds for each PostgreSQL minor release. An unpinned extension can
-pull a build that requires a newer PostgreSQL than `PG_VERSION`, and then
-`apt-get` fails with unmet dependencies. CI rebuilds this image every week, so
-such a release can break CI for all pull requests. Update the pins together in a
-dedicated change, and make sure that each version exists for both `amd64` and
-`arm64`.
+The Dockerfile pins each package that the `apt-get install` command names
+(`PG_VERSION`, `PGVECTOR_VERSION`, `TIMESCALEDB_VERSION`, and
+`TOOLKIT_VERSION`). Dependencies such as `libpq5` and `postgresql-common` are
+not pinned. The repositories publish extension builds for each PostgreSQL minor
+release. An unpinned extension can pull a build that requires a newer
+PostgreSQL than `PG_VERSION`, and then `apt-get` fails with unmet dependencies.
+CI rebuilds this image every week, so such a release can break CI for all pull
+requests. Update the pins together in a dedicated change, and make sure that
+each version exists for both `amd64` and `arm64`.
+
+Do not decrease `TIMESCALEDB_VERSION` or `TOOLKIT_VERSION`. A database records
+the extension version that created it, and an image update does not change that
+record.
+
+- The TimescaleDB package contains the libraries for its version and for
+  earlier releases. Thus, an older database starts on a newer image.
+- The TimescaleDB package does not contain the library for a newer version. A
+  database that a newer image created fails on an older image with
+  `could not access file "timescaledb-<version>"`.
+- The toolkit package contains only the library for its version. After a
+  toolkit version change, an older database cannot call toolkit functions. Run
+  `ALTER EXTENSION timescaledb_toolkit UPDATE` in that database first.
 
 PostgreSQL is held at 18.6. PostgreSQL 18.7 makes every TimescaleDB background
 job, including retention, columnstore, and continuous aggregate policies, end
