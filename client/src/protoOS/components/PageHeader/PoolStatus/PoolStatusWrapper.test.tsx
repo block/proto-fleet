@@ -10,7 +10,11 @@ import useMinerStore from "@/protoOS/store/useMinerStore";
 
 const getMiningGroupsEnabled = vi.fn();
 const listConfigurations = vi.fn();
-const adapter = { poolStatistics: { getMiningGroupsEnabled, list: listConfigurations } } as unknown as MinerAdapter;
+const readConfigurations = vi.fn();
+const nightShift = { id: "night-shift", name: "Night shift", revision: "1", assignedCount: 12 };
+const adapter = {
+  poolStatistics: { getMiningGroupsEnabled, list: listConfigurations, read: readConfigurations },
+} as unknown as MinerAdapter;
 
 vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({
   useMinerHosting: vi.fn(),
@@ -34,6 +38,7 @@ describe("PoolStatusWrapper view-pools navigation", () => {
   beforeEach(() => {
     getMiningGroupsEnabled.mockReset().mockResolvedValue(true);
     listConfigurations.mockReset().mockResolvedValue({ enabled: true, configurations: [] });
+    readConfigurations.mockReset().mockResolvedValue([]);
     useMinerStore
       .getState()
       .pools.setPoolsInfo([{ id: asPoolId("pool:1"), priority: 0, url: "default.example.com", status: "Dead" }]);
@@ -84,7 +89,7 @@ describe("PoolStatusWrapper view-pools navigation", () => {
           { name: "Night shift", assignedCount: 5 },
         ],
       })
-      .mockResolvedValueOnce({ enabled: true, configurations: [{ name: "Night shift", assignedCount: 12 }] });
+      .mockResolvedValueOnce({ enabled: true, configurations: [nightShift] });
     renderWidget({ adapter });
     await act(async () => {});
     expect(listConfigurations).not.toHaveBeenCalled();
@@ -92,11 +97,49 @@ describe("PoolStatusWrapper view-pools navigation", () => {
     const trigger = screen.getByRole("button", { name: "Mining pools" });
     fireEvent.click(trigger);
     expect(await screen.findByText("12 hashboards across 2 pool configurations")).toBeInTheDocument();
+    expect(readConfigurations).not.toHaveBeenCalled();
 
     fireEvent.click(trigger);
     fireEvent.click(trigger);
     expect(await screen.findByText("Night shift · 12 hashboards")).toBeInTheDocument();
     expect(listConfigurations).toHaveBeenCalledTimes(2);
+    expect(readConfigurations).toHaveBeenCalledExactlyOnceWith([nightShift], expect.anything());
+  });
+
+  test("shows every active pool and reporting coverage for the single assigned configuration", async () => {
+    listConfigurations.mockResolvedValue({ enabled: true, configurations: [nightShift] });
+    readConfigurations.mockResolvedValue([
+      {
+        ...nightShift,
+        observedBoards: 8,
+        pools: [
+          { id: asPoolId("pool:2"), url: "primary.example.com", status: "Active", priority: 0 },
+          { id: asPoolId("pool:3"), url: "secondary.example.com", status: "Alive", priority: 1 },
+          { id: asPoolId("pool:4"), url: "backup.example.com", status: "Idle", priority: 2 },
+        ],
+      },
+    ]);
+    renderWidget({ adapter });
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole("button", { name: "Mining pools" }));
+    expect(await screen.findByText("Active pools")).toBeInTheDocument();
+    expect(screen.getByText("primary.example.com")).toBeInTheDocument();
+    expect(screen.getByText("secondary.example.com")).toBeInTheDocument();
+    expect(screen.queryByText("backup.example.com")).not.toBeInTheDocument();
+    expect(screen.getByText("8 of 12 hashboards reporting")).toBeInTheDocument();
+  });
+
+  test("keeps the assignment summary and View pools when the pool readings are unavailable", async () => {
+    listConfigurations.mockResolvedValue({ enabled: true, configurations: [nightShift] });
+    readConfigurations.mockRejectedValueOnce(new Error("offline"));
+    renderWidget({ adapter });
+    await act(async () => {});
+
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Mining pools" })));
+    expect(screen.getByText("Night shift · 12 hashboards")).toBeInTheDocument();
+    expect(screen.getByText("View pools")).toBeInTheDocument();
+    expect(screen.queryByText(/Active pool/)).not.toBeInTheDocument();
   });
 
   test("keeps View pools available when the assignment summary is unavailable", async () => {
