@@ -3,6 +3,7 @@ import type { PoolInfo } from "@/protoOS/store/contract";
 
 export const isActivePool = (pool?: Pick<PoolInfo, "status">) => {
   const status = pool?.status?.toLowerCase();
+  // TODO: Remove "alive" when cgminer support ends.
   return status === "active" || status === "alive";
 };
 

@@ -66,7 +66,7 @@ describe("PoolStatusWrapper view-pools navigation", () => {
     { mode: "Direct R2", hosting: {}, settingsPath: "/settings/mining-pools" },
     {
       mode: "Fleet-hosted mode",
-      hosting: { minerRoot: "/miners/miner-1", isFleetHosted: true },
+      hosting: { adapter, minerRoot: "/miners/miner-1", isFleetHosted: true },
       settingsPath: "/miners/miner-1/settings/mining-pools",
     },
   ])("$mode opens its pool settings", ({ hosting, settingsPath }) => {
@@ -74,6 +74,7 @@ describe("PoolStatusWrapper view-pools navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Mining Pool" }));
     fireEvent.click(screen.getByText("View mining pools"));
     expect(screen.getByTestId("current-path").textContent).toBe(settingsPath);
+    expect(getMiningGroupsEnabled).not.toHaveBeenCalled();
   });
 
   test("CT1 with mining groups disabled keeps the single-pool status and settings link", async () => {
@@ -134,6 +135,23 @@ describe("PoolStatusWrapper view-pools navigation", () => {
     await act(async () => finishModeCheck(false));
     fireEvent.click(trigger);
     expect(await screen.findByText("View mining pools")).toBeInTheDocument();
+  });
+
+  test("retries the initial mode check without blocking the fallback action", async () => {
+    let finishRetry!: (enabled: boolean) => void;
+    const retry = new Promise<boolean>((resolve) => {
+      finishRetry = resolve;
+    });
+    getMiningGroupsEnabled.mockRejectedValueOnce(new Error("offline")).mockReturnValueOnce(retry);
+    renderWidget({ adapter });
+
+    const trigger = await screen.findByRole("button", { name: "Mining pools" });
+    expect(trigger).not.toHaveClass("hover:cursor-progress");
+    expect(getMiningGroupsEnabled).toHaveBeenCalledTimes(2);
+    await act(async () => finishRetry(false));
+
+    expect(screen.getByRole("button", { name: "Mining Pool" })).toBeInTheDocument();
+    expect(getMiningGroupsEnabled).toHaveBeenCalledTimes(2);
   });
 
   test("uses the Pools page assignment read for the initial mode", async () => {
@@ -236,9 +254,39 @@ describe("PoolStatusWrapper view-pools navigation", () => {
     expect(screen.queryByText("standby.example.com")).not.toBeInTheDocument();
   });
 
-  test("keeps the assignment summary and View pools when the pool readings are unavailable", async () => {
+  test("shows pending status until the pool read confirms no active pool", async () => {
     listConfigurations.mockResolvedValue({ enabled: true, configurations: [nightShift] });
-    readConfigurations.mockRejectedValueOnce(new Error("offline"));
+    const readings = [
+      {
+        ...nightShift,
+        observedBoards: 12,
+        pools: [{ id: asPoolId("pool:1"), url: "primary.example.com", status: "Dead", priority: 0 }],
+      },
+    ];
+    let finishRead!: (value: typeof readings) => void;
+    readConfigurations.mockReturnValueOnce(
+      new Promise<typeof readings>((resolve) => {
+        finishRead = resolve;
+      }),
+    );
+
+    fireEvent.click(await renderCt1Widget());
+    expect(await screen.findByText("Loading pool status…")).toBeInTheDocument();
+    expect(screen.getByText("Night shift · 12 hashboards")).toBeInTheDocument();
+    await act(async () => finishRead(readings));
+    expect(screen.getByText("No active pool")).toBeInTheDocument();
+    expect(screen.queryByText("Loading pool status…")).not.toBeInTheDocument();
+  });
+
+  test.each(["rejects", "returns an error"])("keeps the summary and View pools when the read %s", async (failure) => {
+    listConfigurations.mockResolvedValue({ enabled: true, configurations: [nightShift] });
+    if (failure === "rejects") {
+      readConfigurations.mockRejectedValueOnce(new Error("offline"));
+    } else {
+      readConfigurations.mockResolvedValueOnce([
+        { ...nightShift, pools: [], error: "Connection status is unavailable." },
+      ]);
+    }
     const trigger = await renderCt1Widget();
 
     await act(async () => fireEvent.click(trigger));
@@ -247,6 +295,7 @@ describe("PoolStatusWrapper view-pools navigation", () => {
       expect.objectContaining({ includeLastRecordedShares: false }),
     );
     expect(screen.getByText("Night shift · 12 hashboards")).toBeInTheDocument();
+    expect(screen.getByText("Pool status unavailable")).toBeInTheDocument();
     expect(screen.queryByText("Connected")).not.toBeInTheDocument();
     fireEvent.click(screen.getByText("View pools"));
     expect(screen.getByTestId("current-path").textContent).toBe("/pools");
@@ -275,6 +324,7 @@ describe("PoolStatusWrapper view-pools navigation", () => {
 
     fireEvent.click(await renderCt1Widget());
     expect(await screen.findByText("This controller observes 0 of 12 assigned hashboards.")).toBeInTheDocument();
+    expect(screen.getByText("Pool status unavailable")).toBeInTheDocument();
     expect(screen.queryByText("Connected")).not.toBeInTheDocument();
   });
 

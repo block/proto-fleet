@@ -24,7 +24,7 @@ function describeAssignments(configurations: PoolConfigurationSummary[]) {
 export default function PoolAssignmentSummary({ service }: { service: PoolConfigurationStatisticsService }) {
   const authRetry = useAuthRetry();
   const [summary, setSummary] = useState("Loading assignments…");
-  const [readings, setReadings] = useState<PoolConfigurationReadings>();
+  const [poolStatus, setPoolStatus] = useState<PoolConfigurationReadings | "loading" | "unavailable">();
 
   usePoll({
     params: service,
@@ -44,16 +44,21 @@ export default function PoolAssignmentSummary({ service }: { service: PoolConfig
           setSummary(describeAssignments(configurations));
           if (configurations.length !== 1) return;
 
+          setPoolStatus("loading");
           return authRetry({
             signal,
             request: (options) => service.read(configurations, { ...options, includeLastRecordedShares: false }),
             onSuccess: ([reading]) => {
-              if (signal.aborted || !reading) return;
-              if (reading.stale) {
+              if (signal.aborted) return;
+              if (reading?.stale) {
                 setSummary("Configuration changed");
-              } else if (!reading.error) {
-                setReadings(reading);
+                setPoolStatus(undefined);
+                return;
               }
+              setPoolStatus(reading && !reading.error ? reading : "unavailable");
+            },
+            onError: () => {
+              if (!signal.aborted) setPoolStatus("unavailable");
             },
           });
         },
@@ -64,17 +69,29 @@ export default function PoolAssignmentSummary({ service }: { service: PoolConfig
     },
   });
 
+  const readings = typeof poolStatus === "object" ? poolStatus : undefined;
   const activePools =
     readings?.pools.flatMap((pool, index) => (pool.url && isActivePool(pool) ? [{ ...pool, index }] : [])) ?? [];
   const coverage =
     readings?.observedBoards !== undefined && readings.observedBoards < readings.assignedCount
       ? `This controller observes ${readings.observedBoards} of ${readings.assignedCount} assigned hashboards.`
       : undefined;
+  let statusText: string | undefined;
+  if (poolStatus === "loading") {
+    statusText = "Loading pool status…";
+  } else if (poolStatus === "unavailable") {
+    statusText = "Pool status unavailable";
+  } else if (readings && activePools.length === 0) {
+    const incomplete =
+      coverage || readings.pools.some((pool) => !pool.status || pool.status === "Unknown" || isActivePool(pool));
+    statusText = incomplete ? "Pool status unavailable" : "No active pool";
+  }
 
   return (
     <div className="space-y-3" role="status">
       <p className="text-300 wrap-anywhere text-text-primary-70">{summary}</p>
       {activePools.length > 0 ? <ConnectedPoolsCard pools={activePools} /> : null}
+      {statusText ? <p className="text-200 text-text-primary-70">{statusText}</p> : null}
       {coverage ? <p className="text-200 text-text-primary-70">{coverage}</p> : null}
     </div>
   );
