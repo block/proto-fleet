@@ -1200,9 +1200,11 @@ class ReleaseStatementTests(TemporaryDirectoryCase):
             "2026-11-18T12:00:00Z\n",
             None,
         ):
-            with self.subTest(issued_at=issued_at):
-                with self.assertRaises(bundle.BundleError):
-                    bundle.release_statement(GOLDEN_DEB, REPOSITORY, TAG, issued_at)
+            with (
+                self.subTest(issued_at=issued_at),
+                self.assertRaises(bundle.BundleError),
+            ):
+                bundle.release_statement(GOLDEN_DEB, REPOSITORY, TAG, issued_at)
 
     def test_rejects_bad_inputs(self):
         empty = self.root / "empty.deb"
@@ -1220,9 +1222,11 @@ class ReleaseStatementTests(TemporaryDirectoryCase):
             (self.root / "missing.deb", REPOSITORY, TAG),
         )
         for deb, repository, tag in cases:
-            with self.subTest(deb=deb.name, repository=repository, tag=tag):
-                with self.assertRaises(bundle.BundleError):
-                    bundle.release_statement(deb, repository, tag, GOLDEN_ISSUED_AT)
+            with (
+                self.subTest(deb=deb.name, repository=repository, tag=tag),
+                self.assertRaises(bundle.BundleError),
+            ):
+                bundle.release_statement(deb, repository, tag, GOLDEN_ISSUED_AT)
 
     def test_rejects_oversized_package(self):
         limits = bundle.PackageLimits(
@@ -1296,6 +1300,7 @@ class StatementCommandLineTests(DebBuilder, TemporaryDirectoryCase):
             str(statement_path),
         )
         self.assertEqual(result.returncode, 1)
+        self.assertIn("Unexpected control fields", result.stderr)
         self.assertFalse(statement_path.exists())
 
     def test_argument_errors(self):
@@ -1315,26 +1320,59 @@ class StatementCommandLineTests(DebBuilder, TemporaryDirectoryCase):
                 self.assertEqual(self.run_script(*self.common(), *args).returncode, 2)
 
 
+KMS_KEY_ID = "alias/protoos-release"
+
 FAKE_AWS = r"""#!/bin/sh
 # Fake AWS CLI: answers kms get-public-key and kms sign from local key files.
+# It accepts only the arguments of the two calls that the signing script must
+# make, and it refuses all other arguments with exit code 64. Thus a wrong
+# key, message type, signing algorithm, query or output format in the script
+# makes the tests fail.
 set -eu
-[ "$1" = kms ] || exit 64
-case "$2" in
+refuse() {
+  echo "fake aws: $1" >&2
+  exit 64
+}
+[ "$#" -ge 2 ] && [ "$1" = kms ] || refuse "not a kms command"
+command="$2"
+shift 2
+key_id="" message="" message_type="" algorithm="" query="" output=""
+while [ "$#" -gt 0 ]; do
+  [ "$#" -ge 2 ] || refuse "$1 has no value"
+  case "$1" in
+    --key-id) key_id="$2" ;;
+    --message) message="$2" ;;
+    --message-type) message_type="$2" ;;
+    --signing-algorithm) algorithm="$2" ;;
+    --query) query="$2" ;;
+    --output) output="$2" ;;
+    *) refuse "unexpected argument $1" ;;
+  esac
+  shift 2
+done
+[ "$key_id" = "$FAKE_AWS_KEY_ID" ] || refuse "unexpected --key-id $key_id"
+[ "$output" = text ] || refuse "unexpected --output $output"
+case "$command" in
   get-public-key)
+    [ "$query" = PublicKey ] || refuse "unexpected --query $query"
+    [ -z "$message$message_type$algorithm" ] || refuse "unexpected sign argument"
     openssl pkey -in "$FAKE_AWS_PUBLIC_KEY_PRIVATE" -pubout -outform DER | base64
     ;;
   sign)
-    message=""
-    for arg in "$@"; do
-      case "$arg" in fileb://*) message="${arg#fileb://}" ;; esac
-    done
+    [ "$query" = Signature ] || refuse "unexpected --query $query"
+    [ "$message_type" = RAW ] || refuse "unexpected --message-type $message_type"
+    [ "$algorithm" = ECDSA_SHA_256 ] || refuse "unexpected --signing-algorithm $algorithm"
+    case "$message" in
+      fileb://*) message="${message#fileb://}" ;;
+      *) refuse "unexpected --message $message" ;;
+    esac
     if [ -n "${FAKE_AWS_SIGNATURE:-}" ]; then
       base64 < "$FAKE_AWS_SIGNATURE"
     else
       openssl dgst -sha256 -sign "$FAKE_AWS_SIGNING_KEY" "$message" | base64
     fi
     ;;
-  *) exit 64 ;;
+  *) refuse "unexpected kms command $command" ;;
 esac
 """
 
@@ -1382,14 +1420,19 @@ class SignScriptTests(DebBuilder, TemporaryDirectoryCase):
             f"{digest}  {self.deb.name}\n"
         )
 
-    def sign(self, *extra, public=None, signer=None, signature=None):
+    def fake_aws_env(self, public=None, signer=None, signature=None):
         env = dict(os.environ)
         env["PATH"] = f"{self.bin}{os.pathsep}{env['PATH']}"
+        env["FAKE_AWS_KEY_ID"] = KMS_KEY_ID
         env["FAKE_AWS_PUBLIC_KEY_PRIVATE"] = str(public or self.key)
         env["FAKE_AWS_SIGNING_KEY"] = str(signer or self.key)
         env.pop("FAKE_AWS_SIGNATURE", None)
         if signature is not None:
             env["FAKE_AWS_SIGNATURE"] = str(signature)
+        return env
+
+    def sign(self, *extra, public=None, signer=None, signature=None):
+        env = self.fake_aws_env(public, signer, signature)
         return subprocess.run(
             [
                 "bash",
@@ -1403,7 +1446,7 @@ class SignScriptTests(DebBuilder, TemporaryDirectoryCase):
                 "--commit",
                 COMMIT,
                 "--kms-key-id",
-                "alias/protoos-release",
+                KMS_KEY_ID,
                 *extra,
             ],
             capture_output=True,
@@ -1474,7 +1517,7 @@ class SignScriptTests(DebBuilder, TemporaryDirectoryCase):
         rejected = self.build(control=control_text(Package="other"))
         self.deb.write_bytes(rejected.read_bytes())
         self.write_sidecar()
-        self.assert_refused(self.sign(), "")
+        self.assert_refused(self.sign(), "Unexpected control fields")
 
     def test_refuses_unpinned_key(self):
         other = self.make_key("other", "prime256v1")
@@ -1510,6 +1553,60 @@ class SignScriptTests(DebBuilder, TemporaryDirectoryCase):
     def test_refuses_missing_assets(self):
         (self.assets / self.archive.name).unlink()
         self.assert_refused(self.sign(), "is missing")
+
+    def test_fake_aws_accepts_only_the_calls_of_the_script(self):
+        """A wrong argument in the signing script must make these tests fail."""
+        public_key = (
+            "kms",
+            "get-public-key",
+            *("--key-id", KMS_KEY_ID),
+            *("--query", "PublicKey"),
+            *("--output", "text"),
+        )
+        sign = (
+            "kms",
+            "sign",
+            *("--key-id", KMS_KEY_ID),
+            *("--message-type", "RAW"),
+            *("--signing-algorithm", "ECDSA_SHA_256"),
+            *("--message", f"fileb://{self.deb}"),
+            *("--query", "Signature"),
+            *("--output", "text"),
+        )
+        changed = (
+            (sign, "--message-type", "DIGEST"),
+            (sign, "--signing-algorithm", "RSASSA_PKCS1_V1_5_SHA_256"),
+            (sign, "--signing-algorithm", "ECDSA_SHA_384"),
+            (sign, "--message", f"file://{self.deb}"),
+            (sign, "--query", "KeyId"),
+            (sign, "--output", "json"),
+            (sign, "--key-id", "alias/other"),
+            (public_key, "--query", "KeyId"),
+            (public_key, "--output", "json"),
+            (public_key, "--key-id", "alias/other"),
+        )
+
+        def fake_aws(*args):
+            return subprocess.run(
+                [str(self.bin / "aws"), *args],
+                capture_output=True,
+                check=False,
+                env=self.fake_aws_env(),
+            ).returncode
+
+        for call in (public_key, sign):
+            with self.subTest(call=call[1]):
+                self.assertEqual(fake_aws(*call), 0)
+            with self.subTest(call=call[1], extra="--grant-tokens"):
+                self.assertEqual(fake_aws(*call, "--grant-tokens", "token"), 64)
+            for flag in call[2::2]:
+                index = call.index(flag)
+                with self.subTest(call=call[1], missing=flag):
+                    self.assertEqual(fake_aws(*call[:index], *call[index + 2 :]), 64)
+        for call, flag, value in changed:
+            index = call.index(flag) + 1
+            with self.subTest(call=call[1], flag=flag, value=value):
+                self.assertEqual(fake_aws(*call[:index], value, *call[index + 1 :]), 64)
 
     def test_usage(self):
         result = subprocess.run(

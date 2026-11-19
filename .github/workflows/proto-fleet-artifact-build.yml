@@ -21,6 +21,11 @@ on:
         required: false
         default: 1
         type: number
+      protoos_retention_days:
+        description: Number of days to retain the ProtoOS artifact. The default (0) uses retention_days.
+        required: false
+        default: 0
+        type: number
       channel:
         description: Build channel metadata. Release builds omit this from deployment version.txt.
         required: false
@@ -542,7 +547,7 @@ jobs:
             ./client/proto-os_${{ needs.metadata.outputs.version }}.ipk
             ./client/proto-os_${{ needs.metadata.outputs.version }}_all.deb
             ./client/proto-os_${{ needs.metadata.outputs.version }}_all.deb.sha256
-          retention-days: ${{ inputs.retention_days }}
+          retention-days: ${{ inputs.protoos_retention_days || inputs.retention_days }}
 
   build-timescaledb-image:
     name: Build TimescaleDB images (${{ matrix.arch }})

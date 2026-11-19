@@ -69,6 +69,10 @@ jobs:
       release_repository: ${{ github.repository }}
       version: ${{ github.ref_name }}
       retention_days: 1
+      # The signing job downloads the ProtoOS artifact after the environment
+      # approval. Keep this small artifact for the time that the approval can
+      # take. The other artifacts are large, and no later job needs them.
+      protoos_retention_days: 7
       channel: release
       is_prerelease: ${{ contains(github.ref_name, '-') }}
     secrets: inherit
@@ -244,143 +248,22 @@ jobs:
               ;;
           esac
 
+  # The signing jobs are in sign-protoos-release.yml, and GitHub takes that
+  # file from main, not from this tag. A tag runs its own copy of this
+  # workflow, so a job in this file cannot be the boundary for the release
+  # key: the AWS role trust policy accepts only the jobs of that file on main.
+  # The comment in that file describes the trust policy and the signing rules.
+  #
+  # The line names this repository because `uses` does not accept an
+  # expression. In a fork or a moved repository, change the line and the role
+  # trust policy together; a run cannot start when it cannot read the file.
   sign-protoos-release:
     name: Sign ProtoOS release statement
-    # Frigate installs a proto-os package only when a statement describing it
-    # verifies against a trusted ProtoOS release key, and Flotilla never offers
-    # an unsigned release. This job signs the draft release's package before
-    # the release is published, so a published release has its statement from
-    # the start. Signing is optional until the key is provisioned: when the
-    # repository variables below are unset the job warns, signs nothing, and
-    # the release publishes unsigned (Frigate hosts keep their bundled ProtoOS).
-    #
-    # The `protoos-release-signing` environment is the OIDC boundary. Configure
-    # it with required reviewers, and make the AWS role trust policy require
-    # BOTH
-    #   sub              = repo:btc-mining/proto-fleet-internal:environment:protoos-release-signing
-    #   job_workflow_ref = btc-mining/proto-fleet-internal/.github/workflows/release.yml@refs/tags/v*
-    # The KMS key must be ECC_NIST_P256 with SIGN_VERIFY usage, and must be a
-    # different key from Frigate's release key: Frigate trusts the two in
-    # separate key directories.
-    #
-    # Only commits on main are signed. Prerelease tags such as
-    # vX.Y.Z-internal.N may be cut from any branch, and a tag runs its own copy
-    # of this workflow and of the signing script, so the trust policy alone
-    # cannot keep unreviewed branch code away from the key. The main check
-    # below covers honest mistakes; the environment's required reviewers are
-    # the boundary against a modified workflow. Branch builds publish
-    # unsigned, so Flotilla never offers them to CT1 controllers.
-    runs-on: ubuntu-latest
     needs: [publish-proto-fleet]
-    environment: protoos-release-signing
     permissions:
       contents: write
       id-token: write
-    env:
-      GH_REPO: ${{ github.repository }}
-      TAG_NAME: ${{ github.ref_name }}
-      SIGNING_ROLE_ARN: ${{ vars.PROTOOS_RELEASE_SIGNING_ROLE_ARN }}
-      KMS_KEY_ID: ${{ vars.PROTOOS_RELEASE_KMS_KEY_ID }}
-      KMS_REGION: ${{ vars.PROTOOS_RELEASE_KMS_REGION }}
-      # The sha256: key ID of the public key that Frigate ships. Signing with
-      # any other KMS key fails the job.
-      EXPECTED_KEY_ID: ${{ vars.PROTOOS_RELEASE_PUBLIC_KEY_ID }}
-    steps:
-      - name: Check signing configuration
-        id: config
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          COMMIT: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          missing=()
-          [[ -n "$SIGNING_ROLE_ARN" ]] || missing+=(PROTOOS_RELEASE_SIGNING_ROLE_ARN)
-          [[ -n "$KMS_KEY_ID" ]] || missing+=(PROTOOS_RELEASE_KMS_KEY_ID)
-          [[ -n "$KMS_REGION" ]] || missing+=(PROTOOS_RELEASE_KMS_REGION)
-          if (( ${#missing[@]} == 3 )); then
-            echo "::warning::Skipping ProtoOS release signing; unset repository variables: ${missing[*]}. Flotilla will not offer this release to CT1 controllers."
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          [[ -n "$EXPECTED_KEY_ID" ]] || missing+=(PROTOOS_RELEASE_PUBLIC_KEY_ID)
-          if (( ${#missing[@]} > 0 )); then
-            echo "::error::ProtoOS release signing is partly configured; unset repository variables: ${missing[*]}"
-            exit 1
-          fi
-          # String compare: a non-numeric ahead_by such as "null" must not pass.
-          ahead_by="$(gh api "repos/$GH_REPO/compare/main...$COMMIT" --jq '.ahead_by')"
-          if [[ "$ahead_by" != "0" ]]; then
-            echo "::warning::Skipping ProtoOS release signing; $TAG_NAME is not on main (ahead_by=${ahead_by:-unknown}). Flotilla will not offer this release to CT1 controllers."
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "enabled=true" >> "$GITHUB_OUTPUT"
-
-      # The publish job just uploaded the package with --clobber, so a
-      # statement left on this draft by an earlier run may describe different
-      # bytes. Delete them first, whether or not signing is enabled: a re-run
-      # ends with either a fresh statement or none, never a mismatched one.
-      - name: Remove stale statement assets
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          # Capture first: a failure inside a process substitution would not
-          # stop the step, and the stale assets would survive.
-          names="$(gh release view "$TAG_NAME" --json assets \
-            --jq '.assets[].name | select(test("^proto-os_.*\\.deb\\.statement\\.(json|sig)$"))')"
-          mapfile -t stale <<< "$names"
-          for name in "${stale[@]}"; do
-            [[ -n "$name" ]] || continue
-            echo "Deleting stale asset $name"
-            gh release delete-asset "$TAG_NAME" "$name" --yes
-          done
-
-      - name: Checkout code
-        if: steps.config.outputs.enabled == 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      # Sign the package this run built, not bytes read back from the draft,
-      # which anyone with write access could replace in the meantime.
-      - name: Download ProtoOS artifacts
-        if: steps.config.outputs.enabled == 'true'
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: proto-os-artifact
-          path: ${{ runner.temp }}/protoos-signing
-
-      - name: Configure AWS credentials
-        if: steps.config.outputs.enabled == 'true'
-        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
-        with:
-          role-to-assume: ${{ env.SIGNING_ROLE_ARN }}
-          aws-region: ${{ env.KMS_REGION }}
-
-      - name: Sign and verify the release statement
-        if: steps.config.outputs.enabled == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPOSITORY: ${{ github.repository }}
-          COMMIT: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          dir="$RUNNER_TEMP/protoos-signing"
-          args=(--dir "$dir" --tag "$TAG_NAME" --repository "$REPOSITORY"
-            --commit "$COMMIT" --kms-key-id "$KMS_KEY_ID" --expected-key-id "$EXPECTED_KEY_ID")
-          deployment-files/scripts/sign-protoos-release.sh "${args[@]}"
-          # The draft must still carry exactly the package that was signed.
-          mkdir -p "$RUNNER_TEMP/protoos-draft"
-          gh release download "$TAG_NAME" --dir "$RUNNER_TEMP/protoos-draft" \
-            --pattern "proto-os_${TAG_NAME}_all.deb"
-          if ! cmp -s "$dir/proto-os_${TAG_NAME}_all.deb" "$RUNNER_TEMP/protoos-draft/proto-os_${TAG_NAME}_all.deb"; then
-            echo "::error::The draft release package differs from the package this run built and signed"
-            exit 1
-          fi
-          gh release upload "$TAG_NAME" --clobber \
-            "$dir/proto-os_${TAG_NAME}_all.deb.statement.json" \
-            "$dir/proto-os_${TAG_NAME}_all.deb.statement.sig"
+    uses: btc-mining/proto-fleet-internal/.github/workflows/sign-protoos-release.yml@main
 
   publish-release:
     name: Publish release
