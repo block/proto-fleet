@@ -12,6 +12,8 @@ import (
 
 func rollbackEmptyPoolConfigurations(t *testing.T, conn *sql.DB) {
 	t.Helper()
+	rollbackEmptyActivationBoardIntent(t, conn)
+	rollbackEmptyActivationInventory(t, conn)
 	for _, path := range []string{
 		"current/001084_internal_mining_group_step_dispatch.down.sql",
 		"current/001083_internal_mining_group_default_return.down.sql",
@@ -64,6 +66,13 @@ func restoreEmptyPoolConfigurations(t *testing.T, conn *sql.DB) {
 		_, err = conn.ExecContext(t.Context(), string(up))
 		require.NoError(t, err)
 	}
+	for _, path := range []string{"current/001098_internal_activation_pool_inventory.up.sql", "current/001099_internal_activation_board_intent.up.sql"} {
+		up, err := migrations.Current.ReadFile(path)
+		require.NoError(t, err)
+		_, err = conn.ExecContext(t.Context(), string(up))
+		require.NoError(t, err)
+	}
+
 }
 
 func TestEmptyPoolConfigurationMigrationRoundTrip(t *testing.T) {

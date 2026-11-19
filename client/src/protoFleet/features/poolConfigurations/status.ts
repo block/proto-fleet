@@ -10,6 +10,8 @@ export const poolUpdateStatus = ({ state, resultCode }: Result): string => {
   return (
     {
       cleared: "—",
+      recoverable: "Recovery available",
+      placement_pending: "Assignment pending",
       uncertain: "Not verified",
       adopted: "Not verified",
       device_configuration: "Device configuration",
@@ -26,9 +28,21 @@ export const poolUpdateStatus = ({ state, resultCode }: Result): string => {
 };
 
 export const poolStatusIsProblem = (status: string) =>
-  ["Update failed", "Not verified", "Settings differ", "Unavailable", "Needs attention"].includes(status);
+  [
+    "Assignment pending",
+    "Update failed",
+    "Not verified",
+    "Settings differ",
+    "Unavailable",
+    "Needs attention",
+    "Recovery available",
+  ].includes(status);
 
 export const poolStatusExplanation = ({ state, resultCode }: Result): string => {
+  if (state === "placement_pending")
+    return "Fleet preserved this board’s pool assignment. Its location or ownership must be confirmed before pool changes are allowed. Other mapped boards can be updated.";
+  if (state === "recoverable")
+    return "Fleet retained this container’s pool assignment because board placement is incomplete. An authorized operator can choose Remove assignment, then Keep device settings, to remove the Fleet assignment without changing device pools.";
   if (state === "cleared") return "Stored and runtime pool settings were verified as cleared.";
   if (resultCode === "preparation_unavailable")
     return "Waiting for equipment readiness before applying its owner’s pool configuration.";

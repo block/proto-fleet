@@ -46,6 +46,10 @@ func NewReviewer(authority Authority, capabilities Capabilities) *Reviewer {
 // review. Ownership generations, physical identity, mode and worker inputs do.
 type Binding struct {
 	ActivationHandoff bool `json:"activation_handoff,omitempty"`
+	// RetainedRecovery marks an operator-authorized, assignment-only retirement of a
+	// retained whole-container assignment whose container has incomplete module
+	// membership. Like ActivationHandoff it forbids clearing and any device write.
+	RetainedRecovery bool `json:"retained_recovery,omitempty"`
 	// EffectiveWorkerName includes the plugin default when metadata is unset.
 	// Keep the raw metadata in Device/Board for stale-review and retry checks.
 	EffectiveWorkerName string

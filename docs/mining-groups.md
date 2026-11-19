@@ -24,32 +24,35 @@ Missing identities, duplicate identities, stale observations, conflicting
 controller attribution, and customer ownership prevent activation.
 
 If Fleet has a container pool assignment, activation preserves its revision and
-rendered worker names. When all boards have valid installations, Fleet transfers
-the assignment to those installations. Otherwise, Fleet enables mining groups
-and retains the container assignment and complete board identity list. Pool
-changes and ownership changes remain blocked until the transfer completes or an
-operator cancels it. Placement-only inventory updates remain allowed.
-After activation completes, pending placement alone does not block stop or
-reboot. This includes the container stop action. These controls still require
-normal authorization and a valid device binding. Unfinished activation,
-unresolved configuration writes, and active pool removal still block them.
-Starting mining and changing container power do not get this exception. Stop
-and reboot preserve the retained assignment and pending transfer.
-State refreshes and the readiness worker retry this database-only transfer after
-placement is corrected. They recheck the original identities, ownership, and
-default-group membership. No replacement board receives the captured assignment.
-This database-only recovery does not depend on the original operator retaining
-access. Controller inventory reads occur before the organization update lock;
-Fleet rechecks identity, ownership, freshness, and saved intent under the lock.
+rendered worker names for every identified board. Fleet transfers the assignment
+to each valid installation immediately. For an unresolved board, it saves pending
+intent by physical board identity, with the original owner and allocation revision.
+It retires the container assignment in the same transaction. The device keeps its
+existing pools.
 
-If a board is permanently removed or placement cannot be repaired, an operator
-can remove the retained container assignment with **Keep device settings**.
-This requires current activation and pool-update permissions at the container's
-site. Confirmation cancels the pending transfer and retires its assignment in
-one transaction, with the normal removal audit record. It sends no controller
-write and keeps the frozen default-group settings. It cannot clear device pools
-or bypass unresolved physical operations. Customer sessions cannot cancel the
-transfer. A stale removal review must be reviewed again.
+Mapped boards can receive pool changes while other boards remain unresolved.
+An unresolved board shows **Assignment pending** and cannot receive pool changes.
+Module selections still require complete placement for the selected module;
+individual mapped boards do not require complete sibling slots. Pool plans keep
+pending boards in the inherited default group and cannot change their pools.
+
+State refreshes and the readiness worker retry the database transfer after
+placement is corrected. Recovery checks only pending boards against their saved
+identities, ownership, controller binding, and default-group membership. It does
+not overwrite assignments already transferred or edited. The pending records
+survive Fleet restarts and later pool operations. A replacement board cannot
+receive the captured assignment. Changed ownership or allocation revisions leave
+the affected intent pending instead of assigning the previous owner's pools.
+
+Recovery does not require the original operator to retain access. Controller
+inventory reads occur before the organization update lock. Identity, ownership,
+freshness, and saved intent are checked under the lock with batch inventory and
+assignment queries. Recovery creates assignment records but sends no pool write.
+
+After activation completes, pending placement alone does not block stop or reboot,
+including the container stop action. Normal authorization, binding, and unfinished
+write checks still apply. Mode changes and container-wide pool changes remain
+blocked while board intent is pending.
 
 This requires an updated Fleet Node and Proto plugin that support the
 `activation_inventory` read. Activation remains a Fleet UI operation; it does

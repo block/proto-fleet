@@ -32,6 +32,12 @@ func deactivationBlocker(ctx context.Context, q sqlc.Querier, row sqlc.Container
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return deactivationReadiness{}, err
 	}
+	if err := devicewrite.RequireNoPendingActivationPoolHandoff(ctx, q, row.OrganizationID, row.DeviceID); err != nil {
+		if fleeterror.IsFailedPreconditionError(err) {
+			return deactivationReadiness{Reason: "Resolve pending board pool assignments before disabling mining groups."}, nil
+		}
+		return deactivationReadiness{}, err
+	}
 	if err := devicewrite.RequireNoConflictingPoolWrites(ctx, q, row.OrganizationID, row.DeviceID); err != nil {
 		if fleeterror.IsFailedPreconditionError(err) {
 			return deactivationReadiness{Reason: "Wait for pending device changes or resolve uncertain writes before disabling mining groups."}, nil

@@ -114,6 +114,15 @@ func (r *Repository) reviewAssignment(ctx context.Context, q sqlc.Querier, scope
 			return Review{}, fleeterror.NewInvalidArgumentError("select unique pool assignment targets")
 		}
 		change := AssignmentChange{Target: target}
+		// Surface the incompatible-kind conflict at review time with an actionable
+		// error, rather than letting confirmation fail against the consistency trigger.
+		conflict, err := q.HasPoolAssignmentKindConflict(ctx, sqlc.HasPoolAssignmentKindConflictParams{OrganizationID: scope.OrganizationID, DeviceID: target.DeviceID, TargetKind: target.Kind})
+		if err != nil {
+			return Review{}, storageError(err)
+		}
+		if conflict {
+			return Review{}, assignmentKindConflict(target.Kind)
+		}
 		previous, err := q.GetPoolConfigurationAssignment(ctx, sqlc.GetPoolConfigurationAssignmentParams{OrganizationID: scope.OrganizationID, TargetKind: target.Kind, TargetID: target.ID})
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return Review{}, storageError(err)

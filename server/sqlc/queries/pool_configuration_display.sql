@@ -28,3 +28,25 @@ WHERE d.org_id=sqlc.arg(organization_id) AND d.deleted_at IS NULL
    WHERE tank.device_id=d.id AND tank.present AND m.retired_at IS NULL
     AND (membership.module_id IS NULL OR COALESCE(asset.subclient_id,asset.client_id,0)<>COALESCE(sqlc.narg(account_id)::bigint,0)))))
 ORDER BY d.id;
+
+-- name: ListRetainedDeviceAssignmentsForRecovery :many
+-- Recovery lookup for a retained whole-container (device-target) assignment that
+-- ListPoolEquipmentAssignments hides when a container's module membership is
+-- incomplete. It deliberately omits that membership-completeness gate, but still
+-- returns ONLY the caller's own assignment (c.account_id IS NOT DISTINCT FROM
+-- account_id) on a container (device_class=2). An incomplete membership map can
+-- therefore no longer turn an authorized retained assignment into a false
+-- "no assignment remains"; customer-owned equipment is never exposed.
+SELECT d.id AS device_id, d.device_identifier, d.site_id,
+ COALESCE(d.custom_name,'')::text AS custom_name, COALESCE(dd.manufacturer,'')::text AS manufacturer, COALESCE(dd.model,'')::text AS model, d.mac_address,
+ a.configuration_id, COALESCE(c.name,'')::text AS name, COALESCE(a.operation_id,'')::text AS operation_id,
+ a.updated_at::timestamptz AS updated_at
+FROM device d
+JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=d.org_id AND dd.deleted_at IS NULL
+JOIN pool_configuration_assignment a ON a.organization_id=d.org_id AND a.device_id=d.id
+ AND a.target_kind='device' AND a.target_id=d.id AND a.retired_at IS NULL
+JOIN pool_configuration c ON c.organization_id=a.organization_id AND c.configuration_id=a.configuration_id
+WHERE d.org_id=sqlc.arg(organization_id) AND d.deleted_at IS NULL AND dd.device_class=2
+ AND (d.id=ANY(sqlc.arg(device_ids)::bigint[]) OR d.device_identifier=ANY(sqlc.arg(device_identifiers)::text[]))
+ AND c.account_id IS NOT DISTINCT FROM sqlc.narg(account_id)::bigint
+ORDER BY d.id;

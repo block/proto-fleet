@@ -717,3 +717,44 @@ it("shows administrator recovery for a whole-container automatic clear selected 
   expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Check configuration" })).not.toBeInTheDocument();
 });
+
+it("explains a retained assignment that can be recovered", async () => {
+  mocks.getAssignments.mockResolvedValue(
+    create(GetAssignmentsResponseSchema, {
+      assignments: [{ deviceId: 38n, configurationId: "config", name: "Retained pools", state: "recoverable" }],
+    }),
+  );
+  usePoolAssignmentProgress.setState({ detailsSelection: { accountId: "", deviceIds: [38n] } });
+  render(<PoolAssignmentFeedback />);
+  expect(await screen.findByText("Recovery available")).toBeVisible();
+  expect(screen.getByText(/Remove assignment.*Keep device settings/)).toBeVisible();
+  expect(screen.queryByText(/may still be running/)).not.toBeInTheDocument();
+});
+
+it.each([0n, 101n])(
+  "shows pending board intent without offering device actions (installation %s)",
+  async (installationId) => {
+    render(
+      <OperationResults
+        assignments={[
+          create(EquipmentAssignmentSchema, {
+            deviceId: 38n,
+            hashboardId: 11n,
+            installationId,
+            configurationId: "config-a",
+            name: "Default",
+            state: "placement_pending",
+          }),
+        ]}
+        onOperationChange={vi.fn()}
+        onDismiss={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Assignment pending" })).toBeVisible());
+    expect(screen.getByText(/Other mapped boards can be updated/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Check configuration" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    expect(mocks.checkConfiguration).not.toHaveBeenCalled();
+    expect(mocks.readDevicePools).not.toHaveBeenCalled();
+  },
+);

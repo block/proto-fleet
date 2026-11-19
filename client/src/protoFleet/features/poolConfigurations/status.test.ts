@@ -9,6 +9,8 @@ describe("pool configuration status copy", () => {
     ["pending", "", "Updating…"],
     ["applying", "", "Updating…"],
     ["verified", "", "Verified"],
+    ["recoverable", "", "Recovery available"],
+    ["placement_pending", "", "Assignment pending"],
     ["adopted", "", "Not verified"],
     ["applied_unverified", "readback_unavailable", "Not verified"],
     ["failed", "write_uncertain", "Not verified"],
@@ -27,7 +29,15 @@ describe("pool configuration status copy", () => {
   it("distinguishes problem statuses from other configuration states", () => {
     for (const status of ["Verified", "Device configuration", "Updating…", "—", "Mixed configurations", "Loading…"])
       expect(poolStatusIsProblem(status)).toBe(false);
-    for (const status of ["Update failed", "Not verified", "Settings differ", "Unavailable", "Needs attention"])
+    for (const status of [
+      "Update failed",
+      "Not verified",
+      "Settings differ",
+      "Unavailable",
+      "Needs attention",
+      "Recovery available",
+      "Assignment pending",
+    ])
       expect(poolStatusIsProblem(status)).toBe(true);
   });
   it("distinguishes uncertain writes from accepted but unreadable updates", () => {
@@ -48,3 +58,16 @@ it.each(["write_uncertain", "interrupted", "check_unavailable"])(
     );
   },
 );
+
+it("explains recovery without implying a controller write is running", () => {
+  const explanation = poolStatusExplanation({ state: "recoverable", resultCode: "" });
+  expect(explanation).toContain("Keep device settings");
+  expect(explanation).toContain("Remove assignment");
+  expect(explanation).not.toContain("may still be running");
+});
+
+it("explains that placement recovery blocks only the affected board", () => {
+  const explanation = poolStatusExplanation({ state: "placement_pending", resultCode: "" });
+  expect(explanation).toContain("Other mapped boards can be updated");
+  expect(explanation).toContain("location or ownership");
+});

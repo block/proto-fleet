@@ -42,13 +42,13 @@ func TestActivationRetainsPoolIntentUntilPlacementIsComplete(t *testing.T) {
 	require.Equal(t, writes, miner.writes, "activation must keep the controller's existing pool stack")
 	source, err := sqlc.New(f.conn).GetPoolConfigurationAssignment(ctx, sqlc.GetPoolConfigurationAssignmentParams{OrganizationID: f.target.OrganizationID, TargetKind: poolconfigurations.TargetDevice, TargetID: f.target.DeviceID})
 	require.NoError(t, err)
-	require.False(t, source.RetiredAt.Valid, "the container intent protects boards whose placement is incomplete")
+	require.True(t, source.RetiredAt.Valid, "each board now has mapped or pending identity intent")
 	var pending bool
 	var inherited int
 	require.NoError(t, f.conn.QueryRowContext(ctx, `SELECT placement_pending AND completed_at IS NOT NULL FROM mining_group_pool_handoff WHERE organization_id=$1 AND operation_id=$2`, f.target.OrganizationID, operationID).Scan(&pending))
 	require.True(t, pending)
 	require.NoError(t, f.conn.QueryRowContext(ctx, `SELECT count(*) FROM pool_configuration_assignment WHERE device_id=$1 AND target_kind='hashboard_installation' AND retired_at IS NULL`, f.target.DeviceID).Scan(&inherited))
-	require.Zero(t, inherited, "the retained source must not coexist with a partial board handoff")
+	require.Equal(t, 1, inherited, "the mapped board inherits immediately")
 
 	_, err = f.conn.ExecContext(ctx, `INSERT INTO hashboard_slot(module_id,hashboard_id,position,occupancy,observed_at) SELECT module_id,hashboard_id,1,'occupied',now() FROM hashboard_installation WHERE hashboard_id=$1 AND removed_at IS NULL`, boards[0])
 	require.NoError(t, err)
@@ -125,7 +125,7 @@ func TestActivationPreservesPoolIntentForABoardWithoutAnInstallation(t *testing.
 	require.Zero(t, installations, "activation must not manufacture a physical placement")
 	source, err := sqlc.New(f.conn).GetPoolConfigurationAssignment(ctx, sqlc.GetPoolConfigurationAssignmentParams{OrganizationID: f.target.OrganizationID, TargetKind: poolconfigurations.TargetDevice, TargetID: f.target.DeviceID})
 	require.NoError(t, err)
-	require.False(t, source.RetiredAt.Valid)
+	require.True(t, source.RetiredAt.Valid)
 
 	_, err = f.conn.ExecContext(ctx, `INSERT INTO hashboard_installation(hashboard_id,module_id,position,site_id,installed_at,last_seen_at,metadata) SELECT $1,module_id,2,site_id,now(),now(),'{"macAddress":"02:00:00:00:00:02"}' FROM hashboard_installation WHERE hashboard_id=$2 AND removed_at IS NULL`, unlocated, boards[0])
 	require.NoError(t, err)
@@ -225,41 +225,15 @@ func TestActivationRetainedPoolIntentRejectsRemovalAndEdit(t *testing.T) {
 	require.Equal(t, statusComplete, f.state(t).Status)
 	_, err = service.ConfirmReview(ctx, "", removal.ID, poolconfigurations.Confirmation{KeepDeviceSettings: true})
 	require.True(t, fleeterror.IsFailedPreconditionError(err), "%v", err)
-	require.ErrorContains(t, err, "locations")
+
 	password := "changed-password"
 	_, err = service.ReviewEdit(ctx, "", config.ID, config.Version, poolconfigurations.RevisionOptions{Name: "Changed", Slots: []poolconfigurations.SlotOptions{{ID: config.Slots[0].ID, URL: "stratum+tcp://changed.example:3333", Username: "account", WorkerTemplate: "{miner_name}", Password: &password}}})
-	require.True(t, fleeterror.IsFailedPreconditionError(err), "%v", err)
-	require.ErrorContains(t, err, "locations")
+	require.NoError(t, err, "editing the library must not rewrite the pending frozen revision")
 	source, err := sqlc.New(f.conn).GetPoolConfigurationAssignment(ctx, sqlc.GetPoolConfigurationAssignmentParams{OrganizationID: f.target.OrganizationID, TargetKind: poolconfigurations.TargetDevice, TargetID: f.target.DeviceID})
 	require.NoError(t, err)
-	require.False(t, source.RetiredAt.Valid)
+	require.True(t, source.RetiredAt.Valid)
 	require.Equal(t, config.ID, source.ConfigurationID)
 	require.Equal(t, config.RevisionID, source.RevisionID)
-	require.Equal(t, 1, miner.writes)
-}
-
-func TestActivationRetainedPoolIntentBlocksOwnershipChanges(t *testing.T) {
-	ctx, f, miner, _, _, boards, _ := newActivationPoolFixture(t)
-	_, err := f.conn.ExecContext(ctx, `DELETE FROM hashboard_slot WHERE hashboard_id=$1`, boards[0])
-	require.NoError(t, err)
-	_, err = f.service.Activate(ctx, f.target.DeviceIdentifier, uuid.NewString())
-	require.NoError(t, err)
-	for range 12 {
-		if active(f.state(t).Status) {
-			f.reconcile(t, ctx)
-		}
-	}
-	require.Equal(t, statusComplete, f.state(t).Status)
-	var account int64
-	require.NoError(t, f.conn.QueryRowContext(ctx, `INSERT INTO hosted_account(account_id,organization_id,parent_id,depth,name,capabilities) SELECT gen_random_uuid()::text,organization_id,id,1,'New client',31 FROM hosted_account WHERE organization_id=$1 AND depth=0 RETURNING id`, f.target.OrganizationID).Scan(&account))
-	_, err = f.conn.ExecContext(ctx, `INSERT INTO hosted_account_asset(organization_id,kind,asset_id,hashboard_id,device_id,client_id) VALUES($1,7,$2,$2,$3,$4)`, f.target.OrganizationID, boards[0], f.target.DeviceID, account)
-	require.ErrorContains(t, err, "activation pool assignment transfer", "ownership must not retire the source while its board handoff is pending")
-	var allocated int
-	require.NoError(t, f.conn.QueryRowContext(ctx, `SELECT count(*) FROM hosted_account_asset WHERE organization_id=$1 AND kind=7 AND asset_id=$2 AND client_id IS NOT NULL`, f.target.OrganizationID, boards[0]).Scan(&allocated))
-	require.Zero(t, allocated)
-	source, err := sqlc.New(f.conn).GetPoolConfigurationAssignment(ctx, sqlc.GetPoolConfigurationAssignmentParams{OrganizationID: f.target.OrganizationID, TargetKind: poolconfigurations.TargetDevice, TargetID: f.target.DeviceID})
-	require.NoError(t, err)
-	require.False(t, source.RetiredAt.Valid)
 	require.Equal(t, 1, miner.writes)
 }
 

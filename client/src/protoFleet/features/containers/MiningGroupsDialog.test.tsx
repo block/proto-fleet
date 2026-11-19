@@ -385,7 +385,7 @@ it("shows activation progress and only says Done after completion", async () => 
   render(<MiningGroupsDialog deviceIdentifier="ct1" onClose={onClose} />);
   expect(
     screen.getByText(
-      "Fleet will stop mining before it enables mining groups. Fleet preserves pool intent for every identified hashboard. Pool changes stay blocked until the assignment transfer is complete. When ready, choose Wake default mining group from the Fleet container menu.",
+      "Fleet will stop mining before it enables mining groups. Fleet preserves pool intent for every identified hashboard. Mapped boards can receive pool changes immediately. Assignments for boards with unresolved locations stay pending until their locations are confirmed. When ready, choose Wake default mining group from the Fleet container menu.",
     ),
   ).toBeInTheDocument();
   const enable = screen.getByRole("button", { name: "Enable mining groups" });

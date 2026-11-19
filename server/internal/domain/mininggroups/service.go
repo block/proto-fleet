@@ -337,6 +337,13 @@ func (s *Service) changeMode(ctx context.Context, identifier, requestID, kind st
 			return uuid.Nil, fleeterror.NewFailedPreconditionError(defaultReadBlockedMessage(err))
 		}
 	}
+	var inventory activationInventoryEvidence
+	if kind == operationActivate {
+		inventory, err = s.prepareActivationInventory(ctx, info.OrganizationID, info.UserID, target.ID)
+		if err != nil {
+			return uuid.Nil, err
+		}
+	}
 	err = s.writes.BeginPoolWorkflow(ctx, info.OrganizationID, target.ID, func(ctx context.Context, q sqlc.Querier, attempt uuid.UUID, epoch int64) error {
 		current, err := q.LockContainerCommandTarget(ctx, sqlc.LockContainerCommandTargetParams{OrgID: info.OrganizationID, DeviceIdentifier: identifier})
 		if err != nil {
@@ -398,7 +405,7 @@ func (s *Service) changeMode(ctx context.Context, identifier, requestID, kind st
 		boardIDs := []int64{}
 		poolRevision := ""
 		if kind == operationActivate {
-			capture, err := s.captureActivationPools(ctx, q, row, observation)
+			capture, err := s.captureActivationPools(ctx, q, row, observation, inventory)
 			if err != nil {
 				return err
 			}

@@ -75,11 +75,12 @@ func (q *Queries) GetPoolEquipmentMinerOwner(ctx context.Context, arg GetPoolEqu
 }
 
 const listPoolEquipmentInstallations = `-- name: ListPoolEquipmentInstallations :many
-SELECT i.id,i.module_id,i.hashboard_id FROM hashboard_installation i
+SELECT i.id,i.module_id,i.hashboard_id,COALESCE(owner.subclient_id,owner.client_id,0)::bigint AS account_id,COALESCE(owner.revision,0)::bigint AS revision FROM hashboard_installation i
 JOIN hashboard h ON h.id=i.hashboard_id
 JOIN container_module m ON m.id=i.module_id JOIN container_tank t ON t.id=m.tank_id
 JOIN device d ON d.id=t.device_id
 JOIN hashboard_slot s ON s.module_id=i.module_id AND s.position=i.position AND s.hashboard_id=i.hashboard_id
+LEFT JOIN hosted_account_asset owner ON owner.organization_id=h.org_id AND owner.kind=7 AND owner.asset_id=h.id
 WHERE h.org_id=$1 AND d.org_id=$1
  AND i.id=ANY($2::bigint[]) AND d.id=$3 AND i.device_id=$3
  AND i.removed_at IS NULL AND m.retired_at IS NULL AND t.present AND d.deleted_at IS NULL
@@ -98,6 +99,8 @@ type ListPoolEquipmentInstallationsRow struct {
 	ID          int64
 	ModuleID    int64
 	HashboardID int64
+	AccountID   int64
+	Revision    int64
 }
 
 func (q *Queries) ListPoolEquipmentInstallations(ctx context.Context, arg ListPoolEquipmentInstallationsParams) ([]ListPoolEquipmentInstallationsRow, error) {
@@ -109,7 +112,13 @@ func (q *Queries) ListPoolEquipmentInstallations(ctx context.Context, arg ListPo
 	var items []ListPoolEquipmentInstallationsRow
 	for rows.Next() {
 		var i ListPoolEquipmentInstallationsRow
-		if err := rows.Scan(&i.ID, &i.ModuleID, &i.HashboardID); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.ModuleID,
+			&i.HashboardID,
+			&i.AccountID,
+			&i.Revision,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

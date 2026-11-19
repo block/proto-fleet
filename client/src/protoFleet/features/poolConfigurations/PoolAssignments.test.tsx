@@ -307,3 +307,27 @@ it("shows verified and pool-free boards as mixed and refreshes after removal", a
   expect(await screen.findByText("—")).toBeVisible();
   expect(screen.queryByText("Mixed configurations")).not.toBeInTheDocument();
 });
+
+it("keeps an unlocated pending board separate from its container", async () => {
+  mocks.getAssignments.mockResolvedValue(
+    create(GetAssignmentsResponseSchema, {
+      assignments: [
+        {
+          deviceId: 1n,
+          deviceIdentifier: "container",
+          hashboardId: 11n,
+          configurationId: "config-a",
+          name: "Default",
+          state: "placement_pending",
+        },
+      ],
+    }),
+  );
+  render(
+    <PoolAssignments hashboardIds={[11n]}>
+      <BoardPoolConfigurationCell hashboardId={11n} />
+    </PoolAssignments>,
+  );
+  expect(await screen.findByRole("button", { name: "Assignment pending" })).toBeVisible();
+  expect(mocks.readDevicePools).not.toHaveBeenCalled();
+});

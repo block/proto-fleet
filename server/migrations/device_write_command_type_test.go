@@ -15,6 +15,7 @@ func TestWriteCommandMigrationPreservesUnclassifiedDirectAttempts(t *testing.T) 
 	require.NoError(t, err)
 	_, err = writes.BeginHost(t.Context(), orgID, deviceID, 0)
 	require.NoError(t, err)
+	rollbackEmptyActivationBoardIntent(t, database.DB)
 	for _, filename := range []string{
 		"001056_internal_pool_configuration_cutover.down.sql",
 		"001054_internal_pool_equipment_integration.down.sql",

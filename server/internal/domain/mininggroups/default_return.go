@@ -444,6 +444,12 @@ func (s *Service) defaultReturnBlocker(ctx context.Context, q sqlc.Querier, row 
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return "", err
 	}
+	if err := devicewrite.RequireNoPendingActivationPoolHandoff(ctx, q, row.OrganizationID, row.DeviceID); err != nil {
+		if fleeterror.IsFailedPreconditionError(err) {
+			return "Resolve pending board pool assignments before moving boards.", nil
+		}
+		return "", err
+	}
 	if err := devicewrite.RequireNoConflictingPoolWrites(ctx, q, row.OrganizationID, row.DeviceID); err != nil {
 		if fleeterror.IsFailedPreconditionError(err) {
 			return "Wait for pending device changes or resolve uncertain writes before moving boards.", nil

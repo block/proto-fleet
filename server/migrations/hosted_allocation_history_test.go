@@ -154,6 +154,7 @@ func TestAllocationHistoryMigrationFencesConcurrentRecall(t *testing.T) {
 // Remove the newest dependent schema before testing a legacy migration.
 func rollbackEmptyHashboardAllocations(t *testing.T, conn *sql.DB) {
 	t.Helper()
+	rollbackEmptyActivationBoardIntent(t, conn)
 	var activationInventory bool
 	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT to_regprocedure('protect_activation_hashboard_owner()') IS NOT NULL`).Scan(&activationInventory))
 	if activationInventory {

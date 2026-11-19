@@ -26,8 +26,8 @@ const keyFor = (target: { kind: string; targetId: bigint }) => `${target.kind}:$
 const allocationAccessMessage =
   "You don’t have access to view this hardware’s pool configuration. Pool configurations are only visible in the account the hardware is allocated to.";
 const assignmentTarget = (a: EquipmentAssignment) => ({
-  kind: a.installationId ? "hashboard_installation" : "device",
-  targetId: a.installationId || a.deviceId,
+  kind: a.installationId ? "hashboard_installation" : a.hashboardId ? "hashboard" : "device",
+  targetId: a.installationId || a.hashboardId || a.deviceId,
 });
 
 const isNewerThan = (evidence: Timestamp | undefined, checkedAt: Timestamp | undefined) =>
@@ -225,7 +225,7 @@ export const OperationResults = ({
             change &&
             !readOnly &&
             !assignmentChanged &&
-            !["pending", "applying", "superseded"].includes(result.state);
+            !["pending", "applying", "superseded", "placement_pending"].includes(result.state);
           const canRetry =
             !removal &&
             change &&

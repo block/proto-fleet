@@ -15,6 +15,7 @@ func TestActivationPoolHandoffRollback(t *testing.T) {
 	for _, state := range []string{"empty", "pending", "completed"} {
 		t.Run(state, func(t *testing.T) {
 			conn, org, device := miningGroupRollbackFixture(t)
+			rollbackEmptyActivationBoardIntent(t, conn)
 			ctx := t.Context()
 			if state != "empty" {
 				id := uuid.New()
@@ -87,6 +88,8 @@ func TestActivationPoolHandoffRollbackSeesConcurrentCapture(t *testing.T) {
 
 func rollbackEmptyActivationPoolHandoff(t *testing.T, conn *sql.DB) {
 	t.Helper()
+	rollbackEmptyActivationBoardIntent(t, conn)
+	rollbackEmptyActivationInventory(t, conn)
 	down, err := migrations.Current.ReadFile("current/001070_internal_activation_pool_handoff.down.sql")
 	require.NoError(t, err)
 	_, err = conn.ExecContext(t.Context(), string(down))
@@ -115,5 +118,31 @@ func TestActivationInventoryRollbackRestoresAllocationRetirement(t *testing.T) {
 	up, err := migrations.Current.ReadFile("current/001098_internal_activation_pool_inventory.up.sql")
 	require.NoError(t, err)
 	_, err = conn.ExecContext(ctx, string(up))
+	require.NoError(t, err)
+}
+
+func rollbackEmptyActivationBoardIntent(t *testing.T, conn *sql.DB) {
+	t.Helper()
+	var exists bool
+	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT to_regclass('activation_pool_board_intent') IS NOT NULL`).Scan(&exists))
+	if !exists {
+		return
+	}
+	down, err := migrations.Current.ReadFile("current/001099_internal_activation_board_intent.down.sql")
+	require.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), string(down))
+	require.NoError(t, err)
+}
+
+func rollbackEmptyActivationInventory(t *testing.T, conn *sql.DB) {
+	t.Helper()
+	var exists bool
+	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT to_regprocedure('protect_activation_hashboard_owner()') IS NOT NULL`).Scan(&exists))
+	if !exists {
+		return
+	}
+	down, err := migrations.Current.ReadFile("current/001098_internal_activation_pool_inventory.down.sql")
+	require.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), string(down))
 	require.NoError(t, err)
 }

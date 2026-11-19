@@ -2,17 +2,14 @@ package mininggroups
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"testing"
 	"time"
 
-	"connectrpc.com/authn"
-	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
-	"github.com/block/proto-fleet/server/internal/domain/poolapplications"
 	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -55,86 +52,13 @@ func TestPendingActivationAllowsBoardPlacementMove(t *testing.T) {
 	require.Equal(t, destination, deviceID)
 	source, err := q.GetPoolConfigurationAssignment(ctx, sqlc.GetPoolConfigurationAssignmentParams{OrganizationID: f.target.OrganizationID, TargetKind: poolconfigurations.TargetDevice, TargetID: f.target.DeviceID})
 	require.NoError(t, err)
-	require.False(t, source.RetiredAt.Valid, "a board move must retain the pending source")
+	require.True(t, source.RetiredAt.Valid, "a board move retains identity intent instead of the container assignment")
 	var account int64
 	require.NoError(t, f.conn.QueryRowContext(ctx, `INSERT INTO hosted_account(account_id,organization_id,parent_id,depth,name,capabilities) SELECT gen_random_uuid()::text,organization_id,id,1,'New client',31 FROM hosted_account WHERE organization_id=$1 AND depth=0 RETURNING id`, f.target.OrganizationID).Scan(&account))
 	_, err = f.conn.ExecContext(ctx, `UPDATE hosted_account_asset SET client_id=$2,revision=revision+1 WHERE kind=7 AND asset_id=$1`, boards[0], account)
-	require.ErrorContains(t, err, "ownership cannot change")
+	require.NoError(t, err, "ownership can change; recovery must recheck it")
 	_, err = f.conn.ExecContext(ctx, `DELETE FROM hosted_account_asset WHERE kind=7 AND asset_id=$1`, boards[0])
-	require.ErrorContains(t, err, "ownership cannot change")
-}
-
-func TestPendingActivationCanRemoveAssignmentWithMissingBoard(t *testing.T) {
-	ctx, f, miner, service, _, boards, _ := newActivationPoolFixture(t)
-	checker := poolapplications.NewChecker(f.conn, poolapplications.NewReviewer(f.service.pools, sharedCapabilities{}), miner, f.service.secrets, f.service.pools)
-	f.service.WithPoolRemovals(checker)
-	service.WithChecker(checker)
-	completePendingActivation(t, ctx, f, boards[0])
-	// A different current operator can recover after the original actor leaves.
-	original, err := session.GetInfo(ctx)
-	require.NoError(t, err)
-	replacement, err := sqlc.New(f.conn).CreateUser(ctx, sqlc.CreateUserParams{UserID: uuid.NewString(), Username: uuid.NewString(), PasswordHash: "unused", CreatedAt: time.Now()})
-	require.NoError(t, err)
-	_, err = f.conn.ExecContext(ctx, `INSERT INTO user_organization(user_id,organization_id,role_id) SELECT $1,organization_id,role_id FROM user_organization WHERE user_id=$2 AND organization_id=$3`, replacement, original.UserID, original.OrganizationID)
-	require.NoError(t, err)
-	_, err = f.conn.ExecContext(ctx, `INSERT INTO user_organization_role(user_id,organization_id,role_id,scope_type,scope_id) SELECT $1,organization_id,role_id,scope_type,scope_id FROM user_organization_role WHERE user_id=$2 AND organization_id=$3 AND deleted_at IS NULL ON CONFLICT DO NOTHING`, replacement, original.UserID, original.OrganizationID)
-	require.NoError(t, err)
-	_, err = f.conn.ExecContext(ctx, `UPDATE user_organization_role SET deleted_at=now() WHERE user_id=$1 AND organization_id=$2`, original.UserID, original.OrganizationID)
-	require.NoError(t, err)
-	ctx = authn.SetInfo(ctx, &session.Info{UserID: replacement, OrganizationID: original.OrganizationID, AuthMethod: session.AuthMethodSession})
-	miner.inventory.Boards = []sdk.HashboardIdentityClaim{}
-	miner.snapshot.Groups[0].MACs = nil
-	_, err = f.conn.ExecContext(ctx, `UPDATE hashboard_observation SET released_at=now() WHERE hashboard_id=$1`, boards[0])
-	require.NoError(t, err)
-	removal, err := service.ReviewRemoval(ctx, "", poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetDevice, ID: f.target.DeviceID, DeviceID: f.target.DeviceID})
-	require.NoError(t, err)
-	require.False(t, removal.ClearSupported)
-	p, err := f.service.pools.AuthorizePoolConfiguration(ctx, sqlc.New(f.conn), "", poolconfigurations.Read)
-	require.NoError(t, err)
-	// A clear request must not use the assignment-only exception.
-	err = f.service.writes.WithBindingUpdateTransaction(ctx, func(ctx context.Context, q sqlc.Querier) error {
-		return checker.EnqueueRemoval(ctx, q, p, removal.ID, false)
-	})
-	require.ErrorContains(t, err, "Keep device settings")
-	// Current permissions are checked again at confirmation, not only at review.
-	setMiningGroupPermissions(t, ctx, f, []string{authz.PermSiteRead, authz.PermFleetRead, authz.PermMinerRead, authz.PermPoolRead})
-	err = f.service.writes.WithBindingUpdateTransaction(ctx, func(ctx context.Context, q sqlc.Querier) error {
-		return checker.EnqueueRemoval(ctx, q, p, removal.ID, true)
-	})
-	require.Error(t, err)
-	setMiningGroupPermissions(t, ctx, f, []string{authz.PermSiteRead, authz.PermFleetRead, authz.PermMinerRead, authz.PermPoolRead, authz.PermMinerActivateMiningGroups, authz.PermMinerUpdatePools})
-	// The fence and assignment must both survive a failed commit.
-	rollback := errors.New("rollback removal")
-	err = f.service.writes.WithBindingUpdateTransaction(ctx, func(ctx context.Context, q sqlc.Querier) error {
-		if err := checker.EnqueueRemoval(ctx, q, p, removal.ID, true); err != nil {
-			return err
-		}
-		return rollback
-	})
-	require.ErrorIs(t, err, rollback)
-	stillPending, err := sqlc.New(f.conn).HasPendingMiningGroupPoolHandoff(ctx, sqlc.HasPendingMiningGroupPoolHandoffParams{OrganizationID: f.target.OrganizationID, DeviceID: f.target.DeviceID})
-	require.NoError(t, err)
-	require.True(t, stillPending)
-	var calls []sdk.MiningGroupRequest
-	miner.beforeCall = func(_ context.Context, r sdk.MiningGroupRequest) { calls = append(calls, r) }
-	writes := miner.writes
-	// Use the same transaction and coordinator as confirmation, without a password fixture.
-	err = f.service.writes.WithBindingUpdateTransaction(ctx, func(ctx context.Context, q sqlc.Querier) error {
-		return checker.EnqueueRemoval(ctx, q, p, removal.ID, true)
-	})
-	require.NoError(t, err)
-	pending, err := sqlc.New(f.conn).HasPendingMiningGroupPoolHandoff(ctx, sqlc.HasPendingMiningGroupPoolHandoffParams{OrganizationID: f.target.OrganizationID, DeviceID: f.target.DeviceID})
-	require.NoError(t, err)
-	require.False(t, pending)
-	source, err := sqlc.New(f.conn).GetPoolConfigurationAssignment(ctx, sqlc.GetPoolConfigurationAssignmentParams{OrganizationID: f.target.OrganizationID, TargetKind: poolconfigurations.TargetDevice, TargetID: f.target.DeviceID})
-	require.NoError(t, err)
-	require.True(t, source.RetiredAt.Valid)
-	require.Equal(t, writes, miner.writes)
-	require.True(t, miner.snapshot.Enabled)
-	require.Empty(t, calls, "keep-settings removal must send no controller request")
-	result, err := service.GetRemoval(ctx, "", removal.ID)
-	require.NoError(t, err)
-	require.Equal(t, "completed", result.State)
+	require.NoError(t, err, "ownership can change; recovery must recheck it")
 }
 
 func TestPendingActivationRecoveryDoesNotRequireOriginalActor(t *testing.T) {
@@ -231,4 +155,105 @@ func TestPendingActivationAllowsStopAndReboot(t *testing.T) {
 			require.Error(t, err)
 		}
 	}
+}
+
+func TestActivationJournalWithoutInventoryRecoversAfterUpgrade(t *testing.T) {
+	for _, running := range []bool{false, true} {
+		t.Run(fmt.Sprint(running), func(t *testing.T) {
+			ctx, f, miner, service, config, boards, _ := newActivationPoolFixture(t)
+			miner.running = running
+			_, err := f.service.Activate(ctx, f.target.DeviceIdentifier, uuid.NewString())
+			require.NoError(t, err)
+			// Upgrade after the controller enabled groups, before assignment transfer or resume.
+			for range 6 {
+				if !miner.snapshot.Enabled {
+					f.reconcile(t, ctx)
+				}
+			}
+			require.True(t, miner.snapshot.Enabled)
+			require.False(t, miner.running)
+
+			q := sqlc.New(f.conn)
+			row := f.state(t)
+			capture, done, err := f.service.activationPoolCapture(ctx, q, row)
+			require.NoError(t, err)
+			require.False(t, done)
+			require.NotEmpty(t, capture.Boards, "capture: %+v", capture)
+			// Recreate the persisted base-version capture, including its installation ownership evidence.
+			scope := poolconfigurations.Scope{OrganizationID: row.OrganizationID}
+			actorCtx, err := poolActorContext(ctx, row.OrganizationID, row.ActorID.Int64, "")
+			require.NoError(t, err)
+			capture.Ownership, err = f.service.pools.AuthorizePoolEquipment(actorCtx, q, scope, row.ActorID.Int64, poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetDevice, ID: row.DeviceID, DeviceID: row.DeviceID})
+			require.NoError(t, err)
+			for i := range capture.Boards {
+				capture.Boards[i].Ownership, err = f.service.pools.AuthorizePoolEquipment(actorCtx, q, scope, row.ActorID.Int64, poolconfigurations.AssignmentTarget{Kind: poolconfigurations.TargetInstallation, ID: capture.Boards[i].Binding.InstallationID, DeviceID: row.DeviceID})
+				require.NoError(t, err)
+			}
+			encoded, err := encode(capture)
+			require.NoError(t, err)
+			_, err = f.conn.ExecContext(ctx, `UPDATE mining_group_pool_handoff SET captured=$1::jsonb-'Inventory'-'Deferred'-'PartialTransfer' WHERE device_id=$2`, encoded, row.DeviceID)
+			require.NoError(t, err)
+			miner.beforeCall = func(_ context.Context, r sdk.MiningGroupRequest) {
+				require.NotEqual(t, "activation_inventory", r.Action, "old journals must not require the new inventory API")
+			}
+			for range 12 {
+				if active(f.state(t).Status) {
+					f.reconcile(t, ctx)
+				}
+			}
+			require.Equal(t, statusComplete, f.state(t).Status)
+			require.Equal(t, running, miner.snapshot.Groups[0].Mining)
+			assignments, err := service.GetBoardAssignments(ctx, "", poolconfigurations.BoardSelection{HashboardIDs: boards})
+			require.NoError(t, err)
+			require.Len(t, assignments.Assignments, 1)
+			require.Equal(t, config.ID, assignments.Assignments[0].ConfigurationID)
+		})
+	}
+}
+
+type assignmentReadCounter struct {
+	sqlc.Querier
+	reads int
+}
+
+func (q *assignmentReadCounter) GetPoolConfigurationAssignment(ctx context.Context, p sqlc.GetPoolConfigurationAssignmentParams) (sqlc.GetPoolConfigurationAssignmentRow, error) {
+	q.reads++
+	return q.Querier.GetPoolConfigurationAssignment(ctx, p)
+}
+func TestIncompleteActivationPlacementDoesNotReadAssignmentsPerBoard(t *testing.T) {
+	ctx, f, miner, _, _, boards, _ := newActivationPoolFixture(t, true)
+	q := sqlc.New(f.conn)
+	inventory, _, err := resolveActivationInventory(ctx, q, f.state(t), true, miner.inventory)
+	require.NoError(t, err)
+	_, err = f.conn.ExecContext(ctx, `DELETE FROM hashboard_slot WHERE hashboard_id=$1`, boards[0])
+	require.NoError(t, err)
+	counted := &assignmentReadCounter{Querier: q}
+	_, complete, err := activationPoolPlacements(ctx, counted, f.state(t), inventory)
+	require.NoError(t, err)
+	require.False(t, complete)
+	require.Zero(t, counted.reads, "placement recovery must use a batch assignment check")
+}
+
+func TestActivationPlacementBatchPreservesAssignmentConflicts(t *testing.T) {
+	ctx, f, miner, _, _, boards, _ := newActivationPoolFixture(t, true)
+	q := sqlc.New(f.conn)
+	inventory, _, err := resolveActivationInventory(ctx, q, f.state(t), true, miner.inventory)
+	require.NoError(t, err)
+	var installation int64
+	require.NoError(t, f.conn.QueryRowContext(ctx, `SELECT id FROM hashboard_installation WHERE hashboard_id=$1 AND removed_at IS NULL`, boards[1]).Scan(&installation))
+	_, err = f.conn.ExecContext(ctx, `UPDATE pool_configuration_assignment SET retired_at=now(),version=version+1 WHERE device_id=$1 AND target_kind='device'`, f.target.DeviceID)
+	require.NoError(t, err)
+	_, err = f.conn.ExecContext(ctx, `INSERT INTO pool_configuration_assignment(organization_id,target_kind,target_id,device_id,configuration_id,revision_id,version,adopted_at) SELECT organization_id,'hashboard_installation',$2,device_id,configuration_id,revision_id,1,now() FROM pool_configuration_assignment WHERE device_id=$1 AND target_kind='device'`, f.target.DeviceID, installation)
+	require.NoError(t, err)
+	for _, retired := range []bool{false, true} {
+		if retired {
+			_, err = f.conn.ExecContext(ctx, `UPDATE pool_configuration_assignment SET retired_at=now(),version=version+1 WHERE target_kind='hashboard_installation' AND target_id=$1`, installation)
+			require.NoError(t, err)
+		}
+		_, _, err = activationPoolPlacements(ctx, q, f.state(t), inventory)
+		require.ErrorContains(t, err, activationPoolRecovery)
+	}
+	found, err := q.HasActivationPoolInstallationAssignments(ctx, sqlc.HasActivationPoolInstallationAssignmentsParams{OrganizationID: f.target.OrganizationID + 1, InstallationIds: []int64{installation}})
+	require.NoError(t, err)
+	require.False(t, found, "assignments from another organization must not affect recovery")
 }

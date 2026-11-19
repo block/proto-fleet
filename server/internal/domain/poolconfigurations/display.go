@@ -49,10 +49,38 @@ func (s *Service) GetAssignments(ctx context.Context, accountID string, identifi
 			return EquipmentAssignments{}, err
 		}
 		result := EquipmentAssignments{SelectedCount: int64(len(identifiers) + len(deviceIDs))}
+		seen := make(map[int64]bool, len(rows))
 		for _, row := range rows {
 			if visible(row.SiteID) {
 				applyDeviceLifecycleStatus(&row, events)
 				result.Assignments = append(result.Assignments, row)
+				seen[row.DeviceID] = true
+			}
+		}
+		// Recovery visibility: an incomplete module-membership map excludes a whole
+		// container from the query above, hiding even a retained, caller-owned
+		// whole-container assignment the operator is authorized to retire. Surface
+		// those for explicitly selected equipment so the UI can offer assignment-only
+		// recovery instead of a false "no assignment remains". Ownership (caller's
+		// own) and site visibility are still enforced here.
+		if len(identifiers) > 0 || len(deviceIDs) > 0 {
+			retained, err := q.ListRetainedDeviceAssignmentsForRecovery(ctx, sqlc.ListRetainedDeviceAssignmentsForRecoveryParams{
+				OrganizationID: p.Scope.OrganizationID, AccountID: p.Scope.account(), DeviceIds: deviceIDs, DeviceIdentifiers: identifiers,
+			})
+			if err != nil {
+				return EquipmentAssignments{}, storageError(err)
+			}
+			for _, row := range retained {
+				if seen[row.DeviceID] || !visible(row.SiteID) {
+					continue
+				}
+				seen[row.DeviceID] = true
+				result.Assignments = append(result.Assignments, sqlc.ListPoolEquipmentAssignmentsRow{
+					DeviceID: row.DeviceID, DeviceIdentifier: row.DeviceIdentifier, SiteID: row.SiteID,
+					CustomName: row.CustomName, Manufacturer: row.Manufacturer, Model: row.Model, MacAddress: row.MacAddress,
+					ConfigurationID: row.ConfigurationID, Name: row.Name, OperationID: row.OperationID,
+					State: "recoverable", UpdatedAt: row.UpdatedAt,
+				})
 			}
 		}
 		return result, nil

@@ -490,6 +490,7 @@ type Querier interface {
 	CountUnexpiredAlertMaintenanceWindows(ctx context.Context, arg CountUnexpiredAlertMaintenanceWindowsParams) (int64, error)
 	CreateAccountAnalysis(ctx context.Context, arg CreateAccountAnalysisParams) error
 	CreateAccountAnalysisDeletion(ctx context.Context, arg CreateAccountAnalysisDeletionParams) (CreateAccountAnalysisDeletionRow, error)
+	CreateActivationPoolBoardIntent(ctx context.Context, arg CreateActivationPoolBoardIntentParams) error
 	CreateApiKey(ctx context.Context, arg CreateApiKeyParams) error
 	CreateAutomaticPoolConfigurationOperation(ctx context.Context, arg CreateAutomaticPoolConfigurationOperationParams) (PoolConfigurationOperation, error)
 	// `site_id` is nullable. Name is unique per (site_id, name) when site_id
@@ -571,6 +572,7 @@ type Querier interface {
 	CurtailmentEventHasInFlightTargets(ctx context.Context, curtailmentEventID int64) (bool, error)
 	DeferPoolLifecycleTransition(ctx context.Context, arg DeferPoolLifecycleTransitionParams) error
 	DeleteAccountAnalysis(ctx context.Context, arg DeleteAccountAnalysisParams) (int64, error)
+	DeleteActivationPoolBoardIntent(ctx context.Context, arg DeleteActivationPoolBoardIntentParams) error
 	DeleteActiveRepairTicketParts(ctx context.Context, arg DeleteActiveRepairTicketPartsParams) error
 	DeleteAlertMaintenanceWindow(ctx context.Context, arg DeleteAlertMaintenanceWindowParams) (int64, error)
 	DeleteAlertRouteChannels(ctx context.Context, policyID int64) error
@@ -1278,6 +1280,8 @@ type Querier interface {
 	// 'canceled' (operator canceled the remaining updates) or 'skipped' (a caller
 	// settled them without updating, with its note).
 	HaltFirmwareRolloutDevices(ctx context.Context, arg HaltFirmwareRolloutDevicesParams) error
+	// Include retired rows: activation must not overwrite an earlier assignment generation.
+	HasActivationPoolInstallationAssignments(ctx context.Context, arg HasActivationPoolInstallationAssignmentsParams) (bool, error)
 	HasBlockedTelemetrySeedRecovery(ctx context.Context) (bool, error)
 	// Stale telemetry alone is not evidence of removal. Match the exact saved
 	// installation, controller and MAC without imposing a freshness requirement.
@@ -1286,6 +1290,7 @@ type Querier interface {
 	HasDueTelemetrySeedRecovery(ctx context.Context) (bool, error)
 	HasHostedAccountHostAuthority(ctx context.Context, arg HasHostedAccountHostAuthorityParams) (bool, error)
 	HasIssuedHostedOriginalReport(ctx context.Context, arg HasIssuedHostedOriginalReportParams) (bool, error)
+	HasPendingActivationPoolTarget(ctx context.Context, arg HasPendingActivationPoolTargetParams) (bool, error)
 	HasPendingContainerCommand(ctx context.Context, arg HasPendingContainerCommandParams) (bool, error)
 	HasPendingDefaultReturnPoolPolicy(ctx context.Context, arg HasPendingDefaultReturnPoolPolicyParams) (sql.NullBool, error)
 	HasPendingMiningGroupPoolHandoff(ctx context.Context, arg HasPendingMiningGroupPoolHandoffParams) (bool, error)
@@ -1295,6 +1300,7 @@ type Querier interface {
 	// single deadline decision so expiry cannot become a missing-approval error.
 	HasPoolConfigurationReviewAuthorization(ctx context.Context, arg HasPoolConfigurationReviewAuthorizationParams) (bool, error)
 	HasReportingAllocatedMeters(ctx context.Context, arg HasReportingAllocatedMetersParams) (bool, error)
+	HasRetainedContainerPoolHandoff(ctx context.Context, arg HasRetainedContainerPoolHandoffParams) (bool, error)
 	HasUser(ctx context.Context) (bool, error)
 	HostedReportDeliveryStatus(ctx context.Context, reportInternalID int64) (string, error)
 	// Sites of the report's monitoring evidence: allocated intervals of the account
@@ -1397,6 +1403,7 @@ type Querier interface {
 	ListAccountRepairTicketComments(ctx context.Context, arg ListAccountRepairTicketCommentsParams) ([]ListAccountRepairTicketCommentsRow, error)
 	ListAccountRepairTicketTargets(ctx context.Context, arg ListAccountRepairTicketTargetsParams) ([]RepairTicketTarget, error)
 	ListAccountRepairTickets(ctx context.Context, arg ListAccountRepairTicketsParams) ([]RepairTicket, error)
+	ListActivationPoolBoardIntents(ctx context.Context, arg ListActivationPoolBoardIntentsParams) ([]ActivationPoolBoardIntent, error)
 	// Resolve both aliases to the same physical board. Placement is not identity.
 	ListActivationPoolInventory(ctx context.Context, arg ListActivationPoolInventoryParams) ([]ListActivationPoolInventoryRow, error)
 	// The delivery-path read: only windows covering sqlc.arg('now'), so the expired tail never loads.
@@ -1870,6 +1877,7 @@ type Querier interface {
 	ListOrganizationInvitations(ctx context.Context, arg ListOrganizationInvitationsParams) ([]ListOrganizationInvitationsRow, error)
 	ListOrganizations(ctx context.Context) ([]Organization, error)
 	ListPartsBySite(ctx context.Context, arg ListPartsBySiteParams) ([]ListPartsBySiteRow, error)
+	ListPendingActivationBoardAssignments(ctx context.Context, arg ListPendingActivationBoardAssignmentsParams) ([]ListPendingActivationBoardAssignmentsRow, error)
 	// Waiting boards must not fill the batch and starve other devices. Keep them
 	// pending until their controller workflow settles; admission still rechecks
 	// the journal under lock in case it becomes busy after this selection.
@@ -2020,6 +2028,14 @@ type Querier interface {
 	ListReportingValidationMetadata(ctx context.Context, arg ListReportingValidationMetadataParams) ([]ListReportingValidationMetadataRow, error)
 	ListReportingWitnessMetadata(ctx context.Context, arg ListReportingWitnessMetadataParams) ([]ListReportingWitnessMetadataRow, error)
 	ListResponseProfileInfrastructureDevicesByOrg(ctx context.Context, arg ListResponseProfileInfrastructureDevicesByOrgParams) ([]ListResponseProfileInfrastructureDevicesByOrgRow, error)
+	// Recovery lookup for a retained whole-container (device-target) assignment that
+	// ListPoolEquipmentAssignments hides when a container's module membership is
+	// incomplete. It deliberately omits that membership-completeness gate, but still
+	// returns ONLY the caller's own assignment (c.account_id IS NOT DISTINCT FROM
+	// account_id) on a container (device_class=2). An incomplete membership map can
+	// therefore no longer turn an authorized retained assignment into a false
+	// "no assignment remains"; customer-owned equipment is never exposed.
+	ListRetainedDeviceAssignmentsForRecovery(ctx context.Context, arg ListRetainedDeviceAssignmentsForRecoveryParams) ([]ListRetainedDeviceAssignmentsForRecoveryRow, error)
 	// Current equipment authority and binding locks are required. A completed
 	// physical attempt may be observed and superseded, never replayed. Unknown
 	// attempts retain their physical fence even after an ownership change.
