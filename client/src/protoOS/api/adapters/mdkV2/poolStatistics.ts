@@ -85,7 +85,7 @@ export function createPoolStatistics(
             .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })),
         };
       }),
-    read: (configurations, params) =>
+    read: (configurations, { includeLastRecordedShares = true, ...params } = {}) =>
       read(params, async (options) => {
         if (configurations.length === 0) return [];
         const readings = await mapWithConcurrency(
@@ -115,8 +115,12 @@ export function createPoolStatistics(
             let error: string | undefined;
             try {
               if (defaultSettings)
-                diagnostics = (await client.poolServiceGetPoolDiagnostics({ includeLastRecordedShares: true }, options))
-                  .data;
+                diagnostics = (
+                  await client.poolServiceGetPoolDiagnostics(
+                    includeLastRecordedShares ? { includeLastRecordedShares: true } : {},
+                    options,
+                  )
+                ).data;
               else {
                 const response = (
                   await client.miningGroupServiceGetMiningGroupPoolDiagnostics({ groupId: configuration.id }, options)

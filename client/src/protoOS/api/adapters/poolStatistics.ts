@@ -20,6 +20,6 @@ export interface PoolConfigurationStatisticsService {
   list(params?: AdapterRequestOptions): Promise<{ enabled: boolean; configurations: PoolConfigurationSummary[] }>;
   read(
     configurations: PoolConfigurationSummary[],
-    params?: AdapterRequestOptions,
+    params?: AdapterRequestOptions & { includeLastRecordedShares?: boolean },
   ): Promise<PoolConfigurationReadings[]>;
 }

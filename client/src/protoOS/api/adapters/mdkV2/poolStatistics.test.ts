@@ -86,7 +86,10 @@ test("separates identical endpoints by controller pool identity and configuratio
     { groupId: "client" },
     expect.anything(),
   );
-  expect(client.poolServiceGetPoolDiagnostics).toHaveBeenCalledTimes(1);
+  expect(client.poolServiceGetPoolDiagnostics).toHaveBeenCalledExactlyOnceWith(
+    { includeLastRecordedShares: true },
+    expect.anything(),
+  );
   expect(client.poolServiceListPools).toHaveBeenCalledTimes(2);
   expect(client.miningGroupServiceListMiningGroups).toHaveBeenCalledTimes(1);
   expect(client.miningGroupServiceListMiningGroups).toHaveBeenCalledAfter(
@@ -97,6 +100,13 @@ test("separates identical endpoints by controller pool identity and configuratio
     { groupId: "default" },
     expect.anything(),
   );
+});
+test("Default status-only reads omit the last-share lookup", async () => {
+  const { service, client } = fixture();
+  const [reading] = await service.read([configs[0]], { includeLastRecordedShares: false });
+
+  expect(client.poolServiceGetPoolDiagnostics).toHaveBeenCalledExactlyOnceWith({}, expect.anything());
+  expect(reading.pools[0]).toMatchObject({ id: "pool:1", status: "Active" });
 });
 test("withholds Default readings if the same pool ID changes during diagnostics", async () => {
   const { service, client } = fixture();

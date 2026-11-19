@@ -1,9 +1,8 @@
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { navigationItems } from "../../NavigationMenu/constants";
 import PoolAssignmentSummary from "./PoolAssignmentSummary";
 import PoolStatus from "./PoolStatus";
-import type { PoolConfigurationStatisticsService } from "@/protoOS/api/adapters/poolStatistics";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { usePoolsInfo } from "@/protoOS/store";
 import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
@@ -17,42 +16,64 @@ const PoolStatusWrapper = () => {
   const { adapter, isFleetHosted, minerRoot } = useMinerHosting();
   const authRetry = useAuthRetry();
   const statistics = isFleetHosted ? undefined : adapter?.poolStatistics;
-  const [mode, setMode] = useState<{ service: PoolConfigurationStatisticsService; enabled: boolean }>();
+  const [modeRefresh, setModeRefresh] = useState(0);
+  const modeKey = useMemo(() => ({ statistics, modeRefresh }), [statistics, modeRefresh]);
+  const [mode, setMode] = useState<{ key: typeof modeKey; enabled: boolean }>();
+  const modeRevision = useRef(0);
 
   usePoll({
-    params: statistics,
+    params: modeKey,
     enabled: statistics !== undefined,
     poll: true,
     pollIntervalMs: 15_000,
     fetchData: (signal) => {
       if (!statistics) return;
+      const requestRevision = modeRevision.current;
+      const isCurrent = () => !signal.aborted && requestRevision === modeRevision.current;
       return authRetry({
         signal,
         request: (options) => statistics.getMiningGroupsEnabled(options),
         onSuccess: (enabled) => {
-          if (!signal.aborted) setMode({ service: statistics, enabled });
+          if (isCurrent()) setMode({ key: modeKey, enabled });
         },
         onError: () => {
-          if (!signal.aborted) setMode(undefined);
+          if (isCurrent()) setMode(undefined);
         },
       });
     },
   });
 
-  const miningGroupsEnabled = mode?.service === statistics ? mode?.enabled : undefined;
+  const handleModeDisabled = () => {
+    // Ignore any capability poll already in flight when the assignment list confirms disabled mode.
+    modeRevision.current += 1;
+    setMode({ key: modeKey, enabled: false });
+  };
+
+  const miningGroupsEnabled = mode?.key === modeKey ? mode.enabled : undefined;
+  const checkingMode = mode?.enabled === false && mode.key.statistics === statistics && mode.key !== modeKey;
   const showPoolStatusLink = statistics !== undefined && miningGroupsEnabled !== false;
-  const assignmentSummary = statistics && miningGroupsEnabled ? <PoolAssignmentSummary service={statistics} /> : null;
+  const details = checkingMode ? (
+    <p className="text-300 text-text-primary-70" role="status">
+      Checking mining group status…
+    </p>
+  ) : statistics && miningGroupsEnabled ? (
+    <PoolAssignmentSummary service={statistics} onModeDisabled={handleModeDisabled} />
+  ) : null;
   const loading = !showPoolStatusLink && poolsInfo === undefined;
   const viewPoolsPath = showPoolStatusLink ? navigationItems.pools : navigationItems.miningPools;
 
   return (
     <PopoverProvider>
       <PoolStatus
-        assignmentSummary={assignmentSummary}
+        details={details}
         poolsInfo={poolsInfo}
         loading={loading}
         showPoolStatusLink={showPoolStatusLink}
         onClickViewPools={() => navigate(`${minerRoot}/${viewPoolsPath}`)}
+        onOpenPopover={() => {
+          // The assignment list already checks mode when opening the group popup.
+          if (miningGroupsEnabled === false) setModeRefresh((refresh) => refresh + 1);
+        }}
       />
     </PopoverProvider>
   );

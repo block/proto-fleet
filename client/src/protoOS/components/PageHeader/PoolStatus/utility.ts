@@ -16,17 +16,11 @@ export const getTexts = ({ index, isConnected, showPoolStatusLink, url }: getTex
       button: "Add mining pools",
     };
   }
-  if (isConnected) {
-    return {
-      title: "Mining pool",
-      subtitle: `This miner is active and connected to your ${index === 0 ? "default" : "backup"} mining pool.`,
-      button: "View mining pools",
-    };
-  }
-
   return {
     title: "Mining pool",
-    subtitle: "This miner has lost connection to all mining pools.",
+    subtitle: isConnected
+      ? `This miner is active and connected to your ${index === 0 ? "default" : "backup"} mining pool.`
+      : "This miner has lost connection to all mining pools.",
     button: "View mining pools",
   };
 };

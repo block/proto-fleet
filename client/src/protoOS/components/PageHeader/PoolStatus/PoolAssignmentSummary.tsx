@@ -20,9 +20,15 @@ function describeAssignments(configurations: PoolConfigurationSummary[]) {
     : `${hashboards} across ${configurations.length} pool configurations`;
 }
 
-export default function PoolAssignmentSummary({ service }: { service: PoolConfigurationStatisticsService }) {
+export default function PoolAssignmentSummary({
+  service,
+  onModeDisabled,
+}: {
+  service: PoolConfigurationStatisticsService;
+  onModeDisabled: () => void;
+}) {
   const authRetry = useAuthRetry();
-  const [summary, setSummary] = useState<string | undefined>("Loading assignments…");
+  const [summary, setSummary] = useState("Loading assignments…");
   const [readings, setReadings] = useState<PoolConfigurationReadings>();
 
   usePoll({
@@ -33,14 +39,24 @@ export default function PoolAssignmentSummary({ service }: { service: PoolConfig
         request: (options) => service.list(options),
         onSuccess: ({ enabled, configurations }) => {
           if (signal.aborted) return;
-          setSummary(enabled ? describeAssignments(configurations) : undefined);
-          if (!enabled || configurations.length !== 1) return;
+          if (!enabled) {
+            onModeDisabled();
+            return;
+          }
+
+          setSummary(describeAssignments(configurations));
+          if (configurations.length !== 1) return;
 
           return authRetry({
             signal,
-            request: (options) => service.read(configurations, options),
+            request: (options) => service.read(configurations, { ...options, includeLastRecordedShares: false }),
             onSuccess: ([reading]) => {
-              if (!signal.aborted && reading && !reading.stale && !reading.error) setReadings(reading);
+              if (signal.aborted || !reading) return;
+              if (reading.stale) {
+                setSummary("Configuration changed");
+              } else if (!reading.error) {
+                setReadings(reading);
+              }
             },
           });
         },
@@ -53,14 +69,14 @@ export default function PoolAssignmentSummary({ service }: { service: PoolConfig
   const activePools = readings?.pools.filter((pool) => pool.url && isActivePool(pool)) ?? [];
   const coverage =
     readings?.observedBoards !== undefined && readings.observedBoards < readings.assignedCount
-      ? `${readings.observedBoards} of ${readings.assignedCount} hashboards reporting`
+      ? `This controller observes ${readings.observedBoards} of ${readings.assignedCount} assigned hashboards.`
       : undefined;
 
-  return summary ? (
+  return (
     <div className="space-y-3" role="status">
       <p className="text-300 wrap-anywhere text-text-primary-70">{summary}</p>
       {activePools.length > 0 ? <ConnectedPoolsCard pools={activePools} /> : null}
       {coverage ? <p className="text-200 text-text-primary-70">{coverage}</p> : null}
     </div>
-  ) : null;
+  );
 }
