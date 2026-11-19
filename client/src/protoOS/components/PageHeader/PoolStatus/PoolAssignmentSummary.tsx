@@ -59,12 +59,8 @@ export default function PoolAssignmentSummary({ service }: { service: PoolConfig
   return summary ? (
     <div className="space-y-3" role="status">
       <p className="text-300 wrap-anywhere text-text-primary-70">{summary}</p>
-      {activePools.length > 0 ? (
-        <>
-          <ConnectedPoolsCard pools={activePools} />
-          {coverage ? <p className="text-200 text-text-primary-70">{coverage}</p> : null}
-        </>
-      ) : null}
+      {activePools.length > 0 ? <ConnectedPoolsCard pools={activePools} /> : null}
+      {coverage ? <p className="text-200 text-text-primary-70">{coverage}</p> : null}
     </div>
   ) : null;
 }

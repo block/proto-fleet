@@ -144,6 +144,23 @@ describe("PoolStatusWrapper view-pools navigation", () => {
     expect(screen.queryByText("Connected")).not.toBeInTheDocument();
   });
 
+  test("shows reporting coverage when no hashboards report pool status", async () => {
+    listConfigurations.mockResolvedValue({ enabled: true, configurations: [nightShift] });
+    readConfigurations.mockResolvedValue([
+      {
+        ...nightShift,
+        observedBoards: 0,
+        pools: [{ id: asPoolId("pool:2"), url: "primary.example.com", status: "Unknown", priority: 0 }],
+      },
+    ]);
+    renderWidget({ adapter });
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole("button", { name: "Mining pools" }));
+    expect(await screen.findByText("0 of 12 hashboards reporting")).toBeInTheDocument();
+    expect(screen.queryByText("Connected")).not.toBeInTheDocument();
+  });
+
   test("keeps View pools available when the assignment summary is unavailable", async () => {
     listConfigurations.mockRejectedValueOnce(new Error("offline"));
     renderWidget({ adapter });
