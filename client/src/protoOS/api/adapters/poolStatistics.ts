@@ -1,7 +1,10 @@
 import type { AdapterRequestOptions } from "./types";
 import type { PoolInfo } from "@/protoOS/store/contract";
 
-export const isActivePool = (pool: PoolInfo) => pool.status === "Active" || pool.status === "Alive";
+export const isActivePool = (pool?: Pick<PoolInfo, "status">) => {
+  const status = pool?.status?.toLowerCase();
+  return status === "active" || status === "alive";
+};
 
 export interface PoolConfigurationSummary {
   id: string;

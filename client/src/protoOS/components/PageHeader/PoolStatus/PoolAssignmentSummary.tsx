@@ -7,6 +7,7 @@ import {
   type PoolConfigurationSummary,
 } from "@/protoOS/api/adapters/poolStatistics";
 import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
+import { beginPoolConfigurationModeRead } from "@/protoOS/store/hooks/usePoolConfigurationMode";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 function describeAssignments(configurations: PoolConfigurationSummary[]) {
@@ -20,27 +21,23 @@ function describeAssignments(configurations: PoolConfigurationSummary[]) {
     : `${hashboards} across ${configurations.length} pool configurations`;
 }
 
-export default function PoolAssignmentSummary({
-  service,
-  onModeDisabled,
-}: {
-  service: PoolConfigurationStatisticsService;
-  onModeDisabled: () => void;
-}) {
+export default function PoolAssignmentSummary({ service }: { service: PoolConfigurationStatisticsService }) {
   const authRetry = useAuthRetry();
   const [summary, setSummary] = useState("Loading assignments…");
   const [readings, setReadings] = useState<PoolConfigurationReadings>();
 
   usePoll({
     params: service,
-    fetchData: (signal) =>
-      authRetry({
+    fetchData: (signal) => {
+      const recordMode = beginPoolConfigurationModeRead(service, signal);
+      return authRetry({
         signal,
         request: (options) => service.list(options),
         onSuccess: ({ enabled, configurations }) => {
           if (signal.aborted) return;
+          recordMode(enabled);
           if (!enabled) {
-            onModeDisabled();
+            setSummary("Assignment summary unavailable.");
             return;
           }
 
@@ -63,10 +60,12 @@ export default function PoolAssignmentSummary({
         onError: () => {
           if (!signal.aborted) setSummary("Assignment summary unavailable.");
         },
-      }),
+      });
+    },
   });
 
-  const activePools = readings?.pools.filter((pool) => pool.url && isActivePool(pool)) ?? [];
+  const activePools =
+    readings?.pools.flatMap((pool, index) => (pool.url && isActivePool(pool) ? [{ ...pool, index }] : [])) ?? [];
   const coverage =
     readings?.observedBoards !== undefined && readings.observedBoards < readings.assignedCount
       ? `This controller observes ${readings.observedBoards} of ${readings.assignedCount} assigned hashboards.`

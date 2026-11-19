@@ -3,6 +3,7 @@ import ConnectedPoolsCard from "./ConnectedPoolsCard";
 import PoolInfoRow from "./PoolInfoRow";
 import type { PoolStatusEntry } from "./types";
 import { getTexts } from "./utility";
+import { isActivePool } from "@/protoOS/api/adapters/poolStatistics";
 import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Card, { cardType } from "@/shared/components/Card";
@@ -18,8 +19,7 @@ interface PoolInfoPopoverProps {
 
 const PoolInfoPopover = ({ details, onClickViewPools, poolsInfo, showPoolStatusLink }: PoolInfoPopoverProps) => {
   const legacyPools = showPoolStatusLink ? undefined : poolsInfo;
-  // cgminer reports "Alive" for an active pool.
-  const connectedIndex = legacyPools?.findIndex((pool) => /alive|active/i.test(pool?.status ?? "")) ?? -1;
+  const connectedIndex = legacyPools?.findIndex(isActivePool) ?? -1;
   const isConnected = connectedIndex >= 0;
   const selectedIndex = isConnected ? connectedIndex : 0;
   const url = legacyPools?.[selectedIndex]?.url;
@@ -40,7 +40,7 @@ const PoolInfoPopover = ({ details, onClickViewPools, poolsInfo, showPoolStatusL
       testId="pool-info-popover"
     >
       {details}
-      {url && isConnected ? <ConnectedPoolsCard pools={[{ id: selectedIndex, priority: selectedIndex, url }]} /> : null}
+      {url && isConnected ? <ConnectedPoolsCard pools={[{ id: selectedIndex, index: selectedIndex, url }]} /> : null}
       {url && !isConnected ? (
         <Card title="Not connected" type={cardType.warning}>
           {legacyPools?.map((pool, index) => (

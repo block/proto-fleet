@@ -1,8 +1,13 @@
 import type { StateCreator } from "zustand";
 import { type PoolInfo, type PoolsState, type ResourceState, ROOT_MODULE_KEY } from "../contract";
 import type { MinerStore } from "../useMinerStore";
+import type { PoolConfigurationStatisticsService } from "@/protoOS/api/adapters/poolStatistics";
+
+export type PoolConfigurationMode = boolean | "unavailable";
 
 export interface PoolsSlice extends PoolsState {
+  configurationMode?: { service: PoolConfigurationStatisticsService; value: PoolConfigurationMode };
+  setConfigurationMode: (service: PoolConfigurationStatisticsService, value: PoolConfigurationMode) => void;
   setPoolsInfo: (poolsInfo: PoolInfo[] | undefined) => void;
   setPending: (pending: boolean) => void;
   setError: (error: string) => void;
@@ -13,9 +18,16 @@ export const createPoolsSlice: StateCreator<
   [["zustand/immer", never], ["zustand/devtools", never]],
   [],
   PoolsSlice
-> = (set) => ({
+> = (set, get) => ({
   resourceByOwner: new Map(),
   byOwner: new Map(),
+  setConfigurationMode: (service, value) => {
+    const current = get().pools.configurationMode;
+    if (current?.service === service && current.value === value) return;
+    set((state) => {
+      state.pools.configurationMode = { service, value };
+    });
+  },
   setPending: (pending) =>
     set((state) => {
       const previous = state.pools.resourceByOwner.get(ROOT_MODULE_KEY);

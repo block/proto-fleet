@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
@@ -5,16 +6,17 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import PoolStatusWrapper from "./PoolStatusWrapper";
 import type { MinerAdapter } from "@/protoOS/api/adapters/types";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { usePoolConfigurationStatistics } from "@/protoOS/features/pools/usePoolConfigurationStatistics";
 import { asPoolId } from "@/protoOS/store/contract";
+import { beginPoolConfigurationModeRead } from "@/protoOS/store/hooks/usePoolConfigurationMode";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
 const getMiningGroupsEnabled = vi.fn();
 const listConfigurations = vi.fn();
 const readConfigurations = vi.fn();
 const nightShift = { id: "night-shift", name: "Night shift", revision: "1", assignedCount: 12 };
-const adapter = {
-  poolStatistics: { getMiningGroupsEnabled, list: listConfigurations, read: readConfigurations },
-} as unknown as MinerAdapter;
+const statistics = { getMiningGroupsEnabled, list: listConfigurations, read: readConfigurations };
+const adapter = { poolStatistics: statistics } as unknown as MinerAdapter;
 
 vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({
   useMinerHosting: vi.fn(),
@@ -24,14 +26,23 @@ function CurrentPath() {
   return <div data-testid="current-path">{useLocation().pathname}</div>;
 }
 
-function renderWidget(hosting: Partial<ReturnType<typeof useMinerHosting>> = {}) {
+function renderWidget(
+  hosting: Partial<ReturnType<typeof useMinerHosting>> = {},
+  { path = "/", children }: { path?: string; children?: ReactNode } = {},
+) {
   vi.mocked(useMinerHosting).mockReturnValue({ minerRoot: "", ...hosting } as ReturnType<typeof useMinerHosting>);
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <PoolStatusWrapper />
+      {children}
       <CurrentPath />
     </MemoryRouter>,
   );
+}
+
+function PoolsPageCatalogue() {
+  usePoolConfigurationStatistics(statistics, "24h", 0);
+  return null;
 }
 
 async function renderCt1Widget() {
@@ -45,6 +56,7 @@ describe("PoolStatusWrapper view-pools navigation", () => {
     getMiningGroupsEnabled.mockReset().mockResolvedValue(true);
     listConfigurations.mockReset().mockResolvedValue({ enabled: true, configurations: [] });
     readConfigurations.mockReset().mockResolvedValue([]);
+    useMinerStore.getState().resetDeviceData();
     useMinerStore
       .getState()
       .pools.setPoolsInfo([{ id: asPoolId("pool:1"), priority: 0, url: "default.example.com", status: "Dead" }]);
@@ -75,7 +87,7 @@ describe("PoolStatusWrapper view-pools navigation", () => {
     expect(screen.getByTestId("current-path")).toHaveTextContent("/settings/mining-pools");
   });
 
-  test("shows the popup while rechecking a disabled mode", async () => {
+  test("keeps the legacy popup visible while rechecking a disabled mode", async () => {
     let finishModeCheck!: (enabled: boolean) => void;
     const modeCheck = new Promise<boolean>((resolve) => {
       finishModeCheck = resolve;
@@ -85,10 +97,8 @@ describe("PoolStatusWrapper view-pools navigation", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Mining Pool" }));
     const popover = within(screen.getByTestId("pool-info-popover"));
-    expect(popover.getByText("Checking mining group status…")).toBeInTheDocument();
-    expect(popover.getByText("View pools").closest("button")).toBeEnabled();
-    expect(popover.queryByText("Not connected")).not.toBeInTheDocument();
-    expect(popover.queryByText("View mining pools")).not.toBeInTheDocument();
+    expect(popover.getByText("Not connected")).toBeInTheDocument();
+    expect(popover.getByText("View mining pools")).toBeInTheDocument();
 
     await act(async () => finishModeCheck(true));
     expect(await screen.findByText("No hashboards assigned.")).toBeInTheDocument();
@@ -97,32 +107,56 @@ describe("PoolStatusWrapper view-pools navigation", () => {
     expect(screen.getByTestId("current-path").textContent).toBe("/pools");
   });
 
-  test("uses legacy status when the assignment read confirms mining groups are disabled", async () => {
-    vi.useFakeTimers();
-    try {
-      let finishOlderPoll!: (enabled: boolean) => void;
-      const olderPoll = new Promise<boolean>((resolve) => {
-        finishOlderPoll = resolve;
-      });
-      getMiningGroupsEnabled.mockResolvedValueOnce(true).mockReturnValueOnce(olderPoll);
-      listConfigurations.mockResolvedValueOnce({ enabled: false, configurations: [] });
+  test("keeps legacy status and navigation after a mode recheck fails", async () => {
+    getMiningGroupsEnabled.mockResolvedValueOnce(false).mockRejectedValueOnce(new Error("offline"));
+    renderWidget({ adapter });
 
-      const trigger = await renderCt1Widget();
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(15_000);
-      });
-      expect(getMiningGroupsEnabled).toHaveBeenCalledTimes(2);
+    const trigger = await screen.findByRole("button", { name: "Mining Pool" });
+    await act(async () => fireEvent.click(trigger));
+    expect(getMiningGroupsEnabled).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("Not connected")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("View mining pools"));
+    expect(screen.getByTestId("current-path").textContent).toBe("/settings/mining-pools");
+  });
 
-      await act(async () => fireEvent.click(trigger));
-      expect(screen.getByText("Not connected")).toBeInTheDocument();
+  test("waits for the first mode check before opening the popup", async () => {
+    let finishModeCheck!: (enabled: boolean) => void;
+    const modeCheck = new Promise<boolean>((resolve) => {
+      finishModeCheck = resolve;
+    });
+    getMiningGroupsEnabled.mockReturnValueOnce(modeCheck).mockResolvedValue(false);
+    renderWidget({ adapter });
 
-      await act(async () => finishOlderPoll(true));
-      expect(listConfigurations).toHaveBeenCalledTimes(1);
-      fireEvent.click(screen.getByText("View mining pools"));
-      expect(screen.getByTestId("current-path").textContent).toBe("/settings/mining-pools");
-    } finally {
-      vi.useRealTimers();
-    }
+    const trigger = screen.getByRole("button", { name: "Mining Pool" });
+    fireEvent.click(trigger);
+    expect(screen.queryByTestId("pool-info-popover")).not.toBeInTheDocument();
+
+    await act(async () => finishModeCheck(false));
+    fireEvent.click(trigger);
+    expect(await screen.findByText("View mining pools")).toBeInTheDocument();
+  });
+
+  test("uses the Pools page assignment read for the initial mode", async () => {
+    renderWidget({ adapter }, { path: "/pools", children: <PoolsPageCatalogue /> });
+
+    expect(await screen.findByRole("button", { name: "Mining pools" })).toBeInTheDocument();
+    expect(listConfigurations).toHaveBeenCalledTimes(1);
+    expect(getMiningGroupsEnabled).not.toHaveBeenCalled();
+  });
+
+  test("uses legacy status despite an older enabled response", async () => {
+    listConfigurations.mockResolvedValueOnce({ enabled: false, configurations: [] });
+    const trigger = await renderCt1Widget();
+    const recordOlderMode = beginPoolConfigurationModeRead(statistics, new AbortController().signal);
+
+    await act(async () => fireEvent.click(trigger));
+    expect(screen.getByText("Not connected")).toBeInTheDocument();
+
+    await act(async () => recordOlderMode(true));
+    expect(listConfigurations).toHaveBeenCalledTimes(1);
+    expect(getMiningGroupsEnabled).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByText("View mining pools"));
+    expect(screen.getByTestId("current-path").textContent).toBe("/settings/mining-pools");
   });
 
   test.each(["enabled", "unavailable"])("CT1 opens Pools when mining-group mode is %s", async (mode) => {
@@ -181,6 +215,25 @@ describe("PoolStatusWrapper view-pools navigation", () => {
     expect(screen.getByText("secondary.example.com")).toBeInTheDocument();
     expect(screen.queryByText("backup.example.com")).not.toBeInTheDocument();
     expect(screen.getByText("This controller observes 8 of 12 assigned hashboards.")).toBeInTheDocument();
+  });
+
+  test("labels unnamed active pools by their original position and excludes inactive pools", async () => {
+    listConfigurations.mockResolvedValue({ enabled: true, configurations: [nightShift] });
+    readConfigurations.mockResolvedValue([
+      {
+        ...nightShift,
+        pools: [
+          { id: asPoolId("pool:1"), url: "primary.example.com", status: "aLiVe", priority: 1 },
+          { id: asPoolId("pool:2"), url: "standby.example.com", status: "Inactive", priority: 5 },
+          { id: asPoolId("pool:3"), url: "backup.example.com", status: "aCtIvE", priority: 8 },
+        ],
+      },
+    ]);
+
+    fireEvent.click(await renderCt1Widget());
+    expect(await screen.findByText("Default Pool")).toBeInTheDocument();
+    expect(screen.getByText("Backup Pool #2")).toBeInTheDocument();
+    expect(screen.queryByText("standby.example.com")).not.toBeInTheDocument();
   });
 
   test("keeps the assignment summary and View pools when the pool readings are unavailable", async () => {

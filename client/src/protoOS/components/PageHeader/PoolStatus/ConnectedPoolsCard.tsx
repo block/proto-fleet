@@ -5,7 +5,7 @@ import Card, { cardType } from "@/shared/components/Card";
 interface ConnectedPool {
   id: string | number;
   name?: string;
-  priority: number;
+  index: number;
   url?: string;
 }
 
@@ -15,7 +15,7 @@ export default function ConnectedPoolsCard({ pools }: { pools: ConnectedPool[] }
       {pools.map((pool, index) => (
         <PoolInfoRow
           key={pool.id}
-          index={pool.priority}
+          index={pool.index}
           name={pool.name}
           url={pool.url}
           suffixIcon={<Success className="text-intent-success-fill" />}

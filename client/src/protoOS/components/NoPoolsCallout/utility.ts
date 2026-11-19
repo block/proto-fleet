@@ -1,5 +1,6 @@
 import { matchPath } from "react-router-dom";
 
+import { isActivePool } from "@/protoOS/api/adapters/poolStatistics";
 import { settingsRouteMetadata } from "@/protoOS/routeAuth";
 
 type PoolCalloutInfo = {
@@ -7,7 +8,6 @@ type PoolCalloutInfo = {
   url?: string;
 };
 
-const livePoolStatusPattern = /alive|active/i;
 const poolEmptyStateRoutePatterns = [
   "/pools",
   "/miners/:id/pools",
@@ -20,9 +20,7 @@ const normalizePathname = (pathname: string) => {
   return normalized || "/";
 };
 
-const isPoolLive = (pool?: PoolCalloutInfo) => livePoolStatusPattern.test(pool?.status ?? "");
-
-const hasLivePool = (poolsInfo?: readonly PoolCalloutInfo[]) => poolsInfo?.some(isPoolLive) ?? false;
+const hasLivePool = (poolsInfo?: readonly PoolCalloutInfo[]) => poolsInfo?.some(isActivePool) ?? false;
 
 const hasNoLivePools = (poolsInfo?: readonly PoolCalloutInfo[]) => {
   return poolsInfo !== undefined && !hasLivePool(poolsInfo);

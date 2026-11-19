@@ -188,6 +188,7 @@ const useMinerStore = create<MinerStore>()(
             set((draft) => {
               draft.connectionGeneration += 1;
               draft.lastAcceptedRequestByResource.clear();
+              draft.pools.configurationMode = undefined;
             });
             state.hardware.reset();
             state.telemetry.clearAllData();
