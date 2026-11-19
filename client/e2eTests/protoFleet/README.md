@@ -50,19 +50,34 @@ npm run test:e2e:headed    # Run with visible browser
 
 ### Test Execution Strategy
 
-- **Pull Requests**: Run the full Fleet suite across parallel shards
-- **Nightly Builds**: Run the full Fleet suite
-- **Manual Runs**: Run the full Fleet suite by default
+- **Pull Requests**: Run only the tests with the `@smoke` tag (scope `smoke`), in 6 shards for each project
+- **Nightly Builds**: Run the full Fleet suite (scope `all`), in 16 shards for each project
+- **Manual Runs**: Run the full Fleet suite by default. The `run_scope` input can select `smoke`
 
-In CI, non-setup spec files are distributed across a fixed number of shards (`SHARD_TOTAL`) per project (desktop and mobile). Files are assigned round-robin by index (`index % SHARD_TOTAL`) rather than in contiguous alphabetical blocks, so heavy suites that sort next to each other are spread across different shards instead of clustering on one.
+A test without the `@smoke` tag runs only in the nightly and manual runs. The helper specs and the mocked-RPC specs below are the exception: they run in their own jobs in each scope.
+
+In CI, non-setup spec files are distributed across the shards of each project (desktop and mobile). The `detect-specs` job sets the shard count (`SHARD_TOTAL`) from the run scope. Files are assigned round-robin by index (`index % SHARD_TOTAL`) rather than in contiguous alphabetical blocks, so heavy suites that sort next to each other are spread across different shards instead of clustering on one.
 
 Spec files whose names start with two digits, such as `00-onboarding.spec.ts` and `01-miningPools.spec.ts`, are treated as setup specs. They are not sharded; instead they run first, in filename order, as Playwright project dependencies in every shard.
 
-The self-contained `toastHelpers`, `rackToastHelpers`, and `firmwareRolloutHelpers` specs run in the `helpers-desktop` and `helpers-mobile` projects with empty auth state and no setup dependencies. They build their own DOM and need no Fleet backend or miners. CI runs them in a separate job and excludes them from the provisioned shards. Run them locally from this directory:
+The self-contained `toastHelpers`, `rackToastHelpers`, `editPoolHelpers`, and `firmwareRolloutHelpers` specs run in the `helpers-desktop` project with empty auth state and no setup dependencies. They build their own DOM and need no Fleet backend or miners. CI runs them in a separate job and excludes them from the provisioned shards. Run them locally from this directory:
 
 ```sh
 E2E_TARGET=fake npx playwright test --project=helpers-desktop
-E2E_TARGET=fake npx playwright test --project=helpers-mobile
+```
+
+The `activationPoolRecovery`, `clientWorkspace`, `hostedReporting`, `poolConfigurations`, and `remoteNetworkSetup` specs mock all Fleet RPCs. They run in the `mocked-desktop` and `mocked-mobile` projects with empty auth state and no setup dependencies. They need the built client but no Fleet backend or miners. CI runs them in a separate job on each pull request and excludes them from the provisioned shards. The `desktop` and `mobile` projects do not include them. To run them locally, build and serve the client from the `client` directory:
+
+```sh
+npx vite build --mode protoFleet
+npx vite preview --mode protoFleet --port 5173 --strictPort
+```
+
+Then, in a second terminal, run them from this directory:
+
+```sh
+E2E_TARGET=fake npx playwright test --project=mocked-desktop
+E2E_TARGET=fake npx playwright test --project=mocked-mobile
 ```
 
 `onboardingVisual.spec.ts` is excluded from the default `desktop` and `mobile` projects. It runs only in the dedicated visual-only CI job and in the Linux snapshot refresh flow below, both of which opt into `PROTOFLEET_VISUAL_ONLY=1` so the spec always sees a fresh backend instead of the normal setup-project state.
@@ -71,7 +86,7 @@ E2E_TARGET=fake npx playwright test --project=helpers-mobile
 
 ```bash
 cd e2eTests
-npx playwright test --project=desktop    # Desktop viewport (1920x1080)
+npx playwright test --project=desktop    # Desktop viewport (1600x900)
 npx playwright test --project=mobile     # Mobile viewport (393x852)
 npx playwright test --headed             # See browser
 npx playwright test --debug              # Debug mode
@@ -154,7 +169,7 @@ export const testConfig = {
       password: "Pass123!",
     },
   },
-  testTimeout: 60000,
+  testTimeout: 180000,
   actionTimeout: 30000,
 };
 ```
@@ -163,7 +178,7 @@ export const testConfig = {
 
 The test suite supports both desktop and mobile viewports, configured in `playwright.config.ts`:
 
-- **Desktop**: 1920x1080 viewport (default)
+- **Desktop**: 1600x900 viewport (default)
 - **Mobile**: 393x852 viewport (iPhone 14/15/16 Pro resolution)
 
 Switch between projects using the `--project` flag:
@@ -209,8 +224,7 @@ e2eTests/
 │   ├── minersActions.spec.ts  # Miner management and actions tests
 │   ├── securitySettings.spec.ts # Security settings tests
 │   ├── generalSettings.spec.ts # General settings tests
-│   ├── teamAccounts.spec.ts   # Team account management tests
-│   └── navigation.spec.ts     # Navigation flow tests
+│   └── teamAccounts.spec.ts   # Team account management tests
 ├── playwright-report/         # Generated test reports (gitignored)
 └── playwright.config.ts       # Playwright configuration
 ```
@@ -396,9 +410,9 @@ await responsePromise;
 
 E2E tests run automatically in GitHub Actions:
 
-- **Triggers**: Pull requests affecting e2e tests, daily at 7 AM UTC, manual dispatch
+- **Triggers**: Pull requests affecting e2e tests, daily at 6 AM UTC, manual dispatch
 - **Matrix**: Tests run on both `desktop` and `mobile` projects
-- **Environment**: Ubuntu with Docker, TimescaleDB, and 12 fake miners
+- **Environment**: Ubuntu with Docker, TimescaleDB, and 14 fake miners
 - **Reporting**: HTML reports and GitHub annotations
 
 See [`.github/workflows/protofleet-e2e-tests.yml`](/.github/workflows/protofleet-e2e-tests.yml) for full workflow configuration.
@@ -409,7 +423,7 @@ The workflow:
 
 1. Builds ProtoFleet client (both ProtoOS and ProtoFleet apps)
 2. Starts TimescaleDB service
-3. Builds and runs 12 fake miners via Docker Compose
+3. Builds and runs 14 fake miners via Docker Compose
 4. Runs backend server
 5. Executes Playwright tests with `--project=desktop` or `--project=mobile`
 6. Uploads test reports and traces as artifacts

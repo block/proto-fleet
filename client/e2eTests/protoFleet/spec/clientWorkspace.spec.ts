@@ -137,7 +137,9 @@ test.describe("Client workspace and read-only host preview", () => {
         await expect(page.getByText("Customer A miner", { exact: true })).toBeVisible();
         await workspace.navigate("Pools", clientA, "pools");
         await expect(
-          page.getByText("Save a primary pool and optional backups to apply to your equipment.", { exact: true }),
+          page.getByText("The default configuration applies when equipment is paired or changes ownership.", {
+            exact: true,
+          }),
         ).toBeVisible();
         await expect(page.getByText("No pool configurations yet", { exact: true })).toBeVisible();
         await expect(page.getByRole("button", { name: "Create configuration", exact: true })).toBeEnabled({

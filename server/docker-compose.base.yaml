@@ -10,7 +10,7 @@ services:
       DB_DSN: "${DB_DSN:-}"
       HTTP_LISTEN_ADDRESS: "0.0.0.0:4000"
       # Base default for stacks that extend this file and serve over plain HTTP
-      # (local dev, the real-miners runner, etc.): browsers silently drop a
+      # (local dev, etc.): browsers silently drop a
       # Secure cookie over http:// on a non-localhost origin (e.g. a LAN IP),
       # which breaks login. The production deployment compose overrides this to
       # "${SESSION_COOKIE_SECURE:-true}" since it runs over HTTPS.

@@ -31,12 +31,6 @@ export class ActivityPage extends BasePage {
     await this.waitForActivityListToLoad();
   }
 
-  async clearSearchWithEscape() {
-    const input = this.page.locator("#activity-search");
-    await input.press("Escape");
-    await this.waitForActivityListToLoad();
-  }
-
   async selectTypeFilter(optionLabel: string) {
     await this.selectDropdownFilter("Type", optionLabel);
   }
@@ -107,12 +101,6 @@ export class ActivityPage extends BasePage {
     await expect(this.activityRowByDescription(description)).toBeVisible();
   }
 
-  async validateActivityDescriptionMarkedFailed(description: string) {
-    await expect(
-      this.activityRowByDescription(description).getByText("Couldn't complete", { exact: true }),
-    ).toHaveCount(1);
-  }
-
   async openLatestActivityDetails() {
     await this.latestActivityRow().click();
   }
@@ -123,10 +111,6 @@ export class ActivityPage extends BasePage {
 
   async validateActivityDetailContainsText(text: string) {
     await expect(this.activityDetailModal()).toContainText(text);
-  }
-
-  async validateActivityDetailDeviceResultsRowCount(expectedCount: number) {
-    await expect(this.activityDetailModal().locator("tbody tr")).toHaveCount(expectedCount);
   }
 
   async dismissActivityDetailModal() {

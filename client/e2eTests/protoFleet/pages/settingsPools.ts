@@ -35,13 +35,6 @@ export class SettingsPoolsPage extends BasePage {
     await expect(details).toBeHidden();
   }
 
-  async deletePoolsByPrefix(prefix: string) {
-    const names = (await this.page.getByRole("button").allTextContents())
-      .map((name) => name.trim())
-      .filter((name) => name.startsWith(prefix));
-    for (const name of names) await this.deletePoolByNameIfVisible(name);
-  }
-
   async deletePoolByNameIfVisible(name: string) {
     const row = this.row(name);
     if (!(await row.isVisible())) return;

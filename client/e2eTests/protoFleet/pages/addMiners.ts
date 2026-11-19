@@ -40,10 +40,6 @@ export class AddMinersPage extends BasePage {
     return this.page.getByTestId("found-miners-list");
   }
 
-  getValidationErrorDialog(): Locator {
-    return this.page.getByTestId("validation-error-dialog");
-  }
-
   private continueWithMinersButton(minerCount?: number) {
     return minerCount === undefined
       ? this.page.getByRole("button", { name: /Continue with \d+ miner(s)?/ }).first()
@@ -149,11 +145,6 @@ export class AddMinersPage extends BasePage {
 
   async clickContinueWithSelectedMiners() {
     await this.continueWithMinersButton().click();
-  }
-
-  async waitForFoundMinersList() {
-    const foundMinersList = this.page.getByTestId("found-miners-list");
-    await expect(foundMinersList).toBeVisible();
   }
 
   async waitForNetworkScanToFinish(timeout = DEFAULT_TIMEOUT) {
@@ -298,11 +289,6 @@ export class AddMinersPage extends BasePage {
   async validateContinueAnywayButtonNotVisible() {
     const dialog = this.page.getByTestId("validation-error-dialog");
     await expect(dialog.getByRole("button", { name: "Continue anyway" })).toBeHidden();
-  }
-
-  async validateContinueAnywayButtonVisible() {
-    const dialog = this.page.getByTestId("validation-error-dialog");
-    await expect(dialog.getByRole("button", { name: "Continue anyway" })).toBeVisible();
   }
 
   async validateTextareaErrorContains(text: string) {

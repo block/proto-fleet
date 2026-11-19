@@ -732,13 +732,6 @@ export class BasePage {
     await expect(this.page.getByTestId("navigation-menu-button")).toBeVisible();
   }
 
-  async navigateToHomePage() {
-    await this.clickNavigationMenuIfMobile();
-    await this.page.getByTestId("navigation-menu").locator('a[href="/dashboard"]').click();
-    await expect(this.page).toHaveURL(/.*\/dashboard$/);
-    await this.waitForMobileNavigationMenuToClose();
-  }
-
   async navigateToFleetPage() {
     if (
       FLEET_TAB_ROUTE.test(this.page.url()) &&
@@ -921,19 +914,6 @@ export class BasePage {
     }
 
     await this.page.getByRole("button", { name: text, disabled: false, exact: true }).click();
-  }
-
-  async clickUntilNotVisible(text: string) {
-    const button = this.page.getByRole("button", { name: text, disabled: false, exact: true });
-
-    await expect(button).toBeVisible();
-    await expect(async () => {
-      const isVisible = await button.isVisible();
-      if (isVisible) {
-        await button.click();
-        throw new Error("Button still visible, looping until it is not or the time runs out");
-      }
-    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [100] });
   }
 
   async clickIn(text: string, testId: string) {

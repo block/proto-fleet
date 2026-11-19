@@ -198,10 +198,6 @@ export class AuthPage extends BasePage {
     await this.validateTitle("Password saved");
   }
 
-  async clickCreateAccount() {
-    await this.clickButton("Create an account");
-  }
-
   getCreateCredentialsForm() {
     const heading = this.page.getByText("Create your username and password", { exact: true });
 

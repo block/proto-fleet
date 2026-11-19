@@ -65,6 +65,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      # A step `if:` cannot read secrets. This flag lets the Testmo steps skip
+      # when the repository has no TESTMO_TOKEN secret.
+      HAS_TESTMO_TOKEN: ${{ secrets.TESTMO_TOKEN != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -166,12 +170,12 @@ jobs:
           fi
 
       - name: Install Testmo CLI
-        if: ${{ !cancelled() && github.event_name == 'schedule' }}
+        if: ${{ !cancelled() && github.event_name == 'schedule' && env.HAS_TESTMO_TOKEN == 'true' }}
         run: |
           npm install -g @testmo/testmo-cli@1.0.0
 
       - name: Submit test results to Testmo
-        if: ${{ !cancelled() && github.event_name == 'schedule' }}
+        if: ${{ !cancelled() && github.event_name == 'schedule' && env.HAS_TESTMO_TOKEN == 'true' }}
         working-directory: client/e2eTests/protoOS
         env:
           TESTMO_TOKEN: ${{ secrets.TESTMO_TOKEN }}

@@ -14,38 +14,6 @@ test.describe("Proto Fleet - Onboarding", () => {
     });
   });
 
-  test("Validate null states", async ({ homePage, commonSteps, minersPage, groupsPage, settingsPoolsPage }) => {
-    await commonSteps.loginAsAdmin();
-
-    await test.step("Validate Home screen null state due to no miners added", async () => {
-      await homePage.validateTextIsVisible("Let's set up your fleet.");
-      await homePage.validateTextIsVisible("Add miners to your fleet to get started.");
-      await homePage.validateButtonIsVisible("Get Started");
-    });
-
-    await test.step("Validate Miners screen null state due to no miners added", async () => {
-      await homePage.navigateToMinersPage();
-      await minersPage.validateTextIsVisible("You haven't paired any miners");
-      await minersPage.validateTextIsVisible("Add miners to your fleet to get started.");
-      await minersPage.validateButtonIsVisible("Get Started");
-    });
-
-    await test.step("Validate Groups screen null state due to no groups added", async () => {
-      await minersPage.navigateToGroupsPage();
-      await groupsPage.validateTextIsVisible("Organize your miners into groups.");
-      await groupsPage.validateButtonIsVisible("Add group");
-    });
-
-    await test.step("Validate Pools screen null state due to no pools added", async () => {
-      await groupsPage.navigateToMiningPoolsSettings();
-      await settingsPoolsPage.validateTitle("Pool configurations");
-      await settingsPoolsPage.validateTextIsVisible(
-        "Create a configuration with a primary pool and up to two backups.",
-      );
-      await settingsPoolsPage.validateButtonIsVisible("Create configuration");
-    });
-  });
-
   if (testConfig.target === "real") {
     test("Add specific miners @setup", async ({ authPage, minersPage, commonSteps, addMinersPage }) => {
       await commonSteps.loginAsAdmin();

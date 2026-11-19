@@ -3,6 +3,7 @@ import { testConfig } from "../config/test.config";
 import { expect, test } from "../fixtures/pageFixtures";
 import {
   ALERTS_E2E_ENABLED,
+  cleanupRbacTeamArtifacts,
   createAlertChannelAsAdmin,
   createCurtailment,
   createInfrastructureFixturesAsAdmin,
@@ -69,6 +70,11 @@ function expectConnectSuccessfulOrUnimplemented(result: { body: string; ok: bool
 test.describe("Proto Fleet - RBAC", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
+  });
+
+  test.afterAll("CLEANUP: delete RBAC roles and members", async ({ browser }, testInfo) => {
+    test.setTimeout(testConfig.testTimeout * 2);
+    await cleanupRbacTeamArtifacts(browser, testInfo);
   });
 
   test(
@@ -337,6 +343,7 @@ test.describe("Proto Fleet - RBAC", () => {
       category: "TICKET_CATEGORY_INFRASTRUCTURE",
       component: "Network",
       diagnosis: "must be denied",
+      description: "must be denied",
       siteId: "1",
       idempotencyKey: "rbac-denied-maintenance-create",
     });

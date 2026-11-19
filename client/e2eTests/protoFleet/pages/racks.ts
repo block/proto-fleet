@@ -633,10 +633,6 @@ export class RacksPage extends BasePage {
     await this.clickButton("Delete");
   }
 
-  async validateRackDeletedToast(timeout: number = DEFAULT_TIMEOUT) {
-    await this.validateTextInToast("Rack deleted", timeout);
-  }
-
   async validateRackOverviewAssignedSlots(slotNumbers: readonly number[]) {
     for (const slotNumber of slotNumbers) {
       const slot = this.getRackOverviewSlot(slotNumber);

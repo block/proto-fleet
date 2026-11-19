@@ -3,14 +3,7 @@ import { expect, test } from "@playwright/test";
 import { TimeSeriesMetric } from "../../../src/protoOS/api/adapters/mdkV2/generated/proto/mdk/v2/common_pb";
 import { QueryTimeSeriesRequestSchema } from "../../../src/protoOS/api/adapters/mdkV2/generated/proto/mdk/v2/telemetry_pb";
 
-// Run against an isolated fake-ct1-backed ProtoOS server, not the rig fixture
-// used by the existing onboarding/settings suite.
 test.describe("Container Home", () => {
-  // The default suite targets a rig; this opt-in fixture requires CT1 telemetry.
-  // eslint-disable-next-line playwright/no-skipped-test
-  test.skip(!process.env.CT1_BASE_URL, "Requires a ProtoOS server pointed at fake-ct1 (CT1_BASE_URL)");
-  test.use({ baseURL: process.env.CT1_BASE_URL });
-
   test("System, metric modes and durations use aggregate requests", async ({ page }) => {
     const histories: { metric: TimeSeriesMetric; identifier: string }[] = [];
     page.on("request", (request) => {

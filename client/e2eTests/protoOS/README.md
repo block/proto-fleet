@@ -8,7 +8,7 @@ The default `playwright.config.ts` targets an MDK v1 rig. Read `config/test.conf
 npx playwright test --project=desktop
 ```
 
-The existing `containerHome`, `containerPools`, and `containerTanks` specs are opt-in via `CT1_BASE_URL`. They expect a separately started protoOS server backed by fake-ct1; tank-health coverage requires the full demo topology. Do not point the rig suite at CT1 or run state-changing tests against a shared controller without authorization.
+The existing `containerTanks` spec is opt-in via `CT1_BASE_URL`. It expects a separately started protoOS server backed by fake-ct1 with the full demo topology. Do not point the rig suite at CT1 or run state-changing tests against a shared controller without authorization.
 
 ## CT1 production standalone
 
@@ -34,6 +34,7 @@ The suite refuses to reuse a running server, so an occupied port is a setup erro
 
 - CT1 probe resolution and successful production JavaScript, stylesheets, and body/monospace font loads from the same server;
 - container Home's chart-free schematic Overview and live stat labels, plus successful aggregate history and plotted data on Hashrate; tank/module deep-link refreshes without login/onboarding, including successful selected-board ASIC reads and populated temperatures;
+- container Home's 48h range, Power legend series, Fluid temperature mode, a missing fan-power metric shown as `—`, and no horizontal overflow at 393 px;
 - diagram Fit, zoom below Fit, bounded pan, keyboard navigation, native two-finger pinch, and equipment clicks after dragging, without issuing control writes;
 - fresh-storage boot separately from returning users with persisted synthetic v1 bearer credentials;
 - completed entry assets for each document and current-document assets; optional prefetches from replaced documents need not finish, but all observed HTTP errors and failures other than old-document navigation cancellations still fail the test;

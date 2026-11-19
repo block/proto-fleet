@@ -276,7 +276,9 @@ export class ClientWorkspacePage {
     await expect(picker).toHaveCount(0);
     await expect(this.page).toHaveURL(originalUrl);
     expect(new URL(originalUrl).pathname).toBe(`/accounts/${accountId}/manage/assets`);
-    await expect(this.page.getByRole("status")).toHaveText(`Allocated 1 asset to ${clientName}.`);
+    await expect(
+      this.page.getByTestId("toast").filter({ hasText: `Allocated 1 asset to ${clientName}.` }),
+    ).toBeVisible();
     await expect(this.page.getByRole("button", { name: "Allocate assets", exact: true })).toBeFocused();
     await expect(this.page.getByText("Allocation miner", { exact: true })).toBeVisible();
     return screenshot;

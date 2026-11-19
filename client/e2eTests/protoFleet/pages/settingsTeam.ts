@@ -49,12 +49,17 @@ export class SettingsTeamPage extends BasePage {
   }
 
   async openMembersTab(timeoutMs: number = DEFAULT_TIMEOUT) {
+    const adminRow = this.getMemberRow(testConfig.users.admin.username);
     const activateButton = this.page.getByTestId("team-tab-members-activate");
-    if (await activateButton.isVisible().catch(() => false)) {
+    // The page keeps the selected tab in the URL, so a reload can open the
+    // Invitations tab. The tab strip shows only when the user can see more
+    // than one tab. Wait until the page shows one of the two before the click.
+    await expect(adminRow.or(activateButton).first()).toBeVisible({ timeout: timeoutMs });
+    if (!(await adminRow.isVisible())) {
       await activateButton.click();
     }
 
-    await expect(this.getMemberRow(testConfig.users.admin.username)).toBeVisible({ timeout: timeoutMs });
+    await expect(adminRow).toBeVisible({ timeout: timeoutMs });
   }
 
   async openInvitationsTab(timeoutMs: number = DEFAULT_TIMEOUT) {
@@ -178,10 +183,6 @@ export class SettingsTeamPage extends BasePage {
 
   async validateMemberRole(username: string, role: string) {
     await expect(this.getMemberRow(username).getByTestId("role")).toHaveText(role);
-  }
-
-  async validateMemberLastLogin(username: string, lastLogin: string) {
-    await expect(this.getMemberRow(username).getByTestId("lastLoginAt")).toHaveText(lastLogin);
   }
 
   async getTemporaryPassword(): Promise<string> {

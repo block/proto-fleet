@@ -13,6 +13,14 @@ const HELPER_SPEC_GLOBS = [
   "**/rackToastHelpers.spec.ts",
   "**/firmwareRolloutHelpers.spec.ts",
 ];
+// These specs mock all Fleet RPCs. They need the built client but no Fleet backend or miners.
+const MOCKED_SPEC_GLOBS = [
+  "**/activationPoolRecovery.spec.ts",
+  "**/clientWorkspace.spec.ts",
+  "**/hostedReporting.spec.ts",
+  "**/poolConfigurations.spec.ts",
+  "**/remoteNetworkSetup.spec.ts",
+];
 const skipProjectDeps = process.env.PW_UI_NO_DEPS === "1";
 const visualOnly = process.env.PROTOFLEET_VISUAL_ONLY === "1";
 const visualBaseUrl = process.env.PROTOFLEET_VISUAL_BASE_URL?.trim();
@@ -89,9 +97,18 @@ export default defineConfig({
         },
       ]
     : [
-        ...(["desktop", "mobile"] as const).map((viewport) => ({
-          name: `helpers-${viewport}`,
+        {
+          name: "helpers-desktop",
           testMatch: HELPER_SPEC_GLOBS,
+          use: {
+            viewport: { width: 1600, height: 900 },
+            isMobile: false,
+            storageState: { cookies: [], origins: [] },
+          },
+        },
+        ...(["desktop", "mobile"] as const).map((viewport) => ({
+          name: `mocked-${viewport}`,
+          testMatch: MOCKED_SPEC_GLOBS,
           use: {
             viewport: viewport === "desktop" ? { width: 1600, height: 900 } : { width: 393, height: 852 },
             isMobile: viewport === "mobile",
@@ -117,7 +134,7 @@ export default defineConfig({
         {
           name: "desktop",
           testMatch: /.*\.spec\.ts$/,
-          testIgnore: [SETUP_FILE_GLOB, VISUAL_SPEC_GLOB, ...HELPER_SPEC_GLOBS],
+          testIgnore: [SETUP_FILE_GLOB, VISUAL_SPEC_GLOB, ...HELPER_SPEC_GLOBS, ...MOCKED_SPEC_GLOBS],
           dependencies: skipProjectDeps ? [] : ["setup-desktop"],
           use: {
             viewport: { width: 1600, height: 900 },
@@ -129,7 +146,7 @@ export default defineConfig({
         {
           name: "mobile",
           testMatch: /.*\.spec\.ts$/,
-          testIgnore: [SETUP_FILE_GLOB, VISUAL_SPEC_GLOB, ...HELPER_SPEC_GLOBS],
+          testIgnore: [SETUP_FILE_GLOB, VISUAL_SPEC_GLOB, ...HELPER_SPEC_GLOBS, ...MOCKED_SPEC_GLOBS],
           dependencies: skipProjectDeps ? [] : ["setup-mobile"],
           use: {
             viewport: { width: 393, height: 852 },

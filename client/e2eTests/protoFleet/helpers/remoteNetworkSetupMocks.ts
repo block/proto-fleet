@@ -39,6 +39,8 @@ export async function mockRemoteNetworkSetup(context: BrowserContext) {
         return fulfill(route, { fleetNodes: [] });
       case "ListAccounts":
         return fulfill(route, { hostAccess: true, accounts: [] });
+      case "ListHostReportingAccounts":
+        return fulfill(route, {});
       case "CreateEnrollmentCode":
         return fulfill(route, { code: "setup-code", pendingEnrollmentId: "11" });
       default:
