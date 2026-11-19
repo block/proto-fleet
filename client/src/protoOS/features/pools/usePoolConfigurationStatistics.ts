@@ -9,6 +9,10 @@ import type {
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import type { PoolInfo } from "@/protoOS/store/contract";
 import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
+import {
+  beginPoolConfigurationModeRead,
+  usePoolConfigurationMode,
+} from "@/protoOS/store/hooks/usePoolConfigurationMode";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 import { durationToMs } from "@/shared/components/DurationSelector/constants";
 import { usePoll } from "@/shared/hooks/usePoll";
@@ -41,6 +45,7 @@ export function usePoolConfigurationStatistics(
   const { adapter } = useMinerHosting();
   const generation = useMinerStore((state) => state.connectionGeneration);
   const authRetry = useAuthRetry();
+  const mode = usePoolConfigurationMode(service);
   const key = useMemo(() => ({ service, generation }), [service, generation]);
   type Catalogue = Awaited<ReturnType<typeof service.list>>;
   const [catalogue, setCatalogue] = useState<{ key: typeof key; value?: Catalogue; error?: string }>();
@@ -50,14 +55,17 @@ export function usePoolConfigurationStatistics(
     params: catalogueParams,
     poll: true,
     pollIntervalMs: livePollIntervalMs,
-    fetchData: (signal) =>
-      authRetry({
+    fetchData: (signal) => {
+      const recordMode = beginPoolConfigurationModeRead(service, signal);
+      return authRetry({
         signal,
         request: (options) => service.list(options),
         onSuccess: (value) => {
+          recordMode(value.enabled);
           if (!signal.aborted) setCatalogue({ key, value });
         },
         onError: () => {
+          recordMode("unavailable");
           if (!signal.aborted)
             setCatalogue((previous) => ({
               key,
@@ -65,10 +73,13 @@ export function usePoolConfigurationStatistics(
               error: "Could not refresh configurations. Displayed values may be out of date.",
             }));
         },
-      }),
+      });
+    },
   });
   const current = catalogue?.key === key ? catalogue : undefined;
-  const configurations = current?.value?.configurations ?? [];
+  const currentValue = current?.value?.enabled === mode ? current?.value : undefined;
+  const enabled = currentValue?.enabled ?? (mode === false ? false : undefined);
+  const configurations = currentValue?.configurations ?? [];
   const currentPage = Math.min(page, Math.max(0, Math.ceil(configurations.length / 25) - 1));
   const selected = configurations.find((configuration) => configuration.id === selectedId);
   const entries = selectedId
@@ -88,7 +99,7 @@ export function usePoolConfigurationStatistics(
   const readingParams = useMemo(() => ({ selection, readingsVersion }), [selection, readingsVersion]);
   usePoll({
     params: readingParams,
-    enabled: current?.value?.enabled === true && entries.length > 0,
+    enabled: enabled === true && entries.length > 0,
     poll: true,
     pollIntervalMs: livePollIntervalMs,
     fetchData: (signal) =>
@@ -131,7 +142,7 @@ export function usePoolConfigurationStatistics(
   // History uses completed hourly buckets and does not need the live poll interval.
   usePoll({
     params: historyParams,
-    enabled: current?.value?.enabled === true && poolIds.length > 0,
+    enabled: enabled === true && poolIds.length > 0,
     poll: true,
     pollIntervalMs: historyPollIntervalMs,
     fetchData: async (signal) => {
@@ -177,7 +188,7 @@ export function usePoolConfigurationStatistics(
     unavailable: currentHistory.value.unavailable.filter((id) => poolIds.includes(id)),
   };
   return {
-    enabled: current?.value?.enabled,
+    enabled,
     configurations,
     selected,
     page: currentPage,
