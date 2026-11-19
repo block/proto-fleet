@@ -8,6 +8,7 @@ import { useCoolingStatus } from "@/protoOS/api/hooks/useCoolingStatus";
 import { useErrors } from "@/protoOS/api/hooks/useErrors";
 import { useTelemetry } from "@/protoOS/api/hooks/useTelemetry";
 import { WakingDialog } from "@/protoOS/components/Power";
+import { usePsuObservationTime } from "@/protoOS/hooks/usePsuObservationTime";
 import { useWakeMiner } from "@/protoOS/hooks/useWakeMiner";
 import type { ComponentRef } from "@/protoOS/store/contract";
 import { useDetailedErrors, useIsSleeping } from "@/protoOS/store/hooks/useMinerStatus";
@@ -43,10 +44,11 @@ const ContainerHealthModal = ({
     pollIntervalMs: 15_000,
   });
   const telemetry = useComponentTelemetry(component);
+  const now = usePsuObservationTime();
   const componentHardware = useComponentHardware(component);
   const name = (ref: ComponentRef) => componentName(ref, hardware);
   const detail = component
-    ? buildComponentStatusProps(component, name(component), errors, telemetry, componentHardware)
+    ? buildComponentStatusProps(component, name(component), errors, telemetry, componentHardware, now)
     : undefined;
   if (detail && component?.kind === "hashboard") {
     const board = telemetry && "hashboardId" in telemetry ? telemetry : undefined;
@@ -67,7 +69,7 @@ const ContainerHealthModal = ({
       : `${summary?.label ?? "Container"} status`;
   const rows = summary
     ? [
-        ...transformErrorsForModal(summary.errors, name, setComponent),
+        ...transformErrorsForModal(summary.errors, name, setComponent, now),
         ...summary.observations.map(({ component: ref, message }) => ({
           componentName: name(ref),
           message,

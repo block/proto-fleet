@@ -47,6 +47,7 @@ const ComponentStatusModalContent = ({
   errors,
   metrics,
   metadata,
+  notice,
 }: ComponentStatusModalProps) => {
   const hasErrors = errors.length > 0;
   const hasSingleError = errors.length === 1;
@@ -83,6 +84,11 @@ const ComponentStatusModalContent = ({
 
   return (
     <StatusModalLayout icon={icon} title={title} subtitle={subtitle} errors={layoutErrors}>
+      {notice ? (
+        <p role="status" className="text-300 text-text-primary-70">
+          {notice}
+        </p>
+      ) : null}
       {/* Performance metrics grid */}
       {metrics && metrics.length > 0 ? (
         <div

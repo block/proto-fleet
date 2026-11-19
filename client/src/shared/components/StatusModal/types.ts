@@ -59,6 +59,8 @@ export interface ComponentMetadata {
 // Props for the ComponentStatusModal
 export interface ComponentStatusModalProps {
   summary?: string; // e.g., "Hashboard 3 has multiple errors"
+  /** Qualifies readings separately from the fault title. */
+  notice?: string;
   componentType: ComponentType;
   /** Reported health can require attention even without detailed error messages. */
   health?: "ok" | "degraded" | "fault" | "offline" | "unknown";

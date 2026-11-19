@@ -348,6 +348,8 @@ export interface AsicTelemetry {
 export interface PsuTelemetry {
   componentId: ComponentId;
   health?: HealthState;
+  /** CT1 source sample times, independent of the client poll. Missing entries are unreported. */
+  observedAt?: { electrical?: number; temperatures?: number; thermalState?: number };
   inputVoltage?: MetricTelemetry;
   inputCurrent?: MetricTelemetry;
   inputPower?: MetricTelemetry;
@@ -355,6 +357,9 @@ export interface PsuTelemetry {
   outputCurrent?: MetricTelemetry;
   outputPower?: MetricTelemetry;
   ambientTemperature?: MetricTelemetry;
+  inletTemperature?: MetricTelemetry;
+  srHeatsinkTemperature?: MetricTelemetry;
+  pfcHeatsinkTemperature?: MetricTelemetry;
   averageTemperature?: MetricTelemetry;
   hotspotTemperature?: MetricTelemetry;
 }
@@ -594,6 +599,8 @@ export interface MinerError {
   component?: ComponentRef;
   severity: "info" | "warning" | "critical";
   timestampMs?: number;
+  /** Boards reporting a shared PSU issue; health sample times qualify report freshness. */
+  reportedBy?: { component: ComponentRef; label: string; observedAt?: number }[];
 }
 
 export interface DeviceLifecycle {

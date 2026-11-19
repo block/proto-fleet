@@ -9,6 +9,7 @@ import {
   type TankId,
   type TelemetryState,
 } from "@/protoOS/store/contract";
+import { psuHealth } from "@/protoOS/store/utils/psuFreshness";
 
 export type HealthScope = { kind: "container" } | { kind: "tank"; id: TankId } | { kind: "module"; id: ModuleId };
 
@@ -18,6 +19,7 @@ export function getScopeHealth(
   hardware: HardwareState,
   telemetry: TelemetryState,
   errors: MinerError[],
+  now = Date.now(),
 ) {
   const topology = hardware.topology;
   if (topology?.kind !== "container") return undefined;
@@ -32,6 +34,10 @@ export function getScopeHealth(
     (error) => scope.kind === "container" || (error.owner.kind === "module" && moduleIds.has(error.owner.id)),
   );
   const errorComponents = new Set(scopedErrors.flatMap((error) => (error.component ? [error.component.id] : [])));
+  const reportedComponents = new Set([
+    ...errorComponents,
+    ...scopedErrors.flatMap((error) => error.reportedBy?.map((reporter) => reporter.component.id) ?? []),
+  ]);
   const affected = new Set(errorComponents);
   const observations: { component: ComponentRef; message: string }[] = [];
   const moduleStatuses = new Map<ModuleId, ModuleStatus>();
@@ -41,7 +47,7 @@ export function getScopeHealth(
     "attention";
   const observe = (component: ComponentRef, status: ModuleStatus, message: string) => {
     if (status === "attention" || status === "offline") affected.add(component.id);
-    if (!errorComponents.has(component.id) && ["attention", "offline", "unknown"].includes(status)) {
+    if (!reportedComponents.has(component.id) && ["attention", "offline", "unknown"].includes(status)) {
       observations.push({ component, message });
     }
   };
@@ -79,7 +85,7 @@ export function getScopeHealth(
     )
       status = "unknown";
     for (const id of module.psuIds) {
-      const health = telemetry.psus.get(id)?.health;
+      const health = psuHealth(telemetry.psus.get(id), now);
       const psuStatus =
         health === "fault" || health === "degraded"
           ? "attention"

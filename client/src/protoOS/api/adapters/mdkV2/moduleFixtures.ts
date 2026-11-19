@@ -21,8 +21,18 @@ export const moduleFixture = (state: ModuleFixtureState = "healthy") => {
                         serial: `T1-M${module}-HB${slot}`,
                         location: { hashboardPosition: slot },
                         miningState: V2MiningState.MINING_STATE_MINING,
-                        psuIdentity: state === "noPsu" ? undefined : { serial: `PSU-${module}`, model: "CT1 PSU" },
+                        psuIdentity:
+                          state === "noPsu"
+                            ? undefined
+                            : {
+                                serial: `PSU-${module}`,
+                                model: "CT1 PSU",
+                                vendor: "Example vendor",
+                                revision: "R2",
+                                firmwareVersion: "1.2.3",
+                              },
                         health: {
+                          timestamp: new Date().toISOString(),
                           hashrate: 88.4,
                           power: 1370.2,
                           averageAsicTemperatureC: 32,
@@ -34,8 +44,10 @@ export const moduleFixture = (state: ModuleFixtureState = "healthy") => {
                                 ? { inputPower: 0 }
                                 : {
                                     inputVoltage: 415,
+                                    inputCurrent: 10.3,
                                     inputPower: 4282,
                                     outputVoltage: 12,
+                                    outputCurrent: 342.6,
                                     outputPower: 4110.6,
                                   },
                           psuThermal:

@@ -86,14 +86,17 @@ ORDER BY time,collected_at LIMIT sqlc.arg('page_limit')::int;
 -- name: ListFleetInventoryOptions :one
 SELECT COALESCE(array_agg(DISTINCT dd.model ORDER BY dd.model) FILTER (WHERE dd.model <> ''), '{}'::text[])::text[] AS models,
        COALESCE(array_agg(DISTINCT dd.firmware_version ORDER BY dd.firmware_version) FILTER (WHERE dd.firmware_version <> ''), '{}'::text[])::text[] AS firmware_versions
-FROM fleet_mining_asset m
-JOIN device d ON d.id=m.id AND d.org_id=m.org_id
-JOIN discovered_device dd ON dd.id=d.discovered_device_id
-WHERE m.kind=5 AND m.org_id=sqlc.arg('org_id') AND NOT EXISTS (
- SELECT 1 FROM jsonb_to_recordset(sqlc.arg('authority')::jsonb) AS a(org_wide boolean, sites bigint[])
- WHERE NOT (CASE WHEN a.org_wide THEN m.site_id IS NULL OR NOT (m.site_id=ANY(a.sites))
-                ELSE COALESCE(m.site_id=ANY(a.sites),FALSE) END)
-);
+FROM device d
+JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=d.org_id
+JOIN device_pairing dp ON dp.device_id=d.id
+WHERE d.org_id=sqlc.arg('org_id')
+ AND d.deleted_at IS NULL AND dd.deleted_at IS NULL AND dd.is_active AND dd.device_class<>2
+ AND dp.pairing_status IN ('PAIRED','AUTHENTICATION_NEEDED','DEFAULT_PASSWORD')
+ AND NOT EXISTS (
+   SELECT 1 FROM jsonb_to_recordset(sqlc.arg('authority')::jsonb) AS a(org_wide boolean, sites bigint[])
+   WHERE NOT (CASE WHEN a.org_wide THEN d.site_id IS NULL OR NOT (d.site_id=ANY(a.sites))
+                  ELSE COALESCE(d.site_id=ANY(a.sites),FALSE) END)
+ );
 
 -- name: GetContainerTankScope :one
 SELECT d.site_id FROM container_tank t

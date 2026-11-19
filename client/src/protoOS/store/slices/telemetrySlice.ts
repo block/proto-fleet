@@ -46,6 +46,8 @@ const metricFields = [
   "outputCurrent",
   "outputPower",
   "ambientTemperature",
+  "srHeatsinkTemperature",
+  "pfcHeatsinkTemperature",
   "dryCoolerInletTemperature",
   "averageTemperature",
   "hotspotTemperature",
@@ -246,7 +248,7 @@ export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", n
         for (const id of module.psuIds) {
           const previous = state.telemetry.psus.get(id);
           if (psus.has(id) || !previous) continue;
-          const cleared: PsuTelemetry = { componentId: id, health: "unknown" };
+          const cleared: PsuTelemetry = { componentId: id, health: "unknown", observedAt: {} };
           for (const field of metricFields) {
             const metric = (previous as unknown as MetricContainer)[field] as MetricTelemetry | undefined;
             if (metric?.latest)

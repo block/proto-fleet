@@ -13,68 +13,87 @@ import (
 )
 
 const listFleetMiningAssets = `-- name: ListFleetMiningAssets :one
-WITH assets AS (
- SELECT a.kind AS kind, a.id AS id, a.org_id AS org_id, a.site_id AS site_id,
-   a.name AS name, a.device_identifier AS device_identifier, a.position AS position, a.reported_id AS reported_id,
-   a.facility_kind AS facility_kind, a.facility_id AS facility_id, a.group_kind AS group_kind, a.group_id AS group_id,
-   a.state AS state, a.observed_at AS observed_at, a.miner_efficiency_jth AS miner_efficiency_jth, 1::bigint AS asset_count,
-   CASE WHEN hashrate_hs IS NULL THEN 0 ELSE 1 END::bigint AS hashrate_reporting_count,
-   CASE WHEN power_w IS NULL THEN 0 ELSE 1 END::bigint AS power_reporting_count,
-   hashrate_hs / 1e12 AS hashrate_ths, power_w / 1e3 AS power_kw,
-   temperature_c AS min_temperature_c, temperature_c AS max_temperature_c,
-   miner_efficiency_jth AS efficiency_jth
- FROM fleet_mining_asset a WHERE a.org_id=$1
-), options AS (
- SELECT COALESCE(($2::jsonb->>'miner_only')::boolean,FALSE) AS miner_only,
-   COALESCE(($2::jsonb->>'no_facility')::boolean,FALSE) AS no_facility,
-   COALESCE(($2::jsonb->>'no_group')::boolean,FALSE) AS no_group,
-   COALESCE(($2::jsonb->>'no_building')::boolean,FALSE) AS no_building,
-   COALESCE(($2::jsonb->>'no_rack')::boolean,FALSE) AS no_rack,
-   COALESCE(($2::jsonb->>'unassigned')::boolean,FALSE) AS unassigned,
-   ARRAY(SELECT value::int FROM jsonb_array_elements_text(NULLIF($2::jsonb->'issues','null'::jsonb)))::int[] AS issues,
-   ARRAY(SELECT value::bigint FROM jsonb_array_elements_text(NULLIF($2::jsonb->'building_ids','null'::jsonb)))::bigint[] AS building_ids,
-   ARRAY(SELECT value::text FROM jsonb_array_elements_text(NULLIF($2::jsonb->'states','null'::jsonb)))::text[] AS states,
-   ARRAY(SELECT value::text FROM jsonb_array_elements_text(NULLIF($2::jsonb->'models','null'::jsonb)))::text[] AS models,
-   ARRAY(SELECT value::text FROM jsonb_array_elements_text(NULLIF($2::jsonb->'firmware','null'::jsonb)))::text[] AS firmware,
-   ARRAY(SELECT value::text FROM jsonb_array_elements_text(NULLIF($2::jsonb->'pairing','null'::jsonb)))::text[] AS pairing,
-   ARRAY(SELECT value::text FROM jsonb_array_elements_text(NULLIF($2::jsonb->'status','null'::jsonb)))::text[] AS status,
-   ARRAY(SELECT value::bigint FROM jsonb_array_elements_text(NULLIF($2::jsonb->'groups','null'::jsonb)))::bigint[] AS groups,
-   ARRAY(SELECT value::bigint FROM jsonb_array_elements_text(NULLIF($2::jsonb->'racks','null'::jsonb)))::bigint[] AS racks,
-   ARRAY(SELECT value::bigint FROM jsonb_array_elements_text(NULLIF($2::jsonb->'sites','null'::jsonb)))::bigint[] AS sites,
-   ARRAY(SELECT value::cidr FROM jsonb_array_elements_text(NULLIF($2::jsonb->'cidrs','null'::jsonb)))::cidr[] AS cidrs,
-   NULLIF($2::jsonb->'zones','null'::jsonb) AS zones,
-   NULLIF($2::jsonb->'ip_ranges','null'::jsonb) AS ip_ranges,
-   NULLIF($2::jsonb->'ranges','null'::jsonb) AS ranges,
-   COALESCE($2::jsonb->>'search','') AS search
+WITH options AS (
+ SELECT COALESCE(($1::jsonb->>'miner_only')::boolean,FALSE) AS miner_only,
+   COALESCE(($1::jsonb->>'no_facility')::boolean,FALSE) AS no_facility,
+   COALESCE(($1::jsonb->>'no_group')::boolean,FALSE) AS no_group,
+   COALESCE(($1::jsonb->>'no_building')::boolean,FALSE) AS no_building,
+   COALESCE(($1::jsonb->>'no_rack')::boolean,FALSE) AS no_rack,
+   COALESCE(($1::jsonb->>'unassigned')::boolean,FALSE) AS unassigned,
+   ARRAY(SELECT value::int FROM jsonb_array_elements_text(NULLIF($1::jsonb->'issues','null'::jsonb)))::int[] AS issues,
+   ARRAY(SELECT value::bigint FROM jsonb_array_elements_text(NULLIF($1::jsonb->'building_ids','null'::jsonb)))::bigint[] AS building_ids,
+   ARRAY(SELECT value::text FROM jsonb_array_elements_text(NULLIF($1::jsonb->'states','null'::jsonb)))::text[] AS states,
+   ARRAY(SELECT value::text FROM jsonb_array_elements_text(NULLIF($1::jsonb->'models','null'::jsonb)))::text[] AS models,
+   ARRAY(SELECT value::text FROM jsonb_array_elements_text(NULLIF($1::jsonb->'firmware','null'::jsonb)))::text[] AS firmware,
+   ARRAY(SELECT value::text FROM jsonb_array_elements_text(NULLIF($1::jsonb->'pairing','null'::jsonb)))::text[] AS pairing,
+   ARRAY(SELECT value::text FROM jsonb_array_elements_text(NULLIF($1::jsonb->'status','null'::jsonb)))::text[] AS status,
+   ARRAY(SELECT value::bigint FROM jsonb_array_elements_text(NULLIF($1::jsonb->'groups','null'::jsonb)))::bigint[] AS groups,
+   ARRAY(SELECT value::bigint FROM jsonb_array_elements_text(NULLIF($1::jsonb->'racks','null'::jsonb)))::bigint[] AS racks,
+   ARRAY(SELECT value::bigint FROM jsonb_array_elements_text(NULLIF($1::jsonb->'sites','null'::jsonb)))::bigint[] AS sites,
+   ARRAY(SELECT value::cidr FROM jsonb_array_elements_text(NULLIF($1::jsonb->'cidrs','null'::jsonb)))::cidr[] AS cidrs,
+   NULLIF($1::jsonb->'zones','null'::jsonb) AS zones,
+   NULLIF($1::jsonb->'ip_ranges','null'::jsonb) AS ip_ranges,
+   NULLIF($1::jsonb->'ranges','null'::jsonb) AS ranges,
+   COALESCE($1::jsonb->>'search','') AS search
+), lookup_needs AS (
+ SELECT $2::int IN (2,3,4,5) OR cardinality(f.states)>0
+     OR COALESCE(jsonb_array_length($3::jsonb),0)>0
+     OR COALESCE(jsonb_array_length(f.ranges),0)>0 AS asset_state_or_metrics,
+   $2::int=7 OR cardinality(f.issues)>0 OR cardinality(f.status)>0 AS open_issues,
+   EXISTS (SELECT 1 FROM jsonb_to_recordset(f.ranges) AS v(field int)
+           WHERE v.field IN (5,6)) AS voltage_or_current
+ FROM options f
+), asset_keys AS (
+ -- Use the same miner eligibility and placement rules as fleet_mining_asset.
+ SELECT 5::int AS kind, d.id, d.org_id, d.site_id,
+   COALESCE(NULLIF(d.custom_name,''),concat_ws(' ',dd.manufacturer,dd.model))::text AS name,
+   d.device_identifier::text AS device_identifier, COALESCE(d.serial_number,'')::text AS reported_id,
+   1::int AS facility_kind, COALESCE(d.building_id,rack.building_id) AS facility_id,
+   3::int AS group_kind, rack.device_set_id AS group_id,
+   dd.model, dd.firmware_version, dd.ip_address, dd.ip_address_inet,
+   d.mac_address, d.worker_name, dp.pairing_status::text AS pairing_status, rack.zone
+ FROM device d
+ JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=d.org_id
+ JOIN device_pairing dp ON dp.device_id=d.id
+ LEFT JOIN (
+   SELECT ms.device_id, ms.org_id, r.device_set_id, r.building_id, r.zone
+   FROM device_set_membership ms
+   JOIN device_set s ON s.id=ms.device_set_id AND s.deleted_at IS NULL
+   JOIN device_set_rack r ON r.device_set_id=s.id
+   WHERE ms.device_set_type='rack'
+ ) rack ON rack.device_id=d.id AND rack.org_id=d.org_id
+ WHERE d.org_id=$4 AND 5=ANY($5::int[])
+   AND d.deleted_at IS NULL AND dd.deleted_at IS NULL AND dd.is_active AND dd.device_class<>2
+   AND dp.pairing_status IN ('PAIRED','AUTHENTICATION_NEEDED','DEFAULT_PASSWORD')
+ UNION ALL
+ SELECT kind, id, org_id, site_id, name, device_identifier, reported_id, facility_kind, facility_id, group_kind, group_id,
+   NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+ FROM fleet_mining_asset
+ WHERE org_id=$4 AND kind=6 AND 6=ANY($5::int[])
 ), facts AS (
- SELECT r.kind AS kind, r.id AS id, r.org_id AS org_id, r.site_id AS site_id, r.name AS name, r.device_identifier AS device_identifier, r.position AS position, r.reported_id AS reported_id,
-   r.facility_kind AS facility_kind, r.facility_id AS facility_id, r.group_kind AS group_kind, r.group_id AS group_id, r.state AS state, r.asset_count AS asset_count,
-   CASE WHEN access.telemetry_allowed THEN r.hashrate_ths END AS hashrate_ths,
-   CASE WHEN access.telemetry_allowed THEN r.power_kw END AS power_kw,
-   CASE WHEN access.telemetry_allowed THEN r.min_temperature_c END AS min_temperature_c,
-   CASE WHEN access.telemetry_allowed THEN r.max_temperature_c END AS max_temperature_c,
-   CASE WHEN access.telemetry_allowed THEN r.observed_at END AS observed_at,
-   CASE WHEN access.telemetry_allowed THEN r.miner_efficiency_jth END AS miner_efficiency_jth,
-   CASE WHEN access.telemetry_allowed THEN r.efficiency_jth END AS efficiency_jth,
-   CASE WHEN access.telemetry_allowed THEN r.hashrate_reporting_count ELSE 0 END AS hashrate_reporting_count,
-   CASE WHEN access.telemetry_allowed THEN r.power_reporting_count ELSE 0 END AS power_reporting_count,
-   access.telemetry_allowed AS telemetry_allowed, dd.model, dd.firmware_version, dd.ip_address_inet, d.mac_address,
-   CASE WHEN r.kind=6 THEN workers.summary ELSE d.worker_name END AS worker_name,
+ SELECT r.kind, r.id, r.org_id, r.site_id, r.name, r.facility_kind, r.facility_id, r.group_kind, r.group_id,
+   details.state,
+   CASE WHEN access.telemetry_allowed THEN details.hashrate_hs / 1e12 END AS hashrate_ths,
+   CASE WHEN access.telemetry_allowed THEN details.power_w / 1e3 END AS power_kw,
+   CASE WHEN access.telemetry_allowed THEN details.temperature_c END AS temperature_c,
+   CASE WHEN access.telemetry_allowed THEN details.miner_efficiency_jth END AS efficiency_jth,
+   access.telemetry_allowed, r.model, r.firmware_version, r.ip_address_inet, r.mac_address,
+   CASE WHEN r.kind=6 THEN workers.summary ELSE r.worker_name END AS worker_name,
    workers.summary AS worker_name_summary,
-   dp.pairing_status::text AS pairing_status, rack.zone,
+   r.pairing_status, r.zone,
    CASE WHEN fn.last_seen_at < now()-INTERVAL '2 minutes' AND fn.enrollment_status='CONFIRMED' AND fn.deleted_at IS NULL THEN 'OFFLINE' ELSE ds.status::text END AS device_status,
    issues.issue_count, issues.issue_types, issues.actionable,
    dm.voltage_v, dm.current_a,
-   concat_ws(' ',r.name,r.reported_id,r.device_identifier,d.mac_address,dd.ip_address,CASE WHEN r.kind=6 THEN workers.summary ELSE d.worker_name END) AS search_text
- FROM assets r
+   concat_ws(' ',r.name,r.reported_id,r.device_identifier,r.mac_address,r.ip_address,CASE WHEN r.kind=6 THEN workers.summary ELSE r.worker_name END) AS search_text
+ FROM asset_keys r
+ CROSS JOIN lookup_needs needs
  CROSS JOIN LATERAL (
    SELECT NOT EXISTS (
-     SELECT 1 FROM jsonb_to_recordset($3::jsonb) AS a(org_wide boolean, sites bigint[])
+     SELECT 1 FROM jsonb_to_recordset($6::jsonb) AS a(org_wide boolean, sites bigint[])
      WHERE NOT (CASE WHEN a.org_wide THEN r.site_id IS NULL OR NOT (r.site_id = ANY(a.sites))
                     ELSE COALESCE(r.site_id = ANY(a.sites), FALSE) END)
    ) AS telemetry_allowed
  ) access
- LEFT JOIN device d ON r.kind=5 AND d.id=r.id AND d.org_id=r.org_id
  LEFT JOIN LATERAL (
    SELECT CASE
      WHEN count(*)=0 OR bool_and(h.worker_name_mode='none') THEN ''
@@ -87,32 +106,35 @@ WITH assets AS (
    WHERE r.kind=6 AND i.module_id=r.id AND i.removed_at IS NULL
      AND i.site_id IS NOT DISTINCT FROM r.site_id
  ) workers ON r.kind=6
- LEFT JOIN discovered_device dd ON dd.id=d.discovered_device_id
- LEFT JOIN device_pairing dp ON dp.device_id=d.id
- LEFT JOIN device_status ds ON ds.device_id=d.id
- LEFT JOIN fleet_node_device fnd ON fnd.device_id=d.id AND fnd.org_id=d.org_id
- LEFT JOIN fleet_node_live fn ON fn.id=fnd.fleet_node_id AND fn.org_id=d.org_id
- LEFT JOIN device_set_rack rack ON r.kind=5 AND rack.device_set_id=r.group_id
+ LEFT JOIN device_status ds ON r.kind=5 AND ds.device_id=r.id
+ LEFT JOIN fleet_node_device fnd ON r.kind=5 AND fnd.device_id=r.id AND fnd.org_id=r.org_id
+ LEFT JOIN fleet_node_live fn ON fn.id=fnd.fleet_node_id AND fn.org_id=r.org_id
  LEFT JOIN LATERAL (
-   SELECT count(DISTINCT (e.device_id, e.component_type)) FILTER (WHERE e.component_type IN (1,2,3,4))::bigint AS issue_count, array_agg(DISTINCT e.component_type) AS issue_types,
-          bool_or(e.severity IN (1,2,3,4)) AS actionable
+   SELECT a.state, a.observed_at, a.hashrate_hs, a.power_w, a.temperature_c, a.miner_efficiency_jth
+   FROM fleet_mining_asset a
+   WHERE needs.asset_state_or_metrics AND a.org_id=r.org_id AND a.kind=r.kind AND a.id=r.id
+   LIMIT 1
+ ) details ON TRUE
+ LEFT JOIN LATERAL (
+   SELECT count(DISTINCT e.component_type) FILTER (WHERE e.component_type IN (1,2,3,4))::bigint AS issue_count,
+     array_agg(DISTINCT e.component_type) AS issue_types, bool_or(e.severity IN (1,2,3,4)) AS actionable
    FROM errors e
-   WHERE e.org_id=r.org_id AND e.closed_at IS NULL AND e.device_id=r.id
+   WHERE needs.open_issues AND r.kind=5 AND access.telemetry_allowed
+     AND e.org_id=r.org_id AND e.closed_at IS NULL AND e.device_id=r.id
  ) issues ON r.kind=5 AND access.telemetry_allowed
  LEFT JOIN LATERAL (
-   SELECT voltage_v,current_a,efficiency_jh FROM device_metrics
-   WHERE r.kind=5 AND device_identifier=r.device_identifier AND time=r.observed_at
-   ORDER BY time DESC LIMIT 1
+   SELECT voltage_v, current_a FROM device_metrics
+   WHERE needs.voltage_or_current AND r.kind=5 AND device_identifier=r.device_identifier AND time=details.observed_at
+   LIMIT 1
  ) dm ON TRUE
- WHERE r.org_id=$1 AND r.kind=ANY($4::int[])
 ), filtered AS (
- SELECT r.kind, r.id, r.org_id, r.site_id, r.name, r.device_identifier, r.position, r.reported_id, r.facility_kind, r.facility_id, r.group_kind, r.group_id, r.state, r.asset_count, r.hashrate_ths, r.power_kw, r.min_temperature_c, r.max_temperature_c, r.observed_at, r.miner_efficiency_jth, r.efficiency_jth, r.hashrate_reporting_count, r.power_reporting_count, r.telemetry_allowed, r.model, r.firmware_version, r.ip_address_inet, r.mac_address, r.worker_name, r.worker_name_summary, r.pairing_status, r.zone, r.device_status, r.issue_count, r.issue_types, r.actionable, r.voltage_v, r.current_a, r.search_text,
-   COALESCE(CASE $5::int WHEN 1 THEN r.name
+ SELECT r.kind, r.id, r.org_id, r.telemetry_allowed, r.worker_name_summary,
+   COALESCE(CASE $2::int WHEN 1 THEN r.name
      WHEN 8 THEN r.model WHEN 9 THEN r.firmware_version WHEN 10 THEN encode(inet_send(r.ip_address_inet),'hex')
      WHEN 11 THEN r.mac_address WHEN 12 THEN r.worker_name ELSE '' END, '')::text AS sort_text,
-   CASE $5::int WHEN 2 THEN r.hashrate_ths WHEN 3 THEN r.power_kw
-     WHEN 4 THEN r.max_temperature_c WHEN 5 THEN r.efficiency_jth
-     WHEN 6 THEN r.asset_count::double precision WHEN 7 THEN r.issue_count::double precision
+   CASE $2::int WHEN 2 THEN r.hashrate_ths WHEN 3 THEN r.power_kw
+     WHEN 4 THEN r.temperature_c WHEN 5 THEN r.efficiency_jth
+     WHEN 6 THEN 1::double precision WHEN 7 THEN r.issue_count::double precision
      WHEN 8 THEN CASE WHEN r.model IS NOT NULL THEN 0 END
      WHEN 9 THEN CASE WHEN r.firmware_version IS NOT NULL THEN 0 END
      WHEN 10 THEN CASE WHEN r.ip_address_inet IS NOT NULL THEN 0 END
@@ -120,26 +142,24 @@ WITH assets AS (
      WHEN 12 THEN CASE WHEN r.worker_name IS NOT NULL THEN 0 END
      ELSE 0::double precision END AS sort_number
  FROM facts r CROSS JOIN options f
- WHERE r.org_id = $1
-   AND r.kind = ANY($4::int[])
-   AND NOT EXISTS (
-     SELECT 1 FROM jsonb_to_recordset($3::jsonb) AS a(org_wide boolean, sites bigint[], telemetry_only boolean)
+ WHERE NOT EXISTS (
+     SELECT 1 FROM jsonb_to_recordset($6::jsonb) AS a(org_wide boolean, sites bigint[], telemetry_only boolean)
      WHERE NOT (CASE WHEN a.org_wide THEN r.site_id IS NULL OR NOT (r.site_id = ANY(a.sites))
                     ELSE COALESCE(r.site_id = ANY(a.sites), FALSE) END)
    )
-   AND ((cardinality($6::bigint[]) = 0 AND NOT $7::boolean)
-        OR r.site_id = ANY($6::bigint[]) OR ($7::boolean AND r.site_id IS NULL))
-   AND ($8::text = '' OR strpos(lower(r.search_text), lower($8)) > 0)
+   AND ((cardinality($7::bigint[]) = 0 AND NOT $8::boolean)
+        OR r.site_id = ANY($7::bigint[]) OR ($8::boolean AND r.site_id IS NULL))
+   AND ($9::text = '' OR strpos(lower(r.search_text), lower($9)) > 0)
    AND ((NOT f.no_facility AND NOT EXISTS (
-     SELECT 1 FROM jsonb_to_recordset($9::jsonb) AS p(kind int, id bigint) WHERE p.kind IN (1,2)
+     SELECT 1 FROM jsonb_to_recordset($10::jsonb) AS p(kind int, id bigint) WHERE p.kind IN (1,2)
    )) OR (f.no_facility AND r.kind=5 AND r.facility_id IS NULL AND (r.group_id IS NOT NULL OR f.no_group)) OR EXISTS (
-     SELECT 1 FROM jsonb_to_recordset($9::jsonb) AS p(kind int, id bigint)
+     SELECT 1 FROM jsonb_to_recordset($10::jsonb) AS p(kind int, id bigint)
      WHERE r.facility_kind = p.kind AND r.facility_id = p.id
    ))
    AND ((NOT f.no_group AND NOT EXISTS (
-     SELECT 1 FROM jsonb_to_recordset($9::jsonb) AS p(kind int, id bigint) WHERE p.kind IN (3,4)
+     SELECT 1 FROM jsonb_to_recordset($10::jsonb) AS p(kind int, id bigint) WHERE p.kind IN (3,4)
    )) OR (f.no_group AND r.kind=5 AND r.group_id IS NULL) OR EXISTS (
-     SELECT 1 FROM jsonb_to_recordset($9::jsonb) AS p(kind int, id bigint)
+     SELECT 1 FROM jsonb_to_recordset($10::jsonb) AS p(kind int, id bigint)
      WHERE r.group_kind = p.kind AND r.group_id = p.id
    ))
    AND (NOT f.miner_only OR r.kind=5)
@@ -180,24 +200,24 @@ WITH assets AS (
      OR ('OFFLINE'=ANY(f.status) AND r.device_status IS NULL AND r.pairing_status IN ('PAIRED','DEFAULT_PASSWORD'))
    ))
    AND NOT EXISTS (
-     SELECT 1 FROM jsonb_to_recordset(NULLIF(f.ranges,'null'::jsonb)) AS v(field int, minimum float8, maximum float8, min_inclusive boolean, max_inclusive boolean)
-     CROSS JOIN LATERAL (SELECT CASE v.field WHEN 1 THEN r.hashrate_ths WHEN 2 THEN r.miner_efficiency_jth
-       WHEN 3 THEN r.power_kw WHEN 4 THEN r.max_temperature_c WHEN 5 THEN r.voltage_v WHEN 6 THEN r.current_a END AS metric) m
+     SELECT 1 FROM jsonb_to_recordset(f.ranges) AS v(field int, minimum float8, maximum float8, min_inclusive boolean, max_inclusive boolean)
+     CROSS JOIN LATERAL (SELECT CASE v.field WHEN 1 THEN r.hashrate_ths WHEN 2 THEN r.efficiency_jth
+       WHEN 3 THEN r.power_kw WHEN 4 THEN r.temperature_c WHEN 5 THEN r.voltage_v WHEN 6 THEN r.current_a END AS metric) m
      WHERE m.metric IS NULL OR r.device_status='OFFLINE'
        OR (v.minimum IS NOT NULL AND (m.metric<v.minimum OR (m.metric=v.minimum AND NOT v.min_inclusive)))
        OR (v.maximum IS NOT NULL AND (m.metric>v.maximum OR (m.metric=v.maximum AND NOT v.max_inclusive))))
    AND NOT EXISTS (
-     SELECT 1 FROM jsonb_to_recordset($10::jsonb) AS f(field int, minimum double precision, maximum double precision, min_inclusive boolean, max_inclusive boolean)
+     SELECT 1 FROM jsonb_to_recordset($3::jsonb) AS f(field int, minimum double precision, maximum double precision, min_inclusive boolean, max_inclusive boolean)
      CROSS JOIN LATERAL (
-       SELECT CASE f.field WHEN 1 THEN r.hashrate_ths WHEN 2 THEN r.efficiency_jth WHEN 3 THEN r.power_kw WHEN 4 THEN r.min_temperature_c END AS low,
-              CASE f.field WHEN 1 THEN r.hashrate_ths WHEN 2 THEN r.efficiency_jth WHEN 3 THEN r.power_kw WHEN 4 THEN r.max_temperature_c END AS high
+       SELECT CASE f.field WHEN 1 THEN r.hashrate_ths WHEN 2 THEN r.efficiency_jth
+         WHEN 3 THEN r.power_kw WHEN 4 THEN r.temperature_c END AS metric
      ) v
-     WHERE v.low IS NULL OR v.high IS NULL
-       OR (f.minimum IS NOT NULL AND (v.low < f.minimum OR (v.low = f.minimum AND NOT f.min_inclusive)))
-       OR (f.maximum IS NOT NULL AND (v.high > f.maximum OR (v.high = f.maximum AND NOT f.max_inclusive)))
+     WHERE v.metric IS NULL
+       OR (f.minimum IS NOT NULL AND (v.metric < f.minimum OR (v.metric = f.minimum AND NOT f.min_inclusive)))
+       OR (f.maximum IS NOT NULL AND (v.metric > f.maximum OR (v.metric = f.maximum AND NOT f.max_inclusive)))
    )
 ), page AS (
- SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.asset_count, f.hashrate_ths, f.power_kw, f.min_temperature_c, f.max_temperature_c, f.observed_at, f.miner_efficiency_jth, f.efficiency_jth, f.hashrate_reporting_count, f.power_reporting_count, f.telemetry_allowed, f.model, f.firmware_version, f.ip_address_inet, f.mac_address, f.worker_name, f.worker_name_summary, f.pairing_status, f.zone, f.device_status, f.issue_count, f.issue_types, f.actionable, f.voltage_v, f.current_a, f.search_text, f.sort_text, f.sort_number, row_number() OVER (
+ SELECT f.kind, f.id, f.org_id, f.telemetry_allowed, f.worker_name_summary, f.sort_text, f.sort_number, row_number() OVER (
    ORDER BY CASE WHEN NOT $11::boolean THEN sort_number END ASC NULLS LAST,
             CASE WHEN $11::boolean THEN sort_number END DESC NULLS LAST,
             CASE WHEN NOT $11::boolean THEN sort_text END ASC,
@@ -214,27 +234,48 @@ WITH assets AS (
      AND (kind, id) > ($16::int, $17::bigint))
  ORDER BY ordinal
  LIMIT $18::int
+), counts AS (
+ SELECT count(*)::bigint AS total_count, count(*) FILTER (WHERE kind=5)::bigint AS miner_count
+ FROM filtered
 )
-SELECT COALESCE((SELECT jsonb_agg(to_jsonb(p) || jsonb_build_object(
- 'coverage', CASE WHEN p.telemetry_allowed THEN cm.coverage END,
- 'module_issues',CASE WHEN p.telemetry_allowed AND module.observation_site_id IS NOT DISTINCT FROM p.site_id THEN module.issues END,
+SELECT COALESCE((SELECT jsonb_agg(jsonb_build_object(
+ 'kind',a.kind,'id',a.id,'site_id',a.site_id,'name',a.name,'device_identifier',a.device_identifier,
+ 'position',a.position,'reported_id',a.reported_id,'state',a.state,
+ 'facility_kind',a.facility_kind,'facility_id',a.facility_id,'group_kind',a.group_kind,'group_id',a.group_id,
+ 'telemetry_allowed',p.telemetry_allowed,'worker_name_summary',p.worker_name_summary,
+ 'sort_number',p.sort_number,'sort_text',p.sort_text,'asset_count',1,
+ 'observed_at',CASE WHEN p.telemetry_allowed THEN a.observed_at END,
+ 'hashrate_ths',CASE WHEN p.telemetry_allowed THEN a.hashrate_hs / 1e12 END,
+ 'power_kw',CASE WHEN p.telemetry_allowed THEN a.power_w / 1e3 END,
+ 'min_temperature_c',CASE WHEN p.telemetry_allowed THEN a.temperature_c END,
+ 'max_temperature_c',CASE WHEN p.telemetry_allowed THEN a.temperature_c END,
+ 'efficiency_jth',CASE WHEN p.telemetry_allowed THEN a.miner_efficiency_jth END,
+ 'hashrate_reporting_count',CASE WHEN p.telemetry_allowed AND a.hashrate_hs IS NOT NULL THEN 1 ELSE 0 END,
+ 'power_reporting_count',CASE WHEN p.telemetry_allowed AND a.power_w IS NOT NULL THEN 1 ELSE 0 END,
+ 'coverage',CASE WHEN p.telemetry_allowed THEN cm.coverage END,
+ 'module_issues',CASE WHEN p.telemetry_allowed AND module.observation_site_id IS NOT DISTINCT FROM a.site_id THEN module.issues END,
  'module_issues_last_seen_at',module.last_seen_at,
  'site_name',COALESCE(site.name,''), 'facility_name',COALESCE(parent_b.name,parent_d.custom_name,'Container '||parent_d.serial_number,''),
  'group_name',COALESCE(parent_s.label,'Tank '||parent_t.position,''),
- 'hashing_count',CASE WHEN p.telemetry_allowed AND p.state='active' THEN 1 ELSE 0 END,
- 'sleeping_count',CASE WHEN p.telemetry_allowed AND p.state IN ('inactive','maintenance') THEN 1 ELSE 0 END,
- 'offline_count',CASE WHEN p.telemetry_allowed AND p.state='offline' THEN 1 ELSE 0 END,
- 'broken_count',CASE WHEN p.telemetry_allowed AND p.state IN ('error','needs_mining_pool','updating','reboot_required') THEN 1 ELSE 0 END,
+ 'hashing_count',CASE WHEN p.telemetry_allowed AND a.state='active' THEN 1 ELSE 0 END,
+ 'sleeping_count',CASE WHEN p.telemetry_allowed AND a.state IN ('inactive','maintenance') THEN 1 ELSE 0 END,
+ 'offline_count',CASE WHEN p.telemetry_allowed AND a.state='offline' THEN 1 ELSE 0 END,
+ 'broken_count',CASE WHEN p.telemetry_allowed AND a.state IN ('error','needs_mining_pool','updating','reboot_required') THEN 1 ELSE 0 END,
  'psu_issues',issues.psu_issues,'fan_issues',issues.fan_issues,'hashboard_issues',issues.hashboard_issues,'control_issues',issues.control_issues
  ) ORDER BY p.ordinal)
  FROM page p
+ JOIN LATERAL (
+   SELECT asset.kind, asset.id, asset.org_id, asset.site_id, asset.name, asset.device_identifier, asset.position, asset.reported_id, asset.facility_kind, asset.facility_id, asset.group_kind, asset.group_id, asset.state, asset.observed_at, asset.hashrate_hs, asset.power_w, asset.temperature_c, asset.miner_efficiency_jth FROM fleet_mining_asset asset
+   WHERE asset.org_id=p.org_id AND asset.kind=p.kind AND asset.id=p.id
+   LIMIT 1
+ ) a ON TRUE
  LEFT JOIN container_equipment_current_metrics cm ON p.kind=6 AND cm.kind=6 AND cm.id=p.id
  LEFT JOIN container_module module ON p.kind=6 AND module.id=p.id AND module.retired_at IS NULL
- LEFT JOIN site ON site.id=p.site_id AND site.org_id=p.org_id AND site.deleted_at IS NULL
- LEFT JOIN building parent_b ON p.facility_kind=1 AND parent_b.id=p.facility_id AND parent_b.org_id=p.org_id
- LEFT JOIN device parent_d ON p.facility_kind=2 AND parent_d.id=p.facility_id AND parent_d.org_id=p.org_id
- LEFT JOIN device_set parent_s ON p.group_kind=3 AND parent_s.id=p.group_id AND parent_s.org_id=p.org_id
- LEFT JOIN container_tank parent_t ON p.group_kind=4 AND parent_t.id=p.group_id
+ LEFT JOIN site ON site.id=a.site_id AND site.org_id=p.org_id AND site.deleted_at IS NULL
+ LEFT JOIN building parent_b ON a.facility_kind=1 AND parent_b.id=a.facility_id AND parent_b.org_id=p.org_id
+ LEFT JOIN device parent_d ON a.facility_kind=2 AND parent_d.id=a.facility_id AND parent_d.org_id=p.org_id
+ LEFT JOIN device_set parent_s ON a.group_kind=3 AND parent_s.id=a.group_id AND parent_s.org_id=p.org_id
+ LEFT JOIN container_tank parent_t ON a.group_kind=4 AND parent_t.id=a.group_id
  LEFT JOIN LATERAL (
    SELECT count(DISTINCT e.device_id) FILTER (WHERE e.component_type=1)::int AS psu_issues,
      count(DISTINCT e.device_id) FILTER (WHERE e.component_type=2)::int AS hashboard_issues,
@@ -242,22 +283,21 @@ SELECT COALESCE((SELECT jsonb_agg(to_jsonb(p) || jsonb_build_object(
      count(DISTINCT e.device_id) FILTER (WHERE e.component_type=4)::int AS control_issues
    FROM errors e WHERE e.org_id=p.org_id AND e.closed_at IS NULL AND e.device_id=p.id
  ) issues ON p.kind=5 AND p.telemetry_allowed
- ), '[]'::jsonb)::jsonb AS items,
-       (SELECT count(*) FROM filtered)::bigint AS total_count,
-       (SELECT count(*) FROM filtered WHERE kind=5)::bigint AS miner_count
+ ), '[]'::jsonb)::jsonb AS items, counts.total_count, counts.miner_count
+FROM counts
 `
 
 type ListFleetMiningAssetsParams struct {
-	OrgID             int64
 	SpecialFilters    json.RawMessage
-	Authority         json.RawMessage
-	Kinds             []int32
 	SortField         int32
+	Ranges            json.RawMessage
+	OrgID             int64
+	Kinds             []int32
+	Authority         json.RawMessage
 	SiteIds           []int64
 	IncludeUnassigned bool
 	SearchQuery       string
 	Ancestors         json.RawMessage
-	Ranges            json.RawMessage
 	Descending        bool
 	HasCursor         bool
 	CursorNull        bool
@@ -278,16 +318,16 @@ type ListFleetMiningAssetsRow struct {
 // Each authority scope uses org-wide/denylist or site-allowlist semantics.
 func (q *Queries) ListFleetMiningAssets(ctx context.Context, arg ListFleetMiningAssetsParams) (ListFleetMiningAssetsRow, error) {
 	row := q.queryRow(ctx, q.listFleetMiningAssetsStmt, listFleetMiningAssets,
-		arg.OrgID,
 		arg.SpecialFilters,
-		arg.Authority,
-		pq.Array(arg.Kinds),
 		arg.SortField,
+		arg.Ranges,
+		arg.OrgID,
+		pq.Array(arg.Kinds),
+		arg.Authority,
 		pq.Array(arg.SiteIds),
 		arg.IncludeUnassigned,
 		arg.SearchQuery,
 		arg.Ancestors,
-		arg.Ranges,
 		arg.Descending,
 		arg.HasCursor,
 		arg.CursorNull,

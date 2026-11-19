@@ -260,7 +260,13 @@ export const useErrorsByRef = (component: ComponentRef | undefined) => {
   return useMemo(
     () =>
       component
-        ? errors.filter((error) => error.component?.kind === component.kind && error.component.id === component.id)
+        ? errors.filter(
+            (error) =>
+              (error.component?.kind === component.kind && error.component.id === component.id) ||
+              error.reportedBy?.some(
+                (reporter) => reporter.component.kind === component.kind && reporter.component.id === component.id,
+              ),
+          )
         : [],
     [errors, component],
   );
