@@ -115,6 +115,13 @@ func PrepareDeletion(ctx context.Context, q sqlc.Querier, organizationID int64, 
 	if updating {
 		return fleeterror.NewFailedPreconditionError("a controller software update is still running or waiting for a retry on this container; let it finish, retry it, or cancel it before removing the container")
 	}
+	pending, err := q.AnyPendingActivationPoolHandoff(ctx, sqlc.AnyPendingActivationPoolHandoffParams{OrganizationID: organizationID, DeviceIds: ids})
+	if err != nil {
+		return err
+	}
+	if pending {
+		return fleeterror.NewFailedPreconditionError("A pool assignment transfer is pending. Complete placement recovery or remove the pending assignment with Keep device settings before deleting this container.")
+	}
 	// Only paired direct Proto adapters support the captured post-delete Unpair.
 	bindings, err := q.GetDeviceWriteDeletionBindings(ctx, sqlc.GetDeviceWriteDeletionBindingsParams{DeviceIds: ids, OrganizationID: organizationID})
 	if err != nil {

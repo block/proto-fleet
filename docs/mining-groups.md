@@ -21,7 +21,11 @@ Activation reads the complete controller map through Fleet Node. It verifies
 each MAC and serial against one stored hashboard identity and its current owner.
 Unlocated boards and conflicting slot positions do not prevent this check.
 Missing identities, duplicate identities, stale observations, conflicting
-controller attribution, and customer ownership prevent activation.
+controller attribution, and customer ownership prevent activation. During an
+accepted activation, stale observation timestamps block progress until fresh
+evidence arrives. Identity and ownership conflicts end the operation.
+Activation leaves the default group stopped. Choose **Wake default mining group**
+from the Fleet container menu when ready.
 
 If Fleet has a container pool assignment, activation preserves its revision and
 rendered worker names for every identified board. Fleet transfers the assignment
@@ -54,8 +58,14 @@ including the container stop action. Normal authorization, binding, and unfinish
 write checks still apply. Mode changes and container-wide pool changes remain
 blocked while board intent is pending.
 
-This requires an updated Fleet Node and Proto plugin that support the
-`activation_inventory` read. Activation remains a Fleet UI operation; it does
+Container deletion is blocked while a pool transfer is pending. Complete recovery
+or remove the pending assignment with **Keep device settings** before deletion.
+Older retained container transfers also block allocation of uncaptured boards.
+Partial transfers permit allocation and pool changes for unrelated mapped boards.
+
+This requires Fleet Node command protocol V19 and a Proto plugin that supports
+the `activation_inventory` read. Fleet checks the live node version before
+reading inventory. Activation remains a Fleet UI operation; it does
 not require an account API request from the user.
 
 Pool assignment through mining groups requires `miner:update_pools`,

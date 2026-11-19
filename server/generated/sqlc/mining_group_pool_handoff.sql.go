@@ -14,6 +14,23 @@ import (
 	"github.com/lib/pq"
 )
 
+const anyPendingActivationPoolHandoff = `-- name: AnyPendingActivationPoolHandoff :one
+SELECT EXISTS(SELECT 1 FROM mining_group_pool_handoff
+ WHERE organization_id=$1 AND device_id=ANY($2::bigint[]) AND placement_pending)::boolean
+`
+
+type AnyPendingActivationPoolHandoffParams struct {
+	OrganizationID int64
+	DeviceIds      []int64
+}
+
+func (q *Queries) AnyPendingActivationPoolHandoff(ctx context.Context, arg AnyPendingActivationPoolHandoffParams) (bool, error) {
+	row := q.queryRow(ctx, q.anyPendingActivationPoolHandoffStmt, anyPendingActivationPoolHandoff, arg.OrganizationID, pq.Array(arg.DeviceIds))
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const completeMiningGroupPoolHandoff = `-- name: CompleteMiningGroupPoolHandoff :exec
 UPDATE mining_group_pool_handoff SET completed_at=clock_timestamp()
 WHERE organization_id=$1 AND operation_id=$2 AND device_id=$3 AND completed_at IS NULL
@@ -275,6 +292,10 @@ SELECT h.id AS hashboard_id, x.mac_address::text AS mac_address, x.serial::text 
  COALESCE(a.subclient_id,a.client_id,0)::bigint AS account_id,
  COALESCE(a.revision,0)::bigint AS revision,
  (o.device_id=$1 AND o.released_at IS NULL
+  AND o.site_id IS NOT DISTINCT FROM d.site_id)::boolean AS binding_ready,
+ (o.last_seen_at>now()-INTERVAL '2 minutes'
+  AND o.last_seen_at<=now()+INTERVAL '5 seconds')::boolean AS observation_fresh,
+ (o.device_id=$1 AND o.released_at IS NULL
   AND o.site_id IS NOT DISTINCT FROM d.site_id
   AND o.last_seen_at>now()-INTERVAL '2 minutes'
   AND o.last_seen_at<=now()+INTERVAL '5 seconds')::boolean AS ready
@@ -295,12 +316,14 @@ type ListActivationPoolInventoryParams struct {
 }
 
 type ListActivationPoolInventoryRow struct {
-	HashboardID int64
-	MacAddress  string
-	Serial      string
-	AccountID   int64
-	Revision    int64
-	Ready       bool
+	HashboardID      int64
+	MacAddress       string
+	Serial           string
+	AccountID        int64
+	Revision         int64
+	BindingReady     bool
+	ObservationFresh bool
+	Ready            bool
 }
 
 // Resolve both aliases to the same physical board. Placement is not identity.
@@ -319,6 +342,8 @@ func (q *Queries) ListActivationPoolInventory(ctx context.Context, arg ListActiv
 			&i.Serial,
 			&i.AccountID,
 			&i.Revision,
+			&i.BindingReady,
+			&i.ObservationFresh,
 			&i.Ready,
 		); err != nil {
 			return nil, err

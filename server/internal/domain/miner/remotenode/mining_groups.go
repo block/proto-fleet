@@ -14,6 +14,9 @@ import (
 )
 
 func miningGroupCommandVersion(request sdk.MiningGroupRequest) gatewaypb.CommandProtocolVersion {
+	if request.Action == "activation_inventory" {
+		return gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V19
+	}
 	// A fresh nonempty group needs zero pool IDs in its next step. Check the
 	// version at dispatch so an older node cannot leave an empty group behind.
 	if len(request.PoolIDs) != 0 || (request.Action == "create" && !poolconfigurations.IsClearedPoolIntent(request.ConfigID)) {
@@ -27,6 +30,17 @@ func miningGroupCommandVersion(request sdk.MiningGroupRequest) gatewaypb.Command
 		return gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V15
 	}
 	return gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6
+}
+
+// CheckMiningGroupActivationInventory rejects older nodes before inventory admission.
+func (m *Miner) CheckMiningGroupActivationInventory(context.Context) error {
+	checker, ok := m.sender.(interface {
+		SupportsCommandProtocolVersion(fleetNodeID int64, minimum gatewaypb.CommandProtocolVersion) bool
+	})
+	if !ok || !checker.SupportsCommandProtocolVersion(m.fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V19) {
+		return fleeterror.NewFailedPreconditionError("Upgrade the Fleet Node and reconnect it before enabling mining groups.")
+	}
+	return nil
 }
 
 // CheckMiningGroupDeactivation checks the live node handshake without sending a

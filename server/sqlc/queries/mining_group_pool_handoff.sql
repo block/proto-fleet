@@ -27,6 +27,10 @@ SELECT h.id AS hashboard_id, x.mac_address::text AS mac_address, x.serial::text 
  COALESCE(a.subclient_id,a.client_id,0)::bigint AS account_id,
  COALESCE(a.revision,0)::bigint AS revision,
  (o.device_id=sqlc.arg(device_id) AND o.released_at IS NULL
+  AND o.site_id IS NOT DISTINCT FROM d.site_id)::boolean AS binding_ready,
+ (o.last_seen_at>now()-INTERVAL '2 minutes'
+  AND o.last_seen_at<=now()+INTERVAL '5 seconds')::boolean AS observation_fresh,
+ (o.device_id=sqlc.arg(device_id) AND o.released_at IS NULL
   AND o.site_id IS NOT DISTINCT FROM d.site_id
   AND o.last_seen_at>now()-INTERVAL '2 minutes'
   AND o.last_seen_at<=now()+INTERVAL '5 seconds')::boolean AS ready
@@ -94,3 +98,7 @@ WHERE p.organization_id=sqlc.arg(organization_id)
  AND COALESCE(owner.subclient_id,owner.client_id,0)=COALESCE(c.account_id,0)
  AND (p.hashboard_id=ANY(sqlc.arg(hashboard_ids)::bigint[]) OR i.module_id=ANY(sqlc.arg(module_ids)::bigint[]))
 ORDER BY p.hashboard_id;
+
+-- name: AnyPendingActivationPoolHandoff :one
+SELECT EXISTS(SELECT 1 FROM mining_group_pool_handoff
+ WHERE organization_id=sqlc.arg(organization_id) AND device_id=ANY(sqlc.arg(device_ids)::bigint[]) AND placement_pending)::boolean;

@@ -128,6 +128,10 @@ func rollbackEmptyActivationBoardIntent(t *testing.T, conn *sql.DB) {
 	if !exists {
 		return
 	}
+	guards, err := migrations.Current.ReadFile("current/001100_internal_activation_review_guards.down.sql")
+	require.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), string(guards))
+	require.NoError(t, err)
 	down, err := migrations.Current.ReadFile("current/001099_internal_activation_board_intent.down.sql")
 	require.NoError(t, err)
 	_, err = conn.ExecContext(t.Context(), string(down))

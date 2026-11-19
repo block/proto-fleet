@@ -114,6 +114,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.anyDeviceHasBlockingFrigateUpdateJobStmt, err = db.PrepareContext(ctx, anyDeviceHasBlockingFrigateUpdateJob); err != nil {
 		return nil, fmt.Errorf("error preparing query AnyDeviceHasBlockingFrigateUpdateJob: %w", err)
 	}
+	if q.anyPendingActivationPoolHandoffStmt, err = db.PrepareContext(ctx, anyPendingActivationPoolHandoff); err != nil {
+		return nil, fmt.Errorf("error preparing query AnyPendingActivationPoolHandoff: %w", err)
+	}
 	if q.appendFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, appendFirmwareRolloutDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query AppendFirmwareRolloutDevices: %w", err)
 	}
@@ -4185,6 +4188,11 @@ func (q *Queries) Close() error {
 	if q.anyDeviceHasBlockingFrigateUpdateJobStmt != nil {
 		if cerr := q.anyDeviceHasBlockingFrigateUpdateJobStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing anyDeviceHasBlockingFrigateUpdateJobStmt: %w", cerr)
+		}
+	}
+	if q.anyPendingActivationPoolHandoffStmt != nil {
+		if cerr := q.anyPendingActivationPoolHandoffStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing anyPendingActivationPoolHandoffStmt: %w", cerr)
 		}
 	}
 	if q.appendFirmwareRolloutDevicesStmt != nil {
@@ -10786,6 +10794,7 @@ type Queries struct {
 	advanceRecoveredDeviceWriteFenceStmt                        *sql.Stmt
 	allDevicesBelongToOrgStmt                                   *sql.Stmt
 	anyDeviceHasBlockingFrigateUpdateJobStmt                    *sql.Stmt
+	anyPendingActivationPoolHandoffStmt                         *sql.Stmt
 	appendFirmwareRolloutDevicesStmt                            *sql.Stmt
 	appendHostedReportArtifactChunkStmt                         *sql.Stmt
 	applyFleetNodeRecoveredEndpointStmt                         *sql.Stmt
@@ -12128,6 +12137,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		advanceRecoveredDeviceWriteFenceStmt:                        q.advanceRecoveredDeviceWriteFenceStmt,
 		allDevicesBelongToOrgStmt:                                   q.allDevicesBelongToOrgStmt,
 		anyDeviceHasBlockingFrigateUpdateJobStmt:                    q.anyDeviceHasBlockingFrigateUpdateJobStmt,
+		anyPendingActivationPoolHandoffStmt:                         q.anyPendingActivationPoolHandoffStmt,
 		appendFirmwareRolloutDevicesStmt:                            q.appendFirmwareRolloutDevicesStmt,
 		appendHostedReportArtifactChunkStmt:                         q.appendHostedReportArtifactChunkStmt,
 		applyFleetNodeRecoveredEndpointStmt:                         q.applyFleetNodeRecoveredEndpointStmt,

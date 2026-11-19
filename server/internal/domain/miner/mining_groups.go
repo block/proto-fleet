@@ -21,3 +21,12 @@ func (m *RemoteFleetNodeMiner) CheckMiningGroupDeactivation(ctx context.Context)
 	}
 	return m.unsupported("mining-group deactivation preflight")
 }
+
+func (m *RemoteFleetNodeMiner) CheckMiningGroupActivationInventory(ctx context.Context) error {
+	if checker, ok := m.delegate.(interface {
+		CheckMiningGroupActivationInventory(ctx context.Context) error
+	}); ok {
+		return checker.CheckMiningGroupActivationInventory(ctx)
+	}
+	return m.unsupported("mining-group activation inventory preflight")
+}

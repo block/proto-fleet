@@ -30,6 +30,9 @@ func (q *Queries) CT1HashboardAllocationReady(ctx context.Context, arg CT1Hashbo
 
 const getCT1HashboardAllocationBlocker = `-- name: GetCT1HashboardAllocationBlocker :one
 SELECT CASE
+ WHEN EXISTS (SELECT 1 FROM mining_group_pool_handoff h WHERE h.organization_id=$1
+  AND h.device_id=$2 AND h.placement_pending AND NOT COALESCE((h.captured->>'PartialTransfer')::boolean,false))
+  THEN 'Complete or cancel the retained pool assignment transfer before allocating hashboards.'
  WHEN s.status IN ('pending','applying','blocked')
   THEN 'Wait for pending mining-group changes or recovery to finish before allocating hashboards.'
  WHEN s.observed_at IS NULL OR s.observed_at<f.updated_at

@@ -41,6 +41,17 @@ type activationInventoryEvidence struct {
 
 func (s *Service) prepareActivationInventory(ctx context.Context, orgID, actorID, deviceID int64) (activationInventoryEvidence, error) {
 	var evidence activationInventoryEvidence
+	miner, err := s.miners.GetMinerForCommand(ctx, deviceID)
+	if err != nil {
+		return evidence, err
+	}
+	if checker, ok := miner.(interface {
+		CheckMiningGroupActivationInventory(ctx context.Context) error
+	}); ok {
+		if err := checker.CheckMiningGroupActivationInventory(ctx); err != nil {
+			return evidence, err
+		}
+	}
 	runtime, err := s.queries.GetPoolConfigurationRuntime(ctx, sqlc.GetPoolConfigurationRuntimeParams{OrgID: orgID, ID: deviceID})
 	if err != nil {
 		return evidence, err
@@ -85,7 +96,7 @@ func authorizeActivationInventory(ctx context.Context, q sqlc.Querier, row sqlc.
 func (s *Service) fetchActivationInventory(ctx context.Context, deviceID int64) (*sdk.MiningGroupInventory, error) {
 	result, err := s.call(ctx, deviceID, sdk.MiningGroupRequest{Action: "activation_inventory"})
 	if err != nil || result.Inventory == nil {
-		return nil, fleeterror.NewFailedPreconditionErrorf("%w", newInventoryStaleError("Fleet cannot verify the complete hashboard identity inventory. Refresh the controller and check that its Fleet Node supports this inventory read."))
+		return nil, fleeterror.NewFailedPreconditionErrorf("%w", &inventoryStaleError{message: "Fleet cannot verify the complete hashboard identity inventory. Refresh the controller and check that its Fleet Node supports this inventory read.", cause: err})
 	}
 	return result.Inventory, nil
 }
@@ -118,7 +129,7 @@ func resolveActivationInventory(ctx context.Context, q sqlc.Querier, row sqlc.Co
 		return nil, "", fleeterror.NewFailedPreconditionError("Hashboard inventory is empty. Fleet cannot transfer the container pool assignment.")
 	}
 	if age := time.Since(inventory.ObservedAt); age > 2*time.Minute || age < -5*time.Second {
-		return nil, "", fleeterror.NewFailedPreconditionError("Hashboard inventory is stale. Refresh the controller inventory before enabling mining groups.")
+		return nil, "", fleeterror.NewFailedPreconditionErrorf("%w", newInventoryStaleError("Hashboard inventory is stale. Refresh the controller inventory before enabling mining groups."))
 	}
 	data, err := json.Marshal(inventory.Boards)
 	if err != nil {
@@ -135,12 +146,15 @@ func resolveActivationInventory(ctx context.Context, q sqlc.Querier, row sqlc.Co
 	ownership := activationOwnership{Device: device}
 	seen := map[int64]bool{}
 	for _, board := range boards {
-		if !board.Ready || seen[board.HashboardID] {
+		if !board.BindingReady || seen[board.HashboardID] {
 			return nil, "", fleeterror.NewFailedPreconditionError("Hashboard inventory has stale or conflicting controller ownership. Refresh the inventory before enabling mining groups.")
 		}
 		seen[board.HashboardID] = true
 		if board.AccountID != 0 {
 			return nil, "", fleeterror.NewForbiddenError("Mining groups cannot be enabled while a hashboard belongs to a customer account.")
+		}
+		if !board.ObservationFresh {
+			return nil, "", fleeterror.NewFailedPreconditionErrorf("%w", newInventoryStaleError("Hashboard observation is stale. Waiting for a fresh controller inventory."))
 		}
 		identities = append(identities, activationPoolIdentity{HashboardID: board.HashboardID, MAC: board.MacAddress, Serial: board.Serial, AccountID: board.AccountID, Revision: board.Revision})
 		ownership.Owners = append(ownership.Owners, sqlc.ListPoolEquipmentModuleOwnersRow{HashboardID: board.HashboardID, AccountID: board.AccountID, Revision: board.Revision})

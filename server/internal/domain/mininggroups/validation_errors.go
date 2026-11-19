@@ -2,7 +2,12 @@ package mininggroups
 
 import "errors"
 
-type inventoryStaleError struct{ message string }
+type inventoryStaleError struct {
+	message string
+	cause   error
+}
+
+func (e *inventoryStaleError) Unwrap() error { return e.cause }
 
 func (e *inventoryStaleError) Error() string { return e.message }
 

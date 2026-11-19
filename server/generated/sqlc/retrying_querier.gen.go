@@ -350,6 +350,18 @@ func (q *retryingQuerier) AnyDeviceHasBlockingFrigateUpdateJob(ctx context.Conte
 	return result, err
 }
 
+func (q *retryingQuerier) AnyPendingActivationPoolHandoff(ctx context.Context, arg AnyPendingActivationPoolHandoffParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "AnyPendingActivationPoolHandoff", func() error {
+		callResult, callErr := q.next.AnyPendingActivationPoolHandoff(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) AppendFirmwareRolloutDevices(ctx context.Context, arg AppendFirmwareRolloutDevicesParams) error {
 	return q.retrier.RetryQuery(ctx, "AppendFirmwareRolloutDevices", func() error {
 		return q.next.AppendFirmwareRolloutDevices(ctx, arg)
