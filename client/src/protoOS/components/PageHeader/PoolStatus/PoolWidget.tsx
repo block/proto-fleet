@@ -4,12 +4,12 @@ import WidgetWrapper from "../WidgetWrapper";
 
 interface PoolWidgetProps {
   loading: boolean;
-  isConnected: boolean;
+  label: string;
   isOpen: boolean;
   onTogglePopover: () => void;
 }
 
-const PoolWidget = ({ loading, isOpen, onTogglePopover }: PoolWidgetProps) => {
+const PoolWidget = ({ loading, label, isOpen, onTogglePopover }: PoolWidgetProps) => {
   return (
     <WidgetWrapper
       onClick={loading ? undefined : onTogglePopover}
@@ -18,7 +18,7 @@ const PoolWidget = ({ loading, isOpen, onTogglePopover }: PoolWidgetProps) => {
       })}
       isOpen={isOpen}
     >
-      Mining Pool
+      {label}
     </WidgetWrapper>
   );
 };

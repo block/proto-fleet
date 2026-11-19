@@ -64,6 +64,14 @@ const fixture = () => {
     service: createPoolStatistics(client as unknown as MdkV2Client, (params) => params ?? {}),
   };
 };
+test("reading mining-group mode does not load configurations or pool diagnostics", async () => {
+  const { service, client } = fixture();
+  expect(await service.getMiningGroupsEnabled()).toBe(true);
+  expect(client.miningGroupServiceGetMiningGroupCapability).toHaveBeenCalledTimes(1);
+  expect(client.miningGroupServiceListMiningGroups).not.toHaveBeenCalled();
+  expect(client.miningGroupServiceListMiningGroupMemberships).not.toHaveBeenCalled();
+  expect(client.poolServiceGetPoolDiagnostics).not.toHaveBeenCalled();
+});
 test("lists only assigned configurations and does not request board inventory", async () => {
   const { service, client } = fixture();
   expect((await service.list()).configurations).toEqual([configs[1], configs[0]]);

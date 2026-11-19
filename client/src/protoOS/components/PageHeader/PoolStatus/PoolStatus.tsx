@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useMemo, useState } from "react";
 
 import PoolInfoPopover from "./PoolInfoPopover";
 import PoolWidget from "./PoolWidget";
@@ -10,13 +10,22 @@ import { useClickOutside } from "@/shared/hooks/useClickOutside";
 type PoolStatusEntry = Pick<NormalizedPoolInfo, "status" | "url"> & Partial<Pick<NormalizedPoolInfo, "priority">>;
 
 interface PoolStatusProps {
+  assignmentSummary?: ReactNode;
   loading?: boolean;
   onClickViewPools: () => void;
   poolsInfo?: PoolStatusEntry[];
+  showPoolStatusLink?: boolean;
   shouldShowPopover?: boolean;
 }
 
-const PoolStatus = ({ loading = false, onClickViewPools, poolsInfo, shouldShowPopover = false }: PoolStatusProps) => {
+const PoolStatus = ({
+  assignmentSummary,
+  loading = false,
+  onClickViewPools,
+  poolsInfo,
+  showPoolStatusLink = false,
+  shouldShowPopover = false,
+}: PoolStatusProps) => {
   const { triggerRef: WidgetRef } = useResponsivePopover();
 
   const [showPopover, setShowPopover] = useState(shouldShowPopover);
@@ -63,16 +72,18 @@ const PoolStatus = ({ loading = false, onClickViewPools, poolsInfo, shouldShowPo
     <div className="relative" ref={WidgetRef} data-testid="pool-status-widget">
       <PoolWidget
         loading={loading}
-        isConnected={isConnected}
+        label={showPoolStatusLink ? "Mining pools" : "Mining Pool"}
         isOpen={isPopoverOpen}
         onTogglePopover={() => setShowPopover((prev) => !prev)}
       />
       {isPopoverOpen ? (
         <PoolInfoPopover
+          assignmentSummary={assignmentSummary}
           onClickViewPools={handleClickViewPools}
           poolInfo={poolInfo}
           poolsInfo={poolsInfo}
           isConnected={isConnected}
+          showPoolStatusLink={showPoolStatusLink}
         />
       ) : null}
     </div>

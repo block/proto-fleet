@@ -47,6 +47,7 @@ const reading = (configuration: PoolConfigurationSummary) => ({
   ],
 });
 const fixture = () => ({
+  getMiningGroupsEnabled: vi.fn().mockResolvedValue(true),
   list: vi.fn().mockResolvedValue({ enabled: true, configurations }),
   read: vi.fn().mockImplementation(async (entries: PoolConfigurationSummary[]) => entries.map(reading)),
 });

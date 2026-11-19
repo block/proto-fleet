@@ -1,10 +1,14 @@
 interface getTextsProps {
   index?: number;
   isConnected: boolean;
+  showPoolStatusLink: boolean;
   url?: string;
 }
 
-export const getTexts = ({ index, isConnected, url }: getTextsProps) => {
+export const getTexts = ({ index, isConnected, showPoolStatusLink, url }: getTextsProps) => {
+  if (showPoolStatusLink) {
+    return { button: "View pools" };
+  }
   if (!url) {
     return {
       title: "No mining pools",

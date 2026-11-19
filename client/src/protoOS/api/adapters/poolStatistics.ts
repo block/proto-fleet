@@ -14,6 +14,7 @@ export interface PoolConfigurationReadings extends PoolConfigurationSummary {
   observedBoards?: number;
 }
 export interface PoolConfigurationStatisticsService {
+  getMiningGroupsEnabled(params?: AdapterRequestOptions): Promise<boolean>;
   list(params?: AdapterRequestOptions): Promise<{ enabled: boolean; configurations: PoolConfigurationSummary[] }>;
   read(
     configurations: PoolConfigurationSummary[],

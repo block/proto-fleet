@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import PoolInfoRow from "./PoolInfoRow";
 import { PoolInfo } from "./types";
 import { getTexts } from "./utility";
@@ -11,17 +12,27 @@ import { positions } from "@/shared/constants";
 type PoolStatusEntry = Pick<NormalizedPoolInfo, "status" | "url"> & Partial<Pick<NormalizedPoolInfo, "priority">>;
 
 interface PoolInfoPopoverProps {
+  assignmentSummary?: ReactNode;
   isConnected: boolean;
   onClickViewPools: () => void;
   poolInfo?: PoolInfo;
   poolsInfo?: PoolStatusEntry[];
+  showPoolStatusLink: boolean;
 }
 
-const PoolInfoPopover = ({ isConnected, onClickViewPools, poolInfo, poolsInfo }: PoolInfoPopoverProps) => {
+const PoolInfoPopover = ({
+  assignmentSummary,
+  isConnected,
+  onClickViewPools,
+  poolInfo,
+  poolsInfo,
+  showPoolStatusLink,
+}: PoolInfoPopoverProps) => {
   const { title, subtitle, button, cardTitle } = getTexts({
     isConnected,
     index: poolInfo?.index,
     url: poolInfo?.url,
+    showPoolStatusLink,
   });
 
   return (
@@ -38,6 +49,7 @@ const PoolInfoPopover = ({ isConnected, onClickViewPools, poolInfo, poolsInfo }:
       position={positions["bottom left"]}
       testId="pool-info-popover"
     >
+      {assignmentSummary}
       {poolInfo?.url && cardTitle ? (
         <Card title={cardTitle} type={isConnected ? cardType.success : cardType.warning}>
           {isConnected ? (
