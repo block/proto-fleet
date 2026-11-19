@@ -12,6 +12,8 @@ import { usePermissions } from "@/protoFleet/store";
 import { createOperationID } from "@/protoFleet/utils/crypto";
 import Modal from "@/shared/components/Modal";
 
+const defaultWakeMessage = "Choose Wake default mining group from the Fleet container menu.";
+
 type MiningGroupsDialogProps = {
   deviceIdentifier: string;
   mode?: "activate" | "deactivate";
@@ -243,8 +245,11 @@ function MiningGroupsForm({ deviceIdentifier, onClose, mode = "activate" }: Mini
         {!started && !complete && !disableBlocked ? <p>{introduction}</p> : null}
         {prerequisite ? <p role="status">{prerequisite}</p> : null}
         {progressMessage && !disableBlocked ? <p role={progressRole}>{progressMessage}</p> : null}
-        {complete && !deactivating && state?.groups.some((group) => group.id === "default" && !group.mining) ? (
-          <p>Choose Wake default mining group from the Fleet container menu.</p>
+        {complete &&
+        !deactivating &&
+        !progressMessage?.includes(defaultWakeMessage) &&
+        state?.groups.some((group) => group.id === "default" && !group.mining) ? (
+          <p>{defaultWakeMessage}</p>
         ) : null}
         {error || observationError ? (
           <p role="alert" className="text-intent-critical-fill">

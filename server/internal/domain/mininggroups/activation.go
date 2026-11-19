@@ -129,7 +129,7 @@ func (s *Service) reconcileActivation(ctx context.Context, q sqlc.Querier, row s
 			return &activationPoolHandoffReady{row: beforeObservation, observed: observed, observedAt: row.ObservedAt.Time}
 		}
 		if !row.ActivationResumeMining.Valid || !row.ActivationResumeMining.Bool {
-			return s.complete(ctx, q, row)
+			return s.completeWithMessage(ctx, q, row, "Mining groups enabled.")
 		}
 		group, found := defaultGroup(observed)
 		if !found {
@@ -138,7 +138,7 @@ func (s *Service) reconcileActivation(ctx context.Context, q sqlc.Querier, row s
 		if !group.Mining {
 			return s.completeWithMessage(ctx, q, row, "Mining groups enabled. Choose Wake default mining group from the Fleet container menu.")
 		}
-		return s.complete(ctx, q, row)
+		return s.completeWithMessage(ctx, q, row, "Mining groups enabled.")
 	}
 	if !row.ActivationResumeMining.Valid {
 		defaultGroup, err := s.readDefault(ctx, row.DeviceID)

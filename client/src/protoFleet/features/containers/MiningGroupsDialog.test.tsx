@@ -422,8 +422,8 @@ it("shows activation progress and only says Done after completion", async () => 
       if (delay === 4000 && typeof callback === "function") callback();
     }
   });
-  await screen.findByText("Mining groups enabled.");
-  expect(screen.getByText("Choose Wake default mining group from the Fleet container menu.")).toBeInTheDocument();
+  await screen.findByText("Mining groups enabled. Choose Wake default mining group from the Fleet container menu.");
+  expect(screen.queryByText("Choose Wake default mining group from the Fleet container menu.")).not.toBeInTheDocument();
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Done" }));
   expect(onClose).toHaveBeenCalledOnce();

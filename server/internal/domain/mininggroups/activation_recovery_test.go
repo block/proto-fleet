@@ -202,7 +202,7 @@ func TestActivationJournalWithoutInventoryRecoversAfterUpgrade(t *testing.T) {
 				}
 			}
 			require.Equal(t, statusComplete, f.state(t).Status)
-			require.Equal(t, running, miner.snapshot.Groups[0].Mining)
+			require.False(t, miner.snapshot.Groups[0].Mining, "activation requires an explicit operator wake")
 			assignments, err := service.GetBoardAssignments(ctx, "", poolconfigurations.BoardSelection{HashboardIDs: boards})
 			require.NoError(t, err)
 			require.Len(t, assignments.Assignments, 1)
