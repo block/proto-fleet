@@ -222,9 +222,6 @@ if [ "${1:-}" = "container" ] && [ "${2:-}" = "ls" ]; then
             exit 0
             ;;
     esac
-    if [ "${FAKE_CONTAINER_LIST_FAILURE:-false}" = "true" ]; then
-        exit 1
-    fi
     ancestor=''
     for argument in "$@"; do
         case "$argument" in
@@ -345,9 +342,6 @@ case " $* " in
         ;;
     *" image inspect --format "*)
         image="${!#}"
-        if [ "${FAKE_IMAGE_INSPECT_FAILURE:-}" = "$image" ]; then
-            exit 1
-        fi
         if [ "${FAKE_PREPARED_IMAGE_MISSING:-false}" = "true" ] && [ "$image" = "proto-fleet-api:v1.2.3" ]; then
             exit 1
         fi

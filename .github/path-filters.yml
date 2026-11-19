@@ -19,16 +19,22 @@ global: &global
 
 deployment_config:
   - *global
+  - deployment-files/client/**
   - deployment-files/fleetnode/**
   - deployment-files/ha/**
   - deployment-files/profiles/**
+  - deployment-files/server/otel-collector-config.datadog.yaml
   - deployment-files/tests/**
+  - deployment-files/updater/**
+  - client/nginx.runner-protofleet.conf
   # The ProtoOS Frigate package test builds with this config and checks these files.
   - client/nfpm-proto-os-deb.yaml
   - client/public/**
   - server/migrations/**
+  - server/monitoring/grafana/**
   - server/timescaledb/**
   - server/docker-compose.base.yaml
+  - server/docker-compose.yaml
   - server/internal/infrastructure/db/config.go
   - server/internal/infrastructure/timescaledb/config.go
   - server/internal/domain/telemetry/config.go
@@ -53,6 +59,8 @@ server:
   - server/**
   - sdk/mdk/**
   - deployment-files/server/**
+  # The etcd root recovery test in server/internal/ha/deployment reads this file.
+  - deployment-files/ha/compose.yaml
 
 antminer_plugin:
   - *global

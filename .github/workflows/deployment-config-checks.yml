@@ -39,6 +39,9 @@ jobs:
       - name: Validate HA deployment profile
         run: ./deployment-files/ha/tests/test-profile.sh
 
+      - name: Validate etcd retention with the pinned HA image
+        run: ./deployment-files/ha/tests/test-etcd-retention.sh
+
       - name: Validate HA firewall traffic
         run: |
           sudo apt-get update

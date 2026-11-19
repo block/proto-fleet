@@ -105,45 +105,110 @@ for job in protobuf-lint client-check server-lint plugin-proto-lint plugin-antmi
   done
 done
 
-client_init_recipe="$(just --dry-run _client-init 2>&1)"
-client_init_fingerprint="${client_init_recipe%%$'\nif [ "false" != true ]'*}"
-for install_input in client/package.json client/package-lock.json client/.npmrc; do
-  if [[ "$client_init_fingerprint" != *"$install_input"* ]]; then
-    echo "Client dependency fingerprint omits: $install_input" >&2
+# Run the _client-init recipe in a fixture tree. Fake node and npm commands
+# supply the host identity and record each install.
+client_init_fixture="$test_tmp/client-init"
+mkdir -p "$client_init_fixture/bin" "$client_init_fixture/tree/client"
+cat > "$client_init_fixture/bin/node" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+  --version) printf '%s\n' "$FAKE_NODE_VERSION" ;;
+  '-p process.platform') printf '%s\n' "$FAKE_HOST_PLATFORM" ;;
+  '-p process.arch') printf '%s\n' "$FAKE_HOST_ARCH" ;;
+  -p\ *) printf '%s\n' "$FAKE_HOST_LIBC" ;;
+  *) exit 1 ;;
+esac
+SH
+cat > "$client_init_fixture/bin/npm" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --version) printf '%s\n' "$FAKE_NPM_VERSION" ;;
+  config)
+    [ "${2:-} ${3:-}" = 'list --json' ] || exit 1
+    shift 3
+    printf '%s\n' "$*" > "$CLIENT_INIT_FIXTURE/config-arguments"
+    printf '{"arguments":"%s","config":"%s"}\n' "$*" "$FAKE_NPM_CONFIG"
+    ;;
+  clean-install)
+    shift
+    printf '%s\n' "$*" >> "$CLIENT_INIT_FIXTURE/installs"
+    mkdir -p node_modules
+    printf 'installed tree\n' > node_modules/.package-lock.json
+    ;;
+  *) exit 1 ;;
+esac
+SH
+chmod +x "$client_init_fixture/bin/node" "$client_init_fixture/bin/npm"
+
+(
+  unset COREPACK_NPM_REGISTRY
+  export CLIENT_INIT_FIXTURE="$client_init_fixture"
+  export FAKE_NODE_VERSION=v1.0.0 FAKE_NPM_VERSION=1.0.0 FAKE_NPM_CONFIG=default
+  export FAKE_HOST_PLATFORM=linux FAKE_HOST_ARCH=x64 FAKE_HOST_LIBC=glibc
+  PATH="$client_init_fixture/bin:$PATH"
+  client_init_tree="$client_init_fixture/tree"
+  client_init_stamp="$client_init_tree/.cache/client-deps/install-inputs.hash"
+  client_init_tree_lock="$client_init_tree/client/node_modules/.package-lock.json"
+  printf '{}\n' > "$client_init_tree/client/package.json"
+  printf '{}\n' > "$client_init_tree/client/package-lock.json"
+  : > "$client_init_tree/client/.npmrc"
+  : > "$client_init_fixture/installs"
+
+  # Run the recipe. Fail unless the number of recorded installs is "$1".
+  expect_client_installs() {
+    just --justfile "$PWD/justfile" --working-directory "$client_init_tree" \
+      _client-init >/dev/null
+    if [ "$(wc -l < "$client_init_fixture/installs" | tr -d '[:space:]')" -ne "$1" ]; then
+      echo "Client dependency cache: $2" >&2
+      exit 1
+    fi
+    if [ "$(tail -n 1 "$client_init_fixture/installs")" != "$(cat "$client_init_fixture/config-arguments")" ]; then
+      echo "Client dependency config snapshot and install must use the same arguments" >&2
+      exit 1
+    fi
+    if [ "$(sed -n '2p' "$client_init_stamp")" != "$(git hash-object "$client_init_tree_lock")" ]; then
+      echo "Client dependency stamp does not record the installed tree" >&2
+      exit 1
+    fi
+  }
+
+  installs=1
+  expect_client_installs "$installs" "the first run did not install"
+  if [ "$(cat "$client_init_fixture/installs")" != '--include=dev --include=optional --dry-run=false' ]; then
+    echo "Client install must include dev and optional dependencies" >&2
     exit 1
   fi
-done
+  expect_client_installs "$installs" "a run with no change installed again"
 
-for install_input in \
-  'client/node_modules/.package-lock.json' 'git hash-object "$TREE_LOCK"' \
-  'node --version' 'npm --version' 'node=$NODE_VERSION' 'npm=$NPM_VERSION' \
-  process.platform 'host-platform=$HOST_PLATFORM' \
-  process.arch 'host-arch=$HOST_ARCH' \
-  glibcVersionRuntime '"glibc"' '"musl"' 'host-libc=$HOST_LIBC' \
-  'install_args=(--include=dev --include=optional --dry-run=false)' \
-  'install_args+=(--registry "$COREPACK_NPM_REGISTRY")' \
-  'npm config list --json "${install_args[@]}"' \
-  '"$INSTALL_CONFIG"'; do
-  if [[ "$client_init_fingerprint" != *"$install_input"* ]]; then
-    echo "Client dependency fingerprint omits install context: $install_input" >&2
+  for install_input in \
+    client/package.json client/package-lock.json client/.npmrc \
+    FAKE_NODE_VERSION FAKE_NPM_VERSION \
+    FAKE_HOST_PLATFORM FAKE_HOST_ARCH FAKE_HOST_LIBC \
+    FAKE_NPM_CONFIG COREPACK_NPM_REGISTRY; do
+    previous_hash="$(sed -n '1p' "$client_init_stamp")"
+    case "$install_input" in
+      client/*) printf 'changed\n' >> "$client_init_tree/$install_input" ;;
+      *) export "$install_input=changed" ;;
+    esac
+    installs=$((installs + 1))
+    expect_client_installs "$installs" "a change of $install_input did not install"
+    if [ "$(sed -n '1p' "$client_init_stamp")" = "$previous_hash" ]; then
+      echo "Client dependency fingerprint omits: $install_input" >&2
+      exit 1
+    fi
+  done
+  if [ "$(tail -n 1 "$client_init_fixture/installs")" != '--include=dev --include=optional --dry-run=false --registry changed' ]; then
+    echo "Client install must use the configured registry" >&2
     exit 1
   fi
-done
 
-for cache_guard in \
-  'sed -n '\''1p'\'' "$STAMP"' \
-  'sed -n '\''2p'\'' "$STAMP"' \
-  'printf '\''%s\n%s\n'\'' "$WANT_HASH" "$TREE_HASH"'; do
-  if [[ "$client_init_recipe" != *"$cache_guard"* ]]; then
-    echo "Client dependency cache omits installed-tree guard: $cache_guard" >&2
-    exit 1
-  fi
-done
-
-if [[ "$client_init_recipe" != *'npm clean-install "${install_args[@]}"'* ]]; then
-  echo "Client dependency config snapshot and install must use the same arguments" >&2
-  exit 1
-fi
+  printf 'changed\n' >> "$client_init_tree_lock"
+  installs=$((installs + 1))
+  expect_client_installs "$installs" "a changed installed tree did not install"
+  rm -rf "$client_init_tree/client/node_modules"
+  installs=$((installs + 1))
+  expect_client_installs "$installs" "a missing installed tree did not install"
+)
 
 /bin/bash -u -c 'registry_args=(); printf "%s" ${registry_args[@]+"${registry_args[@]}"}'
 
