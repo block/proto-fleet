@@ -59,6 +59,8 @@ const (
 	maxRawUptimeFallbackRange = 2 * time.Hour
 	maxRawUptimeFallbackRows  = 600_000
 
+	minuteUptimeRetention = 7 * 24 * time.Hour
+
 	// fleetMetricRollupReadMaxDuration keeps the new 90s dashboard rollup on
 	// the raw-window paths. Longer ranges already use hourly/daily aggregates.
 	fleetMetricRollupReadMaxDuration = rawDataMaxDuration
@@ -1037,9 +1039,24 @@ func (s *TimescaleTelemetryStore) uptimeCountsForQuery(ctx context.Context, quer
 	if query.OrganizationID == 0 {
 		return nil
 	}
-	bucketDuration = normalizedUptimeBucketDuration(bucketDuration)
 
-	rollupCounts := s.getUptimeStatusCountsFromDeviceRollups(ctx, query.OrganizationID, query.DeviceIDs, startTime, endTime, bucketDuration, ds)
+	bucketDuration = normalizedUptimeBucketDuration(bucketDuration)
+	var rollupCounts []models.UptimeStatusCount
+
+	// Use one resolution across the range when minute rollups may have expired.
+	if ds == dataSourceRaw && startTime.Before(time.Now().Add(-minuteUptimeRetention)) {
+		hourlyStart, hourlyEnd, ok := completeRawBucketWindow(startTime, endTime, hourlyBucketDuration)
+		if ok {
+			rollupCounts = s.getUptimeStatusCountsFromDeviceRollups(ctx, query.OrganizationID, query.DeviceIDs, hourlyStart, hourlyEnd, hourlyBucketDuration, dataSourceHourly)
+			if len(rollupCounts) > 0 {
+				startTime, endTime = hourlyStart, hourlyEnd
+				bucketDuration = hourlyBucketDuration
+			}
+		}
+	}
+	if len(rollupCounts) == 0 {
+		rollupCounts = s.getUptimeStatusCountsFromDeviceRollups(ctx, query.OrganizationID, query.DeviceIDs, startTime, endTime, bucketDuration, ds)
+	}
 	complete, rawTailStart, canMergeTail := uptimeRollupCoverage(rollupCounts, startTime, endTime, bucketDuration)
 	if complete {
 		return rollupCounts

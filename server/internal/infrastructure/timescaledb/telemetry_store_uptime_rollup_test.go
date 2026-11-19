@@ -464,6 +464,57 @@ func TestTelemetryStore_GetCombinedMetricsSkipsUptimeCountsWhenNotRequested(t *t
 	assert.Empty(t, result.UptimeStatusCounts)
 }
 
+func TestTelemetryStore_GetCombinedMetricsUsesHourlyUptimeAcrossMinuteRetentionCutoff(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	store, err := NewTelemetryStore(dbSvc.DB, DefaultConfig())
+	require.NoError(t, err)
+	disableUptimeRollupPolicies(t, dbSvc.DB)
+	orgID := dbSvc.CreateSuperAdminUser().OrganizationID
+	deviceID := models.DeviceIdentifier("uptime-retention-cutoff")
+
+	cutoffHour := time.Now().UTC().AddDate(0, 0, -7).Truncate(time.Hour)
+	firstHour := cutoffHour.Add(-time.Hour)
+	lastHour := cutoffHour.Add(time.Hour)
+	partialHour := lastHour.Add(time.Hour)
+	insertMinerStateSnapshotRow(t, dbSvc.DB, firstHour.Add(5*time.Minute), orgID, sql.NullInt64{}, string(deviceID), 3)
+	insertMinerStateSnapshotRow(t, dbSvc.DB, lastHour.Add(5*time.Minute), orgID, sql.NullInt64{}, string(deviceID), 2)
+	insertMinerStateSnapshotRow(t, dbSvc.DB, partialHour.Add(55*time.Minute), orgID, sql.NullInt64{}, string(deviceID), 3)
+	refreshUptimeDeviceRollup(t, dbSvc.DB, "miner_state_snapshot_device_hourly", firstHour, partialHour.Add(time.Hour))
+
+	// Insert the missing hour after refresh to leave a gap in the hourly rollup.
+	insertMinerStateSnapshotRow(t, dbSvc.DB, cutoffHour.Add(5*time.Minute), orgID, sql.NullInt64{}, string(deviceID), 0)
+	insertMinerStateSnapshotRow(t, dbSvc.DB, partialHour.Add(5*time.Minute), orgID, sql.NullInt64{}, string(deviceID), 2)
+	start, end := firstHour, partialHour.Add(30*time.Minute)
+	checkHourlyCounts := func(t *testing.T) {
+		t.Helper()
+		result, err := store.GetCombinedMetrics(t.Context(), models.CombinedMetricsQuery{
+			OrganizationID:   orgID,
+			DeviceIDs:        []models.DeviceIdentifier{deviceID},
+			MeasurementTypes: []models.MeasurementType{models.MeasurementTypeUptime},
+			TimeRange:        models.TimeRange{StartTime: &start, EndTime: &end},
+			SlideInterval:    ptrDuration(time.Minute),
+		})
+		require.NoError(t, err)
+		require.Len(t, result.UptimeStatusCounts, 3)
+		assert.True(t, firstHour.Equal(result.UptimeStatusCounts[0].Timestamp))
+		assert.EqualValues(t, 1, result.UptimeStatusCounts[0].HashingCount)
+		assert.True(t, cutoffHour.Equal(result.UptimeStatusCounts[1].Timestamp))
+		assert.EqualValues(t, 1, result.UptimeStatusCounts[1].NotHashingCount)
+		assert.True(t, lastHour.Equal(result.UptimeStatusCounts[2].Timestamp))
+		assert.EqualValues(t, 1, result.UptimeStatusCounts[2].BrokenCount)
+	}
+	t.Run("raw snapshots fill an hourly gap", checkHourlyCounts)
+	t.Run("complete hourly rollup works without raw snapshots", func(t *testing.T) {
+		refreshUptimeDeviceRollup(t, dbSvc.DB, "miner_state_snapshot_device_hourly", cutoffHour, lastHour)
+		deleteMinerStateSnapshotRows(t, dbSvc.DB, string(deviceID))
+		checkHourlyCounts(t)
+	})
+}
+
 func createUptimeTestSite(t *testing.T, db *sql.DB, orgID int64, slug string) sql.NullInt64 {
 	t.Helper()
 	var id int64
