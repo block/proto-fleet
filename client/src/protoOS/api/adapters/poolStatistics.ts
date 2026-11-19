@@ -9,6 +9,7 @@ export interface PoolConfigurationSummary {
 }
 export interface PoolConfigurationReadings extends PoolConfigurationSummary {
   pools: PoolInfo[];
+  stale?: true;
   error?: string;
   observedBoards?: number;
 }

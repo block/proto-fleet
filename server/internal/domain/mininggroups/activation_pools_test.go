@@ -602,7 +602,7 @@ func TestActivationDiscardsSavedDefaultStartWithoutDispatch(t *testing.T) {
 	require.False(t, f.state(t).Step.Valid)
 	f.reconcile(t, ctx)
 	require.Equal(t, statusComplete, f.state(t).Status)
-	require.Equal(t, "Mining groups enabled. Start mining in ProtoOS when ready.", f.state(t).Message)
+	require.Equal(t, "Mining groups enabled. Choose Wake default mining group from the Fleet container menu.", f.state(t).Message)
 	require.False(t, group.Mining)
 }
 

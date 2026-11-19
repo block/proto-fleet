@@ -85,10 +85,32 @@ test("separates identical endpoints by controller pool identity and configuratio
   );
   expect(client.poolServiceGetPoolDiagnostics).toHaveBeenCalledTimes(1);
   expect(client.poolServiceListPools).toHaveBeenCalledTimes(1);
+  expect(client.miningGroupServiceListMiningGroups).toHaveBeenCalledTimes(1);
+  expect(client.miningGroupServiceListMiningGroups).toHaveBeenCalledAfter(
+    client.miningGroupServiceGetMiningGroupPoolDiagnostics,
+  );
+  expect(client.miningGroupServiceGetMiningGroup).not.toHaveBeenCalled();
   expect(client.miningGroupServiceListMiningGroupPools).not.toHaveBeenCalledWith(
     { groupId: "default" },
     expect.anything(),
   );
+});
+test("marks the changed configuration stale and keeps the other configuration readings", async () => {
+  const { service, client } = fixture();
+  client.miningGroupServiceListMiningGroups.mockResolvedValueOnce({
+    data: { groups: [configs[0], { ...configs[1], revision: "3" }] },
+  });
+  const [unchanged, changed] = await service.read(configs);
+  expect(unchanged.pools[0]).toMatchObject({ id: "pool:1", difficulty: 20 });
+  expect(changed).toEqual({ ...configs[1], pools: [], stale: true });
+});
+test("keeps the other configuration readings when a configuration no longer exists", async () => {
+  const { service, client } = fixture();
+  client.miningGroupServiceListMiningGroupPools.mockRejectedValueOnce({ status: 404 });
+  client.miningGroupServiceListMiningGroups.mockResolvedValueOnce({ data: { groups: [configs[0]] } });
+  const [unchanged, removed] = await service.read(configs);
+  expect(unchanged.pools[0]).toMatchObject({ id: "pool:1", difficulty: 20 });
+  expect(removed).toEqual({ ...configs[1], pools: [], stale: true });
 });
 test("refuses duplicate pool IDs rather than merging configuration statistics", async () => {
   const { service, client } = fixture();

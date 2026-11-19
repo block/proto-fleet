@@ -23,6 +23,83 @@ import (
 
 const operationReturnDefault = "return_default"
 
+var errDefaultReviewSettingsMissing = errors.New("Default review settings unavailable")
+
+// Keep the settings read time separate from the membership observation time.
+// A membership refresh can reuse recent settings without extending their age.
+type defaultReturnObservation struct {
+	sdk.MiningGroupResult
+	DefaultSettings      *sdk.MiningGroup `json:"default_settings,omitempty"`
+	DefaultSettingsAt    time.Time        `json:"default_settings_at,omitzero"`
+	DefaultBlockedReason string           `json:"default_blocked_reason,omitempty"`
+}
+
+func sameDefaultSettingsRevision(a, b sdk.MiningGroup) bool {
+	return a.Revision == b.Revision && a.Name == b.Name && a.Mining == b.Mining && a.CustomPolicy == b.CustomPolicy
+}
+
+func (o *defaultReturnObservation) setDefaultSettings(group sdk.MiningGroup) {
+	group.MACs = nil
+	o.DefaultSettings = &group
+	o.DefaultSettingsAt = time.Now().UTC()
+}
+
+func encodeDefaultReturnObservation(observed sdk.MiningGroupResult, settings *sdk.MiningGroup) ([]byte, error) {
+	next := defaultReturnObservation{MiningGroupResult: observed}
+	if group, ok := defaultGroup(observed); ok && settings != nil && settings.Pools != nil && sameDefaultSettingsRevision(group, *settings) {
+		next.setDefaultSettings(*settings)
+	}
+	return encode(next)
+}
+
+func (s *Service) observeDefaultReturnSettings(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, identifier string, observed sdk.MiningGroupResult) (defaultReturnObservation, error) {
+	next := defaultReturnObservation{MiningGroupResult: observed}
+	if active(row.Status) || !observed.Enabled || observed.Suspended || observed.Pending || !slices.ContainsFunc(observed.Groups, func(group sdk.MiningGroup) bool {
+		return group.ID != "default" && len(group.MACs) > 0
+	}) {
+		return next, nil
+	}
+	group, found := defaultGroup(observed)
+	if !found || group.CustomPolicy {
+		return next, nil
+	}
+	var previous defaultReturnObservation
+	if err := decode(row.Observed, &previous); err != nil {
+		return next, err
+	}
+	if past, ok := defaultGroup(previous.MiningGroupResult); ok && sameDefaultSettingsRevision(past, group) &&
+		time.Since(previous.DefaultSettingsAt) < time.Minute && time.Until(previous.DefaultSettingsAt) <= 5*time.Second {
+		next.DefaultSettingsAt = previous.DefaultSettingsAt
+		next.DefaultBlockedReason = previous.DefaultBlockedReason
+		next.DefaultSettings = previous.DefaultSettings
+		return next, nil
+	}
+	// Only controllers with a recalled board outside Default need settings for
+	// the review. Idle controllers with allocated groups use the usual observation.
+	boards, err := q.ListDefaultReturnBoards(ctx, sqlc.ListDefaultReturnBoardsParams{OrganizationID: row.OrganizationID, DeviceIdentifier: identifier})
+	if err != nil {
+		return next, err
+	}
+	if !slices.ContainsFunc(boards, func(board sqlc.ListDefaultReturnBoardsRow) bool {
+		return board.ClientID == 0 && !board.PendingPoolWork && slices.ContainsFunc(observed.Groups, func(group sdk.MiningGroup) bool {
+			return group.ID != "default" && slices.Contains(group.MACs, board.MacAddress)
+		})
+	}) {
+		return next, nil
+	}
+	current, err := s.readReviewedDefault(ctx, row.DeviceID)
+	next.DefaultSettingsAt = time.Now().UTC()
+	switch {
+	case err != nil || current.Pools == nil:
+		next.DefaultBlockedReason = defaultReadBlockedMessage(err)
+	case !sameDefaultSettingsRevision(current, group):
+		next.DefaultBlockedReason = "Default changed. Refresh the controller and review again."
+	default:
+		next.setDefaultSettings(current)
+	}
+	return next, nil
+}
+
 type DefaultReturnReview struct {
 	Identifier    string
 	Boards        []sqlc.ListDefaultReturnBoardsRow
@@ -220,9 +297,33 @@ func (s *Service) ReviewReturnToDefault(ctx context.Context, identifier string, 
 	for i, selection := range selections {
 		reads.Go(func() error {
 			state := selection.state
-			review, err := s.reviewDefaultReturn(readCtx, s.queries, info.UserID, state.Record, state.Observed, selection.ids, func() (sdk.MiningGroup, error) {
-				return s.readReviewedDefault(readCtx, state.Record.DeviceID)
-			})
+			review, err := s.reviewDefaultReturn(readCtx, s.queries, info.UserID, state.Record, state.Observed, selection.ids, nil)
+			if errors.Is(err, errDefaultReviewSettingsMissing) {
+				// A return can become eligible just after ownership cleanup, before
+				// the idle observation worker records Default settings. Refresh under
+				// the observation lock and review that committed result.
+				state, err = s.GetState(readCtx, review.Identifier)
+				if err != nil {
+					return err
+				}
+				if !currentDefaultReturnObservation(state) || !state.Observed.Enabled || state.Observed.Suspended || state.Observed.Pending {
+					return fleeterror.NewFailedPreconditionError("Reconnect the controller and refresh its mining-group state.")
+				}
+				current, _ := defaultGroup(state.Observed)
+				remaining := make([]int64, 0, len(review.Boards))
+				for _, board := range review.Boards {
+					if !slices.Contains(current.MACs, board.MacAddress) {
+						remaining = append(remaining, board.HashboardID)
+					}
+				}
+				if len(remaining) == 0 {
+					return nil
+				}
+				review, err = s.reviewDefaultReturn(readCtx, s.queries, info.UserID, state.Record, state.Observed, remaining, nil)
+				if errors.Is(err, errDefaultReviewSettingsMissing) {
+					err = nil
+				}
+			}
 			reviews[i] = review
 			return err
 		})
@@ -230,6 +331,7 @@ func (s *Service) ReviewReturnToDefault(ctx context.Context, identifier string, 
 	if err := reads.Wait(); err != nil {
 		return nil, fmt.Errorf("review Default pools: %w", err)
 	}
+	reviews = slices.DeleteFunc(reviews, func(review DefaultReturnReview) bool { return review.Identifier == "" })
 	selectedIDs := []int64{}
 	for _, review := range reviews {
 		for _, board := range review.Boards {
@@ -286,18 +388,35 @@ func (s *Service) reviewDefaultReturn(ctx context.Context, q sqlc.Querier, userI
 	if review.BlockedReason = defaultReturnPolicyBlocker(observed, review.Boards); review.BlockedReason != "" {
 		return review, nil
 	}
-	current, err := readDefault()
-	if err != nil {
-		review.Default.Pools = nil
-		review.BlockedReason = defaultReadBlockedMessage(err)
-		return review, nil
+	if readDefault != nil {
+		current, err := readDefault()
+		if err != nil {
+			review.Default.Pools = nil
+			review.BlockedReason = defaultReadBlockedMessage(err)
+			return review, nil
+		}
+		if current.Revision != review.Default.Revision {
+			review.BlockedReason = "Default changed. Refresh the controller and review again."
+			return review, nil
+		}
+		current.MACs = review.Default.MACs
+		review.Default = current
+	} else {
+		var cached defaultReturnObservation
+		if err := decode(row.Observed, &cached); err != nil {
+			return review, err
+		}
+		if cached.DefaultBlockedReason != "" {
+			review.BlockedReason = cached.DefaultBlockedReason
+			return review, nil
+		}
+		if cached.DefaultSettings == nil || time.Since(cached.DefaultSettingsAt) > 2*time.Minute || time.Until(cached.DefaultSettingsAt) > 5*time.Second {
+			review.BlockedReason = "Waiting for Fleet to refresh the Default pool and mining settings."
+			return review, errDefaultReviewSettingsMissing
+		}
+		cached.DefaultSettings.MACs = review.Default.MACs
+		review.Default = *cached.DefaultSettings
 	}
-	if current.Revision != review.Default.Revision {
-		review.BlockedReason = "Default changed. Refresh the controller and review again."
-		return review, nil
-	}
-	current.MACs = review.Default.MACs
-	review.Default = current
 	settings, err := defaultSettings(review.Default)
 	if err != nil {
 		return review, err
@@ -507,7 +626,7 @@ func (s *Service) reconcileDefaultReturn(ctx context.Context, q sqlc.Querier, ro
 				return err
 			}
 			if settings != capture.Settings {
-				return s.interrupt(ctx, q, row, "Default settings changed. Review and confirm again. The boards remain recalled.")
+				return s.interruptWithDefaultSettings(ctx, q, row, "Default settings changed. Review and confirm again. The boards remain recalled.", &current)
 			}
 		}
 		return s.apply(ctx, q, row, nil)
@@ -544,6 +663,10 @@ func (s *Service) reconcileDefaultReturn(ctx context.Context, q sqlc.Querier, ro
 	}
 	if current.Revision != target.Revision {
 		return s.block(ctx, q, row, "Default changed during observation. Waiting for current settings.")
+	}
+	row.Observed, err = encodeDefaultReturnObservation(observed, &current)
+	if err != nil {
+		return err
 	}
 	settings, err := defaultSettings(current)
 	if err != nil {

@@ -1,6 +1,6 @@
 import { Code } from "@connectrpc/connect";
 import { isAuthenticationError } from "../errors";
-import type { PoolConfigurationStatisticsService } from "../poolStatistics";
+import type { PoolConfigurationReadings, PoolConfigurationStatisticsService } from "../poolStatistics";
 import type { AdapterRequestOptions } from "../types";
 import { mapWithConcurrency } from "../utils/async";
 import type { MdkV2Client } from "./connectClient";
@@ -8,6 +8,11 @@ import { withDeadline } from "./controllerRecords";
 import { groupStamp } from "./miningGroupRecords";
 import { toCanonicalPoolRecordedShares, toCanonicalPools } from "./normalize";
 import { readDefaultPools } from "./poolEdits";
+
+const isMissingConfiguration = (cause: unknown) => {
+  const error = cause as { status?: number; error?: { code?: number } } | undefined;
+  return error?.status === 404 || error?.error?.code === Code.NotFound;
+};
 
 export function createPoolStatistics(
   client: MdkV2Client,
@@ -73,15 +78,22 @@ export function createPoolStatistics(
       }),
     read: (configurations, params) =>
       read(params, async (options) => {
-        const result = await mapWithConcurrency(
+        if (configurations.length === 0) return [];
+        const readings = await mapWithConcurrency(
           configurations,
           4,
           async (configuration) => {
             const settings =
               configuration.id === "default"
                 ? await readDefaultPools(client, options)
-                : ((await client.miningGroupServiceListMiningGroupPools({ groupId: configuration.id }, options)).data
-                    .pools ?? []);
+                : await client
+                    .miningGroupServiceListMiningGroupPools({ groupId: configuration.id }, options)
+                    .then(({ data }) => data.pools ?? [])
+                    .catch((cause: unknown) => {
+                      if (isMissingConfiguration(cause)) return undefined;
+                      throw cause;
+                    });
+            if (!settings) return undefined;
             if (
               settings.some(
                 (pool) => !/^[1-9]\d*$/.test(String(pool.id ?? "")) || !Number.isSafeInteger(Number(pool.id)),
@@ -110,10 +122,6 @@ export function createPoolStatistics(
               observedBoards = undefined;
               error = "Connection status is unavailable.";
             }
-            const current = (await client.miningGroupServiceGetMiningGroup({ id: configuration.id }, options)).data
-              .group;
-            if (current?.revision !== configuration.revision)
-              throw new Error("Pool configurations changed. Refresh statistics.");
             const shares = toCanonicalPoolRecordedShares(diagnostics);
             const pools = toCanonicalPools(
               { pools: settings.map((pool) => ({ ...pool, id: String(pool.id) })) },
@@ -133,6 +141,17 @@ export function createPoolStatistics(
           },
           options.signal ?? undefined,
         );
+        // One check after the pool reads verifies all visible revisions.
+        const groups = (await client.miningGroupServiceListMiningGroups(options)).data.groups ?? [];
+        const groupsById = new Map(groups.map((group) => [group.id, group]));
+        if (groupsById.size !== groups.length) throw new Error("Duplicate pool configuration identity.");
+        const result = configurations.map((configuration, index): PoolConfigurationReadings => {
+          const current = groupsById.get(configuration.id);
+          const reading = readings[index];
+          if (!reading || current?.revision !== configuration.revision || current.deletedAt)
+            return { ...configuration, pools: [], stale: true };
+          return reading;
+        });
         const ids = result.flatMap((configuration) => configuration.pools.map((pool) => pool.id));
         if (new Set(ids).size !== ids.length)
           throw new Error("The controller reported duplicate pool IDs. Statistics cannot be separated safely.");

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 import { readPoolAttempts, savePoolAttempt } from "./attemptStorage";
 import PoolAssignmentDialog from "./PoolAssignmentDialog";
@@ -39,6 +39,13 @@ const attempt: PoolAssignmentAttempt = {
   configurationConfirmed: true,
   operationIds: ["operation"],
   phase: "Moving selected hashboards",
+};
+const pendingStatus = {
+  state: "pending",
+  message: "Waiting for board stop",
+  confirmed: 0,
+  total: 1,
+  blockers: [],
 };
 const fixture = () => {
   const service = {
@@ -262,6 +269,78 @@ test("opening assignment status after reload shows the result and never repeats 
   expect(service.review).not.toHaveBeenCalled();
   expect(service.apply).not.toHaveBeenCalled();
   expect(service.status).toHaveBeenCalledWith(attempt, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+});
+
+test("backs off failed status reads up to one minute and restores the normal interval after recovery", async () => {
+  vi.useFakeTimers();
+  try {
+    savePoolAttempt("ct1", attempt);
+    const { service } = fixture();
+    service.status.mockRejectedValue(new Error("Controller unavailable"));
+    render(
+      <PoolAssignmentDialog service={service} controllerId="ct1" target={target} openStatus onDismiss={vi.fn()} />,
+    );
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    expect(screen.getByText("Controller unavailable")).toBeInTheDocument();
+    expect(service.status).toHaveBeenCalledTimes(1);
+    let calls = 1;
+    for (const delay of [6_000, 12_000, 24_000, 48_000, 60_000]) {
+      await act(() => vi.advanceTimersByTimeAsync(delay - 1));
+      expect(service.status).toHaveBeenCalledTimes(calls);
+      await act(() => vi.advanceTimersByTimeAsync(1));
+      calls += 1;
+      expect(service.status).toHaveBeenCalledTimes(calls);
+    }
+
+    service.status.mockResolvedValueOnce(pendingStatus).mockResolvedValueOnce({
+      ...pendingStatus,
+      state: "saved",
+      message: "Pool assignment saved.",
+      confirmed: 1,
+    });
+    await act(() => vi.advanceTimersByTimeAsync(59_999));
+    expect(service.status).toHaveBeenCalledTimes(calls);
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(screen.getByText(pendingStatus.message)).toBeInTheDocument();
+    expect(screen.queryByText("Controller unavailable")).not.toBeInTheDocument();
+    await act(() => vi.advanceTimersByTimeAsync(2_999));
+    expect(service.status).toHaveBeenCalledTimes(calls + 1);
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(screen.getByText("Pool assignment saved.")).toBeInTheDocument();
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+    expect(service.status).toHaveBeenCalledTimes(calls + 2);
+    expect(service.apply).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("checks status immediately during backoff and cancels the next automatic check on close", async () => {
+  vi.useFakeTimers();
+  try {
+    savePoolAttempt("ct1", attempt);
+    const { service } = fixture();
+    service.status.mockRejectedValueOnce(new Error("Controller unavailable")).mockResolvedValue(pendingStatus);
+    const view = render(
+      <PoolAssignmentDialog service={service} controllerId="ct1" target={target} openStatus onDismiss={vi.fn()} />,
+    );
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    fireEvent.click(screen.getByRole("button", { name: "Check status" }));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(service.status).toHaveBeenCalledTimes(2);
+    expect(screen.getByText(pendingStatus.message)).toBeInTheDocument();
+    await act(() => vi.advanceTimersByTimeAsync(3_000));
+    expect(service.status).toHaveBeenCalledTimes(3);
+
+    view.unmount();
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+    expect(service.status).toHaveBeenCalledTimes(3);
+    expect(service.apply).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test("refreshes the configuration library after a recovered configuration save", async () => {

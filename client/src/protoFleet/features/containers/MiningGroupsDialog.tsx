@@ -162,7 +162,7 @@ function MiningGroupsForm({ deviceIdentifier, onClose, mode = "activate" }: Mini
   else if (started) buttonLabel = "Close";
 
   let introduction =
-    "Fleet will stop mining before it enables mining groups. Start mining in ProtoOS when you are ready. Fleet keeps existing pool assignments and checks the settings reported by the installed hashboards.";
+    "Fleet will stop mining before it enables mining groups. Fleet keeps existing pool assignments and checks the settings reported by the installed hashboards. When ready, choose Wake default mining group from the Fleet container menu.";
   if (deactivating) introduction = "The container will keep the default group’s pools and mining settings.";
   const disableBlocked = deactivating && !started && !complete && !!prerequisite;
   const canMove = disableBlocked && allowed && fresh && !observationError && state?.canReturnToDefault;
@@ -244,7 +244,7 @@ function MiningGroupsForm({ deviceIdentifier, onClose, mode = "activate" }: Mini
         {prerequisite ? <p role="status">{prerequisite}</p> : null}
         {progressMessage && !disableBlocked ? <p role={progressRole}>{progressMessage}</p> : null}
         {complete && !deactivating && state?.groups.some((group) => group.id === "default" && !group.mining) ? (
-          <p>Start mining in ProtoOS when you are ready.</p>
+          <p>Choose Wake default mining group from the Fleet container menu.</p>
         ) : null}
         {error || observationError ? (
           <p role="alert" className="text-intent-critical-fill">

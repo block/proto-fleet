@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { readPoolAttempts, removePoolAttempt, savePoolAttempt } from "./attemptStorage";
 import { withPoolWriteLock } from "./poolWriteLock";
 import { isAuthenticationError } from "@/protoOS/api/adapters/errors";
@@ -13,6 +13,9 @@ import type {
   SavedPoolSet,
 } from "@/protoOS/api/adapters/poolAssignment";
 import { usePoll } from "@/shared/hooks/usePoll";
+
+const STATUS_POLL_INTERVAL_MS = 3_000;
+const MAX_STATUS_POLL_INTERVAL_MS = 60_000;
 
 const message = (error: unknown) => {
   if (isAuthenticationError(error))
@@ -43,6 +46,7 @@ export function usePoolAssignment(
   const [status, setStatus] = useState<PoolAssignmentStatus>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const statusPollDelayMs = useRef(0);
   const checkingPrevious = Boolean(
     !openStatus && target.macs.length && attempt && attempt.id === openingAttemptId && !attempt.restoreLegacyMining,
   );
@@ -89,12 +93,24 @@ export function usePoolAssignment(
     } else setStatus(result);
     setError(undefined);
   };
+  const readStatus = async (record: PoolAssignmentAttempt, signal: AbortSignal) => {
+    try {
+      const result = await service.status(record, { signal });
+      if (signal.aborted) return;
+      statusPollDelayMs.current = STATUS_POLL_INTERVAL_MS;
+      recordStatus(record, result);
+    } catch (error) {
+      if (signal.aborted) return;
+      statusPollDelayMs.current = Math.min(
+        Math.max(statusPollDelayMs.current, STATUS_POLL_INTERVAL_MS) * 2,
+        MAX_STATUS_POLL_INTERVAL_MS,
+      );
+      setError(message(error));
+    }
+  };
   const check = () =>
     run(async (signal) => {
-      if (!attempt) return;
-      const result = await service.status(attempt, { signal });
-      signal.throwIfAborted();
-      recordStatus(attempt, result);
+      if (attempt) await readStatus(attempt, signal);
     });
   const checkMiningRecovery = () =>
     run((signal) =>
@@ -206,21 +222,26 @@ export function usePoolAssignment(
       }
     },
   });
-  usePoll({
-    enabled: !!attempt && !busy && (status === undefined || status.state === "pending"),
-    poll: true,
-    pollIntervalMs: 3000,
-    params: attempt,
-    fetchData: async (signal) => {
-      if (!attempt) return;
-      try {
-        const value = await service.status(attempt, { signal });
-        if (!signal.aborted) recordStatus(attempt, value);
-      } catch (error) {
-        if (!signal.aborted) setError(message(error));
-      }
-    },
-  });
+  const pollStatus = useEffectEvent(readStatus);
+  const canPollStatus = status === undefined || status.state === "pending";
+  useEffect(() => {
+    statusPollDelayMs.current = 0;
+  }, [attempt, controllerId, service]);
+  useEffect(() => {
+    if (!attempt || busy || !canPollStatus) return;
+    const controller = new AbortController();
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      await pollStatus(attempt, controller.signal);
+      if (!controller.signal.aborted) timeout = setTimeout(poll, statusPollDelayMs.current);
+    };
+    if (statusPollDelayMs.current) timeout = setTimeout(poll, statusPollDelayMs.current);
+    else void poll();
+    return () => {
+      controller.abort();
+      clearTimeout(timeout);
+    };
+  }, [attempt, busy, canPollStatus, controllerId, service]);
   return {
     inspection,
     createdId,

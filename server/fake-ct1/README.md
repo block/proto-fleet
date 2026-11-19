@@ -254,10 +254,11 @@ docker run -p 8080:8080 -p 9095:9095 fake-ct1
 The native gRPC listener supports Fleet's mining-group workflow. New simulator
 processes advertise `mining-groups-v1` with groups **disabled**. Use **Enable
 mining groups** in Fleet: it automatically stops mining, enables groups, and
-resumes with existing pools if the container was running. Activation adopts the
-existing hashboards into the stopped `default` group before Fleet resumes it.
-Native gRPC and REST global start/stop share the same lifecycle behavior. Module and hashboard **Edit pool**
-actions become available after Fleet observes completed activation.
+assigns existing hashboards to the stopped `default` group. Default keeps its
+pools. Use **Wake default mining group** from the Fleet container menu when
+ready. Native gRPC and REST start and stop use the same lifecycle.
+Module and hashboard **Edit pool** actions become available after Fleet observes
+completed activation.
 
 The browser Connect gateway also exposes capability, group, membership, and
 group-pool reads for ProtoOS Settings → Pools. These share native state. Group

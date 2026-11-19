@@ -9,6 +9,7 @@ import (
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/google/uuid"
@@ -20,6 +21,7 @@ type defaultReturnMiner struct {
 	loseReply      bool
 	rejectRevision bool
 	observeErr     bool
+	defaultReadErr error
 }
 
 func (m *defaultReturnMiner) GetMinerForCommand(context.Context, int64) (interfaces.Miner, error) {
@@ -28,6 +30,10 @@ func (m *defaultReturnMiner) GetMinerForCommand(context.Context, int64) (interfa
 func (m *defaultReturnMiner) MiningGroups(ctx context.Context, request sdk.MiningGroupRequest) (sdk.MiningGroupResult, error) {
 	if request.Action == "observe" && m.observeErr {
 		return sdk.MiningGroupResult{}, errors.New("controller unavailable")
+	}
+	if request.Action == sdk.MiningGroupReadDefault && m.defaultReadErr != nil {
+		m.calls = append(m.calls, request)
+		return sdk.MiningGroupResult{}, m.defaultReadErr
 	}
 	if request.Action == operationDeactivate {
 		m.snapshot.Enabled = false
@@ -83,10 +89,14 @@ func TestDefaultReturnIsOfferedOnlyAfterRecallCleanup(t *testing.T) {
 	require.NoError(t, f.conn.QueryRowContext(ctx, `INSERT INTO hosted_account(account_id,organization_id,parent_id,depth,name,capabilities) SELECT gen_random_uuid()::text,organization_id,id,1,'Client',31 FROM hosted_account WHERE organization_id=$1 AND depth=0 RETURNING id`, f.target.OrganizationID).Scan(&client))
 	_, err = f.conn.ExecContext(ctx, `INSERT INTO hosted_account_asset(organization_id,kind,asset_id,hashboard_id,device_id,client_id) VALUES($1,7,$2,$2,$3,$4)`, f.target.OrganizationID, ids[0], f.target.DeviceID, client)
 	require.NoError(t, err)
+	_, err = f.conn.ExecContext(ctx, `UPDATE container_mining_group_state SET observed=observed-'default_settings_at' WHERE device_id=$1`, f.target.DeviceID)
+	require.NoError(t, err)
+	firmware.calls = nil
 	state, err = f.service.GetState(ctx, f.target.DeviceIdentifier)
 	require.NoError(t, err)
 	require.Contains(t, state.DeactivationBlockedReason, "Recall all allocated hashboards")
 	require.False(t, state.CanReturnToDefault)
+	require.Equal(t, []sdk.MiningGroupRequest{{Action: "observe"}}, firmware.calls, "allocated groups do not need a Default settings refresh")
 	_, err = f.conn.ExecContext(ctx, `UPDATE hosted_account_asset SET client_id=NULL,revision=revision+1 WHERE device_id=$1`, f.target.DeviceID)
 	require.NoError(t, err)
 	state, err = f.service.GetState(ctx, f.target.DeviceIdentifier)
@@ -265,7 +275,10 @@ func TestDefaultReturnStopsWhenReviewedSettingsChangeAndCanBeRetried(t *testing.
 			for _, call := range firmware.calls {
 				require.NotEqual(t, "transfer", call.Action)
 			}
+			callsBeforeReview := len(firmware.calls)
 			review = reviewDefaultReturn(t, ctx, f, ids)
+			require.Equal(t, "new-host", review.Default.Pools[0].Username)
+			require.Len(t, firmware.calls, callsBeforeReview, "retry uses the settings committed by reconciliation")
 			_, err = f.service.ReturnToDefault(ctx, f.target.DeviceIdentifier, review.Token, uuid.NewString(), ids)
 			require.NoError(t, err)
 		})
@@ -520,22 +533,26 @@ func TestDefaultReturnReviewUsesMiningAssetNames(t *testing.T) {
 	require.Equal(t, "Hashboard CT1-0001", review.BoardNames[ids[0]])
 }
 
-func TestDefaultReturnReviewReusesFreshMembershipAndChecksDefaultSettings(t *testing.T) {
+func TestDefaultReturnReviewReusesCommittedMembershipAndSettings(t *testing.T) {
 	ctx, f, firmware, ids := newDefaultReturnFixture(t)
 	firmware.calls = nil
 	firmware.observeErr = true
+	firmware.defaultReadErr = errors.New("controller unavailable")
+	var token string
 	for range 3 {
 		reviews, err := f.service.ReviewReturnToDefault(ctx, "", ids)
 		require.NoError(t, err)
 		require.Len(t, reviews, 1)
 		require.NotEmpty(t, reviews[0].Token)
+		token = reviews[0].Token
 	}
-	require.Len(t, firmware.calls, 3, "each review confirms only the Default settings")
-	for _, call := range firmware.calls {
-		require.Equal(t, sdk.MiningGroupReadDefault, call.Action)
-	}
+	require.Empty(t, firmware.calls, "polls use committed controller settings")
+	_, err := f.service.ReturnToDefault(ctx, f.target.DeviceIdentifier, token, uuid.NewString(), ids)
+	require.ErrorContains(t, err, "cannot confirm Default mining settings")
+	require.Len(t, firmware.calls, 1)
+	require.Equal(t, sdk.MiningGroupReadDefault, firmware.calls[0].Action)
 	firmware.calls = nil
-	_, err := f.conn.ExecContext(ctx, `INSERT INTO pool_lifecycle_transition(organization_id,device_id,asset_kind,asset_id,reason) VALUES($1,$2,7,$3,'ownership')`, f.target.OrganizationID, f.target.DeviceID, ids[0])
+	_, err = f.conn.ExecContext(ctx, `INSERT INTO pool_lifecycle_transition(organization_id,device_id,asset_kind,asset_id,reason) VALUES($1,$2,7,$3,'ownership')`, f.target.OrganizationID, f.target.DeviceID, ids[0])
 	require.NoError(t, err)
 	reviews, err := f.service.ReviewReturnToDefault(ctx, "", ids)
 	require.NoError(t, err)
@@ -543,6 +560,24 @@ func TestDefaultReturnReviewReusesFreshMembershipAndChecksDefaultSettings(t *tes
 	require.Contains(t, reviews[0].BlockedReason, "ownership cleanup")
 	require.Empty(t, reviews[0].Token)
 	require.Empty(t, firmware.calls)
+}
+
+func TestDefaultReturnReviewReusesUnavailableSettingsResult(t *testing.T) {
+	ctx, f, firmware, ids := newDefaultReturnFixture(t)
+	_, err := f.conn.ExecContext(ctx, `UPDATE container_mining_group_state SET observed_at=now()-INTERVAL '3 minutes',observed=observed-'default_settings_at' WHERE device_id=$1`, f.target.DeviceID)
+	require.NoError(t, err)
+	firmware.calls = nil
+	firmware.defaultReadErr = control.ErrCommandProtocolUpgradeRequired
+	for range 3 {
+		reviews, err := f.service.ReviewReturnToDefault(ctx, "", ids)
+		require.NoError(t, err)
+		require.Len(t, reviews, 1)
+		require.Empty(t, reviews[0].Token)
+		require.Contains(t, reviews[0].BlockedReason, "Upgrade the Fleet Node")
+	}
+	require.Len(t, firmware.calls, 2)
+	require.Equal(t, "observe", firmware.calls[0].Action)
+	require.Equal(t, sdk.MiningGroupReadDefault, firmware.calls[1].Action)
 }
 
 func TestDefaultReturnReviewRefreshesExpiredObservationOnce(t *testing.T) {
@@ -555,9 +590,6 @@ func TestDefaultReturnReviewRefreshesExpiredObservationOnce(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, reviews, 1)
 	}
-	require.Len(t, firmware.calls, 4)
+	require.Len(t, firmware.calls, 1)
 	require.Equal(t, "observe", firmware.calls[0].Action)
-	for _, call := range firmware.calls[1:] {
-		require.Equal(t, sdk.MiningGroupReadDefault, call.Action)
-	}
 }

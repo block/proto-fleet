@@ -3,8 +3,36 @@ package mininggroups
 import (
 	"testing"
 
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/require"
 )
+
+func TestPlannerReadsDefaultOnlyForInheritedBoards(t *testing.T) {
+	miner := &defaultReturnMiner{simulatedGroups: &simulatedGroups{}, defaultReadErr: control.ErrCommandProtocolUpgradeRequired}
+	service := &Service{miners: miner}
+	observed := sdk.MiningGroupResult{Enabled: true, MaxGroups: 4, Groups: []sdk.MiningGroup{
+		{ID: "default", Revision: 1, MACs: []string{"default-board"}},
+		{ID: "other", Revision: 2, MACs: []string{"other-board"}},
+	}}
+	bindings, err := encode(map[string]binding{"default": {ConfigID: "inherited", Configured: true, Inherited: true}})
+	require.NoError(t, err)
+	row := sqlc.ContainerMiningGroupState{Bindings: bindings}
+	for _, mac := range []string{"other-board", "default-board"} {
+		desired := map[string]string{mac: "new-config"}
+		snapshot, err := service.plannerSnapshot(t.Context(), nil, row, observed, desired)
+		require.NoError(t, err)
+		step, err := Plan(desired, snapshot)
+		require.NoError(t, err)
+		require.Equal(t, Create, step.Kind)
+	}
+	require.Empty(t, miner.calls)
+	_, err = service.plannerSnapshot(t.Context(), nil, row, observed, map[string]string{"default-board": "inherited"})
+	require.ErrorIs(t, err, errDefaultSettingsUnavailable)
+	require.Equal(t, "Upgrade the Fleet Node and reconnect it before changing Default mining settings.", defaultReadBlockedMessage(err))
+	require.Equal(t, []sdk.MiningGroupRequest{{Action: sdk.MiningGroupReadDefault}}, miner.calls)
+}
 
 func TestPlannerChangesWholeGroupInPlace(t *testing.T) {
 	observed := Snapshot{Enabled: true, MaxGroups: 289, Groups: []Group{{ID: "g", Revision: 4, ConfigRevision: "old", Managed: true, Members: []string{"a", "b"}, Configured: true, Mining: true}}}

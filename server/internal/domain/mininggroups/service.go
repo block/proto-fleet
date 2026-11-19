@@ -171,16 +171,19 @@ func (s *Service) GetState(ctx context.Context, identifier string) (State, error
 					result = State{Record: row, Observed: observed, Desired: desired, DeactivationBlockedReason: "Reconnect the controller and refresh its mining-group state before disabling mining groups."}
 					return nil
 				}
-				observed = next
-				row.Observed, err = encode(next)
+				row.ObservedAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
+				recorded, err := s.observeDefaultReturnSettings(ctx, q, row, identifier, next)
 				if err != nil {
 					return err
 				}
-				row.ObservedAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
+				row.Observed, err = encode(recorded)
+				if err != nil {
+					return err
+				}
 				if err := save(ctx, q, row); err != nil {
 					return err
 				}
-				result = State{Record: row, Observed: observed, Desired: desired}
+				result = State{Record: row, Observed: next, Desired: desired}
 				return nil
 			})
 		})

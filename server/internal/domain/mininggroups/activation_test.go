@@ -65,7 +65,7 @@ func TestActivationLeavesDefaultStoppedUntilOperatorStartsIt(t *testing.T) {
 			require.Equal(t, statusComplete, f.state(t).Status)
 			require.False(t, f.miner.mining)
 			if running {
-				require.Equal(t, "Mining groups enabled. Start mining in ProtoOS when ready.", f.state(t).Message)
+				require.Equal(t, "Mining groups enabled. Choose Wake default mining group from the Fleet container menu.", f.state(t).Message)
 			}
 			for _, call := range f.miner.calls {
 				require.NotEqual(t, "start", call.Action, "activation must not start Default")
@@ -109,7 +109,7 @@ func TestActivationWaitsForShutdownAndPreservesStateAfterLostStopReply(t *testin
 	}
 	require.Equal(t, statusComplete, f.state(t).Status)
 	require.False(t, f.miner.mining)
-	require.Equal(t, "Mining groups enabled. Start mining in ProtoOS when ready.", f.state(t).Message)
+	require.Equal(t, "Mining groups enabled. Choose Wake default mining group from the Fleet container menu.", f.state(t).Message)
 }
 
 func TestActivationRequiresInitialStatusBeforeStopping(t *testing.T) {

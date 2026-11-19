@@ -41,11 +41,15 @@ func (s *Service) refreshAllocationReadiness(ctx context.Context, orgID, deviceI
 				if err != nil {
 					return err
 				}
-				row.Observed, err = encode(observed)
+				row.ObservedAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
+				recorded, err := s.observeDefaultReturnSettings(ctx, q, row, identifier, observed)
 				if err != nil {
 					return err
 				}
-				row.ObservedAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
+				row.Observed, err = encode(recorded)
+				if err != nil {
+					return err
+				}
 				return save(ctx, q, row)
 			})
 		})

@@ -148,7 +148,7 @@ func (s *Service) submitLegacyRequest(ctx context.Context, identifier, requestID
 			for _, intent := range intents {
 				desired[intent.MacAddress] = intent.PoolRevisionID
 			}
-			snapshot, err := s.plannerSnapshot(ctx, q, row, observation)
+			snapshot, err := s.plannerSnapshot(ctx, q, row, observation, desired)
 			if err != nil {
 				return err
 			}

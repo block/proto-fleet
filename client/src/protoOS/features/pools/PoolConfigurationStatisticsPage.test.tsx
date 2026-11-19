@@ -5,10 +5,15 @@ import PoolConfigurationStatisticsPage from "./PoolConfigurationStatisticsPage";
 import type { PoolConfigurationStatisticsService } from "@/protoOS/api/adapters/poolStatistics";
 import { asPoolId } from "@/protoOS/store/contract";
 
-const mode = vi.hoisted(() => ({ enabled: true, error: undefined as string | undefined }));
+const mode = vi.hoisted(() => ({
+  enabled: true,
+  error: undefined as string | undefined,
+  staleId: undefined as string | undefined,
+}));
 beforeEach(() => {
   mode.enabled = true;
   mode.error = undefined;
+  mode.staleId = undefined;
 });
 const items = ["Client A", "Client B"].map((name, index) => ({
   id: String(index),
@@ -33,7 +38,9 @@ vi.mock("./usePoolConfigurationStatistics", async (original) => ({
     error: mode.error,
     configurations: items,
     selected: items.find((item) => item.id === id),
-    readings: id ? items.filter((item) => item.id === id) : items,
+    readings: (id ? items.filter((item) => item.id === id) : items).map((item) =>
+      item.id === mode.staleId ? { ...item, pools: [], stale: true } : item,
+    ),
     history: {
       byPool: {
         "pool:10": { accepted: 9, rejected: 1, acceptanceRate: 0.9, partial: false },
@@ -71,6 +78,23 @@ test("summarizes configurations separately, then opens only the selected configu
   fireEvent.click(poolsLink);
   expect(screen.getByRole("row", { name: /Client B/ })).toBeInTheDocument();
   expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).not.toBeInTheDocument();
+});
+
+test("a changed configuration shows its own status while other rows show current statistics", () => {
+  mode.staleId = "0";
+  render(
+    <MemoryRouter>
+      <PoolConfigurationStatisticsPage service={service} legacy={<p>Legacy</p>} />
+    </MemoryRouter>,
+  );
+  const stale = within(screen.getByRole("row", { name: /Client A/ }));
+  expect(stale.getByText("Configuration changed")).toBeInTheDocument();
+  expect(stale.getByText("Unknown")).toBeInTheDocument();
+  expect(stale.queryByText("90.0%")).not.toBeInTheDocument();
+  expect(within(screen.getByRole("row", { name: /Client B/ })).getByText("10.0%")).toBeInTheDocument();
+  fireEvent.click(stale.getByText("Client A"));
+  expect(screen.getByRole("alert")).toHaveTextContent("Configuration changed. Waiting for current statistics.");
+  expect(screen.queryByText(/No pools configured/)).not.toBeInTheDocument();
 });
 
 test("an uncertain mode read does not present legacy-only statistics as complete", () => {

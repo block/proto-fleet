@@ -13,6 +13,10 @@ import useMinerStore from "@/protoOS/store/useMinerStore";
 import { durationToMs } from "@/shared/components/DurationSelector/constants";
 import { usePoll } from "@/shared/hooks/usePoll";
 
+const livePollIntervalMs = 30_000;
+const historyPollIntervalMs = 5 * 60_000;
+const historyBucketMs = 3_600_000;
+
 export function configurationShares(pools: PoolInfo[], history?: PoolHistoryResult): PoolShareStatistics {
   const values = pools.map((pool) => history?.byPool[pool.id]);
   if (!values.length || values.some((value) => value?.accepted === undefined || value.rejected === undefined))
@@ -40,12 +44,12 @@ export function usePoolConfigurationStatistics(
   const key = useMemo(() => ({ service, generation }), [service, generation]);
   type Catalogue = Awaited<ReturnType<typeof service.list>>;
   const [catalogue, setCatalogue] = useState<{ key: typeof key; value?: Catalogue; error?: string }>();
-  const [revision, setRevision] = useState(0);
-  const catalogueParams = useMemo(() => ({ key, revision }), [key, revision]);
+  const [refreshCount, setRefreshCount] = useState(0);
+  const catalogueParams = useMemo(() => ({ key, refreshCount }), [key, refreshCount]);
   usePoll({
     params: catalogueParams,
     poll: true,
-    pollIntervalMs: 30_000,
+    pollIntervalMs: livePollIntervalMs,
     fetchData: (signal) =>
       authRetry({
         signal,
@@ -67,70 +71,120 @@ export function usePoolConfigurationStatistics(
   const configurations = current?.value?.configurations ?? [];
   const currentPage = Math.min(page, Math.max(0, Math.ceil(configurations.length / 25) - 1));
   const selected = configurations.find((configuration) => configuration.id === selectedId);
-  let entries = configurations.slice(currentPage * 25, (currentPage + 1) * 25);
-  if (selectedId) entries = selected ? [selected] : [];
-  const entriesKey = JSON.stringify(entries.map(({ id, revision, assignedCount }) => [id, revision, assignedCount]));
-  const selection = useMemo(() => ({ key, duration, entriesKey }), [key, duration, entriesKey]);
+  const entries = selectedId
+    ? selected
+      ? [selected]
+      : []
+    : configurations.slice(currentPage * 25, (currentPage + 1) * 25);
+  const visiblePage = selectedId ? undefined : currentPage;
+  const selection = useMemo(() => ({ key, visiblePage, selectedId }), [key, visiblePage, selectedId]);
+  const entryVersions = entries.map(({ id, revision, assignedCount }) => [id, revision, assignedCount]);
+  const readingsVersion = `${refreshCount}:${JSON.stringify(entryVersions)}`;
   const [readings, setReadings] = useState<{
     selection: typeof selection;
     configurations?: PoolConfigurationReadings[];
-    history?: PoolHistoryResult;
     error?: string;
   }>();
-  const readingParams = useMemo(() => ({ selection, revision }), [selection, revision]);
+  const readingParams = useMemo(() => ({ selection, readingsVersion }), [selection, readingsVersion]);
   usePoll({
     params: readingParams,
     enabled: current?.value?.enabled === true && entries.length > 0,
     poll: true,
-    pollIntervalMs: 30_000,
+    pollIntervalMs: livePollIntervalMs,
     fetchData: (signal) =>
       authRetry({
         signal,
-        request: async (options) => {
-          const configurations = await service.read(entries, options);
-          signal.throwIfAborted();
-          const poolIds = configurations.flatMap((configuration) => configuration.pools.map((pool) => pool.id));
-          const intervalMs = 3_600_000;
-          const end = Math.floor(Date.now() / intervalMs) * intervalMs;
-          let history: PoolHistoryResult = { byPool: {}, unavailable: poolIds };
-          if (adapter?.getPoolHistory)
-            try {
-              history = await adapter.getPoolHistory(
-                {
-                  poolIds,
-                  startTime: new Date(end - durationToMs[duration]).toISOString(),
-                  endTime: new Date(end).toISOString(),
-                  intervalMs,
-                },
-                options,
-              );
-            } catch (cause) {
-              if (signal.aborted || isAuthenticationError(cause)) throw cause;
-            }
-          return { configurations, history };
-        },
-        onSuccess: (value) => {
-          if (!signal.aborted) setReadings({ selection, ...value });
+        request: (options) => service.read(entries, options),
+        onSuccess: (configurations) => {
+          if (!signal.aborted) setReadings({ selection, configurations });
         },
         onError: () => {
           if (!signal.aborted)
             setReadings((previous) => ({
               selection,
-              ...(previous?.selection === selection ? previous : {}),
+              configurations: previous?.selection === selection ? previous.configurations : undefined,
               error: "Could not refresh configuration statistics. Displayed values may be out of date.",
             }));
         },
       }),
   });
   const currentReadings = readings?.selection === selection ? readings : undefined;
+  const readingsById = new Map(currentReadings?.configurations?.map((reading) => [reading.id, reading]));
+  const visibleReadings = currentReadings?.configurations
+    ? entries.map((entry): PoolConfigurationReadings => {
+        const reading = readingsById.get(entry.id);
+        if (reading?.revision !== entry.revision || reading.assignedCount !== entry.assignedCount)
+          return { ...entry, pools: [], stale: true };
+        return reading;
+      })
+    : undefined;
+  const poolIds = visibleReadings?.flatMap((configuration) => configuration.pools.map((pool) => pool.id)) ?? [];
+  const historyVersion = `${refreshCount}:${JSON.stringify([...poolIds].sort())}`;
+  const historySelection = useMemo(() => ({ selection, adapter, duration }), [selection, adapter, duration]);
+  const historyParams = useMemo(() => ({ historySelection, historyVersion }), [historySelection, historyVersion]);
+  const [history, setHistory] = useState<{
+    selection: typeof historySelection;
+    version: string;
+    value: PoolHistoryResult;
+    error?: string;
+  }>();
+  // History uses completed hourly buckets and does not need the live poll interval.
+  usePoll({
+    params: historyParams,
+    enabled: current?.value?.enabled === true && poolIds.length > 0,
+    poll: true,
+    pollIntervalMs: historyPollIntervalMs,
+    fetchData: async (signal) => {
+      const unavailable = { byPool: {}, unavailable: poolIds };
+      await authRetry({
+        signal,
+        request: async (options) => {
+          if (!adapter?.getPoolHistory) return unavailable;
+          const end = Math.floor(Date.now() / historyBucketMs) * historyBucketMs;
+          return adapter.getPoolHistory(
+            {
+              poolIds,
+              startTime: new Date(end - durationToMs[duration]).toISOString(),
+              endTime: new Date(end).toISOString(),
+              intervalMs: historyBucketMs,
+            },
+            options,
+          );
+        },
+        onSuccess: (value) => {
+          if (!signal.aborted) setHistory({ selection: historySelection, version: historyVersion, value });
+        },
+        onError: (cause) => {
+          if (!signal.aborted)
+            setHistory({
+              selection: historySelection,
+              version: historyVersion,
+              value: unavailable,
+              error: isAuthenticationError(cause) ? "Could not refresh share history." : undefined,
+            });
+        },
+      });
+    },
+  });
+  const currentHistory = history?.selection === historySelection ? history : undefined;
+  const visibleHistory = currentHistory && {
+    byPool: Object.fromEntries(
+      poolIds.flatMap((id) => {
+        const value = currentHistory.value.byPool[id];
+        return value ? [[id, value]] : [];
+      }),
+    ),
+    unavailable: currentHistory.value.unavailable.filter((id) => poolIds.includes(id)),
+  };
   return {
     enabled: current?.value?.enabled,
     configurations,
     selected,
     page: currentPage,
-    readings: currentReadings?.configurations,
-    history: currentReadings?.history,
-    error: [current?.error, currentReadings?.error].filter(Boolean).join(" ") || undefined,
-    refresh: () => setRevision((value) => value + 1),
+    readings: visibleReadings,
+    history: visibleHistory,
+    historyPending: poolIds.length > 0 && currentHistory?.version !== historyVersion,
+    error: [current?.error, currentReadings?.error, currentHistory?.error].filter(Boolean).join(" ") || undefined,
+    refresh: () => setRefreshCount((value) => value + 1),
   };
 }

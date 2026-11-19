@@ -109,7 +109,7 @@ func (s *Service) reconcileActivation(ctx context.Context, q sqlc.Querier, row s
 			return s.block(ctx, q, row, "Waiting for the Default mining group")
 		}
 		if !group.Mining {
-			return s.completeWithMessage(ctx, q, row, "Mining groups enabled. Start mining in ProtoOS when ready.")
+			return s.completeWithMessage(ctx, q, row, "Mining groups enabled. Choose Wake default mining group from the Fleet container menu.")
 		}
 		return s.complete(ctx, q, row)
 	}

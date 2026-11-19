@@ -12,11 +12,10 @@ inherit an earlier installation's assignment.
 Enable mining groups requires `miner:activate_mining_groups`, `miner:start_mining`,
 and `miner:stop_mining` at the container's site. The activation permission is initially
 granted to Admin (and SuperAdmin through the standard permission catalog). Fleet records
-whether mining is running, stops it automatically, waits for board shutdown,
-and enables groups. If mining was running, Fleet resumes the default group with
-its existing pools; a stopped container stays stopped. Factory-test reservations
-must still be released and every configured controller must satisfy Frigate's
-activation prerequisites. The action does not override those prerequisites.
+the saved Default mining intent, stops mining, waits for board shutdown, and
+enables groups. Default keeps its pools and stays stopped until an operator
+starts it. Release factory-test reservations before activation. Every configured
+controller must also meet Frigate's activation prerequisites.
 
 Pool assignment through mining groups requires `miner:update_pools`,
 `miner:start_mining`, and `miner:stop_mining` at the container's site, in addition
@@ -192,8 +191,10 @@ pool URLs, worker usernames, passwords, and encrypted credentials.
 Fleet Node requires command protocol V6 for the original operations. Creating
 a group for a nonempty pool configuration and replacing pools with explicit
 controller pool IDs require V18. Activation and Return to Default also require
-V18. Fleet checks that the node can read the saved Default settings before
-stopping mining for activation or offering a return review.
+V18. Fleet reads the saved Default settings before stopping mining for
+activation. Return reviews use committed Default settings. Fleet reads them
+again before it accepts a return and while it verifies the transfer. If an
+eligible review has no saved settings, Fleet refreshes them on demand.
 Direct controllers use the same SDK operation contract.
 The underlying MDK sources and pins are documented in [sdk/mdk](../sdk/mdk/README.md).
 
@@ -205,11 +206,12 @@ These menus refresh controller state while open; the assignment flow and server
 continue to validate prerequisites before accepting changes.
 
 Activation confirmation explains that Fleet stops mining before it enables
-groups. Fleet records the original Default intent before stopping and uses a
-durable request to enable groups. Completion requires fresh confirmation that
-groups are enabled. Start Default mining from the container's mining controls
-when ready. If activation is blocked after stopping, mining stays
-paused until the prerequisite is resolved and activation can finish. While waiting,
+groups. Frigate creates the Default group while mining-group mode is disabled.
+Fleet reads its saved intent before stopping and uses a durable request to enable
+groups. Completion requires fresh confirmation that groups are enabled. When
+ready, choose **Wake default mining group** from the Fleet container menu.
+If activation is blocked after stopping, mining stays paused until the
+prerequisite is resolved and activation can finish. While waiting,
 known controller prerequisites produce specific guidance; unknown failures use a
 neutral retry message without exposing raw controller errors. The open dialog
 polls until it can display **Mining groups enabled**. Its button says **Close**

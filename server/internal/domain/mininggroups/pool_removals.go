@@ -37,10 +37,6 @@ func (s *Service) ReviewBoardRemoval(ctx context.Context, q sqlc.Querier, p pool
 	if !observed.Supported || !observed.Enabled || observed.Pending || observed.Suspended {
 		return fleeterror.NewFailedPreconditionError("mining groups must be enabled and settled before clearing board pools")
 	}
-	snapshot, err := s.plannerSnapshot(ctx, q, row, observed)
-	if err != nil {
-		return err
-	}
 	// Preflight must not inherit the previous operation's freshness selection.
 	row.AttemptID = uuid.NullUUID{}
 	desired := map[string]string{}
@@ -74,6 +70,14 @@ func (s *Service) ReviewBoardRemoval(ctx context.Context, q sqlc.Querier, p pool
 	if len(boards) != 1 || !boards[0].Ready || boards[0].DeviceID != target.DeviceID {
 		return fleeterror.NewFailedPreconditionError("board installation is unavailable")
 	}
+	desired[boards[0].MacAddress] = poolconfigurations.ClearedPoolIntent(p.Scope.AccountID)
+	snapshot, err := s.plannerSnapshot(ctx, q, row, observed, desired)
+	if err != nil {
+		if errors.Is(err, errDefaultSettingsUnavailable) {
+			return fleeterror.NewFailedPreconditionError(defaultReadBlockedMessage(err))
+		}
+		return err
+	}
 	// Probe runtime readback before admitting changes. A false result is normal
 	// while pools are still configured; an unavailable API must block clearing.
 	found := false
@@ -101,7 +105,6 @@ func (s *Service) ReviewBoardRemoval(ctx context.Context, q sqlc.Querier, p pool
 	if !found {
 		return fleeterror.NewFailedPreconditionError("selected board mining-group membership is unavailable")
 	}
-	desired[boards[0].MacAddress] = poolconfigurations.ClearedPoolIntent(p.Scope.AccountID)
 	return ValidateAssignment(desired, snapshot)
 }
 

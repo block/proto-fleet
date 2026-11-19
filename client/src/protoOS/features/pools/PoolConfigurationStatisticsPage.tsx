@@ -59,7 +59,7 @@ export default function PoolConfigurationStatisticsPage({
   const activePool = (configuration: PoolConfigurationReadings) => {
     const active = configuration.pools.filter((pool) => pool.status === "Active" || pool.status === "Alive");
     if (active.length) return active.map((pool) => pool.url).join(", ");
-    return configuration.error || configuration.pools.some((pool) => pool.status === "Unknown")
+    return configuration.stale || configuration.error || configuration.pools.some((pool) => pool.status === "Unknown")
       ? "Unknown"
       : "No active pool";
   };
@@ -89,13 +89,14 @@ export default function PoolConfigurationStatisticsPage({
       </div>
       {selectedId && selected ? (
         <PoolStatisticsView
-          pools={selected.pools}
+          pools={selected.stale ? undefined : selected.pools}
           history={state.history}
+          pending={state.historyPending}
           duration={duration}
           onDurationChange={setDuration}
           configureHref={configureHref}
           usernameLabel="Username"
-          error={selected.error}
+          error={selected.stale ? "Configuration changed. Waiting for current statistics." : selected.error}
         />
       ) : (
         <div className="px-4 pt-6 tablet:px-10">
@@ -152,7 +153,9 @@ export default function PoolConfigurationStatisticsPage({
                         {isPhone ? (
                           <p className="text-200 text-text-primary-50">{item.assignedCount} assigned</p>
                         ) : null}
-                        {item.shares.partial ? (
+                        {item.stale ? (
+                          <p className="text-200 text-text-primary-50">Configuration changed</p>
+                        ) : item.shares.partial && (!state.historyPending || item.shares.accepted !== undefined) ? (
                           <p className="text-200 text-text-primary-50">
                             {item.shares.accepted === undefined ? "History unavailable" : "Partial history"}
                           </p>

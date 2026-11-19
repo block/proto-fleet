@@ -302,8 +302,11 @@ func (s *Service) Reconcile(ctx context.Context, orgID, deviceID int64, identifi
 				return s.block(ctx, q, row, "Controller firmware does not support mining groups")
 			}
 			var request sdk.MiningGroupRequest
-			snapshot, err := s.plannerSnapshot(ctx, q, row, observed)
+			snapshot, err := s.plannerSnapshot(ctx, q, row, observed, desired)
 			if err != nil {
+				if errors.Is(err, errDefaultSettingsUnavailable) {
+					return s.block(ctx, q, row, defaultReadBlockedMessage(err))
+				}
 				return s.block(ctx, q, row, "Pool configuration unavailable; configuration is paused")
 			}
 			if err := retainObservedIntents(ctx, q, row, snapshot); err != nil {
@@ -464,7 +467,10 @@ func (s *Service) liveIntent(ctx context.Context, q sqlc.Querier, row sqlc.Conta
 	}
 	return desired, s.authorizeAffectedWorkflowBoards(ctx, q, row, affected)
 }
-func (s *Service) plannerSnapshot(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, observed sdk.MiningGroupResult) (Snapshot, error) {
+
+var errDefaultSettingsUnavailable = errors.New("Default mining settings unavailable")
+
+func (s *Service) plannerSnapshot(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState, observed sdk.MiningGroupResult, desired map[string]string) (Snapshot, error) {
 	bindings := map[string]binding{}
 	if err := decode(row.Bindings, &bindings); err != nil {
 		return Snapshot{}, err
@@ -473,14 +479,20 @@ func (s *Service) plannerSnapshot(ctx context.Context, q sqlc.Querier, row sqlc.
 	for _, g := range observed.Groups {
 		b, managed := bindings[g.ID]
 		configured := false
-		if managed && b.Configured {
+		// The planner only uses Default's pools to verify a board that can keep
+		// its inherited configuration. Transfers use the observed group revision.
+		needsPools := g.ID != "default" || (b.Inherited && !observed.Pending && !observed.Suspended && slices.ContainsFunc(g.MACs, func(mac string) bool {
+			want, selected := desired[mac]
+			return selected && want == b.ConfigID
+		}))
+		if managed && b.Configured && needsPools {
 			if g.ID == "default" && g.Pools == nil {
 				current, err := s.readDefault(ctx, row.DeviceID)
 				if err != nil {
-					return Snapshot{}, err
+					return Snapshot{}, fmt.Errorf("%w: %w", errDefaultSettingsUnavailable, err)
 				}
-				if current.Revision != g.Revision {
-					return Snapshot{}, fmt.Errorf("Default changed during observation")
+				if current.Revision != g.Revision || current.Pools == nil {
+					return Snapshot{}, errDefaultSettingsUnavailable
 				}
 				g.Pools = current.Pools
 			}

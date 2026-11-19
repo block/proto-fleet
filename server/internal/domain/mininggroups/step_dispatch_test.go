@@ -67,8 +67,14 @@ func TestRapidRecallRetiresPreparedClientCleanupAndCompletesHostCleanup(t *testi
 	recalled, err := f.service.queries.GetPoolLifecycleTransition(ctx, hostPolicy)
 	require.NoError(t, err)
 	require.Equal(t, "completed", recalled.State)
+	firmware.calls = nil
 	review := reviewDefaultReturn(t, ctx, f, boards)
 	require.NotEmpty(t, review.Token, "the operator can now confirm the move to Default")
+	require.Len(t, firmware.calls, 2)
+	require.Equal(t, "observe", firmware.calls[0].Action)
+	require.Equal(t, sdk.MiningGroupReadDefault, firmware.calls[1].Action)
+	require.Equal(t, review.Token, reviewDefaultReturn(t, ctx, f, boards).Token)
+	require.Len(t, firmware.calls, 2, "later review polls use the committed refresh")
 }
 
 func TestInterruptedPreparedStepCanReleaseAdmissionAfterRestart(t *testing.T) {
