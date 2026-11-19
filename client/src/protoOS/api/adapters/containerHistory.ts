@@ -11,6 +11,8 @@ export type ContainerHistoryMetric =
   | "outsideTemperature"
   | "inletTemperature"
   | "outletTemperature"
+  | "outletATemperature"
+  | "outletBTemperature"
   | "distributionPower"
   | "fanPower";
 

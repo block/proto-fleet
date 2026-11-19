@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- lazy() route components colocated with route config; not HMR-relevant */
 import { ComponentType, lazy, ReactNode } from "react";
-import { createBrowserRouter, Navigate, Outlet, redirect, RouteObject } from "react-router-dom";
+import { createBrowserRouter, Navigate, Outlet, redirect, RouteObject, useSearchParams } from "react-router-dom";
 
 import {
   importContainerHome,
@@ -124,9 +124,11 @@ const HomeIndexRoute = () => {
   const systemInfo = useSystemInfo();
   const systemInfoError = useSystemInfoError();
   const supportsContainerHome = useSupportsContainerHome();
+  // The System tab stays on the root path: the device serves only a fixed set of route prefixes.
+  const tab = useSearchParams()[0].get("view") === "system" ? "system" : "overview";
 
   if (systemInfo) {
-    return supportsContainerHome ? <ContainerHome tab="overview" /> : <Navigate to="hashrate" replace />;
+    return supportsContainerHome ? <ContainerHome tab={tab} /> : <Navigate to="hashrate" replace />;
   }
 
   if (systemInfoError) return <Navigate to="hashrate" replace />;

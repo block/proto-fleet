@@ -315,6 +315,8 @@ export interface PowerCoverage {
 export interface LevelRollup extends LevelTelemetry {
   /** Mean of available per-hashboard ASIC temperature averages, separate from board sensors. */
   averageAsicTemperature?: MetricTelemetry;
+  /** Firmware's expected hashrate for the same boards as `hashrate`; null unless every board reports one. */
+  idealHashrate?: MetricTelemetry;
   miningStatus?: MiningStatus;
   health?: HealthState;
   boardCount?: number;
@@ -593,6 +595,8 @@ export interface ErrorSourceLocator {
 export interface MinerError {
   id: string;
   code: string;
+  /** Reported display name, when the code alone does not describe the issue. */
+  title?: string;
   message: string;
   owner: EntityRef;
   source?: ErrorSourceLocator;

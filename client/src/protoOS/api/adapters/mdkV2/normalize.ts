@@ -372,12 +372,14 @@ const boardRollup = (boards: BoardEntry[], power?: number): LevelRollup => {
     return typeof value === "number" && Number.isFinite(value) ? [value] : [];
   });
   const hashrate = sum(({ board }) => board.health?.hashrate);
+  const idealHashrate = sum(({ board }) => board.health?.hashrateIdeal);
   const boardHealth = boards.map(({ board }) => healthState(board));
   const onlineBoardCount = boards.filter(
     ({ board }) => !board.isolated && board.miningState === V2MiningState.MINING_STATE_MINING,
   ).length;
   return {
     hashrate: metric(hashrate, "TH/s"),
+    idealHashrate: metric(idealHashrate, "TH/s"),
     power: metric(power, "W"),
     efficiency: efficiencyMetric(power, hashrate),
     temperature: metric(average(temps), "°C"),
@@ -791,6 +793,8 @@ export const toCanonicalContainer = (
     // Mining status reports trailing accepted-share hashrate instead. Missing
     // map health must remain unknown rather than falling back to that rate.
     hashrate: boardSummary?.hashrate ?? latest(statusWire.hashrate, "TH/s"),
+    // Pair the ideal with the same source as the rate it is compared against.
+    idealHashrate: boardSummary?.idealHashrate ?? latest(statusWire.hashrateIdeal, "TH/s"),
     power: latest(statusWire.power, "W"),
     // Container mining power comes from firmware; its coverage is independent
     // of the module PSU input totals.
@@ -914,6 +918,7 @@ export const toCanonicalErrors = (
     errors.push({
       id: `${containerId}:alarm:${alarm.id || `${alarm.componentId || name}:${index}`}`,
       code,
+      title: name,
       message: `${severityLabel}: ${name}${alarm.componentId ? ` · Component ${alarm.componentId}` : ""}`,
       owner: { kind: "container", id: containerId },
       severity,

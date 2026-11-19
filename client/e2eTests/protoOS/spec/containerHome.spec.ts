@@ -11,17 +11,17 @@ test.describe("Container Home", () => {
   test.skip(!process.env.CT1_BASE_URL, "Requires a ProtoOS server pointed at fake-ct1 (CT1_BASE_URL)");
   test.use({ baseURL: process.env.CT1_BASE_URL });
 
-  test("Overview, metric modes and durations use aggregate requests", async ({ page }) => {
+  test("System, metric modes and durations use aggregate requests", async ({ page }) => {
     const histories: { metric: TimeSeriesMetric; identifier: string }[] = [];
     page.on("request", (request) => {
       const url = new URL(request.url());
       if (url.pathname === "/mdk.v2.TelemetryService/QueryTimeSeries")
         histories.push(fromBinary(QueryTimeSeriesRequestSchema, request.postDataBuffer()!));
     });
-    await page.goto("/");
+    await page.goto("/?view=system");
     const navigation = page.getByRole("navigation", { name: "Container Home" });
-    await expect(navigation.getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page");
-    await expect(page.getByRole("heading", { name: "Container overview" })).toBeAttached();
+    await expect(navigation.getByRole("link", { name: "System" })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("heading", { name: "Container system" })).toBeAttached();
     await expect(page.getByRole("region", { name: "Container cooling system schematic" })).toBeVisible();
     await expect(page.getByRole("region", { name: "Live readings" })).toContainText("Container power");
     await expect(page.getByRole("figure")).toHaveCount(0);

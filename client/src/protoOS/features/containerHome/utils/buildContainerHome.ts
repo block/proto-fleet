@@ -116,6 +116,7 @@ export function buildContainerLive(hardware: HardwareState, telemetry: Telemetry
     powerSource,
     efficiency,
     moduleEfficiency,
+    idealHashrate: latest(rollup?.idealHashrate),
     powerReadings,
     temperatureReadings,
     powerLocations,
@@ -188,16 +189,23 @@ export function toHomeSeries(
 export function efficiencyHistory(power?: MetricTimeSeries, hashrate?: MetricTimeSeries): MetricTimeSeries | undefined {
   if (!power || !hashrate) return undefined;
   const rates = new Map(hashrate.points.map((point) => [point.timestampMs, point.value]));
+  const points = power.points.map((point) => {
+    const rate = rates.get(point.timestampMs);
+    return {
+      timestampMs: point.timestampMs,
+      value: point.value !== null && typeof rate === "number" && rate > 0 ? point.value / rate : null,
+    };
+  });
+  return { units: "J/TH", bucketSizeMs: power.bucketSizeMs, points, aggregates: bucketAggregates(points, "J/TH") };
+}
+
+/** Extrema of bucket averages, not of the underlying samples. */
+function bucketAggregates(points: MetricTimeSeries["points"], units: "W" | "J/TH") {
+  const values = points.flatMap((point) => (point.value === null ? [] : [point.value]));
   return {
-    units: "J/TH",
-    bucketSizeMs: power.bucketSizeMs,
-    points: power.points.map((point) => {
-      const rate = rates.get(point.timestampMs);
-      return {
-        timestampMs: point.timestampMs,
-        value: point.value !== null && typeof rate === "number" && rate > 0 ? point.value / rate : null,
-      };
-    }),
+    min: { value: values.length ? Math.min(...values) : null, units },
+    max: { value: values.length ? Math.max(...values) : null, units },
+    avg: { value: values.length ? values.reduce((a, b) => a + b, 0) / values.length : null, units },
   };
 }
 
@@ -219,17 +227,7 @@ export function sumHistory(series: (MetricTimeSeries | undefined)[]): MetricTime
         : null,
     };
   });
-  const values = points.flatMap((point) => (point.value === null ? [] : [point.value]));
-  return {
-    units: "W",
-    bucketSizeMs: sources[0].bucketSizeMs,
-    points,
-    aggregates: {
-      min: { value: values.length ? Math.min(...values) : null, units: "W" },
-      max: { value: values.length ? Math.max(...values) : null, units: "W" },
-      avg: { value: values.length ? values.reduce((a, b) => a + b, 0) / values.length : null, units: "W" },
-    },
-  };
+  return { units: "W", bucketSizeMs: sources[0].bucketSizeMs, points, aggregates: bucketAggregates(points, "W") };
 }
 
 export const categorySummaries = (fans?: HomeSeries): CategorySummary[] =>

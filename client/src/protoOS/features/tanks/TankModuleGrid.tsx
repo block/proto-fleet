@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import clsx from "clsx";
 
-import { hashboardAttentionFill } from "./tankStatusColors";
+import { hashboardAttentionFill, statusColor } from "./tankStatusColors";
 import { boardStatus, hashboardLabel, moduleHashboards, type ModuleStatus, statusLabels, tankGrid } from "./tankView";
 import { useScopeHealth } from "@/protoOS/components/StatusModal/useScopeHealth";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
@@ -16,15 +16,6 @@ import type {
 import { moduleRouteValue, tankRouteValue } from "@/protoOS/topologyRouteParams";
 import { ArrowRight } from "@/shared/assets/icons";
 import Popover, { PopoverProvider, usePopover } from "@/shared/components/Popover";
-
-const statusColor: Record<ModuleStatus, string> = {
-  attention: "bg-intent-critical-fill",
-  offline: "bg-core-accent-fill",
-  isolated: "bg-text-primary-30",
-  sleeping: "bg-text-primary-30",
-  healthy: "bg-text-primary",
-  unknown: "border border-border-30",
-};
 
 export const StatusMarker = ({ status }: { status: ModuleStatus }) => (
   <span

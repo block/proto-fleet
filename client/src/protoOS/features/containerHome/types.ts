@@ -1,4 +1,6 @@
-export type HomeTab = "overview" | "hashrate" | "efficiency" | "power" | "temperature";
+import type { ModuleStatus } from "@/protoOS/features/tanks/tankView";
+
+export type HomeTab = "overview" | "hashrate" | "efficiency" | "power" | "temperature" | "system";
 export type HomeChartMode = "system" | "hashboards" | "fluid";
 
 export interface HomeReading {
@@ -39,4 +41,35 @@ export interface CategorySummary {
   high: string;
   low: string;
   average: string;
+}
+
+export interface ModuleGridCell {
+  id: string;
+  /** One-based column; cells without a reported slot follow in topology order. */
+  column: number;
+  name: string;
+  to: string;
+  state: ModuleStatus;
+  /** Hashboard states in slot order. */
+  boards: ModuleStatus[];
+}
+
+export interface ModuleGrid {
+  columns: number;
+  tanks: { id: string; label: string; modules: ModuleGridCell[] }[];
+  counts: Record<ModuleStatus, number>;
+}
+
+export interface IssueGroup {
+  id: string;
+  label: string;
+  severity: "critical" | "warning";
+  /** What the group affects, such as "154 boards". */
+  affected: string;
+}
+
+export interface IssueSummary {
+  critical: number;
+  warning: number;
+  groups: IssueGroup[];
 }
