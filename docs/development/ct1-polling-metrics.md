@@ -615,7 +615,8 @@ Reproducible checks include `BenchmarkCT1PollNormalization` (6 tanks, 96 modules
 authorization tests. The allocated reporting-estate fixture,
 `TestStoredContainerRollupsReportingEvidenceRepresentativeScale`, and its current
 hourly evidence measurements are documented in the
-[reporting evidence runbook](hosted-reporting-evidence.md#sizing).
+[reporting evidence runbook](hosted-reporting-evidence.md#sizing). That fixture
+runs only when `PROTO_FLEET_SCALE_TESTS=1` is set; the runbook gives the command.
 
 The following are historical CT1 baseline measurements from an Apple M4 Max and
 local Docker TimescaleDB, without an allocated reporting estate:

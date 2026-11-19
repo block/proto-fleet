@@ -29,10 +29,10 @@ func TestSQLCurtailmentStore_FacilityFanClaimSnapshotAndRelease(t *testing.T) {
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	db := testContext.DatabaseService.DB
+	db := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(db)
 	siteID, fanID := seedCurtailmentFacilityFan(t, db, user.OrganizationID, "facility-fan-claim")
 
@@ -140,10 +140,10 @@ func TestSQLCurtailmentStore_TerminalFanRecoveryFailureProtectsInfrastructureDev
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	db := testContext.DatabaseService.DB
+	db := testContext.DB
 	curtailmentStore := sqlstores.NewSQLCurtailmentStore(db)
 	siteID, fanID := seedCurtailmentFacilityFan(t, db, user.OrganizationID, "terminal-fan-recovery-guard")
 
@@ -181,10 +181,12 @@ func TestSQLCurtailmentStore_TerminalFanRecoveryFailureProtectsInfrastructureDev
 	require.NoError(t, err)
 
 	infrastructureStore := sqlstores.NewSQLInfrastructureDeviceStore(db)
+	driverRegistry, err := infrastructure.NewConfiguredDriverRegistry(infrastructure.Config{})
+	require.NoError(t, err)
 	service := infrastructure.NewService(
 		infrastructureStore,
 		sqlstores.NewSQLSiteStore(db),
-		infrastructure.NewDefaultDriverRegistry(),
+		driverRegistry,
 		sqlstores.NewSQLTransactor(db),
 		nil,
 	)
@@ -219,10 +221,10 @@ func TestSQLCurtailmentStore_ForceReleaseKeepsFanClaimUntilRecoveryCompletes(t *
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	db := testContext.DatabaseService.DB
+	db := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(db)
 	siteID, fanID := seedCurtailmentFacilityFan(t, db, user.OrganizationID, "facility-fan-force-release-claim")
 
@@ -290,10 +292,10 @@ func TestSQLCurtailmentStore_ForceReleaseRecoversFansAfterTerminalTransitionRace
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	db := testContext.DatabaseService.DB
+	db := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(db)
 	siteID, fanID := seedCurtailmentFacilityFan(t, db, user.OrganizationID, "facility-fan-force-release-terminal-race")
 
@@ -345,10 +347,10 @@ func TestSQLCurtailmentStore_ForceReleaseSerializesWithFanCommands(t *testing.T)
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 	eventUUID := uuid.New()
 	event := curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, eventUUID, models.EventStateActive, "facility-fan-force-release")
 	inserted, err := store.InsertEventWithTargets(ctx, event, []models.InsertTargetParams{
@@ -411,10 +413,10 @@ func TestSQLCurtailmentStore_AirflowReopenPreservesFirstFailureThenStampsSuccess
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 	eventUUID := uuid.New()
 	event := curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, eventUUID, models.EventStateActive, "facility-fan-reopen-timing")
 	inserted, err := store.InsertEventWithTargets(ctx, event, []models.InsertTargetParams{
@@ -464,10 +466,10 @@ func TestSQLCurtailmentStore_FacilityFanAuthorizationSnapshotRejectsSiteDrift(t 
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	db := testContext.DatabaseService.DB
+	db := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(db)
 	siteID, fanID := seedCurtailmentFacilityFan(t, db, user.OrganizationID, "facility-fan-drift")
 	otherSite, err := sqlstores.NewSQLSiteStore(db).CreateSite(ctx, sitesmodels.CreateSiteParams{
@@ -494,10 +496,10 @@ func TestSQLCurtailmentStore_ConcurrentIdempotentFacilityFanStartsHaveOneWinner(
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	db := testContext.DatabaseService.DB
+	db := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(db)
 	siteID, fanID := seedCurtailmentFacilityFan(t, db, user.OrganizationID, "facility-fan-idempotent")
 	idempotencyKey := "facility-fan-concurrent-start"
@@ -573,10 +575,10 @@ func TestSQLCurtailmentStore_StaleFanONRetriesKeepSuccessfulResult(t *testing.T)
 	}
 	for _, operation := range []string{"active airflow", "restoring", "terminal recovery", "force release"} {
 		t.Run(operation, func(t *testing.T) {
-			testContext := testutil.InitializeDBServiceInfrastructure(t)
-			user := testContext.DatabaseService.CreateSuperAdminUser()
+			testContext := testutil.NewDatabaseService(t, nil)
+			user := testContext.CreateSuperAdminUser()
 			ctx := t.Context()
-			database := testContext.DatabaseService.DB
+			database := testContext.DB
 			store := sqlstores.NewSQLCurtailmentStore(database)
 			siteID, fanID := seedCurtailmentFacilityFan(t, database, user.OrganizationID, "stale-fan-on")
 			eventUUID := uuid.New()
@@ -669,10 +671,10 @@ func TestSQLCurtailmentStore_CanceledFanCommandRetainsEndpointLocksUntilAdapterR
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")
 	}
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	database := testContext.DatabaseService.DB
+	database := testContext.DB
 	database.SetMaxOpenConns(2)
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	siteID, fanID := seedCurtailmentFacilityFan(t, database, user.OrganizationID, "cancelled-fan-lock")

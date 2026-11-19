@@ -1273,6 +1273,7 @@ func (q *Queries) GetDistinctDeviceSiteIDs(ctx context.Context, arg GetDistinctD
 }
 
 const getFilteredDeviceIdentifiers = `-- name: GetFilteredDeviceIdentifiers :many
+
 SELECT
     d.device_identifier
 FROM device d
@@ -1309,9 +1310,12 @@ type GetFilteredDeviceIdentifiersParams struct {
 	ManufacturerFilter  sql.NullString
 }
 
-// Mirrors GetFilteredDeviceIds but returns device_identifier strings instead of
-// internal IDs. Used by command preflight filtering, which operates on
-// identifiers (the same primitive used by selectors and schedules).
+// Zone / building filters are not handled by this static query;
+// callers with those filters must route through the dynamic builder
+// (device_filters.go).
+// Returns device identifiers filtered by pairing status and optional device
+// status, model and manufacturer. Used by command preflight filtering, which
+// operates on identifiers (the same primitive used by selectors and schedules).
 func (q *Queries) GetFilteredDeviceIdentifiers(ctx context.Context, arg GetFilteredDeviceIdentifiersParams) ([]string, error) {
 	rows, err := q.query(ctx, q.getFilteredDeviceIdentifiersStmt, getFilteredDeviceIdentifiers,
 		arg.OrgID,
@@ -1331,78 +1335,6 @@ func (q *Queries) GetFilteredDeviceIdentifiers(ctx context.Context, arg GetFilte
 			return nil, err
 		}
 		items = append(items, device_identifier)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const getFilteredDeviceIds = `-- name: GetFilteredDeviceIds :many
-
-SELECT
-    d.id as device_id
-FROM device d
-JOIN device_pairing dp ON d.id = dp.device_id
-JOIN discovered_device dd ON d.discovered_device_id = dd.id
-LEFT JOIN device_status ds ON d.id = ds.device_id
-LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
-LEFT JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
-LEFT JOIN LATERAL (
-    SELECT CASE
-        WHEN fn.id IS NOT NULL
-             AND fn.deleted_at IS NULL
-             AND fn.enrollment_status = 'CONFIRMED'
-             AND fn.last_seen_at IS NOT NULL
-             AND fn.last_seen_at < NOW() - INTERVAL '2 minutes'
-        THEN 'OFFLINE'
-        ELSE ds.status::text
-    END AS status
-) effective_status ON TRUE
-WHERE d.org_id = $1
-    AND dp.pairing_status::text = ANY($2::text[])
-    AND d.deleted_at IS NULL
-    AND ($3::text IS NULL OR effective_status.status = $3::text)
-    AND ($4::text IS NULL OR dd.model = ANY(string_to_array($4, ',')))
-    AND ($5::text IS NULL OR dd.manufacturer = ANY(string_to_array($5, ',')))
-ORDER BY d.id
-`
-
-type GetFilteredDeviceIdsParams struct {
-	OrgID               int64
-	PairingStatusValues []string
-	DeviceStatus        sql.NullString
-	ModelFilter         sql.NullString
-	ManufacturerFilter  sql.NullString
-}
-
-// Zone / building filters are not handled by this static query;
-// callers with those filters must route through the dynamic builder
-// (device_filters.go).
-// Returns device IDs filtered by pairing status and optional device status.
-// Used for bulk command operations.
-func (q *Queries) GetFilteredDeviceIds(ctx context.Context, arg GetFilteredDeviceIdsParams) ([]int64, error) {
-	rows, err := q.query(ctx, q.getFilteredDeviceIdsStmt, getFilteredDeviceIds,
-		arg.OrgID,
-		pq.Array(arg.PairingStatusValues),
-		arg.DeviceStatus,
-		arg.ModelFilter,
-		arg.ManufacturerFilter,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []int64
-	for rows.Next() {
-		var device_id int64
-		if err := rows.Scan(&device_id); err != nil {
-			return nil, err
-		}
-		items = append(items, device_id)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

@@ -25,10 +25,10 @@ import (
 // Uses testutil.DatabaseService for consistency with other integration tests.
 func setupErrorTestData(t *testing.T) (db *sql.DB, orgID int64, deviceIdentifier string) {
 	t.Helper()
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
-	device := testContext.DatabaseService.CreateDevice(adminUser.OrganizationID, "proto")
-	return testContext.DatabaseService.DB, adminUser.OrganizationID, device.ID
+	testContext := testutil.NewDatabaseService(t, nil)
+	adminUser := testContext.CreateSuperAdminUser()
+	device := testContext.CreateDevice(adminUser.OrganizationID, "proto")
+	return testContext.DB, adminUser.OrganizationID, device.ID
 }
 
 // newErrorStore creates an ErrorStore with a transactor for integration tests.
@@ -179,14 +179,14 @@ func createTestErrorMessage(deviceID string) *models.ErrorMessage {
 // Uses testutil.DatabaseService for consistency with other integration tests.
 func setupMultiDeviceErrorData(t *testing.T, deviceCount int) (db *sql.DB, orgID int64, deviceIdentifiers []string) {
 	t.Helper()
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	adminUser := testContext.CreateSuperAdminUser()
 	deviceIdentifiers = make([]string, deviceCount)
 	for i := range deviceCount {
-		device := testContext.DatabaseService.CreateDevice(adminUser.OrganizationID, "proto")
+		device := testContext.CreateDevice(adminUser.OrganizationID, "proto")
 		deviceIdentifiers[i] = device.ID
 	}
-	return testContext.DatabaseService.DB, adminUser.OrganizationID, deviceIdentifiers
+	return testContext.DB, adminUser.OrganizationID, deviceIdentifiers
 }
 
 // testMinerErrors provides distinct MinerError values for test data generation.
@@ -651,17 +651,17 @@ func TestSQLErrorStore_UpsertErrors_ShouldReturnNotFoundForUnavailableDevice(t *
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	owner := testContext.DatabaseService.CreateSuperAdminUser()
-	otherOwner := testContext.DatabaseService.CreateSuperAdminUser2()
-	db := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	owner := testContext.CreateSuperAdminUser()
+	otherOwner := testContext.CreateSuperAdminUser2()
+	db := testContext.DB
 	store := newErrorStore(db)
 	ctx := t.Context()
 
-	softDeleted := testContext.DatabaseService.CreateDevice(owner.OrganizationID, "proto")
+	softDeleted := testContext.CreateDevice(owner.OrganizationID, "proto")
 	_, err := db.ExecContext(ctx, `UPDATE device SET deleted_at = NOW() WHERE id = $1`, softDeleted.DatabaseID)
 	require.NoError(t, err)
-	otherOrgDevice := testContext.DatabaseService.CreateDevice(otherOwner.OrganizationID, "proto")
+	otherOrgDevice := testContext.CreateDevice(otherOwner.OrganizationID, "proto")
 
 	tests := []struct {
 		name             string
@@ -1049,7 +1049,8 @@ func TestSQLErrorStore_GetErrorByErrorID_ShouldReturnError(t *testing.T) {
 // QueryErrors Tests
 // ============================================================================
 
-func TestSQLErrorStore_QueryErrors_ShouldReturnAllOpenErrors(t *testing.T) {
+// The subtests only read the errors of this fixture, so they share one database.
+func TestSQLErrorStore_QueryErrors_WithOneErrorPerSeverity(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
@@ -1059,56 +1060,62 @@ func TestSQLErrorStore_QueryErrors_ShouldReturnAllOpenErrors(t *testing.T) {
 	ctx := t.Context()
 
 	// Arrange: Create 3 errors on different devices
+	// Device 0: CRITICAL, Device 1: MAJOR, Device 2: MINOR
 	for i, identifier := range deviceIdentifiers {
 		errMsg := createErrorWithSeverity(identifier, testSeverities[i], testMinerErrors[i], nil)
 		_, err := upsertSingleError(ctx, db, store, orgID, identifier, errMsg)
 		require.NoError(t, err)
 	}
 
-	// Act
-	opts := &models.QueryOptions{OrgID: orgID, PageSize: 100}
-	results, err := store.QueryErrors(ctx, opts)
+	t.Run("ShouldReturnAllOpenErrors", func(t *testing.T) {
+		// Act
+		opts := &models.QueryOptions{OrgID: orgID, PageSize: 100}
+		results, err := store.QueryErrors(ctx, opts)
 
-	// Assert
-	require.NoError(t, err)
-	assert.Len(t, results, 3, "Should return all 3 open errors")
-}
-
-func TestSQLErrorStore_QueryErrors_WithSeverityFilter_ShouldFilterBySeverity(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-
-	db, orgID, deviceIdentifiers := setupMultiDeviceErrorData(t, 3)
-	store := newErrorStore(db)
-	ctx := t.Context()
-
-	// Arrange: Create errors with different severities
-	// Device 0: CRITICAL, Device 1: MAJOR, Device 2: MINOR
-	severities := []models.Severity{models.SeverityCritical, models.SeverityMajor, models.SeverityMinor}
-	for i, identifier := range deviceIdentifiers {
-		errMsg := createErrorWithSeverity(identifier, severities[i], testMinerErrors[i], nil)
-		_, err := upsertSingleError(ctx, db, store, orgID, identifier, errMsg)
+		// Assert
 		require.NoError(t, err)
-	}
+		assert.Len(t, results, 3, "Should return all 3 open errors")
+	})
 
-	// Act: Filter by CRITICAL only
-	opts := &models.QueryOptions{
-		OrgID:    orgID,
-		PageSize: 100,
-		Filter: &models.QueryFilter{
-			Severities: []models.Severity{models.SeverityCritical},
-		},
-	}
-	results, err := store.QueryErrors(ctx, opts)
+	t.Run("WithSeverityFilter_ShouldFilterBySeverity", func(t *testing.T) {
+		// Act: Filter by CRITICAL only
+		opts := &models.QueryOptions{
+			OrgID:    orgID,
+			PageSize: 100,
+			Filter: &models.QueryFilter{
+				Severities: []models.Severity{models.SeverityCritical},
+			},
+		}
+		results, err := store.QueryErrors(ctx, opts)
 
-	// Assert
-	require.NoError(t, err)
-	assert.Len(t, results, 1, "Should return only CRITICAL error")
-	assert.Equal(t, models.SeverityCritical, results[0].Severity)
+		// Assert
+		require.NoError(t, err)
+		require.Len(t, results, 1, "Should return only CRITICAL error")
+		assert.Equal(t, models.SeverityCritical, results[0].Severity)
+	})
+
+	// When multiple filter criteria are provided, ALL must match (AND logic).
+	// TODO: Add OR logic test when OR filter support is implemented.
+	t.Run("WithMultipleFilters_ShouldMatchAll", func(t *testing.T) {
+		// Act: Filter for CRITICAL AND device 1 (AND logic - no device matches both)
+		opts := &models.QueryOptions{
+			OrgID:    orgID,
+			PageSize: 100,
+			Filter: &models.QueryFilter{
+				Severities:        []models.Severity{models.SeverityCritical},
+				DeviceIdentifiers: []string{deviceIdentifiers[1]},
+			},
+		}
+		results, err := store.QueryErrors(ctx, opts)
+
+		// Assert: Should return nothing (no CRITICAL error on device 1)
+		require.NoError(t, err)
+		assert.Len(t, results, 0, "Should return no errors (no match for both criteria)")
+	})
 }
 
-func TestSQLErrorStore_QueryErrors_WithDeviceFilter_ShouldFilterByDevice(t *testing.T) {
+// The subtests only read the errors of this fixture, so they share one database.
+func TestSQLErrorStore_WithOneMajorErrorPerDevice(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
@@ -1124,59 +1131,32 @@ func TestSQLErrorStore_QueryErrors_WithDeviceFilter_ShouldFilterByDevice(t *test
 		require.NoError(t, err)
 	}
 
-	// Act: Filter by first device only
-	opts := &models.QueryOptions{
-		OrgID:    orgID,
-		PageSize: 100,
-		Filter: &models.QueryFilter{
-			DeviceIdentifiers: []string{deviceIdentifiers[0]},
-		},
-	}
-	results, err := store.QueryErrors(ctx, opts)
+	t.Run("QueryErrors_WithDeviceFilter_ShouldFilterByDevice", func(t *testing.T) {
+		// Act: Filter by first device only
+		opts := &models.QueryOptions{
+			OrgID:    orgID,
+			PageSize: 100,
+			Filter: &models.QueryFilter{
+				DeviceIdentifiers: []string{deviceIdentifiers[0]},
+			},
+		}
+		results, err := store.QueryErrors(ctx, opts)
 
-	// Assert
-	require.NoError(t, err)
-	assert.Len(t, results, 1, "Should return only errors from filtered device")
-	assert.Equal(t, deviceIdentifiers[0], results[0].DeviceID)
-}
-
-// TestSQLErrorStore_QueryErrors_WithMultipleFilters_ShouldMatchAll verifies that
-// when multiple filter criteria are provided, ALL must match (AND logic).
-// TODO: Add OR logic test when OR filter support is implemented.
-func TestSQLErrorStore_QueryErrors_WithMultipleFilters_ShouldMatchAll(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-
-	db, orgID, deviceIdentifiers := setupMultiDeviceErrorData(t, 3)
-	store := newErrorStore(db)
-	ctx := t.Context()
-
-	// Arrange:
-	// Device 0: CRITICAL error
-	// Device 1: MAJOR error
-	// Device 2: MINOR error
-	severities := []models.Severity{models.SeverityCritical, models.SeverityMajor, models.SeverityMinor}
-	for i, identifier := range deviceIdentifiers {
-		errMsg := createErrorWithSeverity(identifier, severities[i], testMinerErrors[i], nil)
-		_, err := upsertSingleError(ctx, db, store, orgID, identifier, errMsg)
+		// Assert
 		require.NoError(t, err)
-	}
+		require.Len(t, results, 1, "Should return only errors from filtered device")
+		assert.Equal(t, deviceIdentifiers[0], results[0].DeviceID)
+	})
 
-	// Act: Filter for CRITICAL AND device 1 (AND logic - no device matches both)
-	opts := &models.QueryOptions{
-		OrgID:    orgID,
-		PageSize: 100,
-		Filter: &models.QueryFilter{
-			Severities:        []models.Severity{models.SeverityCritical},
-			DeviceIdentifiers: []string{deviceIdentifiers[1]},
-		},
-	}
-	results, err := store.QueryErrors(ctx, opts)
+	t.Run("CountErrors_ShouldCountMatchingErrors", func(t *testing.T) {
+		// Act
+		opts := &models.QueryOptions{OrgID: orgID}
+		count, err := store.CountErrors(ctx, opts)
 
-	// Assert: Should return nothing (no CRITICAL error on device 1)
-	require.NoError(t, err)
-	assert.Len(t, results, 0, "Should return no errors (no match for both criteria)")
+		// Assert
+		require.NoError(t, err)
+		assert.Equal(t, int64(3), count)
+	})
 }
 
 func TestSQLErrorStore_QueryErrors_WithCursor_ShouldPaginate(t *testing.T) {
@@ -1236,31 +1216,6 @@ func TestSQLErrorStore_QueryErrors_WithCursor_ShouldPaginate(t *testing.T) {
 // CountErrors Tests
 // ============================================================================
 
-func TestSQLErrorStore_CountErrors_ShouldCountMatchingErrors(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-
-	db, orgID, deviceIdentifiers := setupMultiDeviceErrorData(t, 3)
-	store := newErrorStore(db)
-	ctx := t.Context()
-
-	// Arrange: Create 3 errors
-	for i, identifier := range deviceIdentifiers {
-		errMsg := createErrorWithSeverity(identifier, models.SeverityMajor, testMinerErrors[i], nil)
-		_, err := upsertSingleError(ctx, db, store, orgID, identifier, errMsg)
-		require.NoError(t, err)
-	}
-
-	// Act
-	opts := &models.QueryOptions{OrgID: orgID}
-	count, err := store.CountErrors(ctx, opts)
-
-	// Assert
-	require.NoError(t, err)
-	assert.Equal(t, int64(3), count)
-}
-
 func TestSQLErrorStore_CountErrors_WithFilters_ShouldCountFiltered(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
@@ -1296,7 +1251,8 @@ func TestSQLErrorStore_CountErrors_WithFilters_ShouldCountFiltered(t *testing.T)
 // Device Pagination Tests
 // ============================================================================
 
-func TestSQLErrorStore_QueryDeviceKeys_ShouldReturnUniqueDevices(t *testing.T) {
+// The subtests only read the errors of this fixture, so they share one database.
+func TestSQLErrorStore_WithTwoErrorsPerDevice(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
@@ -1305,7 +1261,7 @@ func TestSQLErrorStore_QueryDeviceKeys_ShouldReturnUniqueDevices(t *testing.T) {
 	store := newErrorStore(db)
 	ctx := t.Context()
 
-	// Arrange: Create multiple errors per device
+	// Arrange: Create multiple errors per device (6 errors total, 3 devices)
 	for _, identifier := range deviceIdentifiers {
 		// 2 errors per device with different miner errors
 		for j := range 2 {
@@ -1315,13 +1271,25 @@ func TestSQLErrorStore_QueryDeviceKeys_ShouldReturnUniqueDevices(t *testing.T) {
 		}
 	}
 
-	// Act
-	opts := &models.QueryOptions{OrgID: orgID, PageSize: 100}
-	keys, err := store.QueryDeviceKeys(ctx, opts)
+	t.Run("QueryDeviceKeys_ShouldReturnUniqueDevices", func(t *testing.T) {
+		// Act
+		opts := &models.QueryOptions{OrgID: orgID, PageSize: 100}
+		keys, err := store.QueryDeviceKeys(ctx, opts)
 
-	// Assert
-	require.NoError(t, err)
-	assert.Len(t, keys, 3, "Should return 3 unique devices (not 6 errors)")
+		// Assert
+		require.NoError(t, err)
+		assert.Len(t, keys, 3, "Should return 3 unique devices (not 6 errors)")
+	})
+
+	t.Run("CountDevices_ShouldCountUniqueDevices", func(t *testing.T) {
+		// Act
+		opts := &models.QueryOptions{OrgID: orgID}
+		count, err := store.CountDevices(ctx, opts)
+
+		// Assert
+		require.NoError(t, err)
+		assert.Equal(t, int64(3), count, "Should count 3 unique devices")
+	})
 }
 
 func TestSQLErrorStore_QueryDeviceKeys_ShouldPaginateByDevice(t *testing.T) {
@@ -1382,33 +1350,6 @@ func TestSQLErrorStore_QueryDeviceKeys_ShouldPaginateByDevice(t *testing.T) {
 		allDeviceIDs[k.DeviceID] = true
 	}
 	assert.Len(t, allDeviceIDs, 5, "Should have 5 unique devices across all pages")
-}
-
-func TestSQLErrorStore_CountDevices_ShouldCountUniqueDevices(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-
-	db, orgID, deviceIdentifiers := setupMultiDeviceErrorData(t, 3)
-	store := newErrorStore(db)
-	ctx := t.Context()
-
-	// Arrange: Create multiple errors per device (6 errors total, 3 devices)
-	for _, identifier := range deviceIdentifiers {
-		for j := range 2 {
-			errMsg := createErrorWithSeverity(identifier, models.SeverityMajor, testMinerErrors[j], nil)
-			_, err := upsertSingleError(ctx, db, store, orgID, identifier, errMsg)
-			require.NoError(t, err)
-		}
-	}
-
-	// Act
-	opts := &models.QueryOptions{OrgID: orgID}
-	count, err := store.CountDevices(ctx, opts)
-
-	// Assert
-	require.NoError(t, err)
-	assert.Equal(t, int64(3), count, "Should count 3 unique devices")
 }
 
 // ============================================================================

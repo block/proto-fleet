@@ -64,17 +64,6 @@ func (q *Queries) GetPoolCutoverInventory(ctx context.Context, organizationID in
 	return i, err
 }
 
-const legacyPoolWritersDisabled = `-- name: LegacyPoolWritersDisabled :one
-SELECT EXISTS(SELECT 1 FROM pool_configuration_cutover WHERE organization_id=$1)
-`
-
-func (q *Queries) LegacyPoolWritersDisabled(ctx context.Context, organizationID int64) (bool, error) {
-	row := q.queryRow(ctx, q.legacyPoolWritersDisabledStmt, legacyPoolWritersDisabled, organizationID)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
-}
-
 const listPoolCutoverGaps = `-- name: ListPoolCutoverGaps :many
 SELECT 'legacy_board_intent'::text AS kind,i.hashboard_id::text AS source_id,i.device_id,
  'Legacy board intent has no canonical effective state.'::text AS reason

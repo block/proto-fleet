@@ -17,10 +17,10 @@ func TestSQLCurtailmentFanReferences_ProfileOverlapUsesCallerTransaction(t *test
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	otherUser := testContext.DatabaseService.CreateSuperAdminUser2()
-	database := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	otherUser := testContext.CreateSuperAdminUser2()
+	database := testContext.DB
 	ctx := t.Context()
 	siteA, fanA := seedCurtailmentFacilityFan(t, database, user.OrganizationID, "reference-fan-a")
 	siteB, fanB := seedCurtailmentFacilityFan(t, database, user.OrganizationID, "reference-fan-b")

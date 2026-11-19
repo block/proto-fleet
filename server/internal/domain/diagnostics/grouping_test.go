@@ -270,64 +270,6 @@ func TestCountsBySeverity_ExcludesClosedErrors(t *testing.T) {
 }
 
 // ============================================================================
-// SortErrors Tests
-// ============================================================================
-
-func TestSortErrors_ShouldSortBySeverityFirst(t *testing.T) {
-	// Arrange
-	now := time.Now()
-	errors := []models.ErrorMessage{
-		{ErrorID: "3", Severity: models.SeverityInfo, LastSeenAt: now},
-		{ErrorID: "1", Severity: models.SeverityCritical, LastSeenAt: now},
-		{ErrorID: "2", Severity: models.SeverityMajor, LastSeenAt: now},
-	}
-
-	// Act
-	SortErrors(errors)
-
-	// Assert - Critical (1) < Major (2) < Info (4)
-	assert.Equal(t, models.SeverityCritical, errors[0].Severity)
-	assert.Equal(t, models.SeverityMajor, errors[1].Severity)
-	assert.Equal(t, models.SeverityInfo, errors[2].Severity)
-}
-
-func TestSortErrors_WithSameSeverity_ShouldSortByLastSeenDescending(t *testing.T) {
-	// Arrange
-	now := time.Now()
-	errors := []models.ErrorMessage{
-		{ErrorID: "OLD", Severity: models.SeverityMajor, LastSeenAt: now.Add(-time.Hour)},
-		{ErrorID: "NEW", Severity: models.SeverityMajor, LastSeenAt: now},
-		{ErrorID: "MID", Severity: models.SeverityMajor, LastSeenAt: now.Add(-30 * time.Minute)},
-	}
-
-	// Act
-	SortErrors(errors)
-
-	// Assert - most recent first
-	assert.Equal(t, "NEW", errors[0].ErrorID)
-	assert.Equal(t, "MID", errors[1].ErrorID)
-	assert.Equal(t, "OLD", errors[2].ErrorID)
-}
-
-func TestSortErrors_WithSameSeverityAndTime_ShouldSortByErrorIDDescending(t *testing.T) {
-	// Arrange
-	now := time.Now()
-	errors := []models.ErrorMessage{
-		{ErrorID: "AAA", Severity: models.SeverityMajor, LastSeenAt: now},
-		{ErrorID: "ZZZ", Severity: models.SeverityMajor, LastSeenAt: now},
-		{ErrorID: "MMM", Severity: models.SeverityMajor, LastSeenAt: now},
-	}
-
-	// Act
-	SortErrors(errors)
-
-	// Assert - descending by error ID
-	assert.Equal(t, "ZZZ", errors[0].ErrorID)
-	assert.Equal(t, "MMM", errors[1].ErrorID)
-	assert.Equal(t, "AAA", errors[2].ErrorID)
-}
-
-// ============================================================================
 // GroupByDevice Tests
 // ============================================================================
 

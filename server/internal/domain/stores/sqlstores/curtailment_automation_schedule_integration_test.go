@@ -21,10 +21,10 @@ func TestSQLCurtailmentStore_ScheduleAutomationRuleLifecycle(t *testing.T) {
 	if testing.Short() {
 		t.Skip("database integration")
 	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	user := tc.DatabaseService.CreateSuperAdminUser()
+	tc := testutil.NewDatabaseService(t, nil)
+	user := tc.CreateSuperAdminUser()
 	ctx := t.Context()
-	database := tc.DatabaseService.DB
+	database := tc.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	profileID := seedResponseProfile(t, database, user.OrganizationID, "schedule-profile")
 	profile, err := store.GetResponseProfile(ctx, user.OrganizationID, profileID)
@@ -150,7 +150,7 @@ func TestSQLCurtailmentStore_ScheduleAutomationRuleLifecycle(t *testing.T) {
 	event.DecisionSnapshotJSON = []byte(fmt.Sprintf(`{"response_profile_id":%d,"response_profile_revision":%q}`, profileID, profile.Revision.String()))
 
 	wrongUser := event
-	wrongUser.CreatedByUserID = tc.DatabaseService.CreateSuperAdminUser2().DatabaseID
+	wrongUser.CreatedByUserID = tc.CreateSuperAdminUser2().DatabaseID
 	_, err = store.InsertEventWithTargets(ctx, wrongUser, nil)
 	require.Error(t, err, "a scheduled event must run as the schedule's service user")
 	assert.True(t, fleeterror.IsFailedPreconditionError(err), err)
@@ -289,10 +289,10 @@ func TestSQLCurtailmentStore_AutomationRuleTriggerConstraints(t *testing.T) {
 	if testing.Short() {
 		t.Skip("database integration")
 	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	user := tc.DatabaseService.CreateSuperAdminUser()
+	tc := testutil.NewDatabaseService(t, nil)
+	user := tc.CreateSuperAdminUser()
 	ctx := t.Context()
-	database := tc.DatabaseService.DB
+	database := tc.DB
 	sourceID := seedMQTTSourceConfig(t, database, user.OrganizationID, user.DatabaseID, "constraint-source", true)
 	profileID := seedResponseProfile(t, database, user.OrganizationID, "constraint-profile")
 

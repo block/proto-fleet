@@ -40,9 +40,9 @@ func TestSQLCurtailmentStore_ClaimAllPairedPolicyTargets_InsertsReopensAndSkipsC
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	db := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	db := testContext.DB
 	ctx := t.Context()
 	store := sqlstores.NewSQLCurtailmentStore(db)
 
@@ -152,11 +152,11 @@ func TestSQLCurtailmentStore_ClaimAllPairedPolicyTargets_FillsBatchPastEarlierRe
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(user.OrganizationID, 3, "https://172.17.0.1:80")
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
+	deviceIDs := testContext.CreateTestMiners(user.OrganizationID, 3, "https://172.17.0.1:80")
 
 	_, err := store.InsertEventWithTargets(
 		ctx,
@@ -212,11 +212,11 @@ func TestSQLCurtailmentStore_ListRecentlyResolvedCurtailedDevicesExcludesCurrent
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(user.OrganizationID, 2, "https://172.17.0.1:80")
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
+	deviceIDs := testContext.CreateTestMiners(user.OrganizationID, 2, "https://172.17.0.1:80")
 
 	insertResolved := func(deviceIdentifier string) *models.InsertEventResult {
 		params := curtailmentStoreTestEvent(
@@ -263,13 +263,13 @@ func TestSQLCurtailmentStore_ListActiveCurtailedDevices_AllPairedScopeLockAndRel
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	db := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	db := testContext.DB
 	ctx := t.Context()
 	store := sqlstores.NewSQLCurtailmentStore(db)
 
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(user.OrganizationID, 3, "https://172.17.0.1:80")
+	deviceIDs := testContext.CreateTestMiners(user.OrganizationID, 3, "https://172.17.0.1:80")
 	unclaimed, released, unavailable := deviceIDs[0], deviceIDs[1], deviceIDs[2]
 
 	inserted, err := store.InsertEventWithTargets(
@@ -319,9 +319,9 @@ func TestSQLCurtailmentStore_BulkRefreshAllPairedTargetReadiness_FlipsAndSkips(t
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	db := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	db := testContext.DB
 	ctx := t.Context()
 	store := sqlstores.NewSQLCurtailmentStore(db)
 
@@ -476,9 +476,9 @@ func TestSQLCurtailmentStore_BeginRestoreTransition_ReleasesOnlyNeverSentAllPair
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	db := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	db := testContext.DB
 	ctx := t.Context()
 	store := sqlstores.NewSQLCurtailmentStore(db)
 

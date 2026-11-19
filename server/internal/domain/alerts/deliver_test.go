@@ -155,14 +155,20 @@ func TestDeliverFansOutPerOrg(t *testing.T) {
 }
 
 func TestDeliverSkipsPrivateDestinationUnderPolicy(t *testing.T) {
+	srv, got := captureServer(t)
 	store := newFakeChannelStore()
 	crypto := testCipher(t)
 	// Policy disallows private destinations: a loopback URL must be refused at send time.
 	d := NewDeliverer(store, nil, nil, crypto, fakeDeviceLookup{}, DestinationPolicy{}, "")
-	seedChannel(t, store, crypto, 7, ChannelKindSlack, "http://127.0.0.1:1/hook", "")
+	// A plain client has no dial guard, so only the send-time check can stop the request.
+	d.httpClient = srv.Client()
+	seedChannel(t, store, crypto, 7, ChannelKindSlack, srv.URL+"/hook", "")
 
-	// No panic, no send; the SSRF check rejects it and the error is logged internally.
-	d.Deliver(context.Background(), []Alert{firingAlert("7", "dev-a", "X")})
+	result := d.DeliverTracked(context.Background(), []Alert{firingAlert("7", "dev-a", "X")})
+
+	assert.Equal(t, 1, result.Failed, "the refused send counts as a failure")
+	assert.Zero(t, result.Delivered)
+	assert.Empty(t, *got, "a live loopback destination must receive no request")
 }
 
 func TestDelivererDoesNotFollowRedirects(t *testing.T) {
@@ -193,9 +199,17 @@ func TestDelivererDialRejectsPrivateAtConnect(t *testing.T) {
 	require.True(t, ok)
 	require.NotNil(t, tr.DialContext)
 
-	for _, addr := range []string{"127.0.0.1:80", "169.254.169.254:80", "10.0.0.5:443"} {
-		_, err := tr.DialContext(context.Background(), "tcp", addr)
-		require.Errorf(t, err, "dial to %s must be refused", addr)
+	// The first address is a live loopback listener: without the guard, the dial succeeds.
+	srv, _ := captureServer(t)
+	live := srv.Listener.Addr().String()
+
+	for _, addr := range []string{live, "127.0.0.1:80", "169.254.169.254:80", "10.0.0.5:443"} {
+		conn, err := tr.DialContext(context.Background(), "tcp", addr)
+		if conn != nil {
+			require.NoError(t, conn.Close())
+		}
+		require.ErrorContainsf(t, err, "destination resolves to a private or internal address",
+			"dial to %s must be refused by the guard", addr)
 	}
 }
 

@@ -27,13 +27,6 @@ const (
 	eventDeviceDeleted = "infrastructure_device.deleted"
 )
 
-// NewDefaultDriverRegistry returns the registry with every production
-// driver adapter registered. New protocols add a Register call here
-// and nothing else in the core.
-func NewDefaultDriverRegistry() *driver.Registry {
-	return newDriverRegistry(modbustcp.New)
-}
-
 // NewConfiguredDriverRegistry returns the production driver registry with the
 // deployment-global OT allowlist validated and applied to every Modbus
 // controller. Empty config is accepted but remains fail closed for writes.

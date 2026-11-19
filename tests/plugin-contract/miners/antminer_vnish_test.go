@@ -64,16 +64,7 @@ miners:
 
 		t.Run("Telemetry", func(t *testing.T) { miners.AssertTelemetry(t, tc, device) })
 		t.Run("Control", func(t *testing.T) { miners.AssertControl(t, tc, device, caps) })
-		t.Run("Configuration", func(t *testing.T) {
-			mock.SetWebResponse("autotune/presets", []byte(`[
-				{"name":"2550","pretty":"2550 watt ~ 170 TH","status":"tuned","modded_psu_required":false},
-				{"name":"3160","pretty":"3160 watt ~ 212 TH","status":"tuned","modded_psu_required":false},
-				{"name":"4690","pretty":"4690 watt ~ 313 TH","status":"tuned","modded_psu_required":false}
-			]`))
-			t.Cleanup(mock.ResetOverrides)
-
-			miners.AssertConfiguration(t, tc, device, caps)
-		})
+		t.Run("Configuration", func(t *testing.T) { miners.AssertConfiguration(t, tc, device, caps) })
 		t.Run("PoolCredentials", func(t *testing.T) {
 			submitted := []sdk.MiningPoolConfig{
 				{Priority: 2, URL: "stratum+tcp://last.example:3333", WorkerName: "last.wallet", Password: ""},

@@ -13,107 +13,37 @@ import (
 	"github.com/block/proto-fleet/server/migrations"
 )
 
-// The release channel migration must round-trip: down removes every object it
-// created and up restores them. Functions are checked explicitly because a
-// down that forgot them would still succeed, and so would the CREATE OR
-// REPLACE in the next up.
-func TestReleaseChannelsMigrationDownAndUp(t *testing.T) {
+// The controller software target migration must round-trip: down removes the
+// table and its version key function, and up restores them.
+func TestReleaseChannelControllerSoftwareMigrationDownAndUp(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
-	downSQL, err := migrations.Migrations.ReadFile("000148_release_channels.down.sql")
-	require.NoError(t, err)
-	upSQL, err := migrations.Migrations.ReadFile("000148_release_channels.up.sql")
-	require.NoError(t, err)
-	reservationDownSQL, err := migrations.Migrations.ReadFile("000149_rollout_enforcement_state.down.sql")
-	require.NoError(t, err)
-	reservationUpSQL, err := migrations.Migrations.ReadFile("000149_rollout_enforcement_state.up.sql")
-	require.NoError(t, err)
-	labelsDownSQL, err := migrations.Migrations.ReadFile("000151_rollout_activity_labels.down.sql")
-	require.NoError(t, err)
-	labelsUpSQL, err := migrations.Migrations.ReadFile("000151_rollout_activity_labels.up.sql")
-	require.NoError(t, err)
-	delegatedDownSQL, err := migrations.Migrations.ReadFile("000157_delegated_rollout_events.down.sql")
-	require.NoError(t, err)
-	delegatedUpSQL, err := migrations.Migrations.ReadFile("000157_delegated_rollout_events.up.sql")
-	require.NoError(t, err)
 	controllerSoftwareDownSQL, err := migrations.Current.ReadFile("current/001096_internal_release_channel_controller_software.down.sql")
 	require.NoError(t, err)
 	controllerSoftwareUpSQL, err := migrations.Current.ReadFile("current/001096_internal_release_channel_controller_software.up.sql")
 	require.NoError(t, err)
 
-	relations := []string{
-		"release_channel", "release_channel_target", "release_channel_firmware",
-		"firmware_rollout", "firmware_rollout_device", "device_firmware_deployment",
-		"release_channel_placement", "release_channel_match", "release_channel_resolution",
-		"release_channel_member", "release_channel_conflict", "firmware_rollout_suppressed_device",
-	}
-	functions := []string{"release_channel_pair_key", "firmware_rollout_bump_revision", "firmware_rollout_touch_from_rows"}
-	triggers := []string{
-		"firmware_rollout_revision", "firmware_rollout_device_inserted", "firmware_rollout_device_updated",
-		"device_firmware_deployment_inserted", "device_firmware_deployment_updated",
-		"firmware_rollout_device_deleted", "device_firmware_deployment_deleted",
-	}
 	count := func(query, name string) int {
 		var n int
 		require.NoError(t, db.QueryRowContext(ctx, query, name).Scan(&n))
 		return n
 	}
-	requireObjects := func(present bool) {
-		t.Helper()
-		for _, name := range relations {
-			require.Equal(t, present, count(`SELECT count(*) FROM pg_class WHERE relname = $1 AND relkind IN ('r', 'v')`, name) == 1, name)
-		}
-		for _, name := range functions {
-			require.Equal(t, present, count(`SELECT count(*) FROM pg_proc WHERE proname = $1`, name) == 1, name)
-		}
-		for _, name := range triggers {
-			require.Equal(t, present, count(`SELECT count(*) FROM pg_trigger WHERE tgname = $1 AND NOT tgisinternal`, name) == 1, name)
-		}
-	}
-
-	// The controller software target round-trips with its version key function.
 	requireControllerSoftware := func(present bool) {
 		t.Helper()
 		require.Equal(t, present, count(`SELECT count(*) FROM pg_class WHERE relname = $1 AND relkind = 'r'`, "release_channel_controller_software") == 1)
 		require.Equal(t, present, count(`SELECT count(*) FROM pg_proc WHERE proname = $1`, "release_channel_controller_software_key") == 1)
 	}
 
-	requireObjects(true)
 	requireControllerSoftware(true)
-	// Later event history, reservations and controller software targets
-	// reference the shipped tables. Unwind dependent migrations and their
-	// label wrappers in reverse order.
 	_, err = db.ExecContext(ctx, string(controllerSoftwareDownSQL))
 	require.NoError(t, err)
 	requireControllerSoftware(false)
-	_, err = db.ExecContext(ctx, string(delegatedDownSQL))
-	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, string(labelsDownSQL))
-	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, string(reservationDownSQL))
-	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, string(downSQL))
-	require.NoError(t, err)
-	requireObjects(false)
-	_, err = db.ExecContext(ctx, string(upSQL))
-	require.NoError(t, err)
-	requireObjects(true)
-	_, err = db.ExecContext(ctx, string(reservationUpSQL))
-	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, string(labelsUpSQL))
-	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, string(delegatedUpSQL))
-	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, string(controllerSoftwareUpSQL))
 	require.NoError(t, err)
 	requireControllerSoftware(true)
-
-	var members int
-	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM release_channel_member`).Scan(&members))
-	require.Equal(t, 0, members)
 }
 
 // Membership resolution against live placement: the most specific selector

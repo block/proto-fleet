@@ -48,21 +48,6 @@ func stablePairingSnapshotStore(ctrl *gomock.Controller) *mocks.MockDiscoveredDe
 	return store
 }
 
-func TestNewPairer(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	manager := NewManager(&Config{})
-
-	pairer := createTestPairer(ctrl, manager)
-
-	assert.NotNil(t, pairer)
-	assert.Equal(t, manager, pairer.manager)
-	assert.NotNil(t, pairer.transactor)
-	assert.NotNil(t, pairer.deviceStore)
-	assert.NotNil(t, pairer.encryptService)
-}
-
 func TestPairer_PairDevice_NoPlugin(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

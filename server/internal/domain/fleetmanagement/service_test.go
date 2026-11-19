@@ -281,7 +281,7 @@ func TestService_RefreshMiners_ShouldRejectWhitespaceOnlyDeviceID(t *testing.T) 
 	service := fleetmanagement.NewService(
 		nil,
 		nil,
-		fleetmanagement.NewMockTelemetryCollector(),
+		testutil.NewMockTelemetryCollector(),
 		nil,
 		nil,
 		nil,
@@ -302,7 +302,7 @@ func TestService_RefreshMiners_ShouldRejectWhitespaceOnlyDeviceID(t *testing.T) 
 
 func TestService_LookupMinerByIdentifier_ShouldRejectEmptyIdentifier(t *testing.T) {
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, 1)
-	service := fleetmanagement.NewService(nil, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
+	service := fleetmanagement.NewService(nil, nil, testutil.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
 
 	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{Identifier: ""})
 
@@ -313,7 +313,7 @@ func TestService_LookupMinerByIdentifier_ShouldRejectEmptyIdentifier(t *testing.
 
 func TestService_LookupMinerByIdentifier_ShouldRejectWhitespaceOnlyIdentifier(t *testing.T) {
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, 1)
-	service := fleetmanagement.NewService(nil, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
+	service := fleetmanagement.NewService(nil, nil, testutil.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
 
 	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{Identifier: "   "})
 
@@ -335,7 +335,7 @@ func TestService_LookupMinerByIdentifier_ShouldPropagateStoreNotFound(t *testing
 		GetPairedDeviceBySerialNumber(gomock.Any(), serial, orgID).
 		Return(nil, fleeterror.NewNotFoundErrorf("no paired device found with serial_number=%s org_id=%d", serial, orgID))
 
-	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
+	service := fleetmanagement.NewService(deviceStore, nil, testutil.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
 	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
@@ -372,7 +372,7 @@ func TestService_LookupMinerByIdentifier_ShouldTrimIdentifierBeforeLookup(t *tes
 			}}, "", int64(1), nil
 		})
 
-	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
+	service := fleetmanagement.NewService(deviceStore, nil, testutil.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
 	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
@@ -406,7 +406,7 @@ func TestService_LookupMinerByIdentifier_ShouldLookupByMACWhenTypeIsMAC(t *testi
 			PairingStatus:    "UNPAIRED",
 		}}, "", int64(1), nil)
 
-	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
+	service := fleetmanagement.NewService(deviceStore, nil, testutil.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
 	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
@@ -439,7 +439,7 @@ func TestService_LookupMinerByIdentifier_ShouldInferMACWhenTypeUnspecified(t *te
 			PairingStatus:    "UNPAIRED",
 		}}, "", int64(1), nil)
 
-	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
+	service := fleetmanagement.NewService(deviceStore, nil, testutil.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
 	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
@@ -471,7 +471,7 @@ func TestService_LookupMinerByIdentifier_ShouldInferSerialWhenTypeUnspecified(t 
 			PairingStatus:    "UNPAIRED",
 		}}, "", int64(1), nil)
 
-	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
+	service := fleetmanagement.NewService(deviceStore, nil, testutil.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
 	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
@@ -515,7 +515,7 @@ func TestService_LookupMinerByIdentifier_ShouldReturnHydratedSnapshot(t *testing
 		GetRackDetailsForDevices(gomock.Any(), orgID, []string{deviceID}).
 		Return(map[string]interfaces.DeviceRackDetails{}, nil)
 
-	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, collectionStore, nil, nil, nil)
+	service := fleetmanagement.NewService(deviceStore, nil, testutil.NewMockTelemetryCollector(), nil, nil, nil, collectionStore, nil, nil, nil)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
 	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
@@ -648,7 +648,7 @@ func TestService_RefreshMinerResourceContexts_ShouldResolveHiddenDeviceSites(t *
 	service := fleetmanagement.NewService(
 		deviceStore,
 		nil,
-		fleetmanagement.NewMockTelemetryCollector(),
+		testutil.NewMockTelemetryCollector(),
 		nil,
 		nil,
 		nil,
@@ -709,43 +709,43 @@ func TestService_ListMinerStateSnapshots_ShouldFilterByPairingStatus(t *testing.
 		},
 	}
 
+	// Arrange
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	// Create unpaired devices
+	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+	for i := 1; i <= 3; i++ {
+		deviceIdentifier := fmt.Sprintf("unpaired-device-%d", i)
+		doi := discoverymodels.DeviceOrgIdentifier{
+			DeviceIdentifier: deviceIdentifier,
+			OrgID:            testUser.OrganizationID,
+		}
+		device := &discoverymodels.DiscoveredDevice{
+			Device: pairingpb.Device{
+				DeviceIdentifier: deviceIdentifier,
+				Model:            "S19 Pro",
+				Manufacturer:     "Bitmain",
+				DriverName:       "ANTMINER",
+				IpAddress:        fmt.Sprintf("192.168.1.%d", 100+i),
+				Port:             "4028",
+				UrlScheme:        "http",
+			},
+			IsActive: true,
+			OrgID:    testUser.OrganizationID,
+		}
+		_, err := discoveredDeviceStore.Save(t.Context(), doi, device)
+		require.NoError(t, err)
+	}
+
+	// Create paired devices
+	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:80")
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Arrange
-			testContext := testutil.InitializeDBServiceInfrastructure(t)
-			testUser := testContext.DatabaseService.CreateSuperAdminUser()
-
-			// Create unpaired devices
-			discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
-			for i := 1; i <= 3; i++ {
-				deviceIdentifier := fmt.Sprintf("unpaired-device-%d", i)
-				doi := discoverymodels.DeviceOrgIdentifier{
-					DeviceIdentifier: deviceIdentifier,
-					OrgID:            testUser.OrganizationID,
-				}
-				device := &discoverymodels.DiscoveredDevice{
-					Device: pairingpb.Device{
-						DeviceIdentifier: deviceIdentifier,
-						Model:            "S19 Pro",
-						Manufacturer:     "Bitmain",
-						DriverName:       "ANTMINER",
-						IpAddress:        fmt.Sprintf("192.168.1.%d", 100+i),
-						Port:             "4028",
-						UrlScheme:        "http",
-					},
-					IsActive: true,
-					OrgID:    testUser.OrganizationID,
-				}
-				_, err := discoveredDeviceStore.Save(t.Context(), doi, device)
-				require.NoError(t, err)
-			}
-
-			// Create paired devices
-			testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:80")
-
-			ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
-			service := testContext.ServiceProvider.FleetManagementService
-
 			req := &pb.ListMinerStateSnapshotsRequest{
 				PageSize: 10,
 				Filter: &pb.MinerListFilter{
@@ -909,66 +909,6 @@ func TestService_ListMinerStateSnapshots_ShouldSupportPagination(t *testing.T) {
 	assert.NotEqual(t, resp.Miners[0].DeviceIdentifier, resp2.Miners[0].DeviceIdentifier)
 }
 
-func TestService_ListMinerStateSnapshots_ShouldUseDefaultPageSize(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping test in short mode")
-	}
-
-	// Arrange
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	testUser := testContext.DatabaseService.CreateSuperAdminUser()
-
-	// Create 3 devices
-	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 3, "https://172.17.0.1:80")
-
-	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
-	service := testContext.ServiceProvider.FleetManagementService
-
-	// Request with page size of 0 (should use default of 50)
-	req := &pb.ListMinerStateSnapshotsRequest{
-		PageSize: 0,
-	}
-
-	// Act
-	resp, err := service.ListMinerStateSnapshots(ctx, req)
-
-	// Assert
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-	assert.Len(t, resp.Miners, 3, "Should return all 3 devices")
-	assert.Empty(t, resp.Cursor, "Should not have a cursor (all fit in default page size)")
-}
-
-func TestService_ListMinerStateSnapshots_ShouldCapMaxPageSize(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping test in short mode")
-	}
-
-	// Arrange
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	testUser := testContext.DatabaseService.CreateSuperAdminUser()
-
-	// Create 2 devices
-	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:80")
-
-	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
-	service := testContext.ServiceProvider.FleetManagementService
-
-	// Request with very large page size (should be capped to max of 1000)
-	req := &pb.ListMinerStateSnapshotsRequest{
-		PageSize: 5000,
-	}
-
-	// Act
-	resp, err := service.ListMinerStateSnapshots(ctx, req)
-
-	// Assert
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-	// Should successfully return results (not fail due to large page size)
-	assert.Len(t, resp.Miners, 2)
-}
-
 func TestService_ListMinerStateSnapshots_ShouldReturnEmptyForNoDevices(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping test in short mode")
@@ -1067,122 +1007,129 @@ func TestService_ListMinerStateSnapshots_ShouldFilterByErrorComponentTypes(t *te
 		name                string
 		errorComponentTypes []errorsv1.ComponentType
 		expectedCount       int
+		expectedDevices     []int
 		expectedDescription string
 	}{
 		{
 			name:                "Filter for PSU errors only",
 			errorComponentTypes: []errorsv1.ComponentType{errorsv1.ComponentType_COMPONENT_TYPE_PSU},
 			expectedCount:       1,
+			expectedDevices:     []int{0},
 			expectedDescription: "Should return only devices with PSU errors",
 		},
 		{
 			name:                "Filter for FAN errors only",
 			errorComponentTypes: []errorsv1.ComponentType{errorsv1.ComponentType_COMPONENT_TYPE_FAN},
 			expectedCount:       1,
+			expectedDevices:     []int{1},
 			expectedDescription: "Should return only devices with FAN errors",
 		},
 		{
 			name:                "Filter for HASH_BOARD errors only",
 			errorComponentTypes: []errorsv1.ComponentType{errorsv1.ComponentType_COMPONENT_TYPE_HASH_BOARD},
 			expectedCount:       1,
+			expectedDevices:     []int{2},
 			expectedDescription: "Should return only devices with HASH_BOARD errors",
 		},
 		{
 			name:                "Filter for multiple component types (PSU and FAN)",
 			errorComponentTypes: []errorsv1.ComponentType{errorsv1.ComponentType_COMPONENT_TYPE_PSU, errorsv1.ComponentType_COMPONENT_TYPE_FAN},
 			expectedCount:       2,
+			expectedDevices:     []int{0, 1},
 			expectedDescription: "Should return devices with PSU or FAN errors",
 		},
 		{
 			name:                "Filter for CONTROL_BOARD errors (no matching devices)",
 			errorComponentTypes: []errorsv1.ComponentType{errorsv1.ComponentType_COMPONENT_TYPE_CONTROL_BOARD},
 			expectedCount:       0,
+			expectedDevices:     []int{},
 			expectedDescription: "Should return no devices when no errors match",
 		},
 		{
 			name:                "Empty filter",
 			errorComponentTypes: []errorsv1.ComponentType{},
 			expectedCount:       4,
+			expectedDevices:     []int{0, 1, 2, 3},
 			expectedDescription: "Should return all devices when no filter specified",
 		},
 	}
 
+	// Arrange
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	// Create 4 miners: 1 with PSU error, 1 with FAN error, 1 with HASH_BOARD error, 1 with no errors
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 4, "https://172.17.0.1:80")
+
+	// Create error store
+	transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
+	errorStore := sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, transactor)
+	ctx := t.Context()
+
+	// Helper function to create component ID
+	makeComponentID := func(deviceIdx int, componentType string, componentIdx int) string {
+		return fmt.Sprintf("%d_%s_%d", deviceIdx, componentType, componentIdx)
+	}
+
+	// Create PSU error for device 0
+	psuComponentID := makeComponentID(0, "psu", 0)
+	err := errorStore.UpsertErrors(ctx, testUser.OrganizationID, deviceIDs[0], []diagnosticsmodels.ErrorMessage{{
+		MinerError:        diagnosticsmodels.PSUFaultGeneric,
+		Severity:          diagnosticsmodels.SeverityMajor,
+		Summary:           "PSU fault detected",
+		Impact:            "Reduced power efficiency",
+		CauseSummary:      "Power supply unit malfunction",
+		RecommendedAction: "Check PSU connections",
+		FirstSeenAt:       time.Now().Add(-time.Hour),
+		LastSeenAt:        time.Now(),
+		DeviceID:          deviceIDs[0],
+		ComponentID:       &psuComponentID,
+		ComponentType:     diagnosticsmodels.ComponentTypePSU,
+	}}, time.Now(), time.Minute)
+	require.NoError(t, err)
+
+	// Create FAN error for device 1
+	fanComponentID := makeComponentID(1, "fan", 0)
+	err = errorStore.UpsertErrors(ctx, testUser.OrganizationID, deviceIDs[1], []diagnosticsmodels.ErrorMessage{{
+		MinerError:        diagnosticsmodels.FanFailed,
+		Severity:          diagnosticsmodels.SeverityMajor,
+		Summary:           "Fan failure detected",
+		Impact:            "Increased temperature risk",
+		CauseSummary:      "Fan motor failure",
+		RecommendedAction: "Replace faulty fan",
+		FirstSeenAt:       time.Now().Add(-time.Hour),
+		LastSeenAt:        time.Now(),
+		DeviceID:          deviceIDs[1],
+		ComponentID:       &fanComponentID,
+		ComponentType:     diagnosticsmodels.ComponentTypeFans,
+	}}, time.Now(), time.Minute)
+	require.NoError(t, err)
+
+	// Create HASH_BOARD error for device 2
+	hashboardComponentID := makeComponentID(2, "hashboard", 0)
+	err = errorStore.UpsertErrors(ctx, testUser.OrganizationID, deviceIDs[2], []diagnosticsmodels.ErrorMessage{{
+		MinerError:        diagnosticsmodels.HashboardOverTemperature,
+		Severity:          diagnosticsmodels.SeverityCritical,
+		Summary:           "Hashboard over temperature",
+		Impact:            "Reduced hashrate",
+		CauseSummary:      "Cooling system inadequate",
+		RecommendedAction: "Improve cooling",
+		FirstSeenAt:       time.Now().Add(-time.Hour),
+		LastSeenAt:        time.Now(),
+		DeviceID:          deviceIDs[2],
+		ComponentID:       &hashboardComponentID,
+		ComponentType:     diagnosticsmodels.ComponentTypeHashBoards,
+	}}, time.Now(), time.Minute)
+	require.NoError(t, err)
+
+	// Device 3 has no errors
+
+	// Create auth context and service
+	authCtx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Arrange
-			testContext := testutil.InitializeDBServiceInfrastructure(t)
-			testUser := testContext.DatabaseService.CreateSuperAdminUser()
-
-			// Create 4 miners: 1 with PSU error, 1 with FAN error, 1 with HASH_BOARD error, 1 with no errors
-			deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 4, "https://172.17.0.1:80")
-
-			// Create error store
-			transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
-			errorStore := sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, transactor)
-			ctx := t.Context()
-
-			// Helper function to create component ID
-			makeComponentID := func(deviceIdx int, componentType string, componentIdx int) string {
-				return fmt.Sprintf("%d_%s_%d", deviceIdx, componentType, componentIdx)
-			}
-
-			// Create PSU error for device 0
-			psuComponentID := makeComponentID(0, "psu", 0)
-			err := errorStore.UpsertErrors(ctx, testUser.OrganizationID, deviceIDs[0], []diagnosticsmodels.ErrorMessage{{
-				MinerError:        diagnosticsmodels.PSUFaultGeneric,
-				Severity:          diagnosticsmodels.SeverityMajor,
-				Summary:           "PSU fault detected",
-				Impact:            "Reduced power efficiency",
-				CauseSummary:      "Power supply unit malfunction",
-				RecommendedAction: "Check PSU connections",
-				FirstSeenAt:       time.Now().Add(-time.Hour),
-				LastSeenAt:        time.Now(),
-				DeviceID:          deviceIDs[0],
-				ComponentID:       &psuComponentID,
-				ComponentType:     diagnosticsmodels.ComponentTypePSU,
-			}}, time.Now(), time.Minute)
-			require.NoError(t, err)
-
-			// Create FAN error for device 1
-			fanComponentID := makeComponentID(1, "fan", 0)
-			err = errorStore.UpsertErrors(ctx, testUser.OrganizationID, deviceIDs[1], []diagnosticsmodels.ErrorMessage{{
-				MinerError:        diagnosticsmodels.FanFailed,
-				Severity:          diagnosticsmodels.SeverityMajor,
-				Summary:           "Fan failure detected",
-				Impact:            "Increased temperature risk",
-				CauseSummary:      "Fan motor failure",
-				RecommendedAction: "Replace faulty fan",
-				FirstSeenAt:       time.Now().Add(-time.Hour),
-				LastSeenAt:        time.Now(),
-				DeviceID:          deviceIDs[1],
-				ComponentID:       &fanComponentID,
-				ComponentType:     diagnosticsmodels.ComponentTypeFans,
-			}}, time.Now(), time.Minute)
-			require.NoError(t, err)
-
-			// Create HASH_BOARD error for device 2
-			hashboardComponentID := makeComponentID(2, "hashboard", 0)
-			err = errorStore.UpsertErrors(ctx, testUser.OrganizationID, deviceIDs[2], []diagnosticsmodels.ErrorMessage{{
-				MinerError:        diagnosticsmodels.HashboardOverTemperature,
-				Severity:          diagnosticsmodels.SeverityCritical,
-				Summary:           "Hashboard over temperature",
-				Impact:            "Reduced hashrate",
-				CauseSummary:      "Cooling system inadequate",
-				RecommendedAction: "Improve cooling",
-				FirstSeenAt:       time.Now().Add(-time.Hour),
-				LastSeenAt:        time.Now(),
-				DeviceID:          deviceIDs[2],
-				ComponentID:       &hashboardComponentID,
-				ComponentType:     diagnosticsmodels.ComponentTypeHashBoards,
-			}}, time.Now(), time.Minute)
-			require.NoError(t, err)
-
-			// Device 3 has no errors
-
-			// Create auth context and service
-			authCtx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
-			service := testContext.ServiceProvider.FleetManagementService
-
 			// Act
 			req := &pb.ListMinerStateSnapshotsRequest{
 				PageSize: 10,
@@ -1197,14 +1144,16 @@ func TestService_ListMinerStateSnapshots_ShouldFilterByErrorComponentTypes(t *te
 			require.NotNil(t, resp)
 			assert.Len(t, resp.Miners, tc.expectedCount, tc.expectedDescription)
 
-			// Verify the returned miners have the expected errors if filtering was applied
-			if len(tc.errorComponentTypes) > 0 && tc.expectedCount > 0 {
-				for _, miner := range resp.Miners {
-					// The miner should have an error status since it has component errors
-					// Note: The actual error details would be in the error service, not directly in the miner snapshot
-					assert.NotNil(t, miner, "Returned miner should not be nil")
-				}
+			// Each filter must select the miners that have the matching errors.
+			wantIDs := make([]string, 0, len(tc.expectedDevices))
+			for _, deviceIdx := range tc.expectedDevices {
+				wantIDs = append(wantIDs, deviceIDs[deviceIdx])
 			}
+			gotIDs := make([]string, 0, len(resp.Miners))
+			for _, miner := range resp.Miners {
+				gotIDs = append(gotIDs, miner.DeviceIdentifier)
+			}
+			assert.ElementsMatch(t, wantIDs, gotIDs, tc.expectedDescription)
 		})
 	}
 }
@@ -1255,7 +1204,7 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateCapabilitiesForPairedDevi
 	service := fleetmanagement.NewService(
 		deviceStore,
 		discoveredDeviceStore,
-		fleetmanagement.NewMockTelemetryCollector(),
+		testutil.NewMockTelemetryCollector(),
 		testContext.ServiceProvider.MinerService,
 		mockCapabilities,
 		errorStore,
@@ -1371,7 +1320,7 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateCapabilitiesForUnpairedDe
 	service := fleetmanagement.NewService(
 		deviceStore,
 		discoveredDeviceStore,
-		fleetmanagement.NewMockTelemetryCollector(),
+		testutil.NewMockTelemetryCollector(),
 		testContext.ServiceProvider.MinerService,
 		mockCapabilities,
 		errorStore,
@@ -1455,7 +1404,7 @@ func TestService_ListMinerStateSnapshots_ShouldCacheCapabilities(t *testing.T) {
 	service := fleetmanagement.NewService(
 		deviceStore,
 		discoveredDeviceStore,
-		fleetmanagement.NewMockTelemetryCollector(),
+		testutil.NewMockTelemetryCollector(),
 		testContext.ServiceProvider.MinerService,
 		mockCapabilities,
 		errorStore,

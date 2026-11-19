@@ -15,6 +15,8 @@ on:
       - "proto/**"
       - "server/**"
       - "sdk/mdk/**"
+      # TestEtcdRootRecoverySmoke reads the etcd image from this file.
+      - "deployment-files/ha/compose.yaml"
   workflow_dispatch:
   workflow_call:
 
@@ -44,6 +46,12 @@ jobs:
 
       - name: Lint
         run: just lint
+
+      # The test shards run without the race detector. The fleet node lock
+      # tests fail only with it. This package needs no database, so it runs
+      # here and not in a shard.
+      - name: Race test (fleet node)
+        run: go test -race -count=1 -timeout=20m ./cmd/fleetnode
 
   # Fixtures are standalone Go modules outside go.work. Build, vet, and
   # race-test each directly so their regression tests run independently of
@@ -252,8 +260,15 @@ jobs:
       # preserve the package isolation required by dispatch deadline tests.
       # hostedaccounts alone runs close to go test's 10-minute default, so
       # packages get an explicit timeout with headroom that still catches hangs.
+      # The scale tests take minutes, so they run on `main` and on manual
+      # runs, not on pull requests. In a called workflow, `github.event_name`
+      # is the event of the caller. The etcd recovery smoke test starts one
+      # etcd container; only the `other` shard holds its package.
       - name: Test
         shell: bash
+        env:
+          PROTO_FLEET_SCALE_TESTS: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && '1' || '' }}
+          PROTO_FLEET_ETCD_RECOVERY_SMOKE: ${{ matrix.shard == 'other' && '1' || '' }}
         run: |
           DB_PASSWORD="${DB_PASSWORD:-fleet}" xargs go test -json -count=1 -p=1 -timeout=20m \
             < "$RUNNER_TEMP/server-test-packages.txt" | tee "$RUNNER_TEMP/server-test-results.jsonl" | \

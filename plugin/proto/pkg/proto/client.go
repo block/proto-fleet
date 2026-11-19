@@ -49,8 +49,8 @@ const (
 var (
 	sharedHTTPClient  *http.Client
 	sharedHTTPSClient *http.Client
-	httpClientOnce    = &sync.Once{}
-	httpsClientOnce   = &sync.Once{}
+	httpClientOnce    sync.Once
+	httpsClientOnce   sync.Once
 )
 
 // Client provides communication with a Proto miner via the MDK REST API.

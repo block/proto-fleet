@@ -477,7 +477,7 @@ type ListFleetNodeDiscoveredDevicesRow struct {
 // or bound to another node. A row bound to the requesting node surfaces only
 // in AUTHENTICATION_NEEDED so recovery-triggered failures remain retryable.
 // Other AUTHENTICATION_NEEDED rows also surface for retry. Inverse of
-// GetActiveUnpairedDiscoveredDevices, which excludes fleet-node rows.
+// CountActiveUnpairedDiscoveredDevices, which excludes fleet-node rows.
 // The exclusions use NOT EXISTS so a device with more than one live row is
 // judged across all of them, not just the joined row. They match by
 // discovered_device_id OR device_identifier: a paired device whose original

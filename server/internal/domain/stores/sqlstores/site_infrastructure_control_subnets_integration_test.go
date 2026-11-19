@@ -23,10 +23,10 @@ func TestInfrastructureControlSubnetsRejectClaimedFacilityFans(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	db := testContext.ServiceProvider.DB
+	db := testContext.DB
 	siteID, fanID := seedCurtailmentFacilityFan(t, db, user.OrganizationID, "commissioning-claim")
 
 	curtailmentStore := sqlstores.NewSQLCurtailmentStore(db)
@@ -82,14 +82,14 @@ func TestInfrastructureControlSubnetsPersistenceAndOrgMasking(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	userA := testContext.DatabaseService.CreateSuperAdminUser()
-	userB := testContext.DatabaseService.CreateSuperAdminUser2()
+	testContext := testutil.NewDatabaseService(t, nil)
+	userA := testContext.CreateSuperAdminUser()
+	userB := testContext.CreateSuperAdminUser2()
 	ctx := t.Context()
 
-	store := sqlstores.NewSQLSiteStore(testContext.ServiceProvider.DB)
-	transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
-	activitySvc := activity.NewService(sqlstores.NewSQLActivityStore(testContext.ServiceProvider.DB))
+	store := sqlstores.NewSQLSiteStore(testContext.DB)
+	transactor := sqlstores.NewSQLTransactor(testContext.DB)
+	activitySvc := activity.NewService(sqlstores.NewSQLActivityStore(testContext.DB))
 	service := sitesdomain.NewService(store, nil, nil, nil, nil, transactor, activitySvc)
 
 	siteA, err := store.CreateSite(ctx, sitesmodels.CreateSiteParams{

@@ -28,8 +28,6 @@ import (
 type adminTerminateStubStore struct {
 	authEvent                      *models.Event
 	result                         *models.Event
-	transitioned                   bool
-	idempotentReplay               bool
 	err                            error
 	calls                          int
 	lastOrgID                      int64
@@ -63,9 +61,7 @@ func (s *adminTerminateStubStore) AdminTerminateEvent(_ context.Context, orgID i
 	if s.err != nil {
 		return nil, false, s.err
 	}
-	transitioned := !s.idempotentReplay
-	s.transitioned = transitioned
-	return s.result, transitioned, nil
+	return s.result, true, nil
 }
 
 func (s *adminTerminateStubStore) ForceReleaseEvent(_ context.Context, orgID int64, eventUUID uuid.UUID, reason string) (interfaces.ForceReleaseEventResult, error) {

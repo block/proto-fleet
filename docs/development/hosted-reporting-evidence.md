@@ -419,10 +419,13 @@ forward.
 
 `TestStoredContainerRollupsReportingEvidenceRepresentativeScale` measures one
 fully allocated CT1: 6 tanks, 96 modules and 288 hashboards, each allocated as
-its own kind-7 interval, polled every 45 seconds. Run it from `server/`:
+its own kind-7 interval, polled every 45 seconds. The test skips unless
+`PROTO_FLEET_SCALE_TESTS=1` is set, because the run takes minutes. Run it from
+`server/`:
 
 ```sh
-DB_PASSWORD="${DB_PASSWORD:-fleet}" go test ./internal/infrastructure/timescaledb \
+PROTO_FLEET_SCALE_TESTS=1 DB_PASSWORD="${DB_PASSWORD:-fleet}" \
+  go test ./internal/infrastructure/timescaledb \
   -run '^TestStoredContainerRollupsReportingEvidenceRepresentativeScale$' -count=1 -v
 ```
 

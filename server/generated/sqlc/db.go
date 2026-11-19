@@ -942,9 +942,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getActiveSchedulesStmt, err = db.PrepareContext(ctx, getActiveSchedules); err != nil {
 		return nil, fmt.Errorf("error preparing query GetActiveSchedules: %w", err)
 	}
-	if q.getActiveUnpairedDiscoveredDevicesStmt, err = db.PrepareContext(ctx, getActiveUnpairedDiscoveredDevices); err != nil {
-		return nil, fmt.Errorf("error preparing query GetActiveUnpairedDiscoveredDevices: %w", err)
-	}
 	if q.getActiveUserRoleNameForUpdateStmt, err = db.PrepareContext(ctx, getActiveUserRoleNameForUpdate); err != nil {
 		return nil, fmt.Errorf("error preparing query GetActiveUserRoleNameForUpdate: %w", err)
 	}
@@ -1257,9 +1254,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getFilteredDeviceIdentifiersStmt, err = db.PrepareContext(ctx, getFilteredDeviceIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFilteredDeviceIdentifiers: %w", err)
 	}
-	if q.getFilteredDeviceIdsStmt, err = db.PrepareContext(ctx, getFilteredDeviceIds); err != nil {
-		return nil, fmt.Errorf("error preparing query GetFilteredDeviceIds: %w", err)
-	}
 	if q.getFilteredTicketStatsStmt, err = db.PrepareContext(ctx, getFilteredTicketStats); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFilteredTicketStats: %w", err)
 	}
@@ -1340,9 +1334,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getHistoryResolutionStmt, err = db.PrepareContext(ctx, getHistoryResolution); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHistoryResolution: %w", err)
-	}
-	if q.getHostMiningGroupPoolRevisionStmt, err = db.PrepareContext(ctx, getHostMiningGroupPoolRevision); err != nil {
-		return nil, fmt.Errorf("error preparing query GetHostMiningGroupPoolRevision: %w", err)
 	}
 	if q.getHostMiningGroupPoolRevisionForReconciliationStmt, err = db.PrepareContext(ctx, getHostMiningGroupPoolRevisionForReconciliation); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHostMiningGroupPoolRevisionForReconciliation: %w", err)
@@ -1991,9 +1982,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.latestIssuedHostedReportStmt, err = db.PrepareContext(ctx, latestIssuedHostedReport); err != nil {
 		return nil, fmt.Errorf("error preparing query LatestIssuedHostedReport: %w", err)
-	}
-	if q.legacyPoolWritersDisabledStmt, err = db.PrepareContext(ctx, legacyPoolWritersDisabled); err != nil {
-		return nil, fmt.Errorf("error preparing query LegacyPoolWritersDisabled: %w", err)
 	}
 	if q.linkPoolConfigurationAttemptStmt, err = db.PrepareContext(ctx, linkPoolConfigurationAttempt); err != nil {
 		return nil, fmt.Errorf("error preparing query LinkPoolConfigurationAttempt: %w", err)
@@ -5543,11 +5531,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getActiveSchedulesStmt: %w", cerr)
 		}
 	}
-	if q.getActiveUnpairedDiscoveredDevicesStmt != nil {
-		if cerr := q.getActiveUnpairedDiscoveredDevicesStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getActiveUnpairedDiscoveredDevicesStmt: %w", cerr)
-		}
-	}
 	if q.getActiveUserRoleNameForUpdateStmt != nil {
 		if cerr := q.getActiveUserRoleNameForUpdateStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getActiveUserRoleNameForUpdateStmt: %w", cerr)
@@ -6068,11 +6051,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getFilteredDeviceIdentifiersStmt: %w", cerr)
 		}
 	}
-	if q.getFilteredDeviceIdsStmt != nil {
-		if cerr := q.getFilteredDeviceIdsStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getFilteredDeviceIdsStmt: %w", cerr)
-		}
-	}
 	if q.getFilteredTicketStatsStmt != nil {
 		if cerr := q.getFilteredTicketStatsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getFilteredTicketStatsStmt: %w", cerr)
@@ -6206,11 +6184,6 @@ func (q *Queries) Close() error {
 	if q.getHistoryResolutionStmt != nil {
 		if cerr := q.getHistoryResolutionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getHistoryResolutionStmt: %w", cerr)
-		}
-	}
-	if q.getHostMiningGroupPoolRevisionStmt != nil {
-		if cerr := q.getHostMiningGroupPoolRevisionStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getHostMiningGroupPoolRevisionStmt: %w", cerr)
 		}
 	}
 	if q.getHostMiningGroupPoolRevisionForReconciliationStmt != nil {
@@ -7291,11 +7264,6 @@ func (q *Queries) Close() error {
 	if q.latestIssuedHostedReportStmt != nil {
 		if cerr := q.latestIssuedHostedReportStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing latestIssuedHostedReportStmt: %w", cerr)
-		}
-	}
-	if q.legacyPoolWritersDisabledStmt != nil {
-		if cerr := q.legacyPoolWritersDisabledStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing legacyPoolWritersDisabledStmt: %w", cerr)
 		}
 	}
 	if q.linkPoolConfigurationAttemptStmt != nil {
@@ -10998,7 +10966,6 @@ type Queries struct {
 	getAccountTicketAccessStmt                                  *sql.Stmt
 	getActiveFirmwareRolloutForPairStmt                         *sql.Stmt
 	getActiveSchedulesStmt                                      *sql.Stmt
-	getActiveUnpairedDiscoveredDevicesStmt                      *sql.Stmt
 	getActiveUserRoleNameForUpdateStmt                          *sql.Stmt
 	getAddedDeviceSiteConflictsStmt                             *sql.Stmt
 	getAdoptedPoolBoardSnapshotStmt                             *sql.Stmt
@@ -11103,7 +11070,6 @@ type Queries struct {
 	getErrorByErrorIDStmt                                       *sql.Stmt
 	getErrorByIDStmt                                            *sql.Stmt
 	getFilteredDeviceIdentifiersStmt                            *sql.Stmt
-	getFilteredDeviceIdsStmt                                    *sql.Stmt
 	getFilteredTicketStatsStmt                                  *sql.Stmt
 	getFirmwareRolloutStmt                                      *sql.Stmt
 	getFirmwareRolloutForUpdateStmt                             *sql.Stmt
@@ -11131,7 +11097,6 @@ type Queries struct {
 	getHashboardMetricWatermarksStmt                            *sql.Stmt
 	getHashboardObservationsStmt                                *sql.Stmt
 	getHistoryResolutionStmt                                    *sql.Stmt
-	getHostMiningGroupPoolRevisionStmt                          *sql.Stmt
 	getHostMiningGroupPoolRevisionForReconciliationStmt         *sql.Stmt
 	getHostPoolAccountStmt                                      *sql.Stmt
 	getHostedAccountActivityPageStmt                            *sql.Stmt
@@ -11348,7 +11313,6 @@ type Queries struct {
 	isRetiredDeviceWriteDrainedStmt                             *sql.Stmt
 	issueHostedReportStmt                                       *sql.Stmt
 	latestIssuedHostedReportStmt                                *sql.Stmt
-	legacyPoolWritersDisabledStmt                               *sql.Stmt
 	linkPoolConfigurationAttemptStmt                            *sql.Stmt
 	linkPoolGroupSnapshotStmt                                   *sql.Stmt
 	linkPoolLifecycleOperationStmt                              *sql.Stmt
@@ -12332,7 +12296,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getAccountTicketAccessStmt:                                  q.getAccountTicketAccessStmt,
 		getActiveFirmwareRolloutForPairStmt:                         q.getActiveFirmwareRolloutForPairStmt,
 		getActiveSchedulesStmt:                                      q.getActiveSchedulesStmt,
-		getActiveUnpairedDiscoveredDevicesStmt:                      q.getActiveUnpairedDiscoveredDevicesStmt,
 		getActiveUserRoleNameForUpdateStmt:                          q.getActiveUserRoleNameForUpdateStmt,
 		getAddedDeviceSiteConflictsStmt:                             q.getAddedDeviceSiteConflictsStmt,
 		getAdoptedPoolBoardSnapshotStmt:                             q.getAdoptedPoolBoardSnapshotStmt,
@@ -12437,7 +12400,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getErrorByErrorIDStmt:                                       q.getErrorByErrorIDStmt,
 		getErrorByIDStmt:                                            q.getErrorByIDStmt,
 		getFilteredDeviceIdentifiersStmt:                            q.getFilteredDeviceIdentifiersStmt,
-		getFilteredDeviceIdsStmt:                                    q.getFilteredDeviceIdsStmt,
 		getFilteredTicketStatsStmt:                                  q.getFilteredTicketStatsStmt,
 		getFirmwareRolloutStmt:                                      q.getFirmwareRolloutStmt,
 		getFirmwareRolloutForUpdateStmt:                             q.getFirmwareRolloutForUpdateStmt,
@@ -12465,7 +12427,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getHashboardMetricWatermarksStmt:                            q.getHashboardMetricWatermarksStmt,
 		getHashboardObservationsStmt:                                q.getHashboardObservationsStmt,
 		getHistoryResolutionStmt:                                    q.getHistoryResolutionStmt,
-		getHostMiningGroupPoolRevisionStmt:                          q.getHostMiningGroupPoolRevisionStmt,
 		getHostMiningGroupPoolRevisionForReconciliationStmt:         q.getHostMiningGroupPoolRevisionForReconciliationStmt,
 		getHostPoolAccountStmt:                                      q.getHostPoolAccountStmt,
 		getHostedAccountActivityPageStmt:                            q.getHostedAccountActivityPageStmt,
@@ -12682,7 +12643,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		isRetiredDeviceWriteDrainedStmt:                             q.isRetiredDeviceWriteDrainedStmt,
 		issueHostedReportStmt:                                       q.issueHostedReportStmt,
 		latestIssuedHostedReportStmt:                                q.latestIssuedHostedReportStmt,
-		legacyPoolWritersDisabledStmt:                               q.legacyPoolWritersDisabledStmt,
 		linkPoolConfigurationAttemptStmt:                            q.linkPoolConfigurationAttemptStmt,
 		linkPoolGroupSnapshotStmt:                                   q.linkPoolGroupSnapshotStmt,
 		linkPoolLifecycleOperationStmt:                              q.linkPoolLifecycleOperationStmt,

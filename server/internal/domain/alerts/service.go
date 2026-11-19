@@ -1093,16 +1093,6 @@ func isPauseSilence(sil GrafanaSilence) bool {
 	return strings.HasPrefix(sil.Comment, pauseSilenceCommentMarker)
 }
 
-func isPauseSilenceFor(sil GrafanaSilence, wantOrgID, ruleID string) bool {
-	if !isPauseSilence(sil) {
-		return false
-	}
-	if !silenceMatchesOrg(sil, wantOrgID) {
-		return false
-	}
-	return silenceTargetsRule(sil, ruleID)
-}
-
 func silenceTargetsRule(sil GrafanaSilence, ruleID string) bool {
 	for _, m := range sil.Matchers {
 		if m.Name == alertRuleUIDMatcher && m.Value == ruleID && m.IsEqual && !m.IsRegex {

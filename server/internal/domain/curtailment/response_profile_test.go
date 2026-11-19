@@ -901,7 +901,6 @@ func TestResponseProfileService_DeleteRejectsReferencedProfile(t *testing.T) {
 type responseProfileFakeStore struct {
 	siteBelongs           bool
 	siteCheckCount        int
-	siteCheckOrgID        int64
 	siteCheckSiteID       int64
 	created               *models.ResponseProfile
 	updated               *models.ResponseProfile
@@ -989,9 +988,8 @@ func (s *responseProfileFakeStore) CountAutomationRulesByResponseProfile(context
 	return s.automationRuleCount, nil
 }
 
-func (s *responseProfileFakeStore) SiteBelongsToOrg(_ context.Context, orgID, siteID int64) (bool, error) {
+func (s *responseProfileFakeStore) SiteBelongsToOrg(_ context.Context, _, siteID int64) (bool, error) {
 	s.siteCheckCount++
-	s.siteCheckOrgID = orgID
 	s.siteCheckSiteID = siteID
 	return s.siteBelongs, nil
 }

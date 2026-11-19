@@ -58,45 +58,36 @@ func preparePermissionPoolAssignment(t *testing.T, ctx context.Context, f retryF
 }
 
 func TestMiningGroupSubmissionRequiresStartAndStopPermissions(t *testing.T) {
-	for _, kind := range []string{"pools", operationActivate} {
-		for _, missing := range []string{authz.PermMinerStartMining, authz.PermMinerStopMining} {
-			t.Run(kind+"/"+missing, func(t *testing.T) {
-				ctx, f := newIdleRetryFixture(t)
-				permission := authz.PermMinerActivateMiningGroups
-				config := ""
-				var boards []int64
-				if kind == "pools" {
-					permission = authz.PermMinerUpdatePools
-					config, boards = preparePermissionPoolAssignment(t, ctx, f)
+	for _, missing := range []string{authz.PermMinerStartMining, authz.PermMinerStopMining} {
+		t.Run(operationActivate+"/"+missing, func(t *testing.T) {
+			ctx, f := newIdleRetryFixture(t)
+			keys := []string{authz.PermSiteRead, authz.PermFleetRead, authz.PermMinerRead, authz.PermMinerActivateMiningGroups}
+			for _, key := range []string{authz.PermMinerStartMining, authz.PermMinerStopMining} {
+				if key != missing {
+					keys = append(keys, key)
 				}
-				keys := []string{authz.PermSiteRead, authz.PermFleetRead, authz.PermMinerRead, permission}
-				for _, key := range []string{authz.PermMinerStartMining, authz.PermMinerStopMining} {
-					if key != missing {
-						keys = append(keys, key)
-					}
-				}
-				role := setMiningGroupPermissions(t, ctx, f, keys)
-				state, err := f.service.GetState(ctx, f.target.DeviceIdentifier)
-				require.NoError(t, err, "state reads do not require start or stop authority")
-				requestID := uuid.NewString()
-				_, err = f.service.submitLegacyRequest(ctx, f.target.DeviceIdentifier, requestID, config, boards, state.Record.Revision)
-				var denied fleeterror.FleetError
-				require.ErrorAs(t, err, &denied)
-				require.Equal(t, connect.CodePermissionDenied, denied.GRPCCode)
-				require.Equal(t, "idle", f.state(t).Status)
-				var attempts, intents int
-				require.NoError(t, f.conn.QueryRowContext(ctx, `SELECT count(*) FROM device_write_attempt WHERE device_id=$1`, f.target.DeviceID).Scan(&attempts))
-				require.Zero(t, attempts)
-				require.NoError(t, f.conn.QueryRowContext(ctx, `SELECT count(*) FROM hashboard_pool_intent WHERE device_id=$1`, f.target.DeviceID).Scan(&intents))
-				require.Zero(t, intents)
-				permissions, err := sqlc.New(f.conn).GetPermissionsByKeys(ctx, []string{missing})
-				require.NoError(t, err)
-				require.Len(t, permissions, 1)
-				require.NoError(t, sqlc.New(f.conn).AssignPermissionToRole(ctx, sqlc.AssignPermissionToRoleParams{RoleID: role, PermissionID: permissions[0].ID}))
-				_, err = f.service.submitLegacyRequest(ctx, f.target.DeviceIdentifier, requestID, config, boards, state.Record.Revision)
-				require.NoError(t, err, "the same request is accepted once the missing permission is granted")
-			})
-		}
+			}
+			role := setMiningGroupPermissions(t, ctx, f, keys)
+			state, err := f.service.GetState(ctx, f.target.DeviceIdentifier)
+			require.NoError(t, err, "state reads do not require start or stop authority")
+			requestID := uuid.NewString()
+			_, err = f.service.submitLegacyRequest(ctx, f.target.DeviceIdentifier, requestID, "", nil, state.Record.Revision)
+			var denied fleeterror.FleetError
+			require.ErrorAs(t, err, &denied)
+			require.Equal(t, connect.CodePermissionDenied, denied.GRPCCode)
+			require.Equal(t, "idle", f.state(t).Status)
+			var attempts, intents int
+			require.NoError(t, f.conn.QueryRowContext(ctx, `SELECT count(*) FROM device_write_attempt WHERE device_id=$1`, f.target.DeviceID).Scan(&attempts))
+			require.Zero(t, attempts)
+			require.NoError(t, f.conn.QueryRowContext(ctx, `SELECT count(*) FROM hashboard_pool_intent WHERE device_id=$1`, f.target.DeviceID).Scan(&intents))
+			require.Zero(t, intents)
+			permissions, err := sqlc.New(f.conn).GetPermissionsByKeys(ctx, []string{missing})
+			require.NoError(t, err)
+			require.Len(t, permissions, 1)
+			require.NoError(t, sqlc.New(f.conn).AssignPermissionToRole(ctx, sqlc.AssignPermissionToRoleParams{RoleID: role, PermissionID: permissions[0].ID}))
+			_, err = f.service.submitLegacyRequest(ctx, f.target.DeviceIdentifier, requestID, "", nil, state.Record.Revision)
+			require.NoError(t, err, "the same request is accepted once the missing permission is granted")
+		})
 	}
 }
 

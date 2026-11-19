@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -27,7 +26,6 @@ type Server struct {
 	t       testing.TB
 	dataDir string
 	rpcAddr string
-	webPort int
 
 	rpcListener net.Listener
 
@@ -35,7 +33,6 @@ type Server struct {
 	httpServer   *http.Server
 
 	mu              sync.Mutex
-	commands        []string
 	postedSettings  []byte
 	wg              sync.WaitGroup
 	closed          chan struct{}
@@ -44,7 +41,6 @@ type Server struct {
 	privResponses   map[string][]byte
 	rpcOverrides    map[string][]byte
 	webOverrides    map[string][]byte
-	behaviors       map[string]mockapi.ConnBehavior
 	defaultBehavior mockapi.ConnBehavior
 }
 
@@ -60,25 +56,10 @@ func NewServer(t testing.TB, dataDir string) *Server {
 	httpAddr := "127.0.0.1:80"
 	httpListener := mockapi.ListenWithRetry(t, httpAddr)
 
-	_, portStr, err := net.SplitHostPort(httpListener.Addr().String())
-	if err != nil {
-		rpcListener.Close()
-		httpListener.Close()
-		t.Fatalf("failed to parse mock VNish HTTP address %q: %v", httpListener.Addr().String(), err)
-	}
-
-	webPort, err := strconv.Atoi(portStr)
-	if err != nil {
-		rpcListener.Close()
-		httpListener.Close()
-		t.Fatalf("failed to parse mock VNish HTTP port %q: %v", portStr, err)
-	}
-
 	s := &Server{
 		t:             t,
 		dataDir:       dataDir,
 		rpcAddr:       rpcAddr,
-		webPort:       webPort,
 		rpcListener:   rpcListener,
 		httpListener:  httpListener,
 		closed:        make(chan struct{}),
@@ -87,7 +68,6 @@ func NewServer(t testing.TB, dataDir string) *Server {
 		privResponses: loadResponses(t, filepath.Join(dataDir, "privileged")),
 		rpcOverrides:  make(map[string][]byte),
 		webOverrides:  make(map[string][]byte),
-		behaviors:     make(map[string]mockapi.ConnBehavior),
 	}
 
 	s.wg.Add(1)
@@ -119,13 +99,6 @@ func NewServer(t testing.TB, dataDir string) *Server {
 }
 
 func (s *Server) Host() string { return "127.0.0.1" }
-func (s *Server) WebPort() int { return s.webPort }
-
-func (s *Server) Commands() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]string(nil), s.commands...)
-}
 
 // SetResponse overrides the RPC response for a specific command.
 func (s *Server) SetResponse(cmd string, data []byte) {
@@ -141,14 +114,7 @@ func (s *Server) SetWebResponse(endpoint string, data []byte) {
 	s.webOverrides[endpoint] = data
 }
 
-// SetConnBehavior changes how the mock handles connections for a specific RPC command.
-func (s *Server) SetConnBehavior(cmd string, behavior mockapi.ConnBehavior) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.behaviors[cmd] = behavior
-}
-
-// SetDefaultConnBehavior sets the fallback behavior for all RPC commands without a specific override.
+// SetDefaultConnBehavior sets the behavior for all RPC commands.
 func (s *Server) SetDefaultConnBehavior(behavior mockapi.ConnBehavior) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -161,7 +127,6 @@ func (s *Server) ResetOverrides() {
 	defer s.mu.Unlock()
 	s.rpcOverrides = make(map[string][]byte)
 	s.webOverrides = make(map[string][]byte)
-	s.behaviors = make(map[string]mockapi.ConnBehavior)
 	s.defaultBehavior = mockapi.BehaviorNormal
 }
 
@@ -201,18 +166,10 @@ func (s *Server) handleRPCConn(conn net.Conn) {
 	cmd := extractRPCCommand(req)
 
 	s.mu.Lock()
-	s.commands = append(s.commands, cmd)
-	behavior, ok := s.behaviors[cmd]
-	if !ok {
-		behavior = s.defaultBehavior
-	}
+	behavior := s.defaultBehavior
 	s.mu.Unlock()
 
-	switch behavior {
-	case mockapi.BehaviorTimeout:
-		<-s.closed
-		return
-	case mockapi.BehaviorCloseConn:
+	if behavior == mockapi.BehaviorCloseConn {
 		return
 	}
 
@@ -281,10 +238,6 @@ func extractRPCCommand(req map[string]interface{}) string {
 func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.URL.Path == "/":
-		s.mu.Lock()
-		s.commands = append(s.commands, "web:root")
-		s.mu.Unlock()
-
 		resp := s.loadWebResponse("root", false)
 		if resp == nil {
 			http.NotFound(w, r)
@@ -308,10 +261,6 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUnlock(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	s.commands = append(s.commands, "web:unlock")
-	s.mu.Unlock()
-
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -347,10 +296,6 @@ func (s *Server) handleUnlock(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	endpoint := strings.TrimPrefix(r.URL.Path, "/api/v1/")
-
-	s.mu.Lock()
-	s.commands = append(s.commands, "web:"+endpoint)
-	s.mu.Unlock()
 
 	// /api/v1/info is readable without auth (used by asic-rs for model detection).
 	// All other endpoints require auth.

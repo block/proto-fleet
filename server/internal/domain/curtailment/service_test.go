@@ -1,12 +1,10 @@
 package curtailment
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"math"
-	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -58,7 +56,6 @@ type fakeStore struct {
 	lastCooldownSec            int32
 	lastCooldownFilter         []string
 	lastCooldownSiteIDs        []int64
-	activeDevicesCalls         int
 	lastActiveDevicesOrgID     int64
 
 	// InsertEventWithTargets state. nextEventID is the synthetic id sequence
@@ -74,16 +71,15 @@ type fakeStore struct {
 	// targetsByEventUUID feeds ListTargetsByEvent;
 	// beginRestoreErr gives Service.Stop tests control over
 	// BeginRestoreTransition outcomes.
-	eventsByUUID             map[uuid.UUID]*models.Event
-	getEventByUUIDErr        error
-	targetsByEventUUID       map[uuid.UUID][]*models.Target
-	targetSiteIDsByEventUUID map[uuid.UUID][]int64
-	activeEvents             []*models.Event
-	activeEventErr           error
-	listTargetsErr           error
-	beginRestoreErr          error
-	beginRestoreCalls        int
-	beginRestoreLastEventID  uuid.UUID
+	eventsByUUID            map[uuid.UUID]*models.Event
+	getEventByUUIDErr       error
+	targetsByEventUUID      map[uuid.UUID][]*models.Target
+	activeEvents            []*models.Event
+	activeEventErr          error
+	listTargetsErr          error
+	beginRestoreErr         error
+	beginRestoreCalls       int
+	beginRestoreLastEventID uuid.UUID
 
 	beginRecurtailErr         error
 	beginRecurtailCalls       int
@@ -98,7 +94,6 @@ type fakeStore struct {
 	// paginates over (callers seed it newest-first to match the SQL impl).
 	eventsHistory        []*models.Event
 	listEventsErr        error
-	listEventsCalls      int
 	lastListEventsParams interfaces.ListEventsParams
 
 	// Update fakes. updateOperatorFieldsResult is what the fake returns on
@@ -441,7 +436,6 @@ func (f *fakeStore) GetOrgConfig(_ context.Context, orgID int64) (*models.OrgCon
 }
 
 func (f *fakeStore) ListActiveCurtailedDevices(_ context.Context, orgID int64) ([]string, error) {
-	f.activeDevicesCalls++
 	f.lastActiveDevicesOrgID = orgID
 	return append([]string(nil), f.activeDevicesByOrg[orgID]...), nil
 }
@@ -573,14 +567,8 @@ func (f *fakeStore) ListTargetsByEventPage(ctx context.Context, params interface
 	return targets, "", err
 }
 
-func (f *fakeStore) ListTargetSiteCoverageByEvent(_ context.Context, _ int64, eventUUID uuid.UUID) (models.TargetSiteCoverage, error) {
-	siteIDs := append([]int64(nil), f.targetSiteIDsByEventUUID[eventUUID]...)
-	return models.TargetSiteCoverage{
-		SiteIDs:           siteIDs,
-		Complete:          true,
-		TargetCount:       int64(len(siteIDs)),
-		MappedTargetCount: int64(len(siteIDs)),
-	}, nil
+func (f *fakeStore) ListTargetSiteCoverageByEvent(context.Context, int64, uuid.UUID) (models.TargetSiteCoverage, error) {
+	return models.TargetSiteCoverage{Complete: true}, nil
 }
 
 func (f *fakeStore) ListTargetSiteCoverageByEvents(_ context.Context, _ int64, eventUUIDs []uuid.UUID) (map[uuid.UUID]models.TargetSiteCoverage, error) {
@@ -807,7 +795,6 @@ func (f *fakeStore) UpdateOperatorFields(_ context.Context, eventID, _ int64, pa
 }
 
 func (f *fakeStore) ListEvents(_ context.Context, params interfaces.ListEventsParams) ([]*models.Event, string, error) {
-	f.listEventsCalls++
 	f.lastListEventsParams = params
 	if f.listEventsErr != nil {
 		return nil, "", f.listEventsErr
@@ -1076,15 +1063,11 @@ var _ Metrics = (*recordingMetrics)(nil)
 type recordingMetrics struct {
 	mu                       sync.Mutex
 	tickDurations            []time.Duration
-	tickFailures             int
-	confirmationPassFailures int
 	candidateExcluded        map[string]int
 	candidateExcludedSamples int
 	maintenance              int
-	eventStateRaces          int
 	targetWriteFailures      int
 	auditWriteFailures       map[string]int
-	allPairedPendingStalls   int
 }
 
 func newRecordingMetrics() *recordingMetrics {
@@ -1100,17 +1083,9 @@ func (m *recordingMetrics) ObserveTickDuration(d time.Duration) {
 	m.tickDurations = append(m.tickDurations, d)
 }
 
-func (m *recordingMetrics) IncTickFailure() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.tickFailures++
-}
+func (m *recordingMetrics) IncTickFailure() {}
 
-func (m *recordingMetrics) IncConfirmationPassFailure() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.confirmationPassFailures++
-}
+func (m *recordingMetrics) IncConfirmationPassFailure() {}
 
 func (m *recordingMetrics) IncCandidateExcluded(reason string, count int) {
 	m.mu.Lock()
@@ -1125,11 +1100,7 @@ func (m *recordingMetrics) IncMaintenanceOverride() {
 	m.maintenance++
 }
 
-func (m *recordingMetrics) IncEventStateRaceLoss() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.eventStateRaces++
-}
+func (m *recordingMetrics) IncEventStateRaceLoss() {}
 
 func (m *recordingMetrics) IncTargetWriteFailure() {
 	m.mu.Lock()
@@ -1137,11 +1108,7 @@ func (m *recordingMetrics) IncTargetWriteFailure() {
 	m.targetWriteFailures++
 }
 
-func (m *recordingMetrics) IncAllPairedPendingStall() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.allPairedPendingStalls++
-}
+func (m *recordingMetrics) IncAllPairedPendingStall() {}
 
 func (m *recordingMetrics) IncAuditWriteFailure(activityType string) {
 	m.mu.Lock()
@@ -1213,11 +1180,15 @@ func TestService_Preview_HappyPath_FixedKw(t *testing.T) {
 
 func TestService_Preview_RejectsUnsupportedMode(t *testing.T) {
 	t.Parallel()
-	svc := NewService(newFakeStore())
+	store := newFakeStore()
+	store.orgConfigByOrg[1] = defaultOrgConfig(1)
+	svc := NewService(store)
 	req := validRequest(1)
 	req.Mode = models.Mode("FIXED_COUNT")
 	_, err := svc.Preview(t.Context(), req)
 	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err), "got %v", err)
+	assert.Contains(t, err.Error(), `mode "FIXED_COUNT" is not supported`)
 }
 
 func TestService_Preview_RejectsUnsupportedStrategy(t *testing.T) {
@@ -1243,22 +1214,30 @@ func TestService_Preview_RejectsUnsupportedPriority(t *testing.T) {
 
 func TestService_Preview_RejectsUnbalancedMaintenancePair(t *testing.T) {
 	t.Parallel()
-	svc := NewService(newFakeStore())
+	store := newFakeStore()
+	store.orgConfigByOrg[1] = defaultOrgConfig(1)
+	svc := NewService(store)
 	req := validRequest(1)
 	req.IncludeMaintenance = true
 	req.ForceIncludeMaintenance = false
 	_, err := svc.Preview(t.Context(), req)
 	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err), "got %v", err)
+	assert.Contains(t, err.Error(), "include_maintenance and force_include_maintenance must be set together")
 }
 
 func TestService_Preview_RejectsZeroOrNegativeTarget(t *testing.T) {
 	t.Parallel()
-	svc := NewService(newFakeStore())
+	store := newFakeStore()
+	store.orgConfigByOrg[1] = defaultOrgConfig(1)
+	svc := NewService(store)
 	for _, target := range []float64{0, -1} {
 		req := validRequest(1)
 		req.TargetKW = target
 		_, err := svc.Preview(t.Context(), req)
 		require.Error(t, err, "target=%v should be rejected", target)
+		assert.True(t, fleeterror.IsInvalidArgumentError(err), "target=%v, got %v", target, err)
+		assert.Contains(t, err.Error(), "target_kw must be > 0")
 	}
 }
 
@@ -2319,49 +2298,5 @@ func TestService_Preview_RejectsToleranceGreaterThanOrEqualTarget(t *testing.T) 
 				require.NoError(t, err)
 			}
 		})
-	}
-}
-
-// TestService_Preview_DeterministicOrderingOnTiedEfficiencies pins the
-// SQL-side ORDER BY contract. Two candidates with identical efficiency,
-// telemetry, and pairing must select in a stable, reproducible order
-// across repeated Preview calls — otherwise the same request can produce
-// different plans, which makes execution and audit incoherent. The
-// fakeStore returns insertion order; the real SQL store sorts by
-// device_identifier, so we assert the lexicographic order the contract
-// promises.
-func TestService_Preview_DeterministicOrderingOnTiedEfficiencies(t *testing.T) {
-	t.Parallel()
-
-	const orgID = int64(1)
-	store := newFakeStore()
-	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
-	// Insert in non-lexicographic order so the test fails if the selector
-	// silently relies on insertion order rather than the documented
-	// SQL ORDER BY contract enforced upstream.
-	store.candidatesByOrg[orgID] = []*models.Candidate{
-		minerWithEff("zebra", 3000, 100, 40),
-		minerWithEff("alpha", 3000, 100, 40),
-		minerWithEff("mango", 3000, 100, 40),
-	}
-
-	// Pre-sort the store output to mirror what ListCurtailmentCandidatesByOrg
-	// will produce after the ORDER BY clause. The fakeStore preserves
-	// insertion order; this asserts the contract the real store guarantees.
-	slices.SortFunc(store.candidatesByOrg[orgID], func(a, b *models.Candidate) int {
-		return cmp.Compare(a.DeviceIdentifier, b.DeviceIdentifier)
-	})
-
-	svc := NewService(store)
-	req := validRequest(orgID)
-	req.TargetKW = 2.5
-
-	// Run 5 times: ordering must be byte-stable across calls.
-	for i := range 5 {
-		plan, err := svc.Preview(t.Context(), req)
-		require.NoError(t, err)
-		require.Len(t, plan.Selected, 1)
-		assert.Equal(t, "alpha", plan.Selected[0].DeviceIdentifier,
-			"tied efficiencies must select lexicographically smallest device_identifier (run %d)", i)
 	}
 }

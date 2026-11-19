@@ -1164,40 +1164,10 @@ WHERE dd.org_id = sqlc.arg('org_id')
 -- callers with those filters must route through the dynamic builder
 -- (device_filters.go).
 
--- name: GetFilteredDeviceIds :many
--- Returns device IDs filtered by pairing status and optional device status.
--- Used for bulk command operations.
-SELECT
-    d.id as device_id
-FROM device d
-JOIN device_pairing dp ON d.id = dp.device_id
-JOIN discovered_device dd ON d.discovered_device_id = dd.id
-LEFT JOIN device_status ds ON d.id = ds.device_id
-LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
-LEFT JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
-LEFT JOIN LATERAL (
-    SELECT CASE
-        WHEN fn.id IS NOT NULL
-             AND fn.deleted_at IS NULL
-             AND fn.enrollment_status = 'CONFIRMED'
-             AND fn.last_seen_at IS NOT NULL
-             AND fn.last_seen_at < NOW() - INTERVAL '2 minutes'
-        THEN 'OFFLINE'
-        ELSE ds.status::text
-    END AS status
-) effective_status ON TRUE
-WHERE d.org_id = sqlc.arg('org_id')
-    AND dp.pairing_status::text = ANY(sqlc.arg('pairing_status_values')::text[])
-    AND d.deleted_at IS NULL
-    AND (sqlc.narg('device_status')::text IS NULL OR effective_status.status = sqlc.narg('device_status')::text)
-    AND (sqlc.narg('model_filter')::text IS NULL OR dd.model = ANY(string_to_array(sqlc.narg('model_filter'), ',')))
-    AND (sqlc.narg('manufacturer_filter')::text IS NULL OR dd.manufacturer = ANY(string_to_array(sqlc.narg('manufacturer_filter'), ',')))
-ORDER BY d.id;
-
 -- name: GetFilteredDeviceIdentifiers :many
--- Mirrors GetFilteredDeviceIds but returns device_identifier strings instead of
--- internal IDs. Used by command preflight filtering, which operates on
--- identifiers (the same primitive used by selectors and schedules).
+-- Returns device identifiers filtered by pairing status and optional device
+-- status, model and manufacturer. Used by command preflight filtering, which
+-- operates on identifiers (the same primitive used by selectors and schedules).
 SELECT
     d.device_identifier
 FROM device d

@@ -140,26 +140,6 @@ func CountsBySeverity(errors []models.ErrorMessage) map[models.Severity]int32 {
 }
 
 // ============================================================================
-// Sorting
-// ============================================================================
-
-// SortErrors sorts errors by priority (critical first), then by recency (most recent first).
-// Lower Severity enum values indicate higher priority (Critical=1, Info=4).
-func SortErrors(errors []models.ErrorMessage) {
-	sort.Slice(errors, func(i, j int) bool {
-		if errors[i].Severity != errors[j].Severity {
-			return errors[i].Severity < errors[j].Severity
-		}
-		// Then by last_seen (descending - most recent first).
-		if !errors[i].LastSeenAt.Equal(errors[j].LastSeenAt) {
-			return errors[i].LastSeenAt.After(errors[j].LastSeenAt)
-		}
-		// Finally by error_id (descending).
-		return errors[i].ErrorID > errors[j].ErrorID
-	})
-}
-
-// ============================================================================
 // Grouping Functions
 // ============================================================================
 

@@ -806,10 +806,6 @@ func (g *blockingTelemetryGate) waitForAcquire(t *testing.T) int64 {
 	}
 }
 
-func (g *blockingTelemetryGate) releaseAcquire() {
-	close(g.release)
-}
-
 func receiveRemoteCommand(t *testing.T, stream *control.Stream) *gatewaypb.ControlCommand {
 	t.Helper()
 	select {

@@ -10,6 +10,28 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestValidatePageSize(t *testing.T) {
+	tests := []struct {
+		name      string
+		requested int32
+		want      int32
+	}{
+		{name: "zero uses the default", requested: 0, want: 50},
+		{name: "negative uses the default", requested: -1, want: 50},
+		{name: "one stays", requested: 1, want: 1},
+		{name: "default stays", requested: 50, want: 50},
+		{name: "maximum stays", requested: 1000, want: 1000},
+		{name: "one above the maximum is capped", requested: 1001, want: 1000},
+		{name: "large value is capped", requested: 5000, want: 1000},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, validatePageSize(tc.requested))
+		})
+	}
+}
+
 func TestRefreshMinersRequestTimeoutScalesByConcurrencyWaves(t *testing.T) {
 	refreshDeviceTimeout := 30 * time.Second
 	perWaveTimeout := 2*refreshDeviceTimeout + refreshMinersSnapshotTimeout

@@ -137,30 +137,9 @@ AND NOT EXISTS (
     WHERE d.discovered_device_id = dd.id AND d.org_id = dd.org_id AND d.deleted_at IS NULL
 );
 
--- name: GetActiveUnpairedDiscoveredDevices :many
+-- name: CountActiveUnpairedDiscoveredDevices :one
 -- Excludes remote-fleet-node-reported rows: server-local pairing
 -- dials these IPs, agent-reported rows route via PairDeviceToFleetNode.
-SELECT dd.id, dd.org_id, dd.device_identifier, dd.model, dd.manufacturer,
-       dd.firmware_version, dd.ip_address, dd.port, dd.url_scheme, dd.rpc_port, dd.rpc_tls, dd.endpoints, dd.discovery_metadata,
-       dd.first_discovered, dd.last_seen, dd.is_active,
-       dd.driver_name, dd.device_class, dd.serial_number, dd.mac_address,
-       dd.created_at, dd.updated_at, dd.deleted_at
-FROM discovered_device dd
-LEFT JOIN device d ON dd.id = d.discovered_device_id AND d.deleted_at IS NULL
-WHERE dd.org_id = $1
-    AND dd.is_active = TRUE
-    AND dd.deleted_at IS NULL
-    AND d.id IS NULL
-    AND dd.discovered_by_fleet_node_id IS NULL
-    AND (
-        -- If cursor provided, filter by it, otherwise return all
-        COALESCE(sqlc.narg('cursor_id'), 0) = 0
-        OR dd.id > sqlc.narg('cursor_id')
-    )
-ORDER BY dd.id
-LIMIT $2;
-
--- name: CountActiveUnpairedDiscoveredDevices :one
 SELECT COUNT(*) as total
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id AND d.deleted_at IS NULL

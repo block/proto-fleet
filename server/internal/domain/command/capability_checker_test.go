@@ -567,31 +567,6 @@ func TestGetRequiredCapabilities(t *testing.T) {
 
 		assert.Nil(t, caps)
 	})
-}
-
-func TestRequiresCapabilityCheck(t *testing.T) {
-	t.Run("returns true for known command types", func(t *testing.T) {
-		knownTypes := []pb.CommandType{
-			pb.CommandType_COMMAND_TYPE_REBOOT,
-			pb.CommandType_COMMAND_TYPE_START_MINING,
-			pb.CommandType_COMMAND_TYPE_STOP_MINING,
-			pb.CommandType_COMMAND_TYPE_BLINK_LED,
-			pb.CommandType_COMMAND_TYPE_SET_COOLING_MODE,
-			pb.CommandType_COMMAND_TYPE_UPDATE_MINING_POOLS,
-			pb.CommandType_COMMAND_TYPE_DOWNLOAD_LOGS,
-			pb.CommandType_COMMAND_TYPE_FIRMWARE_UPDATE,
-			pb.CommandType_COMMAND_TYPE_CURTAIL,
-			pb.CommandType_COMMAND_TYPE_UNCURTAIL,
-		}
-
-		for _, cmdType := range knownTypes {
-			assert.True(t, RequiresCapabilityCheck(cmdType), "expected true for %v", cmdType)
-		}
-	})
-
-	t.Run("returns false for unspecified command type", func(t *testing.T) {
-		assert.False(t, RequiresCapabilityCheck(pb.CommandType_COMMAND_TYPE_UNSPECIFIED))
-	})
 
 	t.Run("Curtail requires CapabilityCurtailFull only (FULL-level dispatch)", func(t *testing.T) {
 		assert.Equal(t, []string{sdk.CapabilityCurtailFull},

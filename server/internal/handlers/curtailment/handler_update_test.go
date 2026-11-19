@@ -28,8 +28,6 @@ type updateStubStore struct {
 	event             *models.Event
 	updatedEvent      *models.Event
 	updateErr         error
-	lastUpdateID      int64
-	lastUpdateOrgID   int64
 	lastUpdateParams  interfaces.UpdateOperatorFieldsParams
 	getEventCalls     int
 	updateCalls       int
@@ -83,8 +81,6 @@ func (s *updateStubStore) GetEventDetailByUUID(context.Context, int64, uuid.UUID
 
 func (s *updateStubStore) UpdateOperatorFields(_ context.Context, eventID, orgID int64, params interfaces.UpdateOperatorFieldsParams) (*models.Event, error) {
 	s.updateCalls++
-	s.lastUpdateID = eventID
-	s.lastUpdateOrgID = orgID
 	s.lastUpdateParams = params
 	if s.updateErr != nil {
 		return nil, s.updateErr

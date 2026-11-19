@@ -11,15 +11,17 @@ import (
 )
 
 func TestPoolRemovalPreservesNativeCurtailmentAdmission(t *testing.T) {
+	shared := newQueuedFenceDatabase(t)
+	database, org := shared.database, shared.org
 	for _, state := range []string{"applying", "uncertain"} {
 		for _, driver := range []string{"proto", "unclassified-pool-fallback"} {
 			for _, kind := range []commandtype.Type{commandtype.Curtail, commandtype.Uncurtail, commandtype.ApplyCurtailmentConfig, commandtype.UpdateMiningPools} {
 				t.Run(state+"/"+driver+"/"+kind.String(), func(t *testing.T) {
-					database, org, device, message, _ := queuedFenceFixture(t, kind)
+					device, message := shared.queueDevice(t, kind)
 					_, err := database.DB.ExecContext(t.Context(), `UPDATE discovered_device SET driver_name=$1,device_class=1 WHERE id=(SELECT discovered_device_id FROM device WHERE id=$2)`, driver, device)
 					require.NoError(t, err)
 					config := id.GenerateID()
-					_, err = database.DB.ExecContext(t.Context(), `INSERT INTO pool_configuration(configuration_id,organization_id,name) VALUES($1,$2,'Removal fixture')`, config, org)
+					_, err = database.DB.ExecContext(t.Context(), `INSERT INTO pool_configuration(configuration_id,organization_id,name) VALUES($1,$2,$3)`, config, org, "Removal fixture "+config)
 					require.NoError(t, err)
 					revision, operation := id.GenerateID(), id.GenerateID()
 					_, err = database.DB.ExecContext(t.Context(), `INSERT INTO pool_configuration_revision(revision_id,organization_id,configuration_id,number,slots) VALUES($1,$2,$3,1,'[{"id":"slot","url":"stratum+tcp://pool.example","username":"worker","worker_template":"","has_password":false,"password_ciphertext":"encrypted"}]')`, revision, org, config)

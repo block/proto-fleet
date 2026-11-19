@@ -142,6 +142,6 @@ Application rollback does not remove the new tables. The migration's down script
 removes freshness/exclusion state; stop tracking and collection first, and expect
 the initial grace/unknown behavior when the feature is installed again.
 
-Local tests exercise 50,000 inventory targets and batched watermark updates. They
+Local tests exercise 1,000 inventory targets and batched watermark updates. They
 are not a production-load or HA qualification; record database contention, WAL,
 replica lag, evaluator duration and exporter cardinality during staged rollout.

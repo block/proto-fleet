@@ -23,15 +23,6 @@ func newTestPluginManager() *plugins.Manager {
 	return plugins.NewManager(&plugins.Config{})
 }
 
-func TestNewMinerService_WithValidDB_ShouldCreateService(t *testing.T) {
-	db, encryptService, filesService := newServiceDepsNoDB(t)
-	userStore := sqlstores.NewSQLUserStore(db)
-
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, newTestPluginManager())
-
-	assert.NotNil(t, service)
-}
-
 func TestNewMinerService_WithNilDB_ShouldPanic(t *testing.T) {
 	db, encryptService, filesService := newServiceDepsNoDB(t)
 	userStore := sqlstores.NewSQLUserStore(db)
@@ -57,11 +48,6 @@ func TestNewMinerService_WithNilPluginManager_ShouldPanic(t *testing.T) {
 	assert.Panics(t, func() {
 		miner.NewMinerService(db, userStore, encryptService, filesService, nil)
 	})
-}
-
-func TestMinerService_GetMinerFromDeviceID_WithValidDevice_ShouldReturnMiner(t *testing.T) {
-	// TODO: Rewrite test using plugin-based test infrastructure
-	t.Skip("Disabled pending plugin-based test infrastructure - requires plugin support for Antminer")
 }
 
 func TestMinerService_GetMinerFromDeviceID_WithNonexistentDevice_ShouldReturnError(t *testing.T) {
@@ -106,29 +92,6 @@ func TestMinerService_GetMinerFromDeviceID_WithDatabaseError_ShouldReturnError(t
 
 	require.Error(t, err)
 	assert.Nil(t, miner)
-}
-
-func TestMinerService_GetMinerFromDeviceID_WithMissingCredentials_ShouldReturnError(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	db, encryptService, filesService := setupTestDB(t)
-	userStore := sqlstores.NewSQLUserStore(db)
-	deviceID := models.DeviceIdentifier("test-device-no-creds")
-	createTestDevice(t, db, string(deviceID))
-
-	service := miner.NewMinerService(db, userStore, encryptService, filesService, newTestPluginManager())
-
-	miner, err := service.GetMinerFromDeviceIdentifier(t.Context(), deviceID)
-
-	require.Error(t, err)
-	assert.Nil(t, miner)
-}
-
-func TestMinerService_ConcurrentAccess_ShouldBeThreadSafe(t *testing.T) {
-	// TODO: Rewrite test using plugin-based test infrastructure
-	t.Skip("Disabled pending plugin-based test infrastructure - requires plugin support for Antminer")
 }
 
 func TestMinerService_GetMinerFromDeviceID_WithDifferentMinerTypes_ShouldReturnCorrectType(t *testing.T) {
@@ -197,11 +160,6 @@ func TestMinerService_GetMinerFromDeviceID_WithDifferentMinerTypes_ShouldReturnC
 	}
 }
 
-func TestMinerService_GetMinerFromDeviceID_WithProtoMinerToken_ShouldReturnProtoMiner(t *testing.T) {
-	// TODO: Rewrite test using plugin-based test infrastructure
-	t.Skip("Disabled pending plugin-based test infrastructure")
-}
-
 func TestMinerService_GetMinerFromDeviceID_WithUnpairedDevice_ShouldReturnError(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -248,48 +206,4 @@ func TestMinerService_GetMinerFromDeviceID_WithUnpairedDevice_ShouldReturnError(
 	require.Error(t, err)
 	assert.Nil(t, miner)
 	assert.True(t, fleeterror.IsNotFoundError(err), "expected a not found error, got: %v", err)
-}
-
-func TestMinerService_GetMinerFromDeviceID_WithDeviceNeitherTokenNorCredentials_ShouldReturnError(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	testContext.DatabaseService.CreateSuperAdminUser()
-
-	queries := sqlc.New(testContext.DatabaseService.DB)
-
-	discoveredDeviceID := createDiscoveredDevice(t, testContext.DatabaseService.DB, "TestMiner", "TestCorp", "antminer")
-
-	// Create device with pairing but no credentials or token
-	dbDeviceID, err := queries.InsertDevice(t.Context(), sqlc.InsertDeviceParams{
-		OrgID:              1,
-		DiscoveredDeviceID: discoveredDeviceID,
-		DeviceIdentifier:   "test-no-auth-device",
-		MacAddress:         "00:11:22:33:44:88",
-		SerialNumber:       sql.NullString{String: "SN-NOAUTH", Valid: true},
-	})
-	require.NoError(t, err)
-
-	// Create pairing record with PAIRED status but no token
-	_, err = queries.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{
-		DeviceID:      dbDeviceID,
-		PairingStatus: "PAIRED",
-	})
-	require.NoError(t, err)
-
-	// Create IP assignment but no credentials
-	err = queries.UpdateDeviceIPAssignment(t.Context(), sqlc.UpdateDeviceIPAssignmentParams{
-		IpAddress: "192.168.1.100",
-		Port:      "4028",
-		UrlScheme: "https",
-		ID:        dbDeviceID,
-	})
-	require.NoError(t, err)
-
-	miner, err := testContext.ServiceProvider.MinerService.GetMinerFromDeviceIdentifier(t.Context(), "test-no-auth-device")
-
-	require.Error(t, err)
-	assert.Nil(t, miner)
 }

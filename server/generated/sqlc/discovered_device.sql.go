@@ -42,6 +42,8 @@ WHERE dd.org_id = $1 AND dd.is_active = TRUE AND dd.deleted_at IS NULL
     AND d.id IS NULL AND dd.discovered_by_fleet_node_id IS NULL
 `
 
+// Excludes remote-fleet-node-reported rows: server-local pairing
+// dials these IPs, agent-reported rows route via PairDeviceToFleetNode.
 func (q *Queries) CountActiveUnpairedDiscoveredDevices(ctx context.Context, orgID int64) (int64, error) {
 	row := q.queryRow(ctx, q.countActiveUnpairedDiscoveredDevicesStmt, countActiveUnpairedDiscoveredDevices, orgID)
 	var total int64
@@ -289,109 +291,6 @@ func (q *Queries) FindEndpointDiscovery(ctx context.Context, arg FindEndpointDis
 			&i.MacAddress,
 			&i.EndpointKey,
 			&i.Endpoints,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const getActiveUnpairedDiscoveredDevices = `-- name: GetActiveUnpairedDiscoveredDevices :many
-SELECT dd.id, dd.org_id, dd.device_identifier, dd.model, dd.manufacturer,
-       dd.firmware_version, dd.ip_address, dd.port, dd.url_scheme, dd.rpc_port, dd.rpc_tls, dd.endpoints, dd.discovery_metadata,
-       dd.first_discovered, dd.last_seen, dd.is_active,
-       dd.driver_name, dd.device_class, dd.serial_number, dd.mac_address,
-       dd.created_at, dd.updated_at, dd.deleted_at
-FROM discovered_device dd
-LEFT JOIN device d ON dd.id = d.discovered_device_id AND d.deleted_at IS NULL
-WHERE dd.org_id = $1
-    AND dd.is_active = TRUE
-    AND dd.deleted_at IS NULL
-    AND d.id IS NULL
-    AND dd.discovered_by_fleet_node_id IS NULL
-    AND (
-        -- If cursor provided, filter by it, otherwise return all
-        COALESCE($3, 0) = 0
-        OR dd.id > $3
-    )
-ORDER BY dd.id
-LIMIT $2
-`
-
-type GetActiveUnpairedDiscoveredDevicesParams struct {
-	OrgID    int64
-	Limit    int32
-	CursorID interface{}
-}
-
-type GetActiveUnpairedDiscoveredDevicesRow struct {
-	ID                int64
-	OrgID             int64
-	DeviceIdentifier  string
-	Model             sql.NullString
-	Manufacturer      sql.NullString
-	FirmwareVersion   sql.NullString
-	IpAddress         string
-	Port              string
-	UrlScheme         string
-	RpcPort           int32
-	RpcTls            bool
-	Endpoints         json.RawMessage
-	DiscoveryMetadata sql.NullString
-	FirstDiscovered   sql.NullTime
-	LastSeen          sql.NullTime
-	IsActive          bool
-	DriverName        string
-	DeviceClass       int32
-	SerialNumber      string
-	MacAddress        string
-	CreatedAt         sql.NullTime
-	UpdatedAt         sql.NullTime
-	DeletedAt         sql.NullTime
-}
-
-// Excludes remote-fleet-node-reported rows: server-local pairing
-// dials these IPs, agent-reported rows route via PairDeviceToFleetNode.
-func (q *Queries) GetActiveUnpairedDiscoveredDevices(ctx context.Context, arg GetActiveUnpairedDiscoveredDevicesParams) ([]GetActiveUnpairedDiscoveredDevicesRow, error) {
-	rows, err := q.query(ctx, q.getActiveUnpairedDiscoveredDevicesStmt, getActiveUnpairedDiscoveredDevices, arg.OrgID, arg.Limit, arg.CursorID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []GetActiveUnpairedDiscoveredDevicesRow
-	for rows.Next() {
-		var i GetActiveUnpairedDiscoveredDevicesRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.OrgID,
-			&i.DeviceIdentifier,
-			&i.Model,
-			&i.Manufacturer,
-			&i.FirmwareVersion,
-			&i.IpAddress,
-			&i.Port,
-			&i.UrlScheme,
-			&i.RpcPort,
-			&i.RpcTls,
-			&i.Endpoints,
-			&i.DiscoveryMetadata,
-			&i.FirstDiscovered,
-			&i.LastSeen,
-			&i.IsActive,
-			&i.DriverName,
-			&i.DeviceClass,
-			&i.SerialNumber,
-			&i.MacAddress,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.DeletedAt,
 		); err != nil {
 			return nil, err
 		}

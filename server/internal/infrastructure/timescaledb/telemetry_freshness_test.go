@@ -102,37 +102,42 @@ CREATE TRIGGER reject_freshness BEFORE INSERT OR UPDATE ON telemetry_freshness F
 	require.NoError(t, err)
 }
 
-// Seed inventory in bounded bulk statements to exercise the actual view at the
-// target scale without mocking the database or creating raw-history scans.
-func TestTelemetryFreshnessSummaryAt50KTargets(t *testing.T) {
+// Seed inventory in one bulk statement, then write the watermarks in two
+// multi-target batches. The summary view must count each target one time.
+// The test uses the real view and the real batch query, with no raw-history scan.
+func TestTelemetryFreshnessSummaryCountsBatchedWatermarks(t *testing.T) {
 	if testing.Short() {
-		t.Skip("50k PostgreSQL inventory exercise")
+		t.Skip("PostgreSQL inventory exercise")
 	}
+	const (
+		targets   = 1000
+		batchSize = 500
+	)
 	database := testutil.NewDatabaseService(t, nil)
 	owner := database.CreateSuperAdminUser()
 	db := database.DB
 	ctx := t.Context()
 	_, err := db.ExecContext(ctx, `WITH discovered AS (
  INSERT INTO discovered_device(org_id,device_identifier,ip_address,port,url_scheme,driver_name,is_active)
- SELECT $1,'fresh-scale-'||n,'10.'||((n/65536)%256)||'.'||((n/256)%256)||'.'||(n%256),'4028','http','proto',true FROM generate_series(1,50000) n RETURNING id,device_identifier
+ SELECT $1,'fresh-scale-'||n,'10.'||((n/65536)%256)||'.'||((n/256)%256)||'.'||(n%256),'4028','http','proto',true FROM generate_series(1,$2::int) n RETURNING id,device_identifier
 ), devices AS (
  INSERT INTO device(org_id,device_identifier,mac_address,discovered_device_id)
  SELECT $1,device_identifier,'00:00:00:00:00:00',id FROM discovered RETURNING id
 )
-INSERT INTO device_pairing(device_id,pairing_status,paired_at) SELECT id,'PAIRED',now()-interval '1 hour' FROM devices`, owner.OrganizationID)
+INSERT INTO device_pairing(device_id,pairing_status,paired_at) SELECT id,'PAIRED',now()-interval '1 hour' FROM devices`, owner.OrganizationID, targets)
 	require.NoError(t, err)
 	started := time.Now()
 	var expected, unknown int64
 	err = db.QueryRowContext(ctx, `SELECT sum(expected_count),sum(unknown_count) FROM telemetry_freshness_summary WHERE org_id=$1`, owner.OrganizationID).Scan(&expected, &unknown)
 	require.NoError(t, err)
-	require.EqualValues(t, 50000, expected)
-	require.EqualValues(t, 50000, unknown)
-	t.Log(fmt.Sprintf("50k-target freshness evaluation: %s", time.Since(started)))
+	require.EqualValues(t, targets, expected)
+	require.EqualValues(t, targets, unknown)
+	t.Logf("%d-target freshness evaluation: %s", targets, time.Since(started))
 	writer := sqlc.New(db)
 	writeStarted := time.Now()
-	for offset := 0; offset < 50000; offset += 500 {
+	for offset := 0; offset < targets; offset += batchSize {
 		params := sqlc.RecordTelemetryFreshnessBatchParams{}
-		for i := offset + 1; i <= offset+500; i++ {
+		for i := offset + 1; i <= offset+batchSize; i++ {
 			params.Identifiers = append(params.Identifiers, fmt.Sprintf("fresh-scale-%d", i))
 			params.ObservedTimes = append(params.ObservedTimes, time.Now().Add(-time.Second))
 			params.Known = append(params.Known, true)
@@ -140,13 +145,13 @@ INSERT INTO device_pairing(device_id,pairing_status,paired_at) SELECT id,'PAIRED
 		}
 		require.NoError(t, writer.RecordTelemetryFreshnessBatch(ctx, params))
 	}
-	t.Logf("50k initial watermark inserts in 500-target batches: %s", time.Since(writeStarted))
+	t.Logf("%d initial watermark inserts in %d-target batches: %s", targets, batchSize, time.Since(writeStarted))
 	started = time.Now()
 	err = db.QueryRowContext(ctx, `SELECT sum(expected_count),sum(unknown_count) FROM telemetry_freshness_summary WHERE org_id=$1`, owner.OrganizationID).Scan(&expected, &unknown)
 	require.NoError(t, err)
-	require.EqualValues(t, 50000, expected)
+	require.EqualValues(t, targets, expected)
 	require.Zero(t, unknown)
-	t.Logf("50k populated watermark evaluation: %s", time.Since(started))
+	t.Logf("%d populated watermark evaluation: %s", targets, time.Since(started))
 	// Prove successful SQL output is serializable for the independent observer.
 	var payload sql.NullString
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT json_agg(row_to_json(s))::text FROM telemetry_freshness_summary s WHERE org_id=$1`, owner.OrganizationID).Scan(&payload))

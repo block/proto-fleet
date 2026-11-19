@@ -14,8 +14,6 @@ import (
 // Implementations that cannot update a device (a plugin without the capability,
 // a FleetNode-owned controller) return an error rather than a partial result.
 // Callers must check the device's advertised capabilities before relying on it.
-//
-//go:generate go run go.uber.org/mock/mockgen -source=frigate_update.go -destination=mocks/mock_frigate_updater.go -package=mocks FrigateUpdater
 type FrigateUpdater interface {
 	FrigateUpdateSupport(ctx context.Context) ([]sdk.FrigateInstanceSupport, error)
 	FrigateStageBegin(ctx context.Context, instanceID string, m sdk.FrigateManifest) (sdk.FrigateStageProgress, error)

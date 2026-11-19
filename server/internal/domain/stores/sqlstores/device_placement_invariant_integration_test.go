@@ -37,9 +37,9 @@ import (
 // whether the result is consistent — so it catches any reparent path that
 // updates one column's cascade but forgets the other, today or in a
 // future refactor (see #495 / #492).
-func devicePlacementInvariantViolations(ctx context.Context, t *testing.T, tc *testutil.TestContext, orgID int64) []string {
+func devicePlacementInvariantViolations(ctx context.Context, t *testing.T, tc *testutil.DatabaseService, orgID int64) []string {
 	t.Helper()
-	rows, err := tc.ServiceProvider.DB.QueryContext(ctx, `
+	rows, err := tc.DB.QueryContext(ctx, `
 		SELECT d.device_identifier
 		FROM device d
 		LEFT JOIN building b
@@ -92,15 +92,15 @@ func TestDevicePlacementInvariant_HoldsAcrossReparentPaths(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	user := tc.DatabaseService.CreateSuperAdminUser()
+	tc := testutil.NewDatabaseService(t, nil)
+	user := tc.CreateSuperAdminUser()
 	orgID := user.OrganizationID
 	ctx := t.Context()
 
-	siteStore := sqlstores.NewSQLSiteStore(tc.ServiceProvider.DB)
-	buildingStore := sqlstores.NewSQLBuildingStore(tc.ServiceProvider.DB)
-	collectionStore := sqlstores.NewSQLCollectionStore(tc.ServiceProvider.DB)
-	transactor := sqlstores.NewSQLTransactor(tc.ServiceProvider.DB)
+	siteStore := sqlstores.NewSQLSiteStore(tc.DB)
+	buildingStore := sqlstores.NewSQLBuildingStore(tc.DB)
+	collectionStore := sqlstores.NewSQLCollectionStore(tc.DB)
+	transactor := sqlstores.NewSQLTransactor(tc.DB)
 
 	// Services wired against the real stores. deviceQueryer / telemetry /
 	// activity are stats- and audit-only and unused by the reparent
@@ -148,7 +148,7 @@ func TestDevicePlacementInvariant_HoldsAcrossReparentPaths(t *testing.T) {
 		OrgID: orgID, CollectionID: sitelessRack.Id, Rows: 4, Columns: 8,
 	}))
 
-	devices := tc.DatabaseService.CreateTestMiners(orgID, 4, "https://172.17.0.1:80")
+	devices := tc.CreateTestMiners(orgID, 4, "https://172.17.0.1:80")
 	require.Len(t, devices, 4)
 
 	assertHolds("fixture setup")

@@ -46,10 +46,6 @@ func (r *Reconciler) confirmDispatchedRestores(ctx context.Context, ev *models.E
 	r.confirmDispatchedTargets(ctx, ev, targets, models.DesiredStateActive)
 }
 
-func (r *Reconciler) confirmOneRestore(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate) {
-	r.confirmTarget(ctx, ev, t, c, true, models.TargetStatePending)
-}
-
 func (r *Reconciler) maybeCompleteRestoring(ctx context.Context, ev *models.Event, targets []*models.Target) bool {
 	if len(ev.FacilityFanDeviceIDs) > 0 && ev.FanOnSentAt == nil {
 		return false
@@ -297,14 +293,6 @@ type restoreDispatchFailure struct {
 	target       *models.Target
 	reason       string
 	possiblySent bool
-}
-
-func restoreDispatchFailures(targets []*models.Target, reason string) []restoreDispatchFailure {
-	failures := make([]restoreDispatchFailure, 0, len(targets))
-	for _, target := range targets {
-		failures = append(failures, restoreDispatchFailure{target: target, reason: reason})
-	}
-	return failures
 }
 
 // recordRestoreDispatchFailures parks all-paired topology obligations that

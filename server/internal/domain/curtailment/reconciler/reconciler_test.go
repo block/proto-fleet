@@ -51,7 +51,6 @@ type fakeStore struct {
 	listTargetsHook    func(context.Context, uuid.UUID)
 	listTargetsCtxErr  map[uuid.UUID]error
 
-	updateEventCalls         int
 	updateEventLast          map[int64]models.EventState
 	updateTargetCalls        int
 	updateTargetParams       map[string]interfaces.UpdateCurtailmentTargetStateParams
@@ -89,7 +88,6 @@ type fakeStore struct {
 
 	heartbeatCalls               int
 	lastHeartbeatActive          int32
-	lastHeartbeatTickUUID        uuid.UUID
 	lastListCandidatesParams     interfaces.ListCandidatesParams
 	listCandidatesFilters        [][]string
 	topologyCoverage             interfaces.CurtailmentTopologyScopeCoverage
@@ -110,7 +108,6 @@ type fakeStore struct {
 	beginRestoreLastEventID uuid.UUID
 	beginRestoreErr         error
 	updateFanCalls          int
-	lastFanUpdate           interfaces.UpdateCurtailmentFanStateParams
 	rejectExpiredFanUpdate  bool
 	failFanUpdateCall       int
 }
@@ -650,7 +647,6 @@ func (f *fakeStore) ListNonTerminalEvents(ctx context.Context) ([]*models.Event,
 }
 
 func (f *fakeStore) UpdateEventState(_ context.Context, eventID int64, expectedState models.EventState, state models.EventState, startedAt *time.Time, endedAt *time.Time) error {
-	f.updateEventCalls++
 	f.updateEventLast[eventID] = state
 	for _, ev := range f.events {
 		if ev.ID == eventID {
@@ -689,7 +685,6 @@ func (f *fakeStore) RecordCurtailPendingDispatch(_ context.Context, eventID int6
 
 func (f *fakeStore) UpdateFanState(ctx context.Context, eventID int64, params interfaces.UpdateCurtailmentFanStateParams) error {
 	f.updateFanCalls++
-	f.lastFanUpdate = params
 	if f.failFanUpdateCall == f.updateFanCalls {
 		return errors.New("injected fan state update failure")
 	}
@@ -838,7 +833,6 @@ func (f *fakeStore) BumpTargetRetry(_ context.Context, eventID int64, deviceIden
 func (f *fakeStore) UpsertHeartbeat(_ context.Context, params interfaces.UpsertCurtailmentHeartbeatParams) error {
 	f.heartbeatCalls++
 	f.lastHeartbeatActive = params.ActiveEventCount
-	f.lastHeartbeatTickUUID = params.LastTickUUID
 	return nil
 }
 

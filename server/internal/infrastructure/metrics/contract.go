@@ -229,17 +229,6 @@ var AllSensorKinds = []string{
 	SensorKindHotspot,
 }
 
-// IsKnownMetric reports whether name appears in AllMetricNames.
-// Used by the rule compiler and by tests.
-func IsKnownMetric(name string) bool {
-	return slices.Contains(AllMetricNames, name)
-}
-
-// IsKnownLabel reports whether key is one of the allowlisted label keys.
-func IsKnownLabel(key string) bool {
-	return slices.Contains(AllLabelKeys, key)
-}
-
 // IsKnownResult reports whether v is a permitted value for the result label.
 func IsKnownResult(v string) bool {
 	return slices.Contains(AllResults, v)

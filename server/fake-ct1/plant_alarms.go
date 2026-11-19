@@ -57,28 +57,6 @@ func (s *ContainerState) criticalAlarmActive() bool {
 	return slices.ContainsFunc(s.plantAlarms, func(alarm simulatedPlantAlarm) bool { return alarm.Severity == severityCritical })
 }
 
-// raisePlantAlarm latches an alarm and re-sounds the buzzer, even after a mute.
-func (s *ContainerState) raisePlantAlarm(alarm simulatedPlantAlarm) {
-	alarm.ConditionPresent = true
-	for i := range s.plantAlarms {
-		if s.plantAlarms[i].ID == alarm.ID {
-			s.plantAlarms[i].ConditionPresent = true
-			return
-		}
-	}
-	s.plantAlarms = append(s.plantAlarms, alarm)
-	s.buzzerActive = true
-}
-
-// clearPlantAlarmCondition marks the cause gone; the alarm stays latched until reset.
-func (s *ContainerState) clearPlantAlarmCondition(id string) {
-	for i := range s.plantAlarms {
-		if s.plantAlarms[i].ID == id {
-			s.plantAlarms[i].ConditionPresent = false
-		}
-	}
-}
-
 // muteContainerAlarm silences the buzzer. Alarms stay active.
 func (s *ContainerState) muteContainerAlarm() error {
 	s.buzzerActive = false

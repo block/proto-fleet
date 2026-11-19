@@ -4,103 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 )
-
-func TestSourceInputsPreserveUsedValuesAndOmitOtherPeriods(t *testing.T) {
-	p, in := calculationFixture()
-	in.Configuration.SharedAllocationRef = "host allocation worksheet"
-	meter := MeterInterval{ID: "used", MeterID: "raw-meter", SourceID: "meter", SiteID: 1, ContainerID: 10, OrderID: "a", Start: p.Start, End: p.Start.Add(time.Hour), KWh: "100.000000000000000001", AllocationFraction: "0.25", Quality: "measured", SourceRef: "host original"}
-	other := meter
-	other.ID = "future"
-	other.Start = p.End
-	other.End = p.End.Add(time.Hour)
-	in.Meters = []MeterInterval{meter, other}
-	in.PoolObservations = []PoolObservation{{ID: "pool", Kind: 6, AssetID: 1, SourceID: "pool", SourceAt: p.Start, ReceivedAt: p.Start, State: "unknown", SourceRef: "pool evidence"}}
-	original, err := json.Marshal(in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	selected, err := sourceInputs(t.Context(), p, in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(selected.Meters) != 1 || selected.Meters[0] != meter {
-		t.Fatalf("source values changed: %#v", selected.Meters)
-	}
-	if !reflect.DeepEqual(calculate(t, p, in), calculate(t, p, selected)) {
-		t.Fatal("selected sources changed the calculated result")
-	}
-	after, err := json.Marshal(in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(original, after) {
-		t.Fatal("source selection mutated current inputs")
-	}
-	var file bytes.Buffer
-	if err := writeFixtureSourceInputs(t.Context(), &file, p, in); err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Contains(file.Bytes(), []byte("100.000000000000000001")) || bytes.Contains(file.Bytes(), []byte(`"future"`)) {
-		t.Fatalf("unexpected frozen evidence: %s", file.Bytes())
-	}
-}
-
-func TestSourceInputsKeepPriorYearAndEpisodeContext(t *testing.T) {
-	p, in := calculationFixture()
-	p.Kind = "annual"
-	p.End = p.Start.AddDate(1, 0, 0)
-	p.AsOf = p.End.Add(time.Hour)
-	in.Coverage[0].Start = p.Start.AddDate(-1, 0, 0)
-	in.Meters = []MeterInterval{{ID: "prior", Start: p.Start.AddDate(-1, 0, 0), End: p.Start}, {ID: "earlier", Start: p.Start.AddDate(-2, 0, 0), End: p.Start.AddDate(-1, 0, 0)}}
-	in.Obligations = []ObligationInterval{{ID: "episode-start", EpisodeID: "episode", Kind: 6, AssetID: 1, Start: p.Start.AddDate(-2, 0, 0), End: p.Start.AddDate(-1, 0, 0), ReceivedAt: p.Start.AddDate(-2, 0, 0)}}
-	selected, err := sourceInputs(t.Context(), p, in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(selected.Meters) != 1 || selected.Meters[0].ID != "prior" || len(selected.Obligations) != 1 {
-		t.Fatal("lost comparison or true episode-start context")
-	}
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	if err := writeFixtureSourceInputs(ctx, &bytes.Buffer{}, p, in); err == nil {
-		t.Fatal("cancelled publication retained sources")
-	}
-}
-
-func TestSourceInputsKeepOriginalPrePeriodCommercialContext(t *testing.T) {
-	p, in := calculationFixture()
-	before := in.Coverage[0]
-	before.ID, before.Start, before.End = "frozen-observation-context", p.Start.Add(-2*time.Hour), p.Start.Add(-time.Hour)
-	future := before
-	future.ID, future.Start, future.End = "future-commercial-context", p.End, p.End.Add(time.Hour)
-	in.Coverage = append(in.Coverage, before, future)
-	selected, err := sourceInputs(t.Context(), p, in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, c := range selected.Coverage {
-		if c.ID == before.ID {
-			found = true
-			if c != before {
-				t.Fatal("host commercial context lost original values")
-			}
-		}
-		if c.ID == future.ID {
-			t.Fatal("future-only commercial context was retained")
-		}
-	}
-	if !found {
-		t.Fatal("host source lost pre-period coverage needed to explain frozen observations")
-	}
-}
 
 type sourceStreamSink struct{ total, maxWrite int }
 

@@ -2,6 +2,7 @@ package timescaledb
 
 import (
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -63,7 +64,13 @@ const (
 // marker triggers; closing one hour and a 24-hour catch-up run; marker volume
 // and revision cost of corrections; capture-status cost after 30 days of hour
 // rows; and evidence bytes per interval-hour.
+//
+// The run takes minutes and asserts no duration. The regular suite covers the
+// same counting rules at one-board scale in the hostedaccounts package.
 func TestStoredContainerRollupsReportingEvidenceRepresentativeScale(t *testing.T) {
+	if os.Getenv("PROTO_FLEET_SCALE_TESTS") != "1" {
+		t.Skip("set PROTO_FLEET_SCALE_TESTS=1 to run the full-CT1 sizing measurement")
+	}
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}

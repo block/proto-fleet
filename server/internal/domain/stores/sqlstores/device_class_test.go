@@ -42,10 +42,6 @@ func TestDeviceClassSurvivesDiscoveryPairingAndRediscovery(t *testing.T) {
 	reloaded, err := discovered.GetDevice(ctx, doi)
 	require.NoError(t, err)
 	require.Equal(t, device.DeviceClass, reloaded.DeviceClass)
-	unpaired, _, err := discovered.GetActiveUnpairedDevices(ctx, orgID, "", 10)
-	require.NoError(t, err)
-	require.Len(t, unpaired, 1)
-	require.Equal(t, device.DeviceClass, unpaired[0].DeviceClass)
 
 	rows, _, _, err := devices.ListMinerStateSnapshots(ctx, orgID, "", 10, nil, nil)
 	require.NoError(t, err)

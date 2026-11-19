@@ -16,11 +16,11 @@ func TestActivityLogs_SearchMatchesDisplayedLabels(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	tc := testutil.InitializeDBServiceInfrastructure(t)
+	tc := testutil.NewDatabaseService(t, nil)
 	ctx := t.Context()
-	user := tc.DatabaseService.CreateSuperAdminUser()
+	user := tc.CreateSuperAdminUser()
 	orgID := user.OrganizationID
-	store := sqlstores.NewSQLActivityStore(tc.ServiceProvider.DB)
+	store := sqlstores.NewSQLActivityStore(tc.DB)
 
 	groupScope := "group"
 	groupName := "Label Search Group"

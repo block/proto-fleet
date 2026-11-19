@@ -66,34 +66,6 @@ func (q *Queries) EnsureMiningGroupState(ctx context.Context, arg EnsureMiningGr
 	return err
 }
 
-const getHostMiningGroupPoolRevision = `-- name: GetHostMiningGroupPoolRevision :one
-SELECT r.revision_id, r.organization_id, r.account_id, r.pool_id, r.number, r.name, r.slots, r.created_at FROM hosted_account_pool_revision r JOIN hosted_account a ON a.id=r.account_id AND a.organization_id=r.organization_id
-JOIN hosted_account_pool p ON p.pool_id=r.pool_id AND p.organization_id=r.organization_id AND p.account_id=r.account_id
-WHERE r.organization_id=$1 AND r.revision_id=$2 AND a.depth=0 AND NOT a.suspended AND NOT p.archived
-`
-
-type GetHostMiningGroupPoolRevisionParams struct {
-	OrganizationID int64
-	RevisionID     string
-}
-
-// New assignments may only select active configurations.
-func (q *Queries) GetHostMiningGroupPoolRevision(ctx context.Context, arg GetHostMiningGroupPoolRevisionParams) (HostedAccountPoolRevision, error) {
-	row := q.queryRow(ctx, q.getHostMiningGroupPoolRevisionStmt, getHostMiningGroupPoolRevision, arg.OrganizationID, arg.RevisionID)
-	var i HostedAccountPoolRevision
-	err := row.Scan(
-		&i.RevisionID,
-		&i.OrganizationID,
-		&i.AccountID,
-		&i.PoolID,
-		&i.Number,
-		&i.Name,
-		&i.Slots,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
 const getHostMiningGroupPoolRevisionForReconciliation = `-- name: GetHostMiningGroupPoolRevisionForReconciliation :one
 SELECT r.revision_id, r.organization_id, r.account_id, r.pool_id, r.number, r.name, r.slots, r.created_at FROM hosted_account_pool_revision r JOIN hosted_account a ON a.id=r.account_id AND a.organization_id=r.organization_id
 JOIN hosted_account_pool p ON p.pool_id=r.pool_id AND p.organization_id=r.organization_id AND p.account_id=r.account_id

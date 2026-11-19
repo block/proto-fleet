@@ -14,6 +14,10 @@ import (
 )
 
 func TestPoolReadinessIgnoresOnlyUnrelatedWrites(t *testing.T) {
+	cfg, err := testutil.GetTestConfig()
+	require.NoError(t, err)
+	database := testutil.NewDatabaseService(t, cfg)
+	user := database.CreateSuperAdminUser()
 	for _, tc := range []struct {
 		kind   commandtype.Type
 		blocks bool
@@ -32,10 +36,6 @@ func TestPoolReadinessIgnoresOnlyUnrelatedWrites(t *testing.T) {
 				name = tc.kind.String() + "/running"
 			}
 			t.Run(name, func(t *testing.T) {
-				cfg, err := testutil.GetTestConfig()
-				require.NoError(t, err)
-				database := testutil.NewDatabaseService(t, cfg)
-				user := database.CreateSuperAdminUser()
 				device := database.CreateDevice(user.OrganizationID, "proto")
 				service := devicewrite.NewService(database.DB)
 				call := func() error {
@@ -53,7 +53,7 @@ func TestPoolReadinessIgnoresOnlyUnrelatedWrites(t *testing.T) {
 				} else {
 					require.Error(t, call())
 				}
-				err = db.WithTransactionNoResult(t.Context(), database.DB, func(q sqlc.Querier) error {
+				err := db.WithTransactionNoResult(t.Context(), database.DB, func(q sqlc.Querier) error {
 					_, err := q.LockDeviceWriteFences(t.Context(), []int64{device.DatabaseID})
 					if err != nil {
 						return err

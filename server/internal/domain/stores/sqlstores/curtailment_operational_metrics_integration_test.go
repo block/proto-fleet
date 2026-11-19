@@ -15,9 +15,9 @@ func TestSQLCurtailmentStore_PendingWorkAges(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")
 	}
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	database := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	database := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	ctx := t.Context()
 	eventAge, edgeAge, err := store.GetPendingWorkAges(ctx)

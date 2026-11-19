@@ -138,9 +138,6 @@ func TestClientCreation_ZeroPort(t *testing.T) {
 
 // TestHTTPClientCreation tests HTTP client creation and configuration
 func TestHTTPClientCreation(t *testing.T) {
-	// Reset clients to ensure fresh state
-	resetClients()
-
 	t.Run("HTTP client creation", func(t *testing.T) {
 		client := createHTTPClient()
 		require.NotNil(t, client, "HTTP client should be created")
@@ -152,9 +149,6 @@ func TestHTTPClientCreation(t *testing.T) {
 
 // TestHTTPSClientCreation tests HTTPS client creation and TLS configuration
 func TestHTTPSClientCreation(t *testing.T) {
-	// Reset clients to ensure fresh state
-	resetClients()
-
 	t.Run("HTTPS client creation", func(t *testing.T) {
 		client := createHTTPSClient()
 		require.NotNil(t, client, "HTTPS client should be created")
@@ -167,17 +161,6 @@ func TestHTTPSClientCreation(t *testing.T) {
 		assert.Equal(t, uint16(tls.VersionTLS12), transport.TLSClientConfig.MinVersion, "Min TLS version should be 1.2")
 	})
 
-}
-
-// TestTLSVerificationConfiguration verifies Proto HTTPS always skips certificate verification.
-func TestTLSVerificationConfiguration(t *testing.T) {
-	resetClients()
-
-	client := createHTTPSClient()
-	transport, ok := client.Transport.(*http.Transport)
-	require.True(t, ok, "Transport should be *http.Transport")
-	require.NotNil(t, transport.TLSClientConfig, "TLS config should be set")
-	assert.True(t, transport.TLSClientConfig.InsecureSkipVerify, "Proto HTTPS should always skip certificate verification")
 }
 
 // TestCredentialManagement tests that SetCredentials stores the credentials and
@@ -415,9 +398,6 @@ func TestDoRequest_LoginDoesNotHoldAuthLock(t *testing.T) {
 
 // TestClientSingletonBehavior tests that HTTP clients are properly shared
 func TestClientSingletonBehavior(t *testing.T) {
-	// Reset clients
-	resetClients()
-
 	// Create multiple clients with same scheme
 	client1, err1 := NewClient("host1", 80, "http")
 	client2, err2 := NewClient("host2", 80, "http")
@@ -440,33 +420,6 @@ func TestClientSingletonBehavior(t *testing.T) {
 
 	// But HTTP and HTTPS clients should be different
 	assert.NotSame(t, client1.httpClient, client3.httpClient, "HTTP and HTTPS clients should be different")
-}
-
-// TestClientRuntimeConfigChange verifies environment changes do not alter Proto TLS behavior.
-func TestClientRuntimeEnvChange(t *testing.T) {
-	resetClients()
-
-	t.Setenv("SKIP_TLS_VERIFY", "false")
-	client1, err1 := NewClient("localhost", 8443, "https")
-	require.NoError(t, err1, "Failed to create first client")
-	require.NotNil(t, client1, "First client should be created")
-	transport, ok := client1.httpClient.Transport.(*http.Transport)
-	require.True(t, ok, "Transport should be *http.Transport")
-	require.NotNil(t, transport.TLSClientConfig, "TLS config should be set")
-	assert.True(t, transport.TLSClientConfig.InsecureSkipVerify,
-		"Proto HTTPS should skip certificate verification regardless of environment")
-
-	t.Setenv("SKIP_TLS_VERIFY", "true")
-	resetClients()
-
-	client2, err2 := NewClient("localhost", 8443, "https")
-	require.NoError(t, err2, "Failed to create second client")
-	require.NotNil(t, client2, "Second client should be created")
-	transport, ok = client2.httpClient.Transport.(*http.Transport)
-	require.True(t, ok, "Transport should be *http.Transport")
-	require.NotNil(t, transport.TLSClientConfig, "TLS config should be set")
-	assert.True(t, transport.TLSClientConfig.InsecureSkipVerify,
-		"Proto HTTPS should keep skipping certificate verification after environment changes")
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -657,7 +610,6 @@ func TestUnsupportedScheme(t *testing.T) {
 
 // TestClientCreationWithInsecureTLS verifies HTTPS client creation uses Proto's fixed TLS policy.
 func TestClientCreationWithInsecureTLS(t *testing.T) {
-	resetClients()
 	client, err := NewClient("localhost", 8443, "https")
 	require.NoError(t, err, "Failed to create client with insecure TLS")
 	require.NotNil(t, client, "Client should be created")
@@ -666,21 +618,6 @@ func TestClientCreationWithInsecureTLS(t *testing.T) {
 	require.NotNil(t, transport.TLSClientConfig, "TLS config should be set")
 	assert.True(t, transport.TLSClientConfig.InsecureSkipVerify,
 		"Proto HTTPS should always disable certificate verification")
-	_ = client.Close()
-}
-
-// TestClientCreationWithoutInsecureTLS verifies environment values do not re-enable verification.
-func TestClientCreationWithoutInsecureTLS(t *testing.T) {
-	resetClients()
-	t.Setenv("SKIP_TLS_VERIFY", "false")
-	client, err := NewClient("localhost", 8443, "https")
-	require.NoError(t, err, "Failed to create client with secure TLS")
-	require.NotNil(t, client, "Client should be created")
-	transport, ok := client.httpClient.Transport.(*http.Transport)
-	require.True(t, ok, "Transport should be *http.Transport")
-	require.NotNil(t, transport.TLSClientConfig, "TLS config should be set")
-	assert.True(t, transport.TLSClientConfig.InsecureSkipVerify,
-		"Proto HTTPS should ignore environment attempts to re-enable verification")
 	_ = client.Close()
 }
 
@@ -905,14 +842,6 @@ func TestChangePassword(t *testing.T) {
 		assert.True(t, changeCalled, "change-password endpoint should be called")
 		assert.Equal(t, "Bearer "+webUIToken, changeAuthHeader, "change-password should use the web UI JWT, not the fleet Bearer token")
 	})
-}
-
-// Helper function to reset client singletons for testing
-func resetClients() {
-	httpClientOnce = &sync.Once{}
-	httpsClientOnce = &sync.Once{}
-	sharedHTTPClient = nil
-	sharedHTTPSClient = nil
 }
 
 // newStatusTestServer creates an httptest.Server that serves JSON responses for

@@ -79,29 +79,6 @@ func TestPlantAlarmStateMachine(t *testing.T) {
 	if !telemetry.Plant.AlarmActive || !telemetry.Plant.CriticalAlarmActive || telemetry.Plant.BuzzerActive {
 		t.Fatalf("flags after reset: %+v", telemetry.Plant)
 	}
-
-	// A new alarm sounds the buzzer again.
-	state.raisePlantAlarm(simulatedPlantAlarm{ID: "fan-fault", Name: "Dry cooler fan fault", Severity: severityWarning})
-	if !state.containerTelemetry().Plant.BuzzerActive {
-		t.Fatal("a new alarm must re-sound the buzzer")
-	}
-	// Raising an alarm that is already latched does not.
-	state.muteContainerAlarm()
-	state.raisePlantAlarm(simulatedPlantAlarm{ID: "fan-fault", Name: "Dry cooler fan fault", Severity: severityWarning})
-	if state.containerTelemetry().Plant.BuzzerActive {
-		t.Fatal("an already latched alarm must not re-sound the buzzer")
-	}
-
-	// Once every cause clears, reset empties the list and the buzzer stays off.
-	state.clearPlantAlarmCondition("tank-b-outlet-over-temperature")
-	state.clearPlantAlarmCondition("fan-fault")
-	if err := state.resetContainerAlarm(); err != nil {
-		t.Fatal(err)
-	}
-	telemetry = state.containerTelemetry()
-	if len(telemetry.Alarms) != 0 || telemetry.Plant.AlarmActive || telemetry.Plant.CriticalAlarmActive || telemetry.Plant.BuzzerActive {
-		t.Fatalf("all alarms should be cleared: %+v", telemetry)
-	}
 }
 
 func TestPlantAlarmResetUnsupportedKeepsEverything(t *testing.T) {

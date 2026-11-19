@@ -23,13 +23,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
-// TODO: Rewrite the broader command handler tests using plugin-based test
-// infrastructure. The tests below are narrow to GetCommandBatchDeviceResults
-// and don't need plugin support.
-func TestCommandHandler(t *testing.T) {
-	t.Skip("Disabled pending plugin-based test infrastructure")
-}
-
 func TestHandler_FirmwareUpdateRequiresFirmwareUpdateAndRebootPermissions(t *testing.T) {
 	t.Parallel()
 	h := handler.NewHandler(nil)
@@ -214,14 +207,4 @@ func TestHandler_GetCommandBatchDeviceResults_PropagatesNotFound(t *testing.T) {
 	var fleetErr fleeterror.FleetError
 	require.True(t, errors.As(err, &fleetErr), "expected FleetError to propagate through the handler")
 	assert.Equal(t, connect.CodeNotFound, fleetErr.GRPCCode)
-}
-
-type poolPermissionVerifier struct {
-	called bool
-	err    error
-}
-
-func (v *poolPermissionVerifier) VerifySessionCredentials(context.Context, string, string) error {
-	v.called = true
-	return v.err
 }

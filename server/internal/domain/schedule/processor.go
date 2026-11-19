@@ -632,11 +632,6 @@ func (p *Processor) resolveTargets(ctx context.Context, sched *pb.Schedule, orgI
 	return p.expandTargets(ctx, targets, orgID)
 }
 
-func (p *Processor) updateAfterRun(ctx context.Context, sched *pb.Schedule, orgID int64, now time.Time) {
-	gen, hasGen := p.currentJobGeneration(sched.Id)
-	p.updateAfterRunWithGeneration(ctx, sched, orgID, now, gen, hasGen)
-}
-
 func (p *Processor) updateAfterRunWithGeneration(ctx context.Context, sched *pb.Schedule, orgID int64, now time.Time, gen uint64, hasGen bool) {
 	lastRun := now.Unix()
 	nextRun, err := ComputeNextRun(sched, now)
@@ -681,11 +676,6 @@ func (p *Processor) updateAfterRunWithGeneration(ctx context.Context, sched *pb.
 		p.removeJob(sched.Id)
 		p.logCompleted(ctx, sched, orgID)
 	}
-}
-
-func (p *Processor) transitionToCompleted(ctx context.Context, sched *pb.Schedule, orgID int64, now time.Time) {
-	gen, hasGen := p.currentJobGeneration(sched.Id)
-	p.transitionToCompletedWithGeneration(ctx, sched, orgID, now, gen, hasGen)
 }
 
 func (p *Processor) transitionToCompletedWithGeneration(ctx context.Context, sched *pb.Schedule, orgID int64, now time.Time, gen uint64, hasGen bool) {

@@ -64,6 +64,3 @@ SELECT
 
 -- name: BoundPoolConfigurationImportLocks :exec
 SET LOCAL lock_timeout='5s';
-
--- name: LegacyPoolWritersDisabled :one
-SELECT EXISTS(SELECT 1 FROM pool_configuration_cutover WHERE organization_id=$1);

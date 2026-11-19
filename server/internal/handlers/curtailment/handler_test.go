@@ -830,9 +830,9 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 	}
 }
 
-// Preview/Start/Stop require curtailment:manage even when no legacy
+// Preview and Start require curtailment:manage even when no legacy
 // admin-only override field is set.
-func TestHandler_PublicPlanStartStopRequireCurtailmentManage(t *testing.T) {
+func TestHandler_PublicPlanStartRequireCurtailmentManage(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(nil)
@@ -859,15 +859,6 @@ func TestHandler_PublicPlanStartStopRequireCurtailmentManage(t *testing.T) {
 			name: "StartCurtailment",
 			invoke: func(ctx context.Context) error {
 				_, err := h.StartCurtailment(ctx, connect.NewRequest(validStartCurtailmentRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)))
-				return err
-			},
-		},
-		{
-			name: "StopCurtailment",
-			invoke: func(ctx context.Context) error {
-				_, err := h.StopCurtailment(ctx, connect.NewRequest(&pb.StopCurtailmentRequest{
-					EventUuid: "00000000-0000-0000-0000-000000000001",
-				}))
 				return err
 			},
 		},

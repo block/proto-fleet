@@ -16,15 +16,6 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func TestNewMultiTypeDiscoverer(t *testing.T) {
-	manager := NewManager(&Config{})
-
-	discoverer := NewMultiTypeDiscoverer(manager)
-
-	assert.NotNil(t, discoverer)
-	assert.Equal(t, manager, discoverer.manager)
-}
-
 func TestMultiTypeDiscoverer_Discover_NoPlugins(t *testing.T) {
 	manager := NewManager(&Config{})
 	discoverer := NewMultiTypeDiscoverer(manager)

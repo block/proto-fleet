@@ -142,14 +142,6 @@ func createPairRequestWithAllDevicesFilter(pairingStatuses []fm.PairingStatus) *
 	}
 }
 
-// TODO: setUpMockMinerServer should be reimplemented using plugin-based test infrastructure
-// This functionality should be reimplemented using the proto plugin's integration test
-// helpers (see plugin/proto/tests/integration) when needed for server integration testing.
-func setUpMockMinerServer(t *testing.T) (string, string) {
-	t.Skip("Disabled pending plugin-based test infrastructure")
-	return "", ""
-}
-
 func TestDiscoverWithIPList(t *testing.T) {
 	t.Run("discovers devices from IP list", func(t *testing.T) {
 		// Arrange
@@ -693,64 +685,6 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		assertDevicesEqual(t, devices, []*discoverymodels.DiscoveredDevice{mockDevice1, mockDevice2, mockDevice3})
 	})
 
-	t.Run("does not lead to duplicate device pairings", func(t *testing.T) {
-		testContext := testutil.InitializeDBServiceInfrastructure(t)
-		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
-
-		host, portStr := setUpMockMinerServer(t)
-
-		// Arrange
-		var discoverWg sync.WaitGroup
-		discoverWg.Add(2)
-
-		mockDiscoverer := &MockDiscoverer{}
-		mockDevice := createMockDevice(host, portStr, "proto")
-
-		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Run(func(_ mock.Arguments) {
-			defer discoverWg.Done()
-		}).Return(mockDevice, nil)
-
-		pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
-
-		request := &pb.IPRangeModeRequest{
-			StartIp: host,
-			EndIp:   host,
-			Ports:   []string{portStr},
-		}
-		resultChan, err := pairingService.DiscoverWithIPRange(ctx, request)
-		require.NoError(t, err)
-
-		var devices []*pb.Device
-		for result := range resultChan {
-			require.Empty(t, result.Warning)
-			devices = append(devices, result.Devices...)
-		}
-		require.Len(t, devices, 1)
-
-		// Act
-		resultChan, err = pairingService.DiscoverWithIPRange(ctx, request)
-		require.NoError(t, err)
-		_, err = pairingService.PairDevices(ctx, createPairRequest([]string{devices[0].DeviceIdentifier}))
-		require.NoError(t, err)
-
-		devices = []*pb.Device{}
-		for result := range resultChan {
-			require.Empty(t, result.Warning)
-			devices = append(devices, result.Devices...)
-		}
-
-		discoverWg.Wait()
-
-		// Assert
-		mockDiscoverer.AssertExpectations(t)
-
-		assertDevicesEqual(t, devices, []*discoverymodels.DiscoveredDevice{mockDevice})
-
-		totalPairedDevices, err := testContext.DatabaseService.GetTotalDevicePairings(adminUser.OrganizationID, 100)
-		require.NoError(t, err)
-		assert.Equal(t, 1, totalPairedDevices)
-	})
-
 	t.Run("handles discovery failures in IP range", func(t *testing.T) {
 		// Arrange
 		var discoverWg sync.WaitGroup
@@ -865,56 +799,6 @@ func TestPairDevices(t *testing.T) {
 
 	})
 
-	t.Run("pairs proto device successfully without credentials", func(t *testing.T) {
-		testContext := testutil.InitializeDBServiceInfrastructure(t)
-		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
-
-		host, portStr := setUpMockMinerServer(t)
-
-		mockDiscoverer := &MockDiscoverer{}
-		mockDevice := createMockDevice(host, portStr, "proto")
-		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Return(mockDevice, nil)
-
-		pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
-
-		// First discover the device
-		request := &pb.IPListModeRequest{
-			IpAddresses: []string{host},
-			Ports:       []string{portStr},
-		}
-
-		resultChan, err := pairingService.DiscoverWithIPList(ctx, request)
-		require.NoError(t, err)
-
-		var devices []*pb.Device
-		for result := range resultChan {
-			require.Empty(t, result.Warning)
-			devices = append(devices, result.Devices...)
-		}
-		require.Len(t, devices, 1)
-
-		// Now pair the device
-		pairRequest := createPairRequest([]string{devices[0].DeviceIdentifier})
-
-		_, err = pairingService.PairDevices(ctx, pairRequest)
-		require.NoError(t, err)
-
-		// Verify device is active after pairing
-		discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
-		orgDeviceID := discoverymodels.DeviceOrgIdentifier{
-			DeviceIdentifier: devices[0].DeviceIdentifier,
-			OrgID:            adminUser.OrganizationID,
-		}
-		discoveredDevice, err := discoveredDeviceStore.GetDevice(ctx, orgDeviceID)
-		require.NoError(t, err)
-		assert.True(t, discoveredDevice.IsActive, "discovered device should be active after pairing")
-
-		// Verify pairing was successful
-		totalPairedDevices, err := testContext.DatabaseService.GetTotalDevicePairings(adminUser.OrganizationID, 10)
-		require.NoError(t, err)
-		assert.Equal(t, 1, totalPairedDevices)
-	})
-
 	t.Run("fails to pair unsupported device type", func(t *testing.T) {
 		testContext := testutil.InitializeDBServiceInfrastructure(t)
 		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
@@ -962,45 +846,6 @@ func TestPairDevices(t *testing.T) {
 		_, err := pairingService.PairDevices(ctx, pairRequest)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "Failed to pair any devices")
-	})
-
-	t.Run("pairs miners even if one of them fails", func(t *testing.T) {
-		host, portStr := setUpMockMinerServer(t)
-
-		testContext := testutil.InitializeDBServiceInfrastructure(t)
-		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
-
-		mockDiscoverer := &MockDiscoverer{}
-		mockDevice := createMockDevice(host, portStr, "proto")
-		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Return(mockDevice, nil)
-
-		pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
-
-		request := &pb.IPListModeRequest{
-			IpAddresses: []string{host},
-			Ports:       []string{portStr},
-		}
-
-		resultChan, err := pairingService.DiscoverWithIPList(ctx, request)
-		require.NoError(t, err)
-
-		var devices []*pb.Device
-		for result := range resultChan {
-			require.Empty(t, result.Warning)
-			devices = append(devices, result.Devices...)
-		}
-		require.Len(t, devices, 1)
-
-		// send pairing request with one valid and one invalid device identifier
-		pairRequest := createPairRequest([]string{devices[0].DeviceIdentifier, "test-invalid-device"})
-
-		_, err = pairingService.PairDevices(ctx, pairRequest)
-		require.NoError(t, err)
-
-		// Verify pairing was successful for the valid device
-		totalPairedDevices, err := testContext.DatabaseService.GetTotalDevicePairings(adminUser.OrganizationID, 10)
-		require.NoError(t, err)
-		assert.Equal(t, 1, totalPairedDevices)
 	})
 
 	t.Run("treats already paired key rotation auth failures as idempotent without credentials", func(t *testing.T) {

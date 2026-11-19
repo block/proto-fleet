@@ -113,6 +113,8 @@ func TestCanceledProxyReadAllowsRetiredIdentityReuse(t *testing.T) {
 }
 
 func TestProxyObservationFailuresDoNotPoisonDrain(t *testing.T) {
+	shared := newProxyFenceDatabase(t)
+	database, orgID := shared.database, shared.org
 	for _, operation := range []struct{ name, method, path string }{
 		{"GET", http.MethodGet, "/api/v2/system/info"},
 		{"HEAD", http.MethodHead, "/api/v1/system"},
@@ -126,7 +128,7 @@ func TestProxyObservationFailuresDoNotPoisonDrain(t *testing.T) {
 				continue
 			}
 			t.Run(operation.name+"/"+failure, func(t *testing.T) {
-				database, orgID, deviceID, h, target := proxyFenceFixture(t)
+				deviceID, h, target := shared.pairedDevice(t)
 				body := &proxyBodyBarrier{reader: strings.NewReader("{}")}
 				switch failure {
 				case "read":
@@ -160,12 +162,14 @@ func TestProxyObservationFailuresDoNotPoisonDrain(t *testing.T) {
 }
 
 func TestProxyUnclassifiedMutationFailuresStillPoisonDrain(t *testing.T) {
+	shared := newProxyFenceDatabase(t)
+	database, orgID := shared.database, shared.org
 	for _, operation := range []struct{ name, path string }{
 		{"run-in", "/api/v2/modules/T1-M01/run-in"}, {"logs-POST", "/api/v1/system/logs/download"}, {"unknown-POST", "/api/v1/new-setting"},
 	} {
 		for _, failure := range []string{"read", "close", "copy", "network"} {
 			t.Run(operation.name+"/"+failure, func(t *testing.T) {
-				database, orgID, deviceID, h, target := proxyFenceFixture(t)
+				deviceID, h, target := shared.pairedDevice(t)
 				body := &proxyBodyBarrier{reader: strings.NewReader("{}")}
 				if failure == "read" {
 					body.reader = proxyErrorReader{}

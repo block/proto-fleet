@@ -188,12 +188,6 @@ func (s *updateSim) setFaults(mutate func(*updateFaults)) {
 	mutate(&s.cfg.Faults)
 }
 
-func (s *updateSim) setPrimary(id string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.primary = id
-}
-
 func (s *updateSim) currentPrimary() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()

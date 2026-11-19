@@ -36,11 +36,11 @@ func TestSQLCurtailmentStore_ResponseProfileRevisionFencesExecution(t *testing.T
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 	ctx := t.Context()
-	profileID := seedResponseProfile(t, testContext.DatabaseService.DB, user.OrganizationID, "execution-revision-profile")
+	profileID := seedResponseProfile(t, testContext.DB, user.OrganizationID, "execution-revision-profile")
 
 	original, err := store.GetResponseProfile(ctx, user.OrganizationID, profileID)
 	require.NoError(t, err)
@@ -86,9 +86,9 @@ func TestSQLCurtailmentStore_RecurtailRequiresMatchingEventProfileBinding(t *tes
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	database := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	database := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	ctx := t.Context()
 	profileID := seedResponseProfile(t, database, user.OrganizationID, "recurtail-binding-profile")
@@ -172,11 +172,11 @@ func TestSQLCurtailmentStore_ResponseProfileRevisionIgnoresMetadataOnlyUpdate(t 
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 	ctx := t.Context()
-	profileID := seedResponseProfile(t, testContext.DatabaseService.DB, user.OrganizationID, "metadata-revision-profile")
+	profileID := seedResponseProfile(t, testContext.DB, user.OrganizationID, "metadata-revision-profile")
 
 	original, err := store.GetResponseProfile(ctx, user.OrganizationID, profileID)
 	require.NoError(t, err)
@@ -201,9 +201,9 @@ func TestSQLCurtailmentStore_ResponseProfileRevisionTreatsNullAndZeroToleranceEq
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	database := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	database := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	ctx := t.Context()
 
@@ -258,11 +258,11 @@ func TestSQLCurtailmentStore_ResponseProfileRevisionRejectsStaleUpdate(t *testin
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 	ctx := t.Context()
-	profileID := seedResponseProfile(t, testContext.DatabaseService.DB, user.OrganizationID, "revisioned-profile")
+	profileID := seedResponseProfile(t, testContext.DB, user.OrganizationID, "revisioned-profile")
 
 	original, err := store.GetResponseProfile(ctx, user.OrganizationID, profileID)
 	require.NoError(t, err)
@@ -308,16 +308,16 @@ func TestSQLCurtailmentStore_DisabledAutomationRuleRetainsAndRefreshesBoundProfi
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 	ctx := t.Context()
-	profileID := seedResponseProfile(t, testContext.DatabaseService.DB, user.OrganizationID, "automation-revision-profile")
+	profileID := seedResponseProfile(t, testContext.DB, user.OrganizationID, "automation-revision-profile")
 	profile, err := store.GetResponseProfile(ctx, user.OrganizationID, profileID)
 	require.NoError(t, err)
 	sourceID := seedMQTTSourceConfig(
 		t,
-		testContext.DatabaseService.DB,
+		testContext.DB,
 		user.OrganizationID,
 		user.DatabaseID,
 		"automation-revision-source",
@@ -384,9 +384,9 @@ func TestSQLCurtailmentStore_StaleAutomationEnableCannotMixProfileBinding(t *tes
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	database := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	database := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	ctx := t.Context()
 	profileAID := seedResponseProfile(t, database, user.OrganizationID, "stale-enable-profile-a")
@@ -444,9 +444,9 @@ func TestSQLCurtailmentStore_AutomationExecutionRejectsReboundRule(t *testing.T)
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	database := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	database := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	ctx := t.Context()
 	profileAID := seedResponseProfile(t, database, user.OrganizationID, "execution-fence-profile-a")
@@ -553,9 +553,9 @@ func TestSQLCurtailmentStore_AutomationExecutionUsesDurableGrant(t *testing.T) {
 				t.Skip("skipping database integration test in short mode")
 			}
 
-			testContext := testutil.InitializeDBServiceInfrastructure(t)
-			user := testContext.DatabaseService.CreateSuperAdminUser()
-			database := testContext.DatabaseService.DB
+			testContext := testutil.NewDatabaseService(t, nil)
+			user := testContext.CreateSuperAdminUser()
+			database := testContext.DB
 			store := sqlstores.NewSQLCurtailmentStore(database)
 			ctx := t.Context()
 			site, err := sqlstores.NewSQLSiteStore(database).CreateSite(ctx, sitesmodels.CreateSiteParams{
@@ -642,7 +642,7 @@ func TestSQLCurtailmentStore_AutomationExecutionUsesDurableGrant(t *testing.T) {
 			}
 			createdByUserID := user.DatabaseID
 			if tt.useDifferentActor {
-				createdByUserID = testContext.DatabaseService.CreateSuperAdminUser2().DatabaseID
+				createdByUserID = testContext.CreateSuperAdminUser2().DatabaseID
 			}
 
 			scopeType := models.ScopeTypeSite
@@ -752,9 +752,9 @@ func TestSQLCurtailmentStore_AutomationRecurtailRevalidatesExecutionFence(t *tes
 				t.Skip("skipping database integration test in short mode")
 			}
 
-			testContext := testutil.InitializeDBServiceInfrastructure(t)
-			user := testContext.DatabaseService.CreateSuperAdminUser()
-			database := testContext.DatabaseService.DB
+			testContext := testutil.NewDatabaseService(t, nil)
+			user := testContext.CreateSuperAdminUser()
+			database := testContext.DB
 			store := sqlstores.NewSQLCurtailmentStore(database)
 			ctx := t.Context()
 			queries := sqlc.New(database)
@@ -912,7 +912,7 @@ func TestSQLCurtailmentStore_AutomationRecurtailRevalidatesExecutionFence(t *tes
 					OrganizationID: user.OrganizationID,
 				}))
 			case "source":
-				replacement := testContext.DatabaseService.CreateSuperAdminUser2()
+				replacement := testContext.CreateSuperAdminUser2()
 				source, sourceErr := queries.GetMQTTSourceConfigByOrg(ctx, sqlc.GetMQTTSourceConfigByOrgParams{
 					ID:             sourceID,
 					OrganizationID: user.OrganizationID,
@@ -987,9 +987,9 @@ func TestSQLCurtailmentStore_AutomationExecutionSerializesConcurrentRebind(t *te
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	database := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	database := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
@@ -1145,9 +1145,9 @@ func TestSQLCurtailmentStore_ProfileUpdateAndFanExecutionUseConsistentLockOrder(
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	database := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	database := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()

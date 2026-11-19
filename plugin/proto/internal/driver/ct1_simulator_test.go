@@ -3,12 +3,14 @@ package driver
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,16 +18,47 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var (
+	ct1SimulatorOnce   sync.Once
+	ct1SimulatorDir    string
+	ct1SimulatorBinary string
+	ct1SimulatorErr    error
+)
+
+// ct1Simulator returns the CT1_SIMULATOR_BIN binary or builds server/fake-ct1 one time.
+// The fake is its own Go module outside go.work, so the build uses GOWORK=off.
+// TestMain removes the build directory.
+func ct1Simulator(t *testing.T) string {
+	t.Helper()
+	if binary := os.Getenv("CT1_SIMULATOR_BIN"); binary != "" {
+		return binary
+	}
+	ct1SimulatorOnce.Do(func() {
+		simulator, err := filepath.Abs("../../../../server/fake-ct1")
+		if err != nil {
+			ct1SimulatorErr = err
+			return
+		}
+		ct1SimulatorDir, err = os.MkdirTemp("", "fake-ct1-*") //nolint:usetesting // All tests in the package share the binary.
+		if err != nil {
+			ct1SimulatorErr = err
+			return
+		}
+		ct1SimulatorBinary = filepath.Join(ct1SimulatorDir, "fake-ct1")
+		build := exec.Command("go", "build", "-o", ct1SimulatorBinary, ".")
+		build.Dir = simulator
+		build.Env = append(os.Environ(), "GOWORK=off")
+		if output, err := build.CombinedOutput(); err != nil {
+			ct1SimulatorErr = fmt.Errorf("build server/fake-ct1: %w: %s", err, output)
+		}
+	})
+	require.NoError(t, ct1SimulatorErr)
+	return ct1SimulatorBinary
+}
+
 func startCT1Simulator(t *testing.T, environment ...string) map[string]string {
 	t.Helper()
-	simulator, err := filepath.Abs("../../../../server/fake-ct1")
-	require.NoError(t, err)
-	binary := filepath.Join(t.TempDir(), "fake-ct1")
-	build := exec.CommandContext(t.Context(), "go", "build", "-o", binary, ".")
-	build.Dir = simulator
-	build.Env = append(os.Environ(), "GOWORK=off")
-	output, err := build.CombinedOutput()
-	require.NoError(t, err, string(output))
+	binary := ct1Simulator(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	cmd := exec.CommandContext(ctx, binary)
 	cmd.Env = append(os.Environ(), "HTTP_PORT=0", "GRPC_PORT=0", "SERVER_ID=ct1-integration", "CT1_DEMO_MODULE_STATES=false", "CT1_UNLOCATED_BOARDS=0", "CT1_TANKS=6", "CT1_MODULES_PER_TANK=16", "CT1_SLOTS_PER_MODULE=3")

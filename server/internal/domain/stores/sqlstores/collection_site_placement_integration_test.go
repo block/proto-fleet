@@ -20,14 +20,14 @@ func TestRackPlacement_CreateAndRoundTrip(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	orgID := user.OrganizationID
 	ctx := t.Context()
 
-	collectionStore := sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB)
-	siteStore := sqlstores.NewSQLSiteStore(testContext.ServiceProvider.DB)
-	buildingStore := sqlstores.NewSQLBuildingStore(testContext.ServiceProvider.DB)
+	collectionStore := sqlstores.NewSQLCollectionStore(testContext.DB)
+	siteStore := sqlstores.NewSQLSiteStore(testContext.DB)
+	buildingStore := sqlstores.NewSQLBuildingStore(testContext.DB)
 
 	site, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Site A"})
 	require.NoError(t, err)
@@ -59,13 +59,13 @@ func TestUpdateRackPlacement_RewritesAtomically(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	orgID := user.OrganizationID
 	ctx := t.Context()
 
-	collectionStore := sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB)
-	siteStore := sqlstores.NewSQLSiteStore(testContext.ServiceProvider.DB)
+	collectionStore := sqlstores.NewSQLCollectionStore(testContext.DB)
+	siteStore := sqlstores.NewSQLSiteStore(testContext.DB)
 
 	siteA, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Site A"})
 	require.NoError(t, err)
@@ -95,15 +95,15 @@ func TestCascadeRackDeviceSites_RewritesMemberDevices(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	orgID := user.OrganizationID
 	ctx := t.Context()
 
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(orgID, 3, "https://172.17.0.1:80")
+	deviceIDs := testContext.CreateTestMiners(orgID, 3, "https://172.17.0.1:80")
 
-	collectionStore := sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB)
-	siteStore := sqlstores.NewSQLSiteStore(testContext.ServiceProvider.DB)
+	collectionStore := sqlstores.NewSQLCollectionStore(testContext.DB)
+	siteStore := sqlstores.NewSQLSiteStore(testContext.DB)
 
 	siteA, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Site A"})
 	require.NoError(t, err)
@@ -129,11 +129,11 @@ func TestCascadeRackDeviceSites_RewritesMemberDevices(t *testing.T) {
 
 	// Verify post-state.
 	var atB, atA int
-	row := testContext.ServiceProvider.DB.QueryRowContext(ctx,
+	row := testContext.DB.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM device WHERE org_id = $1 AND site_id = $2`, orgID, siteB.ID)
 	require.NoError(t, row.Scan(&atB))
 	assert.Equal(t, 2, atB, "the 2 rack members moved to site B")
-	row = testContext.ServiceProvider.DB.QueryRowContext(ctx,
+	row = testContext.DB.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM device WHERE org_id = $1 AND site_id = $2`, orgID, siteA.ID)
 	require.NoError(t, row.Scan(&atA))
 	assert.Equal(t, 1, atA, "the non-member device stays at site A")
@@ -147,15 +147,15 @@ func TestGetAddedDeviceSiteConflicts_ReturnsOnlyConflictingDevices(t *testing.T)
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	orgID := user.OrganizationID
 	ctx := t.Context()
 
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(orgID, 3, "https://172.17.0.1:80")
+	deviceIDs := testContext.CreateTestMiners(orgID, 3, "https://172.17.0.1:80")
 
-	collectionStore := sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB)
-	siteStore := sqlstores.NewSQLSiteStore(testContext.ServiceProvider.DB)
+	collectionStore := sqlstores.NewSQLCollectionStore(testContext.DB)
+	siteStore := sqlstores.NewSQLSiteStore(testContext.DB)
 
 	siteA, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Site A"})
 	require.NoError(t, err)
@@ -186,15 +186,15 @@ func TestCascadeAddedDeviceSites_RewritesOnlyDiffering(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	orgID := user.OrganizationID
 	ctx := t.Context()
 
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(orgID, 2, "https://172.17.0.1:80")
+	deviceIDs := testContext.CreateTestMiners(orgID, 2, "https://172.17.0.1:80")
 
-	collectionStore := sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB)
-	siteStore := sqlstores.NewSQLSiteStore(testContext.ServiceProvider.DB)
+	collectionStore := sqlstores.NewSQLCollectionStore(testContext.DB)
+	siteStore := sqlstores.NewSQLSiteStore(testContext.DB)
 
 	siteA, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Site A"})
 	require.NoError(t, err)
@@ -224,14 +224,14 @@ func TestGetBuildingSite(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	orgID := user.OrganizationID
 	ctx := t.Context()
 
-	collectionStore := sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB)
-	siteStore := sqlstores.NewSQLSiteStore(testContext.ServiceProvider.DB)
-	buildingStore := sqlstores.NewSQLBuildingStore(testContext.ServiceProvider.DB)
+	collectionStore := sqlstores.NewSQLCollectionStore(testContext.DB)
+	siteStore := sqlstores.NewSQLSiteStore(testContext.DB)
+	buildingStore := sqlstores.NewSQLBuildingStore(testContext.DB)
 
 	site, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Site"})
 	require.NoError(t, err)
@@ -258,14 +258,14 @@ func TestLockRackPlacementForWrite(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	orgID := user.OrganizationID
 	ctx := t.Context()
 
-	collectionStore := sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB)
-	siteStore := sqlstores.NewSQLSiteStore(testContext.ServiceProvider.DB)
-	transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
+	collectionStore := sqlstores.NewSQLCollectionStore(testContext.DB)
+	siteStore := sqlstores.NewSQLSiteStore(testContext.DB)
+	transactor := sqlstores.NewSQLTransactor(testContext.DB)
 
 	site, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Site"})
 	require.NoError(t, err)
@@ -302,15 +302,15 @@ func TestUnassignDeviceSitesByRack_ClearsRackMembersOnly(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	orgID := user.OrganizationID
 	ctx := t.Context()
 
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(orgID, 3, "https://172.17.0.1:80")
+	deviceIDs := testContext.CreateTestMiners(orgID, 3, "https://172.17.0.1:80")
 
-	collectionStore := sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB)
-	siteStore := sqlstores.NewSQLSiteStore(testContext.ServiceProvider.DB)
+	collectionStore := sqlstores.NewSQLCollectionStore(testContext.DB)
+	siteStore := sqlstores.NewSQLSiteStore(testContext.DB)
 
 	site, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Site"})
 	require.NoError(t, err)
@@ -329,7 +329,7 @@ func TestUnassignDeviceSitesByRack_ClearsRackMembersOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), n, "only the 2 rack members should be nulled")
 
-	row := testContext.ServiceProvider.DB.QueryRowContext(ctx,
+	row := testContext.DB.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM device WHERE org_id = $1 AND site_id = $2`, orgID, site.ID)
 	var remaining int
 	require.NoError(t, row.Scan(&remaining))
@@ -349,16 +349,16 @@ func TestLockRacksForReparent_ReturnsSourceAndTargetIDs(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	orgID := user.OrganizationID
 	ctx := t.Context()
 
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(orgID, 3, "https://172.17.0.1:80")
+	deviceIDs := testContext.CreateTestMiners(orgID, 3, "https://172.17.0.1:80")
 
-	collectionStore := sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB)
-	siteStore := sqlstores.NewSQLSiteStore(testContext.ServiceProvider.DB)
-	transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
+	collectionStore := sqlstores.NewSQLCollectionStore(testContext.DB)
+	siteStore := sqlstores.NewSQLSiteStore(testContext.DB)
+	transactor := sqlstores.NewSQLTransactor(testContext.DB)
 
 	site, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Site"})
 	require.NoError(t, err)

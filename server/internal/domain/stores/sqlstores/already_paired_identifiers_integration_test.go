@@ -19,9 +19,8 @@ func TestGetAlreadyPairedDeviceIdentifiers(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	dbService := testContext.DatabaseService
-	db := testContext.ServiceProvider.DB
+	dbService := testutil.NewDatabaseService(t, nil)
+	db := dbService.DB
 	store := sqlstores.NewSQLDeviceStore(db)
 	ctx := t.Context()
 	org := dbService.CreateSuperAdminUser()

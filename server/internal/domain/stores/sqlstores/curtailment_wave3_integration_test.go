@@ -23,9 +23,9 @@ func TestSQLCurtailmentStore_FanCommandsDoNotReplayAfterCommitFailure(t *testing
 	}
 	for _, operation := range []string{"command", "admin terminate", "force release", "terminal recovery"} {
 		t.Run(operation, func(t *testing.T) {
-			fixture := testutil.InitializeDBServiceInfrastructure(t)
-			user := fixture.DatabaseService.CreateSuperAdminUser()
-			database := fixture.DatabaseService.DB
+			fixture := testutil.NewDatabaseService(t, nil)
+			user := fixture.CreateSuperAdminUser()
+			database := fixture.DB
 			ctx := t.Context()
 			store := sqlstores.NewSQLCurtailmentStore(database)
 			siteID, fanID := seedCurtailmentFacilityFan(t, database, user.OrganizationID, "no-replay")
@@ -92,9 +92,9 @@ func TestSQLCurtailmentStore_UpdateDurationPolicyRechecksCurrentRow(t *testing.T
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")
 	}
-	fixture := testutil.InitializeDBServiceInfrastructure(t)
-	user := fixture.DatabaseService.CreateSuperAdminUser()
-	database := fixture.DatabaseService.DB
+	fixture := testutil.NewDatabaseService(t, nil)
+	user := fixture.CreateSuperAdminUser()
+	database := fixture.DB
 	ctx := t.Context()
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	eventUUID := uuid.New()
@@ -133,11 +133,11 @@ func TestSQLCurtailmentStore_AllPairedAdmissionPreservesTypedErrors(t *testing.T
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")
 	}
-	fixture := testutil.InitializeDBServiceInfrastructure(t)
-	user := fixture.DatabaseService.CreateSuperAdminUser()
-	other := fixture.DatabaseService.CreateSuperAdminUser2()
+	fixture := testutil.NewDatabaseService(t, nil)
+	user := fixture.CreateSuperAdminUser()
+	other := fixture.CreateSuperAdminUser2()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(fixture.DatabaseService.DB)
+	store := sqlstores.NewSQLCurtailmentStore(fixture.DB)
 	eventUUID := uuid.New()
 	inserted, err := store.InsertEventWithTargets(ctx,
 		curtailmentStoreAllPairedEvent(user.OrganizationID, user.DatabaseID, eventUUID, "typed-admission"),
@@ -159,10 +159,10 @@ func TestSQLCurtailmentStore_ReleasePathsStampReleasedAt(t *testing.T) {
 	}
 	for _, operation := range []string{"force release", "undispatched restore", "policy release"} {
 		t.Run(operation, func(t *testing.T) {
-			fixture := testutil.InitializeDBServiceInfrastructure(t)
-			user := fixture.DatabaseService.CreateSuperAdminUser()
+			fixture := testutil.NewDatabaseService(t, nil)
+			user := fixture.CreateSuperAdminUser()
 			ctx := t.Context()
-			store := sqlstores.NewSQLCurtailmentStore(fixture.DatabaseService.DB)
+			store := sqlstores.NewSQLCurtailmentStore(fixture.DB)
 			eventUUID := uuid.New()
 			event, err := store.InsertEventWithTargets(ctx,
 				curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, eventUUID, models.EventStatePending, "release-stamp"),
@@ -200,10 +200,10 @@ func TestSQLCurtailmentStore_TopologyRestorePreservesFailedPrecondition(t *testi
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")
 	}
-	fixture := testutil.InitializeDBServiceInfrastructure(t)
-	user := fixture.DatabaseService.CreateSuperAdminUser()
+	fixture := testutil.NewDatabaseService(t, nil)
+	user := fixture.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(fixture.DatabaseService.DB)
+	store := sqlstores.NewSQLCurtailmentStore(fixture.DB)
 	eventUUID := uuid.New()
 	_, err := store.InsertEventWithTargets(ctx,
 		curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, eventUUID, models.EventStateActive, "topology-restore-error"),

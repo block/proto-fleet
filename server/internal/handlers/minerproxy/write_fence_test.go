@@ -86,15 +86,41 @@ func (p *proxyResponseTransport) RoundTrip(*http.Request) (*http.Response, error
 }
 func proxyFenceFixture(t *testing.T) (*testutil.DatabaseService, int64, int64, *Handler, proxyTarget) {
 	t.Helper()
+	shared := newProxyFenceDatabase(t)
+	device, h, target := shared.pairedDevice(t)
+	return shared.database, shared.org, device, h, target
+}
+
+// proxyFenceDatabase holds one database and one user.
+// A table test makes it one time and calls pairedDevice for each row.
+type proxyFenceDatabase struct {
+	database *testutil.DatabaseService
+	org      int64
+	devices  int
+}
+
+func newProxyFenceDatabase(t *testing.T) *proxyFenceDatabase {
+	t.Helper()
 	cfg, err := testutil.GetTestConfig()
 	require.NoError(t, err)
 	database := testutil.NewDatabaseService(t, cfg)
 	user := database.CreateSuperAdminUser()
-	device := database.CreateDevice(user.OrganizationID, "proto")
+	return &proxyFenceDatabase{database: database, org: user.OrganizationID}
+}
+
+// pairedDevice makes a new paired device with its own address, handler and proxy target.
+func (f *proxyFenceDatabase) pairedDevice(t *testing.T) (int64, *Handler, proxyTarget) {
+	t.Helper()
+	database := f.database
+	device := database.CreateDevice(f.org, "proto")
 	q := sqlc.New(database.DB)
-	_, err = q.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{DeviceID: device.DatabaseID, PairingStatus: sqlc.PairingStatusEnumPAIRED})
+	_, err := q.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{DeviceID: device.DatabaseID, PairingStatus: sqlc.PairingStatusEnumPAIRED})
 	require.NoError(t, err)
-	require.NoError(t, q.UpdateDeviceIPAssignment(t.Context(), sqlc.UpdateDeviceIPAssignmentParams{ID: device.DatabaseID, IpAddress: "192.0.2.18", Port: "8080", UrlScheme: "http"}))
+	// Each device in one organization must have a different address.
+	f.devices++
+	require.LessOrEqual(t, f.devices, 200, "the fixture address range is full")
+	address := fmt.Sprintf("192.0.2.%d", 17+f.devices)
+	require.NoError(t, q.UpdateDeviceIPAssignment(t.Context(), sqlc.UpdateDeviceIPAssignmentParams{ID: device.DatabaseID, IpAddress: address, Port: "8080", UrlScheme: "http"}))
 	h := newForwardTestHandler(t)
 	h.conn = database.DB
 	h.queries = q
@@ -102,9 +128,9 @@ func proxyFenceFixture(t *testing.T) (*testutil.DatabaseService, int64, int64, *
 	h.sessionService = session.NewService(session.Config{Duration: time.Minute, IDBytes: 32, CookieName: "fleet_session"}, sqlstores.NewSQLSessionStore(database.DB))
 	h.userStore = sqlstores.NewSQLUserStore(database.DB)
 	h.permissionResolver = authz.NewPermissionResolver(database.DB)
-	target, err := h.resolveTarget(t.Context(), device.ID, user.OrganizationID)
+	target, err := h.resolveTarget(t.Context(), device.ID, f.org)
 	require.NoError(t, err)
-	return database, user.OrganizationID, device.DatabaseID, h, target
+	return device.DatabaseID, h, target
 }
 func awaitProxyBarrier(t *testing.T, barrier <-chan struct{}) {
 	t.Helper()
@@ -485,6 +511,8 @@ func TestProxyServeHTTPResponseFailureDoesNotAppendError(t *testing.T) {
 	}
 }
 func TestProxyStaleBindingWithoutEpochChangeSendsNoRequest(t *testing.T) {
+	shared := newProxyFenceDatabase(t)
+	database, orgID := shared.database, shared.org
 	changes := map[string]string{
 		"credentials":        "UPDATE miner_credentials SET password_enc='different', updated_at=updated_at+interval '1 second' WHERE device_id=$1",
 		"endpoint":           "UPDATE discovered_device SET port='8081' WHERE id=(SELECT discovered_device_id FROM device WHERE id=$1)",
@@ -492,12 +520,12 @@ func TestProxyStaleBindingWithoutEpochChangeSendsNoRequest(t *testing.T) {
 		"deleted-discovery":  "UPDATE discovered_device SET deleted_at=now() WHERE id=(SELECT discovered_device_id FROM device WHERE id=$1)",
 		"pairing":            "UPDATE device_pairing SET pairing_status='UNPAIRED' WHERE device_id=$1",
 		"deleted-device":     "UPDATE device SET deleted_at=now() WHERE id=$1",
-		"fleet-node":         "WITH node AS (INSERT INTO fleet_node(org_id,name,identity_pubkey,encryption_pubkey) SELECT org_id,'proxy-node','\\x01'::bytea,decode(repeat('01',32),'hex') FROM device WHERE id=$1 RETURNING id,org_id) INSERT INTO fleet_node_device(fleet_node_id,device_id,org_id) SELECT id,$1,org_id FROM node",
+		"fleet-node":         "WITH node AS (INSERT INTO fleet_node(org_id,name,identity_pubkey,encryption_pubkey) SELECT org_id,'proxy-node-'||id,int8send(id),decode(repeat('01',32),'hex') FROM device WHERE id=$1 RETURNING id,org_id) INSERT INTO fleet_node_device(fleet_node_id,device_id,org_id) SELECT id,$1,org_id FROM node",
 	}
 	for name, change := range changes {
 		for _, operation := range []string{"login", "raw", "mutation"} {
 			t.Run(name+"/"+operation, func(t *testing.T) {
-				database, orgID, deviceID, h, target := proxyFenceFixture(t)
+				deviceID, h, target := shared.pairedDevice(t)
 				encrypted, err := h.encryptService.Encrypt([]byte("proxy-fixture-password"))
 				require.NoError(t, err)
 				require.NoError(t, sqlc.New(database.DB).UpsertMinerCredentials(t.Context(), sqlc.UpsertMinerCredentialsParams{DeviceID: deviceID, UsernameEnc: encrypted, PasswordEnc: encrypted}))

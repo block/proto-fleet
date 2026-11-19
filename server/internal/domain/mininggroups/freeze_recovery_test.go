@@ -18,7 +18,7 @@ func TestFreezeKeepsLegacyRecoveryAvailableUntilAllGapsResolved(t *testing.T) {
 	}
 	before := f.state(t)
 	require.ErrorContains(t, freeze(), "unresolved", "freezing this workflow would prevent its audited cleanup")
-	frozen, err := f.service.queries.LegacyPoolWritersDisabled(ctx, f.target.OrganizationID)
+	frozen, err := legacyPoolWritersDisabled(ctx, f.conn, f.target.OrganizationID)
 	require.NoError(t, err)
 	require.False(t, frozen, "a rejected freeze must leave recovery available")
 	require.Equal(t, before, f.state(t))
@@ -36,7 +36,7 @@ func TestFreezeKeepsLegacyRecoveryAvailableUntilAllGapsResolved(t *testing.T) {
 		return err
 	}))
 	require.ErrorContains(t, freeze(), "unmanaged_device", "recovery removed failed intent; importing bindings must not fabricate a replacement assignment")
-	frozen, err = f.service.queries.LegacyPoolWritersDisabled(ctx, f.target.OrganizationID)
+	frozen, err = legacyPoolWritersDisabled(ctx, f.conn, f.target.OrganizationID)
 	require.NoError(t, err)
 	require.False(t, frozen, "a replacement assignment must remain possible after recovery")
 }
@@ -52,7 +52,7 @@ func TestFreezeRejectsPendingCanonicalAssignmentUntilItFinishes(t *testing.T) {
 	calls := len(firmware.calls)
 	require.ErrorContains(t, freeze(), "pending_configuration")
 	require.Len(t, firmware.calls, calls, "inspection never dispatches the pending update")
-	frozen, err := f.service.queries.LegacyPoolWritersDisabled(ctx, f.target.OrganizationID)
+	frozen, err := legacyPoolWritersDisabled(ctx, f.conn, f.target.OrganizationID)
 	require.NoError(t, err)
 	require.False(t, frozen)
 	require.NoError(t, f.service.ExecutePoolConfiguration(ctx, f.target.OrganizationID, saved.Operation.ID, f.target.DeviceID))

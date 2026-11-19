@@ -62,27 +62,7 @@ const (
 	// fleetMetricRollupReadMaxDuration keeps the new 90s dashboard rollup on
 	// the raw-window paths. Longer ranges already use hourly/daily aggregates.
 	fleetMetricRollupReadMaxDuration = rawDataMaxDuration
-
-	// Energy estimation constants.
-	// Each telemetry data point represents one polling interval of device uptime.
-	pollingIntervalSeconds = 10.0
-	secondsPerHour         = 3600.0
-	wattsPerKilowatt       = 1000.0
 )
-
-// estimateEnergyKWh computes estimated energy consumption in kilowatt-hours
-// from average power and data point count. Unlike the old CAGG formula
-// (SUM(power_w) / COUNT(*) * 24) which assumed 24h of uniform sampling,
-// this scales by actual device uptime: each data point represents one polling
-// interval (~10s), so devices offline for part of the day get proportionally
-// less energy attributed.
-//
-// Intended for per-device daily energy rollups in handlers or domain logic
-// once energy reporting is surfaced to the UI.
-func estimateEnergyKWh(avgPowerW float64, dataPoints int64) float64 {
-	activeHours := float64(dataPoints) * pollingIntervalSeconds / secondsPerHour
-	return avgPowerW * activeHours / wattsPerKilowatt
-}
 
 // dataSource represents which table to query from based on time range
 type dataSource int
@@ -851,13 +831,6 @@ func fleetMetricRollupWindows(startTime, endTime time.Time) (bodyStart, bodyEndE
 		return time.Time{}, time.Time{}, false
 	}
 	return startTime, bodyEndExclusive, true
-}
-
-func fleetRollupBucketCountExclusive(startTime, endTime time.Time) int64 {
-	if !endTime.After(startTime) {
-		return 0
-	}
-	return rawMetricBucketCount(startTime, endTime.Add(-time.Nanosecond), models.FleetMetricRollupBucketDuration)
 }
 
 func fleetMetricRollupCoveredWindow(bodyStart, bodyEndExclusive, earliestBucket, latestBucket time.Time) (start, endExclusive time.Time, ok bool) {

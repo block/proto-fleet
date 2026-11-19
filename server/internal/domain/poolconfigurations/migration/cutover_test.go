@@ -196,9 +196,7 @@ func TestCutoverRejectsUnsettledPoolWork(t *testing.T) {
 			})
 			if scenario.blocked {
 				require.ErrorContains(t, freezeErr, "unresolved")
-				frozen, err := q.LegacyPoolWritersDisabled(ctx, org)
-				require.NoError(t, err)
-				require.False(t, frozen, "rejected freeze leaves drain and recovery available")
+				require.False(t, cutoverMarkerExists(t, conn, org), "rejected freeze leaves drain and recovery available")
 				// Exercise completion's independent defense against unfinished
 				// work even if a marker was inserted outside the maintenance API.
 				require.NoError(t, q.FreezePoolConfigurationWriters(ctx, org))

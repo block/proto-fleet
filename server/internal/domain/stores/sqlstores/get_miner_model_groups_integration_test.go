@@ -65,9 +65,8 @@ func TestGetMinerModelGroups_IncludesDefaultPasswordAndExcludesAuthNeeded(t *tes
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	dbSvc := tc.DatabaseService
-	deviceStore := sqlstores.NewSQLDeviceStore(tc.ServiceProvider.DB)
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	deviceStore := sqlstores.NewSQLDeviceStore(dbSvc.DB)
 	ctx := t.Context()
 
 	user := dbSvc.CreateSuperAdminUser()
@@ -146,9 +145,8 @@ func TestGetMinerModelGroups_FirmwareFilter(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	dbSvc := tc.DatabaseService
-	db := tc.ServiceProvider.DB
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	ctx := t.Context()
 
@@ -205,9 +203,8 @@ func TestGetMinerModelGroups_ZoneFilter(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	dbSvc := tc.DatabaseService
-	db := tc.ServiceProvider.DB
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	collectionStore := sqlstores.NewSQLCollectionStore(db)
 	ctx := t.Context()
@@ -277,9 +274,8 @@ func TestGetMinerModelGroups_ZoneWithComma(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	dbSvc := tc.DatabaseService
-	db := tc.ServiceProvider.DB
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	collectionStore := sqlstores.NewSQLCollectionStore(db)
 	ctx := t.Context()
@@ -315,9 +311,8 @@ func TestGetMinerModelGroups_FirmwareAndZoneFilters(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	dbSvc := tc.DatabaseService
-	db := tc.ServiceProvider.DB
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	collectionStore := sqlstores.NewSQLCollectionStore(db)
 	ctx := t.Context()
@@ -389,9 +384,8 @@ func TestGetMinerModelGroups_ExcludesInactiveAndSoftDeletedDiscoveredDevices(t *
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	dbSvc := tc.DatabaseService
-	db := tc.ServiceProvider.DB
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	ctx := t.Context()
 
@@ -432,9 +426,8 @@ func TestGetMinerModelGroups_NumericRangeFilter(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	dbSvc := tc.DatabaseService
-	db := tc.ServiceProvider.DB
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	ctx := t.Context()
 
@@ -473,9 +466,8 @@ func TestGetMinerModelGroups_IPCIDRFilter(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	dbSvc := tc.DatabaseService
-	db := tc.ServiceProvider.DB
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	ctx := t.Context()
 
@@ -510,9 +502,8 @@ func TestGetMinerModelGroups_IPRangeFilter(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	dbSvc := tc.DatabaseService
-	db := tc.ServiceProvider.DB
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	ctx := t.Context()
 
@@ -547,9 +538,8 @@ func TestGetMinerModelGroups_NumericPlusCIDR(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	dbSvc := tc.DatabaseService
-	db := tc.ServiceProvider.DB
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	ctx := t.Context()
 

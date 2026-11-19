@@ -175,14 +175,6 @@ func (f *fakeFleetNodeGateway) heartbeatCount() int {
 	return len(f.heartbeatsReceived)
 }
 
-func (f *fakeFleetNodeGateway) heartbeats() []heartbeatRecord {
-	f.heartbeatMu.Lock()
-	defer f.heartbeatMu.Unlock()
-	out := make([]heartbeatRecord, len(f.heartbeatsReceived))
-	copy(out, f.heartbeatsReceived)
-	return out
-}
-
 func (f *fakeFleetNodeGateway) artifactUploads() []*pb.UploadCommandArtifactRequest {
 	f.artifactMu.Lock()
 	defer f.artifactMu.Unlock()

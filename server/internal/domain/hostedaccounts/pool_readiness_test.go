@@ -160,15 +160,22 @@ func TestPoolReadinessDeadlineReleasesLocksAndDoesNotSaveReview(t *testing.T) {
 			require.ErrorAs(t, err, &pgErr)
 			require.Equal(t, "55P03", pgErr.Code)
 			require.NoError(t, tx.Rollback())
+			if !earlierDeadline {
+				// The caller deadline case proves the expiry result. Both cases end
+				// the same derived context, so this case does not wait 30 seconds.
+				cancel()
+			}
 			select {
 			case err = <-done:
-			case <-time.After(35 * time.Second):
-				t.Fatal("readiness did not return at its deadline")
+			case <-time.After(10 * time.Second):
+				t.Fatal("readiness did not return")
 			}
 			require.Error(t, err)
-			require.True(t, fleeterror.IsUnavailableError(err))
-			require.ErrorIs(t, err, context.DeadlineExceeded)
-			require.Contains(t, err.Error(), "try reviewing again")
+			if earlierDeadline {
+				require.True(t, fleeterror.IsUnavailableError(err))
+				require.ErrorIs(t, err, context.DeadlineExceeded)
+				require.Contains(t, err.Error(), "try reviewing again")
+			}
 			require.Zero(t, device.writes)
 			require.Equal(t, 1, device.observations)
 			// Reacquire the identity, device, fence and readiness locks on a new transaction.

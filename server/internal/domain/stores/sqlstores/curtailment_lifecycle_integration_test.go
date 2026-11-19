@@ -23,9 +23,9 @@ func TestSQLCurtailmentStore_LifecycleDurationGatesUseLockedRow(t *testing.T) {
 	}
 	for _, state := range []models.EventState{models.EventStatePending, models.EventStateActive, models.EventStateRestoring} {
 		t.Run(string(state), func(t *testing.T) {
-			fixture := testutil.InitializeDBServiceInfrastructure(t)
-			user := fixture.DatabaseService.CreateSuperAdminUser()
-			database := fixture.DatabaseService.DB
+			fixture := testutil.NewDatabaseService(t, nil)
+			user := fixture.CreateSuperAdminUser()
+			database := fixture.DB
 			ctx := t.Context()
 			store := sqlstores.NewSQLCurtailmentStore(database)
 			eventUUID := uuid.New()
@@ -85,9 +85,9 @@ func TestSQLCurtailmentStore_FanIOAllowsMetadataUpdatesButSerializesLifecycle(t 
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")
 	}
-	fixture := testutil.InitializeDBServiceInfrastructure(t)
-	user := fixture.DatabaseService.CreateSuperAdminUser()
-	database := fixture.DatabaseService.DB
+	fixture := testutil.NewDatabaseService(t, nil)
+	user := fixture.CreateSuperAdminUser()
+	database := fixture.DB
 	ctx := t.Context()
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	siteID, fanID := seedCurtailmentFacilityFan(t, database, user.OrganizationID, "fan-metadata")

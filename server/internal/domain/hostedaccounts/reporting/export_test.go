@@ -466,22 +466,11 @@ func TestWriteEvidenceStreamsObservationsAndPropagatesFailures(t *testing.T) {
 	}
 }
 
-func TestWriteEvidenceMatchesConvenienceArtifacts(t *testing.T) {
+func TestWriteEvidenceObligationsGiveTrueEpisodeStartAndClippedPeriod(t *testing.T) {
 	r, in, id, obs := exportFixture()
-	files := buildExport(t, r, in, id, obs)
 	var stream bytes.Buffer
 	if err := WriteEvidence(&stream, r, in, id, ObservationSource{Hours: func(yield func(Observation) error) error { return yield(obs[0]) }}); err != nil {
 		t.Fatal(err)
-	}
-	if !bytes.Equal(stream.Bytes(), files["evidence.zip"].Data) {
-		t.Fatal("streaming and in-memory archives differ")
-	}
-	html, err := BuildWrittenReport(r, id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(html, files["report.html"].Data) {
-		t.Fatal("written artifact helper differs")
 	}
 	members := unzipExport(t, stream.Bytes())
 	rows, err := csv.NewReader(bytes.NewReader(members["obligations.csv"])).ReadAll()

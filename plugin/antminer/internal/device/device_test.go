@@ -885,19 +885,6 @@ func TestDevice_GetWebViewURL(t *testing.T) {
 	assert.Equal(t, "http://192.168.1.100", url)
 }
 
-func TestDevice_ID(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockClient := mocks.NewMockAntminerClient(ctrl)
-	device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
-	defer cleanupDevice(t, device, mockClient)
-
-	// Test ID getter
-	id := device.ID()
-	assert.Equal(t, testDeviceID, id)
-}
-
 func TestDevice_Close(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

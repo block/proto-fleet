@@ -27,7 +27,10 @@ func TestArchivedHostPoolCredentialsRetainAccountBoundaries(t *testing.T) {
 	require.NoError(t, err, "archiving preserves the credentials needed by accepted workflows")
 	require.Len(t, credentials, 1)
 	require.Equal(t, password, credentials[0].Password)
-	_, err = q.GetHostMiningGroupPoolRevision(ctx, sqlc.GetHostMiningGroupPoolRevisionParams{OrganizationID: f.org, RevisionID: config.RevisionID})
+	var assignable string
+	err = f.db.QueryRowContext(ctx, `SELECT r.revision_id FROM hosted_account_pool_revision r JOIN hosted_account a ON a.id=r.account_id AND a.organization_id=r.organization_id
+JOIN hosted_account_pool p ON p.pool_id=r.pool_id AND p.organization_id=r.organization_id AND p.account_id=r.account_id
+WHERE r.organization_id=$1 AND r.revision_id=$2 AND a.depth=0 AND NOT a.suspended AND NOT p.archived`, f.org, config.RevisionID).Scan(&assignable)
 	require.ErrorIs(t, err, sql.ErrNoRows, "new assignments must still reject the archived configuration")
 	_, err = pools.HostGroupCredentials(ctx, q, f.org+1, config.RevisionID)
 	require.ErrorIs(t, err, sql.ErrNoRows, "archived revisions remain organization scoped")

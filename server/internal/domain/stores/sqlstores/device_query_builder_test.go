@@ -74,7 +74,7 @@ func TestStaticMinerQueriesRequireFleetNodeHeartbeat(t *testing.T) {
 
 	sql := string(raw)
 	staleness := "AND fn.last_seen_at IS NOT NULL\n             AND fn.last_seen_at < NOW() - INTERVAL '2 minutes'"
-	assert.Equal(t, 6, strings.Count(sql, staleness))
+	assert.Equal(t, 5, strings.Count(sql, staleness))
 	assert.NotContains(t, sql, "COALESCE(fn.last_seen_at")
 }
 

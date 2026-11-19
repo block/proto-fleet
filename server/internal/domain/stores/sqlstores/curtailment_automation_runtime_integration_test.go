@@ -22,10 +22,10 @@ func TestSQLCurtailmentStore_AutomationActivationKeepsNewerSignals(t *testing.T)
 	if testing.Short() {
 		t.Skip("database integration")
 	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	user := tc.DatabaseService.CreateSuperAdminUser()
+	tc := testutil.NewDatabaseService(t, nil)
+	user := tc.CreateSuperAdminUser()
 	ctx := t.Context()
-	database := tc.DatabaseService.DB
+	database := tc.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	sourceID := seedMQTTSourceConfig(t, database, user.OrganizationID, user.DatabaseID, "activation-source", true)
 	profileID := seedResponseProfile(t, database, user.OrganizationID, "activation-profile")
@@ -58,10 +58,10 @@ func TestSQLCurtailmentStore_AutomationMailboxAppliesCurrentStateAndSerializesSu
 	if testing.Short() {
 		t.Skip("database integration")
 	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	user := tc.DatabaseService.CreateSuperAdminUser()
+	tc := testutil.NewDatabaseService(t, nil)
+	user := tc.CreateSuperAdminUser()
 	ctx := t.Context()
-	database := tc.DatabaseService.DB
+	database := tc.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	sourceID := seedMQTTSourceConfig(t, database, user.OrganizationID, user.DatabaseID, "mailbox-source", true)
 	profileID := seedResponseProfile(t, database, user.OrganizationID, "mailbox-profile")
@@ -118,10 +118,10 @@ func TestSQLCurtailmentStore_AutomationGrantRevocationAndSourceDisableGuard(t *t
 	if testing.Short() {
 		t.Skip("database integration")
 	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	user := tc.DatabaseService.CreateSuperAdminUser()
+	tc := testutil.NewDatabaseService(t, nil)
+	user := tc.CreateSuperAdminUser()
 	ctx := t.Context()
-	database := tc.DatabaseService.DB
+	database := tc.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	sourceID := seedMQTTSourceConfig(t, database, user.OrganizationID, user.DatabaseID, "grant-source", true)
 	profileID := seedResponseProfile(t, database, user.OrganizationID, "grant-profile")
@@ -176,10 +176,10 @@ func TestSQLCurtailmentStore_AutomationReassertPreservesPendingCycleAndRetryBack
 	if testing.Short() {
 		t.Skip("database integration")
 	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	user := tc.DatabaseService.CreateSuperAdminUser()
+	tc := testutil.NewDatabaseService(t, nil)
+	user := tc.CreateSuperAdminUser()
 	ctx := t.Context()
-	database := tc.DatabaseService.DB
+	database := tc.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	sourceID := seedMQTTSourceConfig(t, database, user.OrganizationID, user.DatabaseID, "backoff-source", true)
 	profileID := seedResponseProfile(t, database, user.OrganizationID, "backoff-profile")

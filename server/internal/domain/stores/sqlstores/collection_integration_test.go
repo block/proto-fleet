@@ -22,14 +22,14 @@ import (
 
 func setupCollectionTestData(t *testing.T, deviceCount int) (db *sql.DB, orgID int64, deviceIDs []string) {
 	t.Helper()
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	adminUser := testContext.CreateSuperAdminUser()
 	deviceIDs = make([]string, deviceCount)
 	for i := range deviceCount {
-		device := testContext.DatabaseService.CreateDevice(adminUser.OrganizationID, "proto")
+		device := testContext.CreateDevice(adminUser.OrganizationID, "proto")
 		deviceIDs[i] = device.ID
 	}
-	return testContext.DatabaseService.DB, adminUser.OrganizationID, deviceIDs
+	return testContext.DB, adminUser.OrganizationID, deviceIDs
 }
 
 func newCollectionStore(db *sql.DB) *sqlstores.SQLCollectionStore {
@@ -708,10 +708,10 @@ func TestCollectionStore_ListCollections_SortsByIssueCount(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(adminUser.OrganizationID, 3, "https://127.0.0.1:8080")
-	db := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	adminUser := testContext.CreateSuperAdminUser()
+	deviceIDs := testContext.CreateTestMiners(adminUser.OrganizationID, 3, "https://127.0.0.1:8080")
+	db := testContext.DB
 	store := newCollectionStore(db)
 	errorStore := newErrorStore(db)
 	ctx := t.Context()

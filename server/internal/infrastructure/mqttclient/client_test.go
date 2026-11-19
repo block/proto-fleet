@@ -594,26 +594,6 @@ func reportReconnectStatusWithTestTimeout(t *testing.T, client *Client, replay r
 	client.reportReconnectStatusForSequence(ctx, replay, sequence)
 }
 
-func TestClientRuntimeStatusReporter(t *testing.T) {
-	t.Parallel()
-
-	client := New()
-	status := captureRuntimeStatus(client)
-
-	wantErr := errors.New("connection lost")
-	client.reportRuntimeStatus(false, false, wantErr)
-
-	if status.connected {
-		t.Fatal("connected = true, want false")
-	}
-	if status.subscribed {
-		t.Fatal("subscribed = true, want false")
-	}
-	if !errors.Is(status.err, wantErr) {
-		t.Fatalf("err = %v, want %v", status.err, wantErr)
-	}
-}
-
 func TestReportConnectionLostStatusSkipsAlreadyOpenClient(t *testing.T) {
 	t.Parallel()
 

@@ -321,42 +321,14 @@ func (s *Service) ValidateFirmwareFilename(filename string) error {
 	return nil
 }
 
-// ValidateFirmwareFile checks that the filename has an allowed extension and the
-// size does not exceed the configured maximum. It should be called before saving
-// when the file size is known upfront.
-func (s *Service) ValidateFirmwareFile(filename string, size int64) error {
-	if filename == "" {
-		return fleeterror.NewInvalidArgumentError("firmware filename is required")
-	}
-
-	if !hasAllowedFirmwareExtension(filename) {
-		return fleeterror.NewInvalidArgumentErrorf("unsupported firmware file type %q (allowed: %s)",
-			filename, allowedExtensionsList())
-	}
-
-	if size <= 0 {
-		return fleeterror.NewInvalidArgumentError("firmware file size must be greater than zero")
-	}
-
-	maxSize := s.maxFirmwareFileSize
-	if maxSize <= 0 {
-		maxSize = defaultMaxFirmwareFileSize
-	}
-	if size > maxSize {
-		return fleeterror.NewInvalidArgumentErrorf("firmware file too large: %d bytes (max: %d bytes)", size, maxSize)
-	}
-
-	return nil
-}
-
 // SaveFirmwareFile streams a firmware file to disk and returns a unique file ID.
 // Each call always creates a new copy on disk — deduplication is handled at the
 // upload layer via FindFirmwareFileByChecksum (Ticket 3's check endpoint lets
 // clients skip redundant uploads). This ensures each batch owns its file and
 // can safely delete it on completion without affecting other batches.
 //
-// Callers should call ValidateFirmwareFile or ValidateFirmwareFilename before
-// saving to ensure the filename extension is acceptable.
+// Callers should call ValidateFirmwareFilename before saving to ensure the
+// filename extension is acceptable.
 func (s *Service) SaveFirmwareFile(filename string, reader io.Reader, metadata FirmwareMetadata) (string, error) {
 	result, err := s.SaveFirmwareUpload(context.Background(), filename, reader, metadata, true)
 	if err != nil {

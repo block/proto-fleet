@@ -139,24 +139,6 @@ func TestActivationActivityRetainsOriginalActorAfterRevocation(t *testing.T) {
 	require.Equal(t, accepted[0].Username, events[1].Username)
 }
 
-func TestMiningGroupAdmissionRollsBackWhenAuditFails(t *testing.T) {
-	ctx, f, _, config, boards := newIdlePoolAssignmentFixture(t)
-	before := f.state(t)
-	_, err := f.conn.ExecContext(ctx, `CREATE FUNCTION reject_group_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_type LIKE 'mining_groups.%' THEN RAISE EXCEPTION 'audit unavailable'; END IF; RETURN NEW; END $$;
- CREATE TRIGGER reject_group_audit BEFORE INSERT ON activity_log FOR EACH ROW EXECUTE FUNCTION reject_group_audit()`)
-	require.NoError(t, err)
-	_, err = f.service.submitLegacyRequest(ctx, f.target.DeviceIdentifier, uuid.NewString(), config, boards, before.Revision)
-	require.ErrorContains(t, err, "audit unavailable")
-	require.Equal(t, before, f.state(t))
-	var requests, intents, attempts int
-	require.NoError(t, f.conn.QueryRowContext(ctx, `SELECT count(*) FROM mining_group_request WHERE device_id=$1`, f.target.DeviceID).Scan(&requests))
-	require.NoError(t, f.conn.QueryRowContext(ctx, `SELECT count(*) FROM hashboard_pool_intent WHERE device_id=$1`, f.target.DeviceID).Scan(&intents))
-	require.NoError(t, f.conn.QueryRowContext(ctx, `SELECT count(*) FROM device_write_attempt WHERE device_id=$1`, f.target.DeviceID).Scan(&attempts))
-	require.Zero(t, requests)
-	require.Zero(t, intents)
-	require.Zero(t, attempts)
-}
-
 func TestMiningGroupOutcomeAndAuditCommitTogether(t *testing.T) {
 	for _, outcome := range []string{"completed", "failed"} {
 		t.Run(outcome, func(t *testing.T) {

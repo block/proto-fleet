@@ -203,12 +203,6 @@ func (c *Client) Subscribe(ctx context.Context, topic string, handler func(paylo
 	return nil
 }
 
-func (c *Client) reportRuntimeStatus(connected bool, subscribed bool, err error) {
-	c.statusMu.Lock()
-	defer c.statusMu.Unlock()
-	c.reportRuntimeStatusLocked(connected, subscribed, err)
-}
-
 func (c *Client) reportRuntimeStatusLocked(connected bool, subscribed bool, err error) {
 	c.mu.Lock()
 	reporter := c.statusReporter

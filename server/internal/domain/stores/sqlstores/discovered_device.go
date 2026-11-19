@@ -3,9 +3,7 @@ package sqlstores
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"errors"
-	"fmt"
 	"strconv"
 
 	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
@@ -34,34 +32,6 @@ func NewSQLDiscoveredDeviceStore(conn *sql.DB) *SQLDiscoveredDeviceStore {
 
 func (s *SQLDiscoveredDeviceStore) getQueries(ctx context.Context) sqlc.Querier {
 	return s.GetQueries(ctx)
-}
-
-// encodeCursor encodes a device ID to a base64 string
-func (s *SQLDiscoveredDeviceStore) encodeCursor(id int64) string {
-	if id == 0 {
-		return ""
-	}
-	raw := fmt.Sprintf("%d", id)
-	return base64.StdEncoding.EncodeToString([]byte(raw))
-}
-
-// decodeCursor decodes a base64 string to a device ID
-func (s *SQLDiscoveredDeviceStore) decodeCursor(encoded string) (int64, error) {
-	if encoded == "" {
-		return 0, nil
-	}
-
-	b, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return 0, fleeterror.NewInvalidArgumentErrorf("invalid cursor encoding: %v", err)
-	}
-
-	id, err := strconv.ParseInt(string(b), 10, 64)
-	if err != nil {
-		return 0, fleeterror.NewInvalidArgumentErrorf("invalid cursor value: %v", err)
-	}
-
-	return id, nil
 }
 
 // Save stores or updates a discovered device and returns the saved device
@@ -251,67 +221,6 @@ func (s *SQLDiscoveredDeviceStore) GetDatabaseID(ctx context.Context, doi discov
 	}
 
 	return dbDevice.ID, nil
-}
-
-// GetActiveUnpairedDevices retrieves active discovered devices that haven't been paired yet
-func (s *SQLDiscoveredDeviceStore) GetActiveUnpairedDevices(ctx context.Context, orgID int64, cursor string, limit int32) ([]*discoverymodels.DiscoveredDevice, string, error) {
-	cursorID, err := s.decodeCursor(cursor)
-	if err != nil {
-		return nil, "", err
-	}
-
-	rows, err := s.getQueries(ctx).GetActiveUnpairedDiscoveredDevices(ctx, sqlc.GetActiveUnpairedDiscoveredDevicesParams{
-		OrgID: orgID, CursorID: sql.NullInt64{Int64: cursorID, Valid: cursorID > 0}, Limit: limit + 1,
-	})
-	if err != nil {
-		return nil, "", fleeterror.NewInternalErrorf("failed to query active unpaired devices: %v", err)
-	}
-	hasMore := len(rows) > int(limit)
-	if hasMore {
-		rows = rows[:limit]
-	}
-	devices := make([]*discoverymodels.DiscoveredDevice, len(rows))
-	for i, row := range rows {
-		devices[i], err = toDiscoveredDeviceFromRow(row)
-		if err != nil {
-			return nil, "", err
-		}
-	}
-	var nextCursor string
-	if hasMore && len(rows) > 0 {
-		nextCursor = s.encodeCursor(rows[len(rows)-1].ID)
-	}
-	return devices, nextCursor, nil
-}
-
-// toDiscoveredDeviceFromRow converts a GetActiveUnpairedDiscoveredDevicesRow to a domain DiscoveredDevice
-func toDiscoveredDeviceFromRow(dbDevice sqlc.GetActiveUnpairedDiscoveredDevicesRow) (*discoverymodels.DiscoveredDevice, error) {
-	controllers, err := deviceendpoints.Decode(dbDevice.Endpoints)
-	if err != nil {
-		return nil, err
-	}
-	return &discoverymodels.DiscoveredDevice{
-		Device: pb.Device{
-			DeviceIdentifier: dbDevice.DeviceIdentifier,
-			Endpoints:        controllers,
-			SerialNumber:     dbDevice.SerialNumber,
-			MacAddress:       dbDevice.MacAddress,
-			Model:            dbDevice.Model.String,
-			DeviceClass:      commonpb.DeviceClass(dbDevice.DeviceClass),
-			Manufacturer:     dbDevice.Manufacturer.String,
-			FirmwareVersion:  dbDevice.FirmwareVersion.String,
-			IpAddress:        dbDevice.IpAddress,
-			Port:             dbDevice.Port,
-			UrlScheme:        dbDevice.UrlScheme,
-			RpcPort:          dbDevice.RpcPort,
-			RpcTls:           dbDevice.RpcTls,
-			DriverName:       dbDevice.DriverName,
-		},
-		IsActive:        dbDevice.IsActive,
-		OrgID:           dbDevice.OrgID,
-		FirstDiscovered: dbDevice.FirstDiscovered.Time,
-		LastSeen:        dbDevice.LastSeen.Time,
-	}, nil
 }
 
 // CountActiveUnpairedDevices returns the total count of active unpaired devices for an organization

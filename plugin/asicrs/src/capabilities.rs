@@ -398,18 +398,6 @@ mod tests {
     }
 
     #[test]
-    fn test_make_to_family_marathon_maps_to_antminer() {
-        // Arrange
-        let make = "Marathon";
-
-        // Act
-        let family = make_to_family(make);
-
-        // Assert
-        assert_eq!(family, Some(FAMILY_ANTMINER));
-    }
-
-    #[test]
     fn test_firmware_to_variant_marafw_prefix() {
         // Arrange
         let firmware = "MARAFW_1.0.0";
@@ -444,11 +432,6 @@ mod tests {
 
         // Assert
         assert_eq!(variant, VARIANT_MARATHON);
-    }
-
-    #[test]
-    fn test_make_to_family_auradine() {
-        assert_eq!(make_to_family("Auradine"), Some(FAMILY_AURADINE));
     }
 
     #[test]

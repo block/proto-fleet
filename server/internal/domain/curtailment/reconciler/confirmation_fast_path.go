@@ -436,7 +436,7 @@ func confirmedCurtailTargetParams(now time.Time, observedPowerW *float64) interf
 }
 
 // resolvedRestoreTargetParams is the shared Dispatched → Resolved promotion
-// used by both the full tick (confirmOneRestore) and the fast path.
+// used by both the full tick (confirmTarget) and the fast path.
 func resolvedRestoreTargetParams(now time.Time, observedPowerW *float64) interfaces.UpdateCurtailmentTargetStateParams {
 	params := interfaces.UpdateCurtailmentTargetStateParams{
 		State:       models.TargetStateResolved,

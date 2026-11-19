@@ -15,6 +15,8 @@ import (
 )
 
 func TestProxyControlCompletion(t *testing.T) {
+	shared := newProxyFenceDatabase(t)
+	database, org := shared.database, shared.org
 	for _, operation := range []struct {
 		method, version, rest string
 		complete              bool
@@ -44,7 +46,7 @@ func TestProxyControlCompletion(t *testing.T) {
 		{http.MethodPost, "v1", "system/reboot", false},
 	} {
 		t.Run(operation.version+"/"+operation.rest, func(t *testing.T) {
-			database, org, device, h, target := proxyFenceFixture(t)
+			device, h, target := shared.pairedDevice(t)
 			transport := &proxyResponseTransport{status: http.StatusOK, body: io.NopCloser(strings.NewReader("{}"))}
 			h.httpClient = &http.Client{Transport: transport}
 			h.storeToken(target.cacheKey(), "fixture-token")
@@ -100,13 +102,15 @@ func TestProxyAcceptedControlRetainsUncertainty(t *testing.T) {
 }
 
 func TestProxyReturnedControlFailuresFollowCompletionPolicy(t *testing.T) {
+	shared := newProxyFenceDatabase(t)
+	database, org := shared.database, shared.org
 	for _, responseStatus := range []int{http.StatusOK, http.StatusAccepted} {
 		for _, failure := range []string{"network", "read", "close", "copy", "flush", "HTTP"} {
 			if responseStatus == http.StatusAccepted && (failure == "network" || failure == "HTTP") {
 				continue // These failures do not receive an accepted response.
 			}
 			t.Run(fmt.Sprintf("%d/%s", responseStatus, failure), func(t *testing.T) {
-				database, org, device, h, target := proxyFenceFixture(t)
+				device, h, target := shared.pairedDevice(t)
 				body := &proxyBodyBarrier{reader: strings.NewReader("{}")}
 				if failure == "read" {
 					body.reader = proxyReaderFunc(func([]byte) (int, error) { return 0, errors.New("fixture-read-secret") })

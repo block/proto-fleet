@@ -38,10 +38,9 @@ type zoneFixture struct {
 	devNoRack string   // 1 device with no rack membership
 }
 
-func buildZoneFixture(t *testing.T, ctx context.Context, tc *testutil.TestContext) zoneFixture {
+func buildZoneFixture(t *testing.T, ctx context.Context, dbSvc *testutil.DatabaseService) zoneFixture {
 	t.Helper()
-	dbSvc := tc.DatabaseService
-	db := tc.ServiceProvider.DB
+	db := dbSvc.DB
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	collectionStore := sqlstores.NewSQLCollectionStore(db)
 	siteStore := sqlstores.NewSQLSiteStore(db)
@@ -129,15 +128,16 @@ func listDevices(t *testing.T, ctx context.Context, store *sqlstores.SQLDeviceSt
 }
 
 // The subtests only query this fixture; keep them sequential and share one
-// database clone. Cross-organization isolation keeps its own fixture below.
+// database clone. Cross-organization isolation has its own fixture in
+// zone_building_filter_cross_org_test.go.
 func TestZoneBuildingFilters(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
+	tc := testutil.NewDatabaseService(t, nil)
 	ctx := t.Context()
 	fx := buildZoneFixture(t, ctx, tc)
-	deviceStore := sqlstores.NewSQLDeviceStore(tc.ServiceProvider.DB)
+	deviceStore := sqlstores.NewSQLDeviceStore(tc.DB)
 
 	t.Run("ZoneKeys_ScopedDistinguishesCrossBuildingCollision", func(t *testing.T) {
 		ctx := t.Context()
@@ -272,58 +272,4 @@ func TestZoneBuildingFilters(t *testing.T) {
 			assert.Contains(t, got, d)
 		}
 	})
-}
-
-// TestZoneKeysWildcard_CrossOrgIsolation guards the single-layer defense:
-// wildcard zone_keys skip the parseFilter cross-org check, so the SQL
-// builder's dcm.org_id = $orgID clause is the only org boundary. If a
-// future refactor drops that clause, this test catches it.
-func TestZoneKeysWildcard_CrossOrgIsolation(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	dbSvc := tc.DatabaseService
-	db := tc.ServiceProvider.DB
-	deviceStore := sqlstores.NewSQLDeviceStore(db)
-	collectionStore := sqlstores.NewSQLCollectionStore(db)
-	ctx := t.Context()
-
-	userA := dbSvc.CreateSuperAdminUser()
-	userB := dbSvc.CreateSuperAdminUser2()
-	devA := dbSvc.CreateDevice(userA.OrganizationID, "proto")
-	devB := dbSvc.CreateDevice(userB.OrganizationID, "proto")
-	pairDevice(t, ctx, deviceStore, userA.OrganizationID, devA.ID)
-	pairDevice(t, ctx, deviceStore, userB.OrganizationID, devB.ID)
-
-	const sharedZone = "shared-zone"
-	for _, who := range []struct {
-		orgID    int64
-		deviceID string
-		label    string
-	}{
-		{userA.OrganizationID, devA.ID, "Rack A"},
-		{userB.OrganizationID, devB.ID, "Rack B"},
-	} {
-		rack, err := collectionStore.CreateCollection(ctx, who.orgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, who.label, "")
-		require.NoError(t, err)
-		require.NoError(t, collectionStore.CreateRackExtension(ctx, stores.CreateRackExtensionParams{
-			OrgID: who.orgID, CollectionID: rack.Id, Rows: 4, Columns: 8, Zone: sharedZone,
-		}))
-		_, err = collectionStore.AddDevicesToCollection(ctx, who.orgID, rack.Id, []string{who.deviceID})
-		require.NoError(t, err)
-	}
-
-	wildcard := &stores.MinerFilter{
-		ZoneKeys: []stores.ZoneKey{{BuildingID: 0, Zone: sharedZone}},
-	}
-	gotA, totalA := listDevices(t, ctx, deviceStore, userA.OrganizationID, wildcard)
-	assert.Equal(t, int64(1), totalA)
-	assert.Contains(t, gotA, devA.ID)
-	assert.NotContains(t, gotA, devB.ID)
-
-	gotB, totalB := listDevices(t, ctx, deviceStore, userB.OrganizationID, wildcard)
-	assert.Equal(t, int64(1), totalB)
-	assert.Contains(t, gotB, devB.ID)
-	assert.NotContains(t, gotB, devA.ID)
 }

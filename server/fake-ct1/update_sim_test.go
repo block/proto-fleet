@@ -220,12 +220,6 @@ func TestHAPairIdentityAndRoles(t *testing.T) {
 	if clusters[0] != clusters[1] || clusters[0] == "" {
 		t.Fatalf("cluster IDs differ: %v", clusters)
 	}
-	// A failover is visible on both members.
-	h.sim.setPrimary("ct1-b")
-	current, err := mdk.NewSystemServiceClient(h.conns[1]).GetSystemStatus(ctx, &mdk.GetSystemStatusRequest{})
-	if err != nil || current.GetStatus().GetHaRole() != mdk.HARole_HA_ROLE_PRIMARY {
-		t.Fatalf("failover not reflected: %v %v", current, err)
-	}
 }
 
 func TestSingleNodeHasNoHAStatus(t *testing.T) {

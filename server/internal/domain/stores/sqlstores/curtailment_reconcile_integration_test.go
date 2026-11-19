@@ -22,10 +22,10 @@ func TestSQLCurtailmentStore_SendEvidenceUpgradeKeepsRetriedLiveTargets(t *testi
 	if testing.Short() {
 		t.Skip("requires Postgres")
 	}
-	fixture := testutil.InitializeDBServiceInfrastructure(t)
-	user := fixture.DatabaseService.CreateSuperAdminUser()
+	fixture := testutil.NewDatabaseService(t, nil)
+	user := fixture.CreateSuperAdminUser()
 	ctx := t.Context()
-	db := fixture.DatabaseService.DB
+	db := fixture.DB
 	store := sqlstores.NewSQLCurtailmentStore(db)
 	insert := func(label string, devices ...string) int64 {
 		t.Helper()
@@ -77,12 +77,12 @@ func TestSQLCurtailmentStore_ReconcileObservationsGuardStateAndSurviveStop(t *te
 	if testing.Short() {
 		t.Skip("requires Postgres")
 	}
-	fixture := testutil.InitializeDBServiceInfrastructure(t)
-	user := fixture.DatabaseService.CreateSuperAdminUser()
+	fixture := testutil.NewDatabaseService(t, nil)
+	user := fixture.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(fixture.DatabaseService.DB)
-	first := fixture.DatabaseService.CreateDevice(user.OrganizationID, "proto").ID
-	second := fixture.DatabaseService.CreateDevice(user.OrganizationID, "proto").ID
+	store := sqlstores.NewSQLCurtailmentStore(fixture.DB)
+	first := fixture.CreateDevice(user.OrganizationID, "proto").ID
+	second := fixture.CreateDevice(user.OrganizationID, "proto").ID
 	eventUUID := uuid.New()
 	params := curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, eventUUID, models.EventStateActive, "observations")
 	params.ScopeType = models.ScopeTypeWholeOrg
@@ -109,7 +109,7 @@ func TestSQLCurtailmentStore_ReconcileObservationsGuardStateAndSurviveStop(t *te
 	require.NoError(t, err)
 	assert.Equal(t, []string{first}, applied, "only a still-confirmed target can accept drift observations")
 	require.NoError(t, store.RejectDispatch(ctx, user.OrganizationID, inserted.ID, "permission revoked"))
-	restarted := sqlstores.NewSQLCurtailmentStore(fixture.DatabaseService.DB)
+	restarted := sqlstores.NewSQLCurtailmentStore(fixture.DB)
 	rejected, err := restarted.GetDispatchRejection(ctx, user.OrganizationID, inserted.ID)
 	require.NoError(t, err)
 	require.NotNil(t, rejected)
@@ -147,11 +147,11 @@ func TestSQLCurtailmentStore_GivenUpCurtailStillReceivesCompensatingRestore(t *t
 	if testing.Short() {
 		t.Skip("requires Postgres")
 	}
-	fixture := testutil.InitializeDBServiceInfrastructure(t)
-	user := fixture.DatabaseService.CreateSuperAdminUser()
+	fixture := testutil.NewDatabaseService(t, nil)
+	user := fixture.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(fixture.DatabaseService.DB)
-	device := fixture.DatabaseService.CreateDevice(user.OrganizationID, "proto").ID
+	store := sqlstores.NewSQLCurtailmentStore(fixture.DB)
+	device := fixture.CreateDevice(user.OrganizationID, "proto").ID
 	eventUUID := uuid.New()
 	params := curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, eventUUID, models.EventStatePending, "give-up")
 	params.ScopeType = models.ScopeTypeWholeOrg
@@ -177,11 +177,11 @@ func TestSQLCurtailmentStore_LatchedDispatchRejectionRefusesRecurtail(t *testing
 	if testing.Short() {
 		t.Skip("requires Postgres")
 	}
-	fixture := testutil.InitializeDBServiceInfrastructure(t)
-	user := fixture.DatabaseService.CreateSuperAdminUser()
+	fixture := testutil.NewDatabaseService(t, nil)
+	user := fixture.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(fixture.DatabaseService.DB)
-	device := fixture.DatabaseService.CreateDevice(user.OrganizationID, "proto").ID
+	store := sqlstores.NewSQLCurtailmentStore(fixture.DB)
+	device := fixture.CreateDevice(user.OrganizationID, "proto").ID
 	eventUUID := uuid.New()
 	params := curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, eventUUID, models.EventStatePending, "latched-recurtail")
 	params.ScopeType = models.ScopeTypeWholeOrg
@@ -206,15 +206,15 @@ func TestSQLCurtailmentStore_RestoreOwesUncurtailOnlyForPossibleSends(t *testing
 	if testing.Short() {
 		t.Skip("requires Postgres")
 	}
-	fixture := testutil.InitializeDBServiceInfrastructure(t)
-	user := fixture.DatabaseService.CreateSuperAdminUser()
+	fixture := testutil.NewDatabaseService(t, nil)
+	user := fixture.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(fixture.DatabaseService.DB)
-	unsentPending := fixture.DatabaseService.CreateDevice(user.OrganizationID, "proto").ID
-	sentPending := fixture.DatabaseService.CreateDevice(user.OrganizationID, "proto").ID
-	unsentFailed := fixture.DatabaseService.CreateDevice(user.OrganizationID, "proto").ID
-	sentFailed := fixture.DatabaseService.CreateDevice(user.OrganizationID, "proto").ID
-	fallback := fixture.DatabaseService.CreateDevice(user.OrganizationID, "proto").ID
+	store := sqlstores.NewSQLCurtailmentStore(fixture.DB)
+	unsentPending := fixture.CreateDevice(user.OrganizationID, "proto").ID
+	sentPending := fixture.CreateDevice(user.OrganizationID, "proto").ID
+	unsentFailed := fixture.CreateDevice(user.OrganizationID, "proto").ID
+	sentFailed := fixture.CreateDevice(user.OrganizationID, "proto").ID
+	fallback := fixture.CreateDevice(user.OrganizationID, "proto").ID
 	eventUUID := uuid.New()
 	params := curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, eventUUID, models.EventStatePending, "possible-sends")
 	params.ScopeType = models.ScopeTypeWholeOrg
@@ -275,13 +275,13 @@ func TestSQLCurtailmentStore_PendingDeadlineCanLeaveInFlightTargetsForActivePhas
 	if testing.Short() {
 		t.Skip("requires Postgres")
 	}
-	fixture := testutil.InitializeDBServiceInfrastructure(t)
-	user := fixture.DatabaseService.CreateSuperAdminUser()
+	fixture := testutil.NewDatabaseService(t, nil)
+	user := fixture.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(fixture.DatabaseService.DB)
-	confirmed := fixture.DatabaseService.CreateDevice(user.OrganizationID, "proto").ID
-	stalled := fixture.DatabaseService.CreateDevice(user.OrganizationID, "proto").ID
-	inFlight := fixture.DatabaseService.CreateDevice(user.OrganizationID, "proto").ID
+	store := sqlstores.NewSQLCurtailmentStore(fixture.DB)
+	confirmed := fixture.CreateDevice(user.OrganizationID, "proto").ID
+	stalled := fixture.CreateDevice(user.OrganizationID, "proto").ID
+	inFlight := fixture.CreateDevice(user.OrganizationID, "proto").ID
 	eventUUID := uuid.New()
 	params := curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, eventUUID, models.EventStatePending, "deadline-keeps-curtailed")
 	params.ScopeType = models.ScopeTypeWholeOrg
@@ -318,12 +318,12 @@ func TestSQLCurtailmentStore_CompensatingRestoreSkipsMinerClaimedByAnotherEvent(
 	if testing.Short() {
 		t.Skip("requires Postgres")
 	}
-	fixture := testutil.InitializeDBServiceInfrastructure(t)
-	user := fixture.DatabaseService.CreateSuperAdminUser()
+	fixture := testutil.NewDatabaseService(t, nil)
+	user := fixture.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(fixture.DatabaseService.DB)
-	contested := fixture.DatabaseService.CreateDevice(user.OrganizationID, "proto").ID
-	uncontested := fixture.DatabaseService.CreateDevice(user.OrganizationID, "proto").ID
+	store := sqlstores.NewSQLCurtailmentStore(fixture.DB)
+	contested := fixture.CreateDevice(user.OrganizationID, "proto").ID
+	uncontested := fixture.CreateDevice(user.OrganizationID, "proto").ID
 	firstUUID := uuid.New()
 	params := curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, firstUUID, models.EventStatePending, "first-owner")
 	params.ScopeType = models.ScopeTypeWholeOrg
@@ -370,12 +370,12 @@ func TestSQLCurtailmentStore_PendingDeadlinePreservesAmbiguousIntentsAndBlocksSt
 	if testing.Short() {
 		t.Skip("requires Postgres")
 	}
-	fixture := testutil.InitializeDBServiceInfrastructure(t)
-	user := fixture.DatabaseService.CreateSuperAdminUser()
+	fixture := testutil.NewDatabaseService(t, nil)
+	user := fixture.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(fixture.DatabaseService.DB)
-	first := fixture.DatabaseService.CreateDevice(user.OrganizationID, "proto").ID
-	second := fixture.DatabaseService.CreateDevice(user.OrganizationID, "proto").ID
+	store := sqlstores.NewSQLCurtailmentStore(fixture.DB)
+	first := fixture.CreateDevice(user.OrganizationID, "proto").ID
+	second := fixture.CreateDevice(user.OrganizationID, "proto").ID
 	eventUUID := uuid.New()
 	params := curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, eventUUID, models.EventStatePending, "deadline-intents")
 	params.ScopeType = models.ScopeTypeWholeOrg

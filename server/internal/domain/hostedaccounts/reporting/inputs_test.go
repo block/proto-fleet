@@ -213,11 +213,3 @@ func TestReportingInputAssetKindsPreserveContractualRepairUnits(t *testing.T) {
 		})
 	}
 }
-
-func TestAccumulatedReportingOrdersHaveNoLifetimeCountQuota(t *testing.T) {
-	in := Inputs{Configuration: Configuration{Timezone: "UTC", ReportingYearMonth: 1, ReportingYearDay: 1}}
-	for i := range 10001 {
-		in.Orders = append(in.Orders, Order{ID: fmt.Sprint(i), Name: "Order", Start: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), SourceRef: "order"})
-	}
-	require.NoError(t, in.Validate())
-}

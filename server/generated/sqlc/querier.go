@@ -407,6 +407,8 @@ type Querier interface {
 	// it rather than block the admin on phantom assignments.
 	CountActiveAssignmentsForRole(ctx context.Context, roleID int64) (int64, error)
 	CountActiveRepairTicketsAssignedToUser(ctx context.Context, arg CountActiveRepairTicketsAssignedToUserParams) (int64, error)
+	// Excludes remote-fleet-node-reported rows: server-local pairing
+	// dials these IPs, agent-reported rows route via PairDeviceToFleetNode.
 	CountActiveUnpairedDiscoveredDevices(ctx context.Context, orgID int64) (int64, error)
 	// Site filter must stay byte-for-byte identical to ListActivityLogs so the
 	// pagination total never disagrees with the rendered feed (or the CSV export,
@@ -759,9 +761,6 @@ type Querier interface {
 	GetAccountTicketAccess(ctx context.Context, arg GetAccountTicketAccessParams) (GetAccountTicketAccessRow, error)
 	GetActiveFirmwareRolloutForPair(ctx context.Context, arg GetActiveFirmwareRolloutForPairParams) (FirmwareRollout, error)
 	GetActiveSchedules(ctx context.Context) ([]Schedule, error)
-	// Excludes remote-fleet-node-reported rows: server-local pairing
-	// dials these IPs, agent-reported rows route via PairDeviceToFleetNode.
-	GetActiveUnpairedDiscoveredDevices(ctx context.Context, arg GetActiveUnpairedDiscoveredDevicesParams) ([]GetActiveUnpairedDiscoveredDevicesRow, error)
 	// Organization user management must not target customer-only affiliations.
 	// Lock organization first to serialize account/role mutations, but allow the
 	// key-share locks needed by concurrent affiliation/session foreign keys.
@@ -959,16 +958,13 @@ type Querier interface {
 	GetErrorByErrorID(ctx context.Context, arg GetErrorByErrorIDParams) (GetErrorByErrorIDRow, error)
 	// Fetches an error by internal ID, scoped to organization.
 	GetErrorByID(ctx context.Context, arg GetErrorByIDParams) (Error, error)
-	// Mirrors GetFilteredDeviceIds but returns device_identifier strings instead of
-	// internal IDs. Used by command preflight filtering, which operates on
-	// identifiers (the same primitive used by selectors and schedules).
-	GetFilteredDeviceIdentifiers(ctx context.Context, arg GetFilteredDeviceIdentifiersParams) ([]string, error)
 	// Zone / building filters are not handled by this static query;
 	// callers with those filters must route through the dynamic builder
 	// (device_filters.go).
-	// Returns device IDs filtered by pairing status and optional device status.
-	// Used for bulk command operations.
-	GetFilteredDeviceIds(ctx context.Context, arg GetFilteredDeviceIdsParams) ([]int64, error)
+	// Returns device identifiers filtered by pairing status and optional device
+	// status, model and manufacturer. Used by command preflight filtering, which
+	// operates on identifiers (the same primitive used by selectors and schedules).
+	GetFilteredDeviceIdentifiers(ctx context.Context, arg GetFilteredDeviceIdentifiersParams) ([]string, error)
 	GetFilteredTicketStats(ctx context.Context, arg GetFilteredTicketStatsParams) (GetFilteredTicketStatsRow, error)
 	GetFirmwareRollout(ctx context.Context, arg GetFirmwareRolloutParams) (FirmwareRollout, error)
 	// Locks the row for a mutation so the revision rule can be checked and the
@@ -1014,8 +1010,6 @@ type Querier interface {
 	// Resolve once per page; services bind the result to the cursor and pass that
 	// same value into the data query so crossing a cutoff mid-request cannot switch tiers.
 	GetHistoryResolution(ctx context.Context, arg GetHistoryResolutionParams) (int32, error)
-	// New assignments may only select active configurations.
-	GetHostMiningGroupPoolRevision(ctx context.Context, arg GetHostMiningGroupPoolRevisionParams) (HostedAccountPoolRevision, error)
 	// Archiving prevents new assignments but preserves revisions used by accepted
 	// workflows and existing controller bindings. Account restrictions still apply.
 	GetHostMiningGroupPoolRevisionForReconciliation(ctx context.Context, arg GetHostMiningGroupPoolRevisionForReconciliationParams) (HostedAccountPoolRevision, error)
@@ -1394,7 +1388,6 @@ type Querier interface {
 	IsRetiredDeviceWriteDrained(ctx context.Context, identityKeys []string) (bool, error)
 	IssueHostedReport(ctx context.Context, arg IssueHostedReportParams) (HostedReport, error)
 	LatestIssuedHostedReport(ctx context.Context, arg LatestIssuedHostedReportParams) (HostedReport, error)
-	LegacyPoolWritersDisabled(ctx context.Context, organizationID int64) (bool, error)
 	LinkPoolConfigurationAttempt(ctx context.Context, arg LinkPoolConfigurationAttemptParams) (int64, error)
 	LinkPoolGroupSnapshot(ctx context.Context, arg LinkPoolGroupSnapshotParams) (int64, error)
 	LinkPoolLifecycleOperation(ctx context.Context, arg LinkPoolLifecycleOperationParams) error
@@ -1717,7 +1710,7 @@ type Querier interface {
 	// or bound to another node. A row bound to the requesting node surfaces only
 	// in AUTHENTICATION_NEEDED so recovery-triggered failures remain retryable.
 	// Other AUTHENTICATION_NEEDED rows also surface for retry. Inverse of
-	// GetActiveUnpairedDiscoveredDevices, which excludes fleet-node rows.
+	// CountActiveUnpairedDiscoveredDevices, which excludes fleet-node rows.
 	// The exclusions use NOT EXISTS so a device with more than one live row is
 	// judged across all of them, not just the joined row. They match by
 	// discovered_device_id OR device_identifier: a paired device whose original

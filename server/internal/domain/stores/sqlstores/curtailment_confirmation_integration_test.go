@@ -89,12 +89,12 @@ func TestSQLCurtailmentStore_ConfirmationEligibleWorkIncludesDispatchedPhases(t 
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 	org := user.OrganizationID
-	devices := createConfirmationTestDevices(t, testContext.DatabaseService, org, 3)
+	devices := createConfirmationTestDevices(t, testContext, org, 3)
 	pendingDevice, activeDevice, restoreDevice := devices[0], devices[1], devices[2]
 
 	// Pending curtail event with a dispatched curtail target.
@@ -172,12 +172,12 @@ func TestSQLCurtailmentStore_ConfirmationEligibilityUsesExclusiveCompositeCursor
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 	orgID := user.OrganizationID
-	devices := createConfirmationTestDevices(t, testContext.DatabaseService, orgID, 3)
+	devices := createConfirmationTestDevices(t, testContext, orgID, 3)
 
 	firstEvent, err := store.InsertEventWithTargets(
 		ctx,
@@ -241,14 +241,14 @@ func TestSQLCurtailmentStore_ConfirmationEligibilityEnforcesPageSizeBoundary(t *
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 	orgID := user.OrganizationID
 
 	const targetCount = interfaces.ConfirmationBatchSize + 1
-	devices := createConfirmationTestDevices(t, testContext.DatabaseService, orgID, targetCount)
+	devices := createConfirmationTestDevices(t, testContext, orgID, targetCount)
 	targets := make([]models.InsertTargetParams, targetCount)
 	for i, deviceID := range devices {
 		targets[i] = curtailmentStoreTestTarget(deviceID, models.TargetStatePending, models.DesiredStateCurtailed)
@@ -302,15 +302,15 @@ func TestSQLCurtailmentStore_ConfirmationEligibleWorkExcludesIneligible(t *testi
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 	orgID := user.OrganizationID
 	userID := user.DatabaseID
 	curtailed := models.DesiredStateCurtailed
 	activeDesired := models.DesiredStateActive
-	devices := createConfirmationTestDevices(t, testContext.DatabaseService, orgID, 8)
+	devices := createConfirmationTestDevices(t, testContext, orgID, 8)
 	pendingDevice := devices[0]
 	confirmedDevice := devices[1]
 	terminalDevices := devices[2:6]
@@ -405,15 +405,15 @@ func TestSQLCurtailmentStore_ConfirmationEligibleWorkReturnsPairingBaselineAndPo
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 	orgID := user.OrganizationID
 	curtailed := models.DesiredStateCurtailed
 
 	// Paired device under an all-paired FULL_FLEET policy event, with a baseline.
-	pairedDevices := testContext.DatabaseService.CreateTestMiners(orgID, 1, confirmationTestMinerURL)
+	pairedDevices := testContext.CreateTestMiners(orgID, 1, confirmationTestMinerURL)
 	pairedDevice := pairedDevices[0]
 	policyUUID := uuid.New()
 	policyEvent := curtailmentStoreTestEvent(orgID, user.DatabaseID, policyUUID, models.EventStateActive, "confirm-policy")
@@ -458,14 +458,14 @@ func TestSQLCurtailmentStore_ConfirmationEligibleWorkExcludesCrossOrgIdentifierR
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	originalOrgUser := testContext.DatabaseService.CreateSuperAdminUser()
-	reuseOrgUser := testContext.DatabaseService.CreateSuperAdminUser2()
+	testContext := testutil.NewDatabaseService(t, nil)
+	originalOrgUser := testContext.CreateSuperAdminUser()
+	reuseOrgUser := testContext.CreateSuperAdminUser2()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 
-	originalOrgDevice := testContext.DatabaseService.CreateDevice(originalOrgUser.OrganizationID, "proto").ID
-	reusedIdentifier := testContext.DatabaseService.CreateDevice(reuseOrgUser.OrganizationID, "proto").ID
+	originalOrgDevice := testContext.CreateDevice(originalOrgUser.OrganizationID, "proto").ID
+	reusedIdentifier := testContext.CreateDevice(reuseOrgUser.OrganizationID, "proto").ID
 	dispatchedAt := time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC)
 
 	_, _ = insertDispatchedCurtailTarget(t, ctx, store, originalOrgUser.OrganizationID, originalOrgUser.DatabaseID, "confirm-same-org-control", originalOrgDevice, "batch-confirm-same-org-control", dispatchedAt)
@@ -486,10 +486,10 @@ func TestSQLCurtailmentStore_ConfirmationGuardPromotesOnceAndRejectsDuplicate(t 
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 	orgID := user.OrganizationID
 
 	batch := "batch-guard-dup"
@@ -529,10 +529,10 @@ func TestSQLCurtailmentStore_ConfirmationGuardRejectsStaleBatchAfterRedispatch(t
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 	orgID := user.OrganizationID
 
 	oldBatch := "batch-guard-aba-old"
@@ -587,10 +587,10 @@ func TestSQLCurtailmentStore_ConfirmationGuardExpectedDesiredStateStillEnforced(
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 	orgID := user.OrganizationID
 
 	batch := "batch-guard-coexist"
@@ -621,13 +621,13 @@ func TestSQLCurtailmentStore_BulkConfirmTargets_AppliesOnlyCurrentOwnedRows(t *t
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	db := testContext.DatabaseService.DB
+	db := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(db)
 	orgID := user.OrganizationID
-	devices := createConfirmationTestDevices(t, testContext.DatabaseService, orgID, 3)
+	devices := createConfirmationTestDevices(t, testContext, orgID, 3)
 	eventUUID := uuid.New()
 	inserted, err := store.InsertEventWithTargets(
 		ctx,
@@ -660,7 +660,7 @@ func TestSQLCurtailmentStore_BulkConfirmTargets_AppliesOnlyCurrentOwnedRows(t *t
 		`UPDATE device SET deleted_at = CURRENT_TIMESTAMP WHERE device_identifier = $1 AND org_id = $2`,
 		devices[1], orgID)
 	require.NoError(t, err)
-	replacement := testContext.DatabaseService.CreateDevice(orgID, "proto")
+	replacement := testContext.CreateDevice(orgID, "proto")
 	_, err = db.ExecContext(ctx,
 		`UPDATE device SET device_identifier = $1 WHERE id = $2`,
 		devices[1], replacement.DatabaseID)
@@ -711,13 +711,13 @@ func TestSQLCurtailmentStore_BulkConfirmTargets_SerializesConcurrentDeviceDeleti
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	db := testContext.DatabaseService.DB
+	db := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(db)
 	orgID := user.OrganizationID
-	deviceID := testContext.DatabaseService.CreateDevice(orgID, "proto").ID
+	deviceID := testContext.CreateDevice(orgID, "proto").ID
 	batch := "batch-concurrent-delete"
 	dispatchedAt := time.Date(2026, 7, 7, 11, 0, 0, 0, time.UTC)
 	eventID, eventUUID := insertDispatchedCurtailTarget(
@@ -783,13 +783,13 @@ func TestSQLCurtailmentStore_BulkConfirmTargets_RevalidatesAllPairedStatus(t *te
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	db := testContext.DatabaseService.DB
+	db := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(db)
 	orgID := user.OrganizationID
-	deviceID := testContext.DatabaseService.CreateTestMiners(orgID, 1, confirmationTestMinerURL)[0]
+	deviceID := testContext.CreateTestMiners(orgID, 1, confirmationTestMinerURL)[0]
 	eventUUID := uuid.New()
 	event := curtailmentStoreTestEvent(orgID, user.DatabaseID, eventUUID, models.EventStateActive, "bulk-confirm-pairing")
 	event.Mode = models.ModeFullFleet

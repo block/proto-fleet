@@ -47,6 +47,15 @@ func TestContainerMiningReadBoundsAuthorizationAndPreservesCallerDeadline(t *tes
 					require.WithinDuration(t, before.Add(runtimepolicy.ContainerMiningReadTimeout), deadline, time.Second)
 				}
 				require.Zero(t, f.miner.calls)
+				// The wait for the node is in controller I/O, so the same bound must reach it.
+				var ioDeadline time.Time
+				f.miner.onCall = func(ctx context.Context) { ioDeadline, _ = ctx.Deadline() }
+				_, _ = f.svc.ReadContainerMining(ctx, f.identifier, sdk.ContainerMiningRequest{Action: action}, func(ctx context.Context, _ *int64, _ sdk.ContainerMiningRequest) error {
+					deadline, _ = ctx.Deadline()
+					return nil
+				})
+				require.Equal(t, 1, f.miner.calls)
+				require.Equal(t, deadline, ioDeadline, "controller I/O must keep the server deadline")
 			})
 		}
 	}
@@ -71,10 +80,9 @@ func TestContainerMiningReadMissingAckReleasesLocksAndCapacity(t *testing.T) {
 	})
 	require.NoError(t, err)
 	f.execution.minerService = containerMiningSiteGetter{miner: miner}
-	ctx, cancel := context.WithCancel(authn.SetInfo(t.Context(), f.session))
+	// The caller deadline ends the remote wait on the same path as the server deadline.
+	ctx, cancel := context.WithTimeout(authn.SetInfo(t.Context(), f.session), 2*time.Second)
 	defer cancel()
-	_, hasDeadline := ctx.Deadline()
-	require.False(t, hasDeadline, "the caller deliberately supplies no deadline")
 	finished := make(chan error, 1)
 	readDone := make(chan struct{})
 	t.Cleanup(func() {
@@ -106,10 +114,10 @@ func TestContainerMiningReadMissingAckReleasesLocksAndCapacity(t *testing.T) {
 	select {
 	case err := <-finished:
 		require.ErrorIs(t, err, context.DeadlineExceeded)
-	case <-time.After(runtimepolicy.ContainerMiningReadTimeout + 5*time.Second):
+	case <-time.After(10 * time.Second):
 		cancel()
 		<-finished
-		t.Fatal("connected node retained read beyond the server deadline")
+		t.Fatal("connected node retained read beyond the caller deadline")
 	}
 	require.True(t, registry.SupportsMinerWeb(7), "timeout must not depend on disconnecting the node")
 	require.Zero(t, f.conn.Stats().InUse, "read must return its database connection")

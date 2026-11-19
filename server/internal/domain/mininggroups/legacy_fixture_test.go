@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -16,6 +17,30 @@ import (
 	"github.com/google/uuid"
 	"github.com/sqlc-dev/pqtype"
 )
+
+// legacyPoolWritersDisabled reports whether the organization has a cutover
+// marker. A pre-cutover server refused new pool assignments after the marker.
+func legacyPoolWritersDisabled(ctx context.Context, conn *sql.DB, organizationID int64) (bool, error) {
+	var disabled bool
+	if err := conn.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pool_configuration_cutover WHERE organization_id=$1)`, organizationID).Scan(&disabled); err != nil {
+		return false, fmt.Errorf("read pool configuration cutover marker: %w", err)
+	}
+	return disabled, nil
+}
+
+// legacyAssignableRevisionAccount returns the account that owns an active host
+// pool revision. A pre-cutover server accepted only these revisions for new
+// assignments.
+func legacyAssignableRevisionAccount(ctx context.Context, conn *sql.DB, organizationID int64, revisionID string) (int64, error) {
+	var accountID int64
+	err := conn.QueryRowContext(ctx, `SELECT r.account_id FROM hosted_account_pool_revision r JOIN hosted_account a ON a.id=r.account_id AND a.organization_id=r.organization_id
+JOIN hosted_account_pool p ON p.pool_id=r.pool_id AND p.organization_id=r.organization_id AND p.account_id=r.account_id
+WHERE r.organization_id=$1 AND r.revision_id=$2 AND a.depth=0 AND NOT a.suspended AND NOT p.archived`, organizationID, revisionID).Scan(&accountID)
+	if err != nil {
+		return 0, fmt.Errorf("read assignable pool revision account: %w", err)
+	}
+	return accountID, nil
+}
 
 // submitLegacyRequest models admission by a pre-cutover server solely to create
 // historical workflow fixtures. Production only admits canonical pool reviews;
@@ -102,7 +127,7 @@ func (s *Service) submitLegacyRequest(ctx context.Context, identifier, requestID
 			return fleeterror.NewFailedPreconditionError("controller firmware does not support mining groups")
 		}
 		if kind == "pools" {
-			disabled, err := q.LegacyPoolWritersDisabled(ctx, info.OrganizationID)
+			disabled, err := legacyPoolWritersDisabled(ctx, s.conn, info.OrganizationID)
 			if err != nil {
 				return err
 			}
@@ -116,7 +141,7 @@ func (s *Service) submitLegacyRequest(ctx context.Context, identifier, requestID
 			if !observation.Enabled || row.Revision != expected {
 				return fleeterror.NewFailedPreconditionError("refresh the mining group configuration and try again")
 			}
-			profile, err := q.GetHostMiningGroupPoolRevision(ctx, sqlc.GetHostMiningGroupPoolRevisionParams{OrganizationID: info.OrganizationID, RevisionID: configID})
+			accountID, err := legacyAssignableRevisionAccount(ctx, s.conn, info.OrganizationID, configID)
 			if err != nil {
 				return fleeterror.NewNotFoundError("pool configuration not found")
 			}
@@ -134,7 +159,7 @@ func (s *Service) submitLegacyRequest(ctx context.Context, identifier, requestID
 				if b.DeviceID != target.ID {
 					return fleeterror.NewInvalidArgumentError("boards must belong to this container")
 				}
-				if err := q.SetHashboardPoolIntent(ctx, sqlc.SetHashboardPoolIntentParams{OrganizationID: info.OrganizationID, HashboardID: b.HashboardID, DeviceID: target.ID, InstallationID: b.InstallationID, MacAddress: b.MacAddress, AccountID: profile.AccountID, PoolRevisionID: configID, OperationID: id}); err != nil {
+				if err := q.SetHashboardPoolIntent(ctx, sqlc.SetHashboardPoolIntentParams{OrganizationID: info.OrganizationID, HashboardID: b.HashboardID, DeviceID: target.ID, InstallationID: b.InstallationID, MacAddress: b.MacAddress, AccountID: accountID, PoolRevisionID: configID, OperationID: id}); err != nil {
 					return err
 				}
 			}

@@ -1390,107 +1390,60 @@ func TestBoundedMinerSelectorVerifiesDeviceSetIDs(t *testing.T) {
 	})
 }
 
-func TestDeviceSetStatsVerifyType(t *testing.T) {
+func TestDeviceSetStatsAndMembersVerifyType(t *testing.T) {
+	const (
+		statsRoute   = "POST /device_set.v1.DeviceSetService/GetDeviceSetStats"
+		membersRoute = "POST /device_set.v1.DeviceSetService/ListDeviceSetMembers"
+	)
 	tests := []struct {
 		name       string
 		args       []string
 		actualType string
+		route      string
+		response   string
 		wantError  string
 	}{
 		{
 			name:       "groups stats rejects rack id",
 			args:       []string{"groups", "stats", "--device-set-ids", "42"},
 			actualType: "DEVICE_SET_TYPE_RACK",
+			route:      statsRoute,
 			wantError:  "device set 42 is a rack, not a group",
 		},
 		{
 			name:       "racks stats rejects group id",
 			args:       []string{"racks", "stats", "--device-set-ids", "42"},
 			actualType: "DEVICE_SET_TYPE_GROUP",
+			route:      statsRoute,
 			wantError:  "device set 42 is a group, not a rack",
 		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			pinFleetAuthEnv(t, nil)
-
-			statsCount := 0
-			mux := http.NewServeMux()
-			mux.HandleFunc("POST /device_set.v1.DeviceSetService/GetDeviceSet", func(w http.ResponseWriter, _ *http.Request) {
-				w.Header().Set("Content-Type", contentTypeJSON)
-				_, _ = w.Write([]byte(`{"device_set":{"id":"42","type":"` + tt.actualType + `","label":"wrong-type"}}`))
-			})
-			mux.HandleFunc("POST /device_set.v1.DeviceSetService/GetDeviceSetStats", func(w http.ResponseWriter, r *http.Request) {
-				statsCount++
-				t.Errorf("unexpected stats request: %s %s", r.Method, r.URL.Path)
-				http.Error(w, "stats should not be called", http.StatusTeapot)
-			})
-			srv := httptest.NewServer(mux)
-			t.Cleanup(srv.Close)
-
-			err := newRootCommand().Run(context.Background(), append([]string{
-				"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
-			}, tt.args...))
-			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
-				t.Fatalf("fleetcli %s error = %v, want %q", strings.Join(tt.args, " "), err, tt.wantError)
-			}
-			if statsCount != 0 {
-				t.Fatalf("stats count = %d, want 0", statsCount)
-			}
-		})
-	}
-
-	t.Run("matching group id proceeds", func(t *testing.T) {
-		pinFleetAuthEnv(t, nil)
-
-		var calls []string
-		mux := http.NewServeMux()
-		mux.HandleFunc("POST /device_set.v1.DeviceSetService/GetDeviceSet", func(w http.ResponseWriter, _ *http.Request) {
-			calls = append(calls, "get")
-			w.Header().Set("Content-Type", contentTypeJSON)
-			_, _ = w.Write([]byte(`{"device_set":{"id":"42","type":"DEVICE_SET_TYPE_GROUP","label":"group-42"}}`))
-		})
-		mux.HandleFunc("POST /device_set.v1.DeviceSetService/GetDeviceSetStats", func(w http.ResponseWriter, _ *http.Request) {
-			calls = append(calls, "stats")
-			w.Header().Set("Content-Type", contentTypeJSON)
-			_, _ = w.Write([]byte(`{"stats":[]}`))
-		})
-		srv := httptest.NewServer(mux)
-		t.Cleanup(srv.Close)
-
-		err := newRootCommand().Run(context.Background(), []string{
-			"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
-			"groups", "stats", "--device-set-ids", "42",
-		})
-		if err != nil {
-			t.Fatalf("groups stats error = %v, want success", err)
-		}
-		want := []string{"get", "stats"}
-		if strings.Join(calls, ",") != strings.Join(want, ",") {
-			t.Fatalf("calls = %v, want %v", calls, want)
-		}
-	})
-}
-
-func TestDeviceSetMembersVerifyType(t *testing.T) {
-	tests := []struct {
-		name       string
-		args       []string
-		actualType string
-		wantError  string
-	}{
+		{
+			name:       "groups stats proceeds for group id",
+			args:       []string{"groups", "stats", "--device-set-ids", "42"},
+			actualType: "DEVICE_SET_TYPE_GROUP",
+			route:      statsRoute,
+			response:   `{"stats":[]}`,
+		},
 		{
 			name:       "groups members rejects rack id",
 			args:       []string{"groups", "members", "--device-set-id", "42"},
 			actualType: "DEVICE_SET_TYPE_RACK",
+			route:      membersRoute,
 			wantError:  "device set 42 is a rack, not a group",
 		},
 		{
 			name:       "racks members rejects group id",
 			args:       []string{"racks", "members", "--device-set-id", "42"},
 			actualType: "DEVICE_SET_TYPE_GROUP",
+			route:      membersRoute,
 			wantError:  "device set 42 is a group, not a rack",
+		},
+		{
+			name:       "groups members proceeds for group id",
+			args:       []string{"groups", "members", "--device-set-id", "42"},
+			actualType: "DEVICE_SET_TYPE_GROUP",
+			route:      membersRoute,
+			response:   `{"members":[]}`,
 		},
 	}
 
@@ -1498,16 +1451,23 @@ func TestDeviceSetMembersVerifyType(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			pinFleetAuthEnv(t, nil)
 
-			membersCount := 0
+			subcommand := tt.args[1]
+			var calls []string
 			mux := http.NewServeMux()
 			mux.HandleFunc("POST /device_set.v1.DeviceSetService/GetDeviceSet", func(w http.ResponseWriter, _ *http.Request) {
+				calls = append(calls, "get")
 				w.Header().Set("Content-Type", contentTypeJSON)
-				_, _ = w.Write([]byte(`{"device_set":{"id":"42","type":"` + tt.actualType + `","label":"wrong-type"}}`))
+				_, _ = w.Write([]byte(`{"device_set":{"id":"42","type":"` + tt.actualType + `","label":"set-42"}}`))
 			})
-			mux.HandleFunc("POST /device_set.v1.DeviceSetService/ListDeviceSetMembers", func(w http.ResponseWriter, r *http.Request) {
-				membersCount++
-				t.Errorf("unexpected members request: %s %s", r.Method, r.URL.Path)
-				http.Error(w, "members should not be called", http.StatusTeapot)
+			mux.HandleFunc(tt.route, func(w http.ResponseWriter, r *http.Request) {
+				calls = append(calls, subcommand)
+				if tt.wantError != "" {
+					t.Errorf("unexpected %s request: %s %s", subcommand, r.Method, r.URL.Path)
+					http.Error(w, subcommand+" should not be called", http.StatusTeapot)
+					return
+				}
+				w.Header().Set("Content-Type", contentTypeJSON)
+				_, _ = w.Write([]byte(tt.response))
 			})
 			srv := httptest.NewServer(mux)
 			t.Cleanup(srv.Close)
@@ -1515,45 +1475,22 @@ func TestDeviceSetMembersVerifyType(t *testing.T) {
 			err := newRootCommand().Run(context.Background(), append([]string{
 				"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
 			}, tt.args...))
-			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+
+			// A set of the wrong type stops the command after the type check.
+			wantCalls := []string{"get"}
+			if tt.wantError == "" {
+				wantCalls = append(wantCalls, subcommand)
+				if err != nil {
+					t.Fatalf("fleetcli %s error = %v, want success", strings.Join(tt.args, " "), err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), tt.wantError) {
 				t.Fatalf("fleetcli %s error = %v, want %q", strings.Join(tt.args, " "), err, tt.wantError)
 			}
-			if membersCount != 0 {
-				t.Fatalf("members count = %d, want 0", membersCount)
+			if strings.Join(calls, ",") != strings.Join(wantCalls, ",") {
+				t.Fatalf("calls = %v, want %v", calls, wantCalls)
 			}
 		})
 	}
-
-	t.Run("matching group id proceeds", func(t *testing.T) {
-		pinFleetAuthEnv(t, nil)
-
-		var calls []string
-		mux := http.NewServeMux()
-		mux.HandleFunc("POST /device_set.v1.DeviceSetService/GetDeviceSet", func(w http.ResponseWriter, _ *http.Request) {
-			calls = append(calls, "get")
-			w.Header().Set("Content-Type", contentTypeJSON)
-			_, _ = w.Write([]byte(`{"device_set":{"id":"42","type":"DEVICE_SET_TYPE_GROUP","label":"group-42"}}`))
-		})
-		mux.HandleFunc("POST /device_set.v1.DeviceSetService/ListDeviceSetMembers", func(w http.ResponseWriter, _ *http.Request) {
-			calls = append(calls, "members")
-			w.Header().Set("Content-Type", contentTypeJSON)
-			_, _ = w.Write([]byte(`{"members":[]}`))
-		})
-		srv := httptest.NewServer(mux)
-		t.Cleanup(srv.Close)
-
-		err := newRootCommand().Run(context.Background(), []string{
-			"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
-			"groups", "members", "--device-set-id", "42",
-		})
-		if err != nil {
-			t.Fatalf("groups members error = %v, want success", err)
-		}
-		want := []string{"get", "members"}
-		if strings.Join(calls, ",") != strings.Join(want, ",") {
-			t.Fatalf("calls = %v, want %v", calls, want)
-		}
-	})
 }
 
 func TestResolvedAuthInputs(t *testing.T) {

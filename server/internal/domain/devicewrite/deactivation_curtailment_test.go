@@ -10,11 +10,13 @@ import (
 )
 
 func TestDeactivationPreservesNativeCurtailmentAdmission(t *testing.T) {
+	shared := newQueuedFenceDatabase(t)
+	database, org := shared.database, shared.org
 	for _, state := range []string{"pending", "applying", "blocked"} {
 		for _, driver := range []string{"proto", "unclassified-pool-fallback"} {
 			for _, kind := range []commandtype.Type{commandtype.Curtail, commandtype.Uncurtail, commandtype.ApplyCurtailmentConfig, commandtype.UpdateMiningPools} {
 				t.Run(state+"/"+driver+"/"+kind.String(), func(t *testing.T) {
-					database, org, device, message, _ := queuedFenceFixture(t, kind)
+					device, message := shared.queueDevice(t, kind)
 					_, err := database.DB.ExecContext(t.Context(), `UPDATE discovered_device SET driver_name=$1,device_class=2 WHERE id=(SELECT discovered_device_id FROM device WHERE id=$2)`, driver, device)
 					require.NoError(t, err)
 					_, err = database.DB.ExecContext(t.Context(), `INSERT INTO container_mining_group_state(device_id,organization_id,operation_kind,status) VALUES($1,$2,'deactivate',$3)`, device, org, state)

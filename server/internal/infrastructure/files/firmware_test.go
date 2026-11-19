@@ -101,68 +101,6 @@ func firmwareFileEntries(t *testing.T) []os.DirEntry {
 	return storageDirEntriesExcept(t, firmwareDir, "staging")
 }
 
-func TestValidateFirmwareFile_AcceptsAllowedExtensions(t *testing.T) {
-	svc := setupService(t)
-
-	assert.NoError(t, svc.ValidateFirmwareFile("firmware-v2.0.swu", 1024))
-	assert.NoError(t, svc.ValidateFirmwareFile("upgrade.tar.gz", 1024))
-	assert.NoError(t, svc.ValidateFirmwareFile("firmware.zip", 1024))
-	assert.NoError(t, svc.ValidateFirmwareFile("FIRMWARE.SWU", 1024))
-	assert.NoError(t, svc.ValidateFirmwareFile("upgrade.TAR.GZ", 1024))
-	assert.NoError(t, svc.ValidateFirmwareFile("FIRMWARE.ZIP", 1024))
-}
-
-func TestValidateFirmwareFile_RejectsInvalidExtensions(t *testing.T) {
-	svc := setupService(t)
-
-	err := svc.ValidateFirmwareFile("firmware.bin", 1024)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported firmware file type")
-
-	err = svc.ValidateFirmwareFile("firmware.exe", 1024)
-	require.Error(t, err)
-}
-
-func TestValidateFirmwareFile_RejectsEmptyFilename(t *testing.T) {
-	svc := setupService(t)
-
-	err := svc.ValidateFirmwareFile("", 1024)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "filename is required")
-}
-
-func TestValidateFirmwareFile_RejectsZeroSize(t *testing.T) {
-	svc := setupService(t)
-
-	err := svc.ValidateFirmwareFile("firmware.swu", 0)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "greater than zero")
-}
-
-func TestValidateFirmwareFile_RejectsNegativeSize(t *testing.T) {
-	svc := setupService(t)
-
-	err := svc.ValidateFirmwareFile("firmware.swu", -1)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "greater than zero")
-}
-
-func TestValidateFirmwareFile_RejectsOversizedFile(t *testing.T) {
-	svc := setupService(t)
-	svc.maxFirmwareFileSize = 1000
-
-	err := svc.ValidateFirmwareFile("firmware.swu", 2000)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "too large")
-}
-
-func TestValidateFirmwareFile_AcceptsExactMaxSize(t *testing.T) {
-	svc := setupService(t)
-	svc.maxFirmwareFileSize = 1000
-
-	assert.NoError(t, svc.ValidateFirmwareFile("firmware.swu", 1000))
-}
-
 func TestSaveFirmwareFile_StreamsToDisk(t *testing.T) {
 	svc := setupService(t)
 

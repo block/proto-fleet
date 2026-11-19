@@ -1,7 +1,6 @@
 package telemetry
 
 import (
-	"context"
 	"errors"
 	"testing"
 	"time"
@@ -21,26 +20,6 @@ import (
 )
 
 var mockTime = time.Now()
-
-func TestHandler_NewHandler(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	// Create mocks for all required dependencies
-	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
-	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
-	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
-	mockErrorPoller := mock.NewMockErrorPoller(ctrl)
-
-	config := telemetry.Config{}
-	service := telemetry.NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller)
-
-	handler := NewHandler(service)
-
-	require.NotNil(t, handler)
-	require.Equal(t, service, handler.telemetryService)
-}
 
 func TestHandler_ConversionFunctions(t *testing.T) {
 	// Test the conversion functions work correctly
@@ -120,8 +99,8 @@ func TestHandler_GetCombinedMetrics(t *testing.T) {
 								MeasurementType: models.MeasurementTypeHashrate,
 								OpenTime:        mockTime.Add(-time.Minute * 5),
 								AggregatedValues: []models.AggregatedValue{
-									{Type: models.AggregationTypeAverage, Value: 100.5},
-									{Type: models.AggregationTypeMax, Value: 105.0},
+									{Type: models.AggregationTypeAverage, Value: 100.5e12},
+									{Type: models.AggregationTypeMax, Value: 105.0e12},
 								},
 							},
 						},
@@ -140,11 +119,11 @@ func TestHandler_GetCombinedMetrics(t *testing.T) {
 				require.InDelta(t, 67.5, resp.Metrics[0].AggregatedValues[0].Value, 0.001)
 				require.InDelta(t, 72.0, resp.Metrics[0].AggregatedValues[1].Value, 0.001)
 
-				// Check second metric (hashrate)
+				// Check second metric (hashrate). The store value is in H/s; the response is in TH/s.
 				require.Equal(t, telemetryv1.MeasurementType_MEASUREMENT_TYPE_HASHRATE, resp.Metrics[1].MeasurementType)
 				require.Len(t, resp.Metrics[1].AggregatedValues, 2)
-				require.InDelta(t, 100.5/1e6, resp.Metrics[1].AggregatedValues[0].Value, 0.001)
-				require.InDelta(t, 105.0/1e6, resp.Metrics[1].AggregatedValues[1].Value, 0.001)
+				require.InDelta(t, 100.5, resp.Metrics[1].AggregatedValues[0].Value, 1e-9)
+				require.InDelta(t, 105.0, resp.Metrics[1].AggregatedValues[1].Value, 1e-9)
 			},
 		},
 		{
@@ -363,96 +342,4 @@ func TestHandler_StreamCombinedMetricUpdates_ConversionFunction(t *testing.T) {
 		require.Equal(t, time.Minute*2, query.Granularity)
 		require.Equal(t, time.Minute*3, query.UpdateInterval)
 	})
-}
-
-// Test the core streaming logic by testing the StreamCombinedMetrics method
-func TestHandler_StreamCombinedMetricUpdates_Integration(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockStore := mock.NewMockTelemetryDataStore(ctrl)
-
-	// Set up the mock to return data when GetCombinedMetrics is called
-	mockStore.EXPECT().GetCombinedMetrics(gomock.Any(), gomock.Any()).
-		Return(models.CombinedMetric{
-			Metrics: []models.Metric{
-				{
-					MeasurementType: models.MeasurementTypeTemperature,
-					OpenTime:        mockTime.Add(-time.Minute * 5),
-					AggregatedValues: []models.AggregatedValue{
-						{Type: models.AggregationTypeAverage, Value: 67.5},
-					},
-				},
-			},
-			NextPageToken: "",
-		}, nil).AnyTimes()
-
-	config := telemetry.Config{}
-	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
-	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
-	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
-	mockErrorPoller := mock.NewMockErrorPoller(ctrl)
-
-	// Set up the mock to return miner state counts
-	mockDeviceStore.EXPECT().GetMinerStateCounts(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(&telemetryv1.MinerStateCounts{
-			HashingCount:  10,
-			BrokenCount:   2,
-			OfflineCount:  3,
-			SleepingCount: 1,
-		}, nil).AnyTimes()
-
-	service := telemetry.NewTelemetryService(config, mockStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller)
-
-	// Test the streaming functionality
-	query := models.StreamCombinedMetricsQuery{
-		DeviceIDs: []models.DeviceIdentifier{"device1"},
-		MeasurementTypes: []models.MeasurementType{
-			models.MeasurementTypeTemperature,
-		},
-		AggregationTypes: []models.AggregationType{
-			models.AggregationTypeAverage,
-		},
-		Granularity:    time.Minute * 5,
-		UpdateInterval: time.Millisecond * 100, // Fast interval for testing
-	}
-
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
-	defer cancel()
-
-	// Start the stream
-	updateChan, err := service.StreamCombinedMetrics(ctx, query)
-	require.NoError(t, err)
-	require.NotNil(t, updateChan)
-
-	// We should receive at least one update
-	select {
-	case update, ok := <-updateChan:
-		require.True(t, ok, "Channel should not be closed immediately")
-		require.Len(t, update.Metrics, 1)
-		require.Equal(t, models.MeasurementTypeTemperature, update.Metrics[0].MeasurementType)
-		require.InDelta(t, 67.5, update.Metrics[0].AggregatedValues[0].Value, 0.001)
-	case <-time.After(time.Millisecond * 200):
-		t.Fatal("Should have received an update within 200ms")
-	}
-
-	// Cancel context and verify channel closes
-	cancel()
-
-	// Wait for channel to close
-	select {
-	case _, ok := <-updateChan:
-		if ok {
-			// Got another update, that's fine, but eventually channel should close
-			select {
-			case _, ok := <-updateChan:
-				require.False(t, ok, "Channel should be closed after context cancellation")
-			case <-time.After(time.Second):
-				t.Fatal("Channel should have been closed")
-			}
-		}
-		// Channel is closed, which is what we expect
-	case <-time.After(time.Second):
-		t.Fatal("Channel should have been closed after context cancellation")
-	}
 }

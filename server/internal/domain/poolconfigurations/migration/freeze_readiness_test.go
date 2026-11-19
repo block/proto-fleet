@@ -18,9 +18,15 @@ func requireFreezeRejected(t *testing.T, conn *sql.DB, org int64, kind string) {
 		return FreezeCutover(t.Context(), q, org)
 	})
 	require.ErrorContains(t, err, kind)
-	disabled, err := sqlc.New(conn).LegacyPoolWritersDisabled(t.Context(), org)
-	require.NoError(t, err)
-	require.False(t, disabled, "rejected freeze leaves normal assignment and cleanup available")
+	require.False(t, cutoverMarkerExists(t, conn, org), "rejected freeze leaves normal assignment and cleanup available")
+}
+
+// cutoverMarkerExists reports whether the organization has a cutover marker.
+func cutoverMarkerExists(t *testing.T, conn *sql.DB, org int64) bool {
+	t.Helper()
+	var exists bool
+	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT EXISTS(SELECT 1 FROM pool_configuration_cutover WHERE organization_id=$1)`, org).Scan(&exists))
+	return exists
 }
 
 func TestCutoverIgnoresSoftDeletedPools(t *testing.T) {

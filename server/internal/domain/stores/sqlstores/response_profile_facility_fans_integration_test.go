@@ -211,10 +211,10 @@ func TestSQLCurtailmentStore_AutomationFanProfilesAreEnabledAfterSequencingLands
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	db := testContext.DatabaseService.DB
+	db := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(db)
 	orgID := user.OrganizationID
 	fanSiteID, fanID := seedCurtailmentFacilityFan(t, db, orgID, "automation-profile-fan")

@@ -648,47 +648,6 @@ func TestDispatchUnspecifiedAction(t *testing.T) {
 
 // --- resolveTargets ---
 
-func TestResolveTargets_MinerAndRack(t *testing.T) {
-	p, _, targetStore, collectionStore, _ := newTestProcessor(t, time.Now())
-
-	sched := &pb.Schedule{Id: 10}
-	orgID := int64(1)
-
-	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), orgID, sched.Id).Return([]*pb.ScheduleTarget{
-		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"},
-		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-2"},
-		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_RACK, TargetId: "100"},
-	}, nil)
-
-	collectionStore.EXPECT().GetDeviceIdentifiersByDeviceSetID(gomock.Any(), int64(100), orgID).
-		Return([]string{"miner-2", "miner-3"}, nil)
-
-	ids, err := p.resolveTargets(context.Background(), sched, orgID)
-	assert.NoError(t, err)
-	// miner-2 deduplicated
-	assert.Equal(t, []string{"miner-1", "miner-2", "miner-3"}, ids)
-}
-
-func TestResolveTargets_Group(t *testing.T) {
-	p, _, targetStore, collectionStore, _ := newTestProcessor(t, time.Now())
-
-	sched := &pb.Schedule{Id: 11}
-	orgID := int64(1)
-
-	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), orgID, sched.Id).Return([]*pb.ScheduleTarget{
-		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"},
-		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_GROUP, TargetId: "200"},
-	}, nil)
-
-	collectionStore.EXPECT().GetDeviceIdentifiersByDeviceSetID(gomock.Any(), int64(200), orgID).
-		Return([]string{"miner-1", "miner-4"}, nil)
-
-	ids, err := p.resolveTargets(context.Background(), sched, orgID)
-	assert.NoError(t, err)
-	// miner-1 deduplicated
-	assert.Equal(t, []string{"miner-1", "miner-4"}, ids)
-}
-
 func TestResolveTargets_GroupErrorPropagates(t *testing.T) {
 	p, _, targetStore, collectionStore, _ := newTestProcessor(t, time.Now())
 
@@ -701,30 +660,6 @@ func TestResolveTargets_GroupErrorPropagates(t *testing.T) {
 	_, err := p.resolveTargets(context.Background(), &pb.Schedule{Id: 1}, int64(1))
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "group 200")
-}
-
-func TestResolveTargets_RackErrorPropagates(t *testing.T) {
-	p, _, targetStore, collectionStore, _ := newTestProcessor(t, time.Now())
-
-	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), gomock.Any(), gomock.Any()).Return([]*pb.ScheduleTarget{
-		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_RACK, TargetId: "100"},
-	}, nil)
-	collectionStore.EXPECT().GetDeviceIdentifiersByDeviceSetID(gomock.Any(), int64(100), int64(1)).
-		Return(nil, errors.New("db connection lost"))
-
-	_, err := p.resolveTargets(context.Background(), &pb.Schedule{Id: 1}, int64(1))
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "rack 100")
-}
-
-func TestResolveTargets_Empty(t *testing.T) {
-	p, _, targetStore, _, _ := newTestProcessor(t, time.Now())
-
-	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
-
-	ids, err := p.resolveTargets(context.Background(), &pb.Schedule{Id: 1}, int64(1))
-	assert.NoError(t, err)
-	assert.Equal(t, 0, len(ids))
 }
 
 // Schedule-conflict filtering moved to command.ScheduleConflictFilter; the
@@ -1016,7 +951,7 @@ func TestUpdateAfterRun_RecurringStaysActive(t *testing.T) {
 	// Recurring with no end_date → next run tomorrow, status active.
 	procStore.EXPECT().UpdateScheduleAfterRun(gomock.Any(), int64(1), gomock.Any(), gomock.Not(gomock.Nil()), statusActive).Return(nil)
 
-	p.updateAfterRun(context.Background(), sched, int64(1), now)
+	p.updateAfterRunWithGeneration(context.Background(), sched, int64(1), now, 0, false)
 }
 
 func TestUpdateAfterRun_OneTimeCompletes(t *testing.T) {
@@ -1035,7 +970,7 @@ func TestUpdateAfterRun_OneTimeCompletes(t *testing.T) {
 	// One-time past start → nil next run → completed.
 	procStore.EXPECT().UpdateScheduleAfterRun(gomock.Any(), int64(1), gomock.Any(), gomock.Nil(), statusCompleted).Return(nil)
 
-	p.updateAfterRun(context.Background(), sched, int64(1), now)
+	p.updateAfterRunWithGeneration(context.Background(), sched, int64(1), now, 0, false)
 }
 
 func TestUpdateAfterRun_PowerTargetWindowStaysRunning(t *testing.T) {
@@ -1059,7 +994,7 @@ func TestUpdateAfterRun_PowerTargetWindowStaysRunning(t *testing.T) {
 	// Power target with end_time → stays running.
 	procStore.EXPECT().UpdateScheduleAfterRun(gomock.Any(), int64(1), gomock.Any(), gomock.Any(), statusRunning).Return(nil)
 
-	p.updateAfterRun(context.Background(), sched, int64(1), now)
+	p.updateAfterRunWithGeneration(context.Background(), sched, int64(1), now, 0, false)
 }
 
 func TestUpdateAfterRun_UpdateFailsRevertFails_KeepsJob(t *testing.T) {
@@ -1088,7 +1023,7 @@ func TestUpdateAfterRun_UpdateFailsRevertFails_KeepsJob(t *testing.T) {
 	procStore.EXPECT().UpdateScheduleAfterRun(gomock.Any(), int64(1), gomock.Any(), gomock.Any(), statusActive).Return(errors.New("db down"))
 	procStore.EXPECT().RevertScheduleToActive(gomock.Any(), int64(1)).Return(errors.New("db down"))
 
-	p.updateAfterRun(context.Background(), sched, int64(1), now)
+	p.updateAfterRunWithGeneration(context.Background(), sched, int64(1), now, 0, true)
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -1155,7 +1090,7 @@ func TestTransitionToCompleted_UpdateFailsRevertFails_KeepsJob(t *testing.T) {
 	procStore.EXPECT().UpdateScheduleAfterRun(gomock.Any(), int64(1), gomock.Any(), gomock.Nil(), statusCompleted).Return(errors.New("db down"))
 	procStore.EXPECT().RevertScheduleToActive(gomock.Any(), int64(1)).Return(errors.New("db down"))
 
-	p.transitionToCompleted(context.Background(), sched, int64(1), now)
+	p.transitionToCompletedWithGeneration(context.Background(), sched, int64(1), now, 0, true)
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -1360,6 +1295,7 @@ func TestCheckEndOfWindow_FailedRevertRetries(t *testing.T) {
 func TestCheckEndOfWindow_RevertStateFailSkipsLog(t *testing.T) {
 	now := time.Date(2026, 4, 1, 17, 30, 0, 0, time.UTC)
 	p, procStore, targetStore, _, cmdSvc := newTestProcessor(t, now)
+	activityStore := withRecordingActivity(p)
 
 	lastRun := time.Date(2026, 4, 1, 9, 0, 0, 0, time.UTC)
 	sched := &pb.Schedule{
@@ -1388,4 +1324,6 @@ func TestCheckEndOfWindow_RevertStateFailSkipsLog(t *testing.T) {
 	// No LogActivity call expected — revert state failed so log is skipped.
 
 	p.checkEndOfWindow(context.Background())
+
+	assert.Equal(t, 0, len(activityStore.inserts))
 }

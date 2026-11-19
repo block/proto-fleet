@@ -34,17 +34,6 @@ func TestPeriodDependencyEarlierEpisodeStart(t *testing.T) {
 	}
 	requireValue(t, narrow.Metrics["backlog_age_over_60_days_month_end"], "0", Authoritative)
 	requireValue(t, narrow.Metrics["backlog_age_over_60_days_daily_average"], "0", Authoritative)
-
-	selected, err := sourceInputs(t.Context(), p, in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(selected.Obligations) != 2 || selected.Obligations[0].ID != "earlier" || selected.Obligations[1].ID != "current" {
-		t.Fatalf("source selector must retain eligible episode history and exclude late evidence: %+v", selected.Obligations)
-	}
-	if got := calculate(t, p, selected); !reflect.DeepEqual(full, got) {
-		t.Fatal("source-selected inputs changed the complete calculation")
-	}
 }
 
 func TestPeriodDependencyRestoredOpenS3(t *testing.T) {
@@ -79,16 +68,6 @@ func TestPeriodDependencyRestoredOpenS3(t *testing.T) {
 			if reflect.DeepEqual(full.Metrics["open_S3_items"], narrow.Metrics["open_S3_items"]) {
 				t.Fatal("omitting the pre-period ticket did not change its result")
 			}
-			selected, err := sourceInputs(t.Context(), p, in)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(selected.Obligations) != 1 || selected.Obligations[0].ID != "restored" {
-				t.Fatalf("source selector lost the pre-period ticket: %+v", selected.Obligations)
-			}
-			if got := calculate(t, p, selected); !reflect.DeepEqual(full, got) {
-				t.Fatal("source-selected inputs changed the complete calculation")
-			}
 		})
 	}
 }
@@ -117,13 +96,6 @@ func TestPeriodDependencyOpenS3ChoosesLatestBeforeScope(t *testing.T) {
 	narrowed.Obligations = []ObligationInterval{earlier}
 	narrow := calculate(t, p, narrowed)
 	requireValue(t, narrow.Containers[0].Metrics["open_S3_items"], "1", Authoritative)
-	selected, err := sourceInputs(t.Context(), p, in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := calculate(t, p, selected); !reflect.DeepEqual(full, got) {
-		t.Fatal("source-selected inputs lost the later cross-scope ticket state")
-	}
 }
 
 func TestPeriodDependencyPriorReportingYear(t *testing.T) {
@@ -157,16 +129,6 @@ func TestPeriodDependencyPriorReportingYear(t *testing.T) {
 	for _, key := range []string{"year_over_year_energy", "year_over_year_hashrate", "year_over_year_maintenance"} {
 		requireValue(t, full.Metrics[key], "0", Provisional)
 	}
-	selected, err := sourceInputs(t.Context(), p, in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(selected.Coverage) != 2 || len(selected.Meters) != 2 || len(selected.Hashrates) != 2 || len(selected.Incidents) != 2 {
-		t.Fatalf("source selector dropped prior-year evidence: coverage=%d meters=%d hashrates=%d incidents=%d", len(selected.Coverage), len(selected.Meters), len(selected.Hashrates), len(selected.Incidents))
-	}
-	if got := calculate(t, p, selected); !reflect.DeepEqual(full, got) {
-		t.Fatal("source-selected inputs changed the complete annual calculation")
-	}
 	withoutPriorMeter := in
 	withoutPriorMeter.Meters = in.Meters[1:]
 	requireValue(t, calculate(t, p, withoutPriorMeter).Metrics["year_over_year_energy"], "", Unavailable)
@@ -192,6 +154,29 @@ func TestPeriodDependencyPriorReportingYear(t *testing.T) {
 	}
 }
 
+func TestPeriodDependencyNextPeriodMeter(t *testing.T) {
+	p, in := calculationFixture()
+	in.Configuration.SharedAllocationRef = "host allocation worksheet"
+	meter := MeterInterval{ID: "used", MeterID: "raw-meter", SourceID: "meter", SiteID: 1, ContainerID: 10, OrderID: "a", Start: p.Start, End: p.Start.Add(time.Hour), KWh: "100.000000000000000001", AllocationFraction: "0.25", Quality: "measured", SourceRef: "host original"}
+	other := meter
+	other.ID = "future"
+	other.Start = p.End
+	other.End = p.End.Add(time.Hour)
+	in.Meters = []MeterInterval{meter, other}
+	in.PoolObservations = []PoolObservation{{ID: "pool", Kind: 6, AssetID: 1, SourceID: "pool", SourceAt: p.Start, ReceivedAt: p.Start, State: "unknown", SourceRef: "pool evidence"}}
+
+	full := calculate(t, p, in)
+	narrowed := in
+	narrowed.Meters = []MeterInterval{meter}
+	if !reflect.DeepEqual(full, calculate(t, p, narrowed)) {
+		t.Fatal("a meter interval in the next period changed the calculated result")
+	}
+	narrowed.Meters = []MeterInterval{other}
+	if reflect.DeepEqual(full, calculate(t, p, narrowed)) {
+		t.Fatal("omitting the meter interval in the period did not change the result")
+	}
+}
+
 func TestPeriodDependencyEqualSourceTimePoolConflict(t *testing.T) {
 	p, in := calculationFixture()
 	in.Coverage[0].Start = p.Start.AddDate(0, 0, -1)
@@ -210,16 +195,6 @@ func TestPeriodDependencyEqualSourceTimePoolConflict(t *testing.T) {
 	requireValue(t, full.Metrics["pool_reporting_units"], "0", Provisional)
 	if !slices.Contains(full.Metrics["pool_unknown_units"].Causes, "conflicting_pool_observations") {
 		t.Fatalf("same-time conflict not reported: %+v", full.Metrics["pool_unknown_units"])
-	}
-	selected, err := sourceInputs(t.Context(), p, in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(selected.PoolObservations) != 2 || selected.PoolObservations[0].ID != "a" || selected.PoolObservations[1].ID != "b" {
-		t.Fatalf("source selector must keep both timely pre-period points and exclude late/end points: %+v", selected.PoolObservations)
-	}
-	if got := calculate(t, p, selected); !reflect.DeepEqual(full, got) {
-		t.Fatal("source-selected inputs changed the complete pool calculation")
 	}
 	narrowed := in
 	narrowed.PoolObservations = []PoolObservation{reporting}

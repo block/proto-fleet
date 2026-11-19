@@ -22,10 +22,10 @@ func TestSQLCurtailmentStore_TopologyProfilesCanBeAutomated(t *testing.T) {
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	database := testContext.DatabaseService.DB
+	database := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	buildingStore := sqlstores.NewSQLBuildingStore(database)
 	orgID := user.OrganizationID

@@ -1812,307 +1812,144 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_PreservesLegacyDottedFleetUser
 	}
 }
 
-func TestExecuteCommandOnDevice_UpdateMiningPools_ReappliesCurrentPoolsWithStoredWorkerName(t *testing.T) {
-	storedPassword := "primary-credential"
-	backupPassword := ""
+func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyRewritesStoredPoolUsernames(t *testing.T) {
+	type wantPool struct {
+		username string
+		password string
+	}
+	primaryPassword := "primary-credential"
+	emptyPassword := ""
 	secondBackupPassword := "second-backup-credential"
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
 
-	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
-	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
-	storedReader := minerIfaceMocks.NewMockStoredMiningPoolReader(ctrl)
-	mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
+	for _, tc := range []struct {
+		name              string
+		desiredWorkerName string
+		storedPools       []minerInterfaces.MinerStoredPool
+		// wantPools is in priority order: default, backup 1, backup 2.
+		wantPools []wantPool
+	}{
+		{
+			name:              "reapplies current pools with the stored passwords",
+			desiredWorkerName: "new-worker",
+			storedPools: []minerInterfaces.MinerStoredPool{
+				{Priority: 1, URL: "stratum+tcp://backup.example.com:3333", Username: "wallet-backup.old-worker", Password: &emptyPassword},
+				{Priority: 0, URL: "stratum+tcp://primary.example.com:3333", Username: "wallet.old-worker", Password: &primaryPassword},
+				{Priority: 2, URL: "stratum+tcp://custom.example.com:3333", Username: "custom.username", Password: &secondBackupPassword},
+			},
+			wantPools: []wantPool{
+				{username: "wallet.new-worker", password: primaryPassword},
+				{username: "wallet-backup.new-worker", password: emptyPassword},
+				{username: "custom.new-worker", password: secondBackupPassword},
+			},
+		},
+		{
+			name:              "uses the desired worker name from the payload",
+			desiredWorkerName: "payload-worker",
+			storedPools: []minerInterfaces.MinerStoredPool{
+				{Priority: 0, URL: "stratum+tcp://primary.example.com:3333", Username: "wallet.old-worker", Password: &emptyPassword},
+			},
+			wantPools: []wantPool{
+				{username: "wallet.payload-worker"},
+			},
+		},
+		{
+			name:              "appends the worker name when the current username has no suffix",
+			desiredWorkerName: "new-worker",
+			storedPools: []minerInterfaces.MinerStoredPool{
+				{Priority: 0, URL: "stratum+tcp://primary.example.com:3333", Username: "wallet", Password: &emptyPassword},
+			},
+			wantPools: []wantPool{
+				{username: "wallet.new-worker"},
+			},
+		},
+		{
+			name:              "replaces the entire dotted worker suffix",
+			desiredWorkerName: "new-worker",
+			storedPools: []minerInterfaces.MinerStoredPool{
+				{Priority: 0, URL: "stratum+tcp://primary.example.com:3333", Username: "wallet.primary.worker", Password: &emptyPassword},
+			},
+			wantPools: []wantPool{
+				{username: "wallet.new-worker"},
+			},
+		},
+		{
+			name:              "normalizes all pools to the worker name",
+			desiredWorkerName: "new-worker",
+			storedPools: []minerInterfaces.MinerStoredPool{
+				{Priority: 0, URL: "stratum+tcp://primary.example.com:3333", Username: "wallet", Password: &emptyPassword},
+				{Priority: 1, URL: "stratum+tcp://backup.example.com:3333", Username: "wallet-backup.old-worker", Password: &emptyPassword},
+				{Priority: 2, URL: "stratum+tcp://custom.example.com:3333", Username: "custom.username", Password: &emptyPassword},
+			},
+			wantPools: []wantPool{
+				{username: "wallet.new-worker"},
+				{username: "wallet-backup.new-worker"},
+				{username: "custom.new-worker"},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
 
-	payloadBytes, err := json.Marshal(dto.UpdateMiningPoolsPayload{
-		ReapplyCurrentPoolsWithStoredWorkerName: true,
-		DesiredWorkerName:                       "new-worker",
-	})
-	require.NoError(t, err)
+			mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
+			mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
+			storedReader := minerIfaceMocks.NewMockStoredMiningPoolReader(ctrl)
+			mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
 
-	message := queue.Message{
-		ID:           17,
-		BatchLogUUID: "batch-pools-reapply",
-		CommandType:  commandtype.UpdateMiningPools,
-		DeviceID:     49,
-		Payload:      payloadBytes,
-	}
+			payloadBytes, err := json.Marshal(dto.UpdateMiningPoolsPayload{
+				ReapplyCurrentPoolsWithStoredWorkerName: true,
+				DesiredWorkerName:                       tc.desiredWorkerName,
+			})
+			require.NoError(t, err)
 
-	mockMinerGetter.EXPECT().
-		GetMinerForCommand(gomock.Any(), int64(49)).
-		Return(storedPoolMiner{Miner: mockMiner, StoredMiningPoolReader: storedReader}, nil)
+			message := queue.Message{
+				ID:           17,
+				BatchLogUUID: "batch-pools-reapply",
+				CommandType:  commandtype.UpdateMiningPools,
+				DeviceID:     49,
+				Payload:      payloadBytes,
+			}
 
-	storedReader.EXPECT().
-		GetStoredMiningPools(gomock.Any()).
-		Return([]minerInterfaces.MinerStoredPool{
-			{Priority: 1, URL: "stratum+tcp://backup.example.com:3333", Username: "wallet-backup.old-worker", Password: &backupPassword},
-			{Priority: 0, URL: "stratum+tcp://primary.example.com:3333", Username: "wallet.old-worker", Password: &storedPassword},
-			{Priority: 2, URL: "stratum+tcp://custom.example.com:3333", Username: "custom.username", Password: &secondBackupPassword},
-		}, nil)
-	mockMiner.EXPECT().GetOrgID().Return(int64(11)).AnyTimes()
-	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
-	mockMiner.EXPECT().GetID().Return(models.DeviceIdentifier("device-reapply")).AnyTimes()
+			mockMinerGetter.EXPECT().
+				GetMinerForCommand(gomock.Any(), int64(49)).
+				Return(storedPoolMiner{Miner: mockMiner, StoredMiningPoolReader: storedReader}, nil)
 
-	mockMiner.EXPECT().
-		UpdateMiningPools(gomock.Any(), gomock.AssignableToTypeOf(dto.UpdateMiningPoolsPayload{})).
-		DoAndReturn(func(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error {
-			assert.Equal(t, "wallet.new-worker", payload.DefaultPool.Username)
-			assert.Equal(t, storedPassword, payload.DefaultPool.Password)
-			require.NotNil(t, payload.Backup1Pool)
-			assert.Equal(t, "wallet-backup.new-worker", payload.Backup1Pool.Username)
-			assert.Equal(t, backupPassword, payload.Backup1Pool.Password)
-			require.NotNil(t, payload.Backup2Pool)
-			assert.Equal(t, "custom.new-worker", payload.Backup2Pool.Username)
-			assert.Equal(t, secondBackupPassword, payload.Backup2Pool.Password)
-			return nil
+			storedReader.EXPECT().
+				GetStoredMiningPools(gomock.Any()).
+				Return(tc.storedPools, nil)
+			mockMiner.EXPECT().GetOrgID().Return(int64(11)).AnyTimes()
+			mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
+			mockMiner.EXPECT().GetID().Return(models.DeviceIdentifier("device-reapply")).AnyTimes()
+
+			mockMiner.EXPECT().
+				UpdateMiningPools(gomock.Any(), gomock.AssignableToTypeOf(dto.UpdateMiningPoolsPayload{})).
+				DoAndReturn(func(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error {
+					gotPools := []*dto.MiningPool{&payload.DefaultPool, payload.Backup1Pool, payload.Backup2Pool}
+					for i, got := range gotPools {
+						if i >= len(tc.wantPools) {
+							assert.Nil(t, got, "pool %d must be absent", i)
+							continue
+						}
+						require.NotNil(t, got, "pool %d", i)
+						assert.Equal(t, tc.wantPools[i].username, got.Username, "username of pool %d", i)
+						assert.Equal(t, tc.wantPools[i].password, got.Password, "password of pool %d", i)
+					}
+					return nil
+				})
+			mockDeviceStore.EXPECT().
+				UpdateWorkerName(gomock.Any(), models.DeviceIdentifier("device-reapply"), tc.desiredWorkerName).
+				Return(nil)
+
+			svc := NewExecutionService(&Config{
+				MaxWorkers:             5,
+				MasterPollingInterval:  10 * time.Millisecond,
+				WorkerExecutionTimeout: 5 * time.Second,
+			}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
+
+			_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+			require.NoError(t, err)
 		})
-	mockDeviceStore.EXPECT().
-		UpdateWorkerName(gomock.Any(), models.DeviceIdentifier("device-reapply"), "new-worker").
-		Return(nil)
-
-	svc := NewExecutionService(&Config{
-		MaxWorkers:             5,
-		MasterPollingInterval:  10 * time.Millisecond,
-		WorkerExecutionTimeout: 5 * time.Second,
-	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
-
-	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
-	require.NoError(t, err)
-}
-
-func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyUsesDesiredWorkerNameFromPayload(t *testing.T) {
-	storedPassword := ""
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
-	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
-	storedReader := minerIfaceMocks.NewMockStoredMiningPoolReader(ctrl)
-	mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
-
-	payloadBytes, err := json.Marshal(dto.UpdateMiningPoolsPayload{
-		ReapplyCurrentPoolsWithStoredWorkerName: true,
-		DesiredWorkerName:                       "payload-worker",
-	})
-	require.NoError(t, err)
-
-	message := queue.Message{
-		ID:           117,
-		BatchLogUUID: "batch-pools-reapply-payload",
-		CommandType:  commandtype.UpdateMiningPools,
-		DeviceID:     149,
-		Payload:      payloadBytes,
 	}
-
-	mockMinerGetter.EXPECT().
-		GetMinerForCommand(gomock.Any(), int64(149)).
-		Return(storedPoolMiner{Miner: mockMiner, StoredMiningPoolReader: storedReader}, nil)
-	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
-	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
-
-	storedReader.EXPECT().
-		GetStoredMiningPools(gomock.Any()).
-		Return([]minerInterfaces.MinerStoredPool{
-			{Priority: 0, URL: "stratum+tcp://primary.example.com:3333", Username: "wallet.old-worker", Password: &storedPassword},
-		}, nil)
-	mockMiner.EXPECT().GetID().Return(models.DeviceIdentifier("device-reapply-payload")).AnyTimes()
-
-	mockMiner.EXPECT().
-		UpdateMiningPools(gomock.Any(), gomock.AssignableToTypeOf(dto.UpdateMiningPoolsPayload{})).
-		DoAndReturn(func(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error {
-			assert.Equal(t, "wallet.payload-worker", payload.DefaultPool.Username)
-			return nil
-		})
-	mockDeviceStore.EXPECT().
-		UpdateWorkerName(gomock.Any(), models.DeviceIdentifier("device-reapply-payload"), "payload-worker").
-		Return(nil)
-
-	svc := NewExecutionService(&Config{
-		MaxWorkers:             5,
-		MasterPollingInterval:  10 * time.Millisecond,
-		WorkerExecutionTimeout: 5 * time.Second,
-	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
-
-	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
-	require.NoError(t, err)
-}
-
-func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyAppendsStoredWorkerNameWhenCurrentUsernameHasNoSuffix(t *testing.T) {
-	storedPassword := ""
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
-	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
-	storedReader := minerIfaceMocks.NewMockStoredMiningPoolReader(ctrl)
-	mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
-
-	payloadBytes, err := json.Marshal(dto.UpdateMiningPoolsPayload{
-		ReapplyCurrentPoolsWithStoredWorkerName: true,
-		DesiredWorkerName:                       "new-worker",
-	})
-	require.NoError(t, err)
-
-	message := queue.Message{
-		ID:           18,
-		BatchLogUUID: "batch-pools-reapply-append",
-		CommandType:  commandtype.UpdateMiningPools,
-		DeviceID:     50,
-		Payload:      payloadBytes,
-	}
-
-	mockMinerGetter.EXPECT().
-		GetMinerForCommand(gomock.Any(), int64(50)).
-		Return(storedPoolMiner{Miner: mockMiner, StoredMiningPoolReader: storedReader}, nil)
-
-	storedReader.EXPECT().
-		GetStoredMiningPools(gomock.Any()).
-		Return([]minerInterfaces.MinerStoredPool{
-			{Priority: 0, URL: "stratum+tcp://primary.example.com:3333", Username: "wallet", Password: &storedPassword},
-		}, nil)
-	mockMiner.EXPECT().GetOrgID().Return(int64(12)).AnyTimes()
-	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
-	mockMiner.EXPECT().GetID().Return(models.DeviceIdentifier("device-reapply-append")).AnyTimes()
-
-	mockMiner.EXPECT().
-		UpdateMiningPools(gomock.Any(), gomock.AssignableToTypeOf(dto.UpdateMiningPoolsPayload{})).
-		DoAndReturn(func(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error {
-			assert.Equal(t, "wallet.new-worker", payload.DefaultPool.Username)
-			assert.Nil(t, payload.Backup1Pool)
-			return nil
-		})
-	mockDeviceStore.EXPECT().
-		UpdateWorkerName(gomock.Any(), models.DeviceIdentifier("device-reapply-append"), "new-worker").
-		Return(nil)
-
-	svc := NewExecutionService(&Config{
-		MaxWorkers:             5,
-		MasterPollingInterval:  10 * time.Millisecond,
-		WorkerExecutionTimeout: 5 * time.Second,
-	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
-
-	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
-	require.NoError(t, err)
-}
-
-func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyReplacesEntireDottedWorkerSuffix(t *testing.T) {
-	storedPassword := ""
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
-	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
-	storedReader := minerIfaceMocks.NewMockStoredMiningPoolReader(ctrl)
-	mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
-
-	payloadBytes, err := json.Marshal(dto.UpdateMiningPoolsPayload{
-		ReapplyCurrentPoolsWithStoredWorkerName: true,
-		DesiredWorkerName:                       "new-worker",
-	})
-	require.NoError(t, err)
-
-	message := queue.Message{
-		ID:           20,
-		BatchLogUUID: "batch-pools-reapply-dotted-worker",
-		CommandType:  commandtype.UpdateMiningPools,
-		DeviceID:     52,
-		Payload:      payloadBytes,
-	}
-
-	mockMinerGetter.EXPECT().
-		GetMinerForCommand(gomock.Any(), int64(52)).
-		Return(storedPoolMiner{Miner: mockMiner, StoredMiningPoolReader: storedReader}, nil)
-
-	storedReader.EXPECT().
-		GetStoredMiningPools(gomock.Any()).
-		Return([]minerInterfaces.MinerStoredPool{
-			{Priority: 0, URL: "stratum+tcp://primary.example.com:3333", Username: "wallet.primary.worker", Password: &storedPassword},
-		}, nil)
-	mockMiner.EXPECT().GetOrgID().Return(int64(13)).AnyTimes()
-	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
-	mockMiner.EXPECT().GetID().Return(models.DeviceIdentifier("device-reapply-dotted-worker")).AnyTimes()
-
-	mockMiner.EXPECT().
-		UpdateMiningPools(gomock.Any(), gomock.AssignableToTypeOf(dto.UpdateMiningPoolsPayload{})).
-		DoAndReturn(func(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error {
-			assert.Equal(t, "wallet.new-worker", payload.DefaultPool.Username)
-			return nil
-		})
-	mockDeviceStore.EXPECT().
-		UpdateWorkerName(gomock.Any(), models.DeviceIdentifier("device-reapply-dotted-worker"), "new-worker").
-		Return(nil)
-
-	svc := NewExecutionService(&Config{
-		MaxWorkers:             5,
-		MasterPollingInterval:  10 * time.Millisecond,
-		WorkerExecutionTimeout: 5 * time.Second,
-	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
-
-	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
-	require.NoError(t, err)
-}
-
-func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyNormalizesAllPoolsToStoredWorkerName(t *testing.T) {
-	storedPassword := ""
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
-	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
-	storedReader := minerIfaceMocks.NewMockStoredMiningPoolReader(ctrl)
-	mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
-
-	payloadBytes, err := json.Marshal(dto.UpdateMiningPoolsPayload{
-		ReapplyCurrentPoolsWithStoredWorkerName: true,
-		DesiredWorkerName:                       "new-worker",
-	})
-	require.NoError(t, err)
-
-	message := queue.Message{
-		ID:           21,
-		BatchLogUUID: "batch-pools-reapply-normalize-all",
-		CommandType:  commandtype.UpdateMiningPools,
-		DeviceID:     53,
-		Payload:      payloadBytes,
-	}
-
-	mockMinerGetter.EXPECT().
-		GetMinerForCommand(gomock.Any(), int64(53)).
-		Return(storedPoolMiner{Miner: mockMiner, StoredMiningPoolReader: storedReader}, nil)
-
-	storedReader.EXPECT().
-		GetStoredMiningPools(gomock.Any()).
-		Return([]minerInterfaces.MinerStoredPool{
-			{Priority: 0, URL: "stratum+tcp://primary.example.com:3333", Username: "wallet", Password: &storedPassword},
-			{Priority: 1, URL: "stratum+tcp://backup.example.com:3333", Username: "wallet-backup.old-worker", Password: &storedPassword},
-			{Priority: 2, URL: "stratum+tcp://custom.example.com:3333", Username: "custom.username", Password: &storedPassword},
-		}, nil)
-	mockMiner.EXPECT().GetOrgID().Return(int64(14)).AnyTimes()
-	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
-	mockMiner.EXPECT().GetID().Return(models.DeviceIdentifier("device-reapply-normalize-all")).AnyTimes()
-
-	mockMiner.EXPECT().
-		UpdateMiningPools(gomock.Any(), gomock.AssignableToTypeOf(dto.UpdateMiningPoolsPayload{})).
-		DoAndReturn(func(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error {
-			assert.Equal(t, "wallet.new-worker", payload.DefaultPool.Username)
-			require.NotNil(t, payload.Backup1Pool)
-			assert.Equal(t, "wallet-backup.new-worker", payload.Backup1Pool.Username)
-			require.NotNil(t, payload.Backup2Pool)
-			assert.Equal(t, "custom.new-worker", payload.Backup2Pool.Username)
-			return nil
-		})
-	mockDeviceStore.EXPECT().
-		UpdateWorkerName(gomock.Any(), models.DeviceIdentifier("device-reapply-normalize-all"), "new-worker").
-		Return(nil)
-
-	svc := NewExecutionService(&Config{
-		MaxWorkers:             5,
-		MasterPollingInterval:  10 * time.Millisecond,
-		WorkerExecutionTimeout: 5 * time.Second,
-	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
-
-	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
-	require.NoError(t, err)
 }
 
 func TestStoredPoolToPayload_RequiresVerifiedPassword(t *testing.T) {

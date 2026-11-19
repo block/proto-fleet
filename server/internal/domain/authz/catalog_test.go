@@ -1,13 +1,22 @@
 package authz
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
 	"reflect"
 	"regexp"
 	"sort"
+	"strconv"
+	"strings"
 	"testing"
 )
 
 var permKeyRegex = regexp.MustCompile(`^[a-z]+:[a-z_]+$`)
+
+// permConstRegex matches the names of the permission key constants.
+var permConstRegex = regexp.MustCompile(`^Perm[A-Z]`)
 
 func TestAllPermissions_NoDuplicates(t *testing.T) {
 	seen := make(map[string]bool)
@@ -27,75 +36,74 @@ func TestAllPermissions_KeyShape(t *testing.T) {
 	}
 }
 
-// TestCatalogCompleteness fails when a new permission constant is added but
-// not registered in the catalog slice — the canonical "did you remember to
-// add it to AllPermissions" check. It works by enumerating every exported
-// string constant on this package starting with Perm and asserting each
-// value is reachable via Lookup.
+// TestCatalogCompleteness fails when a Perm constant of this package is not
+// in the catalog, or when a catalog key has no Perm constant. It reads the
+// constants from the package source, so a new constant needs no change here.
 func TestCatalogCompleteness(t *testing.T) {
-	expectedKeys := []string{
-		PermFleetRead,
-		PermMinerRead,
-		PermMinerBlinkLED,
-		PermMinerReboot,
-		PermMinerStartMining,
-		PermMinerStopMining,
-		PermMinerUpdatePools,
-		PermMinerActivateMiningGroups,
-		PermMinerDeactivateMiningGroups,
-		PermMinerUpdateWorkerName,
-		PermMinerRename,
-		PermMinerDelete,
-		PermMinerSetCoolingMode,
-		PermMinerSetPowerTarget,
-		PermMinerFirmwareUpdate,
-		PermMinerDownloadLogs,
-		PermMinerUpdatePassword,
-		PermMinerUnpair,
-		PermMinerPair,
-		PermMinerExportCSV,
-		PermRackRead,
-		PermRackManage,
-		PermSiteRead,
-		PermSiteManage,
-		PermActivityRead,
-		PermServerlogRead,
-		PermCurtailmentRead,
-		PermCurtailmentManage,
-		PermCurtailmentIngest,
-		PermPoolRead,
-		PermPoolManage,
-		PermScheduleRead,
-		PermScheduleManage,
-		PermFleetnodeRead,
-		PermFleetnodeManage,
-		PermAlertRead,
-		PermAlertManage,
-		PermAPIKeyManage,
-		PermUserRead,
-		PermUserManage,
-		PermRoleManage,
-		PermAccountManage,
-		PermInstanceUpdate,
-		PermMaintenanceRead,
-		PermMaintenanceManage,
-		PermControllerSoftwareUpdate,
-		PermContainerPowerFeed,
+	want := declaredPermissionKeys(t)
+	if len(want) == 0 {
+		t.Fatal("found no Perm constant in the package source")
 	}
-
-	for _, key := range expectedKeys {
-		if _, ok := Lookup(key); !ok {
-			t.Errorf("permission %q declared as a constant but missing from catalog", key)
-		}
-	}
-
-	got := AllPermissionsSorted()
-	want := append([]string(nil), expectedKeys...)
 	sort.Strings(want)
 
+	got := AllPermissionsSorted()
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("catalog drift:\n  got:  %v\n  want: %v", got, want)
+		t.Errorf("catalog drift:\n  catalog:   %v\n  constants: %v", got, want)
 	}
+}
+
+// declaredPermissionKeys returns the value of each Perm constant in the
+// non-test source files of the package directory.
+func declaredPermissionKeys(t *testing.T) []string {
+	t.Helper()
+
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("read package directory: %v", err)
+	}
+
+	var keys []string
+	fset := token.NewFileSet()
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		for _, decl := range file.Decls {
+			gen, ok := decl.(*ast.GenDecl)
+			if !ok || gen.Tok != token.CONST {
+				continue
+			}
+			for _, spec := range gen.Specs {
+				valueSpec, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for i, ident := range valueSpec.Names {
+					if !permConstRegex.MatchString(ident.Name) {
+						continue
+					}
+					if i >= len(valueSpec.Values) {
+						t.Fatalf("constant %s has no value", ident.Name)
+					}
+					lit, ok := valueSpec.Values[i].(*ast.BasicLit)
+					if !ok || lit.Kind != token.STRING {
+						t.Fatalf("constant %s is not a string literal", ident.Name)
+					}
+					key, err := strconv.Unquote(lit.Value)
+					if err != nil {
+						t.Fatalf("constant %s: %v", ident.Name, err)
+					}
+					keys = append(keys, key)
+				}
+			}
+		}
+	}
+	return keys
 }
 
 func TestAllPermissions_FreshCopy(t *testing.T) {
@@ -118,66 +126,8 @@ func TestCatalog_FreshCopy(t *testing.T) {
 	}
 }
 
-func TestCatalogByResource_GroupsAndAssociates(t *testing.T) {
-	groups := CatalogByResource()
-
-	for _, resource := range []string{
-		ResourceFleet, ResourceMiner, ResourceRack, ResourceSite, ResourceActivity,
-		ResourceServerLog, ResourceCurtailment, ResourcePool, ResourceSchedule, ResourceFleetNode,
-		ResourceAlert, ResourceAPIKey, ResourceUser, ResourceRole, ResourceInstance,
-		ResourceMaintenance, ResourceAccount, ResourceController,
-	} {
-		if len(groups[resource]) == 0 {
-			t.Errorf("resource %q has no permissions in catalog", resource)
-		}
-		for _, entry := range groups[resource] {
-			if entry.Resource != resource {
-				t.Errorf("entry %q grouped under %q but its Resource field is %q", entry.Key, resource, entry.Resource)
-			}
-		}
-	}
-}
-
 func TestLookup_UnknownKeyReturnsFalse(t *testing.T) {
 	if _, ok := Lookup("does:not_exist"); ok {
 		t.Fatal("Lookup returned ok for an unknown key")
-	}
-}
-
-func TestResourceOrder_MatchesCatalogDeclarationOrder(t *testing.T) {
-	got := ResourceOrder()
-	want := []string{
-		ResourceFleet,
-		ResourceMiner,
-		ResourceRack,
-		ResourceSite,
-		ResourceActivity,
-		ResourceServerLog,
-		ResourceCurtailment,
-		ResourcePool,
-		ResourceSchedule,
-		ResourceFleetNode,
-		ResourceAlert,
-		ResourceAPIKey,
-		ResourceUser,
-		ResourceRole,
-		ResourceAccount,
-		ResourceInstance,
-		ResourceMaintenance,
-		ResourceController,
-		ResourceContainer,
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("ResourceOrder mismatch:\n  got:  %v\n  want: %v", got, want)
-	}
-}
-
-func TestResourceOrder_NoDuplicates(t *testing.T) {
-	seen := make(map[string]bool)
-	for _, r := range ResourceOrder() {
-		if seen[r] {
-			t.Errorf("duplicate resource in ResourceOrder: %q", r)
-		}
-		seen[r] = true
 	}
 }

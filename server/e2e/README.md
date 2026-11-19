@@ -17,9 +17,9 @@ The e2e tests validate that:
 
 1. **Docker infrastructure** is properly configured and running
 2. **Plugin system** loads and initializes correctly
-3. **Complete workflows** function end-to-end (discovery → pairing → telemetry)
+3. **`fleetcli` commands** work against a real fleet-api
 
-These tests run against the actual docker-compose environment (`just rebuild-all`), not isolated test infrastructure. This ensures we're testing the real system as users would deploy it.
+These tests run against the docker-compose environment that is already up (for example `just dev`), not isolated test infrastructure. The tests do not reset the environment. This ensures we're testing the real system as users would deploy it.
 
 ## Architecture
 
@@ -29,7 +29,7 @@ These tests run against the actual docker-compose environment (`just rebuild-all
 flowchart TB
     subgraph docker["Docker Compose Environment"]
         fleet["fleet-api<br/>(port 4000)"]
-        db[("TimescaleDB<br/>(port 5433)")]
+        db[("TimescaleDB<br/>(port 5432)")]
         proto-plugin["proto-plugin<br/>(gRPC)"]
         antminer-plugin["antminer-plugin<br/>(gRPC)"]
         proto-sim["proto-sim<br/>(port 8080)"]
@@ -51,7 +51,6 @@ The e2e tests follow a **system testing** approach:
 - Tests interact with the real Fleet API at `http://localhost:4000`
 - Uses actual docker-compose services (not mocks or isolated infrastructure)
 - Validates complete workflows through public API endpoints
-- Triggers `just rebuild-all` to ensure clean environment state
 
 **Key Design Principle**: Tests should interact with the system exactly as a real client would - through the Fleet API using Connect RPC (gRPC-Web).
 
@@ -103,53 +102,22 @@ Validates that the docker-compose environment is properly configured and all ser
 
 **Run this test**:
 ```bash
-go test -v -tags=e2e ./e2e -run TestPluginIntegration
-```
-
-### 2. Complete Workflow Validation (`TestCompletePluginWorkflow`)
-
-Validates the full device lifecycle: discovery → pairing → telemetry collection.
-
-**What it tests**:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│              TestCompletePluginWorkflow                      │
-│                                                              │
-│  Prerequisites:                                              │
-│    - Triggers 'just rebuild-all' to reset environment       │
-│    - Waits for fleet-api to be healthy                      │
-│    - Creates admin user and authenticates                   │
-│                                                              │
-│  Workflow Steps:                                             │
-│                                                              │
-│  1. DiscoverDeviceViaPlugin                                 │
-│     ├─ Calls /pairing.v1.PairingService/Discover           │
-│     ├─ Uses IP list mode with proto-sim IP (127.0.0.1)    │
-│     ├─ Validates proto plugin discovers device             │
-│     └─ Captures device_identifier for next steps           │
-│                                                              │
-│  2. PairDiscoveredDevice                                    │
-│     ├─ Calls /pairing.v1.PairingService/Pair               │
-│     ├─ Uses device_identifier from discovery               │
-│     └─ Validates pairing succeeds                          │
-│                                                              │
-│  3. ValidateTelemetryCollection                            │
-│     ├─ Polls /telemetry.v1.TelemetryService/GetSnapshot   │
-│     ├─ Waits up to 30s for telemetry data                 │
-│     ├─ Validates data includes hashrate, temp, power      │
-│     └─ Ensures values are in reasonable ranges            │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**Run this test**:
-```bash
 # Via just command (recommended)
 just test-plugin-integration
 
 # Or directly
-go test -v -tags=e2e ./e2e -run TestCompletePluginWorkflow
+go test -v -tags=e2e ./e2e -run TestPluginIntegration
 ```
+
+### 2. `fleetcli` Commands (`TestFleetCLISubcommands`, `TestFleetCLIFirmwareWorkflow`)
+
+These tests build the `fleetcli` binary and run its commands against the fleet-api at `http://localhost:4000`. They use the credentials from `FLEET_E2E_USERNAME` and `FLEET_E2E_PASSWORD` (defaults: `admin` and `proto`).
+
+`TestFleetCLISubcommands` discovers and pairs the proto-sim miner first.
+
+`TestFleetCLIFirmwareWorkflow` deletes all firmware files in its last step.
+
+`TestFleetCLILeafCommandCoverage` reads the command manifest only. It does not need the docker-compose environment.
 
 ## Running Tests
 
@@ -163,13 +131,13 @@ go test -v -tags=e2e ./e2e -run TestCompletePluginWorkflow
 ### Quick Start
 
 ```bash
-# From the server/ directory
+# From the server/ directory, with the docker-compose environment up
 
-# Option 1: Run complete workflow test (includes `just rebuild-all`)
+# Option 1: Run infrastructure validation
 just test-plugin-integration
 
-# Option 2: Run infrastructure validation only (assumes docker-compose is already running)
-go test -v -tags=e2e ./e2e -run TestPluginIntegration
+# Option 2: Run one test
+go test -v -tags=e2e ./e2e -run TestFleetCLISubcommands
 
 # Option 3: Run all e2e tests
 go test -v -tags=e2e ./e2e
@@ -187,11 +155,6 @@ go test ./e2e
 go test -tags=e2e ./e2e
 ```
 
-**Test Duration**: `TestCompletePluginWorkflow` takes 2-5 minutes because it:
-- Runs `just rebuild-all` (rebuilds containers, runs migrations, loads plugins)
-- Waits for services to be healthy
-- Polls for telemetry data (up to 30s)
-
 **Skipping in Short Mode**: Tests automatically skip when running `go test -short`:
 
 ```bash
@@ -200,70 +163,6 @@ go test -short ./...
 ```
 
 ## Test Workflows
-
-### Discovery → Pairing → Telemetry Flow
-
-```
-┌──────────┐
-│  START   │
-└────┬─────┘
-     │
-     ▼
-┌─────────────────────┐
-│ just rebuild-all    │  Resets docker-compose environment
-│ (2-3 minutes)       │  Rebuilds containers, runs migrations
-└─────────┬───────────┘
-          │
-          ▼
-┌─────────────────────┐
-│ Wait for Readiness  │  Polls /health/ready (up to 60s)
-└─────────┬───────────┘
-          │
-          ▼
-┌─────────────────────┐
-│ Create Admin User   │  POST /onboarding.v1.OnboardingService/CreateAdminLogin
-└─────────┬───────────┘
-          │
-          ▼
-┌─────────────────────┐
-│ Authenticate        │  POST /auth.v1.AuthService/Authenticate
-│                     │  Returns JWT token for subsequent requests
-└─────────┬───────────┘
-          │
-          ▼
-┌─────────────────────┐
-│ Discover Device     │  Stream /pairing.v1.PairingService/Discover
-│ (proto plugin)      │  - Scans 127.0.0.1:8080 (proto-sim)
-│                     │  - Plugin detects Proto firmware
-│                     │  - Returns device_identifier
-└─────────┬───────────┘
-          │
-          ▼
-┌─────────────────────┐
-│ Pair Device         │  POST /pairing.v1.PairingService/Pair
-│                     │  - Authenticates with device
-│                     │  - Stores credentials in DB
-│                     │  - Starts telemetry collection
-└─────────┬───────────┘
-          │
-          ▼
-┌─────────────────────┐
-│ Poll for Telemetry  │  GET /telemetry.v1.TelemetryService/GetSnapshot
-│ (up to 30s)         │  - Checks every 2 seconds
-│                     │  - Waits for hashrate, temperature, power data
-└─────────┬───────────┘
-          │
-          ▼
-┌─────────────────────┐
-│ Validate Data       │  - Ensures telemetry has expected measurements
-│                     │  - Logs sample data points
-└─────────┬───────────┘
-          │
-          ▼
-     ┌────┴─────┐
-     │ SUCCESS  │
-     └──────────┘
-```
 
 ### Authentication Flow
 
@@ -293,25 +192,13 @@ All API requests (except health checks and onboarding) require authentication:
 
 **Getting a token**:
 
+`Authenticate` starts a cookie session. It does not return a token. The helper `authenticateViaRealAPI` in `plugin_integration_test.go` logs in with a cookie-jar client, creates an API key, and returns the key.
+
 ```go
-// 1. Create admin user (only needed once per environment)
-client := onboardingv1connect.NewOnboardingServiceClient(http.DefaultClient, "http://localhost:4000")
-req := connect.NewRequest(&onboardingv1.CreateAdminLoginRequest{
-    Username: "admin",
-    Password: "password",
-})
-_, err := client.CreateAdminLogin(ctx, req)
+// 1. Log in and create an API key
+token := authenticateViaRealAPI(t, ctx, testUsername, testPassword)
 
-// 2. Authenticate to get token
-authClient := authv1connect.NewAuthServiceClient(http.DefaultClient, "http://localhost:4000")
-authReq := connect.NewRequest(&authv1.AuthenticateRequest{
-    Username: "admin",
-    Password: "password",
-})
-resp, err := authClient.Authenticate(ctx, authReq)
-token := resp.Msg.Token
-
-// 3. Use token in subsequent requests
+// 2. Use the API key in subsequent requests
 req.Header().Set("Authorization", "Bearer "+token)
 ```
 
@@ -380,23 +267,7 @@ plugin.Serve(&plugin.ServeConfig{
 })
 ```
 
-#### 5. "No telemetry data received"
-
-**Cause**: Telemetry collection hasn't started yet or device not paired correctly
-
-**Debugging**:
-```bash
-# Check if device was paired
-docker exec server-timescaledb-1 psql -U fleet_user -d fleet -c "SELECT * FROM device;"
-
-# Check fleet-api logs for telemetry errors
-docker logs server-fleet-api-1 | grep -i telemetry
-
-# Check if telemetry service is polling
-docker logs server-fleet-api-1 | grep "Collecting telemetry"
-```
-
-#### 6. "Admin user already exists"
+#### 5. "Admin user already exists"
 
 **Cause**: Re-running tests without clean environment (normal for TestPluginIntegration)
 
@@ -412,10 +283,10 @@ just rebuild-all
 
 ```bash
 # Run with verbose output
-go test -v -tags=e2e ./e2e -run TestCompletePluginWorkflow
+go test -v -tags=e2e ./e2e -run TestPluginIntegration
 
 # Save output to file
-go test -v -tags=e2e ./e2e -run TestCompletePluginWorkflow 2>&1 | tee test-output.log
+go test -v -tags=e2e ./e2e -run TestPluginIntegration 2>&1 | tee test-output.log
 ```
 
 #### Check Docker logs
@@ -454,27 +325,25 @@ docker exec server-fleet-api-1 ping server-proto-sim-1
 just db-shell
 
 # Check discovered devices
-docker exec server-timescaledb-1 psql -U fleet_user -d fleet -c "SELECT * FROM discovered_device;"
+docker exec server-timescaledb-1 psql -U fleet -d fleet -c "SELECT * FROM discovered_device;"
 
 # Check paired devices
-docker exec server-timescaledb-1 psql -U fleet_user -d fleet -c "SELECT * FROM device;"
+docker exec server-timescaledb-1 psql -U fleet -d fleet -c "SELECT * FROM device;"
 
 # Check users
-docker exec server-timescaledb-1 psql -U fleet_user -d fleet -c "SELECT * FROM \"user\";"
+docker exec server-timescaledb-1 psql -U fleet -d fleet -c "SELECT * FROM \"user\";"
 ```
 
 ### Performance Tuning
 
 If tests are running slowly:
 
-1. **Skip `just rebuild-all` for infrastructure tests**: `TestPluginIntegration` doesn't require a full environment rebuild if you already have a healthy environment
-
-2. **Run tests in parallel** (not currently implemented, but possible):
+1. **Run tests in parallel** (not currently implemented, but possible):
    ```bash
    go test -v -tags=e2e -parallel 2 ./e2e
    ```
 
-3. **Use test caching**: Go caches passing tests by default. Only changed tests will re-run:
+2. **Use test caching**: Go caches passing tests by default. Only changed tests will re-run:
    ```bash
    # First run: Full execution
    go test -tags=e2e ./e2e
@@ -483,7 +352,7 @@ If tests are running slowly:
    go test -tags=e2e ./e2e
    ```
 
-4. **Reduce telemetry polling timeout**: Edit test constants in `plugin_integration_test.go`:
+3. **Reduce the request timeout**: Edit test constants in `plugin_integration_test.go`:
    ```go
    const (
        requestTimeout = 5 * time.Second  // Reduce from 10s
@@ -585,7 +454,6 @@ jobs:
 | `/auth.v1.AuthService/Authenticate` | POST | Get JWT token |
 | `/pairing.v1.PairingService/Discover` | Stream | Discover mining devices |
 | `/pairing.v1.PairingService/Pair` | POST | Pair discovered devices |
-| `/telemetry.v1.TelemetryService/GetSnapshot` | GET | Get latest telemetry |
 
 ### Constants
 
@@ -607,7 +475,7 @@ const (
 |-----------|---------|--------------|
 | `server-fleet-api-1` | Fleet API service | 4000 |
 | `server-proto-sim-1` | Simulated Proto miner | 8080 |
-| `server-timescaledb-1` | TimescaleDB database | 5433 |
+| `server-timescaledb-1` | TimescaleDB database | 5432 |
 
 ### Related Documentation
 

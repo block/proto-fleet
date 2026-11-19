@@ -282,25 +282,47 @@ func TestReservationRollsBackWhenCanceledResultFails(t *testing.T) {
 
 func queuedFenceFixture(t *testing.T, kinds ...commandtype.Type) (*testutil.DatabaseService, int64, int64, queue.Message, *queue.DatabaseMessageQueue) {
 	t.Helper()
-	cfg, err := testutil.GetTestConfig()
-	require.NoError(t, err)
-	database := testutil.NewDatabaseService(t, cfg)
-	user := database.CreateSuperAdminUser()
-	device := database.CreateDevice(user.OrganizationID, "proto")
-	q := sqlc.New(database.DB)
-	batch := id.GenerateID()
 	kind := commandtype.Reboot
 	if len(kinds) > 0 {
 		kind = kinds[0]
 	}
-	_, err = q.CreateCommandBatchLog(t.Context(), sqlc.CreateCommandBatchLogParams{Uuid: batch, Type: kind.String(), CreatedBy: user.DatabaseID, CreatedAt: time.Now(), Status: sqlc.BatchStatusEnumPENDING, DevicesCount: 1, OrganizationID: sql.NullInt64{Int64: user.OrganizationID, Valid: true}})
+	shared := newQueuedFenceDatabase(t)
+	device, message := shared.queueDevice(t, kind)
+	return shared.database, shared.org, device, message, shared.messages
+}
+
+// queuedFenceDatabase holds one database, one user and one queue.
+// A table test makes it one time and calls queueDevice for each row.
+type queuedFenceDatabase struct {
+	database *testutil.DatabaseService
+	org      int64
+	actor    int64
+	messages *queue.DatabaseMessageQueue
+}
+
+func newQueuedFenceDatabase(t *testing.T) queuedFenceDatabase {
+	t.Helper()
+	cfg, err := testutil.GetTestConfig()
 	require.NoError(t, err)
+	database := testutil.NewDatabaseService(t, cfg)
+	user := database.CreateSuperAdminUser()
 	messages := queue.NewDatabaseMessageQueue(&queue.Config{MaxFailureRetries: 3}, database.DB)
-	require.NoError(t, messages.Enqueue(t.Context(), batch, kind, []int64{device.DatabaseID}, nil))
-	rows, err := messages.Dequeue(t.Context(), 1)
+	return queuedFenceDatabase{database: database, org: user.OrganizationID, actor: user.DatabaseID, messages: messages}
+}
+
+// queueDevice makes a new device and returns its dequeued command message.
+func (f queuedFenceDatabase) queueDevice(t *testing.T, kind commandtype.Type) (int64, queue.Message) {
+	t.Helper()
+	device := f.database.CreateDevice(f.org, "proto")
+	batch := id.GenerateID()
+	_, err := sqlc.New(f.database.DB).CreateCommandBatchLog(t.Context(), sqlc.CreateCommandBatchLogParams{Uuid: batch, Type: kind.String(), CreatedBy: f.actor, CreatedAt: time.Now(), Status: sqlc.BatchStatusEnumPENDING, DevicesCount: 1, OrganizationID: sql.NullInt64{Int64: f.org, Valid: true}})
+	require.NoError(t, err)
+	require.NoError(t, f.messages.Enqueue(t.Context(), batch, kind, []int64{device.DatabaseID}, nil))
+	rows, err := f.messages.Dequeue(t.Context(), 1)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
-	return database, user.OrganizationID, device.DatabaseID, rows[0], messages
+	require.Equal(t, device.DatabaseID, rows[0].DeviceID)
+	return device.DatabaseID, rows[0]
 }
 
 func TestQueuedAttemptRejectsChangedPersistedMessageIdentity(t *testing.T) {

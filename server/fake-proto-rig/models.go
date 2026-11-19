@@ -371,13 +371,6 @@ func (s *MinerState) SetCurtailmentConfig(config CurtailmentConfig) {
 	s.CurtailmentConfigVal = cloneCurtailmentConfig(config)
 }
 
-// GetSecureOverride returns the current secure override marker state.
-func (s *MinerState) GetSecureOverride() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.SecureOverride
-}
-
 // SetSecureOverride sets or clears the secure override marker.
 func (s *MinerState) SetSecureOverride(override bool) {
 	s.mu.Lock()

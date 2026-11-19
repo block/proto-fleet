@@ -616,7 +616,8 @@ func TestUploadHandler_RejectsOversizedBody(t *testing.T) {
 
 	h.ServeHTTP(rr, req)
 
-	assert.NotEqual(t, http.StatusOK, rr.Code)
+	assertJSONErrorResponse(t, rr, http.StatusBadRequest,
+		"FleetError: invalid_argument (Common: 0) firmware file too large: exceeded 50 byte limit during upload")
 }
 
 // --- Check handler tests ---

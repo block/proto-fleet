@@ -3248,18 +3248,6 @@ func (q *retryingQuerier) GetActiveSchedules(ctx context.Context) ([]Schedule, e
 	return result, err
 }
 
-func (q *retryingQuerier) GetActiveUnpairedDiscoveredDevices(ctx context.Context, arg GetActiveUnpairedDiscoveredDevicesParams) ([]GetActiveUnpairedDiscoveredDevicesRow, error) {
-	var result []GetActiveUnpairedDiscoveredDevicesRow
-	err := q.retrier.RetryQuery(ctx, "GetActiveUnpairedDiscoveredDevices", func() error {
-		callResult, callErr := q.next.GetActiveUnpairedDiscoveredDevices(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
 func (q *retryingQuerier) GetActiveUserRoleNameForUpdate(ctx context.Context, arg GetActiveUserRoleNameForUpdateParams) (string, error) {
 	var result string
 	err := q.retrier.RetryQuery(ctx, "GetActiveUserRoleNameForUpdate", func() error {
@@ -4508,18 +4496,6 @@ func (q *retryingQuerier) GetFilteredDeviceIdentifiers(ctx context.Context, arg 
 	return result, err
 }
 
-func (q *retryingQuerier) GetFilteredDeviceIds(ctx context.Context, arg GetFilteredDeviceIdsParams) ([]int64, error) {
-	var result []int64
-	err := q.retrier.RetryQuery(ctx, "GetFilteredDeviceIds", func() error {
-		callResult, callErr := q.next.GetFilteredDeviceIds(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
 func (q *retryingQuerier) GetFilteredTicketStats(ctx context.Context, arg GetFilteredTicketStatsParams) (GetFilteredTicketStatsRow, error) {
 	var result GetFilteredTicketStatsRow
 	err := q.retrier.RetryQuery(ctx, "GetFilteredTicketStats", func() error {
@@ -4836,18 +4812,6 @@ func (q *retryingQuerier) GetHistoryResolution(ctx context.Context, arg GetHisto
 	var result int32
 	err := q.retrier.RetryQuery(ctx, "GetHistoryResolution", func() error {
 		callResult, callErr := q.next.GetHistoryResolution(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) GetHostMiningGroupPoolRevision(ctx context.Context, arg GetHostMiningGroupPoolRevisionParams) (HostedAccountPoolRevision, error) {
-	var result HostedAccountPoolRevision
-	err := q.retrier.RetryQuery(ctx, "GetHostMiningGroupPoolRevision", func() error {
-		callResult, callErr := q.next.GetHostMiningGroupPoolRevision(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -7296,18 +7260,6 @@ func (q *retryingQuerier) LatestIssuedHostedReport(ctx context.Context, arg Late
 	var result HostedReport
 	err := q.retrier.RetryQuery(ctx, "LatestIssuedHostedReport", func() error {
 		callResult, callErr := q.next.LatestIssuedHostedReport(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) LegacyPoolWritersDisabled(ctx context.Context, organizationID int64) (bool, error) {
-	var result bool
-	err := q.retrier.RetryQuery(ctx, "LegacyPoolWritersDisabled", func() error {
-		callResult, callErr := q.next.LegacyPoolWritersDisabled(ctx, organizationID)
 		if callErr == nil {
 			result = callResult
 		}

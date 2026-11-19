@@ -10,6 +10,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -32,7 +33,6 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
-	telemetrypb "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
@@ -1382,19 +1382,16 @@ type blockingDiscoverer struct {
 	mu        sync.Mutex
 	started   map[string]chan struct{}
 	cancelled map[string]chan struct{}
-	release   map[string]chan struct{}
 }
 
 func newBlockingDiscoverer(ips ...string) *blockingDiscoverer {
 	d := &blockingDiscoverer{
 		started:   map[string]chan struct{}{},
 		cancelled: map[string]chan struct{}{},
-		release:   map[string]chan struct{}{},
 	}
 	for _, ip := range ips {
 		d.started[ip] = make(chan struct{}, 1)
 		d.cancelled[ip] = make(chan struct{}, 1)
-		d.release[ip] = make(chan struct{})
 	}
 	return d
 }
@@ -1403,7 +1400,6 @@ func (b *blockingDiscoverer) Probe(ctx context.Context, ip, _ string) (*pb.Disco
 	b.mu.Lock()
 	start, ok := b.started[ip]
 	cancelled := b.cancelled[ip]
-	release := b.release[ip]
 	b.mu.Unlock()
 	if !ok {
 		return nil, nil
@@ -1412,16 +1408,12 @@ func (b *blockingDiscoverer) Probe(ctx context.Context, ip, _ string) (*pb.Disco
 	case start <- struct{}{}:
 	default:
 	}
+	<-ctx.Done()
 	select {
-	case <-release:
-		return &pb.DiscoveredDeviceReport{DeviceIdentifier: "auto:" + ip, IpAddress: ip, Port: "4028", UrlScheme: "http", DriverName: "antminer"}, nil
-	case <-ctx.Done():
-		select {
-		case cancelled <- struct{}{}:
-		default:
-		}
-		return nil, fmt.Errorf("blocking discoverer cancelled: %w", ctx.Err())
+	case cancelled <- struct{}{}:
+	default:
 	}
+	return nil, fmt.Errorf("blocking discoverer cancelled: %w", ctx.Err())
 }
 
 func (b *blockingDiscoverer) DefaultDiscoveryPorts(_ context.Context) []string {
@@ -1450,13 +1442,6 @@ func (b *blockingDiscoverer) waitCancelled(t *testing.T, ip string) {
 	case <-time.After(2 * time.Second):
 		t.Fatalf("probe for %s did not observe session cancellation", ip)
 	}
-}
-
-func (b *blockingDiscoverer) release1(ip string) {
-	b.mu.Lock()
-	ch := b.release[ip]
-	b.mu.Unlock()
-	close(ch)
 }
 
 func TestControlLoop_SecondConcurrentDiscoveryGetsBusy(t *testing.T) {
@@ -1553,97 +1538,6 @@ func TestControlLoop_CommandPoolCeilingAcksBusy(t *testing.T) {
 	cancel()
 	<-done
 	cmd.waitForControlWorkers(discardLogger(t))
-}
-
-func TestClassifyControlCommand(t *testing.T) {
-	unknownPayload := protowire.AppendTag(nil, 6, protowire.BytesType)
-	unknownPayload = protowire.AppendBytes(unknownPayload, nil)
-	unknownCommand := &pb.AgentCommand{}
-	require.NoError(t, proto.Unmarshal(unknownPayload, unknownCommand))
-
-	tests := []struct {
-		name    string
-		command *pb.AgentCommand
-		want    controlCommandAdmissionClass
-	}{
-		{
-			name: "telemetry",
-			command: &pb.AgentCommand{Command: &pb.AgentCommand_Telemetry{
-				Telemetry: &telemetrypb.FleetNodeTelemetryRequest{},
-			}},
-			want: controlCommandAdmissionDeferrableRead,
-		},
-		{
-			name: "get cooling mode",
-			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
-				Action: &pb.MinerCommand_GetCoolingMode{GetCoolingMode: &pb.GetCoolingModeAction{}},
-			}}},
-			want: controlCommandAdmissionDeferrableRead,
-		},
-		{
-			name: "get errors",
-			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
-				Action: &pb.MinerCommand_GetErrors{GetErrors: &pb.GetErrorsAction{}},
-			}}},
-			want: controlCommandAdmissionDeferrableRead,
-		},
-		{
-			name: "stream board ASIC readings",
-			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
-				Action: &pb.MinerCommand_StreamBoardAsicReadings{StreamBoardAsicReadings: &pb.StreamBoardASICReadingsAction{}},
-			}}},
-			want: controlCommandAdmissionDeferrableRead,
-		},
-		{
-			name: "get mining pools",
-			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
-				Action: &pb.MinerCommand_GetMiningPools{GetMiningPools: &pb.GetMiningPoolsAction{}},
-			}}},
-			want: controlCommandAdmissionGeneral,
-		},
-		{
-			name: "get firmware update status",
-			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
-				Action: &pb.MinerCommand_GetFirmwareUpdateStatus{GetFirmwareUpdateStatus: &pb.GetFirmwareUpdateStatusAction{}},
-			}}},
-			want: controlCommandAdmissionGeneral,
-		},
-		{
-			name: "operator mutation",
-			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
-				Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}},
-			}}},
-			want: controlCommandAdmissionGeneral,
-		},
-		{
-			name:    "empty miner action",
-			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{}}},
-			want:    controlCommandAdmissionGeneral,
-		},
-		{name: "empty envelope", command: &pb.AgentCommand{}, want: controlCommandAdmissionGeneral},
-		{name: "unknown envelope", command: unknownCommand, want: controlCommandAdmissionGeneral},
-		{name: "malformed envelope", want: controlCommandAdmissionGeneral},
-		{
-			name: "discovery",
-			command: &pb.AgentCommand{Command: &pb.AgentCommand_Discover{
-				Discover: &pairingpb.DiscoverRequest{},
-			}},
-			want: controlCommandAdmissionExclusive,
-		},
-		{
-			name: "pairing",
-			command: &pb.AgentCommand{Command: &pb.AgentCommand_Pair{
-				Pair: &pairingpb.FleetNodePairRequest{},
-			}},
-			want: controlCommandAdmissionExclusive,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, classifyControlCommand(tt.command))
-		})
-	}
 }
 
 func TestTryAcquireControlCommandSlot_ReservesCapacityForGeneralCommands(t *testing.T) {
@@ -2431,34 +2325,6 @@ func TestControlLoop_DroppedStreamCancelsInFlightScan(t *testing.T) {
 	cmd.waitForControlWorkers(discardLogger(t))
 }
 
-func TestDecodeAgentCommandLane(t *testing.T) {
-	// Arrange
-	discover := discoverPayload(t, &pairingpb.DiscoverRequest{
-		Mode: &pairingpb.DiscoverRequest_IpList{IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.1"}}},
-	})
-	minerCmd := mustMarshal(t, &pb.AgentCommand{
-		Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
-			Target: &pb.MinerConnectionDescriptor{
-				DeviceIdentifier: "d1", DriverName: "virtual", IpAddress: "10.0.0.5", Port: "4028", UrlScheme: "http",
-			},
-			Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}},
-		}},
-	})
-
-	// Act
-	discoverEnv, discoverErr := decodeAgentCommand(discover)
-	minerEnv, minerErr := decodeAgentCommand(minerCmd)
-	_, malformedErr := decodeAgentCommand([]byte{0xFF, 0xFE})
-
-	// Assert: discovery takes the exclusive single-flight slot; per-miner commands
-	// and malformed payloads use the broader pool.
-	require.NoError(t, discoverErr)
-	assert.NotNil(t, discoverEnv.GetDiscover(), "discovery is report-bearing")
-	require.NoError(t, minerErr)
-	assert.Nil(t, minerEnv.GetDiscover(), "miner command uses the pool lane")
-	assert.Error(t, malformedErr, "malformed payload uses the pool lane")
-}
-
 func TestControlLoop_DropsCommandWithInvalidCommandID(t *testing.T) {
 	// Arrange: empty command_id violates the proto's min_len=1. The agent
 	// must drop silently rather than ack -- echoing "" back in an ack
@@ -2498,41 +2364,33 @@ func TestControlLoop_DropsCommandWithInvalidCommandID(t *testing.T) {
 	assert.Equal(t, "good", acks[0].GetCommandId())
 }
 
-func TestControlLoop_ConcurrentAcksSerialize(t *testing.T) {
-	// Arrange: two commands. The worker's completion ack for cmd-A and the
-	// receive loop's busy ack for cmd-C overlap on the same bidi stream;
-	// without the lockedAcker wrapper, race detector flags concurrent
-	// stream.Send. Using a fast (non-blocking) discoverer ensures the
-	// worker actually completes and emits its ack.
-	disc := &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
-		"10.0.0.1|4028": {DeviceIdentifier: "auto:a", IpAddress: "10.0.0.1", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
-		"10.0.0.2|4028": {DeviceIdentifier: "auto:b", IpAddress: "10.0.0.2", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
-	}}
-	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: disc}
-	state := &bootstrap.State{FleetNodeID: 7}
-
-	fake := &controlFakeGateway{}
-	for _, id := range []string{"cmd-A", "cmd-B", "cmd-C", "cmd-D"} {
-		fake.queueWithID(id, discoverPayload(t, &pairingpb.DiscoverRequest{
-			Mode: &pairingpb.DiscoverRequest_IpList{
-				IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.1"}, Ports: []string{"4028"}},
-			},
-		}))
-	}
-	client := newControlClient(t, fake)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+func TestLockedAcker_SerializesConcurrentSends(t *testing.T) {
+	// Arrange: the busy ack of the receive loop and the completion acks of
+	// the workers share one stream. A connect-go stream is not safe for
+	// concurrent Send.
+	inner := &overlapAcker{}
+	sender := &lockedAcker{inner: inner}
+	const senders, sendsPerSender = 8, 200
+	start := make(chan struct{})
+	var wg sync.WaitGroup
 
 	// Act
-	done := make(chan error, 1)
-	go func() { done <- cmd.runControlLoop(ctx, client, state, discardLogger(t)) }()
+	for range senders {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for range sendsPerSender {
+				assert.NoError(t, sender.Send(&pb.ControlStreamRequest{}))
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
 
-	// Assert: every queued command lands an ack and -race stays clean.
-	require.Eventually(t, func() bool { return fake.ackCount() >= 4 }, 4*time.Second, 20*time.Millisecond)
-	cancel()
-	<-done
-	cmd.waitForControlWorkers(discardLogger(t))
+	// Assert
+	assert.Zero(t, inner.overlaps.Load(), "the stream must see one Send at a time")
+	assert.Equal(t, int32(senders*sendsPerSender), inner.sent.Load())
 }
 
 func TestSendAck_TruncationPreservesUTF8Boundaries(t *testing.T) {
@@ -2630,6 +2488,25 @@ type errorAcker struct {
 
 func (a errorAcker) Send(*pb.ControlStreamRequest) error {
 	return a.err
+}
+
+// overlapAcker counts the Send calls that start while a different Send call
+// is in progress.
+type overlapAcker struct {
+	active   atomic.Int32
+	overlaps atomic.Int32
+	sent     atomic.Int32
+}
+
+func (a *overlapAcker) Send(*pb.ControlStreamRequest) error {
+	if a.active.Add(1) > 1 {
+		a.overlaps.Add(1)
+	}
+	// Yield so that a different sender can enter if nothing stops it.
+	runtime.Gosched()
+	a.active.Add(-1)
+	a.sent.Add(1)
+	return nil
 }
 
 func TestContainerIdentifierFollowsEndpointAcrossControllerFailover(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
+	"github.com/block/proto-fleet/server/migrations"
 )
 
 // On a fresh install (no existing data, no backfill migration to lean
@@ -78,44 +79,55 @@ func anyUsernameMatching(t *testing.T, db *sql.DB) string {
 	return name
 }
 
-// TestBackfill_ExistingAdminUserGetsOrgScopeAssignment verifies that
-// migration 000054 mirrors every active user_organization row into
-// user_organization_role as an org-scope assignment.
-func TestBackfill_ExistingAdminUserGetsOrgScopeAssignment(t *testing.T) {
+// TestBackfill_CopiesLiveRowsOneTime runs the SQL of migration 000054 from
+// the embedded file two times. A live user_organization row has exactly
+// one org-scope assignment after each run. A soft-deleted row has none.
+func TestBackfill_CopiesLiveRowsOneTime(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
 
 	orgID := insertTestOrganization(t, db)
-	userID := insertTestUser(t, db)
+	liveUserID := insertTestUser(t, db)
+	deletedUserID := insertTestUser(t, db)
 	require.NoError(t, authz.Reconcile(ctx, db))
 	adminRoleID := getBuiltinRoleID(t, db, orgID, "ADMIN")
 
-	// Insert via the legacy table directly to simulate a row that
-	// existed before 000054 ran.
+	// Insert into the legacy table directly. These rows are the input of
+	// the backfill.
 	_, err := db.ExecContext(ctx,
 		`INSERT INTO user_organization (user_id, organization_id, role_id) VALUES ($1, $2, $3)`,
-		userID, orgID, adminRoleID,
+		liveUserID, orgID, adminRoleID,
+	)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO user_organization (user_id, organization_id, role_id, deleted_at) VALUES ($1, $2, $3, CURRENT_TIMESTAMP)`,
+		deletedUserID, orgID, adminRoleID,
 	)
 	require.NoError(t, err)
 
-	// Re-run the backfill statement. Migration 000054 already executed
-	// during ConnectAndMigrate, but the user_organization row we just
-	// inserted post-dates that pass — re-running the same idempotent
-	// statement covers it and exercises the ON CONFLICT path.
-	runBackfill(t, db)
-
 	q := sqlc.New(db)
-	assignments, err := q.ListAssignmentsForUser(ctx, sqlc.ListAssignmentsForUserParams{
-		UserID:         userID,
-		OrganizationID: orgID,
-	})
-	require.NoError(t, err)
-	require.Len(t, assignments, 1)
+	for _, run := range []string{"first run", "second run"} {
+		runBackfill(t, db)
 
-	a := assignments[0]
-	require.Equal(t, "org", a.ScopeType)
-	require.False(t, a.ScopeID.Valid, "org-scope assignment must have NULL scope_id")
-	require.Equal(t, adminRoleID, a.RoleID)
+		assignments, err := q.ListAssignmentsForUser(ctx, sqlc.ListAssignmentsForUserParams{
+			UserID:         liveUserID,
+			OrganizationID: orgID,
+		})
+		require.NoError(t, err)
+		require.Len(t, assignments, 1, "%s: a live row must have exactly one assignment", run)
+
+		a := assignments[0]
+		require.Equal(t, "org", a.ScopeType)
+		require.False(t, a.ScopeID.Valid, "org-scope assignment must have NULL scope_id")
+		require.Equal(t, adminRoleID, a.RoleID)
+
+		assignments, err = q.ListAssignmentsForUser(ctx, sqlc.ListAssignmentsForUserParams{
+			UserID:         deletedUserID,
+			OrganizationID: orgID,
+		})
+		require.NoError(t, err)
+		require.Empty(t, assignments, "%s: soft-deleted user_organization rows must not produce assignments", run)
+	}
 }
 
 // A soft-deleted organization can still have active user_organization
@@ -158,31 +170,6 @@ func TestSeed_SoftDeletedOrgStillGetsBuiltins(t *testing.T) {
 		})
 		require.NoError(t, err, "soft-deleted org must still have a per-org %s row", key)
 	}
-}
-
-func TestBackfill_SoftDeletedUserOrganizationRowsAreNotCopied(t *testing.T) {
-	db := testutil.GetTestDB(t)
-	ctx := t.Context()
-	orgID := insertTestOrganization(t, db)
-	userID := insertTestUser(t, db)
-	require.NoError(t, authz.Reconcile(ctx, db))
-	adminRoleID := getBuiltinRoleID(t, db, orgID, "ADMIN")
-
-	_, err := db.ExecContext(ctx,
-		`INSERT INTO user_organization (user_id, organization_id, role_id, deleted_at) VALUES ($1, $2, $3, CURRENT_TIMESTAMP)`,
-		userID, orgID, adminRoleID,
-	)
-	require.NoError(t, err)
-
-	runBackfill(t, db)
-
-	q := sqlc.New(db)
-	assignments, err := q.ListAssignmentsForUser(ctx, sqlc.ListAssignmentsForUserParams{
-		UserID:         userID,
-		OrganizationID: orgID,
-	})
-	require.NoError(t, err)
-	require.Empty(t, assignments, "soft-deleted user_organization rows must not produce assignments")
 }
 
 func TestAssignment_SoftDeletedRowDoesNotBlockReassign(t *testing.T) {
@@ -339,47 +326,16 @@ func TestCustomRole_SameNameAcrossOrgsAllowed(t *testing.T) {
 	require.NotEqual(t, roleA, roleB, "same name in different orgs must produce distinct rows")
 }
 
-func TestBackfill_Idempotent(t *testing.T) {
-	db := testutil.GetTestDB(t)
-	ctx := t.Context()
-	orgID := insertTestOrganization(t, db)
-	userID := insertTestUser(t, db)
-	require.NoError(t, authz.Reconcile(ctx, db))
-	adminRoleID := getBuiltinRoleID(t, db, orgID, "ADMIN")
-
-	_, err := db.ExecContext(ctx,
-		`INSERT INTO user_organization (user_id, organization_id, role_id) VALUES ($1, $2, $3)`,
-		userID, orgID, adminRoleID,
-	)
-	require.NoError(t, err)
-
-	runBackfill(t, db)
-	runBackfill(t, db)
-
-	q := sqlc.New(db)
-	assignments, err := q.ListAssignmentsForUser(ctx, sqlc.ListAssignmentsForUserParams{
-		UserID:         userID,
-		OrganizationID: orgID,
-	})
-	require.NoError(t, err)
-	require.Len(t, assignments, 1, "running the backfill twice must produce exactly one assignment row")
-}
-
 // ---------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------
 
+// runBackfill executes the SQL of migration 000054 from the embedded file.
 func runBackfill(t *testing.T, db *sql.DB) {
 	t.Helper()
-	_, err := db.ExecContext(t.Context(), `
-		INSERT INTO user_organization_role (user_id, organization_id, role_id, scope_type, scope_id)
-		SELECT user_id, organization_id, role_id, 'org', NULL
-		FROM user_organization
-		WHERE deleted_at IS NULL
-		ON CONFLICT (user_id, organization_id, role_id)
-		    WHERE scope_type = 'org' AND deleted_at IS NULL
-		    DO NOTHING
-	`)
+	backfillSQL, err := migrations.Migrations.ReadFile("000054_backfill_user_organization_to_assignments.up.sql")
+	require.NoError(t, err)
+	_, err = db.ExecContext(t.Context(), string(backfillSQL))
 	require.NoError(t, err)
 }
 

@@ -2,6 +2,7 @@ package mininggroups
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -186,8 +187,8 @@ func testDurableGroupReconciliation(t *testing.T, archive bool) {
 		rows, err := q.ArchiveHostedAccountPool(ctx, sqlc.ArchiveHostedAccountPoolParams{OrganizationID: user.OrganizationID, AccountID: host.ID, PoolID: config.PoolID})
 		require.NoError(t, err)
 		require.EqualValues(t, 1, rows)
-		_, err = q.GetHostMiningGroupPoolRevision(ctx, sqlc.GetHostMiningGroupPoolRevisionParams{OrganizationID: user.OrganizationID, RevisionID: config.RevisionID})
-		require.Error(t, err, "archived configurations cannot be selected for new assignments")
+		_, err = legacyAssignableRevisionAccount(ctx, conn, user.OrganizationID, config.RevisionID)
+		require.ErrorIs(t, err, sql.ErrNoRows, "archived configurations cannot be selected for new assignments")
 	}
 	// Independent replicas may advance the same journal concurrently; database
 	// locks must still serialize the committed step and exact replay key.

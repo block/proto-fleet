@@ -19,24 +19,6 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-func TestNewManager(t *testing.T) {
-	config := &Config{
-		PluginsDir:            "./test-plugins",
-		Enabled:               true,
-		MaxStartupTimeSeconds: 30,
-		LogLevel:              "info",
-	}
-
-	manager := NewManager(config)
-
-	assert.NotNil(t, manager)
-	assert.Equal(t, config, manager.config)
-	assert.NotNil(t, manager.plugins)
-	assert.Empty(t, manager.plugins)
-	assert.NotNil(t, manager.pluginsByDriverName)
-	assert.Empty(t, manager.pluginsByDriverName)
-}
-
 func TestManager_LoadPlugins_Disabled(t *testing.T) {
 	config := &Config{
 		Enabled: false,

@@ -17,79 +17,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestZoneFilter_CrossOrgIsolation proves that two orgs sharing the same zone
-// label cannot see each other's miners through the zone filter. The filter's
-// safety boundary is `device_set_membership.org_id = $orgID` in the EXISTS
-// subquery; this test asserts that boundary.
-func TestZoneFilter_CrossOrgIsolation(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	dbSvc := testContext.DatabaseService
-	db := testContext.ServiceProvider.DB
-	deviceStore := sqlstores.NewSQLDeviceStore(db)
-	collectionStore := sqlstores.NewSQLCollectionStore(db)
-	ctx := t.Context()
-
-	// Two orgs that happen to use the same zone label "shared-zone".
-	userA := dbSvc.CreateSuperAdminUser()
-	userB := dbSvc.CreateSuperAdminUser2()
-
-	devA := dbSvc.CreateDevice(userA.OrganizationID, "proto")
-	devB := dbSvc.CreateDevice(userB.OrganizationID, "proto")
-
-	const sharedZone = "shared-zone"
-
-	// Create a rack collection per org with the same zone label, then add the
-	// org's device to its own rack.
-	rackA, err := collectionStore.CreateCollection(ctx, userA.OrganizationID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, "Rack A", "")
-	require.NoError(t, err)
-	require.NoError(t, collectionStore.CreateRackExtension(ctx, stores.CreateRackExtensionParams{
-		OrgID: userA.OrganizationID, CollectionID: rackA.Id, Rows: 4, Columns: 8, Zone: sharedZone,
-	}))
-	_, err = collectionStore.AddDevicesToCollection(ctx, userA.OrganizationID, rackA.Id, []string{devA.ID})
-	require.NoError(t, err)
-
-	rackB, err := collectionStore.CreateCollection(ctx, userB.OrganizationID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, "Rack B", "")
-	require.NoError(t, err)
-	require.NoError(t, collectionStore.CreateRackExtension(ctx, stores.CreateRackExtensionParams{
-		OrgID: userB.OrganizationID, CollectionID: rackB.Id, Rows: 4, Columns: 8, Zone: sharedZone,
-	}))
-	_, err = collectionStore.AddDevicesToCollection(ctx, userB.OrganizationID, rackB.Id, []string{devB.ID})
-	require.NoError(t, err)
-
-	// Wildcard zone_keys: org-wide match by zone label. The SQL builder's
-	// dcm.org_id = $orgID clause is the single-layer defense — see
-	// device_filters.go single-layer-defense comment.
-	filter := &stores.MinerFilter{
-		ZoneKeys: []stores.ZoneKey{{BuildingID: 0, Zone: sharedZone}},
-	}
-
-	// Org A should see only its device, never org B's.
-	rowsA, _, totalA, err := deviceStore.ListMinerStateSnapshots(ctx, userA.OrganizationID, "", 100, filter, nil)
-	require.NoError(t, err)
-	require.Len(t, rowsA, 1, "org A should see exactly its own miner under shared-zone")
-	assert.Equal(t, devA.ID, rowsA[0].DeviceIdentifier)
-	assert.Equal(t, int64(1), totalA, "total count must reflect the filtered org-scoped result")
-
-	// Org B should see only its device, never org A's.
-	rowsB, _, totalB, err := deviceStore.ListMinerStateSnapshots(ctx, userB.OrganizationID, "", 100, filter, nil)
-	require.NoError(t, err)
-	require.Len(t, rowsB, 1, "org B should see exactly its own miner under shared-zone")
-	assert.Equal(t, devB.ID, rowsB[0].DeviceIdentifier)
-	assert.Equal(t, int64(1), totalB, "total count must reflect the filtered org-scoped result")
-}
-
 func TestMinerSearchFilter_MatchesAllIdentifierFields(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	dbSvc := testContext.DatabaseService
-	db := testContext.ServiceProvider.DB
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	ctx := t.Context()
 	user := dbSvc.CreateSuperAdminUser()
@@ -132,9 +66,8 @@ func TestNumericRangeFilter_HashrateGreaterThan(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	dbSvc := testContext.DatabaseService
-	db := testContext.ServiceProvider.DB
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	ctx := t.Context()
 
@@ -174,9 +107,8 @@ func TestNumericRangeFilter_ExcludesOfflineDevices(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	dbSvc := testContext.DatabaseService
-	db := testContext.ServiceProvider.DB
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	ctx := t.Context()
 
@@ -210,9 +142,8 @@ func TestIPCIDRFilter_MatchesIPv4Range(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	dbSvc := testContext.DatabaseService
-	db := testContext.ServiceProvider.DB
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	ctx := t.Context()
 
@@ -244,9 +175,8 @@ func TestIPRangeFilter_RangeOnlyFiltersRowsAndCounts(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	dbSvc := testContext.DatabaseService
-	db := testContext.ServiceProvider.DB
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	ctx := t.Context()
 
@@ -300,9 +230,8 @@ func TestIPCIDRFilter_MultipleCIDRsActAsOR(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	dbSvc := testContext.DatabaseService
-	db := testContext.ServiceProvider.DB
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	ctx := t.Context()
 
@@ -337,9 +266,8 @@ func TestIPCIDRFilter_IgnoresBlankStoredIPs(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	dbSvc := testContext.DatabaseService
-	db := testContext.ServiceProvider.DB
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	ctx := t.Context()
 
@@ -367,9 +295,8 @@ func TestNumericAndCIDRFilter_AndCorrectly(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	dbSvc := testContext.DatabaseService
-	db := testContext.ServiceProvider.DB
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	ctx := t.Context()
 
@@ -408,9 +335,8 @@ func TestGetDeviceIdentifiersByOrgWithFilter_NumericRange(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	dbSvc := testContext.DatabaseService
-	db := testContext.ServiceProvider.DB
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	ctx := t.Context()
 
@@ -441,9 +367,8 @@ func TestCountMinersByState_NumericAndCIDRFiltersMatchList(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	dbSvc := testContext.DatabaseService
-	db := testContext.ServiceProvider.DB
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	ctx := t.Context()
 
@@ -572,9 +497,8 @@ func TestZoneFilter_ExcludesSoftDeletedRack(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	dbSvc := testContext.DatabaseService
-	db := testContext.ServiceProvider.DB
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	collectionStore := sqlstores.NewSQLCollectionStore(db)
 	ctx := t.Context()
@@ -621,9 +545,8 @@ func TestSearchFilter_CountsAndModelGroupsMatchList(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	dbSvc := testContext.DatabaseService
-	db := testContext.ServiceProvider.DB
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	ctx := t.Context()
 

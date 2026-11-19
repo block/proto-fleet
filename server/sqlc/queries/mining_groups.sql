@@ -94,12 +94,6 @@ DELETE FROM hashboard_pool_intent
 WHERE organization_id=sqlc.arg(organization_id) AND device_id=sqlc.arg(device_id)
  AND NOT (mac_address=ANY(sqlc.arg(applied_macs)::text[]));
 
--- name: GetHostMiningGroupPoolRevision :one
--- New assignments may only select active configurations.
-SELECT r.* FROM hosted_account_pool_revision r JOIN hosted_account a ON a.id=r.account_id AND a.organization_id=r.organization_id
-JOIN hosted_account_pool p ON p.pool_id=r.pool_id AND p.organization_id=r.organization_id AND p.account_id=r.account_id
-WHERE r.organization_id=$1 AND r.revision_id=$2 AND a.depth=0 AND NOT a.suspended AND NOT p.archived;
-
 -- name: GetHostMiningGroupPoolRevisionForReconciliation :one
 -- Archiving prevents new assignments but preserves revisions used by accepted
 -- workflows and existing controller bindings. Account restrictions still apply.

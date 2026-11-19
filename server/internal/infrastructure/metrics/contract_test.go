@@ -38,21 +38,6 @@ func TestAllLabelKeysAreUnique(t *testing.T) {
 	}
 }
 
-// checks IsKnownLabel and IsKnownMetric
-func TestKnownLabelHelpers(t *testing.T) {
-	for _, m := range AllMetricNames {
-		require.True(t, IsKnownMetric(m), "%q must be reported as known", m)
-	}
-	require.False(t, IsKnownMetric("node_cpu_seconds_total"))
-	require.False(t, IsKnownMetric(""))
-
-	for _, l := range AllLabelKeys {
-		require.True(t, IsKnownLabel(l), "%q must be reported as known", l)
-	}
-	require.False(t, IsKnownLabel("__name__"))
-	require.False(t, IsKnownLabel("instance"))
-}
-
 // checks ResultSuccess / ResultFailure values are closed.
 func TestResultEnum(t *testing.T) {
 	require.ElementsMatch(t, []string{"success", "failure"}, AllResults)
@@ -67,15 +52,6 @@ func TestSensorKindEnum(t *testing.T) {
 	require.ElementsMatch(t,
 		[]string{"board", "chip", "inlet", "outlet", "ambient", "hotspot"},
 		AllSensorKinds)
-}
-
-// the only allowed labels are the ones declared in the contract
-func TestValidateLabelKey(t *testing.T) {
-	for _, key := range AllLabelKeys {
-		require.NoError(t, validateLabelKey(key))
-	}
-	require.Error(t, validateLabelKey("user_supplied_label"))
-	require.Error(t, validateLabelKey(""))
 }
 
 // guards against unknown Results: an unknown result must log + drop

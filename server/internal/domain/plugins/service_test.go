@@ -16,49 +16,6 @@ func createTestServiceForServiceTest(_ *testing.T, _ *gomock.Controller, manager
 	return NewService(manager)
 }
 
-func TestNewService(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	manager := NewManager(&Config{})
-
-	service := createTestServiceForServiceTest(t, ctrl, manager)
-
-	assert.NotNil(t, service)
-	assert.Equal(t, manager, service.manager)
-}
-
-func TestService_GetManager(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	manager := NewManager(&Config{})
-	service := createTestServiceForServiceTest(t, ctrl, manager)
-
-	assert.Equal(t, manager, service.GetManager())
-}
-
-func TestService_IsPluginAvailableByDriverName(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	manager := NewManager(&Config{})
-	service := createTestServiceForServiceTest(t, ctrl, manager)
-
-	// Act + Assert - no plugins registered
-	assert.False(t, service.GetManager().HasPluginForDriverName("antminer"))
-
-	// Arrange
-	mockPlugin := &LoadedPlugin{
-		Name: "antminer-plugin",
-	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
-
-	// Act + Assert
-	assert.True(t, service.GetManager().HasPluginForDriverName("antminer"))
-	assert.False(t, service.GetManager().HasPluginForDriverName("whatsminer"))
-}
-
 func TestService_GetAvailablePlugins(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
