@@ -1724,3 +1724,14 @@ func TestRegistry_ConnectedSince_DisconnectedNodeReportsNotConnected(t *testing.
 	_, ok := r.ConnectedSince(7)
 	assert.False(t, ok)
 }
+
+func TestConnectionCountTracksReplacement(t *testing.T) {
+	registry := NewRegistry()
+	first := registry.Register(10)
+	require.Equal(t, int64(1), registry.ConnectionCount())
+	second := registry.Register(10)
+	first.Unregister()
+	require.Equal(t, int64(1), registry.ConnectionCount())
+	second.Unregister()
+	require.Zero(t, registry.ConnectionCount())
+}

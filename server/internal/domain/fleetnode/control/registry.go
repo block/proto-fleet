@@ -424,3 +424,12 @@ func (r *Registry) removeCmd(fleetNodeID int64, c *inflightCommand) {
 		close(c.done)
 	}
 }
+
+// ConnectionCount returns a cheap point-in-time count of authenticated streams.
+// It is diagnostic process state; expected inventory and heartbeat health are
+// evaluated independently from persisted state.
+func (r *Registry) ConnectionCount() int64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return int64(len(r.conns))
+}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -40,6 +41,19 @@ func TestPoolScrape(t *testing.T) {
 	} {
 		require.Contains(t, body, line)
 	}
+}
+
+func TestNodeConnectionScrape(t *testing.T) {
+	p, err := Start(Config{Enabled: true, Address: "127.0.0.1:0"})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, p.Shutdown(context.Background())) })
+	var count atomic.Int64
+	require.NoError(t, p.ObserveNodeConnections(count.Load))
+	require.Contains(t, scrapeMetrics(t, p), "\nfleet_node_control_streams 0\n")
+	count.Store(3)
+	require.Contains(t, scrapeMetrics(t, p), "\nfleet_node_control_streams 3\n")
+	count.Store(0)
+	require.Contains(t, scrapeMetrics(t, p), "\nfleet_node_control_streams 0\n")
 }
 
 func TestStartupScrape(t *testing.T) {

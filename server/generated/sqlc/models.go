@@ -1778,6 +1778,17 @@ type FleetNodeAuthChallenge struct {
 	CreatedAt   time.Time
 }
 
+type FleetNodeConnectivitySummary struct {
+	OrgID                     int64
+	ExpectedCount             int64
+	RecentCount               int64
+	OverdueCount              int64
+	UnknownCount              int64
+	ExcludedCount             int64
+	GraceCount                int64
+	OldestHeartbeatAgeSeconds float64
+}
+
 type FleetNodeDevice struct {
 	FleetNodeID int64
 	DeviceID    int64
@@ -1817,6 +1828,13 @@ type FleetNodeLive struct {
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 	DeletedAt        sql.NullTime
+}
+
+type FleetNodeMonitoringExclusion struct {
+	FleetNodeID int64
+	Reason      string
+	CreatedAt   time.Time
+	ExpiresAt   time.Time
 }
 
 type FleetNodeSession struct {

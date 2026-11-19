@@ -134,10 +134,55 @@ func TestFleetMiningAssetUsesLiveHeartbeatAcrossMigration(t *testing.T) {
 
 func applyFleetNodeDetailsMigration(t *testing.T, conn *sql.DB, direction string) {
 	t.Helper()
+	// Roll back newer view dependencies before exercising the historical
+	// heartbeat migration, just as an ordered migration rollback does.
+	if direction == "down" {
+		applyNodeConnectivityMigration(t, conn, direction)
+	}
 	migration, err := migrations.Current.ReadFile("current/001026_internal_fleet_node_details." + direction + ".sql")
 	require.NoError(t, err)
 	_, err = conn.ExecContext(t.Context(), string(migration))
 	require.NoError(t, err)
+	if direction == "up" {
+		applyNodeConnectivityMigration(t, conn, direction)
+	}
+}
+
+func applyNodeConnectivityMigration(t *testing.T, conn *sql.DB, direction string) {
+	t.Helper()
+	migration, err := migrations.Current.ReadFile("current/001101_internal_node_connectivity_monitoring." + direction + ".sql")
+	require.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), string(migration))
+	require.NoError(t, err)
+}
+
+func TestNodeConnectivityMigrationGrantsMonitoringRoleReadAccess(t *testing.T) {
+	conn := dbtest.GetTestDB(t)
+	applyNodeConnectivityMigration(t, conn, "down")
+	up, err := migrations.Current.ReadFile("current/001101_internal_node_connectivity_monitoring.up.sql")
+	require.NoError(t, err)
+
+	ctx := t.Context()
+	tx, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer tx.Rollback()
+
+	// Simulate HA bootstrap with a role scoped to this test transaction.
+	role := "connectivity_read_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	_, err = tx.ExecContext(ctx, "CREATE ROLE "+role+" NOINHERIT")
+	require.NoError(t, err)
+	_, err = tx.ExecContext(ctx, "GRANT USAGE ON SCHEMA public TO "+role)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(ctx, strings.ReplaceAll(string(up), "grafana_ha_ro", role))
+	require.NoError(t, err)
+
+	var org int64
+	require.NoError(t, tx.QueryRowContext(ctx, "INSERT INTO organization(org_id,name) VALUES($1,'monitoring-host') RETURNING id", uuid.NewString()).Scan(&org))
+	_, err = tx.ExecContext(ctx, "SET LOCAL ROLE "+role)
+	require.NoError(t, err)
+	var expected int64
+	require.NoError(t, tx.QueryRowContext(ctx, "SELECT expected_count FROM fleet_node_connectivity_summary WHERE org_id = $1", org).Scan(&expected))
+	require.Zero(t, expected)
 }
 
 func TestFleetNodeDetailsMigrationPreservesExistingHeartbeats(t *testing.T) {

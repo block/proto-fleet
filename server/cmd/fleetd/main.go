@@ -374,6 +374,9 @@ func start(config *Config) (result error) {
 	fleetNodePairingStore := sqlstores.NewSQLFleetNodePairingStore(conn)
 	fleetNodePairingSvc := fleetnodepairing.NewService(fleetNodePairingStore, fleetNodeEnrollmentStore, transactor)
 	fleetNodeControlRegistry := control.NewRegistry()
+	if err := runtimeMetrics.ObserveNodeConnections(fleetNodeControlRegistry.ConnectionCount); err != nil {
+		return fmt.Errorf("observe node connections: %w", err)
+	}
 	fleetNodeEnrollmentSvc.WithControlStreamInvalidator(fleetNodeControlRegistry.RevokeSession)
 	fleetNodeDiscoverySvc := fleetnodediscovery.NewService(fleetNodeControlRegistry, fleetNodeEnrollmentSvc)
 	fleetNodeAuthStore := sqlstores.NewSQLFleetNodeAuthStore(conn)
