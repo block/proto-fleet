@@ -85,17 +85,22 @@ Proto Fleet does not use:
 | pgvector | 0.8.7 |
 | timescaledb-tune | 0.18.1 |
 
-PostgreSQL and pgvector are held in the Dockerfile (`PG_VERSION` and
-`PGVECTOR_VERSION`). PostgreSQL 18.7 makes every TimescaleDB background job,
-including retention, columnstore, and continuous aggregate policies, end with
-`cannot drop portal "" while it is being set up`: the job's work commits, but
-the run is recorded as failed. This was seen with TimescaleDB 2.31.0 and
-2.32.0. pgvector is held because its newer builds require PostgreSQL 18.7.
-Remove both holds together once a TimescaleDB release supports 18.7.
+The Dockerfile pins every package that it installs from the PGDG and
+Timescale repositories (`PG_VERSION`, `PGVECTOR_VERSION`,
+`TIMESCALEDB_VERSION`, and `TOOLKIT_VERSION`). The repositories publish
+extension builds for each PostgreSQL minor release. An unpinned extension can
+pull a build that requires a newer PostgreSQL than `PG_VERSION`, and then
+`apt-get` fails with unmet dependencies. CI rebuilds this image every week, so
+such a release can break CI for all pull requests. Update the pins together in a
+dedicated change, and make sure that each version exists for both `amd64` and
+`arm64`.
 
-The other packages are not pinned, so rebuilding pulls their latest compatible
-versions. Pin them in the `apt-get install` line if you need reproducible
-builds.
+PostgreSQL is held at 18.6. PostgreSQL 18.7 makes every TimescaleDB background
+job, including retention, columnstore, and continuous aggregate policies, end
+with `cannot drop portal "" while it is being set up`: the job's work commits,
+but the run is recorded as failed. This was seen with TimescaleDB 2.31.0 and
+2.32.0. pgvector is held because its newer builds require PostgreSQL 18.7.
+After a TimescaleDB release supports 18.7, move all pins to builds for 18.7.
 
 ## Building
 
