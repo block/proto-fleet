@@ -1,8 +1,8 @@
 import { useEffect, useMemo } from "react";
 import { type PlantAlarmOutcome, setPlantAlarmOutcome } from "../hooks/usePlantAlarmOutcome";
 import { latest } from "../utils/buildContainerHome";
-import ContainerOverviewView from "./ContainerOverviewView";
 import ContainerSystem from "./ContainerSystem";
+import ContainerSystemView from "./ContainerSystemView";
 import { MdkV2Adapter, type MdkV2Client } from "@/protoOS/api/adapters/mdkV2";
 import { toCanonicalContainer } from "@/protoOS/api/adapters/mdkV2/normalize";
 import MinerHostingContext from "@/protoOS/contexts/MinerHostingContext/MinerHostingContext";
@@ -117,7 +117,7 @@ function SystemPreview({
     >
       <div className="min-h-screen bg-surface-base p-6 text-text-primary">
         {overview ? (
-          <ContainerOverviewView plant={plant} fans={fans} power={latest(plant?.facilityPower)} />
+          <ContainerSystemView plant={plant} fans={fans} power={latest(plant?.facilityPower)} />
         ) : (
           <ContainerSystem plant={plant} fans={fans} />
         )}

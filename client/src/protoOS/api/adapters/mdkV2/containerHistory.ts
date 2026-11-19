@@ -25,6 +25,8 @@ const metrics: Record<
   outsideTemperature: { wire: "TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_TEMPERATURE", units: "°C" },
   inletTemperature: { wire: "TIME_SERIES_METRIC_PLANT_INLET_TEMPERATURE", units: "°C" },
   outletTemperature: { wire: "TIME_SERIES_METRIC_PLANT_OUTLET_TEMPERATURE", units: "°C" },
+  outletATemperature: { wire: "TIME_SERIES_METRIC_PLANT_OUTLET_A_TEMPERATURE", units: "°C" },
+  outletBTemperature: { wire: "TIME_SERIES_METRIC_PLANT_OUTLET_B_TEMPERATURE", units: "°C" },
   distributionPower: { wire: "TIME_SERIES_METRIC_PLANT_DISTRIBUTION_POWER", units: "W" },
   fanPower: { wire: "TIME_SERIES_METRIC_PLANT_FAN_POWER", units: "W" },
 };

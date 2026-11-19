@@ -20,6 +20,7 @@ describe("container Home presentation", () => {
             efficiency: "/miners/ct1/efficiency",
             power: "/miners/ct1/power-usage",
             temperature: "/miners/ct1/temperature",
+            system: "/miners/ct1/?view=system",
           }}
         />
       </MemoryRouter>,

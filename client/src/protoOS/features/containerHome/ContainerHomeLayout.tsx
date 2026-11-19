@@ -16,7 +16,7 @@ const LIVE_LEVELS: TelemetryLevel[] = ["miner", "hashboard"];
 
 export default function ContainerHomeLayout() {
   const { minerRoot } = useMinerHosting();
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const duration = useDuration();
   const setDuration = useSetDuration();
   const pools = usePoolsInfo();
@@ -27,10 +27,12 @@ export default function ContainerHomeLayout() {
     efficiency: `${minerRoot}/efficiency`,
     power: `${minerRoot}/power-usage`,
     temperature: `${minerRoot}/temperature`,
+    system: `${minerRoot}/?view=system`,
   };
-  const tab =
+  const pathTab =
     (Object.keys(links) as HomeTab[]).find((key) => links[key].replace(/\/$/, "") === pathname.replace(/\/$/, "")) ??
     "overview";
+  const tab = pathTab === "overview" && new URLSearchParams(search).get("view") === "system" ? "system" : pathTab;
   const callout = useNoPoolsCalloutState(pools, pathname);
   return (
     <ErrorBoundary>

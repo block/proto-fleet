@@ -1,4 +1,4 @@
-import { createMemoryRouter, RouterProvider } from "react-router-dom";
+import { createMemoryRouter, RouterProvider, useSearchParams } from "react-router-dom";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
@@ -53,12 +53,17 @@ async function selectMode(mode: "Auto" | "Manual") {
   fireEvent.click(await screen.findByRole("option", { name: mode }));
 }
 
+// As in the app router: the System tab shares the root path with Overview.
+const HomeIndex = () => (
+  <ContainerHomePage tab={useSearchParams()[0].get("view") === "system" ? "system" : "overview"} />
+);
+
 const routes = [
   {
     path: "/miners/ct1",
     element: <ContainerHomeLayout />,
     children: [
-      { index: true, element: <ContainerHomePage tab="overview" /> },
+      { index: true, element: <HomeIndex /> },
       { path: "hashrate", element: <ContainerHomePage tab="hashrate" /> },
       { path: "efficiency", element: <ContainerHomePage tab="efficiency" /> },
       { path: "power-usage", element: <ContainerHomePage tab="power" /> },
@@ -140,7 +145,7 @@ describe("container Home integration", () => {
 
   it("shows the schematic above API-backed stats without requesting or polling history", async () => {
     vi.useFakeTimers();
-    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/?view=system"] });
     render(<RouterProvider router={router} />);
     await act(async () => {});
     const readings = screen.getByRole("region", { name: "Live readings" });
@@ -172,7 +177,7 @@ describe("container Home integration", () => {
   it("honors Overview unit preferences and distinguishes zero from missing live readings", async () => {
     useMinerStore.getState().ui.setTemperatureUnit("F");
     useMinerStore.getState().ui.setFlowUnit("GPM");
-    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/?view=system"] });
     render(<RouterProvider router={router} />);
     const stat = (label: string) =>
       within(screen.getByRole("region", { name: "Live readings" }))
@@ -215,7 +220,7 @@ describe("container Home integration", () => {
         controls: names.map((name) => ({ name, enabled })),
         setpoints: [],
       });
-      const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+      const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/?view=system"] });
       render(<RouterProvider router={router} />);
       fireEvent.click(screen.getByRole("button", { name: "System controls" }));
       const power = await screen.findByRole("checkbox", { name: label });
@@ -257,7 +262,7 @@ describe("container Home integration", () => {
         { name: "air_conditioner_2_temp_c", value: 24, unit: "C" },
       ],
     });
-    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/?view=system"] });
     render(<RouterProvider router={router} />);
     fireEvent.click(screen.getByRole("button", { name: "System controls" }));
     const section = await screen.findByRole("region", { name: `Air conditioner ${number} controls` });
@@ -281,7 +286,7 @@ describe("container Home integration", () => {
   });
 
   it("autosaves pump speed on Enter, keeps the editor open, and does not write while typing", async () => {
-    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/?view=system"] });
     render(<RouterProvider router={router} />);
     expect(screen.getByRole("img", { name: /Flow rate: 120.0 L\/min/ })).toBeInTheDocument();
     expect(screen.getByText("860.0 mm")).toBeInTheDocument();
@@ -303,7 +308,7 @@ describe("container Home integration", () => {
 
   it("autosaves cooler mode on selection and fan percentage on blur", async () => {
     configureSettings(coolerSettings);
-    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/?view=system"] });
     render(<RouterProvider router={router} />);
     fireEvent.click(screen.getByRole("button", { name: "System controls" }));
     await selectMode("Manual");
@@ -326,7 +331,7 @@ describe("container Home integration", () => {
 
   it("confirms power and waits for readback before showing success", async () => {
     let completeRead!: (settings: ContainerSettings) => void;
-    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/?view=system"] });
     render(<RouterProvider router={router} />);
     fireEvent.click(screen.getByRole("button", { name: "System controls" }));
     const power = await screen.findByRole("checkbox", { name: "Coolant pump power" });
@@ -355,7 +360,7 @@ describe("container Home integration", () => {
   it.each(["write", "readback", "telemetry"] as const)(
     "recovers from a stalled %s without replaying the write",
     async (stage) => {
-      const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+      const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/?view=system"] });
       render(<RouterProvider router={router} />);
       fireEvent.click(screen.getByRole("button", { name: "System controls" }));
       const input = await screen.findByLabelText("Pump speed (Hz)");
@@ -404,7 +409,7 @@ describe("container Home integration", () => {
     async (control) => {
       const user = userEvent.setup();
       configureSettings(coolerSettings);
-      const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+      const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/?view=system"] });
       render(<RouterProvider router={router} />);
       fireEvent.click(screen.getByRole("button", { name: "System controls" }));
       const input = await screen.findByLabelText("Target inlet temperature (°C)");
@@ -450,7 +455,7 @@ describe("container Home integration", () => {
   );
 
   it("discards a power confirmation when the device connection changes", async () => {
-    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/?view=system"] });
     render(<RouterProvider router={router} />);
     fireEvent.click(screen.getByRole("button", { name: "System controls" }));
     fireEvent.click(await screen.findByRole("checkbox", { name: "Coolant pump power" }));
@@ -462,7 +467,7 @@ describe("container Home integration", () => {
 
   it("keeps an unknown power state unavailable", async () => {
     configureSettings({ supported: true, controls: [{ name: "coolant_pump" }], setpoints: [] });
-    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/?view=system"] });
     render(<RouterProvider router={router} />);
     fireEvent.click(screen.getByRole("button", { name: "System controls" }));
     expect(await screen.findByRole("checkbox", { name: "Coolant pump power" })).toBeDisabled();
@@ -472,7 +477,7 @@ describe("container Home integration", () => {
 
   it("refreshes untouched setpoints from the device without overwriting them on a mode change", async () => {
     configureSettings(coolerSettings);
-    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/?view=system"] });
     render(<RouterProvider router={router} />);
     fireEvent.click(screen.getByRole("button", { name: "System controls" }));
     const target = await screen.findByLabelText("Target inlet temperature (°C)");
@@ -490,7 +495,7 @@ describe("container Home integration", () => {
 
   it("validates numeric edits and retains rejected drafts with an error toast", async () => {
     mocks.adapter.setContainerSetpoint.mockRejectedValueOnce(new Error("PLC rejected command"));
-    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/?view=system"] });
     render(<RouterProvider router={router} />);
     fireEvent.click(screen.getByRole("button", { name: "System controls" }));
     const input = await screen.findByLabelText("Pump speed (Hz)");
@@ -514,7 +519,7 @@ describe("container Home integration", () => {
     useMinerStore.getState().ui.setTemperatureUnit("F");
     configureSettings(coolerSettings);
     mocks.adapter.setContainerControl.mockRejectedValueOnce(new Error("Mode command failed"));
-    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/?view=system"] });
     render(<RouterProvider router={router} />);
     fireEvent.click(screen.getByRole("button", { name: "System controls" }));
     const input = await screen.findByLabelText("Target inlet temperature (°F)");
@@ -541,7 +546,7 @@ describe("container Home integration", () => {
     const adapter = new MdkV2Adapter({ powerServiceSetContainerSetpoint: write } as unknown as MdkV2Client);
     mocks.adapter.setContainerSetpoint.mockImplementation(adapter.setContainerSetpoint.bind(adapter));
     configureSettings(coolerSettings);
-    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/?view=system"] });
     render(<RouterProvider router={router} />);
     fireEvent.click(screen.getByRole("button", { name: "System controls" }));
     const input = await screen.findByLabelText("Target inlet temperature (°C)");
@@ -554,7 +559,7 @@ describe("container Home integration", () => {
   });
 
   it("deduplicates Enter and blur, and retries failed readback without resending the saved value", async () => {
-    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/?view=system"] });
     render(<RouterProvider router={router} />);
     fireEvent.click(screen.getByRole("button", { name: "System controls" }));
     const input = await screen.findByLabelText("Pump speed (Hz)");
@@ -581,7 +586,7 @@ describe("container Home integration", () => {
         }),
     );
     configureSettings(coolerSettings);
-    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/?view=system"] });
     render(<RouterProvider router={router} />);
     fireEvent.click(screen.getByRole("button", { name: "System controls" }));
     const input = await screen.findByLabelText("Target inlet temperature (°C)");
@@ -597,7 +602,7 @@ describe("container Home integration", () => {
 
   it("keeps a manual cooler draft visible after a failed refresh and recovers without replaying it", async () => {
     configureSettings(coolerSettings);
-    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/?view=system"] });
     render(<RouterProvider router={router} />);
     fireEvent.click(screen.getByRole("button", { name: "System controls" }));
     await selectMode("Manual");
@@ -618,7 +623,7 @@ describe("container Home integration", () => {
   });
 
   it("keeps one live polling owner across duration and tab changes, with no per-board histories", async () => {
-    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/?view=system"] });
     render(<RouterProvider router={router} />);
     await waitFor(() => expect(mocks.adapter.getCurrentTelemetry).toHaveBeenCalledTimes(1));
     expect(mocks.adapter.getContainerHistory).not.toHaveBeenCalled();
@@ -703,7 +708,7 @@ describe("container Home integration", () => {
     expect(mocks.adapter.getTimeSeries).not.toHaveBeenCalled();
   });
 
-  it("preserves board-health hashrate after saving equipment and navigating from Overview", async () => {
+  it("preserves board-health hashrate after saving equipment and navigating from System", async () => {
     vi.useFakeTimers();
     const boards = [
       { serial: "HB-1", health: { hashrate: 60 } },
@@ -723,7 +728,7 @@ describe("container Home integration", () => {
     };
     const adapter = new MdkV2Adapter(client as unknown as MdkV2Client, { deviceId: "ct1" });
     mocks.adapter.getCurrentTelemetry.mockImplementation(adapter.getCurrentTelemetry.bind(adapter));
-    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/?view=system"] });
     render(<RouterProvider router={router} />);
     await act(async () => {});
     expect(mocks.adapter.getContainerHistory).not.toHaveBeenCalled();
@@ -744,6 +749,23 @@ describe("container Home integration", () => {
     expect(screen.queryByText(/Accepted-share/)).not.toBeInTheDocument();
     expect(client.hashboardServiceGetContainerMap).toHaveBeenCalledTimes(3);
     expect(client.miningServiceGetMiningStatus).toHaveBeenCalledTimes(3);
+  });
+
+  it("summarizes the container on Overview from one combined history request", async () => {
+    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+    render(<RouterProvider router={router} />);
+    await waitFor(() => expect(mocks.adapter.getContainerHistory).toHaveBeenCalledTimes(1));
+    expect(mocks.adapter.getContainerHistory.mock.calls[0][0].selections).toEqual([
+      { metric: "hashrate" },
+      { metric: "facilityPower" },
+      { metric: "outletATemperature" },
+      { metric: "outletBTemperature" },
+    ]);
+    expect(screen.getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "View Efficiency" })).toHaveAttribute("href", "/miners/ct1/efficiency");
+    expect(screen.getByRole("heading", { name: "Active issues" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Container cooling system schematic" })).not.toBeInTheDocument();
+    expect(mocks.adapter.getTimeSeries).not.toHaveBeenCalled();
   });
 
   it("shows and polls supported power histories even with an obsolete Hashboards query", async () => {

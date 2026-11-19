@@ -1,7 +1,9 @@
 import { useState } from "react";
 import ContainerHomeToolbar from "./components/ContainerHomeToolbar";
 import ContainerMetricView from "./components/ContainerMetricView";
-import type { HomeChartMode, HomeHistory, HomeReading, HomeSeries } from "./types";
+import ContainerOverviewView from "./components/ContainerOverviewView";
+import type { HomeChartMode, HomeHistory, HomeReading, HomeSeries, ModuleGrid } from "./types";
+import type { ModuleStatus } from "@/protoOS/features/tanks/tankView";
 import type { Duration } from "@/shared/components/DurationSelector";
 
 const end = Date.parse("2026-09-15T12:00:00Z");
@@ -53,6 +55,7 @@ const links = {
   efficiency: "/efficiency",
   power: "/power-usage",
   temperature: "/temperature",
+  system: "/?view=system",
 };
 const locations = ["L1", "L2", "L3", "R1", "R2", "R3"].map((label, index) => ({
   id: label,
@@ -208,5 +211,92 @@ export const TemperatureFluid = () => <MetricStory temperature initialMode="flui
 export const Loading = () => <MetricStory empty loading />;
 export const StaleHistory = () => <MetricStory error />;
 export const ZeroPower = () => <MetricStory zero />;
+
+const overviewChart = (id: string, label: string, units: string, source: HomeSeries) => ({
+  id,
+  label,
+  to: `/${id}`,
+  low: source.low ?? "—",
+  high: source.high ?? "—",
+  history: { ...history, stacked: false, units, series: [{ ...source, id, label }] },
+});
+const moduleStates = (tank: number, module: number): ModuleStatus =>
+  tank === 1 && module % 2 === 0 ? "sleeping" : tank === 2 && module === 3 ? "attention" : "healthy";
+const overviewGrid: ModuleGrid = {
+  columns: 16,
+  tanks: [1, 2, 3, 4].map((tank) => ({
+    id: `tank-${tank}`,
+    label: `Tank ${tank}`,
+    modules: Array.from({ length: 16 }, (_, index) => {
+      const state = moduleStates(tank, index + 1);
+      return {
+        id: `${tank}-${index}`,
+        column: index + 1,
+        name: `Tank ${tank} module ${index + 1}`,
+        to: "/tanks",
+        state,
+        boards: state === "attention" ? ["healthy", "attention", "healthy"] : [state, state, state],
+      };
+    }),
+  })),
+  counts: { attention: 1, offline: 0, isolated: 0, sleeping: 8, healthy: 55, unknown: 0 },
+};
+function OverviewStory({ quiet = false }: { quiet?: boolean }) {
+  const [duration, setDuration] = useState<Duration>("12h");
+  return (
+    <div className="bg-surface-base p-10 text-text-primary">
+      <ContainerOverviewView
+        duration={duration}
+        onDurationChange={setDuration}
+        kpis={[
+          { label: "Hashrate", value: "28,050.0 TH/s", text: "97.4% of 28,800.0 TH/s ideal", chartPercentage: 97.4 },
+          { label: "Power", value: "437.8 kW" },
+          { label: "Efficiency", value: "17.0 J/TH", text: "Hashboards 15.6 J/TH" },
+          { label: "Hashboards active", value: "157 / 158", text: "1 inactive", chartPercentage: 99.4 },
+        ].map((stat) => ({ ...stat, preformatted: true }))}
+        production={[
+          overviewChart("hashrate", "Hashrate", "TH/s", series[0]),
+          overviewChart("power", "Power", "kW", series[2]),
+          overviewChart("efficiency", "Efficiency", "J/TH", series[1]),
+          {
+            id: "temperature",
+            label: "Temperature",
+            to: "/temperature",
+            low: "41.2 °C",
+            high: "48.6 °C",
+            history: {
+              ...history,
+              stacked: false,
+              units: "°C",
+              series: [
+                { ...series[3], id: "left", label: "Left tanks" },
+                { ...series[4], id: "right", label: "Right tanks" },
+              ],
+            },
+          },
+        ]}
+        grid={overviewGrid}
+        issues={
+          quiet
+            ? { critical: 0, warning: 0, groups: [] }
+            : {
+                critical: 2,
+                warning: 2,
+                groups: [
+                  { id: "ac1", label: "Air conditioner #1 fault", severity: "critical", affected: "1 container" },
+                  { id: "psu", label: "Power supply over-limit alarm", severity: "critical", affected: "1 container" },
+                  { id: "wiring", label: "Wiring stale", severity: "warning", affected: "154 boards" },
+                  { id: "storage", label: "Blackbox storage fault", severity: "warning", affected: "3 boards" },
+                ],
+              }
+        }
+        links={{ tanks: "/tanks" }}
+        onViewIssues={() => {}}
+      />
+    </div>
+  );
+}
+export const Overview = () => <OverviewStory />;
+export const OverviewNoIssues = () => <OverviewStory quiet />;
 
 export default { title: "Proto OS/Containers/Home", component: ContainerMetricView };

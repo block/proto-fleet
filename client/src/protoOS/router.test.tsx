@@ -119,6 +119,20 @@ describe("ProtoOS router", () => {
     expect(screen.queryByText("module hashboard overlay")).not.toBeInTheDocument();
   });
 
+  test.each(["", "/miners/ct1"])("serves the System tab from the root path under %s", async (root) => {
+    mocks.minerRoot = root;
+    mocks.systemInfo = { identity: { deviceType: "container" } };
+    const routes = root ? [{ path: root, children: routerConfig }] : routerConfig;
+    const router = createMemoryRouter(routes, { initialEntries: [`${root}/?view=system`] });
+    const view = render(<RouterProvider router={router} />);
+    expect(await screen.findByText("container system")).toBeInTheDocument();
+    view.unmount();
+    mocks.systemInfo = { identity: { deviceType: "rig" } };
+    const rig = createMemoryRouter(routes, { initialEntries: [`${root}/?view=system`] });
+    render(<RouterProvider router={rig} />);
+    await waitFor(() => expect(rig.state.location.pathname).toBe(`${root}/hashrate`));
+  });
+
   test.each(["", "/miners/ct1"])("keeps Pools scoped to containers under %s", async (root) => {
     mocks.minerRoot = root;
     mocks.systemInfo = { identity: { deviceType: "container" } };

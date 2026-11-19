@@ -28,8 +28,8 @@ const connectRequest = <Desc extends DescMessage>(
 export class ContainerStandalonePage {
   constructor(private page: Page) {}
 
-  async openOverview() {
-    await this.page.goto("/");
+  async openSystem() {
+    await this.page.goto("/?view=system");
     await expect(this.page.getByRole("navigation", { name: "Container Home" })).toBeVisible();
     await expect(this.page.getByRole("region", { name: "Container cooling system schematic" })).toBeVisible();
     const readings = this.page.getByRole("region", { name: "Live readings" });

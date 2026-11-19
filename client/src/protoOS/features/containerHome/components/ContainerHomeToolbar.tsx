@@ -15,6 +15,7 @@ const tabs: { id: HomeTab; label: string }[] = [
   { id: "efficiency", label: "Efficiency" },
   { id: "power", label: "Power" },
   { id: "temperature", label: "Temperature" },
+  { id: "system", label: "System" },
 ];
 
 export default function ContainerHomeToolbar({ tab, links, duration, onDurationChange }: Props) {
@@ -32,7 +33,10 @@ export default function ContainerHomeToolbar({ tab, links, duration, onDurationC
           />
         ))}
       </nav>
-      {tab === "overview" ? null : <DurationSelector duration={duration} onSelect={onDurationChange} />}
+      {/* System is live-only; Overview scopes the period to its history card. */}
+      {tab === "system" || tab === "overview" ? null : (
+        <DurationSelector duration={duration} onSelect={onDurationChange} />
+      )}
     </div>
   );
 }

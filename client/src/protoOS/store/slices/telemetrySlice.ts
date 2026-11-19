@@ -23,6 +23,7 @@ enableMapSet();
 type MetricContainer = Record<string, unknown>;
 const metricFields = [
   "hashrate",
+  "idealHashrate",
   "power",
   "efficiency",
   "temperature",

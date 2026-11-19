@@ -281,6 +281,7 @@ describe("MdkV2Adapter", () => {
       {
         id: "container:ct1-a:alarm:pump_overload",
         code: "pump_overload",
+        title: "Coolant pump overload",
         message: "Critical: Coolant pump overload · Component coolant_pump",
         owner: { kind: "container", id: "container:ct1-a" },
         severity: "critical",
@@ -288,6 +289,7 @@ describe("MdkV2Adapter", () => {
       {
         id: "container:ct1-a:alarm:fan_warning",
         code: "fan_warning",
+        title: "Cooling fan slow",
         message: "Warning: Cooling fan slow · Component fan-2",
         owner: { kind: "container", id: "container:ct1-a" },
         severity: "warning",

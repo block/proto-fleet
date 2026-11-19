@@ -79,7 +79,7 @@ test("diagram view fits, zooms below Fit, and keeps its view across system contr
   page.on("request", (request) => {
     if (/\/SetContainer(Control|Setpoint)$/.test(new URL(request.url()).pathname)) writes.push(request.url());
   });
-  await dashboard.openOverview();
+  await dashboard.openSystem();
   const canvas = dashboard.diagramCanvas();
   const frame = await canvas.boundingBox();
   const content = await dashboard.schematic().getByTestId("system-diagram-content").boundingBox();
@@ -114,7 +114,7 @@ test("diagram view fits, zooms below Fit, and keeps its view across system contr
 
 test("diagram pinch zoom keeps equipment closed and Fit restores the complete system", async ({ page }) => {
   const dashboard = new ContainerStandalonePage(page);
-  await dashboard.openOverview();
+  await dashboard.openSystem();
   const fitted = await dashboard.diagramZoom();
   await dashboard.pinchDiagram();
   await expect.poll(() => dashboard.diagramZoom()).toBeGreaterThan(fitted * 2);
@@ -185,7 +185,7 @@ systemTest(
   async ({ page, request, baseURL, systemBaseline }) => {
     expect(systemBaseline.supported).toBe(true);
     const dashboard = new ContainerStandalonePage(page);
-    await dashboard.openOverview();
+    await dashboard.openSystem();
     await page.getByRole("region", { name: "Container cooling system schematic" }).scrollIntoViewIfNeeded();
     await page
       .getByRole("region", { name: "Container cooling system schematic" })
@@ -263,7 +263,7 @@ systemTest(
   "central controls expose air conditioning and lighting with responsive equipment groups",
   async ({ page, baseURL, systemBaseline }, testInfo) => {
     const dashboard = new ContainerStandalonePage(page);
-    await dashboard.openOverview();
+    await dashboard.openSystem();
     await dashboard.openEquipmentSettings("Coolant pump");
     await dashboard.expectResponsiveControls(testInfo.project.name === "desktop");
     for (const [name, label] of [
@@ -295,7 +295,7 @@ systemTest(
 
 systemTest("numeric blur preserves a single Mode click and waits for target readback", async ({ page }) => {
   const dashboard = new ContainerStandalonePage(page);
-  await dashboard.openOverview();
+  await dashboard.openSystem();
   await dashboard.openEquipmentSettings("Dry cooler");
   await dashboard.coolerMode().click();
   await dashboard.coolerModeOption("Manual").click();
@@ -349,7 +349,7 @@ systemTest(
   "autosave reports rejected writes inline and in a toast, then retries on Enter",
   async ({ page, request }) => {
     const dashboard = new ContainerStandalonePage(page);
-    await dashboard.openOverview();
+    await dashboard.openSystem();
     await dashboard.openEquipmentSettings("Coolant pump");
     const dialog = dashboard.equipmentSettings("Coolant pump");
     const input = dialog.getByLabel("Pump speed (Hz)", { exact: true });
@@ -451,7 +451,7 @@ test("production bundle probes CT1 and survives tank/module deep-link refreshes 
   });
   const dashboard = new ContainerStandalonePage(page);
   const probe = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/v2/system/info");
-  await dashboard.openOverview();
+  await dashboard.openSystem();
   const info = await (await probe).json();
   expect(info.info.product).toBe("CT1");
   await dashboard.expectNoLogin();
