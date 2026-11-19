@@ -17,7 +17,7 @@ const CapabilityMiningGroups = "mining_groups"
 const CapabilityMiningGroupPoolClear = "mining_group_pool_clear"
 
 const (
-	MiningGroupReadDefault = "read_default"
+	MiningGroupReadDefault               = "read_default"
 	miningGroupActionActivationInventory = "activation_inventory"
 	miningGroupActionVerifyCleared       = "verify_cleared"
 	miningGroupActionClearPools          = "clear_pools"
