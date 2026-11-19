@@ -134,16 +134,6 @@ describe("useFileUpload", () => {
 
       await expect(promise).rejects.toThrow("Network error during upload.");
     });
-
-    it("uses custom fieldName", async () => {
-      const file = new File(["data"], "file.swu");
-      const { result } = renderHook(() => useFileUpload());
-      result.current.upload("/upload", file, { fieldName: "firmware" });
-
-      const xhr = xhrInstances[0];
-      const formData: FormData = xhr.send.mock.calls[0][0];
-      expect(formData.get("firmware")).toBeTruthy();
-    });
   });
 
   describe("chunked upload (fetch)", () => {

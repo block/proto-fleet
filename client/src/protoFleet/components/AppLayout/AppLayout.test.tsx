@@ -388,7 +388,7 @@ describe("AppLayout", () => {
     expect(mockUseRolloutPillData).toHaveBeenCalledWith({ enabled: true });
   });
 
-  it("disables update polling when the route hides the shell header", () => {
+  it("disables update, Fleet Node, alert and rollout polling when the route hides the shell header", () => {
     render(
       <MemoryRouter>
         <AppLayout hideShellHeader>
@@ -398,41 +398,8 @@ describe("AppLayout", () => {
     );
 
     expect(mockUseUpdateIndicator).toHaveBeenCalledWith({ enabled: false });
-  });
-
-  it("disables Fleet Node compatibility polling when the route hides the shell header", () => {
-    render(
-      <MemoryRouter>
-        <AppLayout hideShellHeader>
-          <div>Body content</div>
-        </AppLayout>
-      </MemoryRouter>,
-    );
-
     expect(mockUseFleetNodeUpgradeIndicator).toHaveBeenCalledWith({ enabled: false });
-  });
-
-  it("disables active-alert polling when the route hides the shell header", () => {
-    render(
-      <MemoryRouter>
-        <AppLayout hideShellHeader>
-          <div>Body content</div>
-        </AppLayout>
-      </MemoryRouter>,
-    );
-
     expect(mockUseActiveAlertsPillData).toHaveBeenCalledWith({ enabled: false });
-  });
-
-  it("disables rollout polling when the route hides the shell header", () => {
-    render(
-      <MemoryRouter>
-        <AppLayout hideShellHeader>
-          <div>Body content</div>
-        </AppLayout>
-      </MemoryRouter>,
-    );
-
     expect(mockUseRolloutPillData).toHaveBeenCalledWith({ enabled: false });
   });
 

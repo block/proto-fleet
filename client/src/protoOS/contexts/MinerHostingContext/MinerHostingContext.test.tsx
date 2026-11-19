@@ -62,32 +62,15 @@ describe("MinerHostingProvider adapter resolution", () => {
     await waitFor(() => expect(screen.getByTestId("resolution")).toHaveTextContent("ready:mdk-v2"));
   });
 
-  test("keeps an MDK v2 R2 on the unsupported page until its adapter is implemented", async () => {
+  test.each([
+    { product: "R2", id: "rig-1" },
+    { product: "Frigate", id: "unknown-1" },
+  ])("keeps an MDK v2 $product on the unsupported page", async ({ product, id }) => {
     vi.stubGlobal(
       "fetch",
       vi.fn<typeof fetch>().mockResolvedValue(
         jsonResponse({
-          info: { id: "rig-1", version: "v2.0.0", product: "R2" },
-        }),
-      ),
-    );
-
-    render(
-      <MinerHostingProvider>
-        <div>Miner application</div>
-      </MinerHostingProvider>,
-    );
-
-    await screen.findByRole("heading", { name: "This miner isn't supported yet" });
-    expect(screen.getByText("MDK v2 was detected, but ProtoOS support is still being built.")).toBeInTheDocument();
-  });
-
-  test("keeps an unrecognized MDK v2 product on the unsupported page", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn<typeof fetch>().mockResolvedValue(
-        jsonResponse({
-          info: { id: "unknown-1", version: "v2.0.0", product: "Frigate" },
+          info: { id, version: "v2.0.0", product },
         }),
       ),
     );

@@ -7,7 +7,6 @@ import { moduleFixture } from "@/protoOS/api/adapters/mdkV2/moduleFixtures";
 import { toCanonicalSystemInfo } from "@/protoOS/api/adapters/mdkV2/normalize";
 import type { ContainerTopology } from "@/protoOS/store/contract";
 import useMinerStore from "@/protoOS/store/useMinerStore";
-import { __resetEscapeStackForTests } from "@/shared/hooks/useEscapeDismiss";
 
 vi.mock("@/protoOS/api/hooks/useHashboardStatus", () => ({ useHashboardStatus: () => ({}) }));
 vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({ useMinerHosting: () => ({ minerRoot: "" }) }));
@@ -26,7 +25,6 @@ vi.mock("./ModuleVoltageSection", () => ({
 
 beforeEach(() => {
   useMinerStore.getState().resetDeviceData();
-  __resetEscapeStackForTests();
 });
 
 const Path = () => <p data-testid="path">{useLocation().pathname}</p>;

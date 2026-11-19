@@ -1,5 +1,5 @@
 import { MemoryRouter } from "react-router-dom";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { timestampDate, TimestampSchema } from "@bufbuild/protobuf/wkt";
@@ -434,16 +434,22 @@ it("invalidates a cached mismatch when the operation is superseded by another up
       reported: [{ url: "stratum+tcp://old.example:3333", username: "old.worker" }],
     }),
   );
-  show();
-  await userEvent.setup().click(await screen.findByRole("button", { name: "Check configuration" }));
-  expect(await screen.findByRole("button", { name: "Reapply" })).toBeVisible();
-  mocks.getOperation.mockResolvedValue(operation("superseded", "write_uncertain"));
-  await waitFor(() => expect(screen.getByRole("heading", { name: "Replaced by a newer update" })).toBeVisible(), {
-    timeout: 4500,
-  });
-  expect(screen.queryByRole("button", { name: "Reapply" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Check again" })).not.toBeInTheDocument();
-  expect(screen.queryByText("old.worker")).not.toBeInTheDocument();
+  const setIntervalSpy = vi.spyOn(window, "setInterval");
+  try {
+    show();
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Check configuration" }));
+    expect(await screen.findByRole("button", { name: "Reapply" })).toBeVisible();
+    mocks.getOperation.mockResolvedValue(operation("superseded", "write_uncertain"));
+    // Run the 3 s poll now. Fake timers stop the modal animation in jsdom.
+    const poll = setIntervalSpy.mock.calls.find(([, ms]) => ms === 3000)?.[0] as () => void;
+    act(() => poll());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Replaced by a newer update" })).toBeVisible());
+    expect(screen.queryByRole("button", { name: "Reapply" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Check again" })).not.toBeInTheDocument();
+    expect(screen.queryByText("old.worker")).not.toBeInTheDocument();
+  } finally {
+    setIntervalSpy.mockRestore();
+  }
 });
 
 it("keeps a fresh check over older polls but discards it for newer assignment evidence", async () => {

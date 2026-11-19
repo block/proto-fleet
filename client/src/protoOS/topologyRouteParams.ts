@@ -1,7 +1,5 @@
 import type { ModuleNode, TankNode, Topology } from "@/protoOS/store/contract";
 
-export const decodeRouteParam = (value: string | undefined) => (value ? decodeURIComponent(value) : undefined);
-
 const tankMatchesRoute = (tank: TankNode, value: string) => String(tank.id) === value || String(tank.slot) === value;
 
 const moduleMatchesRoute = (module: ModuleNode, value: string, fallbackSlot: number) =>

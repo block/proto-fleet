@@ -2,10 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   CONTAINER_HASHBOARD_COLUMNS,
   CONTAINER_HASHBOARD_ROW_LETTERS,
-  CONTAINER_HASHBOARD_ROW_ORDER,
   CONTAINER_HASHBOARD_ROWS,
   getContainerAsicLabel,
-  getContainerRowLabel,
 } from "./containerHashboardLayout";
 
 describe("containerHashboardLayout", () => {
@@ -13,36 +11,6 @@ describe("containerHashboardLayout", () => {
     it("has 12 rows (6 letter pairs x 2 sub-rows)", () => {
       expect(CONTAINER_HASHBOARD_ROWS).toBe(12);
       expect(CONTAINER_HASHBOARD_ROW_LETTERS).toEqual(["F", "E", "D", "C", "B", "A"]);
-    });
-
-    it("orders display rows F0,F1,E0,E1...A0,A1 top to bottom", () => {
-      expect(CONTAINER_HASHBOARD_ROW_ORDER).toEqual([
-        "F0",
-        "F1",
-        "E0",
-        "E1",
-        "D0",
-        "D1",
-        "C0",
-        "C1",
-        "B0",
-        "B1",
-        "A0",
-        "A1",
-      ]);
-    });
-  });
-
-  describe("getContainerRowLabel", () => {
-    it("labels each display row in F0..A1 order", () => {
-      const labels = Array.from({ length: CONTAINER_HASHBOARD_ROWS }, (_, row) => getContainerRowLabel(row));
-      expect(labels).toEqual(CONTAINER_HASHBOARD_ROW_ORDER);
-    });
-
-    it("returns the raw index for out-of-range rows", () => {
-      expect(getContainerRowLabel(-1)).toBe("-1");
-      expect(getContainerRowLabel(12)).toBe("12");
-      expect(getContainerRowLabel(1.5)).toBe("1.5");
     });
   });
 

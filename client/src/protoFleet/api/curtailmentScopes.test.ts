@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
@@ -6,7 +7,6 @@ import {
   type CurtailmentTerminalScope,
   getCurtailmentScopeFormFields,
   getCurtailmentScopeSummary,
-  isCurtailmentTopologyScopeType,
   parseCurtailmentTargetId,
   parseCurtailmentTerminalScopes,
 } from "@/protoFleet/api/curtailmentScopes";
@@ -112,23 +112,6 @@ describe("parseCurtailmentTerminalScopes", () => {
     );
 
     expect(parseCurtailmentTerminalScopes(scopes)).toEqual({ type: "group", groupIds: ["7", "8"] });
-  });
-});
-
-describe("isCurtailmentTopologyScopeType", () => {
-  const cases = [
-    ["building", true],
-    ["rack", true],
-    ["group", true],
-    ["site", false],
-    ["explicitMiners", false],
-    ["deviceIdentifiers", false],
-    ["wholeOrg", false],
-    [undefined, false],
-  ] as const;
-
-  it.each(cases)("classifies %s", (scopeType, expected) => {
-    expect(isCurtailmentTopologyScopeType(scopeType)).toBe(expected);
   });
 });
 

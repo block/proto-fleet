@@ -50,17 +50,6 @@ describe("ChartWidget", () => {
     expect(screen.getByText("Chart Content")).toBeInTheDocument();
   });
 
-  it("renders children correctly", () => {
-    render(
-      <ChartWidget>
-        <div data-testid="chart-content">Mock Chart</div>
-      </ChartWidget>,
-    );
-
-    expect(screen.getByTestId("chart-content")).toBeInTheDocument();
-    expect(screen.getByText("Mock Chart")).toBeInTheDocument();
-  });
-
   it("applies custom className", () => {
     const { container } = render(
       <ChartWidget className="custom-class">

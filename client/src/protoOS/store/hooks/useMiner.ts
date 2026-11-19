@@ -3,9 +3,6 @@ import {
   asAsicId,
   asEntityKey,
   type ComponentId,
-  type HashboardId,
-  type LevelRollup,
-  type MetricTelemetry,
   ROOT_MODULE_KEY,
   type Topology,
   type ViewSelection,
@@ -14,14 +11,7 @@ import type { HardwareSlice } from "../slices/hardwareSlice";
 import type { AsicData, FanData, HashboardData, MinerData, PsuData } from "../types";
 import useMinerStore from "../useMinerStore";
 import { getFanId, getHashboardId, getPsuId } from "../utils/entityIds";
-import {
-  aggregateMetricTimeSeries,
-  buildKpiChartData,
-  type KpiChartResult,
-  type KpiMetricName,
-  kpiMetricUnits,
-  moduleHashboardIds,
-} from "./kpiChartData";
+import { buildKpiChartData, type KpiChartResult, type KpiMetricName } from "./kpiChartData";
 import type { AsicData as AsicTableData } from "@/shared/components/AsicTablePreview";
 
 const homeRollupKey = (topology: Topology | undefined) =>
@@ -29,49 +19,11 @@ const homeRollupKey = (topology: Topology | undefined) =>
 
 const rollupKeyForSelection = (topology: Topology | undefined, selection: ViewSelection | undefined) => {
   if (selection?.level === "container") return asEntityKey(String(selection.containerId));
-  if (selection?.level === "tank") return asEntityKey(String(selection.tankId));
-  if (selection?.level === "module" || selection?.level === "rig") return asEntityKey(String(selection.moduleId));
+  if (selection?.level === "rig") return asEntityKey(String(selection.moduleId));
   return homeRollupKey(topology);
 };
 
-const hashboardIdentities = (topology: Topology | undefined, hashboardIds: HashboardId[]) =>
-  hashboardIds.map((id) => topology?.hashboards.get(id)?.identity.value ?? String(id).replace(/^serial:/, ""));
-
-const withDerivedModuleHistory = (
-  rollup: LevelRollup | undefined,
-  hashboardIds: HashboardId[],
-  hashboardsTelemetry: Map<HashboardId, { [key in KpiMetricName]?: MetricTelemetry }>,
-): LevelRollup | undefined => {
-  if (!rollup && hashboardIds.length === 0) return undefined;
-
-  const derived = { ...(rollup ?? {}) };
-  (Object.keys(kpiMetricUnits) as KpiMetricName[]).forEach((metricName) => {
-    const existing = rollup?.[metricName];
-    if (existing?.timeSeries) return;
-    const selectedHashboardMetrics = hashboardIds.map((hashboardId) => hashboardsTelemetry.get(hashboardId));
-    const timeSeries = aggregateMetricTimeSeries(
-      metricName,
-      selectedHashboardMetrics.map((metrics) => metrics?.[metricName]),
-      selectedHashboardMetrics,
-    );
-    if (timeSeries) derived[metricName] = { ...existing, timeSeries };
-  });
-
-  return derived;
-};
-
-const selectedMinerHardware = (
-  hardwareState: HardwareSlice,
-  selection: ViewSelection | undefined,
-  selectedModuleHashboardIds: HashboardId[],
-) => {
-  if (selection?.level === "module") {
-    return {
-      hashboardSerials: hashboardIdentities(hardwareState.topology, selectedModuleHashboardIds),
-      controlBoardSerial: [...hardwareState.controlBoards.values()][0]?.serialNumber,
-    };
-  }
-
+const selectedMinerHardware = (hardwareState: HardwareSlice) => {
   const rigHardware = hardwareState.getMiner();
   if (rigHardware) return rigHardware;
 
@@ -93,17 +45,10 @@ const selectedMinerHardware = (
 export const useMiner = (selection?: ViewSelection): MinerData | null => {
   const hardwareState = useMinerStore((state) => state.hardware);
   const rollups = useMinerStore((state) => state.telemetry.rollupsByEntity);
-  const hashboardsTelemetry = useMinerStore((state) => state.telemetry.hashboards);
 
   return useMemo(() => {
-    const selectedModuleHashboardIds =
-      selection?.level === "module" ? moduleHashboardIds(hardwareState.topology, selection.moduleId) : [];
-    const hardware = selectedMinerHardware(hardwareState, selection, selectedModuleHashboardIds);
-    const rollup = withDerivedModuleHistory(
-      rollups.get(rollupKeyForSelection(hardwareState.topology, selection)),
-      selectedModuleHashboardIds,
-      hashboardsTelemetry,
-    );
+    const hardware = selectedMinerHardware(hardwareState);
+    const rollup = rollups.get(rollupKeyForSelection(hardwareState.topology, selection));
 
     if (!hardware || !rollup) return null;
 
@@ -114,7 +59,7 @@ export const useMiner = (selection?: ViewSelection): MinerData | null => {
       efficiency: rollup.efficiency,
       temperature: rollup.temperature,
     };
-  }, [hardwareState, hashboardsTelemetry, rollups, selection]);
+  }, [hardwareState, rollups, selection]);
 };
 
 /**
@@ -305,7 +250,7 @@ export const useMinerFans = (): FanData[] => {
  * Main chart data hook that combines miner and hashboard data for a specific metric
  * Transforms telemetry store data into chart-ready format
  */
-export const useChartDataForMetric = (metricName: KpiMetricName, selection?: ViewSelection): KpiChartResult => {
+export const useChartDataForMetric = (metricName: KpiMetricName): KpiChartResult => {
   // Select primitive values and lastUpdated to trigger re-render when data clears
   const rollups = useMinerStore((state) => state.telemetry.rollupsByEntity);
   const hashboardsTelemetry = useMinerStore((state) => state.telemetry.hashboards);
@@ -319,9 +264,8 @@ export const useChartDataForMetric = (metricName: KpiMetricName, selection?: Vie
       hashboardsTelemetry,
       metricName,
       rollups,
-      selection,
     });
-  }, [rollups, hashboardsTelemetry, hardware, metricName, duration, selection]);
+  }, [rollups, hashboardsTelemetry, hardware, metricName, duration]);
 };
 
 // =============================================================================

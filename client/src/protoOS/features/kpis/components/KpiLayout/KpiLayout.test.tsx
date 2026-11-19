@@ -32,10 +32,6 @@ const showPage = (path: string) =>
           <Route index element={<SwitchChart />} />
           <Route path=":metric" element={<SwitchChart />} />
         </Route>
-        <Route path={`${hosting.minerRoot}/tanks/:tankId/modules/:moduleId`} element={<KpiLayout />}>
-          <Route index element={<SwitchChart />} />
-          <Route path=":metric" element={<SwitchChart />} />
-        </Route>
       </Routes>
     </MemoryRouter>,
   );
@@ -89,15 +85,6 @@ describe("KpiLayout history selection", () => {
     showPage("/");
     fireEvent.click(screen.getByRole("button", { name: "Power chart" }));
     expect(requestedLevels().map((level) => level.fields)).toEqual([["power"], ["power"]]);
-  });
-
-  test.each(["", "/efficiency", "/temperature"])("keeps embedded module history scoped on %s", (suffix) => {
-    hosting.minerRoot = "/miners/ct1";
-    showPage(`/miners/ct1/tanks/2/modules/1${suffix}`);
-    expect(requestedLevels()).toEqual([
-      { type: "hashboard", fields: [suffix.slice(1) || "hashrate"], indexes: [6, 7, 8] },
-    ]);
-    expect(useTelemetry).toHaveBeenLastCalledWith({ level: ["hashboard", "miner"] });
   });
 
   test("uses hashrate at an embedded Home root even if the miner ID matches a tab", () => {

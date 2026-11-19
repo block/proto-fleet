@@ -1,8 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { afterAll, expect, vi } from "vitest";
-import * as matchers from "@testing-library/jest-dom/matchers";
-
-expect.extend(matchers);
+import { afterAll, vi } from "vitest";
 
 // Recharts batches chart store updates with requestAnimationFrame and a 100 ms fallback timer. If a file ends
 // right after a chart update, the timer can fire after jsdom teardown and call the removed cancelAnimationFrame.

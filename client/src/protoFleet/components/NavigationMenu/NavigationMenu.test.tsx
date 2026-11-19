@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { MemoryRouter } from "react-router-dom";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor as waitForDefault, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
@@ -11,6 +11,9 @@ import { AccountSchema } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import { NavItem, primaryNavItems } from "@/protoFleet/config/navItems";
 import { HostedAccountsContext } from "@/protoFleet/features/hostedAccounts/HostedAccountsContext";
 import type { ActiveSite } from "@/protoFleet/store/types/activeSite";
+
+// The default poll interval is 50 ms. That interval is most of the run time of this file.
+const waitFor: typeof waitForDefault = (callback, options) => waitForDefault(callback, { interval: 1, ...options });
 
 const { mockUseWindowDimensions, permissionsMock, activeSiteMock, accountMock } = vi.hoisted(() => ({
   mockUseWindowDimensions: vi.fn(),

@@ -32,7 +32,6 @@ const unauthenticatedActions = new Set<SingleMinerAction>([deviceActions.unpair,
 
 interface SingleMinerActionsMenuProps {
   deviceIdentifier: string;
-  minerUrl?: string;
   deviceStatus?: DeviceStatus;
   minerName?: string;
   workerName?: string;

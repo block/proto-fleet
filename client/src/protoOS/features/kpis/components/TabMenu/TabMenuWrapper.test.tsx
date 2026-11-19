@@ -1,4 +1,4 @@
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 
@@ -14,7 +14,6 @@ vi.mock("react-router-dom", async () => {
     ...actual,
     useNavigate: vi.fn(),
     useLocation: vi.fn(() => ({ pathname: "/", search: "", hash: "", state: null, key: "default" })),
-    useParams: vi.fn(() => ({})),
   };
 });
 
@@ -33,7 +32,6 @@ describe("TabMenuWrapper", () => {
     vi.clearAllMocks();
     (useLocation as Mock).mockReturnValue({ pathname: "/", search: "", hash: "", state: null, key: "default" });
     (useNavigate as Mock).mockReturnValue(mockNavigate);
-    (useParams as Mock).mockReturnValue({});
   });
 
   it("navigates to absolute KPI paths in standalone protoOS (empty minerRoot)", () => {
@@ -55,42 +53,6 @@ describe("TabMenuWrapper", () => {
     // ProtoFleet's "/:siteScope" route treats as an unknown site and redirects
     // back to the dashboard.
     expect(mockNavigate).toHaveBeenCalledWith("/miners/miner-1/efficiency");
-  });
-
-  it("preserves the selected module route when switching KPI tabs", () => {
-    (useMinerHosting as Mock).mockReturnValue({ minerRoot: "" });
-    (useParams as Mock).mockReturnValue({ tankId: "1", moduleId: "2" });
-
-    render(<TabMenuWrapper />);
-    fireEvent.click(screen.getByText("Power Usage").closest("button") as HTMLButtonElement);
-
-    expect(mockNavigate).toHaveBeenCalledWith("/tanks/1/modules/2/power-usage");
-  });
-
-  it("marks hashrate active on the selected module index route", () => {
-    (useMinerHosting as Mock).mockReturnValue({ minerRoot: "" });
-    (useLocation as Mock).mockReturnValue({
-      pathname: "/tanks/1/modules/2",
-      search: "",
-      hash: "",
-      state: null,
-      key: "default",
-    });
-    (useParams as Mock).mockReturnValue({ tankId: "1", moduleId: "2" });
-
-    render(<TabMenuWrapper />);
-
-    expect(screen.getByRole("tab", { name: /Hashrate/ })).toHaveAttribute("aria-selected", "true");
-  });
-
-  it("encodes module route params when building scoped KPI tab paths", () => {
-    (useMinerHosting as Mock).mockReturnValue({ minerRoot: "" });
-    (useParams as Mock).mockReturnValue({ tankId: "container:ct1:tank:1", moduleId: "module:1" });
-
-    render(<TabMenuWrapper />);
-    fireEvent.click(screen.getByText("Temperature").closest("button") as HTMLButtonElement);
-
-    expect(mockNavigate).toHaveBeenCalledWith("/tanks/container%3Act1%3Atank%3A1/modules/module%3A1/temperature");
   });
 
   it("renders the temperature tab in the preferred unit with a single degree glyph", () => {

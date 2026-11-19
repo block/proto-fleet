@@ -12,7 +12,6 @@ import { type ContainerTopology, type MinerError, ROOT_MODULE_KEY } from "@/prot
 import { useDetailedErrors } from "@/protoOS/store/hooks/useMinerStatus";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 import { getHashboardId } from "@/protoOS/store/utils/entityIds";
-import { __resetEscapeStackForTests } from "@/shared/hooks/useEscapeDismiss";
 
 vi.mock("@/protoOS/api/hooks/useTelemetry", () => ({ useTelemetry: () => ({}) }));
 vi.mock("@/protoOS/api/hooks/useCoolingStatus", () => ({ useCoolingStatus: () => ({}) }));
@@ -26,7 +25,6 @@ vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({ useMinerHosting: () =
 beforeEach(() => {
   wakeMiner.mockReset();
   useMinerStore.getState().resetDeviceData();
-  __resetEscapeStackForTests();
   vi.stubGlobal(
     "IntersectionObserver",
     class {

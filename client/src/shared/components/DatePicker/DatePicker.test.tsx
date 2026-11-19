@@ -155,11 +155,6 @@ describe("computePresetDates", () => {
 // ── Component tests ──
 
 describe("DatePicker", () => {
-  test("renders trigger button", () => {
-    render(<DatePicker testId="dp" />);
-    expect(screen.getByTestId("dp-trigger")).toBeDefined();
-  });
-
   test("shows placeholder text when no date selected", () => {
     render(<DatePicker testId="dp" />);
     expect(screen.getByText("Select date")).toBeDefined();

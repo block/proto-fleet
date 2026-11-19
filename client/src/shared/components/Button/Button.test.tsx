@@ -33,14 +33,6 @@ describe("Button", () => {
     expect(cta).toHaveAttribute("aria-disabled", "true");
   });
 
-  test("renders the button with the correct text", () => {
-    const { getByText } = render(
-      <Button text={buttonText} onClick={() => {}} size={sizes.base} variant={variants.secondary} />,
-    );
-    const buttonElement = getByText(buttonText);
-    expect(buttonElement).toBeDefined();
-  });
-
   test("calls the onClick function when clicked", () => {
     const onClickMock = vi.fn();
     const { getByText } = render(

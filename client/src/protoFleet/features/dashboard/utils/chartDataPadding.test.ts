@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { padChartDataWithNulls } from "./chartDataPadding";
 import type { ChartData } from "@/shared/components/LineChart/types";

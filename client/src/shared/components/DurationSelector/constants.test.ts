@@ -1,12 +1,6 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
-import {
-  durationToMs,
-  fleetDurationToMs,
-  getDurationMs,
-  getFleetDurationMs,
-  isDuration,
-  isFleetDuration,
-} from "./constants";
+import { isDuration, isFleetDuration } from "./constants";
 
 describe("DurationSelector constants", () => {
   describe("isDuration", () => {
@@ -40,19 +34,6 @@ describe("DurationSelector constants", () => {
       expect(isFleetDuration("__proto__")).toBe(false);
       expect(isFleetDuration("constructor")).toBe(false);
       expect(isFleetDuration(null)).toBe(false);
-    });
-  });
-
-  describe("getDurationMs (ProtoOS)", () => {
-    it("returns mapped value for valid durations", () => {
-      expect(getDurationMs("48h")).toBe(durationToMs["48h"]);
-    });
-  });
-
-  describe("getFleetDurationMs (ProtoFleet)", () => {
-    it("returns mapped value for Fleet durations", () => {
-      expect(getFleetDurationMs("90d")).toBe(fleetDurationToMs["90d"]);
-      expect(getFleetDurationMs("1y")).toBe(fleetDurationToMs["1y"]);
     });
   });
 });

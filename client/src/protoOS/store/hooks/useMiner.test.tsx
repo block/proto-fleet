@@ -27,7 +27,7 @@ import { aggregateMetricTimeSeries } from "./kpiChartData";
 import { useHashboardSerialsByBay, useHashboardsHardware, useMinerHardware } from "./useHardware";
 import { useChartDataForMetric, useMiner, useMinerHashboardAsics } from "./useMiner";
 import { useErrors } from "./useMinerStatus";
-import { useFansTelemetry, useMinerTelemetry } from "./useTelemetry";
+import { useFansTelemetry } from "./useTelemetry";
 import { MetricUnit } from "@/protoOS/api/adapters/mdkV1";
 
 describe("useMiner", () => {
@@ -64,7 +64,6 @@ describe("useMiner", () => {
     const { result } = renderHook(() => ({
       miner: useMinerHardware(),
       hashboards: useHashboardsHardware(),
-      telemetry: useMinerTelemetry(),
       fans: useFansTelemetry(),
     }));
 
@@ -573,21 +572,6 @@ describe("useMiner", () => {
       { datetime: 1_000, miner: 30, "tank:1": 10, "tank:2": 20 },
       { datetime: 2_000, miner: 42, "tank:1": 12, "tank:2": 30 },
     ]);
-
-    const moduleSelection = { level: "module" as const, moduleId: moduleOneId };
-    const { result: moduleChart } = renderHook(() => useChartDataForMetric("hashrate", moduleSelection));
-    expect(moduleChart.current.segmentsLabel).toBe("hashboards");
-    expect(moduleChart.current.series).toEqual([
-      expect.objectContaining({ key: "HB-1", label: "1", name: "Hashboard 1", averageValue: 11 }),
-    ]);
-    expect(moduleChart.current.chartData).toEqual([
-      { datetime: 1_000, miner: 10, "HB-1": 10 },
-      { datetime: 2_000, miner: 12, "HB-1": 12 },
-    ]);
-
-    const { result: moduleMiner } = renderHook(() => useMiner(moduleSelection));
-    expect(moduleMiner.current?.hashboardSerials).toEqual(["HB-1"]);
-    expect(moduleMiner.current?.hashrate?.timeSeries?.aggregates?.avg).toEqual({ value: 11, units: "TH/s" });
   });
 
   it("builds a multi-series chart from bucketed points, filling gaps and null values with null", () => {

@@ -875,17 +875,32 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
-  it("normalizes a site-scoped response profile without a site id to whole fleet", async () => {
+  it.each([
+    {
+      name: "without a site id",
+      id: "missing-site-id-shed",
+      label: "Missing site id shed",
+      scopeId: "Missing site",
+      siteId: "   ",
+    },
+    {
+      name: "with an invalid site id",
+      id: "invalid-site-id-shed",
+      label: "Invalid site id shed",
+      scopeId: "Austin, TX",
+      siteId: "austin-tx",
+    },
+  ])("normalizes a site-scoped response profile $name to whole fleet", async ({ id, label, scopeId, siteId }) => {
     const user = userEvent.setup();
     const malformedSiteResponseProfiles: CurtailmentResponseProfileOption[] = [
       {
-        id: "missing-site-id-shed",
-        label: "Missing site id shed",
+        id,
+        label,
         values: {
           ...responseProfiles[0].values,
           scopeType: "site",
-          scopeId: "Missing site",
-          siteId: "   ",
+          scopeId,
+          siteId,
           deviceIdentifiers: [],
           includeMaintenance: false,
         },
@@ -897,9 +912,9 @@ describe("CurtailmentStartModal", () => {
     });
 
     await user.click(screen.getByRole("button", { name: "Profile" }));
-    await user.click(screen.getByText("Missing site id shed"));
+    await user.click(screen.getByText(label));
 
-    expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Missing site id shed");
+    expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent(label);
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
@@ -908,49 +923,7 @@ describe("CurtailmentStartModal", () => {
 
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
-        responseProfileId: "missing-site-id-shed",
-        scopeType: "wholeOrg",
-        scopeId: "whole-org",
-        siteId: "",
-        deviceIdentifiers: [],
-      }),
-    );
-  });
-
-  it("normalizes a site-scoped response profile with an invalid site id to whole fleet", async () => {
-    const user = userEvent.setup();
-    const malformedSiteResponseProfiles: CurtailmentResponseProfileOption[] = [
-      {
-        id: "invalid-site-id-shed",
-        label: "Invalid site id shed",
-        values: {
-          ...responseProfiles[0].values,
-          scopeType: "site",
-          scopeId: "Austin, TX",
-          siteId: "austin-tx",
-          deviceIdentifiers: [],
-          includeMaintenance: false,
-        },
-      },
-    ];
-    const { onSubmit } = renderModal({
-      initialValues: { ...configuredValues, includeMaintenance: false },
-      responseProfiles: malformedSiteResponseProfiles,
-    });
-
-    await user.click(screen.getByRole("button", { name: "Profile" }));
-    await user.click(screen.getByText("Invalid site id shed"));
-
-    expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Invalid site id shed");
-    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
-    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
-    await confirmCurtailment(user);
-
-    expect(onSubmit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        responseProfileId: "invalid-site-id-shed",
+        responseProfileId: id,
         scopeType: "wholeOrg",
         scopeId: "whole-org",
         siteId: "",

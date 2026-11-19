@@ -31,11 +31,9 @@ export { getFanId, getHashboardId, getPsuId } from "./utils/entityIds";
 export { getAsicName } from "./utils/getAsicName";
 export {
   getContainerAsicLabel,
-  getContainerRowLabel,
   CONTAINER_HASHBOARD_COLUMNS,
   CONTAINER_HASHBOARD_ROWS,
   CONTAINER_HASHBOARD_ROW_LETTERS,
-  CONTAINER_HASHBOARD_ROW_ORDER,
 } from "./utils/containerHashboardLayout";
 
 export {
@@ -55,7 +53,6 @@ export {
 export type { KpiChartSeries, KpiMetricName } from "./hooks/kpiChartData";
 
 export {
-  useMinerTelemetry,
   useHashboardsTelemetry,
   useHashboardTelemetry,
   useAsicsTelemetry,
@@ -96,7 +93,6 @@ export type { Theme, ThemeColor, TemperatureUnit } from "./types";
 export {
   useMinerHardware,
   useHashboardsHardware,
-  useHashboardSerials,
   useHashboardSerialsByBay,
   useHashboardHardware,
   useHashboardsByBay,

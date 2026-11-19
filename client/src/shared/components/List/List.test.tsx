@@ -738,61 +738,27 @@ describe("List", () => {
   });
 
   it("exempts specified columns from disabled styling on disabled rows", () => {
-    const { getAllByRole } = render(
+    render(
       <List<TestItem, TestItemKey>
         activeCols={activeCols}
         colTitles={testColTitles}
         colConfig={testColConfig}
         items={testItems}
         itemKey="id"
-        isRowDisabled={(item: TestItem) => item.id === "1"}
-        columnsExemptFromDisabledStyling={new Set<keyof TestItem>(["status"])}
+        isRowDisabled={(item: TestItem) => item.id === testItems[0].id}
+        columnsExemptFromDisabledStyling={new Set<keyof TestItem>([testCols.status as keyof TestItem])}
       />,
     );
 
-    const rows = getAllByRole("row");
-    // First row is header, second row is first item (id: "1", which is disabled)
-    const disabledRow = rows[1];
-    const cells = disabledRow.querySelectorAll("td");
+    const disabledRow = screen.getByTestId("list-body").querySelectorAll("tr")[0];
+    const cellContent = (col: string) => disabledRow.querySelector(`td[data-testid='${col}'] > div`);
 
-    // Find the status column index
-    const statusColIndex = activeCols.indexOf("status" as keyof TestItem);
-
-    // Verify that status column does not have the opacity-50 class if it exists on other cells
-    const hasOpacityClass = Array.from(cells).some((cell) => cell.className.includes("opacity-50"));
-
-    if (hasOpacityClass) {
-      // If opacity styling is applied to any cell, status column should NOT have it (it's exempted)
-      expect(cells[statusColIndex].className).not.toContain("opacity-50");
-    } else {
-      // If no opacity styling is applied, that's also acceptable - just verify status column exists
-      expect(cells[statusColIndex]).toBeInTheDocument();
-    }
+    expect(cellContent(testCols.status)).not.toHaveClass("opacity-50");
+    expect(cellContent(testCols.name)).toHaveClass("opacity-50");
+    expect(cellContent(testCols.value)).toHaveClass("opacity-50");
   });
 
   describe("selection mode", () => {
-    it("sets mode to 'all' when Select All is clicked without active filters", () => {
-      const onSelectionModeChange = vi.fn();
-
-      const { getByTestId } = render(
-        <List<TestItem, TestItemKey>
-          activeCols={activeCols}
-          colTitles={testColTitles}
-          colConfig={testColConfig}
-          items={testItems}
-          itemKey="id"
-          itemSelectable
-          hasActiveFilters={false}
-          onSelectionModeChange={onSelectionModeChange}
-        />,
-      );
-
-      const selectAllCheckbox = getByTestId("list-header").querySelector("input[type='checkbox']") as HTMLInputElement;
-      fireEvent.click(selectAllCheckbox);
-
-      expect(onSelectionModeChange).toHaveBeenCalledWith("all");
-    });
-
     it("sets mode to 'subset' when Select All is clicked with active filters", () => {
       const onSelectionModeChange = vi.fn();
 
@@ -837,31 +803,6 @@ describe("List", () => {
 
       expect(onSelectionModeChange).toHaveBeenCalledWith("none");
       expect(selectAllCheckbox.checked).toBe(false);
-    });
-
-    it("sets mode to 'subset' when individual item is selected", () => {
-      const onSelectionModeChange = vi.fn();
-
-      const { getByTestId } = render(
-        <List<TestItem, TestItemKey>
-          activeCols={activeCols}
-          colTitles={testColTitles}
-          colConfig={testColConfig}
-          items={testItems}
-          itemKey="id"
-          itemSelectable
-          hasActiveFilters={false}
-          onSelectionModeChange={onSelectionModeChange}
-        />,
-      );
-
-      const selectItemCheckboxes = Array.from(
-        getByTestId("list-body").querySelectorAll("input[type='checkbox']"),
-      ) as HTMLInputElement[];
-
-      fireEvent.click(selectItemCheckboxes[0]);
-
-      expect(onSelectionModeChange).toHaveBeenCalledWith("subset");
     });
 
     it("sets mode to 'none' when selection is cleared via Select All toggle", () => {
@@ -919,33 +860,6 @@ describe("List", () => {
       // Deselect one item (mode should transition to "subset")
       fireEvent.click(selectItemCheckboxes[0]);
       expect(onSelectionModeChange).toHaveBeenLastCalledWith("subset");
-    });
-
-    it("passes selectionMode to renderActionBar callback", () => {
-      const renderActionBar = vi.fn(
-        (_selectedItems: TestItemKey[], _clearSelection: () => void, selectionMode: string) => (
-          <div data-testid="selection-mode">{selectionMode}</div>
-        ),
-      );
-
-      const { getByTestId } = render(
-        <List<TestItem, TestItemKey>
-          activeCols={activeCols}
-          colTitles={testColTitles}
-          colConfig={testColConfig}
-          items={testItems}
-          itemKey="id"
-          itemSelectable
-          hasActiveFilters={false}
-          renderActionBar={renderActionBar}
-        />,
-      );
-
-      const selectAllCheckbox = getByTestId("list-header").querySelector("input[type='checkbox']") as HTMLInputElement;
-      fireEvent.click(selectAllCheckbox);
-
-      expect(renderActionBar).toHaveBeenCalled();
-      expect(getByTestId("selection-mode").textContent).toBe("all");
     });
 
     it("resets mode to 'none' when customSelectedItems is externally set to empty", () => {

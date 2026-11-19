@@ -138,6 +138,44 @@ describe("PoolModal", () => {
     });
   });
 
+  // ProtoFleet uses the default, a required username. ProtoOS makes the username optional.
+  describe.each([
+    ["a required username", true],
+    ["an optional username", false],
+  ])("duplicate URL and username validation with %s", (_setting, usernameRequired) => {
+    const firstPool = {
+      name: "Primary Pool",
+      url: "stratum+tcp://pool.example.com:3333",
+      username: "testuser",
+      password: "",
+      priority: 0,
+    };
+    const duplicateError = "This Pool URL and Username combination is already configured.";
+
+    it.each([
+      ["rejects the same URL and username", firstPool.url, "testuser", 0],
+      ["rejects the same URL and username in a different case", "stratum+tcp://POOL.EXAMPLE.COM:3333", "TESTUSER", 0],
+      ["allows the same URL with a different username", firstPool.url, "differentuser", 1],
+    ])("%s", (_title, url, username, saves) => {
+      render(
+        <PoolModal
+          {...defaultProps}
+          poolIndex={1 as PoolIndex}
+          pools={[firstPool, { name: "", url: "", username: "", password: "", priority: 1 }]}
+          usernameRequired={usernameRequired}
+        />,
+      );
+
+      fireEvent.change(screen.getByTestId("pool-name-1-input"), { target: { value: "Backup Pool" } });
+      fireEvent.change(screen.getByTestId("url-1-input"), { target: { value: url } });
+      fireEvent.change(screen.getByTestId("username-1-input"), { target: { value: username } });
+      fireEvent.click(screen.getByTestId("pool-save-button"));
+
+      expect(screen.queryAllByText(duplicateError)).toHaveLength(1 - saves);
+      expect(mockOnChangePools).toHaveBeenCalledTimes(saves);
+    });
+  });
+
   describe("autofocus behavior", () => {
     it("autofocuses the Pool Name input when hidePoolName is false", () => {
       const { getByLabelText } = render(<PoolModal {...defaultProps} hidePoolName={false} />);

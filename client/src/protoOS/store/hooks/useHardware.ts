@@ -44,17 +44,6 @@ export const useHashboardsHardware = () => {
   }, [hashboards, topology]);
 };
 
-export const useHashboardSerials = () =>
-  useMinerStore(
-    useShallow((state) =>
-      [...state.hardware.hashboards.values()]
-        .map((board) => state.hardware.getHashboard(board.identity.value))
-        .filter((board) => board !== undefined)
-        .sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0))
-        .map((board) => board.serial),
-    ),
-  );
-
 /**
  * Returns hashboard serials grouped by bay, with null for empty slots
  * @returns Object with bay indices as keys, arrays of serials (or null) as values

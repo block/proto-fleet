@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 
+import { resetCurtailmentProfileSession } from "@/protoFleet/api/curtailmentProfileSession";
 import type { ResponseProfile, ResponseProfileFormValues } from "@/protoFleet/api/curtailmentTypes";
 import {
   CurtailmentLevel,
@@ -21,9 +22,7 @@ import {
   ScopeSiteSchema,
   ScopeWholeOrgSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
-import useCurtailmentResponseProfiles, {
-  clearCurtailmentResponseProfileSessionCacheForTest,
-} from "@/protoFleet/api/useCurtailmentResponseProfiles";
+import useCurtailmentResponseProfiles from "@/protoFleet/api/useCurtailmentResponseProfiles";
 
 const {
   mockCreateCurtailmentResponseProfile,
@@ -129,7 +128,7 @@ describe("useCurtailmentResponseProfiles", () => {
     mockHandleAuthErrors.mockReset();
     mockListCurtailmentResponseProfiles.mockReset();
     mockUpdateCurtailmentResponseProfile.mockReset();
-    clearCurtailmentResponseProfileSessionCacheForTest();
+    resetCurtailmentProfileSession();
   });
 
   it("lists and maps response profiles for the settings cards", async () => {

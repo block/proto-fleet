@@ -110,6 +110,19 @@ function renderMinersPage(mode: "onboarding" | "pairing" = "onboarding") {
   );
 }
 
+// Use these helpers with fake timers only.
+async function advanceTimers(ms: number) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+}
+
+// The scan loading state stays for 2 s (MIN_LOADING_TIME in Miners.tsx) after discovery ends.
+async function advancePastMinLoadingTime() {
+  await advanceTimers(0);
+  await advanceTimers(2000);
+}
+
 function createDiscoveredMiner(deviceIdentifier: string, ipAddress: string) {
   return create(DeviceSchema, {
     deviceIdentifier,
@@ -693,25 +706,27 @@ describe("MinersWrapper", () => {
           }),
       );
 
-      renderMinersPage("onboarding");
-      fireEvent.click(screen.getByText("Get started"));
-      fireEvent.click(screen.getByTestId("section-scan-network").querySelector("button")!);
+      vi.useFakeTimers();
+      try {
+        renderMinersPage("onboarding");
+        fireEvent.click(screen.getByText("Get started"));
+        fireEvent.click(screen.getByTestId("section-scan-network").querySelector("button")!);
 
-      await waitFor(
-        () => {
-          expect(screen.getByText("No devices found")).toBeInTheDocument();
-          expect(screen.queryByTestId("found-miners-list")).not.toBeInTheDocument();
-        },
-        { timeout: 3000 },
-      );
+        await advancePastMinLoadingTime();
+        expect(screen.getByText("No devices found")).toBeInTheDocument();
+        expect(screen.queryByTestId("found-miners-list")).not.toBeInTheDocument();
 
-      fireEvent.click(screen.getByTestId("add-miners-rescan-network"));
+        fireEvent.click(screen.getByTestId("add-miners-rescan-network"));
+        await advanceTimers(0);
 
-      expect(await screen.findByText("Finding devices on your network")).toBeInTheDocument();
-      expect(mockDiscover).toHaveBeenCalledTimes(2);
-      expect(within(screen.getByTestId("found-miners-list")).getAllByTestId("skeleton-row")).toHaveLength(3);
+        expect(screen.getByText("Finding devices on your network")).toBeInTheDocument();
+        expect(mockDiscover).toHaveBeenCalledTimes(2);
+        expect(within(screen.getByTestId("found-miners-list")).getAllByTestId("skeleton-row")).toHaveLength(3);
 
-      resolveRescan();
+        resolveRescan();
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("deduplicates duplicate discoveries in the add-miners UI count", async () => {
@@ -947,20 +962,23 @@ describe("MinersWrapper", () => {
       });
       mockDiscover.mockRejectedValueOnce(new Error("node busy")).mockResolvedValue(undefined);
 
-      renderMinersPage("pairing");
-      fireEvent.change(screen.getByTestId("ipAddresses"), {
-        target: { value: "192.168.1.100\n192.168.1.0/24\n192.168.1.150 - 192.168.1.160" },
-      });
-      fireEvent.click(screen.getByTestId("section-search-by-ip").querySelector("button")!);
+      vi.useFakeTimers();
+      try {
+        renderMinersPage("pairing");
+        fireEvent.change(screen.getByTestId("ipAddresses"), {
+          target: { value: "192.168.1.100\n192.168.1.0/24\n192.168.1.150 - 192.168.1.160" },
+        });
+        fireEvent.click(screen.getByTestId("section-search-by-ip").querySelector("button")!);
 
-      await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(3));
-      await waitFor(
-        () => {
-          expect(screen.getByText("No devices found")).toBeInTheDocument();
-          expect(screen.queryByTestId("found-miners-list")).not.toBeInTheDocument();
-        },
-        { timeout: 3000 },
-      );
+        await advanceTimers(0);
+        expect(mockDiscover).toHaveBeenCalledTimes(3);
+
+        await advancePastMinLoadingTime();
+        expect(screen.getByText("No devices found")).toBeInTheDocument();
+        expect(screen.queryByTestId("found-miners-list")).not.toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 

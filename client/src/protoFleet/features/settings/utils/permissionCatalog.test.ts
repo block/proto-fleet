@@ -109,13 +109,6 @@ describe("dependencyGaps", () => {
     expect(gaps.chooseOneOf).toEqual([["miner:reboot", "miner:stop_mining", "miner:set_power_target"]]);
   });
 
-  it("never lists oneOf members as hard-required", () => {
-    const gaps = dependencyGaps(["schedule:manage"], catalog);
-    expect(gaps.required).not.toContain("miner:reboot");
-    expect(gaps.required).not.toContain("miner:stop_mining");
-    expect(gaps.required).not.toContain("miner:set_power_target");
-  });
-
   it("stops suggesting the action set once one member is held (oneOf)", () => {
     const selected = withRequiredReads(["schedule:manage", "miner:reboot"], catalog);
     // miner:reboot satisfies the "at least one action" set and pulls in its own

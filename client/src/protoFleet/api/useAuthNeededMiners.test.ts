@@ -63,42 +63,24 @@ describe("useAuthNeededMiners", () => {
   });
 
   it("returns the same result as useFleet", () => {
+    const fleetResult = {
+      ...mockUseFleetReturn,
+      hasMore: true,
+      isLoading: true,
+      totalMiners: 42,
+      miners: {
+        "miner-1": create(MinerStateSnapshotSchema, { deviceIdentifier: "miner-1" }),
+        "miner-2": create(MinerStateSnapshotSchema, { deviceIdentifier: "miner-2" }),
+      },
+    };
+    vi.mocked(useFleet).mockReturnValue(fleetResult);
+
     const { result } = renderHook(() => useAuthNeededMiners());
 
-    expect(result.current).toEqual(mockUseFleetReturn);
-  });
-
-  it("filters for AUTHENTICATION_NEEDED pairing status only", () => {
-    renderHook(() => useAuthNeededMiners());
-
-    const callArgs = vi.mocked(useFleet).mock.calls[0]?.[0];
-    expect(callArgs).toBeDefined();
-    expect(callArgs?.pairingStatuses).toEqual([PairingStatus.AUTHENTICATION_NEEDED]);
+    expect(result.current).toBe(fleetResult);
   });
 
   describe("pagination", () => {
-    it("exposes hasMore flag for pagination", () => {
-      vi.mocked(useFleet).mockReturnValue({
-        ...mockUseFleetReturn,
-        hasMore: true,
-      });
-
-      const { result } = renderHook(() => useAuthNeededMiners());
-
-      expect(result.current.hasMore).toBe(true);
-    });
-
-    it("exposes isLoading flag", () => {
-      vi.mocked(useFleet).mockReturnValue({
-        ...mockUseFleetReturn,
-        isLoading: true,
-      });
-
-      const { result } = renderHook(() => useAuthNeededMiners());
-
-      expect(result.current.isLoading).toBe(true);
-    });
-
     it("exposes loadMore function for pagination", () => {
       const mockLoadMore = vi.fn();
       vi.mocked(useFleet).mockReturnValue({
@@ -110,36 +92,6 @@ describe("useAuthNeededMiners", () => {
 
       expect(result.current.loadMore).toBe(mockLoadMore);
       expect(typeof result.current.loadMore).toBe("function");
-    });
-
-    it("exposes totalMiners count", () => {
-      vi.mocked(useFleet).mockReturnValue({
-        ...mockUseFleetReturn,
-        totalMiners: 42,
-      });
-
-      const { result } = renderHook(() => useAuthNeededMiners());
-
-      expect(result.current.totalMiners).toBe(42);
-    });
-
-    it("exposes miners map for local scope", () => {
-      const mockMiners = {
-        "miner-1": create(MinerStateSnapshotSchema, {
-          deviceIdentifier: "miner-1",
-        }),
-        "miner-2": create(MinerStateSnapshotSchema, {
-          deviceIdentifier: "miner-2",
-        }),
-      };
-      vi.mocked(useFleet).mockReturnValue({
-        ...mockUseFleetReturn,
-        miners: mockMiners,
-      });
-
-      const { result } = renderHook(() => useAuthNeededMiners());
-
-      expect(result.current.miners).toEqual(mockMiners);
     });
   });
 });

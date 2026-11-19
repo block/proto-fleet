@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor as waitForDefault } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { errorQueryClient, fleetInventoryClient, fleetManagementClient } from "./clients";
@@ -14,6 +14,9 @@ import {
   MinerListFilterSchema,
   MinerStateSnapshotSchema,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+
+// The default poll interval is 50 ms. That interval is most of the run time of this file.
+const waitFor: typeof waitForDefault = (callback, options) => waitForDefault(callback, { interval: 1, ...options });
 
 vi.mock("./clients", () => ({
   errorQueryClient: { query: vi.fn() },

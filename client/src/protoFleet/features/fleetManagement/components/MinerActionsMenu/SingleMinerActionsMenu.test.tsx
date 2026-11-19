@@ -304,23 +304,6 @@ describe("SingleMinerActionsMenu", () => {
     expect(screen.getByTestId("update-worker-names-popover-button")).toBeInTheDocument();
   });
 
-  it("renders 'View miner' menu item without requiring minerUrl", () => {
-    render(<SingleMinerActionsMenu deviceIdentifier="test-device-123" />);
-
-    fireEvent.click(screen.getByTestId("single-miner-actions-menu-button"));
-
-    expect(screen.getByText("View miner")).toBeInTheDocument();
-  });
-
-  it("renders 'View miner' menu item when minerUrl is provided", () => {
-    render(<SingleMinerActionsMenu deviceIdentifier="test-device-123" minerUrl="http://192.168.1.1" />);
-
-    fireEvent.click(screen.getByTestId("single-miner-actions-menu-button"));
-
-    expect(screen.getByText("View miner")).toBeInTheDocument();
-    expect(screen.getByTestId("viewMiner-popover-button")).toBeInTheDocument();
-  });
-
   it("opens the row's miner via the shared opener when 'View miner' is clicked", () => {
     const miner = {
       deviceIdentifier: "my-device-abc",
@@ -328,13 +311,7 @@ describe("SingleMinerActionsMenu", () => {
       embeddedWebViewAvailable: true,
     } as MinerStateSnapshot;
 
-    render(
-      <SingleMinerActionsMenu
-        deviceIdentifier="my-device-abc"
-        minerUrl="http://192.168.1.42"
-        miners={{ "my-device-abc": miner }}
-      />,
-    );
+    render(<SingleMinerActionsMenu deviceIdentifier="my-device-abc" miners={{ "my-device-abc": miner }} />);
 
     fireEvent.click(screen.getByTestId("single-miner-actions-menu-button"));
     fireEvent.click(screen.getByTestId("viewMiner-popover-button"));
@@ -760,19 +737,6 @@ describe("SingleMinerActionsMenu", () => {
 
       expect(screen.getByText("Unpair")).toBeInTheDocument();
       expect(screen.getByText("View miner")).toBeInTheDocument();
-      expect(screen.queryByText("Reboot")).not.toBeInTheDocument();
-      expect(screen.queryByText("Blink LEDs")).not.toBeInTheDocument();
-      expect(screen.queryByText("Edit pool")).not.toBeInTheDocument();
-      expect(screen.queryByTestId("refreshStatus-popover-button")).not.toBeInTheDocument();
-    });
-
-    it("shows Unpair and View miner when needsAuthentication is true and minerUrl is set", () => {
-      renderWithActions({ needsAuthentication: true, minerUrl: "http://192.168.1.1" });
-
-      fireEvent.click(screen.getByTestId("single-miner-actions-menu-button"));
-
-      expect(screen.getByText("View miner")).toBeInTheDocument();
-      expect(screen.getByText("Unpair")).toBeInTheDocument();
       expect(screen.queryByText("Reboot")).not.toBeInTheDocument();
       expect(screen.queryByText("Blink LEDs")).not.toBeInTheDocument();
       expect(screen.queryByText("Edit pool")).not.toBeInTheDocument();

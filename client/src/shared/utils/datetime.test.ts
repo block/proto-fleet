@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, test } from "vitest";
 import { getRelativeTimeFromEpoch, getTimeFromEpoch } from "@/shared/utils/datetime";
 

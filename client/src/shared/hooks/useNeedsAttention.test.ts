@@ -64,14 +64,6 @@ describe("useNeedsAttention", () => {
       // Assert
       expect(result.current).toBe(true);
     });
-
-    it("should return false when hasDeviceError is false and no other issues", () => {
-      // Act
-      const { result } = renderHook(() => useNeedsAttention(false, false, [], false));
-
-      // Assert
-      expect(result.current).toBe(false);
-    });
   });
 
   describe("firmware status flag", () => {

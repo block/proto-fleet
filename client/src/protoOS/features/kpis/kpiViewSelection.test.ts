@@ -85,34 +85,18 @@ describe("resolveKpiViewSelection", () => {
       hashboards: new Map(),
     };
 
-    expect(resolveKpiViewSelection(topology, undefined, undefined)).toEqual({
+    expect(resolveKpiViewSelection(topology)).toEqual({
       level: "rig",
       moduleId: ROOT_MODULE_ID,
     });
   });
 
-  it("resolves container home, tank, and module routes separately", () => {
+  it("resolves a container to the container home selection", () => {
     const topology = containerTopology();
-    const tankId = asTankId("tank:slotless");
-    const moduleId = asModuleId("module:slotless");
 
-    expect(resolveKpiViewSelection(topology, undefined, undefined)).toEqual({
+    expect(resolveKpiViewSelection(topology)).toEqual({
       level: "container",
       containerId: topology.containerId,
     });
-    expect(resolveKpiViewSelection(topology, String(tankId), undefined)).toEqual({ level: "tank", tankId });
-    expect(resolveKpiViewSelection(topology, String(tankId), "1")).toEqual({ level: "module", moduleId });
-  });
-
-  it("returns not-found when a container route tank cannot be resolved", () => {
-    const topology = containerTopology();
-
-    expect(resolveKpiViewSelection(topology, "missing", "1")).toEqual({ level: "notFound" });
-  });
-
-  it("returns not-found when a module route cannot be resolved", () => {
-    const topology = containerTopology();
-
-    expect(resolveKpiViewSelection(topology, "tank:slotless", "missing")).toEqual({ level: "notFound" });
   });
 });

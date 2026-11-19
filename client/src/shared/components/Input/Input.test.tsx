@@ -8,11 +8,6 @@ describe("Input", () => {
     render(<Input id="name" label="Name" />);
   });
 
-  test("renders input component", () => {
-    const inputElement = screen.getByRole("textbox");
-    expect(inputElement).toBeInTheDocument();
-  });
-
   test("renders label", () => {
     const labelElement = screen.getByText("Name");
     expect(labelElement).toBeInTheDocument();

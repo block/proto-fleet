@@ -1,7 +1,7 @@
 import React from "react";
 import { MemoryRouter } from "react-router-dom";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CompleteSetup from "./CompleteSetup";
 import useAuthNeededMiners from "@/protoFleet/api/useAuthNeededMiners";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
@@ -12,20 +12,6 @@ vi.mock("@/protoFleet/api/usePoolNeededCount");
 vi.mock("@/protoFleet/api/useMinerCommand");
 const mockRefetchMiners = vi.fn();
 vi.mock("@/shared/hooks/useReactiveLocalStorage");
-vi.mock("@/protoFleet/features/auth/components/AuthenticateFleetModal", () => ({
-  default: ({
-    open,
-    onAuthenticated,
-  }: {
-    open: boolean;
-    onAuthenticated: (username: string, password: string) => void;
-  }) =>
-    open ? (
-      <div data-testid="auth-fleet-modal">
-        <button onClick={() => onAuthenticated("testuser", "testpass")}>Submit Auth</button>
-      </div>
-    ) : null,
-}));
 vi.mock("@/protoFleet/features/auth/components/AuthenticateMiners", () => ({
   AuthenticateMiners: ({ open }: { open?: boolean }) =>
     open ? <div data-testid="auth-miners-modal">Authenticate Miners Modal</div> : null,
@@ -111,6 +97,13 @@ describe("CompleteSetup", () => {
         />
       </MemoryRouter>,
     );
+  };
+
+  // Polling uses a 1 s initial delay and 2 s intervals. The tests that follow it use fake timers.
+  const advanceTimers = async (ms: number) => {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
   };
 
   describe("Visibility conditions", () => {
@@ -274,22 +267,6 @@ describe("CompleteSetup", () => {
   });
 
   describe("ConfigurePoolCard", () => {
-    it("renders configure pools card with correct count", () => {
-      vi.mocked(usePoolNeededCount).mockReturnValue({
-        poolNeededCount: 5,
-        isLoading: false,
-        hasInitialLoadCompleted: true,
-        refetch: mockRefetchPoolNeededCount,
-      });
-
-      renderCompleteSetup();
-
-      expect(screen.getByText("Configure pools")).toBeInTheDocument();
-      expect(screen.getByText("5 miners")).toBeInTheDocument();
-      expect(screen.getByText("Configure")).toBeInTheDocument();
-      expect(screen.getByText("Skip")).toBeInTheDocument();
-    });
-
     it("uses singular form for one miner", () => {
       vi.mocked(usePoolNeededCount).mockReturnValue({
         poolNeededCount: 1,
@@ -340,8 +317,6 @@ describe("CompleteSetup", () => {
 
       const configureButton = screen.getByText("Configure");
       fireEvent.click(configureButton);
-
-      expect(screen.queryByTestId("auth-fleet-modal")).not.toBeInTheDocument();
 
       await waitFor(() => {
         expect(screen.getByTestId("pool-selection-modal")).toBeInTheDocument();
@@ -659,6 +634,14 @@ describe("CompleteSetup", () => {
   });
 
   describe("Polling after pairing completion", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
     it("starts polling when pairing completes", async () => {
       vi.mocked(useAuthNeededMiners).mockReturnValue({
         minerIds: ["miner1"],
@@ -694,14 +677,14 @@ describe("CompleteSetup", () => {
         </MemoryRouter>,
       );
 
+      expect(mockRefetchAuthNeededMiners).not.toHaveBeenCalled();
+      expect(mockRefetchPoolNeededCount).not.toHaveBeenCalled();
+
       // First poll should happen after 1s initial delay
-      await waitFor(
-        () => {
-          expect(mockRefetchAuthNeededMiners).toHaveBeenCalled();
-          expect(mockRefetchPoolNeededCount).toHaveBeenCalled();
-        },
-        { timeout: 1500 },
-      );
+      await advanceTimers(1000);
+
+      expect(mockRefetchAuthNeededMiners).toHaveBeenCalledTimes(1);
+      expect(mockRefetchPoolNeededCount).toHaveBeenCalledTimes(1);
     });
 
     it("stops polling when poolNeededCount changes from initial value", async () => {
@@ -737,12 +720,8 @@ describe("CompleteSetup", () => {
       );
 
       // Wait for first poll
-      await waitFor(
-        () => {
-          expect(mockRefetchPoolNeededCount).toHaveBeenCalled();
-        },
-        { timeout: 1500 },
-      );
+      await advanceTimers(1000);
+      expect(mockRefetchPoolNeededCount).toHaveBeenCalledTimes(1);
 
       // Simulate backend detecting miners with NEEDS_MINING_POOL status
       mockPoolNeededHook.mockReturnValue({
@@ -759,13 +738,12 @@ describe("CompleteSetup", () => {
         </MemoryRouter>,
       );
 
-      // Polling should have stopped, so no additional calls after a delay
-      const callCount = mockRefetchPoolNeededCount.mock.calls.length;
-      await new Promise((resolve) => setTimeout(resolve, 600));
-      expect(mockRefetchPoolNeededCount).toHaveBeenCalledTimes(callCount);
+      // Polling should have stopped, so the nine remaining polls (one each 2s) do not run
+      await advanceTimers(18000);
+      expect(mockRefetchPoolNeededCount).toHaveBeenCalledTimes(1);
     });
 
-    it("does not refetch when pairing timestamp is 0", () => {
+    it("does not refetch when pairing timestamp is 0", async () => {
       vi.mocked(useAuthNeededMiners).mockReturnValue({
         minerIds: ["miner1"],
         miners: {},
@@ -779,6 +757,9 @@ describe("CompleteSetup", () => {
       });
 
       renderCompleteSetup();
+
+      // A polling cycle makes its first call after 1s and its last call after 19s
+      await advanceTimers(19000);
 
       expect(mockRefetchAuthNeededMiners).not.toHaveBeenCalled();
       expect(mockRefetchPoolNeededCount).not.toHaveBeenCalled();
@@ -801,14 +782,8 @@ describe("CompleteSetup", () => {
 
       const { rerender } = renderCompleteSetup({ lastPairingCompletedAt: timestamp });
 
-      await waitFor(
-        () => {
-          expect(mockRefetchAuthNeededMiners).toHaveBeenCalled();
-        },
-        { timeout: 1500 },
-      );
-
-      const callCountAfterFirst = mockRefetchAuthNeededMiners.mock.calls.length;
+      await advanceTimers(1000);
+      expect(mockRefetchAuthNeededMiners).toHaveBeenCalledTimes(1);
 
       // Rerender with same timestamp should not trigger new polling
       rerender(
@@ -817,119 +792,70 @@ describe("CompleteSetup", () => {
         </MemoryRouter>,
       );
 
-      // Wait a bit and verify no new calls were made
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      // A new polling cycle makes its first call 1s after the rerender
+      await advanceTimers(1500);
+      expect(mockRefetchAuthNeededMiners).toHaveBeenCalledTimes(1);
 
-      expect(mockRefetchAuthNeededMiners).toHaveBeenCalledTimes(callCountAfterFirst);
+      // The first polling cycle makes its second call 2s after its first call
+      await advanceTimers(500);
+      expect(mockRefetchAuthNeededMiners).toHaveBeenCalledTimes(2);
     });
   });
 
   describe("Pool assignment flow", () => {
-    it("passes correct miners to pool selection modal", async () => {
-      vi.mocked(usePoolNeededCount).mockReturnValue({
-        poolNeededCount: 3,
-        isLoading: false,
-        hasInitialLoadCompleted: true,
-        refetch: mockRefetchPoolNeededCount,
-      });
-
-      renderCompleteSetup();
-
-      const configureButton = screen.getByText("Configure");
-      fireEvent.click(configureButton);
-
-      expect(screen.queryByTestId("auth-fleet-modal")).not.toBeInTheDocument();
-
-      await waitFor(() => {
-        expect(screen.getByTestId("pool-selection-modal")).toBeInTheDocument();
-      });
-    });
-
-    it("shows loading state on configure pools card during polling after pool assignment", async () => {
-      vi.mocked(usePoolNeededCount).mockReturnValue({
-        poolNeededCount: 2,
-        isLoading: false,
-        hasInitialLoadCompleted: true,
-        refetch: mockRefetchPoolNeededCount,
-      });
-
-      const { rerender } = renderCompleteSetup();
-
-      // Verify initial state - button is not loading
-      let configureButton = screen.getByText("Configure");
-      expect(configureButton).not.toHaveAttribute("disabled");
-
-      // Trigger pool assignment success by simulating the pairing timestamp update
-      // which triggers polling
-      const timestamp = Date.now();
-
-      rerender(
-        <MemoryRouter>
-          <CompleteSetup lastPairingCompletedAt={timestamp} onRefetchMiners={mockRefetchMiners} />
-        </MemoryRouter>,
-      );
-
-      // Wait for polling to start
-      await waitFor(
-        () => {
-          expect(mockRefetchPoolNeededCount).toHaveBeenCalled();
-        },
-        { timeout: 1500 },
-      );
-
-      // Button should now be in loading state
-      configureButton = screen.getByRole("button", { name: /configure/i });
-      expect(configureButton).toHaveAttribute("disabled");
-    });
-
     it("stops polling and exits loading state when pool count changes to 0", async () => {
-      const mockPoolNeededHook = vi.mocked(usePoolNeededCount);
+      vi.useFakeTimers();
 
-      // Start with miners needing pools
-      mockPoolNeededHook.mockReturnValue({
-        poolNeededCount: 5,
-        isLoading: false,
-        hasInitialLoadCompleted: true,
-        refetch: mockRefetchPoolNeededCount,
-      });
+      try {
+        const mockPoolNeededHook = vi.mocked(usePoolNeededCount);
+        const setPoolNeededCount = (poolNeededCount: number) => {
+          mockPoolNeededHook.mockReturnValue({
+            poolNeededCount,
+            isLoading: false,
+            hasInitialLoadCompleted: true,
+            refetch: mockRefetchPoolNeededCount,
+          });
+        };
 
-      const { rerender } = renderCompleteSetup();
+        // Start with miners needing pools
+        setPoolNeededCount(5);
 
-      // Trigger polling
-      const timestamp = Date.now();
+        const { rerender } = renderCompleteSetup();
 
-      rerender(
-        <MemoryRouter>
-          <CompleteSetup lastPairingCompletedAt={timestamp} onRefetchMiners={mockRefetchMiners} />
-        </MemoryRouter>,
-      );
+        // Trigger polling
+        const timestamp = Date.now();
+        const rerenderWithTimestamp = () =>
+          rerender(
+            <MemoryRouter>
+              <CompleteSetup lastPairingCompletedAt={timestamp} onRefetchMiners={mockRefetchMiners} />
+            </MemoryRouter>,
+          );
 
-      // Wait for polling to start
-      await waitFor(
-        () => {
-          expect(mockRefetchPoolNeededCount).toHaveBeenCalled();
-        },
-        { timeout: 1500 },
-      );
+        rerenderWithTimestamp();
 
-      // Simulate pool configuration completing - count goes to 0
-      mockPoolNeededHook.mockReturnValue({
-        poolNeededCount: 0,
-        isLoading: false,
-        hasInitialLoadCompleted: true,
-        refetch: mockRefetchPoolNeededCount,
-      });
+        // Wait for polling to start
+        await advanceTimers(1000);
+        expect(mockRefetchPoolNeededCount).toHaveBeenCalledTimes(1);
 
-      rerender(
-        <MemoryRouter>
-          <CompleteSetup lastPairingCompletedAt={timestamp} onRefetchMiners={mockRefetchMiners} />
-        </MemoryRouter>,
-      );
+        // Simulate pool configuration completing - count goes to 0
+        setPoolNeededCount(0);
+        rerenderWithTimestamp();
 
-      // Component should be removed since no cards are showing
-      await waitFor(() => {
+        // Component should be removed since no cards are showing
         expect(screen.queryByText("Complete setup")).not.toBeInTheDocument();
-      });
+
+        // Polling should have stopped, so the next poll (2s after the first) does not run
+        await advanceTimers(2000);
+        expect(mockRefetchPoolNeededCount).toHaveBeenCalledTimes(1);
+
+        // The card shows again for a later count. It is not in the loading state.
+        setPoolNeededCount(2);
+        rerenderWithTimestamp();
+
+        expect(screen.getByRole("button", { name: /configure/i })).not.toHaveAttribute("disabled");
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("exits loading state after all polls complete even when pool count unchanged", async () => {

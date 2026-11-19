@@ -92,27 +92,6 @@ describe("FleetDown", () => {
     expect(button).not.toBeDisabled();
   });
 
-  it("shows loading state while checking backend", async () => {
-    const { onboardingClient } = await import("@/protoFleet/api/clients");
-    const user = userEvent.setup();
-
-    // Mock API call that resolves successfully
-    vi.mocked(onboardingClient.getFleetInitStatus).mockResolvedValueOnce({} as any);
-
-    render(<FleetDown />);
-
-    const button = screen.getByRole("button", { name: /retry now/i });
-
-    // Button should be enabled before click
-    expect(button).not.toBeDisabled();
-
-    // Click button and wait for async operation
-    await user.click(button);
-
-    // After async completes, verify the API was called
-    expect(onboardingClient.getFleetInitStatus).toHaveBeenCalledTimes(1);
-  });
-
   it("automatically polls backend every 15 seconds", async () => {
     const { usePoll } = await import("@/shared/hooks/usePoll");
 

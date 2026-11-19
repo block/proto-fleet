@@ -76,10 +76,6 @@ const testAutomationRules: AutomationRule[] = [
   },
 ];
 
-function renderAutomations(): void {
-  render(<CurtailmentAutomationsContent sources={testSources} responseProfiles={testResponseProfiles} />);
-}
-
 function getAutomationRow(ruleName: string): HTMLTableRowElement {
   const row = screen.getByText(ruleName).closest("tr");
   expect(row).not.toBeNull();
@@ -130,7 +126,15 @@ describe("CurtailmentAutomationsContent", () => {
   });
 
   it("creates an automation from the selected source trigger and response profile", async () => {
-    renderAutomations();
+    const onCreateAutomation = vi.fn().mockResolvedValue(undefined);
+    render(
+      <CurtailmentAutomationsContent
+        automationRules={[]}
+        sources={testSources}
+        responseProfiles={testResponseProfiles}
+        onCreateAutomation={onCreateAutomation}
+      />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Create automation" }));
 
@@ -152,19 +156,21 @@ describe("CurtailmentAutomationsContent", () => {
     fireEvent.click(saveButton);
 
     await waitFor(() => expect(screen.getByText("Enter a rule name.")).toBeVisible());
-    expect(screen.queryByText("High LMP spike")).not.toBeInTheDocument();
+    expect(onCreateAutomation).not.toHaveBeenCalled();
 
     fireEvent.change(screen.getByLabelText("Rule name"), { target: { value: "High LMP spike" } });
     fireEvent.keyDown(screen.getByLabelText("Rule name"), { key: "Enter", code: "Enter" });
 
     await waitFor(() => expect(screen.queryByTestId("curtailment-automation-modal")).not.toBeInTheDocument());
-
-    // The row list re-renders with the new rule a tick after the modal closes;
-    // wait for it before the synchronous row lookup to avoid a load-dependent race.
-    await screen.findByText("High LMP spike");
-    const row = getAutomationRow("High LMP spike");
-    expect(within(row).getByText("Site Alpha MaestroOS grid signal changes to 0")).toBeVisible();
-    expect(within(row).getByText("Standard shed")).toBeVisible();
+    expect(onCreateAutomation).toHaveBeenCalledTimes(1);
+    expect(onCreateAutomation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "High LMP spike",
+        sourceId: testSources[0].id,
+        responseProfileId: testResponseProfiles[0].id,
+        responseProfileRevision: testResponseProfiles[0].revision,
+      }),
+    );
   });
 
   it("retries an automation save with the refreshed response profile revision", async () => {
@@ -310,11 +316,15 @@ describe("CurtailmentAutomationsContent", () => {
   });
 
   it("edits and deletes automation rows from the row click modal", async () => {
+    const onUpdateAutomation = vi.fn().mockResolvedValue(undefined);
+    const onDeleteAutomation = vi.fn().mockResolvedValue(undefined);
     render(
       <CurtailmentAutomationsContent
-        initialAutomationRules={testAutomationRules}
+        automationRules={testAutomationRules}
         sources={testSources}
         responseProfiles={testResponseProfiles}
+        onUpdateAutomation={onUpdateAutomation}
+        onDeleteAutomation={onDeleteAutomation}
       />,
     );
 
@@ -332,19 +342,22 @@ describe("CurtailmentAutomationsContent", () => {
     fireEvent.click(saveButton);
 
     await waitFor(() => expect(screen.queryByTestId("curtailment-automation-modal")).not.toBeInTheDocument());
-    // The row list re-renders with the new name a tick after the modal closes;
-    // wait for it before the synchronous row lookup to avoid a load-dependent race.
-    await screen.findByText("ERCOT ERS updated");
-    const updatedRow = getAutomationRow("ERCOT ERS updated");
-    expect(within(updatedRow).getByText("ERCOT ERS (Emergency Response Service)")).toBeVisible();
-    expect(screen.queryByText("ERCOT ERS obligation")).not.toBeInTheDocument();
+    expect(onUpdateAutomation).toHaveBeenCalledTimes(1);
+    expect(onUpdateAutomation).toHaveBeenCalledWith(
+      expect.objectContaining(testAutomationRules[0]),
+      expect.objectContaining({
+        name: "ERCOT ERS updated",
+        sourceId: testSources[0].id,
+        responseProfileId: testResponseProfiles[0].id,
+      }),
+    );
 
-    fireEvent.click(updatedRow);
+    fireEvent.click(getAutomationRow("ERCOT ERS obligation"));
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
     await waitFor(() => expect(screen.queryByTestId("curtailment-automation-modal")).not.toBeInTheDocument());
-    await waitFor(() => expect(screen.queryByText("ERCOT ERS updated")).not.toBeInTheDocument());
-    expect(screen.getByText("No automations configured")).toBeVisible();
+    expect(onDeleteAutomation).toHaveBeenCalledTimes(1);
+    expect(onDeleteAutomation).toHaveBeenCalledWith(expect.objectContaining(testAutomationRules[0]));
   });
 
   it("waits for an edit rule's response profile instead of selecting another profile", async () => {
@@ -402,11 +415,13 @@ describe("CurtailmentAutomationsContent", () => {
   });
 
   it("toggles automation rows without exposing reorder handles", () => {
-    render(
+    const onToggleAutomation = vi.fn().mockResolvedValue(undefined);
+    const { rerender } = render(
       <CurtailmentAutomationsContent
-        initialAutomationRules={testAutomationRules}
+        automationRules={testAutomationRules}
         sources={testSources}
         responseProfiles={testResponseProfiles}
+        onToggleAutomation={onToggleAutomation}
       />,
     );
 
@@ -419,6 +434,18 @@ describe("CurtailmentAutomationsContent", () => {
     fireEvent.click(toggle as HTMLInputElement);
 
     expect(screen.queryByTestId("curtailment-automation-modal")).not.toBeInTheDocument();
+    expect(onToggleAutomation).toHaveBeenCalledTimes(1);
+    expect(onToggleAutomation).toHaveBeenCalledWith(testAutomationRules[0], false, undefined);
+
+    rerender(
+      <CurtailmentAutomationsContent
+        automationRules={[{ ...testAutomationRules[0], enabled: false }]}
+        sources={testSources}
+        responseProfiles={testResponseProfiles}
+        onToggleAutomation={onToggleAutomation}
+      />,
+    );
+
     expect(within(getAutomationRow("ERCOT ERS obligation")).getByTestId("name").firstElementChild).toHaveClass(
       "opacity-50",
     );

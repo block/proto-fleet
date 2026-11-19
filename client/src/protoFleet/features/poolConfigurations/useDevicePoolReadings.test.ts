@@ -1,39 +1,146 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { expect, it, vi } from "vitest";
+import { beforeEach, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import type { Client } from "@connectrpc/connect";
-
 import { useDevicePoolReadings } from "./useDevicePoolReadings";
 import {
   CheckConfigurationResponseSchema,
   EquipmentAssignmentSchema,
   type PoolConfigurationService,
 } from "@/protoFleet/api/generated/poolconfigurations/v1/poolconfigurations_pb";
+import { useFleetStore } from "@/protoFleet/store";
 
-it("withdraws a successful reading when the next refresh fails", async () => {
-  const checked = create(CheckConfigurationResponseSchema, {
-    state: "device_configuration",
-    readbackAvailable: true,
-    reported: [{ url: "stratum+tcp://old.example:3333", username: "old.worker" }],
-  });
-  const readDevicePools = vi
-    .fn()
-    .mockResolvedValueOnce({ readings: [{ target: { kind: "device", targetId: 38n }, reading: checked }] })
-    .mockRejectedValueOnce(new Error("network unavailable"));
-  const client = { readDevicePools } as unknown as Client<typeof PoolConfigurationService>;
-  const assignments = [create(EquipmentAssignmentSchema, { deviceId: 38n })];
-  const { result } = renderHook(() => useDevicePoolReadings(client, "", assignments, true));
-  await waitFor(() => expect(result.current.readings["device:38"]?.reported).toEqual(checked.reported));
-  act(() => result.current.refresh());
-  await waitFor(() => expect(readDevicePools).toHaveBeenCalledTimes(2));
-  await waitFor(() => expect(result.current.readings["device:38"]?.state).toBe("unavailable"));
-  expect(result.current.readings["device:38"]?.reported).toEqual([]);
-  expect(result.current.readings["device:38"]?.readbackAvailable).toBe(false);
+const readDevicePools = vi.fn();
+const client = { readDevicePools } as unknown as Client<typeof PoolConfigurationService>;
+const equipment = (id: bigint) => create(EquipmentAssignmentSchema, { deviceId: id, state: "unavailable" });
+const assigned = [1n, 2n, 3n, 4n, 5n].map(equipment);
+type Target = { kind: string; targetId: bigint };
+const reply = (targets: Target[], state = "device_configuration") => ({
+  readings: targets.map((target) => ({
+    target,
+    reading: create(CheckConfigurationResponseSchema, {
+      state,
+      readbackAvailable: state !== "unavailable",
+      reported: state === "unavailable" ? [] : [{ username: "worker" }],
+    }),
+  })),
 });
+const deferred = () => {
+  let resolve!: (response: ReturnType<typeof reply>) => void;
+  const promise = new Promise<ReturnType<typeof reply>>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+};
+const deviceTarget = (id: bigint): Target => ({ kind: "device", targetId: id });
+beforeEach(() => {
+  readDevicePools.mockReset();
+  readDevicePools.mockImplementation(async ({ targets }: { targets: Target[] }) => reply(targets));
+});
+
+it("retains later batches while each device refresh is pending", async () => {
+  const { result } = renderHook(() => useDevicePoolReadings(client, "", assigned, true));
+  await waitFor(() => expect(Object.keys(result.current.readings)).toHaveLength(5));
+  const later = deferred();
+  readDevicePools.mockImplementation(({ targets }: { targets: Target[] }) =>
+    targets[0].targetId === 5n ? later.promise : Promise.resolve(reply(targets, "")),
+  );
+  act(() => result.current.refresh());
+  await waitFor(() => expect(result.current.readings["device:1"].state).toBe(""));
+  expect(result.current.readings["device:5"]?.state).toBe("device_configuration");
+  await act(async () => later.resolve(reply([deviceTarget(5n)], "")));
+  expect(result.current.readings["device:5"].state).toBe("");
+});
+
+it("keeps unaffected devices when another device gains a Fleet assignment", async () => {
+  const { result, rerender } = renderHook(({ assignments }) => useDevicePoolReadings(client, "", assignments, true), {
+    initialProps: { assignments: assigned },
+  });
+  await waitFor(() => expect(Object.keys(result.current.readings)).toHaveLength(5));
+  readDevicePools.mockImplementation(() => new Promise(() => {}));
+  rerender({ assignments: assigned.map((a) => (a.deviceId === 1n ? { ...a, configurationId: "new-config" } : a)) });
+  expect(result.current.readings["device:1"]).toBeUndefined();
+  expect(result.current.readings["device:5"]?.state).toBe("device_configuration");
+  // Losing the Fleet assignment again must require a new device observation.
+  rerender({ assignments: assigned });
+  expect(result.current.readings["device:1"]).toBeUndefined();
+  expect(result.current.readings["device:5"]?.state).toBe("device_configuration");
+});
+
+it.each(["failure", "missing"])(
+  "replaces old evidence after a settled %s without dropping pending batches",
+  async (outcome) => {
+    const { result } = renderHook(() => useDevicePoolReadings(client, "", assigned, true));
+    await waitFor(() => expect(Object.keys(result.current.readings)).toHaveLength(5));
+    expect(result.current.readings["device:1"].reported).toHaveLength(1);
+    const later = deferred();
+    readDevicePools.mockImplementation(({ targets }: { targets: Target[] }) => {
+      if (targets[0].targetId === 5n) return later.promise;
+      return outcome === "failure" ? Promise.reject(new Error("offline")) : Promise.resolve({ readings: [] });
+    });
+    act(() => result.current.refresh());
+    await waitFor(() => expect(result.current.readings["device:1"].state).toBe("unavailable"));
+    expect(result.current.readings["device:1"].reported).toEqual([]);
+    expect(result.current.readings["device:1"].readbackAvailable).toBe(false);
+    expect(result.current.readings["device:5"]?.state).toBe("device_configuration");
+    await act(async () => later.resolve(reply([deviceTarget(5n)], "unavailable")));
+    expect(result.current.readings["device:5"].state).toBe("unavailable");
+  },
+);
+
+it.each(["account", "route", "disabled", "session", "clear"])(
+  "invalidates old readings on a %s change, ignores the prior response, and reads again",
+  async (change) => {
+    const board = create(EquipmentAssignmentSchema, { installationId: 101n, deviceId: 1n });
+    const initial = { accountId: "account-a", assignments: [board], enabled: true };
+    const key = "hashboard_installation:101";
+    const { result, rerender } = renderHook(
+      ({ accountId, assignments, enabled }) => useDevicePoolReadings(client, accountId, assignments, enabled),
+      { initialProps: initial },
+    );
+    await waitFor(() => expect(result.current.readings[key]?.state).toBe("device_configuration"));
+    const old = deferred();
+    // Later reads return a different state, so the test can tell a new reading from the old one.
+    readDevicePools
+      .mockImplementationOnce(() => old.promise)
+      .mockImplementation(async ({ targets }: { targets: Target[] }) => reply(targets, "different"));
+    act(() => result.current.refresh());
+    const priorSignal = readDevicePools.mock.lastCall?.[1].signal;
+    if (change === "session") {
+      act(() =>
+        useFleetStore.setState((s) => ({ auth: { ...s.auth, sessionGeneration: s.auth.sessionGeneration + 1 } })),
+      );
+    } else {
+      rerender({
+        ...initial,
+        accountId: change === "account" ? "account-b" : initial.accountId,
+        assignments:
+          change === "route"
+            ? [{ ...board, deviceId: 2n }]
+            : change === "clear"
+              ? [{ ...board, operationId: "automatic-clear", state: "pending" }]
+              : initial.assignments,
+        enabled: change !== "disabled",
+      });
+    }
+    expect(result.current.readings).toEqual({});
+    expect(priorSignal.aborted).toBe(true);
+    // A disabled or cleared target has no read until it returns. The other changes read immediately.
+    const readsNow = change !== "disabled" && change !== "clear";
+    if (readsNow) await waitFor(() => expect(result.current.readings[key]?.state).toBe("different"));
+    await act(async () => old.resolve(reply([{ kind: "hashboard_installation", targetId: 101n }])));
+    expect(result.current.readings[key]?.state).toBe(readsNow ? "different" : undefined);
+    if (!readsNow) {
+      rerender(initial);
+      expect(result.current.readings).toEqual({});
+      await waitFor(() => expect(result.current.readings[key]?.state).toBe("different"));
+    }
+  },
+);
 
 it("keeps successful siblings while marking the failed target unavailable", async () => {
   let refresh = false;
-  const readDevicePools = vi.fn(async ({ targets }: { targets: { kind: string; targetId: bigint }[] }) => ({
+  readDevicePools.mockImplementation(async ({ targets }: { targets: Target[] }) => ({
     readings: targets.map((target) => ({
       target,
       reading: create(
@@ -48,7 +155,6 @@ it("keeps successful siblings while marking the failed target unavailable", asyn
       ),
     })),
   }));
-  const client = { readDevicePools } as unknown as Client<typeof PoolConfigurationService>;
   const assignments = [38n, 39n].map((deviceId) => create(EquipmentAssignmentSchema, { deviceId }));
   const { result } = renderHook(() => useDevicePoolReadings(client, "", assignments, true));
   await waitFor(() => expect(Object.keys(result.current.readings)).toHaveLength(2));
@@ -59,8 +165,7 @@ it("keeps successful siblings while marking the failed target unavailable", asyn
 });
 
 it("batches 150 unassigned boards, deduplicates targets, and skips canonical assignments", async () => {
-  const readDevicePools = vi.fn().mockResolvedValue({ readings: [] });
-  const client = { readDevicePools } as unknown as Client<typeof PoolConfigurationService>;
+  readDevicePools.mockResolvedValue({ readings: [] });
   const boards = Array.from({ length: 150 }, (_, i) =>
     create(EquipmentAssignmentSchema, { deviceId: 1n, installationId: BigInt(i + 1) }),
   );
@@ -79,8 +184,7 @@ it("batches 150 unassigned boards, deduplicates targets, and skips canonical ass
 });
 
 it("chunks larger selections at 500 targets and preserves successful batches", async () => {
-  const readDevicePools = vi
-    .fn()
+  readDevicePools
     .mockImplementationOnce(async ({ targets }) => ({
       readings: targets.map((target: { kind: string; targetId: bigint }) => ({
         target,
@@ -88,7 +192,6 @@ it("chunks larger selections at 500 targets and preserves successful batches", a
       })),
     }))
     .mockRejectedValueOnce(new Error("offline"));
-  const client = { readDevicePools } as unknown as Client<typeof PoolConfigurationService>;
   const assignments = Array.from({ length: 501 }, (_, i) =>
     create(EquipmentAssignmentSchema, { deviceId: 1n, installationId: BigInt(i + 1) }),
   );
@@ -98,47 +201,9 @@ it("chunks larger selections at 500 targets and preserves successful batches", a
   expect(Object.values(result.current.readings).filter((r) => r.readbackAvailable)).toHaveLength(500);
 });
 
-it("ignores an old response after account selection changes", async () => {
-  let finish!: (value: unknown) => void;
-  const readDevicePools = vi
-    .fn()
-    .mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          finish = resolve;
-        }),
-    )
-    .mockResolvedValue({ readings: [] });
-  const client = { readDevicePools } as unknown as Client<typeof PoolConfigurationService>;
-  const assignments = [create(EquipmentAssignmentSchema, { deviceId: 38n })];
-  const { result, rerender } = renderHook(
-    ({ accountId }) => useDevicePoolReadings(client, accountId, assignments, true),
-    { initialProps: { accountId: "old" } },
-  );
-  rerender({ accountId: "new" });
-  await waitFor(() => expect(result.current.readings["device:38"]?.state).toBe("unavailable"));
-  await act(async () =>
-    finish({
-      readings: [
-        {
-          target: { kind: "device", targetId: 38n },
-          reading: create(CheckConfigurationResponseSchema, {
-            state: "device_configuration",
-            readbackAvailable: true,
-            reported: [{ username: "old-account" }],
-          }),
-        },
-      ],
-    }),
-  );
-  expect(readDevicePools.mock.calls[0][1].signal.aborted).toBe(true);
-  expect(result.current.readings["device:38"].state).toBe("unavailable");
-});
-
 it("continues with healthy controllers after a slow batch times out", async () => {
   let fail!: (reason: Error) => void;
-  const readDevicePools = vi
-    .fn()
+  readDevicePools
     .mockImplementationOnce(
       () =>
         new Promise((_, reject) => {
@@ -151,7 +216,6 @@ it("continues with healthy controllers after a slow batch times out", async () =
         reading: create(CheckConfigurationResponseSchema, { readbackAvailable: true }),
       })),
     }));
-  const client = { readDevicePools } as unknown as Client<typeof PoolConfigurationService>;
   const assignments = [9n, 7n, 3n, 1n, 5n, 8n, 6n, 4n, 2n].map((deviceId) =>
     create(EquipmentAssignmentSchema, { deviceId }),
   );
@@ -174,13 +238,12 @@ it("continues with healthy controllers after a slow batch times out", async () =
 
 it("aborts pending readback and stops continuation when the view closes", async () => {
   let finish!: (value: unknown) => void;
-  const readDevicePools = vi.fn(
+  readDevicePools.mockImplementation(
     () =>
       new Promise((resolve) => {
         finish = resolve;
       }),
   );
-  const client = { readDevicePools } as unknown as Client<typeof PoolConfigurationService>;
   const assignments = Array.from({ length: 8 }, (_, i) =>
     create(EquipmentAssignmentSchema, { deviceId: BigInt(i + 1) }),
   );
@@ -188,46 +251,12 @@ it("aborts pending readback and stops continuation when the view closes", async 
   unmount();
   await act(async () => finish({ readings: [] }));
   expect(readDevicePools).toHaveBeenCalledTimes(1);
-  expect((readDevicePools.mock.calls[0] as unknown as [unknown, { signal: AbortSignal }])[1].signal.aborted).toBe(true);
-});
-
-it("withdraws readback and cancels the old batch when a board changes controller", async () => {
-  let finish!: (value: unknown) => void;
-  const readDevicePools = vi
-    .fn()
-    .mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          finish = resolve;
-        }),
-    )
-    .mockResolvedValue({ readings: [] });
-  const client = { readDevicePools } as unknown as Client<typeof PoolConfigurationService>;
-  const { result, rerender } = renderHook(
-    ({ deviceId }) =>
-      useDevicePoolReadings(client, "", [create(EquipmentAssignmentSchema, { deviceId, installationId: 10n })], true),
-    { initialProps: { deviceId: 1n } },
-  );
-  rerender({ deviceId: 2n });
-  await waitFor(() => expect(readDevicePools).toHaveBeenCalledTimes(2));
-  await act(async () =>
-    finish({
-      readings: [
-        {
-          target: { kind: "hashboard_installation", targetId: 10n },
-          reading: create(CheckConfigurationResponseSchema, { readbackAvailable: true }),
-        },
-      ],
-    }),
-  );
   expect(readDevicePools.mock.calls[0][1].signal.aborted).toBe(true);
-  expect(result.current.readings["hashboard_installation:10"].readbackAvailable).toBe(false);
 });
 
 it("lets every batch finish when background refreshes arrive during a slow read", async () => {
   let finish!: (value: unknown) => void;
-  const readDevicePools = vi
-    .fn()
+  readDevicePools
     .mockImplementationOnce(
       () =>
         new Promise((resolve) => {
@@ -235,7 +264,6 @@ it("lets every batch finish when background refreshes arrive during a slow read"
         }),
     )
     .mockResolvedValue({ readings: [] });
-  const client = { readDevicePools } as unknown as Client<typeof PoolConfigurationService>;
   const assignments = Array.from({ length: 5 }, (_, i) =>
     create(EquipmentAssignmentSchema, { deviceId: BigInt(i + 1) }),
   );

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { awaitEquipmentCommand } from "./awaitEquipmentCommand";

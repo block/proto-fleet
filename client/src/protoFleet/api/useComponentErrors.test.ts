@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { renderHook, waitFor as waitForDefault } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { errorQueryClient } from "./clients";
@@ -10,6 +10,9 @@ import {
   ErrorMessageSchema,
   QueryResponseSchema,
 } from "@/protoFleet/api/generated/errors/v1/errors_pb";
+
+// The default poll interval is 50 ms. That interval is most of the run time of this file.
+const waitFor: typeof waitForDefault = (callback, options) => waitForDefault(callback, { interval: 1, ...options });
 
 vi.mock("./clients", () => ({
   errorQueryClient: {
@@ -44,87 +47,6 @@ describe("useComponentErrors", () => {
   });
 
   describe("device counting logic", () => {
-    it("counts unique devices, not component instances (THE BUG FIX)", async () => {
-      // Device A has 3 fans with errors (fan_0, fan_1, fan_2)
-      // This should count as 1 device, not 3
-      const mockResponse = create(QueryResponseSchema, {
-        result: {
-          case: "components",
-          value: create(ComponentErrorsSchema, {
-            items: [
-              create(ComponentErrorSchema, {
-                componentId: "device-a_fan_0",
-                componentType: ComponentType.FAN,
-                deviceIdentifier: "device-a",
-                errors: [create(ErrorMessageSchema, { errorId: "err-1" })],
-              }),
-              create(ComponentErrorSchema, {
-                componentId: "device-a_fan_1",
-                componentType: ComponentType.FAN,
-                deviceIdentifier: "device-a",
-                errors: [create(ErrorMessageSchema, { errorId: "err-2" })],
-              }),
-              create(ComponentErrorSchema, {
-                componentId: "device-a_fan_2",
-                componentType: ComponentType.FAN,
-                deviceIdentifier: "device-a",
-                errors: [create(ErrorMessageSchema, { errorId: "err-3" })],
-              }),
-            ],
-          }),
-        },
-      });
-
-      vi.mocked(errorQueryClient.query).mockResolvedValue(mockResponse);
-
-      const { result } = renderHook(() => useComponentErrors());
-
-      await waitFor(() => {
-        expect(result.current.hasLoaded).toBe(true);
-      });
-
-      // Should count 1 device with fan errors, not 3
-      expect(result.current.fanErrors).toBe(1);
-    });
-
-    it("counts each unique device separately", async () => {
-      // 3 different devices, each with 1 fan error
-      const mockResponse = create(QueryResponseSchema, {
-        result: {
-          case: "components",
-          value: create(ComponentErrorsSchema, {
-            items: [
-              create(ComponentErrorSchema, {
-                componentType: ComponentType.FAN,
-                deviceIdentifier: "device-a",
-                errors: [create(ErrorMessageSchema, { errorId: "err-1" })],
-              }),
-              create(ComponentErrorSchema, {
-                componentType: ComponentType.FAN,
-                deviceIdentifier: "device-b",
-                errors: [create(ErrorMessageSchema, { errorId: "err-2" })],
-              }),
-              create(ComponentErrorSchema, {
-                componentType: ComponentType.FAN,
-                deviceIdentifier: "device-c",
-                errors: [create(ErrorMessageSchema, { errorId: "err-3" })],
-              }),
-            ],
-          }),
-        },
-      });
-
-      vi.mocked(errorQueryClient.query).mockResolvedValue(mockResponse);
-
-      const { result } = renderHook(() => useComponentErrors());
-
-      await waitFor(() => {
-        expect(result.current.hasLoaded).toBe(true);
-      });
-
-      expect(result.current.fanErrors).toBe(3);
-    });
-
     it("handles mix of devices with multiple components correctly (regression test)", async () => {
       // Device A: fan_0, fan_1, fan_2, fan_3 (4 fans)
       // Device B: fan_0, fan_1, fan_2 (3 fans)

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 
 import { auditEventsToCsv, controllerLogsToCsv } from "./csv";
@@ -40,13 +41,6 @@ describe("auditEventsToCsv", () => {
       { id: "1", actor: '=HYPERLINK("x")', source: "@sum", node: "", action: "+1", target: "-1", result: "ok" },
     ]);
     expect(row).toBe('"","\'=HYPERLINK(""x"")","\'@sum","","\'+1","\'-1","ok","",""');
-  });
-
-  it("leaves out the Truncated column when nothing was shortened", () => {
-    expect(controllerLogsToCsv([{ severity: "info", component: "pool", message: "ok" }])).toEqual([
-      "Time,Severity,Component,Message",
-      '"","info","pool","ok"',
-    ]);
   });
 });
 

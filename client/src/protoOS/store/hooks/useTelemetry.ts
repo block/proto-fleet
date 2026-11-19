@@ -1,12 +1,10 @@
 import { useMemo } from "react";
 
 import { asAsicId, ROOT_MODULE_KEY } from "../contract";
-import type { AsicTelemetry, FanTelemetry, HashboardTelemetry, LevelRollup, PsuTelemetry } from "../contract";
+import type { AsicTelemetry, FanTelemetry, HashboardTelemetry, PsuTelemetry } from "../contract";
 import useMinerStore from "../useMinerStore";
 import { getFanId, getHashboardId, getPsuId } from "../utils/entityIds";
 
-export const useMinerTelemetry = (): LevelRollup | undefined =>
-  useMinerStore((state) => state.telemetry.rollupsByEntity.get(ROOT_MODULE_KEY));
 export const useHashboardsTelemetry = (): HashboardTelemetry[] => {
   const values = useMinerStore((state) => state.telemetry.hashboards);
   return useMemo(() => [...values.values()], [values]);

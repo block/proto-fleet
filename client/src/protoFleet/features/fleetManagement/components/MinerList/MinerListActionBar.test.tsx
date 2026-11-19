@@ -1,6 +1,6 @@
 import { type ComponentProps, type ReactNode, useState } from "react";
 import { MemoryRouter } from "react-router-dom";
-import { fireEvent, render as renderUI, waitFor } from "@testing-library/react";
+import { fireEvent, render as renderUI } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { SortConfigSchema, SortField } from "@/protoFleet/api/generated/common/v1/sort_pb";
@@ -102,28 +102,6 @@ describe("Miner list action bar", () => {
     selectedKeys: ["miner:MAC1" as const],
     selectionMode: "subset" as const,
   };
-
-  // TODO: Fix this test - requires mocking useMinerCommand and toast system
-  // Pre-existing failure unrelated to recent changes
-  test.skip("hides and displays action bar depending on confirmation dialog visibility", async () => {
-    const { getByTestId } = render(<MinerListActionBar {...actionBarProps} />);
-
-    const actionBarElement = getByTestId(actionBarTestId);
-    expect(actionBarElement).toBeInTheDocument();
-    const actionsMenuButton = getByTestId("actions-menu-button");
-    fireEvent.click(actionsMenuButton);
-    const rebootButton = getByTestId("reboot-popover-button");
-    fireEvent.click(rebootButton);
-
-    expect(actionBarElement.classList.contains("invisible")).toBe(true);
-
-    const confirmRebootButton = await waitFor(() => getByTestId("reboot-confirm-button"));
-    fireEvent.click(confirmRebootButton);
-
-    await waitFor(() => {
-      expect(actionBarElement.classList.contains("invisible")).toBe(false);
-    });
-  });
 
   test("hides action bar when mining pool action is triggered", () => {
     const { getByTestId } = render(<MinerListActionBar {...actionBarProps} />);

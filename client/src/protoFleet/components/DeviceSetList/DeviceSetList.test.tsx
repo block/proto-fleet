@@ -235,7 +235,7 @@ describe("DeviceSetList", () => {
       <NoFilterResultsEmptyState hasActiveFilters onClearFilters={onClearFilters} />
     );
 
-    it("renders 'No results' heading in the empty state", () => {
+    it("renders the heading, the description and a 'Clear all filters' button that calls the handler", () => {
       const handleClearFilters = vi.fn();
 
       render(
@@ -248,50 +248,9 @@ describe("DeviceSetList", () => {
       );
 
       expect(screen.getByText("No results")).toBeInTheDocument();
-    });
-
-    it("renders description text in the empty state", () => {
-      const handleClearFilters = vi.fn();
-
-      render(
-        <DeviceSetList
-          {...defaultProps}
-          deviceSets={[]}
-          statsMap={new Map()}
-          emptyStateRow={renderEmptyState(handleClearFilters)}
-        />,
-      );
-
       expect(screen.getByText("Try adjusting or clearing your filters.")).toBeInTheDocument();
-    });
-
-    it("renders the 'Clear all filters' button in the empty state", () => {
-      const handleClearFilters = vi.fn();
-
-      render(
-        <DeviceSetList
-          {...defaultProps}
-          deviceSets={[]}
-          statsMap={new Map()}
-          emptyStateRow={renderEmptyState(handleClearFilters)}
-        />,
-      );
-
       expect(screen.getByTestId("clear-all-filters-button")).toBeInTheDocument();
       expect(screen.getByText("Clear all filters")).toBeInTheDocument();
-    });
-
-    it("calls the clear filters handler when 'Clear all filters' button is clicked", () => {
-      const handleClearFilters = vi.fn();
-
-      render(
-        <DeviceSetList
-          {...defaultProps}
-          deviceSets={[]}
-          statsMap={new Map()}
-          emptyStateRow={renderEmptyState(handleClearFilters)}
-        />,
-      );
 
       fireEvent.click(screen.getByTestId("clear-all-filters-button"));
       expect(handleClearFilters).toHaveBeenCalledTimes(1);

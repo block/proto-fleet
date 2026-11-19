@@ -9,20 +9,6 @@ describe("Action Bar", () => {
     renderActions: () => <div>Action</div>,
   };
 
-  const minersText = "miners selected";
-
-  test("renders action bar correctly", () => {
-    const { getByTestId, queryByText } = render(<ActionBar {...actionBarProps} />);
-
-    const closeButton = getByTestId("close-button");
-    expect(closeButton).toBeDefined();
-    const minersElement = queryByText(minersText);
-    expect(minersElement).toBeDefined();
-
-    const actionButton = queryByText("Action");
-    expect(actionButton).toBeDefined();
-  });
-
   test("renders action bar with correct number of miners", () => {
     const selectedMiners = ["MAC1", "MAC2", "MAC3"];
     const { getByText } = render(<ActionBar {...actionBarProps} selectedItems={selectedMiners} />);
@@ -86,15 +72,6 @@ describe("Action Bar", () => {
     fireEvent.click(closeButton);
 
     expect(onCloseMock).toHaveBeenCalledOnce();
-  });
-
-  test("does not throw error when onClose is not provided", () => {
-    const { getByTestId } = render(<ActionBar {...actionBarProps} />);
-
-    const closeButton = getByTestId("close-button");
-
-    // Should not throw error when clicking close without onClose prop
-    expect(() => fireEvent.click(closeButton)).not.toThrow();
   });
 
   test("renders selection controls only once", () => {

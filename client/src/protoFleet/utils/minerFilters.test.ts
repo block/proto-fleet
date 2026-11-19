@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { createModelFilter, filterByModel } from "./minerFilters";
 import type { ActiveFilters } from "@/shared/components/List/Filters/types";

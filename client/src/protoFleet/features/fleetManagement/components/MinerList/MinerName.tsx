@@ -63,7 +63,6 @@ const MinerName = ({
         ) : null}
         <SingleMinerActionsMenu
           deviceIdentifier={deviceIdentifier}
-          minerUrl={miner.url || undefined}
           deviceStatus={deviceStatus}
           minerName={name}
           workerName={miner.workerName}

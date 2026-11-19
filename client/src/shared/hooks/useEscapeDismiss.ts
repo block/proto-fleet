@@ -51,8 +51,4 @@ const useEscapeDismiss = (onDismiss: EscapeHandler | undefined) => {
   }, [registered]);
 };
 
-export const __resetEscapeStackForTests = () => {
-  stack.length = 0;
-};
-
 export { useEscapeDismiss };

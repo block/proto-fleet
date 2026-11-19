@@ -159,10 +159,8 @@ describe("ProtoOS router", () => {
     ["/efficiency", "efficiency"],
     ["/power-usage", "power usage"],
     ["/temperature", "temperature"],
-  ])("keeps MDK v1 CUs on the KPI layout and page at %s", async (path, label) => {
-    mocks.systemInfo = { identity: { deviceType: "container" } };
-    // MDK v1 CUs identify as containers but omit the aggregate-history capability.
-    mocks.adapter = {};
+  ])("keeps rigs on the KPI layout and page at %s", async (path, label) => {
+    mocks.systemInfo = { identity: { deviceType: "rig" } };
     const router = createMemoryRouter(routerConfig, { initialEntries: [path] });
     render(<RouterProvider router={router} />);
     await waitFor(() => expect(screen.getByText(label)).toBeInTheDocument());

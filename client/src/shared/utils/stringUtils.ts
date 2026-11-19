@@ -1,8 +1,3 @@
-// adds a comma separator for every 3 digits
-export const addCommas = (value?: number) => {
-  return value?.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",") || value;
-};
-
 export const getMacAddressDisplay = (value?: string) => {
   return value?.replace(/\./g, ":");
 };
@@ -45,11 +40,4 @@ export const convertToSentenceCase = (str: string) => {
     })
     .join(" ")
     .trim(); // Rejoin sentences with their original separators
-};
-
-export const convertToTitleCase = (str: string) => {
-  return str
-    .split(/[\s_]+/)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
 };

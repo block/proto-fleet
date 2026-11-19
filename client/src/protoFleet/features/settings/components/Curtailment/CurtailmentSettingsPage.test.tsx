@@ -1343,8 +1343,16 @@ describe("CurtailmentSettingsPage", () => {
     expect(within(getResponseProfileCard("Emergency full shed")).getByRole("button", { name: "Edit" })).toBeEnabled();
   });
 
-  it("preserves targeted miner response profiles in local state", async () => {
-    render(<CurtailmentSettingsContent initialResponseProfiles={[targetedMinersResponseProfile]} />);
+  it("preserves targeted miners when it saves a response profile through the API hook", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    mockResponseProfilesApi({ responseProfiles: [targetedMinersResponseProfile] });
+    updateResponseProfileMock.mockResolvedValue(targetedMinersResponseProfile);
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
 
     expect(screen.getByText("Targeted miners")).toBeVisible();
     expect(screen.getByText("650 kW target")).toBeVisible();
@@ -1355,7 +1363,13 @@ describe("CurtailmentSettingsPage", () => {
     fireEvent.click(getEnabledButton("Save profile"));
 
     await waitFor(() => expect(screen.queryByTestId("full-screen-two-pane-modal")).not.toBeInTheDocument());
-    expect(within(getResponseProfileCard("Targeted miners")).getByText("3 miners")).toBeVisible();
+    expect(updateResponseProfileMock).toHaveBeenCalledWith(
+      "targeted-miners",
+      expect.objectContaining({
+        scopeType: "explicitMiners",
+        deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
+      }),
+    );
   });
 
   it("renders provided sources with the current table styling", () => {
@@ -1508,8 +1522,15 @@ describe("CurtailmentSettingsPage", () => {
     ).toBeInTheDocument();
   });
 
-  it("creates a response profile in local state", async () => {
-    render(<CurtailmentSettingsContent initialSources={testSources} />);
+  it("requires a profile name before it creates a response profile through the API hook", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    createResponseProfileMock.mockResolvedValue(testResponseProfiles[0]);
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Create profile" }));
 
@@ -1535,6 +1556,7 @@ describe("CurtailmentSettingsPage", () => {
 
     fireEvent.click(getEnabledButton("Save profile"));
     await waitFor(() => expect(screen.getByText("Enter a profile name.")).toBeVisible());
+    expect(createResponseProfileMock).not.toHaveBeenCalled();
 
     fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Emergency full shed" } });
     fireEvent.change(screen.getByTestId("response-profile-curtail-batch-size"), { target: { value: "25" } });
@@ -1545,48 +1567,17 @@ describe("CurtailmentSettingsPage", () => {
     fireEvent.click(getEnabledButton("Save profile"));
 
     await waitFor(() => expect(screen.queryByTestId("full-screen-two-pane-modal")).not.toBeInTheDocument());
-    expect(screen.getByText("Emergency full shed")).toBeVisible();
-    expect(screen.getByText("100% reduction")).toBeVisible();
-    expect(screen.getByText("Whole fleet")).toBeVisible();
-    expect(within(getResponseProfileCard("Emergency full shed")).getByRole("button", { name: "Edit" })).toBeEnabled();
-  });
-
-  it("edits and deletes a response profile in local state", async () => {
-    render(<CurtailmentSettingsContent initialResponseProfiles={testResponseProfiles} initialSources={testSources} />);
-
-    fireEvent.click(within(getResponseProfileCard("Site Alpha 500 kW")).getByRole("button", { name: "Edit" }));
-
-    expect(screen.getByText("Edit response profile")).toBeInTheDocument();
-    expect(screen.getByLabelText("Profile name")).toHaveValue("Site Alpha 500 kW");
-    expect(screen.getByRole("button", { name: "Curtailment mode" })).toHaveTextContent("Fixed kW reduction");
-    expect(screen.getByLabelText("Fixed target reduction (kW)")).toHaveValue("500");
-    expect(screen.queryByLabelText("Min duration (sec)")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Max duration (sec)")).not.toBeInTheDocument();
-    expect(screen.getByTestId("response-profile-curtail-batch-size")).toHaveValue("50");
-    expect(screen.getByTestId("response-profile-curtail-batch-interval")).toHaveValue("30");
-    expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("0");
-    expect(screen.getByTestId("response-profile-restore-batch-interval")).toHaveValue("0");
-    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Sites\s+Select/ })).toBeInTheDocument();
-
-    fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Site Alpha 750 kW" } });
-    fireEvent.change(screen.getByLabelText("Fixed target reduction (kW)"), { target: { value: "750" } });
-    fireEvent.change(screen.getByTestId("response-profile-curtail-batch-size"), { target: { value: "75" } });
-    fireEvent.change(screen.getByTestId("response-profile-curtail-batch-interval"), { target: { value: "45" } });
-    fireEvent.change(screen.getByTestId("response-profile-restore-batch-size"), { target: { value: "50" } });
-    fireEvent.change(screen.getByTestId("response-profile-restore-batch-interval"), { target: { value: "120" } });
-    fireEvent.click(getEnabledButton("Save profile"));
-
-    await waitFor(() => expect(screen.queryByTestId("full-screen-two-pane-modal")).not.toBeInTheDocument());
-    expect(screen.getByText("Site Alpha 750 kW")).toBeVisible();
-    expect(screen.getByText("750 kW target")).toBeVisible();
-    expect(screen.queryByText("Site Alpha 500 kW")).not.toBeInTheDocument();
-
-    fireEvent.click(within(getResponseProfileCard("Site Alpha 750 kW")).getByRole("button", { name: "Edit" }));
-    fireEvent.click(getEnabledButton("Delete"));
-
-    await waitFor(() => expect(screen.queryByTestId("full-screen-two-pane-modal")).not.toBeInTheDocument());
-    expect(screen.queryByText("Site Alpha 750 kW")).not.toBeInTheDocument();
+    expect(createResponseProfileMock).toHaveBeenCalledTimes(1);
+    expect(createResponseProfileMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "Emergency full shed",
+        actionType: "fullFleet",
+        curtailBatchSize: "25",
+        curtailBatchIntervalSec: "60",
+        restoreBatchSize: "10",
+        restoreIntervalSec: "120",
+      }),
+    );
   });
 
   it("hides the test action when the response profile cannot be persisted", () => {
@@ -1626,12 +1617,13 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.getByLabelText("Fixed target reduction (kW)")).toHaveValue("900");
   });
 
-  it("opens the source dialog and closes it from Save without API props", async () => {
+  it("requires each source field before it creates a source through the API hook", async () => {
     vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
+    createSourceMock.mockResolvedValue(apiSources[0]);
 
     render(
       <MemoryRouter>
-        <CurtailmentSettingsContent initialSources={testSources} />
+        <CurtailmentSettingsPage />
       </MemoryRouter>,
     );
 
@@ -1672,7 +1664,7 @@ describe("CurtailmentSettingsPage", () => {
 
     const testConnectionButton = screen.getByRole("button", { name: "Test connection" });
     const saveButton = screen.getByRole("button", { name: "Save" });
-    expect(testConnectionButton).toBeDisabled();
+    expect(testConnectionButton).toBeEnabled();
     expect(saveButton).toBeEnabled();
     expect(testConnectionButton.compareDocumentPosition(saveButton)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 
@@ -1686,6 +1678,7 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.getByText("Enter a topic.")).toBeVisible();
     expect(screen.getByText("Enter a username.")).toBeVisible();
     expect(screen.getByText("Enter a password.")).toBeVisible();
+    expect(createSourceMock).not.toHaveBeenCalled();
 
     fillSourceForm();
 
@@ -1694,6 +1687,8 @@ describe("CurtailmentSettingsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(screen.queryByTestId("curtailment-source-modal")).not.toBeInTheDocument());
+    expect(createSourceMock).toHaveBeenCalledTimes(1);
+    expect(createSourceMock).toHaveBeenCalledWith(testSourceFormValues);
   });
 
   it("creates a source through the API hook from the routed page", async () => {
@@ -1971,21 +1966,6 @@ describe("CurtailmentSettingsPage", () => {
 
     expect(infoButton).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByTestId("curtailment-sources-info-popover")).not.toBeInTheDocument();
-  });
-
-  it("keeps source enablement as local state without API props", () => {
-    render(
-      <MemoryRouter>
-        <CurtailmentSettingsContent initialSources={testSources} />
-      </MemoryRouter>,
-    );
-
-    const alphaSwitch = within(getSourceRow("Site Alpha MQTT")).getByRole("checkbox");
-    expect(alphaSwitch).toBeChecked();
-
-    fireEvent.click(alphaSwitch);
-
-    expect(alphaSwitch).not.toBeChecked();
   });
 
   it("persists source enablement through the API hook on the routed page", () => {

@@ -8,10 +8,8 @@ import {
   type MetricTelemetry,
   type MetricTimeSeries,
   type MetricUnit,
-  type ModuleId,
   ROOT_MODULE_KEY,
   type TankNode,
-  type ViewSelection,
 } from "../contract";
 import type { HardwareSlice } from "../slices/hardwareSlice";
 import { getHashboardId } from "../utils/entityIds";
@@ -199,11 +197,6 @@ export const aggregateMetricTimeSeries = (
   return aggregateMetricTimeSeriesByValue(metricName, metrics);
 };
 
-export const moduleHashboardIds = (
-  topology: { modules: ContainerTopology["modules"] } | undefined,
-  moduleId: ModuleId,
-) => topology?.modules.get(moduleId)?.hashboardIds ?? [];
-
 const metricPointValues = (metric: MetricTimeSeries | undefined) =>
   metric?.points.map((point) => point.value).filter((value): value is number => typeof value === "number") ?? [];
 
@@ -299,59 +292,6 @@ const chartResultFromSegments = (
   };
 };
 
-const hashboardSegmentsForModule = (
-  topology: ContainerTopology,
-  moduleId: ModuleId,
-  metricName: KpiMetricName,
-  hashboardsTelemetry: HashboardsTelemetryById,
-) =>
-  moduleHashboardIds(topology, moduleId)
-    .map((id, index) => ({
-      id,
-      index,
-      node: topology.hashboards.get(id),
-      telemetry: hashboardsTelemetry.get(id),
-    }))
-    .flatMap<KpiChartSegment>(({ id, index, node, telemetry }) => {
-      if (!telemetry) return [];
-      const label = String(node?.location?.slot ?? index + 1);
-      return [
-        {
-          key: node?.identity.value ?? String(id),
-          label,
-          name: `Hashboard ${label}`,
-          colorIndex: node?.location?.slot ?? index + 1,
-          metric: telemetry[metricName],
-        },
-      ];
-    });
-
-const moduleChartResult = (
-  topology: ContainerTopology,
-  moduleId: ModuleId,
-  metricName: KpiMetricName,
-  rollups: RollupsByEntity,
-  hashboardsTelemetry: HashboardsTelemetryById,
-  duration: Duration,
-) => {
-  const hashboardIds = moduleHashboardIds(topology, moduleId);
-  const hashboardMetrics = hashboardIds.map((hashboardId) => hashboardsTelemetry.get(hashboardId));
-  const aggregateMetric =
-    rollups.get(asEntityKey(String(moduleId)))?.[metricName]?.timeSeries ??
-    aggregateMetricTimeSeries(
-      metricName,
-      hashboardMetrics.map((metrics) => metrics?.[metricName]),
-      hashboardMetrics,
-    );
-
-  return chartResultFromSegments(
-    aggregateMetric,
-    hashboardSegmentsForModule(topology, moduleId, metricName, hashboardsTelemetry),
-    duration,
-    "hashboards",
-  );
-};
-
 const tankHashboardIds = (topology: ContainerTopology, tank: TankNode) =>
   tank.moduleIds.flatMap((moduleId) => topology.modules.get(moduleId)?.hashboardIds ?? []);
 
@@ -403,18 +343,6 @@ const tankChartResult = (
 
   return chartResultFromSegments(aggregateMetric, tankSegments, duration, "tanks");
 };
-
-const containerChartResult = (
-  topology: ContainerTopology,
-  selection: ViewSelection | undefined,
-  metricName: KpiMetricName,
-  rollups: RollupsByEntity,
-  hashboardsTelemetry: HashboardsTelemetryById,
-  duration: Duration,
-) =>
-  selection?.level === "module"
-    ? moduleChartResult(topology, selection.moduleId, metricName, rollups, hashboardsTelemetry, duration)
-    : tankChartResult(topology, metricName, rollups, hashboardsTelemetry, duration);
 
 const rigChartResult = (
   hardware: HardwareSlice,
@@ -477,17 +405,15 @@ export const buildKpiChartData = ({
   hashboardsTelemetry,
   metricName,
   rollups,
-  selection,
 }: {
   duration: Duration;
   hardware: HardwareSlice;
   hashboardsTelemetry: HashboardsTelemetryById;
   metricName: KpiMetricName;
   rollups: RollupsByEntity;
-  selection?: ViewSelection;
 }) => {
   if (hardware.topology?.kind === "container") {
-    return containerChartResult(hardware.topology, selection, metricName, rollups, hashboardsTelemetry, duration);
+    return tankChartResult(hardware.topology, metricName, rollups, hashboardsTelemetry, duration);
   }
 
   return rigChartResult(hardware, metricName, rollups, hashboardsTelemetry, duration);

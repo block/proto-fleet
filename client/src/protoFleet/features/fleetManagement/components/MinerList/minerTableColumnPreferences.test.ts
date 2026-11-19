@@ -5,8 +5,6 @@ import {
   configurableMinerColumns,
   createDefaultMinerTableColumnPreferences,
   normalizeMinerTableColumnPreferences,
-  reorderMinerTableColumns,
-  updateMinerTableColumnVisibility,
 } from "./minerTableColumnPreferences";
 
 describe("minerTableColumnPreferences", () => {
@@ -32,13 +30,12 @@ describe("minerTableColumnPreferences", () => {
   });
 
   it("builds active columns with name fixed first and only visible configurable columns", () => {
-    const preferences = updateMinerTableColumnVisibility(
-      normalizeMinerTableColumnPreferences({
-        columns: configurableMinerColumns.map((columnId) => ({ id: columnId, visible: true })),
-      }),
-      minerCols.macAddress,
-      false,
-    );
+    const preferences = {
+      columns: configurableMinerColumns.map((columnId) => ({
+        id: columnId,
+        visible: columnId !== minerCols.macAddress,
+      })),
+    };
 
     expect(buildActiveMinerColumns(preferences)).toEqual([
       minerCols.name,
@@ -46,17 +43,6 @@ describe("minerTableColumnPreferences", () => {
     ]);
   });
 
-  it("reorders configurable columns without moving the fixed name column", () => {
-    const reordered = reorderMinerTableColumns(
-      normalizeMinerTableColumnPreferences({
-        columns: configurableMinerColumns.map((columnId) => ({ id: columnId, visible: true })),
-      }),
-      minerCols.groups,
-      minerCols.model,
-    );
-
-    expect(buildActiveMinerColumns(reordered).slice(0, 3)).toEqual([minerCols.name, minerCols.groups, minerCols.model]);
-  });
   it("lets allocation visibility and position follow saved column choices", () => {
     const preferences = normalizeMinerTableColumnPreferences({
       columns: [
@@ -65,7 +51,12 @@ describe("minerTableColumnPreferences", () => {
       ],
     });
     expect(buildActiveMinerColumns(preferences)).not.toContain(minerCols.assignedAccount);
-    const visible = updateMinerTableColumnVisibility(preferences, minerCols.assignedAccount, true);
+    const visible = normalizeMinerTableColumnPreferences({
+      columns: [
+        { id: minerCols.status, visible: true },
+        { id: minerCols.assignedAccount, visible: true },
+      ],
+    });
     expect(buildActiveMinerColumns(visible).slice(0, 3)).toEqual([
       minerCols.name,
       minerCols.status,

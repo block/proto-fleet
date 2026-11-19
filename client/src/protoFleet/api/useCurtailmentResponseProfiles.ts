@@ -312,10 +312,6 @@ function getApiResponseProfileScopeValues(
   };
 }
 
-export function clearCurtailmentResponseProfileSessionCacheForTest(): void {
-  sessionFormValuesByProfileId.clear();
-}
-
 function getModeParams(values: ResponseProfileFormValues): UpdateCurtailmentResponseProfileRequest["modeParams"] {
   if (values.actionType !== "fixedKwReduction") {
     return { case: undefined };

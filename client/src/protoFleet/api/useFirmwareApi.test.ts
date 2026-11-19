@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { renderHook, waitFor as waitForDefault } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   _resetConfigCache,
@@ -7,6 +7,9 @@ import {
   useFirmwareApi,
   validateFirmwareFile,
 } from "./useFirmwareApi";
+
+// The default poll interval is 50 ms. That interval is most of the run time of this file.
+const waitFor: typeof waitForDefault = (callback, options) => waitForDefault(callback, { interval: 1, ...options });
 
 const mockLogout = vi.fn();
 const mockUpload = vi.fn();
@@ -329,31 +332,6 @@ describe("useFirmwareApi", () => {
       );
 
       const file = new File(["data"], "proto-rig.swu");
-      const { result } = renderHook(() => useFirmwareApi());
-
-      // @ts-expect-error Runtime validation still protects untyped callers.
-      await expect(result.current.uploadFirmwareFile(file)).rejects.toThrow(
-        "Manufacturer, model, and firmware version are required.",
-      );
-      expect(mockUpload).not.toHaveBeenCalled();
-    });
-
-    it("requires metadata for non-swu upload", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue({
-          ok: true,
-          status: 200,
-          json: () =>
-            Promise.resolve({
-              allowed_extensions: [".zip"],
-              max_file_size_bytes: 500 * 1024 * 1024,
-              chunk_size_bytes: 1 * 1024 * 1024,
-            }),
-        }),
-      );
-
-      const file = new File(["data"], "firmware.zip");
       const { result } = renderHook(() => useFirmwareApi());
 
       // @ts-expect-error Runtime validation still protects untyped callers.

@@ -20,7 +20,6 @@ const mocks = vi.hoisted(() => ({
   useDeviceTheme: vi.fn(),
   useFirmwareUpdateInstalling: vi.fn(),
   useFwUpdateStatus: vi.fn(),
-  useHashboardSerials: vi.fn(),
   useIsMining: vi.fn(),
   useIsMiningDriverRunning: vi.fn(),
   useIsSleeping: vi.fn(),
@@ -133,7 +132,6 @@ vi.mock("@/protoOS/store", () => ({
   useDeviceTheme: () => mocks.useDeviceTheme(),
   useFirmwareUpdateInstalling: () => mocks.useFirmwareUpdateInstalling(),
   useFwUpdateStatus: () => mocks.useFwUpdateStatus(),
-  useHashboardSerials: () => mocks.useHashboardSerials(),
   useIsMining: () => mocks.useIsMining(),
   useIsMiningDriverRunning: () => mocks.useIsMiningDriverRunning(),
   useIsSleeping: () => mocks.useIsSleeping(),
@@ -203,7 +201,6 @@ describe("App auth gating", () => {
     mocks.useDeviceTheme.mockReturnValue("light");
     mocks.useFirmwareUpdateInstalling.mockReturnValue(false);
     mocks.useFwUpdateStatus.mockReturnValue(undefined);
-    mocks.useHashboardSerials.mockReturnValue([]);
     mocks.useIsMining.mockReturnValue(false);
     mocks.useIsMiningDriverRunning.mockReturnValue(true);
     mocks.useIsSleeping.mockReturnValue(false);

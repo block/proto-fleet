@@ -1,55 +1,19 @@
-import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { getComponentIcon } from "./utils";
 import { ComponentType as ErrorComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
+import { Alert, ControlBoard, Fan, Hashboard, LightningAlt } from "@/shared/assets/icons";
 
 describe("getComponentIcon", () => {
-  it("should return Alert icon for UNSPECIFIED component type", () => {
-    const icon = getComponentIcon(ErrorComponentType.UNSPECIFIED);
-    const { container } = render(<div>{icon}</div>);
-    expect(container.querySelector("svg")).toBeInTheDocument();
-  });
-
-  it("should return LightningAlt icon for PSU component type", () => {
-    const icon = getComponentIcon(ErrorComponentType.PSU);
-    const { container } = render(<div>{icon}</div>);
-    expect(container.querySelector("svg")).toBeInTheDocument();
-  });
-
-  it("should return Hashboard icon for HASH_BOARD component type", () => {
-    const icon = getComponentIcon(ErrorComponentType.HASH_BOARD);
-    const { container } = render(<div>{icon}</div>);
-    expect(container.querySelector("svg")).toBeInTheDocument();
-  });
-
-  it("should return Fan icon for FAN component type", () => {
-    const icon = getComponentIcon(ErrorComponentType.FAN);
-    const { container } = render(<div>{icon}</div>);
-    expect(container.querySelector("svg")).toBeInTheDocument();
-  });
-
-  it("should return ControlBoard icon for CONTROL_BOARD component type", () => {
-    const icon = getComponentIcon(ErrorComponentType.CONTROL_BOARD);
-    const { container } = render(<div>{icon}</div>);
-    expect(container.querySelector("svg")).toBeInTheDocument();
-  });
-
-  it("should return Alert icon for EEPROM component type", () => {
-    const icon = getComponentIcon(ErrorComponentType.EEPROM);
-    const { container } = render(<div>{icon}</div>);
-    expect(container.querySelector("svg")).toBeInTheDocument();
-  });
-
-  it("should return Alert icon for IO_MODULE component type", () => {
-    const icon = getComponentIcon(ErrorComponentType.IO_MODULE);
-    const { container } = render(<div>{icon}</div>);
-    expect(container.querySelector("svg")).toBeInTheDocument();
-  });
-
-  it("should return Alert icon as fallback for unmapped component types", () => {
-    // Test with an invalid component type to ensure fallback works
-    const icon = getComponentIcon(999 as ErrorComponentType);
-    const { container } = render(<div>{icon}</div>);
-    expect(container.querySelector("svg")).toBeInTheDocument();
+  it.each([
+    ["UNSPECIFIED", ErrorComponentType.UNSPECIFIED, Alert],
+    ["PSU", ErrorComponentType.PSU, LightningAlt],
+    ["HASH_BOARD", ErrorComponentType.HASH_BOARD, Hashboard],
+    ["FAN", ErrorComponentType.FAN, Fan],
+    ["CONTROL_BOARD", ErrorComponentType.CONTROL_BOARD, ControlBoard],
+    ["EEPROM", ErrorComponentType.EEPROM, Alert],
+    ["IO_MODULE", ErrorComponentType.IO_MODULE, Alert],
+    ["an unmapped value", 999 as ErrorComponentType, Alert],
+  ])("returns the expected icon for %s", (_name, componentType, expectedIcon) => {
+    expect(getComponentIcon(componentType)).toEqual(expect.objectContaining({ type: expectedIcon }));
   });
 });

@@ -30,30 +30,6 @@ export { CONTAINER_HASHBOARD_COLUMNS };
 export const CONTAINER_HASHBOARD_ROWS = CONTAINER_HASHBOARD_ROW_LETTERS.length * 2;
 
 /**
- * Display-row order labels, top to bottom:
- * ["F0", "F1", "E0", "E1", "D0", "D1", "C0", "C1", "B0", "B1", "A0", "A1"].
- */
-export const CONTAINER_HASHBOARD_ROW_ORDER: string[] = CONTAINER_HASHBOARD_ROW_LETTERS.flatMap((letter) => [
-  `${letter}0`,
-  `${letter}1`,
-]);
-
-/**
- * Label for a display row, e.g. row 0 -> "F0", row 1 -> "F1", row 11 -> "A1".
- * Returns the raw index as a string if the row is out of range.
- */
-export const getContainerRowLabel = (row: number): string => {
-  if (!Number.isInteger(row) || row < 0 || row >= CONTAINER_HASHBOARD_ROWS) {
-    return `${row}`;
-  }
-
-  const letter = CONTAINER_HASHBOARD_ROW_LETTERS[Math.floor(row / 2)];
-  const subRow = row % 2;
-
-  return `${letter}${subRow}`;
-};
-
-/**
  * Serpentine ASIC label for a grid position, e.g. (row 0, col 0) -> "F1",
  * (row 1, col 0, 28 cols) -> "F56", (row 1, col 27, 28 cols) -> "F29".
  * Returns "" if the position is out of range.

@@ -51,12 +51,9 @@ const fanId = asComponentId("container:ct1:fan:dry-cooler-fan-1");
 const pduId = asComponentId("container:ct1:distribution:pdu-1");
 
 describe("Container diagnostics", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    hosting.adapter = null;
-    useMinerStore.getState().ui.setTemperatureUnit("C");
-    useMinerStore.getState().ui.setFlowUnit("GPM");
-    const fixture = tanksFixture(6);
+  // Most tests read tank-level values. One module for each tank keeps the render small.
+  const loadContainer = (moduleCount = 1) => {
+    const fixture = tanksFixture(6, moduleCount);
     const owner = { kind: "container" as const, id: fixture.topology.containerId };
     fixture.hardware.plant.set(plantId, { ref: { id: plantId, kind: "plant", owner }, kind: "plant", name: "Plant" });
     fixture.hardware.plant.set(pduId, {
@@ -122,6 +119,14 @@ describe("Container diagnostics", () => {
       error: undefined,
       data: useMinerStore.getState().telemetry,
     });
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    hosting.adapter = null;
+    useMinerStore.getState().ui.setTemperatureUnit("C");
+    useMinerStore.getState().ui.setFlowUnit("GPM");
+    loadContainer();
   });
 
   afterEach(() => {
@@ -412,6 +417,7 @@ describe("Container diagnostics", () => {
   });
 
   test("keeps sparse tank maps in their physical banks and scopes bank commands accordingly", async () => {
+    loadContainer(16);
     const stopScopedMining = vi.fn().mockResolvedValue(undefined);
     hosting.adapter = {
       stopScopedMining,
@@ -740,7 +746,7 @@ describe("Container diagnostics", () => {
     "disables tank and bank power when state is %s",
     async (miningStatus) => {
       hosting.adapter = { startScopedMining: vi.fn(), stopScopedMining: vi.fn() } as unknown as MinerAdapter;
-      const fixture = tanksFixture(6);
+      const fixture = tanksFixture(6, 1);
       fixture.telemetry.rollupsByEntity.forEach((rollup) => {
         rollup.miningStatus = miningStatus;
       });
@@ -758,6 +764,7 @@ describe("Container diagnostics", () => {
   );
 
   test("sends only the selected tank or bank's modules and serializes power commands", async () => {
+    loadContainer(16);
     const command = deferred<void>();
     const stopScopedMining = vi.fn().mockReturnValue(command.promise);
     hosting.adapter = {
@@ -797,6 +804,7 @@ describe("Container diagnostics", () => {
   test.each(["Tank 1", "Left tanks"])(
     "confirms turning on %s and allows dismissal without a command",
     async (label) => {
+      loadContainer(16);
       const fixture = tanksFixture(6);
       fixture.telemetry.rollupsByEntity.forEach((rollup) => {
         rollup.miningStatus = "stopped";

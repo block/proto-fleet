@@ -1,7 +1,6 @@
 import { memo, useMemo } from "react";
-import { useParams } from "react-router-dom";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { resolvedKpiViewSelection, useKpiViewSelection } from "@/protoOS/features/kpis/kpiViewSelection";
+import { useKpiViewSelection } from "@/protoOS/features/kpis/kpiViewSelection";
 import {
   convertAndFormatMeasurement,
   convertValueUnits,
@@ -14,7 +13,7 @@ import { getDisplayValue } from "@/shared/utils/stringUtils";
 
 const TabMenuWrapper = memo(() => {
   const temperatureUnit = useTemperatureUnit();
-  const selection = resolvedKpiViewSelection(useKpiViewSelection());
+  const selection = useKpiViewSelection();
   const miner = useMiner(selection);
   // Prefix minerRoot so KPI tab navigation stays inside the embedded miner view
   // when fleet-hosted (minerRoot is "" in standalone protoOS). Without it the
@@ -22,16 +21,11 @@ const TabMenuWrapper = memo(() => {
   // "/:siteScope" route treats the tab segment as an unknown site, redirecting
   // back to the dashboard.
   const { minerRoot } = useMinerHosting();
-  const { moduleId, tankId } = useParams();
-  const tabBasePath =
-    tankId && moduleId
-      ? `${minerRoot}/tanks/${encodeURIComponent(tankId)}/modules/${encodeURIComponent(moduleId)}`
-      : minerRoot;
   const activePathAliases = useMemo(
     () => ({
-      hashrate: [tabBasePath || "/"],
+      hashrate: [minerRoot || "/"],
     }),
-    [tabBasePath],
+    [minerRoot],
   );
 
   const tabItems = useMemo(
@@ -75,7 +69,7 @@ const TabMenuWrapper = memo(() => {
     [miner, temperatureUnit],
   );
 
-  return <TabMenu items={tabItems} activePathAliases={activePathAliases} basePath={tabBasePath} />;
+  return <TabMenu items={tabItems} activePathAliases={activePathAliases} basePath={minerRoot} />;
 });
 
 TabMenuWrapper.displayName = "TabMenuWrapper";

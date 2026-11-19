@@ -163,52 +163,7 @@ describe("MiningPoolPage", () => {
     });
   });
 
-  it("renders the mining pool page", () => {
-    render(<MiningPoolPage />);
-    // Basic smoke test to ensure component renders without errors
-  });
-
   describe("Fan detection", () => {
-    describe("When all fans have RPM = 0 (no fans connected)", () => {
-      beforeEach(() => {
-        // All fans report RPM = 0 → no fans connected (can't distinguish disconnected vs dead fan)
-        mockUseCoolingStatus.mockReturnValue({
-          data: {
-            fans: [
-              { slot: 1, rpm: 0 },
-              { slot: 2, rpm: 0 },
-              { slot: 3, rpm: 0 },
-            ],
-          },
-          setCooling: mockSetCooling,
-          loaded: true,
-          pending: false,
-        });
-      });
-
-      it("shows dialog when Continue is clicked", async () => {
-        render(<MiningPoolPage />);
-
-        const continueButton = screen.getByText("Continue");
-        continueButton.click();
-
-        await waitFor(() => {
-          expect(screen.getByTestId("no-fans-dialog")).toBeInTheDocument();
-        });
-      });
-
-      it("shows dialog when Skip is clicked", async () => {
-        render(<MiningPoolPage />);
-
-        const skipButton = screen.getByText("Skip");
-        skipButton.click();
-
-        await waitFor(() => {
-          expect(screen.getByTestId("no-fans-dialog")).toBeInTheDocument();
-        });
-      });
-    });
-
     describe("While cooling status is still loading", () => {
       beforeEach(() => {
         mockUseCoolingStatus.mockReturnValue({
@@ -397,48 +352,6 @@ describe("MiningPoolPage", () => {
         // Should not navigate
         expect(mockNavigate).not.toHaveBeenCalled();
       });
-
-      it("shows error toast and keeps dialog open when cooling mode change fails", async () => {
-        // Mock setCooling to call onError
-        const errorMessage = "API connection failed";
-        mockSetCooling.mockImplementation(
-          ({ onError }: { onError: (error: { error: { message: string } }) => void }) => {
-            onError({ error: { message: errorMessage } });
-          },
-        );
-
-        render(<MiningPoolPage />);
-
-        // Click Continue
-        const continueButton = screen.getByText("Continue");
-        continueButton.click();
-
-        // Wait for dialog
-        await waitFor(() => {
-          expect(screen.getByTestId("no-fans-dialog")).toBeInTheDocument();
-        });
-
-        // Click "Confirm immersion cooling"
-        const immersionButton = screen.getByText("Confirm immersion cooling");
-        immersionButton.click();
-
-        // Should show error toast
-        await waitFor(() => {
-          expect(mockPushToast).toHaveBeenCalledWith({
-            message: errorMessage,
-            status: "error",
-          });
-        });
-
-        // Should keep dialog open
-        expect(screen.getByTestId("no-fans-dialog")).toBeInTheDocument();
-
-        // Should not proceed with setup
-        expect(mockCheckAccess).not.toHaveBeenCalled();
-
-        // Should not navigate
-        expect(mockNavigate).not.toHaveBeenCalled();
-      });
     });
 
     describe("Skip flow (when no fans connected)", () => {
@@ -521,48 +434,66 @@ describe("MiningPoolPage", () => {
         // Should not proceed with setup
         expect(mockCheckAccess).not.toHaveBeenCalled();
       });
+    });
 
-      it("shows error toast and keeps dialog open when cooling mode change fails", async () => {
-        // Mock setCooling to call onError
-        const errorMessage = "API connection failed";
-        mockSetCooling.mockImplementation(
-          ({ onError }: { onError: (error: { error: { message: string } }) => void }) => {
-            onError({ error: { message: errorMessage } });
+    describe("Cooling mode change failure (when no fans connected)", () => {
+      beforeEach(() => {
+        mockUseCoolingStatus.mockReturnValue({
+          data: {
+            fans: [
+              { slot: 1, rpm: 0 },
+              { slot: 2, rpm: 0 },
+              { slot: 3, rpm: 0 },
+            ],
           },
-        );
-
-        render(<MiningPoolPage />);
-
-        // Click Skip
-        const skipButton = screen.getByText("Skip");
-        skipButton.click();
-
-        // Wait for dialog
-        await waitFor(() => {
-          expect(screen.getByTestId("no-fans-dialog")).toBeInTheDocument();
+          setCooling: mockSetCooling,
+          loaded: true,
+          pending: false,
         });
-
-        // Click "Confirm immersion cooling"
-        const immersionButton = screen.getByText("Confirm immersion cooling");
-        immersionButton.click();
-
-        // Should show error toast
-        await waitFor(() => {
-          expect(mockPushToast).toHaveBeenCalledWith({
-            message: errorMessage,
-            status: "error",
-          });
-        });
-
-        // Should keep dialog open
-        expect(screen.getByTestId("no-fans-dialog")).toBeInTheDocument();
-
-        // Should not navigate
-        expect(mockNavigate).not.toHaveBeenCalled();
-
-        // Should not proceed with setup
-        expect(mockCheckAccess).not.toHaveBeenCalled();
       });
+
+      it.each(["Continue", "Skip"])(
+        "shows error toast and keeps dialog open when cooling mode change fails after %s",
+        async (buttonText) => {
+          // Mock setCooling to call onError
+          const errorMessage = "API connection failed";
+          mockSetCooling.mockImplementation(
+            ({ onError }: { onError: (error: { error: { message: string } }) => void }) => {
+              onError({ error: { message: errorMessage } });
+            },
+          );
+
+          render(<MiningPoolPage />);
+
+          screen.getByText(buttonText).click();
+
+          // Wait for dialog
+          await waitFor(() => {
+            expect(screen.getByTestId("no-fans-dialog")).toBeInTheDocument();
+          });
+
+          // Click "Confirm immersion cooling"
+          const immersionButton = screen.getByText("Confirm immersion cooling");
+          immersionButton.click();
+
+          // Should show error toast
+          await waitFor(() => {
+            expect(mockPushToast).toHaveBeenCalledWith({
+              message: errorMessage,
+              status: "error",
+            });
+          });
+
+          // Should keep dialog open
+          expect(screen.getByTestId("no-fans-dialog")).toBeInTheDocument();
+
+          // Should not proceed with setup
+          expect(mockCheckAccess).not.toHaveBeenCalled();
+
+          // Should not navigate
+          expect(mockNavigate).not.toHaveBeenCalled();
+        },
+      );
     });
   });
 });

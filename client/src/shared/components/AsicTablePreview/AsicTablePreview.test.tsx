@@ -152,13 +152,11 @@ describe("AsicTablePreview", () => {
     const midOpacity = parseFloat(midChip!.style.opacity);
     const highOpacity = parseFloat(highChip!.style.opacity);
 
-    // All should be within the mapped range
-    expect(lowOpacity).toBeGreaterThanOrEqual(0.05);
+    // The opacity decreases as the value increases, and stays in the mapped range.
     expect(lowOpacity).toBeLessThanOrEqual(0.4);
-    expect(midOpacity).toBeGreaterThanOrEqual(0.05);
-    expect(midOpacity).toBeLessThanOrEqual(0.4);
+    expect(lowOpacity).toBeGreaterThan(midOpacity);
+    expect(midOpacity).toBeGreaterThan(highOpacity);
     expect(highOpacity).toBeGreaterThanOrEqual(0.05);
-    expect(highOpacity).toBeLessThanOrEqual(0.4);
   });
 
   it("uses default colors when not provided", () => {
