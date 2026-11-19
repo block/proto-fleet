@@ -648,7 +648,9 @@ func (x *InstanceSupport) GetError() string {
 	return ""
 }
 
-// FrigatePackage is an uploaded, signature-checked Frigate Debian package.
+// FrigatePackage is an uploaded Frigate Debian package. Fleet checked the
+// package against its release statement. release_key_id tells whether Fleet
+// also verified the statement's signature.
 type FrigatePackage struct {
 	state        protoimpl.MessageState `protogen:"open.v1"`
 	Id           string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -659,7 +661,11 @@ type FrigatePackage struct {
 	Sha256     string `protobuf:"bytes,5,opt,name=sha256,proto3" json:"sha256,omitempty"`
 	SizeBytes  int64  `protobuf:"varint,6,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
 	Repository string `protobuf:"bytes,7,opt,name=repository,proto3" json:"repository,omitempty"`
-	// release_key_id is "sha256:" plus the hex SHA-256 of the signing key's SPKI DER.
+	// release_key_id is "sha256:" plus the hex SHA-256 of the SPKI DER of the key
+	// that verified the release signature. It is empty when Fleet stored the
+	// package without verifying the signature, which can happen only when Fleet
+	// has no installed release key. The controllers verify the signature in
+	// every case.
 	ReleaseKeyId        string                 `protobuf:"bytes,8,opt,name=release_key_id,json=releaseKeyId,proto3" json:"release_key_id,omitempty"`
 	MinInstalledVersion string                 `protobuf:"bytes,9,opt,name=min_installed_version,json=minInstalledVersion,proto3" json:"min_installed_version,omitempty"`
 	IssuedAt            *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=issued_at,json=issuedAt,proto3" json:"issued_at,omitempty"`

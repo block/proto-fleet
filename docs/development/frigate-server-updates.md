@@ -18,7 +18,12 @@ This page is for operators and developers. The wire contract is
    Firmware → Files**, in the **Proto Containers** section. That section is
    hidden while no Proto Container is paired where the user can list or update
    one. The Fleet UI, the text the Fleet server writes for it, and ProtoOS call
-   Frigate "controller software" and do not use the name Frigate.
+   Frigate "controller software" and do not use the name Frigate. The upload
+   dialog has one file picker for all the files of a release. It identifies
+   each file by its extension: `.deb` for the package, `.json` for the release
+   statement, `.sig` for the release signature, and `.pem` for the optional
+   release public key; see
+   [Signature check at upload](#signature-check-at-upload).
 2. `StartUpdate` records a job for one container. The `frigate-update-runner`,
    which runs only on the active Fleet replica, then:
    - stages the package on each controller with that controller's own
@@ -56,9 +61,11 @@ drive the install steps.
   `UPDATE_REMOTE_TRIGGER_DISABLED`. Fleet's verdict is advisory; Frigate checks
   again when the update starts.
 - **Controllers re-verify the signature.** Fleet checks the release statement
-  against its own key directory only to reject a bad upload early. Each
-  controller verifies the statement against the keys it trusts and refuses the
-  package if they differ. Fleet's check is not a security boundary.
+  only to reject a bad upload early. Each controller verifies the statement
+  against the keys it trusts and refuses the package if they differ. Fleet's
+  check is not a security boundary, and a Fleet that has no release key
+  installed accepts an upload it cannot verify; see
+  [Signature check at upload](#signature-check-at-upload).
 - **Control archives must be gzip or uncompressed.** Fleet reads the package's
   `control` file with the Go standard library to confirm it matches the signed
   statement, so a `.deb` whose `control.tar` is compressed with xz or zstd is
@@ -115,7 +122,7 @@ All settings are Fleet server flags with environment variables:
 | --- | --- | --- |
 | `FRIGATE_UPDATE_PACKAGE_DIR` | `firmware/frigate-packages` | Where uploaded packages are stored. The default is inside the persisted firmware volume (`artifacts/firmware` is mounted at `/app/firmware` by the standard compose files), so the packages survive container recreation. Any other directory must be on persistent storage and writable by the server user. |
 | `FRIGATE_UPDATE_MAX_PACKAGE_SIZE` | `536870912` | Largest package Fleet accepts, in bytes. |
-| `FRIGATE_UPDATE_RELEASE_KEYS_DIR` | empty | Directory of trusted release public keys. Empty disables package upload; the rest of the feature still works for packages already stored. With the standard compose deployment, set it to `/app/frigate-release-keys` (see [Release key directory](#release-key-directory)). |
+| `FRIGATE_UPDATE_RELEASE_KEYS_DIR` | empty | Directory of trusted release public keys. When it is empty, or holds no key, Fleet has no installed release key and checks an upload as [Signature check at upload](#signature-check-at-upload) describes. With the standard compose deployment, set it to `/app/frigate-release-keys` (see [Release key directory](#release-key-directory)). |
 | `FRIGATE_UPDATE_POLL_INTERVAL` | `5s` | Runner tick and rollout status poll interval. |
 | `FRIGATE_UPDATE_STAGE_STALL_TIMEOUT` | `10m` | Staging that makes no progress for this long fails the job. |
 | `FRIGATE_UPDATE_START_TIMEOUT` | `10m` | A job that has been `starting` this long, with a fresh status read showing Frigate never accepted the job, is failed with `FLEET_START_TIMEOUT`. |
@@ -131,6 +138,49 @@ The same sweep removes orphan package directories: a blob directory with no live
 package row (an import that failed between storing the file and recording it, or
 a package whose delete could not remove the file) that is older than one hour.
 The grace period keeps it from racing an import that is still recording its row.
+
+### Signature check at upload
+
+What Fleet does with the release signature depends on whether it has a release
+key installed in its [release key directory](#release-key-directory).
+
+| Fleet has an installed key | Public key in the upload | Result |
+| --- | --- | --- |
+| Yes | Not used | The signature must verify against an installed key. If it does not, Fleet refuses the upload. |
+| No | The key that signed the release | Fleet verifies the signature with that key and records the key ID. |
+| No | A key that did not sign the release | Fleet stores the package without a verified signature and returns a warning. |
+| No | None | Fleet stores the package without a verified signature and returns a warning. |
+
+A key from the uploader never replaces an installed key. A key directory that
+Fleet cannot read, or a key file that does not parse, is an error: Fleet does
+not treat it as "no installed key".
+
+The public key is PEM `PUBLIC KEY` data for an ECDSA P-256 key, at most 4096
+bytes. Fleet refuses a public key file that it cannot parse, because that is a
+mistake in the upload and not a signature that Fleet could not confirm.
+
+These checks do not need a key, so Fleet applies them to every upload and
+refuses a package that fails one:
+
+- The statement is in the canonical form, and the signature is 1 to 128 bytes.
+- The package size and SHA-256 match the statement.
+- The `.deb` control package, version and architecture match the statement.
+
+A package that Fleet stored without a verified signature has an empty
+`release_key_id`. The Fleet UI shows "Not verified" as its signer key.
+For such a package Fleet cannot compare the signing key with the keys the
+controllers trust before an update starts, so that readiness check
+(`FLEET_RELEASE_KEY_UNTRUSTED`) is skipped. The controllers still verify the
+signature before they stop, and a package with a bad signature ends the rollout
+in the verifying phase after it was staged.
+
+When Fleet verifies the signature with a key from the upload, it records the
+key ID as usual. Before an update starts, Fleet then requires every controller
+to trust that key ID, so a package that was signed with a different key does not
+reach staging.
+
+The activity log entry for an upload records the outcome as `signature_check`:
+`installed_key`, `uploaded_key` or `unverified`.
 
 ### Release key directory
 
@@ -170,7 +220,7 @@ cd <install>/deployment
 ```
 
 Later key changes need no restart. HA deployments do not mount this directory
-yet.
+yet, so an HA Fleet has no installed release key.
 
 A key file may be a symlink (Kubernetes secret mounts and `ln -s` rotations are
 followed; a dangling link is an error). A `.pem` file that holds no key, or any
@@ -198,7 +248,8 @@ refuse after Fleet had staged the package wastes the whole staging step. The
 ```text
 POST /api/v1/frigate-packages/upload/chunked
 {"filename": "frigate_1.4.0_arm64.deb", "size": 123456789,
- "release_statement_b64": "...", "release_signature_b64": "..."}
+ "release_statement_b64": "...", "release_signature_b64": "...",
+ "release_public_key_b64": "..."}
 -> {"upload_id": "...", "version": "1.4.0", "architecture": "arm64"}
 
 PUT  /api/v1/frigate-packages/upload/chunked/{upload_id}      Content-Range: bytes 0-33554431/123456789
@@ -206,7 +257,11 @@ POST /api/v1/frigate-packages/upload/chunked/{upload_id}/complete
 -> {"package": {...}, "reused": false}
 ```
 
-The signature is checked before any bytes are accepted. At complete, Fleet
+`release_public_key_b64` is optional. Both responses carry a `warning` string
+when Fleet accepts the package without a verified signature; see
+[Signature check at upload](#signature-check-at-upload).
+
+The release is checked before any bytes are accepted. At complete, Fleet
 re-hashes the file, compares size and SHA-256 with the statement, and compares
 the `.deb` control package, version and architecture with the statement. The
 `control.tar.gz` is decompressed with a 1 MiB cap and the `ar` member sizes are
@@ -222,6 +277,19 @@ uses the package. Otherwise the upload fails with `FailedPrecondition`, because
 changing the statement under a running job would make the stored record disagree
 with what the controllers were given. A re-upload that differs only in the
 signature bytes is not a change: ECDSA signatures are randomized.
+
+An upload that Fleet did not verify never replaces a release that Fleet did
+verify:
+
+- With the same statement, the stored record and its verified signature stay,
+  and the response has no warning.
+- With a different statement, the upload fails with `FailedPrecondition`. Delete
+  the stored package first, or upload with the release public key.
+
+When the stored package is not verified either, the new statement and signature
+replace the stored ones, with the same rule for a job that still blocks the
+container. Uploading an unverified package again with the key that signed it
+makes it a verified package.
 
 ### nginx body limits
 

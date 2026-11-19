@@ -32,15 +32,64 @@ const (
 	orphanBlobGrace = time.Hour
 )
 
-// Package is an uploaded, signature-checked Frigate package.
+// MaxReleasePublicKeyBytes bounds a public key supplied with an upload. One
+// PEM-encoded ECDSA P-256 public key is about 180 bytes. The limit keeps the
+// largest statement, signature and key inside the upload handler's body limit.
+const MaxReleasePublicKeyBytes = 4 << 10
+
+// SignatureCheck says how Fleet checked a release signature at upload.
+type SignatureCheck string
+
+const (
+	// SignatureInstalledKey means the signature verified against a release key
+	// installed on Fleet.
+	SignatureInstalledKey SignatureCheck = "installed_key"
+	// SignatureUploadedKey means Fleet has no installed release key and the
+	// signature verified against the public key supplied with the upload.
+	SignatureUploadedKey SignatureCheck = "uploaded_key"
+	// SignatureUnverified means Fleet has no installed release key and did not
+	// verify the signature: no public key was supplied, or the signature does
+	// not verify with the supplied one.
+	SignatureUnverified SignatureCheck = "unverified"
+)
+
+// Operator-facing text. It is short on purpose: one sentence for what happened
+// and one for what happens next.
+const (
+	warnNoReleaseKey       = "Fleet has no release key to verify the signature. The controllers verify it before they install."
+	warnReleaseKeyMismatch = "The signature does not match the public key. The controllers verify it before they install."
+
+	errSignatureFile  = "The release signature file is not a valid signature."
+	errPublicKeyFile  = "The public key file is not a valid ECDSA P-256 public key."
+	errVerifiedStored = "This package is already stored and verified. To replace its release statement, " +
+		"upload it with the public key, or delete the stored package first."
+)
+
+// ReleaseCheck is the outcome of checking a release statement at upload.
+type ReleaseCheck struct {
+	Statement frigaterelease.Statement
+	// KeyID identifies the key that verified the signature. It is empty when
+	// Fleet did not verify the signature.
+	KeyID     string
+	Signature SignatureCheck
+	// Warning is operator-facing text. It is set only when Signature is
+	// SignatureUnverified.
+	Warning string
+}
+
+// Package is an uploaded Frigate package. Fleet checked it against its release
+// statement, and checked the statement's signature when it had a key to check
+// it with.
 type Package struct {
-	ID                  uuid.UUID
-	Filename            string
-	Version             string
-	Architecture        string
-	SHA256              string
-	SizeBytes           int64
-	Repository          string
+	ID           uuid.UUID
+	Filename     string
+	Version      string
+	Architecture string
+	SHA256       string
+	SizeBytes    int64
+	Repository   string
+	// ReleaseKeyID identifies the key that verified the release signature. It
+	// is empty when Fleet stored the package without verifying the signature.
 	ReleaseKeyID        string
 	MinInstalledVersion string
 	IssuedAt            time.Time
@@ -80,33 +129,35 @@ func packageFromModel(r sqlc.FrigateUpdatePackage, uploader string) Package {
 }
 
 // ValidateUploadStatement checks a release statement and its signature before
-// any package bytes are accepted, so an operator learns about a bad signature or
-// an oversized package immediately. Fleet's check is advisory: every controller
-// re-verifies the signature against its own trusted keys.
-func (s *Service) ValidateUploadStatement(ctx context.Context, statement, signature []byte, filename string, size int64) (frigaterelease.Verified, error) {
+// any package bytes are accepted, so an operator learns about a bad statement or
+// an oversized package immediately. publicKey is the optional PEM public key
+// supplied with the upload; see checkRelease for when it is used. Fleet's check
+// is advisory: every controller re-verifies the signature against its own
+// trusted keys.
+func (s *Service) ValidateUploadStatement(ctx context.Context, statement, signature, publicKey []byte, filename string, size int64) (ReleaseCheck, error) {
 	if err := s.auth.AuthorizeAnySite(ctx); err != nil {
-		return frigaterelease.Verified{}, err
+		return ReleaseCheck{}, err
 	}
 	if _, err := principal(ctx); err != nil {
-		return frigaterelease.Verified{}, err
+		return ReleaseCheck{}, err
 	}
 	if err := validateFilename(filename); err != nil {
-		return frigaterelease.Verified{}, err
+		return ReleaseCheck{}, err
 	}
-	verified, err := s.verify(statement, signature)
+	check, err := s.checkRelease(statement, signature, publicKey)
 	if err != nil {
-		return frigaterelease.Verified{}, err
+		return ReleaseCheck{}, err
 	}
 	if size <= 0 {
-		return frigaterelease.Verified{}, fleeterror.NewInvalidArgumentError("package size must be greater than zero")
+		return ReleaseCheck{}, fleeterror.NewInvalidArgumentError("package size must be greater than zero")
 	}
-	if size != verified.Statement.Size {
-		return frigaterelease.Verified{}, fleeterror.NewInvalidArgumentErrorf("package size %d does not match the signed release statement (%d)", size, verified.Statement.Size)
+	if size != check.Statement.Size {
+		return ReleaseCheck{}, fleeterror.NewInvalidArgumentErrorf("package size %d does not match the signed release statement (%d)", size, check.Statement.Size)
 	}
 	if size > s.cfg.MaxPackageSize {
-		return frigaterelease.Verified{}, fleeterror.NewInvalidArgumentErrorf("package size exceeds the maximum allowed size (%d bytes)", s.cfg.MaxPackageSize)
+		return ReleaseCheck{}, fleeterror.NewInvalidArgumentErrorf("package size exceeds the maximum allowed size (%d bytes)", s.cfg.MaxPackageSize)
 	}
-	return verified, nil
+	return check, nil
 }
 
 func validateFilename(name string) error {
@@ -121,24 +172,78 @@ func validateFilename(name string) error {
 	return nil
 }
 
-func (s *Service) verify(statement, signature []byte) (frigaterelease.Verified, error) {
-	if s.verifier == nil {
-		return frigaterelease.Verified{}, fleeterror.NewFailedPreconditionError("Controller software upload is disabled: no release keys are configured")
+// checkRelease checks a release statement and its signature.
+//
+// When Fleet has installed release keys, the signature must verify against one
+// of them, and publicKey is not used: a key from the uploader cannot replace
+// the keys an operator installed.
+//
+// When Fleet has no installed release key, the upload is still accepted. The
+// signature is checked against publicKey when one is supplied. If none is
+// supplied, or the signature does not verify with it, the result is
+// SignatureUnverified with a warning, and the controllers decide. Fleet's check
+// was never the security boundary: every controller verifies the signature
+// against its own trusted keys before it stops anything.
+//
+// A key directory that cannot be read, or that holds a file that does not
+// parse, is an error and never falls back to publicKey, so a bad key rotation
+// does not turn the installed-key check off.
+func (s *Service) checkRelease(statement, signature, publicKey []byte) (ReleaseCheck, error) {
+	if s.verifier != nil {
+		verified, err := s.verifier.Verify(statement, signature, "")
+		switch {
+		case err == nil:
+			return ReleaseCheck{Statement: verified.Statement, KeyID: verified.KeyID, Signature: SignatureInstalledKey}, nil
+		case errors.Is(err, frigaterelease.ErrNoTrustedKeys):
+			// The key directory is empty: continue without an installed key.
+		case errors.Is(err, frigaterelease.ErrSignatureInvalid),
+			errors.Is(err, frigaterelease.ErrKeyIDMismatch),
+			errors.Is(err, frigaterelease.ErrStatementInvalid):
+			return ReleaseCheck{}, fleeterror.NewInvalidArgumentErrorf("release statement rejected: %v", err)
+		default:
+			slog.Error("frigate release verification failed", "error", err)
+			return ReleaseCheck{}, fleeterror.NewInternalError("failed to verify the release statement")
+		}
 	}
-	verified, err := s.verifier.Verify(statement, signature, "")
+	return checkReleaseWithoutInstalledKey(statement, signature, publicKey)
+}
+
+// checkReleaseWithoutInstalledKey is checkRelease for a Fleet that has no
+// installed release key. The statement must still be canonical and the
+// signature within the size limit: Fleet reads the package facts from the
+// statement, and the controllers refuse a manifest that breaks either rule.
+func checkReleaseWithoutInstalledKey(statement, signature, publicKey []byte) (ReleaseCheck, error) {
+	if len(signature) == 0 || len(signature) > frigaterelease.MaxSignatureBytes {
+		return ReleaseCheck{}, fleeterror.NewInvalidArgumentError(errSignatureFile)
+	}
+	parsed, err := frigaterelease.ParseStatement(statement)
+	if err != nil {
+		return ReleaseCheck{}, fleeterror.NewInvalidArgumentErrorf("release statement rejected: %v", err)
+	}
+	check := ReleaseCheck{Statement: parsed, Signature: SignatureUnverified, Warning: warnNoReleaseKey}
+	if len(publicKey) == 0 {
+		return check, nil
+	}
+	// A file that is not a release public key is a mistake in the upload, not
+	// a signature Fleet could not confirm, so it is refused. Too large, not
+	// PEM, not a public key and not P-256 all get the same short message.
+	if len(publicKey) > MaxReleasePublicKeyBytes {
+		return ReleaseCheck{}, fleeterror.NewInvalidArgumentError(errPublicKeyFile)
+	}
+	keys, err := frigaterelease.ParsePublicKeys(publicKey)
+	if err != nil || len(keys) == 0 {
+		return ReleaseCheck{}, fleeterror.NewInvalidArgumentError(errPublicKeyFile)
+	}
+	verified, err := frigaterelease.NewStaticVerifier(keys...).Verify(statement, signature, "")
 	switch {
 	case err == nil:
-		return verified, nil
-	case errors.Is(err, frigaterelease.ErrNoTrustedKeys):
-		return frigaterelease.Verified{}, fleeterror.NewFailedPreconditionError("Controller software upload is disabled: no release keys are configured")
-	case errors.Is(err, frigaterelease.ErrSignatureInvalid),
-		errors.Is(err, frigaterelease.ErrKeyIDMismatch),
-		errors.Is(err, frigaterelease.ErrStatementInvalid):
-		return frigaterelease.Verified{}, fleeterror.NewInvalidArgumentErrorf("release statement rejected: %v", err)
+		check.KeyID, check.Signature, check.Warning = verified.KeyID, SignatureUploadedKey, ""
+	case errors.Is(err, frigaterelease.ErrSignatureInvalid):
+		check.Warning = warnReleaseKeyMismatch
 	default:
-		slog.Error("frigate release verification failed", "error", err)
-		return frigaterelease.Verified{}, fleeterror.NewInternalError("failed to verify the release statement")
+		return ReleaseCheck{}, fleeterror.NewInvalidArgumentErrorf("release statement rejected: %v", err)
 	}
+	return check, nil
 }
 
 // ImportInput describes a fully uploaded package waiting in the staging area.
@@ -149,6 +254,9 @@ type ImportInput struct {
 	Filename   string
 	Statement  []byte
 	Signature  []byte
+	// PublicKey is the optional PEM release public key supplied with the
+	// upload. It is used only when Fleet has no installed release key.
+	PublicKey []byte
 }
 
 // ImportResult is the outcome of ImportPackage.
@@ -156,11 +264,26 @@ type ImportResult struct {
 	Package Package
 	// Reused is true when an identical package was already stored.
 	Reused bool
+	// Warning is operator-facing text. It is set when the stored package has no
+	// signature that Fleet verified.
+	Warning string
 }
 
-// ImportPackage verifies an uploaded package against its signed release
-// statement and stores it. It checks the signature, the file size and SHA-256
-// against the statement, and the Debian control data against the statement.
+// importResult builds the result for a stored package row. The warning follows
+// the stored record, not this upload: a package that was verified earlier stays
+// verified when it is uploaded again without a key.
+func importResult(row sqlc.FrigateUpdatePackage, uploader string, reused bool, check ReleaseCheck) ImportResult {
+	result := ImportResult{Package: packageFromModel(row, uploader), Reused: reused}
+	if row.ReleaseKeyID == "" {
+		result.Warning = check.Warning
+	}
+	return result
+}
+
+// ImportPackage checks an uploaded package against its release statement and
+// stores it. It checks the signature as checkRelease describes, and always
+// checks the file size and SHA-256 against the statement and the Debian control
+// data against the statement.
 func (s *Service) ImportPackage(ctx context.Context, in ImportInput) (ImportResult, error) {
 	defer func() { _ = os.Remove(in.StagedPath) }() // A no-op once the file was published.
 	if err := s.auth.AuthorizeAnySite(ctx); err != nil {
@@ -173,11 +296,11 @@ func (s *Service) ImportPackage(ctx context.Context, in ImportInput) (ImportResu
 	if err := validateFilename(in.Filename); err != nil {
 		return ImportResult{}, err
 	}
-	verified, err := s.verify(in.Statement, in.Signature)
+	check, err := s.checkRelease(in.Statement, in.Signature, in.PublicKey)
 	if err != nil {
 		return ImportResult{}, err
 	}
-	statement := verified.Statement
+	statement := check.Statement
 	if statement.Size > s.cfg.MaxPackageSize {
 		return ImportResult{}, fleeterror.NewInvalidArgumentErrorf("package size exceeds the maximum allowed size (%d bytes)", s.cfg.MaxPackageSize)
 	}
@@ -207,18 +330,18 @@ func (s *Service) ImportPackage(ctx context.Context, in ImportInput) (ImportResu
 	existing, err := s.queries.GetFrigateUpdatePackageBySHA256(ctx, sqlc.GetFrigateUpdatePackageBySHA256Params{OrgID: info.OrganizationID, Sha256: digest})
 	switch {
 	case err == nil:
-		existing, err = s.refreshRelease(ctx, existing, verified, in)
+		existing, err = s.refreshRelease(ctx, existing, check, in)
 		if err != nil {
 			return ImportResult{}, err
 		}
 		if !s.store.Exists(existing.ID, existing.SizeBytes) {
 			// The row survived but the blob did not (restored database, new
-			// host). Republish the verified bytes under the existing ID.
+			// host). Republish the checked bytes under the existing ID.
 			if err := s.store.Publish(existing.ID, in.StagedPath); err != nil {
 				return ImportResult{}, fleeterror.NewInternalErrorf("failed to store the package: %v", err)
 			}
 		}
-		return ImportResult{Package: packageFromModel(existing, ""), Reused: true}, nil
+		return importResult(existing, "", true, check), nil
 	case !errors.Is(err, sql.ErrNoRows):
 		return ImportResult{}, err
 	}
@@ -230,7 +353,7 @@ func (s *Service) ImportPackage(ctx context.Context, in ImportInput) (ImportResu
 	row, err := s.queries.InsertFrigateUpdatePackage(ctx, sqlc.InsertFrigateUpdatePackageParams{
 		ID: id, OrgID: info.OrganizationID, Filename: in.Filename, Version: statement.Version,
 		Architecture: statement.Architecture, Sha256: statement.SHA256, SizeBytes: statement.Size,
-		Repository: statement.Repository, ReleaseKeyID: verified.KeyID, MinInstalledVersion: statement.MinInstalledVersion,
+		Repository: statement.Repository, ReleaseKeyID: check.KeyID, MinInstalledVersion: statement.MinInstalledVersion,
 		IssuedAt: statement.IssuedAt, Statement: in.Statement, Signature: in.Signature,
 		UploadedBy: sql.NullInt64{Int64: info.UserID, Valid: true},
 	})
@@ -240,29 +363,37 @@ func (s *Service) ImportPackage(ctx context.Context, in ImportInput) (ImportResu
 			// A concurrent upload of the same package won the race.
 			winner, getErr := s.queries.GetFrigateUpdatePackageBySHA256(ctx, sqlc.GetFrigateUpdatePackageBySHA256Params{OrgID: info.OrganizationID, Sha256: digest})
 			if getErr == nil {
-				return ImportResult{Package: packageFromModel(winner, ""), Reused: true}, nil
+				return importResult(winner, "", true, check), nil
 			}
 		}
 		return ImportResult{}, fleeterror.NewInternalErrorf("failed to record the package: %v", err)
 	}
 
-	s.logPackageEvent(ctx, info.OrganizationID, packageUploadedEventType,
-		fmt.Sprintf("Uploaded controller software %s (%s)", statement.Version, statement.Architecture), row, info.ExternalUserID, info.Username)
-	return ImportResult{Package: packageFromModel(row, info.Username)}, nil
+	description := fmt.Sprintf("Uploaded controller software %s (%s)", statement.Version, statement.Architecture)
+	if check.Signature == SignatureUnverified {
+		description += ", signature not verified"
+	}
+	s.logPackageEvent(ctx, info.OrganizationID, packageUploadedEventType, description, row, info.ExternalUserID, info.Username, check.Signature)
+	return importResult(row, info.Username, false, check), nil
 }
 
-// refreshRelease applies a freshly verified release statement to a package that
+// refreshRelease applies a freshly checked release statement to a package that
 // is already stored. The bytes are identical, so only the statement-derived
 // fields can differ, for example after a key rotation re-signed the release.
 // A re-upload of the same statement and key keeps the stored signature: ECDSA
 // signatures differ on every signing, and both verify. A package that a
 // blocking job references keeps its statement, because the controllers hold the
 // manifest Fleet built from it; replacing it then is refused.
-func (s *Service) refreshRelease(ctx context.Context, existing sqlc.FrigateUpdatePackage, verified frigaterelease.Verified, in ImportInput) (sqlc.FrigateUpdatePackage, error) {
-	if bytes.Equal(existing.Statement, in.Statement) && existing.ReleaseKeyID == verified.KeyID {
-		return existing, nil
-	}
-	statement := verified.Statement
+//
+// An upload that Fleet did not verify never replaces a release that Fleet did
+// verify. With the same statement the stored, verified signature is kept. With
+// a different statement the upload is refused, because Fleet cannot tell
+// whether the new statement is genuine.
+//
+// The decision reads the locked row, not existing: a concurrent upload of the
+// same package can change the row after ImportPackage read it.
+func (s *Service) refreshRelease(ctx context.Context, existing sqlc.FrigateUpdatePackage, check ReleaseCheck, in ImportInput) (sqlc.FrigateUpdatePackage, error) {
+	statement := check.Statement
 	updated, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (sqlc.FrigateUpdatePackage, error) {
 		locked, err := q.LockFrigateUpdatePackage(ctx, sqlc.LockFrigateUpdatePackageParams{OrgID: existing.OrgID, ID: existing.ID})
 		if err != nil {
@@ -270,6 +401,15 @@ func (s *Service) refreshRelease(ctx context.Context, existing sqlc.FrigateUpdat
 				return sqlc.FrigateUpdatePackage{}, fleeterror.NewFailedPreconditionError("the package was deleted while it was being uploaded; upload it again")
 			}
 			return sqlc.FrigateUpdatePackage{}, err
+		}
+		sameStatement := bytes.Equal(locked.Statement, in.Statement)
+		switch {
+		case sameStatement && locked.ReleaseKeyID == check.KeyID && check.KeyID != "":
+			return locked, nil
+		case sameStatement && check.KeyID == "" && (locked.ReleaseKeyID != "" || bytes.Equal(locked.Signature, in.Signature)):
+			return locked, nil
+		case check.KeyID == "" && locked.ReleaseKeyID != "":
+			return sqlc.FrigateUpdatePackage{}, fleeterror.NewFailedPreconditionError(errVerifiedStored)
 		}
 		inUse, err := q.FrigateUpdatePackageInUse(ctx, locked.ID)
 		if err != nil {
@@ -281,7 +421,7 @@ func (s *Service) refreshRelease(ctx context.Context, existing sqlc.FrigateUpdat
 		}
 		if err := q.UpdateFrigateUpdatePackageRelease(ctx, sqlc.UpdateFrigateUpdatePackageReleaseParams{
 			OrgID: locked.OrgID, ID: locked.ID, Version: statement.Version, Architecture: statement.Architecture,
-			Repository: statement.Repository, ReleaseKeyID: verified.KeyID, MinInstalledVersion: statement.MinInstalledVersion,
+			Repository: statement.Repository, ReleaseKeyID: check.KeyID, MinInstalledVersion: statement.MinInstalledVersion,
 			IssuedAt: statement.IssuedAt, Statement: in.Statement, Signature: in.Signature,
 		}); err != nil {
 			return sqlc.FrigateUpdatePackage{}, err
@@ -322,7 +462,19 @@ func hashFile(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func (s *Service) logPackageEvent(ctx context.Context, orgID int64, eventType, description string, pkg sqlc.FrigateUpdatePackage, externalID, username string) {
+// logPackageEvent records a package event. signature is how Fleet checked the
+// release signature at upload; it is empty for events that are not an upload.
+func (s *Service) logPackageEvent(ctx context.Context, orgID int64, eventType, description string, pkg sqlc.FrigateUpdatePackage, externalID, username string, signature SignatureCheck) {
+	metadata := map[string]any{
+		"package_id":   pkg.ID.String(),
+		"version":      pkg.Version,
+		"architecture": pkg.Architecture,
+		"sha256":       pkg.Sha256,
+		"filename":     pkg.Filename,
+	}
+	if signature != "" {
+		metadata["signature_check"] = string(signature)
+	}
 	event := activitymodels.Event{
 		Category:       activitymodels.CategorySystem,
 		Type:           eventType,
@@ -331,13 +483,7 @@ func (s *Service) logPackageEvent(ctx context.Context, orgID int64, eventType, d
 		UserID:         &externalID,
 		Username:       &username,
 		OrganizationID: &orgID,
-		Metadata: map[string]any{
-			"package_id":   pkg.ID.String(),
-			"version":      pkg.Version,
-			"architecture": pkg.Architecture,
-			"sha256":       pkg.Sha256,
-			"filename":     pkg.Filename,
-		},
+		Metadata:       metadata,
 		IdempotencyKey: fmt.Sprintf("%s:%s", eventType, pkg.ID),
 	}
 	s.activity.Log(ctx, event)
@@ -426,7 +572,7 @@ func (s *Service) DeletePackage(ctx context.Context, id uuid.UUID) error {
 		slog.Warn("failed to delete frigate package blob", "package_id", id, "error", err)
 	}
 	s.logPackageEvent(ctx, info.OrganizationID, packageDeletedEventType,
-		fmt.Sprintf("Deleted controller software %s (%s)", deleted.Version, deleted.Architecture), deleted, info.ExternalUserID, info.Username)
+		fmt.Sprintf("Deleted controller software %s (%s)", deleted.Version, deleted.Architecture), deleted, info.ExternalUserID, info.Username, "")
 	return nil
 }
 

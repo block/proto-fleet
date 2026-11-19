@@ -34,12 +34,16 @@ vi.mock("@/shared/features/toaster", async (importOriginal) => ({
 const PACKAGE_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const PACKAGE_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
-const pkg = (id: string, version: string) =>
+const KEY_ID = `sha256:${"cd".repeat(32)}`;
+const UNCHECKED = /Fleet did not verify this package's signature/;
+
+const pkg = (id: string, version: string, releaseKeyId = KEY_ID) =>
   create(FrigatePackageSchema, {
     id,
     version,
     architecture: "arm64",
     filename: `frigate_${version}_arm64.deb`,
+    releaseKeyId,
     storedOnThisHost: true,
   });
 
@@ -245,6 +249,21 @@ describe("FrigateUpdateDialog", () => {
     renderDialog();
     await waitFor(() => expect(mocks.getSupport.mock.lastCall?.[1]).toBe(PACKAGE_A));
     await waitFor(() => expect(startButton()).toBeEnabled());
+  });
+
+  it("says when Fleet did not verify the chosen package's signature, and still lets it start", async () => {
+    mocks.listPackages.mockResolvedValue([pkg(PACKAGE_A, "1.4.0", ""), pkg(PACKAGE_B, "1.3.5")]);
+    const user = userEvent.setup();
+    renderDialog();
+    await screen.findByRole("list", { name: "Controllers" });
+    expect(screen.queryByText(UNCHECKED)).not.toBeInTheDocument();
+
+    await choosePackage(user, "1.4.0");
+    expect(await screen.findByText(UNCHECKED)).toBeInTheDocument();
+    await waitFor(() => expect(startButton()).toBeEnabled());
+
+    await choosePackage(user, "1.3.5");
+    await waitFor(() => expect(screen.queryByText(UNCHECKED)).not.toBeInTheDocument());
   });
 
   it("will not start without a package", async () => {

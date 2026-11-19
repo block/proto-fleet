@@ -51,8 +51,12 @@ describe("validateFrigatePackageFiles", () => {
     expect(validateFrigatePackageFiles({ ...files(), deb: new File(["x"], "frigate.tar.gz") })).toMatch(/\.deb/);
   });
 
-  it.each(["deb", "statement", "signature"] as const)("rejects an empty %s file", (key) => {
+  it.each(["deb", "statement", "signature", "publicKey"] as const)("rejects an empty %s file", (key) => {
     expect(validateFrigatePackageFiles({ ...files(), [key]: new File([], "empty.deb") })).toMatch(/empty/);
+  });
+
+  it("accepts a public key with the three files", () => {
+    expect(validateFrigatePackageFiles({ ...files(), publicKey: new File(["pem"], "release.pem") })).toBeNull();
   });
 });
 
@@ -78,6 +82,37 @@ describe("useFrigatePackages", () => {
     expect(options.chunked.initiateUrl).toBe("/api-proxy/api/v1/frigate-packages/upload/chunked");
     expect(options.chunked.chunkUrl("a b")).toBe("/api-proxy/api/v1/frigate-packages/upload/chunked/a%20b");
     expect(options.chunked.completeUrl("u1")).toBe("/api-proxy/api/v1/frigate-packages/upload/chunked/u1/complete");
+  });
+
+  it("sends the public key as base64 only when one is given", async () => {
+    mocks.upload.mockResolvedValue({ package: packageRecord });
+    const { result } = renderHook(() => useFrigatePackages());
+
+    await result.current.uploadPackage(files());
+    expect(mocks.upload.mock.calls[0][2].initiateFields).not.toHaveProperty("release_public_key_b64");
+
+    const pem = "-----BEGIN PUBLIC KEY-----\nAAAA\n-----END PUBLIC KEY-----\n";
+    await result.current.uploadPackage({ ...files(), publicKey: new File([pem], "release.pem") });
+    expect(mocks.upload.mock.calls[1][2].initiateFields.release_public_key_b64).toBe(btoa(pem));
+  });
+
+  it("returns the server's warning for a package stored without a signature check", async () => {
+    const warning = "Fleet has no release key, so it did not check the release signature.";
+    mocks.upload.mockResolvedValue({ package: { ...packageRecord, release_key_id: "" }, reused: false, warning });
+    const { result } = renderHook(() => useFrigatePackages());
+
+    const uploaded = await result.current.uploadPackage(files());
+
+    expect(uploaded.warning).toBe(warning);
+  });
+
+  it("returns no warning for a verified package", async () => {
+    mocks.upload.mockResolvedValue({ package: packageRecord, reused: false });
+    const { result } = renderHook(() => useFrigatePackages());
+
+    const uploaded = await result.current.uploadPackage(files());
+
+    expect(uploaded).not.toHaveProperty("warning");
   });
 
   it("forwards upload progress to the caller", async () => {

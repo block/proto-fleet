@@ -128,8 +128,9 @@ type Service struct {
 	afterStartLease func()
 }
 
-// NewService creates the service. verifier may be nil, which disables package
-// upload; activitySvc may be nil.
+// NewService creates the service. verifier may be nil: Fleet then has no
+// installed release key, and checks an uploaded release as checkRelease
+// describes. activitySvc may be nil.
 func NewService(
 	conn *sql.DB,
 	miners MinerGetter,

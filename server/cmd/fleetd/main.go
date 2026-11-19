@@ -846,8 +846,9 @@ func start(config *Config) (result error) {
 	if err != nil {
 		return err
 	}
-	// Package upload stays disabled until release keys are configured; the rest
-	// of the service still lists, starts and tracks updates for stored packages.
+	// Without a release key directory Fleet has no installed release key. It
+	// then checks an uploaded signature only against a public key supplied with
+	// the upload; the controllers verify every package with their own keys.
 	var frigateVerifier *frigateReleaseDomain.Verifier
 	if config.FrigateUpdate.ReleaseKeysDir != "" {
 		frigateVerifier = frigateReleaseDomain.NewDirVerifier(config.FrigateUpdate.ReleaseKeysDir)

@@ -65,7 +65,16 @@ const colConfig: ColConfig<PackageRow, string, PackageColumns> = {
   },
   architecture: { component: (row) => <span>{row.architecture}</span>, width: "w-32" },
   sha256: { component: (row) => <Hash value={row.sha256} />, width: "w-56" },
-  releaseKeyId: { component: (row) => <Hash value={row.releaseKeyId} />, width: "w-56" },
+  releaseKeyId: {
+    // No key ID means Fleet stored the package without verifying its signature.
+    component: (row) =>
+      row.releaseKeyId ? (
+        <Hash value={row.releaseKeyId} />
+      ) : (
+        <span className="text-200 text-intent-warning-text">Not verified</span>
+      ),
+    width: "w-56",
+  },
   uploadedAt: { component: (row) => <span>{formatTimestamp(row.uploadedAt)}</span>, width: "w-48" },
 };
 
