@@ -423,7 +423,11 @@ describe("reporting access and recorded requests", () => {
     await user.click(form.getByRole("button", { name: "Operator" }));
     await user.click(await screen.findByRole("option", { name: "Casey" }));
     await user.click(form.getByLabelText("Create reports"));
-    await user.click(form.getByLabelText("All account sites"));
+    expect(form.getByRole("radio", { name: "Specific sites" })).toBeChecked();
+    expect(form.getByText("Site choices are unavailable.")).toBeInTheDocument();
+    await user.click(form.getByRole("radio", { name: "All account sites" }));
+    expect(form.getByRole("radio", { name: "Specific sites" })).not.toBeChecked();
+    expect(form.queryByText("Site choices are unavailable.")).not.toBeInTheDocument();
     await user.click(form.getByRole("button", { name: "Save reporting permissions" }));
     await waitFor(() =>
       expect(save).toHaveBeenCalledWith(

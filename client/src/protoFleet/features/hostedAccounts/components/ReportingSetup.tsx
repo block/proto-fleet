@@ -24,6 +24,7 @@ import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import { usePermissions } from "@/protoFleet/store";
 import Button, { sizes } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
+import Radio from "@/shared/components/Radio";
 import Select from "@/shared/components/Select";
 import Textarea from "@/shared/components/Textarea";
 
@@ -684,39 +685,52 @@ const ReportingSetup = ({
           />
           {directory.error ? <ReportingError error={directory.error} /> : null}
           <ReportingCheck label="Create reports" checked={canCreate} onChange={setCanCreate} />
-          <ReportingCheck label="All account sites" checked={allSites} onChange={setAllSites} />
-          {!allSites ? (
-            !siteCatalog ? (
-              <p>Site choices are unavailable.</p>
-            ) : !siteCatalog.sitesSettled ? (
-              <p role="status">Loading site choices…</p>
-            ) : siteCatalog.sitesError ? (
-              <div role="alert">
-                <p>{siteCatalog.sitesError}</p>
-                <Button variant="secondary" text="Retry site choices" onClick={siteCatalog.refetchSites} />
+          <fieldset className="flex flex-col gap-4">
+            <legend className="mb-4 text-emphasis-300">Site access</legend>
+            <div className="flex flex-col gap-1">
+              <label className="flex items-center gap-3">
+                <Radio name="reporting-site-access" selected={allSites} onChange={() => setAllSites(true)} />
+                All account sites
+              </label>
+              <p className="pl-8 text-200 text-text-primary-50">Includes sites added later.</p>
+            </div>
+            <label className="flex items-center gap-3">
+              <Radio name="reporting-site-access" selected={!allSites} onChange={() => setAllSites(false)} />
+              Specific sites
+            </label>
+            {!allSites ? (
+              <div className="flex flex-col gap-4 pl-8">
+                {!siteCatalog ? (
+                  <p>Site choices are unavailable.</p>
+                ) : !siteCatalog.sitesSettled ? (
+                  <p role="status">Loading site choices…</p>
+                ) : siteCatalog.sitesError ? (
+                  <div role="alert">
+                    <p>{siteCatalog.sitesError}</p>
+                    <Button variant="secondary" text="Retry site choices" onClick={siteCatalog.refetchSites} />
+                  </div>
+                ) : !sites.some(({ site }) => !!site) ? (
+                  <p>No available site choices.</p>
+                ) : null}
+                {sites.flatMap(({ site }) =>
+                  site
+                    ? [
+                        <ReportingCheck
+                          key={String(site.id)}
+                          label={site.name}
+                          checked={siteIds.includes(site.id)}
+                          onChange={(checked) =>
+                            setSiteIds((previous) =>
+                              checked ? [...previous, site.id] : previous.filter((id) => id !== site.id),
+                            )
+                          }
+                        />,
+                      ]
+                    : [],
+                )}
               </div>
-            ) : !sites.some(({ site }) => !!site) ? (
-              <p>No available site choices.</p>
-            ) : null
-          ) : null}
-          {!allSites
-            ? sites.flatMap(({ site }) =>
-                site
-                  ? [
-                      <ReportingCheck
-                        key={String(site.id)}
-                        label={site.name}
-                        checked={siteIds.includes(site.id)}
-                        onChange={(checked) =>
-                          setSiteIds((previous) =>
-                            checked ? [...previous, site.id] : previous.filter((id) => id !== site.id),
-                          )
-                        }
-                      />,
-                    ]
-                  : [],
-              )
-            : null}
+            ) : null}
+          </fieldset>
         </ReportingForm>
       ) : null}
     </section>

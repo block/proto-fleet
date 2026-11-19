@@ -55,8 +55,9 @@ it("loads the allowed site catalog on the fullscreen reporting page and saves a 
   await user.click(form.getByRole("button", { name: "Operator" }));
   await user.click(await screen.findByRole("option", { name: "Casey" }));
   await user.click(form.getByLabelText("Create reports"));
+  expect(form.getByRole("radio", { name: "Specific sites" })).toBeChecked();
+  expect(form.getByRole("radio", { name: "All account sites" })).not.toBeChecked();
   await user.click(await form.findByLabelText("Allowed site"));
-  expect(form.getByLabelText("All account sites")).not.toBeChecked();
   await user.click(form.getByRole("button", { name: "Save reporting permissions" }));
   await waitFor(() =>
     expect(save).toHaveBeenCalledWith(
