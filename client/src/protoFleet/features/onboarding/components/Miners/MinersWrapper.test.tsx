@@ -110,7 +110,15 @@ function renderMinersPage(mode: "onboarding" | "pairing" = "onboarding") {
   );
 }
 
-// Use these helpers with fake timers only.
+// Fake only setTimeout, which holds the scan loading state. jsdom starts one
+// setInterval to run animation frames. If it starts that interval while
+// setInterval is fake, the interval stops when the real timers come back, and
+// no animation frame runs in the later tests of this file.
+function fakeTimeoutsOnly() {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+}
+
+// Use these helpers after fakeTimeoutsOnly().
 async function advanceTimers(ms: number) {
   await act(async () => {
     await vi.advanceTimersByTimeAsync(ms);
@@ -706,7 +714,7 @@ describe("MinersWrapper", () => {
           }),
       );
 
-      vi.useFakeTimers();
+      fakeTimeoutsOnly();
       try {
         renderMinersPage("onboarding");
         fireEvent.click(screen.getByText("Get started"));
@@ -962,7 +970,7 @@ describe("MinersWrapper", () => {
       });
       mockDiscover.mockRejectedValueOnce(new Error("node busy")).mockResolvedValue(undefined);
 
-      vi.useFakeTimers();
+      fakeTimeoutsOnly();
       try {
         renderMinersPage("pairing");
         fireEvent.change(screen.getByTestId("ipAddresses"), {
