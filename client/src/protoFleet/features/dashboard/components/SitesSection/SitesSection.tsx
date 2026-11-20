@@ -85,8 +85,11 @@ const SitesSection = ({ sites }: SitesSectionProps) => {
       {/* The clip spans the full content area to the screen edge; the track
           stays at content width (mx matches the page padding) so the cards
           overflow into the right gutter instead of being cut at the content
-          boundary, while the clamp still right-aligns the last card. */}
-      <div className="-mx-4 mt-2 overflow-hidden px-4 py-4">
+          boundary, while the clamp still right-aligns the last card. The clip
+          must not extend past the content area (no negative mx): the desktop
+          scroll container allows horizontal overflow, so any extra width makes
+          the whole page scroll sideways. */}
+      <div className="mt-2 overflow-hidden py-4">
         <div
           className="mx-6 flex gap-4 transition-transform duration-300 ease-out laptop:mx-10"
           style={trackStyle}
