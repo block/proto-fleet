@@ -6,8 +6,10 @@ import { resolveModule } from "../moduleDetail";
 import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import { entityScopeTarget, useSyncScopeToEntity } from "@/protoFleet/hooks/useSyncScopeToEntity";
 import { scopedPath } from "@/protoFleet/routing/siteScope";
+import { Alert } from "@/shared/assets/icons";
 import Breadcrumb from "@/shared/components/Breadcrumb";
 import Button from "@/shared/components/Button";
+import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
 
 export default function ModulePage() {
@@ -31,7 +33,7 @@ export default function ModulePage() {
           {error ||
             "This module may have been replaced or removed, may belong to another tank, or you may no longer have access."}
         </p>
-        <Button variant="secondary" text="Retry" onClick={retry} />
+        <Button variant="secondary" className="w-fit" text="Retry" onClick={retry} />
         <Link to={tankPath(identifier, tankId)}>Back to tank</Link>
       </div>
     );
@@ -41,9 +43,15 @@ export default function ModulePage() {
   return (
     <div className="flex flex-col gap-8 p-6 laptop:p-10" data-testid="module-detail">
       {error ? (
-        <div>
-          <p role="alert">Could not refresh module: {error}</p>
-          <Button variant="secondary" text="Retry" onClick={retry} />
+        <div role="alert">
+          <Callout
+            intent="danger"
+            prefixIcon={<Alert />}
+            title="Could not refresh module"
+            subtitle={error}
+            buttonText="Retry"
+            buttonOnClick={retry}
+          />
         </div>
       ) : null}
       <ModuleDetails

@@ -284,6 +284,7 @@ const FleetSitesPage = () => {
           size={sizes.compact}
           text="Retry"
           onClick={handleRetrySites}
+          className="w-fit"
           testId="fleet-sites-retry"
         />
       </FilterRow>

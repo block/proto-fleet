@@ -8,7 +8,9 @@ import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import { entityScopeTarget, useSyncScopeToEntity } from "@/protoFleet/hooks/useSyncScopeToEntity";
 import { scopedPath } from "@/protoFleet/routing/siteScope";
 import { useTemperatureUnit } from "@/protoFleet/store";
+import { Alert } from "@/shared/assets/icons";
 import Button, { variants } from "@/shared/components/Button";
+import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
 
 export default function TankPage() {
@@ -35,7 +37,7 @@ export default function TankPage() {
           titleSize="text-heading-300"
         />
         <p role="alert">{error || "This tank may have been removed or you may no longer have access."}</p>
-        <Button variant={variants.secondary} text="Retry" onClick={retry} />
+        <Button variant={variants.secondary} className="w-fit" text="Retry" onClick={retry} />
         <Link to={`/containers/${encodeURIComponent(identifier)}`}>Back to container</Link>
       </div>
     );
@@ -69,10 +71,16 @@ export default function TankPage() {
             <div className="flex flex-col gap-2 text-200 text-text-primary-70">
               {view.stale ? <p role="status">Readings unavailable or stale.</p> : null}
               {error ? (
-                <>
-                  <p role="alert">Could not refresh tank: {error}</p>
-                  <Button variant={variants.secondary} text="Retry" onClick={retry} />
-                </>
+                <div role="alert">
+                  <Callout
+                    intent="danger"
+                    prefixIcon={<Alert />}
+                    title="Could not refresh tank"
+                    subtitle={error}
+                    buttonText="Retry"
+                    buttonOnClick={retry}
+                  />
+                </div>
               ) : null}
             </div>
           ) : undefined

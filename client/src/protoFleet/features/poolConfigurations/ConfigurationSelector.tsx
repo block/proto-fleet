@@ -17,7 +17,9 @@ import { ACCOUNT_READ_TIMEOUT_MS } from "@/protoFleet/features/hostedAccounts/ap
 import { ActionModal } from "@/protoFleet/features/hostedAccounts/components/ActionModal";
 import { useAccountQuery } from "@/protoFleet/features/hostedAccounts/useAccountQuery";
 import { useFleetStore } from "@/protoFleet/store";
+import { Alert } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
+import Callout from "@/shared/components/Callout";
 import { PoolConfigurationPicker } from "@/shared/components/PoolConfigurations/PoolConfigurationPicker";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
@@ -220,8 +222,14 @@ const ConfigurationPicker = ({
           <ProgressCircular indeterminate />
         ) : query.error ? (
           <div role="alert">
-            <p>{query.error}</p>
-            <Button variant="secondary" text="Retry" onClick={query.refresh} />
+            <Callout
+              intent="danger"
+              prefixIcon={<Alert />}
+              title="Could not load pool configurations"
+              subtitle={query.error}
+              buttonText="Retry"
+              buttonOnClick={query.refresh}
+            />
           </div>
         ) : (
           <p>No whole-container pool assignment remains. Manage pool configurations from the hashboards.</p>

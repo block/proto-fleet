@@ -14,9 +14,10 @@ import ListSearchInput from "@/protoFleet/components/ListSearchInput";
 import { useMaintenanceOptions } from "@/protoFleet/features/maintenance/hooks/useMaintenanceOptions";
 import { useTicketQueue } from "@/protoFleet/features/maintenance/hooks/useTicketQueue";
 import { useHasPermission } from "@/protoFleet/store";
-import { Info } from "@/shared/assets/icons";
+import { Alert, Info } from "@/shared/assets/icons";
 import ActionBar from "@/shared/components/ActionBar";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
+import Callout from "@/shared/components/Callout";
 import List, { type SelectionMode } from "@/shared/components/List";
 import FilterChipsBar, { type FilterChipsBarFilter } from "@/shared/components/List/Filters/FilterChipsBar";
 import type { ColConfig, ColTitles, ListAction } from "@/shared/components/List/types";
@@ -340,8 +341,14 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
   if (queue.error && queue.data.length === 0)
     return (
       <div role="alert">
-        {queue.error}
-        <Button text="Retry" variant={variants.secondary} onClick={() => void queue.refresh()} />
+        <Callout
+          intent="danger"
+          prefixIcon={<Alert />}
+          title="Could not load tickets"
+          subtitle={queue.error}
+          buttonText="Retry"
+          buttonOnClick={() => void queue.refresh()}
+        />
       </div>
     );
   return (
