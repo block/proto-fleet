@@ -116,7 +116,7 @@ type Service struct {
 
 	mu       sync.Mutex
 	inflight map[uuid.UUID]struct{}
-	progress map[uuid.UUID]time.Time
+	progress map[uuid.UUID]stallClock
 	lost     map[uuid.UUID]int
 	// dispatched orders runnable jobs by when the runner last handed each to a
 	// worker slot; see fairOrder.
@@ -151,7 +151,7 @@ func NewService(
 		cfg:        cfg.withDefaults(),
 		now:        time.Now,
 		inflight:   make(map[uuid.UUID]struct{}),
-		progress:   make(map[uuid.UUID]time.Time),
+		progress:   make(map[uuid.UUID]stallClock),
 		lost:       make(map[uuid.UUID]int),
 		dispatched: make(map[uuid.UUID]uint64),
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 	"time"
@@ -191,6 +192,59 @@ type FrigateStageCommit struct {
 	JobID       string
 	BytesStaged int64
 	SHA256      string
+}
+
+// FrigateStageCopy is one copy that the controller began, for CopyFrigateStage.
+type FrigateStageCopy struct {
+	InstanceID string
+	Ref        FrigateStageRef
+	Package    io.ReaderAt
+	SizeBytes  int64
+	// Offset is the offset that the controller acknowledged.
+	Offset       int64
+	ChunkTimeout time.Duration
+	CallTimeout  time.Duration
+	// OnChunk, if set, gets the acknowledged offset after each chunk. An error
+	// from it stops the copy and CopyFrigateStage returns it unchanged.
+	OnChunk func(next int64) error
+}
+
+// CopyFrigateStage appends the package from c.Offset to its end, one chunk at a
+// time, and commits it. With an error, it also returns the last offset that
+// the controller acknowledged. Errors from u come back unchanged, so a refusal
+// stays a *FrigateRefusal.
+func CopyFrigateStage(ctx context.Context, u DeviceFrigateUpdater, c FrigateStageCopy) (FrigateStageCommit, int64, error) {
+	next := c.Offset
+	buf := make([]byte, 0, FrigateStageChunkBytes)
+	for next < c.SizeBytes {
+		n := min(int64(FrigateStageChunkBytes), c.SizeBytes-next)
+		buf = buf[:n]
+		// ReadAt may report io.EOF with a full read at the end of the package.
+		if read, err := c.Package.ReadAt(buf, next); int64(read) != n {
+			return FrigateStageCommit{}, next, fmt.Errorf("read package: %w", err)
+		}
+		chunkCtx, cancel := context.WithTimeout(ctx, c.ChunkTimeout)
+		ack, err := u.FrigateStageAppend(chunkCtx, c.InstanceID, FrigateStageAppend{
+			JobID: c.Ref.JobID, ManifestSHA256: c.Ref.ManifestSHA256, Offset: next, Chunk: buf, Actor: c.Ref.Actor,
+		})
+		cancel()
+		if err != nil {
+			return FrigateStageCommit{}, next, err
+		}
+		if ack.NextOffset != next+n {
+			return FrigateStageCommit{}, next, fmt.Errorf("controller acknowledged offset %d, expected %d", ack.NextOffset, next+n)
+		}
+		next = ack.NextOffset
+		if c.OnChunk != nil {
+			if err := c.OnChunk(next); err != nil {
+				return FrigateStageCommit{}, next, err
+			}
+		}
+	}
+	callCtx, cancel := context.WithTimeout(ctx, c.CallTimeout)
+	defer cancel()
+	commit, err := u.FrigateStageCommit(callCtx, c.InstanceID, c.Ref)
+	return commit, next, err
 }
 
 // FrigateStartRequest mirrors mdk.v2.StartServerUpdateRequest.

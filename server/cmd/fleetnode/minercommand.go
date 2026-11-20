@@ -197,7 +197,7 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 		MacAddress:   target.GetMacAddress(),
 	}
 	// This action addresses the controller, never a derived module or a rig.
-	if mc.GetContainerMining() != nil || mc.GetSetContainerControl() != nil || mc.GetSetTankMining() != nil || mc.GetSetModuleMining() != nil || mc.GetSetBoardIdentify() != nil || mc.GetRunContainerAlarmAction() != nil || mc.GetControllerRecords() != nil || mc.GetContainerPowerFeed() != nil || mc.GetMiningGroups() != nil || mc.GetStreamBoardAsicReadings() != nil {
+	if mc.GetContainerMining() != nil || mc.GetSetContainerControl() != nil || mc.GetSetTankMining() != nil || mc.GetSetModuleMining() != nil || mc.GetSetBoardIdentify() != nil || mc.GetRunContainerAlarmAction() != nil || mc.GetControllerRecords() != nil || mc.GetContainerPowerFeed() != nil || mc.GetMiningGroups() != nil || mc.GetStreamBoardAsicReadings() != nil || mc.GetFrigateUpdate() != nil {
 		deviceInfo.DeviceClass = sdk.DeviceClassContainer
 	}
 	result, err := driver.NewDevice(cmdCtx, handleID, deviceInfo, bundle)
@@ -370,6 +370,11 @@ func (u *passwordUpdateCommand) run(ctx context.Context, dev sdk.Device, bundle 
 
 func minerCommandActionTimeout(mc *pb.MinerCommand) time.Duration {
 	if mc.GetFirmwareUpdate() != nil {
+		return firmwareMinerCommandTimeout
+	}
+	// A package copy downloads and uploads like a firmware update. Fleet waits
+	// for this budget plus a margin before it sends the stage again.
+	if mc.GetFrigateUpdate().GetStage() != nil {
 		return firmwareMinerCommandTimeout
 	}
 	if mc.GetStreamBoardAsicReadings() != nil {
@@ -633,6 +638,8 @@ func runMinerAction(ctx context.Context, client gatewayClient, commandID, firmwa
 		return nil, runFirmwareUpdateAction(ctx, client, commandID, mc.GetTarget().GetDeviceIdentifier(), firmwareTempRoot, dev, a.FirmwareUpdate)
 	case *pb.MinerCommand_GetFirmwareUpdateStatus:
 		return getFirmwareUpdateStatusResultPayload(ctx, dev)
+	case *pb.MinerCommand_FrigateUpdate:
+		return runFrigateUpdateAction(ctx, client, commandID, mc.GetTarget().GetDeviceIdentifier(), firmwareTempRoot, dev, a.FrigateUpdate)
 	default:
 		return nil, sdk.InvalidWriteRequest(cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "unrecognized miner command action"))
 	}
@@ -772,35 +779,14 @@ func runFirmwareUpdateAction(ctx context.Context, client gatewayClient, commandI
 	if ref == nil {
 		return cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "firmware artifact is required")
 	}
-	if ref.GetPurpose() != pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD {
-		return cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "firmware artifact has wrong purpose: %s", ref.GetPurpose())
+	if err := checkCommandArtifact(ref, pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD, "firmware artifact"); err != nil {
+		return err
 	}
-	if ref.GetSizeBytes() <= 0 {
-		return cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "firmware artifact size is required")
-	}
-	if ref.GetSizeBytes() > maxFleetNodeFirmwareArtifactSizeBytes {
-		return cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "firmware artifact size %d exceeds fleet node limit %d", ref.GetSizeBytes(), maxFleetNodeFirmwareArtifactSizeBytes)
-	}
-	if client == nil {
-		return cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "fleet node gateway client is unavailable")
-	}
-	releaseDownload, ok := firmwareDownloadCapacity.acquire(ref.GetSizeBytes())
-	if !ok {
-		return cmdErr(pb.AckCode_ACK_CODE_BUSY, "firmware download capacity exhausted; retry shortly")
-	}
-	defer releaseDownload()
-
-	tmpPath, cleanup, err := downloadFirmwareArtifact(ctx, client, commandID, deviceIdentifier, firmwareTempRoot, ref)
+	file, done, err := openCommandArtifact(ctx, client, commandID, deviceIdentifier, firmwareTempRoot, ref)
 	if err != nil {
 		return err
 	}
-	defer cleanup()
-
-	file, err := os.Open(tmpPath)
-	if err != nil {
-		return fmt.Errorf("open downloaded firmware: %w", err)
-	}
-	defer file.Close()
+	defer done()
 
 	return dev.FirmwareUpdate(ctx, sdk.FirmwareFile{
 		Reader:    file,
@@ -808,9 +794,53 @@ func runFirmwareUpdateAction(ctx context.Context, client gatewayClient, commandI
 		Filename:  ref.GetFilename(),
 		Size:      ref.GetSizeBytes(),
 		SHA256:    ref.GetSha256(),
-		FilePath:  tmpPath,
+		FilePath:  file.Name(),
 		RequestID: action.GetRequestId(),
 	})
+}
+
+// checkCommandArtifact applies the fleet node download limits to the artifact
+// of a command. name names the artifact in the error messages.
+func checkCommandArtifact(ref *pb.CommandArtifactRef, purpose pb.CommandArtifactPurpose, name string) error {
+	if ref.GetPurpose() != purpose {
+		return cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "%s has wrong purpose: %s", name, ref.GetPurpose())
+	}
+	if ref.GetSizeBytes() <= 0 {
+		return cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "%s size is required", name)
+	}
+	if ref.GetSizeBytes() > maxFleetNodeFirmwareArtifactSizeBytes {
+		return cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "%s size %d exceeds fleet node limit %d", name, ref.GetSizeBytes(), maxFleetNodeFirmwareArtifactSizeBytes)
+	}
+	return nil
+}
+
+// openCommandArtifact downloads a checked artifact into the firmware temporary
+// space and opens it. It holds download capacity until the caller calls done,
+// which also closes and removes the file.
+func openCommandArtifact(ctx context.Context, client gatewayClient, commandID, deviceIdentifier, firmwareTempRoot string, ref *pb.CommandArtifactRef) (*os.File, func(), error) {
+	if client == nil {
+		return nil, nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "fleet node gateway client is unavailable")
+	}
+	releaseDownload, ok := firmwareDownloadCapacity.acquire(ref.GetSizeBytes())
+	if !ok {
+		return nil, nil, cmdErr(pb.AckCode_ACK_CODE_BUSY, "firmware download capacity exhausted; retry shortly")
+	}
+	tmpPath, cleanup, err := downloadFirmwareArtifact(ctx, client, commandID, deviceIdentifier, firmwareTempRoot, ref)
+	if err != nil {
+		releaseDownload()
+		return nil, nil, err
+	}
+	file, err := os.Open(tmpPath)
+	if err != nil {
+		cleanup()
+		releaseDownload()
+		return nil, nil, fmt.Errorf("open downloaded firmware: %w", err)
+	}
+	return file, func() {
+		_ = file.Close()
+		cleanup()
+		releaseDownload()
+	}, nil
 }
 
 type firmwareDownloadLimiter struct {

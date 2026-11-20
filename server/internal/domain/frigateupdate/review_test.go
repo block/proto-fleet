@@ -352,7 +352,7 @@ func TestRunner_ProgressAndLostAreClearedWhenAJobEndsOtherwise(t *testing.T) {
 	running := e.advanceToRunning(e.start("key-2"))
 	e.svc.mu.Lock()
 	e.svc.lost[running.Row.ID] = 2
-	e.svc.progress[running.Row.ID] = time.Now()
+	e.svc.progress[running.Row.ID] = stallClock{since: time.Now()}
 	e.svc.mu.Unlock()
 	e.updater.setRollout(func(r *sdk.FrigateRollout) { r.Phase = sdk.FrigatePhaseSucceeded })
 	e.svc.runOnce(e.ctx)

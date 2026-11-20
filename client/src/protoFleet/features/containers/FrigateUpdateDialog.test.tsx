@@ -193,15 +193,14 @@ describe("FrigateUpdateDialog", () => {
   });
 
   it("shows a support check failure with a way to try again", async () => {
-    mocks.getSupport.mockRejectedValueOnce(
-      new ConnectError("container is reached through a Fleet Node", Code.FailedPrecondition),
-    );
+    // The reason Fleet gives for a container behind a Fleet Node that is too old.
+    const reason =
+      "The Fleet Node that manages this container does not support controller software updates. Upgrade the Fleet Node, then try again.";
+    mocks.getSupport.mockRejectedValueOnce(new ConnectError(reason, Code.FailedPrecondition));
     const user = userEvent.setup();
     renderDialog();
 
-    expect(await screen.findByTestId("frigate-update-support-error")).toHaveTextContent(
-      "container is reached through a Fleet Node",
-    );
+    expect(await screen.findByTestId("frigate-update-support-error")).toHaveTextContent(reason);
     await user.click(screen.getByRole("button", { name: "Check again" }));
     expect(await screen.findByRole("list", { name: "Controllers" })).toBeInTheDocument();
   });

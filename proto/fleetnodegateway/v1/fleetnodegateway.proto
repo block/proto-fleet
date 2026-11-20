@@ -110,6 +110,8 @@ enum CommandArtifactPurpose {
     COMMAND_ARTIFACT_PURPOSE_UNSPECIFIED      = 0;
     COMMAND_ARTIFACT_PURPOSE_MINER_LOGS       = 1;
     COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD = 2;
+    // A controller software package that the node copies to CT1 controllers.
+    COMMAND_ARTIFACT_PURPOSE_CONTROLLER_SOFTWARE_PACKAGE = 3;
 }
 
 message CommandArtifactRef {
@@ -333,6 +335,8 @@ enum CommandProtocolVersion {
     COMMAND_PROTOCOL_VERSION_V18 = 18;
     // V19 reads complete hashboard identity inventory before mining-group activation.
     COMMAND_PROTOCOL_VERSION_V19 = 19;
+    // V20 adds controller software updates of a CT1 container.
+    COMMAND_PROTOCOL_VERSION_V20 = 20;
 }
 
 message ControlHello {
@@ -556,6 +560,7 @@ message MinerCommand {
         ContainerPowerFeedAction container_power_feed = 27;
         RunContainerAlarmAction run_container_alarm_action = 28;
         StreamBoardASICReadingsAction stream_board_asic_readings = 29;
+        FrigateUpdateAction frigate_update = 30;
     }
 }
 
@@ -943,4 +948,66 @@ message ContainerMiningAction {
 // fields, so a newer node or plugin may add result fields without one.
 message ContainerPowerFeedAction {
   bytes request = 1 [(buf.validate.field).bytes = {min_len: 1, max_len: 4096}];
+}
+
+// One controller software update call for a CT1 container. The ack payload is
+// a FrigateUpdateResult. The request and response bytes are SDK messages, so
+// they are part of this contract. Nodes ignore unknown request fields and
+// refuse unknown operations. A new operation, or a new request field that a
+// node must obey, needs a new command protocol version. The server must require
+// that version before it sends such a request. Servers ignore unknown response
+// fields.
+message FrigateUpdateAction {
+  oneof call {
+    option (buf.validate.oneof).required = true;
+
+    // One SDK-encoded update call (the plugin's FrigateServerUpdateRequest):
+    // support, stage begin, stage commit, stage abort, start, status, retry or
+    // cancel. A node refuses a stage append, because package bytes do not
+    // cross the control stream.
+    bytes request = 1 [(buf.validate.field).bytes = {min_len: 1, max_len: 65536}];
+    // Copies one package to one or more controllers.
+    FrigateUpdateStage stage = 2;
+  }
+}
+
+// The node downloads the package once. For each target it then begins the copy,
+// appends the bytes the controller does not have yet, and commits.
+message FrigateUpdateStage {
+  CommandArtifactRef package = 1 [(buf.validate.field).required = true];
+  repeated FrigateUpdateStageTarget targets = 2 [(buf.validate.field).repeated = {min_items: 1, max_items: 4}];
+}
+
+// One controller that takes the package.
+message FrigateUpdateStageTarget {
+  // The SDK-encoded stage-begin call for this controller.
+  bytes begin_request = 1 [(buf.validate.field).bytes = {min_len: 1, max_len: 65536}];
+  // The manifest fingerprint that Fleet recorded for this copy. The node sends
+  // no package bytes when the controller reports a different fingerprint.
+  string manifest_sha256 = 2 [(buf.validate.field).string = {len: 64, pattern: "^[a-f0-9]{64}$"}];
+}
+
+// One outcome for a request. For a stage, one outcome per target, in the order
+// of the targets.
+message FrigateUpdateResult {
+  repeated FrigateUpdateOutcome outcomes = 1 [(buf.validate.field).repeated.max_items = 4];
+}
+
+message FrigateUpdateOutcome {
+  oneof outcome {
+    // The SDK-encoded response (the plugin's FrigateServerUpdateResponse).
+    bytes response = 1 [(buf.validate.field).bytes.max_len = 1048576];
+    // The controller refused the call. A refusal is final.
+    FrigateUpdateRefusal refusal = 2;
+    // The copy to one stage target failed. Fleet can send the stage again.
+    string error = 3 [(buf.validate.field).string.max_len = 4096];
+  }
+}
+
+// A refusal from the controller, with its UPDATE_* reason.
+message FrigateUpdateRefusal {
+  string reason = 1 [(buf.validate.field).string.max_len = 128];
+  string message = 2 [(buf.validate.field).string.max_len = 4096];
+  // The gRPC status code that the controller used.
+  uint32 code = 3 [(buf.validate.field).uint32.lte = 16];
 }

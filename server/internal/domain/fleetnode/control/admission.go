@@ -135,6 +135,8 @@ func AdmissionForMinerCommand(command *gatewaypb.MinerCommand) (CommandAdmission
 		return CommandAdmissionGeneral, "get_firmware_update_status"
 	case *gatewaypb.MinerCommand_ApplyCurtailmentConfig:
 		return CommandAdmissionGeneral, "apply_curtailment_config"
+	case *gatewaypb.MinerCommand_FrigateUpdate:
+		return CommandAdmissionGeneral, "frigate_update"
 	default:
 		return CommandAdmissionGeneral, "miner_command_unknown"
 	}

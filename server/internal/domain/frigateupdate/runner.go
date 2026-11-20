@@ -310,9 +310,17 @@ func (s *Service) markUnreachable(ctx context.Context, id uuid.UUID, cause error
 	}
 }
 
+// stallClock measures how long staging has gone without confirmed progress.
+type stallClock struct {
+	since time.Time
+	// excused is the copy time since the last confirmed progress that Fleet
+	// could not check and did not count.
+	excused time.Duration
+}
+
 func (s *Service) noteProgress(id uuid.UUID) {
 	s.mu.Lock()
-	s.progress[id] = s.now()
+	s.progress[id] = stallClock{since: s.now()}
 	s.mu.Unlock()
 }
 
@@ -321,21 +329,48 @@ func (s *Service) noteProgress(id uuid.UUID) {
 func (s *Service) stalled(id uuid.UUID) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	last, ok := s.progress[id]
+	clock, ok := s.progress[id]
 	if !ok {
-		s.progress[id] = s.now()
+		s.progress[id] = stallClock{since: s.now()}
 		return false
 	}
-	return s.now().Sub(last) > s.cfg.StageStallTimeout
+	return s.now().Sub(clock.since) > s.cfg.StageStallTimeout
 }
 
 // startProgressClock starts the stall clock for a job that has none yet.
 func (s *Service) startProgressClock(id uuid.UUID) {
 	s.mu.Lock()
 	if _, ok := s.progress[id]; !ok {
-		s.progress[id] = s.now()
+		s.progress[id] = stallClock{since: s.now()}
 	}
 	s.mu.Unlock()
+}
+
+// excuseUnknownAttempt does not count the time of a copy attempt whose result
+// Fleet could not read toward the stall timeout. It excuses at most
+// StageStallTimeout between two confirmed progress points, so a job with no
+// confirmed progress stalls at the first check after twice the stall timeout.
+func (s *Service) excuseUnknownAttempt(id uuid.UUID, start, end time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	clock, ok := s.progress[id]
+	if !ok {
+		return
+	}
+	d := min(end.Sub(maxTime(start, clock.since)), s.cfg.StageStallTimeout-clock.excused)
+	if d <= 0 {
+		return
+	}
+	clock.since = clock.since.Add(d)
+	clock.excused += d
+	s.progress[id] = clock
+}
+
+func maxTime(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
 }
 
 func (s *Service) forget(id uuid.UUID) {
@@ -395,31 +430,12 @@ func (s *Service) stageJob(ctx context.Context, job sqlc.FrigateUpdateJob) {
 		return
 	}
 
-	stageCtx, stop := context.WithCancel(ctx)
-	defer stop()
-	var wg sync.WaitGroup
-	var mu sync.Mutex
 	var transient error
-	for _, inst := range instances {
-		if inst.StageState == StageStaged {
-			continue
-		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			err := s.stageInstance(stageCtx, updater, job, pkg, file, inst)
-			switch {
-			case err == nil:
-			case errors.Is(err, errStopStaging):
-				stop()
-			default:
-				mu.Lock()
-				transient = err
-				mu.Unlock()
-			}
-		}()
+	if stager, ok := updater.(interfaces.FrigatePackageStager); ok {
+		transient = s.stageThroughRelay(ctx, updater, stager, job, pkg, instances)
+	} else {
+		transient = s.stageDirect(ctx, updater, job, pkg, file, instances)
 	}
-	wg.Wait()
 	if ctx.Err() != nil {
 		return
 	}
@@ -493,20 +509,176 @@ func (s *Service) persistStaging(ctx context.Context, jobID uuid.UUID, instanceI
 	return rows > 0, nil
 }
 
-// stageInstance uploads the package to one controller, resuming from the
-// controller's acknowledged offset.
-func (s *Service) stageInstance(ctx context.Context, updater interfaces.FrigateUpdater, job sqlc.FrigateUpdateJob, pkg sqlc.GetFrigateUpdatePackageRow, file *os.File, inst sqlc.FrigateUpdateInstance) error {
+// stageDirect uploads the package to every unstaged controller at the same
+// time. It returns the last retryable failure, if any.
+func (s *Service) stageDirect(ctx context.Context, updater interfaces.FrigateUpdater, job sqlc.FrigateUpdateJob, pkg sqlc.GetFrigateUpdatePackageRow, file *os.File, instances []sqlc.FrigateUpdateInstance) error {
+	stageCtx, stop := context.WithCancel(ctx)
+	defer stop()
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var transient error
+	for _, inst := range instances {
+		if inst.StageState == StageStaged {
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := s.stageInstance(stageCtx, updater, job, pkg, file, inst)
+			switch {
+			case err == nil:
+			case errors.Is(err, errStopStaging):
+				stop()
+			default:
+				mu.Lock()
+				transient = err
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	return transient
+}
+
+// stageThroughRelay stages a job whose controllers Fleet reaches through a
+// relay, such as a Fleet Node. Fleet begins each copy itself, so that it
+// records every fingerprint before any bytes move. One call then has the relay
+// fetch the package and copy it to all the controllers. It returns the last
+// retryable failure, if any.
+func (s *Service) stageThroughRelay(ctx context.Context, updater interfaces.FrigateUpdater, stager interfaces.FrigatePackageStager, job sqlc.FrigateUpdateJob, pkg sqlc.GetFrigateUpdatePackageRow, instances []sqlc.FrigateUpdateInstance) error {
+	var transient error
+	var copies []stagingCopy
+	targets := make([]interfaces.FrigateStageTarget, 0, len(instances))
+	for _, inst := range instances {
+		if inst.StageState == StageStaged {
+			continue
+		}
+		c, err := s.beginInstance(ctx, updater, job, pkg, inst)
+		switch {
+		case err == nil:
+			// The relay reports no position while it copies. An offset beyond
+			// the recorded one shows that the last attempt moved bytes.
+			if c.next > inst.StagedBytes {
+				s.noteProgress(job.ID)
+			}
+			copies = append(copies, c)
+			targets = append(targets, interfaces.FrigateStageTarget{InstanceID: inst.InstanceID, Manifest: c.manifest, ManifestSHA256: c.fingerprint})
+		case errors.Is(err, errStopStaging):
+			return nil
+		default:
+			transient = err
+		}
+	}
+	if len(copies) == 0 {
+		return transient
+	}
+
+	sent := s.now()
+	outcomes, err := stager.FrigateStagePackage(ctx, interfaces.FrigatePackageRef{
+		ID: pkg.ID.String(), Filename: pkg.Filename, SizeBytes: pkg.SizeBytes, SHA256: pkg.Sha256,
+	}, targets)
+	returned := s.now()
+	if s.requeueCleanupIfStopped(ctx, job.ID) {
+		return nil
+	}
+	defer s.requeueCleanupIfStopped(ctx, job.ID)
+	if err == nil && len(outcomes) != len(copies) {
+		err = fmt.Errorf("the relay returned %d stage outcomes for %d controllers", len(outcomes), len(copies))
+	}
+	unknown := false
+	for i, c := range copies {
+		outcomeErr := err
+		if err == nil {
+			outcomeErr = outcomes[i].Err
+		}
+		if outcomeErr == nil {
+			outcomeErr = s.finishInstance(ctx, job, pkg, c, outcomes[i].Commit)
+		} else {
+			next, read := s.relayStagedOffset(ctx, updater, job, pkg, c, outcomeErr)
+			unknown = unknown || !read
+			outcomeErr = s.stageError(ctx, job, c.inst, c.fingerprint, next, outcomeErr)
+		}
+		switch {
+		case outcomeErr == nil:
+		case errors.Is(outcomeErr, errStopStaging):
+			return nil
+		default:
+			transient = outcomeErr
+		}
+	}
+	if unknown {
+		s.excuseUnknownAttempt(job.ID, sent, returned)
+	}
+	return transient
+}
+
+// requeueCleanupIfStopped reports whether the job left staging. The relay can
+// begin and fill a copy after cleanup removed the copies of such a job, so it
+// queues cleanup again.
+func (s *Service) requeueCleanupIfStopped(ctx context.Context, id uuid.UUID) bool {
+	mutateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.cfg.CallTimeout)
+	defer cancel()
+	_, after, _, err := s.mutate(mutateCtx, id, func(cur sqlc.FrigateUpdateJob, p *sqlc.UpdateFrigateUpdateJobParams) bool {
+		if cur.State == StateStaging {
+			return false
+		}
+		p.CleanupPending = true
+		return true
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "queue frigate update cleanup after a relay copy", "job_id", id, "error", err)
+		return true
+	}
+	return after.State != StateStaging
+}
+
+// relayStagedOffset returns how far a copy got that failed through a relay,
+// and false when the controller did not answer. The relay reports no position,
+// and one attempt can last longer than the stall timeout. Fleet therefore asks
+// the controller, so that bytes this attempt moved count as progress before
+// the stall check.
+func (s *Service) relayStagedOffset(ctx context.Context, updater interfaces.FrigateUpdater, job sqlc.FrigateUpdateJob, pkg sqlc.GetFrigateUpdatePackageRow, c stagingCopy, cause error) (int64, bool) {
+	// A refusal is final, and a stopped pass makes no more calls.
+	if ctx.Err() != nil || sdk.AsFrigateRefusal(cause) != nil {
+		return c.next, true
+	}
+	beginCtx, cancel := context.WithTimeout(ctx, s.cfg.CallTimeout)
+	progress, err := updater.FrigateStageBegin(beginCtx, c.inst.InstanceID, c.manifest)
+	cancel()
+	if err != nil {
+		return c.next, false
+	}
+	if progress.ManifestSHA256 != c.fingerprint || progress.NextOffset <= c.next || progress.NextOffset > pkg.SizeBytes {
+		return c.next, true
+	}
+	s.noteProgress(job.ID)
+	return progress.NextOffset, true
+}
+
+// stagingCopy is one controller's copy after Begin.
+type stagingCopy struct {
+	inst        sqlc.FrigateUpdateInstance
+	manifest    sdk.FrigateManifest
+	fingerprint string
+	// next is the offset that the controller acknowledged.
+	next int64
+}
+
+// beginInstance begins or resumes one controller's copy, and records its
+// fingerprint and acknowledged offset.
+func (s *Service) beginInstance(ctx context.Context, updater interfaces.FrigateUpdater, job sqlc.FrigateUpdateJob, pkg sqlc.GetFrigateUpdatePackageRow, inst sqlc.FrigateUpdateInstance) (stagingCopy, error) {
 	manifest := manifestFor(job, pkg, inst.InstanceID)
 	actor := manifest.Actor
+	none := stagingCopy{}
 
 	next := inst.StagedBytes
 	if inst.StageState == StagePending {
 		// Mark the instance before its first Begin, so a copy whose Begin reply
 		// is lost still reaches cleanup, which can recover its fingerprint.
 		if ok, err := s.persistStaging(ctx, job.ID, inst.InstanceID, StageStaging, "", 0, "", ""); err != nil {
-			return err
+			return none, err
 		} else if !ok {
-			return errStopStaging
+			return none, errStopStaging
 		}
 	}
 	beginCtx, cancel := context.WithTimeout(ctx, s.cfg.CallTimeout)
@@ -515,12 +687,12 @@ func (s *Service) stageInstance(ctx context.Context, updater interfaces.FrigateU
 	if err != nil {
 		// Keep the saved fingerprint: a resumed copy may already hold bytes,
 		// and cleanup can abort it only by that fingerprint.
-		return s.stageError(ctx, job, inst, inst.ManifestSha256, next, err)
+		return none, s.stageError(ctx, job, inst, inst.ManifestSha256, next, err)
 	}
 	fingerprint := progress.ManifestSHA256
 	next = progress.NextOffset
 	if next < 0 || next > pkg.SizeBytes {
-		return s.stageError(ctx, job, inst, fingerprint, next, fmt.Errorf("controller reported staged offset %d outside the package", next))
+		return none, s.stageError(ctx, job, inst, fingerprint, next, fmt.Errorf("controller reported staged offset %d outside the package", next))
 	}
 	// Record the fingerprint even if a sibling instance just cancelled the
 	// staging context, so the sweep can abort the copy by fingerprint.
@@ -528,7 +700,7 @@ func (s *Service) stageInstance(ctx context.Context, updater interfaces.FrigateU
 	ok, err := s.persistStaging(persistCtx, job.ID, inst.InstanceID, StageStaging, fingerprint, next, "", "")
 	persistCancel()
 	if err != nil {
-		return err
+		return none, err
 	} else if !ok {
 		// The job left staging while Begin was in flight, so the sweep cannot
 		// find this fingerprint. Abort the fresh copy directly.
@@ -537,50 +709,60 @@ func (s *Service) stageInstance(ctx context.Context, updater interfaces.FrigateU
 			slog.WarnContext(ctx, "abort staged frigate package", "job_id", job.ID, "instance_id", inst.InstanceID, "error", err)
 		}
 		abortCancel()
-		return errStopStaging
+		return none, errStopStaging
 	}
 	// Reaching Begin is not progress: a controller that answers Begin but never
 	// accepts a chunk must still trip the stall timeout.
 	s.startProgressClock(job.ID)
 
-	buf := make([]byte, 0, sdk.FrigateStageChunkBytes)
-	for next < pkg.SizeBytes {
-		n := min(int64(sdk.FrigateStageChunkBytes), pkg.SizeBytes-next)
-		buf = buf[:n]
-		if _, err := file.ReadAt(buf, next); err != nil {
-			return s.stageError(ctx, job, inst, fingerprint, next, fmt.Errorf("read package: %w", err))
-		}
-		chunkCtx, cancel := context.WithTimeout(ctx, s.cfg.ChunkTimeout)
-		ack, err := updater.FrigateStageAppend(chunkCtx, inst.InstanceID, sdk.FrigateStageAppend{
-			JobID: job.ID.String(), ManifestSHA256: fingerprint, Offset: next, Chunk: buf, Actor: actor,
-		})
-		cancel()
-		if err != nil {
-			return s.stageError(ctx, job, inst, fingerprint, next, err)
-		}
-		if ack.NextOffset != next+n {
-			return s.stageError(ctx, job, inst, fingerprint, next,
-				fmt.Errorf("controller acknowledged offset %d, expected %d", ack.NextOffset, next+n))
-		}
-		next = ack.NextOffset
-		if ok, err := s.persistStaging(ctx, job.ID, inst.InstanceID, StageStaging, fingerprint, next, "", ""); err != nil {
-			return err
-		} else if !ok {
-			return errStopStaging
-		}
-		s.noteProgress(job.ID)
-	}
+	return stagingCopy{inst: inst, manifest: manifest, fingerprint: fingerprint, next: next}, nil
+}
 
-	commitCtx, cancel := context.WithTimeout(ctx, s.cfg.CallTimeout)
-	commit, err := updater.FrigateStageCommit(commitCtx, inst.InstanceID, sdk.FrigateStageRef{JobID: job.ID.String(), ManifestSHA256: fingerprint, Actor: actor})
-	cancel()
+// stageInstance uploads the package to one controller, resuming from the
+// controller's acknowledged offset.
+func (s *Service) stageInstance(ctx context.Context, updater interfaces.FrigateUpdater, job sqlc.FrigateUpdateJob, pkg sqlc.GetFrigateUpdatePackageRow, file *os.File, inst sqlc.FrigateUpdateInstance) error {
+	c, err := s.beginInstance(ctx, updater, job, pkg, inst)
 	if err != nil {
-		return s.stageError(ctx, job, inst, fingerprint, next, err)
+		return err
 	}
+	// A stop or a failed write of the position is not a failed copy, so it
+	// does not go through stageError.
+	var stopped error
+	commit, staged, err := sdk.CopyFrigateStage(ctx, updater, sdk.FrigateStageCopy{
+		InstanceID: inst.InstanceID,
+		Ref:        sdk.FrigateStageRef{JobID: job.ID.String(), ManifestSHA256: c.fingerprint, Actor: c.manifest.Actor},
+		Package:    file, SizeBytes: pkg.SizeBytes, Offset: c.next,
+		ChunkTimeout: s.cfg.ChunkTimeout, CallTimeout: s.cfg.CallTimeout,
+		OnChunk: func(next int64) error {
+			ok, err := s.persistStaging(ctx, job.ID, inst.InstanceID, StageStaging, c.fingerprint, next, "", "")
+			if err == nil && !ok {
+				err = errStopStaging
+			}
+			if err != nil {
+				stopped = err
+				return err
+			}
+			s.noteProgress(job.ID)
+			return nil
+		},
+	})
+	switch {
+	case stopped != nil:
+		return stopped
+	case err != nil:
+		return s.stageError(ctx, job, inst, c.fingerprint, staged, err)
+	}
+	return s.finishInstance(ctx, job, pkg, c, commit)
+}
+
+// finishInstance checks what the controller committed, then records the copy
+// as staged.
+func (s *Service) finishInstance(ctx context.Context, job sqlc.FrigateUpdateJob, pkg sqlc.GetFrigateUpdatePackageRow, c stagingCopy, commit sdk.FrigateStageCommit) error {
+	inst, fingerprint := c.inst, c.fingerprint
 	if commit.BytesStaged != pkg.SizeBytes || commit.SHA256 != pkg.Sha256 {
 		msg := fmt.Sprintf("Controller %s staged %d bytes with SHA-256 %s; expected %d bytes with %s.",
 			inst.InstanceID, commit.BytesStaged, commit.SHA256, pkg.SizeBytes, pkg.Sha256)
-		return s.failStaging(ctx, job, inst, fingerprint, next, CodeStageDigestMismatch, msg)
+		return s.failStaging(ctx, job, inst, fingerprint, pkg.SizeBytes, CodeStageDigestMismatch, msg)
 	}
 	if ok, err := s.persistStaging(ctx, job.ID, inst.InstanceID, StageStaged, fingerprint, pkg.SizeBytes, "", ""); err != nil {
 		return err
@@ -1058,7 +1240,9 @@ func (s *Service) sweepCleanup(parent context.Context) {
 		if s.cleanupJob(ctx, job) {
 			if _, _, _, err := s.mutate(parent, job.ID, func(cur sqlc.FrigateUpdateJob, p *sqlc.UpdateFrigateUpdateJobParams) bool {
 				p.CleanupPending = false
-				return cur.CleanupPending
+				// A relay copy that ended during this pass may have queued
+				// cleanup again for a copy that this pass did not abort.
+				return cur.CleanupPending && cur.UpdatedAt.Equal(job.UpdatedAt)
 			}); err != nil && parent.Err() == nil {
 				slog.ErrorContext(parent, "clear frigate update cleanup", "job_id", job.ID, "error", err)
 			}

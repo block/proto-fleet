@@ -20,6 +20,9 @@ func MinerCommandReadOnly(command *gatewaypb.MinerCommand) bool {
 	case *gatewaypb.MinerCommand_MiningGroups:
 		r, err := sdk.DecodeMiningGroupRequest(action.MiningGroups.GetRequest())
 		return err == nil && r.ReadOnly()
+	case *gatewaypb.MinerCommand_FrigateUpdate:
+		// A support or status call only reads. A package copy has no request.
+		return sdk.FrigateRelayReadOnly(action.FrigateUpdate.GetRequest())
 	case *gatewaypb.MinerCommand_VerifyPoolsCleared, *gatewaypb.MinerCommand_GetCoolingMode, *gatewaypb.MinerCommand_GetErrors, *gatewaypb.MinerCommand_GetMiningPools, *gatewaypb.MinerCommand_GetFirmwareUpdateStatus, *gatewaypb.MinerCommand_DownloadLogs, *gatewaypb.MinerCommand_BlinkLed, *gatewaypb.MinerCommand_SetBoardIdentify, *gatewaypb.MinerCommand_ControllerRecords, *gatewaypb.MinerCommand_StreamBoardAsicReadings:
 		return true
 	default:

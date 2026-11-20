@@ -101,7 +101,7 @@ func dispatchFrigateUpdate(ctx context.Context, u DeviceFrigateUpdater, req *pb.
 		if err != nil {
 			return nil, err
 		}
-		return &pb.FrigateServerUpdateResponse{Result: &pb.FrigateServerUpdateResponse_StageCommit{StageCommit: &pb.FrigateStageCommitResult{JobId: commit.JobID, BytesStaged: commit.BytesStaged, Sha256: commit.SHA256}}}, nil
+		return frigateCommitResponse(commit), nil
 	case *pb.FrigateServerUpdateRequest_StageAbort:
 		if err := validateFrigateInstanceID(op.StageAbort.GetInstanceId()); err != nil {
 			return nil, invalidFrigateRequest(err)
@@ -169,6 +169,10 @@ func dispatchFrigateUpdate(ctx context.Context, u DeviceFrigateUpdater, req *pb.
 
 func frigateProgressResponse(p FrigateStageProgress) *pb.FrigateServerUpdateResponse {
 	return &pb.FrigateServerUpdateResponse{Result: &pb.FrigateServerUpdateResponse_StageProgress{StageProgress: &pb.FrigateStageProgress{JobId: p.JobID, ManifestSha256: p.ManifestSHA256, NextOffset: p.NextOffset, SizeBytes: p.SizeBytes}}}
+}
+
+func frigateCommitResponse(c FrigateStageCommit) *pb.FrigateServerUpdateResponse {
+	return &pb.FrigateServerUpdateResponse{Result: &pb.FrigateServerUpdateResponse_StageCommit{StageCommit: &pb.FrigateStageCommitResult{JobId: c.JobID, BytesStaged: c.BytesStaged, Sha256: c.SHA256}}}
 }
 
 func frigateRolloutResponse(r FrigateRollout) *pb.FrigateServerUpdateResponse {
@@ -322,8 +326,51 @@ func (d *DeviceGRPCClient) frigateCall(ctx context.Context, req *pb.FrigateServe
 	return resp, nil
 }
 
+// frigateCallFunc sends one update envelope and returns its response. The
+// update calls are written once against it. They serve the plugin's gRPC
+// client and a relay that carries the envelope as bytes (see FrigateRelay).
+type frigateCallFunc func(ctx context.Context, req *pb.FrigateServerUpdateRequest) (*pb.FrigateServerUpdateResponse, error)
+
+var _ DeviceFrigateUpdater = frigateCallFunc(nil)
+
 func (d *DeviceGRPCClient) FrigateUpdateSupport(ctx context.Context) ([]FrigateInstanceSupport, error) {
-	resp, err := d.frigateCall(ctx, &pb.FrigateServerUpdateRequest{Operation: &pb.FrigateServerUpdateRequest_Support{Support: &pb.FrigateUpdateSupportRequest{}}})
+	return frigateCallFunc(d.frigateCall).FrigateUpdateSupport(ctx)
+}
+
+func (d *DeviceGRPCClient) FrigateStageBegin(ctx context.Context, instanceID string, m FrigateManifest) (FrigateStageProgress, error) {
+	return frigateCallFunc(d.frigateCall).FrigateStageBegin(ctx, instanceID, m)
+}
+
+func (d *DeviceGRPCClient) FrigateStageAppend(ctx context.Context, instanceID string, a FrigateStageAppend) (FrigateStageProgress, error) {
+	return frigateCallFunc(d.frigateCall).FrigateStageAppend(ctx, instanceID, a)
+}
+
+func (d *DeviceGRPCClient) FrigateStageCommit(ctx context.Context, instanceID string, r FrigateStageRef) (FrigateStageCommit, error) {
+	return frigateCallFunc(d.frigateCall).FrigateStageCommit(ctx, instanceID, r)
+}
+
+func (d *DeviceGRPCClient) FrigateStageAbort(ctx context.Context, instanceID string, r FrigateStageRef) error {
+	return frigateCallFunc(d.frigateCall).FrigateStageAbort(ctx, instanceID, r)
+}
+
+func (d *DeviceGRPCClient) FrigateUpdateStart(ctx context.Context, r FrigateStartRequest) (FrigateRollout, error) {
+	return frigateCallFunc(d.frigateCall).FrigateUpdateStart(ctx, r)
+}
+
+func (d *DeviceGRPCClient) FrigateUpdateStatus(ctx context.Context, jobID string) (FrigateStatus, error) {
+	return frigateCallFunc(d.frigateCall).FrigateUpdateStatus(ctx, jobID)
+}
+
+func (d *DeviceGRPCClient) FrigateUpdateRetry(ctx context.Context, a FrigateAction) (FrigateRollout, error) {
+	return frigateCallFunc(d.frigateCall).FrigateUpdateRetry(ctx, a)
+}
+
+func (d *DeviceGRPCClient) FrigateUpdateCancel(ctx context.Context, a FrigateAction) (FrigateRollout, error) {
+	return frigateCallFunc(d.frigateCall).FrigateUpdateCancel(ctx, a)
+}
+
+func (call frigateCallFunc) FrigateUpdateSupport(ctx context.Context) ([]FrigateInstanceSupport, error) {
+	resp, err := call(ctx, &pb.FrigateServerUpdateRequest{Operation: &pb.FrigateServerUpdateRequest_Support{Support: &pb.FrigateUpdateSupportRequest{}}})
 	if err != nil {
 		return nil, err
 	}
@@ -338,28 +385,28 @@ func (d *DeviceGRPCClient) FrigateUpdateSupport(ctx context.Context) ([]FrigateI
 	return out, nil
 }
 
-func (d *DeviceGRPCClient) FrigateStageBegin(ctx context.Context, instanceID string, m FrigateManifest) (FrigateStageProgress, error) {
+func (call frigateCallFunc) FrigateStageBegin(ctx context.Context, instanceID string, m FrigateManifest) (FrigateStageProgress, error) {
 	if err := validateFrigateInstanceID(instanceID); err != nil {
 		return FrigateStageProgress{}, invalidFrigateRequest(err)
 	}
 	if err := m.ValidateForInstance(instanceID); err != nil {
 		return FrigateStageProgress{}, invalidFrigateRequest(err)
 	}
-	resp, err := d.frigateCall(ctx, &pb.FrigateServerUpdateRequest{Operation: &pb.FrigateServerUpdateRequest_StageBegin{StageBegin: &pb.FrigateStageBeginRequest{InstanceId: instanceID, Manifest: frigateManifestToProto(m)}}})
+	resp, err := call(ctx, &pb.FrigateServerUpdateRequest{Operation: &pb.FrigateServerUpdateRequest_StageBegin{StageBegin: &pb.FrigateStageBeginRequest{InstanceId: instanceID, Manifest: frigateManifestToProto(m)}}})
 	if err != nil {
 		return FrigateStageProgress{}, err
 	}
 	return frigateProgressFromResponse(resp)
 }
 
-func (d *DeviceGRPCClient) FrigateStageAppend(ctx context.Context, instanceID string, a FrigateStageAppend) (FrigateStageProgress, error) {
+func (call frigateCallFunc) FrigateStageAppend(ctx context.Context, instanceID string, a FrigateStageAppend) (FrigateStageProgress, error) {
 	if err := validateFrigateInstanceID(instanceID); err != nil {
 		return FrigateStageProgress{}, invalidFrigateRequest(err)
 	}
 	if err := a.Validate(); err != nil {
 		return FrigateStageProgress{}, invalidFrigateRequest(err)
 	}
-	resp, err := d.frigateCall(ctx, &pb.FrigateServerUpdateRequest{Operation: &pb.FrigateServerUpdateRequest_StageAppend{StageAppend: &pb.FrigateStageAppendRequest{InstanceId: instanceID, JobId: a.JobID, ManifestSha256: a.ManifestSHA256, Offset: a.Offset, Chunk: a.Chunk, Actor: a.Actor}}})
+	resp, err := call(ctx, &pb.FrigateServerUpdateRequest{Operation: &pb.FrigateServerUpdateRequest_StageAppend{StageAppend: &pb.FrigateStageAppendRequest{InstanceId: instanceID, JobId: a.JobID, ManifestSha256: a.ManifestSHA256, Offset: a.Offset, Chunk: a.Chunk, Actor: a.Actor}}})
 	if err != nil {
 		return FrigateStageProgress{}, err
 	}
@@ -374,17 +421,7 @@ func frigateProgressFromResponse(resp *pb.FrigateServerUpdateResponse) (FrigateS
 	return FrigateStageProgress{JobID: p.GetJobId(), ManifestSHA256: p.GetManifestSha256(), NextOffset: p.GetNextOffset(), SizeBytes: p.GetSizeBytes()}, nil
 }
 
-func (d *DeviceGRPCClient) FrigateStageCommit(ctx context.Context, instanceID string, r FrigateStageRef) (FrigateStageCommit, error) {
-	if err := validateFrigateInstanceID(instanceID); err != nil {
-		return FrigateStageCommit{}, invalidFrigateRequest(err)
-	}
-	if err := r.Validate(); err != nil {
-		return FrigateStageCommit{}, invalidFrigateRequest(err)
-	}
-	resp, err := d.frigateCall(ctx, &pb.FrigateServerUpdateRequest{Operation: &pb.FrigateServerUpdateRequest_StageCommit{StageCommit: &pb.FrigateStageCommitRequest{InstanceId: instanceID, JobId: r.JobID, ManifestSha256: r.ManifestSHA256, Actor: r.Actor}}})
-	if err != nil {
-		return FrigateStageCommit{}, err
-	}
+func frigateCommitFromResponse(resp *pb.FrigateServerUpdateResponse) (FrigateStageCommit, error) {
 	c := resp.GetStageCommit()
 	if c == nil {
 		return FrigateStageCommit{}, errFrigateUnexpectedResponse
@@ -392,22 +429,36 @@ func (d *DeviceGRPCClient) FrigateStageCommit(ctx context.Context, instanceID st
 	return FrigateStageCommit{JobID: c.GetJobId(), BytesStaged: c.GetBytesStaged(), SHA256: c.GetSha256()}, nil
 }
 
-func (d *DeviceGRPCClient) FrigateStageAbort(ctx context.Context, instanceID string, r FrigateStageRef) error {
+func (call frigateCallFunc) FrigateStageCommit(ctx context.Context, instanceID string, r FrigateStageRef) (FrigateStageCommit, error) {
+	if err := validateFrigateInstanceID(instanceID); err != nil {
+		return FrigateStageCommit{}, invalidFrigateRequest(err)
+	}
+	if err := r.Validate(); err != nil {
+		return FrigateStageCommit{}, invalidFrigateRequest(err)
+	}
+	resp, err := call(ctx, &pb.FrigateServerUpdateRequest{Operation: &pb.FrigateServerUpdateRequest_StageCommit{StageCommit: &pb.FrigateStageCommitRequest{InstanceId: instanceID, JobId: r.JobID, ManifestSha256: r.ManifestSHA256, Actor: r.Actor}}})
+	if err != nil {
+		return FrigateStageCommit{}, err
+	}
+	return frigateCommitFromResponse(resp)
+}
+
+func (call frigateCallFunc) FrigateStageAbort(ctx context.Context, instanceID string, r FrigateStageRef) error {
 	if err := validateFrigateInstanceID(instanceID); err != nil {
 		return invalidFrigateRequest(err)
 	}
 	if err := r.Validate(); err != nil {
 		return invalidFrigateRequest(err)
 	}
-	_, err := d.frigateCall(ctx, &pb.FrigateServerUpdateRequest{Operation: &pb.FrigateServerUpdateRequest_StageAbort{StageAbort: &pb.FrigateStageAbortRequest{InstanceId: instanceID, JobId: r.JobID, ManifestSha256: r.ManifestSHA256, Actor: r.Actor}}})
+	_, err := call(ctx, &pb.FrigateServerUpdateRequest{Operation: &pb.FrigateServerUpdateRequest_StageAbort{StageAbort: &pb.FrigateStageAbortRequest{InstanceId: instanceID, JobId: r.JobID, ManifestSha256: r.ManifestSHA256, Actor: r.Actor}}})
 	return err
 }
 
-func (d *DeviceGRPCClient) FrigateUpdateStart(ctx context.Context, r FrigateStartRequest) (FrigateRollout, error) {
+func (call frigateCallFunc) FrigateUpdateStart(ctx context.Context, r FrigateStartRequest) (FrigateRollout, error) {
 	if err := r.Validate(); err != nil {
 		return FrigateRollout{}, invalidFrigateRequest(err)
 	}
-	resp, err := d.frigateCall(ctx, &pb.FrigateServerUpdateRequest{Operation: &pb.FrigateServerUpdateRequest_Start{Start: &pb.FrigateUpdateStartRequest{
+	resp, err := call(ctx, &pb.FrigateServerUpdateRequest{Operation: &pb.FrigateServerUpdateRequest_Start{Start: &pb.FrigateUpdateStartRequest{
 		JobId: r.JobID, TargetVersion: r.TargetVersion, ExpectedInstanceIds: slices.Clone(r.ExpectedInstanceIDs), StageOnly: r.StageOnly,
 		IdempotencyKey: r.IdempotencyKey, ExpectedManifestSha256: cloneStringMap(r.ExpectedManifestSHA256), Actor: r.Actor,
 	}}})
@@ -417,11 +468,11 @@ func (d *DeviceGRPCClient) FrigateUpdateStart(ctx context.Context, r FrigateStar
 	return frigateRolloutFromResponse(resp)
 }
 
-func (d *DeviceGRPCClient) FrigateUpdateStatus(ctx context.Context, jobID string) (FrigateStatus, error) {
+func (call frigateCallFunc) FrigateUpdateStatus(ctx context.Context, jobID string) (FrigateStatus, error) {
 	if err := validateFrigateStatusJobID(jobID); err != nil {
 		return FrigateStatus{}, invalidFrigateRequest(err)
 	}
-	resp, err := d.frigateCall(ctx, &pb.FrigateServerUpdateRequest{Operation: &pb.FrigateServerUpdateRequest_Status{Status: &pb.FrigateUpdateStatusRequest{JobId: jobID}}})
+	resp, err := call(ctx, &pb.FrigateServerUpdateRequest{Operation: &pb.FrigateServerUpdateRequest_Status{Status: &pb.FrigateUpdateStatusRequest{JobId: jobID}}})
 	if err != nil {
 		return FrigateStatus{}, err
 	}
@@ -432,22 +483,22 @@ func (d *DeviceGRPCClient) FrigateUpdateStatus(ctx context.Context, jobID string
 	return FrigateStatus{Rollout: frigateRolloutFromProto(st.GetRollout()), ServedByMaintenance: st.GetServedByMaintenance(), AnsweredBy: st.GetAnsweredBy()}, nil
 }
 
-func (d *DeviceGRPCClient) FrigateUpdateRetry(ctx context.Context, a FrigateAction) (FrigateRollout, error) {
+func (call frigateCallFunc) FrigateUpdateRetry(ctx context.Context, a FrigateAction) (FrigateRollout, error) {
 	if err := a.Validate(); err != nil {
 		return FrigateRollout{}, invalidFrigateRequest(err)
 	}
-	resp, err := d.frigateCall(ctx, &pb.FrigateServerUpdateRequest{Operation: &pb.FrigateServerUpdateRequest_Retry{Retry: &pb.FrigateUpdateRetryRequest{JobId: a.JobID, IdempotencyKey: a.IdempotencyKey, Actor: a.Actor}}})
+	resp, err := call(ctx, &pb.FrigateServerUpdateRequest{Operation: &pb.FrigateServerUpdateRequest_Retry{Retry: &pb.FrigateUpdateRetryRequest{JobId: a.JobID, IdempotencyKey: a.IdempotencyKey, Actor: a.Actor}}})
 	if err != nil {
 		return FrigateRollout{}, err
 	}
 	return frigateRolloutFromResponse(resp)
 }
 
-func (d *DeviceGRPCClient) FrigateUpdateCancel(ctx context.Context, a FrigateAction) (FrigateRollout, error) {
+func (call frigateCallFunc) FrigateUpdateCancel(ctx context.Context, a FrigateAction) (FrigateRollout, error) {
 	if err := a.Validate(); err != nil {
 		return FrigateRollout{}, invalidFrigateRequest(err)
 	}
-	resp, err := d.frigateCall(ctx, &pb.FrigateServerUpdateRequest{Operation: &pb.FrigateServerUpdateRequest_Cancel{Cancel: &pb.FrigateUpdateCancelRequest{JobId: a.JobID, IdempotencyKey: a.IdempotencyKey, Actor: a.Actor}}})
+	resp, err := call(ctx, &pb.FrigateServerUpdateRequest{Operation: &pb.FrigateServerUpdateRequest_Cancel{Cancel: &pb.FrigateUpdateCancelRequest{JobId: a.JobID, IdempotencyKey: a.IdempotencyKey, Actor: a.Actor}}})
 	if err != nil {
 		return FrigateRollout{}, err
 	}

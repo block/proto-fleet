@@ -792,9 +792,10 @@ controllers and starts a self-coordinated rollout that the Frigate root helpers
 drive through etcd.
 
 - Transport and auth: native gRPC to the controller RPC port, reusing the
-  per-endpoint clients and their stored controller token. FleetNode-owned controllers are not
-  supported either: `RemoteFleetNodeMiner` answers every update call with
-  FailedPrecondition.
+  per-endpoint clients and their stored controller token. For a controller
+  that a Fleet Node manages, the node makes these calls on its own plugin.
+  Fleet Node routing requires command protocol V20; see
+  [Containers behind a Fleet Node](frigate-server-updates.md#containers-behind-a-fleet-node).
 - Instance routing: one HA pair is one Fleet device. `DeviceEndpoint.ID` is the
   Frigate instance ID, and the plugin sends staging calls to the connection of
   the instance named in the call. A single-node controller uses its instance

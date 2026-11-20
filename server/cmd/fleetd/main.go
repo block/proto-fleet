@@ -1023,7 +1023,8 @@ func start(config *Config) (result error) {
 		connect.WithReadMaxBytes(sitemapDomain.MaxImportBytes+1024),
 	))
 	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(
-		gateway.NewHandler(fleetNodeEnrollmentSvc, fleetNodeAuthSvc, fleetNodePairingSvc, fleetNodeControlRegistry, filesService),
+		gateway.NewHandler(fleetNodeEnrollmentSvc, fleetNodeAuthSvc, fleetNodePairingSvc, fleetNodeControlRegistry, filesService).
+			WithControllerSoftwarePackages(frigatePackageStore),
 		li,
 		gateway.CommandArtifactUploadReadLimitOption(),
 		gateway.BootstrapRateLimitOption(),

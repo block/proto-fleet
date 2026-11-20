@@ -326,6 +326,22 @@ func (m *Miner) sendInSlot(ctx context.Context, mc *gatewaypb.MinerCommand) (*ga
 	if err != nil {
 		return nil, devicewrite.NotDispatched(err)
 	}
+	version, err := minimumCommandProtocolVersion(mc)
+	if err != nil {
+		return nil, devicewrite.NotDispatched(err)
+	}
+	var ack *gatewaypb.ControlAck
+	err = m.withPhysicalWriteAdmission(ctx, mc, func(ctx context.Context) (*gatewaypb.ControlAck, error) {
+		var err error
+		ack, err = m.sender.SendCommand(ctx, m.fleetNodeID, version, cmd)
+		return ack, err
+	})
+	return ack, err
+}
+
+// minimumCommandProtocolVersion is the oldest command protocol whose nodes run
+// mc. An older node never receives the command.
+func minimumCommandProtocolVersion(mc *gatewaypb.MinerCommand) (gatewaypb.CommandProtocolVersion, error) {
 	version := gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1
 	if mc.GetRunContainerAlarmAction() != nil {
 		version = ContainerAlarmCommandProtocolVersion
@@ -347,7 +363,7 @@ func (m *Miner) sendInSlot(ctx context.Context, mc *gatewaypb.MinerCommand) (*ga
 	} else if mc.GetMiningGroups() != nil {
 		request, err := sdk.DecodeMiningGroupRequest(mc.GetMiningGroups().Request)
 		if err != nil {
-			return nil, devicewrite.NotDispatched(err)
+			return version, err
 		}
 		version = miningGroupCommandVersion(request)
 	} else if mc.GetSetModuleMining() != nil {
@@ -358,14 +374,10 @@ func (m *Miner) sendInSlot(ctx context.Context, mc *gatewaypb.MinerCommand) (*ga
 		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3
 	} else if mc.GetSetContainerControl() != nil {
 		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2
+	} else if mc.GetFrigateUpdate() != nil {
+		version = FrigateUpdateCommandProtocolVersion
 	}
-	var ack *gatewaypb.ControlAck
-	err = m.withPhysicalWriteAdmission(ctx, mc, func(ctx context.Context) (*gatewaypb.ControlAck, error) {
-		var err error
-		ack, err = m.sender.SendCommand(ctx, m.fleetNodeID, version, cmd)
-		return ack, err
-	})
-	return ack, err
+	return version, nil
 }
 
 func (m *Miner) sendInSlotWithArtifactResults(ctx context.Context, mc *gatewaypb.MinerCommand, artifacts []control.ArtifactExpectation) (*gatewaypb.ControlAck, []*gatewaypb.CommandArtifactRef, error) {
@@ -377,11 +389,15 @@ func (m *Miner) sendInSlotWithArtifactResults(ctx context.Context, mc *gatewaypb
 	if err != nil {
 		return nil, nil, devicewrite.NotDispatched(err)
 	}
+	version, err := minimumCommandProtocolVersion(mc)
+	if err != nil {
+		return nil, nil, devicewrite.NotDispatched(err)
+	}
 	var ack *gatewaypb.ControlAck
 	var refs []*gatewaypb.CommandArtifactRef
 	err = m.withPhysicalWriteAdmission(ctx, mc, func(ctx context.Context) (*gatewaypb.ControlAck, error) {
 		var err error
-		ack, refs, err = sender.SendCommandWithArtifactResults(ctx, m.fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd, artifacts)
+		ack, refs, err = sender.SendCommandWithArtifactResults(ctx, m.fleetNodeID, version, cmd, artifacts)
 		return ack, err
 	})
 	return ack, refs, err
