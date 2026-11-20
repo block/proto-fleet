@@ -1907,7 +1907,8 @@ func TestUpsertDeviceStatuses_CoalescesUnchangedStatus(t *testing.T) {
 
 	conn := testutil.GetTestDB(t)
 	store := sqlstores.NewSQLDeviceStore(conn)
-	now := time.Now().UTC().Truncate(time.Microsecond)
+	var now time.Time
+	require.NoError(t, conn.QueryRowContext(t.Context(), "SELECT statement_timestamp()").Scan(&now))
 	cases := []struct {
 		identifier string
 		status     string
@@ -1926,25 +1927,30 @@ func TestUpsertDeviceStatuses_CoalescesUnchangedStatus(t *testing.T) {
 	updates := make([]interfaces.DeviceStatusUpdate, 0, len(cases))
 	for i, tc := range cases {
 		devices = append(devices, testDevice{id: int64(i + 1), identifier: tc.identifier, status: tc.status, pairingStatus: "PAIRED"})
-		updates = append(updates, interfaces.DeviceStatusUpdate{DeviceIdentifier: minermodels.DeviceIdentifier(tc.identifier), Status: tc.nextStatus})
+		updates = append(updates, interfaces.DeviceStatusUpdate{
+			DeviceIdentifier: minermodels.DeviceIdentifier(tc.identifier),
+			Status:           tc.nextStatus,
+			OfflineConfirmed: tc.nextStatus == minermodels.MinerStatusOffline,
+		})
 	}
 	setupUpsertDeviceStatusesTestData(t, conn, devices)
 	for i, tc := range cases {
-		_, err := conn.Exec(`UPDATE device_status SET status_timestamp = $1 WHERE device_id = $2`, tc.timestamp, i+1)
+		_, err := conn.Exec(`UPDATE device_status SET status_timestamp = $1, telemetry_status_at = $1 WHERE device_id = $2`, tc.timestamp, i+1)
 		require.NoError(t, err)
 	}
 
 	type persistedStatus struct {
-		status    string
-		timestamp sql.NullTime
-		tuple     string
+		status      string
+		timestamp   sql.NullTime
+		telemetryAt sql.NullTime
+		tuple       string
 	}
 	readStatus := func(id int) persistedStatus {
 		t.Helper()
 		var result persistedStatus
 		// ctid also detects a row mutation that leaves every column unchanged.
-		err := conn.QueryRow(`SELECT status, status_timestamp, ctid::text FROM device_status WHERE device_id = $1`, id).
-			Scan(&result.status, &result.timestamp, &result.tuple)
+		err := conn.QueryRow(`SELECT status, status_timestamp, telemetry_status_at, ctid::text FROM device_status WHERE device_id = $1`, id).
+			Scan(&result.status, &result.timestamp, &result.telemetryAt, &result.tuple)
 		require.NoError(t, err)
 		return result
 	}
@@ -1960,6 +1966,7 @@ func TestUpsertDeviceStatuses_CoalescesUnchangedStatus(t *testing.T) {
 		if tc.wantWrite {
 			require.NotEqual(t, before[i].tuple, after[i].tuple, tc.identifier)
 			require.True(t, after[i].timestamp.Valid, tc.identifier)
+			require.Equal(t, after[i].timestamp, after[i].telemetryAt, tc.identifier)
 			require.False(t, after[i].timestamp.Time.Before(now), tc.identifier)
 			require.Equal(t, strings.ToUpper(tc.nextStatus.String()), after[i].status, tc.identifier)
 		} else {

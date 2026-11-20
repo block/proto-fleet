@@ -138,6 +138,7 @@ type MinerModelGroupResult struct {
 type DeviceStatusUpdate struct {
 	DeviceIdentifier models.DeviceIdentifier
 	Status           mm.MinerStatus
+	OfflineConfirmed bool // True when a status probe could not connect to the miner.
 }
 
 // OfflineDeviceInfo contains information about an offline device needed for IP scanning

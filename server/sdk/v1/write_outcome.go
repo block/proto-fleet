@@ -132,11 +132,16 @@ func sdkServerError(err error) error {
 	}
 	var localOutcome *writeOutcomeError
 	var localGeneration *backendGenerationError
+	var localProbe *deviceProbeError
 	errors.As(err, &localOutcome)
 	errors.As(err, &localGeneration)
+	errors.As(err, &localProbe)
 	base, ok := status.FromError(err)
 	if !ok {
-		return err
+		if localProbe == nil {
+			return err
+		}
+		base = status.FromContextError(err)
 	}
 	wire := base.Proto()
 	details := wire.Details[:0]
@@ -144,13 +149,14 @@ func sdkServerError(err error) error {
 	for _, detail := range wire.Details {
 		var info errdetails.ErrorInfo
 		if detail.UnmarshalTo(&info) == nil && (info.Domain == writeOutcomeDomain ||
-			(info.Domain == "protofleet.sdk" && info.Reason == backendGenerationMismatch)) {
+			(info.Domain == "protofleet.sdk" && info.Reason == backendGenerationMismatch) ||
+			(info.Domain == deviceProbeDomain && info.Reason == deviceProbeReason)) {
 			filtered = true
 			continue
 		}
 		details = append(details, detail)
 	}
-	if !filtered {
+	if !filtered && localProbe == nil {
 		return err
 	}
 	wire.Details = details
@@ -163,6 +169,11 @@ func sdkServerError(err error) error {
 	if localGeneration != nil {
 		if withGeneration, addErr := filteredStatus.WithDetails(&errdetails.ErrorInfo{Domain: "protofleet.sdk", Reason: backendGenerationMismatch}); addErr == nil {
 			filteredStatus = withGeneration
+		}
+	}
+	if localProbe != nil {
+		if withProbe, addErr := filteredStatus.WithDetails(&errdetails.ErrorInfo{Domain: deviceProbeDomain, Reason: deviceProbeReason}); addErr == nil {
+			filteredStatus = withProbe
 		}
 	}
 	return &sdkFilteredError{err: err, status: filteredStatus}

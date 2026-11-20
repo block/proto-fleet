@@ -2733,6 +2733,7 @@ const reconcileRebootRequiredStatus = `-- name: ReconcileRebootRequiredStatus :e
 UPDATE device_status ds
 SET status = $1::device_status_enum,
     status_timestamp = CURRENT_TIMESTAMP,
+    telemetry_status_at = NULL,
     status_details = NULL,
     reboot_required_after = NULL
 FROM device d
@@ -3058,6 +3059,7 @@ INSERT INTO device_status (
 ON CONFLICT (device_id) DO UPDATE SET
     status = EXCLUDED.status,
     status_timestamp = EXCLUDED.status_timestamp,
+    telemetry_status_at = NULL,
     status_details = EXCLUDED.status_details,
     reboot_required_after = EXCLUDED.reboot_required_after
 WHERE device_status.status_details IS DISTINCT FROM 'fleet_node_revoked'

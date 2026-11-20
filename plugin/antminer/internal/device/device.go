@@ -244,7 +244,7 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 
 	minerStatus, err := d.client.GetStatus(ctx)
 	if err != nil {
-		return sdk.DeviceMetrics{}, fmt.Errorf("failed to get miner status: %w", err)
+		return sdk.DeviceMetrics{}, fmt.Errorf("failed to get miner status: %w", sdk.WithDeviceDialFailure(ctx, err))
 	}
 
 	telemetry, err := d.client.GetTelemetry(ctx)

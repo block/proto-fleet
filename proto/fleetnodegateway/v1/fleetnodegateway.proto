@@ -764,6 +764,8 @@ message ControlAck {
     // SDK execution evidence, independent of the command result code. Absent or
     // invalid evidence does not establish that a failed device write ended.
     DeviceWriteOutcome write_outcome = 6;
+    // Set on failed telemetry when the plugin confirms it could not connect to the miner.
+    bool miner_probe_failed = 7;
 }
 
 // DeviceWriteOutcome carries bounded SDK evidence, never firmware error text.

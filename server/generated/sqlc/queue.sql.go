@@ -463,6 +463,7 @@ UPDATE device_status
 SET
     status = 'ACTIVE'::device_status_enum,
     status_timestamp = CURRENT_TIMESTAMP,
+    telemetry_status_at = NULL,
     status_details = NULL,
     reboot_required_after = NULL
 WHERE device_id = ANY($1::BIGINT[])

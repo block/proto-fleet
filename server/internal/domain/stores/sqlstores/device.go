@@ -864,12 +864,12 @@ func (s *SQLDeviceStore) UpsertDeviceStatuses(ctx context.Context, updates []sto
 	})
 
 	// Build args in sorted order
-	now := time.Now()
 	args := make([]any, 0, len(validUpdates)*4+1)
 	for _, v := range validUpdates {
-		args = append(args, v.deviceID, toDeviceStatus(v.update.Status), now, "")
+		hasEvidence := v.update.Status != minermodels.MinerStatusOffline || v.update.OfflineConfirmed
+		args = append(args, v.deviceID, toDeviceStatus(v.update.Status), "", hasEvidence)
 	}
-	args = append(args, now.Add(-s.statusRefreshInterval))
+	args = append(args, s.statusRefreshInterval.Microseconds())
 
 	query := buildDeviceStatusBulkUpsert(len(validUpdates))
 	_, err = s.conn.ExecContext(ctx, query, args...)
@@ -891,8 +891,9 @@ func (s *SQLDeviceStore) UpsertDeviceStatuses(ctx context.Context, updates []sto
 // The WHERE clause prevents telemetry status writes from overwriting firmware update
 // states (UPDATING, REBOOT_REQUIRED) that are managed by the command execution
 // service, and ignores late results for unpaired Node-discovered miners.
-// Unchanged statuses refresh periodically to keep recent-poll evidence for
-// CloseStaleErrors without rewriting a stable device's row on every poll.
+// Unchanged statuses refresh periodically without rewriting a stable device's row
+// on every poll. A change in reachability evidence also updates the row, even
+// when the status stays the same. Both timestamps use the database clock.
 func buildDeviceStatusBulkUpsert(rowCount int) string {
 	var b strings.Builder
 	paramNum := 1
@@ -900,22 +901,24 @@ func buildDeviceStatusBulkUpsert(rowCount int) string {
 		if i > 0 {
 			b.WriteString(", ")
 		}
-		fmt.Fprintf(&b, "($%d, $%d, $%d, $%d)", paramNum, paramNum+1, paramNum+2, paramNum+3)
+		fmt.Fprintf(&b, "($%d, $%d, statement_timestamp(), $%d, CASE WHEN $%d THEN statement_timestamp() END)", paramNum, paramNum+1, paramNum+2, paramNum+3)
 		paramNum += 4
 	}
 
 	return fmt.Sprintf(
-		"INSERT INTO device_status (device_id, status, status_timestamp, status_details) VALUES %s "+
+		"INSERT INTO device_status (device_id, status, status_timestamp, status_details, telemetry_status_at) VALUES %s "+
 			"ON CONFLICT (device_id) DO UPDATE SET "+
 			"status = EXCLUDED.status, "+
 			"status_timestamp = EXCLUDED.status_timestamp, "+
+			"telemetry_status_at = EXCLUDED.telemetry_status_at, "+
 			"status_details = EXCLUDED.status_details, "+
 			"reboot_required_after = NULL "+
 			"WHERE device_status.status NOT IN ('UPDATING', 'REBOOT_REQUIRED') "+
 			"AND device_status.status_details IS DISTINCT FROM 'fleet_node_revoked' "+
 			"AND (device_status.status IS DISTINCT FROM EXCLUDED.status "+
+			"OR COALESCE(device_status.telemetry_status_at = device_status.status_timestamp, FALSE) IS DISTINCT FROM (EXCLUDED.telemetry_status_at IS NOT NULL) "+
 			"OR device_status.status_timestamp IS NULL "+
-			"OR device_status.status_timestamp <= $%d) "+
+			"OR device_status.status_timestamp <= statement_timestamp() - ($%d::bigint * interval '1 microsecond')) "+
 			"AND NOT EXISTS ("+
 			"SELECT 1 FROM device d "+
 			"JOIN device_pairing dp ON dp.device_id = d.id AND dp.pairing_status = 'UNPAIRED' "+

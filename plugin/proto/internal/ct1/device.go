@@ -61,6 +61,9 @@ func NewDevice(ctx context.Context, id string, info sdk.DeviceInfo, credentials 
 		verified, err := d.clients[0].Discover(ctx, info)
 		if err != nil {
 			_ = d.Close(ctx)
+			if isControllerConnectionFailure(err) {
+				err = sdk.WithDeviceProbeFailure(err)
+			}
 			return nil, identityMismatchGuidance(authFailure(id, err))
 		}
 		d.info = verified
@@ -96,6 +99,7 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	firmwareJobs := observeFirmwareJobs(ctx, selected)
 	psuFirmwareJobs := observePSUFirmwareJobs(ctx, selected)
 	metrics, evidence, err := selected.client.collect(ctx, d.id)
+	allConnectionsFailed := len(d.clients) == 1 && isControllerConnectionFailure(err)
 	if err != nil && selected.standby != nil && ctx.Err() == nil {
 		// Reuse this poll's verified standby. Only telemetry and error polling
 		// (readErrorEvidence) can fall back; commands and their readback stay
@@ -104,12 +108,16 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 		firstErr := err
 		metrics, evidence, err = selected.client.collect(ctx, d.id)
 		if err != nil {
+			allConnectionsFailed = isControllerConnectionFailure(firstErr) && isControllerConnectionFailure(err)
 			err = errors.Join(firstErr, err)
 		}
 		ha.Degraded = true
 	}
 	if err != nil {
 		d.pollFailed(ctx, err)
+		if allConnectionsFailed {
+			err = sdk.WithDeviceProbeFailure(err)
+		}
 	} else {
 		d.errorsShared().observe(evidence.readFrom(selected))
 	}

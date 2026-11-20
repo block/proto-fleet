@@ -150,8 +150,9 @@ func (l *lockedAcker) Close() {
 type endpoint struct{ ip, port string }
 
 type commandError struct {
-	code pb.AckCode
-	msg  string
+	code             pb.AckCode
+	msg              string
+	minerProbeFailed bool
 }
 
 func (e *commandError) Error() string { return e.msg }
@@ -846,27 +847,31 @@ func (r *RunCmd) sendAckWithPayload(stream acker, commandID string, code pb.AckC
 }
 
 func (r *RunCmd) sendAckWithWriteEvidence(stream acker, commandID string, code pb.AckCode, errMsg string, payload []byte, evidence *errdetails.ErrorInfo, logger *slog.Logger) {
-	if len(payload) > maxAckPayloadBytes {
-		originalBytes := len(payload)
-		payload = nil
-		if code == pb.AckCode_ACK_CODE_OK {
-			code = pb.AckCode_ACK_CODE_INTERNAL
-			errMsg = fmt.Sprintf("ack payload too large: %d bytes exceeds %d byte limit", originalBytes, maxAckPayloadBytes)
-		} else if errMsg == "" {
-			errMsg = fmt.Sprintf("ack payload too large: %d bytes exceeds %d byte limit", originalBytes, maxAckPayloadBytes)
-		}
-		logger.Warn("dropping oversized ack payload", "command_id", commandID, "payload_bytes", originalBytes, "max_payload_bytes", maxAckPayloadBytes)
-	}
-	errMsg = truncateUTF8(errMsg, maxAckErrorMessageBytes)
-	if err := stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Ack{Ack: &pb.ControlAck{
+	r.sendControlAck(stream, &pb.ControlAck{
 		CommandId:    commandID,
-		Succeeded:    code == pb.AckCode_ACK_CODE_OK,
 		ErrorMessage: errMsg,
 		Code:         code,
 		Payload:      payload,
 		WriteOutcome: nodeWriteOutcome(evidence),
-	}}}); err != nil && !errors.Is(err, errControlSenderClosed) {
-		logger.Warn("send ack failed", "command_id", commandID, "err", err)
+	}, logger)
+}
+
+func (r *RunCmd) sendControlAck(stream acker, ack *pb.ControlAck, logger *slog.Logger) {
+	if len(ack.Payload) > maxAckPayloadBytes {
+		originalBytes := len(ack.Payload)
+		ack.Payload = nil
+		if ack.Code == pb.AckCode_ACK_CODE_OK {
+			ack.Code = pb.AckCode_ACK_CODE_INTERNAL
+			ack.ErrorMessage = fmt.Sprintf("ack payload too large: %d bytes exceeds %d byte limit", originalBytes, maxAckPayloadBytes)
+		} else if ack.ErrorMessage == "" {
+			ack.ErrorMessage = fmt.Sprintf("ack payload too large: %d bytes exceeds %d byte limit", originalBytes, maxAckPayloadBytes)
+		}
+		logger.Warn("dropping oversized ack payload", "command_id", ack.CommandId, "payload_bytes", originalBytes, "max_payload_bytes", maxAckPayloadBytes)
+	}
+	ack.Succeeded = ack.Code == pb.AckCode_ACK_CODE_OK
+	ack.ErrorMessage = truncateUTF8(ack.ErrorMessage, maxAckErrorMessageBytes)
+	if err := stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Ack{Ack: ack}}); err != nil && !errors.Is(err, errControlSenderClosed) {
+		logger.Warn("send ack failed", "command_id", ack.CommandId, "err", err)
 	}
 }
 

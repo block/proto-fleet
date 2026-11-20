@@ -1191,6 +1191,31 @@ func TestPluginMiner_GetDeviceStatus_NetworkError_ReturnsConnectionError(t *test
 	assert.Equal(t, string(deviceID), connErr.DeviceIdentifier)
 }
 
+func TestPluginMiner_GetDeviceStatus_ConnectionFailureSource(t *testing.T) {
+	for _, test := range []struct {
+		name            string
+		err             error
+		wantDeviceProbe bool
+	}{
+		{"SDK device probe failure", sdk.WithDeviceProbeFailure(grpcstatus.Error(codes.Unavailable, "controller connection refused")), true},
+		{"unmarked device unavailable message", grpcstatus.Error(codes.Unavailable, "device unavailable: miner"), false},
+		{"plugin transport unavailable", grpcstatus.Error(codes.Unavailable, "connection refused"), false},
+		{"plugin RPC deadline", grpcstatus.Error(codes.DeadlineExceeded, "context deadline exceeded"), false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			miner, device := createTestPluginMiner()
+			device.statusFunc = func(context.Context) (sdk.DeviceMetrics, error) {
+				return sdk.DeviceMetrics{}, test.err
+			}
+			status, err := miner.GetDeviceStatus(t.Context())
+			require.Equal(t, models.MinerStatusOffline, status)
+			var connectionErr fleeterror.ConnectionError
+			require.ErrorAs(t, err, &connectionErr)
+			require.Equal(t, test.wantDeviceProbe, connectionErr.DeviceProbeFailed)
+		})
+	}
+}
+
 func TestPluginMiner_GetDeviceStatus_NonNetworkError_ReturnsInternalError(t *testing.T) {
 	// Create a mock SDK device that returns a non-network error
 	genericErr := errors.New("some internal SDK error")

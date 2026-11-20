@@ -75,6 +75,31 @@ func TestUnsupportedWritePreservesCapabilityStatusAcrossRPC(t *testing.T) {
 	require.Equal(t, string(WriteReasonUnsupported), evidence.Metadata["reason"])
 }
 
+func TestDeviceProbeEvidenceRequiresPluginOrigin(t *testing.T) {
+	downstream, err := status.New(codes.Unavailable, "controller rejected request").WithDetails(
+		&errdetails.ErrorInfo{Domain: deviceProbeDomain, Reason: deviceProbeReason},
+	)
+	require.NoError(t, err)
+	for _, test := range []struct {
+		name      string
+		failure   error
+		confirmed bool
+	}{
+		{"unmarked network error", &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")}, false},
+		{"locally marked controller error", WithDeviceProbeFailure(status.Error(codes.Unavailable, "connection refused")), true},
+		{"downstream detail without plugin evidence", downstream.Err(), false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			device := outcomeRPCDevice(t, fakeDevice{statusFunc: func(context.Context) (DeviceMetrics, error) {
+				return DeviceMetrics{}, test.failure
+			}})
+			_, err := device.Status(t.Context())
+			require.Error(t, err)
+			require.Equal(t, test.confirmed, DeviceProbeFailed(err))
+		})
+	}
+}
+
 func TestWriteEvidenceSurvivesActualRPCAndErrorMapping(t *testing.T) {
 	for _, outcome := range []string{WriteNotDispatched, WriteCompleted, WriteUnknown} {
 		t.Run(outcome, func(t *testing.T) {

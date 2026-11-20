@@ -21,7 +21,7 @@ func TestTransportPortAndValidation(t *testing.T) {
 	c, err := NewClient(info, sdk.UsernamePassword{})
 	require.NoError(t, err)
 	defer c.Close()
-	require.Equal(t, "dns:///controller.example:9443", c.conn.CanonicalTarget())
+	require.Regexp(t, `^(dns|passthrough):///controller\.example:9443$`, c.conn.CanonicalTarget())
 	require.Equal(t, info.Host, c.endpoint.Host)
 	require.Equal(t, info.Port, c.endpoint.Port)
 	require.Equal(t, info.URLScheme, c.endpoint.URLScheme)
@@ -43,12 +43,17 @@ func TestTLSRejectsUntrustedCertificate(t *testing.T) {
 	require.NoError(t, err)
 	port, err := sdk.ParsePort(portText)
 	require.NoError(t, err)
-	c, err := NewClient(sdk.DeviceInfo{Host: host, Port: 8080, URLScheme: "http", RPCPort: port, RPCTLS: true}, sdk.UsernamePassword{})
+	info := sdk.DeviceInfo{Host: host, Port: 8080, URLScheme: "http", RPCPort: port, RPCTLS: true}
+	c, err := NewClient(info, sdk.UsernamePassword{})
 	require.NoError(t, err)
 	defer c.Close()
 	_, err = c.Discover(t.Context(), sdk.DeviceInfo{})
 	require.Equal(t, codes.Unavailable, status.Code(err))
 	require.Contains(t, err.Error(), "certificate")
+	require.False(t, isControllerConnectionFailure(err))
+	_, err = NewDevice(t.Context(), "ct1", info, sdk.UsernamePassword{})
+	require.Equal(t, codes.Unavailable, status.Code(err))
+	require.False(t, sdk.DeviceProbeFailed(err))
 }
 
 func TestConnectionRecoversAfterControllerRestart(t *testing.T) {

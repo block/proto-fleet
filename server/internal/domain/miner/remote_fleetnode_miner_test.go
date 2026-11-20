@@ -289,7 +289,43 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsNoActiveStream(t *testing.T) {
 	_, err := miner.GetDeviceMetrics(context.Background())
 
 	require.Error(t, err)
-	assert.True(t, fleeterror.IsConnectionError(err))
+	var connectionErr fleeterror.ConnectionError
+	require.ErrorAs(t, err, &connectionErr)
+	require.False(t, connectionErr.DeviceProbeFailed)
+}
+
+func TestRemoteFleetNodeMinerGetDeviceStatusPreservesProbeFailureFromAck(t *testing.T) {
+	for _, confirmed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("confirmed=%t", confirmed), func(t *testing.T) {
+			registry := control.NewRegistry()
+			stream := registry.Register(12)
+			defer stream.Unregister()
+			miner := newTestRemoteFleetNodeMiner(t, registry)
+			type result struct {
+				status models.MinerStatus
+				err    error
+			}
+			results := make(chan result, 1)
+			go func() {
+				status, err := miner.GetDeviceStatus(t.Context())
+				results <- result{status, err}
+			}()
+			command := receiveRemoteCommand(t, stream)
+			stream.PublishAck(&gatewaypb.ControlAck{
+				CommandId: command.GetCommandId(), Code: gatewaypb.AckCode_ACK_CODE_SCAN_FAILED,
+				ErrorMessage: "connection refused", MinerProbeFailed: confirmed,
+			})
+			select {
+			case got := <-results:
+				require.Equal(t, models.MinerStatusOffline, got.status)
+				var connectionErr fleeterror.ConnectionError
+				require.ErrorAs(t, got.err, &connectionErr)
+				require.Equal(t, confirmed, connectionErr.DeviceProbeFailed)
+			case <-time.After(time.Second):
+				t.Fatal("timed out waiting for status")
+			}
+		})
+	}
 }
 
 func TestRemoteFleetNodeMinerGetDeviceMetricsTimesOutWithoutCallerDeadline(t *testing.T) {

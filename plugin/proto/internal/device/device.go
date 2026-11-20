@@ -282,7 +282,7 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 		// An unreachable miner may be rebooting, so its next successful poll
 		// must not reuse uptime observed before the outage.
 		d.clearFirmwareCacheLocked()
-		return sdk.DeviceMetrics{}, fmt.Errorf("failed to get miner status: %w", err)
+		return sdk.DeviceMetrics{}, fmt.Errorf("failed to get miner status: %w", sdk.WithDeviceDialFailure(ctx, err))
 	}
 	if minerStatus.IsCurtailed && d.hasActiveFullCurtailment() {
 		minerStatus.State = sdk.HealthHealthyInactive

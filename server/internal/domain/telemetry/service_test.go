@@ -4405,12 +4405,13 @@ func TestFetchStatusFromMiner_ConnectionErrorResolvesOrgFromDeviceStore(t *testi
 		ConcurrencyLimit:   5,
 	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
 
-	status, orgID, driverName, _, err := service.fetchStatusFromMiner(t.Context(), deviceID)
+	result, err := service.fetchStatusFromMiner(t.Context(), deviceID)
 
 	require.NoError(t, err)
-	assert.Equal(t, mm.MinerStatusOffline, status)
-	assert.Equal(t, int64(42), orgID, "trusted org_id from device store must label the offline sample")
-	assert.Equal(t, "antminer", driverName, "trusted driver_name from device store must label the offline sample")
+	assert.Equal(t, mm.MinerStatusOffline, result.status)
+	assert.False(t, result.offlineConfirmed)
+	assert.Equal(t, int64(42), result.orgID, "trusted org_id from device store must label the offline sample")
+	assert.Equal(t, "antminer", result.driverName, "trusted driver_name from device store must label the offline sample")
 }
 
 // TestFetchStatusFromMiner_ConnectionErrorWithMissingDeviceRowDowngradesGracefully
@@ -4444,12 +4445,12 @@ func TestFetchStatusFromMiner_ConnectionErrorWithMissingDeviceRowDowngradesGrace
 		ConcurrencyLimit:   5,
 	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
 
-	status, orgID, driverName, _, err := service.fetchStatusFromMiner(t.Context(), deviceID)
+	result, err := service.fetchStatusFromMiner(t.Context(), deviceID)
 
 	require.NoError(t, err)
-	assert.Equal(t, mm.MinerStatusOffline, status)
-	assert.Zero(t, orgID)
-	assert.Empty(t, driverName)
+	assert.Equal(t, mm.MinerStatusOffline, result.status)
+	assert.Zero(t, result.orgID)
+	assert.Empty(t, result.driverName)
 }
 
 // Tests for fetchStatusFromMiner auth error → InvalidateMiner
@@ -4576,7 +4577,7 @@ func TestCredentialRemediationUsesFailedRequestEndpoint(t *testing.T) {
 			} else {
 				miner.EXPECT().GetDeviceStatus(gomock.Any()).Return(mm.MinerStatusUnknown, authErr)
 				getter.EXPECT().InvalidateMiner(device.ID)
-				_, _, _, _, failure = service.fetchStatusFromMiner(t.Context(), device.ID)
+				_, failure = service.fetchStatusFromMiner(t.Context(), device.ID)
 			}
 			require.ErrorIs(t, failure, authErr)
 			// The store reports that recovery already changed the endpoint. No

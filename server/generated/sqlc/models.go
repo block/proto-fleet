@@ -1417,6 +1417,26 @@ type DevicePairing struct {
 	UpdatedAt     sql.NullTime
 }
 
+type DeviceReachabilityExclusion struct {
+	DeviceID  int64
+	Reason    string
+	CreatedAt time.Time
+	ExpiresAt time.Time
+}
+
+type DeviceReachabilitySummary struct {
+	OrgID            int64
+	SiteID           int64
+	SourceNodeID     int64
+	DeviceClass      int32
+	ExpectedCount    int64
+	ReachableCount   int64
+	UnreachableCount int64
+	UnknownCount     int64
+	ExcludedCount    int64
+	GraceCount       int64
+}
+
 type DeviceSet struct {
 	ID          int64
 	OrgID       int64
@@ -1461,6 +1481,7 @@ type DeviceStatus struct {
 	CreatedAt       sql.NullTime
 	// Earliest time a boot must follow to satisfy the pending firmware installation; NULL falls back to status_timestamp.
 	RebootRequiredAfter sql.NullTime
+	TelemetryStatusAt   sql.NullTime
 }
 
 type DeviceStatusDaily struct {
