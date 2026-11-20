@@ -202,6 +202,43 @@ func defaultLocalNetworkInfo(_ context.Context) (*NetworkInfo, error) {
 	return &NetworkInfo{info}, nil
 }
 
+// WithNetworkSubnet makes GetLocalNetworkInfo report cidr as the local IPv4
+// subnet. The detected IPv4 address and gateway are dropped when they fall
+// outside it, since they then describe a different network. An empty cidr
+// keeps interface detection.
+func (s *Service) WithNetworkSubnet(cidr string) error {
+	if cidr == "" {
+		return nil
+	}
+	canonical, _, isIPv4, ok := canonicalCIDR(cidr)
+	if !ok || !isIPv4 {
+		return fmt.Errorf("network subnet %q is not an IPv4 CIDR", cidr)
+	}
+	_, subnet, _ := net.ParseCIDR(canonical)
+
+	detect := s.localNetworkInfo
+	if detect == nil {
+		detect = defaultLocalNetworkInfo
+	}
+	s.localNetworkInfo = func(ctx context.Context) (*NetworkInfo, error) {
+		info, err := detect(ctx)
+		if err != nil {
+			slog.Debug("Local network detection failed; reporting configured subnet only", "error", err)
+			info = &NetworkInfo{}
+		}
+		overridden := *info
+		overridden.Subnet = canonical
+		if ip := net.ParseIP(overridden.LocalIP); ip == nil || !subnet.Contains(ip) {
+			overridden.LocalIP = ""
+		}
+		if gw := net.ParseIP(overridden.Gateway); gw == nil || !subnet.Contains(gw) {
+			overridden.Gateway = ""
+		}
+		return &overridden, nil
+	}
+	return nil
+}
+
 func (s *Service) GetLocalNetworkInfo(ctx context.Context) (*NetworkInfo, error) {
 	if s.localNetworkInfo != nil {
 		return s.localNetworkInfo(ctx)
