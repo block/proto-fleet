@@ -566,6 +566,9 @@ func start(config *Config) (result error) {
 	)
 	pairingSvc.WithMinerInvalidator(minerService.InvalidateMiner)
 	pairingSvc.WithOptionsCache(fleetOptionsCache)
+	if err := pairingSvc.WithNetworkSubnet(config.Pairing.NetworkSubnet); err != nil {
+		return err
+	}
 	fleetNodePairingSvc.WithMinerInvalidator(minerService.InvalidateMinerByID)
 	fleetNodeEnrollmentSvc.WithMinerInvalidator(minerService.InvalidateMinerByID)
 	fleetNodeEnrollmentSvc.WithTelemetryRemover(telemetryService.RemoveUnpairedDevices)
