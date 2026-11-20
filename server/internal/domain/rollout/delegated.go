@@ -71,7 +71,7 @@ func selectQueued(r sqlc.FirmwareRollout, targets []target, selection DeviceSele
 
 func (s *Service) currentAssignment(ctx context.Context, r sqlc.FirmwareRollout) error {
 	assignment, err := s.store.GetQueries(ctx).GetReleaseChannelFirmware(ctx, sqlc.GetReleaseChannelFirmwareParams{
-		ChannelID: r.ChannelID, Manufacturer: r.Manufacturer, Model: r.Model,
+		ChannelID: r.ChannelID, Manufacturer: r.Manufacturer, Model: r.Model, Component: r.Component,
 	})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fleeterror.NewInternalErrorf("load firmware assignment: %w", err)
@@ -145,7 +145,7 @@ func (s *Service) AdvanceRollout(ctx context.Context, orgID, rolloutID int64, se
 			if !t.InScope.Valid || !t.InScope.Bool {
 				return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonDeviceNotDispatchable, DeviceIdentifiers: []string{t.DeviceIdentifier}}, "selected device %s no longer matches the assigned firmware", t.DeviceIdentifier)
 			}
-			if len(t.PendingFirmwareChecksums) > 0 || len(t.PendingLegacyFirmwareFileIds) > 0 {
+			if t.commandPending() {
 				return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonDeviceNotDispatchable, DeviceIdentifiers: []string{t.DeviceIdentifier}}, "selected device %s has a pending firmware command", t.DeviceIdentifier)
 			}
 		}
@@ -376,13 +376,15 @@ func (s *Service) enforceDelegated(ctx context.Context, observed sqlc.FirmwareRo
 		var failedIDs []int64
 		var failedNames []string
 		for _, t := range activeTargets(targets) {
-			if t.settled(r) || t.Attempts == 0 || !t.LastSentAt.Valid || len(t.PendingFirmwareChecksums) > 0 || len(t.PendingLegacyFirmwareFileIds) > 0 {
+			if t.settled(r) || t.Attempts == 0 || !t.LastSentAt.Valid || t.commandPending() {
 				continue
 			}
 			// The worker may install for longer than the verification interval
 			// and reboots the miner as its command finishes. Measure from then,
 			// so a slow but successful update is not failed while rebooting.
-			attemptEnded := t.LastSentAt.Time
+			// A later command of another component delays the report in the
+			// same way, so its end counts too.
+			attemptEnded := t.waitingSince()
 			if finished, ok := finishedAt[t.DeviceID]; ok && finished.After(attemptEnded) {
 				attemptEnded = finished
 			}

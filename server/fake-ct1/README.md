@@ -377,8 +377,7 @@ stays out of mining and refuses mining starts, a plain job is refused, and a
 
 Real capsules are not published, and a real capsule names no firmware version.
 Write a placeholder capsule for the simulator, then upload it for Proto CT1 and
-use the container's **Update firmware** action. Fleet refuses that action while
-a release channel assigns CT1 firmware to the container:
+use the container's **Update firmware** action:
 
 ```bash
 cd server/fake-ct1

@@ -8,7 +8,7 @@ WHERE org_id = sqlc.arg('org_id')
 -- Read only this device record's persisted targets. History is independent
 -- of its current channel membership, reported hardware, and live telemetry.
 SELECT r.id AS rollout_id, r.channel_id, c.name AS channel_name,
-       r.manufacturer, r.model, r.firmware_version, r.firmware_checksum,
+       r.manufacturer, r.model, r.component, r.firmware_version, r.firmware_checksum,
        r.status AS rollout_status, r.cancel_reason, r.paused_at,
        r.created_at, r.finished_at,
        rd.attempts, rd.last_error, rd.skip_note, rd.last_sent_at,

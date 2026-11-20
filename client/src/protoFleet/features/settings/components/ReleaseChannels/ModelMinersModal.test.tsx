@@ -120,7 +120,7 @@ describe("ModelMinersModal detail loading", () => {
     props.listChannelMiners.mockReturnValueOnce(members.promise);
     const { rerender, unmount } = render(<ModelMinersModal {...props} />);
     rerender(<ModelMinersModal {...props} group={{ ...props.group }} />);
-    const signal = props.listChannelMiners.mock.calls[0][3]!;
+    const signal = props.listChannelMiners.mock.calls[0][4]!;
     expect(props.listRolloutDevices.mock.calls[0][1]).toBe(signal);
     expect(signal.aborted).toBe(false);
     unmount();
@@ -138,7 +138,7 @@ describe("ModelMinersModal detail loading", () => {
     props.listRolloutDevices.mockReturnValueOnce(progress.promise);
     const { rerender } = render(<ModelMinersModal {...props} />);
     rerender(<ModelMinersModal {...props} group={{ ...props.group }} />);
-    const signal = props.listChannelMiners.mock.calls[0][3]!;
+    const signal = props.listChannelMiners.mock.calls[0][4]!;
     expect(props.listRolloutDevices.mock.calls[0][1]).toBe(signal);
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     expect(signal.aborted).toBe(true);
@@ -162,14 +162,14 @@ describe("ModelMinersModal detail loading", () => {
       const current = deferred<ReleaseChannelMiner[]>();
       props.listChannelMiners.mockReturnValueOnce(obsolete.promise).mockReturnValueOnce(current.promise);
       rerender(<ModelMinersModal {...props} group={{ ...props.group }} />);
-      const obsoleteSignal = props.listChannelMiners.mock.calls[1][3]!;
+      const obsoleteSignal = props.listChannelMiners.mock.calls[1][4]!;
       act(() => {
         useFleetStore.setState({
           auth: { ...initialAuth, username: "new-operator", sessionGeneration: initialAuth.sessionGeneration + 1 },
         });
       });
       expect(obsoleteSignal.aborted).toBe(true);
-      expect(props.listChannelMiners.mock.calls[2][3]?.aborted).toBe(false);
+      expect(props.listChannelMiners.mock.calls[2][4]?.aborted).toBe(false);
       expect(screen.queryByTestId("channel-miner-rig-1")).not.toBeInTheDocument();
       expect(screen.getByTestId("channel-miners-loading")).toBeInTheDocument();
       await act(async () => {
@@ -217,6 +217,7 @@ describe("ModelMinersModal detail loading", () => {
         canaryChannel.id,
         props.group.manufacturer,
         props.group.model,
+        props.group.component,
         expect.any(AbortSignal),
       );
       expect(props.listRolloutDevices).toHaveBeenLastCalledWith(activeRigRollout.id, expect.any(AbortSignal));
@@ -272,7 +273,7 @@ describe("ModelMinersModal detail loading", () => {
       props.listChannelMiners.mockReturnValueOnce(obsolete.promise);
       rerender(<ModelMinersModal {...props} group={{ ...props.group }} />);
       await waitFor(() => expect(props.listChannelMiners).toHaveBeenCalledTimes(2));
-      const obsoleteSignal = props.listChannelMiners.mock.calls[1][3]!;
+      const obsoleteSignal = props.listChannelMiners.mock.calls[1][4]!;
 
       const next = deferred<ReleaseChannelMiner[]>();
       props.listChannelMiners.mockReturnValueOnce(next.promise);
@@ -285,7 +286,7 @@ describe("ModelMinersModal detail loading", () => {
       };
       rerender(<ModelMinersModal {...nextProps} />);
       expect(obsoleteSignal.aborted).toBe(true);
-      expect(props.listChannelMiners.mock.calls[2][3]?.aborted).toBe(false);
+      expect(props.listChannelMiners.mock.calls[2][4]?.aborted).toBe(false);
       expect(screen.queryByTestId("channel-miner-rig-1")).not.toBeInTheDocument();
       expect(screen.getByTestId("channel-miners-loading")).toBeInTheDocument();
       await act(async () => next.resolve([create(ReleaseChannelMinerSchema, { deviceIdentifier: "new-context" })]));
@@ -485,6 +486,7 @@ describe("ModelMinersModal unknown observed identities", () => {
         props.channelId,
         manufacturer,
         model,
+        "",
         expect.any(AbortSignal),
       );
     },

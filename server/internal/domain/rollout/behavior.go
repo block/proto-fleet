@@ -8,6 +8,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/infrastructure/dbtypes"
+	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 )
 
 const (
@@ -276,9 +277,46 @@ func behaviorFromChannel(c sqlc.ReleaseChannel) Behavior {
 
 // PairKey is a canonical (manufacturer, model) assignment key: printable
 // ASCII with no surrounding spaces, compared ASCII-case-insensitively.
+// Component is the firmware component of that model the key names; it is
+// empty for an observed pair and for the model's main firmware.
 type PairKey struct {
 	Manufacturer string
 	Model        string
+	Component    string
+}
+
+// ComponentMain is a model's main firmware, which for a CT1 container is its
+// hashboard firmware. ComponentPSU is a CT1 container's PSU firmware.
+const (
+	ComponentMain = ""
+	ComponentPSU  = files.FirmwareComponentPSU
+)
+
+// normalizeComponent canonicalizes a requested firmware component.
+func normalizeComponent(component string) (string, error) {
+	switch c := strings.ToLower(strings.TrimSpace(component)); c {
+	case ComponentMain, ComponentPSU:
+		return c, nil
+	default:
+		return "", fleeterror.NewInvalidArgumentError("component must be psu when set")
+	}
+}
+
+// componentName names a component in messages.
+func componentName(component string) string {
+	if component == ComponentPSU {
+		return "PSU"
+	}
+	return "main"
+}
+
+// label names the key's model and, for a component other than the main
+// firmware, that component: "Proto CT1" or "Proto CT1 PSU".
+func (k PairKey) label() string {
+	if k.Component == ComponentMain {
+		return k.Manufacturer + " " + k.Model
+	}
+	return k.Manufacturer + " " + k.Model + " " + componentName(k.Component)
 }
 
 // normalizePairKey trims the key and checks it is printable ASCII.
@@ -320,7 +358,7 @@ func (k PairKey) matchesObserved(manufacturer, model string) bool {
 
 // folded returns the comparison form of the key.
 func (k PairKey) folded() PairKey {
-	return PairKey{Manufacturer: fold(k.Manufacturer), Model: fold(k.Model)}
+	return PairKey{Manufacturer: fold(k.Manufacturer), Model: fold(k.Model), Component: k.Component}
 }
 
 func behaviorFromRollout(r sqlc.FirmwareRollout) Behavior {

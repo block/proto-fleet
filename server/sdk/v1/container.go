@@ -22,8 +22,14 @@ type ContainerSnapshot struct {
 	HashboardFirmwareVersion string `json:"hashboard_firmware_version,omitempty"`
 	// HashboardFirmwareMixed reports that same complete, fresh evidence with
 	// differing versions. Neither field set means the version is unknown.
-	HashboardFirmwareMixed bool         `json:"hashboard_firmware_mixed,omitempty"`
-	HA                     *ContainerHA `json:"ha,omitempty"`
+	HashboardFirmwareMixed bool `json:"hashboard_firmware_mixed,omitempty"`
+	// PSUFirmwareVersion is populated only when complete inventory shows every
+	// located board reporting the same PSU firmware version with fresh health.
+	PSUFirmwareVersion string `json:"psu_firmware_version,omitempty"`
+	// PSUFirmwareMixed reports that same complete, fresh evidence with
+	// differing versions. Neither field set means the version is unknown.
+	PSUFirmwareMixed bool         `json:"psu_firmware_mixed,omitempty"`
+	HA               *ContainerHA `json:"ha,omitempty"`
 	// UnlocatedHashboards retains inventory observations without physical placement.
 	// Position must be zero; readings contribute only to container totals after
 	// identity reconciliation. These observations never create installations.

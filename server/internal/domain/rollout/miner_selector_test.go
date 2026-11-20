@@ -78,7 +78,7 @@ func TestChannelMinerSelectorsRetainDeletedUntilRepairing(t *testing.T) {
 			})
 			require.NoError(t, err)
 			assert.Equal(t, int32(2), channel.MinerCount)
-			members, _, err := f.svc.ListChannelMiners(ctx, f.orgID, channel.ID, "", "", 0, "")
+			members, _, err := f.svc.ListChannelMiners(ctx, f.orgID, channel.ID, "", "", "", 0, "")
 			require.NoError(t, err)
 			require.Len(t, members, 2)
 			memberIDs := map[string]int64{}

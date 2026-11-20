@@ -21,7 +21,7 @@ import (
 type ChannelService interface {
 	ListChannels(ctx context.Context, orgID int64, pageSize int32, cursor string) ([]rollout.Channel, string, error)
 	GetChannel(ctx context.Context, orgID, channelID int64) (*rollout.Channel, error)
-	ListChannelMiners(ctx context.Context, orgID, channelID int64, manufacturer, model string, pageSize int32, cursor string) ([]rollout.ChannelMiner, string, error)
+	ListChannelMiners(ctx context.Context, orgID, channelID int64, manufacturer, model, component string, pageSize int32, cursor string) ([]rollout.ChannelMiner, string, error)
 	ListChannelModelGroups(ctx context.Context, orgID, channelID int64, pageSize int32, cursor string) ([]rollout.ModelGroup, string, error)
 	ListMembershipConflicts(ctx context.Context, orgID, channelID int64, pageSize int32, cursor string) ([]rollout.MembershipConflict, string, error)
 	CreateChannel(ctx context.Context, orgID, userID int64, spec rollout.ChannelSpec) (*rollout.Channel, error)
@@ -227,7 +227,7 @@ func (h *Handler) ListReleaseChannelMiners(ctx context.Context, r *connect.Reque
 	if err != nil {
 		return nil, err
 	}
-	miners, cursor, err := h.svc.ListChannelMiners(ctx, info.OrganizationID, r.Msg.ChannelId, r.Msg.Manufacturer, r.Msg.Model, r.Msg.PageSize, r.Msg.Cursor)
+	miners, cursor, err := h.svc.ListChannelMiners(ctx, info.OrganizationID, r.Msg.ChannelId, r.Msg.Manufacturer, r.Msg.Model, r.Msg.Component, r.Msg.PageSize, r.Msg.Cursor)
 	if err != nil {
 		return nil, err
 	}

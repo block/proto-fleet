@@ -31,7 +31,7 @@ func TestCT1RolloutConvergesOnHashboardsNotController(t *testing.T) {
 	require.Equal(t, PhaseDone, phaseOf(f.rollout(t, started[0].ID), "ct1"))
 	versionStates := func(t *testing.T) (channel, rollout string) {
 		t.Helper()
-		miners, _, err := f.svc.ListChannelMiners(t.Context(), f.orgID, f.channelID, "", "", 10, "")
+		miners, _, err := f.svc.ListChannelMiners(t.Context(), f.orgID, f.channelID, "", "", "", 10, "")
 		require.NoError(t, err)
 		require.Len(t, miners, 1)
 		return miners[0].FirmwareVersionState, deviceOf(t, f.rollout(t, started[0].ID), "ct1").FirmwareVersionState
@@ -45,7 +45,7 @@ func TestCT1RolloutConvergesOnHashboardsNotController(t *testing.T) {
 		_, err := f.conn.ExecContext(t.Context(), `UPDATE container_inventory SET hashboard_firmware_version=$2, hashboard_firmware_mixed=$3, observed_at=now()-$4::interval WHERE device_id=$1`, id, version, mixed, age)
 		require.NoError(t, err)
 		var reported sql.NullString
-		require.NoError(t, f.conn.QueryRowContext(t.Context(), `SELECT release_channel_firmware_version($1,2,'2.0.0')`, id).Scan(&reported))
+		require.NoError(t, f.conn.QueryRowContext(t.Context(), `SELECT release_channel_firmware_version($1,2,'2.0.0','')`, id).Scan(&reported))
 		return reported
 	}
 	t.Run("unknown evidence does not reflash a converged container", func(t *testing.T) {
@@ -86,27 +86,4 @@ func TestCT1RolloutConvergesOnHashboardsNotController(t *testing.T) {
 		require.Equal(t, []string{"ct1", "ct1"}, f.dispatcher.sentIdentifiers())
 		require.NotEqual(t, PhaseDone, phaseOf(f.rollout(t, started[0].ID), "ct1"))
 	})
-}
-
-// A channel holds one assignment per manufacturer and model and verifies it
-// against the hashboard version, so a PSU capsule would replace the hashboard
-// assignment and could never verify.
-func TestCT1PSUFirmwareIsRefusedByReleaseChannels(t *testing.T) {
-	f := newFixture(t, 0)
-	f.addMiner(t, "ct1", "CT1")
-	_, err := f.conn.ExecContext(t.Context(), `UPDATE discovered_device SET device_class=2,firmware_version='2.0.0' WHERE device_identifier='ct1'`)
-	require.NoError(t, err)
-	f.files.metadata = map[string]files.FirmwareMetadata{
-		"fw-2": {TargetManufacturer: "Proto", TargetModel: "CT1", FirmwareVersion: "app=1410;bl=1110", Component: files.FirmwareComponentPSU},
-	}
-	f.channel(t, pilotOf1, "ct1")
-	assignment := []Assignment{{Manufacturer: "Proto", Model: "CT1", FirmwareFileID: "fw-2"}}
-
-	_, err = f.svc.PreviewFirmware(t.Context(), f.orgID, f.channelID, assignment, nil)
-	requireReason(t, err, ReasonArtifactMismatch)
-	require.ErrorContains(t, err, "PSU firmware, which release channels do not support")
-	_, err = f.svc.ApplyFirmware(t.Context(), f.orgID, testActor, f.channelID, assignment, nil)
-	requireReason(t, err, ReasonArtifactMismatch)
-	f.svc.EnforceTick(t.Context())
-	require.Empty(t, f.dispatcher.sentIdentifiers())
 }

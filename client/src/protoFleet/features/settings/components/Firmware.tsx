@@ -2,6 +2,7 @@ import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import { useSearchParams } from "react-router-dom";
 import clsx from "clsx";
 import { createPortal } from "react-dom";
+import { HASHBOARD_FIRMWARE_LABEL, PSU_FIRMWARE_LABEL } from "@/protoFleet/api/firmwareComponent";
 import { useContainers } from "@/protoFleet/api/useContainers";
 import {
   type FirmwareFileInfo,
@@ -168,8 +169,8 @@ const isContainerFirmware = (file: FirmwareFileData): boolean =>
 // own heading in this order. A file belongs to the first kind that accepts it.
 const CONTAINER_FIRMWARE_KINDS: { key: string; title: string; accepts: (file: FirmwareFileData) => boolean }[] = [
   // Every container file that is not a PSU capsule is a hashboard archive.
-  { key: "hashboard", title: "Hashboard firmware", accepts: (file) => file.component !== PSU_FIRMWARE_COMPONENT },
-  { key: "psu", title: "PSU firmware", accepts: (file) => file.component === PSU_FIRMWARE_COMPONENT },
+  { key: "hashboard", title: HASHBOARD_FIRMWARE_LABEL, accepts: (file) => file.component !== PSU_FIRMWARE_COMPONENT },
+  { key: "psu", title: PSU_FIRMWARE_LABEL, accepts: (file) => file.component === PSU_FIRMWARE_COMPONENT },
 ];
 
 /** Container files grouped by kind; a kind with no file is left out. */

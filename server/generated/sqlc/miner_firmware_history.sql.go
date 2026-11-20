@@ -32,7 +32,7 @@ func (q *Queries) GetMinerFirmwareHistoryDeviceID(ctx context.Context, arg GetMi
 
 const listMinerFirmwareHistory = `-- name: ListMinerFirmwareHistory :many
 SELECT r.id AS rollout_id, r.channel_id, c.name AS channel_name,
-       r.manufacturer, r.model, r.firmware_version, r.firmware_checksum,
+       r.manufacturer, r.model, r.component, r.firmware_version, r.firmware_checksum,
        r.status AS rollout_status, r.cancel_reason, r.paused_at,
        r.created_at, r.finished_at,
        rd.attempts, rd.last_error, rd.skip_note, rd.last_sent_at,
@@ -66,6 +66,7 @@ type ListMinerFirmwareHistoryRow struct {
 	ChannelName      string
 	Manufacturer     string
 	Model            string
+	Component        string
 	FirmwareVersion  string
 	FirmwareChecksum string
 	RolloutStatus    string
@@ -106,6 +107,7 @@ func (q *Queries) ListMinerFirmwareHistory(ctx context.Context, arg ListMinerFir
 			&i.ChannelName,
 			&i.Manufacturer,
 			&i.Model,
+			&i.Component,
 			&i.FirmwareVersion,
 			&i.FirmwareChecksum,
 			&i.RolloutStatus,

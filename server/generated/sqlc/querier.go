@@ -1676,6 +1676,13 @@ type Querier interface {
 	// and errors opened since its baseline), provenance, the checksums of pending or processing
 	// FirmwareUpdate commands (or file IDs for legacy commands without a checksum),
 	// and channel membership separately from eligibility for the rollout's pair.
+	// The reported version, provenance and pending commands are those of the
+	// rollout's component. A pending update of another component is reported
+	// separately: it changes nothing this rollout verifies, but a device takes one
+	// firmware command at a time, so dispatch waits for it. The time its latest
+	// finished update of another component ended is reported too, or the epoch
+	// when it has none: the device could not verify this rollout's update while
+	// that command ran, so the resend interval is measured from its end.
 	// Existing targets remain tied to their paired device when firmware changes its
 	// reported manufacturer/model: the engine still verifies the update's outcome,
 	// but in_scope must be true before dispatching another compatible update.
@@ -1851,8 +1858,9 @@ type Querier interface {
 	// a crash before the active-event pointer was written, cannot hide it.
 	ListMQTTSourcesWithActiveCurtailment(ctx context.Context) ([]ListMQTTSourcesWithActiveCurtailmentRow, error)
 	ListMaintenanceAssignees(ctx context.Context, orgID int64) ([]ListMaintenanceAssigneesRow, error)
-	// A direct firmware command must not compete with release-channel enforcement,
-	// including a command that happens to report the assigned version. Firmware
+	// A direct firmware command must not compete with release-channel enforcement
+	// of the component it updates, including a command that happens to report the
+	// assigned version. An assignment of another component does not own it. Firmware
 	// can rename a target's reported hardware; active enrollment remains owned by
 	// its current assignment until that paired device settles or leaves scope.
 	ListManagedFirmwareUpdateDevices(ctx context.Context, arg ListManagedFirmwareUpdateDevicesParams) ([]ListManagedFirmwareUpdateDevicesRow, error)
@@ -1960,24 +1968,27 @@ type Querier interface {
 	ListReleaseChannelFirmware(ctx context.Context, orgID int64) ([]ReleaseChannelFirmware, error)
 	// Assigned pairs with no active rollout and at least one mismatched,
 	// unsuppressed member: late joiners, re-entries and miners that drifted. Any
-	// outstanding FirmwareUpdate counts as a mismatch here because the assigned
-	// file set is only known per pair; ListReleaseChannelMismatchedMembers makes
+	// outstanding FirmwareUpdate of the assignment's component counts as a
+	// mismatch here because the assigned file set is only known per pair; ListReleaseChannelMismatchedMembers makes
 	// the final call.
 	ListReleaseChannelFirmwareNeedingRollout(ctx context.Context) ([]ListReleaseChannelFirmwareNeedingRolloutRow, error)
 	// --- Membership ---
 	// Every miner resolved into one of the org's channels, with its observed
-	// identity, reported firmware and managed-deployment provenance.
+	// identity, and the reported firmware and managed-deployment provenance of
+	// its main component.
 	ListReleaseChannelMembers(ctx context.Context, orgID int64) ([]ListReleaseChannelMembersRow, error)
 	// One page of (miner, channel) relations for miners matched by several
 	// channels, optionally for one channel, ordered by identifier then channel.
 	ListReleaseChannelMembershipConflictsPage(ctx context.Context, arg ListReleaseChannelMembershipConflictsPageParams) ([]ListReleaseChannelMembershipConflictsPageRow, error)
 	// One page of a channel's members, optionally filtered by observed
 	// manufacturer and model (verbatim), ordered by identifier. The cursor is the
-	// (device_identifier, device_id) of the last row of the previous page.
+	// (device_identifier, device_id) of the last row of the previous page. The
+	// reported version and provenance are those of the requested component.
 	ListReleaseChannelMinersPage(ctx context.Context, arg ListReleaseChannelMinersPageParams) ([]ListReleaseChannelMinersPageRow, error)
-	// Members of one pair the enforcement loop should update: the reported
-	// version or provenance differs from the assignment, or a FirmwareUpdate for
-	// another checksum is still pending or processing. Commands without a checksum
+	// Members of one pair the enforcement loop should update for one component:
+	// the version reported for it or its provenance differs from the assignment,
+	// or a FirmwareUpdate of that component for another checksum is still pending
+	// or processing. A pending update of another component changes nothing here. Commands without a checksum
 	// fall back to assigned_file_ids (the files carrying the assigned checksum).
 	// Excludes miners already in rollout_id (0 for a
 	// new rollout) and suppressed miners (firmware_rollout_suppressed_device).
@@ -1985,10 +1996,14 @@ type Querier interface {
 	// for ordering; time spent earlier in the transaction does not extend freshness.
 	// Samples before the paired device's creation cannot determine its order.
 	ListReleaseChannelMismatchedMembers(ctx context.Context, arg ListReleaseChannelMismatchedMembersParams) ([]ListReleaseChannelMismatchedMembersRow, error)
-	// One page of a channel's manufacturer/model groups: every observed pair among
-	// its members plus every assigned pair with no current members, each joined to
-	// its assignment (by folded key) and active rollout. Ordered by observed
-	// manufacturer then model; the cursor is the pair of the last row.
+	// One page of a channel's model groups. A group is one firmware component of
+	// an observed manufacturer/model pair: every observed pair has its main
+	// component (''), and one more group for each other component assigned to it.
+	// Every assignment of a pair with no current members is a group too. Each
+	// group is joined to its assignment (by folded key and component) and active
+	// rollout. Ordered by observed manufacturer, model, then component; the
+	// cursor is the group of the last row.
+	// Reported versions and on_target_count are those of the group's component.
 	// on_target_count follows the contract's definition: reported version and
 	// provenance equal the assignment.
 	ListReleaseChannelModelGroupsPage(ctx context.Context, arg ListReleaseChannelModelGroupsPageParams) ([]ListReleaseChannelModelGroupsPageRow, error)
@@ -2546,7 +2561,7 @@ type Querier interface {
 	RecordCurtailPendingDispatch(ctx context.Context, arg RecordCurtailPendingDispatchParams) (int64, error)
 	RecordDeviceWriteRecovery(ctx context.Context, arg RecordDeviceWriteRecoveryParams) error
 	// Managed-deployment provenance: the miners listed reported the artifact a
-	// rollout dispatched to them. Each aligned observation must still match the
+	// rollout dispatched to them for its component. Each aligned observation must still match the
 	// current provenance; losing that race is a no-op and the caller reloads it.
 	// Observed absence only permits insertion, never replacement of a concurrent
 	// insert. Existing rows advance their timestamp strictly, including writes in
@@ -3189,6 +3204,8 @@ type Querier interface {
 	// provenance after completion, including when no provenance existed before.
 	// The retained batch UUID identifies the latest serialized completion without
 	// relying on clocks from different workers to order command results.
+	// Provenance is kept per firmware component, and a command changes only the
+	// component its payload names; a payload that names none is the main firmware.
 	UpsertCommandOnDeviceLog(ctx context.Context, arg UpsertCommandOnDeviceLogParams) error
 	// Source time orders fans independently of inventory and control reads.
 	UpsertContainerFans(ctx context.Context, arg UpsertContainerFansParams) error
@@ -3262,7 +3279,8 @@ type Querier interface {
 	// written with.
 	UpsertReleaseChannelControllerSoftware(ctx context.Context, arg UpsertReleaseChannelControllerSoftwareParams) (ReleaseChannelControllerSoftware, error)
 	// --- Firmware assignments ---
-	// Assigns an artifact to a pair and advances the pair's generation. The
+	// Assigns an artifact to one component of a pair and advances that
+	// assignment's generation. The
 	// stored key keeps the case it was first written with. assigned_by is the
 	// owning user for enforcement commands, separate from the rollout's audit
 	// actor. Reconciliation and retries retain this assignment's owner.

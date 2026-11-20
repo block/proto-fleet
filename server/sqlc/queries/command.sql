@@ -65,7 +65,7 @@ WHERE uuid = $1
 -- display name via fleetmanagement.ComposeDeviceName so this query
 -- stays free of any rendering rules.
 WITH batch AS (
-    SELECT id, uuid, type, organization_id FROM command_batch_log WHERE uuid = sqlc.arg('uuid')
+    SELECT id, uuid, type, organization_id, payload FROM command_batch_log WHERE uuid = sqlc.arg('uuid')
 ),
 dev AS (
     SELECT
@@ -125,16 +125,18 @@ RETURNING command_batch_log_id, device_id, org_id, status
 -- provenance after completion, including when no provenance existed before.
 -- The retained batch UUID identifies the latest serialized completion without
 -- relying on clocks from different workers to order command results.
+-- Provenance is kept per firmware component, and a command changes only the
+-- component its payload names; a payload that names none is the main firmware.
 INSERT INTO device_firmware_deployment (
-    device_id, firmware_checksum, firmware_version, rollout_id, deployed_at, last_command_batch_uuid
+    device_id, component, firmware_checksum, firmware_version, rollout_id, deployed_at, last_command_batch_uuid
 )
-SELECT recorded.device_id, '', '', NULL, clock_timestamp(), batch.uuid
+SELECT recorded.device_id, COALESCE(batch.payload->>'firmware_component', ''), '', '', NULL, clock_timestamp(), batch.uuid
 FROM recorded
 JOIN batch ON batch.id = recorded.command_batch_log_id
 WHERE batch.type = 'FirmwareUpdate'
   AND recorded.status IN ('SUCCESS', 'FAILED')
   AND (batch.organization_id IS NULL OR batch.organization_id = recorded.org_id)
-ON CONFLICT (device_id) DO UPDATE SET
+ON CONFLICT (device_id, component) DO UPDATE SET
     firmware_checksum = '',
     firmware_version = '',
     rollout_id = NULL,

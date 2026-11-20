@@ -86,6 +86,8 @@ func TestPSUFirmwareSimulatorUpdatesAndRecoversAContainer(t *testing.T) {
 	require.Contains(t, *stopped.Error, "update stopped because tank 1 module 2 was left out of mining; 94 modules were not attempted")
 	metrics, err := dev.Status(t.Context())
 	require.NoError(t, err)
+	require.Empty(t, metrics.Container.PSUFirmwareVersion)
+	require.True(t, metrics.Container.PSUFirmwareMixed, "one updated module among modules still on the installed firmware")
 	updated, boards := module(metrics, 1, 1)
 	require.Equal(t, target, updated.PSUIdentity.FirmwareVersion)
 	require.Equal(t, "PSU_FIRMWARE_UPDATE_STATE_SUCCEEDED", updated.Update.State)
@@ -105,6 +107,8 @@ func TestPSUFirmwareSimulatorUpdatesAndRecoversAContainer(t *testing.T) {
 	require.Equal(t, firmwareStateCompleted, send("batch/2").State)
 	metrics, err = dev.Status(t.Context())
 	require.NoError(t, err)
+	require.Equal(t, target, metrics.Container.PSUFirmwareVersion, "every PSU of the container reports the capsule's firmware")
+	require.False(t, metrics.Container.PSUFirmwareMixed)
 	tasks := map[[2]int]string{}
 	for tank := 1; tank <= sdk.CT1TankCount; tank++ {
 		for position := 1; position <= sdk.CT1ModulesPerTank; position++ {

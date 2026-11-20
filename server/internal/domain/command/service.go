@@ -1104,13 +1104,17 @@ func (s *Service) admitCommand(ctx context.Context, command *Command) (*CommandR
 		return nil, fleeterror.NewInternalErrorf("error resolving device identifiers: %v", err)
 	}
 
-	kept, skipped, err := applyFilters(ctx, s.filters, CommandFilterInput{
+	filterInput := CommandFilterInput{
 		CommandType:       command.commandType,
 		OrganizationID:    info.OrganizationID,
 		Actor:             info.Actor,
 		Source:            info.Source,
 		DeviceIdentifiers: identifiers,
-	})
+	}
+	if firmware, ok := command.payload.(dto.FirmwareUpdatePayload); ok {
+		filterInput.FirmwareComponent = firmware.FirmwareComponent
+	}
+	kept, skipped, err := applyFilters(ctx, s.filters, filterInput)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("preflight filter failed: %v", err)
 	}
@@ -1404,6 +1408,16 @@ func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceS
 	if err != nil {
 		return nil, fleeterror.NewInvalidArgumentError(fmt.Sprintf("invalid firmware_file_id: %v", err))
 	}
+	// The component a file updates cannot change after upload. It decides
+	// which release-channel assignment this command would compete with and
+	// whose deployment provenance its completion invalidates. Metadata that
+	// cannot be read names no component, so the command is refused: sent as
+	// main firmware, a PSU capsule would pass a channel's PSU assignment.
+	metadata, err := s.filesService.GetFirmwareMetadata(canonicalFileID)
+	if err != nil {
+		return nil, err
+	}
+	component := metadata.ComponentKey()
 
 	info, err := session.GetInfo(ctx)
 	if err != nil {
@@ -1441,7 +1455,7 @@ func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceS
 			deviceSelector: &pb.DeviceSelector{SelectionType: &pb.DeviceSelector_IncludeDevices{
 				IncludeDevices: &commonpb.DeviceIdentifierList{DeviceIdentifiers: identifiers},
 			}},
-			payload: dto.FirmwareUpdatePayload{FirmwareFileID: canonicalFileID},
+			payload: dto.FirmwareUpdatePayload{FirmwareFileID: canonicalFileID, FirmwareComponent: component},
 		})
 		return err
 	})
@@ -1468,7 +1482,7 @@ func (s *Service) FirmwareUpdateArtifact(ctx context.Context, deviceSelector *pb
 	result, err := s.processCommand(ctx, &Command{
 		commandType:      commandtype.FirmwareUpdate,
 		deviceSelector:   deviceSelector,
-		payload:          dto.FirmwareUpdatePayload{FirmwareFileID: fileID, FirmwareChecksum: checksum},
+		payload:          dto.FirmwareUpdatePayload{FirmwareFileID: fileID, FirmwareChecksum: checksum, FirmwareComponent: metadata.ComponentKey()},
 		firmwareMetadata: &metadata,
 	})
 	if err != nil {

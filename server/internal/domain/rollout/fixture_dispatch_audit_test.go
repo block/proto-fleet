@@ -12,6 +12,7 @@ import (
 	commandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/command"
+	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	"github.com/block/proto-fleet/server/internal/infrastructure/id"
@@ -31,7 +32,7 @@ func (d *successfulFixtureDispatcher) FirmwareUpdateArtifact(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	if err := d.f.recordDispatchedFirmwareBatch(ctx, result, checksum, sqlc.BatchStatusEnumFINISHED); err != nil {
+	if err := d.f.recordDispatchedFirmwareBatch(ctx, result, checksum, metadata, sqlc.BatchStatusEnumFINISHED); err != nil {
 		return nil, err
 	}
 	for _, identifier := range result.DispatchedDeviceIdentifiers {
@@ -45,12 +46,13 @@ func (d *successfulFixtureDispatcher) FirmwareUpdateArtifact(ctx context.Context
 	return result, nil
 }
 
-func (f *fixture) recordDispatchedFirmwareBatch(ctx context.Context, result *command.CommandResult, checksum string, status sqlc.BatchStatusEnum) error {
+func (f *fixture) recordDispatchedFirmwareBatch(ctx context.Context, result *command.CommandResult, checksum string, metadata files.FirmwareMetadata, status sqlc.BatchStatusEnum) error {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return err
 	}
-	payload, err := json.Marshal(map[string]string{"firmware_checksum": checksum})
+	// The command service's payload names the component the file updates.
+	payload, err := json.Marshal(dto.FirmwareUpdatePayload{FirmwareChecksum: checksum, FirmwareComponent: metadata.ComponentKey()})
 	if err != nil {
 		return fmt.Errorf("marshal dispatched firmware payload: %w", err)
 	}

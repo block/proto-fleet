@@ -351,7 +351,8 @@ const paginatedActionCases = [
   {
     name: "channel miners",
     rpc: mockListReleaseChannelMiners,
-    call: (api: ReleaseChannelsApi, signal?: AbortSignal) => api.listChannelMiners(1n, "Proto", "Rig", signal),
+    call: (api: ReleaseChannelsApi, signal?: AbortSignal) =>
+      api.listChannelMiners(1n, "Proto", "Rig", undefined, signal),
     firstPage: { miners: [], cursor: "details-2" },
   },
   {
@@ -3435,6 +3436,32 @@ describe("useReleaseChannels", () => {
     expect(mockRetryFailedRolloutDevices).toHaveBeenCalledWith({ rolloutId: 9n, expectedRevision: 5n });
   });
 
+  it("names the firmware component only for firmware other than a model's main firmware", async () => {
+    mockApplyReleaseChannelFirmware.mockResolvedValue({ startedRollouts: [] });
+    mockListReleaseChannelMiners.mockResolvedValue({ miners: [], cursor: "" });
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await act(async () => {
+      await result.current.applyFirmware(1n, [
+        { manufacturer: "Proto", model: "CT1", firmwareFileId: "archive" },
+        { manufacturer: "Proto", model: "CT1", component: "psu", firmwareFileId: "capsule" },
+      ]);
+      await result.current.listChannelMiners(1n, "Proto", "CT1", "psu");
+      await result.current.listChannelMiners(1n, "Proto", "CT1", "");
+    });
+    expect(mockApplyReleaseChannelFirmware).toHaveBeenCalledWith({
+      channelId: 1n,
+      assignments: [
+        { manufacturer: "Proto", model: "CT1", firmwareFileId: "archive" },
+        { manufacturer: "Proto", model: "CT1", component: "psu", firmwareFileId: "capsule" },
+      ],
+    });
+    const requests = mockListReleaseChannelMiners.mock.calls.map(([request]) => request);
+    expect(requests[0]).toMatchObject({ channelId: 1n, manufacturer: "Proto", model: "CT1", component: "psu" });
+    expect(requests[1]).not.toHaveProperty("component");
+  });
+
   it("walks every page of the detail lists", async () => {
     const controller = new AbortController();
     mockListReleaseChannelMiners
@@ -3448,7 +3475,7 @@ describe("useReleaseChannels", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     await act(async () => {
-      const miners = await result.current.listChannelMiners(1n, "Proto", "Rig", controller.signal);
+      const miners = await result.current.listChannelMiners(1n, "Proto", "Rig", undefined, controller.signal);
       expect(miners.map((m) => m.deviceIdentifier)).toEqual(["rig-001", "rig-002"]);
       const devices = await result.current.listRolloutDevices(9n, controller.signal);
       expect(devices.map((d) => d.deviceIdentifier)).toEqual(["rig-001", "rig-002"]);

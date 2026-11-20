@@ -104,26 +104,65 @@ filenames name the PSU vendor, the PSU revision the capsule applies to, and the
 start of the capsule ID.
 
 A capsule does not name the firmware version it installs. `firmware_version`
-is the uploader's label, and Fleet does not compare it with the version PSUs
-report (BOCO PSUs report `app=<revision>;bl=<revision>`). A metadata edit can
-change that label but not the component.
+is the uploader's label. A direct update does not compare it with the version
+PSUs report (BOCO PSUs report `app=<revision>;bl=<revision>`). A release
+channel does compare it, as described below. A metadata edit can change that
+label but not the component.
 
-Release channels refuse PSU firmware: previewing or applying an assignment of a
-capsule fails with `failed_precondition`. A channel holds one assignment per
-manufacturer and model and verifies a container by its hashboard version, so it
-can neither hold nor verify a second component. Update a container with its
-**Update firmware** action or the firmware update command instead; see
-[PSU firmware updates](ct1-grpc.md#psu-firmware-updates).
+Fleet keeps a channel's assignments, rollouts, and deployment records per
+firmware component of a model. A CT1 container has two: its main firmware,
+which is its hashboard firmware, and its PSU firmware. The two are assigned,
+rolled out, and verified independently.
 
-That path is closed for a container whose release channel assigns CT1
-firmware. Fleet skips every direct firmware command for a miner whose channel
-has an assignment for its manufacturer and model, whatever file the command
-carries. The capsule is not sent, and the command reports that the channel
-manages the container's firmware. To update such a container's PSUs, first
-clear the channel's CT1 assignment or take the container out of the channel's
-scope. A finished firmware command also clears Fleet's record of what it last
-deployed to the container, so assigning the hashboard firmware again afterwards
-sends it to that container again.
+Assign a capsule to a channel by naming the component in the assignment:
+
+```json
+{"assignments":[{"manufacturer":"Proto","model":"CT1","component":"psu","firmwareFileId":"<capsule-file-id>"}]}
+```
+
+An assignment without `component` is the model's main firmware. The file must
+be firmware for the assignment's component. A capsule assigned as main firmware
+fails with `failed_precondition` (`ARTIFACT_MISMATCH`), and so does an archive
+assigned as PSU firmware. Clearing names the component too, with an empty
+`firmwareFileId`. One request can hold one assignment for each component of a
+pair, so it can change hashboard firmware and PSU firmware together. Model
+groups, plans, rollouts, and miner firmware history carry `component`. A pair
+has a group for its main firmware and one more for each other component
+assigned to it. A channel's `modelGroupCount` counts each of these groups. Pass
+`component=psu` to `GET /release-channels/{channelId}/miners` to read each
+container's PSU firmware version and deployment record instead of its
+hashboard ones.
+
+Fleet verifies PSU firmware as it verifies hashboard firmware, against what the
+container reports. Every located board must report the same firmware version
+for its module's PSU. That version must equal the capsule's
+`firmware_version`. A capsule names no version, so enter the version PSUs
+report once it is applied (BOCO PSUs report `app=<revision>;bl=<revision>`).
+With any other label the update runs but its containers never verify and end
+as failed. To correct a label, edit the file's version, clear the PSU
+assignment, and assign the capsule again. Applying an assignment whose capsule
+is unchanged does nothing. Differing PSU versions are drift, so enforcement
+sends the capsule again, and the update leaves modules that already run it
+alone. A version that is not observed neither verifies nor reopens a rollout.
+
+A container takes one firmware command at a time. While an update of one
+component is pending, a rollout of the other waits to dispatch. A container
+cannot verify an update while a command of the other component runs. When that
+command ends, the container gets the full resend interval to report before the
+rollout sends its firmware again or fails the attempt.
+
+A channel owns a miner's firmware per component. A channel that assigns only
+CT1 hashboard firmware does not own a container's PSU firmware. Fleet then
+admits a direct PSU update sent with the container's **Update firmware**
+action; see [PSU firmware updates](ct1-grpc.md#psu-firmware-updates). After the
+channel assigns PSU firmware too, Fleet does not send that update. Finishing a
+firmware command clears only the deployment record of the component it
+updated.
+
+In the Fleet UI, a channel lists PSU firmware as a **PSU firmware** row under
+its container model, after **Hashboard firmware**. The row appears once a
+capsule for that model is uploaded or assigned. Activity log entries for a PSU
+rollout name the model without the component.
 
 ## CT1 controller software version
 
@@ -159,9 +198,10 @@ curl -X PUT "$FLEET/api/v1/release-channels/$CHANNEL/controller-software" \
   Versions compare after trimming whitespace and one leading `v`. A container
   that reports no version is not on the target.
 - While a target is set, a rollout sends firmware only to containers on it.
-  This applies to every firmware update the channel sends to a container. A
-  container that is behind stays `QUEUED`: it uses no attempt and does not
-  fail. When every container due an update is waiting, the rollout's
+  This applies to every firmware update the channel sends to a container,
+  hashboard and PSU firmware alike. A container that is behind stays `QUEUED`:
+  it uses no attempt and does not fail. When every container due an update is
+  waiting, the rollout's
   `evidence.holdReason` names the version and how many containers need it. The
   rollout stays active until those containers are updated, skipped, or
   canceled, or the target is cleared.
@@ -205,7 +245,9 @@ uses `http://localhost:4000/api/v1/...`.
 `PUT` replaces channel settings, rather than patching individual fields. Read
 the channel first and preserve settings you intend to keep. Assignment requests
 are different: omitted manufacturer/model pairs retain their assignment; an
-empty `firmwareFileId` explicitly clears one.
+empty `firmwareFileId` explicitly clears one. An assignment is for one firmware
+component of its pair, the main firmware unless `component` says otherwise; see
+[CT1 PSU capsules](#ct1-psu-capsules).
 
 | Firmware operation | Method and path |
 | --- | --- |

@@ -290,7 +290,8 @@ updates it, one module per job, from a signed PSUCAP v1 capsule. Fleet stores a
 capsule as CT1 firmware with the `psu` component (see the
 [rollout API](firmware-rollout-api.md#ct1-psu-capsules)) and sends it with the
 same firmware command as a hashboard archive. The plugin tells the two apart by
-the file's first bytes. Release channels refuse PSU firmware.
+the file's first bytes. A release channel assigns it as the model's `psu`
+component.
 
 Frigate keeps capsules, jobs, and job history on the controller that owns a
 module's boards. It picks each job's task ID, keeps jobs in memory only, and
@@ -416,10 +417,10 @@ Limits:
   controllers own. The plugin fails such a module without starting a job.
 - **Capsule cache.** Frigate caches at most 32 capsules per controller and has
   no call to delete one.
-- **Release channels.** A channel cannot hold PSU firmware, and Fleet skips a
-  direct firmware command for a container whose channel assigns CT1 firmware.
-  Such a container cannot take a capsule until that assignment is cleared or
-  the container leaves the channel's scope; see the
+- **Release channels.** The rollout API assigns a capsule to a channel as the
+  `psu` component of Proto CT1. It verifies a container by the PSU firmware
+  version the container reports. The capsule's version must therefore be the
+  version its PSUs report after the update; see the
   [rollout API](firmware-rollout-api.md#ct1-psu-capsules).
 - **Validation.** This has run against `server/fake-ct1` only, not against
   Frigate or CT1 hardware.

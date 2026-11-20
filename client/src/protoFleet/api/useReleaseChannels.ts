@@ -35,7 +35,10 @@ export type ChannelView = ReleaseChannel & { modelGroups: ChannelModelGroupView[
 
 // An assignment as the UI stages it: the observed pair the file is for and
 // the file (empty to clear).
-export type AssignmentDraft = Pick<FirmwareAssignment, "manufacturer" | "model" | "firmwareFileId">;
+export type AssignmentDraft = Pick<FirmwareAssignment, "manufacturer" | "model" | "firmwareFileId"> & {
+  // The firmware component assigned; omitted for the model's main firmware.
+  component?: string;
+};
 
 const POLL_INTERVAL_MS = 5000;
 const MINER_NAMES_REFRESH_INTERVAL_MS = 5 * 60_000;
@@ -229,10 +232,13 @@ export interface ReleaseChannelsApi {
   // Read-only detail lists. The server pages both; these walk every page so
   // a modal can show the whole set. Filters match observed identities
   // verbatim.
+  // Each miner's reported version and deployment record are those of the
+  // named firmware component; the main firmware when omitted.
   listChannelMiners: (
     channelId: bigint,
     manufacturer?: string,
     model?: string,
+    component?: string,
     signal?: AbortSignal,
   ) => Promise<ReleaseChannelMiner[]>;
   listRolloutDevices: (rolloutId: bigint, signal?: AbortSignal) => Promise<RolloutDevice[]>;
@@ -672,7 +678,7 @@ export function useReleaseChannels(): ReleaseChannelsApi {
   );
 
   const listChannelMiners = useCallback(
-    (channelId: bigint, manufacturer?: string, model?: string, signal?: AbortSignal) =>
+    (channelId: bigint, manufacturer?: string, model?: string, component?: string, signal?: AbortSignal) =>
       drainPages(
         (cursor) =>
           withAuthErrors(
@@ -682,6 +688,7 @@ export function useReleaseChannels(): ReleaseChannelsApi {
                   channelId,
                   manufacturer: manufacturer ?? "",
                   model: model ?? "",
+                  ...(component ? { component } : {}),
                   pageSize: DETAIL_PAGE_SIZE,
                   cursor,
                 },
@@ -782,9 +789,10 @@ export function useReleaseChannels(): ReleaseChannelsApi {
         () =>
           rolloutClient.applyReleaseChannelFirmware({
             channelId,
-            assignments: assignments.map(({ manufacturer, model, firmwareFileId }) => ({
+            assignments: assignments.map(({ manufacturer, model, component, firmwareFileId }) => ({
               manufacturer,
               model,
+              ...(component ? { component } : {}),
               firmwareFileId,
             })),
           }),

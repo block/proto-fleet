@@ -13,13 +13,16 @@ import (
 )
 
 const advanceContainerInventory = `-- name: AdvanceContainerInventory :one
-INSERT INTO container_inventory (device_id, observed_at, org_id, hashboard_firmware_version, hashboard_firmware_mixed)
-SELECT d.id, $1::timestamptz, d.org_id, $2::text, $3::boolean
+INSERT INTO container_inventory (device_id, observed_at, org_id, hashboard_firmware_version, hashboard_firmware_mixed,
+    psu_firmware_version, psu_firmware_mixed)
+SELECT d.id, $1::timestamptz, d.org_id, $2::text, $3::boolean,
+    $4::text, $5::boolean
 FROM device d JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.org_id=d.org_id
-WHERE d.device_identifier = $4 AND d.deleted_at IS NULL
+WHERE d.device_identifier = $6 AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL AND dd.device_class = 2
 ON CONFLICT (device_id) DO UPDATE SET observed_at = EXCLUDED.observed_at, hashboard_firmware_version = EXCLUDED.hashboard_firmware_version,
-    hashboard_firmware_mixed = EXCLUDED.hashboard_firmware_mixed
+    hashboard_firmware_mixed = EXCLUDED.hashboard_firmware_mixed,
+    psu_firmware_version = EXCLUDED.psu_firmware_version, psu_firmware_mixed = EXCLUDED.psu_firmware_mixed
 WHERE container_inventory.observed_at < EXCLUDED.observed_at
 RETURNING device_id
 `
@@ -28,6 +31,8 @@ type AdvanceContainerInventoryParams struct {
 	ObservedAt               time.Time
 	HashboardFirmwareVersion string
 	HashboardFirmwareMixed   bool
+	PsuFirmwareVersion       string
+	PsuFirmwareMixed         bool
 	DeviceIdentifier         string
 }
 
@@ -36,6 +41,8 @@ func (q *Queries) AdvanceContainerInventory(ctx context.Context, arg AdvanceCont
 		arg.ObservedAt,
 		arg.HashboardFirmwareVersion,
 		arg.HashboardFirmwareMixed,
+		arg.PsuFirmwareVersion,
+		arg.PsuFirmwareMixed,
 		arg.DeviceIdentifier,
 	)
 	var device_id int64

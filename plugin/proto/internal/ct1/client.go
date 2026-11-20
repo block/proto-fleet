@@ -180,6 +180,7 @@ func (c *Client) collect(ctx context.Context, id string) (sdk.DeviceMetrics, *er
 	}
 	collector.plant(plantWire, plantErr, observed)
 	topology.HashboardFirmwareVersion, topology.HashboardFirmwareMixed = observedHashboardFirmware(wire, topology, observed)
+	topology.PSUFirmwareVersion, topology.PSUFirmwareMixed = observedPSUFirmware(wire, topology, observed)
 	result := sdk.DeviceMetrics{DeviceID: id, Timestamp: observed, Container: topology, Health: sdk.HealthWarning}
 	if err := miningErr; err != nil {
 		slog.WarnContext(ctx, "CT1 mining totals unavailable", "device_id", id, "error", err)

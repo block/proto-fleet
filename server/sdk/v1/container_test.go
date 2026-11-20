@@ -12,7 +12,7 @@ import (
 
 func TestContainerSnapshotSurvivesTelemetryTransport(t *testing.T) {
 	now := time.Now().UTC()
-	snapshot := &ContainerSnapshot{HashboardFirmwareVersion: "2.0.0", ObservedAt: now, Tanks: []ContainerTank{{Position: 2, Modules: []ContainerModule{{Position: 3, ReportedID: "module-serial", IdentityConfirmed: true, State: MinerStatusError, ObservedAt: now.Add(-119 * time.Second)}}}}}
+	snapshot := &ContainerSnapshot{HashboardFirmwareVersion: "2.0.0", PSUFirmwareVersion: "app=1410;bl=1110", ObservedAt: now, Tanks: []ContainerTank{{Position: 2, Modules: []ContainerModule{{Position: 3, ReportedID: "module-serial", IdentityConfirmed: true, State: MinerStatusError, ObservedAt: now.Add(-119 * time.Second)}}}}}
 	snapshot.HA = &ContainerHA{ObservedAt: now, Degraded: true}
 	pue := 1.05
 	snapshot.TopologyComplete = true
@@ -37,6 +37,8 @@ func TestContainerSnapshotSurvivesTelemetryTransport(t *testing.T) {
 	got := deviceMetricsFromProto(wire)
 	require.Equal(t, snapshot, got.Container)
 	snapshot.Tanks[0].Modules[0].IdentityConfirmed = false
+	snapshot.HashboardFirmwareVersion, snapshot.HashboardFirmwareMixed = "", true
+	snapshot.PSUFirmwareVersion, snapshot.PSUFirmwareMixed = "", true
 	require.Equal(t, snapshot, deviceMetricsFromProto(deviceMetricsToProto(DeviceMetrics{DeviceID: "controller", Timestamp: now, Container: snapshot})).Container)
 	require.Nil(t, deviceMetricsFromProto(deviceMetricsToProto(DeviceMetrics{Timestamp: now})).Container)
 }

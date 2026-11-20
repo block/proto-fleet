@@ -562,6 +562,8 @@ type ContainerInventory struct {
 	HashboardInventoryComplete bool
 	HashboardFirmwareVersion   string
 	HashboardFirmwareMixed     bool
+	PsuFirmwareVersion         string
+	PsuFirmwareMixed           bool
 }
 
 type ContainerLatestMetric struct {
@@ -1340,6 +1342,7 @@ type DeviceFirmwareDeployment struct {
 	RolloutID            sql.NullInt64
 	DeployedAt           time.Time
 	LastCommandBatchUuid sql.NullString
+	Component            string
 }
 
 type DeviceMetric struct {
@@ -1624,6 +1627,7 @@ type FirmwareRollout struct {
 	CreatedAt                time.Time
 	FinishedAt               sql.NullTime
 	ControllerWaitingSince   sql.NullTime
+	Component                string
 }
 
 type FirmwareRolloutDevice struct {
@@ -1680,6 +1684,7 @@ type FirmwareRolloutSuppressedDevice struct {
 	ModelKey             string
 	AssignmentGeneration int64
 	DeviceID             int64
+	Component            string
 }
 
 type FleetActiveOrganization struct {
@@ -3216,6 +3221,7 @@ type ReleaseChannelFirmware struct {
 	UpdatedAt                  time.Time
 	PreviousFirmwareChecksum   string
 	PreviousFirmwareVersion    string
+	Component                  string
 }
 
 type ReleaseChannelMatch struct {

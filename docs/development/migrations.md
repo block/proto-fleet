@@ -707,3 +707,46 @@ The hold has no automatic deletion policy. Keep builds containing 1077 out of
 hosted releases until the operations owner has approved the storage and backup
 budget and the lag and storage alerts are in place. Operate and size the hold
 using the [reporting evidence runbook](hosted-reporting-evidence.md).
+
+## Release channel firmware components (1110–1111)
+
+Private migration 1110 adds the PSU firmware observation columns to
+`container_inventory`. Private migration 1111 adds a firmware component to
+`release_channel_firmware`, `firmware_rollout`, and
+`device_firmware_deployment`. Existing rows become the main component, which is
+the empty string.
+
+Migration 1111 requires a stopped-application upgrade. `fleetd` applies pending
+migrations when it starts. Stop every Fleet API replica and standby of an
+earlier build before the target release starts. Do not mix builds in a rolling
+deployment.
+
+An earlier build cannot use the new schema:
+
+- Its command result write names `ON CONFLICT (device_id)` on
+  `device_firmware_deployment`. The primary key is now `(device_id, component)`,
+  so the write fails for every command type, not only for firmware commands.
+- Its firmware assignment write names the three-column pair index, which now
+  includes the component.
+- Its release channel queries call the three-argument
+  `release_channel_firmware_version`, which migration 1111 drops.
+
+Let direct PSU firmware updates finish before the upgrade. A PSU command that
+an earlier build queued names no component, so the target release reads it as
+a main firmware command. When that command finishes, it clears the container's
+hashboard deployment record. A channel that assigns hashboard firmware then
+sends it to that container one more time.
+
+A binary older than 1110 rejects these checkpoints, and an application rollback
+does not reverse committed database changes. The 1111 down migration does not
+refuse when rows of another component exist. It deletes every assignment,
+rollout, and deployment record of a component other than the main firmware. The
+device rows and events of each deleted rollout are deleted with it. The 1110
+down migration drops the PSU observation columns. Prefer to fix forward: clear
+the PSU assignment of each channel. That cancels its active PSU rollout and
+deletes no data.
+
+Development databases that applied the earlier unmerged sequences at 1082–1083,
+1085–1086, 1092–1093, 1097–1098, or 1098–1099 have a different schema at those
+versions. Preserve those databases and use a fresh development database. Do not
+force a version or replay the renumbered migrations against them.

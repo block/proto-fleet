@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { API_PROXY_BASE } from "@/protoFleet/api/constants";
 import { fetchSessionJson } from "@/protoFleet/api/fetchSessionJson";
+import { PSU_FIRMWARE_COMPONENT } from "@/protoFleet/api/firmwareComponent";
 import { extractFetchError, useFileUpload } from "@/protoFleet/api/useFileUpload";
 import { minerTargetKey } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
 import { useLogout } from "@/protoFleet/store";
@@ -125,7 +126,7 @@ export const HASHBOARD_BUILDS = ["prod", "dev", "mfgtest"] as const;
 export type HashboardBuild = (typeof HASHBOARD_BUILDS)[number];
 export const DEFAULT_HASHBOARD_BUILD: HashboardBuild = "prod";
 export const CT1_FIRMWARE_TARGET = { targetManufacturer: "Proto", targetModel: "CT1" } as const;
-export const PSU_FIRMWARE_COMPONENT = "psu";
+export { PSU_FIRMWARE_COMPONENT };
 const PSU_CAPSULE_EXTENSION = ".psucap";
 
 /** A CT1 PSU capsule is recognized by its file name. The server verifies its content. */

@@ -585,8 +585,10 @@ latest PSU firmware update from the collected `psuFirmwareUpdate` payload: its s
 progress, the controller that ran it, and the failure reason. A PSU that an update left
 needing recovery is named there, and its card shows the issue indicator. PSU firmware is
 sent with the container's **Update firmware** action; uploading a `.psucap` file stores
-it as CT1 PSU firmware. Fleet refuses that action for a container whose release channel
-assigns CT1 firmware.
+it as CT1 PSU firmware. A release channel assigns PSU firmware on a **PSU firmware** row
+under the container model, after **Hashboard firmware**. The row appears once a capsule
+for the model is uploaded or assigned. It has its own firmware choice, update status,
+and container list, which reports each container's PSU firmware version.
 
 Performance shows module history using the existing paginated Fleet history API. The page fetches all pages for a fixed time window, refreshes once per
 minute, and clears failed results. Requests are cancelled on navigation and
