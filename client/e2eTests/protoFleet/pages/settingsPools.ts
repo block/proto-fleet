@@ -3,7 +3,7 @@ import { BasePage } from "./base";
 
 export class SettingsPoolsPage extends BasePage {
   private row(name: string) {
-    return this.page.getByRole("row").filter({ has: this.page.getByRole("button", { name, exact: true }) });
+    return this.page.getByRole("row").filter({ has: this.page.getByText(name, { exact: true }) });
   }
 
   async validateMiningPoolsSubmenuHidden() {
@@ -27,8 +27,9 @@ export class SettingsPoolsPage extends BasePage {
   }
 
   async validatePoolEntryByUniqueName(name: string, url: string, username: string) {
-    await expect(this.row(name)).toContainText(url);
-    await this.row(name).getByRole("button", { name, exact: true }).click();
+    const row = this.row(name);
+    await expect(row).toContainText(url);
+    await row.click();
     const details = this.page.getByRole("dialog", { name: "Pool configuration", exact: true });
     await expect(details).toContainText(`Username: ${username}`);
     await this.page.keyboard.press("Escape");
