@@ -138,6 +138,17 @@ describe("partial normalized store updates", () => {
     expect(fan?.rpm?.latest?.value).toBe(4_800);
   });
 
+  test("clears live fan power when a cooling poll no longer reports the fan", () => {
+    const telemetry = useMinerStore.getState().telemetry;
+    const id = getFanId(1);
+    telemetry.replaceFanLiveTelemetry([{ componentId: id, power: { latest: { value: 400, units: "W" } } }]);
+    expect(useMinerStore.getState().telemetry.fans.get(id)?.power?.latest?.value).toBe(400);
+
+    telemetry.replaceFanLiveTelemetry([]);
+
+    expect(useMinerStore.getState().telemetry.fans.get(id)?.power).toBeUndefined();
+  });
+
   test("persists timeSeries through the PSU/fan writers, not just latest", () => {
     const telemetry = useMinerStore.getState().telemetry;
     const psuPoints = [{ timestampMs: 1_000, value: 3_000 }];

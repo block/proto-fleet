@@ -297,6 +297,7 @@ export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", n
       state.telemetry.fans.forEach((fan) => {
         fan.rpm = fan.rpm?.timeSeries ? { timeSeries: fan.rpm.timeSeries } : undefined;
         fan.speedPercent = fan.speedPercent?.timeSeries ? { timeSeries: fan.speedPercent.timeSeries } : undefined;
+        fan.power = fan.power?.timeSeries ? { timeSeries: fan.power.timeSeries } : undefined;
       });
       fans.forEach((fan) => {
         state.telemetry.fans.set(fan.componentId, mergeMetrics(state.telemetry.fans.get(fan.componentId), fan));

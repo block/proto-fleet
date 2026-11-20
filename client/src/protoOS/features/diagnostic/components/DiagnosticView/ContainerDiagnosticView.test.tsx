@@ -536,6 +536,86 @@ describe("Container diagnostics", () => {
     expect(screen.getByText("0% PWM")).toBeInTheDocument();
   });
 
+  test("shows measured fan power distinct from missing, zero and stale readings", () => {
+    const show = (coolingFan: { powerW?: number }, timestamp?: string) =>
+      act(() => {
+        useMinerStore
+          .getState()
+          .telemetry.mergeTelemetry(
+            toCanonicalContainer(
+              {},
+              {},
+              { timestamp, coolingFans: [{ componentId: "dry-cooler-fan-1", speedPercent: 85, ...coolingFan }] },
+              "ct1",
+            ).telemetry,
+          );
+      });
+    const card = () => within(screen.getByRole("heading", { name: "Fan 1" }).closest("div")!.parentElement!);
+    render(<ContainerDiagnosticView />);
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Cooling" }));
+
+    show({ powerW: 3_480 }, new Date().toISOString());
+    expect(card().getByText("3.5 kW")).toBeInTheDocument();
+    expect(card().getByText("85% PWM")).toBeInTheDocument();
+    // CT1 cooling fans report no tachometer reading, so no RPM placeholder is shown.
+    expect(card().queryByText(/RPM/)).not.toBeInTheDocument();
+
+    show({ powerW: 999.6 }, new Date().toISOString());
+    expect(card().getByText("1.0 kW")).toBeInTheDocument();
+
+    show({ powerW: 47 }, new Date().toISOString());
+    expect(card().getByText("47 W")).toBeInTheDocument();
+
+    show({ powerW: 0 }, new Date().toISOString());
+    expect(card().getByText("0 W")).toBeInTheDocument();
+
+    show({}, new Date().toISOString());
+    expect(card().getByLabelText("Power unavailable")).toHaveTextContent("— kW");
+    expect(card().queryByText("0 W")).not.toBeInTheDocument();
+
+    show({ powerW: 3_480 }, new Date(Date.now() - 60_000).toISOString());
+    expect(card().getByLabelText("Power stale")).toHaveTextContent("Stale");
+    expect(card().queryByText("3.5 kW")).not.toBeInTheDocument();
+    expect(card().queryByText("85% PWM")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Fan 1 info" }));
+    const fan = within(screen.getByRole("dialog", { name: "Fan 1 status" }));
+    expect(fan.getByText("Power")).toBeInTheDocument();
+    expect(fan.queryByText("Speed")).not.toBeInTheDocument();
+    expect(fan.getByLabelText("Power stale")).toHaveTextContent("Stale");
+    expect(fan.queryByText("85%")).not.toBeInTheDocument();
+  });
+
+  test("marks fan power stale once its snapshot ages past the plant window", () => {
+    vi.useFakeTimers();
+    try {
+      render(<ContainerDiagnosticView />);
+      fireEvent.mouseDown(screen.getByRole("button", { name: "Cooling" }));
+      act(() => {
+        useMinerStore.getState().telemetry.mergeTelemetry(
+          toCanonicalContainer(
+            {},
+            {},
+            {
+              timestamp: new Date().toISOString(),
+              coolingFans: [{ componentId: "dry-cooler-fan-1", speedPercent: 85, powerW: 3_480 }],
+            },
+            "ct1",
+          ).telemetry,
+        );
+      });
+      expect(screen.getByText("85% PWM")).toBeInTheDocument();
+      expect(screen.getByText("3.5 kW")).toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(46_000));
+      expect(screen.getByLabelText("Power stale")).toBeInTheDocument();
+      expect(screen.queryByText("3.5 kW")).not.toBeInTheDocument();
+      expect(screen.queryByText("85% PWM")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("offers the Controllers tab only when this controller serves its diagnostics", () => {
     hosting.adapter = { getControllerDiagnostics: () => new Promise(() => {}) } as unknown as MinerAdapter;
     hosting.isFleetHosted = false;

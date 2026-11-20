@@ -72,6 +72,7 @@ const DiagnosticsStory = ({ missingReadings = false, sparseTanks = false, minerS
     telemetry.fans.set(fanId, {
       componentId: fanId,
       speedPercent: missingReadings ? undefined : reading(85, "%"),
+      power: missingReadings ? undefined : reading(3_480, "W"),
     });
     const store = useMinerStore.getState();
     store.resetDeviceData();
