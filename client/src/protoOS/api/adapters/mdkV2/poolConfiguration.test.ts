@@ -50,7 +50,7 @@ const fixture = (overrides: Partial<MdkV2Client> = {}) => {
                     { occupied: true, hashboard: { macAddress: MAC, location: { hashboardPosition: 3 } } },
                     {
                       occupied: true,
-                      hashboard: { macAddress: "aa:bb:cc:00:00:04" },
+                      hashboard: { macAddress: "aa:bb:cc:00:00:04", isolated: true },
                       configuredLocation: { hashboardPosition: 2 },
                     },
                   ],
@@ -250,7 +250,10 @@ describe("CT1 pool configuration inspection", () => {
       { id: "b", name: "Client B", revision: "2", boards: [{ mac: "aa:bb:cc:00:00:02" }] },
       { id: "missing", name: "Unknown group (missing)", revision: "", boards: [{ mac: "aa:bb:cc:00:00:03" }] },
     ]);
-    expect(result.unassignedBoards).toEqual([{ mac: "aa:bb:cc:00:00:04", location: "Door tank · Module 2 · Board 2" }]);
+    expect(result.unassignedBoards).toEqual([
+      { mac: "aa:bb:cc:00:00:04", location: "Door tank · Module 2 · Board 2", isolated: true },
+    ]);
+    expect(result.assignmentInventoryError).toBeUndefined();
     expect(result.pendingOperations).toEqual([
       { id: "transfer-1", kind: "TRANSFER", phase: "STOPPING", error: "Waiting for board", boards: [MAC] },
     ]);
@@ -266,6 +269,48 @@ describe("CT1 pool configuration inspection", () => {
     expect(result.locationsAvailable).toBe(false);
     expect(result.groups[0].boards).toEqual([{ mac: MAC.toUpperCase() }]);
     expect(result.unassignedBoards).toEqual([]);
+  });
+
+  test("shows unassigned boards when inventory takes eight seconds to respond", async () => {
+    vi.useFakeTimers();
+    try {
+      const { adapter, client } = fixture();
+      const getMap = vi.mocked(client.hashboardServiceGetContainerMap);
+      const map = await getMap();
+      getMap.mockImplementationOnce(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 8_000));
+        return map;
+      });
+      const result = adapter.getContainerPoolConfiguration();
+      await vi.advanceTimersByTimeAsync(8_000);
+      expect(await result).toMatchObject({
+        locationsAvailable: true,
+        unassignedBoards: [{ mac: "aa:bb:cc:00:00:04", location: "Door tank · Module 2 · Board 2" }],
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("an inventory timeout preserves group membership", async () => {
+    vi.useFakeTimers();
+    try {
+      const getMap = vi.fn().mockImplementation(() => new Promise(() => {}));
+      const { adapter } = fixture({ hashboardServiceGetContainerMap: getMap });
+      const assertion = expect(adapter.getContainerPoolConfiguration()).resolves.toMatchObject({
+        mode: "groups",
+        groups: expect.arrayContaining([
+          { id: "a", name: "Client A", revision: "4", boards: [{ mac: MAC.toUpperCase() }] },
+        ]),
+        locationsAvailable: false,
+        unassignedBoards: [],
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
+      await assertion;
+      expect(getMap.mock.calls[0][0].signal.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("a board reported at multiple positions has no claimed location", async () => {
@@ -286,7 +331,30 @@ describe("CT1 pool configuration inspection", () => {
         },
       }),
     });
-    expect((await adapter.getContainerPoolConfiguration()).groups[0].boards[0].location).toBeUndefined();
+    const result = await adapter.getContainerPoolConfiguration();
+    expect(result.groups[0].boards[0].location).toBeUndefined();
+    expect(result.assignmentInventoryError).toMatch(/incomplete or duplicated/);
+  });
+
+  test.each([
+    { identity: "missing", slot: { occupied: true } },
+    { identity: "invalid", slot: { occupied: true, hashboard: { macAddress: "unknown" } } },
+  ])("blocks assignment when an occupied slot has a $identity MAC", async ({ slot }) => {
+    const mac = "aa:bb:cc:00:00:04";
+    const { adapter } = fixture({
+      hashboardServiceGetContainerMap: vi.fn().mockResolvedValue({
+        data: {
+          containerMap: {
+            tanks: [{ modules: [{ slots: [slot, { occupied: true, hashboard: { macAddress: mac } }] }] }],
+          },
+        },
+      }),
+    });
+
+    const result = await adapter.getContainerPoolConfiguration();
+    expect(result.locationsAvailable).toBe(true);
+    expect(result.assignmentInventoryError).toMatch(/incomplete or duplicated/);
+    expect(result.unassignedBoards).toEqual([{ mac }]);
   });
 
   test("does not publish memberships read across a concurrent transfer", async () => {

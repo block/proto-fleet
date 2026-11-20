@@ -1,14 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import PoolConfigurationUpdates, { PoolConfigurationUpdateResults } from "./PoolConfigurationUpdates";
+import PoolHashboards, { UnassignedHashboards } from "./PoolHashboards";
 import {
   type LocalPoolConfiguration,
   type PoolAssignmentService,
   type PoolAssignmentTarget,
+  type PoolConfigurationUpdate,
   PoolDeletionUnconfirmed,
 } from "@/protoOS/api/adapters/poolAssignment";
-import { type ContainerPoolConfiguration, hasPendingPoolOperations } from "@/protoOS/api/adapters/poolConfiguration";
+import {
+  type ContainerPoolConfiguration,
+  getUnassignedPoolAssignmentBlockers,
+  hasPendingPoolOperations,
+} from "@/protoOS/api/adapters/poolConfiguration";
 import PoolAssignmentDialog from "@/protoOS/features/poolAssignment/PoolAssignmentDialog";
 import { usePoolAssignmentActions } from "@/protoOS/features/poolAssignment/usePoolAssignmentActions";
 import useMinerStore from "@/protoOS/store/useMinerStore";
+import { macKey } from "@/protoOS/utils/macAddress";
 import { Alert } from "@/shared/assets/icons";
 import { ActionModal } from "@/shared/components/ActionModal";
 import Button from "@/shared/components/Button";
@@ -24,6 +32,7 @@ import SettingsEmptyState from "@/shared/components/SettingsEmptyState";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 const CONFIGURATION_TARGET: PoolAssignmentTarget = { macs: [] };
+const PAGE_SIZE = 25;
 
 const deleteDisabledReason = (item: LocalPoolConfiguration) => {
   if (item.isDefault) return "This is the controller's fixed default configuration.";
@@ -33,11 +42,13 @@ const deleteDisabledReason = (item: LocalPoolConfiguration) => {
 export default function PoolConfigurationLibrary({
   service,
   configuration,
+  refreshing = false,
   onReload,
 }: {
   onReload: () => void;
   service: PoolAssignmentService;
   configuration: ContainerPoolConfiguration;
+  refreshing?: boolean;
 }) {
   const controllerId = useMinerStore((state) => state.systemInfo.data?.identity.deviceId);
   const generation = useMinerStore((state) => state.connectionGeneration);
@@ -45,7 +56,7 @@ export default function PoolConfigurationLibrary({
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState<string>();
   const [editing, setEditing] = useState<LocalPoolConfiguration | "new">();
-  const [viewing, setViewing] = useState<LocalPoolConfiguration>();
+  const [details, setDetails] = useState<{ configuration: LocalPoolConfiguration; update?: PoolConfigurationUpdate }>();
   const [deleting, setDeleting] = useState<LocalPoolConfiguration>();
   const [deleteError, setDeleteError] = useState<{ message: string; unconfirmed: boolean }>();
   const [busy, setBusy] = useState(false);
@@ -58,7 +69,7 @@ export default function PoolConfigurationLibrary({
     setError(undefined);
     setRevision((value) => value + 1);
   };
-  const recovery = usePoolAssignmentActions(refresh);
+  const poolActions = usePoolAssignmentActions({ onConfigurationSaved: refresh, onAssignmentsChanged: onReload });
   const deleteSelectedConfiguration = async () => {
     if (busy || !deleting) return;
     const request = new AbortController();
@@ -88,7 +99,7 @@ export default function PoolConfigurationLibrary({
     params: query,
     fetchData: async (signal) => {
       try {
-        const next = await service.listConfigurationPage(page * 25, 25, { signal });
+        const next = await service.listConfigurationPage(page * PAGE_SIZE, PAGE_SIZE, { signal });
         if (!signal.aborted) {
           setData(next);
           setError(undefined);
@@ -99,7 +110,38 @@ export default function PoolConfigurationLibrary({
     },
   });
   const configurations = (data?.configurations ?? []).map((item) => ({ ...item, configurationId: item.id }));
+  const viewing = details?.update ? undefined : details?.configuration;
   const canConfirmDeletion = deleting?.assignedCount === 0 && !deleteError?.unconfirmed;
+  const inventoryWarning = configuration.locationsAvailable
+    ? configuration.assignmentInventoryError
+    : "Could not check for unassigned hashboards.";
+  const assignmentBlockers = useMemo(
+    () =>
+      getUnassignedPoolAssignmentBlockers(
+        configuration.inventoryIssues,
+        configuration.unassignedBoards.filter(({ isolated }) => isolated).map(({ mac }) => mac),
+      ),
+    [configuration.inventoryIssues, configuration.unassignedBoards],
+  );
+  const reportedBoards = useMemo(
+    () =>
+      new Map(
+        [...configuration.groups.flatMap((group) => group.boards), ...configuration.unassignedBoards].map((board) => [
+          macKey(board.mac),
+          board,
+        ]),
+      ),
+    [configuration],
+  );
+  const reloadButton = (
+    <Button
+      variant="secondary"
+      text="Reload pools"
+      className="self-start"
+      onClick={onReload}
+      disabled={busy || refreshing}
+    />
+  );
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
@@ -116,6 +158,24 @@ export default function PoolConfigurationLibrary({
       {configuration.suspended ? (
         <Callout intent="warning" prefixIcon={<Alert />} title="Container mining is paused." />
       ) : null}
+      {inventoryWarning ? (
+        <div role="alert" className="flex flex-col gap-3">
+          <Callout intent="warning" prefixIcon={<Alert />} title={inventoryWarning} />
+          {reloadButton}
+        </div>
+      ) : null}
+      {configuration.locationsAvailable ? (
+        <UnassignedHashboards
+          boards={configuration.unassignedBoards}
+          assignmentBlockers={assignmentBlockers}
+          poolPickerOpen={poolActions.open}
+          onEditPool={
+            poolActions.available && !locked && !refreshing && !inventoryWarning
+              ? (macs) => poolActions.editPool({ macs, unassignedOnly: true })
+              : undefined
+          }
+        />
+      ) : null}
       {error ? (
         <div role="alert" className="flex flex-col items-center gap-4">
           <SettingsEmptyState title="Unable to load configurations" description={error} />
@@ -131,7 +191,7 @@ export default function PoolConfigurationLibrary({
         <>
           <ConfigurationLibraryTable
             configurations={configurations}
-            onView={setViewing}
+            onView={(configuration) => setDetails({ configuration })}
             renderActions={(item) => (
               <RowActionsMenu
                 ariaLabel={`Actions for ${item.name}`}
@@ -163,15 +223,15 @@ export default function PoolConfigurationLibrary({
           />
           <PageControls
             previous={page > 0}
-            next={(page + 1) * 25 < data.total}
+            next={(page + 1) * PAGE_SIZE < data.total}
             onPrevious={() => setPage((value) => value - 1)}
             onNext={() => setPage((value) => value + 1)}
           />
         </>
       ) : null}
-      <Button variant="secondary" text="Reload pools" className="self-start" onClick={onReload} disabled={busy} />
-      {recovery.recoveryButton}
-      {recovery.dialog}
+      {inventoryWarning ? null : reloadButton}
+      {poolActions.recoveryButton}
+      {poolActions.dialog}
       {editing && controllerId ? (
         <PoolAssignmentDialog
           key={editing === "new" ? "new" : editing.id}
@@ -192,10 +252,33 @@ export default function PoolConfigurationLibrary({
           title={viewing.name}
           dialogLabel="Pool configuration"
           manageFocus
-          onDismiss={() => setViewing(undefined)}
+          onDismiss={() => setDetails(undefined)}
         >
-          <ConfigurationDetails assignedCount={viewing.assignedCount} pools={viewing.pools}></ConfigurationDetails>
+          <ConfigurationDetails
+            pools={viewing.pools}
+            equipment={
+              <PoolHashboards
+                boards={viewing.assignedMacs.map((mac) => reportedBoards.get(mac) ?? { mac })}
+                title={`${viewing.name} hashboards`}
+                countLabel="Assigned hashboards"
+              />
+            }
+          >
+            <PoolConfigurationUpdates
+              key={viewing.id}
+              service={service}
+              id={viewing.id}
+              onView={(update) => setDetails({ configuration: viewing, update })}
+            />
+          </ConfigurationDetails>
         </Modal>
+      ) : null}
+      {details?.update ? (
+        <PoolConfigurationUpdateResults
+          update={details.update}
+          configurationName={details.configuration.name}
+          onDismiss={() => setDetails(undefined)}
+        />
       ) : null}
       {deleting ? (
         <ActionModal

@@ -35,6 +35,7 @@ const isPoolAttempt = (value: unknown, key: string, storagePrefix: string): valu
     typeof attempt.destinationRef === "string" &&
     typeof attempt.phase === "string" &&
     typeof attempt.configurationConfirmed === "boolean" &&
+    (attempt.unassignedOnly === undefined || typeof attempt.unassignedOnly === "boolean") &&
     (attempt.restoreLegacyMining === undefined || typeof attempt.restoreLegacyMining === "boolean") &&
     Array.isArray(attempt.pools) &&
     Array.isArray(attempt.operationIds),
@@ -89,6 +90,7 @@ export const savePoolAttempt = (controller: string, attempt: PoolAssignmentAttem
     id,
     name,
     macs,
+    unassignedOnly,
     destinationId,
     destinationRevision,
     unconfirmedTransferRevision,
@@ -105,6 +107,7 @@ export const savePoolAttempt = (controller: string, attempt: PoolAssignmentAttem
       id,
       name,
       macs,
+      unassignedOnly,
       destinationId,
       destinationRevision,
       unconfirmedTransferRevision,

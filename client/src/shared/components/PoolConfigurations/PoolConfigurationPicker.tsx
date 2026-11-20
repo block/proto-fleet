@@ -38,10 +38,12 @@ const ConfigurationOptions = <T extends PoolConfigurationOption>({
   configurations,
   selected,
   onSelect,
+  emptyMessage,
 }: {
   configurations: T[];
   selected?: T;
   onSelect: (configuration: T) => void;
+  emptyMessage?: string;
 }) => (
   <List<T, string, "name" | "primary" | "backups">
     items={configurations}
@@ -80,7 +82,7 @@ const ConfigurationOptions = <T extends PoolConfigurationOption>({
         component: (configuration) => <BackupPools configuration={configuration} />,
       },
     }}
-    noDataElement={<p className="py-6 text-text-primary-70">No pool configurations yet.</p>}
+    noDataElement={<p className="py-6 text-text-primary-70">{emptyMessage ?? "No pool configurations yet."}</p>}
   />
 );
 
@@ -94,6 +96,7 @@ export const PoolConfigurationPicker = <T extends PoolConfigurationOption>({
   error,
   onRetry,
   configurations,
+  emptyMessage,
   selected,
   onSelect,
 }: {
@@ -106,6 +109,7 @@ export const PoolConfigurationPicker = <T extends PoolConfigurationOption>({
   error?: string | null;
   onRetry: () => void;
   configurations?: T[];
+  emptyMessage?: string;
   selected?: T;
   onSelect: (configuration: T) => void;
 }) => (
@@ -138,7 +142,12 @@ export const PoolConfigurationPicker = <T extends PoolConfigurationOption>({
       </div>
     ) : null}
     {configurations ? (
-      <ConfigurationOptions configurations={configurations} selected={selected} onSelect={onSelect} />
+      <ConfigurationOptions
+        configurations={configurations}
+        emptyMessage={emptyMessage}
+        selected={selected}
+        onSelect={onSelect}
+      />
     ) : null}
   </>
 );

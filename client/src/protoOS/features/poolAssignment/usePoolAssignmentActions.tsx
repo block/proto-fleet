@@ -7,7 +7,13 @@ import useMinerStore from "@/protoOS/store/useMinerStore";
 import Button from "@/shared/components/Button";
 import type { RowAction } from "@/shared/components/RowActionsMenu";
 
-export function usePoolAssignmentActions(onPoolsChanged?: () => void) {
+export function usePoolAssignmentActions({
+  onConfigurationSaved,
+  onAssignmentsChanged,
+}: {
+  onConfigurationSaved?: () => void;
+  onAssignmentsChanged?: () => void;
+} = {}) {
   const { adapter, isFleetHosted } = useMinerHosting();
   const identity = useMinerStore((state) => state.systemInfo.data?.identity);
   const generation = useMinerStore((state) => state.connectionGeneration);
@@ -31,6 +37,10 @@ export function usePoolAssignmentActions(onPoolsChanged?: () => void) {
   }, [recoveryController]);
   const tracked = recovery?.controller === recoveryController ? recovery?.attempt : undefined;
   const available = Boolean(service && controllerId);
+  const activeRequest = request?.generation === generation ? request : undefined;
+  const editPool = (target?: PoolAssignmentTarget, selectedCount?: number) => {
+    if (available && target?.macs.length) setRequest({ target, generation, selectedCount });
+  };
   const action = (target?: PoolAssignmentTarget, selectedCount?: number): RowAction[] =>
     available
       ? [
@@ -38,16 +48,15 @@ export function usePoolAssignmentActions(onPoolsChanged?: () => void) {
             label: "Edit pool",
             testId: "set-board-pools",
             disabled: !target?.macs.length,
-            onClick: () => {
-              if (target?.macs.length) setRequest({ target, generation, selectedCount });
-            },
+            onClick: () => editPool(target, selectedCount),
           },
         ]
       : [];
   return {
     available,
     action,
-    open: request?.generation === generation,
+    editPool,
+    open: Boolean(activeRequest),
     recoveryButton:
       available && tracked ? (
         <Button
@@ -59,16 +68,16 @@ export function usePoolAssignmentActions(onPoolsChanged?: () => void) {
         </Button>
       ) : null,
     dialog:
-      request?.generation === generation && service && controllerId ? (
+      activeRequest && service && controllerId ? (
         <PoolAssignmentDialog
           key={controllerId}
           service={service}
           controllerId={controllerId}
-          target={request.target}
-          selectedCount={request.selectedCount}
-          openStatus={request.openStatus}
-          onConfigurationSaved={onPoolsChanged}
-          onAssignmentSaved={onPoolsChanged}
+          target={activeRequest.target}
+          selectedCount={activeRequest.selectedCount}
+          openStatus={activeRequest.openStatus}
+          onConfigurationSaved={onConfigurationSaved}
+          onAssignmentsChanged={onAssignmentsChanged}
           onDismiss={() => setRequest(undefined)}
         />
       ) : null,

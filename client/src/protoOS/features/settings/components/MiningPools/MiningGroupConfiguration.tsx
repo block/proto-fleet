@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import MiningGroupOperations from "./MiningGroupOperations";
-import PoolHashboards from "./PoolHashboards";
+import PoolHashboards, { UnassignedHashboards } from "./PoolHashboards";
 import type { ContainerPoolConfiguration, MiningGroupPoolSettings } from "@/protoOS/api/adapters/poolConfiguration";
 import type { MinerAdapter } from "@/protoOS/api/adapters/types";
 import { Alert, ChevronDown } from "@/shared/assets/icons";
@@ -165,15 +165,7 @@ export default function MiningGroupConfiguration({
         <Group key={`${group.id}:${group.revision}`} group={group} adapter={adapter} />
       ))}
       {!configuration.groups.length ? <p>No mining groups reported.</p> : null}
-      {configuration.unassignedBoards.length ? (
-        <section aria-label="No reported group assignment" className="space-y-3">
-          <h3 className="text-emphasis-300">No reported group assignment</h3>
-          <PoolHashboards
-            boards={configuration.unassignedBoards}
-            title="Hashboards with no reported group assignment"
-          />
-        </section>
-      ) : null}
+      <UnassignedHashboards boards={configuration.unassignedBoards} />
     </div>
   );
 }

@@ -5,7 +5,7 @@ import { usePoolConfigurationClient } from "./api";
 import { ACCOUNT_READ_TIMEOUT_MS } from "@/protoFleet/features/hostedAccounts/api";
 import { PageControls } from "@/protoFleet/features/hostedAccounts/components/PageControls";
 import { useAccountQuery } from "@/protoFleet/features/hostedAccounts/useAccountQuery";
-import Button from "@/shared/components/Button";
+import { ConfigurationUpdateRow } from "@/shared/components/PoolConfigurations/ConfigurationUpdateRow";
 
 export const ConfigurationUpdates = ({
   configurationId,
@@ -33,17 +33,18 @@ export const ConfigurationUpdates = ({
       {query.error ? <p role="alert">{query.error}</p> : null}
       {query.data?.operations.length === 0 ? <p>No equipment updates yet.</p> : null}
       {query.data?.operations.map((operation) => (
-        <div key={operation.operationId} className="flex items-center justify-between gap-4">
-          <div>
-            <p>{operation.createdAt ? timestampDate(operation.createdAt).toLocaleString() : "Pool update"}</p>
-            <p className="text-200 text-text-primary-50">
+        <ConfigurationUpdateRow
+          key={operation.operationId}
+          time={operation.createdAt ? timestampDate(operation.createdAt) : undefined}
+          summary={
+            <>
               {operation.targetCount.toString()} equipment
               {operation.pendingCount > 0n ? ` · ${operation.pendingCount} updating` : ""}
               {operation.failedCount > 0n ? ` · ${operation.failedCount} need attention` : ""}
-            </p>
-          </div>
-          <Button variant="textOnly" text="View results" onClick={() => onOpen(operation.operationId)} />
-        </div>
+            </>
+          }
+          onView={() => onOpen(operation.operationId)}
+        />
       ))}
       {query.data ? (
         <PageControls

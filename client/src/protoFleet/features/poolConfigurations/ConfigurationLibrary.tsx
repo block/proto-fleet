@@ -146,7 +146,10 @@ export default function ConfigurationLibrary() {
           manageFocus
           onDismiss={() => setViewing(undefined)}
         >
-          <ConfigurationDetails assignedCount={viewing.assignedCount} pools={viewing.pools}>
+          <ConfigurationDetails
+            equipment={<p>{viewing.assignedCount.toString()} equipment assigned</p>}
+            pools={viewing.pools}
+          >
             <ConfigurationUpdates configurationId={viewing.configurationId} onOpen={openOperation} />
           </ConfigurationDetails>
         </Modal>

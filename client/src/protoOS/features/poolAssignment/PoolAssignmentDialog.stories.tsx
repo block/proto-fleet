@@ -27,6 +27,7 @@ const createService = (): PoolAssignmentService => {
       return configurations.map((set) => ({
         ...set,
         assignedCount: 0,
+        assignedMacs: [],
         deletable: true,
         isDefault: false,
       }));
@@ -36,6 +37,7 @@ const createService = (): PoolAssignmentService => {
         configurations: configurations.slice(offset, offset + limit).map((set) => ({
           ...set,
           assignedCount: 0,
+          assignedMacs: [],
           deletable: true,
           isDefault: false,
         })),

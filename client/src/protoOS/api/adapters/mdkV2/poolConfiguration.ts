@@ -9,15 +9,22 @@ import {
 import type { AdapterRequestOptions } from "../types";
 import type { MdkV2Client } from "./connectClient";
 import { withDeadline } from "./controllerRecords";
-import type { V2GetContainerMapResponse, V2MiningGroupOperationRecord } from "./generated/generatedApi";
+import type { V2GetContainerMapResponse, V2MiningGroupOperationRecord, V2Slot } from "./generated/generatedApi";
 import { toPoolSettings } from "./miningGroupRecords";
 import { readDefaultPools } from "./poolEdits";
 import { slotPosition } from "./slotPosition";
 import { containerWriteError } from "./writeErrors";
+import { isMacAddress, macKey } from "@/protoOS/utils/macAddress";
 
 export const POOL_READ_TIMEOUT_MS = 10_000;
-const macKey = (mac: string) => mac.trim().toLowerCase();
+export const OPTIONAL_INVENTORY_TIMEOUT_MS = 3_000;
+export const POOL_BOARD_IDENTITY_ERROR = "Board identity is incomplete or duplicated. Refresh the board inventory.";
 class UnsupportedGroupCapability extends Error {}
+
+export function readPoolBoardMac(slot: V2Slot) {
+  const mac = slot.hashboard?.macAddress?.trim();
+  return mac && isMacAddress(mac) ? mac : undefined;
+}
 
 async function readGroupCapability(client: MdkV2Client, params: AdapterRequestOptions) {
   const { data } = await client.miningGroupServiceGetMiningGroupCapability(params);
@@ -36,15 +43,23 @@ async function readGroupCapability(client: MdkV2Client, params: AdapterRequestOp
   return value;
 }
 
-function boardLocations(map: V2GetContainerMapResponse) {
-  const boards = new Map<string, { mac: string; locations: Set<string> }>();
+function readBoardInventory(map: V2GetContainerMapResponse) {
+  const boards = new Map<string, { mac: string; locations: Set<string>; isolated: boolean }>();
+  let assignmentInventoryError: string | undefined;
   for (const tank of map.containerMap?.tanks ?? []) {
     for (const module of tank.modules ?? []) {
       for (const slot of module.slots ?? []) {
-        const mac = slot.hashboard?.macAddress;
-        if (!slot.occupied || !mac?.trim()) continue;
+        if (!slot.occupied) continue;
+        const mac = readPoolBoardMac(slot);
+        if (!mac) {
+          assignmentInventoryError = POOL_BOARD_IDENTITY_ERROR;
+          continue;
+        }
         const key = macKey(mac);
-        const board = boards.get(key) ?? { mac, locations: new Set<string>() };
+        const previous = boards.get(key);
+        if (previous) assignmentInventoryError = POOL_BOARD_IDENTITY_ERROR;
+        const board = previous ?? { mac, locations: new Set<string>(), isolated: false };
+        board.isolated ||= slot.hashboard?.isolated === true;
         const { position } = slotPosition(slot);
         if ((tank.id ?? 0) > 0 && (module.id ?? 0) > 0 && (position ?? 0) > 0) {
           const label = tank.displayLabel?.trim() || `Tank ${tank.displayNumber || tank.id}`;
@@ -54,116 +69,124 @@ function boardLocations(map: V2GetContainerMapResponse) {
       }
     }
   }
-  return new Map<string, PoolBoardAssignment>(
+  const locations = new Map<string, PoolBoardAssignment>(
     [...boards].map(([key, board]) => [
       key,
       {
         mac: board.mac,
         location: board.locations.size === 1 ? [...board.locations][0] : undefined,
+        ...(board.isolated ? { isolated: true } : {}),
       },
     ]),
   );
+  return { locations, assignmentInventoryError };
 }
 
 /** Read group membership once; pool credentials are loaded only for groups the operator opens. */
-export function readContainerPoolConfiguration(client: MdkV2Client, params: AdapterRequestOptions) {
-  return withDeadline(params, POOL_READ_TIMEOUT_MS, async (options): Promise<ContainerPoolConfiguration> => {
-    let before;
-    try {
-      before = await readGroupCapability(client, options);
-    } catch (error) {
-      const failure = error as { status?: number; error?: { code?: number } } | undefined;
-      if (
-        !isAuthenticationError(error) &&
-        (error instanceof UnsupportedGroupCapability ||
-          failure?.status === 501 ||
-          failure?.error?.code === Code.Unimplemented)
-      ) {
-        return {
-          mode: "unsupported",
-          suspended: false,
-          groups: [],
-          unassignedBoards: [],
-          locationsAvailable: false,
-          inventoryIssues: [],
-          pendingOperations: [],
-        };
-      }
-      throw error;
-    }
-    const { data: groupsBefore } = await client.miningGroupServiceListMiningGroups(options);
-    const configuration: ContainerPoolConfiguration = {
-      mode: before.enabled ? "groups" : "container",
-      suspended: before.suspended === true,
-      groups: [],
-      unassignedBoards: [],
-      locationsAvailable: false,
-      inventoryIssues: [],
-      pendingOperations: toOperations(groupsBefore.pendingOperations),
-    };
-    // In legacy mode, leftover group records and topology do not describe the active pool configuration.
-    if (!before.enabled) {
-      requireUnchangedMode(before, await readGroupCapability(client, options));
-      return configuration;
-    }
-    const [membership, map] = await Promise.all([
-      client.miningGroupServiceListMiningGroupMemberships({}, options),
-      client.hashboardServiceGetContainerMap(options).catch((error) => {
-        if (options.signal?.aborted) throw error;
-        return undefined;
-      }),
-    ]);
-    // Membership changes advance group revisions, not the capability's state revision.
-    // Bound membership reads with two group-list reads; progress is not an assignment revision.
-    const { data: groupsAfter } = await client.miningGroupServiceListMiningGroups(options);
-    const after = await readGroupCapability(client, options);
-    requireUnchangedMode(before, after);
-    const revisions = new Map((groupsBefore.groups ?? []).map(({ id, revision }) => [id, revision]));
+export async function readContainerPoolConfiguration(
+  client: MdkV2Client,
+  params: AdapterRequestOptions,
+): Promise<ContainerPoolConfiguration> {
+  let before;
+  try {
+    before = await withDeadline(params, POOL_READ_TIMEOUT_MS, (options) => readGroupCapability(client, options));
+  } catch (error) {
+    const failure = error as { status?: number; error?: { code?: number } } | undefined;
     if (
-      revisions.size !== (groupsAfter.groups ?? []).length ||
-      (groupsAfter.groups ?? []).some(({ id, revision }) => !revisions.has(id) || revisions.get(id) !== revision)
-    )
-      throw new Error("Group assignments changed during the read. Reload pools.");
-    const locations = boardLocations(map?.data ?? {});
-    const memberBoards = new Set<string>();
-    const groups: ContainerPoolConfiguration["groups"] = (groupsBefore.groups ?? []).map(({ id, name, revision }) => {
-      if (!id || !revision || !/^\d+$/.test(revision))
-        throw new Error("The controller reported an incomplete mining group.");
+      !isAuthenticationError(error) &&
+      (error instanceof UnsupportedGroupCapability ||
+        failure?.status === 501 ||
+        failure?.error?.code === Code.Unimplemented)
+    ) {
       return {
-        id,
-        name: name || id,
-        revision,
-        boards: [],
+        mode: "unsupported",
+        suspended: false,
+        groups: [],
+        unassignedBoards: [],
+        locationsAvailable: false,
+        inventoryIssues: [],
+        pendingOperations: [],
       };
-    });
-    for (const member of membership.data.memberships ?? []) {
-      if (!member.macAddress?.trim() || !member.groupId)
-        throw new Error("The controller reported an incomplete pool assignment.");
-      const key = macKey(member.macAddress);
-      memberBoards.add(key);
-      let group = groups.find((group) => group.id === member.groupId);
-      // Retain orphan memberships instead of presenting their boards as unassigned.
-      if (!group) {
-        group = { id: member.groupId, name: `Unknown group (${member.groupId})`, revision: "", boards: [] };
-        groups.push(group);
-      }
-      if (!group.boards.some((board) => macKey(board.mac) === key)) {
-        group.boards.push(locations.get(key) ?? { mac: member.macAddress });
-      }
     }
+    throw error;
+  }
+  // The optional board map has a separate deadline, so it cannot interrupt the membership read.
+  const mapRequest = before.enabled
+    ? withDeadline(params, POOL_READ_TIMEOUT_MS, (options) => client.hashboardServiceGetContainerMap(options)).catch(
+        (error: unknown) => {
+          if (params.signal?.aborted) throw error;
+          return undefined;
+        },
+      )
+    : undefined;
+  const groupRequest = withDeadline(params, POOL_READ_TIMEOUT_MS, async (options) => {
+    const { data: groupsBefore } = await client.miningGroupServiceListMiningGroups(options);
+    // In legacy mode, leftover group records and topology do not describe the active pool configuration.
+    const memberships = before.enabled
+      ? ((await client.miningGroupServiceListMiningGroupMemberships({}, options)).data.memberships ?? [])
+      : [];
+    // Membership changes advance group revisions, not the capability's state revision.
+    const groupsAfter = before.enabled ? (await client.miningGroupServiceListMiningGroups(options)).data : groupsBefore;
+    requireUnchangedMode(before, await readGroupCapability(client, options));
+    return { groupsBefore, groupsAfter, memberships };
+  });
+  const [{ groupsBefore, groupsAfter, memberships }, map] = await Promise.all([groupRequest, mapRequest]);
+  const configuration: ContainerPoolConfiguration = {
+    mode: before.enabled ? "groups" : "container",
+    suspended: before.suspended === true,
+    groups: [],
+    unassignedBoards: [],
+    locationsAvailable: false,
+    inventoryIssues: [],
+    pendingOperations: toOperations(groupsBefore.pendingOperations),
+  };
+  if (!before.enabled) return configuration;
+  const revisions = new Map((groupsBefore.groups ?? []).map(({ id, revision }) => [id, revision]));
+  if (
+    revisions.size !== (groupsAfter.groups ?? []).length ||
+    (groupsAfter.groups ?? []).some(({ id, revision }) => !revisions.has(id) || revisions.get(id) !== revision)
+  )
+    throw new Error("Group assignments changed during the read. Reload pools.");
+  const { locations, assignmentInventoryError } = readBoardInventory(map?.data ?? {});
+  const memberBoards = new Set<string>();
+  const groups: ContainerPoolConfiguration["groups"] = (groupsBefore.groups ?? []).map(({ id, name, revision }) => {
+    if (!id || !revision || !/^\d+$/.test(revision))
+      throw new Error("The controller reported an incomplete mining group.");
     return {
-      ...configuration,
-      groups,
-      unassignedBoards: [...locations].filter(([key]) => !memberBoards.has(key)).map(([, board]) => board),
-      locationsAvailable: Boolean(map?.data.containerMap),
-      pendingOperations: toOperations(groupsAfter.pendingOperations),
-      inventoryIssues: (groupsAfter.inventoryIssues ?? []).map((issue) => ({
-        groupId: issue.groupId || undefined,
-        mac: issue.macAddress || undefined,
-        reason: issue.reason || "Unknown inventory issue",
-      })),
+      id,
+      name: name || id,
+      revision,
+      boards: [],
     };
   });
+  for (const member of memberships) {
+    if (!member.macAddress?.trim() || !member.groupId)
+      throw new Error("The controller reported an incomplete pool assignment.");
+    const key = macKey(member.macAddress);
+    memberBoards.add(key);
+    let group = groups.find((group) => group.id === member.groupId);
+    // Retain orphan memberships instead of presenting their boards as unassigned.
+    if (!group) {
+      group = { id: member.groupId, name: `Unknown group (${member.groupId})`, revision: "", boards: [] };
+      groups.push(group);
+    }
+    if (!group.boards.some((board) => macKey(board.mac) === key)) {
+      group.boards.push(locations.get(key) ?? { mac: member.macAddress });
+    }
+  }
+  return {
+    ...configuration,
+    groups,
+    unassignedBoards: [...locations].filter(([key]) => !memberBoards.has(key)).map(([, board]) => board),
+    locationsAvailable: Boolean(map?.data.containerMap),
+    assignmentInventoryError,
+    pendingOperations: toOperations(groupsAfter.pendingOperations),
+    inventoryIssues: (groupsAfter.inventoryIssues ?? []).map((issue) => ({
+      groupId: issue.groupId || undefined,
+      mac: issue.macAddress || undefined,
+      reason: issue.reason || "Unknown inventory issue",
+    })),
+  };
 }
 
 export function readMiningGroupPools(
