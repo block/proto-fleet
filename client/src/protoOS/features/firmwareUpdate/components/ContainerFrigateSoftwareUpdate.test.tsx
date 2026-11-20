@@ -790,3 +790,94 @@ describe("ContainerFrigateSoftwareUpdate", () => {
     vi.useRealTimers();
   });
 });
+
+describe("ContainerFrigateSoftwareUpdate release files", () => {
+  const statement = new File(["{}"], "frigate_9.9.9_linux_arm64.deb.statement.json");
+  const signature = new File(["s"], "frigate_9.9.9_linux_arm64.deb.statement.sig");
+  const select = (...files: File[]) =>
+    fireEvent.change(screen.getByLabelText("Controller software release files"), { target: { files } });
+  // The dialog has a second status line for what it is doing, so the picker's hint is found by its text.
+  const hint = () => screen.getByText(/^(Select the|Still needed:|All required files selected)/);
+  const updateButton = () => screen.getByRole("button", { name: "Update" });
+
+  beforeEach(() => localStorage.clear());
+  afterEach(() => vi.restoreAllMocks());
+
+  it("reads the release only when all three files are chosen, and takes a missed file on its own", async () => {
+    const update = setup();
+    open("Update controller software");
+    expect(hint()).toHaveTextContent("Select the .deb, release statement and signature.");
+
+    select(pkg.deb, signature);
+    expect(hint()).toHaveTextContent("Still needed: release statement.");
+    expect(screen.getByText("Debian package (.deb)")).toBeInTheDocument();
+    expect(screen.getByText("Release signature")).toBeInTheDocument();
+    expect(update.readPackage).not.toHaveBeenCalled();
+    expect(updateButton()).toBeDisabled();
+
+    select(statement);
+    await waitFor(() => expect(updateButton()).toBeEnabled());
+    expect(update.readPackage).toHaveBeenCalledExactlyOnceWith([pkg.deb, statement, signature], expect.anything());
+    expect(hint()).toHaveTextContent("All required files selected.");
+    expect(screen.getByText("Version 9.9.9 · arm64")).toBeInTheDocument();
+  });
+
+  it("drops the package and checks the controllers without it when a file is removed", async () => {
+    const update = setup();
+    open("Update controller software");
+    select(pkg.deb, statement, signature);
+    await waitFor(() => expect(updateButton()).toBeEnabled());
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[2]);
+
+    await waitFor(() => expect(update.plan).toHaveBeenLastCalledWith(undefined, expect.anything()));
+    expect(hint()).toHaveTextContent("Still needed: release signature.");
+    expect(screen.queryByText("Version 9.9.9 · arm64")).not.toBeInTheDocument();
+    expect(updateButton()).toBeDisabled();
+    // The files that are still chosen stay, so only the removed one is chosen again.
+    expect(screen.getByText(pkg.deb.name)).toBeInTheDocument();
+    expect(screen.getByText(statement.name)).toBeInTheDocument();
+  });
+
+  it("shows why a selection was refused and keeps the chosen files", async () => {
+    const update = setup();
+    open("Update controller software");
+    select(pkg.deb);
+
+    select(statement, new File(["x"], "notes.txt"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("notes.txt is not a supported file type.");
+    expect(screen.getByText(pkg.deb.name)).toBeInTheDocument();
+    expect(screen.queryByText(statement.name)).not.toBeInTheDocument();
+    expect(update.readPackage).not.toHaveBeenCalled();
+  });
+
+  it("clears a message about the earlier files when the selection changes", async () => {
+    setup(undefined, (fake) =>
+      fake.readPackage.mockRejectedValue(
+        new Error("The package doesn't match its release statement: the SHA-256 differs."),
+      ),
+    );
+    open("Update controller software");
+    select(pkg.deb, statement, signature);
+    expect(await screen.findByRole("alert")).toHaveTextContent("the SHA-256 differs");
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]);
+
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(hint()).toHaveTextContent("Still needed: package.");
+  });
+
+  it("keeps the files from being changed while the release is read", async () => {
+    let finish!: (value: typeof pkg) => void;
+    setup(undefined, (fake) => fake.readPackage.mockReturnValue(new Promise((resolve) => (finish = resolve))));
+    open("Update controller software");
+    select(pkg.deb, statement, signature);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Choose files" })).toBeDisabled());
+    for (const remove of screen.getAllByRole("button", { name: "Remove" })) expect(remove).toBeDisabled();
+
+    finish(pkg);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Choose files" })).toBeEnabled());
+  });
+});

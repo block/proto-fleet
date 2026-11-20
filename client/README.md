@@ -336,7 +336,10 @@ updates Frigate on both HA controllers through Frigate's self-coordinated
 remote updates.
 
 - **Choose.** Pick the three files of one release: the `.deb` (at most
-  512 MiB), its `.deb.statement.json` and its `.deb.statement.sig`. ProtoOS
+  512 MiB), its `.deb.statement.json` and its `.deb.statement.sig`. One picker
+  takes them together or one at a time, and shows each file under its type.
+  Fleet's upload dialog uses the same picker
+  (`src/shared/features/frigateUpdate`). When all three are chosen, ProtoOS
   checks that they agree with each other and with what each controller
   reports, and shows anything that blocks the update. The controllers verify
   the signature themselves when the update starts, and the controller's

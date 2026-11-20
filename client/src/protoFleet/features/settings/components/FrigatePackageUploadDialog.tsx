@@ -4,35 +4,28 @@ import {
   useFrigatePackages,
   validateFrigatePackageFiles,
 } from "@/protoFleet/api/useFrigatePackages";
-import { FileProcessingStatus, FileSelectedStatus } from "@/protoFleet/components/FirmwareUpload";
+import { FileProcessingStatus } from "@/protoFleet/components/FirmwareUpload";
 import { Alert } from "@/shared/assets/icons";
-import Button, { variants } from "@/shared/components/Button";
+import { variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Modal from "@/shared/components/Modal/Modal";
+import ReleaseFilePicker from "@/shared/features/frigateUpdate/ReleaseFilePicker";
+import {
+  missingReleaseFiles,
+  RELEASE_PACKAGE_FILE_KINDS,
+  type ReleaseFileKind,
+  type ReleaseFiles,
+  type ReleasePackageFileKey,
+} from "@/shared/features/frigateUpdate/releaseFiles";
 
-type FileKey = "deb" | "statement" | "signature" | "publicKey";
-type ChosenFiles = Partial<Record<FileKey, File>>;
+type FileKey = ReleasePackageFileKey | "publicKey";
+type ChosenFiles = ReleaseFiles<FileKey>;
 
-// A release is one file of each kind, told apart by its extension. `name` is the kind in a sentence.
-const FILE_KINDS: { key: FileKey; extension: string; label: string; name: string; required: boolean }[] = [
-  { key: "deb", extension: ".deb", label: "Debian package (.deb)", name: "package", required: true },
-  { key: "statement", extension: ".json", label: "Release statement", name: "release statement", required: true },
-  { key: "signature", extension: ".sig", label: "Release signature", name: "release signature", required: true },
+// Fleet can check the signature with a public key from the upload when it has no release key installed.
+const FILE_KINDS: ReleaseFileKind<FileKey>[] = [
+  ...RELEASE_PACKAGE_FILE_KINDS,
   { key: "publicKey", extension: ".pem", label: "Public key", name: "public key", required: false },
 ];
-const ACCEPT = FILE_KINDS.map((kind) => kind.extension).join(",");
-
-/** Sorts one selection by kind, or says why it can't be used. */
-function sortByKind(selected: File[]): { files: ChosenFiles } | { error: string } {
-  const files: ChosenFiles = {};
-  for (const file of selected) {
-    const kind = FILE_KINDS.find(({ extension }) => file.name.toLowerCase().endsWith(extension));
-    if (!kind) return { error: `${file.name} is not a supported file type.` };
-    if (files[kind.key]) return { error: `Select only one ${kind.name}.` };
-    files[kind.key] = file;
-  }
-  return { files };
-}
 
 interface Props {
   open?: boolean;
@@ -53,7 +46,6 @@ const FrigatePackageUploadDialog = ({ open, onSuccess, onDismiss }: Props) => {
   // dialog stays open to say so before it reports the result.
   const [unverified, setUnverified] = useState<FrigatePackageUploadResult>();
   const abort = useRef<AbortController | null>(null);
-  const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open) return;
@@ -80,26 +72,14 @@ const FrigatePackageUploadDialog = ({ open, onSuccess, onDismiss }: Props) => {
     else onDismiss();
   }, [onDismiss, onSuccess, reset, unverified]);
 
-  // A new selection adds to the chosen files and replaces a file of the same
-  // kind, so a file that was left out can be added without choosing all again.
-  const choose = useCallback((selected: File[]) => {
-    if (selected.length === 0) return;
-    const sorted = sortByKind(selected);
-    if ("error" in sorted) {
-      setSelectionError(sorted.error);
-      return;
-    }
+  const choose = useCallback((next: ChosenFiles) => {
     setSelectionError(undefined);
     setError(undefined);
-    setFiles((current) => ({ ...current, ...sorted.files }));
+    setFiles(next);
   }, []);
 
   const { deb, statement, signature, publicKey } = files;
-  const chosen = FILE_KINDS.filter((kind) => files[kind.key]);
-  const missing = FILE_KINDS.filter((kind) => kind.required && !files[kind.key]).map((kind) => kind.name);
-  const ready = missing.length === 0;
-  let hint = "Select the .deb, release statement and signature. Public key is optional.";
-  if (chosen.length > 0) hint = ready ? "All required files selected." : `Still needed: ${missing.join(", ")}.`;
+  const ready = missingReleaseFiles(FILE_KINDS, files).length === 0;
 
   const upload = useCallback(async () => {
     if (!deb || !statement || !signature || uploading) return;
@@ -191,48 +171,14 @@ const FrigatePackageUploadDialog = ({ open, onSuccess, onDismiss }: Props) => {
         {uploading && deb ? (
           <FileProcessingStatus state="uploading" fileName={deb.name} fileSize={deb.size} uploadProgress={progress} />
         ) : (
-          <>
-            <div className="flex items-center justify-between gap-4 rounded-lg border border-dashed border-border-5 p-4">
-              <span role="status" className="text-200 text-text-primary-70">
-                {hint}
-              </span>
-              <Button
-                variant={variants.secondary}
-                text="Choose files"
-                className="shrink-0"
-                onClick={() => input.current?.click()}
-              />
-            </div>
-            <input
-              ref={input}
-              type="file"
-              multiple
-              accept={ACCEPT}
-              aria-label="Controller software files"
-              className="hidden"
-              onChange={(event) => {
-                choose(Array.from(event.target.files ?? []));
-                event.target.value = "";
-              }}
-            />
-            {chosen.map(({ key, label }) => {
-              const file = files[key];
-              return file ? (
-                <div key={key} className="flex flex-col gap-2">
-                  <div className="text-emphasis-300 text-text-primary">{label}</div>
-                  <FileSelectedStatus
-                    fileName={file.name}
-                    fileSize={file.size}
-                    onRemove={() => {
-                      setError(undefined);
-                      setSelectionError(undefined);
-                      setFiles((current) => ({ ...current, [key]: undefined }));
-                    }}
-                  />
-                </div>
-              ) : null;
-            })}
-          </>
+          <ReleaseFilePicker
+            kinds={FILE_KINDS}
+            files={files}
+            onChange={choose}
+            onReject={setSelectionError}
+            emptyHint="Select the .deb, release statement and signature. Public key is optional."
+            inputLabel="Controller software files"
+          />
         )}
       </div>
     </Modal>
