@@ -20,7 +20,9 @@ Docker and Compose images receive patch releases and digest refreshes only.
 A newer minor release of an image, such as a later Alpine branch, a
 non-LTS Ubuntu release, or a new etcd or OpenTelemetry collector minor
 version, can change runtime behavior, so move to it in a dedicated pull
-request after checking the release notes.
+request after checking the release notes. The OpenTelemetry collector image
+is updated by hand entirely, because Dependabot mistakes its
+single-architecture tags (such as `0.150.1-386`) for patch releases.
 
 Dependabot cannot move the Go toolchain. When a module requires a newer Go
 release, update the Hermit `go` package, the `go` line in `go.work`, and every

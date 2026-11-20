@@ -153,6 +153,9 @@ updates:
       - dependency-name: "*"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
       - dependency-name: "proto-fleet-*"
+      # Dependabot reads single-architecture tags such as 0.150.1-386 as newer
+      # patch releases of the multi-architecture tag.
+      - dependency-name: "otel/opentelemetry-collector-contrib"
 
   # Patroni requirements feed the HA release compatibility fingerprint, so
   # they update quarterly instead of with the monthly server group.
