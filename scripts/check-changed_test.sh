@@ -105,6 +105,53 @@ for job in protobuf-lint client-check server-lint plugin-proto-lint plugin-antmi
   done
 done
 
+# The global list does not include all workflows. Thus each filter must list
+# the workflow that the gate calls for it, and each composite action that the
+# workflow uses. If not, a change to that file does not start the job.
+ci_filter_paths() {
+  awk -v filter="$1" '
+    $0 == filter ":" { capture = 1; next }
+    capture && /^[^[:space:]]/ { exit }
+    capture && /^  - / { sub(/^  - /, ""); gsub(/^"|"$/, ""); print }
+  ' .github/path-filters.yml
+}
+
+gated_workflows="$(awk '
+  /^  [a-z0-9-]+:$/ { filter = ""; next }
+  match($0, /needs\.changes\.outputs\.[a-z_]+ == /) { filter = substr($0, RSTART + 22, RLENGTH - 26) }
+  filter != "" && /^    uses: \.\/\.github\/workflows\// { sub(/^    uses: \.\//, ""); print filter, $0 }
+' .github/workflows/pr-gate.yml)"
+if [ -z "$gated_workflows" ]; then
+  echo "PR Gate jobs with a path filter could not be parsed" >&2
+  exit 1
+fi
+
+while read -r filter workflow; do
+  filter_paths="$(ci_filter_paths "$filter")"
+  if ! grep -qxF "$workflow" <<<"$filter_paths"; then
+    echo "CI filter '$filter' does not list its workflow: $workflow" >&2
+    exit 1
+  fi
+  while IFS= read -r action; do
+    if ! grep -qxF "$action/**" <<<"$filter_paths" \
+      && ! printf '%s\n' "${ci_global_paths[@]}" | grep -qxF "$action/**"; then
+      echo "CI filter '$filter' does not list an action that $workflow uses: $action" >&2
+      exit 1
+    fi
+  done < <(grep -oE 'uses: \./\.github/actions/[a-z0-9-]+' "$workflow" | sed 's|^uses: \./||' | sort -u)
+done <<<"$gated_workflows"
+
+# The check above reads the workflows and the composite actions. Thus this test
+# must run for each change to them. If not, a new `uses:` line passes the gate
+# and the filter stays incorrect until a subsequent change to the filter file.
+developer_workflow_paths="$(ci_filter_paths developer_workflows)"
+for guard_input in '.github/workflows/**' '.github/actions/**'; do
+  if ! grep -qxF "$guard_input" <<<"$developer_workflow_paths"; then
+    echo "CI filter 'developer_workflows' does not list an input of this test: $guard_input" >&2
+    exit 1
+  fi
+done
+
 # Run the _client-init recipe in a fixture tree. Fake node and npm commands
 # supply the host identity and record each install.
 client_init_fixture="$test_tmp/client-init"
