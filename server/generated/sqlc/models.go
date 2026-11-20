@@ -451,6 +451,18 @@ type Building struct {
 	DeletedAt             sql.NullTime
 }
 
+type CommandBacklogSummary struct {
+	OrgID                       int64
+	CommandClass                string
+	QueuedCount                 int64
+	RunningCount                int64
+	OutstandingCount            int64
+	OldestQueuedAgeSeconds      float64
+	OldestRunningAgeSeconds     float64
+	OldestOutstandingAgeSeconds float64
+	InvalidClockCount           int64
+}
+
 type CommandBatchLog struct {
 	ID             int64
 	Uuid           string
@@ -3177,6 +3189,7 @@ type QueueMessage struct {
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 	WriteEpoch          int64
+	ProcessingStartedAt sql.NullTime
 }
 
 type RackSlot struct {

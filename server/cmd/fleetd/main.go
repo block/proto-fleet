@@ -373,7 +373,11 @@ func start(config *Config) (result error) {
 	fleetNodeEnrollmentSvc := enrollment.NewService(fleetNodeEnrollmentStore, apiKeySvc, transactor, activitySvc)
 	fleetNodePairingStore := sqlstores.NewSQLFleetNodePairingStore(conn)
 	fleetNodePairingSvc := fleetnodepairing.NewService(fleetNodePairingStore, fleetNodeEnrollmentStore, transactor)
-	fleetNodeControlRegistry := control.NewRegistry()
+	dispatchObserver, err := runtimeMetrics.DispatchObserver()
+	if err != nil {
+		return fmt.Errorf("initialize dispatch metrics: %w", err)
+	}
+	fleetNodeControlRegistry := control.NewRegistry().WithDispatchObserver(dispatchObserver)
 	if err := runtimeMetrics.ObserveNodeConnections(fleetNodeControlRegistry.ConnectionCount); err != nil {
 		return fmt.Errorf("observe node connections: %w", err)
 	}
@@ -594,6 +598,11 @@ func start(config *Config) (result error) {
 
 	executionService := commandDomain.NewExecutionService(&config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc, minerService, deviceStore, telemetryService, filesService)
 	executionService.WithMetricsEmitter(metricsProvider)
+	commandMetrics, err := runtimeMetrics.NewCommandMetrics()
+	if err != nil {
+		return fmt.Errorf("create command metrics: %w", err)
+	}
+	executionService.WithOperationalMetrics(commandMetrics)
 
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
 	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService, deviceStore, userStore, authSvc, telemetryService, pluginService, activitySvc)

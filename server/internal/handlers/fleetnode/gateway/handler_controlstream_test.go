@@ -99,6 +99,11 @@ func newControlHarness(t *testing.T) *controlHarness {
 func TestControlStream_DispatchesCommandAndRoutesAck(t *testing.T) {
 	// Arrange
 	h := newControlHarness(t)
+	deliveries := make(chan string, 1)
+	h.registry.WithDispatchObserver(func(_ context.Context, _, _, result string, duration time.Duration) {
+		assert.GreaterOrEqual(t, duration, time.Duration(0))
+		deliveries <- result
+	})
 	client := startControlServer(t, h)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -122,6 +127,12 @@ func TestControlStream_DispatchesCommandAndRoutesAck(t *testing.T) {
 	cmd := got.GetCommand()
 	require.NotNil(t, cmd)
 	assert.Equal(t, "cmd-1", cmd.GetCommandId())
+	select {
+	case result := <-deliveries:
+		require.Equal(t, "sent", result)
+	case <-time.After(time.Second):
+		t.Fatal("expected actual stream-send observation")
+	}
 
 	// Act: agent acks
 	require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Ack{Ack: &pb.ControlAck{CommandId: "cmd-1", Succeeded: true}}}))

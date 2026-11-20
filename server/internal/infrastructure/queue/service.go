@@ -153,6 +153,7 @@ func (d DatabaseMessageQueue) Dequeue(ctx context.Context, limit int32) ([]Messa
 
 			messages = append(messages, Message{
 				ID:           dbMsg.ID,
+				CreatedAt:    dbMsg.CreatedAt,
 				BatchLogUUID: dbMsg.CommandBatchLogUuid,
 				CommandType:  cmdType,
 				DeviceID:     dbMsg.DeviceID,

@@ -34,6 +34,7 @@ command that reused its command_id.
 package control
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"time"
@@ -193,7 +194,9 @@ type connection struct {
 // channel determines its shape: report-bearing commands carry `events` (plus
 // scope/reported); ack-only commands carry `ack`.
 type inflightCommand struct {
-	id string
+	dispatchedAt     time.Time
+	dispatchObserved bool
+	id               string
 
 	// report-bearing (events != nil): discovery/pairing batches + terminal ack.
 	kind          ReportKind                    // which gateway report RPC may admit reports for this command
@@ -224,6 +227,7 @@ type inflightCommand struct {
 func (c *inflightCommand) reportBearing() bool { return c.events != nil }
 
 type Registry struct {
+	dispatchObserver         func(context.Context, string, string, string, time.Duration)
 	minerWebSlots            chan struct{}
 	mu                       sync.Mutex
 	conns                    map[int64]*connection
@@ -405,6 +409,7 @@ func (r *Registry) addCmd(fleetNodeID int64, minimumCommandProtocolVersion gatew
 	if c.frames != nil && commandStreamsLocked(conn) >= MaxConcurrentCommandStreamsPerNode {
 		return nil, nil, ErrCommandStreamCapacity
 	}
+	c.dispatchedAt = time.Now()
 	conn.cmds[c.id] = c
 	return conn.outgoing, conn.done, nil
 }

@@ -811,6 +811,13 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 		}
 	}()
 
+	sendCommand := func(cmd *pb.ControlCommand) error {
+		observeSend := regHandle.ObserveCommandSend(ctx, cmd)
+		err := sendControlCommand(stream.Send, cmd)
+		observeSend(err)
+		return err
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -827,11 +834,11 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 				return err
 			}
 		case cmd := <-regHandle.Outgoing:
-			if sendErr := sendControlCommand(stream.Send, cmd); sendErr != nil {
+			if sendErr := sendCommand(cmd); sendErr != nil {
 				return controlStreamExitError(ctx, fleeterror.NewInternalErrorf("%v", sendErr))
 			}
 		case commandID := <-regHandle.Cancels:
-			if sendErr := sendControlCancel(stream.Send, regHandle.Outgoing, commandID); sendErr != nil {
+			if sendErr := sendControlCancel(stream.Send, sendCommand, regHandle.Outgoing, commandID); sendErr != nil {
 				return controlStreamExitError(ctx, fleeterror.NewInternalErrorf("%v", sendErr))
 			}
 		case r := <-incoming:
@@ -876,11 +883,11 @@ func sendControlCommand(send func(*pb.ControlStreamResponse) error, cmd *pb.Cont
 // at random. A cancel that reached the node first would be ignored, and the
 // command would hold a node slot until its node lifetime ends. A command is
 // queued before its cancel, so draining here keeps each cancel behind it.
-func sendControlCancel(send func(*pb.ControlStreamResponse) error, outgoing <-chan *pb.ControlCommand, commandID string) error {
+func sendControlCancel(send func(*pb.ControlStreamResponse) error, sendCommand func(*pb.ControlCommand) error, outgoing <-chan *pb.ControlCommand, commandID string) error {
 	for {
 		select {
 		case cmd := <-outgoing:
-			if err := sendControlCommand(send, cmd); err != nil {
+			if err := sendCommand(cmd); err != nil {
 				return err
 			}
 		default:

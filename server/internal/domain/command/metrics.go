@@ -2,9 +2,14 @@ package command
 
 import (
 	"context"
+	"errors"
 	"strings"
+	"time"
+
+	"connectrpc.com/connect"
 
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/infrastructure/metrics"
 )
 
@@ -83,4 +88,36 @@ func emitTerminalCommand(ctx context.Context, emitter MetricsEmitter, orgID, sit
 		Kind:           commandKindLabel(kind),
 		Result:         result,
 	})
+}
+
+// OperationalMetrics is independent of customer alert persistence and tracing.
+type OperationalMetrics interface {
+	CommandStarted(ctx context.Context, kind, class string, queuedAt time.Time)
+	CommandAttemptFinished(ctx context.Context, kind, class, result string, duration time.Duration)
+	CommandCommitted(ctx context.Context, kind, class, result string, queuedAt time.Time)
+	CommandPersistenceFailed(ctx context.Context, class string)
+}
+
+func commandClass(kind commandtype.Type) string {
+	if kind == commandtype.FirmwareUpdate {
+		return "firmware"
+	}
+	return "control"
+}
+func commandOutcome(ctx context.Context, err error) string {
+	if err == nil {
+		return "success"
+	}
+	code := connect.CodeOf(err)
+	var fe fleeterror.FleetError
+	if errors.As(err, &fe) {
+		code = fe.GRPCCode
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) || code == connect.CodeDeadlineExceeded {
+		return "timeout"
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) || code == connect.CodeCanceled {
+		return "canceled"
+	}
+	return "failure"
 }

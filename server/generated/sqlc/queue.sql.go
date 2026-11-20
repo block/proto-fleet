@@ -17,6 +17,7 @@ import (
 const claimMessageForProcessing = `-- name: ClaimMessageForProcessing :execresult
 UPDATE queue_message
 SET status = 'PROCESSING'::queue_status_enum,
+    processing_started_at = CURRENT_TIMESTAMP,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $1
   AND status = 'PENDING'

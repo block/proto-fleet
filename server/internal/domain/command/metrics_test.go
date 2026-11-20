@@ -5,7 +5,10 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
+	"connectrpc.com/connect"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
@@ -151,4 +154,34 @@ func TestEmitReapedCommandMetricsNilEmitterIsSafe(t *testing.T) {
 	esNop.emitReapedCommandMetrics(context.Background(), []reapedCommand{
 		{orgID: 1, commandType: "Reboot"},
 	})
+}
+
+type recordingOperationalMetrics struct {
+	started, finished, committed, persistenceFailed int
+	outcomes                                        []string
+}
+
+func (r *recordingOperationalMetrics) CommandStarted(context.Context, string, string, time.Time) {
+	r.started++
+}
+func (r *recordingOperationalMetrics) CommandAttemptFinished(_ context.Context, _, _, result string, _ time.Duration) {
+	r.finished++
+	r.outcomes = append(r.outcomes, result)
+}
+func (r *recordingOperationalMetrics) CommandCommitted(context.Context, string, string, string, time.Time) {
+	r.committed++
+}
+func (r *recordingOperationalMetrics) CommandPersistenceFailed(context.Context, string) {
+	r.persistenceFailed++
+}
+func TestCommandOutcomeDoesNotConfuseCancellationWithSuccess(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	require.Equal(t, "success", commandOutcome(ctx, nil))
+	require.Equal(t, "canceled", commandOutcome(ctx, context.Canceled))
+	require.Equal(t, "timeout", commandOutcome(t.Context(), context.DeadlineExceeded))
+	require.Equal(t, "failure", commandOutcome(t.Context(), errors.New("failure")))
+	require.Equal(t, "canceled", commandOutcome(t.Context(), fleeterror.NewCanceledError()))
+	require.Equal(t, "timeout", commandOutcome(t.Context(), fleeterror.NewPlainError("deadline", connect.CodeDeadlineExceeded)))
+	require.Equal(t, "firmware", commandClass(commandtype.FirmwareUpdate))
 }

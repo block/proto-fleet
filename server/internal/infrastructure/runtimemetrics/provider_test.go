@@ -56,6 +56,40 @@ func TestNodeConnectionScrape(t *testing.T) {
 	require.Contains(t, scrapeMetrics(t, p), "\nfleet_node_control_streams 0\n")
 }
 
+func TestCommandMetricsScrape(t *testing.T) {
+	p, err := Start(Config{Enabled: true, Address: "127.0.0.1:0"})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, p.Shutdown(context.Background())) })
+	commands, err := p.NewCommandMetrics()
+	require.NoError(t, err)
+	dispatch, err := p.DispatchObserver()
+	require.NoError(t, err)
+	ctx := t.Context()
+	queuedAt := time.Now().Add(-time.Minute)
+	commands.CommandStarted(ctx, "reboot", "control", queuedAt)
+	commands.CommandStarted(ctx, "reboot", "control", queuedAt)
+	commands.CommandStarted(ctx, "reboot", "control", time.Time{})
+	commands.CommandStarted(ctx, "reboot", "control", time.Now().Add(time.Hour))
+	commands.CommandAttemptFinished(ctx, "reboot", "control", "timeout", time.Second)
+	commands.CommandCommitted(ctx, "reboot", "control", "reaped", time.Time{})
+	commands.CommandPersistenceFailed(ctx, "control")
+	dispatch(ctx, "reboot", "control", "send_failed", time.Second)
+
+	body := scrapeMetrics(t, p)
+	for _, sample := range []string{
+		`fleet_command_queue_wait_seconds_count{command_class="control",kind="reboot"} 2`,
+		`fleet_command_attempt_duration_seconds_count{command_class="control",kind="reboot",result="timeout"} 1`,
+		`fleet_command_dispatch_send_seconds_count{admission_class="control",kind="reboot",result="send_failed"} 1`,
+		`fleet_command_committed_outcomes_total{command_class="control",kind="reboot",result="reaped"} 1`,
+		`fleet_command_persistence_failures_total{command_class="control"} 1`,
+	} {
+		require.Contains(t, body, sample)
+	}
+	for _, removed := range []string{"fleet_command_attempts_total", "fleet_command_attempt_outcomes_total", "fleet_command_dispatch_outcomes_total"} {
+		require.NotContains(t, body, removed)
+	}
+}
+
 func TestStartupScrape(t *testing.T) {
 	beforeStart := time.Now().Unix()
 	p, err := Start(Config{Enabled: true, Address: "127.0.0.1:0"})
