@@ -666,7 +666,9 @@ ECDSA P-256 against `CT1_UPDATE_TRUSTED_KEY_FILES` and bound to the manifest.
 Once a rollout stops Frigate, every service except update Status/Retry/Cancel
 answers Unavailable and Status reports `served_by_maintenance=true`, as with
 the real maintenance service. Unlike real Frigate, the fake allows remote
-triggering by default.
+triggering by default. ProtoOS package updates
+(`SERVER_UPDATE_PACKAGE_PROTO_OS`) are not simulated: support reports
+`proto_os_package_supported=false`, and the manifest `package` field is ignored.
 
 Generate a development signing key:
 

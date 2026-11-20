@@ -195,6 +195,79 @@ message GetServerUpdateSupportResponse {
   // remote_trigger_allowed reports whether the site allows StartServerUpdate
   // (the update.allow_remote_trigger setting).
   bool remote_trigger_allowed = 15;
+  // proto_os_package_supported is true only when the root update helper can
+  // install a static proto-os package without stopping Frigate. Callers must
+  // not stage a SERVER_UPDATE_PACKAGE_PROTO_OS manifest unless it is true.
+  bool proto_os_package_supported = 16;
+  // proto_os_installed_version is the dpkg version of the installed proto-os
+  // package. It is empty when the package is not installed.
+  string proto_os_installed_version = 17;
+  // proto_os_served describes the ProtoOS bundle this instance serves now.
+  ProtoOSBundleStatus proto_os_served = 18;
+  // proto_os_job is the most recent proto-os package job on this instance.
+  ProtoOSPackageJob proto_os_job = 19;
+  // proto_os_support_message explains why proto_os_package_supported is
+  // false, for example a disabled browser UI. It is empty when supported.
+  string proto_os_support_message = 20;
+  // proto_os_signed_packages is true when this instance requires every
+  // SERVER_UPDATE_PACKAGE_PROTO_OS manifest to carry a release_statement and
+  // release_signature, and its root helper verifies them against the
+  // separately shipped ProtoOS release keys before dpkg runs. Callers must not
+  // stage a PROTO_OS manifest on an instance that reports false: older
+  // instances install unsigned packages.
+  bool proto_os_signed_packages = 21;
+}
+
+// ServerUpdatePackage selects the Debian package that a staged manifest
+// installs.
+enum ServerUpdatePackage {
+  // UNSPECIFIED is the frigate package. Legacy manifests use it.
+  SERVER_UPDATE_PACKAGE_UNSPECIFIED = 0;
+  // PROTO_OS is the arch-independent, static proto-os web UI package. The root
+  // helper installs it on one instance without stopping Frigate or holding
+  // HA peers at barriers.
+  SERVER_UPDATE_PACKAGE_PROTO_OS = 1;
+}
+
+// ProtoOSBundleSource identifies where the served ProtoOS bundle comes from.
+enum ProtoOSBundleSource {
+  PROTO_OS_BUNDLE_SOURCE_UNSPECIFIED = 0;
+  // NONE means no valid bundle is served; the API runs headless.
+  PROTO_OS_BUNDLE_SOURCE_NONE = 1;
+  // PACKAGE is the separately installed proto-os package under web_root.
+  PROTO_OS_BUNDLE_SOURCE_PACKAGE = 2;
+  // BUNDLED is the fallback copy embedded in the frigate package.
+  PROTO_OS_BUNDLE_SOURCE_BUNDLED = 3;
+}
+
+message ProtoOSBundleStatus {
+  ProtoOSBundleSource source = 1;
+  // release_tag is the ProtoOS release tag recorded in the bundle manifest.
+  string release_tag = 2;
+  // release_commit is the ProtoOS commit recorded in the bundle manifest.
+  string release_commit = 3;
+  // generation is the manifest generation digest of the served bundle.
+  string generation = 4;
+  google.protobuf.Timestamp loaded_at = 5;
+}
+
+enum ProtoOSPackageJobState {
+  PROTO_OS_PACKAGE_JOB_STATE_UNSPECIFIED = 0;
+  PROTO_OS_PACKAGE_JOB_STATE_QUEUED = 1;
+  PROTO_OS_PACKAGE_JOB_STATE_INSTALLING = 2;
+  PROTO_OS_PACKAGE_JOB_STATE_SUCCEEDED = 3;
+  PROTO_OS_PACKAGE_JOB_STATE_FAILED = 4;
+}
+
+message ProtoOSPackageJob {
+  string job_id = 1;
+  string release_tag = 2;
+  // target_version is the Debian version of the staged proto-os package.
+  string target_version = 3;
+  ProtoOSPackageJobState state = 4;
+  // message is a bounded, operator-readable outcome. It never holds secrets.
+  string message = 5;
+  google.protobuf.Timestamp updated_at = 6;
 }
 
 message ServerUpdateManifest {
@@ -221,11 +294,21 @@ message ServerUpdateManifest {
   // Flotilla-coordinated path and must be used by existing callers.
   ServerUpdateCoordination coordination = 20;
   // release_statement holds the exact signed bytes of the release statement
-  // (frigate-release-statement/v1 JSON). Required when coordination is SELF.
+  // (frigate-release-statement/v1 JSON). Required when coordination is SELF
+  // or package is PROTO_OS; forbidden otherwise.
   bytes release_statement = 21;
   // release_signature holds the DER ECDSA P-256 signature over
-  // release_statement. Required when coordination is SELF.
+  // release_statement. Required when coordination is SELF or package is
+  // PROTO_OS; forbidden otherwise. A PROTO_OS signature must verify against
+  // the ProtoOS release keys, never the Frigate release keys.
   bytes release_signature = 22;
+  // package selects the Debian package this manifest installs. UNSPECIFIED is
+  // frigate. PROTO_OS requires proto_os_package_supported and
+  // proto_os_signed_packages, coordination UNSPECIFIED, an asset named
+  // proto-os_<release_tag>_all.deb, the Debian version of that package in
+  // target_version, and a release statement and signature for exactly that
+  // package.
+  ServerUpdatePackage package = 23;
 }
 
 message StartServerUpdateRequest {
@@ -312,8 +395,11 @@ message ServerUpdateRollout {
   // UPDATE_INSUFFICIENT_SPACE, UPDATE_COOLDOWN, UPDATE_OUTSIDE_WINDOW,
   // UPDATE_HELPER_UNAVAILABLE, UPDATE_NOT_FOUND, UPDATE_NOT_RETRYABLE,
   // UPDATE_NOT_CANCELLABLE, UPDATE_SELF_COORDINATION_UNSUPPORTED,
-  // UPDATE_IDEMPOTENCY_CONFLICT (same idempotency key, different request) and
-  // UPDATE_MANIFEST_INVALID (malformed manifest).
+  // UPDATE_IDEMPOTENCY_CONFLICT (same idempotency key, different request),
+  // UPDATE_MANIFEST_INVALID (malformed manifest) and UPDATE_FIRMWARE_ACTIVE (a
+  // hashboard or PSU firmware update is running on an instance; retry after it
+  // finishes). While a rollout that can stop Frigate is in progress, hashboard
+  // and PSU firmware updates are refused with FIRMWARE_SERVER_UPDATE_ACTIVE.
   //
   // Runtime failures recorded while a rollout runs: UPDATE_PACKAGE_REJECTED
   // (digest, architecture, version or package control data check failed),

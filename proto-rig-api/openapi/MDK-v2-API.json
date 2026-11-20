@@ -10224,6 +10224,7 @@
     "v2UpdatePSUFirmwareResponse": {
       "properties": {
         "accepted": {
+          "description": "All selected commands were scheduled, not necessarily received or flashed.\nAn unknown outcome must not be treated as a safe-to-retry rejection.",
           "type": "boolean"
         },
         "message": {
@@ -10527,7 +10528,7 @@
   "info": {
     "description": "Latest MDK v2 REST contract. Device support depends on product and firmware version.",
     "title": "Proto MDK v2",
-    "version": "2-38eb3f68b66035c6"
+    "version": "2-c4f3d6f51118e8f3"
   },
   "paths": {
     "/api/v2/alerts": {
@@ -15325,6 +15326,7 @@
         "operationId": "SystemService_UpdatePSUFirmware",
         "parameters": [
           {
+            "description": "PSU ID from ListPowerSupplies, or \"*\" for all connected PSUs.\nR2 IDs are canonical slot strings \"1\", \"2\", and \"3\". Empty is invalid.",
             "in": "path",
             "name": "psuId",
             "required": true,
@@ -15345,7 +15347,7 @@
             }
           }
         },
-        "summary": "UpdatePSUFirmware initiates a firmware update on a PSU.",
+        "summary": "UpdatePSUFirmware schedules installed firmware on a selected PSU.\nUse psu_id \"*\" to select all connected PSUs. Acceptance is not completion.",
         "tags": [
           "System"
         ]

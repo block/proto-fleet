@@ -705,41 +705,49 @@ errors and telemetry; resolved errors disappear on refresh. R2 retains its
 existing modal flow. Severity presentation and plant alarm grouping are separate
 work. Storybook examples live under **Proto OS / Containers / Health drill-down**.
 
-**ProtoOS** — REST API with generated TypeScript client from `proto-rig-api/openapi/MDK-API.json`. Application code uses hooks in `src/protoOS/api/hooks/` which handle error handling, polling, and automatic store updates. Regenerate types with `npm run generate-api-types`.
+**ProtoOS** — Each miner API has an adapter in `src/protoOS/api/adapters/` with a private generated TypeScript client: MDK v1 from `proto-rig-api/openapi/MDK-API.json` and MDK v2 from `proto-rig-api/openapi/MDK-v2-API.json`. On a CT1, the MDK v2 adapter also uses a Connect client with protobuf-es bindings generated from `sdk/mdk/proto/mdk/v2`. Application code uses hooks in `src/protoOS/api/hooks/` which handle error handling, polling, and automatic store updates. Regenerate the REST clients with `npm run generate-api-types`, and the bindings with `just gen-mdk-protos` from the repository root. [`proto-rig-api`](../proto-rig-api/README.md) records the source of each contract.
 
 **ProtoFleet** — gRPC-Web with Connect-RPC. Generated TypeScript code in `src/protoFleet/api/generated/` from Protobuf definitions. Supports server-to-client streaming for real-time telemetry. Custom hooks in `src/protoFleet/api/`.
 
-Container entries in the building list and grid share an actions menu. For directly
-paired controllers, it exposes sleep or wake, plus manage power. Opening the menu
+Container entries in the building list and grid share an actions menu. It
+exposes sleep or wake, plus manage power. Opening the menu
 reads the controller's current mining status: stopped containers offer wake, active
 containers offer sleep, and unknown or transitioning states offer neither. Commands require confirmation and
-the corresponding Fleet permission, then issue one MDK v2 request through the
-authenticated miner proxy. Sleep/wake changes container mining intent and leaves
+the corresponding Fleet permission. Fleet reads status and power settings through
+typed `ContainerService` RPCs and queues each write as one command; see
+[container menu commands](../docs/development/ct1-grpc.md#container-menu-commands).
+Sleep/wake changes container mining intent and leaves
 isolated boards under individual control. Power limits come from the controller,
 with a minimum of 1 W because zero can remove the controller's power limit.
 The menu uses the miner menu’s icons and navigation, operations, and settings groups.
 View container, the card, and the list row open Fleet's native container details,
-including for FleetNode-owned and unreachable controllers. The menu checks proxy
-availability on open and disables controller actions when that check fails;
+including for FleetNode-owned and unreachable controllers. When the status read
+fails, the menu disables sleep, wake, and power actions;
 navigation remains available. Power controls wait for a successful status read,
 even for operators who only have power-management permission.
 Unpair requires `miner:delete` and confirmation, then removes the controller through
-Fleet's `DeleteMiners` API. It remains available when the controller proxy is
+Fleet's `DeleteMiners` API. It remains available when the controller is
 unreachable, including FleetNode-owned controllers. After success, the row or card
 is removed immediately and inventory refreshes in the background. Failed requests
 keep the container visible for retry. Single-container unpairing records
 `unpair_container` activity with “Unpaired container” and a container scope;
 miner and bulk deletion retain their existing activity labels.
 
-The action contract is `proto-rig-api/openapi/MDK-v2-API.json`, checked against
-Frigate revision `fc06e9c3f71c8b23d03262387c68a790e4b7fcbd`. Host reboot and firmware
-update remain unimplemented in that revision's SystemService. Update firmware is
-visible but disabled; the CT1 Fleet driver also lacks the firmware capability. Edit
-pool and Update worker name are visible but disabled because the CT1 Fleet driver
-lacks pool configuration support. Worker-name updates require reapplying pools, and
-the authenticated proxy intentionally rejects direct pool writes. These settings
-follow the corresponding miner action permissions. Host reboot, cooling, lighting,
-alarm controls, streaming logs, module/feed operations, and advanced plant procedures
+The menu also has these entries, each shown only with its Fleet permission:
+
+- **Controller logs** opens the controller's logs and audit trail.
+- **Enable mining groups** or **Disable mining groups** appears when the
+  controller supports mining groups.
+- **Edit pool**, or **Container pool assignment** when mining groups are enabled,
+  stays disabled until Fleet has a current, settled mining-group observation.
+- **Update firmware** sends a hashboard archive or a PSU capsule.
+- **Update worker name** is visible but disabled.
+- **Update controller software** requires `controller:software_update`.
+- **Change site** appears when the caller can manage placement at the
+  container's current site.
+
+Host reboot, cooling, lighting, alarm controls, module/feed operations, and
+advanced plant procedures
 are not part of this menu. This surface does not change miner bulk selection,
 scheduled commands, or curtailment dispatch. Interactive examples are under
 **Proto Fleet / Containers / Actions** in Storybook.

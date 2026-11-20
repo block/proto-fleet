@@ -17,7 +17,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// Mirrors Frigate fc06e9c3's node-local, idle-expiring chunk sessions.
+// Mirrors Frigate's node-local, idle-expiring chunk sessions.
 type simulatedFirmwareUpload struct {
 	metadata *mdk.FirmwareUploadMetadata
 	data     [][]byte

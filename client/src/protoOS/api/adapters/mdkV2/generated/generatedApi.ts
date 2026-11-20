@@ -733,6 +733,10 @@ export interface SystemServiceListAuditEventsParams {
 }
 
 export interface SystemServiceUpdatePsuFirmwareParams {
+  /**
+   * PSU ID from ListPowerSupplies, or "*" for all connected PSUs.
+   * R2 IDs are canonical slot strings "1", "2", and "3". Empty is invalid.
+   */
   psuId: string;
 }
 
@@ -7269,6 +7273,10 @@ export interface V2UpdateMiningGroupResponse {
 }
 
 export interface V2UpdatePSUFirmwareResponse {
+  /**
+   * All selected commands were scheduled, not necessarily received or flashed.
+   * An unknown outcome must not be treated as a safe-to-retry rejection.
+   */
   accepted?: boolean;
   message?: string;
 }
@@ -7669,7 +7677,7 @@ export class HttpClient<SecurityDataType = unknown> {
 
 /**
  * @title Proto MDK v2
- * @version 2-38eb3f68b66035c6
+ * @version 2-c4f3d6f51118e8f3
  *
  * Latest MDK v2 REST contract. Device support depends on product and firmware version.
  */
@@ -10515,7 +10523,7 @@ export class Api<
      *
      * @tags System
      * @name SystemServiceUpdatePsuFirmware
-     * @summary UpdatePSUFirmware initiates a firmware update on a PSU.
+     * @summary UpdatePSUFirmware schedules installed firmware on a selected PSU. Use psu_id "*" to select all connected PSUs. Acceptance is not completion.
      * @request POST:/api/v2/system/psu/{psuId}/update
      */
     systemServiceUpdatePsuFirmware: (
