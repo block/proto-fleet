@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 
@@ -788,7 +788,18 @@ const ReportingAccount = ({
                   />
                 ) : null}
               </div>
-              {setup.canCreate && !setup.input ? <p>Save reporting inputs before creating a report.</p> : null}
+              {setup.canCreate && !setup.input ? (
+                <p>
+                  Save reporting inputs in{" "}
+                  <Link
+                    className="underline"
+                    to={{ search: new URLSearchParams({ account: accountId, view: "settings" }).toString() }}
+                  >
+                    Reporting settings
+                  </Link>{" "}
+                  before creating a report.
+                </p>
+              ) : null}
               <List<HostReportSummary & { key: string }, string, "period" | "status" | "quality" | "delivery" | "due">
                 items={currentReports
                   .filter((item) => !!item.report)

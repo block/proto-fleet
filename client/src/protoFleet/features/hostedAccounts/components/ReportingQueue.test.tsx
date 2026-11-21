@@ -459,6 +459,16 @@ describe("reporting access and recorded requests", () => {
     expect(form.queryByLabelText("Reporting year start (UTC)")).not.toBeInTheDocument();
   });
 
+  it("links to reporting settings while inputs are missing", async () => {
+    const user = userEvent.setup();
+    mount(true, "draft", { input: undefined }, [], "/accounts/reports?account=client&view=reports");
+    expect(await screen.findByRole("button", { name: "Create report" })).toBeDisabled();
+    const prepared = within(screen.getByRole("region", { name: "Prepared reports" }));
+    await user.click(prepared.getByRole("link", { name: "Reporting settings" }));
+    expect(await screen.findByRole("region", { name: "Reporting setup" })).toBeInTheDocument();
+    expect(screen.getByText("No reporting inputs.")).toBeInTheDocument();
+  });
+
   it("loads request history one page at a time", async () => {
     mount(false, "draft", { canReadRequests: true }, []);
     vi.mocked(hostedAccountsClient.listHostReportRequests).mockImplementation(async ({ pageToken }) =>
