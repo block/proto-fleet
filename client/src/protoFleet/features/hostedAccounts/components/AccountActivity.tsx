@@ -145,7 +145,7 @@ const AccountActivityFeed = ({
       {query.error ? (
         <AccountState error={query.error} retry={query.refresh} />
       ) : exportError ? (
-        <AccountState error={exportError} retry={() => void exportCsv()} />
+        <AccountState title="Could not export activity" error={exportError} retry={() => void exportCsv()} />
       ) : null}
       {query.loading && entries.length === 0 ? (
         <div className="flex justify-center p-10">

@@ -144,7 +144,12 @@ const AccountOverview = () => {
           }}
         />
       </div>
-      <AccountState loading={query.loading} error={query.error} retry={query.refresh} />
+      <AccountState
+        title={query.data ? "Could not refresh overview" : undefined}
+        loading={query.loading}
+        error={query.error}
+        retry={query.refresh}
+      />
       {summary ? (
         <>
           <section aria-label="Fleet health">

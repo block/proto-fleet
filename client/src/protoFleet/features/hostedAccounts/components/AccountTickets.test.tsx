@@ -217,6 +217,28 @@ describe("Account tickets", () => {
       client.commentAccountTicket.mock.calls[0][0].idempotencyKey,
     );
   });
+  it("retries a failed comment post instead of only reloading the ticket", async () => {
+    const user = userEvent.setup();
+    const { client } = setup();
+    client.commentAccountTicket.mockRejectedValueOnce(new ConnectError("Failed to fetch", Code.Unavailable));
+    await user.click(await screen.findByText("TK-0007"));
+    await user.type(await screen.findByLabelText("Add a comment"), "Checked again");
+    await user.click(screen.getByRole("button", { name: "Post comment" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not post comment");
+    await user.click(within(alert).getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Add a comment")).toHaveValue(""));
+    expect(client.commentAccountTicket).toHaveBeenCalledTimes(2);
+    expect(client.commentAccountTicket.mock.calls[1][0]).toEqual(
+      expect.objectContaining({
+        text: "Checked again",
+        idempotencyKey: client.commentAccountTicket.mock.calls[0][0].idempotencyKey,
+      }),
+    );
+    expect(screen.queryByText("Could not post comment")).not.toBeInTheDocument();
+  });
   it("keeps the asset picker request stable when the account workspace polls", async () => {
     const user = userEvent.setup();
     const { client, scope, rerenderScope } = setup();

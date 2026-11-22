@@ -35,12 +35,15 @@ const AccountPage = ({
   onPreviewClose,
   onAccountChanged,
   embedded = false,
+  hideRefreshError = false,
 }: {
   accountId: string;
   management?: boolean;
   onPreviewClose?: () => void;
   onAccountChanged?: () => void;
   embedded?: boolean;
+  /** Set when an embedding page already shows its own refresh error, so only one banner appears. */
+  hideRefreshError?: boolean;
 }) => {
   const { section: sectionParam, kind, assetId } = useParams();
   const section = kind && assetId ? "assets" : sectionParam;
@@ -255,7 +258,9 @@ const AccountPage = ({
               </TabStrip>
             </div>
           ) : null}
-          {error ? <AccountState error={error} retry={refresh} /> : null}
+          {error && !hideRefreshError ? (
+            <AccountState title="Could not refresh account" error={error} retry={refresh} />
+          ) : null}
           {accessible ? (
             renderSection(authority)
           ) : (
@@ -303,11 +308,14 @@ const AccountWorkspace = ({
   onPreviewClose,
   onAccountChanged,
   embedded = false,
+  hideRefreshError = false,
 }: {
   management?: boolean;
   onPreviewClose?: () => void;
   onAccountChanged?: () => void;
   embedded?: boolean;
+  /** Set when an embedding page already shows its own refresh error, so only one banner appears. */
+  hideRefreshError?: boolean;
 }) => {
   const { accountId = "" } = useParams();
   const generation = useFleetStore((s) => s.auth.sessionGeneration);
@@ -323,6 +331,7 @@ const AccountWorkspace = ({
       onPreviewClose={onPreviewClose}
       onAccountChanged={onAccountChanged}
       embedded={embedded}
+      hideRefreshError={hideRefreshError}
     />
   );
 };

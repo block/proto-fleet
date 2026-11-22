@@ -226,8 +226,14 @@ const AccountReportsList = () => {
           <Button variant="primary" size={sizes.compact} text="Generate report" onClick={() => setGenerating(true)} />
         ) : null}
       </div>
-      <AccountState loading={query.loading} error={query.error} retry={refresh} />
       <AccountState
+        title={query.data ? "Could not refresh reports" : undefined}
+        loading={query.loading}
+        error={query.error}
+        retry={refresh}
+      />
+      <AccountState
+        title={analysesQuery.data ? "Could not refresh analyses" : undefined}
         loading={analysesQuery.loading}
         error={analysesQuery.error !== query.error ? analysesQuery.error : null}
         retry={refresh}

@@ -232,6 +232,19 @@ const AccountTicketView = ({
     query.refresh();
     onChanged();
   };
+  const postComment = () =>
+    void mutation
+      .run(async () => {
+        const payload = { accountId: account.accountId, ticketId, text: comment.trim() };
+        await client.commentAccountTicket({ ...payload, idempotencyKey: operationKey(payload) });
+      })
+      .then((ok) => {
+        if (ok) {
+          resetCommentOperation();
+          setComment("");
+          refreshed();
+        }
+      });
   const restartConversation = () => {
     conversationGeneration.current++;
     setRetainedComments([]);
@@ -275,7 +288,10 @@ const AccountTicketView = ({
         ]}
       >
         <div className="flex flex-col gap-5">
-          <AccountState loading={query.loading} error={query.error || mutation.error} retry={query.refresh} />
+          <AccountState loading={query.loading} error={query.error} retry={query.refresh} />
+          {mutation.error ? (
+            <AccountState title="Could not post comment" error={mutation.error} retry={postComment} />
+          ) : null}
           {ticket ? (
             <>
               <p className="text-300 capitalize">{statusLabel(ticket)}</p>
@@ -350,20 +366,7 @@ const AccountTicketView = ({
                       size={sizes.compact}
                       disabled={!comment.trim()}
                       loading={mutation.busy}
-                      onClick={() =>
-                        void mutation
-                          .run(async () => {
-                            const payload = { accountId: account.accountId, ticketId, text: comment.trim() };
-                            await client.commentAccountTicket({ ...payload, idempotencyKey: operationKey(payload) });
-                          })
-                          .then((ok) => {
-                            if (ok) {
-                              resetCommentOperation();
-                              setComment("");
-                              refreshed();
-                            }
-                          })
-                      }
+                      onClick={postComment}
                     />
                   </>
                 ) : null}

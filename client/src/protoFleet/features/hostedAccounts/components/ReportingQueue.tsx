@@ -1063,7 +1063,12 @@ const ReportingQueue = () => {
   return (
     <div className="flex min-w-0 flex-col gap-6">
       <h1 className="text-heading-300">Reports</h1>
-      <AccountState loading={query.loading} error={query.error} retry={refresh} />
+      <AccountState
+        title={query.data ? "Could not refresh reports" : undefined}
+        loading={query.loading}
+        error={query.error}
+        retry={refresh}
+      />
       {hasQueueTarget ? (
         <AccountState
           loading={canResolveTarget ? selectedQueue.loading || (!queueItem && selectedQueue.refreshing) : false}

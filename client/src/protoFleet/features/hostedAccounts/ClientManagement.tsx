@@ -69,7 +69,7 @@ const ClientManagementContent = () => {
           ))}
         </TabStrip>
       </div>
-      <AccountState error={query.error} retry={query.refresh} />
+      <AccountState title="Could not refresh client" error={query.error} retry={query.refresh} />
       {section === "assets" ? (
         <AccountAssets key={accountId} child={child} />
       ) : section === "permissions" ? (
@@ -82,7 +82,7 @@ const ClientManagementContent = () => {
           }}
         />
       ) : (
-        <AccountWorkspace management embedded onAccountChanged={query.refresh} />
+        <AccountWorkspace management embedded hideRefreshError={!!query.error} onAccountChanged={query.refresh} />
       )}
     </div>
   );
