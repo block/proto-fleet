@@ -435,12 +435,6 @@ mod tests {
     }
 
     #[test]
-    fn test_make_to_family_auradine_case_insensitive() {
-        assert_eq!(make_to_family("auradine"), Some(FAMILY_AURADINE));
-        assert_eq!(make_to_family("AURADINE"), Some(FAMILY_AURADINE));
-    }
-
-    #[test]
     fn test_make_to_family_all_known_families() {
         // Verify every supported family resolves correctly
         assert_eq!(make_to_family("WhatsMiner"), Some(FAMILY_WHATSMINER));

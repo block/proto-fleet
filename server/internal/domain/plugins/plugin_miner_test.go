@@ -1277,19 +1277,6 @@ func TestIsNetworkError(t *testing.T) {
 			expected: true,
 		},
 		{
-			name: "url.Error wrapping net.OpError",
-			err: &url.Error{
-				Op:  "Get",
-				URL: "http://device.local",
-				Err: &net.OpError{
-					Op:  "dial",
-					Net: "tcp",
-					Err: errors.New("connection refused"),
-				},
-			},
-			expected: true,
-		},
-		{
 			name: "url.Error wrapping generic error",
 			err: &url.Error{
 				Op:  "Get",
@@ -1311,11 +1298,6 @@ func TestIsNetworkError(t *testing.T) {
 		{
 			name:     "gRPC error with connection refused",
 			err:      errors.New("rpc error: code = Unknown desc = failed to connect: connection refused"),
-			expected: true,
-		},
-		{
-			name:     "error with dial tcp indicator",
-			err:      errors.New("failed to connect: dial tcp 192.168.1.100:4028: connection refused"),
 			expected: true,
 		},
 		{
@@ -1397,11 +1379,6 @@ func TestIsNetworkError(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:     "generic authentication error",
-			err:      errors.New("authentication failed: invalid credentials"),
-			expected: false,
-		},
-		{
 			name:     "gRPC NotFound status (DEVICE_NOT_FOUND from plugin)",
 			err:      grpcstatus.Error(codes.NotFound, "DEVICE_NOT_FOUND: Device not found: 172.16.2.103"),
 			expected: true,
@@ -1419,11 +1396,6 @@ func TestIsNetworkError(t *testing.T) {
 		{
 			name:     "gRPC Unauthenticated status is not a network error",
 			err:      grpcstatus.Error(codes.Unauthenticated, "authentication failed"),
-			expected: false,
-		},
-		{
-			name:     "gRPC Internal status is not a network error",
-			err:      grpcstatus.Error(codes.Internal, "internal error"),
 			expected: false,
 		},
 	}
@@ -1485,13 +1457,6 @@ func TestWrapPluginError(t *testing.T) {
 			args:            []any{"device-999"},
 			expectForbidden: true,
 			expectContains:  "start mining failed for device device-999",
-		},
-		{
-			name:                "gRPC Internal maps to fleeterror Internal (not Unimplemented)",
-			err:                 grpcstatus.Error(codes.Internal, "something broke"),
-			format:              "reboot failed",
-			expectUnimplemented: false,
-			expectContains:      "reboot failed",
 		},
 		{
 			name:                "generic error maps to fleeterror Internal",

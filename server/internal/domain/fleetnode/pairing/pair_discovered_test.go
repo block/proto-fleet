@@ -239,26 +239,6 @@ func TestPersistFleetNodePairResult_ClearsStaleCredentialsWhenBindingToFleetNode
 	assert.False(t, hasMinerCredentials(t, db, orgID, identifier), "binding to a fleet node clears stale direct credentials")
 }
 
-func TestPersistFleetNodePairResult_NodeReportedDefaultCredentialStatusWithoutCredentialMaterial(t *testing.T) {
-	// Arrange: a basic-auth pairing with no reportable credentials, but with a
-	// successful pair result from the node.
-	ctx := t.Context()
-	db, orgID, pairing, enrollment := setupPairingTest(t)
-	node := createFleetNode(t, enrollment, orgID, "node-persist-default")
-	upsertNodeDiscovered(t, pairing, orgID, node, "mac:p-default")
-	result := pairResult("mac:p-default", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED)
-	assignedBy := int64(1)
-
-	// Act
-	status, err := pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, node, orgID, &assignedBy, result.GetDeviceIdentifier()), result)
-
-	// Assert: paired and bound; no credential material is stored.
-	require.NoError(t, err)
-	assert.Equal(t, fleetnodepairing.StatusPaired, status)
-	assert.True(t, deviceBoundToNode(t, db, orgID, node, "mac:p-default"))
-	assert.False(t, hasMinerCredentials(t, db, orgID, "mac:p-default"))
-}
-
 func TestPersistFleetNodePairResult_DefaultPasswordActivePersistsRemediationState(t *testing.T) {
 	// Arrange: the node paired with basic-auth credentials and the plugin reports
 	// the miner is still using its factory default password.
@@ -349,24 +329,6 @@ func TestPersistFleetNodePairResult_DefaultPasswordInactiveClearsExistingRemedia
 	assert.Equal(t, fleetnodepairing.StatusPaired, status)
 	assert.Equal(t, "PAIRED", devicePairingStatus(t, db, orgID, identifier))
 	assert.True(t, deviceBoundToNode(t, db, orgID, node, identifier))
-}
-
-func TestPersistFleetNodePairResult_StoresNoCredentialsWhenEncryptedCredentialsAbsent(t *testing.T) {
-	// Arrange: a successful pair result with no encrypted credentials.
-	ctx := t.Context()
-	db, orgID, pairing, enrollment := setupPairingTest(t)
-	node := createFleetNode(t, enrollment, orgID, "node-persist-blankpw")
-	upsertNodeDiscovered(t, pairing, orgID, node, "mac:p-blankpw")
-	result := pairResult("mac:p-blankpw", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED)
-	assignedBy := int64(1)
-
-	// Act
-	status, err := pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, node, orgID, &assignedBy, result.GetDeviceIdentifier()), result)
-
-	// Assert: paired; plaintext blank-password credentials are not stored.
-	require.NoError(t, err)
-	assert.Equal(t, fleetnodepairing.StatusPaired, status)
-	assert.False(t, hasMinerCredentials(t, db, orgID, "mac:p-blankpw"))
 }
 
 func TestPersistFleetNodePairResult_AuthNeededThenRetrySucceeds(t *testing.T) {

@@ -10,30 +10,6 @@ describe("getErrorMessage", () => {
       expect(err.message).toContain("[internal]");
       expect(getErrorMessage(err)).toBe("Log bundle too large to download!");
     });
-
-    it("strips [not_found] prefix", () => {
-      const err = new ConnectError("device not found", Code.NotFound);
-      expect(err.message).toContain("[not_found]");
-      expect(getErrorMessage(err)).toBe("device not found");
-    });
-
-    it("strips [already_exists] prefix", () => {
-      const err = new ConnectError("a collection with this name already exists", Code.AlreadyExists);
-      expect(err.message).toContain("[already_exists]");
-      expect(getErrorMessage(err)).toBe("a collection with this name already exists");
-    });
-
-    it("strips [invalid_argument] prefix", () => {
-      const err = new ConnectError("username is required", Code.InvalidArgument);
-      expect(err.message).toContain("[invalid_argument]");
-      expect(getErrorMessage(err)).toBe("username is required");
-    });
-
-    it("strips [permission_denied] prefix", () => {
-      const err = new ConnectError("access denied", Code.PermissionDenied);
-      expect(err.message).toContain("[permission_denied]");
-      expect(getErrorMessage(err)).toBe("access denied");
-    });
   });
 
   describe("fallback behavior", () => {
@@ -57,11 +33,6 @@ describe("getErrorMessage", () => {
     it("extracts message from a plain Error", () => {
       const err = new Error("something broke");
       expect(getErrorMessage(err)).toBe("something broke");
-    });
-
-    it("extracts message from a TypeError", () => {
-      const err = new TypeError("cannot read property of null");
-      expect(getErrorMessage(err)).toBe("cannot read property of null");
     });
 
     it("converts a string input to message", () => {

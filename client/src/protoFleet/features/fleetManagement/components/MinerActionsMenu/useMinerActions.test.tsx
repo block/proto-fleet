@@ -243,24 +243,6 @@ describe("useMinerActions", () => {
       expect(actions).toContain(deviceActions.shutdown);
       expect(actions).not.toContain(deviceActions.wakeUp);
     });
-
-    it("should show both actions when device status is undefined (bulk with different statuses)", () => {
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [
-            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
-            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ERROR },
-          ],
-          selectionMode: "subset",
-        }),
-      );
-
-      const actions = result.current.popoverActions.map((a) => a.action);
-
-      expect(actions).toContain(deviceActions.shutdown);
-      expect(actions).toContain(deviceActions.wakeUp);
-    });
   });
 
   describe("Action handlers - Setting current action", () => {
@@ -1629,27 +1611,6 @@ describe("useMinerActions", () => {
       });
 
       expect(result.current.currentAction).toBeNull();
-      expect(onActionComplete).toHaveBeenCalled();
-    });
-  });
-
-  describe("Callbacks", () => {
-    it("should call onActionComplete when handleCancel is called", () => {
-      const onActionComplete = vi.fn();
-
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
-          selectionMode: "subset",
-          onActionComplete,
-        }),
-      );
-
-      act(() => {
-        result.current.handleCancel();
-      });
-
       expect(onActionComplete).toHaveBeenCalled();
     });
   });

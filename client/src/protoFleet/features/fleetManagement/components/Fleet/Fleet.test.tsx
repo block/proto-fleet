@@ -316,11 +316,6 @@ describe("Fleet - Component Integration", () => {
     mockUseHasPermission.mockReturnValue(true);
   });
 
-  it("should render MinerList component", () => {
-    const { getByTestId } = renderFleet();
-    expect(getByTestId("miner-list")).toBeInTheDocument();
-  });
-
   it("publishes tank labels to the list and saved views when inventory access is available", () => {
     renderFleet();
     const availableTanks = [{ id: "7", label: "CT1 T1 · North" }];

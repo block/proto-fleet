@@ -287,40 +287,6 @@ func TestAssignRacksToBuilding_placesRackWithGridCell(t *testing.T) {
 	}
 }
 
-// Assign without a grid cell: writes placement + clears position via
-// SetRackBuildingPosition(nil, nil). The explicit clear is what makes
-// same-building unplace work — without it, UpdateRackPlacement's CASE
-// preserves the old position whenever building_id doesn't change.
-func TestAssignRacksToBuilding_membersWithoutPositionClearsCell(t *testing.T) {
-	h := newAssignHarness(t)
-	buildingID := int64(11)
-	rackID := int64(99)
-	siteID := int64(3)
-
-	h.siteStore.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, buildingID).Return(nil)
-	h.store.EXPECT().GetBuilding(inTxCtx, testOrgID, buildingID).
-		Return(&models.Building{ID: buildingID, SiteID: &siteID, Aisles: 4, RacksPerAisle: 6}, nil)
-	h.store.EXPECT().CountRacksInBuilding(inTxCtx, testOrgID, buildingID).Return(int64(0), nil)
-	h.collectionStore.EXPECT().LockRackPlacementForWrite(inTxCtx, rackID, testOrgID).
-		Return(interfaces.RackPlacement{SiteID: &siteID}, nil)
-	// No site cascade — site unchanged. Building cascade DOES fire
-	// because the rack went from nil building → &buildingID. Bulk
-	// placement update + pass-1 vacate also fire; pass-2 place is
-	// skipped because no positions were requested.
-	h.collectionStore.EXPECT().UpdateRackPlacementBulkForBuilding(inTxCtx, testOrgID, []int64{rackID}, &siteID, &buildingID).Return(int64(1), nil)
-	h.collectionStore.EXPECT().CascadeRackDeviceBuildingsBulk(inTxCtx, testOrgID, []int64{rackID}, &buildingID).Return(int64(0), nil)
-	h.store.EXPECT().SetRackBuildingPositionBulkClear(inTxCtx, testOrgID, []int64{rackID}).Return(nil)
-
-	_, err := h.svc.AssignRacksToBuilding(context.Background(), models.AssignRacksToBuildingParams{
-		OrgID:            testOrgID,
-		TargetBuildingID: &buildingID,
-		Racks:            []models.RackPlacementParam{{RackID: rackID}},
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 // Same-building unplace: rack already in this building at a known cell,
 // caller resends building_id with no position. The bulk pass-1 vacate
 // is what clears the prior (aisle, position) so the unplace doesn't

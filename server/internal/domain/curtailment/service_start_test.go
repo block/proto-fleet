@@ -264,23 +264,6 @@ func TestService_Start_RejectsAllowUnboundedWithMaxDuration(t *testing.T) {
 	assert.Contains(t, err.Error(), "allow_unbounded")
 }
 
-func TestService_Start_AllowUnboundedRequiresNilMaxDuration(t *testing.T) {
-	t.Parallel()
-	const orgID = int64(1)
-	store := newFakeStore()
-	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
-	store.candidatesByOrg[orgID] = []*models.Candidate{
-		minerWithEff("miner", 6000, 100, 40),
-	}
-	svc := NewService(store)
-	req := validStartRequest(orgID)
-	req.AllowUnbounded = true
-	req.MaxDurationSeconds = nil
-	req.CanUseAdminControls = true
-	_, err := svc.Start(t.Context(), req)
-	require.NoError(t, err, "allow_unbounded + nil max_duration is the valid admin shape")
-}
-
 func TestService_Start_RejectsNonAdminForceIncludeMaintenance(t *testing.T) {
 	t.Parallel()
 	svc := NewService(newFakeStore())

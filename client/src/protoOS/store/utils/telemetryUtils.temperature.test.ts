@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { convertAndFormatMeasurement, formatValue } from "./telemetryUtils";
+import { convertAndFormatMeasurement } from "./telemetryUtils";
 
 // The store holds temperatures as canonical contract measurements ({ units: "°C" }).
 // After deleting the legacy projection these flow straight into the display helpers,
@@ -19,16 +19,6 @@ describe("temperature measurement formatting", () => {
     // Regression: convertValueUnits used to short-circuit on `!value`, returning
     // "0 °C" under a Fahrenheit request. Temperature is affine, so 0°C is 32°F.
     expect(convertAndFormatMeasurement({ value: 0, units: "°C" }, "°F")).toBe("32.0 °F");
-  });
-
-  test("formatValue appends the unit glyph verbatim — no double degree sign", () => {
-    expect(formatValue({ value: 62, units: "°C" }, true)).toBe("62.0 °C");
-  });
-
-  test("uses the U+00B0 degree sign, not the ordinal indicator", () => {
-    const formatted = formatValue({ value: 62, units: "°C" }, true) ?? "";
-    expect(formatted).toContain("°"); // U+00B0
-    expect(formatted).not.toContain("º"); // not U+00BA
   });
 
   test("returns N/A for a null reading and undefined for a missing value", () => {

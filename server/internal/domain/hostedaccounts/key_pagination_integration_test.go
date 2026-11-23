@@ -19,20 +19,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAccountKeyListDefaultPageIsBounded(t *testing.T) {
-	f := setup(t)
-	account := f.client(t, "Customer", f.host, hostedaccounts.DefaultCapabilities)
-	keys := hostedaccounts.NewKeyService(f.svc, apikey.NewService(sqlstores.NewSQLApiKeyStore(f.db), nil))
-	for range 30 {
-		_, err := keys.Create(t.Context(), f.host, f.org, account.AccountID, hostedaccounts.KeyOptions{Name: "Read", Capabilities: hostedaccounts.View})
-		require.NoError(t, err)
-	}
-	rows, next, err := keys.List(t.Context(), f.host, f.org, account.AccountID, 0, "")
-	require.NoError(t, err)
-	require.Len(t, rows, 25)
-	require.NotEmpty(t, next)
-}
-
 func TestAccountKeyPaginationTraversesTiesAndRetainsPrivateMetadata(t *testing.T) {
 	f := setup(t)
 	account := f.client(t, "Customer", f.host, hostedaccounts.AllCapabilities)

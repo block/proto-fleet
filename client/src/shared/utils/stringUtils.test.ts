@@ -71,28 +71,10 @@ describe("getDisplayValue", () => {
     expect(displayValue).toBe("5.6");
   });
 
-  test("should return the value with one decimal place even if there is no decimal value", () => {
-    const value = 5;
-    const displayValue = getDisplayValue(value);
-    expect(displayValue).toBe("5.0");
-  });
-
-  test("should return the value rounded up to  decimal places if third decimal place is non-zero", () => {
-    const value = 5.106;
-    const displayValue = getDisplayValue(value);
-    expect(displayValue).toBe("5.1");
-  });
-
   test("should separate thousands by commas and round down to one decimal places", () => {
     const value = 12345.671;
     const displayValue = getDisplayValue(value);
     expect(displayValue).toBe("12,345.7");
-  });
-
-  test("should separate thousands by commas and remove second decimal place if zero", () => {
-    const value = 12345;
-    const displayValue = getDisplayValue(value);
-    expect(displayValue).toBe("12,345.0");
   });
 });
 

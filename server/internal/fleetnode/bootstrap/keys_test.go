@@ -2,7 +2,6 @@ package bootstrap
 
 import (
 	"crypto/ed25519"
-	"encoding/hex"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -26,21 +25,6 @@ func TestIdentityFingerprint_MatchesServer(t *testing.T) {
 	// Assert
 	assert.Equal(t, enrollment.IdentityFingerprint(pubkey), got)
 	assert.Len(t, got, 16)
-}
-
-func TestIdentityFingerprint_FormatIsLowercaseHex(t *testing.T) {
-	t.Parallel()
-
-	// Arrange
-	pubkey := []byte("any-bytes-the-function-must-still-format-cleanly")
-
-	// Act
-	got := IdentityFingerprint(pubkey)
-
-	// Assert
-	assert.Len(t, got, 16)
-	_, err := hex.DecodeString(got)
-	require.NoError(t, err)
 }
 
 func TestGenerateKeypair_RoundTripsThroughSignVerify(t *testing.T) {

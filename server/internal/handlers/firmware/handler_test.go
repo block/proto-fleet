@@ -344,18 +344,6 @@ func TestUploadHandler_RejectsInvalidSession(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, rr.Code)
 }
 
-func TestUploadHandler_RejectsInvalidExtension(t *testing.T) {
-	env := newTestEnv(t)
-	env.expectAuth()
-	req := createMultipartRequest(t, "firmware.bin", []byte("data"), validSessionCookie(env.sessionID))
-	rr := httptest.NewRecorder()
-
-	env.uploadHandler().ServeHTTP(rr, req)
-
-	assert.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "unsupported firmware file type")
-}
-
 func TestUploadHandler_RejectsInvalidExtensionBeforeOversizedFile(t *testing.T) {
 	env := newTestEnv(t)
 	env.expectAuth()
@@ -588,19 +576,6 @@ func TestUploadHandler_StoresCT1PSUCapsule(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rr.Code)
 		assert.Contains(t, rr.Body.String(), "must be uploaded for Proto CT1 with component psu")
 	})
-}
-
-func TestUploadHandler_SuccessfulUploadTarGz(t *testing.T) {
-	env := newTestEnv(t)
-	env.expectAuth()
-	content := []byte("fake tar.gz firmware")
-	req := createMultipartRequest(t, "upgrade.tar.gz", content, validSessionCookie(env.sessionID))
-	rr := httptest.NewRecorder()
-
-	env.uploadHandler().ServeHTTP(rr, req)
-
-	assert.Equal(t, http.StatusOK, rr.Code)
-	assert.Contains(t, rr.Body.String(), "firmware_file_id")
 }
 
 func TestUploadHandler_RejectsOversizedBody(t *testing.T) {

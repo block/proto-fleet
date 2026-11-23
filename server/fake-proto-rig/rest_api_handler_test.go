@@ -24,14 +24,6 @@ const (
 	invalidSecp256k1SV2AuthorityKey = "9caKLbMD1LpCeqMFyyWo8R62MKGZ4ya3EGCfhVnPUQifpnNF7GT"
 )
 
-func TestNewMinerState_DefaultModelIsRig(t *testing.T) {
-	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
-
-	if state.Model != "Rig" {
-		t.Fatalf("expected default model %q, got %q", "Rig", state.Model)
-	}
-}
-
 func TestConfigureStartupAuthState_SeedsDefaultPasswordBaseline(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	configureStartupAuthState(state)

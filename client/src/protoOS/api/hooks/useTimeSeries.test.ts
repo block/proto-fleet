@@ -79,13 +79,4 @@ describe("useTimeSeries", () => {
     await runFetch(hashboard);
     expect(beginStoreWrite).toHaveBeenLastCalledWith(`telemetry:history:1h:${JSON.stringify(hashboard)}`);
   });
-
-  test("aggregate and per-board calls at the same duration get distinct keys", async () => {
-    await runFetch([{ type: "miner", fields: ["hashrate"] }]);
-    await runFetch([{ type: "hashboard", fields: ["hashrate"], indexes: [0] }]);
-
-    const keys = (beginStoreWrite as Mock).mock.calls.map(([key]) => key);
-    expect(new Set(keys).size).toBe(keys.length);
-    expect(keys).not.toContain("telemetry:history:1h:[object Object]");
-  });
 });

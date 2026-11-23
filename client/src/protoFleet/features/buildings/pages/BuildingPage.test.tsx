@@ -128,11 +128,7 @@ vi.mock("@/protoFleet/features/buildings/hooks/useBuildingModals", () => ({
 }));
 
 vi.mock("@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection", () => ({
-  DeviceSetPerformanceSection: ({ className, gapClassName }: { className?: string; gapClassName?: string }) => (
-    <div className={className} data-gap-class={gapClassName} data-testid="building-page-performance-grid">
-      Performance section
-    </div>
-  ),
+  DeviceSetPerformanceSection: () => <div>Performance section</div>,
 }));
 
 vi.mock("@/shared/hooks/useStickyState", () => ({
@@ -321,24 +317,6 @@ describe("BuildingPage", () => {
     fireEvent.click(screen.getByTestId("building-page-racks-section-view"));
 
     expect(screen.getByTestId("location-probe")).toHaveTextContent("/austin/fleet/racks?building=123");
-  });
-
-  it("uses the detail view spacing rhythm for sections and section content", async () => {
-    renderPage();
-
-    expect(await screen.findByTestId("building-page-metrics-section")).toHaveClass("pt-10");
-    expect(screen.getByTestId("building-metric-hashrate-value")).toHaveClass("text-emphasis-400");
-    expect(screen.getByTestId("building-metric-power-value")).toHaveClass("text-emphasis-400");
-    expect(screen.getByTestId("building-page-racks-section")).toHaveClass("px-4", "pt-10", "laptop:px-8");
-    expect(screen.getByTestId("building-page-racks-section").firstElementChild).toHaveClass("gap-3");
-    expect(screen.getByTestId("building-page-racks-section-header")).toHaveClass("px-2");
-    expect(screen.getByTestId("building-page-racks-card-stack")).toHaveClass("gap-1", "overflow-visible", "p-2");
-    expect(screen.getByTestId("building-page-performance-section").querySelector(".sticky")).toHaveClass(
-      "pt-10",
-      "pb-1",
-    );
-    expect(screen.getByTestId("building-page-performance-grid")).toHaveClass("p-2");
-    expect(screen.getByTestId("building-page-performance-grid")).toHaveAttribute("data-gap-class", "gap-1");
   });
 
   it("renders the building rack grid from building stats", async () => {

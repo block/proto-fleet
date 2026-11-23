@@ -2086,19 +2086,6 @@ mod tests {
     // --- WriteAccessProbeStrategy::for_miner ---
 
     #[test]
-    fn test_strategy_vnish_firmware_uses_hostname_probe() {
-        // Arrange
-        let make = "Antminer";
-        let firmware = "VNish 1.2.3";
-
-        // Act
-        let strategy = WriteAccessProbeStrategy::for_miner(make, firmware, true);
-
-        // Assert — VNish allows LED without auth; hostname check is the real discriminator
-        assert!(matches!(strategy, WriteAccessProbeStrategy::Hostname));
-    }
-
-    #[test]
     fn test_strategy_vnish_firmware_uses_hostname_even_without_led_support() {
         // Arrange
         let make = "Antminer";

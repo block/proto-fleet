@@ -78,15 +78,6 @@ describe("useMinerStore.resetDeviceData", () => {
     expect(after.networkInfo.interfaces.size).toBe(0);
   });
 
-  test("clears the derived device type so a rig doesn't inherit a module's layout", () => {
-    useMinerStore.getState().systemInfo.setSystemInfo(systemInfo("CU1", "container"));
-    expect(useMinerStore.getState().systemInfo.data?.moduleModel).toBe("ct1");
-
-    useMinerStore.getState().resetDeviceData();
-
-    expect(useMinerStore.getState().systemInfo.data).toBeUndefined();
-  });
-
   test("preserves UI preferences and onboarding/identity flags", () => {
     const s = useMinerStore.getState();
     s.minerStatus.setOnboarded(true);

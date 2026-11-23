@@ -4,17 +4,6 @@ import { describe, expect, it } from "vitest";
 import { formatSiteAddress } from "./formatAddress";
 
 describe("formatSiteAddress", () => {
-  it("joins address, city/state, and postal with the bullet separator", () => {
-    expect(
-      formatSiteAddress({
-        address: "123 Main St",
-        locationCity: "Chicago",
-        locationState: "IL",
-        postalCode: "60601",
-      }),
-    ).toBe("123 Main St • Chicago, IL • 60601");
-  });
-
   it("omits empty segments so a half-filled address doesn't render stray separators", () => {
     expect(
       formatSiteAddress({

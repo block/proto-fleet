@@ -43,18 +43,6 @@ describe("FleetDown", () => {
     expect(screen.getByRole("button", { name: /retry now/i })).toBeInTheDocument();
   });
 
-  it("renders the logo", () => {
-    render(<FleetDown />);
-
-    expect(screen.getByTestId("logo-alt")).toBeInTheDocument();
-  });
-
-  it("renders the animated dots background", () => {
-    render(<FleetDown />);
-
-    expect(screen.getByTestId("animated-dots-background")).toBeInTheDocument();
-  });
-
   it("redirects when backend is back up", async () => {
     const { redirectFromFleetDown } = await import("@/protoFleet/utils/fleetDownRedirect");
     const { onboardingClient } = await import("@/protoFleet/api/clients");

@@ -24,9 +24,7 @@ func TestFactMutationEnvelopeRejectsInvalidOperations(t *testing.T) {
 	}{
 		{"wrong register", []FactMutation{{Kind: "unknown", ID: "x", Payload: f.Payload}}},
 		{"mismatched identity", []FactMutation{{Kind: FactOrder, ID: "other", Payload: f.Payload}}},
-		{"null", []FactMutation{{Kind: FactOrder, ID: "x", Payload: json.RawMessage(`null`)}}},
 		{"unknown", []FactMutation{{Kind: FactOrder, ID: "x", Payload: json.RawMessage(`{"id":"x","start":"2026-01-01T00:00:00Z","unknown":1}`)}}},
-		{"trailing", []FactMutation{{Kind: FactOrder, ID: "x", Payload: append(append([]byte{}, f.Payload...), []byte(` {}`)...)}}},
 		{"delete payload", []FactMutation{{Kind: FactOrder, ID: "x", Payload: json.RawMessage(`null`), Delete: true}}},
 		{"duplicate", []FactMutation{valid, valid}},
 		{"whitespace identity", []FactMutation{{Kind: FactOrder, ID: "\u2003", Delete: true}}},

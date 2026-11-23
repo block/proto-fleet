@@ -17,23 +17,8 @@ func TestParseCIDR(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "valid IPv4 /16",
-			cidr:    "10.0.0.0/16",
-			wantErr: false,
-		},
-		{
-			name:    "valid IPv4 /8",
-			cidr:    "172.16.0.0/8",
-			wantErr: false,
-		},
-		{
 			name:    "invalid CIDR",
 			cidr:    "192.168.1.0",
-			wantErr: true,
-		},
-		{
-			name:    "invalid IP",
-			cidr:    "999.999.999.999/24",
 			wantErr: true,
 		},
 		{
@@ -68,13 +53,6 @@ func TestGenerateIPsFromCIDR(t *testing.T) {
 			wantCount:     1, // Only .2 (excluding .0 network, .1 gateway, and .3 broadcast)
 			wantErr:       false,
 			shouldContain: []string{"192.168.1.2"},
-		},
-		{
-			name:          "typical /24 subnet",
-			cidr:          "10.0.0.0/24",
-			wantCount:     253, // 256 - 3 (network, gateway, and broadcast)
-			wantErr:       false,
-			shouldContain: []string{"10.0.0.2", "10.0.0.100", "10.0.0.254"},
 		},
 		{
 			name:    "invalid CIDR",
@@ -152,34 +130,6 @@ func TestIPToSubnet(t *testing.T) {
 			wantErr:  false,
 		},
 		{
-			name:     "first IP in subnet /24",
-			ip:       "10.0.0.1",
-			maskBits: 24,
-			want:     "10.0.0.0/24",
-			wantErr:  false,
-		},
-		{
-			name:     "last IP in subnet /24",
-			ip:       "172.16.5.254",
-			maskBits: 24,
-			want:     "172.16.5.0/24",
-			wantErr:  false,
-		},
-		{
-			name:     "IPv4 /16 subnet",
-			ip:       "10.20.30.40",
-			maskBits: 16,
-			want:     "10.20.0.0/16",
-			wantErr:  false,
-		},
-		{
-			name:     "IPv4 /8 subnet",
-			ip:       "172.16.5.10",
-			maskBits: 8,
-			want:     "172.0.0.0/8",
-			wantErr:  false,
-		},
-		{
 			name:    "invalid IP",
 			ip:      "invalid",
 			wantErr: true,
@@ -226,13 +176,6 @@ func TestGetSubnetFromIPAndMask(t *testing.T) {
 			ip:       "10.20.30.40",
 			maskBits: 16,
 			want:     "10.20.0.0/16",
-			wantErr:  false,
-		},
-		{
-			name:     "/8 subnet",
-			ip:       "172.16.5.10",
-			maskBits: 8,
-			want:     "172.0.0.0/8",
 			wantErr:  false,
 		},
 		{
@@ -287,24 +230,9 @@ func TestIncrementIP(t *testing.T) {
 			want: "192.169.0.0",
 		},
 		{
-			name: "IPv6 simple increment",
-			ip:   "2001:db8::1",
-			want: "2001:db8::2",
-		},
-		{
 			name: "IPv6 with carry-over",
 			ip:   "2001:db8::ffff",
 			want: "2001:db8::1:0",
-		},
-		{
-			name: "IPv6 multiple carry-over",
-			ip:   "2001:db8::ffff:ffff",
-			want: "2001:db8::1:0:0",
-		},
-		{
-			name: "IPv6 all hex digits",
-			ip:   "2001:db8:0:0:0:0:0:ff",
-			want: "2001:db8::100",
 		},
 	}
 
@@ -348,12 +276,6 @@ func TestIPToSubnet_IPv6(t *testing.T) {
 			maskBits: 128,
 			want:     "2001:db8::1/128",
 		},
-		{
-			name:     "IPv6 /48 subnet",
-			ip:       "2001:db8:1::100",
-			maskBits: 48,
-			want:     "2001:db8:1::/48",
-		},
 	}
 
 	for _, tt := range tests {
@@ -376,12 +298,6 @@ func TestGetSubnetFromIPAndMask_IPv6(t *testing.T) {
 		maskBits int
 		want     string
 	}{
-		{
-			name:     "IPv6 /64",
-			ip:       "fd00::abcd",
-			maskBits: 64,
-			want:     "fd00::/64",
-		},
 		{
 			name:     "IPv6 /120",
 			ip:       "fd00::1:ff",

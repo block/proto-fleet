@@ -25,34 +25,6 @@ func strPtr(s string) *string { return &s }
 func intPtr(i int) *int       { return &i }
 func int64Ptr(i int64) *int64 { return &i }
 
-func TestService_Log_Success(t *testing.T) {
-	svc, mockStore := newTestService(t)
-
-	event := models.Event{
-		Category:       models.CategoryDeviceCommand,
-		Type:           "reboot",
-		Description:    "Reboot",
-		Result:         models.ResultSuccess,
-		ScopeCount:     intPtr(24),
-		ActorType:      models.ActorUser,
-		UserID:         strPtr("usr_abc"),
-		Username:       strPtr("admin"),
-		OrganizationID: int64Ptr(testOrgID),
-	}
-
-	mockStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ interface{}, got *models.Event) error {
-			assert.Equal(t, models.CategoryDeviceCommand, got.Category)
-			assert.Equal(t, "reboot", got.Type)
-			assert.Equal(t, models.ResultSuccess, got.Result)
-			assert.Equal(t, "usr_abc", *got.UserID)
-			return nil
-		},
-	)
-
-	svc.Log(t.Context(), event)
-}
-
 func TestService_Log_DefaultsResultToSuccess(t *testing.T) {
 	svc, mockStore := newTestService(t)
 

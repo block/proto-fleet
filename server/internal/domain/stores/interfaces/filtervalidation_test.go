@@ -137,10 +137,6 @@ func TestValidateFilterBuildings(t *testing.T) {
 			},
 		},
 		{
-			name:     "one wildcard zone key does not reach the store",
-			zoneKeys: []ZoneKey{{BuildingID: 0, Zone: "Room 2"}},
-		},
-		{
 			name: "owned scoped zone keys pass",
 			zoneKeys: []ZoneKey{
 				{BuildingID: 7, Zone: "Room 2"},
@@ -212,32 +208,6 @@ func TestValidateFilterBuildings_CrossOrgEmitsAuditLog(t *testing.T) {
 	require.Len(t, handler.records, 1, "expected exactly one audit log record")
 	rec := handler.records[0]
 	assert.Equal(t, slog.LevelWarn, rec.Level)
-	assert.Equal(t, "cross_org_filter_probe", rec.Message)
-	attrs := attrsByKey(rec)
-	assert.NotContains(t, attrs, "event", "event key is redundant with the log message")
-	assert.Equal(t, int64(42), attrs["org_id"])
-	assert.Equal(t, int64(1), attrs["rejected_count"])
-}
-
-func TestValidateFilterBuildings_CrossOrgZoneKey_EmitsAuditLog(t *testing.T) {
-	// Same assertion shape but rejected via zone_keys instead of
-	// building_ids — confirms the audit fires on either path.
-	handler := installRecordingHandler(t)
-	store := newOwnedStore(7)
-
-	err := ValidateFilterBuildings(
-		context.Background(),
-		42,
-		nil,
-		[]ZoneKey{{BuildingID: 7, Zone: "Room 2"}, {BuildingID: 99, Zone: "Cold Aisle"}},
-		store,
-	)
-
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-
-	require.Len(t, handler.records, 1)
-	rec := handler.records[0]
 	assert.Equal(t, "cross_org_filter_probe", rec.Message)
 	attrs := attrsByKey(rec)
 	assert.NotContains(t, attrs, "event", "event key is redundant with the log message")

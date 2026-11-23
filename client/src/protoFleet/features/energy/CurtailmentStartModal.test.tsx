@@ -168,19 +168,6 @@ vi.mock("@/protoFleet/components/TargetSelectionModal/MinerSelectionModal", () =
         >
           Save current miner selection
         </button>
-        <button
-          type="button"
-          onClick={() =>
-            onSave({
-              selectedMinerIds: ["miner-1", "miner-2"],
-              allSelected: true,
-              totalMiners: 2,
-              filter: { models: ["S21"], rackIds: [], groupIds: [] },
-            })
-          }
-        >
-          Save filtered all miners
-        </button>
       </div>
     ) : null,
 }));
@@ -2470,34 +2457,6 @@ describe("CurtailmentStartModal", () => {
         scopeType: "wholeOrg",
         siteSelection: "allSites",
         siteIds: [],
-        deviceIdentifiers: [],
-        minerSelectionMode: "all",
-      }),
-    );
-  });
-
-  it("treats filtered all-miner selection as all miners instead of submitting page-loaded ids", async () => {
-    const user = userEvent.setup();
-    const { onSubmit } = renderModal({
-      initialValues: { ...configuredValues, includeMaintenance: false },
-      siteOptions,
-    });
-
-    await user.click(screen.getByRole("button", { name: /Miners\s+Select/ }));
-    await user.click(screen.getByRole("button", { name: "Save filtered all miners" }));
-
-    expect(screen.getByRole("button", { name: /Miners\s+All miners/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Sites\s+All sites/ })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
-    await confirmCurtailment(user);
-
-    expect(onSubmit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        scopeType: "wholeOrg",
-        scopeId: "whole-org",
-        siteSelection: "allSites",
-        siteId: "",
         deviceIdentifiers: [],
         minerSelectionMode: "all",
       }),

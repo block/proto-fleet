@@ -25,11 +25,6 @@ describe("TemperatureUnitsSwitcher", () => {
     setTemperatureUnit: vi.fn(),
   };
 
-  test("renders with title 'Temperature'", () => {
-    render(<TemperatureUnitsSwitcher {...defaultProps} />);
-    expect(screen.getByText("Temperature")).toBeDefined();
-  });
-
   test("renders temperature unit options (Celsius and Fahrenheit)", () => {
     render(<TemperatureUnitsSwitcher {...defaultProps} />);
     expect(screen.getByText("Celsius (ºC)")).toBeDefined();

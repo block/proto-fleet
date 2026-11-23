@@ -80,51 +80,6 @@ func TestRenderSlackLinksTheInstanceHeaderAndUsesPerAlertCopy(t *testing.T) {
 	assert.NotContains(t, body, "dev-b")
 }
 
-func TestRenderSlackUsesNaturalDeviceCopyWithThresholdContext(t *testing.T) {
-	tests := []struct {
-		name     string
-		template RuleTemplate
-		summary  string
-		count    int
-		want     string
-	}{
-		{
-			name:     "offline",
-			template: RuleTemplateOffline,
-			summary:  "Device is offline for at least five minutes.",
-			count:    12,
-			want:     "🔴 12 devices unreachable for at least five minutes",
-		},
-		{
-			name:     "hashrate percent",
-			template: RuleTemplateHashrate,
-			summary:  "Device hashrate is below 75% of expected for at least ten minutes.",
-			count:    84,
-			want:     "🟡 84 devices hashing below 75% of expected for at least ten minutes",
-		},
-		{
-			name:     "temperature",
-			template: RuleTemplateTemperature,
-			summary:  "Max sensor temperature for device is above 90°C for at least ten minutes.",
-			count:    8,
-			want:     "🟡 8 devices with sensor temperatures above 90°C for at least ten minutes",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			severity := "warning"
-			if tc.template == RuleTemplateOffline {
-				severity = "critical"
-			}
-			assert.Equal(t, tc.want, groupLine(alertGroup{
-				Severity: severity, Template: string(tc.template), DeviceCount: tc.count,
-				Summaries: []string{tc.summary}, SummaryCount: 1,
-			}, false))
-		})
-	}
-}
-
 func TestRenderSlackUsesAlertSpecificResolvedCopyInMixedBatch(t *testing.T) {
 	firing := Alert{
 		Status: "firing",

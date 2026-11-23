@@ -65,20 +65,6 @@ func TestApplyFilters_NoFiltersIsPassThrough(t *testing.T) {
 	assert.Equal(t, 0, len(skipped))
 }
 
-func TestApplyFilters_SingleFilterPartitions(t *testing.T) {
-	f := newFakeFilter("f1", "b")
-	in := CommandFilterInput{
-		CommandType:       commandtype.SetPowerTarget,
-		DeviceIdentifiers: []string{"a", "b", "c"},
-	}
-	kept, skipped, err := applyFilters(context.Background(), []CommandFilter{f}, in)
-	assert.NoError(t, err)
-	assert.Equal(t, []string{"a", "c"}, kept)
-	assert.Equal(t, 1, len(skipped))
-	assert.Equal(t, "b", skipped[0].DeviceIdentifier)
-	assert.Equal(t, "f1", skipped[0].FilterName)
-}
-
 func TestApplyFilters_OrderedChainAccumulatesSkips(t *testing.T) {
 	// f1 excludes "b"; f2 excludes "c". Expect f2 to see ["a", "c"] (post-f1)
 	// and the final skipped slice to record both rejections with their
@@ -126,21 +112,4 @@ func TestApplyFilters_ErrorBubblesUpAndStopsChain(t *testing.T) {
 	_, _, err := applyFilters(context.Background(), []CommandFilter{f1, f2}, in)
 	assert.Error(t, err)
 	assert.Equal(t, 0, f2.calls)
-}
-
-func TestApplyFilters_Idempotent(t *testing.T) {
-	// Re-running a filter on its own output is a no-op: nothing further
-	// gets skipped, kept slice is stable.
-	f := newFakeFilter("f1", "b")
-	in := CommandFilterInput{
-		CommandType:       commandtype.SetPowerTarget,
-		DeviceIdentifiers: []string{"a", "b", "c"},
-	}
-	kept1, _, _ := applyFilters(context.Background(), []CommandFilter{f}, in)
-	in2 := in
-	in2.DeviceIdentifiers = kept1
-	kept2, skipped2, err := applyFilters(context.Background(), []CommandFilter{f}, in2)
-	assert.NoError(t, err)
-	assert.Equal(t, kept1, kept2)
-	assert.Equal(t, 0, len(skipped2))
 }

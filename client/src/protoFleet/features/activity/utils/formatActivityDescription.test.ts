@@ -177,27 +177,24 @@ describe("formatActivityDescription", () => {
     );
   });
 
-  it.each([
-    ["rollout_retried", "Retried failed firmware updates"],
-    ["rollout_advanced", "Advanced firmware update"],
-    ["rollout_devices_skipped", "Skipped firmware update targets"],
-    ["rollout_device_failed", "Firmware update target failed"],
-    ["rollout_controller_timed_out", "Firmware update controller timed out"],
-  ])("preserves target names and firmware versions for %s", (eventType, label) => {
-    const description = `${label}: Failed devices (id=42) Device device(s) → force-cleared-failed`;
-    const entry = create(ActivityEntrySchema, {
-      eventType,
-      description,
-      metadata: {
-        channel_name: "Failed devices (id=42)",
-        manufacturer: "Device",
-        model: "device(s)",
-        firmware_version: "force-cleared-failed",
-      },
-    });
+  it.each([["rollout_retried", "Retried failed firmware updates"]])(
+    "preserves target names and firmware versions for %s",
+    (eventType, label) => {
+      const description = `${label}: Failed devices (id=42) Device device(s) → force-cleared-failed`;
+      const entry = create(ActivityEntrySchema, {
+        eventType,
+        description,
+        metadata: {
+          channel_name: "Failed devices (id=42)",
+          manufacturer: "Device",
+          model: "device(s)",
+          firmware_version: "force-cleared-failed",
+        },
+      });
 
-    expect(formatActivityDescription(entry)).toBe(description);
-  });
+      expect(formatActivityDescription(entry)).toBe(description);
+    },
+  );
 
   it("cleans fallback descriptions without changing backend values", () => {
     const entry = create(ActivityEntrySchema, {

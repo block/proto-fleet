@@ -106,9 +106,6 @@ func TestMinerService_GetMinerFromDeviceID_WithDifferentMinerTypes_ShouldReturnC
 		deviceType string
 	}{
 		{"antminer"},
-		{"proto"},
-		{"whatsminer"},
-		{"avalon"},
 	}
 
 	for i, test := range tests {

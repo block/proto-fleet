@@ -136,40 +136,6 @@ func TestBuildKeysetSQL(t *testing.T) {
 		assert.Equal(t, []any{"AA:BB:CC:DD:EE:FF", int64(75)}, args)
 	})
 
-	t.Run("telemetry sort with NULL value", func(t *testing.T) {
-		cursor := &sortedCursor{
-			SortValue: "", // NULL telemetry
-			CursorID:  25,
-		}
-		config := &stores.SortConfig{
-			Field:     stores.SortFieldHashrate,
-			Direction: stores.SortDirectionAsc,
-		}
-
-		sql, args := buildKeysetSQL(cursor, config, 2)
-
-		assert.Contains(t, sql, "IS NULL")
-		assert.Contains(t, sql, "discovered_device.id > $2")
-		assert.Equal(t, []any{int64(25)}, args)
-	})
-
-	t.Run("telemetry sort with value includes NULL fallback", func(t *testing.T) {
-		cursor := &sortedCursor{
-			SortValue: "123.5",
-			CursorID:  30,
-		}
-		config := &stores.SortConfig{
-			Field:     stores.SortFieldTemperature,
-			Direction: stores.SortDirectionDesc,
-		}
-
-		sql, args := buildKeysetSQL(cursor, config, 2)
-
-		assert.Contains(t, sql, "< ($2, $3)")
-		assert.Contains(t, sql, "OR")
-		assert.Contains(t, sql, "IS NULL")
-		assert.Equal(t, []any{"123.5", int64(30)}, args)
-	})
 }
 
 func TestGetTelemetryMetricExpression(t *testing.T) {

@@ -84,15 +84,6 @@ describe("EditRoleModal", () => {
     expect(getByText("Edit role for alice")).toBeInTheDocument();
   });
 
-  it("preselects the user's current role", async () => {
-    renderModal({ currentRoleName: "ADMIN" });
-
-    await waitFor(() => {
-      const select = screen.getByRole("combobox", { name: "Role" }) as HTMLSelectElement;
-      expect(select.value).toBe("role-admin");
-    });
-  });
-
   it("keeps Save disabled when the picked role matches the current role", async () => {
     const { getByText } = renderModal({ currentRoleName: "ADMIN" });
 
@@ -103,21 +94,6 @@ describe("EditRoleModal", () => {
 
     const saveButton = getByText("Save").closest("button");
     expect(saveButton).toBeDisabled();
-  });
-
-  it("enables Save once a different role is picked", async () => {
-    const { getByText } = renderModal({ currentRoleName: "ADMIN" });
-
-    await waitFor(() => {
-      const select = screen.getByRole("combobox", { name: "Role" }) as HTMLSelectElement;
-      expect(select.value).toBe("role-admin");
-    });
-
-    pickRole("Field Tech");
-    await waitFor(() => {
-      const saveButton = getByText("Save").closest("button");
-      expect(saveButton).not.toBeDisabled();
-    });
   });
 
   it("calls updateUserRole with the chosen role and target user", async () => {

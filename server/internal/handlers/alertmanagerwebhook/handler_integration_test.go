@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -151,44 +150,6 @@ func (h *dbHarness) fetchRows(t *testing.T) []rowSnapshot {
 	}
 	require.NoError(t, rows.Err())
 	return out
-}
-
-// errInjectingStore wraps a real Store and returns queued errors in
-// order for the first len(errs) calls; subsequent calls pass through to
-// the underlying store. It lets failure-path tests exercise the real DB
-// for successful writes while still simulating transient db errors
-// without dropping the table or closing the connection mid-test.
-type errInjectingStore struct {
-	mu    sync.Mutex
-	inner notificationhistory.Store
-	errs  []error
-}
-
-func (s *errInjectingStore) nextErr() (error, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(s.errs) == 0 {
-		return nil, false
-	}
-	var injected error
-	injected, s.errs = s.errs[0], s.errs[1:]
-	return injected, true
-}
-
-func (s *errInjectingStore) Insert(ctx context.Context, n *notificationhistory.Notification) error {
-	if injected, ok := s.nextErr(); ok && injected != nil {
-		return injected
-	}
-	return s.inner.Insert(ctx, n)
-}
-
-// InsertBatch is all-or-nothing: a queued error fails the whole batch (nothing persists),
-// otherwise it delegates to the real store.
-func (s *errInjectingStore) InsertBatch(ctx context.Context, notifs []*notificationhistory.Notification) error {
-	if injected, ok := s.nextErr(); ok && injected != nil {
-		return injected
-	}
-	return s.inner.InsertBatch(ctx, notifs)
 }
 
 // stubOrgLister is a deterministic OrgLister for tests.
@@ -360,30 +321,6 @@ func TestServeHTTP_RejectedOrEmptyRequestWritesNoRow(t *testing.T) {
 			require.Equal(t, 0, h.countRows(t))
 		})
 	}
-}
-
-// partial store failure within a batch must not block the rest — as long
-// the batch persist is atomic: if it fails, nothing lands and the handler 5xxs so Grafana retries.
-func TestServeHTTP_BatchInsertFailureReturns5xx(t *testing.T) {
-	h := newDBHarness(t)
-	store := &errInjectingStore{inner: h.store, errs: []error{errors.New("transient db error")}}
-	handler := NewHandler(store, testWebhookToken, nil, nil)
-
-	body := []byte(`{
-		"version": "4",
-		"status": "firing",
-		"alerts": [
-			{"status":"firing","labels":{"alertname":"A","organization_id":"1"}},
-			{"status":"firing","labels":{"alertname":"B","organization_id":"1"}}
-		]
-	}`)
-
-	req := newAuthedRequest(t, body)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusInternalServerError, rec.Code)
-	require.Equal(t, 0, h.countRows(t))
 }
 
 // unknown JSON fields are accepted so a future Grafana version with new

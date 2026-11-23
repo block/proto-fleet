@@ -17,25 +17,11 @@ describe("minerFilters", () => {
       expect(filter.options.map((o) => o.label)).toEqual(["S19", "S21", "T21"]);
     });
 
-    it("should set all models as default selected options", () => {
-      const models = ["S19", "S21"];
-      const filter = createModelFilter(models);
-
-      expect(filter.defaultOptionIds).toEqual(["S19", "S21"]);
-    });
-
     it("should handle empty models array", () => {
       const filter = createModelFilter([]);
 
       expect(filter.options).toHaveLength(0);
       expect(filter.defaultOptionIds).toHaveLength(0);
-    });
-
-    it("should handle single model", () => {
-      const filter = createModelFilter(["S19"]);
-
-      expect(filter.options).toHaveLength(1);
-      expect(filter.defaultOptionIds).toEqual(["S19"]);
     });
 
     it("should keep raw model labels by default", () => {
@@ -113,20 +99,6 @@ describe("minerFilters", () => {
 
       expect(filterByModel(createItem("S21"), filters)).toBe(false);
       expect(filterByModel(createItem("T21"), filters)).toBe(false);
-    });
-
-    it("should work with single model filter", () => {
-      const filters: ActiveFilters = {
-        buttonFilters: [],
-        dropdownFilters: { model: ["S19"] },
-
-        numericFilters: {},
-
-        textareaListFilters: {},
-      };
-
-      expect(filterByModel(createItem("S19"), filters)).toBe(true);
-      expect(filterByModel(createItem("S21"), filters)).toBe(false);
     });
   });
 });

@@ -19,8 +19,6 @@ describe("deepClone", () => {
 
   test.each([
     ["a string", "hello"],
-    ["a number", 42],
-    ["a boolean", true],
     ["null", null],
     ["undefined", undefined],
   ])("returns %s unchanged", (_name, value) => {

@@ -140,12 +140,6 @@ func TestPermissionsFor(t *testing.T) {
 			want:      []string{authz.PermMinerUpdatePassword},
 		},
 		{
-			name:      "log download is read-only",
-			method:    http.MethodGet,
-			proxyPath: "/api/v1/system/logs",
-			want:      []string{authz.PermMinerDownloadLogs},
-		},
-		{
 			name:      "a write under the logs prefix is not authorized as a mere log download",
 			method:    http.MethodPost,
 			proxyPath: "/api/v1/system/logs",

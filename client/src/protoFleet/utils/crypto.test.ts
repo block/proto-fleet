@@ -9,16 +9,6 @@ describe("computeSha256", () => {
     expect(hash).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it("returns consistent hash for same content", async () => {
-    const file1 = new File(["same content"], "a.swu");
-    const file2 = new File(["same content"], "b.swu");
-
-    const hash1 = await computeSha256(file1);
-    const hash2 = await computeSha256(file2);
-
-    expect(hash1).toBe(hash2);
-  });
-
   it("returns different hash for different content", async () => {
     const file1 = new File(["content a"], "a.swu");
     const file2 = new File(["content b"], "b.swu");

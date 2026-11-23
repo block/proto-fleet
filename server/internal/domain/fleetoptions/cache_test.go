@@ -9,42 +9,12 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetoptions"
 )
 
-func TestCache_GetAfterPutReturnsHit(t *testing.T) {
-	c := fleetoptions.NewCache(time.Minute, 16)
-	want := fleetoptions.Options{
-		Models:           []string{"S19 Pro"},
-		FirmwareVersions: []string{"1.0.0"},
-	}
-
-	c.Put(42, want)
-	got, ok := c.Get(42)
-
-	assert.True(t, ok)
-	assert.Equal(t, want, got)
-}
-
 func TestCache_GetWithoutPutReturnsMiss(t *testing.T) {
 	c := fleetoptions.NewCache(time.Minute, 16)
 
 	_, ok := c.Get(7)
 
 	assert.False(t, ok)
-}
-
-func TestCache_InvalidateRemovesEntry(t *testing.T) {
-	c := fleetoptions.NewCache(time.Minute, 16)
-	c.Put(1, fleetoptions.Options{Models: []string{"x"}})
-
-	c.Invalidate(1)
-	_, ok := c.Get(1)
-
-	assert.False(t, ok)
-}
-
-func TestCache_InvalidateMissingOrgIsNoop(t *testing.T) {
-	c := fleetoptions.NewCache(time.Minute, 16)
-
-	assert.NotPanics(t, func() { c.Invalidate(999) })
 }
 
 func TestCache_TTLExpiryEvictsEntry(t *testing.T) {

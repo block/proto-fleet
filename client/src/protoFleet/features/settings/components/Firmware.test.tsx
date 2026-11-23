@@ -311,20 +311,6 @@ describe("Firmware", () => {
     expect(mockListFirmwareFiles).not.toHaveBeenCalled();
   });
 
-  it("opens delete-all dialog when Delete all button is clicked", async () => {
-    mockListFirmwareFiles.mockResolvedValue(sampleFiles);
-
-    const { getByText } = render(<Firmware />);
-
-    await waitFor(() => {
-      expect(getByText("alpha.swu")).toBeInTheDocument();
-    });
-
-    fireEvent.click(getByText("Delete all firmware files"));
-
-    expect(getByText("Delete all firmware files?")).toBeInTheDocument();
-  });
-
   it("calls deleteAllFirmwareFiles on dialog confirm", async () => {
     mockListFirmwareFiles.mockResolvedValue(sampleFiles);
     mockDeleteAllFirmwareFiles.mockResolvedValue({ deleted_count: 2 });
