@@ -83,7 +83,7 @@ func (s *Service) powerFeedControl(ctx context.Context, q sqlc.Querier, orgID in
 	if err != nil {
 		return nil, err
 	}
-	upgrade, err := s.fleetNodeUpgradeRequired(ctx, orgID, row.DeviceID, row.DeviceIdentifier, remotenode.PowerFeedWriteCommandProtocolVersion)
+	upgrade, err := s.fleetNodeUpgradeRequired(ctx, orgID, row.DeviceID, row.DeviceIdentifier, remotenode.PowerFeedWriteCommandProtocolVersion, false)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +185,7 @@ func (s *Service) ControlModulePowerFeed(ctx context.Context, moduleID int64, de
 		if err := req.Validate(); err != nil {
 			return nil, fleeterror.NewInvalidArgumentError(err.Error())
 		}
-		upgrade, err := s.fleetNodeUpgradeRequired(db.WithTxQueries(txCtx, q), info.OrganizationID, row.DeviceID, row.DeviceIdentifier, remotenode.PowerFeedWriteCommandProtocolVersion)
+		upgrade, err := s.fleetNodeUpgradeRequired(db.WithTxQueries(txCtx, q), info.OrganizationID, row.DeviceID, row.DeviceIdentifier, remotenode.PowerFeedWriteCommandProtocolVersion, true)
 		if err != nil {
 			return nil, err
 		}

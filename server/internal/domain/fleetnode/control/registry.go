@@ -227,7 +227,9 @@ type inflightCommand struct {
 func (c *inflightCommand) reportBearing() bool { return c.events != nil }
 
 type Registry struct {
-	dispatchObserver         func(context.Context, string, string, string, time.Duration)
+	dispatchObserver func(context.Context, string, string, string, time.Duration)
+	protocolObserver func(bool)
+
 	minerWebSlots            chan struct{}
 	mu                       sync.Mutex
 	conns                    map[int64]*connection
@@ -253,6 +255,12 @@ func NewRegistry() *Registry {
 		started:                  time.Now(),
 		disconnectedAt:           make(map[int64]time.Time),
 	}
+}
+
+// WithProtocolObserver installs a bounded compatibility outcome callback before use.
+func (r *Registry) WithProtocolObserver(observe func(bool)) *Registry {
+	r.protocolObserver = observe
+	return r
 }
 
 // Connected reports whether fleetNodeID has an active ControlStream.
@@ -334,19 +342,37 @@ func (r *Registry) commandProtocolBelow(fleetNodeID int64, version gatewaypb.Com
 // needs an upgrade for a specific command. Disconnected nodes retain their
 // existing connection handling.
 func (r *Registry) CommandProtocolUpgradeRequiredForVersion(fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	conn := r.conns[fleetNodeID]
-	return conn != nil && conn.maxCommandProtocolVersion < minimumCommandProtocolVersion
+	return r.commandProtocolBelow(fleetNodeID, minimumCommandProtocolVersion)
 }
 
-// SupportsCommandProtocolVersion requires a live node with a known compatible
-// handshake. Use it before admitting new durable workflows.
+// CommandProtocolUpgradeRequiredForDispatch records an early rejection when a
+// connected node needs an upgrade. Disconnected nodes retain their usual handling.
+func (r *Registry) CommandProtocolUpgradeRequiredForDispatch(fleetNodeID int64, minimum gatewaypb.CommandProtocolVersion) bool {
+	connected, compatible := r.checkDispatchProtocol(fleetNodeID, minimum)
+	return connected && !compatible
+}
+
+// SupportsCommandProtocolVersion checks for a live, compatible node before
+// workflow admission and records early protocol rejections.
 func (r *Registry) SupportsCommandProtocolVersion(fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion) bool {
+	_, compatible := r.checkDispatchProtocol(fleetNodeID, minimumCommandProtocolVersion)
+	return compatible
+}
+
+func (r *Registry) checkDispatchProtocol(fleetNodeID int64, minimum gatewaypb.CommandProtocolVersion) (connected, compatible bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	conn := r.conns[fleetNodeID]
-	return conn != nil && conn.maxCommandProtocolVersion >= minimumCommandProtocolVersion
+	if conn == nil {
+		return false, false
+	}
+	compatible = conn.maxCommandProtocolVersion >= minimum
+	// Only record early rejections. addCmd records the check for commands that
+	// reach dispatch.
+	if !compatible && r.protocolObserver != nil {
+		r.protocolObserver(false)
+	}
+	return true, compatible
 }
 
 // teardown closes connection.done and every in-flight command's done. Caller holds
@@ -380,6 +406,9 @@ func (r *Registry) addCmd(fleetNodeID int64, minimumCommandProtocolVersion gatew
 	conn, ok := r.conns[fleetNodeID]
 	if !ok {
 		return nil, nil, ErrNoActiveStream
+	}
+	if r.protocolObserver != nil {
+		r.protocolObserver(conn.maxCommandProtocolVersion >= minimumCommandProtocolVersion)
 	}
 	if conn.maxCommandProtocolVersion < minimumCommandProtocolVersion {
 		return nil, nil, fleeterror.NewFailedPreconditionErrorf(

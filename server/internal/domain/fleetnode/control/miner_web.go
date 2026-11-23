@@ -25,6 +25,7 @@ const (
 	MaxConcurrentMinerWebRequests        = 4
 	MaxMinerWebResponseBytes             = 64 << 20
 	MinerWebChunkBytes                   = 64 << 10
+	minerWebProtocolVersion              = pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V8
 )
 
 type minerWebResult struct {
@@ -42,7 +43,13 @@ func (r *Registry) SupportsMinerWeb(fleetNodeID int64) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	conn := r.conns[fleetNodeID]
-	return conn != nil && conn.maxCommandProtocolVersion >= pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V8
+	return conn != nil && conn.maxCommandProtocolVersion >= minerWebProtocolVersion
+}
+
+// SupportsMinerWebForDispatch checks the live connection before dispatch and
+// records early protocol rejections. Use SupportsMinerWeb for display.
+func (r *Registry) SupportsMinerWebForDispatch(fleetNodeID int64) bool {
+	return r.SupportsCommandProtocolVersion(fleetNodeID, minerWebProtocolVersion)
 }
 
 // SendMinerWeb collects response frames separately from the small terminal ack.
@@ -81,7 +88,7 @@ func (r *Registry) SendMinerWeb(ctx context.Context, fleetNodeID int64, cmd *pb.
 		}
 	}()
 	c := &inflightCommand{id: cmd.GetCommandId(), ack: make(chan *pb.ControlAck, 1), done: make(chan struct{}), web: &minerWebResult{}}
-	outgoing, connDone, err := r.addCmd(fleetNodeID, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V8, c)
+	outgoing, connDone, err := r.addCmd(fleetNodeID, minerWebProtocolVersion, c)
 	if err != nil {
 		return nil, commandNotEnqueued(err)
 	}

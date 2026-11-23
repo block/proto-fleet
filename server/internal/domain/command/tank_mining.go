@@ -63,8 +63,9 @@ func resolveTankCommandTargets(ctx context.Context, q sqlc.Querier, ids []int64,
 	return targets, nil
 }
 
-func (s *Service) miningProtocolUpgradeRequired(ctx context.Context, q sqlc.Querier, rows []miningCommandTarget, orgID int64, scope miningScope) (bool, error) {
-	if s.protocolChecker == nil {
+func (s *Service) miningProtocolUpgradeRequired(ctx context.Context, q sqlc.Querier, rows []miningCommandTarget, orgID int64, scope miningScope, forDispatch bool) (bool, error) {
+	upgradeRequired := s.protocolUpgradeCheck(forDispatch)
+	if upgradeRequired == nil {
 		return false, nil
 	}
 	devices := make([]resolvedDevice, 0, len(rows))
@@ -78,7 +79,7 @@ func (s *Service) miningProtocolUpgradeRequired(ctx context.Context, q sqlc.Quer
 		return false, err
 	}
 	for _, route := range routes {
-		if route.FleetNodeID.Valid && s.protocolChecker.CommandProtocolUpgradeRequiredForVersion(route.FleetNodeID.Int64, scope.protocol()) {
+		if route.FleetNodeID.Valid && upgradeRequired(route.FleetNodeID.Int64, scope.protocol()) {
 			return true, nil
 		}
 	}
@@ -144,7 +145,7 @@ func (s *Service) getMiningOptions(ctx context.Context, ids []int64, authorize m
 				break
 			}
 		}
-		upgradeRequired, err := s.miningProtocolUpgradeRequired(ctx, q, rows, info.OrganizationID, scope)
+		upgradeRequired, err := s.miningProtocolUpgradeRequired(ctx, q, rows, info.OrganizationID, scope, false)
 		if err != nil {
 			return nil, err
 		}
@@ -226,7 +227,7 @@ func (s *Service) setMining(ctx context.Context, ids []int64, mining *bool, auth
 				return nil, err
 			}
 		}
-		upgradeRequired, err := s.miningProtocolUpgradeRequired(txCtx, q, rows, info.OrganizationID, scope)
+		upgradeRequired, err := s.miningProtocolUpgradeRequired(txCtx, q, rows, info.OrganizationID, scope, true)
 		if err != nil {
 			return nil, err
 		}

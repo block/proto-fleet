@@ -377,14 +377,19 @@ func start(config *Config) (result error) {
 	if err != nil {
 		return fmt.Errorf("initialize dispatch metrics: %w", err)
 	}
-	fleetNodeControlRegistry := control.NewRegistry().WithDispatchObserver(dispatchObserver)
+	nodeMetrics, err := runtimeMetrics.NewNodeMetrics()
+	if err != nil {
+		return fmt.Errorf("initialize node metrics: %w", err)
+	}
+	fleetNodeControlRegistry := control.NewRegistry().WithDispatchObserver(dispatchObserver).WithProtocolObserver(nodeMetrics.ProtocolCheck)
+
 	if err := runtimeMetrics.ObserveNodeConnections(fleetNodeControlRegistry.ConnectionCount); err != nil {
 		return fmt.Errorf("observe node connections: %w", err)
 	}
 	fleetNodeEnrollmentSvc.WithControlStreamInvalidator(fleetNodeControlRegistry.RevokeSession)
 	fleetNodeDiscoverySvc := fleetnodediscovery.NewService(fleetNodeControlRegistry, fleetNodeEnrollmentSvc)
 	fleetNodeAuthStore := sqlstores.NewSQLFleetNodeAuthStore(conn)
-	fleetNodeAuthSvc := fleetnodeauth.NewService(fleetNodeAuthStore, fleetNodeEnrollmentStore, apiKeySvc)
+	fleetNodeAuthSvc := fleetnodeauth.NewService(fleetNodeAuthStore, fleetNodeEnrollmentStore, apiKeySvc).WithOperationalMetrics(nodeMetrics)
 
 	tokenSvc, err := tokenDomain.NewService(config.Auth)
 	if err != nil {

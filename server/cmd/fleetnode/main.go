@@ -13,6 +13,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 	fleet_telemetry "github.com/block/proto-fleet/server/internal/infrastructure/fleet-telemetry"
 	"github.com/block/proto-fleet/server/internal/infrastructure/logging"
+	"github.com/block/proto-fleet/server/internal/infrastructure/runtimemetrics"
 	"github.com/block/proto-fleet/server/internal/releaseinfo"
 )
 
@@ -25,6 +26,7 @@ type Context struct {
 }
 
 type CLI struct {
+	RuntimeMetrics         runtimemetrics.Config      `embed:"" prefix:"runtime-metrics-" envprefix:"FLEETNODE_RUNTIME_METRICS_"`
 	Version                kong.VersionFlag           `help:"print running binary version"`
 	PrintReleaseRepository printReleaseRepositoryFlag `help:"print the embedded publishing repository and exit"`
 	StateDir               string                     `help:"override state directory; defaults to $XDG_STATE_HOME/fleetnode or ~/.local/state/fleetnode" type:"path"`
@@ -70,9 +72,19 @@ func main() {
 	})
 	kctx.FatalIfErrorf(err)
 
+	// One-shot status/enroll commands must not contend with the daemon listener.
+	metricsConfig := cli.RuntimeMetrics
+	metricsConfig.Enabled = metricsConfig.Enabled && kctx.Command() == "run"
+	metrics, err := runtimemetrics.Start(metricsConfig)
+	kctx.FatalIfErrorf(err)
+	cli.Run.operationMetrics, err = metrics.NewNodeMetrics()
+	kctx.FatalIfErrorf(err)
 	runErr := kctx.Run(&Context{StateDir: stateDir})
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), tracerShutdownTimeout)
 	shutdownErr := shutdownTracer(shutdownCtx)
+	if err := metrics.Shutdown(shutdownCtx); err != nil {
+		slog.Error("Failed to shutdown metrics", "error", err)
+	}
 	cancel()
 	if shutdownErr != nil {
 		slog.Error("Failed to shutdown tracer", "error", shutdownErr)

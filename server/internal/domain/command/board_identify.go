@@ -128,8 +128,9 @@ func (s *Service) boardIdentifySupported(ctx context.Context, row sqlc.ListBoard
 	return s.pluginCaps != nil && s.pluginCaps.GetRawCapabilitiesForDevice(ctx, row.DriverName, row.Manufacturer.String, row.Model.String)[sdk.CapabilityBoardIdentify]
 }
 
-func (s *Service) boardIdentifyUpgradeRequired(ctx context.Context, q sqlc.Querier, rows []sqlc.ListBoardIdentifyTargetsRow, orgID int64) (bool, error) {
-	if s.protocolChecker == nil {
+func (s *Service) boardIdentifyUpgradeRequired(ctx context.Context, q sqlc.Querier, rows []sqlc.ListBoardIdentifyTargetsRow, orgID int64, forDispatch bool) (bool, error) {
+	upgradeRequired := s.protocolUpgradeCheck(forDispatch)
+	if upgradeRequired == nil {
 		return false, nil
 	}
 	devices := []resolvedDevice{}
@@ -143,7 +144,7 @@ func (s *Service) boardIdentifyUpgradeRequired(ctx context.Context, q sqlc.Queri
 		return false, err
 	}
 	for _, route := range routes {
-		if route.FleetNodeID.Valid && s.protocolChecker.CommandProtocolUpgradeRequiredForVersion(route.FleetNodeID.Int64, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V10) {
+		if route.FleetNodeID.Valid && upgradeRequired(route.FleetNodeID.Int64, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V10) {
 			return true, nil
 		}
 	}
@@ -152,8 +153,8 @@ func (s *Service) boardIdentifyUpgradeRequired(ctx context.Context, q sqlc.Queri
 
 // boardIdentifyUnavailable returns the first reason the boards cannot be
 // identified now, or "" when every board is ready.
-func (s *Service) boardIdentifyUnavailable(ctx context.Context, q sqlc.Querier, rows []sqlc.ListBoardIdentifyTargetsRow, orgID int64) (string, error) {
-	upgrade, err := s.boardIdentifyUpgradeRequired(ctx, q, rows, orgID)
+func (s *Service) boardIdentifyUnavailable(ctx context.Context, q sqlc.Querier, rows []sqlc.ListBoardIdentifyTargetsRow, orgID int64, forDispatch bool) (string, error) {
+	upgrade, err := s.boardIdentifyUpgradeRequired(ctx, q, rows, orgID, forDispatch)
 	if err != nil {
 		return "", err
 	}
@@ -223,7 +224,7 @@ func (s *Service) GetBoardIdentifyOptions(ctx context.Context, moduleIDs, hashbo
 				Tank: row.TankPosition, Module: row.ModulePosition, Slot: row.Slot, SerialNumber: row.SerialNumber,
 			})
 		}
-		out.UnavailableReason, err = s.boardIdentifyUnavailable(ctx, q, rows, info.OrganizationID)
+		out.UnavailableReason, err = s.boardIdentifyUnavailable(ctx, q, rows, info.OrganizationID, false)
 		if err != nil {
 			return nil, err
 		}
@@ -296,7 +297,7 @@ func (s *Service) SetBoardIdentify(ctx context.Context, targets []BoardIdentifyT
 				return nil, err
 			}
 		}
-		reason, err := s.boardIdentifyUnavailable(txCtx, q, rows, info.OrganizationID)
+		reason, err := s.boardIdentifyUnavailable(txCtx, q, rows, info.OrganizationID, true)
 		if err != nil {
 			return nil, err
 		}

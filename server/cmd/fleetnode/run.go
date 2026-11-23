@@ -22,6 +22,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/netscan"
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
+	"github.com/block/proto-fleet/server/internal/infrastructure/runtimemetrics"
 	"github.com/block/proto-fleet/server/internal/releaseinfo"
 )
 
@@ -34,9 +35,10 @@ const (
 var controlWorkerShutdownTimeout = 10 * time.Second
 
 type RunCmd struct {
-	DiscoveryRanges      []string      `name:"discovery-ranges" help:"Assigned private IPv4 CIDRs or start-end ranges; file changes require restart"`
-	HeartbeatInterval    time.Duration `name:"heartbeat-interval" default:"30s" help:"interval between UploadHeartbeat calls (maximum 30s)"`
-	LocalDiscoverySubnet string        `name:"local-discovery-subnet" env:"FLEETNODE_LOCAL_DISCOVERY_SUBNET" help:"CIDR to scan for automatic local-subnet discovery instead of detecting the host subnet"`
+	operationMetrics     *runtimemetrics.NodeMetrics `kong:"-"`
+	DiscoveryRanges      []string                    `name:"discovery-ranges" help:"Assigned private IPv4 CIDRs or start-end ranges; file changes require restart"`
+	HeartbeatInterval    time.Duration               `name:"heartbeat-interval" default:"30s" help:"interval between UploadHeartbeat calls (maximum 30s)"`
+	LocalDiscoverySubnet string                      `name:"local-discovery-subnet" env:"FLEETNODE_LOCAL_DISCOVERY_SUBNET" help:"CIDR to scan for automatic local-subnet discovery instead of detecting the host subnet"`
 
 	now                      func() time.Time                                                         `kong:"-"`
 	clientFactory            func(serverURL string, tokenSource func() string) (gatewayClient, error) `kong:"-"`

@@ -53,6 +53,7 @@ type PluginCapabilitiesProvider interface {
 
 type CommandProtocolChecker interface {
 	CommandProtocolUpgradeRequiredForVersion(fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion) bool
+	CommandProtocolUpgradeRequiredForDispatch(fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion) bool
 }
 
 // UserCredentialsVerifier provides interface for verifying user credentials
@@ -117,6 +118,16 @@ func (s *Service) SetPluginCapabilitiesProvider(p PluginCapabilitiesProvider) {
 // used to check command availability before admission.
 func (s *Service) SetCommandProtocolChecker(checker CommandProtocolChecker) {
 	s.protocolChecker = checker
+}
+
+func (s *Service) protocolUpgradeCheck(forDispatch bool) func(int64, gatewaypb.CommandProtocolVersion) bool {
+	if s.protocolChecker == nil {
+		return nil
+	}
+	if forDispatch {
+		return s.protocolChecker.CommandProtocolUpgradeRequiredForDispatch
+	}
+	return s.protocolChecker.CommandProtocolUpgradeRequiredForVersion
 }
 
 // SetDeviceIdentifierResolver injects the rich-filter resolver used by the
