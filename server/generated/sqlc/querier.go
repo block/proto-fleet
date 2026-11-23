@@ -991,6 +991,7 @@ type Querier interface {
 	// MATERIALIZED keeps the planner from flattening this back into a seven-table
 	// join: ownership resolves first, then metadata, credentials and fence.
 	GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx context.Context, deviceIdentifier string) (GetFleetNodeTelemetryRouteByDeviceIdentifierRow, error)
+	GetFleetRuntimeLeaseForRecovery(ctx context.Context) (GetFleetRuntimeLeaseForRecoveryRow, error)
 	GetFrigateUpdateAction(ctx context.Context, arg GetFrigateUpdateActionParams) (FrigateUpdateAction, error)
 	GetFrigateUpdateDeviceSite(ctx context.Context, id int64) (GetFrigateUpdateDeviceSiteRow, error)
 	GetFrigateUpdateJob(ctx context.Context, arg GetFrigateUpdateJobParams) (FrigateUpdateJob, error)
@@ -2532,6 +2533,7 @@ type Querier interface {
 	// statement. Caller wraps in the same tx as the building UPDATE so
 	// the building/rack/device site_ids stay in lockstep.
 	ReassignRacksUnderBuildingsBulk(ctx context.Context, arg ReassignRacksUnderBuildingsBulkParams) (int64, error)
+	RebindExpiredFleetRuntimeLease(ctx context.Context, arg RebindExpiredFleetRuntimeLeaseParams) (int64, error)
 	// Telemetry auth failures may move paired-like rows into AUTHENTICATION_NEEDED,
 	// but late samples must not resurrect devices moved to UNPAIRED, PENDING, or FAILED.
 	// Call after locking the device, so endpoint recovery is visible in this statement.

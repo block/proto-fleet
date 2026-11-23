@@ -30,6 +30,7 @@ const (
 )
 
 type cli struct {
+	RecoverFleetLease recoverFleetLeaseCmd `cmd:"" help:"inspect or rebind the Fleet lease after an etcd rebuild"`
 	RecoverEtcdRoot   recoverEtcdRootCmd   `cmd:"" help:"rotate the etcd administrator password using the installed signing key"`
 	EtcdStatus        etcdStatusCmd        `cmd:"" help:"check etcd quorum and quota without Fleet; nonzero on warning"`
 	Preflight         preflightCmd         `cmd:"" help:"validate an HA host before installation"`
@@ -53,6 +54,27 @@ type cli struct {
 	AppStop           appStopCmd           `cmd:"" help:"stop the Fleet application services"`
 	AppStart          appStartCmd          `cmd:"" help:"start the Fleet application services"`
 	WaitTakeover      waitTakeoverCmd      `cmd:"" help:"wait for the public endpoint to serve an application version"`
+}
+
+type recoverFleetLeaseCmd struct {
+	NodeEnv       string `default:"/etc/proto-fleet/ha/node.env" type:"path" help:"installed node environment file"`
+	Apply         bool   `help:"rebind the expired lease"`
+	OldClusterID  uint64 `name:"old-cluster-id" help:"etcd cluster ID stored in the restored database"`
+	NewClusterID  uint64 `name:"new-cluster-id" help:"verified replacement etcd cluster ID"`
+	WritersFenced bool   `help:"confirm ingress is closed and the old and recovered Fleet writers are stopped"`
+}
+
+func (c *recoverFleetLeaseCmd) Run(ctx context.Context) error {
+	report, err := deployment.RecoverFleetLease(ctx, c.NodeEnv, deployment.FleetLeaseRecoveryRequest{
+		Apply: c.Apply, OldClusterID: c.OldClusterID, NewClusterID: c.NewClusterID, WritersFenced: c.WritersFenced,
+	})
+	if err != nil {
+		return err
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(report); err != nil {
+		return fmt.Errorf("write Fleet lease recovery report: %w", err)
+	}
+	return nil
 }
 
 type recoverEtcdRootCmd struct {

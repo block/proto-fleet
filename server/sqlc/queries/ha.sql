@@ -15,6 +15,32 @@ SELECT
 FROM pg_catalog.pg_roles AS database_role
 WHERE database_role.rolname = current_user;
 
+-- name: GetFleetRuntimeLeaseForRecovery :one
+SELECT
+    fleet_runtime_lease.dcs_cluster_id,
+    fleet_runtime_lease.highest_writer_generation,
+    fleet_runtime_lease.lease_epoch,
+    (fleet_runtime_lease.expires_at <= clock_timestamp())::BOOLEAN AS expired
+FROM fleet_runtime_lease
+WHERE lease_name = 'fleet-active';
+
+-- name: RebindExpiredFleetRuntimeLease :one
+UPDATE fleet_runtime_lease AS lease
+SET
+    dcs_cluster_id = sqlc.arg('new_cluster_id')::TEXT,
+    highest_writer_generation = sqlc.arg('writer_generation')::BIGINT
+FROM connected_postgres_identity AS writer
+WHERE
+    lease.lease_name = 'fleet-active'
+    AND lease.dcs_cluster_id = sqlc.arg('old_cluster_id')::TEXT
+    AND lease.dcs_cluster_id <> sqlc.arg('new_cluster_id')::TEXT
+    AND lease.expires_at <= clock_timestamp()
+    AND NOT writer.in_recovery
+    AND writer.server_address = sqlc.arg('server_address')::TEXT
+    AND writer.server_port = sqlc.arg('server_port')::INTEGER
+    AND writer.timeline = sqlc.arg('timeline')::BIGINT
+RETURNING lease.lease_epoch;
+
 -- name: AcquireFleetRuntimeLease :one
 WITH lease_context AS (
     -- Capture database time once, and fail closed unless this is the expected writer.

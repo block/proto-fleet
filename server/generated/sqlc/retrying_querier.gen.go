@@ -4676,6 +4676,18 @@ func (q *retryingQuerier) GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx conte
 	return result, err
 }
 
+func (q *retryingQuerier) GetFleetRuntimeLeaseForRecovery(ctx context.Context) (GetFleetRuntimeLeaseForRecoveryRow, error) {
+	var result GetFleetRuntimeLeaseForRecoveryRow
+	err := q.retrier.RetryQuery(ctx, "GetFleetRuntimeLeaseForRecovery", func() error {
+		callResult, callErr := q.next.GetFleetRuntimeLeaseForRecovery(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetFrigateUpdateAction(ctx context.Context, arg GetFrigateUpdateActionParams) (FrigateUpdateAction, error) {
 	var result FrigateUpdateAction
 	err := q.retrier.RetryQuery(ctx, "GetFrigateUpdateAction", func() error {
@@ -11856,6 +11868,18 @@ func (q *retryingQuerier) ReassignRacksUnderBuildingsBulk(ctx context.Context, a
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "ReassignRacksUnderBuildingsBulk", func() error {
 		callResult, callErr := q.next.ReassignRacksUnderBuildingsBulk(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) RebindExpiredFleetRuntimeLease(ctx context.Context, arg RebindExpiredFleetRuntimeLeaseParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "RebindExpiredFleetRuntimeLease", func() error {
+		callResult, callErr := q.next.RebindExpiredFleetRuntimeLease(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

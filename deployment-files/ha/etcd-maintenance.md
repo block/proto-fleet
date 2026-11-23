@@ -125,6 +125,125 @@ password off-host and remove its local copy after the approved work. Existing
 tokens become stale when the authentication revision changes; verify that
 Fleet and Patroni re-authenticate and remain ready before proceeding.
 
+## Recover the Fleet lease after an etcd rebuild
+
+The restored Fleet database can contain a lease that identifies the source etcd
+cluster. Fleet must acquire a lease for the replacement cluster before it can
+become active.
+
+### Before you rebuild etcd
+
+Close Fleet ingress. Stop Fleet in the source environment and disable its
+automatic restart. Verify that it cannot write to the recovered database or
+issue commands to Fleet Nodes. Keep that fence in effect when you reopen ingress
+on the recovery cluster.
+
+Record the source etcd cluster ID if it is available. Choose a new, unique
+`--initial-cluster-token` and use the same value on all three replacement hosts.
+Use fresh etcd data directories for the rebuild.
+
+Set the token in `ha/compose.yaml` in each verified, extracted release before
+you install. Use the patched release's `./ha/fleet-ha install` or
+`./ha/fleet-ha install-prepared` on each host. The installer copies that file
+to `/etc/proto-fleet/ha/compose.yaml` and starts etcd during installation. If
+your rebuild uses the installed Compose file, set the token there before the
+first etcd start. Etcd uses the token when it initializes its data directory.
+Reusing the source token with the same peer URLs can reproduce the source
+cluster ID.
+
+### Before you restore the Fleet database
+
+The HA installer starts Fleet as well as etcd and Patroni. On both recovered
+database hosts, stop the `fleet-api` containers and disable any automatic
+restart of Fleet. Keep etcd and Patroni running. Run the container check in
+step 1 before you restore the database.
+
+### After you restore the Fleet database
+
+Follow these steps when Patroni is running on the replacement etcd cluster.
+
+1. Verify that Fleet ingress is closed and the writer fences are in effect.
+   Run this check on both recovered database hosts. Confirm that it lists no
+   running Fleet API containers.
+
+   ```bash
+   sudo docker ps --filter label=com.docker.compose.service=fleet-api
+   ```
+
+   On both recovered database hosts, restore the source values for
+   `AUTH_CLIENT_SECRET_KEY` and `ENCRYPT_SERVICE_MASTER_KEY` from protected
+   storage. Set only these values in the installed `/etc/proto-fleet/ha/fleet.env`.
+   Keep the file root-owned with mode `0600`. Verify that `DB_DSN` uses the
+   replacement endpoints and service CA. Verify that its password matches the
+   `fleet` role on the recovered PostgreSQL cluster.
+
+   Keep the replacement HA passwords, TLS certificates and keys, and etcd JWT
+   keys. The installed `/etc/proto-fleet/ha/fleet-etcd-password` must match the
+   replacement etcd cluster's `fleet-observer` password.
+2. Verify that the replacement etcd quorum is healthy. Verify that Patroni
+   has one writable primary and the recovered standby is synchronous. From a
+   trusted administration host, set `ETCDCTL_ENDPOINTS` to the replacement
+   endpoints. Set `ETCDCTL_CACERT` to their CA certificate. Run this command
+   and enter the etcd root password at the prompt.
+
+   ```bash
+   etcdctl --user root endpoint status --write-out=json
+   ```
+
+   Verify that all members report the same `header.cluster_id`. Record its full
+   decimal value.
+
+3. On either recovered database host, open the `ha/` directory of a verified
+   release that includes the recovery command. The Fleet application release
+   that matches the restored schema can be older. Read the stored and current
+   cluster IDs.
+
+   ```bash
+   sudo ./fleet-ha recover-fleet-lease
+   ```
+
+   Verify that `current_etcd_cluster_id` matches the replacement cluster ID
+   from step 2. Stop if the IDs differ. Stop if the replacement ID matches the
+   recorded source ID. Also stop if the stored and current IDs match and
+   `current_writer_generation` is lower than `stored_writer_generation`. This
+   can indicate reuse of the source cluster ID.
+
+   If you confirm reuse, keep ingress closed and the writers fenced. Repeat the
+   approved HA rebuild and database restore. Use fresh etcd data directories
+   and a new shared token as described above. Then resume at step 1.
+
+   If no lease exists, continue at step 5. If the stored and current IDs match,
+   verify that the replacement ID differs from the source ID before you
+   continue at step 5. Use the recorded source ID or evidence of a successful
+   rebind to this replacement cluster. If you cannot verify this, keep ingress
+   closed and the writers fenced while you investigate.
+
+   If the stored ID differs from the replacement ID, continue at step 4 when
+   `lease_expired` is `true`. If the lease is still active, wait for expiry and
+   repeat the inspection.
+
+4. Verify the conditions in step 1 again. Set `OLD_CLUSTER_ID` to the stored
+   ID from the report. Set `NEW_CLUSTER_ID` to the independently verified
+   replacement ID from step 2. Run the recovery command.
+
+   ```bash
+   sudo ./fleet-ha recover-fleet-lease --apply --writers-fenced \
+     --old-cluster-id "$OLD_CLUSTER_ID" --new-cluster-id "$NEW_CLUSTER_ID"
+   ```
+
+   The command verifies the writer and etcd leader, checks the lease, and
+   keeps its epoch and expiry. A successful write returns `rebound: true`.
+   If the command fails or the result is uncertain, keep ingress closed.
+   Run step 3 again before any retry.
+5. Start the Fleet release that matches the recovered schema. Keep normal
+   ingress closed. Allow access from the operator and one enrolled canary Fleet Node. For a
+   routed deployment, use a source-restricted load balancer route for the
+   canary. For a LAN deployment, allow the operator and canary to reach the
+   virtual IP. Run `fleet-ha status` on both hosts. Verify one active Fleet
+   host, a passive peer, and `failover_ready: true`. Verify administrator
+   login, the canary control stream, and fresh telemetry before reopening
+   normal ingress.
+
 ## Recover capacity (separate approval)
 
 Use matching etcd 3.6 `etcdctl`/`etcdutl` on a trusted administration host.
