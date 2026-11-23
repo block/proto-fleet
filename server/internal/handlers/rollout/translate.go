@@ -194,7 +194,7 @@ func overrideFromProto(b *pb.RolloutBehavior) *rollout.Behavior {
 func assignmentsFromProto(in []*pb.FirmwareAssignment) []rollout.Assignment {
 	out := make([]rollout.Assignment, 0, len(in))
 	for _, a := range in {
-		out = append(out, rollout.Assignment{Manufacturer: a.Manufacturer, Model: a.Model, FirmwareFileID: a.FirmwareFileId})
+		out = append(out, rollout.Assignment{Manufacturer: a.Manufacturer, Model: a.Model, Component: a.Component, FirmwareFileID: a.FirmwareFileId})
 	}
 	return out
 }
@@ -256,6 +256,7 @@ func channelSummaryToProto(c *rollout.Channel) *pb.ReleaseChannelSummary {
 func modelGroupToProto(g *rollout.ModelGroup) *pb.ReleaseChannelModelGroup {
 	return &pb.ReleaseChannelModelGroup{
 		Manufacturer:               g.Manufacturer,
+		Component:                  g.Component,
 		Model:                      g.Model,
 		FirmwareFileId:             g.FirmwareFileID,
 		FirmwareVersion:            g.FirmwareVersion,
@@ -301,6 +302,7 @@ func conflictToProto(c *rollout.MembershipConflict) *pb.ReleaseChannelMembership
 func planToProto(p *rollout.FirmwarePlan) *pb.ReleaseChannelFirmwarePlan {
 	return &pb.ReleaseChannelFirmwarePlan{
 		Manufacturer:     p.Pair.Manufacturer,
+		Component:        p.Pair.Component,
 		Model:            p.Pair.Model,
 		FirmwareFileId:   p.FirmwareFileID,
 		FirmwareVersion:  p.FirmwareVersion,
@@ -383,7 +385,7 @@ func deviceToProto(d *rollout.RolloutDevice) *pb.RolloutDevice {
 func minerFirmwareHistoryToProto(entry *rollout.MinerFirmwareHistoryEntry) *pb.MinerFirmwareHistoryEntry {
 	return &pb.MinerFirmwareHistoryEntry{
 		RolloutId: entry.RolloutID, ChannelId: entry.ChannelID, ChannelName: entry.ChannelName,
-		Manufacturer: entry.Manufacturer, Model: entry.Model,
+		Manufacturer: entry.Manufacturer, Model: entry.Model, Component: entry.Component,
 		FirmwareVersion: entry.FirmwareVersion, FirmwareChecksum: entry.FirmwareChecksum,
 		RolloutStatus: statusToProto[entry.RolloutStatus], CancelReason: cancelReasonToProto[entry.CancelReason],
 		Paused: entry.Paused, Phase: phaseToProto[entry.Phase], Attempts: entry.Attempts,
@@ -414,6 +416,7 @@ func rolloutToProto(r *rollout.Rollout) *pb.Rollout {
 		ChannelId:                r.ChannelID,
 		ChannelName:              r.ChannelName,
 		Manufacturer:             r.Manufacturer,
+		Component:                r.Component,
 		Model:                    r.Model,
 		FirmwareFileId:           r.FirmwareFileID,
 		FirmwareChecksum:         r.FirmwareChecksum,

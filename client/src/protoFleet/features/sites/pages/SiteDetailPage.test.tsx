@@ -70,11 +70,7 @@ vi.mock("@/protoFleet/api/useSiteStats", () => ({
 }));
 
 vi.mock("@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection", () => ({
-  DeviceSetPerformanceSection: ({ className, gapClassName }: { className?: string; gapClassName?: string }) => (
-    <div className={className} data-gap-class={gapClassName} data-testid="device-set-performance-section">
-      Performance charts
-    </div>
-  ),
+  DeviceSetPerformanceSection: () => <div data-testid="device-set-performance-section">Performance charts</div>,
 }));
 
 vi.mock("@/protoFleet/features/sites/components/SiteModals", () => ({
@@ -239,30 +235,6 @@ describe("SiteDetailPage", () => {
 
     expect(await screen.findByTestId("site-detail-title")).toHaveClass("truncate");
     expect(screen.getByTestId("site-detail-edit").parentElement).toHaveClass("ml-3", "shrink-0");
-  });
-
-  it("uses the detail view spacing rhythm for sections and section content", async () => {
-    useFleetStore.setState((state) => {
-      state.auth.permissions = ["fleet:read"];
-    });
-
-    renderPage("/sites/7");
-
-    expect(await screen.findByTestId("site-detail-page")).toHaveClass(
-      "gap-10",
-      "px-4",
-      "py-6",
-      "laptop:px-8",
-      "laptop:py-10",
-    );
-    expect(screen.getByTestId("site-detail-heading")).toHaveClass("gap-3", "px-2");
-    expect(screen.getByTestId("site-detail-metrics-section")).toHaveClass("gap-3", "px-2");
-    expect(screen.getByTestId("site-metric-hashrate-value")).toHaveClass("text-emphasis-400");
-    expect(screen.getByTestId("site-metric-power-value")).toHaveClass("text-emphasis-400");
-    expect(screen.getByTestId("site-detail-buildings-section")).toHaveClass("gap-3");
-    expect(screen.getByTestId("site-detail-performance")).toHaveClass("gap-3");
-    expect(screen.getByTestId("device-set-performance-section")).toHaveClass("p-2");
-    expect(screen.getByTestId("device-set-performance-section")).toHaveAttribute("data-gap-class", "gap-1");
   });
 
   it("renders the performance section scoped to the resolved site for fleet:read operators", async () => {

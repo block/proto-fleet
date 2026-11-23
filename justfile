@@ -345,7 +345,7 @@ fleetnode-ui-test-up:
   )
   "${COMPOSE[@]}" stop "${DEFAULT_FAKE_MINERS[@]}" >/dev/null 2>&1 || true
   "${COMPOSE[@]}" rm -f "${DEFAULT_FAKE_MINERS[@]}" >/dev/null 2>&1 || true
-  "${COMPOSE[@]}" up -d --build timescaledb fleet-api ui-test-proto-rig ui-test-antminer
+  "${COMPOSE[@]}" up -d --build timescaledb fleet-api ui-test-proto-rig ui-test-antminer ui-test-ct1
   for _ in $(seq 1 90); do
     if curl -fsS \
       -H 'Content-Type: application/json' \
@@ -386,7 +386,7 @@ fleetnode-ui-test-logs:
   set -euo pipefail
   cd server
   docker compose -f docker-compose.yaml -f docker-compose.fleetnode-ui-test.yaml logs -f \
-    fleet-api fleetnode-ui-test ui-test-proto-rig ui-test-antminer
+    fleet-api fleetnode-ui-test ui-test-proto-rig ui-test-antminer ui-test-ct1
 
 # stop the fleetnode manual UI-test stack
 fleetnode-ui-test-down:
@@ -401,11 +401,70 @@ fleetnode-ui-test-reset:
   set -euo pipefail
   cd server
   COMPOSE=(docker compose -f docker-compose.yaml -f docker-compose.fleetnode-ui-test.yaml)
-  "${COMPOSE[@]}" stop fleetnode-ui-test ui-test-proto-rig ui-test-antminer || true
-  "${COMPOSE[@]}" rm -f fleetnode-ui-test ui-test-proto-rig ui-test-antminer || true
+  "${COMPOSE[@]}" stop fleetnode-ui-test ui-test-proto-rig ui-test-antminer ui-test-ct1 || true
+  "${COMPOSE[@]}" rm -f fleetnode-ui-test ui-test-proto-rig ui-test-antminer ui-test-ct1 || true
   PROJECT="${COMPOSE_PROJECT_NAME:-$(basename "$PWD")}"
   docker volume rm "${PROJECT}_fleetnode-ui-test-state" >/dev/null 2>&1 || true
   echo "Fleet node UI-test state reset."
+
+# start the fleetnode UI-test stack under its own Compose project, host ports, and fleet-network subnet, and run the release-channel E2E test through the node
+fleetnode-channel-e2e project="fnrc-e2e" api_port="4611" db_port="5611" subnet="192.168.61.0/24":
+  #!/usr/bin/env bash
+  # The device network keeps the fixed subnet 10.90.0.0/24. Stop a fleetnode
+  # UI-test stack before you run this recipe, or Docker reports "Pool overlaps".
+  set -euo pipefail
+  just _build-go-plugins-cross linux arm64 server/plugins
+  cd server
+  # Make the release key before the stack starts. The fake CT1 reads the
+  # public key only when it starts.
+  KEY_DIR="/tmp/{{project}}-ct1-release-key"
+  rm -rf "$KEY_DIR"
+  mkdir -p "$KEY_DIR"
+  openssl ecparam -genkey -name prime256v1 -noout -out "$KEY_DIR/release.key"
+  openssl ec -in "$KEY_DIR/release.key" -pubout -out "$KEY_DIR/release.pem"
+  export FLEETNODE_CHANNEL_E2E_KEY_DIR="$KEY_DIR"
+  export COMPOSE_PROJECT_NAME="{{project}}"
+  export FLEETNODE_CHANNEL_E2E_API_PORT="{{api_port}}"
+  export FLEETNODE_CHANNEL_E2E_DB_PORT="{{db_port}}"
+  export FLEETNODE_CHANNEL_E2E_FLEET_SUBNET="{{subnet}}"
+  export FLEET_ADMIN_USERNAME="${FLEET_ADMIN_USERNAME:-admin}"
+  export FLEET_ADMIN_PASSWORD="${FLEET_ADMIN_PASSWORD:-Pass123!}"
+  API_URL="http://127.0.0.1:{{api_port}}"
+  COMPOSE=(docker compose -p "{{project}}" -f docker-compose.yaml -f docker-compose.fleetnode-ui-test.yaml -f docker-compose.fleetnode-channel-e2e.yaml)
+  "${COMPOSE[@]}" up -d --build timescaledb fleet-api ui-test-proto-rig ui-test-ct1
+  for _ in $(seq 1 90); do
+    if curl -fsS -H 'Content-Type: application/json' -d '{}' \
+      "$API_URL/onboarding.v1.OnboardingService/GetFleetInitStatus" >/dev/null; then
+      break
+    fi
+    sleep 1
+  done
+  "${COMPOSE[@]}" build fleetnode-ui-test
+  "${COMPOSE[@]}" run --rm \
+    -e FLEET_ADMIN_USERNAME \
+    -e FLEET_ADMIN_PASSWORD \
+    --entrypoint /app/fleetnode-ui-test fleetnode-ui-test \
+    --api-url=http://fleet-api:4000 \
+    --node-server-url=http://fleet-api:4000 \
+    --state-dir=/state
+  "${COMPOSE[@]}" up -d fleetnode-ui-test
+  echo "Stack {{project}} stays up for inspection; stop it with 'just fleetnode-channel-e2e-down {{project}}'."
+  FLEET_E2E_API_URL="$API_URL" \
+  FLEET_E2E_USERNAME="$FLEET_ADMIN_USERNAME" \
+  FLEET_E2E_PASSWORD="$FLEET_ADMIN_PASSWORD" \
+  FLEET_E2E_FLEETNODE_COMPOSE_PROJECT="{{project}}" \
+  FLEET_E2E_CT1_RELEASE_KEY="$KEY_DIR/release.key" \
+  go test -tags=e2e -count=1 -v -timeout 90m -run TestFleetNodeReleaseChannelFirmware ./e2e
+
+# stop the release-channel E2E stack and remove its volumes and release key
+fleetnode-channel-e2e-down project="fnrc-e2e":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd server
+  KEY_DIR="/tmp/{{project}}-ct1-release-key"
+  FLEETNODE_CHANNEL_E2E_KEY_DIR="$KEY_DIR" \
+    docker compose -p "{{project}}" -f docker-compose.yaml -f docker-compose.fleetnode-ui-test.yaml -f docker-compose.fleetnode-channel-e2e.yaml down -v
+  rm -rf "$KEY_DIR"
 
 # --- Dependency management ---
 

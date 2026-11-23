@@ -213,6 +213,7 @@ func TestPhysicalWriteKindCoversEveryProtocolAction(t *testing.T) {
 		"mining_groups":              commandtype.Type(-1),
 		"container_power_feed":       commandtype.ControlPowerFeed,
 		"container_mining":           commandtype.ContainerMining,
+		"frigate_update":             commandtype.FrigateServerUpdate,
 	}
 	actions := (&gatewaypb.MinerCommand{}).ProtoReflect().Descriptor().Oneofs().ByName("action").Fields()
 	require.Equal(t, len(readAndIndicator)+len(mutationKinds), actions.Len(), "classify new protocol actions explicitly")

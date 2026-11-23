@@ -870,6 +870,12 @@ message ContainerSnapshot {
  // Complete, fresh inventory with differing versions. Neither field set
  // means the hashboard version is unknown.
  bool hashboard_firmware_mixed = 11;
+ // Uniform PSU firmware version that every located board of a complete, fresh
+ // inventory reports for its module's PSU.
+ string psu_firmware_version = 12;
+ // Complete, fresh inventory with differing PSU firmware versions. Neither
+ // field set means the PSU firmware version is unknown.
+ bool psu_firmware_mixed = 13;
  ContainerHA ha = 9;
  // Inventory observations without physical placement; position must be zero.
  repeated ContainerHashboard unlocated_hashboards = 8;

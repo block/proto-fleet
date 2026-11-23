@@ -161,8 +161,11 @@ func (p *PluginMiner) GetDeviceMetrics(ctx context.Context) (modelsV2.DeviceMetr
 func (p *PluginMiner) GetDeviceStatus(ctx context.Context) (models.MinerStatus, error) {
 	metrics, err := p.sdkDevice.Status(ctx)
 	if err != nil {
-		if isNetworkError(err) {
-			return models.MinerStatusOffline, fleeterror.NewConnectionError(string(p.deviceID), err)
+		deviceProbeFailed := sdk.DeviceProbeFailed(err)
+		if deviceProbeFailed || isNetworkError(err) {
+			connectionErr := fleeterror.NewConnectionError(string(p.deviceID), err)
+			connectionErr.DeviceProbeFailed = deviceProbeFailed
+			return models.MinerStatusOffline, connectionErr
 		}
 		if isDefaultPasswordActiveError(err) {
 			return models.MinerStatusUnknown, fleeterror.NewForbiddenErrorf(

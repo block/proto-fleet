@@ -18,7 +18,9 @@ import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import { useFrigateUpdates } from "@/protoFleet/api/useFrigateUpdates";
 import { entityScopeTarget, useSyncScopeToEntity } from "@/protoFleet/hooks/useSyncScopeToEntity";
 import { usePermissions, useTemperatureUnit } from "@/protoFleet/store";
+import { Alert } from "@/shared/assets/icons";
 import Button, { variants } from "@/shared/components/Button";
+import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
 
 export default function ContainerPage() {
@@ -55,7 +57,7 @@ export default function ContainerPage() {
             ? "This container may have been removed or you may no longer have access."
             : error || "No container selected."}
         </p>
-        <Button variant={variants.secondary} text="Retry" onClick={retry} />
+        <Button variant={variants.secondary} className="w-fit" text="Retry" onClick={retry} />
       </div>
     );
   const view = buildContainerOverview(data, unit, !!error);
@@ -112,10 +114,16 @@ export default function ContainerPage() {
                 <div className="flex flex-wrap items-center justify-between gap-3 text-200 text-text-primary-70">
                   {view.stale ? <p role="status">Readings unavailable or stale.</p> : null}
                   {error ? (
-                    <>
-                      <p role="alert">Could not refresh container: {error}</p>
-                      <Button variant={variants.secondary} text="Retry" onClick={retry} />
-                    </>
+                    <div role="alert" className="w-full">
+                      <Callout
+                        intent="danger"
+                        prefixIcon={<Alert />}
+                        title="Could not refresh container"
+                        subtitle={error}
+                        buttonText="Retry"
+                        buttonOnClick={retry}
+                      />
+                    </div>
                   ) : null}
                 </div>
               ) : null}

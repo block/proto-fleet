@@ -814,12 +814,14 @@ func TestTelemetrySummaryScheduledWorkerSerializesManualRequests(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestTelemetrySummaryPreservesStatusRetentionAndSkipsLateWrites(t *testing.T) {
+func TestTelemetrySummaryAppliesStatusRetentionAndSkipsLateWrites(t *testing.T) {
 	db := testutil.GetTestDB(t)
-	var count int
-	require.NoError(t, db.QueryRowContext(t.Context(), `SELECT count(*) FROM timescaledb_information.jobs WHERE proc_name='policy_retention'
- AND hypertable_name IN ('device_status_hourly','device_status_daily')`).Scan(&count))
-	require.Zero(t, count, "migration must not add deletion of existing status history")
+	for aggregate, retention := range map[string]string{"device_status_hourly": "3 months", "device_status_daily": "3 years"} {
+		var matches bool
+		require.NoError(t, db.QueryRowContext(t.Context(), `SELECT (config->>'drop_after')::interval = $2::interval
+ FROM timescaledb_information.jobs WHERE proc_name='policy_retention' AND hypertable_name=$1`, aggregate, retention).Scan(&matches))
+		require.True(t, matches, "%s must retain %s of history", aggregate, retention)
+	}
 	runRecovery(t, db, "device_metrics_hourly")
 	// A partial first UTC day can initialize daily coverage at tomorrow's
 	// boundary. That empty interval is not a certified watermark for live writes.

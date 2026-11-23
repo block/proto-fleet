@@ -18,12 +18,19 @@ This page is for operators and developers. The wire contract is
    Firmware → Files**, in the **Proto Containers** section. That section is
    hidden while no Proto Container is paired where the user can list or update
    one. The Fleet UI, the text the Fleet server writes for it, and ProtoOS call
-   Frigate "controller software" and do not use the name Frigate.
+   Frigate "controller software" and do not use the name Frigate. The upload
+   dialog has one file picker for all the files of a release. It identifies
+   each file by its extension: `.deb` for the package, `.json` for the release
+   statement, `.sig` for the release signature, and `.pem` for the optional
+   release public key; see
+   [Signature check at upload](#signature-check-at-upload).
 2. `StartUpdate` records a job for one container. The `frigate-update-runner`,
    which runs only on the active Fleet replica, then:
    - stages the package on each controller with that controller's own
      Begin/Append/Commit calls (1 MiB chunks, resuming from the controller's
-     acknowledged offset);
+     acknowledged offset). For a container behind a Fleet Node, the node makes
+     these calls; see
+     [Containers behind a Fleet Node](#containers-behind-a-fleet-node);
    - calls Start once, with each controller's manifest fingerprint, so Frigate
      refuses to run a package other than the one Fleet staged;
    - polls rollout status from the controllers every 5 seconds until the
@@ -46,9 +53,11 @@ drive the install steps.
   controller's stored token on its CT1 gRPC connection (port 9095), but it cannot
   yet pair an HA pair whose controllers have `server.mdk_auth.enabled`. See
   [the gRPC transport guide](ct1-grpc.md) for the token and its limits.
-- **FleetNode-owned controllers are unsupported in v1.** `StartUpdate` and
-  `GetSupport` return `FailedPrecondition` for a container whose controller is
-  reached through a Fleet Node.
+- **A container behind a Fleet Node needs a node with command protocol V20.**
+  For an older node, `GetSupport` and every update call return
+  `FailedPrecondition` with a message that tells the operator to upgrade the
+  node. See [Containers behind a Fleet Node](#containers-behind-a-fleet-node)
+  for the other limits of that path.
 - **The controllers must allow remote triggers** (`update.allow_remote_trigger`
   on Frigate) and report self-coordination support, the update helper, a
   Debian-package installation, and a healthy etcd quorum. `GetSupport` reports
@@ -56,9 +65,11 @@ drive the install steps.
   `UPDATE_REMOTE_TRIGGER_DISABLED`. Fleet's verdict is advisory; Frigate checks
   again when the update starts.
 - **Controllers re-verify the signature.** Fleet checks the release statement
-  against its own key directory only to reject a bad upload early. Each
-  controller verifies the statement against the keys it trusts and refuses the
-  package if they differ. Fleet's check is not a security boundary.
+  only to reject a bad upload early. Each controller verifies the statement
+  against the keys it trusts and refuses the package if they differ. Fleet's
+  check is not a security boundary, and a Fleet that has no release key
+  installed accepts an upload it cannot verify; see
+  [Signature check at upload](#signature-check-at-upload).
 - **Control archives must be gzip or uncompressed.** Fleet reads the package's
   `control` file with the Go standard library to confirm it matches the signed
   statement, so a `.deb` whose `control.tar` is compressed with xz or zstd is
@@ -81,6 +92,70 @@ drive the install steps.
   neither failed by the start deadline nor cancelled locally until a controller
   answers; an operator cancel stays pending until then. After 24 hours with no
   answer, Fleet abandons the job (see below).
+
+## Containers behind a Fleet Node
+
+Fleet cannot open a connection to a controller that a Fleet Node manages. The
+node makes the update calls, next to the controllers. The job, its states, the
+permission, and the UI are the same as for a container that Fleet reaches
+directly.
+
+- **Calls.** Each update call goes to the node as one `MinerCommand` with a
+  `frigate_update` action (`proto/fleetnodegateway/v1/fleetnodegateway.proto`).
+  The action carries the bytes of the plugin's update request
+  (`FrigateServerUpdateRequest`), and the acknowledgement carries the bytes of
+  the response. The gateway has no update schema of its own. The node runs the
+  call on the CT1 plugin. A refusal from a controller is not a failed command.
+  The node returns it as an outcome with the controller's `UPDATE_*` reason,
+  message, and status code. Fleet then handles it as it handles a refusal on a
+  direct connection.
+- **Package.** Package bytes do not go through the control stream. Fleet
+  begins the copy on each controller and records its manifest fingerprint.
+  Fleet then sends one `stage` command for all the controllers that are not
+  staged. The node downloads the package from Fleet one time
+  (`DownloadCommandArtifact`, purpose `CONTROLLER_SOFTWARE_PACKAGE`). Fleet
+  serves the package only to the `stage` command that names it. The node checks
+  the size and the SHA-256 of the download. It then copies the package to all
+  the controllers at the same time, in 1 MiB chunks. Each copy starts from the
+  offset that its controller acknowledges. The node then commits each copy.
+  The node sends no bytes to a controller that reports a different fingerprint.
+  The `stage` command returns one outcome for each controller. Fleet checks the
+  size and the SHA-256 that each controller committed, as it does on a direct
+  connection.
+- **Write admission.** A support or a status call is a read. Each other call
+  goes through the device write gate as a controller software update, as on a
+  direct connection.
+
+Limits of this path:
+
+- The node must speak command protocol V20. Fleet does not send an update
+  command to an older node. A new node works with an older Fleet, which sends
+  no update commands. Upgrade Fleet and the node in any order.
+- The package can be 500 MiB at most. This is the download limit of the node,
+  which is less than Fleet's default upload limit of 512 MiB. The node refuses
+  a larger package, and the job fails with `FLEET_STAGE_STALLED` after the
+  stall timeout. The error message gives the limit.
+- A node downloads one package or firmware file at a time. A `stage` command
+  that arrives during another download gets a busy answer. Fleet sends the
+  `stage` command again on each later pass until the stall timeout.
+- One `stage` command has 10 minutes on the node for the download and for the
+  copies. Fleet waits 30 seconds longer. A copy that is not complete in that
+  time continues in the next `stage` command from the acknowledged offset. The
+  download is not resumed: each `stage` command downloads the full package
+  again.
+- On the node, each controller call during a `stage` command has a fixed limit
+  of 30 seconds. Each 1 MiB chunk has a fixed limit of 60 seconds.
+  `FRIGATE_UPDATE_CALL_TIMEOUT` and `FRIGATE_UPDATE_CHUNK_TIMEOUT` apply only to
+  the calls that Fleet makes.
+- Fleet gets no position while the node copies. `staged_bytes` changes only
+  when a `stage` command ends. After a copy that failed, Fleet reads the offset
+  from the controller. The stall timeout (`FRIGATE_UPDATE_STAGE_STALL_TIMEOUT`)
+  counts from the last time that an offset moved. Thus a slow copy that moves
+  bytes in each `stage` command is not a stall.
+- If Fleet cannot read the offset after a copy that failed, the time of that
+  `stage` command does not count toward the stall timeout. Fleet leaves out at
+  most one stall timeout between two confirmed offsets. Thus a job with no
+  confirmed progress fails as stalled after two times the stall timeout.
 
 ## Permission
 
@@ -115,7 +190,7 @@ All settings are Fleet server flags with environment variables:
 | --- | --- | --- |
 | `FRIGATE_UPDATE_PACKAGE_DIR` | `firmware/frigate-packages` | Where uploaded packages are stored. The default is inside the persisted firmware volume (`artifacts/firmware` is mounted at `/app/firmware` by the standard compose files), so the packages survive container recreation. Any other directory must be on persistent storage and writable by the server user. |
 | `FRIGATE_UPDATE_MAX_PACKAGE_SIZE` | `536870912` | Largest package Fleet accepts, in bytes. |
-| `FRIGATE_UPDATE_RELEASE_KEYS_DIR` | empty | Directory of trusted release public keys. Empty disables package upload; the rest of the feature still works for packages already stored. With the standard compose deployment, set it to `/app/frigate-release-keys` (see [Release key directory](#release-key-directory)). |
+| `FRIGATE_UPDATE_RELEASE_KEYS_DIR` | empty | Directory of trusted release public keys. When it is empty, or holds no key, Fleet has no installed release key and checks an upload as [Signature check at upload](#signature-check-at-upload) describes. With the standard compose deployment, set it to `/app/frigate-release-keys` (see [Release key directory](#release-key-directory)). |
 | `FRIGATE_UPDATE_POLL_INTERVAL` | `5s` | Runner tick and rollout status poll interval. |
 | `FRIGATE_UPDATE_STAGE_STALL_TIMEOUT` | `10m` | Staging that makes no progress for this long fails the job. |
 | `FRIGATE_UPDATE_START_TIMEOUT` | `10m` | A job that has been `starting` this long, with a fresh status read showing Frigate never accepted the job, is failed with `FLEET_START_TIMEOUT`. |
@@ -131,6 +206,49 @@ The same sweep removes orphan package directories: a blob directory with no live
 package row (an import that failed between storing the file and recording it, or
 a package whose delete could not remove the file) that is older than one hour.
 The grace period keeps it from racing an import that is still recording its row.
+
+### Signature check at upload
+
+What Fleet does with the release signature depends on whether it has a release
+key installed in its [release key directory](#release-key-directory).
+
+| Fleet has an installed key | Public key in the upload | Result |
+| --- | --- | --- |
+| Yes | Not used | The signature must verify against an installed key. If it does not, Fleet refuses the upload. |
+| No | The key that signed the release | Fleet verifies the signature with that key and records the key ID. |
+| No | A key that did not sign the release | Fleet stores the package without a verified signature and returns a warning. |
+| No | None | Fleet stores the package without a verified signature and returns a warning. |
+
+A key from the uploader never replaces an installed key. A key directory that
+Fleet cannot read, or a key file that does not parse, is an error: Fleet does
+not treat it as "no installed key".
+
+The public key is PEM `PUBLIC KEY` data for an ECDSA P-256 key, at most 4096
+bytes. Fleet refuses a public key file that it cannot parse, because that is a
+mistake in the upload and not a signature that Fleet could not confirm.
+
+These checks do not need a key, so Fleet applies them to every upload and
+refuses a package that fails one:
+
+- The statement is in the canonical form, and the signature is 1 to 128 bytes.
+- The package size and SHA-256 match the statement.
+- The `.deb` control package, version and architecture match the statement.
+
+A package that Fleet stored without a verified signature has an empty
+`release_key_id`. The Fleet UI shows "Not verified" as its signer key.
+For such a package Fleet cannot compare the signing key with the keys the
+controllers trust before an update starts, so that readiness check
+(`FLEET_RELEASE_KEY_UNTRUSTED`) is skipped. The controllers still verify the
+signature before they stop, and a package with a bad signature ends the rollout
+in the verifying phase after it was staged.
+
+When Fleet verifies the signature with a key from the upload, it records the
+key ID as usual. Before an update starts, Fleet then requires every controller
+to trust that key ID, so a package that was signed with a different key does not
+reach staging.
+
+The activity log entry for an upload records the outcome as `signature_check`:
+`installed_key`, `uploaded_key` or `unverified`.
 
 ### Release key directory
 
@@ -170,7 +288,7 @@ cd <install>/deployment
 ```
 
 Later key changes need no restart. HA deployments do not mount this directory
-yet.
+yet, so an HA Fleet has no installed release key.
 
 A key file may be a symlink (Kubernetes secret mounts and `ln -s` rotations are
 followed; a dangling link is an error). A `.pem` file that holds no key, or any
@@ -198,7 +316,8 @@ refuse after Fleet had staged the package wastes the whole staging step. The
 ```text
 POST /api/v1/frigate-packages/upload/chunked
 {"filename": "frigate_1.4.0_arm64.deb", "size": 123456789,
- "release_statement_b64": "...", "release_signature_b64": "..."}
+ "release_statement_b64": "...", "release_signature_b64": "...",
+ "release_public_key_b64": "..."}
 -> {"upload_id": "...", "version": "1.4.0", "architecture": "arm64"}
 
 PUT  /api/v1/frigate-packages/upload/chunked/{upload_id}      Content-Range: bytes 0-33554431/123456789
@@ -206,7 +325,11 @@ POST /api/v1/frigate-packages/upload/chunked/{upload_id}/complete
 -> {"package": {...}, "reused": false}
 ```
 
-The signature is checked before any bytes are accepted. At complete, Fleet
+`release_public_key_b64` is optional. Both responses carry a `warning` string
+when Fleet accepts the package without a verified signature; see
+[Signature check at upload](#signature-check-at-upload).
+
+The release is checked before any bytes are accepted. At complete, Fleet
 re-hashes the file, compares size and SHA-256 with the statement, and compares
 the `.deb` control package, version and architecture with the statement. The
 `control.tar.gz` is decompressed with a 1 MiB cap and the `ar` member sizes are
@@ -222,6 +345,19 @@ uses the package. Otherwise the upload fails with `FailedPrecondition`, because
 changing the statement under a running job would make the stored record disagree
 with what the controllers were given. A re-upload that differs only in the
 signature bytes is not a change: ECDSA signatures are randomized.
+
+An upload that Fleet did not verify never replaces a release that Fleet did
+verify:
+
+- With the same statement, the stored record and its verified signature stay,
+  and the response has no warning.
+- With a different statement, the upload fails with `FailedPrecondition`. Delete
+  the stored package first, or upload with the release public key.
+
+When the stored package is not verified either, the new statement and signature
+replace the stored ones, with the same rule for a job that still blocks the
+container. Uploading an unverified package again with the key that signed it
+makes it a verified package.
 
 ### nginx body limits
 
@@ -337,10 +473,18 @@ steps through the rollout phases every `CT1_UPDATE_STEP` (default 2s) and stops
 answering ordinary services while it is "installing", which exercises the
 maintenance-served status path.
 
-There is no automated end-to-end test against the fake pair: `fake-ct1` is a
-separate Go module with a `main` package, and the update path also needs the CT1
-plugin and a paired device. The domain tests (`server/internal/domain/frigateupdate`)
-cover the runner against an in-memory controller pair instead.
+The domain tests (`server/internal/domain/frigateupdate`) cover the runner
+against an in-memory controller pair. Three tests use the fake pair.
+`TestFleetNodeReleaseChannelFirmware` in `server/e2e` runs a full update
+through the public API, the Fleet runner, and a real Fleet Node. Start it with
+`just fleetnode-channel-e2e`. See the [E2E testing guide](../../server/e2e/README.md).
+The CT1 plugin tests
+(`plugin/proto/internal/ct1/frigate_update_simulator_test.go`) run the update
+calls against it. `TestCT1SimulatorControllerSoftwareUpdateThroughNode` in
+`server/cmd/fleetnode` runs a full update through the Fleet Node path. It uses
+Fleet's handle for a container behind a node, the node's command handler, the
+Proto plugin process, and the fake pair. That test replaces only the control
+stream between Fleet and the node.
 
 ## Operating notes
 

@@ -16,6 +16,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	minerMocks "github.com/block/proto-fleet/server/internal/domain/miner/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
+	storeinterfaces "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
@@ -54,6 +55,53 @@ func TestComponentFirmwareFailureIsNotRetriedOrRebooted(t *testing.T) {
 	require.ErrorContains(t, err, message)
 	_, _, boundary := readFirmwareRebootStatus(t, conn, deviceID)
 	require.False(t, boundary.Valid)
+}
+
+func TestFirmwarePollingFailureDoesNotEstablishMinerReachability(t *testing.T) {
+	service, conn, _, deviceID, identifier := setupPasswordCommandDevice(t, "proto", false)
+	service.deviceStore = sqlstores.NewSQLDeviceStore(conn)
+	ctx := t.Context()
+	_, err := conn.ExecContext(ctx, `UPDATE device_pairing SET paired_at = now() - interval '1 hour' WHERE device_id = $1`, deviceID)
+	require.NoError(t, err)
+
+	assertReachability := func(reachable, unknown int64) {
+		t.Helper()
+		var gotReachable, gotUnknown int64
+		require.NoError(t, conn.QueryRowContext(ctx, `
+			SELECT reachable_count, unknown_count FROM device_reachability_summary WHERE org_id = 1
+		`).Scan(&gotReachable, &gotUnknown))
+		require.Equal(t, reachable, gotReachable)
+		require.Equal(t, unknown, gotUnknown)
+	}
+	observation := []storeinterfaces.DeviceStatusUpdate{{DeviceIdentifier: tmodels.DeviceIdentifier(identifier), Status: models.MinerStatusActive}}
+	require.NoError(t, service.deviceStore.UpsertDeviceStatuses(ctx, observation))
+	assertReachability(1, 0)
+
+	interval := firmwareInstallPollInterval
+	firmwareInstallPollInterval = 5 * time.Millisecond
+	t.Cleanup(func() { firmwareInstallPollInterval = interval })
+	ctrl := gomock.NewController(t)
+	provider := minerMocks.NewMockFirmwareUpdateStatusProvider(ctrl)
+	pollCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	pollErr := errors.New("connection refused")
+	gomock.InOrder(
+		provider.EXPECT().GetFirmwareUpdateStatus(gomock.Any()).Return(nil, pollErr),
+		provider.EXPECT().GetFirmwareUpdateStatus(gomock.Any()).DoAndReturn(func(context.Context) (*sdk.FirmwareUpdateStatus, error) {
+			cancel()
+			return nil, pollErr
+		}).MinTimes(1),
+	)
+	miner := &firmwareStatusReportingMiner{Miner: minerMocks.NewMockMiner(ctrl), FirmwareUpdateStatusProvider: provider}
+	shouldReboot, err := service.pollFirmwareInstallStatus(pollCtx, miner, deviceID, time.Now(), nil)
+	require.ErrorContains(t, err, "firmware install polling timed out")
+	require.False(t, shouldReboot)
+	status, _, _ := readFirmwareRebootStatus(t, conn, deviceID)
+	require.Equal(t, models.MinerStatusActive, status)
+	assertReachability(0, 1)
+
+	require.NoError(t, service.deviceStore.UpsertDeviceStatuses(ctx, observation))
+	assertReachability(1, 0)
 }
 
 func firmwareBootMetrics(observedAt time.Time, uptime uint64) modelsV2.DeviceMetrics {

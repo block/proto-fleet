@@ -850,6 +850,55 @@ describe("plant component faults", () => {
   });
 });
 
+describe("cooling fan power telemetry", () => {
+  const fans = (health: Parameters<typeof toCanonicalContainer>[2]) => [
+    ...toCanonicalContainer({ containerMap: { tanks: [] } }, {}, health, "ct1-a").telemetry.fans.values(),
+  ];
+
+  test("maps measured fan power with the snapshot observation time", () => {
+    const [fan] = fans({
+      timestamp: "2026-11-14T12:00:00Z",
+      coolingFans: [{ componentId: "dry-cooler-1", powerW: 412.5, speedPercent: 75 }],
+    });
+
+    expect(fan).toMatchObject({
+      power: { latest: { value: 412.5, units: "W" } },
+      observedAtMs: Date.parse("2026-11-14T12:00:00Z"),
+    });
+  });
+
+  test("keeps a measured zero and clears a missing or invalid reading", () => {
+    const readings = fans({
+      coolingFans: [
+        { componentId: "dry-cooler-1", powerW: 0 },
+        { componentId: "dry-cooler-2" },
+        { componentId: "dry-cooler-3", powerW: Number.NaN },
+      ],
+    });
+
+    expect(readings.map((fan) => fan.power?.latest?.value)).toEqual([0, null, null]);
+    expect(readings.every((fan) => fan.observedAtMs === undefined)).toBe(true);
+  });
+
+  test("clears an earlier power reading once a later snapshot omits it", () => {
+    const store = useMinerStore.getState();
+    store.resetDeviceData();
+    const snapshot = (powerW?: number) =>
+      toCanonicalContainer(
+        { containerMap: { tanks: [] } },
+        {},
+        { coolingFans: [{ componentId: "dry-cooler-1", powerW }] },
+        "ct1-a",
+      ).telemetry;
+
+    store.telemetry.mergeTelemetry(snapshot(400));
+    store.telemetry.mergeTelemetry(snapshot());
+
+    const [fan] = useMinerStore.getState().telemetry.fans.values();
+    expect(fan?.power?.latest?.value).toBeNull();
+  });
+});
+
 describe("plant alarm telemetry", () => {
   const plantTelemetry = (health: Parameters<typeof toCanonicalContainer>[2]) =>
     [...toCanonicalContainer({ containerMap: { tanks: [] } }, {}, health, "ct1-a").telemetry.plant.values()][0];

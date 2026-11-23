@@ -2,6 +2,7 @@ import { type ReactNode, useId, useMemo, useState } from "react";
 import clsx from "clsx";
 
 import ControllerDiagnostics from "./ControllerDiagnostics";
+import { observationState } from "./controllerObservation";
 import { Panel, Stat } from "./diagnosticLayout";
 import DiagnosticStatusModal from "./DiagnosticStatusModal";
 import DryCoolerSettingsModal from "./DryCoolerSettingsModal";
@@ -14,6 +15,7 @@ import { useTelemetry } from "@/protoOS/api/hooks/useTelemetry";
 import { ProtoOSStatusModal } from "@/protoOS/components/StatusModal";
 import { useScopeHealth } from "@/protoOS/components/StatusModal/useScopeHealth";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { PLANT_OBSERVATION_STALE_MS } from "@/protoOS/features/containerHome/utils/plantAlarms";
 import { useFeedMappingState } from "@/protoOS/features/feedMapping/feedMappingContext";
 import { tankSide } from "@/protoOS/features/tanks/tankSide";
 import { hashboardAttentionFill } from "@/protoOS/features/tanks/tankStatusColors";
@@ -27,9 +29,11 @@ import {
   tankModules,
 } from "@/protoOS/features/tanks/tankView";
 import { useTankPower } from "@/protoOS/features/tanks/useTankPower";
+import { usePsuObservationTime } from "@/protoOS/hooks/usePsuObservationTime";
 import {
   asEntityKey,
   type ContainerTopology,
+  type FanTelemetry,
   type HealthState,
   type LevelRollup,
   type MetricTelemetry,
@@ -527,12 +531,30 @@ const TanksDiagnostics = ({ data }: { data: NonNullable<ReturnType<typeof useCon
   );
 };
 
+// Fan PWM and power share the plant snapshot, so they go stale together on its window.
+const isFanStale = (telemetry: FanTelemetry | undefined, nowMs: number) =>
+  observationState({ freshness: "fresh", observedAtMs: telemetry?.observedAtMs }, nowMs, PLANT_OBSERVATION_STALE_MS) ===
+  "stale";
+
+// Measured fan draw only; PWM is never converted into an estimate.
+const FanPower = ({ telemetry, stale }: { telemetry: FanTelemetry | undefined; stale: boolean }) => {
+  if (stale) return <span aria-label="Power stale">— kW · Stale</span>;
+  const watts = latest(telemetry?.power);
+  if (watts === undefined) return <span aria-label="Power unavailable">— kW</span>;
+  // Below 1 kW the kW scale would round a slow fan's draw to a misleading "0.0 kW". Compare the
+  // rounded value so 999.5 W reads "1.0 kW" rather than "1,000 W".
+  return <span>{Math.round(Math.abs(watts)) < 1_000 ? `${decimal(watts, 0)} W` : `${decimal(watts / 1_000)} kW`}</span>;
+};
+
 const DryCoolerDiagnostics = ({ data }: { data: NonNullable<ReturnType<typeof useContainerDiagnostics>> }) => {
   const { adapter } = useMinerHosting();
   const connectionGeneration = useMinerStore((state) => state.connectionGeneration);
   const [showSettings, setShowSettings] = useState(false);
   const [selectedFan, setSelectedFan] = useState<string>();
   const infoFan = data.fans.find((fan) => fan.id === selectedFan);
+  const nowMs = usePsuObservationTime(data.fans.some((fan) => fan.telemetry?.observedAtMs !== undefined));
+  const infoStale = isFanStale(infoFan?.telemetry, nowMs);
+  const infoSpeed = infoStale ? undefined : latest(infoFan?.telemetry?.speedPercent);
   const plant = data.plant;
   const pumpSpeed = latest(plant?.coolantPumpSpeed);
   const auto = plant?.controls?.find((control) => control.name === "dry_cooler_auto");
@@ -583,7 +605,8 @@ const DryCoolerDiagnostics = ({ data }: { data: NonNullable<ReturnType<typeof us
       </Panel>
       <div className="grid gap-1 tablet:grid-cols-2 desktop:grid-cols-5">
         {data.fans.map((fan) => {
-          const speed = latest(fan.telemetry?.speedPercent);
+          const stale = isFanStale(fan.telemetry, nowMs);
+          const speed = stale ? undefined : latest(fan.telemetry?.speedPercent);
           const faulted = fan.telemetry?.health === "fault" || fan.telemetry?.health === "degraded";
           return (
             <Panel key={fan.id} className="min-h-44">
@@ -594,9 +617,11 @@ const DryCoolerDiagnostics = ({ data }: { data: NonNullable<ReturnType<typeof us
                 </h3>
                 <InfoButton label={`${fan.name} info`} onClick={() => setSelectedFan(fan.id)} />
               </div>
-              <p className="text-300 text-text-primary-70 tabular-nums">— RPM</p>
               <p className="text-300 text-text-primary-70 tabular-nums">
                 {speed === undefined ? "—" : `${decimal(speed, 0)}% PWM`}
+              </p>
+              <p className="text-300 text-text-primary-70 tabular-nums">
+                <FanPower telemetry={fan.telemetry} stale={stale} />
               </p>
               <div
                 className="mt-4 text-center"
@@ -628,14 +653,8 @@ const DryCoolerDiagnostics = ({ data }: { data: NonNullable<ReturnType<typeof us
           summary="Fan diagnostics"
           errors={[]}
           metrics={[
-            { label: "Speed", value: "— RPM" },
-            {
-              label: "PWM",
-              value:
-                latest(infoFan.telemetry?.speedPercent) === undefined
-                  ? "—"
-                  : `${decimal(latest(infoFan.telemetry?.speedPercent), 0)}%`,
-            },
+            { label: "PWM", value: infoSpeed === undefined ? "—" : `${decimal(infoSpeed, 0)}%` },
+            { label: "Power", value: <FanPower telemetry={infoFan.telemetry} stale={infoStale} /> },
           ]}
           metadata={{ status: { label: "Health", value: healthLabels[infoFan.telemetry?.health ?? "unknown"] } }}
         />

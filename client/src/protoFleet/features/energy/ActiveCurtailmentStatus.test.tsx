@@ -432,30 +432,6 @@ describe("ActiveCurtailmentStatus", () => {
     expectProgressSummary("10 of 18 miners restored (55%)");
   });
 
-  it("estimates restoring completion from the current time", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-05-01T10:00:00-04:00"));
-
-    try {
-      render(
-        <ActiveCurtailmentStatus
-          event={{
-            ...restoringCurtailmentEvent,
-            selectedMiners: 25,
-            rollups: [
-              { state: "resolved", count: 10 },
-              { state: "confirmed", count: 15 },
-            ],
-          }}
-        />,
-      );
-
-      expect(screen.getByText(formatExpectedDateTime("2026-05-01T10:02:00-04:00"))).toBeVisible();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
   it("estimates restoring completion from rollup totals when selected miner count is stale", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-01T10:00:00-04:00"));

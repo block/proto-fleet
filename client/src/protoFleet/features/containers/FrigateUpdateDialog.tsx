@@ -106,6 +106,9 @@ export default function FrigateUpdateDialog({
 
   const eligible = support.status === "ready" && support.value.eligible;
   const canStart = !!packageId && eligible && !busy;
+  // No signer key ID means Fleet stored the package without verifying its signature.
+  const chosen = packages.status === "ready" ? packages.value.find((item) => item.id === packageId) : undefined;
+  const signatureUnverified = !!chosen && !chosen.releaseKeyId;
 
   const submit = useCallback(async () => {
     if (inFlight.current || !canStart) return;
@@ -181,6 +184,11 @@ export default function FrigateUpdateDialog({
             disabled={busy}
             forceBelow
           />
+        ) : null}
+        {signatureUnverified ? (
+          <p role="status">
+            Fleet did not verify this package's signature. The controllers verify it before they install.
+          </p>
         ) : null}
         <SupportSummary support={support} onCheckAgain={() => setRecheck((value) => value + 1)} />
         {error ? (

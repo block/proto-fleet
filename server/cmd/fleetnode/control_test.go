@@ -1376,6 +1376,35 @@ func TestReportFromDiscovered(t *testing.T) {
 	}
 }
 
+func TestReportFromDiscoveredLimitsTextFields(t *testing.T) {
+	t.Parallel()
+	// A cut at byte 252 falls inside the 4-byte emoji that starts at byte 251.
+	long := strings.Repeat("a", 251) + "🚨" + strings.Repeat("a", 100)
+	dev := &discoverymodels.DiscoveredDevice{Device: pairingpb.Device{
+		MacAddress:      "aa:bb:cc:dd:ee:ff",
+		DriverName:      "proto",
+		Model:           long,
+		Manufacturer:    long,
+		FirmwareVersion: long,
+	}}
+
+	report := reportFromDiscovered(dev, "10.0.0.5", "8080", 1)
+
+	for field, got := range map[string]string{
+		"model":            report.GetModel(),
+		"manufacturer":     report.GetManufacturer(),
+		"firmware version": report.GetFirmwareVersion(),
+	} {
+		assert.LessOrEqual(t, len(got), 255, field)
+		assert.True(t, utf8.ValidString(got), "%s must stay valid UTF-8", field)
+		assert.True(t, strings.HasPrefix(got, strings.Repeat("a", 251)), "%s must keep its start: %q", field, got)
+	}
+	require.NoError(t, protovalidate.Validate(&pb.ReportDiscoveredDevicesRequest{
+		CommandId: "discover-1",
+		Devices:   []*pb.DiscoveredDeviceReport{report},
+	}))
+}
+
 // blockingDiscoverer holds Probe open per-IP so tests can observe Receive
 // drain and ctx-cancel behavior while a command is in flight.
 type blockingDiscoverer struct {

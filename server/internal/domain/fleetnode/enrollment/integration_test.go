@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
@@ -146,6 +147,66 @@ func TestCompleteHandshakeRejectsReplayedChallenge(t *testing.T) {
 
 	// Assert
 	require.Error(t, err2, "second CompleteHandshake with the same challenge must fail")
+}
+
+type authOutcome struct {
+	operation string
+	result    string
+}
+
+type authOutcomes []authOutcome
+
+func (o *authOutcomes) AuthOutcome(_ context.Context, operation, result string) {
+	*o = append(*o, authOutcome{operation: operation, result: result})
+}
+
+func TestAuthMetricsThroughService(t *testing.T) {
+	ctx := t.Context()
+	_, userID, orgID, enrollment, auth := setupEnrollmentTest(t)
+	var outcomes authOutcomes
+	auth.WithOperationalMetrics(&outcomes)
+	pubKey, privKey, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	code, enrollmentID, _, err := enrollment.CreateCodeWithEnrollmentID(ctx, userID, orgID, time.Hour)
+	require.NoError(t, err)
+	agent, _, err := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey, []byte("01234567890123456789012345678901"))
+	require.NoError(t, err)
+	apiKey, _, err := enrollment.ConfirmExpected(ctx, agent.ID, orgID, enrollmentID, 1)
+	require.NoError(t, err)
+
+	_, _, err = auth.BeginHandshake(ctx, "unknown-api-key", pubKey)
+	require.Error(t, err)
+	challenge, _, err := auth.BeginHandshake(ctx, apiKey, pubKey)
+	require.NoError(t, err)
+	_, _, _, err = auth.CompleteHandshake(ctx, challenge, make([]byte, ed25519.SignatureSize))
+	require.Error(t, err)
+	_, _, _, err = auth.CompleteHandshake(ctx, challenge, ed25519.Sign(privKey, challenge))
+	require.Error(t, err, "the invalid signature consumes the challenge")
+	_, err = auth.ResolveSession(ctx, "unknown-session")
+	require.Error(t, err)
+
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	_, err = auth.ResolveSession(canceled, "unknown-session")
+	var internal fleeterror.FleetError
+	require.ErrorAs(t, err, &internal)
+	require.Equal(t, connect.CodeInternal, internal.GRPCCode)
+
+	expired, stop := context.WithDeadline(ctx, time.Now().Add(-time.Second))
+	defer stop()
+	_, err = auth.ResolveSession(expired, "unknown-session")
+	require.ErrorAs(t, err, &internal)
+	require.Equal(t, connect.CodeInternal, internal.GRPCCode)
+
+	require.Equal(t, authOutcomes{
+		{"begin_handshake", "credential_rejected"},
+		{"begin_handshake", "success"},
+		{"complete_handshake", "credential_rejected"},
+		{"complete_handshake", "challenge_rejected"},
+		{"session", "session_rejected"},
+		{"session", "canceled"},
+		{"session", "timeout"},
+	}, outcomes)
 }
 
 func TestBeginHandshakeRejectsMismatchedIdentityPubkey(t *testing.T) {

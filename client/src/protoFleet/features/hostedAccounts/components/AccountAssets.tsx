@@ -546,7 +546,12 @@ const AccountAssets = ({
           {conflictNotice}
         </p>
       ) : null}
-      <AccountState loading={query.loading} error={query.error} retry={refresh} />
+      <AccountState
+        title={query.data ? "Could not refresh mining assets" : undefined}
+        loading={query.loading}
+        error={query.error}
+        retry={refresh}
+      />
       {query.data ? (
         <>
           {selectable && selected.length > 0 && !isPicker ? (
@@ -886,7 +891,9 @@ const AccountAssets = ({
               }
               const success = reviewingAssignment
                 ? `Allocated ${countLabel(review.assets.length)} to ${reviewTarget!.name}.`
-                : `Recalled ${countLabel(review.assets.length)} to ${account.name}.`;
+                : account.depth === 0
+                  ? `Recalled ${countLabel(review.assets.length)} from ${reviewTarget!.name}.`
+                  : `Recalled ${countLabel(review.assets.length)} to ${account.name}.`;
               setConflictNotice("");
               pushToast({ message: success, status: STATUSES.success });
               refresh();
@@ -898,9 +905,9 @@ const AccountAssets = ({
         >
           {reviewingAssignment ? (
             <>
-              <p>Allocate the selected assets from {account.name}.</p>
+              {account.depth === 0 ? null : <p>Allocate the selected assets from {account.name}.</p>}
               {child ? (
-                <p>To {child.name}</p>
+                <p>{account.depth === 0 ? `Allocate the selected assets to ${child.name}.` : `To ${child.name}`}</p>
               ) : (
                 <Select
                   id={`${inputId}-assignment-target`}
@@ -915,7 +922,9 @@ const AccountAssets = ({
             </>
           ) : (
             <p>
-              Recall the selected assets from {reviewTarget?.name} to {account.name}.{" "}
+              {account.depth === 0
+                ? `Recall the selected assets from ${reviewTarget?.name}.`
+                : `Recall the selected assets from ${reviewTarget?.name} to ${account.name}.`}{" "}
               {account.depth === 0 ? "Any subclient allocation on these assets will also be recalled." : ""}
             </p>
           )}

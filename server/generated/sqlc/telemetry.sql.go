@@ -1294,6 +1294,76 @@ func (q *Queries) GetLatestDeviceMetrics(ctx context.Context, arg GetLatestDevic
 	return items, nil
 }
 
+const getOrgDeviceMetricsDailyAggregates = `-- name: GetOrgDeviceMetricsDailyAggregates :many
+WITH latest_device AS (
+    SELECT DISTINCT ON (d.device_identifier)
+        d.device_identifier,
+        d.org_id
+    FROM device d
+    ORDER BY d.device_identifier, (d.deleted_at IS NULL) DESC, d.updated_at DESC, d.id DESC
+)
+SELECT
+    dmd.bucket,
+    dmd.device_identifier,
+    COALESCE(dmd.avg_hash_rate, 0) AS avg_hash_rate,
+    dmd.max_hash_rate,
+    dmd.min_hash_rate,
+    COALESCE(dmd.avg_temp, 0) AS avg_temp,
+    dmd.max_temp,
+    dmd.min_temp,
+    COALESCE(dmd.avg_power, 0) AS avg_power,
+    COALESCE(dmd.avg_efficiency, 0) AS avg_efficiency,
+    dmd.data_points
+FROM device_metrics_daily dmd
+JOIN latest_device d USING (device_identifier)
+WHERE d.org_id = $1
+  AND dmd.bucket >= $2
+  AND dmd.bucket <= $3
+ORDER BY dmd.bucket ASC
+`
+
+type GetOrgDeviceMetricsDailyAggregatesParams struct {
+	OrgID     int64
+	StartTime time.Time
+	EndTime   time.Time
+}
+
+// Returns daily aggregates for the current devices in an org.
+func (q *Queries) GetOrgDeviceMetricsDailyAggregates(ctx context.Context, arg GetOrgDeviceMetricsDailyAggregatesParams) ([]DeviceMetricsDaily, error) {
+	rows, err := q.query(ctx, q.getOrgDeviceMetricsDailyAggregatesStmt, getOrgDeviceMetricsDailyAggregates, arg.OrgID, arg.StartTime, arg.EndTime)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeviceMetricsDaily
+	for rows.Next() {
+		var i DeviceMetricsDaily
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.DeviceIdentifier,
+			&i.AvgHashRate,
+			&i.MaxHashRate,
+			&i.MinHashRate,
+			&i.AvgTemp,
+			&i.MaxTemp,
+			&i.MinTemp,
+			&i.AvgPower,
+			&i.AvgEfficiency,
+			&i.DataPoints,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getOrgDeviceMetricsHourlyAggregates = `-- name: GetOrgDeviceMetricsHourlyAggregates :many
 WITH latest_device AS (
     SELECT DISTINCT ON (d.device_identifier)
@@ -1548,6 +1618,88 @@ func (q *Queries) GetOrgDeviceMetricsRawBucketAggregates(ctx context.Context, ar
 			&i.SumEfficiency,
 			&i.EfficiencyPoints,
 			&i.EfficiencyDeviceCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getOrgDeviceStatusDailyAggregates = `-- name: GetOrgDeviceStatusDailyAggregates :many
+WITH latest_device AS (
+    SELECT DISTINCT ON (d.device_identifier)
+        d.device_identifier,
+        d.org_id
+    FROM device d
+    ORDER BY d.device_identifier, (d.deleted_at IS NULL) DESC, d.updated_at DESC, d.id DESC
+)
+SELECT
+    dsd.bucket,
+    dsd.device_identifier,
+    dsd.temp_below_0,
+    dsd.temp_0_10,
+    dsd.temp_10_20,
+    dsd.temp_20_30,
+    dsd.temp_30_40,
+    dsd.temp_40_50,
+    dsd.temp_50_60,
+    dsd.temp_60_70,
+    dsd.temp_70_80,
+    dsd.temp_80_90,
+    dsd.temp_90_100,
+    dsd.temp_100_plus,
+    dsd.hashing_count,
+    dsd.not_hashing_count,
+    dsd.data_points
+FROM device_status_daily dsd
+JOIN latest_device d USING (device_identifier)
+WHERE d.org_id = $1
+  AND dsd.bucket >= $2
+  AND dsd.bucket <= $3
+ORDER BY dsd.bucket ASC
+`
+
+type GetOrgDeviceStatusDailyAggregatesParams struct {
+	OrgID     int64
+	StartTime time.Time
+	EndTime   time.Time
+}
+
+// Returns daily status aggregates for the current devices in an org.
+func (q *Queries) GetOrgDeviceStatusDailyAggregates(ctx context.Context, arg GetOrgDeviceStatusDailyAggregatesParams) ([]DeviceStatusDaily, error) {
+	rows, err := q.query(ctx, q.getOrgDeviceStatusDailyAggregatesStmt, getOrgDeviceStatusDailyAggregates, arg.OrgID, arg.StartTime, arg.EndTime)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeviceStatusDaily
+	for rows.Next() {
+		var i DeviceStatusDaily
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.DeviceIdentifier,
+			&i.TempBelow0,
+			&i.Temp010,
+			&i.Temp1020,
+			&i.Temp2030,
+			&i.Temp3040,
+			&i.Temp4050,
+			&i.Temp5060,
+			&i.Temp6070,
+			&i.Temp7080,
+			&i.Temp8090,
+			&i.Temp90100,
+			&i.Temp100Plus,
+			&i.HashingCount,
+			&i.NotHashingCount,
+			&i.DataPoints,
 		); err != nil {
 			return nil, err
 		}

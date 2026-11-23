@@ -6,15 +6,16 @@ import Row from "@/shared/components/Row";
 interface PoolInfoRowProps {
   hasDivider?: boolean;
   index?: number;
+  name?: string;
   suffixIcon?: ReactNode;
   url?: string;
 }
 
-const PoolInfoRow = ({ hasDivider, index, suffixIcon, url }: PoolInfoRowProps) => {
+const PoolInfoRow = ({ hasDivider, index, name, suffixIcon, url }: PoolInfoRowProps) => {
   return (
     <Row suffixIcon={suffixIcon} divider={hasDivider}>
       <Header
-        title={`${index === 0 ? "Default Pool" : `Backup Pool #${index}`}`}
+        title={name || (index === 0 ? "Default Pool" : `Backup Pool #${index}`)}
         titleSize="text-emphasis-300"
         subtitle={url}
         subtitleClassName="truncate"

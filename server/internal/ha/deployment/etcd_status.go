@@ -2,13 +2,8 @@ package deployment
 
 import (
 	"context"
-	"fmt"
-	"path/filepath"
-	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
-
-	"github.com/block/proto-fleet/server/internal/ha"
 )
 
 // EtcdMemberStatus separates allocated backend space from live data and retained
@@ -37,18 +32,11 @@ func EtcdStatus(ctx context.Context, envPath string) (EtcdReport, error) {
 	if err := validateNodeConfig(config); err != nil {
 		return EtcdReport{}, err
 	}
-	tlsConfig, err := ha.LoadServiceTLS(filepath.Join(config.SecretsDir, "service-ca.crt"))
+	etcdConfig, err := fleetObserverEtcdConfig(config)
 	if err != nil {
 		return EtcdReport{}, err
 	}
-	password, err := readPassword(filepath.Join(config.SecretsDir, fleetEtcdPasswordFile))
-	if err != nil {
-		return EtcdReport{}, fmt.Errorf("read Fleet etcd password: %w", err)
-	}
-	status := probeEtcdMembers(ctx, clientv3.Config{
-		Endpoints: []string{"https://" + config.DatabaseAIP + ":2379", "https://" + config.DatabaseBIP + ":2379", "https://" + config.WitnessIP + ":2379"},
-		Username:  "fleet-observer", Password: password, TLS: tlsConfig, DialTimeout: 2 * time.Second,
-	})
+	status := probeEtcdMembers(ctx, etcdConfig)
 	return EtcdReport{Healthy: status.redundant && status.spaceHealthy, Members: status.members}, nil
 }
 

@@ -87,7 +87,7 @@ func (s *Service) RunContainerAlarmAction(ctx context.Context, identifier string
 		if pending {
 			return nil, fleeterror.NewFailedPreconditionError(containerAlarmPendingMessage)
 		}
-		upgrade, err := s.fleetNodeUpgradeRequired(db.WithTxQueries(txCtx, q), info.OrganizationID, target.ID, identifier, remotenode.ContainerAlarmCommandProtocolVersion)
+		upgrade, err := s.fleetNodeUpgradeRequired(db.WithTxQueries(txCtx, q), info.OrganizationID, target.ID, identifier, remotenode.ContainerAlarmCommandProtocolVersion, true)
 		if err != nil {
 			return nil, err
 		}

@@ -35,6 +35,7 @@ const isPoolAttempt = (value: unknown, key: string, storagePrefix: string): valu
     typeof attempt.destinationRef === "string" &&
     typeof attempt.phase === "string" &&
     typeof attempt.configurationConfirmed === "boolean" &&
+    (attempt.unassignedOnly === undefined || typeof attempt.unassignedOnly === "boolean") &&
     (attempt.restoreLegacyMining === undefined || typeof attempt.restoreLegacyMining === "boolean") &&
     (attempt.unsubmittedWorkerNameBoards === undefined ||
       (Number.isSafeInteger(attempt.unsubmittedWorkerNameBoards) && attempt.unsubmittedWorkerNameBoards >= 0)) &&
@@ -91,6 +92,7 @@ export const savePoolAttempt = (controller: string, attempt: PoolAssignmentAttem
     id,
     name,
     macs,
+    unassignedOnly,
     destinationId,
     destinationRevision,
     destinationDefaultPoolRevision,
@@ -109,6 +111,7 @@ export const savePoolAttempt = (controller: string, attempt: PoolAssignmentAttem
       id,
       name,
       macs,
+      unassignedOnly,
       destinationId,
       destinationRevision,
       destinationDefaultPoolRevision,

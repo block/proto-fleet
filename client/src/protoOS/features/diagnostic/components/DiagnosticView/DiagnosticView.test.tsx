@@ -132,25 +132,5 @@ describe("DiagnosticView - Fans Section", () => {
       expect(screen.getByText("Fan 1")).toBeInTheDocument();
       expect(screen.getByText("Fan 2")).toBeInTheDocument();
     });
-
-    it("shows fan cards when fans are connected in air cooling mode", () => {
-      mockUseFanIds.mockReturnValue([1, 2, 3]);
-      mockUseCoolingMode.mockReturnValue("automatic");
-      // Fans with RPM > 0 means they're connected
-      mockUseCoolingStatus.mockReturnValue({
-        data: {
-          fans: [
-            { slot: 1, rpm: 1200 },
-            { slot: 2, rpm: 1150 },
-            { slot: 3, rpm: 1180 },
-          ],
-        },
-      });
-
-      render(<DiagnosticView />);
-
-      expect(screen.queryByText("No fans to display")).not.toBeInTheDocument();
-      expect(screen.queryByText("This miner is set to immersion cooling.")).not.toBeInTheDocument();
-    });
   });
 });

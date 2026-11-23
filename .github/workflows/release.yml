@@ -277,3 +277,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_NAME: ${{ github.ref_name }}
         run: gh release edit "$TAG_NAME" --draft=false
+
+  # Temporary private release delivery. Remove this job and stage-private-release.yml
+  # when the repository becomes public and staging can fetch published bundles directly.
+  stage-private-release:
+    needs: publish-release
+    if: github.event.repository.private
+    permissions:
+      contents: read
+      id-token: write
+    uses: btc-mining/proto-fleet-internal/.github/workflows/stage-private-release.yml@main

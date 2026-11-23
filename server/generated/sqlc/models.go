@@ -451,6 +451,18 @@ type Building struct {
 	DeletedAt             sql.NullTime
 }
 
+type CommandBacklogSummary struct {
+	OrgID                       int64
+	CommandClass                string
+	QueuedCount                 int64
+	RunningCount                int64
+	OutstandingCount            int64
+	OldestQueuedAgeSeconds      float64
+	OldestRunningAgeSeconds     float64
+	OldestOutstandingAgeSeconds float64
+	InvalidClockCount           int64
+}
+
 type CommandBatchLog struct {
 	ID             int64
 	Uuid           string
@@ -562,6 +574,8 @@ type ContainerInventory struct {
 	HashboardInventoryComplete bool
 	HashboardFirmwareVersion   string
 	HashboardFirmwareMixed     bool
+	PsuFirmwareVersion         string
+	PsuFirmwareMixed           bool
 }
 
 type ContainerLatestMetric struct {
@@ -1340,6 +1354,7 @@ type DeviceFirmwareDeployment struct {
 	RolloutID            sql.NullInt64
 	DeployedAt           time.Time
 	LastCommandBatchUuid sql.NullString
+	Component            string
 }
 
 type DeviceMetric struct {
@@ -1414,6 +1429,26 @@ type DevicePairing struct {
 	UpdatedAt     sql.NullTime
 }
 
+type DeviceReachabilityExclusion struct {
+	DeviceID  int64
+	Reason    string
+	CreatedAt time.Time
+	ExpiresAt time.Time
+}
+
+type DeviceReachabilitySummary struct {
+	OrgID            int64
+	SiteID           int64
+	SourceNodeID     int64
+	DeviceClass      int32
+	ExpectedCount    int64
+	ReachableCount   int64
+	UnreachableCount int64
+	UnknownCount     int64
+	ExcludedCount    int64
+	GraceCount       int64
+}
+
 type DeviceSet struct {
 	ID          int64
 	OrgID       int64
@@ -1458,6 +1493,7 @@ type DeviceStatus struct {
 	CreatedAt       sql.NullTime
 	// Earliest time a boot must follow to satisfy the pending firmware installation; NULL falls back to status_timestamp.
 	RebootRequiredAfter sql.NullTime
+	TelemetryStatusAt   sql.NullTime
 }
 
 type DeviceStatusDaily struct {
@@ -1624,6 +1660,7 @@ type FirmwareRollout struct {
 	CreatedAt                time.Time
 	FinishedAt               sql.NullTime
 	ControllerWaitingSince   sql.NullTime
+	Component                string
 }
 
 type FirmwareRolloutDevice struct {
@@ -1680,6 +1717,7 @@ type FirmwareRolloutSuppressedDevice struct {
 	ModelKey             string
 	AssignmentGeneration int64
 	DeviceID             int64
+	Component            string
 }
 
 type FleetActiveOrganization struct {
@@ -3151,6 +3189,7 @@ type QueueMessage struct {
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 	WriteEpoch          int64
+	ProcessingStartedAt sql.NullTime
 }
 
 type RackSlot struct {
@@ -3216,6 +3255,7 @@ type ReleaseChannelFirmware struct {
 	UpdatedAt                  time.Time
 	PreviousFirmwareChecksum   string
 	PreviousFirmwareVersion    string
+	Component                  string
 }
 
 type ReleaseChannelMatch struct {

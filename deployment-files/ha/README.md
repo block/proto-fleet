@@ -15,8 +15,9 @@ The topology is:
 - one unused LAN IPv4 address shared by keepalived on `ha-a` and `ha-b`;
 - host networking on PostgreSQL `5432`, Patroni `8008`, and etcd `2379`/`2380`.
 
-Node joins, certificate rotation, rollback, and restore automation are
-intentionally deferred.
+Node joins, certificate rotation, and rollback are intentionally deferred.
+For a database restore with a rebuilt etcd cluster, follow the
+[Fleet lease recovery procedure](etcd-maintenance.md#recover-the-fleet-lease-after-an-etcd-rebuild).
 
 Release bundles include the `fleet-ha` host utility in this directory. From a
 source checkout, build the same binary with:

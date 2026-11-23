@@ -61,7 +61,12 @@ const AccountAssetDetail = () => {
           { label: asset?.name || "Asset details" },
         ]}
       />
-      <AccountState loading={query.loading} error={query.error} retry={query.refresh} />
+      <AccountState
+        title={asset ? "Could not refresh asset" : undefined}
+        loading={query.loading}
+        error={query.error}
+        retry={query.refresh}
+      />
       {asset ? (
         <PoolAssignments
           deviceIds={asset.kind === MiningAssetKind.MINER ? [asset.id] : []}

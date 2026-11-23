@@ -25,20 +25,20 @@ fake-proto-rig simulator is updated for the `lines=0` and `message` changes.
 
 ### MDK v2
 
-- Development export: Frigate `bin/task api:export`
-  - Source path: `gen/mdkv2-public/spec-all.json`
+- Published mirror: btc-mining/proto-api
+  - Source path: `mdk/v2/spec-all.json`
   - Specification version: `2-43ff7b686bba04e5`
+  - Mirror commit SHA: cbbedfd39bd9dd3c9a2c6f062346e132872a5311
   - SHA-256: `b5e7ca0b1b8a60fb38ba6a153dd1a3aa835b971626182c689232dbe8b46a7b2b`
-  - Extraction Date: 2026-11-19
+  - Extraction Date: 2026-11-23
 - Contract source: Frigate [PR #1044](https://github.com/btc-mining/frigate/pull/1044)
   - Source path: `proto/mdk/v2/`
-  - Commit SHA: 4df958de2aa3ea77510198d6d7b937b81252fab9
-  - Commit Date: 2026-11-19
+  - Commit SHA: d4721d4ed1abcbc68491fe86cf253d77655620f7
+  - Commit Date: 2026-11-23
 
-This development export supplies pool copy and guarded Default worker-name
-updates while the Frigate PR is in review. Refresh this snapshot and the
-vendored protos together when the merged contract is available in the published
-mirror.
+`openapi/MDK-v2-API.json` matches the published `spec-all.json` byte for byte.
+The Frigate export at the commit above reproduces the mirror's checksum
+manifest. The vendored protobuf files come from the same Frigate commit.
 
 The snapshot documents the protobuf-first `/api/v2/...` REST/JSON gateway.
 ProtoOS generates a private TypeScript client from it under the MDK v2 adapter,

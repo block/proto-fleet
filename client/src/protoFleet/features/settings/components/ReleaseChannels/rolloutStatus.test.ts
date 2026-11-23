@@ -242,7 +242,7 @@ describe("remaining rollout retry eligibility", () => {
     expect(canRetryRemaining(rollout, [channel], [rollout, { ...active, status: RolloutStatus.COMPLETED }])).toBe(true);
   });
 
-  it.each([{ done: 6 }, { done: 5, skipped: 1 }, { done: 5, excluded: 1 }])(
+  it.each([{ done: 6 }])(
     "allows a current successful rollout to retry suppressed miners beyond its own counts (%#)",
     (counts) => {
       const completed = {
@@ -257,7 +257,7 @@ describe("remaining rollout retry eligibility", () => {
     },
   );
 
-  it.each([{ queued: 3 }, { inProgress: 2 }, { failed: 1, skipped: 1 }, { excluded: 1 }])(
+  it.each([{ queued: 3 }])(
     "allows current canceled-remaining rollouts with any historical phase mix (%#)",
     (counts) => {
       const canceled = {

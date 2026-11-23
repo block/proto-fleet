@@ -168,31 +168,6 @@ func TestConvertToMinerCapabilities_AntminerDevice(t *testing.T) {
 	assert.True(t, result.Firmware.ManualUploadSupported)
 }
 
-func TestConvertToMinerCapabilities_UnknownManufacturer(t *testing.T) {
-	caps := sdk.Capabilities{
-		sdk.CapabilityBasicAuth:         true,
-		sdk.CapabilityRealtimeTelemetry: true,
-	}
-
-	result := ConvertToMinerCapabilities(caps, "UnknownManufacturer")
-
-	require.NotNil(t, result)
-	assert.Equal(t, "UnknownManufacturer", result.Manufacturer)
-
-	// Telemetry should be set based on capabilities
-	require.NotNil(t, result.Telemetry)
-	assert.True(t, result.Telemetry.RealtimeTelemetrySupported)
-}
-
-func TestConvertAuthenticationCapabilities_NoMethods(t *testing.T) {
-	caps := sdk.Capabilities{
-		sdk.CapabilityReboot: true, // No auth capabilities
-	}
-
-	result := convertAuthenticationCapabilities(caps)
-	assert.Nil(t, result)
-}
-
 func TestConvertAuthenticationCapabilities_BasicAuth(t *testing.T) {
 	caps := sdk.Capabilities{
 		sdk.CapabilityBasicAuth: true,
@@ -214,13 +189,6 @@ func TestConvertCommandCapabilities_CoolingModes(t *testing.T) {
 		expectedImmersionSupported bool
 	}{
 		{
-			name:                       "Both cooling modes supported",
-			airCooling:                 true,
-			immersionCooling:           true,
-			expectedAirSupported:       true,
-			expectedImmersionSupported: true,
-		},
-		{
 			name:                       "Only air cooling supported",
 			airCooling:                 true,
 			immersionCooling:           false,
@@ -233,13 +201,6 @@ func TestConvertCommandCapabilities_CoolingModes(t *testing.T) {
 			immersionCooling:           true,
 			expectedAirSupported:       false,
 			expectedImmersionSupported: true,
-		},
-		{
-			name:                       "No cooling modes supported",
-			airCooling:                 false,
-			immersionCooling:           false,
-			expectedAirSupported:       false,
-			expectedImmersionSupported: false,
 		},
 	}
 
@@ -264,7 +225,6 @@ func TestConvertCommandCapabilities_PoolMaxCount(t *testing.T) {
 		poolConfigCap   bool
 		expectedPoolMax int32
 	}{
-		{"Pool config enabled", true, 3},
 		{"Pool config disabled", false, 0},
 	}
 

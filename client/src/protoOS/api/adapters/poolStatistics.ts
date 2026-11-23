@@ -1,6 +1,12 @@
 import type { AdapterRequestOptions } from "./types";
 import type { PoolInfo } from "@/protoOS/store/contract";
 
+export const isActivePool = (pool?: Pick<PoolInfo, "status">) => {
+  const status = pool?.status?.toLowerCase();
+  // TODO: Remove "alive" when cgminer support ends.
+  return status === "active" || status === "alive";
+};
+
 export interface PoolConfigurationSummary {
   id: string;
   name: string;
@@ -14,9 +20,10 @@ export interface PoolConfigurationReadings extends PoolConfigurationSummary {
   observedBoards?: number;
 }
 export interface PoolConfigurationStatisticsService {
+  getMiningGroupsEnabled(params?: AdapterRequestOptions): Promise<boolean>;
   list(params?: AdapterRequestOptions): Promise<{ enabled: boolean; configurations: PoolConfigurationSummary[] }>;
   read(
     configurations: PoolConfigurationSummary[],
-    params?: AdapterRequestOptions,
+    params?: AdapterRequestOptions & { includeLastRecordedShares?: boolean },
   ): Promise<PoolConfigurationReadings[]>;
 }

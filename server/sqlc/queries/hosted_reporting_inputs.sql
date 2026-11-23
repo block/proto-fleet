@@ -5,6 +5,16 @@ WHERE u.user_id=$1 AND o.organization_id=$2 AND u.deleted_at IS NULL AND o.delet
 -- name: GetReportingAuthority :one
 SELECT * FROM hosted_reporting_authority WHERE organization_id=$1 AND account_id=$2 AND user_id=$3;
 
+-- name: ListReportingAccountManagers :many
+-- Without a stored grant, account managers hold implicit all-site reporting authority.
+SELECT DISTINCT u.id,u.user_id AS user_uuid,u.username FROM "user" u
+JOIN user_organization membership ON membership.user_id=u.id AND membership.organization_id=$1 AND membership.deleted_at IS NULL
+JOIN user_organization_role uor ON uor.user_id=u.id AND uor.organization_id=$1 AND uor.scope_type='org' AND uor.deleted_at IS NULL
+JOIN role r ON r.id=uor.role_id AND r.organization_id=uor.organization_id AND r.deleted_at IS NULL
+JOIN role_permission rp ON rp.role_id=r.id
+JOIN permission p ON p.id=rp.permission_id AND p.key='account:manage'
+WHERE u.deleted_at IS NULL ORDER BY u.user_id;
+
 -- name: ListReportingAuthorities :many
 SELECT a.*,u.user_id AS user_uuid,u.username FROM hosted_reporting_authority a JOIN "user" u ON u.id=a.user_id
 WHERE a.organization_id=$1 AND a.account_id=$2 ORDER BY u.user_id;
@@ -65,6 +75,14 @@ ORDER BY interval_id,source_id,metric;
 SELECT * FROM hosted_account_asset_interval
 WHERE id=ANY(sqlc.arg(ids)::bigint[]) AND organization_id=sqlc.arg(organization_id)
  AND (client_id=sqlc.arg(client_id) OR subclient_id=sqlc.arg(client_id)) ORDER BY id;
+
+-- name: ListReportingAllocatedSiteLocations :many
+-- Sites holding the client's open allocations, for assuming a reporting timezone.
+SELECT s.id,s.timezone,s.country,s.location_state FROM site s
+WHERE s.org_id=sqlc.arg(organization_id) AND s.deleted_at IS NULL AND EXISTS(
+ SELECT 1 FROM hosted_account_asset_interval i WHERE i.organization_id=s.org_id AND i.site_id=s.id AND i.ended_at IS NULL
+ AND (i.client_id=sqlc.arg(client_id) OR i.subclient_id=sqlc.arg(client_id)))
+ORDER BY s.id;
 
 -- name: ListReportingSites :many
 SELECT id,deleted_at FROM site WHERE id=ANY(sqlc.arg(ids)::bigint[]) AND org_id=sqlc.arg(org_id) ORDER BY id;

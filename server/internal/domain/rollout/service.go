@@ -124,13 +124,18 @@ type ChannelMiner struct {
 	LastDeployedFirmwareChecksum string
 }
 
-// ModelGroup is the summary of one observed manufacturer/model pair inside a
-// channel, joined to the pair's assignment. Members are listed separately
-// with ListChannelMiners; groups are paged with ListChannelModelGroups.
+// ModelGroup is the summary of one firmware component of an observed
+// manufacturer/model pair inside a channel, joined to that component's
+// assignment. Every pair has a group for its main firmware; another component
+// has a group once it is assigned. Members are listed separately with
+// ListChannelMiners; groups are paged with ListChannelModelGroups.
 type ModelGroup struct {
 	// Manufacturer and Model are the observed identity, verbatim.
 	Manufacturer string
 	Model        string
+	// Component is ComponentMain or ComponentPSU. The assignment, reported
+	// versions and on-target count below are this component's.
+	Component string
 	// Assignment, empty when the pair is unassigned. FirmwareFileID is the
 	// uploaded file that currently carries FirmwareChecksum, if any.
 	FirmwareChecksum           string
@@ -159,8 +164,9 @@ type Channel struct {
 	Description string
 	Scope       Scope
 	Behavior    Behavior
-	// ModelGroupCount counts observed pairs plus assigned pairs with no
-	// current members; the groups themselves are paged.
+	// ModelGroupCount counts the channel's model groups: observed pairs, one
+	// more per other component assigned to an observed pair, and assignments
+	// with no current members. The groups themselves are paged.
 	ModelGroupCount int32
 	MinerCount      int32
 	CreatedAt       time.Time
@@ -233,8 +239,11 @@ type ScopePreview struct {
 // Assignment is the desired firmware for one manufacturer/model pair: the
 // uploaded file whose artifact becomes the assignment, or empty to clear.
 type Assignment struct {
-	Manufacturer   string
-	Model          string
+	Manufacturer string
+	Model        string
+	// Component is the firmware component of the model this assigns:
+	// ComponentMain or ComponentPSU. The file must be firmware for it.
+	Component      string
 	FirmwareFileID string
 }
 
@@ -725,13 +734,19 @@ func channelLookupError(channelID int64, err error) error {
 
 // ListChannelMiners returns one page of a channel's members ordered by
 // identifier, optionally restricted to an observed manufacturer and/or model
-// (matched verbatim). The returned cursor is empty on the last page.
-func (s *Service) ListChannelMiners(ctx context.Context, orgID, channelID int64, manufacturer, model string, pageSize int32, cursor string) ([]ChannelMiner, string, error) {
+// (matched verbatim). Each member's reported version and provenance are
+// those of the named firmware component. The returned cursor is empty on the
+// last page.
+func (s *Service) ListChannelMiners(ctx context.Context, orgID, channelID int64, manufacturer, model, component string, pageSize int32, cursor string) ([]ChannelMiner, string, error) {
+	component, err := normalizeComponent(component)
+	if err != nil {
+		return nil, "", err
+	}
 	q := s.store.GetQueries(ctx)
 	if _, err := q.GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: channelID, OrgID: orgID}); err != nil {
 		return nil, "", channelLookupError(channelID, err)
 	}
-	params := sqlc.ListReleaseChannelMinersPageParams{ChannelID: channelID, OrgID: orgID}
+	params := sqlc.ListReleaseChannelMinersPageParams{ChannelID: channelID, OrgID: orgID, Component: component}
 	if manufacturer != "" {
 		params.Manufacturer = sql.NullString{String: manufacturer, Valid: true}
 	}
@@ -779,10 +794,11 @@ func (s *Service) ListChannelMiners(ctx context.Context, orgID, channelID int64,
 	return miners, next, nil
 }
 
-// ListChannelModelGroups returns one page of a channel's manufacturer/model
-// groups sorted by manufacturer then model: every observed pair among its
-// members plus every assigned pair with no current members. The returned
-// cursor is empty on the last page.
+// ListChannelModelGroups returns one page of a channel's model groups sorted
+// by manufacturer, model, then component. The groups are the main firmware
+// group of every observed pair among its members, one more group for each
+// other component assigned to that pair, and every assignment with no current
+// members. The returned cursor is empty on the last page.
 func (s *Service) ListChannelModelGroups(ctx context.Context, orgID, channelID int64, pageSize int32, cursor string) ([]ModelGroup, string, error) {
 	q := s.store.GetQueries(ctx)
 	if _, err := q.GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: channelID, OrgID: orgID}); err != nil {
@@ -790,12 +806,13 @@ func (s *Service) ListChannelModelGroups(ctx context.Context, orgID, channelID i
 	}
 	params := sqlc.ListReleaseChannelModelGroupsPageParams{ChannelID: channelID, OrgID: orgID}
 	if cursor != "" {
-		parts, err := decodeCursor(cursor, 2)
+		parts, err := decodeCursor(cursor, 3)
 		if err != nil {
 			return nil, "", err
 		}
 		params.AfterManufacturer = sql.NullString{String: parts[0], Valid: true}
 		params.AfterModel = sql.NullString{String: parts[1], Valid: true}
+		params.AfterComponent = sql.NullString{String: parts[2], Valid: true}
 	}
 	limit := min(clampPageSize(pageSize), ModelGroupPageSize)
 	params.PageLimit = limit + 1
@@ -808,7 +825,7 @@ func (s *Service) ListChannelModelGroups(ctx context.Context, orgID, channelID i
 	if len(rows) > int(limit) {
 		rows = rows[:limit]
 		last := rows[len(rows)-1]
-		next = encodeCursor(last.Manufacturer, last.Model)
+		next = encodeCursor(last.Manufacturer, last.Model, last.Component)
 	}
 	groups := make([]ModelGroup, 0, len(rows))
 	type availability struct {
@@ -820,6 +837,7 @@ func (s *Service) ListChannelModelGroups(ctx context.Context, orgID, channelID i
 		g := ModelGroup{
 			Manufacturer:               r.Manufacturer,
 			Model:                      r.Model,
+			Component:                  r.Component,
 			FirmwareChecksum:           r.FirmwareChecksum,
 			FirmwareVersion:            r.FirmwareVersion,
 			FirmwareTargetManufacturer: r.FirmwareTargetManufacturer,
@@ -941,7 +959,9 @@ func decodeCursor(cursor string, n int) ([]string, error) {
 
 // buildChannelSummaries batches observed model counts and assignments without
 // loading scope selectors. Membership resolution still considers competing
-// channels. The group count includes observed pairs and assigned pairs with no members.
+// channels. The group count matches ListChannelModelGroups: observed pairs,
+// one more group per other component assigned to an observed pair, and
+// assignments with no members.
 func (s *Service) buildChannelSummaries(ctx context.Context, orgID int64, rows []sqlc.ReleaseChannel) ([]Channel, error) {
 	if len(rows) == 0 {
 		return []Channel{}, nil
@@ -979,17 +999,30 @@ func (s *Service) buildChannelSummaries(ctx context.Context, orgID int64, rows [
 			CreatedAt:   row.CreatedAt,
 			UpdatedAt:   row.UpdatedAt,
 		}
+		// Observed pairs keep their spelling; an assignment matches every
+		// spelling that folds to its key.
 		observed := map[PairKey]bool{}
-		folded := map[PairKey]bool{}
+		spellings := map[PairKey]int32{}
 		for _, m := range membersByChannel[row.ID] {
 			ch.MinerCount += m.MinerCount
-			observed[PairKey{Manufacturer: m.Manufacturer, Model: m.Model}] = true
-			folded[PairKey{Manufacturer: strings.TrimSpace(m.Manufacturer), Model: strings.TrimSpace(m.Model)}.folded()] = true
+			pair := PairKey{Manufacturer: m.Manufacturer, Model: m.Model}
+			if !observed[pair] {
+				observed[pair] = true
+				spellings[PairKey{Manufacturer: strings.TrimSpace(m.Manufacturer), Model: strings.TrimSpace(m.Model)}.folded()]++
+			}
 		}
 		ch.ModelGroupCount = int32(len(observed)) //nolint:gosec // bounded by the fleet size
 		for _, f := range firmwareByChannel[row.ID] {
-			if f.FirmwareChecksum != "" && !folded[PairKey{Manufacturer: f.Manufacturer, Model: f.Model}.folded()] {
+			if f.FirmwareChecksum == "" {
+				continue
+			}
+			switch members := spellings[PairKey{Manufacturer: f.Manufacturer, Model: f.Model}.folded()]; {
+			case members == 0:
 				ch.ModelGroupCount++
+			case f.Component != ComponentMain:
+				// The pair's main group is already counted; another assigned
+				// component adds a group for each observed spelling.
+				ch.ModelGroupCount += members
 			}
 		}
 		channels = append(channels, ch)
@@ -1104,7 +1137,7 @@ func (s *Service) PreviewFirmware(ctx context.Context, orgID, channelID int64, a
 			}
 		}
 		counts, err := q.CountReleaseChannelFirmwarePreviewMembers(ctx, sqlc.CountReleaseChannelFirmwarePreviewMembersParams{
-			OrgID: orgID, ChannelID: channel.ID, Manufacturer: a.pair.Manufacturer, Model: a.pair.Model,
+			OrgID: orgID, ChannelID: channel.ID, Manufacturer: a.pair.Manufacturer, Model: a.pair.Model, Component: a.pair.Component,
 			FirmwareVersion: a.artifact.Metadata.FirmwareVersion, FirmwareChecksum: a.artifact.Checksum,
 			AssignmentGeneration: generation, AssignedFileIds: s.files.FirmwareFileIDsByChecksum(a.artifact.Checksum),
 		})
@@ -1182,19 +1215,19 @@ func (s *Service) RollbackFirmware(ctx context.Context, orgID int64, rolloutID i
 			return err
 		}
 		channelID = channel.ID
-		pair := PairKey{Manufacturer: row.Manufacturer, Model: row.Model}
+		pair := PairKey{Manufacturer: row.Manufacturer, Model: row.Model, Component: row.Component}
 		assignment, err := q.GetReleaseChannelFirmware(ctx, sqlc.GetReleaseChannelFirmwareParams{
-			ChannelID: channel.ID, Manufacturer: pair.Manufacturer, Model: pair.Model,
+			ChannelID: channel.ID, Manufacturer: pair.Manufacturer, Model: pair.Model, Component: pair.Component,
 		})
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return fleeterror.NewInternalErrorf("get firmware assignment: %w", err)
 		}
 		if err != nil || assignment.AssignmentGeneration != row.AssignmentGeneration {
 			return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonStaleGeneration},
-				"rollout %d is not the current assignment of %s %s in %s", rolloutID, pair.Manufacturer, pair.Model, channel.Name)
+				"rollout %d is not the current assignment of %s in %s", rolloutID, pair.label(), channel.Name)
 		}
 		if row.PreviousFirmwareChecksum == "" {
-			started, err = s.applyAssignments(ctx, channel, m.Actor, []Assignment{{Manufacturer: pair.Manufacturer, Model: pair.Model}}, allAtOnce, CancelReasonRolledBack, m.Note)
+			started, err = s.applyAssignments(ctx, channel, m.Actor, []Assignment{{Manufacturer: pair.Manufacturer, Model: pair.Model, Component: pair.Component}}, allAtOnce, CancelReasonRolledBack, m.Note)
 			return err
 		}
 		release, err := s.files.PinFirmwareArtifact(row.PreviousFirmwareChecksum)
@@ -1238,7 +1271,7 @@ func (s *Service) resolveAssignments(ctx context.Context, channel sqlc.ReleaseCh
 	for i := range existing {
 		f := &existing[i]
 		if f.ChannelID == channel.ID {
-			current[PairKey{Manufacturer: f.Manufacturer, Model: f.Model}.folded()] = f
+			current[PairKey{Manufacturer: f.Manufacturer, Model: f.Model, Component: f.Component}.folded()] = f
 		}
 	}
 	seen := map[PairKey]bool{}
@@ -1248,8 +1281,11 @@ func (s *Service) resolveAssignments(ctx context.Context, channel sqlc.ReleaseCh
 		if err != nil {
 			return nil, err
 		}
+		if pair.Component, err = normalizeComponent(a.Component); err != nil {
+			return nil, err
+		}
 		if seen[pair.folded()] {
-			return nil, fleeterror.NewInvalidArgumentErrorf("assignments name %s %s more than once", pair.Manufacturer, pair.Model)
+			return nil, fleeterror.NewInvalidArgumentErrorf("assignments name %s more than once", pair.label())
 		}
 		seen[pair.folded()] = true
 		r := resolvedAssignment{pair: pair, current: current[pair.folded()]}
@@ -1271,12 +1307,13 @@ func (s *Service) resolveAssignments(ctx context.Context, channel sqlc.ReleaseCh
 					"firmware file %q targets %s %s, not %s %s", a.FirmwareFileID,
 					artifact.Metadata.TargetManufacturer, artifact.Metadata.TargetModel, pair.Manufacturer, pair.Model)
 			}
-			// A channel holds one assignment per manufacturer and model and
-			// verifies it against the hashboard version a container reports,
-			// so it can neither hold nor verify PSU firmware.
-			if artifact.Metadata.IsPSU() {
+			// A file backs only the assignment of the component it is firmware
+			// for, so a PSU capsule cannot replace a model's main firmware
+			// assignment and an archive cannot replace its PSU assignment.
+			if component := artifact.Metadata.ComponentKey(); component != pair.Component {
 				return nil, reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonArtifactMismatch},
-					"firmware file %q is PSU firmware, which release channels do not support; update the container directly", a.FirmwareFileID)
+					"firmware file %q is %s firmware, not %s firmware; assign it to the %s component of %s %s", a.FirmwareFileID,
+					componentName(component), componentName(pair.Component), componentName(component), pair.Manufacturer, pair.Model)
 			}
 			r.artifact = &artifact
 		}
@@ -1307,7 +1344,7 @@ func (s *Service) applyResolved(ctx context.Context, channel sqlc.ReleaseChannel
 	for _, a := range resolved {
 		cancel := func(why string) error {
 			old, err := q.GetActiveFirmwareRolloutForPair(ctx, sqlc.GetActiveFirmwareRolloutForPairParams{
-				ChannelID: channel.ID, Manufacturer: a.pair.Manufacturer, Model: a.pair.Model,
+				ChannelID: channel.ID, Manufacturer: a.pair.Manufacturer, Model: a.pair.Model, Component: a.pair.Component,
 			})
 			if errors.Is(err, sql.ErrNoRows) {
 				return nil
@@ -1316,7 +1353,7 @@ func (s *Service) applyResolved(ctx context.Context, channel sqlc.ReleaseChannel
 				return err
 			}
 			if err := q.CancelActiveFirmwareRollout(ctx, sqlc.CancelActiveFirmwareRolloutParams{
-				ChannelID: channel.ID, Manufacturer: a.pair.Manufacturer, Model: a.pair.Model, CancelReason: why,
+				ChannelID: channel.ID, Manufacturer: a.pair.Manufacturer, Model: a.pair.Model, Component: a.pair.Component, CancelReason: why,
 				ActorType: actor.Type, ActorID: actor.ID, ActorName: actor.Name,
 			}); err != nil {
 				return err
@@ -1328,7 +1365,7 @@ func (s *Service) applyResolved(ctx context.Context, channel sqlc.ReleaseChannel
 				continue
 			}
 			if _, err := q.ClearReleaseChannelFirmware(ctx, sqlc.ClearReleaseChannelFirmwareParams{
-				ChannelID: channel.ID, Manufacturer: a.pair.Manufacturer, Model: a.pair.Model, AssignedBy: ownerUserID,
+				ChannelID: channel.ID, Manufacturer: a.pair.Manufacturer, Model: a.pair.Model, Component: a.pair.Component, AssignedBy: ownerUserID,
 			}); err != nil {
 				return nil, fleeterror.NewInternalErrorf("clear assignment: %w", err)
 			}
@@ -1349,6 +1386,7 @@ func (s *Service) applyResolved(ctx context.Context, channel sqlc.ReleaseChannel
 			ChannelID:                  channel.ID,
 			Manufacturer:               a.pair.Manufacturer,
 			Model:                      a.pair.Model,
+			Component:                  a.pair.Component,
 			FirmwareChecksum:           a.artifact.Checksum,
 			FirmwareVersion:            a.artifact.Metadata.FirmwareVersion,
 			FirmwareTargetManufacturer: a.artifact.Metadata.TargetManufacturer,

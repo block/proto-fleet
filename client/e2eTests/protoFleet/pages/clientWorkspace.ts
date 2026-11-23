@@ -268,7 +268,7 @@ export class ClientWorkspacePage {
     await picker.getByRole("button", { name: "Allocate selected", exact: true }).click();
     const dialog = this.page.getByRole("dialog", { name: "Allocate 1 asset?", exact: true });
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByText(`To ${clientName}`, { exact: true })).toBeVisible();
+    await expect(dialog.getByText(`Allocate the selected assets to ${clientName}.`, { exact: true })).toBeVisible();
     await dialog.getByRole("button", { name: "Allocate 1 asset", exact: true }).focus();
     await this.page.keyboard.press("Tab");
     await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();

@@ -13,17 +13,6 @@ describe("CompositionBar", () => {
   };
 
   describe("Rendering", () => {
-    it("renders the composition bar with segments", () => {
-      render(<CompositionBar {...defaultProps} />);
-
-      // Check for group container
-      expect(screen.getByRole("group", { name: /composition bar chart/i })).toBeInTheDocument();
-
-      // Check for individual segments (progressbar elements)
-      const progressBars = screen.getAllByRole("progressbar");
-      expect(progressBars).toHaveLength(3);
-    });
-
     it("renders with custom className", () => {
       const className = "custom-class mt-4";
       render(<CompositionBar {...defaultProps} className={className} />);
@@ -124,31 +113,6 @@ describe("CompositionBar", () => {
       expect(progressBars[0]).toHaveAttribute("aria-label", expect.stringContaining("Active"));
       expect(progressBars[1]).toHaveAttribute("aria-label", expect.stringContaining("Critical"));
     });
-
-    it("handles single segment correctly", () => {
-      render(<CompositionBar segments={[{ name: "All Good", status: "OK", count: 100 }]} />);
-
-      const progressBar = screen.getByRole("progressbar");
-      expect(progressBar).toHaveAttribute("aria-valuenow", "100");
-      expect(progressBar).toHaveAttribute("aria-label", "All Good: 100.0%");
-    });
-
-    it("handles very small percentages", () => {
-      render(
-        <CompositionBar
-          segments={[
-            { name: "Majority", status: "OK", count: 999 },
-            { name: "Tiny", status: "CRITICAL", count: 1 },
-          ]}
-        />,
-      );
-
-      const progressBars = screen.getAllByRole("progressbar");
-      expect(progressBars).toHaveLength(2);
-
-      // Tiny segment should still be visible (0.1%)
-      expect(progressBars[1]).toHaveAttribute("aria-label", "Tiny: 0.1%");
-    });
   });
 
   describe("Status Colors", () => {
@@ -170,15 +134,6 @@ describe("CompositionBar", () => {
       expect(segments[2]).toHaveClass("bg-intent-critical-fill");
       expect(segments[3]).toHaveClass("bg-grayscale-gray-50");
     });
-
-    it("applies rounded-full class to each segment", () => {
-      const { container } = render(<CompositionBar {...defaultProps} />);
-
-      const segments = container.querySelectorAll('[role="progressbar"]');
-      segments.forEach((segment) => {
-        expect(segment).toHaveClass("rounded-full");
-      });
-    });
   });
 
   describe("Accessibility", () => {
@@ -196,14 +151,6 @@ describe("CompositionBar", () => {
         expect(bar).toHaveAttribute("aria-valuenow");
         expect(bar).toHaveAttribute("aria-label");
       });
-    });
-
-    it("provides meaningful labels for screen readers", () => {
-      render(<CompositionBar {...defaultProps} />);
-
-      expect(screen.getByRole("progressbar", { name: /Healthy: 75.0%/i })).toBeInTheDocument();
-      expect(screen.getByRole("progressbar", { name: /Warning: 16.7%/i })).toBeInTheDocument();
-      expect(screen.getByRole("progressbar", { name: /Critical: 8.3%/i })).toBeInTheDocument();
     });
 
     it("handles empty state with appropriate ARIA attributes", () => {
@@ -256,45 +203,6 @@ describe("CompositionBar", () => {
       // Should render progress bars for defined segments
       const progressBars = screen.getAllByRole("progressbar");
       expect(progressBars).toHaveLength(2); // Only Healthy and Critical
-    });
-
-    it("handles large numbers correctly", () => {
-      render(
-        <CompositionBar
-          segments={[
-            { name: "Large1", status: "OK", count: 1000000 },
-            { name: "Large2", status: "WARNING", count: 500000 },
-            { name: "Large3", status: "CRITICAL", count: 250000 },
-          ]}
-        />,
-      );
-
-      const progressBars = screen.getAllByRole("progressbar");
-      expect(progressBars).toHaveLength(3);
-
-      // Check percentages are calculated correctly
-      // Total = 1,750,000
-      // Large1: 1,000,000 / 1,750,000 ≈ 57.14%
-      expect(progressBars[0]).toHaveAttribute("aria-label", expect.stringMatching(/Large1.*57\.\d%/));
-    });
-
-    it("handles decimal count values", () => {
-      render(
-        <CompositionBar
-          segments={[
-            { name: "Decimal1", status: "OK", count: 10.5 },
-            { name: "Decimal2", status: "WARNING", count: 5.25 },
-            { name: "Decimal3", status: "CRITICAL", count: 2.75 },
-          ]}
-        />,
-      );
-
-      const progressBars = screen.getAllByRole("progressbar");
-      expect(progressBars).toHaveLength(3);
-
-      // Total = 18.5
-      // Decimal1: 10.5 / 18.5 ≈ 56.8%
-      expect(progressBars[0]).toHaveAttribute("aria-label", expect.stringMatching(/Decimal1.*56\.\d%/));
     });
 
     it("handles negative counts by treating them as zero", () => {

@@ -80,9 +80,16 @@ func TestWorkerCompletionPersistenceFailurePreservesDeviceOutcome(t *testing.T) 
 			miner.EXPECT().StopMining(gomock.Any()).Return(tc.deviceError).Times(1)
 			svc.minerService = minerGetter
 			svc.messageQueue = queue.NewDatabaseMessageQueue(&queue.Config{MaxFailureRetries: 3}, conn)
+			operational := &recordingOperationalMetrics{}
+			svc.WithOperationalMetrics(operational)
 			svc.workerProcessCommand(ctx, queue.Message{
 				ID: messageID, DeviceID: deviceID, BatchLogUUID: batch, CommandType: commandType, OrgID: 1,
 			})
+
+			require.Equal(t, 1, operational.started)
+			require.Equal(t, 1, operational.finished)
+			require.Equal(t, 1, operational.committed)
+			require.Zero(t, operational.persistenceFailed)
 
 			var completionAttempts, retryCount int
 			var queueStatus sqlc.QueueStatusEnum

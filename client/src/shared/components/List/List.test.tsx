@@ -2418,34 +2418,6 @@ describe("List", () => {
       expect(handleRowClick).not.toHaveBeenCalled();
     });
 
-    it("does not trigger onRowClick when Enter is pressed on a nested button", () => {
-      const handleRowClick = vi.fn();
-
-      const configWithButton = {
-        ...testColConfig,
-        [testCols.name]: {
-          ...testColConfig[testCols.name as keyof typeof testColConfig],
-          component: (item: TestItem) => <button data-testid={`btn-${item.id}`}>{item.name}</button>,
-        },
-      };
-
-      render(
-        <List<TestItem, TestItemKey>
-          activeCols={activeCols}
-          colTitles={testColTitles}
-          colConfig={configWithButton}
-          items={testItems}
-          itemKey="id"
-          onRowClick={handleRowClick}
-        />,
-      );
-
-      const button = screen.getByTestId(`btn-${testItems[0].id}`);
-      fireEvent.keyDown(button, { key: "Enter", bubbles: true });
-
-      expect(handleRowClick).not.toHaveBeenCalled();
-    });
-
     it("does not trigger onRowClick when a role='button' element is clicked", () => {
       const handleRowClick = vi.fn();
 

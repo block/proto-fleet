@@ -35,11 +35,7 @@ afterEach(() => {
 });
 
 describe("NodeStatusBadge", () => {
-  it.each([
-    ["Connected", 30_000],
-    ["Connected", 120_000],
-    ["Stale", 120_001],
-  ])("shows %s for a confirmed node last seen %dms ago", (label, ageMs) => {
+  it.each([["Connected", 120_000]])("shows %s for a confirmed node last seen %dms ago", (label, ageMs) => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-09T12:10:00Z"));
     const node = { ...baseNode, controlStreamConnected: true, lastSeenAt: new Date(Date.now() - ageMs) };

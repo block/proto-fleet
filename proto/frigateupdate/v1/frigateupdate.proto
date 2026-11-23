@@ -150,7 +150,9 @@ message InstanceSupport {
   string error = 16;
 }
 
-// FrigatePackage is an uploaded, signature-checked Frigate Debian package.
+// FrigatePackage is an uploaded Frigate Debian package. Fleet checked the
+// package against its release statement. release_key_id tells whether Fleet
+// also verified the statement's signature.
 message FrigatePackage {
   string id = 1;
   string filename = 2;
@@ -160,7 +162,11 @@ message FrigatePackage {
   string sha256 = 5;
   int64 size_bytes = 6;
   string repository = 7;
-  // release_key_id is "sha256:" plus the hex SHA-256 of the signing key's SPKI DER.
+  // release_key_id is "sha256:" plus the hex SHA-256 of the SPKI DER of the key
+  // that verified the release signature. It is empty when Fleet stored the
+  // package without verifying the signature, which can happen only when Fleet
+  // has no installed release key. The controllers verify the signature in
+  // every case.
   string release_key_id = 8;
   string min_installed_version = 9;
   google.protobuf.Timestamp issued_at = 10;

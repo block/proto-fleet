@@ -94,6 +94,18 @@ describe("FrigatePackages list", () => {
     expect(screen.getByTitle(KEY_ID)).toBeInTheDocument();
   });
 
+  it("says when Fleet stored a package without verifying its signature", async () => {
+    mocks.listPackages.mockResolvedValue([{ ...item(), releaseKeyId: "" }]);
+    render(<FrigatePackages />);
+    expect(await screen.findByText("Not verified")).toBeInTheDocument();
+  });
+
+  it("does not flag a package with a signer key", async () => {
+    render(<FrigatePackages />);
+    await screen.findByText("1.4.0");
+    expect(screen.queryByText("Not verified")).not.toBeInTheDocument();
+  });
+
   it("shows an empty state", async () => {
     mocks.listPackages.mockResolvedValue([]);
     render(<FrigatePackages />);

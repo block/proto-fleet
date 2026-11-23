@@ -1302,6 +1302,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getFleetNodeTelemetryRouteByDeviceIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFleetNodeTelemetryRouteByDeviceIdentifier: %w", err)
 	}
+	if q.getFleetRuntimeLeaseForRecoveryStmt, err = db.PrepareContext(ctx, getFleetRuntimeLeaseForRecovery); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFleetRuntimeLeaseForRecovery: %w", err)
+	}
 	if q.getFrigateUpdateActionStmt, err = db.PrepareContext(ctx, getFrigateUpdateAction); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFrigateUpdateAction: %w", err)
 	}
@@ -1527,11 +1530,17 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getOrgDeviceIDsWithIdentifiersStmt, err = db.PrepareContext(ctx, getOrgDeviceIDsWithIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrgDeviceIDsWithIdentifiers: %w", err)
 	}
+	if q.getOrgDeviceMetricsDailyAggregatesStmt, err = db.PrepareContext(ctx, getOrgDeviceMetricsDailyAggregates); err != nil {
+		return nil, fmt.Errorf("error preparing query GetOrgDeviceMetricsDailyAggregates: %w", err)
+	}
 	if q.getOrgDeviceMetricsHourlyAggregatesStmt, err = db.PrepareContext(ctx, getOrgDeviceMetricsHourlyAggregates); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrgDeviceMetricsHourlyAggregates: %w", err)
 	}
 	if q.getOrgDeviceMetricsRawBucketAggregatesStmt, err = db.PrepareContext(ctx, getOrgDeviceMetricsRawBucketAggregates); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrgDeviceMetricsRawBucketAggregates: %w", err)
+	}
+	if q.getOrgDeviceStatusDailyAggregatesStmt, err = db.PrepareContext(ctx, getOrgDeviceStatusDailyAggregates); err != nil {
+		return nil, fmt.Errorf("error preparing query GetOrgDeviceStatusDailyAggregates: %w", err)
 	}
 	if q.getOrgDeviceStatusHourlyAggregatesStmt, err = db.PrepareContext(ctx, getOrgDeviceStatusHourlyAggregates); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrgDeviceStatusHourlyAggregates: %w", err)
@@ -2616,6 +2625,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listRepairTicketsStmt, err = db.PrepareContext(ctx, listRepairTickets); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRepairTickets: %w", err)
 	}
+	if q.listReportingAccountManagersStmt, err = db.PrepareContext(ctx, listReportingAccountManagers); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReportingAccountManagers: %w", err)
+	}
+	if q.listReportingAllocatedSiteLocationsStmt, err = db.PrepareContext(ctx, listReportingAllocatedSiteLocations); err != nil {
+		return nil, fmt.Errorf("error preparing query ListReportingAllocatedSiteLocations: %w", err)
+	}
 	if q.listReportingAllocationIntervalsStmt, err = db.PrepareContext(ctx, listReportingAllocationIntervals); err != nil {
 		return nil, fmt.Errorf("error preparing query ListReportingAllocationIntervals: %w", err)
 	}
@@ -3194,6 +3209,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.reassignRacksUnderBuildingsBulkStmt, err = db.PrepareContext(ctx, reassignRacksUnderBuildingsBulk); err != nil {
 		return nil, fmt.Errorf("error preparing query ReassignRacksUnderBuildingsBulk: %w", err)
+	}
+	if q.rebindExpiredFleetRuntimeLeaseStmt, err = db.PrepareContext(ctx, rebindExpiredFleetRuntimeLease); err != nil {
+		return nil, fmt.Errorf("error preparing query RebindExpiredFleetRuntimeLease: %w", err)
 	}
 	if q.reconcileAuthenticationNeededPairingStatusByIdentifierStmt, err = db.PrepareContext(ctx, reconcileAuthenticationNeededPairingStatusByIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query ReconcileAuthenticationNeededPairingStatusByIdentifier: %w", err)
@@ -6170,6 +6188,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getFleetNodeTelemetryRouteByDeviceIdentifierStmt: %w", cerr)
 		}
 	}
+	if q.getFleetRuntimeLeaseForRecoveryStmt != nil {
+		if cerr := q.getFleetRuntimeLeaseForRecoveryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFleetRuntimeLeaseForRecoveryStmt: %w", cerr)
+		}
+	}
 	if q.getFrigateUpdateActionStmt != nil {
 		if cerr := q.getFrigateUpdateActionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getFrigateUpdateActionStmt: %w", cerr)
@@ -6545,6 +6568,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getOrgDeviceIDsWithIdentifiersStmt: %w", cerr)
 		}
 	}
+	if q.getOrgDeviceMetricsDailyAggregatesStmt != nil {
+		if cerr := q.getOrgDeviceMetricsDailyAggregatesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getOrgDeviceMetricsDailyAggregatesStmt: %w", cerr)
+		}
+	}
 	if q.getOrgDeviceMetricsHourlyAggregatesStmt != nil {
 		if cerr := q.getOrgDeviceMetricsHourlyAggregatesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getOrgDeviceMetricsHourlyAggregatesStmt: %w", cerr)
@@ -6553,6 +6581,11 @@ func (q *Queries) Close() error {
 	if q.getOrgDeviceMetricsRawBucketAggregatesStmt != nil {
 		if cerr := q.getOrgDeviceMetricsRawBucketAggregatesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getOrgDeviceMetricsRawBucketAggregatesStmt: %w", cerr)
+		}
+	}
+	if q.getOrgDeviceStatusDailyAggregatesStmt != nil {
+		if cerr := q.getOrgDeviceStatusDailyAggregatesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getOrgDeviceStatusDailyAggregatesStmt: %w", cerr)
 		}
 	}
 	if q.getOrgDeviceStatusHourlyAggregatesStmt != nil {
@@ -8360,6 +8393,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listRepairTicketsStmt: %w", cerr)
 		}
 	}
+	if q.listReportingAccountManagersStmt != nil {
+		if cerr := q.listReportingAccountManagersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReportingAccountManagersStmt: %w", cerr)
+		}
+	}
+	if q.listReportingAllocatedSiteLocationsStmt != nil {
+		if cerr := q.listReportingAllocatedSiteLocationsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listReportingAllocatedSiteLocationsStmt: %w", cerr)
+		}
+	}
 	if q.listReportingAllocationIntervalsStmt != nil {
 		if cerr := q.listReportingAllocationIntervalsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listReportingAllocationIntervalsStmt: %w", cerr)
@@ -9323,6 +9366,11 @@ func (q *Queries) Close() error {
 	if q.reassignRacksUnderBuildingsBulkStmt != nil {
 		if cerr := q.reassignRacksUnderBuildingsBulkStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing reassignRacksUnderBuildingsBulkStmt: %w", cerr)
+		}
+	}
+	if q.rebindExpiredFleetRuntimeLeaseStmt != nil {
+		if cerr := q.rebindExpiredFleetRuntimeLeaseStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing rebindExpiredFleetRuntimeLeaseStmt: %w", cerr)
 		}
 	}
 	if q.reconcileAuthenticationNeededPairingStatusByIdentifierStmt != nil {
@@ -11190,6 +11238,7 @@ type Queries struct {
 	getFleetNodePairingTargetStmt                               *sql.Stmt
 	getFleetNodeSessionByTokenHashStmt                          *sql.Stmt
 	getFleetNodeTelemetryRouteByDeviceIdentifierStmt            *sql.Stmt
+	getFleetRuntimeLeaseForRecoveryStmt                         *sql.Stmt
 	getFrigateUpdateActionStmt                                  *sql.Stmt
 	getFrigateUpdateDeviceSiteStmt                              *sql.Stmt
 	getFrigateUpdateJobStmt                                     *sql.Stmt
@@ -11265,8 +11314,10 @@ type Queries struct {
 	getOfflineDevicesStmt                                       *sql.Stmt
 	getOfflineFleetNodeDevicesStmt                              *sql.Stmt
 	getOrgDeviceIDsWithIdentifiersStmt                          *sql.Stmt
+	getOrgDeviceMetricsDailyAggregatesStmt                      *sql.Stmt
 	getOrgDeviceMetricsHourlyAggregatesStmt                     *sql.Stmt
 	getOrgDeviceMetricsRawBucketAggregatesStmt                  *sql.Stmt
+	getOrgDeviceStatusDailyAggregatesStmt                       *sql.Stmt
 	getOrgDeviceStatusHourlyAggregatesStmt                      *sql.Stmt
 	getOrgFleetMetricRollupsStmt                                *sql.Stmt
 	getOrgScopeAssignmentForUserStmt                            *sql.Stmt
@@ -11628,6 +11679,8 @@ type Queries struct {
 	listRepairTicketCommentsStmt                                *sql.Stmt
 	listRepairTicketPartsStmt                                   *sql.Stmt
 	listRepairTicketsStmt                                       *sql.Stmt
+	listReportingAccountManagersStmt                            *sql.Stmt
+	listReportingAllocatedSiteLocationsStmt                     *sql.Stmt
 	listReportingAllocationIntervalsStmt                        *sql.Stmt
 	listReportingAssetSupportMetadataStmt                       *sql.Stmt
 	listReportingAuthoritiesStmt                                *sql.Stmt
@@ -11821,6 +11874,7 @@ type Queries struct {
 	reassignDevicesUnderBuildingsBulkStmt                       *sql.Stmt
 	reassignRacksUnderBuildingStmt                              *sql.Stmt
 	reassignRacksUnderBuildingsBulkStmt                         *sql.Stmt
+	rebindExpiredFleetRuntimeLeaseStmt                          *sql.Stmt
 	reconcileAuthenticationNeededPairingStatusByIdentifierStmt  *sql.Stmt
 	reconcileCloudAuthNeededByIdentifierStmt                    *sql.Stmt
 	reconcileContainerModulesStmt                               *sql.Stmt
@@ -12533,6 +12587,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getFleetNodePairingTargetStmt:                               q.getFleetNodePairingTargetStmt,
 		getFleetNodeSessionByTokenHashStmt:                          q.getFleetNodeSessionByTokenHashStmt,
 		getFleetNodeTelemetryRouteByDeviceIdentifierStmt:            q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt,
+		getFleetRuntimeLeaseForRecoveryStmt:                         q.getFleetRuntimeLeaseForRecoveryStmt,
 		getFrigateUpdateActionStmt:                                  q.getFrigateUpdateActionStmt,
 		getFrigateUpdateDeviceSiteStmt:                              q.getFrigateUpdateDeviceSiteStmt,
 		getFrigateUpdateJobStmt:                                     q.getFrigateUpdateJobStmt,
@@ -12608,8 +12663,10 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getOfflineDevicesStmt:                                       q.getOfflineDevicesStmt,
 		getOfflineFleetNodeDevicesStmt:                              q.getOfflineFleetNodeDevicesStmt,
 		getOrgDeviceIDsWithIdentifiersStmt:                          q.getOrgDeviceIDsWithIdentifiersStmt,
+		getOrgDeviceMetricsDailyAggregatesStmt:                      q.getOrgDeviceMetricsDailyAggregatesStmt,
 		getOrgDeviceMetricsHourlyAggregatesStmt:                     q.getOrgDeviceMetricsHourlyAggregatesStmt,
 		getOrgDeviceMetricsRawBucketAggregatesStmt:                  q.getOrgDeviceMetricsRawBucketAggregatesStmt,
+		getOrgDeviceStatusDailyAggregatesStmt:                       q.getOrgDeviceStatusDailyAggregatesStmt,
 		getOrgDeviceStatusHourlyAggregatesStmt:                      q.getOrgDeviceStatusHourlyAggregatesStmt,
 		getOrgFleetMetricRollupsStmt:                                q.getOrgFleetMetricRollupsStmt,
 		getOrgScopeAssignmentForUserStmt:                            q.getOrgScopeAssignmentForUserStmt,
@@ -12971,6 +13028,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listRepairTicketCommentsStmt:                                q.listRepairTicketCommentsStmt,
 		listRepairTicketPartsStmt:                                   q.listRepairTicketPartsStmt,
 		listRepairTicketsStmt:                                       q.listRepairTicketsStmt,
+		listReportingAccountManagersStmt:                            q.listReportingAccountManagersStmt,
+		listReportingAllocatedSiteLocationsStmt:                     q.listReportingAllocatedSiteLocationsStmt,
 		listReportingAllocationIntervalsStmt:                        q.listReportingAllocationIntervalsStmt,
 		listReportingAssetSupportMetadataStmt:                       q.listReportingAssetSupportMetadataStmt,
 		listReportingAuthoritiesStmt:                                q.listReportingAuthoritiesStmt,
@@ -13164,6 +13223,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		reassignDevicesUnderBuildingsBulkStmt:                       q.reassignDevicesUnderBuildingsBulkStmt,
 		reassignRacksUnderBuildingStmt:                              q.reassignRacksUnderBuildingStmt,
 		reassignRacksUnderBuildingsBulkStmt:                         q.reassignRacksUnderBuildingsBulkStmt,
+		rebindExpiredFleetRuntimeLeaseStmt:                          q.rebindExpiredFleetRuntimeLeaseStmt,
 		reconcileAuthenticationNeededPairingStatusByIdentifierStmt:  q.reconcileAuthenticationNeededPairingStatusByIdentifierStmt,
 		reconcileCloudAuthNeededByIdentifierStmt:                    q.reconcileCloudAuthNeededByIdentifierStmt,
 		reconcileContainerModulesStmt:                               q.reconcileContainerModulesStmt,

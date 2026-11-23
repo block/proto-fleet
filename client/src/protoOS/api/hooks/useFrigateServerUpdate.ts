@@ -20,6 +20,7 @@ import {
   removeFrigateUpdate,
   saveFrigateUpdate,
 } from "./frigateUpdateStorage";
+import type { ReleaseFiles, ReleasePackageFileKey } from "@/shared/features/frigateUpdate/releaseFiles";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 const READ_TIMEOUT_MS = 15_000;
@@ -58,6 +59,8 @@ const read = (signal: AbortSignal) => ({ signal: AbortSignal.any([signal, AbortS
 export function useFrigateServerUpdate(update: FrigateServerUpdate, deviceId: string) {
   // One update is shown at a time. Another saved record is adopted once this one is released.
   const [record, setRecord] = useState(() => readFrigateUpdate(deviceId));
+  // The release files chosen so far, by kind. `pkg` is set once all three are chosen and agree with each other.
+  const [files, setFiles] = useState<ReleaseFiles<ReleasePackageFileKey>>({});
   const [pkg, setPkg] = useState<FrigatePackage>();
   const [plan, setPlan] = useState<FrigateUpdatePlan>();
   const [status, setStatus] = useState<FrigateUpdateStatus>();
@@ -279,16 +282,39 @@ export function useFrigateServerUpdate(update: FrigateServerUpdate, deviceId: st
       adoptActive(checked);
     });
 
-  const choose = (files: File[]) =>
-    run("reading", async (signal) => {
+  /**
+   * Takes the chosen release files. A complete release is read and checked against the controllers. An incomplete
+   * one has no package, so a package read earlier is dropped and the controllers are checked without it.
+   */
+  const choose = (next: ReleaseFiles<ReleasePackageFileKey>) => {
+    setFiles(next);
+    const { deb, statement, signature } = next;
+    if (deb && statement && signature)
+      return run("reading", async (signal) => {
+        setPkg(undefined);
+        const selected = await update.readPackage([deb, statement, signature], { signal });
+        const checked = await update.plan(selected, read(signal));
+        signal.throwIfAborted();
+        setPkg(selected);
+        setPlan(checked);
+        adoptActive(checked);
+      });
+    if (!pkg && running.current !== "reading") {
+      // No package was read or is being read, so only a message about the earlier files is out of date.
+      setAlerts([]);
+      return Promise.resolve();
+    }
+    return run("checking", async (signal) => {
       setPkg(undefined);
-      const selected = await update.readPackage(files, { signal });
-      const checked = await update.plan(selected, read(signal));
+      const checked = await update.plan(undefined, read(signal));
       signal.throwIfAborted();
-      setPkg(selected);
       setPlan(checked);
       adoptActive(checked);
     });
+  };
+
+  /** Shows why a file selection can't be used. The chosen files stay as they were. */
+  const reject = (message: string) => setAlerts([{ title: message }]);
 
   const startTracked = async (staged: FrigateUpdateRecord, signal: AbortSignal) => {
     // Saved before Start, so a lost answer is settled by status and Start is never sent blindly again.
@@ -504,6 +530,7 @@ export function useFrigateServerUpdate(update: FrigateServerUpdate, deviceId: st
 
   return {
     record,
+    files,
     pkg,
     plan,
     rollout,
@@ -521,6 +548,7 @@ export function useFrigateServerUpdate(update: FrigateServerUpdate, deviceId: st
     stagePercent,
     check,
     choose,
+    reject,
     install,
     start,
     discard,

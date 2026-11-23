@@ -19,7 +19,7 @@ import (
 
 // MinerWebSender uses only the assigned node's authenticated live connection.
 type MinerWebSender interface {
-	SupportsMinerWeb(fleetNodeID int64) bool
+	SupportsMinerWebForDispatch(fleetNodeID int64) bool
 	SendMinerWeb(ctx context.Context, fleetNodeID int64, command *pb.ControlCommand) (*http.Response, error)
 }
 
@@ -36,7 +36,7 @@ func nodeCredential(value sql.NullString) ([]byte, error) {
 
 func (h *Handler) forwardViaNode(ctx context.Context, source *http.Request, target proxyTarget, path string, body []byte) (*http.Response, error) {
 	row := target.binding
-	if h.nodeSender == nil || !h.nodeSender.SupportsMinerWeb(row.FleetNodeID.Int64) {
+	if h.nodeSender == nil || !h.nodeSender.SupportsMinerWebForDispatch(row.FleetNodeID.Int64) {
 		return nil, devicewrite.NotDispatched(fleeterror.NewUnavailableErrorf("embedded view requires a connected, upgraded Fleet Node"))
 	}
 	password, err := nodeCredential(row.PasswordEnc)

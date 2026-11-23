@@ -25,7 +25,10 @@ func TestSendControlCancelSendsQueuedCommandsFirst(t *testing.T) {
 		return nil
 	}
 
-	require.NoError(t, sendControlCancel(send, outgoing, "stream"))
+	sendCommand := func(cmd *pb.ControlCommand) error {
+		return sendControlCommand(send, cmd)
+	}
+	require.NoError(t, sendControlCancel(send, sendCommand, outgoing, "stream"))
 	require.Equal(t, []string{"command stream", "command other", "cancel stream"}, sent)
 	require.Empty(t, outgoing)
 }
@@ -35,7 +38,14 @@ func TestSendControlCancelStopsOnASendError(t *testing.T) {
 	outgoing <- &pb.ControlCommand{CommandId: "stream"}
 	closed := errors.New("stream closed")
 	calls := 0
-	err := sendControlCancel(func(*pb.ControlStreamResponse) error { calls++; return closed }, outgoing, "stream")
+	send := func(*pb.ControlStreamResponse) error {
+		calls++
+		return closed
+	}
+	sendCommand := func(cmd *pb.ControlCommand) error {
+		return sendControlCommand(send, cmd)
+	}
+	err := sendControlCancel(send, sendCommand, outgoing, "stream")
 	require.ErrorIs(t, err, closed)
 	require.Equal(t, 1, calls, "no cancel is sent after the queued command fails")
 }

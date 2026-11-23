@@ -589,6 +589,7 @@ const FleetBuildingsPage = () => {
           size={sizes.compact}
           text="Retry"
           onClick={fetchBuildings}
+          className="w-fit"
           testId="fleet-buildings-retry"
         />
       </FilterRow>

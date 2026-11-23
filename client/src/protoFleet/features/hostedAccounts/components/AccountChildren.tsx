@@ -94,7 +94,12 @@ const AccountChildren = () => {
             ) : null}
           </div>
         </div>
-        <AccountState loading={query.loading} error={query.error} retry={query.refresh} />
+        <AccountState
+          title={selectedChild ? `Could not refresh ${account.depth === 0 ? "client" : "subclient"}` : undefined}
+          loading={query.loading}
+          error={query.error}
+          retry={query.refresh}
+        />
         {selectedChild ? (
           <AccountAssets
             key={`${selectedChild.accountId}:${assigning}`}
@@ -129,7 +134,12 @@ const AccountChildren = () => {
           />
         ) : null}
       </div>
-      <AccountState loading={query.loading} error={query.error} retry={query.refresh} />
+      <AccountState
+        title={query.data ? `Could not refresh ${account.depth === 0 ? "clients" : "subclients"}` : undefined}
+        loading={query.loading}
+        error={query.error}
+        retry={query.refresh}
+      />
       {query.data ? (
         <List<Account, string, "name" | "status" | "assets" | "logins" | "permissions">
           items={query.data.accounts}

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import PoolHashboards from "./PoolHashboards";
 import type { PoolBoardAssignment } from "@/protoOS/api/adapters/poolConfiguration";
 
@@ -82,4 +82,23 @@ test("clamps a smaller inventory to a valid page and resets the dialog when reop
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   rerender(<PoolHashboards boards={boards} title="Client A hashboards" />);
   expect(within(openBoards()).getByRole("status")).toHaveTextContent("Showing 1–25 of 60 hashboards");
+});
+
+test("selects hashboards across pages and keeps the selection when returning from the pool picker", async () => {
+  const onEditPool = vi.fn();
+  const { rerender } = render(<PoolHashboards boards={boards} title="Client A hashboards" onEditPool={onEditPool} />);
+  const dialog = within(openBoards());
+  fireEvent.click(dialog.getByRole("checkbox", { name: "Select all hashboards on this page" }));
+  fireEvent.click(dialog.getByRole("button", { name: "Next page" }));
+  expect(dialog.getByText("25 hashboards selected")).toBeInTheDocument();
+  fireEvent.click(dialog.getByRole("button", { name: "Select all" }));
+  expect(dialog.getByText("60 hashboards selected")).toBeInTheDocument();
+  fireEvent.click(dialog.getByRole("button", { name: "Edit pool" }));
+  expect(new Set(onEditPool.mock.calls[0][0])).toEqual(new Set(boards.map(({ mac }) => mac)));
+
+  rerender(<PoolHashboards boards={boards} title="Client A hashboards" onEditPool={onEditPool} poolPickerOpen />);
+  rerender(<PoolHashboards boards={boards} title="Client A hashboards" onEditPool={onEditPool} />);
+  const reopened = within(await screen.findByRole("dialog", { name: "Client A hashboards" }));
+  expect(reopened.getByText("60 hashboards selected")).toBeInTheDocument();
+  expect(reopened.getByRole("status")).toHaveTextContent("Showing 26–50 of 60 hashboards");
 });

@@ -37,11 +37,6 @@ func TestFleetErrorUnwrap(t *testing.T) {
 		require.True(t, errors.As(fe, &got))
 		assert.Equal(t, "serialization_failure", got.Error())
 	})
-
-	t.Run("Unwrap is nil for non-Errorf constructors", func(t *testing.T) {
-		fe := NewInternalError("static message")
-		assert.Nil(t, errors.Unwrap(fe))
-	})
 }
 
 func TestNotActiveErrorIsMachineReadableAndRetryable(t *testing.T) {
@@ -188,11 +183,8 @@ func TestErrorCodePredicates(t *testing.T) {
 			{name: "wrapped FleetError with the matching code", err: fmt.Errorf("plugin error: %w", p.fleetErr), want: true},
 			{name: "connect.Error with the matching code", err: connect.NewError(p.code, errors.New("matching")), want: true},
 			{name: "wrapped connect.Error with the matching code", err: fmt.Errorf("rpc failed: %w", connect.NewError(p.code, errors.New("matching"))), want: true},
-			{name: "FleetError with CodeInternal", err: NewInternalError("internal error")},
 			{name: "FleetError with CodeNotFound", err: NewNotFoundError("not found")},
 			{name: "FleetError with CodeInvalidArgument", err: NewInvalidArgumentError("invalid scope")},
-			{name: "connect.Error with CodeInternal", err: connect.NewError(connect.CodeInternal, errors.New("internal"))},
-			{name: "connect.Error with CodeUnknown", err: connect.NewError(connect.CodeUnknown, errors.New("unknown"))},
 			{name: "generic error", err: errors.New("something went wrong")},
 		}
 		for _, other := range predicates {

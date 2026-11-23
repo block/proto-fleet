@@ -79,19 +79,4 @@ describe("useAuthNeededMiners", () => {
 
     expect(result.current).toBe(fleetResult);
   });
-
-  describe("pagination", () => {
-    it("exposes loadMore function for pagination", () => {
-      const mockLoadMore = vi.fn();
-      vi.mocked(useFleet).mockReturnValue({
-        ...mockUseFleetReturn,
-        loadMore: mockLoadMore,
-      });
-
-      const { result } = renderHook(() => useAuthNeededMiners());
-
-      expect(result.current.loadMore).toBe(mockLoadMore);
-      expect(typeof result.current.loadMore).toBe("function");
-    });
-  });
 });

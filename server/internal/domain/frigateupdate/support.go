@@ -127,6 +127,15 @@ func evaluateSupport(instances []sdk.FrigateInstanceSupport, pkg *Package) (elig
 			return false, CodeRemoteTriggerDisabled, fmt.Sprintf("controller %s does not allow remote update triggers; enable update.allow_remote_trigger on the controller", in.InstanceID)
 		}
 	}
+	// The controllers refuse Start unless Fleet names each member of the HA
+	// pair. Fleet knows only one of them when discovery found only one.
+	for _, in := range instances {
+		if in.PeerInstanceID != "" && !slices.ContainsFunc(instances, func(other sdk.FrigateInstanceSupport) bool {
+			return other.InstanceID == in.PeerInstanceID
+		}) {
+			return false, CodeInstanceUnreachable, fmt.Sprintf("controller %s reports the HA peer %s, but Fleet does not know that controller", in.InstanceID, in.PeerInstanceID)
+		}
+	}
 	if len(instances) > 1 {
 		// The CT1 plugin refuses Start unless the controllers share one non-empty
 		// etcd cluster ID (compared case-insensitively); check the same here so
@@ -153,7 +162,9 @@ func evaluateSupport(instances []sdk.FrigateInstanceSupport, pkg *Package) (elig
 		switch {
 		case in.Architecture != "" && in.Architecture != pkg.Architecture:
 			return false, CodeArchitectureMismatch, fmt.Sprintf("controller %s runs %s but the package is for %s", in.InstanceID, in.Architecture, pkg.Architecture)
-		case len(in.TrustedReleaseKeyIDs) > 0 && !slices.Contains(in.TrustedReleaseKeyIDs, pkg.ReleaseKeyID):
+		// A package that Fleet stored without verifying its signature has no
+		// key ID to compare; the controllers verify the signature themselves.
+		case pkg.ReleaseKeyID != "" && len(in.TrustedReleaseKeyIDs) > 0 && !slices.Contains(in.TrustedReleaseKeyIDs, pkg.ReleaseKeyID):
 			return false, CodeReleaseKeyUntrusted, fmt.Sprintf("controller %s does not trust the key that signed this package (%s)", in.InstanceID, pkg.ReleaseKeyID)
 		case in.SpoolFreeBytes < pkg.SizeBytes:
 			return false, CodeInsufficientSpace, fmt.Sprintf("controller %s has %d bytes free for staging; the package needs %d", in.InstanceID, in.SpoolFreeBytes, pkg.SizeBytes)

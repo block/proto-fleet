@@ -42,10 +42,18 @@ WITH candidate AS (
  WHERE q.notification_status IN ('pending','failed') AND q.attempts<5 AND q.retry_at<=sqlc.arg(now_at)
  AND (q.lease_until IS NULL OR q.lease_until<=sqlc.arg(now_at)) AND NOT a.suspended
  AND EXISTS(SELECT 1 FROM "user" u JOIN user_organization membership ON membership.user_id=u.id
-  JOIN hosted_reporting_authority grant_row ON grant_row.user_id=u.id AND grant_row.organization_id=membership.organization_id AND grant_row.account_id=q.account_id
   WHERE u.id=q.owner_id AND membership.organization_id=q.organization_id AND u.deleted_at IS NULL AND membership.deleted_at IS NULL
-  AND grant_row.can_create AND (grant_row.all_sites OR q.site_ids<@grant_row.site_ids)
-  AND (q.projection->'request' IS NULL OR grant_row.all_sites))
+  AND (EXISTS(SELECT 1 FROM hosted_reporting_authority grant_row
+    WHERE grant_row.user_id=u.id AND grant_row.organization_id=q.organization_id AND grant_row.account_id=q.account_id
+    AND grant_row.can_create AND (grant_row.all_sites OR q.site_ids<@grant_row.site_ids)
+    AND (q.projection->'request' IS NULL OR grant_row.all_sites))
+   -- Without a stored grant, account managers hold implicit all-site authority.
+   OR (NOT EXISTS(SELECT 1 FROM hosted_reporting_authority stored
+    WHERE stored.user_id=u.id AND stored.organization_id=q.organization_id AND stored.account_id=q.account_id)
+   AND EXISTS(SELECT 1 FROM user_organization_role uor JOIN role r ON r.id=uor.role_id AND r.organization_id=uor.organization_id
+    JOIN role_permission rp ON rp.role_id=r.id JOIN permission p ON p.id=rp.permission_id
+    WHERE uor.user_id=u.id AND uor.organization_id=q.organization_id AND uor.scope_type='org'
+    AND uor.deleted_at IS NULL AND r.deleted_at IS NULL AND p.key='account:manage'))))
  AND NOT EXISTS(SELECT 1 FROM hosted_account parent WHERE parent.organization_id=a.organization_id AND parent.suspended AND (parent.id=a.parent_id OR parent.depth=0))
  ORDER BY q.retry_at,q.id FOR UPDATE OF q SKIP LOCKED LIMIT 1
 )

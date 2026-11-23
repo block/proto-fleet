@@ -251,6 +251,39 @@ describe("account mining asset allocation", () => {
     expect(returnDefault).not.toHaveBeenCalled();
   });
 
+  it("leaves the organization name out of root allocation copy", async () => {
+    const { scope, rerenderAccount } = mount(31n, undefined, undefined, "", "assign");
+    rerenderAccount(create(AccountSchema, { ...scope.account, depth: 0 }));
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("checkbox", { name: "Select Miner One" }));
+    await user.click(screen.getByRole("button", { name: "Allocate selected" }));
+    const dialog = screen.getByRole("dialog", { name: "Allocate 1 asset?" });
+    expect(within(dialog).getByRole("button", { name: /Allocate to client/ })).toBeInTheDocument();
+    expect(within(dialog).queryByText(/Customer/)).not.toBeInTheDocument();
+  });
+
+  it("leaves the organization name out of root recall copy", async () => {
+    const { scope, rerenderAccount } = mount(
+      31n,
+      [create(AccountAssetSchema, { ...miner, ownerAccountId: childId })],
+      undefined,
+      "",
+      "inventory",
+      { accountId: childId, name: "East", suspended: false },
+    );
+    rerenderAccount(create(AccountSchema, { ...scope.account, depth: 0 }));
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("checkbox", { name: "Select Miner One" }));
+    await user.click(screen.getByRole("button", { name: "Recall selected" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText(/^Recall the selected assets from East\./)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/Customer/)).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Recall 1 asset" }));
+    await waitFor(() =>
+      expect(pushToast).toHaveBeenCalledWith({ message: "Recalled 1 asset from East.", status: STATUSES.success }),
+    );
+  });
+
   it("keeps pool status visible to account readers without Change pools permission", async () => {
     mount(1n);
     await screen.findByText("Miner One");

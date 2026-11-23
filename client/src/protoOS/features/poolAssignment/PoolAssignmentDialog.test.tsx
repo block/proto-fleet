@@ -446,6 +446,59 @@ test.each([
   expect(screen.queryByRole("dialog", { name: /Assign pool configuration to/ })).not.toBeInTheDocument();
 });
 
+test.each([
+  { destination: "running", mining: true },
+  { destination: "stopped", mining: false },
+])("checks the mining intent when assigning one unassigned hashboard to a $destination pool", async ({ mining }) => {
+  const { service } = fixture();
+  const review = service.review.getMockImplementation()!;
+  service.review.mockImplementationOnce(async (selection) => ({ ...(await review(selection)), mining }));
+  const selection = { macs: [A], unassignedOnly: true };
+  render(<PoolAssignmentDialog service={service} controllerId="ct1" target={selection} onDismiss={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("radio", { name: "Saved pools" }));
+  fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+
+  if (mining) {
+    const confirmation = within(
+      await screen.findByRole("dialog", { name: "Assign pool configuration to 1 hashboard?" }),
+    );
+    expect(confirmation.getByText("Assign Saved pools? This hashboard can start mining when assigned.")).toBeVisible();
+    expect(service.apply).not.toHaveBeenCalled();
+    fireEvent.click(confirmation.getByRole("button", { name: "Assign" }));
+  }
+
+  await waitFor(() =>
+    expect(service.apply).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ target: selection, mining }),
+      expect.any(Function),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    ),
+  );
+});
+
+test("offers a new configuration when no saved configuration can take the unassigned boards", async () => {
+  const { service } = fixture();
+  service.inspect.mockResolvedValue({
+    savedPools: [],
+    mixedConfigurations: false,
+    capacity,
+  });
+  render(
+    <PoolAssignmentDialog
+      service={service}
+      controllerId="ct1"
+      target={{ ...target, unassignedOnly: true }}
+      onDismiss={vi.fn()}
+    />,
+  );
+  const picker = within(await screen.findByRole("dialog", { name: "Edit pool" }));
+  const emptyMessage = await picker.findByText("No saved pool configurations are available for these hashboards.");
+  await waitFor(() => expect(emptyMessage).toBeVisible());
+  expect(picker.getByRole("button", { name: "Assign" })).toBeDisabled();
+  fireEvent.click(picker.getByRole("button", { name: "New pool configuration" }));
+  expect(await screen.findByRole("dialog", { name: "Create pool configuration" })).toBeInTheDocument();
+});
+
 test("requires confirmation for a single assignment when the plan would pause container mining", async () => {
   const { service } = fixture();
   const review = service.review.getMockImplementation()!;
@@ -591,6 +644,51 @@ test("worker name recovery tells the operator to review unsubmitted boards again
   ).toBeInTheDocument();
   expect(service.applyWorkerNames).not.toHaveBeenCalled();
 });
+
+test.each([
+  { state: "partial", confirmed: 1, remainingMacs: [B], message: "One board moved." },
+  { state: "unknown", confirmed: 2, message: "Board assignments match, but pool settings could not be confirmed." },
+  { state: "failed", confirmed: 0, message: "A pool transfer failed." },
+  {
+    state: "unknown",
+    confirmed: 0,
+    message: "The final assignment is not confirmed. Some changes may be saved.",
+    attemptOverrides: {
+      destinationId: undefined,
+      destinationRef: "proto-os:pools:attempt",
+      configurationConfirmed: false,
+      operationIds: [],
+      phase: "Creating the selected pool set",
+    },
+  },
+])(
+  "Done reloads pools after a $state result with $confirmed confirmed boards",
+  async ({ attemptOverrides, ...result }) => {
+    savePoolAttempt("ct1", { ...attempt, ...attemptOverrides, macs: [A, B], unassignedOnly: true });
+    const { service } = fixture();
+    const onAssignmentsChanged = vi.fn();
+    const onDismiss = vi.fn();
+    service.status.mockResolvedValue({ ...result, total: 2, blockers: [] });
+    render(
+      <PoolAssignmentDialog
+        service={service}
+        controllerId="ct1"
+        target={target}
+        openStatus
+        onAssignmentsChanged={onAssignmentsChanged}
+        onDismiss={onDismiss}
+      />,
+    );
+
+    const message = await screen.findByText(result.message);
+    await waitFor(() => expect(message).toBeVisible());
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(onAssignmentsChanged).toHaveBeenCalledOnce();
+    expect(onDismiss).toHaveBeenCalledOnce();
+    expect(readPoolAttempts("ct1")).toHaveLength(0);
+    expect(pushToast).not.toHaveBeenCalled();
+  },
+);
 
 test("backs off failed status reads up to one minute and restores the normal interval after recovery", async () => {
   vi.useFakeTimers();
@@ -882,7 +980,13 @@ test.each([false, true])("reviews edits only if hashboards use the configuration
       service={service}
       controllerId="ct1"
       target={{ macs: [] }}
-      configuration={{ ...saved, assignedCount: assigned ? boards.length : 0, deletable: true, isDefault: false }}
+      configuration={{
+        ...saved,
+        assignedCount: assigned ? boards.length : 0,
+        assignedMacs: assigned ? boards.map(({ mac }) => mac) : [],
+        deletable: true,
+        isDefault: false,
+      }}
       configurationCapacity={capacity}
       onConfigurationSaved={onSaved}
       onDismiss={vi.fn()}

@@ -121,11 +121,11 @@ export default function PoolAssignmentDialog({
   configuration,
   configurationCapacity,
   onConfigurationSaved,
-  onAssignmentSaved,
+  onAssignmentsChanged,
   workerNameUpdateOwner,
 }: {
   onConfigurationSaved?: () => void;
-  onAssignmentSaved?: () => void;
+  onAssignmentsChanged?: () => void;
   workerNameUpdateOwner?: string;
   service: PoolAssignmentService;
   controllerId: string;
@@ -155,7 +155,7 @@ export default function PoolAssignmentDialog({
     },
     onAssignmentSaved: (message, toastAlreadyShown) => {
       if (!toastAlreadyShown) pushToast({ message, status: STATUSES.success });
-      onAssignmentSaved?.();
+      onAssignmentsChanged?.();
       onDismiss();
     },
   });
@@ -193,6 +193,13 @@ export default function PoolAssignmentDialog({
         : attempt.configurationOnly
           ? "Pool configuration status"
           : "Pool assignment status";
+    const finishRecovery = () => {
+      if (state.busy) return;
+      state.clear();
+      if (attempt.configurationOnly) onConfigurationSaved?.();
+      else onAssignmentsChanged?.();
+      onDismiss();
+    };
     let confirm = "Check status";
     let onSubmit: () => void = state.check;
     if (miningCheckRequired) {
@@ -203,12 +210,7 @@ export default function PoolAssignmentDialog({
       onSubmit = state.reviewRemaining;
     } else if (settled) {
       confirm = "Done";
-      onSubmit = () => {
-        state.clear();
-        if (attempt.configurationOnly) onConfigurationSaved?.();
-        else if (state.status?.state === "saved") onAssignmentSaved?.();
-        onDismiss();
-      };
+      onSubmit = finishRecovery;
     }
     return (
       <ActionModal
@@ -267,14 +269,7 @@ export default function PoolAssignmentDialog({
           <Button variant="secondary" text="Check status" onClick={() => void state.check()} />
         ) : null}
         {canReviewRemaining && !miningCheckRequired ? (
-          <Button
-            variant="secondary"
-            text="Done"
-            onClick={() => {
-              state.clear();
-              close();
-            }}
-          />
+          <Button variant="secondary" text="Done" onClick={finishRecovery} />
         ) : null}
         {!attempt.configurationOnly ? (
           <PoolHashboards
@@ -347,11 +342,17 @@ export default function PoolAssignmentDialog({
   if (state.plan) {
     const plan = state.plan;
     const hashboardCount = plan.target.macs.length;
-    const hashboardLabel = hashboardCount === 1 ? "hashboard" : "hashboards";
+    const singleHashboard = hashboardCount === 1;
+    const hashboardLabel = singleHashboard ? "hashboard" : "hashboards";
+    const hashboardSubject = singleHashboard ? "This hashboard" : "These hashboards";
     const editing = plan.editingRevision && hashboardCount ? original : undefined;
     const pools = plan.savedPoolSet?.pools ?? plan.pools;
     const movingBoards = new Set(plan.transfers.flatMap((transfer) => transfer.macs));
     const showTransfer = !plan.configurationOnly && movingBoards.size < hashboardCount;
+    const miningNotice =
+      plan.target.unassignedOnly && plan.mining
+        ? `${hashboardSubject} can start mining when assigned.`
+        : "Pool changes may briefly interrupt mining.";
     const title = editing
       ? "Review pool configuration changes"
       : plan.configurationOnly
@@ -361,7 +362,7 @@ export default function PoolAssignmentDialog({
       ? `Saving this change will update ${hashboardCount} ${hashboardLabel}. Pool changes may briefly interrupt mining.`
       : plan.configurationOnly
         ? `Save ${plan.name}? Hashboard assignments stay unchanged.`
-        : `Assign ${plan.name}? Pool changes may briefly interrupt mining.`;
+        : `Assign ${plan.name}? ${miningNotice}`;
     return (
       <ActionModal
         title={title}
@@ -569,7 +570,7 @@ export default function PoolAssignmentDialog({
     <ActionModal
       title="Edit pool"
       initialFocus="dialog"
-      confirm="Review assignment"
+      confirm={target.unassignedOnly ? "Assign" : "Review assignment"}
       valid={Boolean(selected && !destinationFull && !state.error)}
       busy={state.busy}
       onDismiss={close}
@@ -599,6 +600,9 @@ export default function PoolAssignmentDialog({
         error={state.error}
         onRetry={() => void state.inspect()}
         configurations={options}
+        emptyMessage={
+          target.unassignedOnly ? "No saved pool configurations are available for these hashboards." : undefined
+        }
         selected={selected}
         onSelect={(option) => setSelectedId(option.configurationId)}
       />

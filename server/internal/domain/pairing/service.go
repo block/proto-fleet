@@ -567,7 +567,7 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 
 	// Use existing device identifier if available
 	deviceIdentifier := discoveredDevice.DeviceIdentifier
-	preserveMissingFirmware := deviceIdentifier != ""
+	trustedIdentity := deviceIdentifier != ""
 	if deviceIdentifier == "" && len(discoveredDevice.Endpoints) > 0 {
 		// The store reconciles the plugin-defined identity across scanned addresses.
 		deviceIdentifier = id.GenerateID()
@@ -592,6 +592,7 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 				_, linkedErr := s.deviceStore.GetDeviceByDeviceIdentifier(ctx, existing.DeviceIdentifier, info.OrganizationID)
 				switch {
 				case linkedErr == nil:
+					trustedIdentity = true
 					discoveredDevice.SerialNumber = existing.SerialNumber
 					discoveredDevice.MacAddress = existing.MacAddress
 					discoveredDevice.FirmwareVersion = existing.FirmwareVersion
@@ -626,7 +627,7 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 		switch {
 		case reconciledIdentifier != "":
 			deviceIdentifier = reconciledIdentifier
-			preserveMissingFirmware = reconciledByMAC
+			trustedIdentity = reconciledByMAC
 			// Device moved to a new IP/port; evict stale cached handle.
 			if reconciledByMAC && s.invalidateMiner != nil {
 				s.invalidateMiner(models.DeviceIdentifier(reconciledIdentifier))
@@ -634,7 +635,7 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 		case existingDevice != nil:
 			// Reuse the existing device_identifier to update the same row
 			deviceIdentifier = existingDevice.DeviceIdentifier
-			preserveMissingFirmware = false
+			trustedIdentity = false
 			slog.Debug("reusing existing device identifier for rescan",
 				"scanned_ip", scannedIP,
 				"scanned_port", scannedPort,
@@ -690,12 +691,7 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 	if discoveredDevice.DeviceClass != commonpb.DeviceClass_DEVICE_CLASS_CONTAINER || discoveredDevice.RpcPort <= 0 || strconv.Itoa(int(discoveredDevice.RpcPort)) != scannedPort {
 		discoveredDevice.Port = scannedPort
 	}
-	if err := s.hydrateMissingFirmwareVersion(ctx, discoverymodels.DeviceOrgIdentifier{
-		DeviceIdentifier: deviceIdentifier,
-		OrgID:            info.OrganizationID,
-	}, discoveredDevice, preserveMissingFirmware); err != nil {
-		return false, err
-	}
+	discoveredDevice.TrustedIdentity = trustedIdentity
 
 	result, err := s.discoveredDeviceStore.SaveDirect(ctx, orgDeviceID, discoveredDevice)
 	if err != nil {
@@ -713,28 +709,6 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 	}
 
 	return true, nil
-}
-
-func (s *Service) hydrateMissingFirmwareVersion(
-	ctx context.Context,
-	doi discoverymodels.DeviceOrgIdentifier,
-	discoveredDevice *discoverymodels.DiscoveredDevice,
-	preserveMissingFirmware bool,
-) error {
-	if !preserveMissingFirmware || discoveredDevice.FirmwareVersion != "" {
-		return nil
-	}
-
-	existingDevice, err := s.discoveredDeviceStore.GetDevice(ctx, doi)
-	switch {
-	case fleeterror.IsNotFoundError(err):
-		return nil
-	case err != nil:
-		return fleeterror.NewInternalErrorf("failed to load existing discovered device firmware: %v", err)
-	}
-
-	discoveredDevice.FirmwareVersion = existingDevice.FirmwareVersion
-	return nil
 }
 
 // reconcileByMAC checks if a newly discovered device matches an existing paired device

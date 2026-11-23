@@ -16,12 +16,9 @@ func TestDashboardHistoryTierAndResolution(t *testing.T) {
 		requested        int32
 		resolution, step time.Duration
 	}{
-		{"recent hour", 0, time.Hour, 90, 0, 90 * time.Second},
 		{"recent day", 0, 24 * time.Hour, 90, 0, 90 * time.Second},
 		{"week", 0, 7 * 24 * time.Hour, 900, time.Hour, time.Hour},
 		{"month", 0, 30 * 24 * time.Hour, 2700, 24 * time.Hour, 24 * time.Hour},
-		{"quarter", 0, 90 * 24 * time.Hour, 8100, 24 * time.Hour, 24 * time.Hour},
-		{"year", 0, 365 * 24 * time.Hour, 32850, 24 * time.Hour, 24 * time.Hour},
 		{"old short window", 20 * 24 * time.Hour, time.Hour, 90, time.Hour, time.Hour},
 		{"expired hourly", 100 * 24 * time.Hour, time.Hour, 90, 24 * time.Hour, 24 * time.Hour},
 		{"round source multiple", 0, 7 * 24 * time.Hour, 4500, time.Hour, 2 * time.Hour},

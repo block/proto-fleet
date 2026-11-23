@@ -51,7 +51,7 @@ type nodeLister interface {
 type nodeRegistry interface {
 	ConnectedFleetNodeIDs() []int64
 	DiscoveryConfig(fleetNodeID int64) *gatewaypb.DiscoveryConfig
-	CommandProtocolUpgradeRequired(fleetNodeID int64) bool
+	CommandProtocolUpgradeRequiredForDispatch(fleetNodeID int64, minimum gatewaypb.CommandProtocolVersion) bool
 	Send(ctx context.Context, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, scope control.ReportScope, kind control.ReportKind, pair *control.PairMeta) (*control.Session, error)
 }
 
@@ -122,7 +122,7 @@ func (s *Service) RunOnNode(ctx context.Context, fleetNodeID int64, source strin
 		return err
 	}
 
-	if s.registry.CommandProtocolUpgradeRequired(fleetNodeID) {
+	if s.registry.CommandProtocolUpgradeRequiredForDispatch(fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1) {
 		return onBatch(&pairingpb.DiscoverResponse{Warning: fmt.Sprintf("%s: upgrade Fleet Node to support discovery commands", source)})
 	}
 	scope, err := s.configuredScope(fleetNodeID)

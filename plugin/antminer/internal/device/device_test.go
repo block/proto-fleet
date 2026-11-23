@@ -3,6 +3,8 @@ package device
 import (
 	"errors"
 	"math"
+	"net"
+	"syscall"
 	"testing"
 	"time"
 
@@ -16,6 +18,18 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+func TestConnectOfflineDevicePreservesProbeEvidence(t *testing.T) {
+	client := mocks.NewMockAntminerClient(gomock.NewController(t))
+	setupMockForDeviceCreation(client)
+	client.EXPECT().GetStatus(gomock.Any()).Return(nil, &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED})
+	client.EXPECT().Close()
+	device, err := New(testDeviceID, testDeviceInfo(), testCredentials(), mockClientFactory(client))
+	require.NoError(t, err)
+	err = device.Connect(t.Context())
+	require.Error(t, err)
+	require.True(t, sdk.DeviceProbeFailed(err))
+}
 
 // Test constants to reduce duplication
 const (

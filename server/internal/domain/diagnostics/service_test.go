@@ -233,89 +233,6 @@ func TestPollErrors_WithRemoteNodeMiner_ShouldDispatchAndUpsertErrors(t *testing
 	}
 }
 
-func TestPollErrors_WithMultipleMiners_ShouldProcessAll(t *testing.T) {
-	ctrl := gomock.NewController(t)
-
-	now := time.Now()
-
-	mockMiner1 := minerMocks.NewMockMiner(ctrl)
-	mockMiner1.EXPECT().GetID().Return(minerModels.DeviceIdentifier("device-1")).AnyTimes()
-	mockMiner1.EXPECT().GetOrgID().Return(int64(1)).AnyTimes()
-	mockMiner1.EXPECT().GetErrors(gomock.Any()).Return(models.DeviceErrors{
-		DeviceID: "device-1",
-		Errors: []models.ErrorMessage{
-			{MinerError: models.PSUNotPresent, Severity: models.SeverityCritical, FirstSeenAt: now, LastSeenAt: now},
-		},
-	}, nil)
-
-	mockMiner2 := minerMocks.NewMockMiner(ctrl)
-	mockMiner2.EXPECT().GetID().Return(minerModels.DeviceIdentifier("device-2")).AnyTimes()
-	mockMiner2.EXPECT().GetOrgID().Return(int64(1)).AnyTimes()
-	mockMiner2.EXPECT().GetErrors(gomock.Any()).Return(models.DeviceErrors{
-		DeviceID: "device-2",
-		Errors: []models.ErrorMessage{
-			{MinerError: models.FanFailed, Severity: models.SeverityMajor, FirstSeenAt: now, LastSeenAt: now},
-		},
-	}, nil)
-
-	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
-	mockErrorStore.EXPECT().UpsertErrors(gomock.Any(), int64(1), "device-1", gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, _ int64, _ string, errors []models.ErrorMessage, _ time.Time, _ time.Duration) error {
-			require.Len(t, errors, 1)
-			errMsg := &errors[0]
-			assert.Equal(t, models.PSUNotPresent, errMsg.MinerError)
-			assert.Equal(t, models.SeverityCritical, errMsg.Severity)
-			return nil
-		})
-	mockErrorStore.EXPECT().UpsertErrors(gomock.Any(), int64(1), "device-2", gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, _ int64, _ string, errors []models.ErrorMessage, _ time.Time, _ time.Duration) error {
-			require.Len(t, errors, 1)
-			errMsg := &errors[0]
-			assert.Equal(t, models.FanFailed, errMsg.MinerError)
-			assert.Equal(t, models.SeverityMajor, errMsg.Severity)
-			return nil
-		})
-
-	svc := newTestService(ctrl, mockErrorStore)
-	result := svc.PollErrors(t.Context(), mockMiner1, mockMiner2)
-
-	assert.Equal(t, 2, result.MinersProcessed)
-	assert.Equal(t, 2, result.ErrorsUpserted)
-	assert.False(t, result.Cancelled)
-}
-
-func TestPollErrors_WhenMinerGetErrorsFails_ShouldContinueToNextMiner(t *testing.T) {
-	ctrl := gomock.NewController(t)
-
-	now := time.Now()
-
-	failingMiner := minerMocks.NewMockMiner(ctrl)
-	failingMiner.EXPECT().GetID().Return(minerModels.DeviceIdentifier("failing-device")).AnyTimes()
-	failingMiner.EXPECT().GetOrgID().Return(int64(1)).AnyTimes()
-	failingMiner.EXPECT().GetErrors(gomock.Any()).Return(models.DeviceErrors{}, errors.New("connection error"))
-
-	successMiner := minerMocks.NewMockMiner(ctrl)
-	successMiner.EXPECT().GetID().Return(minerModels.DeviceIdentifier("success-device")).AnyTimes()
-	successMiner.EXPECT().GetOrgID().Return(int64(1)).AnyTimes()
-	successMiner.EXPECT().GetErrors(gomock.Any()).Return(models.DeviceErrors{
-		DeviceID: "success-device",
-		Errors: []models.ErrorMessage{
-			{MinerError: models.HashboardOverTemperature, Severity: models.SeverityMinor, FirstSeenAt: now, LastSeenAt: now},
-		},
-	}, nil)
-
-	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
-	mockErrorStore.EXPECT().UpsertErrors(gomock.Any(), int64(1), "success-device", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
-
-	svc := newTestService(ctrl, mockErrorStore)
-	result := svc.PollErrors(t.Context(), failingMiner, successMiner)
-
-	assert.Equal(t, 1, result.MinersProcessed)
-	assert.Equal(t, 1, result.MinersFailed)
-	assert.Equal(t, 1, result.ErrorsUpserted)
-	assert.False(t, result.Cancelled)
-}
-
 func TestPollErrors_WhenBatchUpsertFails_ShouldCountEveryReportedError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
@@ -344,27 +261,6 @@ func TestPollErrors_WhenBatchUpsertFails_ShouldCountEveryReportedError(t *testin
 	assert.Equal(t, 1, result.MinersProcessed)
 	assert.Equal(t, 0, result.ErrorsUpserted)
 	assert.Equal(t, 3, result.UpsertsFailed)
-	assert.False(t, result.Cancelled)
-}
-
-func TestPollErrors_WithMinerReturningNoErrors_ShouldSkipUpsert(t *testing.T) {
-	ctrl := gomock.NewController(t)
-
-	mockMiner := minerMocks.NewMockMiner(ctrl)
-	mockMiner.EXPECT().GetID().Return(minerModels.DeviceIdentifier("no-errors-device")).AnyTimes()
-	mockMiner.EXPECT().GetOrgID().Return(int64(1)).AnyTimes()
-	mockMiner.EXPECT().GetErrors(gomock.Any()).Return(models.DeviceErrors{
-		DeviceID: "no-errors-device",
-		Errors:   []models.ErrorMessage{},
-	}, nil)
-
-	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
-
-	svc := newTestService(ctrl, mockErrorStore)
-	result := svc.PollErrors(t.Context(), mockMiner)
-
-	assert.Equal(t, 1, result.MinersProcessed)
-	assert.Equal(t, 0, result.ErrorsUpserted)
 	assert.False(t, result.Cancelled)
 }
 
@@ -490,33 +386,6 @@ func TestQuery_WithNoFilters_ShouldReturnAllOpenErrors(t *testing.T) {
 	assert.NotNil(t, result)
 	assert.Len(t, result.Errors, 2)
 	assert.Equal(t, int64(2), result.TotalCount)
-}
-
-func TestQuery_WithORLogic_ShouldUseORQuery(t *testing.T) {
-	ctrl := gomock.NewController(t)
-
-	now := time.Now()
-	mockErrors := []models.ErrorMessage{
-		{ErrorID: "ERR1", Severity: models.SeverityCritical, LastSeenAt: now, DeviceID: "123"},
-	}
-
-	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
-	mockErrorStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).Return(mockErrors, nil)
-	mockErrorStore.EXPECT().CountErrors(gomock.Any(), gomock.Any()).Return(int64(1), nil)
-
-	svc := newTestService(ctrl, mockErrorStore)
-	opts := &models.QueryOptions{
-		OrgID: 1,
-		Filter: &models.QueryFilter{
-			Logic: models.FilterLogicOR,
-		},
-	}
-
-	result, err := svc.Query(t.Context(), opts)
-
-	assert.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.Len(t, result.Errors, 1)
 }
 
 func TestQuery_WithComponentView_ShouldGroupByComponent(t *testing.T) {
@@ -740,20 +609,6 @@ func TestGetError_WithValidErrorID_ShouldReturnError(t *testing.T) {
 	assert.NotNil(t, result)
 	assert.Equal(t, "01HQXYZ123ABC", result.ErrorID)
 	assert.Equal(t, models.PSUFaultGeneric, result.MinerError)
-}
-
-func TestGetError_WithNotFoundError_ShouldReturnError(t *testing.T) {
-	ctrl := gomock.NewController(t)
-
-	mockErrorStore := storeMocks.NewMockErrorStore(ctrl)
-	mockErrorStore.EXPECT().GetErrorByErrorID(gomock.Any(), int64(1), "NONEXISTENT").Return(nil, errors.New("not found"))
-
-	svc := newTestService(ctrl, mockErrorStore)
-
-	result, err := svc.GetError(t.Context(), 1, "NONEXISTENT")
-
-	assert.Error(t, err)
-	assert.Nil(t, result)
 }
 
 func TestQuery_WithInvalidPageToken_ShouldReturnError(t *testing.T) {

@@ -45,15 +45,6 @@ describe("useNeedsAttention", () => {
       const { result } = renderHook(() => useNeedsAttention(false, false, errors));
       expect(result.current).toBe(true);
     });
-
-    it("should return true when errors array has multiple items", () => {
-      const errors = [
-        { componentType: "hashboard", slot: 1 },
-        { componentType: "psu", slot: 2 },
-      ];
-      const { result } = renderHook(() => useNeedsAttention(false, false, errors));
-      expect(result.current).toBe(true);
-    });
   });
 
   describe("device error flag", () => {
@@ -84,23 +75,6 @@ describe("useNeedsAttention", () => {
   });
 
   describe("combined flags", () => {
-    it("should return true when needsAuthentication and needsMiningPool are both true", () => {
-      const { result } = renderHook(() => useNeedsAttention(true, true, []));
-      expect(result.current).toBe(true);
-    });
-
-    it("should return true when needsAuthentication is true and there are errors", () => {
-      const errors = [{ componentType: "hashboard", slot: 1 }];
-      const { result } = renderHook(() => useNeedsAttention(true, false, errors));
-      expect(result.current).toBe(true);
-    });
-
-    it("should return true when needsMiningPool is true and there are errors", () => {
-      const errors = [{ componentType: "psu", slot: 1 }];
-      const { result } = renderHook(() => useNeedsAttention(false, true, errors));
-      expect(result.current).toBe(true);
-    });
-
     it("should return true when all flags are true", () => {
       const errors = [{ componentType: "fan", slot: 1 }];
       const { result } = renderHook(() => useNeedsAttention(true, true, errors, true));

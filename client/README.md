@@ -118,9 +118,18 @@ containing this feature before operators can use it on-device.
 
 On a direct CT1 connection, **Settings → Pools** reads mining-group mode before
 offering container-wide edits. With groups enabled, the page uses Fleet's shared
-configuration library table and details view. It shows named configurations,
-the primary pool, backup count, and assigned equipment count. It does not list
-groups or hashboards. The table shows 25 configurations per page. **Create
+configuration library table and details view. The table shows named configurations,
+the primary pool, backup count, and assigned equipment count. It shows 25
+configurations per page. Select a row to view its assigned hashboards, pool
+settings, and recent controller update history. If the controller reports hashboards with no group
+membership, **No reported group assignment** shows the count. Select **View
+hashboards** to see their locations and MAC addresses. Select one or more
+hashboards and choose **Edit pool** to assign them. **Select all** selects all
+hashboard rows that match the search across all pages and can be assigned.
+The list shows what to check if a board cannot be assigned. If the controller
+reports missing, invalid, or duplicate board MAC addresses, the list is read-only.
+Select **Reload pools** to check the inventory again. If no saved
+configuration is available, select **New pool configuration** in the picker. **Create
 configuration** saves an unused local pool set. **Edit configuration** uses the
 same primary/backup form as Fleet. If hashboards use the configuration, review
 the changes and affected boards before saving. Existing passwords can be preserved only when the
@@ -228,8 +237,10 @@ passwords.
 Local writes are available only on direct CT1 Connect connections. The picker
 can assign the controller's Default configuration, configurations created in
 ProtoOS, and configurations without an external owner reference. A destination
-needs at least one configured pool and must preserve the selected boards' mining
-intent. Fleet-owned assignments can be moved in Fleet. You can edit their pool
+needs at least one configured pool. Assigned boards keep their mining intent.
+Boards selected from **No reported group assignment** take the destination's
+mining intent. Assigning to a running group requires confirmation. Fleet-owned
+assignments can be moved in Fleet. You can edit their pool
 configurations in ProtoOS after checking all affected hashboards. ProtoOS
 blocks moves involving custom power or tuning settings. It also blocks moves
 for isolated boards or selections that mix running and stopped boards. Each
@@ -248,7 +259,8 @@ do not prove that every board has applied the settings.
 After an interrupted activation, **Check mining** reads the original controller's
 mining state. If mining is stopped, use the controller's mining controls to resume it.
 When you select **Edit pool**, ProtoOS checks any stored attempt before opening
-the picker. It clears the record if the controller confirms the save.
+the picker. In the unassigned list, select **Done** on the recovery result to
+reload membership after a confirmed move.
 
 Fleet-hosted ProtoOS keeps its existing read-only pool view; hosted assignments
 are managed in Fleet.
@@ -372,7 +384,10 @@ updates Frigate on both HA controllers through Frigate's self-coordinated
 remote updates.
 
 - **Choose.** Pick the three files of one release: the `.deb` (at most
-  512 MiB), its `.deb.statement.json` and its `.deb.statement.sig`. ProtoOS
+  512 MiB), its `.deb.statement.json` and its `.deb.statement.sig`. One picker
+  takes them together or one at a time, and shows each file under its type.
+  Fleet's upload dialog uses the same picker
+  (`src/shared/features/frigateUpdate`). When all three are chosen, ProtoOS
   checks that they agree with each other and with what each controller
   reports, and shows anything that blocks the update. The controllers verify
   the signature themselves when the update starts, and the controller's
@@ -621,8 +636,10 @@ latest PSU firmware update from the collected `psuFirmwareUpdate` payload: its s
 progress, the controller that ran it, and the failure reason. A PSU that an update left
 needing recovery is named there, and its card shows the issue indicator. PSU firmware is
 sent with the container's **Update firmware** action; uploading a `.psucap` file stores
-it as CT1 PSU firmware. Fleet refuses that action for a container whose release channel
-assigns CT1 firmware.
+it as CT1 PSU firmware. A release channel assigns PSU firmware on a **PSU firmware** row
+under the container model, after **Hashboard firmware**. The row appears once a capsule
+for the model is uploaded or assigned. It has its own firmware choice, update status,
+and container list, which reports each container's PSU firmware version.
 
 Performance shows module history using the existing paginated Fleet history API. The page fetches all pages for a fixed time window, refreshes once per
 minute, and clears failed results. Requests are cancelled on navigation and
@@ -736,41 +753,49 @@ errors and telemetry; resolved errors disappear on refresh. R2 retains its
 existing modal flow. Severity presentation and plant alarm grouping are separate
 work. Storybook examples live under **Proto OS / Containers / Health drill-down**.
 
-**ProtoOS** — REST API with generated TypeScript client from `proto-rig-api/openapi/MDK-API.json`. Application code uses hooks in `src/protoOS/api/hooks/` which handle error handling, polling, and automatic store updates. Regenerate types with `npm run generate-api-types`.
+**ProtoOS** — Each miner API has an adapter in `src/protoOS/api/adapters/` with a private generated TypeScript client: MDK v1 from `proto-rig-api/openapi/MDK-API.json` and MDK v2 from `proto-rig-api/openapi/MDK-v2-API.json`. On a CT1, the MDK v2 adapter also uses a Connect client with protobuf-es bindings generated from `sdk/mdk/proto/mdk/v2`. Application code uses hooks in `src/protoOS/api/hooks/` which handle error handling, polling, and automatic store updates. Regenerate the REST clients with `npm run generate-api-types`, and the bindings with `just gen-mdk-protos` from the repository root. [`proto-rig-api`](../proto-rig-api/README.md) records the source of each contract.
 
 **ProtoFleet** — gRPC-Web with Connect-RPC. Generated TypeScript code in `src/protoFleet/api/generated/` from Protobuf definitions. Supports server-to-client streaming for real-time telemetry. Custom hooks in `src/protoFleet/api/`.
 
-Container entries in the building list and grid share an actions menu. For directly
-paired controllers, it exposes sleep or wake, plus manage power. Opening the menu
+Container entries in the building list and grid share an actions menu. It
+exposes sleep or wake, plus manage power. Opening the menu
 reads the controller's current mining status: stopped containers offer wake, active
 containers offer sleep, and unknown or transitioning states offer neither. Commands require confirmation and
-the corresponding Fleet permission, then issue one MDK v2 request through the
-authenticated miner proxy. Sleep/wake changes container mining intent and leaves
+the corresponding Fleet permission. Fleet reads status and power settings through
+typed `ContainerService` RPCs and queues each write as one command; see
+[container menu commands](../docs/development/ct1-grpc.md#container-menu-commands).
+Sleep/wake changes container mining intent and leaves
 isolated boards under individual control. Power limits come from the controller,
 with a minimum of 1 W because zero can remove the controller's power limit.
 The menu uses the miner menu’s icons and navigation, operations, and settings groups.
 View container, the card, and the list row open Fleet's native container details,
-including for FleetNode-owned and unreachable controllers. The menu checks proxy
-availability on open and disables controller actions when that check fails;
+including for FleetNode-owned and unreachable controllers. When the status read
+fails, the menu disables sleep, wake, and power actions;
 navigation remains available. Power controls wait for a successful status read,
 even for operators who only have power-management permission.
 Unpair requires `miner:delete` and confirmation, then removes the controller through
-Fleet's `DeleteMiners` API. It remains available when the controller proxy is
+Fleet's `DeleteMiners` API. It remains available when the controller is
 unreachable, including FleetNode-owned controllers. After success, the row or card
 is removed immediately and inventory refreshes in the background. Failed requests
 keep the container visible for retry. Single-container unpairing records
 `unpair_container` activity with “Unpaired container” and a container scope;
 miner and bulk deletion retain their existing activity labels.
 
-The action contract is `proto-rig-api/openapi/MDK-v2-API.json`, checked against
-Frigate revision `fc06e9c3f71c8b23d03262387c68a790e4b7fcbd`. Host reboot and firmware
-update remain unimplemented in that revision's SystemService. Update firmware is
-visible but disabled; the CT1 Fleet driver also lacks the firmware capability. Edit
-pool and Update worker name are visible but disabled because the CT1 Fleet driver
-lacks pool configuration support. Worker-name updates require reapplying pools, and
-the authenticated proxy intentionally rejects direct pool writes. These settings
-follow the corresponding miner action permissions. Host reboot, cooling, lighting,
-alarm controls, streaming logs, module/feed operations, and advanced plant procedures
+The menu also has these entries, each shown only with its Fleet permission:
+
+- **Controller logs** opens the controller's logs and audit trail.
+- **Enable mining groups** or **Disable mining groups** appears when the
+  controller supports mining groups.
+- **Edit pool**, or **Container pool assignment** when mining groups are enabled,
+  stays disabled until Fleet has a current, settled mining-group observation.
+- **Update firmware** sends a hashboard archive or a PSU capsule.
+- **Update worker name** is visible but disabled.
+- **Update controller software** requires `controller:software_update`.
+- **Change site** appears when the caller can manage placement at the
+  container's current site.
+
+Host reboot, cooling, lighting, alarm controls, module/feed operations, and
+advanced plant procedures
 are not part of this menu. This surface does not change miner bulk selection,
 scheduled commands, or curtailment dispatch. Interactive examples are under
 **Proto Fleet / Containers / Actions** in Storybook.

@@ -368,6 +368,8 @@ export interface PsuTelemetry {
 
 export interface FanTelemetry {
   componentId: ComponentId;
+  /** Controller sample time of the live readings, when the source reports one. */
+  observedAtMs?: number;
   power?: MetricTelemetry;
   rpm?: MetricTelemetry;
   speedPercent?: MetricTelemetry;

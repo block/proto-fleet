@@ -180,7 +180,9 @@ export const InstanceSupportSchema: GenMessage<InstanceSupport> =
   messageDesc(file_frigateupdate_v1_frigateupdate, 2);
 
 /**
- * FrigatePackage is an uploaded, signature-checked Frigate Debian package.
+ * FrigatePackage is an uploaded Frigate Debian package. Fleet checked the
+ * package against its release statement. release_key_id tells whether Fleet
+ * also verified the statement's signature.
  *
  * @generated from message frigateupdate.v1.FrigatePackage
  */
@@ -223,7 +225,11 @@ export type FrigatePackage = Message<"frigateupdate.v1.FrigatePackage"> & {
   repository: string;
 
   /**
-   * release_key_id is "sha256:" plus the hex SHA-256 of the signing key's SPKI DER.
+   * release_key_id is "sha256:" plus the hex SHA-256 of the SPKI DER of the key
+   * that verified the release signature. It is empty when Fleet stored the
+   * package without verifying the signature, which can happen only when Fleet
+   * has no installed release key. The controllers verify the signature in
+   * every case.
    *
    * @generated from field: string release_key_id = 8;
    */

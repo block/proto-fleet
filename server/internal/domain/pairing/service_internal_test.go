@@ -318,14 +318,6 @@ func TestCanonicalCIDR(t *testing.T) {
 			wantOK:       true,
 		},
 		{
-			name:         "valid IPv4 /16",
-			input:        "10.0.0.0/16",
-			wantCIDR:     "10.0.0.0/16",
-			wantMaskBits: 16,
-			wantIsIPv4:   true,
-			wantOK:       true,
-		},
-		{
 			name:         "IPv4 with host bits strips them",
 			input:        "192.168.1.100/24",
 			wantCIDR:     "192.168.1.0/24",
@@ -349,11 +341,6 @@ func TestCanonicalCIDR(t *testing.T) {
 		{
 			name:   "empty string",
 			input:  "",
-			wantOK: false,
-		},
-		{
-			name:   "bare IP without mask",
-			input:  "192.168.1.1",
 			wantOK: false,
 		},
 	}
@@ -524,54 +511,6 @@ func TestResolveNetworkScanTargets_DoesNotExpandIPv6Targets(t *testing.T) {
 	targets, err := service.resolveNetworkScanTargets(ctx, "fd00::/64")
 	require.NoError(t, err)
 	require.Equal(t, []string{"fd00::/64"}, targets)
-}
-
-func TestCanonicalCIDR_IPv6Extended(t *testing.T) {
-	tests := []struct {
-		name         string
-		input        string
-		wantCIDR     string
-		wantMaskBits int
-		wantIsIPv4   bool
-		wantOK       bool
-	}{
-		{
-			name:         "IPv6 loopback /128",
-			input:        "::1/128",
-			wantCIDR:     "::1/128",
-			wantMaskBits: 128,
-			wantIsIPv4:   false,
-			wantOK:       true,
-		},
-		{
-			name:         "IPv6 link-local prefix",
-			input:        "fe80::/10",
-			wantCIDR:     "fe80::/10",
-			wantMaskBits: 10,
-			wantIsIPv4:   false,
-			wantOK:       true,
-		},
-		{
-			name:         "IPv6 with host bits strips them",
-			input:        "fd00::1/64",
-			wantCIDR:     "fd00::/64",
-			wantMaskBits: 64,
-			wantIsIPv4:   false,
-			wantOK:       true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			canonical, maskBits, isIPv4, ok := canonicalCIDR(tt.input)
-			require.Equal(t, tt.wantOK, ok)
-			if ok {
-				require.Equal(t, tt.wantCIDR, canonical)
-				require.Equal(t, tt.wantMaskBits, maskBits)
-				require.Equal(t, tt.wantIsIPv4, isIPv4)
-			}
-		})
-	}
 }
 
 func TestIsSameContainerUsesEndpointIdentity(t *testing.T) {

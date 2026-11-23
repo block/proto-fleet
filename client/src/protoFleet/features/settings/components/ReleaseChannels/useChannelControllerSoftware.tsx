@@ -2,7 +2,7 @@ import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 
 import ControllerSoftwareContainersModal from "./ControllerSoftwareContainersModal";
 import { type ControllerSoftwareApi, controllerSoftwareVersionKey } from "./controllerSoftwareUtils";
-import { pairKey, pairLabel } from "./rolloutStatus";
+import { modelKey, modelLabel } from "./rolloutStatus";
 import { useRefreshingRead } from "./useRefreshingRead";
 import type { ReleaseChannelControllerSoftware } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { trimMinerTarget } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
@@ -110,7 +110,9 @@ export function useChannelControllerSoftware({
   );
   const unconfirmedSave = useCallback(
     (pair: ControllerSoftwarePair) => {
-      const saved = savedVersions[pairKey(pair)];
+      // A target is set per model, so the rows of each firmware component of
+      // a model read the same pending target.
+      const saved = savedVersions[modelKey(pair)];
       return saved && (software.data?.revision ?? -1) < saved.revision ? saved : undefined;
     },
     [savedVersions, software.data],
@@ -130,7 +132,7 @@ export function useChannelControllerSoftware({
       const current = targetForPair(pair);
       if (!canSet || controllerSoftwareVersionKey(version) === controllerSoftwareVersionKey(current)) return;
       setSetError(null);
-      setPending({ ...pair, label: pairLabel(pair), version, current });
+      setPending({ manufacturer: pair.manufacturer, model: pair.model, label: modelLabel(pair), version, current });
     },
     [canSet, targetForPair],
   );
@@ -144,7 +146,7 @@ export function useChannelControllerSoftware({
     try {
       await api.set(channelId, trimMinerTarget(pending.manufacturer), trimMinerTarget(pending.model), pending.version);
       const revision = ++writeRevision.current;
-      setSavedVersions((previous) => ({ ...previous, [pairKey(pending)]: { version: pending.version, revision } }));
+      setSavedVersions((previous) => ({ ...previous, [modelKey(pending)]: { version: pending.version, revision } }));
       pushToast({
         message:
           pending.version === ""

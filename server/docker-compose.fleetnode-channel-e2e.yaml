@@ -1,0 +1,31 @@
+# Only `just fleetnode-channel-e2e` and `just fleetnode-channel-e2e-down` add
+# this file after docker-compose.fleetnode-ui-test.yaml. It moves the host ports
+# and the fleet-network subnet, so the stack can run beside `just dev`. The
+# device network keeps its fixed subnet 10.90.0.0/24, so the stack cannot run
+# while a fleetnode UI-test stack is up. It also gives the fake CT1 the public
+# release key that the recipe makes, and lets the node discover both
+# controllers of the fake CT1.
+services:
+  fleet-api:
+    ports: !override
+      - "127.0.0.1:${FLEETNODE_CHANNEL_E2E_API_PORT:-4611}:4000"
+
+  fleetnode-ui-test:
+    environment:
+      PROTO_MINER_PORT: "0"
+
+  timescaledb:
+    ports: !override
+      - "127.0.0.1:${FLEETNODE_CHANNEL_E2E_DB_PORT:-5611}:5432"
+
+  ui-test-ct1:
+    environment:
+      CT1_UPDATE_TRUSTED_KEY_FILES: /etc/ct1-release-keys/release.pem
+    volumes:
+      - "${FLEETNODE_CHANNEL_E2E_KEY_DIR:?run just fleetnode-channel-e2e}/release.pem:/etc/ct1-release-keys/release.pem:ro"
+
+networks:
+  fleet-network:
+    ipam: !override
+      config:
+        - subnet: "${FLEETNODE_CHANNEL_E2E_FLEET_SUBNET:-192.168.61.0/24}"

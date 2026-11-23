@@ -3,6 +3,8 @@ import type { AdapterRequestOptions } from "./types";
 
 export interface PoolAssignmentTarget {
   macs: string[];
+  /** Require enabled mining groups and no existing membership for any selected board. */
+  unassignedOnly?: boolean;
   /** Exact board sets captured when the operator selects whole modules. */
   modules?: string[][];
 }
@@ -26,8 +28,22 @@ export interface SavedPoolSet {
 }
 export interface LocalPoolConfiguration extends SavedPoolSet {
   assignedCount: number;
+  assignedMacs: string[];
   deletable: boolean;
   isDefault: boolean;
+}
+
+export interface PoolConfigurationUpdate {
+  id: string;
+  time?: string;
+  action: string;
+  result: string;
+  macs: string[];
+}
+
+export interface PoolConfigurationUpdatePage {
+  updates: PoolConfigurationUpdate[];
+  limitReached: boolean;
 }
 
 export class PoolDeletionUnconfirmed extends Error {
@@ -87,6 +103,7 @@ export interface PoolAssignmentAttempt {
   configurationOnly?: boolean;
   id: string;
   macs: string[];
+  unassignedOnly?: boolean;
   destinationId?: string;
   destinationRevision?: string;
   destinationDefaultPoolRevision?: string;
@@ -178,6 +195,7 @@ export function changesWorkerNamePools(pools: MiningGroupPoolSettings[], workerN
   return proposedWorkerNamePools(pools, workerName).some(({ username }, index) => username !== pools[index].username);
 }
 export interface PoolAssignmentService {
+  listConfigurationUpdates?(id: string, params?: AdapterRequestOptions): Promise<PoolConfigurationUpdatePage>;
   listConfigurations(params?: AdapterRequestOptions): Promise<LocalPoolConfiguration[]>;
   listConfigurationPage(
     offset: number,

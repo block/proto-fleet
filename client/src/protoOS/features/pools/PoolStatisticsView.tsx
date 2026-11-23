@@ -1,6 +1,7 @@
 import clsx from "clsx";
 import { type PoolDuration, poolDurations } from "./usePoolStatistics";
 import type { PoolHistoryResult, PoolShareStatistics } from "@/protoOS/api/adapters/poolHistory";
+import { isActivePool } from "@/protoOS/api/adapters/poolStatistics";
 import type { PoolInfo } from "@/protoOS/store/contract";
 import { Circle, Triangle } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
@@ -94,7 +95,7 @@ function PoolSection({
   statistics?: PoolShareStatistics;
   unavailable: boolean;
 }) {
-  const active = pool.status === "Active" || pool.status === "Alive";
+  const active = isActivePool(pool);
   const title = pool.name || (index === 0 ? "Default pool" : `Backup ${index}`);
   const status = pool.status === "Idle" ? "Standby" : (pool.status ?? "Unknown");
   return (

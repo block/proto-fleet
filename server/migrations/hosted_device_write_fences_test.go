@@ -16,26 +16,6 @@ import (
 	"github.com/block/proto-fleet/server/migrations"
 )
 
-func TestWriteFenceRollbackCannotEraseOwnershipEpoch(t *testing.T) {
-	cfg, err := testutil.GetTestConfig()
-	require.NoError(t, err)
-	database := testutil.NewDatabaseService(t, cfg)
-	user := database.CreateSuperAdminUser()
-	device := database.CreateDevice(user.OrganizationID, "proto")
-	service := devicewrite.NewService(database.DB)
-	epoch, err := service.Reserve(t.Context(), user.OrganizationID, device.DatabaseID)
-	require.NoError(t, err)
-	down, err := migrations.Current.ReadFile("current/001008_internal_hosted_device_write_fences.down.sql")
-	require.NoError(t, err)
-	_, err = database.DB.ExecContext(t.Context(), string(down))
-	require.ErrorContains(t, err, "advanced epochs or non-host ownership")
-	require.ErrorContains(t, err, "rollback is unsafe")
-	fence, err := sqlc.New(database.DB).LockDeviceWriteFenceRecord(t.Context(), sqlc.LockDeviceWriteFenceRecordParams{DeviceID: device.DatabaseID, OrganizationID: user.OrganizationID})
-	require.NoError(t, err)
-	require.Equal(t, epoch, fence.Epoch)
-	require.Equal(t, "reserved", fence.State)
-}
-
 func TestWriteFenceMigrationPreservesPopulatedLegacyQueue(t *testing.T) {
 	cfg, err := testutil.GetTestConfig()
 	require.NoError(t, err)

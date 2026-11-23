@@ -264,6 +264,37 @@ func TestControlLoop_TelemetryFetcherCommandError(t *testing.T) {
 	assert.Contains(t, acks[0].GetErrorMessage(), "auth failed")
 }
 
+func TestControlLoop_TelemetryAckCarriesOnlyConfirmedProbeFailure(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		probe bool
+	}{
+		{name: "miner connection refused", probe: true},
+		{name: "plugin transport unavailable"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var err error = grpcstatus.Error(codes.Unavailable, "connection refused")
+			if test.probe {
+				err = sdk.WithDeviceProbeFailure(err)
+			}
+			cmd := &RunCmd{telemetry: &stubTelemetryFetcher{err: telemetryCommandError("fetch telemetry", err)}}
+			fake := &controlFakeGateway{}
+			fake.queue(telemetryCmd(t, validTelemetryRequest()))
+			runControlLoopOnce(t, cmd, fake)
+
+			acks := fake.acksCopy()
+			require.Len(t, acks, 1)
+			wire, err := proto.Marshal(acks[0])
+			require.NoError(t, err)
+			var ack pb.ControlAck
+			require.NoError(t, proto.Unmarshal(wire, &ack))
+			require.False(t, ack.GetSucceeded())
+			require.Equal(t, pb.AckCode_ACK_CODE_SCAN_FAILED, ack.GetCode())
+			require.Equal(t, test.probe, ack.GetMinerProbeFailed())
+		})
+	}
+}
+
 func TestControlLoop_TelemetryFetcherAuthError(t *testing.T) {
 	cmd := &RunCmd{telemetry: &stubTelemetryFetcher{err: cmdErr(pb.AckCode_ACK_CODE_UNAUTHENTICATED, "auth failed")}}
 	fake := &controlFakeGateway{}

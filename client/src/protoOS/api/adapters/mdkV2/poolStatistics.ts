@@ -25,21 +25,27 @@ export function createPoolStatistics(
     params: AdapterRequestOptions | undefined,
     request: (options: AdapterRequestOptions) => Promise<T>,
   ) => withDeadline(decorate(params), 10_000, request);
+
+  const readCapability = async (options: AdapterRequestOptions) => {
+    const response = await client.miningGroupServiceGetMiningGroupCapability(options).catch((cause: unknown) => {
+      const error = cause as { status?: number; error?: { code?: number } } | undefined;
+      if ([404, 405, 501].includes(error?.status ?? 0) || error?.error?.code === Code.Unimplemented) return undefined;
+      throw cause;
+    });
+    if (!response) return undefined;
+    const capability = response.data.capability;
+    if (capability?.name !== "mining-groups-v1" || capability.version !== 1)
+      throw new Error("Pool configuration mode is unavailable.");
+    return capability;
+  };
+
   return {
+    getMiningGroupsEnabled: (params) =>
+      read(params, async (options) => (await readCapability(options))?.enabled === true),
     list: (params) =>
       read(params, async (options) => {
-        const response = await client.miningGroupServiceGetMiningGroupCapability(options).catch((cause: unknown) => {
-          const error = cause as { status?: number; error?: { code?: number } };
-          if ([404, 405, 501].includes(error.status ?? 0) || error.error?.code === Code.Unimplemented)
-            return {
-              data: { capability: { name: "mining-groups-v1", version: 1, enabled: false, stateRevision: undefined } },
-            };
-          throw cause;
-        });
-        const capability = response.data.capability;
-        if (capability?.name !== "mining-groups-v1" || capability.version !== 1)
-          throw new Error("Pool configuration mode is unavailable.");
-        if (!capability.enabled) return { enabled: false, configurations: [] };
+        const capability = await readCapability(options);
+        if (!capability?.enabled) return { enabled: false, configurations: [] };
         const first = (await client.miningGroupServiceListMiningGroups(options)).data.groups ?? [];
         if (new Set(first.map((group) => group.id)).size !== first.length)
           throw new Error("Duplicate pool configuration identity.");
@@ -79,7 +85,7 @@ export function createPoolStatistics(
             .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })),
         };
       }),
-    read: (configurations, params) =>
+    read: (configurations, { includeLastRecordedShares = true, ...params } = {}) =>
       read(params, async (options) => {
         if (configurations.length === 0) return [];
         const readings = await mapWithConcurrency(
@@ -109,8 +115,12 @@ export function createPoolStatistics(
             let error: string | undefined;
             try {
               if (defaultSettings)
-                diagnostics = (await client.poolServiceGetPoolDiagnostics({ includeLastRecordedShares: true }, options))
-                  .data;
+                diagnostics = (
+                  await client.poolServiceGetPoolDiagnostics(
+                    includeLastRecordedShares ? { includeLastRecordedShares: true } : {},
+                    options,
+                  )
+                ).data;
               else {
                 const response = (
                   await client.miningGroupServiceGetMiningGroupPoolDiagnostics({ groupId: configuration.id }, options)

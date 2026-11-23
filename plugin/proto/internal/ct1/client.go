@@ -3,14 +3,18 @@ package ct1
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
 	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	mdk "github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2"
@@ -19,6 +23,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
 
@@ -69,21 +74,62 @@ func NewClient(info sdk.DeviceInfo, access sdk.UsernamePassword) (*Client, error
 	// Disable configured application retry policies. gRPC's transparent retries
 	// are limited to attempts known not to have reached application processing.
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(transport), grpc.WithDisableRetry(), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxReceiveBytes))}
+	address := net.JoinHostPort(info.Host, strconv.Itoa(int(port)))
+	target := "dns:///" + address
+	var lastFailedDial atomic.Pointer[time.Time]
+	// Leave configured proxy routes to gRPC. For direct connections, resolve
+	// inside the TCP dialer so it sees DNS and address fallback before TLS starts.
+	proxy, proxyErr := http.ProxyFromEnvironment(&http.Request{URL: &url.URL{Scheme: "https", Host: address}})
+	if proxyErr == nil && proxy == nil {
+		target = "passthrough:///" + address
+		dialer := net.Dialer{KeepAliveConfig: net.KeepAliveConfig{Enable: true, Idle: -1, Interval: -1, Count: -1}}
+		opts = append(opts, grpc.WithContextDialer(func(ctx context.Context, address string) (net.Conn, error) {
+			lastFailedDial.Store(nil)
+			conn, err := dialer.DialContext(ctx, "tcp", address)
+			if err != nil {
+				if sdk.DeviceDialFailed(ctx, err) {
+					failedAt := time.Now()
+					lastFailedDial.Store(&failedAt)
+				}
+				return nil, fmt.Errorf("dial CT1 controller: %w", err)
+			}
+			return conn, nil
+		}))
+	}
 	// Preserve Frigate audit attribution across the transport change. This is not authentication.
 	opts = append(opts, grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoke grpc.UnaryInvoker, options ...grpc.CallOption) error {
-		return invoke(outgoingActor(ctx), method, req, reply, cc, options...)
+		var controller peer.Peer
+		err := invoke(outgoingActor(ctx), method, req, reply, cc, append(options, grpc.Peer(&controller))...)
+		// Unavailable can also come from TLS setup or a controller response.
+		// Require recent socket evidence for calls that never acquired a peer.
+		if controller.Addr == nil && ctx.Err() == nil && status.Code(err) == codes.Unavailable {
+			if failedAt := lastFailedDial.Load(); failedAt != nil && time.Since(*failedAt) <= controllerProbeTimeout {
+				return &controllerConnectionError{err}
+			}
+		}
+		return err
 	}), grpc.WithStreamInterceptor(func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, options ...grpc.CallOption) (grpc.ClientStream, error) {
 		return streamer(outgoingActor(ctx), desc, cc, method, options...)
 	}))
 	if token != "" {
 		opts = append(opts, grpc.WithPerRPCCredentials(newBearerCredential(token)))
 	}
-	conn, err := grpc.NewClient("dns:///"+net.JoinHostPort(info.Host, strconv.Itoa(int(port))), opts...)
+	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("create CT1 connection: %w", err)
 	}
 	return &Client{endpoint: info, conn: conn, system: mdk.NewSystemServiceClient(conn), boards: mdk.NewHashboardServiceClient(conn), mining: mdk.NewMiningServiceClient(conn), telemetry: mdk.NewTelemetryServiceClient(conn), power: mdk.NewPowerServiceClient(conn), serverUpdate: mdk.NewServerUpdateServiceClient(conn), firmware: mdk.NewFirmwareServiceClient(conn), psu: mdk.NewPSUFirmwareServiceClient(conn)}, nil
 }
+
+type controllerConnectionError struct{ error }
+
+func (e *controllerConnectionError) Unwrap() error { return e.error }
+
+func isControllerConnectionFailure(err error) bool {
+	var connectionErr *controllerConnectionError
+	return errors.As(err, &connectionErr)
+}
+
 func (c *Client) Close() error {
 	c.closeOnce.Do(func() { c.closeErr = c.conn.Close() })
 	return c.closeErr
@@ -170,6 +216,10 @@ func (c *Client) collect(ctx context.Context, id string) (sdk.DeviceMetrics, *er
 	}()
 	reads.Wait()
 	if err != nil {
+		if connectionErr, ok := err.(*controllerConnectionError); ok &&
+			!(isControllerConnectionFailure(miningErr) && isControllerConnectionFailure(plantErr) && isControllerConnectionFailure(controlsErr)) {
+			err = connectionErr.error
+		}
 		return sdk.DeviceMetrics{}, nil, err
 	}
 	observed := time.Now().UTC()
@@ -180,6 +230,7 @@ func (c *Client) collect(ctx context.Context, id string) (sdk.DeviceMetrics, *er
 	}
 	collector.plant(plantWire, plantErr, observed)
 	topology.HashboardFirmwareVersion, topology.HashboardFirmwareMixed = observedHashboardFirmware(wire, topology, observed)
+	topology.PSUFirmwareVersion, topology.PSUFirmwareMixed = observedPSUFirmware(wire, topology, observed)
 	result := sdk.DeviceMetrics{DeviceID: id, Timestamp: observed, Container: topology, Health: sdk.HealthWarning}
 	if err := miningErr; err != nil {
 		slog.WarnContext(ctx, "CT1 mining totals unavailable", "device_id", id, "error", err)

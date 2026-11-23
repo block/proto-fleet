@@ -4676,6 +4676,18 @@ func (q *retryingQuerier) GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx conte
 	return result, err
 }
 
+func (q *retryingQuerier) GetFleetRuntimeLeaseForRecovery(ctx context.Context) (GetFleetRuntimeLeaseForRecoveryRow, error) {
+	var result GetFleetRuntimeLeaseForRecoveryRow
+	err := q.retrier.RetryQuery(ctx, "GetFleetRuntimeLeaseForRecovery", func() error {
+		callResult, callErr := q.next.GetFleetRuntimeLeaseForRecovery(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetFrigateUpdateAction(ctx context.Context, arg GetFrigateUpdateActionParams) (FrigateUpdateAction, error) {
 	var result FrigateUpdateAction
 	err := q.retrier.RetryQuery(ctx, "GetFrigateUpdateAction", func() error {
@@ -5576,6 +5588,18 @@ func (q *retryingQuerier) GetOrgDeviceIDsWithIdentifiers(ctx context.Context, ar
 	return result, err
 }
 
+func (q *retryingQuerier) GetOrgDeviceMetricsDailyAggregates(ctx context.Context, arg GetOrgDeviceMetricsDailyAggregatesParams) ([]DeviceMetricsDaily, error) {
+	var result []DeviceMetricsDaily
+	err := q.retrier.RetryQuery(ctx, "GetOrgDeviceMetricsDailyAggregates", func() error {
+		callResult, callErr := q.next.GetOrgDeviceMetricsDailyAggregates(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetOrgDeviceMetricsHourlyAggregates(ctx context.Context, arg GetOrgDeviceMetricsHourlyAggregatesParams) ([]DeviceMetricsHourly, error) {
 	var result []DeviceMetricsHourly
 	err := q.retrier.RetryQuery(ctx, "GetOrgDeviceMetricsHourlyAggregates", func() error {
@@ -5592,6 +5616,18 @@ func (q *retryingQuerier) GetOrgDeviceMetricsRawBucketAggregates(ctx context.Con
 	var result []GetOrgDeviceMetricsRawBucketAggregatesRow
 	err := q.retrier.RetryQuery(ctx, "GetOrgDeviceMetricsRawBucketAggregates", func() error {
 		callResult, callErr := q.next.GetOrgDeviceMetricsRawBucketAggregates(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetOrgDeviceStatusDailyAggregates(ctx context.Context, arg GetOrgDeviceStatusDailyAggregatesParams) ([]DeviceStatusDaily, error) {
+	var result []DeviceStatusDaily
+	err := q.retrier.RetryQuery(ctx, "GetOrgDeviceStatusDailyAggregates", func() error {
+		callResult, callErr := q.next.GetOrgDeviceStatusDailyAggregates(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -9782,6 +9818,30 @@ func (q *retryingQuerier) ListRepairTickets(ctx context.Context, arg ListRepairT
 	return result, err
 }
 
+func (q *retryingQuerier) ListReportingAccountManagers(ctx context.Context, organizationID int64) ([]ListReportingAccountManagersRow, error) {
+	var result []ListReportingAccountManagersRow
+	err := q.retrier.RetryQuery(ctx, "ListReportingAccountManagers", func() error {
+		callResult, callErr := q.next.ListReportingAccountManagers(ctx, organizationID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListReportingAllocatedSiteLocations(ctx context.Context, arg ListReportingAllocatedSiteLocationsParams) ([]ListReportingAllocatedSiteLocationsRow, error) {
+	var result []ListReportingAllocatedSiteLocationsRow
+	err := q.retrier.RetryQuery(ctx, "ListReportingAllocatedSiteLocations", func() error {
+		callResult, callErr := q.next.ListReportingAllocatedSiteLocations(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListReportingAllocationIntervals(ctx context.Context, arg ListReportingAllocationIntervalsParams) ([]HostedAccountAssetInterval, error) {
 	var result []HostedAccountAssetInterval
 	err := q.retrier.RetryQuery(ctx, "ListReportingAllocationIntervals", func() error {
@@ -11808,6 +11868,18 @@ func (q *retryingQuerier) ReassignRacksUnderBuildingsBulk(ctx context.Context, a
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "ReassignRacksUnderBuildingsBulk", func() error {
 		callResult, callErr := q.next.ReassignRacksUnderBuildingsBulk(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) RebindExpiredFleetRuntimeLease(ctx context.Context, arg RebindExpiredFleetRuntimeLeaseParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "RebindExpiredFleetRuntimeLease", func() error {
+		callResult, callErr := q.next.RebindExpiredFleetRuntimeLease(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

@@ -89,6 +89,9 @@ const AccountActivityFeed = ({
     setExportError(null);
     setExporting(false);
   }
+  // The retained page only bridges a pending Load more; once a load lands, a
+  // later failure must not fall back to it or be titled as a Load more failure.
+  if (received && retained) setRetained(null);
   const page = denied || received?.restart ? null : (received ?? retained);
   if (page?.filterOptions && page.filterOptions !== options) setOptions(page.filterOptions);
   useEffect(() => {
@@ -143,9 +146,13 @@ const AccountActivityFeed = ({
         </div>
       )}
       {query.error ? (
-        <AccountState error={query.error} retry={query.refresh} />
+        <AccountState
+          title={received ? "Could not refresh activity" : page ? "Could not load more activity" : undefined}
+          error={query.error}
+          retry={query.refresh}
+        />
       ) : exportError ? (
-        <AccountState error={exportError} retry={() => void exportCsv()} />
+        <AccountState title="Could not export activity" error={exportError} retry={() => void exportCsv()} />
       ) : null}
       {query.loading && entries.length === 0 ? (
         <div className="flex justify-center p-10">

@@ -70,6 +70,7 @@ func (d *Device) probeControllers(ctx context.Context, write bool) (*controllerP
 	primaryCount := 0
 	standbyCount := 0
 	healthy := len(clients) == 2
+	allConnectionsFailed := len(clients) > 0
 	for range clients {
 		var result *controllerProbe
 		select {
@@ -77,6 +78,7 @@ func (d *Device) probeControllers(ctx context.Context, write bool) (*controllerP
 			return nil, nil, fmt.Errorf("probe CT1 controllers: %w", ctx.Err())
 		case result = <-results:
 		}
+		allConnectionsFailed = allConnectionsFailed && isControllerConnectionFailure(result.err)
 		if result.err != nil {
 			errs = append(errs, result.err)
 			continue
@@ -135,7 +137,11 @@ func (d *Device) probeControllers(ctx context.Context, write bool) (*controllerP
 		}
 	}
 	errs = append(errs, errors.New("no eligible controller"))
-	return nil, ha, fmt.Errorf("no CT1 controller available for this operation: %w", errors.Join(errs...))
+	err := fmt.Errorf("no CT1 controller available for this operation: %w", errors.Join(errs...))
+	if !write && allConnectionsFailed {
+		err = sdk.WithDeviceProbeFailure(err)
+	}
+	return nil, ha, err
 }
 
 // Missing or unknown recovery values do not establish a settled pair.

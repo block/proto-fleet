@@ -401,9 +401,11 @@ func (s *Service) ReportArtifactPage(ctx context.Context, actorID, orgID int64, 
 			HostGrantRevision  int64
 		}{Path: path}
 		if host {
+			// Admission already established authority; account managers may hold
+			// it implicitly without a stored grant.
 			grant, err := q.GetReportingAuthority(ctx, sqlc.GetReportingAuthorityParams{OrganizationID: orgID, AccountID: account.ID, UserID: actorID})
-			if err != nil {
-				return out, accessError(err)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return out, err
 			}
 			fingerprint.HostGrantRevision = grant.Revision
 		} else {

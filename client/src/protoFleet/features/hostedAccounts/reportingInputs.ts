@@ -1,11 +1,32 @@
 import { create, fromJson, type JsonObject, type JsonValue, toJson } from "@bufbuild/protobuf";
 
 import {
+  type ReportingConfiguration,
   type ReportingFact,
   ReportingFactKind,
   ReportingFactMutationSchema,
   ReportingFactSchema,
 } from "@/protoFleet/api/generated/hosted/v1/reporting_pb";
+
+/**
+ * Whether a configuration records anything reviewed against a client agreement.
+ * The timezone and reporting-year start are plain settings; the server requires
+ * a source reference for everything else, using this same rule. Must stay in
+ * sync with Configuration.ContractEvidence in
+ * server/internal/domain/hostedaccounts/reporting/inputs.go.
+ */
+export const hasContractEvidence = (configuration?: ReportingConfiguration) =>
+  !!configuration &&
+  (!!configuration.schedule ||
+    configuration.registers.length +
+      configuration.holidays.length +
+      configuration.prerequisites.length +
+      configuration.sources.length +
+      configuration.representatives.length >
+      0 ||
+    [configuration.contractRef, configuration.deliveryChannel, configuration.sharedAllocationRef].some(
+      (value) => !!value.trim(),
+    ));
 
 export const reportingColumns = {
   orders: "id,name,start,end,sourceRef",

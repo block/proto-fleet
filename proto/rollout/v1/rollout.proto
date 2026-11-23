@@ -16,6 +16,18 @@ import "google/protobuf/timestamp.proto";
 // Each enforcement run for one (channel, manufacturer, model) tuple is tracked
 // as a rollout.
 //
+// Component rule: a model's firmware may have more than one component, each
+// assigned, rolled out and verified on its own. The empty component is the
+// model's main firmware; "psu" is the PSU firmware of a CT1 container, whose
+// main firmware is its hashboard firmware. Wherever these rules say "pair",
+// read "pair and component": each (channel, manufacturer, model, component)
+// has its own assignment, generation, single active rollout, reported
+// version, managed-deployment provenance and suppression. A firmware command
+// updates one component, so a pending command, a finished command and a
+// direct command a channel refuses concern that component only. A device
+// still accepts one firmware command at a time, so dispatch for one
+// component waits while a command for another is pending.
+//
 // Exclusive membership resolution: a miner belongs to at most one channel,
 // and channels whose scopes would overlap cannot be saved. If fleet changes
 // later create an overlap, the channel with the unique highest-specificity
@@ -589,8 +601,10 @@ message ReleaseChannel {
     string description = 3 [(buf.validate.field).string.max_len = 1000];
     ReleaseChannelScope scope = 4;
     RolloutBehavior behavior = 5;
-    // Total manufacturer/model groups, including assigned pairs with no
-    // current members. Retrieve details with ListReleaseChannelModelGroups.
+    // Total model groups. An observed pair has one group for its main
+    // firmware and one more for each other firmware component assigned to it.
+    // An assigned pair with no current members has one group for each
+    // assigned component. Retrieve details with ListReleaseChannelModelGroups.
     int32 model_group_count = 6 [(buf.validate.field).int32.gte = 0];
     int32 miner_count = 7 [(buf.validate.field).int32.gte = 0];
     google.protobuf.Timestamp created_at = 8;
@@ -603,8 +617,10 @@ message ReleaseChannelSummary {
     string name = 2 [(buf.validate.field).string.max_len = 100];
     string description = 3 [(buf.validate.field).string.max_len = 1000];
     RolloutBehavior behavior = 4;
-    // Total manufacturer/model groups, including assigned pairs with no
-    // current members. Retrieve details with ListReleaseChannelModelGroups.
+    // Total model groups. An observed pair has one group for its main
+    // firmware and one more for each other firmware component assigned to it.
+    // An assigned pair with no current members has one group for each
+    // assigned component. Retrieve details with ListReleaseChannelModelGroups.
     int32 model_group_count = 5 [(buf.validate.field).int32.gte = 0];
     int32 miner_count = 6 [(buf.validate.field).int32.gte = 0];
     google.protobuf.Timestamp created_at = 7;
@@ -694,6 +710,11 @@ message ReleaseChannelModelGroup {
     // current presence/readability and known verification failures. Status reads
     // do not rehash payload bytes; dispatch independently verifies the artifact.
     bool firmware_available = 14;
+    // Firmware component this group describes, under the RolloutService
+    // component rule. The assignment, reported versions, on_target_count and
+    // active rollout are this component's. Every observed pair has a group for
+    // its main firmware (empty); another component has a group once assigned.
+    string component = 15 [(buf.validate.field).string = {max_len: 32, in: ["", "psu"]}];
 }
 
 // A miner resolved into a release channel. Observed identities up to 255
@@ -790,6 +811,12 @@ message FirmwareAssignment {
     // or mismatched file fails with FAILED_PRECONDITION (ARTIFACT_MISSING or
     // ARTIFACT_MISMATCH) before anything changes. Empty clears the assignment.
     string firmware_file_id = 3 [(buf.validate.field).string.max_len = 255];
+    // Firmware component of the model this assigns, under the RolloutService
+    // component rule: empty for the model's main firmware, "psu" for a CT1
+    // container's PSU firmware. The file must be firmware for this component;
+    // otherwise the request fails with FAILED_PRECONDITION (ARTIFACT_MISMATCH).
+    // A clear names the component whose assignment it clears.
+    string component = 4 [(buf.validate.field).string = {max_len: 32, in: ["", "psu"]}];
 }
 
 // --- Rollouts ---
@@ -1268,6 +1295,9 @@ message Rollout {
     // identity under the RolloutService artifact identity rule. Every rollout
     // enforces exactly one artifact; clearing an assignment starts none.
     string firmware_checksum = 30 [(buf.validate.field).string = {max_len: 64, pattern: "^[0-9a-f]{64}$"}];
+    // Firmware component the rollout updates, under the RolloutService
+    // component rule: empty for the model's main firmware.
+    string component = 31 [(buf.validate.field).string = {max_len: 32, in: ["", "psu"]}];
 }
 
 // Progress of one miner within a rollout.
@@ -1342,6 +1372,8 @@ message MinerFirmwareHistoryEntry {
     google.protobuf.Timestamp last_sent_at = 17;
     // When this miner first verified the target artifact and health criteria.
     google.protobuf.Timestamp verified_at = 18;
+    // Firmware component the rollout updated; empty for the main firmware.
+    string component = 19 [(buf.validate.field).string = {max_len: 32, in: ["", "psu"]}];
 }
 
 // --- Requests / responses ---
@@ -1410,6 +1442,9 @@ message ListReleaseChannelMinersRequest {
     // Opaque cursor sized for a 255-code-point Unicode device identifier,
     // numeric sort keys and encoding overhead; leave empty for the first page.
     string cursor = 5 [(buf.validate.field).string.max_len = 2048];
+    // Firmware component whose reported version and managed-deployment
+    // provenance each miner carries; empty for the main firmware.
+    string component = 6 [(buf.validate.field).string = {max_len: 32, in: ["", "psu"]}];
 }
 
 message ListReleaseChannelMinersResponse {
@@ -1600,8 +1635,8 @@ message ApplyReleaseChannelFirmwareRequest {
     };
     option (buf.validate.message).cel = {
         id: "assignments_unique_by_manufacturer_model"
-        message: "assignments must contain at most one entry per manufacturer/model pair"
-        expression: "this.assignments.size() > 100 || this.assignments.map(a, string(a.manufacturer.size()) + ':' + a.manufacturer.lowerAscii() + a.model.lowerAscii()).unique()"
+        message: "assignments must contain at most one entry per manufacturer/model pair and component"
+        expression: "this.assignments.size() > 100 || this.assignments.map(a, string(a.manufacturer.size()) + ':' + a.manufacturer.lowerAscii() + a.model.lowerAscii() + ':' + a.component).unique()"
     };
 
     int64 channel_id = 1 [(buf.validate.field).int64.gt = 0];
@@ -1630,8 +1665,8 @@ message PreviewReleaseChannelFirmwareRequest {
     };
     option (buf.validate.message).cel = {
         id: "preview_assignments_unique_by_manufacturer_model"
-        message: "assignments must contain at most one entry per manufacturer/model pair"
-        expression: "this.assignments.size() > 100 || this.assignments.map(a, string(a.manufacturer.size()) + ':' + a.manufacturer.lowerAscii() + a.model.lowerAscii()).unique()"
+        message: "assignments must contain at most one entry per manufacturer/model pair and component"
+        expression: "this.assignments.size() > 100 || this.assignments.map(a, string(a.manufacturer.size()) + ':' + a.manufacturer.lowerAscii() + a.model.lowerAscii() + ':' + a.component).unique()"
     };
     int64 channel_id = 1 [(buf.validate.field).int64.gt = 0];
     // Assignments to plan, with the same constraints as
@@ -1673,6 +1708,8 @@ message ReleaseChannelFirmwarePlan {
     bool unchanged = 9;
     // Checksum the assignment would carry; empty when it would clear the pair.
     string firmware_checksum = 10 [(buf.validate.field).string = {max_len: 64, pattern: "^$|^[0-9a-f]{64}$"}];
+    // Firmware component the plan is for; empty for the main firmware.
+    string component = 11 [(buf.validate.field).string = {max_len: 32, in: ["", "psu"]}];
 }
 
 message PreviewReleaseChannelFirmwareResponse {

@@ -2,23 +2,35 @@ import { type Rollout, RolloutCancelReason, RolloutState, RolloutStatus } from "
 
 import { minerTargetKey } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
 
-type RolloutAssignment = Pick<Rollout, "channelId" | "manufacturer" | "model" | "assignmentGeneration">;
+type RolloutAssignment = Pick<Rollout, "channelId" | "manufacturer" | "model" | "assignmentGeneration"> & {
+  component?: string;
+};
 type AssignmentChannel = {
   id: bigint;
   modelGroups: readonly Omit<RolloutAssignment, "channelId">[];
 };
 
+// Each firmware component of a model has its own assignment and generations,
+// so two rollouts concern the same assignment only when both name the same
+// model and the same component.
+const assignmentTargetKey = (
+  assignment: Omit<RolloutAssignment, "channelId" | "assignmentGeneration">,
+): string | null => {
+  const key = minerTargetKey(assignment.manufacturer, assignment.model);
+  return key === null ? null : JSON.stringify([key, assignment.component ?? ""]);
+};
+
 // A rollback changes the assignment generation and cancels its active run,
 // which may differ from the historical rollout used to request the rollback.
 export function isRollbackAcknowledged(rollout: RolloutAssignment, sources: readonly Rollout[]): boolean {
-  const key = minerTargetKey(rollout.manufacturer, rollout.model);
+  const key = assignmentTargetKey(rollout);
   return (
     key !== null &&
     sources.some(
       (source) =>
         source.channelId === rollout.channelId &&
         source.assignmentGeneration >= rollout.assignmentGeneration &&
-        minerTargetKey(source.manufacturer, source.model) === key,
+        assignmentTargetKey(source) === key,
     )
   );
 }
@@ -28,20 +40,18 @@ export function isRolloutSuperseded(
   channels: readonly AssignmentChannel[],
   observedRollouts: readonly Rollout[],
 ): boolean {
-  const key = minerTargetKey(rollout.manufacturer, rollout.model);
+  const key = assignmentTargetKey(rollout);
   const channel = channels.find((channel) => channel.id === rollout.channelId);
   return (
     key !== null &&
     (channel?.modelGroups.some(
-      (group) =>
-        group.assignmentGeneration > rollout.assignmentGeneration &&
-        minerTargetKey(group.manufacturer, group.model) === key,
+      (group) => group.assignmentGeneration > rollout.assignmentGeneration && assignmentTargetKey(group) === key,
     ) ||
       observedRollouts.some(
         (observed) =>
           observed.channelId === rollout.channelId &&
           observed.assignmentGeneration > rollout.assignmentGeneration &&
-          minerTargetKey(observed.manufacturer, observed.model) === key,
+          assignmentTargetKey(observed) === key,
       ))
   );
 }

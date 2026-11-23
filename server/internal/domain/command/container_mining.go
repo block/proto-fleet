@@ -63,7 +63,7 @@ func (s *Service) SetContainerMining(ctx context.Context, identifier string, req
 			return nil, err
 		}
 		for _, route := range routes {
-			if route.FleetNodeID.Valid && s.protocolChecker != nil && s.protocolChecker.CommandProtocolUpgradeRequiredForVersion(route.FleetNodeID.Int64, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V8) {
+			if route.FleetNodeID.Valid && s.protocolChecker != nil && s.protocolChecker.CommandProtocolUpgradeRequiredForDispatch(route.FleetNodeID.Int64, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V8) {
 				return nil, fleeterror.NewFailedPreconditionError("container commands require an upgraded Fleet Node")
 			}
 		}

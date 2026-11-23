@@ -50,6 +50,7 @@ JOIN release_channel_member member ON member.device_id = d.id AND member.org_id 
 JOIN release_channel channel ON channel.id = member.channel_id AND channel.org_id = d.org_id
 JOIN release_channel_firmware assignment ON assignment.channel_id = channel.id
     AND assignment.firmware_checksum <> ''
+    AND assignment.component = $1::text
     AND (
         (release_channel_pair_key(assignment.manufacturer) = release_channel_pair_key(discovered.manufacturer)
          AND release_channel_pair_key(assignment.model) = release_channel_pair_key(discovered.model))
@@ -62,14 +63,16 @@ JOIN release_channel_firmware assignment ON assignment.channel_id = channel.id
               AND rollout.firmware_checksum = assignment.firmware_checksum
               AND release_channel_pair_key(rollout.manufacturer) = release_channel_pair_key(assignment.manufacturer)
               AND release_channel_pair_key(rollout.model) = release_channel_pair_key(assignment.model)
+              AND rollout.component = assignment.component
         )
     )
-WHERE d.org_id = $1 AND d.deleted_at IS NULL
-  AND d.device_identifier = ANY($2::text[])
+WHERE d.org_id = $2 AND d.deleted_at IS NULL
+  AND d.device_identifier = ANY($3::text[])
 ORDER BY d.device_identifier
 `
 
 type ListManagedFirmwareUpdateDevicesParams struct {
+	Component         string
 	OrgID             int64
 	DeviceIdentifiers []string
 }
@@ -79,12 +82,13 @@ type ListManagedFirmwareUpdateDevicesRow struct {
 	ChannelName      string
 }
 
-// A direct firmware command must not compete with release-channel enforcement,
-// including a command that happens to report the assigned version. Firmware
+// A direct firmware command must not compete with release-channel enforcement
+// of the component it updates, including a command that happens to report the
+// assigned version. An assignment of another component does not own it. Firmware
 // can rename a target's reported hardware; active enrollment remains owned by
 // its current assignment until that paired device settles or leaves scope.
 func (q *Queries) ListManagedFirmwareUpdateDevices(ctx context.Context, arg ListManagedFirmwareUpdateDevicesParams) ([]ListManagedFirmwareUpdateDevicesRow, error) {
-	rows, err := q.query(ctx, q.listManagedFirmwareUpdateDevicesStmt, listManagedFirmwareUpdateDevices, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	rows, err := q.query(ctx, q.listManagedFirmwareUpdateDevicesStmt, listManagedFirmwareUpdateDevices, arg.Component, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {
 		return nil, err
 	}

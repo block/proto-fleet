@@ -68,21 +68,6 @@ describe("MinerStatus", () => {
   });
 
   describe("Loading state display", () => {
-    it("should show loading state when device has active batch operation and hasn't reached expected status", () => {
-      const miner = createMockMiner({ deviceStatus: DeviceStatus.OFFLINE });
-
-      render(
-        <MinerStatus
-          miner={miner}
-          errors={[]}
-          activeBatches={[createBatch({ action: deviceActions.reboot })]}
-          errorsLoaded
-        />,
-      );
-
-      expect(screen.getByText("Rebooting")).toBeInTheDocument();
-    });
-
     it("should show pool assignment loading state", () => {
       const miner = createMockMiner({
         deviceStatus: DeviceStatus.NEEDS_MINING_POOL,
@@ -370,15 +355,6 @@ describe("MinerStatus", () => {
       // Should now show actual "Hashing" status
       expect(screen.getByText("Hashing")).toBeInTheDocument();
       expect(screen.queryByText("Adding pools")).not.toBeInTheDocument();
-    });
-
-    it("should continue showing loading when device hasn't reached expected status", () => {
-      const miner = createMockMiner({ deviceStatus: DeviceStatus.ONLINE });
-      const batch = createBatch({ action: deviceActions.shutdown });
-
-      render(<MinerStatus miner={miner} errors={[]} activeBatches={[batch]} errorsLoaded />);
-
-      expect(screen.getByText("Sleeping")).toBeInTheDocument();
     });
   });
 

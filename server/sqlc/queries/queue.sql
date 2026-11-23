@@ -94,6 +94,7 @@ WHERE id = $1
 -- name: ClaimMessageForProcessing :execresult
 UPDATE queue_message
 SET status = 'PROCESSING'::queue_status_enum,
+    processing_started_at = CURRENT_TIMESTAMP,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $1
   AND status = 'PENDING';
@@ -186,6 +187,7 @@ UPDATE device_status
 SET
     status = 'ACTIVE'::device_status_enum,
     status_timestamp = CURRENT_TIMESTAMP,
+    telemetry_status_at = NULL,
     status_details = NULL,
     reboot_required_after = NULL
 WHERE device_id = ANY(sqlc.arg('device_ids')::BIGINT[])

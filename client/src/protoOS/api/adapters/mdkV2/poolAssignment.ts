@@ -22,25 +22,30 @@ import {
   proposedWorkerNamePools,
   WorkerNameUpdateRolledBack,
 } from "../poolAssignment";
-import type { MiningGroupPoolSettings } from "../poolConfiguration";
+import {
+  getUnassignedPoolAssignmentBlockers,
+  type MiningGroupPoolSettings,
+  POOL_ASSIGNMENT_ISOLATION_BLOCKER,
+} from "../poolConfiguration";
 import { validateContainerPoolURL, validateMiningGroupPoolURL } from "../poolURL";
 import type { AdapterRequestOptions } from "../types";
 import { mapWithConcurrency } from "../utils/async";
 import type { MdkV2Client } from "./connectClient";
-import { withDeadline } from "./controllerRecords";
+import { AUDIT_READ_TIMEOUT_MS, withDeadline } from "./controllerRecords";
 import type { V2MiningGroupRecord } from "./generated/generatedApi";
 import { groupStamp, toPoolSettings } from "./miningGroupRecords";
 import { ct1DeviceId } from "./normalize";
+import { OPTIONAL_INVENTORY_TIMEOUT_MS, POOL_BOARD_IDENTITY_ERROR, readPoolBoardMac } from "./poolConfiguration";
+import { readPoolConfigurationUpdates } from "./poolConfigurationUpdates";
 import { defaultPoolSetError, publicPools, readDefaultPools, saveDefaultPools } from "./poolEdits";
 import { poolRecoveryFingerprint } from "./poolRecoveryEvidence";
 import { slotPosition } from "./slotPosition";
 import { CONTAINER_REFUSAL_CODES, containerWriteError } from "./writeErrors";
-import { isMacAddress } from "@/protoOS/utils/macAddress";
+import { macKey } from "@/protoOS/utils/macAddress";
 import { newUUID } from "@/protoOS/utils/uuid";
 
 const LOCAL_REF = "proto-os:pools:";
 const TIMEOUT = 10_000;
-const OPTIONAL_INVENTORY_TIMEOUT_MS = 3_000;
 const DELETE_REFUSAL_CODES = new Set([...CONTAINER_REFUSAL_CODES, Code.Aborted, Code.PermissionDenied]);
 const COPY_REFUSAL_CODES = new Set([...CONTAINER_REFUSAL_CODES, Code.Aborted, Code.NotFound]);
 const STOP_WAIT_MS = 30_000;
@@ -60,7 +65,6 @@ const waitForNextStatus = (signal?: AbortSignal) =>
     };
     signal?.addEventListener("abort", abort, { once: true });
   });
-const macKey = (mac: string) => mac.trim().toLowerCase();
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const utf8 = new TextEncoder();
 const POOL_COPY_UNAVAILABLE = "Update the controller software to set different worker names within a mining group.";
@@ -155,10 +159,10 @@ export function createPoolAssignment(
     params?: AdapterRequestOptions,
     {
       allowBlocked = false,
-      inventory = "required",
+      inventory: inventoryMode = "required",
     }: {
       allowBlocked?: boolean;
-      inventory?: "required" | "optional" | "none";
+      inventory?: "required" | "optional" | "none" | "activation";
     } = {},
   ) =>
     read(params, async (options) => {
@@ -174,6 +178,9 @@ export function createPoolAssignment(
         throw new Error("Container mining is paused. Resume it before changing pool assignments.");
       if (!before.maxGroups || !before.maxPoolsPerGroup || !before.maxBoardsPerGroup)
         throw new Error("The controller did not report pool assignment limits.");
+      let inventory: "required" | "optional" | "none" = "required";
+      if (inventoryMode !== "activation") inventory = inventoryMode;
+      else if (before.enabled) inventory = "none";
       const first = (await client.miningGroupServiceListMiningGroups(options)).data;
       const getInventory = () =>
         withDeadline(options, OPTIONAL_INVENTORY_TIMEOUT_MS, (request) =>
@@ -196,23 +203,20 @@ export function createPoolAssignment(
       const boards = new Map<string, WorkerNameBoard>();
       const modules: string[][] = [];
       const isolated = new Set<string>();
-      const duplicates = new Set<string>();
+      const seenMacs = new Set<string>();
       for (const tank of map?.data.containerMap?.tanks ?? [])
         for (const module of tank.modules ?? []) {
           const moduleBoards: string[] = [];
           for (const slot of module.slots ?? []) {
             if (!slot.occupied) continue;
-            const mac = macKey(slot.hashboard?.macAddress ?? "");
-            const duplicate = boards.has(mac) || duplicates.has(mac);
-            if (duplicate || !isMacAddress(mac)) {
-              if (inventory === "required")
-                throw new Error("Board identity is incomplete or duplicated. Refresh the board inventory.");
-              if (duplicate) {
-                boards.delete(mac);
-                duplicates.add(mac);
-              }
+            const reportedMac = readPoolBoardMac(slot);
+            const mac = reportedMac && macKey(reportedMac);
+            if (!mac || seenMacs.has(mac)) {
+              if (inventory === "required") throw new Error(POOL_BOARD_IDENTITY_ERROR);
+              if (mac) boards.delete(mac);
               continue;
             }
+            seenMacs.add(mac);
             const position = slotPosition(slot).position;
             const hasLocation = tank.id && module.id && position;
             const location = hasLocation
@@ -265,6 +269,7 @@ export function createPoolAssignment(
         boards,
         modules,
         membership,
+        inventoryIssues: last.inventoryIssues ?? [],
         stamp,
         isolated,
         mining: defaultIntent === true,
@@ -291,10 +296,11 @@ export function createPoolAssignment(
   });
   const projectedBoards = (state: Snapshot, selection: string[], destinationId?: string) =>
     new Set([...groupMemberMacs(state.membership, destinationId), ...selection]).size;
-  const canAssignTo = (state: Snapshot, group: V2MiningGroupRecord, mining: boolean) =>
+  const canAssignTo = (state: Snapshot, group: V2MiningGroupRecord, mining?: boolean) =>
     mayMove(group) &&
     !customPolicy(group) &&
-    ((group.desiredMining ?? false) === mining ||
+    (mining === undefined ||
+      (group.desiredMining ?? false) === mining ||
       (group.id !== "default" && !groupHasMembers(state.membership, group.id)));
   const selectedMacs = (state: Snapshot, target: PoolAssignmentTarget) => {
     const selectedMacs = macs(target.macs);
@@ -304,8 +310,8 @@ export function createPoolAssignment(
       selectedMacs.some((mac) => !state.boards.has(mac))
     )
       throw new Error("Select exact, currently reported physical hashboards.");
-    if (selectedMacs.some((mac) => state.isolated.has(mac)))
-      throw new Error("Remove isolation before changing pools for these hashboards.");
+    const isolatedMac = selectedMacs.find((mac) => state.isolated.has(mac));
+    if (isolatedMac) throw new Error(`${isolatedMac} · ${POOL_ASSIGNMENT_ISOLATION_BLOCKER}`);
     if (target.modules?.some((module) => !state.modules.some((current) => same(current, macs(module)))))
       throw new Error("The selected modules changed. Close this dialog and select them again.");
     return selectedMacs;
@@ -321,6 +327,7 @@ export function createPoolAssignment(
   };
   const selected = (state: Snapshot, target: PoolAssignmentTarget) => {
     const macs = selectedMacs(state, target);
+    if (target.unassignedOnly) return { macs, mining: undefined };
     const sources = [...new Set(macs.map((mac) => state.membership.get(mac) ?? ""))];
     const mining = new Set<boolean>();
     for (const id of sources) {
@@ -339,6 +346,22 @@ export function createPoolAssignment(
         "Select hashboards with the same mining intent. Configure running and stopped assignments separately.",
       );
     return { macs, mining: [...mining][0] };
+  };
+  const requireUnassigned = (state: Snapshot, selectedMacs: string[]) => {
+    if (!state.capability.enabled || selectedMacs.some((mac) => state.membership.has(macKey(mac))))
+      throw new Error("Group assignments changed. Close this dialog and reload pools before selecting hashboards.");
+    const blockers = getUnassignedPoolAssignmentBlockers(
+      state.inventoryIssues.map(({ macAddress, reason }) => ({ mac: macAddress, reason: reason ?? "" })),
+      state.isolated,
+    );
+    for (const mac of selectedMacs) {
+      const blocker = blockers.get(macKey(mac));
+      if (blocker) throw new Error(`${mac} · ${blocker}`);
+    }
+  };
+  const selectForAssignment = (state: Snapshot, target: PoolAssignmentTarget) => {
+    if (target.unassignedOnly) requireUnassigned(state, target.macs);
+    return selected(state, target);
   };
   const readPoolSet = async (group: V2MiningGroupRecord, options: AdapterRequestOptions): Promise<SavedPoolSet> => {
     const expected = revision(group);
@@ -501,7 +524,16 @@ export function createPoolAssignment(
       const sets = await mapWithConcurrency(
         groups,
         4,
-        (group) => readPoolSet(group, options),
+        async (group) => {
+          const assignedMacs = groupMemberMacs(state.membership, group.id);
+          return {
+            ...(await readPoolSet(group, options)),
+            assignedCount: assignedMacs.length,
+            assignedMacs,
+            deletable: group.id !== "default" && mayMove(group),
+            isDefault: group.id === "default",
+          };
+        },
         options.signal ?? undefined,
       );
       const current = (await client.miningGroupServiceListMiningGroups(options)).data.groups ?? [];
@@ -514,13 +546,6 @@ export function createPoolAssignment(
         throw new Error("Pool configurations changed. Reload pools.");
       return sets;
     });
-  const configurations = async (state: Snapshot, groups: V2MiningGroupRecord[], params?: AdapterRequestOptions) =>
-    (await readPoolSets(state, groups, params)).map((set, index) => ({
-      ...set,
-      assignedCount: groupMemberMacs(state.membership, set.id).length,
-      deletable: set.id !== "default" && mayMove(groups[index]),
-      isDefault: set.id === "default",
-    }));
   const workerNameSources = async (state: Snapshot, target: PoolAssignmentTarget, params?: AdapterRequestOptions) => {
     if (!state.capability.enabled) throw new Error("Enable mining groups before updating worker names.");
     const boardsByGroup = new Map<string, WorkerNameBoard[]>();
@@ -549,16 +574,23 @@ export function createPoolAssignment(
       throw new Error("The reviewed board locations changed. Review the selection again.");
   };
   type WorkerNameReviewContext = { state: Snapshot; configuration: SavedPoolSet };
+  const listAuditEvents = client.systemServiceListAuditEvents?.bind(client);
   const service = {
+    listConfigurationUpdates: listAuditEvents
+      ? (id, params) =>
+          withDeadline(decorate(params), AUDIT_READ_TIMEOUT_MS, (options) =>
+            readPoolConfigurationUpdates(listAuditEvents, id, options),
+          )
+      : undefined,
     async listConfigurations(params) {
       const state = await snapshot(params, { allowBlocked: true, inventory: "none" });
-      return configurations(state, state.groups, params);
+      return readPoolSets(state, state.groups, params);
     },
     async listConfigurationPage(offset, limit, params) {
       const state = await snapshot(params, { allowBlocked: true, inventory: "none" });
       const page = state.groups.slice(Math.max(0, offset), Math.max(0, offset) + Math.max(0, limit));
       return {
-        configurations: await configurations(state, page, params),
+        configurations: await readPoolSets(state, page, params),
         total: state.groups.length,
         capacity: capacity(state),
       };
@@ -614,7 +646,7 @@ export function createPoolAssignment(
     },
     async inspect(target, params) {
       const state = await snapshot(params, { inventory: target.macs.length ? "required" : "none" });
-      const selection = target.macs.length ? selected(state, target) : { macs: [], mining: false };
+      const selection = target.macs.length ? selectForAssignment(state, target) : { macs: [], mining: false };
       const savedPools =
         state.capability.enabled && target.macs.length
           ? await readPoolSets(
@@ -641,22 +673,27 @@ export function createPoolAssignment(
       workerNameContext?: WorkerNameReviewContext,
     ): Promise<PoolAssignmentPlan> {
       const workerNameOnly = workerNameContext ? true : undefined;
-      const state =
-        workerNameContext?.state ??
-        (await snapshot(params, { inventory: choice.editPoolSetId ? "optional" : "required" }));
+      const creatingUnusedConfiguration = choice.createOnly && !target.macs.length;
+      let inventory: "required" | "optional" | "activation" = "required";
+      if (choice.editPoolSetId) inventory = "optional";
+      else if (creatingUnusedConfiguration) inventory = "activation";
+      const state = workerNameContext?.state ?? (await snapshot(params, { inventory }));
       const editing = choice.editPoolSetId
         ? state.groups.find((group) => group.id === choice.editPoolSetId)
         : undefined;
       if (choice.editPoolSetId && !editing)
         throw new Error("This configuration cannot be edited locally. Reload pools.");
-      let selection = { macs: [] as string[], mining: !state.capability.enabled && state.mining };
+      let selection: { macs: string[]; mining?: boolean } = {
+        macs: [],
+        mining: !state.capability.enabled && state.mining,
+      };
       if (editing) {
         selection = {
           macs: macs(groupMemberMacs(state.membership, editing.id)),
           mining: state.capability.enabled ? editing.desiredMining === true : state.mining,
         };
       } else if (target.macs.length) {
-        selection = selected(state, target);
+        selection = selectForAssignment(state, target);
       } else if (!choice.createOnly) {
         throw new Error("Select hashboards before assigning pools.");
       }
@@ -765,7 +802,7 @@ export function createPoolAssignment(
         savedPoolSet,
         usernameSource,
         capacity: { ...limits, groupsUsed: limits.groupsUsed + (destination ? 0 : 1), destinationBoards },
-        mining: selection.mining,
+        mining: selection.mining ?? savedPoolSet?.mining ?? false,
         requiresActivation: !state.capability.enabled,
         destinationId: destination?.id,
         destinationRef: destination?.externalRef || LOCAL_REF + id,
@@ -786,7 +823,10 @@ export function createPoolAssignment(
       const reviewedPools = plan.workerNameOnly ? (usernameSource?.pools ?? plan.originalPools) : undefined;
       const plannedPools = plannedPoolSettings(plan.pools, reviewedPools);
       const checkBoards = !plan.editingRevision || plan.workerNameOnly;
-      const snapshotForPlan = () => snapshot(params, { inventory: checkBoards ? "required" : "none" });
+      const creatingUnusedConfiguration =
+        plan.configurationOnly && !plan.target.macs.length && !plan.requiresActivation;
+      const inventory = checkBoards && !creatingUnusedConfiguration ? "required" : "none";
+      const snapshotForPlan = () => snapshot(params, { inventory });
       const checkDefaultSource = async () => {
         // Changes through the legacy pool API do not advance Default's group revision.
         if (usernameSource?.id !== "default") return;
@@ -804,13 +844,17 @@ export function createPoolAssignment(
         requireDefaultWorkerNameSupport(state, source);
       }
       if (checkBoards) checkPlacement(state, plan.boards);
-      if (!plan.editingRevision && plan.target.macs.length && selected(state, plan.target).mining !== plan.mining)
-        throw new Error("The mining intent changed. Review the selection again.");
+      if (!plan.editingRevision && plan.target.macs.length) {
+        const { mining } = selectForAssignment(state, plan.target);
+        if (mining !== undefined && mining !== plan.mining)
+          throw new Error("The mining intent changed. Review the selection again.");
+      }
       let attempt: PoolAssignmentAttempt = {
         id: plan.id,
         name: plan.name,
         configurationOnly: plan.configurationOnly,
         macs: plan.target.macs,
+        unassignedOnly: plan.target.unassignedOnly,
         destinationId: plan.destinationId,
         destinationRevision: plan.savedPoolSet?.revision,
         destinationRef: plan.destinationRef,
@@ -826,16 +870,15 @@ export function createPoolAssignment(
         track(attempt);
         return read(params, request);
       };
-      const refresh = async (checkMining = true) => {
+      const refresh = async ({ checkMining = true, checkUnassigned = true } = {}) => {
         state = await snapshotForPlan();
         if (!plan.configurationOnly || plan.workerNameOnly) checkPlacement(state, plan.boards);
-        if (
-          checkMining &&
-          !plan.configurationOnly &&
-          plan.target.macs.length &&
-          selected(state, plan.target).mining !== plan.mining
-        )
-          throw new Error("The selected boards' mining intent changed. Check status and review again.");
+        if (checkUnassigned && plan.target.unassignedOnly) requireUnassigned(state, plan.target.macs);
+        if (checkMining && !plan.configurationOnly && plan.target.macs.length) {
+          const { mining } = selected(state, plan.target);
+          if (mining !== undefined && mining !== plan.mining)
+            throw new Error("The selected boards' mining intent changed. Check status and review again.");
+        }
         return state;
       };
       if (plan.requiresActivation) {
@@ -859,7 +902,7 @@ export function createPoolAssignment(
             options,
           ),
         );
-        await refresh(false);
+        await refresh({ checkMining: false });
         if (attempt.restoreLegacyMining && !plan.configurationOnly) return status(attempt, params);
       }
       let destination = state.groups.find((group) => group.id === plan.destinationId);
@@ -1065,7 +1108,11 @@ export function createPoolAssignment(
         attempt = { ...attempt, destinationRevision: revision(destination) };
         track(attempt);
       }
-      if (!plan.configurationOnly && (destination!.desiredMining ?? false) !== plan.mining) {
+      if (
+        !plan.configurationOnly &&
+        !plan.target.unassignedOnly &&
+        (destination!.desiredMining ?? false) !== plan.mining
+      ) {
         const response = await write("Preserving the selected boards' mining intent", (options) =>
           client.miningGroupServiceUpdateMiningGroupIntent(
             { id: destinationId },
@@ -1159,7 +1206,7 @@ export function createPoolAssignment(
         if (operation.phase !== "COMPLETE") return status(attempt, params);
       }
       if (!plan.configurationOnly && plan.transfers.length) {
-        await refresh();
+        await refresh({ checkUnassigned: false });
         if (revision(state.groups.find((group) => group.id === destinationId)) !== expectedDestinationRevision)
           throw new Error("The destination configuration changed. Check the saved assignments.");
       }

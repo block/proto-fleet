@@ -578,6 +578,10 @@ func (s *Service) HostReportQueue(ctx context.Context, actorID, orgID int64, pag
 			denied     bool
 		}
 		access := map[int64]accountAccess{}
+		managers, err := q.ListReportingAccountManagers(ctx, orgID)
+		if err != nil {
+			return empty, err
+		}
 		for _, row := range rows {
 			cached, ok := access[row.AccountID]
 			if !ok {
@@ -598,6 +602,9 @@ func (s *Service) HostReportQueue(ctx context.Context, actorID, orgID int64, pag
 					return empty, err
 				}
 				cached = accountAccess{admission: a, ownerNames: map[int64]string{}}
+				for _, manager := range managers {
+					cached.ownerNames[manager.ID] = manager.Username
+				}
 				for _, authority := range authorities {
 					cached.ownerNames[authority.UserID] = authority.Username
 				}

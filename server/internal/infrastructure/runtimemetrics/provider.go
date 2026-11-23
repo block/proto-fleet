@@ -75,6 +75,9 @@ func Start(cfg Config) (*Provider, error) {
 
 func (p *Provider) Meter() metric.Meter { return p.meter }
 
+// Addr returns the bound metrics address, or an empty string when disabled.
+func (p *Provider) Addr() string { return p.address }
+
 func (p *Provider) Shutdown(ctx context.Context) error {
 	if p.server == nil {
 		return nil

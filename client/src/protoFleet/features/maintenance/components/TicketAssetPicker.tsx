@@ -4,7 +4,9 @@ import { ticketAssetKey, ticketAssetLabel, ticketAssetsShareParent } from "../ti
 import type { TicketAsset } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import type { TicketAssetPage } from "@/protoFleet/api/maintenance";
+import { Alert } from "@/shared/assets/icons";
 import Button, { sizes } from "@/shared/components/Button";
+import Callout from "@/shared/components/Callout";
 import Checkbox from "@/shared/components/Checkbox";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
@@ -99,12 +101,13 @@ const TicketAssetPicker = ({
           </div>
         ) : error ? (
           <div role="alert">
-            {error}
-            <Button
-              text="Retry"
-              variant="secondary"
-              size={sizes.compact}
-              onClick={() => setRevision((value) => value + 1)}
+            <Callout
+              intent="danger"
+              prefixIcon={<Alert />}
+              title="Could not load assets"
+              subtitle={error}
+              buttonText="Retry"
+              buttonOnClick={() => setRevision((value) => value + 1)}
             />
           </div>
         ) : (

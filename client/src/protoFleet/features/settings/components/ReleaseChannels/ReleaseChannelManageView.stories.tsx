@@ -14,6 +14,7 @@ import {
   conflictingPreview,
   containerChannel,
   containerControllerSoftware,
+  containerFirmwareFiles,
   emptyChannel,
   firmwareFiles,
   hashboardFirmwareFile,
@@ -21,6 +22,7 @@ import {
   listRolloutDevicesFixture,
   minerNames,
   productionChannel,
+  psuContainerChannel,
 } from "./ReleaseChannels.fixtures";
 import ReleaseChannelsTable from "./ReleaseChannelsTable";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -119,6 +121,27 @@ export const MinersAndContainers: Story = {
         rollouts={[]}
         firmwareFiles={[...firmwareFiles, hashboardFirmwareFile]}
         minerNames={minerNames}
+        previewScope={resolveTo(canaryPreview)}
+        listChannelMiners={listChannelMinersFixture}
+        listRolloutDevices={listRolloutDevicesFixture}
+        controllerSoftware={containerControllerSoftware}
+        onSave={settle}
+        onDelete={() => {}}
+        onApply={settle}
+      />
+    </Frame>
+  ),
+};
+
+export const ContainerFirmwareComponents: Story = {
+  name: "Container hashboard and PSU firmware",
+  render: () => (
+    <Frame>
+      <ReleaseChannelManageView
+        channel={psuContainerChannel}
+        rollouts={[]}
+        firmwareFiles={containerFirmwareFiles}
+        minerNames={{}}
         previewScope={resolveTo(canaryPreview)}
         listChannelMiners={listChannelMinersFixture}
         listRolloutDevices={listRolloutDevicesFixture}

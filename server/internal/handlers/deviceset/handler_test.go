@@ -537,8 +537,9 @@ func TestListDeviceSets_SiteIDsCrossOrgRejected(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newTestHandler(t)
 
+			// The validator collects the IDs from a map, so their order is not fixed.
 			h.siteStore.EXPECT().
-				SitesByIDs(gomock.Any(), testOrgID, tc.siteIDs).
+				SitesByIDs(gomock.Any(), testOrgID, gomock.InAnyOrder(tc.siteIDs)).
 				Return(tc.owned, nil)
 
 			req := connect.NewRequest(&dspb.ListDeviceSetsRequest{

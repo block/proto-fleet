@@ -94,14 +94,29 @@ func reportingHostAdmissionMode(ctx context.Context, q sqlc.Querier, actorID, or
 		}
 		return out, nil
 	}
-	out.grant, err = q.GetReportingAuthority(ctx, sqlc.GetReportingAuthorityParams{OrganizationID: orgID, AccountID: out.account.ID, UserID: actorID})
+	out.grant, err = reportingGrant(ctx, q, out.permissions, orgID, out.account.ID, actorID)
 	if err != nil {
-		return out, accessError(err)
+		return out, err
 	}
 	if !out.grant.CanCreate {
 		return out, denied()
 	}
 	return out, nil
+}
+
+// reportingGrant returns the user's reporting authority for one client.
+// A stored grant is authoritative, including a narrowed or revoked one.
+// Without one, account managers hold implicit all-site authority because
+// they could grant it to themselves; per-site read permissions still apply.
+func reportingGrant(ctx context.Context, q sqlc.Querier, permissions *authz.EffectivePermissions, orgID, accountID, userID int64) (sqlc.HostedReportingAuthority, error) {
+	grant, err := q.GetReportingAuthority(ctx, sqlc.GetReportingAuthorityParams{OrganizationID: orgID, AccountID: accountID, UserID: userID})
+	if !errors.Is(err, sql.ErrNoRows) {
+		return grant, err
+	}
+	if !permissions.Has(authz.PermAccountManage, authz.ResourceContext{}) {
+		return sqlc.HostedReportingAuthority{}, nil
+	}
+	return sqlc.HostedReportingAuthority{OrganizationID: orgID, AccountID: accountID, UserID: userID, CanCreate: true, AllSites: true}, nil
 }
 func (a reportingAccess) sitesAllowed(sites []int64) bool {
 	if !a.hostSitesAllowed(sites) {
@@ -396,7 +411,7 @@ func (s *Service) HostReportingAccounts(ctx context.Context, actorID, orgID int6
 		}
 		out := make([]HostReportingAccount, 0, len(rows))
 		for _, row := range rows {
-			out = append(out, HostReportingAccount{AccountID: row.AccountID, Name: row.Name, CanCreate: row.CanCreate, CanAdminister: admin})
+			out = append(out, HostReportingAccount{AccountID: row.AccountID, Name: row.Name, CanCreate: admin || row.CanCreate, CanAdminister: admin})
 		}
 		return out, nil
 	})
@@ -419,8 +434,8 @@ func (s *Service) HostReportingSetup(ctx context.Context, actorID, orgID int64, 
 			return out, err
 		}
 		out.CanAdminister = admin
-		grant, err := q.GetReportingAuthority(ctx, sqlc.GetReportingAuthorityParams{OrganizationID: orgID, AccountID: a.account.ID, UserID: actorID})
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		grant, err := reportingGrant(ctx, q, a.permissions, orgID, a.account.ID, actorID)
+		if err != nil {
 			return out, err
 		}
 		a.grant = grant
@@ -440,6 +455,17 @@ func (s *Service) HostReportingSetup(ctx context.Context, actorID, orgID int64, 
 					out.Authorities = append(out.Authorities, ReportingAuthority{UserID: row.UserUuid, Username: row.Username, CanCreate: row.CanCreate, AllSites: row.AllSites, SiteIDs: row.SiteIds, Revision: row.Revision})
 				}
 			}
+			managers, err := q.ListReportingAccountManagers(ctx, orgID)
+			if err != nil {
+				return out, err
+			}
+			for _, manager := range managers {
+				// A stored grant, even a revoked one, overrides implicit authority.
+				if !slices.ContainsFunc(rows, func(row sqlc.ListReportingAuthoritiesRow) bool { return row.UserID == manager.ID }) {
+					out.Owners = append(out.Owners, ReportingAuthority{UserID: manager.UserUuid, Username: manager.Username})
+				}
+			}
+			slices.SortFunc(out.Owners, func(a, b ReportingAuthority) int { return cmp.Compare(a.UserID, b.UserID) })
 		}
 		if grant.CanCreate {
 			row, err := q.LockReportingInputsForRead(ctx, sqlc.LockReportingInputsForReadParams{OrganizationID: orgID, AccountID: a.account.ID})
@@ -452,6 +478,16 @@ func (s *Service) HostReportingSetup(ctx context.Context, actorID, orgID int64, 
 					return out, err
 				}
 				out.Input = &input
+			}
+			if err != nil {
+				// Nothing saved yet: offer the assumed defaults at revision zero.
+				config, ok, err := assumedReportingConfiguration(ctx, q, a)
+				if err != nil {
+					return out, err
+				}
+				if ok {
+					out.Input = &ReportingInputsMetadata{Configuration: config, SiteIDs: []int64{}, RegisterCounts: map[reporting.FactKind]int64{}}
+				}
 			}
 			streams, err := q.ListReportingCaptureStreams(ctx, sqlc.ListReportingCaptureStreamsParams{OrganizationID: orgID, ClientID: a.account.ID})
 			if err != nil {

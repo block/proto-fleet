@@ -2,8 +2,13 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { configurationShares, usePoolConfigurationStatistics } from "./usePoolConfigurationStatistics";
 import type { PoolHistoryResult } from "@/protoOS/api/adapters/poolHistory";
-import type { PoolConfigurationReadings, PoolConfigurationSummary } from "@/protoOS/api/adapters/poolStatistics";
+import type {
+  PoolConfigurationReadings,
+  PoolConfigurationStatisticsService,
+  PoolConfigurationSummary,
+} from "@/protoOS/api/adapters/poolStatistics";
 import { asPoolId } from "@/protoOS/store/contract";
+import useMinerStore from "@/protoOS/store/useMinerStore";
 
 const mocks = vi.hoisted(() => ({ adapter: { getPoolHistory: vi.fn() } }));
 vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({ useMinerHosting: () => ({ adapter: mocks.adapter }) }));
@@ -47,11 +52,23 @@ const reading = (configuration: PoolConfigurationSummary) => ({
   ],
 });
 const fixture = () => ({
+  getMiningGroupsEnabled: vi.fn().mockResolvedValue(true),
   list: vi.fn().mockResolvedValue({ enabled: true, configurations }),
   read: vi.fn().mockImplementation(async (entries: PoolConfigurationSummary[]) => entries.map(reading)),
 });
+const deferNextList = (service: ReturnType<typeof fixture>) => {
+  type ListResult = Awaited<ReturnType<PoolConfigurationStatisticsService["list"]>>;
+  let resolve!: (value: ListResult) => void;
+  service.list.mockReturnValueOnce(
+    new Promise<ListResult>((resolveList) => {
+      resolve = resolveList;
+    }),
+  );
+  return resolve;
+};
 beforeEach(() => {
   vi.useFakeTimers();
+  useMinerStore.getState().resetDeviceData();
   mocks.adapter.getPoolHistory.mockReset();
   mocks.adapter.getPoolHistory.mockImplementation(async ({ poolIds }: { poolIds: string[] }) => ({
     byPool: Object.fromEntries(
@@ -61,6 +78,58 @@ beforeEach(() => {
   }));
 });
 afterEach(() => vi.useRealTimers());
+test("uses stored disabled mode until the list reports that mining groups are enabled", async () => {
+  const service = fixture();
+  const finishList = deferNextList(service);
+  useMinerStore.getState().pools.setConfigurationMode(service, false);
+  const { result } = renderHook(() => usePoolConfigurationStatistics(service, "24h", 0));
+
+  expect(service.list).toHaveBeenCalledTimes(1);
+  expect(result.current.enabled).toBe(false);
+  expect(result.current.configurations).toEqual([]);
+  expect(service.read).not.toHaveBeenCalled();
+
+  const assignedConfigurations = [configurations[0]];
+  await act(async () => finishList({ enabled: true, configurations: assignedConfigurations }));
+
+  expect(useMinerStore.getState().pools.configurationMode?.value).toBe(true);
+  expect(result.current.enabled).toBe(true);
+  expect(result.current.configurations).toEqual(assignedConfigurations);
+  expect(result.current.readings).toEqual(assignedConfigurations.map(reading));
+});
+test("keeps enabled mode and configuration data when the list refresh fails", async () => {
+  const service = fixture();
+  const { result } = renderHook(() => usePoolConfigurationStatistics(service, "24h", 0, "set-0"));
+  await act(async () => {});
+  const { history } = result.current;
+  expect(history?.byPool[asPoolId("pool:10")]?.accepted).toBe(10);
+
+  service.list.mockRejectedValueOnce(new Error("list unavailable"));
+  await act(() => vi.advanceTimersByTimeAsync(30_000));
+
+  expect(service.list).toHaveBeenCalledTimes(2);
+  expect(useMinerStore.getState().pools.configurationMode?.value).toBe(true);
+  expect(result.current.enabled).toBe(true);
+  expect(result.current.configurations).toEqual(configurations);
+  expect(result.current.readings).toEqual([reading(configurations[0])]);
+  expect(result.current.history).toEqual(history);
+  expect(result.current.error).toContain("Displayed values may be out of date");
+});
+test("leaves mode unknown until the first list returns", async () => {
+  const service = fixture();
+  const finishList = deferNextList(service);
+  const { result } = renderHook(() => usePoolConfigurationStatistics(service, "24h", 0));
+
+  expect(service.list).toHaveBeenCalledTimes(1);
+  expect(result.current.enabled).toBeUndefined();
+  expect(result.current.configurations).toEqual([]);
+  expect(result.current.error).toBeUndefined();
+  expect(service.read).not.toHaveBeenCalled();
+
+  await act(async () => finishList({ enabled: false, configurations: [] }));
+
+  expect(result.current.enabled).toBe(false);
+});
 test("polling is stable across renders and requests only the visible page", async () => {
   const service = fixture();
   const hook = renderHook(({ page }) => usePoolConfigurationStatistics(service, "24h", page), {

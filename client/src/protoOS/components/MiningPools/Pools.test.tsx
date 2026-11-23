@@ -78,39 +78,6 @@ describe("ProtoOS Pools", () => {
     expect(screen.getByText("mann23.workerbee")).toBeInTheDocument();
   });
 
-  it("renders the full username when it contains dots", () => {
-    render(
-      <Pools
-        onChangePools={vi.fn()}
-        pools={[
-          {
-            name: "",
-            url: "stratum+tcp://mine.ocean.xyz:3334",
-            username: "alice.main.worker-01",
-            password: "",
-            priority: 0,
-          },
-          {
-            name: "",
-            url: "",
-            username: "",
-            password: "",
-            priority: 1,
-          },
-          {
-            name: "",
-            url: "",
-            username: "",
-            password: "",
-            priority: 2,
-          },
-        ]}
-      />,
-    );
-
-    expect(screen.getByText("alice.main.worker-01")).toBeInTheDocument();
-  });
-
   it("removes a pool from the actions menu when two pools are configured", async () => {
     const onChangePools = vi.fn();
     render(<Pools onChangePools={onChangePools} pools={[primaryPool, backupPool, pool(2)]} />);

@@ -71,6 +71,7 @@ const AccountReportDetail = ({ reportId, onSelect }: { reportId: string; onSelec
   return (
     <section aria-label="Selected report" className="flex min-w-0 flex-col gap-6">
       <AccountState
+        title={report ? "Could not refresh report" : undefined}
         loading={query.loading}
         error={denied ? "Report access is no longer available." : query.error}
         retry={query.refresh}
@@ -226,8 +227,14 @@ const AccountReportsList = () => {
           <Button variant="primary" size={sizes.compact} text="Generate report" onClick={() => setGenerating(true)} />
         ) : null}
       </div>
-      <AccountState loading={query.loading} error={query.error} retry={refresh} />
       <AccountState
+        title={query.data ? "Could not refresh reports" : undefined}
+        loading={query.loading}
+        error={query.error}
+        retry={refresh}
+      />
+      <AccountState
+        title={analysesQuery.data ? "Could not refresh analyses" : undefined}
         loading={analysesQuery.loading}
         error={analysesQuery.error !== query.error ? analysesQuery.error : null}
         retry={refresh}

@@ -139,7 +139,7 @@ func TestReleaseChannelsSchemaFoldsPairKeys(t *testing.T) {
 
 	upsert := `INSERT INTO release_channel_firmware (channel_id, manufacturer, model, firmware_checksum, assigned_by)
 		VALUES ($1, $2, $3, 'sum', 1)
-		ON CONFLICT (channel_id, release_channel_pair_key(manufacturer), release_channel_pair_key(model))
+		ON CONFLICT (channel_id, release_channel_pair_key(manufacturer), release_channel_pair_key(model), component)
 		DO UPDATE SET assignment_generation = release_channel_firmware.assignment_generation + 1`
 	f.exec(upsert, channel, "Bitmain", "S19")
 	f.exec(upsert, channel, "bitmain", "s19")
@@ -155,6 +155,30 @@ func TestReleaseChannelsSchemaFoldsPairKeys(t *testing.T) {
 	require.Error(t, err, "a second active rollout for the same folded pair must be rejected")
 	f.exec(`UPDATE firmware_rollout SET status = 'canceled' WHERE id = $1`, first)
 	f.rollout(channel, "bitmain", "s19")
+
+	// Another firmware component of the pair has its own assignment and its
+	// own active rollout, each still unique per folded pair.
+	assign := `INSERT INTO release_channel_firmware (channel_id, manufacturer, model, component, firmware_checksum, assigned_by)
+		VALUES ($1, $2, $3, 'psu', 'capsule', 1)`
+	f.exec(assign, channel, "BITMAIN", "S19")
+	_, err = db.ExecContext(f.t.Context(), assign, channel, "bitmain", "s19")
+	require.Error(t, err, "a second assignment of the same folded pair and component must be rejected")
+	var assignments int
+	require.NoError(t, db.QueryRowContext(f.t.Context(), `SELECT count(*) FROM release_channel_firmware WHERE channel_id = $1`, channel).Scan(&assignments))
+	require.Equal(t, 2, assignments)
+	start := `INSERT INTO firmware_rollout (org_id, channel_id, manufacturer, model, component, firmware_checksum, firmware_version, assignment_generation)
+		VALUES ($1, $2, $3, 's19', 'psu', 'capsule', 'v1', 1)`
+	f.exec(start, f.org, channel, "Bitmain")
+	_, err = db.ExecContext(f.t.Context(), start, f.org, channel, "bitmain")
+	require.Error(t, err, "a second active rollout for the same folded pair and component must be rejected")
+
+	// Provenance is one row per device and component.
+	d := f.device("components", 0)
+	record := `INSERT INTO device_firmware_deployment (device_id, component, firmware_checksum, firmware_version) VALUES ($1, $2, 'sum', 'v1')`
+	f.exec(record, d.id, "")
+	f.exec(record, d.id, "psu")
+	_, err = db.ExecContext(f.t.Context(), record, d.id, "psu")
+	require.Error(t, err)
 }
 
 // The revision rule: a rollout starts at 1 whatever else its creating

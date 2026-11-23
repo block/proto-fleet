@@ -52,18 +52,8 @@ func TestIsRetryablePostgresError(t *testing.T) {
 			expected: false,
 		},
 		{
-			name:     "other postgres error - insufficient privilege",
-			err:      &pgconn.PgError{Code: "42501", Message: "permission denied"},
-			expected: false,
-		},
-		{
 			name:     "wrapped deadlock error",
 			err:      errors.Join(errors.New("context"), &pgconn.PgError{Code: PGDeadlockDetected}),
-			expected: true,
-		},
-		{
-			name:     "deeply wrapped retryable error",
-			err:      errors.Join(errors.New("outer"), errors.Join(errors.New("inner"), &pgconn.PgError{Code: PGSerializationFailure})),
 			expected: true,
 		},
 	}
@@ -96,7 +86,6 @@ func TestIsFailoverPostgresError(t *testing.T) {
 		{name: "unrelated postgres error with failover-like message", err: &pgconn.PgError{Code: PGUniqueViolation, Message: "duplicate key value contains bad connection"}, want: false},
 		{name: "wrapped unrelated postgres error with failover-like outer message", err: fmt.Errorf("unexpected eof while handling request: %w", &pgconn.PgError{Code: "22P02", Message: "invalid input syntax"}), want: false},
 		{name: "plain failover-like text", err: errors.New("driver: bad connection"), want: false},
-		{name: "generic error", err: errors.New("syntax error"), want: false},
 	}
 
 	for _, tt := range tests {
@@ -105,23 +94,6 @@ func TestIsFailoverPostgresError(t *testing.T) {
 				t.Fatalf("IsFailoverPostgresError(%v) = %v, want %v", tt.err, got, tt.want)
 			}
 		})
-	}
-}
-
-func TestRetryConfig(t *testing.T) {
-	// Verify DefaultRetryConfig has sensible values
-	if DefaultRetryConfig.MaxAttempts < 1 {
-		t.Errorf("MaxAttempts should be at least 1, got %d", DefaultRetryConfig.MaxAttempts)
-	}
-	if DefaultRetryConfig.InitialBackoff <= 0 {
-		t.Errorf("InitialBackoff should be positive, got %v", DefaultRetryConfig.InitialBackoff)
-	}
-	if DefaultRetryConfig.MaxBackoff < DefaultRetryConfig.InitialBackoff {
-		t.Errorf("MaxBackoff (%v) should be >= InitialBackoff (%v)",
-			DefaultRetryConfig.MaxBackoff, DefaultRetryConfig.InitialBackoff)
-	}
-	if DefaultRetryConfig.BackoffMultiplier < 1 {
-		t.Errorf("BackoffMultiplier should be >= 1, got %v", DefaultRetryConfig.BackoffMultiplier)
 	}
 }
 

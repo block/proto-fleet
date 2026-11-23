@@ -9,9 +9,11 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -104,7 +106,15 @@ type uploadEnv struct {
 	mgr      *UploadManager
 }
 
+// newUploadEnv returns a Fleet that has the release signing key installed.
 func newUploadEnv(t *testing.T) *uploadEnv {
+	t.Helper()
+	return newUploadEnvWithKey(t, true)
+}
+
+// newUploadEnvWithKey returns a Fleet with or without an installed release key.
+// The release is signed by the same key in both cases.
+func newUploadEnvWithKey(t *testing.T, installed bool) *uploadEnv {
 	t.Helper()
 	cfg, err := testutil.GetTestConfig()
 	require.NoError(t, err)
@@ -118,7 +128,11 @@ func newUploadEnv(t *testing.T) *uploadEnv {
 	store, err := files.NewFrigatePackageStore(t.TempDir())
 	require.NoError(t, err)
 	auth := &allowAll{}
-	svc := domain.NewService(database.DB, nil, store, frigaterelease.NewStaticVerifier(key), auth, nil, domain.Config{})
+	var verifier *frigaterelease.Verifier
+	if installed {
+		verifier = frigaterelease.NewStaticVerifier(key)
+	}
+	svc := domain.NewService(database.DB, nil, store, verifier, auth, nil, domain.Config{})
 	mgr := NewUploadManager()
 
 	authenticator := headerAuthenticator{users: map[string]*session.Info{
@@ -198,8 +212,22 @@ func decode[T any](t *testing.T, rec *httptest.ResponseRecorder) T {
 	return v
 }
 
+// publicKeyB64 is the signing key as an uploader supplies it.
+func (e *uploadEnv) publicKeyB64() string {
+	der, err := x509.MarshalPKIXPublicKey(&e.priv.PublicKey)
+	require.NoError(e.t, err)
+	return base64.StdEncoding.EncodeToString(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+}
+
 func (e *uploadEnv) upload(user string) completeResponse {
-	rec := e.initiate(user, e.validBody())
+	_, done := e.uploadBody(user, e.validBody())
+	return done
+}
+
+// uploadBody runs a whole upload and returns both the initiate and the
+// complete response.
+func (e *uploadEnv) uploadBody(user string, body initiateRequest) (initiateResponse, completeResponse) {
+	rec := e.initiate(user, body)
 	require.Equal(e.t, http.StatusOK, rec.Code, rec.Body.String())
 	init := decode[initiateResponse](e.t, rec)
 	assert.Equal(e.t, "2.1.0", init.Version)
@@ -212,20 +240,77 @@ func (e *uploadEnv) upload(user string) completeResponse {
 	}
 	rec = e.complete(user, init.UploadID)
 	require.Equal(e.t, http.StatusOK, rec.Code, rec.Body.String())
-	return decode[completeResponse](e.t, rec)
+	return init, decode[completeResponse](e.t, rec)
 }
 
 func TestUpload_FullFlowAndReuse(t *testing.T) {
 	e := newUploadEnv(t)
-	first := e.upload("alice")
+	init, first := e.uploadBody("alice", e.validBody())
 	assert.False(t, first.Reused)
 	assert.Equal(t, "2.1.0", first.Package.Version)
 	assert.Equal(t, int64(len(e.deb)), first.Package.SizeBytes)
 	assert.NotEmpty(t, first.Package.ReleaseKeyID)
+	assert.Empty(t, init.Warning)
+	assert.Empty(t, first.Warning)
 
 	second := e.upload("alice")
 	assert.True(t, second.Reused)
 	assert.Equal(t, first.Package.ID, second.Package.ID)
+}
+
+func TestUpload_WithoutInstalledKey(t *testing.T) {
+	e := newUploadEnvWithKey(t, false)
+
+	// Without a public key the upload is accepted, and both responses warn.
+	init, unverified := e.uploadBody("alice", e.validBody())
+	assert.Contains(t, init.Warning, "no release key to verify the signature")
+	assert.Equal(t, init.Warning, unverified.Warning)
+	assert.Empty(t, unverified.Package.ReleaseKeyID)
+	assert.False(t, unverified.Reused)
+
+	// The same package with the signing key becomes a verified package.
+	body := e.validBody()
+	body.ReleasePublicKeyB64 = e.publicKeyB64()
+	init, verified := e.uploadBody("alice", body)
+	assert.Empty(t, init.Warning)
+	assert.Empty(t, verified.Warning)
+	assert.True(t, verified.Reused)
+	assert.Equal(t, unverified.Package.ID, verified.Package.ID)
+	assert.Regexp(t, `^sha256:[0-9a-f]{64}$`, verified.Package.ReleaseKeyID)
+}
+
+func TestUpload_WithoutInstalledKey_PublicKeyRejections(t *testing.T) {
+	e := newUploadEnvWithKey(t, false)
+
+	body := e.validBody()
+	body.ReleasePublicKeyB64 = "!!!not-base64"
+	assert.Equal(t, http.StatusBadRequest, e.initiate("alice", body).Code)
+
+	body = e.validBody()
+	body.ReleasePublicKeyB64 = base64.StdEncoding.EncodeToString([]byte("not a key"))
+	rec := e.initiate("alice", body)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "public key file is not a valid")
+
+	// A statement the controllers would refuse is refused with or without a key.
+	body = e.validBody()
+	body.ReleaseStatementB64 = base64.StdEncoding.EncodeToString([]byte("{}"))
+	assert.Equal(t, http.StatusBadRequest, e.initiate("alice", body).Code)
+}
+
+// The largest statement, signature and public key Fleet accepts fit in one
+// initiate request.
+func TestUpload_Initiate_LargestFieldsFitTheBodyLimit(t *testing.T) {
+	largest := initiateRequest{
+		Filename:            string(make([]byte, 255)),
+		Size:                frigaterelease.MaxPackageBytes,
+		ReleaseStatementB64: base64.StdEncoding.EncodeToString(make([]byte, frigaterelease.MaxStatementBytes)),
+		ReleaseSignatureB64: base64.StdEncoding.EncodeToString(make([]byte, frigaterelease.MaxSignatureBytes)),
+		ReleasePublicKeyB64: base64.StdEncoding.EncodeToString(make([]byte, domain.MaxReleasePublicKeyBytes)),
+	}
+	raw, err := json.Marshal(largest)
+	require.NoError(t, err)
+	assert.LessOrEqual(t, len(raw), maxInitiateBody)
 }
 
 func TestUpload_Initiate_Rejections(t *testing.T) {

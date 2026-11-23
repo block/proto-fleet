@@ -58,7 +58,7 @@ func TestChannelScopeUsesExactDeviceIdentifiers(t *testing.T) {
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{paddedID, whitespaceID}, channel.Scope.DeviceIdentifiers)
 	assert.Equal(t, int32(2), channel.MinerCount)
-	miners, _, err := f.svc.ListChannelMiners(ctx, f.orgID, channel.ID, "", "", 0, "")
+	miners, _, err := f.svc.ListChannelMiners(ctx, f.orgID, channel.ID, "", "", "", 0, "")
 	require.NoError(t, err)
 	var identifiers []string
 	for _, miner := range miners {

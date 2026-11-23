@@ -25,7 +25,7 @@ require reading the full repo map or every skill.
 | Python generator source or bundled `scripts/pip-config.sh` | [Packaging skill](.agents/skills/python-gen-tarball/SKILL.md), [generator README](packages/proto-python-gen/README.md) |
 | Miner drivers, fake rigs, or ASIC-rs inputs | Relevant [repo skill](.agents/skills/) for contract tests, fixtures, or ASIC-rs builds |
 | Go dependencies or missing tools | [Dependency guidance](docs/development/dependencies.md) |
-| PR descriptions or readiness | [PR standard](docs/development/pr-descriptions.md), [readiness skill](.agents/skills/pr-ready/SKILL.md) |
+| PR descriptions or readiness | [PR standard](docs/development/pr-descriptions.md), [readiness skill](.agents/skills/pr-ready/SKILL.md), [screenshots skill](.agents/skills/pr-screenshots/SKILL.md) |
 
 Before debugging or changing a documented fragile subsystem, search
 `docs/solutions/` by relevant `module:`, `tags:`, or `problem_type:` and read
@@ -103,5 +103,5 @@ identify when to load them. `.claude/skills/` exposes those same definitions to
 Claude through per-skill links. Do not copy or fork instructions between
 discovery directories. `CLAUDE.md` is a thin entry point. Keep
 `.claude/settings.local.json` private. Claude invokes these workflows as
-`/regen`, `/pr-ready`, `/pr-describe`, `/triage-pr`, `/release-notes`, and
-`/plan`; Codex uses the corresponding `$name`.
+`/regen`, `/pr-ready`, `/pr-describe`, `/pr-screenshots`, `/triage-pr`,
+`/release-notes`, and `/plan`; Codex uses the corresponding `$name`.

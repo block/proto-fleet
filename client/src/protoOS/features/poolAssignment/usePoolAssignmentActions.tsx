@@ -9,9 +9,14 @@ import Button from "@/shared/components/Button";
 import type { RowAction } from "@/shared/components/RowActionsMenu";
 
 export function usePoolAssignmentActions({
-  onPoolsChanged,
+  onConfigurationSaved,
+  onAssignmentsChanged,
   showRecovery = false,
-}: { onPoolsChanged?: () => void; showRecovery?: boolean } = {}) {
+}: {
+  onConfigurationSaved?: () => void;
+  onAssignmentsChanged?: () => void;
+  showRecovery?: boolean;
+} = {}) {
   const { adapter, isFleetHosted } = useMinerHosting();
   const identity = useMinerStore((state) => state.systemInfo.data?.identity);
   const generation = useMinerStore((state) => state.connectionGeneration);
@@ -38,7 +43,7 @@ export function usePoolAssignmentActions({
   const tracked = recovery?.controller === recoveryController ? recovery?.attempt : undefined;
   const available = Boolean(service && controllerId);
   const openAssignment = (target: PoolAssignmentTarget | undefined, workerNames: boolean) => {
-    if (target?.macs.length && controllerId && !hasWorkerNameUpdate(controllerId))
+    if (service && target?.macs.length && controllerId && !hasWorkerNameUpdate(controllerId))
       setRequest({ target, generation, workerNames });
   };
   const action = (target?: PoolAssignmentTarget, scope: "board" | "module" = "board"): RowAction[] =>
@@ -61,7 +66,9 @@ export function usePoolAssignmentActions({
   const activeRequest = request?.generation === generation ? request : undefined;
   return {
     available,
+    canEditPool: available && workerNameUpdateOwner === undefined,
     action,
+    editPool: (target?: PoolAssignmentTarget) => openAssignment(target, false),
     open: Boolean(activeRequest) && workerNameUpdateOwner !== owner,
     recoveryButton:
       available && tracked && workerNameUpdateOwner === undefined ? (
@@ -83,8 +90,8 @@ export function usePoolAssignmentActions({
           openStatus={activeRequest.openStatus}
           workerNames={activeRequest.workerNames}
           workerNameUpdateOwner={owner}
-          onConfigurationSaved={onPoolsChanged}
-          onAssignmentSaved={onPoolsChanged}
+          onConfigurationSaved={onConfigurationSaved}
+          onAssignmentsChanged={onAssignmentsChanged}
           onDismiss={() => setRequest(undefined)}
         />
       ) : null,

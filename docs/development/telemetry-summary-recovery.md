@@ -100,7 +100,10 @@ defers deletion. Deletion failures are recorded and retried after five minutes. 
 its raw target in `raw_retention`; deletion and health views use that same value.
 Miner/container/tank/module/hashboard summary retention remains three months for
 hourly summaries and three years for daily summaries, with whole-chunk rounding.
-**Miner status summaries retain their existing absence of a retention policy.**
+Migration 1109 sets the same retention for miner status summaries. Hourly
+summaries expire after three months and daily summaries expire after three
+years. If a miner temperature request starts more than 88 days ago, Fleet reads
+counts from the daily status summary for complete UTC days in the range.
 
 ## Upgrade and existing gaps
 

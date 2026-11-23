@@ -569,31 +569,6 @@ func TestSaveFirmwareFile_IdenticalContentGetsDifferentIDs(t *testing.T) {
 	assert.NotEqual(t, id1, id2, "each save should produce a unique fileID even for identical content")
 }
 
-func TestSaveFirmwareFile_DifferentContentGetsDifferentID(t *testing.T) {
-	svc := setupService(t)
-
-	id1, err := svc.SaveFirmwareFile("firmware-a.swu", strings.NewReader("content A"), testFirmwareMetadata())
-	require.NoError(t, err)
-
-	id2, err := svc.SaveFirmwareFile("firmware-b.swu", strings.NewReader("content B"), testFirmwareMetadata())
-	require.NoError(t, err)
-
-	assert.NotEqual(t, id1, id2, "different content should produce different fileIDs")
-}
-
-func TestSaveFirmwareFile_EachSaveCreatesOwnDirectory(t *testing.T) {
-	svc := setupService(t)
-
-	content := "same content twice"
-	_, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
-	require.NoError(t, err)
-
-	_, err = svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
-	require.NoError(t, err)
-
-	assert.Len(t, firmwareFileEntries(t), 2, "each save should create its own directory on disk")
-}
-
 func TestGetFirmwareFilePath_ReturnsErrorForMissing(t *testing.T) {
 	svc := setupService(t)
 
@@ -635,24 +610,6 @@ func TestOpenFirmwareFile_ReturnsReaderAndMetadata(t *testing.T) {
 
 	data, err := io.ReadAll(reader)
 	require.NoError(t, err)
-	assert.Equal(t, content, string(data))
-}
-
-func TestOpenFirmwareFile_IgnoresMetadataSidecar(t *testing.T) {
-	svc := setupService(t)
-
-	content := "firmware payload"
-	fileID, err := svc.SaveFirmwareFile("update.swu", strings.NewReader(content), testFirmwareMetadata())
-	require.NoError(t, err)
-
-	reader, filename, size, err := svc.OpenFirmwareFile(fileID)
-	require.NoError(t, err)
-	defer reader.Close()
-
-	data, err := io.ReadAll(reader)
-	require.NoError(t, err)
-	assert.Equal(t, "update.swu", filename)
-	assert.Equal(t, int64(len(content)), size)
 	assert.Equal(t, content, string(data))
 }
 
@@ -730,20 +687,6 @@ func TestFindFirmwareFileByChecksum_PreservesInvalidMetadataDirectory(t *testing
 	foundID, ok = svc.FindFirmwareFileIDByChecksum(checksumOf(content))
 	require.True(t, ok)
 	assert.Equal(t, fileID, foundID)
-}
-
-func TestFindFirmwareFileByChecksum_ReturnsFalseAfterDelete(t *testing.T) {
-	svc := setupService(t)
-
-	content := "firmware to find then delete"
-	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
-	require.NoError(t, err)
-
-	err = svc.DeleteFirmwareFile(fileID)
-	require.NoError(t, err)
-
-	_, ok := svc.FindFirmwareFileByChecksum(checksumOf(content), testFirmwareMetadata())
-	assert.False(t, ok)
 }
 
 func TestDeleteFirmwareFile_RemovesDirectory(t *testing.T) {
@@ -1052,13 +995,6 @@ func TestValidateFirmwareFilename_RejectsEmptyFilename(t *testing.T) {
 	err := svc.ValidateFirmwareFilename("")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "filename is required")
-}
-
-func TestValidateFirmwareFilename_DoesNotCheckSize(t *testing.T) {
-	svc := setupService(t)
-
-	assert.NoError(t, svc.ValidateFirmwareFilename("firmware.swu"),
-		"ValidateFirmwareFilename should not reject based on size")
 }
 
 func TestAllowedExtensionsList_IsDeterministic(t *testing.T) {

@@ -170,7 +170,10 @@ func TestBoardIdentifyAvailabilityRequiresCapabilityAndProtocolV10(t *testing.T)
 			conn, dbs, user := setupRetentionTest(t)
 			_, deviceID, tanks := seedTankController(t, conn, dbs, user.OrganizationID)
 			module, boards := seedIdentifyModule(t, conn, user.OrganizationID, tanks[0], 1)
-			registry := control.NewRegistry()
+			var protocolResults []bool
+			registry := control.NewRegistry().WithProtocolObserver(func(compatible bool) {
+				protocolResults = append(protocolResults, compatible)
+			})
 			if tc.version != 0 {
 				stream, err := registry.RegisterAuthenticated(bindTankControllerToFleetNode(t, conn, user.OrganizationID, deviceID), "session", tc.version)
 				require.NoError(t, err)
@@ -184,7 +187,13 @@ func TestBoardIdentifyAvailabilityRequiresCapabilityAndProtocolV10(t *testing.T)
 			require.NoError(t, err)
 			require.Equal(t, tc.reason == "", options.CanIdentify)
 			require.Contains(t, options.UnavailableReason, tc.reason)
+			require.Empty(t, protocolResults, "display checks must not emit protocol metrics")
 			_, err = svc.SetBoardIdentify(ctx, identifyTargets(boards[0]), sdk.BoardIdentifyOff, allow)
+			if tc.version == gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V9 {
+				require.Equal(t, []bool{false}, protocolResults)
+			} else {
+				require.Empty(t, protocolResults, "the dispatch check records compatible outcomes")
+			}
 			if tc.reason == "" {
 				require.NoError(t, err)
 				require.Equal(t, 1, countQueuedBoardIdentify(t, conn))

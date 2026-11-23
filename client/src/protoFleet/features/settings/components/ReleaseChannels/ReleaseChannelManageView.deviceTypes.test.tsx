@@ -178,6 +178,6 @@ describe("release channel assignments by device type", () => {
     expect(await screen.findByText("Container A")).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Container" })).toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "Miner" })).not.toBeInTheDocument();
-    expect(props.listChannelMiners).toHaveBeenCalledWith(1n, "proto", "CT1", expect.any(AbortSignal));
+    expect(props.listChannelMiners).toHaveBeenCalledWith(1n, "proto", "CT1", "", expect.any(AbortSignal));
   });
 });

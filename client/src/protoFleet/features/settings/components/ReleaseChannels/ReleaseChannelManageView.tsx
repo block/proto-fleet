@@ -29,11 +29,15 @@ import {
   channelMembersLabel,
   type DeviceNouns,
   deviceNouns,
+  groupTestId,
   hasUnavailableAssignedFirmware,
   isContainerPair,
   lastFinishedByChannelAssignment,
   MINER_NOUNS,
   mixedDeviceNouns,
+  modelCount,
+  modelKey,
+  modelLabel,
   pacingSummary,
   pairKey,
   pairLabel,
@@ -42,9 +46,9 @@ import ScopeEditor from "./ScopeEditor";
 import { isScopeEmpty, rebaseScope, scopeSelectionsEqual, scopeValidationErrors } from "./scopeUtils";
 import { useChannelControllerSoftware } from "./useChannelControllerSoftware";
 import type { ChannelHistoryState } from "./useChannelHistory";
+import { containerFirmwareLabel, PSU_FIRMWARE_COMPONENT } from "@/protoFleet/api/firmwareComponent";
 import {
   type PreviewReleaseChannelScopeResponse,
-  type ReleaseChannelMiner,
   ReleaseChannelModelGroupSchema,
   type ReleaseChannelScope,
   ReleaseChannelScopeSchema,
@@ -61,6 +65,7 @@ import type {
   ChannelView,
   ReleaseChannelDraft,
   ChannelModelGroupView as ReleaseChannelModelGroup,
+  ReleaseChannelsApi,
 } from "@/protoFleet/api/useReleaseChannels";
 import {
   minerTargetKey,
@@ -80,11 +85,6 @@ const scopeAndFirmwareMessage = (nouns: DeviceNouns): string =>
   `Changing Applies to with an existing firmware assignment could send the previous firmware to newly included ${nouns.plural}. Keep the current scope, apply your firmware changes, then edit Applies to.`;
 const unsupportedTargetMessage = (nouns: DeviceNouns): string =>
   `Release channels require manufacturer and model names of 1–255 printable ASCII characters. Correct the ${nouns.singular}'s reported identity before assigning firmware.`;
-// A container model has a row per component: the controller software version
-// the channel names, then the firmware the channel assigns. The controller
-// installs that firmware, so its row comes first.
-const CONTAINER_FIRMWARE_COMPONENT = "Hashboard firmware";
-
 // FirmwareAssignment is narrower than observed miner and upload metadata.
 // Validate the trimmed values sent to the API without changing identity joins.
 const supportsFirmwareAssignment = (manufacturer: string | undefined, model: string | undefined): boolean =>
@@ -99,8 +99,6 @@ const supportsFirmwareFileAssignment = (file: FirmwareFileInfo): boolean => {
   const version = trimMinerTarget(file.firmware_version ?? "");
   return (
     supportsFirmwareAssignment(file.target_manufacturer, file.target_model) &&
-    // A channel holds one assignment per model, so the server refuses a second component such as PSU firmware.
-    !file.component &&
     version !== "" &&
     !version.includes("\u0000") &&
     Array.from(version).length <= 255
@@ -167,7 +165,12 @@ function Section({ title, subtext, children }: { title: string; subtext?: string
 
 // Observed groups retain spelling and whitespace for their rows and miner reads.
 // Firmware assignments and rollout joins instead use the normalized pairKey.
-const observedPairKey = (group: ReleaseChannelModelGroup): string => JSON.stringify([group.manufacturer, group.model]);
+const observedPairKey = (group: ReleaseChannelModelGroup): string =>
+  JSON.stringify([group.manufacturer, group.model, group.component]);
+
+// A file is firmware for one component of its target; the main firmware when
+// it names none.
+const fileComponent = (file: FirmwareFileInfo): string => file.component ?? "";
 
 interface FirmwarePickerCellProps {
   group: ReleaseChannelModelGroup;
@@ -179,9 +182,9 @@ interface FirmwarePickerCellProps {
   onStageFirmware: (group: ReleaseChannelModelGroup, fileId: string) => void;
 }
 
-// Files whose target pair matches the group's observed pair under the
-// server's ASCII fold; a group with an unknown identity matches nothing.
-const filesForGroup = (firmwareFiles: FirmwareFileInfo[], group: ReleaseChannelModelGroup): FirmwareFileInfo[] => {
+// Files for any component whose target pair matches the group's observed pair
+// under the server's ASCII fold; a group with an unknown identity matches nothing.
+const filesForModel = (firmwareFiles: FirmwareFileInfo[], group: ReleaseChannelModelGroup): FirmwareFileInfo[] => {
   const key = minerTargetKey(group.manufacturer, group.model);
   return key === null || !supportsFirmwareAssignment(group.manufacturer, group.model)
     ? []
@@ -189,6 +192,10 @@ const filesForGroup = (firmwareFiles: FirmwareFileInfo[], group: ReleaseChannelM
         (f) => supportsFirmwareFileAssignment(f) && minerTargetKey(f.target_manufacturer, f.target_model) === key,
       );
 };
+
+// Files that can be assigned to the group: firmware for its component.
+const filesForGroup = (firmwareFiles: FirmwareFileInfo[], group: ReleaseChannelModelGroup): FirmwareFileInfo[] =>
+  filesForModel(firmwareFiles, group).filter((f) => fileComponent(f) === group.component);
 
 const FirmwarePickerCell = ({
   group,
@@ -235,12 +242,16 @@ const FirmwarePickerCell = ({
   return (
     <div className="grid gap-1">
       <FirmwarePickerButton
-        label={`${isContainerPair(group) ? CONTAINER_FIRMWARE_COMPONENT : "Firmware"} for ${pairLabel(group)}`}
+        label={
+          isContainerPair(group)
+            ? `${containerFirmwareLabel(group.component)} for ${modelLabel(group)}`
+            : `Firmware for ${pairLabel(group)}`
+        }
         options={options}
         value={value}
         assignment={assignment}
         onChange={(value) => onStageFirmware(group, value)}
-        testId={`channel-firmware-select-${group.model}`}
+        testId={`channel-firmware-select-${groupTestId(group)}`}
         disabled={disabled}
       />
       {!acknowledgedAssignment && hasUnavailableAssignedFirmware(group) ? (
@@ -271,12 +282,7 @@ interface ReleaseChannelManageViewProps {
     channelId?: bigint,
     signal?: AbortSignal,
   ) => Promise<PreviewReleaseChannelScopeResponse>;
-  listChannelMiners: (
-    channelId: bigint,
-    manufacturer?: string,
-    model?: string,
-    signal?: AbortSignal,
-  ) => Promise<ReleaseChannelMiner[]>;
+  listChannelMiners: ReleaseChannelsApi["listChannelMiners"];
   listRolloutDevices: (rolloutId: bigint, signal?: AbortSignal) => Promise<RolloutDevice[]>;
   // Controller software versions for the channel's containers. Without it the
   // container table lists assigned firmware only.
@@ -505,10 +511,34 @@ const ReleaseChannelManageView = ({
         minerCount: model.minerCount,
       }),
     );
-  const displayedPairs = new Set([...livePairs, ...addedGroups.map(pairKey)]);
+  // The server reports a model's main firmware, and another component only
+  // once it is assigned. A model whose catalog holds firmware for another
+  // component can be assigned it, so it gets an unassigned row under the model.
+  const observedGroups = [...liveGroups, ...addedGroups];
+  const observedKeys = new Set(observedGroups.map(observedPairKey));
+  const shownGroups = observedGroups.flatMap((group) => {
+    if (group.component !== "") return [group];
+    const components = new Set(filesForModel(firmwareFiles, group).map(fileComponent));
+    components.delete("");
+    const assignable = [...components]
+      .sort()
+      .map((component) =>
+        create(ReleaseChannelModelGroupSchema, {
+          manufacturer: group.manufacturer,
+          model: group.model,
+          component,
+          minerCount: group.minerCount,
+        }),
+      )
+      .filter((candidate) => !observedKeys.has(observedPairKey(candidate)));
+    return [group, ...assignable];
+  });
+  const displayedPairs = new Set(shownGroups.map(pairKey));
+  // A component row of a model the channel already holds is as live as the
+  // model's own row: its miners and their versions can be read.
+  const shownLivePairs = new Set(shownGroups.filter((group) => livePairs.has(modelKey(group))).map(pairKey));
   const modelGroups: ReleaseChannelModelGroup[] = [
-    ...liveGroups,
-    ...addedGroups,
+    ...shownGroups,
     ...Object.entries(staged)
       .filter(([key]) => !displayedPairs.has(key))
       .map(([, { group }]) => ({ ...group, minerCount: 0, onTargetCount: 0, activeRolloutId: 0n })),
@@ -566,7 +596,8 @@ const ReleaseChannelManageView = ({
         supportsFirmwareFileAssignment(file) &&
         supportsFirmwareAssignment(group.manufacturer, group.model) &&
         targetKey !== null &&
-        minerTargetKey(file.target_manufacturer, file.target_model) === targetKey
+        minerTargetKey(file.target_manufacturer, file.target_model) === targetKey &&
+        fileComponent(file) === group.component
           ? file
           : undefined;
       if (fileId !== "" && !matchingFile) {
@@ -587,6 +618,7 @@ const ReleaseChannelManageView = ({
           fileId === ""
             ? (acknowledged?.model ?? group.firmwareTargetModel)
             : (matchingFile?.target_model ?? group.model),
+        ...(group.component ? { component: group.component } : {}),
         firmwareFileId: fileId,
       };
       if (!supportsFirmwareAssignment(assignment.manufacturer, assignment.model)) {
@@ -621,6 +653,9 @@ const ReleaseChannelManageView = ({
     onDirtyChange?.(hasUnsavedChanges);
   }, [hasUnsavedChanges, onDirtyChange]);
   const assignmentCount = dirtyAssignments.filter((assignment) => assignment.firmwareFileId !== "").length;
+  const assignsPsuFirmware = dirtyAssignments.some(
+    (assignment) => assignment.firmwareFileId !== "" && assignment.component === PSU_FIRMWARE_COMPONENT,
+  );
   const clearCount = dirtyAssignments.length - assignmentCount;
   const exceedsAssignmentLimit = dirtyAssignments.length > MAX_FIRMWARE_ASSIGNMENTS;
   const effectiveSettings = dirty ? settingsDraft : savedSettings;
@@ -659,6 +694,9 @@ const ReleaseChannelManageView = ({
       : "",
     clearCount > 0
       ? `Clear firmware assignments for ${clearCount} ${clearCount === 1 ? "model" : "models"} in ${effectiveSettings?.name}. Clearing stops enforcement and cancels remaining updates for these models; updates already dispatched may finish.`
+      : "",
+    assignsPsuFirmware
+      ? "PSU firmware updates one module per controller at a time. A module stops mining while its PSU updates, and a container's update stops if a PSU is left needing recovery."
       : "",
   ]
     .filter(Boolean)
@@ -927,7 +965,7 @@ const ReleaseChannelManageView = ({
           <div className="flex items-center gap-2 text-200 text-text-primary-50">
             <span>{channelMembersLabel(channel.minerCount, liveGroups)}</span>
             <span>·</span>
-            <span>{liveGroups.length === 1 ? "1 model" : `${liveGroups.length} models`}</span>
+            <span>{modelCount(liveGroups) === 1 ? "1 model" : `${modelCount(liveGroups)} models`}</span>
           </div>
         </div>
         <div className="flex gap-2 phone:flex-col phone:items-stretch">
@@ -1024,10 +1062,14 @@ const ReleaseChannelManageView = ({
                   const acknowledged = acknowledgedAssignments[pairKey(group)];
                   const activeRollout = acknowledged ? undefined : activeForGroup(group);
                   const rolloutPending = group.activeRolloutId > 0n && !activeRollout;
-                  const live = livePairs.has(pairKey(group));
-                  const showControllerSoftware = containers && controllerSoftware !== undefined && live;
+                  const live = shownLivePairs.has(pairKey(group));
+                  // The target holds every firmware the channel sends a container,
+                  // so each component row says why it waits. The target itself is
+                  // set once per model, on the row of its main firmware.
+                  const holdsFirmware = containers && controllerSoftware !== undefined && live;
+                  const showControllerSoftware = holdsFirmware && !group.component;
                   const holdMessage =
-                    showControllerSoftware &&
+                    holdsFirmware &&
                     !controllerSoftwareState.isRefreshingPair(group) &&
                     hasFirmwareAssignment(group, acknowledged)
                       ? controllerSoftwareHoldMessage(controllerSoftwareState.forPair(group))
@@ -1044,11 +1086,13 @@ const ReleaseChannelManageView = ({
                     <tr
                       key={observedPairKey(group)}
                       className="border-t border-border-5"
-                      data-testid={`model-group-${group.model}`}
+                      data-testid={`model-group-${groupTestId(group)}`}
                     >
                       <td className="py-3 pr-4">
-                        <div className="text-emphasis-300">{pairLabel(group)}</div>
-                        {containers ? <div className="text-text-primary-70">{CONTAINER_FIRMWARE_COMPONENT}</div> : null}
+                        <div className="text-emphasis-300">{containers ? modelLabel(group) : pairLabel(group)}</div>
+                        {containers ? (
+                          <div className="text-text-primary-70">{containerFirmwareLabel(group.component)}</div>
+                        ) : null}
                       </td>
                       <td className="py-3 pr-4">{group.minerCount.toLocaleString()}</td>
                       <td className="py-3 pr-4">
@@ -1081,7 +1125,7 @@ const ReleaseChannelManageView = ({
                           <RolloutProgressIndicator
                             group={group}
                             rollout={activeRollout}
-                            testId={`model-group-rollout-progress-${group.model}`}
+                            testId={`model-group-rollout-progress-${groupTestId(group)}`}
                           />
                         ) : (
                           <ModelStatusCell
@@ -1095,7 +1139,7 @@ const ReleaseChannelManageView = ({
                           <p
                             role="status"
                             className="mt-1 text-text-primary-70"
-                            data-testid={`controller-software-hold-${group.model}`}
+                            data-testid={`controller-software-hold-${groupTestId(group)}`}
                           >
                             {holdMessage}
                           </p>
@@ -1109,7 +1153,7 @@ const ReleaseChannelManageView = ({
                             text={containers ? "View containers" : "View miners"}
                             disabled={!live || acknowledged !== undefined || rolloutPending || group.rollbackPending}
                             onClick={() => setMinersPair(observedPairKey(group))}
-                            testId={`view-miners-${group.model}`}
+                            testId={`view-miners-${groupTestId(group)}`}
                           />
                         ) : null}
                       </td>

@@ -118,13 +118,50 @@ func observedHashboardFirmware(wire *mdk.GetContainerMapResponse, topology *sdk.
 	if !locatedInventoryComplete(topology) {
 		return "", false
 	}
-	boards, err := occupiedFirmwareBoards(wire)
-	if err != nil || len(boards) == 0 {
+	occupied, err := occupiedFirmwareBoards(wire)
+	if err != nil {
 		return "", false
 	}
-	for _, b := range boards {
-		v := boardFirmwareVersion(b.board)
-		if v == "" || !sdk.FreshContainerReading(sourceTime(b.board.GetHealth().GetTimestamp()), now) {
+	boards := make([]*mdk.Hashboard, len(occupied))
+	for i, b := range occupied {
+		boards[i] = b.board
+	}
+	return uniformVersion(boards, now, boardFirmwareVersion)
+}
+
+// observedPSUFirmware is the firmware version the container's PSUs report. A
+// module's boards share one PSU and each carries its identity, so every
+// occupied board must report it. Only located boards count, because a PSU
+// update reaches located modules only.
+func observedPSUFirmware(wire *mdk.GetContainerMapResponse, topology *sdk.ContainerSnapshot, now time.Time) (version string, mixed bool) {
+	if !locatedInventoryComplete(topology) {
+		return "", false
+	}
+	var boards []*mdk.Hashboard
+	for _, tank := range wire.GetContainerMap().GetTanks() {
+		if tank.GetId() == 0 {
+			continue
+		}
+		for _, module := range tank.GetModules() {
+			for _, slot := range module.GetSlots() {
+				if slot.GetOccupied() {
+					boards = append(boards, slot.GetHashboard())
+				}
+			}
+		}
+	}
+	return uniformVersion(boards, now, func(board *mdk.Hashboard) string {
+		return strings.TrimSpace(board.GetPsuIdentity().GetFirmwareVersion())
+	})
+}
+
+// uniformVersion is the one version every board reports with fresh health, or
+// that fresh boards differ. Neither result means the version is unknown: no
+// board, or a board whose version is missing or whose health is not fresh.
+func uniformVersion(boards []*mdk.Hashboard, now time.Time, read func(*mdk.Hashboard) string) (version string, mixed bool) {
+	for _, board := range boards {
+		v := read(board)
+		if v == "" || !sdk.FreshContainerReading(sourceTime(board.GetHealth().GetTimestamp()), now) {
 			return "", false
 		}
 		if version == "" {

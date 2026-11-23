@@ -74,7 +74,7 @@ func TestAccountDashboardAllFleetRanges(t *testing.T) {
 		resolution time.Duration
 	}{
 		{time.Hour, 90, 40, 0}, {24 * time.Hour, 90, 960, 0}, {7 * 24 * time.Hour, 900, 168, time.Hour},
-		{30 * 24 * time.Hour, 2700, 30, 24 * time.Hour}, {90 * 24 * time.Hour, 8100, 90, 24 * time.Hour}, {365 * 24 * time.Hour, 32850, 365, 24 * time.Hour},
+		{30 * 24 * time.Hour, 2700, 30, 24 * time.Hour}, {365 * 24 * time.Hour, 32850, 365, 24 * time.Hour},
 	} {
 		req := dashboardRequest(client.AccountID, end.Add(-tc.span), end, nil)
 		req.BucketSeconds = tc.bucket

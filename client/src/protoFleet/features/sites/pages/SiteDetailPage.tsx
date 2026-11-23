@@ -220,6 +220,7 @@ const SiteDetailPage = () => {
           size={sizes.compact}
           text="Retry"
           onClick={refetchSites}
+          className="w-fit"
           testId="site-detail-retry"
         />
       </div>

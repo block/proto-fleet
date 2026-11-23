@@ -31,7 +31,7 @@ func (d *queuedBudgetDispatcher) FirmwareUpdateArtifact(ctx context.Context, sel
 	if err != nil {
 		return nil, err
 	}
-	if err := d.f.recordDispatchedFirmwareBatch(ctx, result, checksum, sqlc.BatchStatusEnumPENDING); err != nil {
+	if err := d.f.recordDispatchedFirmwareBatch(ctx, result, checksum, metadata, sqlc.BatchStatusEnumPENDING); err != nil {
 		return nil, err
 	}
 	payload, err := json.Marshal(map[string]string{"firmware_checksum": checksum})

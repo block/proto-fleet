@@ -22,17 +22,17 @@ export function ConfigurationPools({ pools }: { pools: ReadonlyArray<PoolDetails
   );
 }
 export function ConfigurationDetails({
-  assignedCount,
+  equipment,
   pools,
   children,
 }: {
-  assignedCount: number | bigint;
+  equipment: ReactNode;
   pools: ReadonlyArray<PoolDetails>;
   children?: ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-6" data-dd-privacy="mask">
-      <p>{assignedCount.toString()} equipment assigned</p>
+      {equipment}
       {children}
       <ConfigurationPools pools={pools} />
     </div>

@@ -13,7 +13,10 @@ import (
 
 // ReleaseChannelFirmwareFilter keeps direct firmware commands from fighting a
 // channel's assignment or bypassing its pilot, batching and offline budget.
-// Other miner actions and miners without an assignment are unaffected.
+// A channel owns a miner's firmware per component: an assignment of a
+// container's hashboard firmware does not stop a direct PSU update, and the
+// reverse. Other miner actions and miners without an assignment of the
+// command's component are unaffected.
 type ReleaseChannelFirmwareFilter struct {
 	conn *sql.DB
 }
@@ -32,7 +35,7 @@ func (f *ReleaseChannelFirmwareFilter) Apply(ctx context.Context, in CommandFilt
 	}
 	lookup := func(q sqlc.Querier) ([]sqlc.ListManagedFirmwareUpdateDevicesRow, error) {
 		return q.ListManagedFirmwareUpdateDevices(ctx, sqlc.ListManagedFirmwareUpdateDevicesParams{
-			OrgID: in.OrganizationID, DeviceIdentifiers: in.DeviceIdentifiers,
+			OrgID: in.OrganizationID, DeviceIdentifiers: in.DeviceIdentifiers, Component: in.FirmwareComponent,
 		})
 	}
 	var managed []sqlc.ListManagedFirmwareUpdateDevicesRow

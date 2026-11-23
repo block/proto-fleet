@@ -89,6 +89,9 @@ func physicalWriteKind(command *gatewaypb.MinerCommand) (commandtype.Type, bool)
 		return commandtype.SetContainerControl, true
 	case *gatewaypb.MinerCommand_RunContainerAlarmAction:
 		return commandtype.ContainerAlarmAction, true
+	case *gatewaypb.MinerCommand_FrigateUpdate:
+		// The same kind as a direct controller. A support or status call only reads.
+		return commandtype.FrigateServerUpdate, write
 	default:
 		return commandtype.Type(-1), write
 	}

@@ -373,14 +373,23 @@ func start(config *Config) (result error) {
 	fleetNodeEnrollmentSvc := enrollment.NewService(fleetNodeEnrollmentStore, apiKeySvc, transactor, activitySvc)
 	fleetNodePairingStore := sqlstores.NewSQLFleetNodePairingStore(conn)
 	fleetNodePairingSvc := fleetnodepairing.NewService(fleetNodePairingStore, fleetNodeEnrollmentStore, transactor)
-	fleetNodeControlRegistry := control.NewRegistry()
+	dispatchObserver, err := runtimeMetrics.DispatchObserver()
+	if err != nil {
+		return fmt.Errorf("initialize dispatch metrics: %w", err)
+	}
+	nodeMetrics, err := runtimeMetrics.NewNodeMetrics()
+	if err != nil {
+		return fmt.Errorf("initialize node metrics: %w", err)
+	}
+	fleetNodeControlRegistry := control.NewRegistry().WithDispatchObserver(dispatchObserver).WithProtocolObserver(nodeMetrics.ProtocolCheck)
+
 	if err := runtimeMetrics.ObserveNodeConnections(fleetNodeControlRegistry.ConnectionCount); err != nil {
 		return fmt.Errorf("observe node connections: %w", err)
 	}
 	fleetNodeEnrollmentSvc.WithControlStreamInvalidator(fleetNodeControlRegistry.RevokeSession)
 	fleetNodeDiscoverySvc := fleetnodediscovery.NewService(fleetNodeControlRegistry, fleetNodeEnrollmentSvc)
 	fleetNodeAuthStore := sqlstores.NewSQLFleetNodeAuthStore(conn)
-	fleetNodeAuthSvc := fleetnodeauth.NewService(fleetNodeAuthStore, fleetNodeEnrollmentStore, apiKeySvc)
+	fleetNodeAuthSvc := fleetnodeauth.NewService(fleetNodeAuthStore, fleetNodeEnrollmentStore, apiKeySvc).WithOperationalMetrics(nodeMetrics)
 
 	tokenSvc, err := tokenDomain.NewService(config.Auth)
 	if err != nil {
@@ -594,6 +603,11 @@ func start(config *Config) (result error) {
 
 	executionService := commandDomain.NewExecutionService(&config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc, minerService, deviceStore, telemetryService, filesService)
 	executionService.WithMetricsEmitter(metricsProvider)
+	commandMetrics, err := runtimeMetrics.NewCommandMetrics()
+	if err != nil {
+		return fmt.Errorf("create command metrics: %w", err)
+	}
+	executionService.WithOperationalMetrics(commandMetrics)
 
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
 	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService, deviceStore, userStore, authSvc, telemetryService, pluginService, activitySvc)
@@ -846,8 +860,9 @@ func start(config *Config) (result error) {
 	if err != nil {
 		return err
 	}
-	// Package upload stays disabled until release keys are configured; the rest
-	// of the service still lists, starts and tracks updates for stored packages.
+	// Without a release key directory Fleet has no installed release key. It
+	// then checks an uploaded signature only against a public key supplied with
+	// the upload; the controllers verify every package with their own keys.
 	var frigateVerifier *frigateReleaseDomain.Verifier
 	if config.FrigateUpdate.ReleaseKeysDir != "" {
 		frigateVerifier = frigateReleaseDomain.NewDirVerifier(config.FrigateUpdate.ReleaseKeysDir)
@@ -1013,7 +1028,8 @@ func start(config *Config) (result error) {
 		connect.WithReadMaxBytes(sitemapDomain.MaxImportBytes+1024),
 	))
 	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(
-		gateway.NewHandler(fleetNodeEnrollmentSvc, fleetNodeAuthSvc, fleetNodePairingSvc, fleetNodeControlRegistry, filesService),
+		gateway.NewHandler(fleetNodeEnrollmentSvc, fleetNodeAuthSvc, fleetNodePairingSvc, fleetNodeControlRegistry, filesService).
+			WithControllerSoftwarePackages(frigatePackageStore),
 		li,
 		gateway.CommandArtifactUploadReadLimitOption(),
 		gateway.BootstrapRateLimitOption(),

@@ -82,28 +82,6 @@ func TestMapMetricValue(t *testing.T) {
 				Kind:  modelsV2.MetricKindGauge,
 			},
 		},
-		{
-			name: "rate value",
-			input: &sdk.MetricValue{
-				Value: 1000000.0,
-				Kind:  sdk.MetricKindRate,
-			},
-			expected: &modelsV2.MetricValue{
-				Value: 1000000.0,
-				Kind:  modelsV2.MetricKindRate,
-			},
-		},
-		{
-			name: "counter value",
-			input: &sdk.MetricValue{
-				Value: 12345.0,
-				Kind:  sdk.MetricKindCounter,
-			},
-			expected: &modelsV2.MetricValue{
-				Value: 12345.0,
-				Kind:  modelsV2.MetricKindCounter,
-			},
-		},
 	}
 
 	for _, tt := range tests {

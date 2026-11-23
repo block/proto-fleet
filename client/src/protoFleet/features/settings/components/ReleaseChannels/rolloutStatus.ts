@@ -1,6 +1,7 @@
 import { create } from "@bufbuild/protobuf";
 import { type Timestamp, timestampMs } from "@bufbuild/protobuf/wkt";
 
+import { firmwareComponentLabel } from "@/protoFleet/api/firmwareComponent";
 import {
   type MetricComparison,
   type RolloutDeviceCounts as PbRolloutDeviceCounts,
@@ -523,12 +524,21 @@ export function channelUpdateStatus(activeRollouts: Rollout[]): UpdateStatus {
   return { label: parts.join(", "), tone: attention > 0 ? "attention" : "active" };
 }
 
-// "current → target" while miners converge on the assignment, or just the
-// assigned version once every miner reports it.
+// One firmware component of a manufacturer/model pair: a model group, an
+// assignment or a rollout. The empty component is the model's main firmware.
+type FirmwarePair = { manufacturer: string; model: string; component?: string };
+
 // A manufacturer/model pair as the UI names it: the observed identity with
 // unknown halves left out.
-export const pairLabel = (pair: { manufacturer: string; model: string }): string =>
+export const modelLabel = (pair: { manufacturer: string; model: string }): string =>
   `${pair.manufacturer} ${pair.model}`.trim() || "Unknown model";
+
+// A pair's firmware component as the UI names it: "Proto CT1" for its main
+// firmware, "Proto CT1 PSU" for its PSU firmware.
+export const pairLabel = (pair: FirmwarePair): string => {
+  const component = firmwareComponentLabel(pair.component);
+  return component ? `${modelLabel(pair)} ${component}` : modelLabel(pair);
+};
 
 // Proto Containers are grouped and worded apart from miners. The channel API
 // reports no device class, so a container is recognized by its model pair.
@@ -570,12 +580,16 @@ export function capitalize(text: string): string {
 /**
  * "6 miners, 2 containers": a channel's members by device type. The total is
  * the server's; containers are the members of its container model groups.
+ * A model's other components list the same members, so only its main
+ * firmware group counts.
  */
 export function channelMembersLabel(
   total: number,
-  groups: ReadonlyArray<{ manufacturer: string; model: string; minerCount: number }>,
+  groups: ReadonlyArray<FirmwarePair & { minerCount: number }>,
 ): string {
-  const inContainerGroups = groups.filter(isContainerPair).reduce((sum, group) => sum + group.minerCount, 0);
+  const inContainerGroups = groups
+    .filter((group) => isContainerPair(group) && !group.component)
+    .reduce((sum, group) => sum + group.minerCount, 0);
   const containers = Math.min(total, inContainerGroups);
   const miners = total - containers;
   if (containers === 0) return nounCountLabel(MINER_NOUNS, miners);
@@ -592,12 +606,27 @@ export const minerLabel = (deviceIdentifier: string, names: Readonly<Record<stri
 // Key joining a model group to the rollouts and assignments of its pair:
 // trimmed and ASCII-folded like the server, so the observed "proto Rig"
 // meets the canonical "Proto Rig". Unknown identities never match anything.
-export const pairKey = (pair: { manufacturer: string; model: string }): string =>
+// A model's controller software target and its main firmware share this key.
+export const modelKey = (pair: { manufacturer: string; model: string }): string =>
   minerTargetKey(pair.manufacturer, pair.model) ?? JSON.stringify(["unknown", pair.manufacturer, pair.model]);
+
+// Key of one firmware component of a pair. Each component has its own
+// assignment, generation and rollouts, so the key keeps them apart.
+export const pairKey = (pair: FirmwarePair): string =>
+  pair.component ? JSON.stringify([modelKey(pair), pair.component]) : modelKey(pair);
+
+// Test id suffix of a group's row: its model, and its component when the row
+// is not for the model's main firmware.
+export const groupTestId = (group: { model: string; component?: string }): string =>
+  group.component ? `${group.model}-${group.component}` : group.model;
+
+// How many hardware models the groups cover; a model's components count once.
+export const modelCount = (groups: readonly { manufacturer: string; model: string }[]): number =>
+  new Set(groups.map(modelKey)).size;
 
 // Finished outcomes belong to one assignment, even when the same artifact
 // is selected again later. Raw model variants still share its canonical key.
-export const assignmentKey = (pair: { manufacturer: string; model: string; assignmentGeneration: bigint }): string =>
+export const assignmentKey = (pair: FirmwarePair & { assignmentGeneration: bigint }): string =>
   JSON.stringify([pairKey(pair), pair.assignmentGeneration.toString()]);
 
 export const channelAssignmentKey = (channelId: bigint, pair: ReleaseChannelModelGroup | Rollout): string =>
@@ -674,6 +703,8 @@ export function rollbackLabel(rollout: Rollout): string {
     : `Roll back to ${rollout.previousFirmwareVersion}`;
 }
 
+// "current → target" while miners converge on the assignment, or just the
+// assigned version once every miner reports it.
 export const modelFirmwareLabel = (group: ReleaseChannelModelGroup): string => {
   if (group.rollbackPending) return "Refreshing assignment";
   if (group.firmwareVersion === "") return "—";

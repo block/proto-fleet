@@ -131,6 +131,18 @@ func (m FirmwareMetadata) IsPSU() bool {
 	return strings.ToLower(strings.TrimSpace(m.Component)) == FirmwareComponentPSU
 }
 
+// ComponentKey is the firmware component the file updates: empty for the
+// target's main firmware, FirmwareComponentPSU for a CT1 PSU capsule. Release
+// channel assignments and firmware command payloads name a component by this
+// value, and the queries that read a payload's firmware_component compare
+// against it, so every caller must take it from here.
+func (m FirmwareMetadata) ComponentKey() string {
+	if m.IsPSU() {
+		return FirmwareComponentPSU
+	}
+	return ""
+}
+
 func (m FirmwareMetadata) MatchesTarget(manufacturer, model string) bool {
 	m = m.normalized()
 	manufacturer = strings.TrimSpace(manufacturer)

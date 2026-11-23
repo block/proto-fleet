@@ -422,8 +422,10 @@ describe("reporting access and recorded requests", () => {
     const form = within(screen.getByRole("dialog", { name: "Reporting permissions" }));
     await user.click(form.getByRole("button", { name: "Operator" }));
     await user.click(await screen.findByRole("option", { name: "Casey" }));
-    await user.click(form.getByLabelText("Create reports"));
-    expect(form.getByRole("radio", { name: "Specific sites" })).toBeChecked();
+    // An owner without a stored grant is a manager with implicit all-site authority.
+    expect(form.getByLabelText("Create reports")).toBeChecked();
+    expect(form.getByRole("radio", { name: "All account sites" })).toBeChecked();
+    await user.click(form.getByRole("radio", { name: "Specific sites" }));
     expect(form.getByText("Site choices are unavailable.")).toBeInTheDocument();
     await user.click(form.getByRole("radio", { name: "All account sites" }));
     expect(form.getByRole("radio", { name: "Specific sites" })).not.toBeChecked();
@@ -455,6 +457,16 @@ describe("reporting access and recorded requests", () => {
     expect(screen.queryByRole("option", { name: "Ad hoc" })).not.toBeInTheDocument();
     await user.click(await screen.findByRole("option", { name: "Annual" }));
     expect(form.queryByLabelText("Reporting year start (UTC)")).not.toBeInTheDocument();
+  });
+
+  it("links to reporting settings while inputs are missing", async () => {
+    const user = userEvent.setup();
+    mount(true, "draft", { input: undefined }, [], "/accounts/reports?account=client&view=reports");
+    expect(await screen.findByRole("button", { name: "Create report" })).toBeDisabled();
+    const prepared = within(screen.getByRole("region", { name: "Prepared reports" }));
+    await user.click(prepared.getByRole("link", { name: "Reporting settings" }));
+    expect(await screen.findByRole("region", { name: "Reporting setup" })).toBeInTheDocument();
+    expect(screen.getByText(/Fleet could not assume a reporting timezone/)).toBeInTheDocument();
   });
 
   it("loads request history one page at a time", async () => {

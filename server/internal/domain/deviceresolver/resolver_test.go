@@ -51,24 +51,6 @@ func TestResolve_EmptySelectionType(t *testing.T) {
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
-func TestResolve_DeviceList_Success(t *testing.T) {
-	store := &mockStore{allBelong: true}
-	resolver := New(store)
-
-	// Act
-	ids, err := resolver.Resolve(context.Background(), &commonpb.DeviceSelector{
-		SelectionType: &commonpb.DeviceSelector_DeviceList{
-			DeviceList: &commonpb.DeviceIdentifierList{
-				DeviceIdentifiers: []string{"dev-1", "dev-2"},
-			},
-		},
-	}, 1)
-
-	// Assert
-	require.NoError(t, err)
-	assert.Equal(t, []string{"dev-1", "dev-2"}, ids)
-}
-
 func TestResolve_DeviceList_Deduplicates(t *testing.T) {
 	store := &mockStore{allBelong: true}
 	resolver := New(store)

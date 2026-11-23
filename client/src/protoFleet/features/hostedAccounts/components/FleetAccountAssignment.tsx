@@ -68,7 +68,12 @@ const AssignmentDialog = ({
       {stale ? (
         <p>Allocations or equipment changed. Close this dialog, refresh Fleet, and select the assets again.</p>
       ) : null}
-      <AccountState loading={inventory.loading} error={inventory.error} retry={inventory.refresh} />
+      <AccountState
+        title={inventory.data ? "Could not refresh selected assets" : undefined}
+        loading={inventory.loading}
+        error={inventory.error}
+        retry={inventory.refresh}
+      />
       {inventory.data ? (
         !complete ? (
           <p>Some selected assets are no longer available or accessible. Refresh Fleet and select them again.</p>

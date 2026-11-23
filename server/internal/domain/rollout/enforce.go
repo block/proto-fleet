@@ -197,7 +197,7 @@ func (s *Service) startNeededRollouts(ctx context.Context) {
 				return channelLookupError(n.ChannelID, err)
 			}
 			assignment, err := q.GetReleaseChannelFirmware(ctx, sqlc.GetReleaseChannelFirmwareParams{
-				ChannelID: n.ChannelID, Manufacturer: n.Manufacturer, Model: n.Model,
+				ChannelID: n.ChannelID, Manufacturer: n.Manufacturer, Model: n.Model, Component: n.Component,
 			})
 			if errors.Is(err, sql.ErrNoRows) || (err == nil && assignment.FirmwareChecksum == "") {
 				return nil
@@ -206,7 +206,7 @@ func (s *Service) startNeededRollouts(ctx context.Context) {
 				return fleeterror.NewInternalErrorf("get firmware assignment: %w", err)
 			}
 			if _, err := q.GetActiveFirmwareRolloutForPair(ctx, sqlc.GetActiveFirmwareRolloutForPairParams{
-				ChannelID: n.ChannelID, Manufacturer: n.Manufacturer, Model: n.Model,
+				ChannelID: n.ChannelID, Manufacturer: n.Manufacturer, Model: n.Model, Component: n.Component,
 			}); err == nil {
 				return nil
 			} else if !errors.Is(err, sql.ErrNoRows) {
@@ -214,7 +214,7 @@ func (s *Service) startNeededRollouts(ctx context.Context) {
 			}
 			spec := rolloutSpec{
 				OrgID: n.OrgID, ChannelID: n.ChannelID, ChannelName: channel.Name,
-				Pair:             PairKey{Manufacturer: assignment.Manufacturer, Model: assignment.Model},
+				Pair:             PairKey{Manufacturer: assignment.Manufacturer, Model: assignment.Model, Component: assignment.Component},
 				FirmwareChecksum: assignment.FirmwareChecksum, FirmwareVersion: assignment.FirmwareVersion,
 				AssignmentGeneration: assignment.AssignmentGeneration, Actor: SystemActor, Behavior: behaviorFromChannel(channel),
 				PreviousFirmwareChecksum: assignment.PreviousFirmwareChecksum,
@@ -439,7 +439,7 @@ func (s *Service) syncMembership(ctx context.Context, r sqlc.FirmwareRollout) ([
 		changed = true
 	}
 	joiners, err := q.ListReleaseChannelMismatchedMembers(ctx, s.mismatchedParams(rolloutSpec{
-		OrgID: r.OrgID, ChannelID: r.ChannelID, Pair: PairKey{Manufacturer: r.Manufacturer, Model: r.Model},
+		OrgID: r.OrgID, ChannelID: r.ChannelID, Pair: PairKey{Manufacturer: r.Manufacturer, Model: r.Model, Component: r.Component},
 		FirmwareVersion: r.FirmwareVersion, FirmwareChecksum: r.FirmwareChecksum,
 		AssignmentGeneration: r.AssignmentGeneration,
 	}, r.ID))
@@ -529,7 +529,7 @@ func (s *Service) recordDeploymentProvenance(ctx context.Context, r sqlc.Firmwar
 		return targets, nil
 	}
 	if err := s.store.GetQueries(ctx).RecordFirmwareDeployment(ctx, sqlc.RecordFirmwareDeploymentParams{
-		DeviceIds: deployed, FirmwareChecksum: r.FirmwareChecksum, FirmwareVersion: r.FirmwareVersion,
+		DeviceIds: deployed, Component: r.Component, FirmwareChecksum: r.FirmwareChecksum, FirmwareVersion: r.FirmwareVersion,
 		RolloutID:                 sql.NullInt64{Int64: r.ID, Valid: true},
 		ExpectedDeploymentPresent: expectedPresent,
 		ExpectedDeployedAts:       expectedDeployedAt,
@@ -604,8 +604,8 @@ func (s *Service) dispatchHoldReason(ctx context.Context, r sqlc.FirmwareRollout
 	cutoff := s.now().Add(-resendInterval)
 	var due []int64
 	for _, t := range reviewScope(r, targets) {
-		if t.settled(r) || len(t.PendingFirmwareChecksums) > 0 || len(t.PendingLegacyFirmwareFileIds) > 0 ||
-			(t.LastSentAt.Valid && !t.LastSentAt.Time.Before(cutoff)) ||
+		if t.settled(r) || t.commandPending() ||
+			(t.LastSentAt.Valid && !t.waitingSince().Before(cutoff)) ||
 			!t.InScope.Valid || !t.InScope.Bool || t.Attempts >= MaxAttempts {
 			continue
 		}
@@ -717,9 +717,9 @@ func (s *Service) dispatchLockedBatch(ctx context.Context, r sqlc.FirmwareRollou
 		if t.settled(r) {
 			continue
 		}
-		sentRecently := t.LastSentAt.Valid && !t.LastSentAt.Time.Before(cutoff)
+		sentRecently := t.LastSentAt.Valid && !t.waitingSince().Before(cutoff)
 		switch {
-		case len(t.PendingFirmwareChecksums) > 0 || len(t.PendingLegacyFirmwareFileIds) > 0:
+		case t.commandPending():
 			// Queue state, not retry age, determines when another command may
 			// be sent or the prior attempt declared exhausted.
 		case sentRecently:
@@ -801,7 +801,7 @@ func (s *Service) dispatchLockedBatch(ctx context.Context, r sqlc.FirmwareRollou
 		return halted, nil, nil
 	}
 	assignment, err := q.GetReleaseChannelFirmware(ctx, sqlc.GetReleaseChannelFirmwareParams{
-		ChannelID: r.ChannelID, Manufacturer: r.Manufacturer, Model: r.Model,
+		ChannelID: r.ChannelID, Manufacturer: r.Manufacturer, Model: r.Model, Component: r.Component,
 	})
 	if err != nil {
 		return halted, nil, fleeterror.NewInternalErrorf("load firmware assignment: %w", err)
@@ -827,6 +827,7 @@ func (s *Service) dispatchLockedBatch(ctx context.Context, r sqlc.FirmwareRollou
 		TargetManufacturer: assignment.FirmwareTargetManufacturer,
 		TargetModel:        assignment.FirmwareTargetModel,
 		FirmwareVersion:    assignment.FirmwareVersion,
+		Component:          assignment.Component,
 	})
 	if err != nil {
 		return halted, nil, fleeterror.NewInternalErrorf("dispatch firmware update: %w", err)

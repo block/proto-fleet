@@ -103,12 +103,13 @@ func (r *RunCmd) handleTelemetryCommand(ctx context.Context, stream acker, comma
 
 	result, err := supervisedTelemetryFetch(ctx, r.telemetry, req, telemetryTimeout(req), logger)
 	if err != nil {
-		code := pb.AckCode_ACK_CODE_INTERNAL
+		ack := &pb.ControlAck{CommandId: commandID, Code: pb.AckCode_ACK_CODE_INTERNAL, ErrorMessage: redactTelemetrySecrets(err.Error())}
 		var ce *commandError
 		if errors.As(err, &ce) {
-			code = ce.code
+			ack.Code = ce.code
+			ack.MinerProbeFailed = ce.minerProbeFailed
 		}
-		r.sendAck(stream, commandID, code, redactTelemetrySecrets(err.Error()), logger)
+		r.sendControlAck(stream, ack, logger)
 		return
 	}
 	payload, err := proto.Marshal(result)
@@ -213,8 +214,7 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 		created, createErr := plugin.Driver.NewDevice(ctx, handleID, deviceInfo, secret)
 		if createErr != nil {
 			lease.releaseAfterFailedCreation(ctx, plugin.Driver, handleID, createErr)
-			code, msg := classifyTelemetryError("create telemetry device", createErr, redactions...)
-			return nil, cmdErr(code, "%s", msg)
+			return nil, telemetryCommandError("create telemetry device", createErr, redactions...)
 		}
 		entry = &cachedTelemetryDevice{
 			device: created.Device, handleID: handleID, lease: lease, plugin: plugin, key: key,
@@ -225,8 +225,7 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 
 	sdkMetrics, err := entry.device.Status(ctx)
 	if err != nil {
-		code, msg := classifyTelemetryError("fetch telemetry", err, redactions...)
-		return nil, cmdErr(code, "%s", msg)
+		return nil, telemetryCommandError("fetch telemetry", err, redactions...)
 	}
 	v2Metrics := mappers.SDKDeviceMetricsToV2(sdkMetrics)
 	if err := validateTelemetryMetricsIdentity(req.GetDeviceIdentifier(), entry.handleID, v2Metrics); err != nil {
@@ -357,6 +356,9 @@ func classifyTelemetryError(stage string, err error, redactions ...string) (pb.A
 	if isNodeAuthFailure(err) {
 		return pb.AckCode_ACK_CODE_UNAUTHENTICATED, msg
 	}
+	if sdk.DeviceProbeFailed(err) {
+		return pb.AckCode_ACK_CODE_SCAN_FAILED, msg
+	}
 	var sdkErr sdk.SDKError
 	if errors.As(err, &sdkErr) {
 		if sdkErr.Code == sdk.ErrCodeDeviceUnavailable {
@@ -376,6 +378,11 @@ func classifyTelemetryError(stage string, err error, redactions ...string) (pb.A
 		return pb.AckCode_ACK_CODE_SCAN_FAILED, msg
 	}
 	return pb.AckCode_ACK_CODE_INTERNAL, msg
+}
+
+func telemetryCommandError(stage string, err error, redactions ...string) *commandError {
+	code, msg := classifyTelemetryError(stage, err, redactions...)
+	return &commandError{code: code, msg: msg, minerProbeFailed: code == pb.AckCode_ACK_CODE_SCAN_FAILED && sdk.DeviceProbeFailed(err)}
 }
 
 func isDefaultPasswordActiveTelemetryError(err error) bool {

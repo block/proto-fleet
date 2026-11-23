@@ -203,6 +203,35 @@ func (q *Queries) GetConnectedPostgresIdentity(ctx context.Context) (ConnectedPo
 	return i, err
 }
 
+const getFleetRuntimeLeaseForRecovery = `-- name: GetFleetRuntimeLeaseForRecovery :one
+SELECT
+    fleet_runtime_lease.dcs_cluster_id,
+    fleet_runtime_lease.highest_writer_generation,
+    fleet_runtime_lease.lease_epoch,
+    (fleet_runtime_lease.expires_at <= clock_timestamp())::BOOLEAN AS expired
+FROM fleet_runtime_lease
+WHERE lease_name = 'fleet-active'
+`
+
+type GetFleetRuntimeLeaseForRecoveryRow struct {
+	DcsClusterID            string
+	HighestWriterGeneration int64
+	LeaseEpoch              int64
+	Expired                 bool
+}
+
+func (q *Queries) GetFleetRuntimeLeaseForRecovery(ctx context.Context) (GetFleetRuntimeLeaseForRecoveryRow, error) {
+	row := q.queryRow(ctx, q.getFleetRuntimeLeaseForRecoveryStmt, getFleetRuntimeLeaseForRecovery)
+	var i GetFleetRuntimeLeaseForRecoveryRow
+	err := row.Scan(
+		&i.DcsClusterID,
+		&i.HighestWriterGeneration,
+		&i.LeaseEpoch,
+		&i.Expired,
+	)
+	return i, err
+}
+
 const getHAProfileDatabaseIdentity = `-- name: GetHAProfileDatabaseIdentity :one
 SELECT
     current_user::TEXT AS database_user,
@@ -230,6 +259,47 @@ func (q *Queries) GetHAProfileDatabaseIdentity(ctx context.Context) (GetHAProfil
 		&i.SourceCommit,
 	)
 	return i, err
+}
+
+const rebindExpiredFleetRuntimeLease = `-- name: RebindExpiredFleetRuntimeLease :one
+UPDATE fleet_runtime_lease AS lease
+SET
+    dcs_cluster_id = $1::TEXT,
+    highest_writer_generation = $2::BIGINT
+FROM connected_postgres_identity AS writer
+WHERE
+    lease.lease_name = 'fleet-active'
+    AND lease.dcs_cluster_id = $3::TEXT
+    AND lease.dcs_cluster_id <> $1::TEXT
+    AND lease.expires_at <= clock_timestamp()
+    AND NOT writer.in_recovery
+    AND writer.server_address = $4::TEXT
+    AND writer.server_port = $5::INTEGER
+    AND writer.timeline = $6::BIGINT
+RETURNING lease.lease_epoch
+`
+
+type RebindExpiredFleetRuntimeLeaseParams struct {
+	NewClusterID     string
+	WriterGeneration int64
+	OldClusterID     string
+	ServerAddress    string
+	ServerPort       int32
+	Timeline         int64
+}
+
+func (q *Queries) RebindExpiredFleetRuntimeLease(ctx context.Context, arg RebindExpiredFleetRuntimeLeaseParams) (int64, error) {
+	row := q.queryRow(ctx, q.rebindExpiredFleetRuntimeLeaseStmt, rebindExpiredFleetRuntimeLease,
+		arg.NewClusterID,
+		arg.WriterGeneration,
+		arg.OldClusterID,
+		arg.ServerAddress,
+		arg.ServerPort,
+		arg.Timeline,
+	)
+	var lease_epoch int64
+	err := row.Scan(&lease_epoch)
+	return lease_epoch, err
 }
 
 const releaseFleetRuntimeLease = `-- name: ReleaseFleetRuntimeLease :execrows

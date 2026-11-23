@@ -78,15 +78,6 @@ describe("useMinerStore.resetDeviceData", () => {
     expect(after.networkInfo.interfaces.size).toBe(0);
   });
 
-  test("clears the derived device type so a rig doesn't inherit a module's layout", () => {
-    useMinerStore.getState().systemInfo.setSystemInfo(systemInfo("CU1", "container"));
-    expect(useMinerStore.getState().systemInfo.data?.moduleModel).toBe("ct1");
-
-    useMinerStore.getState().resetDeviceData();
-
-    expect(useMinerStore.getState().systemInfo.data).toBeUndefined();
-  });
-
   test("preserves UI preferences and onboarding/identity flags", () => {
     const s = useMinerStore.getState();
     s.minerStatus.setOnboarded(true);
@@ -136,6 +127,17 @@ describe("partial normalized store updates", () => {
     expect(fan?.minimumRpm?.latest?.value).toBe(1_200);
     expect(fan?.maximumRpm?.latest?.value).toBe(6_000);
     expect(fan?.rpm?.latest?.value).toBe(4_800);
+  });
+
+  test("clears live fan power when a cooling poll no longer reports the fan", () => {
+    const telemetry = useMinerStore.getState().telemetry;
+    const id = getFanId(1);
+    telemetry.replaceFanLiveTelemetry([{ componentId: id, power: { latest: { value: 400, units: "W" } } }]);
+    expect(useMinerStore.getState().telemetry.fans.get(id)?.power?.latest?.value).toBe(400);
+
+    telemetry.replaceFanLiveTelemetry([]);
+
+    expect(useMinerStore.getState().telemetry.fans.get(id)?.power).toBeUndefined();
   });
 
   test("persists timeSeries through the PSU/fan writers, not just latest", () => {

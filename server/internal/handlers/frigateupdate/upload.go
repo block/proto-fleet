@@ -96,11 +96,13 @@ func ownerFromContext(ctx context.Context) (uploadOwner, bool) {
 }
 
 type uploadSession struct {
-	mu            sync.Mutex
-	owner         uploadOwner
-	filename      string
-	statement     []byte
-	signature     []byte
+	mu        sync.Mutex
+	owner     uploadOwner
+	filename  string
+	statement []byte
+	signature []byte
+	// publicKey is the optional release public key supplied with the upload.
+	publicKey     []byte
 	expectedSize  int64
 	receivedBytes int64
 	tempFilePath  string
@@ -242,12 +244,18 @@ type initiateRequest struct {
 	Size                int64  `json:"size"`
 	ReleaseStatementB64 string `json:"release_statement_b64"`
 	ReleaseSignatureB64 string `json:"release_signature_b64"`
+	// ReleasePublicKeyB64 is the optional PEM release public key. Fleet uses it
+	// to check the signature only when it has no installed release key.
+	ReleasePublicKeyB64 string `json:"release_public_key_b64,omitempty"`
 }
 
 type initiateResponse struct {
 	UploadID     string `json:"upload_id"`
 	Version      string `json:"version"`
 	Architecture string `json:"architecture"`
+	// Warning is set when Fleet accepts the upload without verifying the
+	// release signature.
+	Warning string `json:"warning,omitempty"`
 }
 
 func (h *uploadHandler) initiate(w http.ResponseWriter, r *http.Request) {
@@ -276,9 +284,14 @@ func (h *uploadHandler) initiate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "release_signature_b64 is not valid base64")
 		return
 	}
-	// The signature is checked before any bytes are accepted so a bad release
+	publicKey, err := base64.StdEncoding.DecodeString(req.ReleasePublicKeyB64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "release_public_key_b64 is not valid base64")
+		return
+	}
+	// The release is checked before any bytes are accepted so a bad release
 	// fails immediately instead of after a long upload.
-	verified, err := h.svc.ValidateUploadStatement(ctx, statement, signature, req.Filename, req.Size)
+	check, err := h.svc.ValidateUploadStatement(ctx, statement, signature, publicKey, req.Filename, req.Size)
 	if err != nil {
 		writeServiceError(w, "validate frigate release statement", err)
 		return
@@ -314,13 +327,15 @@ func (h *uploadHandler) initiate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.mgr.sessions[uploadID] = &uploadSession{
-		owner: owner, filename: req.Filename, statement: statement, signature: signature,
+		owner: owner, filename: req.Filename, statement: statement, signature: signature, publicKey: publicKey,
 		expectedSize: req.Size, tempFilePath: tempPath, lastActivity: time.Now(),
 	}
 	h.mgr.mu.Unlock()
 
-	slog.Info("frigate package upload initiated", "upload_id", uploadID, "filename", req.Filename, "size", req.Size)
-	writeJSON(w, http.StatusOK, initiateResponse{UploadID: uploadID, Version: verified.Statement.Version, Architecture: verified.Statement.Architecture})
+	slog.Info("frigate package upload initiated", "upload_id", uploadID, "filename", req.Filename, "size", req.Size, "signature_check", string(check.Signature))
+	writeJSON(w, http.StatusOK, initiateResponse{
+		UploadID: uploadID, Version: check.Statement.Version, Architecture: check.Statement.Architecture, Warning: check.Warning,
+	})
 }
 
 func (h *uploadHandler) session(w http.ResponseWriter, owner uploadOwner, uploadID string) (*uploadSession, bool) {
@@ -407,6 +422,9 @@ type packageResponse struct {
 type completeResponse struct {
 	Package packageResponse `json:"package"`
 	Reused  bool            `json:"reused"`
+	// Warning is set when the stored package has no release signature that
+	// Fleet verified. Package.ReleaseKeyID is empty in that case.
+	Warning string `json:"warning,omitempty"`
 }
 
 func (h *uploadHandler) complete(w http.ResponseWriter, r *http.Request) {
@@ -444,6 +462,7 @@ func (h *uploadHandler) complete(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.svc.ImportPackage(ctx, domain.ImportInput{
 		StagedPath: sess.tempFilePath, Filename: sess.filename, Statement: sess.statement, Signature: sess.signature,
+		PublicKey: sess.publicKey,
 	})
 	if err != nil {
 		writeServiceError(w, "import frigate package", err)
@@ -458,7 +477,8 @@ func (h *uploadHandler) complete(w http.ResponseWriter, r *http.Request) {
 			MinInstalledVersion: p.MinInstalledVersion, IssuedAt: p.IssuedAt.UTC().Format(time.RFC3339),
 			UploadedAt: p.UploadedAt.UTC().Format(time.RFC3339),
 		},
-		Reused: result.Reused,
+		Reused:  result.Reused,
+		Warning: result.Warning,
 	})
 }
 

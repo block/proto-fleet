@@ -232,6 +232,19 @@ const AccountTicketView = ({
     query.refresh();
     onChanged();
   };
+  const postComment = () =>
+    void mutation
+      .run(async () => {
+        const payload = { accountId: account.accountId, ticketId, text: comment.trim() };
+        await client.commentAccountTicket({ ...payload, idempotencyKey: operationKey(payload) });
+      })
+      .then((ok) => {
+        if (ok) {
+          resetCommentOperation();
+          setComment("");
+          refreshed();
+        }
+      });
   const restartConversation = () => {
     conversationGeneration.current++;
     setRetainedComments([]);
@@ -275,7 +288,15 @@ const AccountTicketView = ({
         ]}
       >
         <div className="flex flex-col gap-5">
-          <AccountState loading={query.loading} error={query.error || mutation.error} retry={query.refresh} />
+          <AccountState
+            title={ticket ? "Could not refresh ticket" : undefined}
+            loading={query.loading}
+            error={query.error}
+            retry={query.refresh}
+          />
+          {mutation.error ? (
+            <AccountState title="Could not post comment" error={mutation.error} retry={postComment} />
+          ) : null}
           {ticket ? (
             <>
               <p className="text-300 capitalize">{statusLabel(ticket)}</p>
@@ -318,7 +339,12 @@ const AccountTicketView = ({
                     />
                   </div>
                 ) : (
-                  <AccountState loading={false} error={olderQuery.error} retry={olderQuery.refresh} />
+                  <AccountState
+                    title="Could not load older comments"
+                    loading={false}
+                    error={olderQuery.error}
+                    retry={olderQuery.refresh}
+                  />
                 )}
                 <div className="flex flex-col divide-y divide-border-5">
                   {comments.map((entry) => (
@@ -350,20 +376,7 @@ const AccountTicketView = ({
                       size={sizes.compact}
                       disabled={!comment.trim()}
                       loading={mutation.busy}
-                      onClick={() =>
-                        void mutation
-                          .run(async () => {
-                            const payload = { accountId: account.accountId, ticketId, text: comment.trim() };
-                            await client.commentAccountTicket({ ...payload, idempotencyKey: operationKey(payload) });
-                          })
-                          .then((ok) => {
-                            if (ok) {
-                              resetCommentOperation();
-                              setComment("");
-                              refreshed();
-                            }
-                          })
-                      }
+                      onClick={postComment}
                     />
                   </>
                 ) : null}
@@ -532,7 +545,12 @@ const AccountTickets = () => {
           setCursors([0n]);
         }}
       />
-      <AccountState loading={query.loading} error={query.error} retry={query.refresh} />
+      <AccountState
+        title={query.data ? "Could not refresh tickets" : undefined}
+        loading={query.loading}
+        error={query.error}
+        retry={query.refresh}
+      />
       {query.data ? (
         <>
           <List<RepairTicket, bigint, "ticket" | "description" | "status">

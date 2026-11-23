@@ -121,6 +121,7 @@ func (s *SQLDiscoveredDeviceStore) save(ctx context.Context, doi discoverymodels
 	}
 	insertedID, err := s.getQueries(ctx).UpsertDiscoveredDevice(ctx, sqlc.UpsertDiscoveredDeviceParams{
 		DirectDiscovery: options.direct,
+		TrustedIdentity: device.TrustedIdentity,
 		EndpointKey:     key, Endpoints: controllers,
 		OrgID:            doi.OrgID,
 		DeviceIdentifier: doi.DeviceIdentifier,

@@ -7,9 +7,11 @@ import {
   capitalize,
   channelAssignmentKey,
   channelUpdateStatus,
+  groupTestId,
   hasUnavailableAssignedFirmware,
   lastFinishedByChannelAssignment,
   mixedDeviceNouns,
+  modelCount,
   modelFirmwareLabel,
   pairKey,
   pairLabel,
@@ -87,7 +89,7 @@ const ReleaseChannelsTable = ({
           { id: channelKey, kind: "channel" as const, channel },
           ...(expandedChannelIds.has(channelKey)
             ? channel.modelGroups.map((group) => ({
-                id: JSON.stringify([channelKey, group.manufacturer, group.model]),
+                id: JSON.stringify([channelKey, group.manufacturer, group.model, group.component]),
                 kind: "model" as const,
                 channel,
                 group,
@@ -158,7 +160,7 @@ const ReleaseChannelsTable = ({
         return (
           <span
             className="ml-5 block min-w-0 truncate border-l border-border-5 pl-5 text-300 text-text-primary"
-            data-testid={`model-row-${row.channel.name}-${row.group.model}`}
+            data-testid={`model-row-${row.channel.name}-${groupTestId(row.group)}`}
           >
             {pairLabel(row.group)}
           </span>
@@ -178,7 +180,7 @@ const ReleaseChannelsTable = ({
     firmware: {
       component: (row) =>
         row.kind === "channel"
-          ? `${row.channel.modelGroups.length} ${row.channel.modelGroups.length === 1 ? "model" : "models"}`
+          ? `${modelCount(row.channel.modelGroups)} ${modelCount(row.channel.modelGroups) === 1 ? "model" : "models"}`
           : modelFirmwareLabel(row.group),
       width: "w-64",
     },
@@ -192,7 +194,7 @@ const ReleaseChannelsTable = ({
             activeRollout={activeRolloutForGroup(row.channel.id, row.group, rolloutsById)}
             lastFinished={lastFinished.get(channelAssignmentKey(row.channel.id, row.group))}
             historyState={historyStates ? (historyStates.get(row.channel.id) ?? { status: "loading" }) : undefined}
-            testId={`model-status-${row.channel.name}-${row.group.model}`}
+            testId={`model-status-${row.channel.name}-${groupTestId(row.group)}`}
           />
         ),
       width: "w-64",

@@ -27,3 +27,39 @@ type FrigateUpdater interface {
 }
 
 var _ FrigateUpdater = sdk.DeviceFrigateUpdater(nil)
+
+// FrigatePackageStager copies a whole package to controllers in one call. A
+// controller that Fleet reaches through a Fleet Node implements it: package
+// bytes do not cross the node as FrigateStageAppend calls. The node downloads
+// the package once and copies it to each target.
+//
+// Before the call, the caller begins each copy with FrigateStageBegin and
+// records the fingerprint. The call returns one outcome for each target, in
+// order, or an error when no outcome is known.
+type FrigatePackageStager interface {
+	FrigateStagePackage(ctx context.Context, pkg FrigatePackageRef, targets []FrigateStageTarget) ([]FrigateStageOutcome, error)
+}
+
+// FrigatePackageRef identifies an uploaded package in Fleet's package store.
+type FrigatePackageRef struct {
+	ID        string
+	Filename  string
+	SizeBytes int64
+	SHA256    string
+}
+
+// FrigateStageTarget is one controller that takes the package.
+type FrigateStageTarget struct {
+	InstanceID string
+	Manifest   sdk.FrigateManifest
+	// ManifestSHA256 is the fingerprint the controller returned when the copy
+	// began. No bytes are sent if the controller now reports a different one.
+	ManifestSHA256 string
+}
+
+// FrigateStageOutcome is the result for one target. Err is a
+// *sdk.FrigateRefusal when the controller refused, which is final.
+type FrigateStageOutcome struct {
+	Commit sdk.FrigateStageCommit
+	Err    error
+}

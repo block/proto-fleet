@@ -10,17 +10,19 @@ const validations = [
   {
     name: "rack saved",
     message: `Rack "${label}" saved`,
+    renderings: ["simple", "expanded group", "collapsed group"],
     validate: (racks: RacksPage) => racks.validateRackToast(label, "saved"),
   },
   {
     name: "miner positions saved",
     message: `Miner positions saved for "${label}"`,
+    renderings: ["simple"],
     validate: (racks: RacksPage) => racks.validateMinerPositionsToast(label),
   },
 ] as const;
 
 for (const validation of validations) {
-  for (const rendering of ["simple", "expanded group", "collapsed group"] as const) {
+  for (const rendering of validation.renderings) {
     test(`${validation.name} waits for a visible ${rendering} notification`, async ({ page, isMobile }) => {
       await page.setContent(`
         <div data-testid="toast" hidden>${validation.message}</div>

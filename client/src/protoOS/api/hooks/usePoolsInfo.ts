@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 
+import { isActivePool } from "@/protoOS/api/adapters/poolStatistics";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useSetPoolsInfo, usePoolsInfo as useStoredPoolsInfo } from "@/protoOS/store";
 import type { PoolInfo } from "@/protoOS/store/contract";
@@ -51,8 +52,7 @@ const usePoolsInfo = ({ poll = false, pollIntervalMs }: UsePoolsInfoProps = {}) 
             setPoolsInfo(sortedPools);
             onSuccess?.(sortedPools);
             if (retryOnMinerDown) {
-              // TODO: remove alive when cgminer is removed
-              const noLivePools = !sortedPools?.find((pool) => /alive|active/i.test(pool?.status ?? ""));
+              const noLivePools = !sortedPools?.some(isActivePool);
               // if all pools are dead, refetch pools
               if (noLivePools) {
                 setTimeout(() => performFetch(), 5000);

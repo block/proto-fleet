@@ -116,7 +116,7 @@ type Service struct {
 
 	mu       sync.Mutex
 	inflight map[uuid.UUID]struct{}
-	progress map[uuid.UUID]time.Time
+	progress map[uuid.UUID]stallClock
 	lost     map[uuid.UUID]int
 	// dispatched orders runnable jobs by when the runner last handed each to a
 	// worker slot; see fairOrder.
@@ -128,8 +128,9 @@ type Service struct {
 	afterStartLease func()
 }
 
-// NewService creates the service. verifier may be nil, which disables package
-// upload; activitySvc may be nil.
+// NewService creates the service. verifier may be nil: Fleet then has no
+// installed release key, and checks an uploaded release as checkRelease
+// describes. activitySvc may be nil.
 func NewService(
 	conn *sql.DB,
 	miners MinerGetter,
@@ -150,7 +151,7 @@ func NewService(
 		cfg:        cfg.withDefaults(),
 		now:        time.Now,
 		inflight:   make(map[uuid.UUID]struct{}),
-		progress:   make(map[uuid.UUID]time.Time),
+		progress:   make(map[uuid.UUID]stallClock),
 		lost:       make(map[uuid.UUID]int),
 		dispatched: make(map[uuid.UUID]uint64),
 	}

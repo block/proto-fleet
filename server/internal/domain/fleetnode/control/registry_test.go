@@ -159,8 +159,9 @@ func TestRegistry_CommandProtocolUpgradeRecommended(t *testing.T) {
 		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V16, true},
 		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V17, true},
 		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V18, true},
-		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V19, false},
-		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V19 + 1, false},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V19, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V20, false},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V20 + 1, false},
 	} {
 		t.Run(tc.version.String(), func(t *testing.T) {
 			stream, err := r.RegisterAuthenticated(7, "session", tc.version)
@@ -1734,4 +1735,50 @@ func TestConnectionCountTracksReplacement(t *testing.T) {
 	require.Equal(t, int64(1), registry.ConnectionCount())
 	second.Unregister()
 	require.Zero(t, registry.ConnectionCount())
+}
+
+func TestProtocolMetricsExcludeDisconnectedNodes(t *testing.T) {
+	var results []bool
+	r := NewRegistry().WithProtocolObserver(func(compatible bool) { results = append(results, compatible) })
+	_, _, err := r.addCmd(7, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6, &inflightCommand{id: "missing"})
+	require.ErrorIs(t, err, ErrNoActiveStream)
+	require.Empty(t, results)
+	_, err = r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1)
+	require.NoError(t, err)
+	_, _, err = r.addCmd(7, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6, &inflightCommand{id: "incompatible"})
+	require.ErrorIs(t, err, ErrCommandProtocolUpgradeRequired)
+	_, _, err = r.addCmd(7, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &inflightCommand{id: "compatible"})
+	require.NoError(t, err)
+	require.Equal(t, []bool{false, true}, results)
+}
+
+func TestProtocolMetricsForDispatchPrechecks(t *testing.T) {
+	const nodeID = 7
+	const installed = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1
+	const required = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V8
+	var results []bool
+	r := NewRegistry().WithProtocolObserver(func(compatible bool) { results = append(results, compatible) })
+
+	require.False(t, r.CommandProtocolUpgradeRequiredForDispatch(nodeID, required))
+	require.False(t, r.SupportsCommandProtocolVersion(nodeID, required))
+	require.False(t, r.SupportsMinerWebForDispatch(nodeID))
+	require.Empty(t, results)
+
+	stream, err := r.RegisterAuthenticated(nodeID, "session", installed)
+	require.NoError(t, err)
+	defer stream.Unregister()
+
+	require.True(t, r.CommandProtocolUpgradeRequiredForVersion(nodeID, required))
+	require.False(t, r.SupportsMinerWeb(nodeID))
+	require.False(t, r.CommandProtocolUpgradeRequiredForDispatch(nodeID, installed))
+	require.True(t, r.SupportsCommandProtocolVersion(nodeID, installed))
+	require.Empty(t, results)
+
+	require.True(t, r.CommandProtocolUpgradeRequiredForDispatch(nodeID, required))
+	require.False(t, r.SupportsCommandProtocolVersion(nodeID, required))
+	require.False(t, r.SupportsMinerWebForDispatch(nodeID))
+	require.Equal(t, []bool{false, false, false}, results)
+	_, _, err = r.addCmd(nodeID, installed, &inflightCommand{id: "compatible", done: make(chan struct{})})
+	require.NoError(t, err)
+	require.Equal(t, []bool{false, false, false, true}, results)
 }

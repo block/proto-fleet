@@ -217,6 +217,28 @@ describe("Account tickets", () => {
       client.commentAccountTicket.mock.calls[0][0].idempotencyKey,
     );
   });
+  it("retries a failed comment post instead of only reloading the ticket", async () => {
+    const user = userEvent.setup();
+    const { client } = setup();
+    client.commentAccountTicket.mockRejectedValueOnce(new ConnectError("Failed to fetch", Code.Unavailable));
+    await user.click(await screen.findByText("TK-0007"));
+    await user.type(await screen.findByLabelText("Add a comment"), "Checked again");
+    await user.click(screen.getByRole("button", { name: "Post comment" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not post comment");
+    await user.click(within(alert).getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Add a comment")).toHaveValue(""));
+    expect(client.commentAccountTicket).toHaveBeenCalledTimes(2);
+    expect(client.commentAccountTicket.mock.calls[1][0]).toEqual(
+      expect.objectContaining({
+        text: "Checked again",
+        idempotencyKey: client.commentAccountTicket.mock.calls[0][0].idempotencyKey,
+      }),
+    );
+    expect(screen.queryByText("Could not post comment")).not.toBeInTheDocument();
+  });
   it("keeps the asset picker request stable when the account workspace polls", async () => {
     const user = userEvent.setup();
     const { client, scope, rerenderScope } = setup();
@@ -585,4 +607,28 @@ describe("Account tickets", () => {
     await screen.findByText("TK-0007");
     expect(screen.getByRole("button", { name: "New ticket" })).toBeDisabled();
   });
+  it.each([
+    { code: Code.Unavailable, title: "Could not refresh tickets", retained: true },
+    { code: Code.PermissionDenied, title: "Could not load account data", retained: false },
+  ])(
+    "titles a failed ticket list poll by whether tickets stay on screen ($title)",
+    async ({ code, title, retained }) => {
+      const intervals = vi.spyOn(window, "setInterval");
+      try {
+        const { client } = setup();
+        await screen.findByText("TK-0007");
+        client.listAccountTickets.mockRejectedValueOnce(new ConnectError("ticket list failed", code));
+        await act(async () => {
+          for (const [callback, interval] of intervals.mock.calls) {
+            if (interval === POLL_INTERVAL_MS && typeof callback === "function") callback();
+          }
+        });
+        expect(await screen.findByRole("alert")).toHaveTextContent(title);
+        if (retained) expect(screen.getByText("TK-0007")).toBeInTheDocument();
+        else expect(screen.queryByText("TK-0007")).not.toBeInTheDocument();
+      } finally {
+        intervals.mockRestore();
+      }
+    },
+  );
 });

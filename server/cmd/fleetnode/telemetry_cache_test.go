@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
+	"syscall"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -130,15 +132,57 @@ func TestTelemetryCacheExpiresWithoutPollingAndBoundsRetainedHandles(t *testing.
 
 type failingTelemetryDriver struct {
 	cleanupTestDriver
-	status func(context.Context) error
+	status         func(context.Context) error
+	verifyOnCreate bool
 }
 
-func (d *failingTelemetryDriver) NewDevice(_ context.Context, id string, _ sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.NewDeviceResult, error) {
+func (d *failingTelemetryDriver) NewDevice(ctx context.Context, id string, _ sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.NewDeviceResult, error) {
+	if d.verifyOnCreate {
+		if err := d.status(ctx); err != nil {
+			return sdk.NewDeviceResult{}, fmt.Errorf("verify device communication: %w", err)
+		}
+	}
 	d.created.Add(1)
 	return sdk.NewDeviceResult{Device: &failingTelemetryDevice{
 		cleanupTestDevice: cleanupTestDevice{id: id, owner: &d.cleanupTestDriver},
 		status:            func(ctx context.Context) error { return d.status(ctx) },
 	}}, nil
+}
+
+func TestTelemetryAckPreservesDialEvidenceAcrossHandleRecreation(t *testing.T) {
+	for _, startOffline := range []bool{false, true} {
+		t.Run(fmt.Sprintf("startOffline=%t", startOffline), func(t *testing.T) {
+			offline := startOffline
+			impl := &failingTelemetryDriver{verifyOnCreate: true, status: func(ctx context.Context) error {
+				if !offline {
+					return nil
+				}
+				err := &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
+				return sdk.WithDeviceDialFailure(ctx, err)
+			}}
+			fetcher := newHandleTestTelemetryFetcher(t, newHandleTestGRPCDriver(t, impl), newCleanupTestPool(t, 4))
+			req := handleTestTelemetryRequest()
+			if !startOffline {
+				_, err := fetcher.Fetch(t.Context(), req)
+				require.NoError(t, err)
+				offline = true
+			}
+			for range 3 {
+				cmd := &RunCmd{telemetry: fetcher}
+				fake := &controlFakeGateway{}
+				fake.queue(telemetryCmd(t, req))
+				runControlLoopOnce(t, cmd, fake)
+				acks := fake.acksCopy()
+				require.Len(t, acks, 1)
+				require.Equal(t, pb.AckCode_ACK_CODE_SCAN_FAILED, acks[0].GetCode())
+				require.True(t, acks[0].GetMinerProbeFailed())
+			}
+			if !startOffline {
+				require.EqualValues(t, 1, impl.created.Load())
+				require.Eventually(t, func() bool { return impl.closed.Load() == 1 }, time.Second, time.Millisecond)
+			}
+		})
+	}
 }
 
 type failingTelemetryDevice struct {

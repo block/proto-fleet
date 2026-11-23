@@ -105,7 +105,8 @@ const ContainerMiningPools = () => {
   const poolAssignment = adapter?.poolAssignment;
   const showGroupLibrary = configuration?.mode === "groups" && poolAssignment && !unavailable;
   const recovery = usePoolAssignmentActions({
-    onPoolsChanged: reloadPools,
+    onConfigurationSaved: reloadPools,
+    onAssignmentsChanged: reloadPools,
     showRecovery: !showGroupLibrary && (configuration !== undefined || unavailable),
   });
 
@@ -179,6 +180,7 @@ const ContainerMiningPools = () => {
           key={`${connectionGeneration}:${revision}`}
           service={poolAssignment}
           configuration={configuration}
+          refreshing={refreshing}
           onReload={reloadPools}
         />
       </>

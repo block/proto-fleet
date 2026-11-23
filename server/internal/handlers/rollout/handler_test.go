@@ -49,6 +49,7 @@ type fakeService struct {
 	lastIdentifiers      []string
 	lastManufacturer     string
 	lastModel            string
+	lastComponent        string
 	lastPage             int32
 	lastCursor           string
 	lastVersion          string
@@ -86,8 +87,9 @@ func (f *fakeService) GetChannel(_ context.Context, orgID, channelID int64) (*ro
 	return f.channel, nil
 }
 
-func (f *fakeService) ListChannelMiners(_ context.Context, orgID, channelID int64, manufacturer, model string, pageSize int32, cursor string) ([]rollout.ChannelMiner, string, error) {
+func (f *fakeService) ListChannelMiners(_ context.Context, orgID, channelID int64, manufacturer, model, component string, pageSize int32, cursor string) ([]rollout.ChannelMiner, string, error) {
 	f.lastOrgID, f.lastID, f.lastManufacturer, f.lastModel, f.lastPage, f.lastCursor = orgID, channelID, manufacturer, model, pageSize, cursor
+	f.lastComponent = component
 	return []rollout.ChannelMiner{{DeviceID: 500, DeviceIdentifier: "miner-0", Manufacturer: "Proto", Model: "Rig", FirmwareVersion: "1.0.0", Conflicted: true, LastDeployedFirmwareChecksum: checksum}}, "more-miners", nil
 }
 
@@ -106,8 +108,12 @@ func (f *fakeService) ListMembershipConflicts(_ context.Context, orgID, channelI
 
 func (f *fakeService) PreviewFirmware(_ context.Context, orgID, channelID int64, assignments []rollout.Assignment, override *rollout.Behavior) ([]rollout.FirmwarePlan, error) {
 	f.lastOrgID, f.lastID, f.lastAssigned, f.lastOverride = orgID, channelID, assignments, override
+	plan := rollout.PairKey{Manufacturer: "Proto", Model: "Rig"}
+	if len(assignments) > 0 {
+		plan.Component = assignments[0].Component
+	}
 	return []rollout.FirmwarePlan{{
-		Pair: rollout.PairKey{Manufacturer: "Proto", Model: "Rig"}, FirmwareFileID: "fw-2", FirmwareVersion: "2.0.0", FirmwareChecksum: checksum,
+		Pair: plan, FirmwareFileID: "fw-2", FirmwareVersion: "2.0.0", FirmwareChecksum: checksum,
 		TargetCount: 4, OnTargetCount: 1, BatchCount: 2, Behavior: f.channel.Behavior,
 	}}, nil
 }

@@ -3,6 +3,8 @@ import { Code } from "@connectrpc/connect";
 import { type PoolAssignmentAttempt, type PoolAssignmentTarget, WorkerNameUpdateRolledBack } from "../poolAssignment";
 import type { MdkV2Client } from "./connectClient";
 import type {
+  V2AuditEvent,
+  V2MiningGroupInventoryIssue,
   V2MiningGroupPoolRecord,
   V2MiningGroupRecord,
   V2UpdateDefaultMiningGroupWorkerNamesRequest,
@@ -40,6 +42,7 @@ const fixture = () => {
     groups: [
       { id: "default", name: "Default", revision: "1", defaultPoolRevision: "1", desiredMining: true },
     ] as V2MiningGroupRecord[],
+    inventoryIssues: [] as V2MiningGroupInventoryIssue[],
     members: new Map([
       [A, "default"],
       [B, "default"],
@@ -90,7 +93,12 @@ const fixture = () => {
       return response({ pool: { ...created, id: String(created.id) } });
     }),
     miningGroupServiceGetMiningGroupCapability: vi.fn(() => response({ capability: state.capability })),
-    miningGroupServiceListMiningGroups: vi.fn(() => response({ groups: state.groups })),
+    miningGroupServiceListMiningGroups: vi.fn(() =>
+      response({ groups: state.groups, inventoryIssues: state.inventoryIssues }),
+    ),
+    systemServiceListAuditEvents: vi.fn((_query: { action?: string; target?: string }) =>
+      response({ events: [] as V2AuditEvent[] }),
+    ),
     miningGroupServiceListMiningGroupMemberships: vi.fn(() =>
       response({ memberships: [...state.members].map(([macAddress, groupId]) => ({ macAddress, groupId })) }),
     ),
@@ -222,7 +230,7 @@ const fixture = () => {
           touch(source);
         }
         for (const mac of macAddresses) {
-          if (state.members.get(mac) !== sourceGroupId) throw new Error("membership conflict");
+          if ((state.members.get(mac) ?? "") !== sourceGroupId) throw new Error("membership conflict");
           state.members.set(mac, destinationGroupId);
         }
         touch(destination);
@@ -414,6 +422,112 @@ describe("CT1 selected-board pool assignment", () => {
     );
     expect(client.miningGroupServiceCreateMiningGroup).not.toHaveBeenCalled();
     expect(client.miningGroupServiceReplaceMiningGroupPools).not.toHaveBeenCalled();
+  });
+  test("adopts unassigned boards into an eligible saved group", async () => {
+    const { service, state, client, addLocal } = fixture();
+    addLocal();
+    state.members.delete(A);
+    state.members.delete(B);
+    const target = { macs: [A, B], unassignedOnly: true };
+    expect((await service.inspect(target)).savedPools.map(({ id }) => id)).toEqual(["default", "saved"]);
+    const plan = await service.review(target, { pools: [], savedPoolSetId: "saved" });
+    const track = vi.fn();
+    expect(await service.apply(plan, track)).toMatchObject({ state: "saved", confirmed: 2 });
+    expect(track).toHaveBeenCalledWith(expect.objectContaining({ unassignedOnly: true }));
+    expect(client.miningGroupServiceRequestMiningGroupTransfer).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceGroupId: "", sourceExpectedRevision: "0", macAddresses: [A, B] }),
+      expect.anything(),
+    );
+    expect(state.members).toEqual(
+      new Map([
+        [C, "default"],
+        [A, "saved"],
+        [B, "saved"],
+      ]),
+    );
+  });
+  test.each([
+    { destination: "default", members: [B] },
+    { destination: "saved", members: [B] },
+    { destination: "saved", members: [] },
+  ])(
+    "adopts into running $destination with existing members $members without changing intent",
+    async ({ destination, members }) => {
+      const { service, state, client, addLocal } = fixture();
+      addLocal(members);
+      state.members.delete(A);
+      const target = { macs: [A], unassignedOnly: true };
+      expect((await service.inspect(target)).savedPools).toContainEqual(expect.objectContaining({ id: destination }));
+      const plan = await service.review(target, { pools: [], savedPoolSetId: destination });
+      expect(plan.mining).toBe(true);
+      expect(await service.apply(plan, vi.fn())).toMatchObject({ state: "saved", confirmed: 1 });
+      expect(state.members.get(A)).toBe(destination);
+      expect(state.groups.find(({ id }) => id === destination)?.desiredMining).toBe(true);
+      expect(client.miningGroupServiceUpdateMiningGroupIntent).not.toHaveBeenCalled();
+    },
+  );
+  test("requires the selected boards to remain unassigned when the operator reviews the change", async () => {
+    const { service, state, client, addLocal } = fixture();
+    addLocal();
+    state.members.delete(A);
+    const target = { macs: [A], unassignedOnly: true };
+    await service.inspect(target);
+    state.members.set(A, "default");
+    await expect(service.review(target, { pools: [], savedPoolSetId: "saved" })).rejects.toThrow(
+      "Group assignments changed",
+    );
+    expect(client.miningGroupServiceRequestMiningGroupTransfer).not.toHaveBeenCalled();
+  });
+  test("blocks reported inventory issues only for the affected unassigned hashboards", async () => {
+    const { service, state, client, addLocal } = fixture();
+    addLocal();
+    state.members.delete(A);
+    state.members.delete(B);
+    state.inventoryIssues = [
+      { macAddress: A, reason: "unassigned_verified_board" },
+      { macAddress: B.toUpperCase(), reason: "missing_verified_feed" },
+    ];
+
+    expect((await service.inspect({ macs: [A], unassignedOnly: true })).savedPools.map(({ id }) => id)).toEqual([
+      "default",
+      "saved",
+    ]);
+    const target = { macs: [A, B], unassignedOnly: true };
+    await expect(service.inspect(target)).rejects.toThrow(`${B} · Verify this hashboard's power feed`);
+    await expect(service.review(target, { pools: [], savedPoolSetId: "saved" })).rejects.toThrow(
+      `${B} · Verify this hashboard's power feed`,
+    );
+    expect(client.miningGroupServiceRequestMiningGroupTransfer).not.toHaveBeenCalled();
+  });
+  test("rechecks inventory issues before the first write to adopt unassigned hashboards", async () => {
+    const { service, state, client, addLocal } = fixture();
+    addLocal();
+    state.members.delete(A);
+    const plan = await service.review({ macs: [A], unassignedOnly: true }, { pools: [], savedPoolSetId: "saved" });
+    state.inventoryIssues = [{ macAddress: A, reason: "conflicting_psu_identity" }];
+    const track = vi.fn();
+
+    await expect(service.apply(plan, track)).rejects.toThrow("power supply identity conflict");
+    expect(track).not.toHaveBeenCalled();
+    expect(client.miningGroupServiceUpdateMiningGroupIntent).not.toHaveBeenCalled();
+    expect(client.miningGroupServiceRequestMiningGroupTransfer).not.toHaveBeenCalled();
+  });
+  test("rechecks inventory issues after preparing the destination and before moving boards", async () => {
+    const { service, state, client } = fixture();
+    state.members.delete(A);
+    state.members.delete(B);
+    const plan = await service.review({ macs: [A, B], unassignedOnly: true }, { pools: [pool] });
+    const replacePools = client.miningGroupServiceReplaceMiningGroupPools.getMockImplementation()!;
+    client.miningGroupServiceReplaceMiningGroupPools.mockImplementation(async (...args) => {
+      const response = await replacePools(...args);
+      state.inventoryIssues = [{ macAddress: B, reason: "missing_current_binding" }];
+      return response;
+    });
+
+    await expect(service.apply(plan, vi.fn())).rejects.toThrow(`${B} · Restore this hashboard's controller connection`);
+    expect(client.miningGroupServiceReplaceMiningGroupPools).toHaveBeenCalledOnce();
+    expect(client.miningGroupServiceRequestMiningGroupTransfer).not.toHaveBeenCalled();
+    expect(state.members).toEqual(new Map([[C, "default"]]));
   });
   test("lists Default and assigns a board to it using the controller's saved pools", async () => {
     const { service, state, client, addLocal } = fixture();
@@ -765,6 +879,21 @@ describe("CT1 selected-board pool assignment", () => {
     state.capability.maxBoardsPerGroup = 2;
     await expect(service.review({ macs: [A] }, { pools: [pool] })).rejects.toThrow("default group's hashboard limit");
     expect(client.miningServiceStopMining).not.toHaveBeenCalled();
+  });
+  test("requires board inventory before activating groups to create an unused configuration", async () => {
+    const { service, state, client } = fixture();
+    state.capability.enabled = false;
+    const target = { macs: [] };
+    const choice = { name: "First configuration", pools: [pool], createOnly: true };
+    client.hashboardServiceGetContainerMap.mockRejectedValueOnce(new Error("Board inventory unavailable"));
+    await expect(service.review(target, choice)).rejects.toThrow("Board inventory unavailable");
+
+    const plan = await service.review(target, choice);
+    expect(plan.requiresActivation).toBe(true);
+    client.hashboardServiceGetContainerMap.mockRejectedValueOnce(new Error("Board inventory unavailable"));
+    await expect(service.apply(plan, vi.fn())).rejects.toThrow("Board inventory unavailable");
+    expect(client.miningServiceStopMining).not.toHaveBeenCalled();
+    expect(client.miningGroupServiceCreateMiningGroup).not.toHaveBeenCalled();
   });
   test("saving a named configuration creates a reusable pool set without changing board assignments", async () => {
     const { service, client, state } = fixture();
@@ -1142,6 +1271,53 @@ describe("CT1 worker names", () => {
 });
 
 describe("CT1 pool configuration library", () => {
+  test("returns recent audit updates for the selected group and leaves other group records out", async () => {
+    const { service, client } = fixture();
+    client.systemServiceListAuditEvents.mockImplementation(async ({ action }) => {
+      if (action === "mining-group.pools.replace")
+        return {
+          data: {
+            events: [
+              { id: "10", action, target: "saved", time: "2026-11-10T10:00:00Z", result: "ok" },
+              { id: "11", action, target: "other", time: "2026-11-10T10:00:00Z", result: "ok" },
+            ],
+          },
+        };
+      if (action === "mining-group.transfer")
+        return {
+          data: {
+            events: [
+              {
+                id: "12",
+                action,
+                target: "other",
+                time: "2026-11-10T10:00:00.001Z",
+                result: "error",
+                detailsJson: JSON.stringify({ source_group_id: "saved", mac_addresses: [A, A.toUpperCase(), "bad"] }),
+              },
+              { id: "13", action, target: "other", detailsJson: "not JSON" },
+            ],
+          },
+        };
+      return { data: { events: [] } };
+    });
+
+    const result = await service.listConfigurationUpdates?.("saved");
+    expect(result?.updates).toEqual([
+      { id: "12", action: "Transfer out of this group", result: "error", macs: [A], time: "2026-11-10T10:00:00.001Z" },
+      { id: "10", action: "Pool settings update", result: "ok", macs: [], time: "2026-11-10T10:00:00Z" },
+    ]);
+    expect(client.systemServiceListAuditEvents).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "mining-group.pools.replace",
+        target: "saved",
+        "range.start": expect.any(String),
+        "range.end": expect.any(String),
+      }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
+
   test("loads pool details only for the requested library page", async () => {
     const { service, state, client } = fixture();
     for (let index = 0; index < 30; index++) {
@@ -1177,12 +1353,19 @@ describe("CT1 pool configuration library", () => {
     );
     expect(client.hashboardServiceGetContainerMap).not.toHaveBeenCalled();
   });
-  test("creates an unused configuration without an equipment selection and allows later running-board assignment", async () => {
+  test("creates an unused configuration during an inventory outage and allows later running-board assignment", async () => {
     const { service, state, client } = fixture();
+    const getMap = client.hashboardServiceGetContainerMap.getMockImplementation()!;
+    client.hashboardServiceGetContainerMap.mockRejectedValue(new Error("Board inventory unavailable"));
     const plan = await service.review({ macs: [] }, { name: "Library pools", createOnly: true, pools: [pool] });
     expect(await service.apply(plan, vi.fn())).toMatchObject({ state: "saved" });
-    expect(state.members.get(A)).toBe("default");
+    expect(state.pools.get("local")).toEqual([expect.objectContaining({ url: pool.url, username: pool.username })]);
+    expect([...state.members.values()]).toEqual(["default", "default", "default"]);
+    expect(client.hashboardServiceGetContainerMap).not.toHaveBeenCalled();
+    expect(client.miningServiceStopMining).not.toHaveBeenCalled();
     expect(client.miningGroupServiceRequestMiningGroupTransfer).not.toHaveBeenCalled();
+    await expect(service.inspect({ macs: [A] })).rejects.toThrow("Board inventory unavailable");
+    client.hashboardServiceGetContainerMap.mockImplementation(getMap);
     expect((await service.inspect({ macs: [A] })).savedPools.some((set) => set.name === "Library pools")).toBe(true);
     const assign = await service.review({ macs: [A] }, { savedPoolSetId: "local", pools: [] });
     expect(await service.apply(assign, vi.fn())).toMatchObject({ state: "saved" });

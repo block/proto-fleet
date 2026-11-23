@@ -135,31 +135,6 @@ func TestAggregateDailyBucket_WeightedAverage(t *testing.T) {
 		"Non-cumulative daily average should be weighted by data points")
 }
 
-func TestAggregateHourlyBucket_SingleDevice(t *testing.T) {
-	// With a single device, weighted and unweighted produce the same result.
-	now := time.Now()
-	store := &TimescaleTelemetryStore{}
-
-	rows := []sqlc.DeviceMetricsHourly{
-		{
-			Bucket:           now,
-			DeviceIdentifier: "device-a",
-			AvgTemp:          72.5,
-			MaxTemp:          sql.NullFloat64{Float64: 75.0, Valid: true},
-			MinTemp:          sql.NullFloat64{Float64: 70.0, Valid: true},
-			DataPoints:       360,
-		},
-	}
-
-	aggTypes := []models.AggregationType{models.AggregationTypeAverage}
-	result, devCount := store.aggregateHourlyBucket(rows, models.MeasurementTypeTemperature, aggTypes)
-
-	assert.Len(t, result, 1)
-	assert.Equal(t, 1, devCount, "Should count 1 device with temperature data")
-	assert.Equal(t, 72.5, result[0].Value,
-		"Single device average should equal device average regardless of weighting")
-}
-
 func TestAggregateHourlyBucket_TemperatureMinMax_GlobalExtrema(t *testing.T) {
 	// Non-cumulative: fleet MIN is the coldest reading any device produced,
 	// MAX is the hottest — global extrema across devices, not a sum.

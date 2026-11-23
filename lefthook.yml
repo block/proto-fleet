@@ -79,18 +79,12 @@ changed-checks:
 
     protobuf-lint:
       glob:
-        - ".github/actions/**"
-        - ".github/workflows/**"
-        - ".github/*.{yml,yaml}"
-        - ".github/skills/**"
+        - ".github/path-filters.yml"
+        - ".github/workflows/pr-gate.yml"
+        - ".github/actions/hermit-setup/**"
         - "bin/**"
         - "hermit-packages/**"
-        - "just/**"
         - "justfile"
-        - "scripts/**"
-        - "deployment-files/docker-compose*.{yml,yaml}"
-        - "deployment-files/*.sh"
-        - "deployment-files/scripts/**"
         - "proto/**/*.proto"
         - "buf.yaml"
         - "buf.lock"
@@ -99,35 +93,23 @@ changed-checks:
 
     client-check:
       glob:
-        - ".github/actions/**"
-        - ".github/workflows/**"
-        - ".github/*.{yml,yaml}"
-        - ".github/skills/**"
+        - ".github/path-filters.yml"
+        - ".github/workflows/pr-gate.yml"
+        - ".github/actions/hermit-setup/**"
         - "bin/**"
         - "hermit-packages/**"
-        - "just/**"
         - "justfile"
-        - "scripts/**"
-        - "deployment-files/docker-compose*.{yml,yaml}"
-        - "deployment-files/*.sh"
-        - "deployment-files/scripts/**"
         - "client/**"
       run: just _check-client
 
     server-lint:
       glob:
-        - ".github/actions/**"
-        - ".github/workflows/**"
-        - ".github/*.{yml,yaml}"
-        - ".github/skills/**"
+        - ".github/path-filters.yml"
+        - ".github/workflows/pr-gate.yml"
+        - ".github/actions/hermit-setup/**"
         - "bin/**"
         - "hermit-packages/**"
-        - "just/**"
         - "justfile"
-        - "scripts/**"
-        - "deployment-files/docker-compose*.{yml,yaml}"
-        - "deployment-files/*.sh"
-        - "deployment-files/scripts/**"
         - "server/**"
         - "sdk/mdk/**"
         - "go.work"
@@ -136,18 +118,11 @@ changed-checks:
 
     plugin-proto-lint:
       glob:
-        - ".github/actions/**"
-        - ".github/workflows/**"
-        - ".github/*.{yml,yaml}"
-        - ".github/skills/**"
+        - ".github/path-filters.yml"
+        - ".github/workflows/pr-gate.yml"
+        - ".github/actions/hermit-setup/**"
         - "bin/**"
         - "hermit-packages/**"
-        - "just/**"
-        - "justfile"
-        - "scripts/**"
-        - "deployment-files/docker-compose*.{yml,yaml}"
-        - "deployment-files/*.sh"
-        - "deployment-files/scripts/**"
         - "plugin/proto/**"
         - "sdk/mdk/**"
         - "server/go.mod"
@@ -159,18 +134,11 @@ changed-checks:
 
     plugin-antminer-lint:
       glob:
-        - ".github/actions/**"
-        - ".github/workflows/**"
-        - ".github/*.{yml,yaml}"
-        - ".github/skills/**"
+        - ".github/path-filters.yml"
+        - ".github/workflows/pr-gate.yml"
+        - ".github/actions/hermit-setup/**"
         - "bin/**"
         - "hermit-packages/**"
-        - "just/**"
-        - "justfile"
-        - "scripts/**"
-        - "deployment-files/docker-compose*.{yml,yaml}"
-        - "deployment-files/*.sh"
-        - "deployment-files/scripts/**"
         - "plugin/antminer/**"
         - "server/go.mod"
         - "server/go.sum"
@@ -183,10 +151,10 @@ changed-checks:
       glob:
         - ".agents/**"
         - ".claude/**"
-        - ".github/actions/hermit-setup/**"
+        - ".github/actions/**"
         - ".github/path-filters.yml"
         - ".github/review-policy.json"
-        - ".github/workflows/pr-gate.yml"
+        - ".github/workflows/**"
         - "**/AGENTS.md"
         - "CLAUDE.md"
         - "CONTRIBUTING.md"
@@ -195,6 +163,7 @@ changed-checks:
         - "lefthook.yml"
         - "scripts/check-changed.sh"
         - "scripts/check-changed_test.sh"
+        - "server/docker-compose*.yaml"
       run: just test-developer-workflows
 
 pre-push:

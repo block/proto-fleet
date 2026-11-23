@@ -61,15 +61,16 @@ type CachedMinerGetter interface {
 type ExecutionService struct {
 	config *Config
 
-	conn              *sql.DB
-	messageQueue      queue.MessageQueue
-	encryptService    *encrypt.Service
-	tokenService      *tokenDomain.Service
-	minerService      CachedMinerGetter
-	deviceStore       stores.DeviceStore
-	telemetryListener TelemetryListener
-	filesService      *files.Service
-	metricsEmitter    MetricsEmitter
+	conn               *sql.DB
+	messageQueue       queue.MessageQueue
+	encryptService     *encrypt.Service
+	tokenService       *tokenDomain.Service
+	minerService       CachedMinerGetter
+	deviceStore        stores.DeviceStore
+	telemetryListener  TelemetryListener
+	filesService       *files.Service
+	metricsEmitter     MetricsEmitter
+	operationalMetrics OperationalMetrics
 
 	workerSemaphore chan struct{}
 
@@ -130,6 +131,12 @@ func NewExecutionService(config *Config, conn *sql.DB, messageQueue queue.Messag
 		metricsEmitter:    NoCommandMetrics(),
 		workerSemaphore:   make(chan struct{}, config.MaxWorkers),
 	}
+}
+
+// WithOperationalMetrics installs vendor-neutral runtime measurements before Start.
+func (es *ExecutionService) WithOperationalMetrics(m OperationalMetrics) *ExecutionService {
+	es.operationalMetrics = m
+	return es
 }
 
 func (es *ExecutionService) WithMetricsEmitter(emitter MetricsEmitter) *ExecutionService {
@@ -515,6 +522,9 @@ func (es *ExecutionService) emitReapedCommandMetrics(ctx context.Context, reaped
 			continue
 		}
 		emitTerminalCommand(ctx, es.metricsEmitter, r.orgID, r.siteID, kind, errReapedCommand)
+		if es.operationalMetrics != nil {
+			es.operationalMetrics.CommandCommitted(ctx, commandKindLabel(kind), commandClass(kind), "reaped", time.Time{})
+		}
 	}
 }
 
@@ -690,8 +700,16 @@ func (es *ExecutionService) executeQueuedCommand(ctx context.Context, message qu
 }
 
 func (es *ExecutionService) workerProcessCommand(ctx context.Context, message queue.Message) {
+	started := time.Now()
+	if es.operationalMetrics != nil {
+		es.operationalMetrics.CommandStarted(ctx, commandKindLabel(message.CommandType), commandClass(message.CommandType), message.CreatedAt)
+	}
 	// Step 1: Execute the command (pure execution, no queue status side-effects).
 	orgID, siteID, workerError := es.executeQueuedCommand(ctx, message)
+
+	if es.operationalMetrics != nil {
+		es.operationalMetrics.CommandAttemptFinished(ctx, commandKindLabel(message.CommandType), commandClass(message.CommandType), commandOutcome(ctx, workerError), time.Since(started))
+	}
 
 	// Step 2: Atomically update queue status AND write device log in a single transaction.
 	// If the queue row is no longer PROCESSING (reaped), the transaction commits
@@ -750,6 +768,9 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 		return nil
 	})
 	if txErr != nil {
+		if es.operationalMetrics != nil {
+			es.operationalMetrics.CommandPersistenceFailed(ctx, commandClass(message.CommandType))
+		}
 		slog.Error("error in post-execution transaction",
 			"message_id", message.ID, "error", txErr)
 		return
@@ -760,6 +781,9 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 	// are not terminal command results.
 	if queueUpdated && queueTerminal {
 		emitTerminalCommand(ctx, es.metricsEmitter, orgID, siteID, message.CommandType, workerError)
+		if es.operationalMetrics != nil {
+			es.operationalMetrics.CommandCommitted(ctx, commandKindLabel(message.CommandType), commandClass(message.CommandType), commandOutcome(ctx, workerError), message.CreatedAt)
+		}
 	}
 }
 

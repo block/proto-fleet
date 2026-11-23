@@ -142,7 +142,7 @@ func (s *Service) PrepareReport(ctx context.Context, actorID, orgID int64, accou
 	if err := opts.Period.Validate(); err != nil {
 		return zero, fleeterror.NewInvalidArgumentError(err.Error())
 	}
-	if opts.InputRevision <= 0 || opts.ExpectedRevision < 0 || opts.OwnerUserID == "" || (opts.ReportID != "" && (opts.ExpectedRevision == 0 || opts.CorrectionOf != "")) || (opts.ReportID == "" && opts.ExpectedRevision != 0) || (opts.CorrectionOf == "") != (strings.TrimSpace(opts.CorrectionReason) == "") || len(opts.CorrectionReason) > 2000 {
+	if opts.InputRevision < 0 || opts.ExpectedRevision < 0 || opts.OwnerUserID == "" || (opts.ReportID != "" && (opts.ExpectedRevision == 0 || opts.CorrectionOf != "")) || (opts.ReportID == "" && opts.ExpectedRevision != 0) || (opts.CorrectionOf == "") != (strings.TrimSpace(opts.CorrectionReason) == "") || len(opts.CorrectionReason) > 2000 {
 		return zero, fleeterror.NewInvalidArgumentError("invalid report identity, correction, owner or revision")
 	}
 	// Admit the actor before taking the cutoff, so a caller without reporting
@@ -171,13 +171,21 @@ func (s *Service) PrepareReport(ctx context.Context, actorID, orgID int64, accou
 		// Serialize originals, corrections and input edits for this account while
 		// shared organization admission lets hosted-account readers continue.
 		header, err := q.LockReportingInputsForReport(ctx, sqlc.LockReportingInputsForReportParams{OrganizationID: orgID, AccountID: a.account.ID})
+		inputRevision := opts.InputRevision
+		if errors.Is(err, sql.ErrNoRows) && inputRevision == 0 {
+			// The caller accepted the assumed defaults of an account with no saved inputs.
+			if header, err = initializeAssumedReportingInputs(ctx, q, a, opts.Period.Timezone); err != nil {
+				return zero, err
+			}
+			inputRevision = header.Revision
+		}
 		if err != nil {
 			return zero, accessError(err)
 		}
 		if !a.sitesAllowed(header.SiteIds) {
 			return zero, denied()
 		}
-		if header.Revision != opts.InputRevision {
+		if header.Revision != inputRevision {
 			return zero, reportingConflict()
 		}
 		var correctionParent *sqlc.HostedReport
@@ -291,7 +299,7 @@ func (s *Service) PrepareReport(ctx context.Context, actorID, orgID int64, accou
 					return zero, fleeterror.NewFailedPreconditionError("open a correction of the latest issued report")
 				}
 			}
-			row, err = q.RegenerateHostedReport(ctx, sqlc.RegenerateHostedReportParams{ID: previous.ID, Revision: opts.ExpectedRevision, OrganizationID: orgID, Period: periodJSON, PeriodStart: opts.Period.Start, PeriodEnd: opts.Period.End, AsOf: opts.Period.AsOf, Timezone: opts.Period.Timezone, Kind: opts.Period.Kind, InputRevision: opts.InputRevision, Result: resultJSON, SiteIds: sites, CreatedBy: actorID, OwnerID: owner, EvidenceCutoff: evidenceCutoff})
+			row, err = q.RegenerateHostedReport(ctx, sqlc.RegenerateHostedReportParams{ID: previous.ID, Revision: opts.ExpectedRevision, OrganizationID: orgID, Period: periodJSON, PeriodStart: opts.Period.Start, PeriodEnd: opts.Period.End, AsOf: opts.Period.AsOf, Timezone: opts.Period.Timezone, Kind: opts.Period.Kind, InputRevision: inputRevision, Result: resultJSON, SiteIds: sites, CreatedBy: actorID, OwnerID: owner, EvidenceCutoff: evidenceCutoff})
 			if errors.Is(err, sql.ErrNoRows) {
 				return zero, reportingConflict()
 			}
@@ -315,12 +323,12 @@ func (s *Service) PrepareReport(ctx context.Context, actorID, orgID int64, accou
 				}
 				correction = sql.NullInt64{Int64: correctionParent.ID, Valid: true}
 			}
-			row, err = q.CreateHostedReport(ctx, sqlc.CreateHostedReportParams{ReportID: uuid.NewString(), OrganizationID: orgID, AccountID: a.account.ID, SeriesID: series, Number: number, CorrectionOf: correction, CorrectionReason: strings.TrimSpace(opts.CorrectionReason), Kind: opts.Period.Kind, PeriodStart: opts.Period.Start, PeriodEnd: opts.Period.End, AsOf: opts.Period.AsOf, Timezone: opts.Period.Timezone, Period: periodJSON, InputRevision: opts.InputRevision, Result: resultJSON, SiteIds: sites, CreatedBy: actorID, OwnerID: owner, EvidenceCutoff: evidenceCutoff})
+			row, err = q.CreateHostedReport(ctx, sqlc.CreateHostedReportParams{ReportID: uuid.NewString(), OrganizationID: orgID, AccountID: a.account.ID, SeriesID: series, Number: number, CorrectionOf: correction, CorrectionReason: strings.TrimSpace(opts.CorrectionReason), Kind: opts.Period.Kind, PeriodStart: opts.Period.Start, PeriodEnd: opts.Period.End, AsOf: opts.Period.AsOf, Timezone: opts.Period.Timezone, Period: periodJSON, InputRevision: inputRevision, Result: resultJSON, SiteIds: sites, CreatedBy: actorID, OwnerID: owner, EvidenceCutoff: evidenceCutoff})
 			if err != nil {
 				return zero, err
 			}
 		}
-		input, err := latestReportInput(ctx, q, a, opts.InputRevision, opts.Period)
+		input, err := latestReportInput(ctx, q, a, inputRevision, opts.Period)
 		if err != nil {
 			return zero, err
 		}

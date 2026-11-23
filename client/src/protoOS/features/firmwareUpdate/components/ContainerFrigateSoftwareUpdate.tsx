@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import type {
   FrigateRollout,
   FrigateRolloutPhase,
@@ -12,7 +12,8 @@ import Button from "@/shared/components/Button";
 import { ButtonProps } from "@/shared/components/ButtonGroup/types";
 import Callout from "@/shared/components/Callout";
 import Dialog from "@/shared/components/Dialog";
-import FileSizeValue from "@/shared/components/FileSizeValue";
+import ReleaseFilePicker from "@/shared/features/frigateUpdate/ReleaseFilePicker";
+import { RELEASE_PACKAGE_FILE_KINDS } from "@/shared/features/frigateUpdate/releaseFiles";
 
 type UpdateState = ReturnType<typeof useFrigateServerUpdate>;
 
@@ -177,38 +178,25 @@ function CopiedPackage({
 
 /** Choosing a release and seeing what it would change on each controller. */
 function ReleaseChoice({ state }: { state: UpdateState }) {
-  const input = useRef<HTMLInputElement>(null);
   const { pkg, plan } = state;
   const progress = progressText(state);
   return (
     <>
       <p>
-        Choose the three files of one controller software release: the .deb package, its .deb.statement.json, and its
-        .deb.statement.sig. The controllers check the release signature before anything stops. The controller software
-        stops and restarts on each controller during the update.
+        The controller software stops and restarts on each controller during the update. The controllers verify the
+        release signature before anything stops.
       </p>
-      <Button variant="secondary" disabled={state.busy} onClick={() => input.current?.click()}>
-        {pkg ? "Change files" : "Choose files"}
-      </Button>
-      <input
-        ref={input}
-        type="file"
-        multiple
-        accept=".deb,.json,.sig"
-        aria-label="Controller software release files"
-        className="hidden"
+      <ReleaseFilePicker
+        kinds={RELEASE_PACKAGE_FILE_KINDS}
+        files={state.files}
+        onChange={(files) => void state.choose(files)}
+        onReject={state.reject}
+        emptyHint="Select the .deb, release statement and signature."
+        inputLabel="Controller software release files"
         disabled={state.busy}
-        onChange={(event) => {
-          const files = Array.from(event.target.files ?? []);
-          event.target.value = "";
-          if (files.length) void state.choose(files);
-        }}
       />
       {pkg ? (
         <div className="break-all">
-          <p>
-            {pkg.deb.name} · <FileSizeValue value={pkg.sizeBytes} />
-          </p>
           <p>
             Version {pkg.version} · {pkg.architecture}
             {pkg.issuedAt ? ` · released ${pkg.issuedAt.slice(0, 10)}` : ""}

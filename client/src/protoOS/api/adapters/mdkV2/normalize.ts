@@ -620,7 +620,8 @@ const plantComponents = (containerId: string, wire: V2GetContainerHealthResponse
     fanHardware.set(id, { ref: { id, kind: "fan", owner }, name: reportedId });
     fanTelemetry.set(id, {
       componentId: id,
-      power: latest(fan.powerW, "W"),
+      observedAtMs: observationMs(wire.timestamp),
+      power: sensorReading(fan.powerW, "W"),
       speedPercent: sensorReading(fan.speedPercent, "%"),
       health: fan.alarmActive || faultedComponents.has(fan.componentId) ? "fault" : "ok",
     });

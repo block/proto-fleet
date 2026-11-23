@@ -3,9 +3,10 @@ import { useSearchParams } from "react-router-dom";
 import PoolStatisticsView from "./PoolStatisticsView";
 import { configurationShares, usePoolConfigurationStatistics } from "./usePoolConfigurationStatistics";
 import { type PoolDuration, poolDurations } from "./usePoolStatistics";
-import type {
-  PoolConfigurationReadings,
-  PoolConfigurationStatisticsService,
+import {
+  isActivePool,
+  type PoolConfigurationReadings,
+  type PoolConfigurationStatisticsService,
 } from "@/protoOS/api/adapters/poolStatistics";
 import { navigationItems } from "@/protoOS/components/NavigationMenu/constants";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
@@ -57,7 +58,7 @@ export default function PoolConfigurationStatisticsPage({
   }));
   type Item = (typeof rows)[number];
   const activePool = (configuration: PoolConfigurationReadings) => {
-    const active = configuration.pools.filter((pool) => pool.status === "Active" || pool.status === "Alive");
+    const active = configuration.pools.filter(isActivePool);
     if (active.length) return active.map((pool) => pool.url).join(", ");
     return configuration.stale || configuration.error || configuration.pools.some((pool) => pool.status === "Unknown")
       ? "Unknown"

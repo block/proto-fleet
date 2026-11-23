@@ -193,7 +193,8 @@ describe("customer allocation picker", () => {
     await user.click(picker.getByRole("checkbox", { name: "Select Module One" }));
     await user.click(picker.getByRole("button", { name: "Allocate selected" }));
     const review = within(await screen.findByRole("dialog", { name: "Allocate 2 assets?" }));
-    expect(review.getByText("To Customer")).toBeInTheDocument();
+    expect(review.getByText("Allocate the selected assets to Customer.")).toBeInTheDocument();
+    expect(review.queryByText(/Host/)).not.toBeInTheDocument();
     expect(calls.some((call) => call.method === "AssignAccountAssets")).toBe(false);
     await user.click(review.getByRole("button", { name: "Allocate 2 assets" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());

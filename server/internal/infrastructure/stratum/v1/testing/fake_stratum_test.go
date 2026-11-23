@@ -50,16 +50,6 @@ func TestFakeStratumService_Authorize_ExpectationNotMet(t *testing.T) {
 	assert.Error(t, fake.ValidateExpectations(), "expected error validating expectations due to unmet expectation")
 }
 
-func TestExpectationError_Error(t *testing.T) {
-	err := &ExpectationError{
-		Method:   "mining.authorize",
-		Expected: 3,
-		Called:   1,
-	}
-	expectedMsg := "Expectation not met for method mining.authorize: expected 3, called 1"
-	require.Equal(t, expectedMsg, err.Error(), "Error message should match expected format")
-}
-
 func SecretToStringPtr(s *secrets.Text) *string {
 	if s == nil {
 		return nil

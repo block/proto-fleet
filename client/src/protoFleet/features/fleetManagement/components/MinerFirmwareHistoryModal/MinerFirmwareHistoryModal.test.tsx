@@ -158,3 +158,21 @@ describe("MinerFirmwareHistoryModal", () => {
     expect(useMinerFirmwareHistory).toHaveBeenCalledWith("miner-123");
   });
 });
+
+describe("MinerFirmwareHistoryModal firmware components", () => {
+  it("names the PSU firmware of a container's history entry", () => {
+    const entries = [
+      create(MinerFirmwareHistoryEntrySchema, { ...completedHistoryEntry, rolloutId: 1n, firmwareVersion: "1.39.0" }),
+      create(MinerFirmwareHistoryEntrySchema, {
+        ...completedHistoryEntry,
+        rolloutId: 2n,
+        component: "psu",
+        firmwareVersion: "app=1410;bl=1110",
+      }),
+    ];
+    render(<MinerFirmwareHistoryModalView {...propsFor(historyState({ entries }))} />);
+    expect(screen.getByText("PSU app=1410;bl=1110")).toBeInTheDocument();
+    expect(screen.getByText("1.39.0")).toBeInTheDocument();
+    expect(screen.queryByText("PSU 1.39.0")).not.toBeInTheDocument();
+  });
+});

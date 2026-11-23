@@ -138,9 +138,11 @@ func NewPluginMinerWithCredentials(
 	}
 	result, err := resolver.GetOrCreateDevice(ctx, config.DeviceIdentifier, sdkDeviceInfo, secretBundle, config.SDKReuseScopeKey)
 	if err != nil {
-		// Check if this is a network error and wrap it as ConnectionError
-		if isNetworkError(err) {
-			return nil, fleeterror.NewConnectionError(config.DeviceIdentifier, fmt.Errorf("failed to create SDK device: %w", err))
+		deviceProbeFailed := sdk.DeviceProbeFailed(err)
+		if deviceProbeFailed || isNetworkError(err) {
+			connectionErr := fleeterror.NewConnectionError(config.DeviceIdentifier, fmt.Errorf("failed to create SDK device: %w", err))
+			connectionErr.DeviceProbeFailed = deviceProbeFailed
+			return nil, connectionErr
 		}
 
 		return nil, classifyNewDeviceError(err, config.DeviceIdentifier)

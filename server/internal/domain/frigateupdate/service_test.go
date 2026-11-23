@@ -169,9 +169,14 @@ func TestEvaluateSupport(t *testing.T) {
 			}
 			return s
 		}(), pkg, CodeClusterMismatch},
+		// The controllers refuse Start unless Fleet names both of them.
+		{"peer unknown", newFakeUpdater().support[:1], pkg, CodeInstanceUnreachable},
 		{"etcd", mod(func(in *sdk.FrigateInstanceSupport) { in.EtcdMembersHealthy = 1 }), pkg, CodeEtcdUnhealthy},
 		{"arch", mod(func(in *sdk.FrigateInstanceSupport) { in.Architecture = "amd64" }), pkg, CodeArchitectureMismatch},
 		{"key", mod(func(in *sdk.FrigateInstanceSupport) { in.TrustedReleaseKeyIDs = []string{"sha256:other"} }), pkg, CodeReleaseKeyUntrusted},
+		// Fleet has no key ID for a package it stored unverified; the controllers decide.
+		{"unverified package", mod(func(in *sdk.FrigateInstanceSupport) { in.TrustedReleaseKeyIDs = []string{"sha256:other"} }),
+			&Package{Architecture: "arm64", SizeBytes: 100}, ""},
 		{"space", mod(func(in *sdk.FrigateInstanceSupport) { in.SpoolFreeBytes = 10 }), pkg, CodeInsufficientSpace},
 	}
 	for _, tt := range tests {

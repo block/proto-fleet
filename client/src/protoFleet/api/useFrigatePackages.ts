@@ -20,6 +20,11 @@ export interface FrigatePackageUploadInput {
   statement: File;
   /** The ECDSA P-256 ASN.1 DER signature over the statement bytes. */
   signature: File;
+  /**
+   * The PEM release public key. Fleet checks the signature with it only when
+   * Fleet has no release key installed; otherwise Fleet does not use it.
+   */
+  publicKey?: File;
   onProgress?: (percent: number) => void;
   signal?: AbortSignal;
 }
@@ -27,6 +32,8 @@ export interface FrigatePackageUploadInput {
 export interface FrigatePackageUploadResult {
   package: FrigatePackageRecord;
   reused: boolean;
+  /** Set when Fleet stored the package without verifying the release signature. */
+  warning?: string;
 }
 
 /** The REST completion response, which mirrors FrigatePackage in snake_case. */
@@ -57,13 +64,16 @@ async function readBase64(file: File): Promise<string> {
   return toBase64(new Uint8Array(await file.arrayBuffer()));
 }
 
-export function validateFrigatePackageFiles(input: Pick<FrigatePackageUploadInput, "deb" | "statement" | "signature">) {
+export function validateFrigatePackageFiles(
+  input: Pick<FrigatePackageUploadInput, "deb" | "statement" | "signature" | "publicKey">,
+) {
   if (!input.deb.name.toLowerCase().endsWith(FRIGATE_PACKAGE_EXTENSION)) {
     return `The package must be a ${FRIGATE_PACKAGE_EXTENSION} file.`;
   }
   if (input.deb.size === 0) return "The package file is empty.";
   if (input.statement.size === 0) return "The release statement file is empty.";
   if (input.signature.size === 0) return "The release signature file is empty.";
+  if (input.publicKey && input.publicKey.size === 0) return "The public key file is empty.";
   return null;
 }
 
@@ -93,18 +103,28 @@ export function useFrigatePackages() {
       deb,
       statement,
       signature,
+      publicKey,
       onProgress,
       signal,
     }: FrigatePackageUploadInput): Promise<FrigatePackageUploadResult> => {
-      const invalid = validateFrigatePackageFiles({ deb, statement, signature });
+      const invalid = validateFrigatePackageFiles({ deb, statement, signature, publicKey });
       if (invalid) throw new Error(invalid);
-      const [statementB64, signatureB64] = await Promise.all([readBase64(statement), readBase64(signature)]);
+      const [statementB64, signatureB64, publicKeyB64] = await Promise.all([
+        readBase64(statement),
+        readBase64(signature),
+        publicKey ? readBase64(publicKey) : undefined,
+      ]);
       const data = (await upload(UPLOAD_BASE, deb, {
         onProgress,
         signal,
         // The server's initiate body names the size "size"; the shared uploader
         // also sends "file_size", which the server ignores.
-        initiateFields: { size: deb.size, release_statement_b64: statementB64, release_signature_b64: signatureB64 },
+        initiateFields: {
+          size: deb.size,
+          release_statement_b64: statementB64,
+          release_signature_b64: signatureB64,
+          ...(publicKeyB64 ? { release_public_key_b64: publicKeyB64 } : {}),
+        },
         chunked: {
           enabled: true,
           chunkSize: FRIGATE_PACKAGE_CHUNK_SIZE,
@@ -114,7 +134,11 @@ export function useFrigatePackages() {
         },
       })) as Partial<FrigatePackageUploadResult> | null;
       if (!data?.package?.id) throw new Error("Server response missing the uploaded package.");
-      return { package: data.package, reused: data.reused === true };
+      return {
+        package: data.package,
+        reused: data.reused === true,
+        ...(data.warning ? { warning: data.warning } : {}),
+      };
     },
     [upload],
   );

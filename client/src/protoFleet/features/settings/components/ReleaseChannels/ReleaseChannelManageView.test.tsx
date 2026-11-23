@@ -1148,7 +1148,7 @@ describe("release channel firmware assignments", () => {
     const { listChannelMiners } = renderManage(channel);
     fireEvent.click(screen.getByTestId("view-miners- rig ", { normalizer: (value) => value }));
     await waitFor(() =>
-      expect(listChannelMiners).toHaveBeenCalledExactlyOnceWith(1n, " PROTO ", " rig ", expect.any(AbortSignal)),
+      expect(listChannelMiners).toHaveBeenCalledExactlyOnceWith(1n, " PROTO ", " rig ", "", expect.any(AbortSignal)),
     );
   });
 });

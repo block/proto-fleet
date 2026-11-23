@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -30,6 +31,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
+	"github.com/google/uuid"
 )
 
 const (
@@ -59,6 +61,7 @@ type Handler struct {
 	pairing    *pairing.Service
 	registry   *control.Registry
 	files      *files.Service
+	packages   ControllerSoftwarePackages
 	// Keep the persisted session rotation and in-memory fence in the same order.
 	sessionRotationMu sync.Mutex
 }
@@ -72,6 +75,19 @@ var _ fleetnodegatewayv1connect.FleetNodeGatewayServiceHandler = &Handler{}
 
 func NewHandler(enrollment *enrollment.Service, auth *auth.Service, pairing *pairing.Service, registry *control.Registry, filesService *files.Service) *Handler {
 	return &Handler{enrollment: enrollment, auth: auth, pairing: pairing, registry: registry, files: filesService}
+}
+
+// ControllerSoftwarePackages opens an uploaded controller software package by
+// its ID. *files.FrigatePackageStore satisfies it.
+type ControllerSoftwarePackages interface {
+	Open(id uuid.UUID) (*os.File, int64, error)
+}
+
+// WithControllerSoftwarePackages lets a Fleet Node download a controller
+// software package for an update command that names it.
+func (h *Handler) WithControllerSoftwarePackages(packages ControllerSoftwarePackages) *Handler {
+	h.packages = packages
+	return h
 }
 
 func CommandArtifactUploadReadLimitOption() connect.HandlerOption {
@@ -285,6 +301,9 @@ func (h *Handler) DownloadCommandArtifact(ctx context.Context, req *connect.Requ
 }
 
 func (h *Handler) openCommandArtifactPayload(ref *pb.CommandArtifactRef) (io.ReadCloser, files.CommandArtifactInfo, error) {
+	if ref.GetPurpose() == pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_CONTROLLER_SOFTWARE_PACKAGE {
+		return h.openControllerSoftwarePackage(ref)
+	}
 	if ref.GetPurpose() != pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD {
 		return h.files.OpenCommandArtifact(ref.GetArtifactId())
 	}
@@ -300,6 +319,27 @@ func (h *Handler) openCommandArtifactPayload(ref *pb.CommandArtifactRef) (io.Rea
 		Size:     info.Size,
 		SHA256:   info.SHA256,
 	}, nil
+}
+
+// openControllerSoftwarePackage opens an uploaded controller software package.
+// Admission grants this exact package ID. The package store keeps no digest,
+// so the digest of the reference is returned unchanged: the node checks the
+// bytes it receives against the digest in its command, and Fleet checks the
+// digest that each controller commits.
+func (h *Handler) openControllerSoftwarePackage(ref *pb.CommandArtifactRef) (io.ReadCloser, files.CommandArtifactInfo, error) {
+	none := files.CommandArtifactInfo{}
+	if h.packages == nil {
+		return nil, none, fleeterror.NewInternalError("controller software package store is not configured")
+	}
+	id, err := uuid.Parse(ref.GetArtifactId())
+	if err != nil {
+		return nil, none, fleeterror.NewInvalidArgumentError("controller software package ID is not valid")
+	}
+	file, size, err := h.packages.Open(id)
+	if err != nil {
+		return nil, none, fleeterror.NewNotFoundError("controller software package is not available on this Fleet host")
+	}
+	return file, files.CommandArtifactInfo{ID: ref.GetArtifactId(), Filename: ref.GetFilename(), Size: size, SHA256: ref.GetSha256()}, nil
 }
 
 func sendCommandArtifactDownloadResponse(ctx context.Context, stream *connect.ServerStream[pb.DownloadCommandArtifactResponse], msg *pb.DownloadCommandArtifactResponse) error {
@@ -811,6 +851,13 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 		}
 	}()
 
+	sendCommand := func(cmd *pb.ControlCommand) error {
+		observeSend := regHandle.ObserveCommandSend(ctx, cmd)
+		err := sendControlCommand(stream.Send, cmd)
+		observeSend(err)
+		return err
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -827,11 +874,11 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 				return err
 			}
 		case cmd := <-regHandle.Outgoing:
-			if sendErr := sendControlCommand(stream.Send, cmd); sendErr != nil {
+			if sendErr := sendCommand(cmd); sendErr != nil {
 				return controlStreamExitError(ctx, fleeterror.NewInternalErrorf("%v", sendErr))
 			}
 		case commandID := <-regHandle.Cancels:
-			if sendErr := sendControlCancel(stream.Send, regHandle.Outgoing, commandID); sendErr != nil {
+			if sendErr := sendControlCancel(stream.Send, sendCommand, regHandle.Outgoing, commandID); sendErr != nil {
 				return controlStreamExitError(ctx, fleeterror.NewInternalErrorf("%v", sendErr))
 			}
 		case r := <-incoming:
@@ -876,11 +923,11 @@ func sendControlCommand(send func(*pb.ControlStreamResponse) error, cmd *pb.Cont
 // at random. A cancel that reached the node first would be ignored, and the
 // command would hold a node slot until its node lifetime ends. A command is
 // queued before its cancel, so draining here keeps each cancel behind it.
-func sendControlCancel(send func(*pb.ControlStreamResponse) error, outgoing <-chan *pb.ControlCommand, commandID string) error {
+func sendControlCancel(send func(*pb.ControlStreamResponse) error, sendCommand func(*pb.ControlCommand) error, outgoing <-chan *pb.ControlCommand, commandID string) error {
 	for {
 		select {
 		case cmd := <-outgoing:
-			if err := sendControlCommand(send, cmd); err != nil {
+			if err := sendCommand(cmd); err != nil {
 				return err
 			}
 		default:

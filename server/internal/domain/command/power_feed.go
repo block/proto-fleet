@@ -79,7 +79,7 @@ func (s *Service) ReadModulePowerFeed(ctx context.Context, moduleID int64, autho
 	if s.pluginCaps == nil || !s.pluginCaps.GetRawCapabilitiesForDevice(ctx, row.DriverName, row.Manufacturer.String, row.Model.String)[sdk.CapabilityContainerPowerFeed] {
 		return out, fleeterror.NewFailedPreconditionError(powerFeedUnsupportedMessage)
 	}
-	upgrade, err := s.fleetNodeUpgradeRequired(ctx, info.OrganizationID, row.DeviceID, row.DeviceIdentifier, remotenode.PowerFeedInspectCommandProtocolVersion)
+	upgrade, err := s.fleetNodeUpgradeRequired(ctx, info.OrganizationID, row.DeviceID, row.DeviceIdentifier, remotenode.PowerFeedInspectCommandProtocolVersion, true)
 	if err != nil {
 		return out, err
 	}
@@ -153,8 +153,9 @@ func (s *Service) ReadModulePowerFeed(ctx context.Context, moduleID int64, autho
 
 // fleetNodeUpgradeRequired reports whether the controller sits behind a Fleet
 // Node below the command protocol version an operation needs.
-func (s *Service) fleetNodeUpgradeRequired(ctx context.Context, orgID, deviceID int64, identifier string, version gatewaypb.CommandProtocolVersion) (bool, error) {
-	if s.protocolChecker == nil {
+func (s *Service) fleetNodeUpgradeRequired(ctx context.Context, orgID, deviceID int64, identifier string, version gatewaypb.CommandProtocolVersion, forDispatch bool) (bool, error) {
+	upgradeRequired := s.protocolUpgradeCheck(forDispatch)
+	if upgradeRequired == nil {
 		return false, nil
 	}
 	routes, err := s.resolveDeviceCommandRoutes(ctx, orgID, []resolvedDevice{{id: deviceID, identifier: identifier}})
@@ -162,7 +163,7 @@ func (s *Service) fleetNodeUpgradeRequired(ctx context.Context, orgID, deviceID 
 		return false, err
 	}
 	for _, route := range routes {
-		if route.FleetNodeID.Valid && s.protocolChecker.CommandProtocolUpgradeRequiredForVersion(route.FleetNodeID.Int64, version) {
+		if route.FleetNodeID.Valid && upgradeRequired(route.FleetNodeID.Int64, version) {
 			return true, nil
 		}
 	}

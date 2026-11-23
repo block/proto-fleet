@@ -37,7 +37,12 @@ func grpcStatusError(label string, code codes.Code, message string) error {
 
 // Preserve execution evidence independently of the public error code.
 func sdkErrorToGRPCStatus(err error) error {
-	return sdkServerError(WithWriteEvidence(sdkErrorStatus(err), localWriteEvidence(err)))
+	mapped := WithWriteEvidence(sdkErrorStatus(err), localWriteEvidence(err))
+	var probe *deviceProbeError
+	if errors.As(err, &probe) {
+		mapped = WithDeviceProbeFailure(mapped)
+	}
+	return sdkServerError(mapped)
 }
 
 func sdkErrorStatus(err error) error {

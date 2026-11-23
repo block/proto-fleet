@@ -400,6 +400,95 @@ func (q *Queries) ListHostReportingAccounts(ctx context.Context, arg ListHostRep
 	return items, nil
 }
 
+const listReportingAccountManagers = `-- name: ListReportingAccountManagers :many
+SELECT DISTINCT u.id,u.user_id AS user_uuid,u.username FROM "user" u
+JOIN user_organization membership ON membership.user_id=u.id AND membership.organization_id=$1 AND membership.deleted_at IS NULL
+JOIN user_organization_role uor ON uor.user_id=u.id AND uor.organization_id=$1 AND uor.scope_type='org' AND uor.deleted_at IS NULL
+JOIN role r ON r.id=uor.role_id AND r.organization_id=uor.organization_id AND r.deleted_at IS NULL
+JOIN role_permission rp ON rp.role_id=r.id
+JOIN permission p ON p.id=rp.permission_id AND p.key='account:manage'
+WHERE u.deleted_at IS NULL ORDER BY u.user_id
+`
+
+type ListReportingAccountManagersRow struct {
+	ID       int64
+	UserUuid string
+	Username string
+}
+
+// Without a stored grant, account managers hold implicit all-site reporting authority.
+func (q *Queries) ListReportingAccountManagers(ctx context.Context, organizationID int64) ([]ListReportingAccountManagersRow, error) {
+	rows, err := q.query(ctx, q.listReportingAccountManagersStmt, listReportingAccountManagers, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListReportingAccountManagersRow
+	for rows.Next() {
+		var i ListReportingAccountManagersRow
+		if err := rows.Scan(&i.ID, &i.UserUuid, &i.Username); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listReportingAllocatedSiteLocations = `-- name: ListReportingAllocatedSiteLocations :many
+SELECT s.id,s.timezone,s.country,s.location_state FROM site s
+WHERE s.org_id=$1 AND s.deleted_at IS NULL AND EXISTS(
+ SELECT 1 FROM hosted_account_asset_interval i WHERE i.organization_id=s.org_id AND i.site_id=s.id AND i.ended_at IS NULL
+ AND (i.client_id=$2 OR i.subclient_id=$2))
+ORDER BY s.id
+`
+
+type ListReportingAllocatedSiteLocationsParams struct {
+	OrganizationID int64
+	ClientID       int64
+}
+
+type ListReportingAllocatedSiteLocationsRow struct {
+	ID            int64
+	Timezone      sql.NullString
+	Country       string
+	LocationState sql.NullString
+}
+
+// Sites holding the client's open allocations, for assuming a reporting timezone.
+func (q *Queries) ListReportingAllocatedSiteLocations(ctx context.Context, arg ListReportingAllocatedSiteLocationsParams) ([]ListReportingAllocatedSiteLocationsRow, error) {
+	rows, err := q.query(ctx, q.listReportingAllocatedSiteLocationsStmt, listReportingAllocatedSiteLocations, arg.OrganizationID, arg.ClientID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListReportingAllocatedSiteLocationsRow
+	for rows.Next() {
+		var i ListReportingAllocatedSiteLocationsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Timezone,
+			&i.Country,
+			&i.LocationState,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listReportingAllocationIntervals = `-- name: ListReportingAllocationIntervals :many
 SELECT id, organization_id, kind, asset_id, device_id, site_id, device_identifier, client_id, subclient_id, started_at, ended_at FROM hosted_account_asset_interval
 WHERE id=ANY($1::bigint[]) AND organization_id=$2

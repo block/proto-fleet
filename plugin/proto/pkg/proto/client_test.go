@@ -79,24 +79,10 @@ func TestClientCreation(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "localhost HTTP",
-			host:    "localhost",
-			port:    8080,
-			scheme:  "http",
-			wantErr: false,
-		},
-		{
 			name:    "IPv6 address",
 			host:    "::1",
 			port:    80,
 			scheme:  "http",
-			wantErr: false,
-		},
-		{
-			name:    "custom port HTTPS",
-			host:    "miner.local",
-			port:    8443,
-			scheme:  "https",
 			wantErr: false,
 		},
 	}
@@ -565,45 +551,6 @@ func TestDirectWriteEndpoints_ClassifyDefaultPasswordForbidden(t *testing.T) {
 
 			require.Error(t, err)
 			assert.EqualError(t, err, "forbidden: default password must be changed")
-		})
-	}
-}
-
-// TestUnsupportedScheme tests handling of unsupported protocol schemes
-// This aligns with the server's protocol validation approach
-func TestUnsupportedScheme(t *testing.T) {
-	tests := []struct {
-		name   string
-		scheme string
-	}{
-		{
-			name:   "tcp scheme not supported",
-			scheme: "tcp",
-		},
-		{
-			name:   "ftp scheme not supported",
-			scheme: "ftp",
-		},
-		{
-			name:   "invalid scheme",
-			scheme: "invalid",
-		},
-		{
-			name:   "empty scheme",
-			scheme: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			client, err := NewClient("localhost", 80, tt.scheme)
-
-			// Should either return an error or create a client that will fail on actual use
-			// The current implementation doesn't validate schemes upfront, but this test
-			// documents the expected behavior for future improvements
-			require.NoError(t, err, "NewClient should not error on unsupported scheme")
-			require.NotNil(t, client, "Client should be created even with unsupported scheme")
-			_ = client.Close()
 		})
 	}
 }

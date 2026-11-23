@@ -1,6 +1,7 @@
 package ha
 
 import (
+	"database/sql"
 	"errors"
 	"sync"
 	"testing"
@@ -95,6 +96,69 @@ func TestLeaseStoreRejectsClusterIdentityMismatch(t *testing.T) {
 		t.Context(), databaseObservation(t, reader, "cluster-b", 42), uuid.New(), time.Minute,
 	)
 	require.ErrorIs(t, err, ErrDCSClusterIdentityMismatch)
+}
+
+func TestRebindExpiredFleetRuntimeLease(t *testing.T) {
+	ctx := t.Context()
+	conn := testutil.GetTestDB(t)
+	queries := sqlc.New(conn)
+	store := NewLeaseStore(queries)
+	source := databaseObservation(t, queries, "100", 41)
+	replacement := databaseObservation(t, queries, "200", 3)
+	old, err := store.Acquire(ctx, source, uuid.New(), time.Minute)
+	require.NoError(t, err)
+
+	rebind := sqlc.RebindExpiredFleetRuntimeLeaseParams{
+		OldClusterID: source.DCSClusterID, NewClusterID: replacement.DCSClusterID,
+		WriterGeneration: replacement.WriterGeneration, ServerAddress: replacement.ServerAddress,
+		ServerPort: replacement.ServerPort, Timeline: replacement.Timeline,
+	}
+	_, err = queries.RebindExpiredFleetRuntimeLease(ctx, rebind)
+	require.ErrorIs(t, err, sql.ErrNoRows)
+	require.NoError(t, store.Release(ctx, old))
+
+	for name, change := range map[string]func(*sqlc.RebindExpiredFleetRuntimeLeaseParams){
+		"old cluster ID": func(p *sqlc.RebindExpiredFleetRuntimeLeaseParams) { p.OldClusterID = "300" },
+		"timeline":       func(p *sqlc.RebindExpiredFleetRuntimeLeaseParams) { p.Timeline++ },
+		"server address": func(p *sqlc.RebindExpiredFleetRuntimeLeaseParams) { p.ServerAddress += "x" },
+		"server port":    func(p *sqlc.RebindExpiredFleetRuntimeLeaseParams) { p.ServerPort++ },
+	} {
+		t.Run(name, func(t *testing.T) {
+			invalidRebind := rebind
+			change(&invalidRebind)
+			_, err := queries.RebindExpiredFleetRuntimeLease(ctx, invalidRebind)
+			require.ErrorIs(t, err, sql.ErrNoRows)
+		})
+	}
+
+	readLease := func() (holder string, expiresAt time.Time) {
+		t.Helper()
+		require.NoError(t, conn.QueryRowContext(
+			ctx, "SELECT holder_id::text, expires_at FROM fleet_runtime_lease WHERE lease_name = 'fleet-active'",
+		).Scan(&holder, &expiresAt))
+		return holder, expiresAt
+	}
+	holderBefore, expiresBefore := readLease()
+
+	epoch, err := queries.RebindExpiredFleetRuntimeLease(ctx, rebind)
+	require.NoError(t, err)
+	require.Equal(t, old.Token.LeaseEpoch, epoch)
+	holderAfter, expiresAfter := readLease()
+	require.Equal(t, holderBefore, holderAfter)
+	require.True(t, expiresBefore.Equal(expiresAfter))
+	lease, err := queries.GetFleetRuntimeLeaseForRecovery(ctx)
+	require.NoError(t, err)
+	require.Equal(t, sqlc.GetFleetRuntimeLeaseForRecoveryRow{
+		DcsClusterID: replacement.DCSClusterID, HighestWriterGeneration: replacement.WriterGeneration,
+		LeaseEpoch: old.Token.LeaseEpoch, Expired: true,
+	}, lease)
+
+	_, err = queries.RebindExpiredFleetRuntimeLease(ctx, rebind)
+	require.ErrorIs(t, err, sql.ErrNoRows)
+
+	next, err := store.Acquire(ctx, replacement, uuid.New(), time.Minute)
+	require.NoError(t, err)
+	require.Equal(t, Token{WriterGeneration: 3, LeaseEpoch: old.Token.LeaseEpoch + 1}, next.Token)
 }
 
 func TestLeaseStoreRejectsGenerationRegression(t *testing.T) {

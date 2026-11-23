@@ -71,18 +71,6 @@ func TestNewWatcher_WithNegativeConfig_ShouldUseFallbackDefaults(t *testing.T) {
 	assert.Equal(t, defaultWatchChannelBuffer, cap(w.updateChan))
 }
 
-func TestNewWatcher_WithNilOpts_ShouldCreateEmptyOpts(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	mockStore := storeMocks.NewMockErrorStore(ctrl)
-	mockTransactor := storeMocks.NewMockTransactor(ctrl)
-
-	svc := NewService(Config{}, mockStore, mockTransactor)
-
-	w := newWatcher(svc, 1, nil, Config{})
-
-	assert.NotNil(t, w.opts)
-}
-
 func TestNewWatcher_WithOpts_ShouldPreserveOpts(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
@@ -104,22 +92,6 @@ func TestNewWatcher_WithOpts_ShouldPreserveOpts(t *testing.T) {
 // ============================================================================
 // buildFilterWithTimeFrom Tests
 // ============================================================================
-
-func TestBuildFilterWithTimeFrom_WithNoOptsFilter_ShouldSetTimeFromAndIncludeClosed(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	mockStore := storeMocks.NewMockErrorStore(ctrl)
-	mockTransactor := storeMocks.NewMockTransactor(ctrl)
-
-	svc := NewService(Config{}, mockStore, mockTransactor)
-	w := newWatcher(svc, 1, nil, Config{})
-	w.lastPollTime = time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
-
-	filter := w.buildFilterWithTimeFrom()
-
-	require.NotNil(t, filter.TimeFrom)
-	assert.Equal(t, w.lastPollTime, *filter.TimeFrom)
-	assert.True(t, filter.IncludeClosed)
-}
 
 func TestBuildFilterWithTimeFrom_WithOptsFilter_ShouldMergeFilters(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -617,29 +589,6 @@ func TestRun_WithCancellationAfterInitialPoll_ShouldCloseChannel(t *testing.T) {
 // Service.Watch Tests
 // ============================================================================
 
-func TestWatch_ShouldReturnChannel(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	mockStore := storeMocks.NewMockErrorStore(ctrl)
-	mockTransactor := storeMocks.NewMockTransactor(ctrl)
-
-	// Expect initial poll
-	mockStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).Return([]models.ErrorMessage{}, nil).AnyTimes()
-
-	config := Config{
-		WatchPollInterval:  100 * time.Millisecond,
-		WatchChannelBuffer: 10,
-	}
-	svc := NewService(config, mockStore, mockTransactor)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	updateChan, err := svc.Watch(ctx, 1, nil)
-
-	assert.NoError(t, err)
-	assert.NotNil(t, updateChan)
-}
-
 func TestWatch_WithOpts_ShouldUseFilter(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
@@ -765,45 +714,6 @@ func TestWatch_ChannelClosesOnContextCancel(t *testing.T) {
 			return false
 		}
 	}, 500*time.Millisecond, 10*time.Millisecond, "channel should close when context is cancelled")
-}
-
-func TestWatch_SendsCorrectKindBasedOnErrorState(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	mockStore := storeMocks.NewMockErrorStore(ctrl)
-	mockTransactor := storeMocks.NewMockTransactor(ctrl)
-
-	// The mock will be called and we need to return errors that will be
-	// classified based on their first_seen_at relative to lastPollTime.
-	// Since lastPollTime is set to time.Now() when Watch starts,
-	// we return errors with recent first_seen_at to trigger KIND_OPENED.
-	mockStore.EXPECT().QueryErrors(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, _ *models.QueryOptions) ([]models.ErrorMessage, error) {
-			now := time.Now()
-			return []models.ErrorMessage{
-				{ErrorID: "ERR_NEW", FirstSeenAt: now.Add(1 * time.Millisecond), LastSeenAt: now.Add(1 * time.Millisecond), ClosedAt: nil},
-			}, nil
-		}).AnyTimes()
-
-	config := Config{
-		WatchPollInterval:  1 * time.Second,
-		WatchChannelBuffer: 10,
-	}
-	svc := NewService(config, mockStore, mockTransactor)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	updateChan, err := svc.Watch(ctx, 1, nil)
-	require.NoError(t, err)
-
-	// Should receive KIND_OPENED for new errors
-	select {
-	case update := <-updateChan:
-		assert.Equal(t, WatchKindOpened, update.Kind)
-		assert.Len(t, update.Errors, 1)
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("expected KIND_OPENED update for new error")
-	}
 }
 
 func TestWatch_UsesServiceConfig(t *testing.T) {

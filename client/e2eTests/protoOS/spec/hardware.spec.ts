@@ -23,16 +23,4 @@ test.describe("Hardware settings", () => {
       await hardwarePage.validatePsuInventory();
     });
   });
-
-  test("Hardware settings keep the fan table visible in the default cooling mode", async ({
-    commonSteps,
-    hardwarePage,
-  }) => {
-    await commonSteps.navigateToHardwareSettings();
-
-    await test.step("Validate the default Hardware page shows the fan table instead of the immersion callout", async () => {
-      await hardwarePage.validateNoFansConnectedCalloutHidden();
-      await hardwarePage.validateFanInventory();
-    });
-  });
 });

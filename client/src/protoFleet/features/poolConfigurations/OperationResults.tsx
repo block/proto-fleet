@@ -20,6 +20,7 @@ import { Alert } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Modal from "@/shared/components/Modal";
+import { PoolUpdateResults, PoolUpdateResultSection } from "@/shared/components/PoolConfigurations/PoolUpdateResults";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
 const keyFor = (target: { kind: string; targetId: bigint }) => `${target.kind}:${target.targetId}`;
@@ -169,120 +170,98 @@ export const OperationResults = ({
       />
     );
   return (
-    <Modal
-      open
-      title="Pool configuration"
-      dialogLabel="Pool configuration"
-      manageFocus
-      initialFocus="dialog"
-      onDismiss={mutation.busy ? undefined : onDismiss}
-    >
-      <div className="flex flex-col gap-4">
-        {query.loading || loading ? <ProgressCircular indeterminate /> : null}
-        {query.error || unavailable ? (
-          <div role="alert">
-            <p>
-              {query.errorCode === Code.PermissionDenied
-                ? "You don’t have permission to view these results. You need access to the pool configuration and all equipment included in this update. Ask your administrator for access."
-                : "Fleet could not load the update status. The update may still be running."}
-            </p>
-            <Button variant="secondary" text="Refresh status" onClick={refresh} />
-          </div>
-        ) : null}
-        {mutation.error ? <p role="alert">{mutation.error}</p> : null}
-        {rows.map((row) => {
-          const removal = row.operationKind === "clear" || row.operationKind === "unassign";
-          const key = keyFor(row.target);
-          const currentAssignment = currentAssignments.get(key) ?? projectedAssignment(row.target, row.operationId);
-          const assignmentChanged =
-            !!currentAssignment &&
-            (currentAssignment.operationId !== row.operationId ||
-              currentAssignment.configurationId !== row.configurationId);
-          const assignment = assignmentChanged ? undefined : currentAssignment;
-          const checkKey = `${accountId}:${row.configurationId}:${row.operationId}:${key}`;
-          // Historical operation results remain historical. A cached read must
-          // never override replacement or newer persisted observation evidence.
-          const cached = checks[checkKey];
-          const serverResult = removal || row.target.state === "superseded" ? row.target : (assignment ?? row.target);
-          const check =
-            !removal && !assignmentChanged && serverResult.state !== "superseded"
-              ? ((cached &&
-                !isNewerThan(row.target.updatedAt, cached.checkedAt) &&
-                !isNewerThan(assignment?.updatedAt, cached.checkedAt)
-                  ? cached
-                  : undefined) ??
-                (assignment && usesDevicePoolReadback(assignment)
-                  ? deviceReadings.readings[poolTargetKey(assignment)]
-                  : undefined))
-              : undefined;
-          const result = check ?? serverResult;
-          const outcome = removal
-            ? poolRemovalOutcome(result.state, row.operationKind === "unassign", result.resultCode)
+    <PoolUpdateResults onDismiss={mutation.busy ? undefined : onDismiss}>
+      {query.loading || loading ? <ProgressCircular indeterminate /> : null}
+      {query.error || unavailable ? (
+        <div role="alert">
+          <p>
+            {query.errorCode === Code.PermissionDenied
+              ? "You don’t have permission to view these results. You need access to the pool configuration and all equipment included in this update. Ask your administrator for access."
+              : "Fleet could not load the update status. The update may still be running."}
+          </p>
+          <Button variant="secondary" text="Refresh status" onClick={refresh} />
+        </div>
+      ) : null}
+      {mutation.error ? <p role="alert">{mutation.error}</p> : null}
+      {rows.map((row) => {
+        const removal = row.operationKind === "clear" || row.operationKind === "unassign";
+        const key = keyFor(row.target);
+        const currentAssignment = currentAssignments.get(key) ?? projectedAssignment(row.target, row.operationId);
+        const assignmentChanged =
+          !!currentAssignment &&
+          (currentAssignment.operationId !== row.operationId ||
+            currentAssignment.configurationId !== row.configurationId);
+        const assignment = assignmentChanged ? undefined : currentAssignment;
+        const checkKey = `${accountId}:${row.configurationId}:${row.operationId}:${key}`;
+        // Historical operation results remain historical. A cached read must
+        // never override replacement or newer persisted observation evidence.
+        const cached = checks[checkKey];
+        const serverResult = removal || row.target.state === "superseded" ? row.target : (assignment ?? row.target);
+        const check =
+          !removal && !assignmentChanged && serverResult.state !== "superseded"
+            ? ((cached &&
+              !isNewerThan(row.target.updatedAt, cached.checkedAt) &&
+              !isNewerThan(assignment?.updatedAt, cached.checkedAt)
+                ? cached
+                : undefined) ??
+              (assignment && usesDevicePoolReadback(assignment)
+                ? deviceReadings.readings[poolTargetKey(assignment)]
+                : undefined))
             : undefined;
-          const status = outcome?.status ?? poolUpdateStatus(result);
-          const canCheck =
-            !removal &&
-            change &&
-            !readOnly &&
-            !assignmentChanged &&
-            !["pending", "applying", "superseded", "placement_pending"].includes(result.state);
-          const canRetry =
-            !removal &&
-            change &&
-            !readOnly &&
-            !assignmentChanged &&
-            row.operationId &&
-            ["failed", "different", "applied_unverified"].includes(result.state) &&
-            result.resultCode !== "write_uncertain";
-          const checkConfiguration = () =>
-            void mutation.run(async () => {
-              const checked = await client.checkConfiguration(
-                {
-                  accountId,
-                  configurationId: row.configurationId,
-                  target: { kind: row.target.kind, targetId: row.target.targetId },
-                },
-                { timeoutMs: ACCOUNT_READ_TIMEOUT_MS },
-              );
-              setChecks((values) => ({ ...values, [checkKey]: checked }));
-              onRefresh?.();
-            });
-          const lastVerified = [
-            poolUpdateStatus(row.target) === "Verified" ? row.target.updatedAt : undefined,
-            assignment && poolUpdateStatus(assignment) === "Verified" ? assignment.updatedAt : undefined,
-            check && poolUpdateStatus(check) === "Verified" ? check.checkedAt : undefined,
-          ].reduce<Timestamp | undefined>((latest, time) => (isNewerThan(time, latest) ? time : latest), undefined);
-          const blocked =
-            !removal && !assignmentChanged && result.state !== "superseded" && result.resultCode === "write_uncertain";
-          const readable = check?.readbackAvailable || (check && check.reported.length > 0);
-          const name =
-            assignment?.deviceName ||
-            row.target.label ||
-            `${row.target.kind === "device" ? "Miner" : "Hashboard"} ${row.target.targetId}`;
-          const explanation =
-            outcome?.message ??
-            (blocked && result.state !== "different" && readable
-              ? "The reported settings match, but Fleet couldn’t confirm that an earlier update finished."
-              : poolStatusExplanation(result));
-          return (
-            <section
-              key={`${row.operationId}:${key}`}
-              aria-label={name}
-              className="flex flex-col gap-6 border-b border-border-10 pb-6 last:border-b-0 last:pb-0"
-            >
-              <div>
-                <h2 className="text-heading-200 [overflow-wrap:anywhere]">{name}</h2>
-                {row.configurationId ? (
-                  <p className="mt-1 text-300 text-text-primary-50">
-                    Configuration: <span className="text-text-primary">{assignment?.name || row.name}</span>
-                  </p>
-                ) : null}
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <h3 className="text-heading-200">{status}</h3>
-                <p className="text-300 text-text-primary-70">{explanation}</p>
-              </div>
-              {readable && check ? (
+        const result = check ?? serverResult;
+        const outcome = removal
+          ? poolRemovalOutcome(result.state, row.operationKind === "unassign", result.resultCode)
+          : undefined;
+        const status = outcome?.status ?? poolUpdateStatus(result);
+        const canActOnAssignment = !removal && change && !readOnly && !assignmentChanged;
+        const canCheck =
+          canActOnAssignment && !["pending", "applying", "superseded", "placement_pending"].includes(result.state);
+        const canRetry =
+          canActOnAssignment &&
+          row.operationId &&
+          ["failed", "different", "applied_unverified"].includes(result.state) &&
+          result.resultCode !== "write_uncertain";
+        const checkConfiguration = () =>
+          void mutation.run(async () => {
+            const checked = await client.checkConfiguration(
+              {
+                accountId,
+                configurationId: row.configurationId,
+                target: { kind: row.target.kind, targetId: row.target.targetId },
+              },
+              { timeoutMs: ACCOUNT_READ_TIMEOUT_MS },
+            );
+            setChecks((values) => ({ ...values, [checkKey]: checked }));
+            onRefresh?.();
+          });
+        const lastVerified = [
+          poolUpdateStatus(row.target) === "Verified" ? row.target.updatedAt : undefined,
+          assignment && poolUpdateStatus(assignment) === "Verified" ? assignment.updatedAt : undefined,
+          check && poolUpdateStatus(check) === "Verified" ? check.checkedAt : undefined,
+        ].reduce<Timestamp | undefined>((latest, time) => (isNewerThan(time, latest) ? time : latest), undefined);
+        const blocked =
+          !removal && !assignmentChanged && result.state !== "superseded" && result.resultCode === "write_uncertain";
+        const readable = check?.readbackAvailable || (check && check.reported.length > 0);
+        const name =
+          assignment?.deviceName ||
+          row.target.label ||
+          `${row.target.kind === "device" ? "Miner" : "Hashboard"} ${row.target.targetId}`;
+        const explanation =
+          outcome?.message ??
+          (blocked && result.state !== "different" && readable
+            ? "The reported settings match, but Fleet couldn’t confirm that an earlier update finished."
+            : poolStatusExplanation(result));
+        return (
+          <PoolUpdateResultSection
+            key={`${row.operationId}:${key}`}
+            name={name}
+            configurationName={row.configurationId ? assignment?.name || row.name : undefined}
+            status={status}
+            explanation={explanation}
+            requestedAt={row.createdAt ? timestampDate(row.createdAt) : undefined}
+            verifiedAt={lastVerified ? timestampDate(lastVerified) : undefined}
+            comparison={
+              readable && check ? (
                 <div className="flex flex-col gap-2">
                   <PoolSettingsComparison
                     expected={check.expected}
@@ -295,27 +274,10 @@ export const OperationResults = ({
                     </p>
                   ) : null}
                 </div>
-              ) : null}
-              {row.createdAt || lastVerified ? (
-                <div className="text-200">
-                  <h3 className="text-emphasis-200 text-text-primary-70">Details</h3>
-                  <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-text-primary-50">
-                    {row.createdAt ? (
-                      <>
-                        <dt>Update requested</dt>
-                        <dd>{timestampDate(row.createdAt).toLocaleString()}</dd>
-                      </>
-                    ) : null}
-                    {lastVerified ? (
-                      <>
-                        <dt>Last verified</dt>
-                        <dd>{timestampDate(lastVerified).toLocaleString()}</dd>
-                      </>
-                    ) : null}
-                  </dl>
-                </div>
-              ) : null}
-              {blocked || canCheck || canRetry ? (
+              ) : null
+            }
+            actions={
+              blocked || canCheck || canRetry ? (
                 <div className="flex flex-col gap-4">
                   {blocked ? (
                     <Callout
@@ -334,7 +296,7 @@ export const OperationResults = ({
                         onClick={checkConfiguration}
                       />
                     ) : null}
-                    {canRetry || (blocked && change && !readOnly) ? (
+                    {canRetry || (blocked && canActOnAssignment) ? (
                       <Button
                         variant="primary"
                         text={blocked || result.state === "different" ? "Reapply" : "Retry"}
@@ -354,12 +316,12 @@ export const OperationResults = ({
                     ) : null}
                   </div>
                 </div>
-              ) : null}
-            </section>
-          );
-        })}
-        {!loading && !ids && !rows.length && !unavailable ? <p>{allocationAccessMessage}</p> : null}
-      </div>
-    </Modal>
+              ) : null
+            }
+          />
+        );
+      })}
+      {!loading && !ids && !rows.length && !unavailable ? <p>{allocationAccessMessage}</p> : null}
+    </PoolUpdateResults>
   );
 };
