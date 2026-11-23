@@ -182,6 +182,24 @@ describe("account activity", () => {
     expect(screen.getByRole("button", { name: "Export activity CSV" })).toBeEnabled();
   });
 
+  it("does not title a later poll failure as a Load more failure", async () => {
+    let failing = false;
+    const listAccountActivities = vi.fn(async (request: { pageToken?: string }) => {
+      if (failing) throw new ConnectError("activity missing", Code.NotFound);
+      return request.pageToken ? page("broad", ["Second"]) : page("broad", ["First"], "next");
+    });
+    mount({ listAccountActivities } as unknown as Partial<AccountScope["client"]>);
+    await screen.findByText("First");
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+    await screen.findByText("Second");
+    failing = true;
+    fireEvent.focus(window);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not load account data");
+    expect(alert).not.toHaveTextContent("Could not load more activity");
+    expect(screen.queryByText("First")).not.toBeInTheDocument();
+  });
+
   it.each(["first", "continuation"])("times out a stalled %s page and resumes polling", async (stalledPage) => {
     vi.useFakeTimers();
     const paginating = stalledPage === "continuation";
@@ -230,7 +248,9 @@ describe("account activity", () => {
     expect(requests).toBe(stalledRequest);
     await act(async () => vi.advanceTimersByTimeAsync(1));
     expect(stalledSignal.aborted).toBe(true);
-    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      paginating ? "Could not load more activity" : "Could not refresh activity",
+    );
     expect(screen.getByText("Before stall")).toBeInTheDocument();
     await act(async () => vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS));
     expect(screen.getByText("Recovered")).toBeInTheDocument();

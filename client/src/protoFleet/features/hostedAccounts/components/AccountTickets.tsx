@@ -288,7 +288,12 @@ const AccountTicketView = ({
         ]}
       >
         <div className="flex flex-col gap-5">
-          <AccountState loading={query.loading} error={query.error} retry={query.refresh} />
+          <AccountState
+            title={ticket ? "Could not refresh ticket" : undefined}
+            loading={query.loading}
+            error={query.error}
+            retry={query.refresh}
+          />
           {mutation.error ? (
             <AccountState title="Could not post comment" error={mutation.error} retry={postComment} />
           ) : null}
@@ -334,7 +339,12 @@ const AccountTicketView = ({
                     />
                   </div>
                 ) : (
-                  <AccountState loading={false} error={olderQuery.error} retry={olderQuery.refresh} />
+                  <AccountState
+                    title="Could not load older comments"
+                    loading={false}
+                    error={olderQuery.error}
+                    retry={olderQuery.refresh}
+                  />
                 )}
                 <div className="flex flex-col divide-y divide-border-5">
                   {comments.map((entry) => (
@@ -535,7 +545,12 @@ const AccountTickets = () => {
           setCursors([0n]);
         }}
       />
-      <AccountState loading={query.loading} error={query.error} retry={query.refresh} />
+      <AccountState
+        title={query.data ? "Could not refresh tickets" : undefined}
+        loading={query.loading}
+        error={query.error}
+        retry={query.refresh}
+      />
       {query.data ? (
         <>
           <List<RepairTicket, bigint, "ticket" | "description" | "status">

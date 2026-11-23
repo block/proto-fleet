@@ -546,7 +546,12 @@ const AccountAssets = ({
           {conflictNotice}
         </p>
       ) : null}
-      <AccountState loading={query.loading} error={query.error} retry={refresh} />
+      <AccountState
+        title={query.data ? "Could not refresh mining assets" : undefined}
+        loading={query.loading}
+        error={query.error}
+        retry={refresh}
+      />
       {query.data ? (
         <>
           {selectable && selected.length > 0 && !isPicker ? (

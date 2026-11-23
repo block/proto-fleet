@@ -171,6 +171,7 @@ export const AccountAnalysisDetail = ({
   return (
     <section aria-label="Generated report" className="flex min-w-0 flex-col gap-6">
       <AccountState
+        title={analysis ? "Could not refresh analysis" : undefined}
         loading={query.loading}
         error={denied ? "Report access is no longer available." : query.error}
         retry={query.refresh}

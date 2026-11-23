@@ -449,6 +449,7 @@ const HostReportDetail = ({
   return (
     <section aria-label="Host report detail" className="flex min-w-0 flex-col gap-6">
       <AccountState
+        title={report && !denied ? "Could not refresh report" : undefined}
         loading={query.loading}
         error={denied ? "Report access is no longer available." : query.error}
         retry={query.refresh}
@@ -757,7 +758,12 @@ const ReportingAccount = ({
   const setup = query.data?.setup;
   return (
     <div className="flex min-w-0 flex-col gap-6">
-      <AccountState loading={query.loading} error={query.error} retry={query.refresh} />
+      <AccountState
+        title={setup ? "Could not refresh reporting" : undefined}
+        loading={query.loading}
+        error={query.error}
+        retry={query.refresh}
+      />
       {setup ? (
         <>
           {view === "settings" ? (
@@ -1071,6 +1077,7 @@ const ReportingQueue = () => {
       />
       {hasQueueTarget ? (
         <AccountState
+          title={queueItem ? "Could not refresh reporting obligation" : undefined}
           loading={canResolveTarget ? selectedQueue.loading || (!queueItem && selectedQueue.refreshing) : false}
           error={!requestedAccount || !queueId ? "The reporting obligation link is incomplete." : selectedQueue.error}
           retry={refresh}

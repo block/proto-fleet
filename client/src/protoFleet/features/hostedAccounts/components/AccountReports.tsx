@@ -71,6 +71,7 @@ const AccountReportDetail = ({ reportId, onSelect }: { reportId: string; onSelec
   return (
     <section aria-label="Selected report" className="flex min-w-0 flex-col gap-6">
       <AccountState
+        title={report ? "Could not refresh report" : undefined}
         loading={query.loading}
         error={denied ? "Report access is no longer available." : query.error}
         retry={query.refresh}

@@ -686,7 +686,12 @@ const ReportingSetup = ({
           {evidenceOpen ? (
             <>
               {setup.canManageRepresentatives ? (
-                <AccountState loading={membersQuery.loading} error={membersQuery.error} retry={membersQuery.refresh} />
+                <AccountState
+                  title={membersQuery.data ? "Could not refresh team members" : undefined}
+                  loading={membersQuery.loading}
+                  error={membersQuery.error}
+                  retry={membersQuery.refresh}
+                />
               ) : null}
               <Input
                 id="configuration-evidence"

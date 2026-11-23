@@ -607,4 +607,28 @@ describe("Account tickets", () => {
     await screen.findByText("TK-0007");
     expect(screen.getByRole("button", { name: "New ticket" })).toBeDisabled();
   });
+  it.each([
+    { code: Code.Unavailable, title: "Could not refresh tickets", retained: true },
+    { code: Code.PermissionDenied, title: "Could not load account data", retained: false },
+  ])(
+    "titles a failed ticket list poll by whether tickets stay on screen ($title)",
+    async ({ code, title, retained }) => {
+      const intervals = vi.spyOn(window, "setInterval");
+      try {
+        const { client } = setup();
+        await screen.findByText("TK-0007");
+        client.listAccountTickets.mockRejectedValueOnce(new ConnectError("ticket list failed", code));
+        await act(async () => {
+          for (const [callback, interval] of intervals.mock.calls) {
+            if (interval === POLL_INTERVAL_MS && typeof callback === "function") callback();
+          }
+        });
+        expect(await screen.findByRole("alert")).toHaveTextContent(title);
+        if (retained) expect(screen.getByText("TK-0007")).toBeInTheDocument();
+        else expect(screen.queryByText("TK-0007")).not.toBeInTheDocument();
+      } finally {
+        intervals.mockRestore();
+      }
+    },
+  );
 });
