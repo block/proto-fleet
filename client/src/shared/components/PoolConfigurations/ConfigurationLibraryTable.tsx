@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import Button from "@/shared/components/Button";
 import List from "@/shared/components/List";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
@@ -31,6 +30,7 @@ export function ConfigurationLibraryTable<T extends LibraryConfiguration>({
       items={configurations}
       itemKey="configurationId"
       itemSelectable={false}
+      onRowClick={onView}
       stickyFirstColumn={false}
       applyColumnWidthsToCells
       tableClassName="mb-0"
@@ -42,14 +42,8 @@ export function ConfigurationLibraryTable<T extends LibraryConfiguration>({
           allowWrap: true,
           component: (configuration) => (
             <div className="flex flex-col items-start">
-              <Button
-                variant="textOnly"
-                textColor="text-text-primary"
-                className="justify-start text-left font-normal !whitespace-normal"
-                textOnlyUnderlineOnHover={false}
-                text={configuration.name}
-                onClick={() => onView(configuration)}
-              />
+              <div className="sr-only">View configuration details for</div>
+              <span className="break-words text-text-primary group-focus-visible:underline">{configuration.name}</span>
               {isPhone ? (
                 <span className="text-200 text-text-primary-50">{configuration.assignedCount.toString()} assigned</span>
               ) : null}

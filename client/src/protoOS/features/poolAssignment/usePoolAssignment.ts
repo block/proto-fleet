@@ -85,11 +85,12 @@ export function usePoolAssignment(
     if (checkingPrevious && result.state === "saved") {
       // Another tab may have updated the record while this status read was in flight.
       const latest = readPoolAttempts(controllerId).find((entry) => entry.id === record.id);
-      if (!latest || JSON.stringify(latest) === JSON.stringify(record)) forgetAttempt(record.id);
-      else {
+      if (latest && JSON.stringify(latest) !== JSON.stringify(record)) {
         setAttempt(latest);
         setStatus(undefined);
-      }
+      } else if (target.unassignedOnly && !record.configurationOnly) {
+        setStatus(result);
+      } else forgetAttempt(record.id);
     } else setStatus(result);
     setError(undefined);
   };
@@ -132,7 +133,7 @@ export function usePoolAssignment(
     run(async (signal) => {
       if (!attempt?.destinationId || !status?.remainingMacs?.length) return;
       const plan = await service.review(
-        { macs: status.remainingMacs },
+        { macs: status.remainingMacs, ...(attempt.unassignedOnly ? { unassignedOnly: true } : {}) },
         { pools: [], savedPoolSetId: attempt.destinationId },
         { signal },
       );
@@ -180,7 +181,8 @@ export function usePoolAssignment(
     run(async (signal) => {
       const plan = await service.review(target, { name, pools: [], savedPoolSetId }, { signal });
       signal.throwIfAborted();
-      if (singleSelection && !plan.requiresActivation) await applyPlan(plan, signal);
+      const canStartMining = plan.target.unassignedOnly && plan.mining;
+      if (singleSelection && !plan.requiresActivation && !canStartMining) await applyPlan(plan, signal);
       else setReviewedPlan({ plan });
     });
   const create = (name: string, pools: AssignmentPool[], original?: SavedPoolSet) =>

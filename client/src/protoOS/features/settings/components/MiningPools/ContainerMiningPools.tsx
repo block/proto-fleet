@@ -171,6 +171,7 @@ const ContainerMiningPools = () => {
           key={`${connectionGeneration}:${revision}`}
           service={adapter.poolAssignment}
           configuration={configuration}
+          refreshing={refreshing}
           onReload={reloadPools}
         />
       </>

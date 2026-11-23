@@ -1,17 +1,17 @@
 import type { ReactNode } from "react";
 import { poolSlotLabel } from "./types";
 export function ConfigurationDetails({
-  assignedCount,
+  equipment,
   pools,
   children,
 }: {
-  assignedCount: number | bigint;
+  equipment: ReactNode;
   pools: ReadonlyArray<{ url: string; username: string; hasPassword?: boolean }>;
   children?: ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-6" data-dd-privacy="mask">
-      <p>{assignedCount.toString()} equipment assigned</p>
+      {equipment}
       {children}
       {pools.map((pool, index) => (
         <div key={index} className="flex flex-col gap-2 break-all">

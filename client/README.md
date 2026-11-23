@@ -118,9 +118,18 @@ containing this feature before operators can use it on-device.
 
 On a direct CT1 connection, **Settings → Pools** reads mining-group mode before
 offering container-wide edits. With groups enabled, the page uses Fleet's shared
-configuration library table and details view. It shows named configurations,
-the primary pool, backup count, and assigned equipment count. It does not list
-groups or hashboards. The table shows 25 configurations per page. **Create
+configuration library table and details view. The table shows named configurations,
+the primary pool, backup count, and assigned equipment count. It shows 25
+configurations per page. Select a row to view its assigned hashboards, pool
+settings, and recent controller update history. If the controller reports hashboards with no group
+membership, **No reported group assignment** shows the count. Select **View
+hashboards** to see their locations and MAC addresses. Select one or more
+hashboards and choose **Edit pool** to assign them. **Select all** selects all
+hashboard rows that match the search across all pages and can be assigned.
+The list shows what to check if a board cannot be assigned. If the controller
+reports missing, invalid, or duplicate board MAC addresses, the list is read-only.
+Select **Reload pools** to check the inventory again. If no saved
+configuration is available, select **New pool configuration** in the picker. **Create
 configuration** saves an unused local pool set. **Edit configuration** uses the
 same primary/backup form as Fleet. If hashboards use the configuration, review
 the changes and affected boards before saving. Existing passwords can be preserved only when the
@@ -192,8 +201,10 @@ remain in memory until their write; recovery records contain no passwords.
 Local writes are available only on direct CT1 Connect connections. The picker
 can assign the controller's Default configuration, configurations created in
 ProtoOS, and configurations without an external owner reference. A destination
-needs at least one configured pool and must preserve the selected boards' mining
-intent. Fleet-owned assignments can be moved in Fleet. You can edit their pool
+needs at least one configured pool. Assigned boards keep their mining intent.
+Boards selected from **No reported group assignment** take the destination's
+mining intent. Assigning to a running group requires confirmation. Fleet-owned
+assignments can be moved in Fleet. You can edit their pool
 configurations in ProtoOS after checking all affected hashboards. ProtoOS
 blocks moves involving custom power or tuning settings. It also blocks moves
 for isolated boards or selections that mix running and stopped boards. Each
@@ -212,7 +223,8 @@ do not prove that every board has applied the settings.
 After an interrupted activation, **Check mining** reads the original controller's
 mining state. If mining is stopped, use the controller's mining controls to resume it.
 When you select **Edit pool**, ProtoOS checks any stored attempt before opening
-the picker. It clears the record if the controller confirms the save.
+the picker. In the unassigned list, select **Done** on the recovery result to
+reload membership after a confirmed move.
 
 Fleet-hosted ProtoOS keeps its existing read-only pool view; hosted assignments
 are managed in Fleet.

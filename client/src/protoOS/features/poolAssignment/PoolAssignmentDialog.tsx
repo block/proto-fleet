@@ -52,11 +52,11 @@ export default function PoolAssignmentDialog({
   onDismiss,
   configuration,
   onConfigurationSaved,
-  onAssignmentSaved,
+  onAssignmentsChanged,
 }: {
   configuration?: LocalPoolConfiguration | "new";
   onConfigurationSaved?: () => void;
-  onAssignmentSaved?: () => void;
+  onAssignmentsChanged?: () => void;
   service: PoolAssignmentService;
   controllerId: string;
   target: PoolAssignmentTarget;
@@ -77,7 +77,7 @@ export default function PoolAssignmentDialog({
     },
     onAssignmentSaved: (status) => {
       pushToast({ message: status.message, status: STATUSES.success });
-      onAssignmentSaved?.();
+      onAssignmentsChanged?.();
       onDismiss();
     },
   });
@@ -90,6 +90,13 @@ export default function PoolAssignmentDialog({
     const settled = state.status && state.status.state !== "pending";
     const miningCheckRequired = attempt.restoreLegacyMining === true;
     const canReviewRemaining = Boolean(state.status?.remainingMacs?.length && attempt.destinationId);
+    const finishRecovery = () => {
+      if (state.busy) return;
+      state.clear();
+      if (attempt.configurationOnly) onConfigurationSaved?.();
+      else onAssignmentsChanged?.();
+      onDismiss();
+    };
     let confirm = "Check status";
     let onSubmit: () => void = state.check;
     if (miningCheckRequired) {
@@ -100,12 +107,7 @@ export default function PoolAssignmentDialog({
       onSubmit = state.reviewRemaining;
     } else if (settled) {
       confirm = "Done";
-      onSubmit = () => {
-        state.clear();
-        if (attempt.configurationOnly) onConfigurationSaved?.();
-        else if (state.status?.state === "saved") onAssignmentSaved?.();
-        onDismiss();
-      };
+      onSubmit = finishRecovery;
     }
     return (
       <ActionModal
@@ -158,14 +160,7 @@ export default function PoolAssignmentDialog({
           <Button variant="secondary" text="Check status" onClick={() => void state.check()} />
         ) : null}
         {canReviewRemaining && !miningCheckRequired ? (
-          <Button
-            variant="secondary"
-            text="Done"
-            onClick={() => {
-              state.clear();
-              close();
-            }}
-          />
+          <Button variant="secondary" text="Done" onClick={finishRecovery} />
         ) : null}
         {!attempt.configurationOnly ? (
           <PoolHashboards
@@ -180,8 +175,14 @@ export default function PoolAssignmentDialog({
   if (state.plan) {
     const plan = state.plan;
     const hashboardCount = plan.target.macs.length;
-    const hashboardLabel = hashboardCount === 1 ? "hashboard" : "hashboards";
+    const singleHashboard = hashboardCount === 1;
+    const hashboardLabel = singleHashboard ? "hashboard" : "hashboards";
+    const hashboardSubject = singleHashboard ? "This hashboard" : "These hashboards";
     const editing = plan.editingRevision && hashboardCount ? original : undefined;
+    const miningNotice =
+      plan.target.unassignedOnly && plan.mining
+        ? `${hashboardSubject} can start mining when assigned.`
+        : "Pool changes may briefly interrupt mining.";
     const title = editing
       ? "Review pool configuration changes"
       : plan.configurationOnly
@@ -191,7 +192,7 @@ export default function PoolAssignmentDialog({
       ? `Saving this change will update ${hashboardCount} ${hashboardLabel}. Pool changes may briefly interrupt mining.`
       : plan.configurationOnly
         ? `Save ${plan.name}? Hashboard assignments stay unchanged.`
-        : `Assign ${plan.name}? Pool changes may briefly interrupt mining.`;
+        : `Assign ${plan.name}? ${miningNotice}`;
     return (
       <ActionModal
         title={title}
@@ -287,6 +288,9 @@ export default function PoolAssignmentDialog({
         error={state.error}
         onRetry={() => void state.inspect()}
         configurations={options}
+        emptyMessage={
+          target.unassignedOnly ? "No saved pool configurations are available for these hashboards." : undefined
+        }
         selected={selected}
         onSelect={(option) => setSelectedId(option.configurationId)}
       />
