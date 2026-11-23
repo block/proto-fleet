@@ -145,6 +145,7 @@ function HashboardsModal({
         customSetSelectedItems={setSelection}
         activeCols={["location", "mac"]}
         colTitles={{ location: "Location", mac: "MAC address" }}
+        stickyBgColor="bg-surface-elevated-base"
         colConfig={{
           location: {
             width: "w-40 tablet:w-72",
