@@ -440,6 +440,55 @@ func (q *Queries) ListReportingAccountManagers(ctx context.Context, organization
 	return items, nil
 }
 
+const listReportingAllocatedSiteLocations = `-- name: ListReportingAllocatedSiteLocations :many
+SELECT s.id,s.timezone,s.country,s.location_state FROM site s
+WHERE s.org_id=$1 AND s.deleted_at IS NULL AND EXISTS(
+ SELECT 1 FROM hosted_account_asset_interval i WHERE i.organization_id=s.org_id AND i.site_id=s.id AND i.ended_at IS NULL
+ AND (i.client_id=$2 OR i.subclient_id=$2))
+ORDER BY s.id
+`
+
+type ListReportingAllocatedSiteLocationsParams struct {
+	OrganizationID int64
+	ClientID       int64
+}
+
+type ListReportingAllocatedSiteLocationsRow struct {
+	ID            int64
+	Timezone      sql.NullString
+	Country       string
+	LocationState sql.NullString
+}
+
+// Sites holding the client's open allocations, for assuming a reporting timezone.
+func (q *Queries) ListReportingAllocatedSiteLocations(ctx context.Context, arg ListReportingAllocatedSiteLocationsParams) ([]ListReportingAllocatedSiteLocationsRow, error) {
+	rows, err := q.query(ctx, q.listReportingAllocatedSiteLocationsStmt, listReportingAllocatedSiteLocations, arg.OrganizationID, arg.ClientID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListReportingAllocatedSiteLocationsRow
+	for rows.Next() {
+		var i ListReportingAllocatedSiteLocationsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Timezone,
+			&i.Country,
+			&i.LocationState,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listReportingAllocationIntervals = `-- name: ListReportingAllocationIntervals :many
 SELECT id, organization_id, kind, asset_id, device_id, site_id, device_identifier, client_id, subclient_id, started_at, ended_at FROM hosted_account_asset_interval
 WHERE id=ANY($1::bigint[]) AND organization_id=$2

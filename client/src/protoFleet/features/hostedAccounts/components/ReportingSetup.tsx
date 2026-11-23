@@ -3,6 +3,7 @@ import { clone, create } from "@bufbuild/protobuf";
 
 import { ACCOUNT_READ_TIMEOUT_MS, createAccountConnection, hostedAccountsClient } from "../api";
 import { reportLabel, reportPrerequisites, reportTime } from "../reportFormat";
+import { hasContractEvidence } from "../reportingInputs";
 import { useAccountQuery } from "../useAccountQuery";
 import { AccountState } from "./AccountState";
 import { ReportingError } from "./ReportingError";
@@ -25,6 +26,7 @@ import { usePermissions } from "@/protoFleet/store";
 import Button, { sizes } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import Radio from "@/shared/components/Radio";
+import Search from "@/shared/components/Search";
 import Select from "@/shared/components/Select";
 import Textarea from "@/shared/components/Textarea";
 
@@ -33,53 +35,71 @@ const prerequisiteLabels = Object.fromEntries(
   Object.entries(reportPrerequisites).map(([key, value]) => [key, value.label]),
 );
 
+// Intl.supportedValuesOf is newer than the client's TypeScript lib target.
+const timezones: string[] =
+  (Intl as typeof Intl & { supportedValuesOf?: (key: "timeZone") => string[] }).supportedValuesOf?.("timeZone") ?? [];
+const months = Array.from({ length: 12 }, (_, month) => ({
+  value: String(month + 1),
+  label: new Intl.DateTimeFormat(undefined, { month: "long", timeZone: "UTC" }).format(Date.UTC(2000, month, 1)),
+}));
+
 const ConfigurationFields = ({
   configuration,
   onChange,
   users,
   owners,
+  evidence,
   canEditRepresentatives = false,
 }: {
   configuration: ReportingConfiguration;
   onChange: (configuration: ReportingConfiguration) => void;
   users: UserChoice[];
   owners: UserChoice[];
+  /** Show the contract evidence sections beyond the timezone and reporting year. */
+  evidence: boolean;
   canEditRepresentatives?: boolean;
 }) => {
+  const [timezoneSearch, setTimezoneSearch] = useState("");
   const update = (mutate: (next: ReportingConfiguration) => void) => {
     const next = clone(ReportingConfigurationSchema, configuration);
     mutate(next);
     onChange(next);
   };
   const userOptions = users.map((user) => ({ value: user.userId, label: user.username }));
+  const timezoneQuery = timezoneSearch.trim().toLowerCase().replace(/\s+/g, "_");
+  const timezoneOptions = [...new Set([configuration.timezone, "UTC", ...timezones])]
+    .filter((zone) => zone && (zone === configuration.timezone || zone.toLowerCase().includes(timezoneQuery)))
+    .map((zone) => ({ value: zone, label: zone.replace(/_/g, " ") }));
   return (
     <>
-      <Input
-        id="report-contract"
-        label="Contract evidence reference"
-        initValue={configuration.contractRef}
-        onChange={(value) =>
-          update((next) => {
-            next.contractRef = value;
-          })
-        }
-      />
-      <Input
+      <Select
         id="report-timezone"
         label="Reporting timezone"
-        initValue={configuration.timezone}
+        placeholder="Select a timezone"
+        emptyMessage="No matching timezones"
+        value={configuration.timezone}
+        options={timezoneOptions}
         onChange={(value) =>
           update((next) => {
             next.timezone = value;
           })
         }
+        search={
+          <Search
+            id="report-timezone-search"
+            label="Search timezones"
+            variant="toolbar"
+            initValue={timezoneSearch}
+            onChange={setTimezoneSearch}
+          />
+        }
       />
       <div className="grid grid-cols-2 gap-3">
-        <Input
+        <Select
           id="report-year-month"
           label="Reporting year start month"
-          type="number"
-          initValue={configuration.reportingYearMonth}
+          value={String(configuration.reportingYearMonth)}
+          options={months}
           onChange={(value) =>
             update((next) => {
               next.reportingYearMonth = Number(value);
@@ -98,330 +118,350 @@ const ConfigurationFields = ({
           }
         />
       </div>
-      <Textarea
-        id="report-holidays"
-        label="Business calendar holidays (YYYY-MM-DD, one per line)"
-        initValue={configuration.holidays.join("\n")}
-        onChange={(value) =>
-          update((next) => {
-            next.holidays = value
-              .split(/\n/)
-              .map((day) => day.trim())
-              .filter(Boolean);
-          })
-        }
-      />
-      <Input
-        id="report-delivery-channel"
-        label="Agreed delivery channel"
-        initValue={configuration.deliveryChannel}
-        onChange={(value) =>
-          update((next) => {
-            next.deliveryChannel = value;
-          })
-        }
-      />
-      <Input
-        id="report-shared-allocation"
-        label="Shared-container allocation evidence"
-        initValue={configuration.sharedAllocationRef}
-        onChange={(value) =>
-          update((next) => {
-            next.sharedAllocationRef = value;
-          })
-        }
-      />
-      <details>
-        <summary className="cursor-pointer text-heading-100">Prerequisites</summary>
-        <div className="mt-3 flex flex-col gap-4">
-          {["G1", "G2", "G3", "G4", "G5"].map((key) => {
-            const item =
-              configuration.prerequisites.find((item) => item.key === key) ??
-              create(ReportingPrerequisiteSchema, { key });
-            const change = (patch: Partial<typeof item>) =>
+      {evidence ? (
+        <>
+          <Input
+            id="report-contract"
+            label="Contract evidence reference"
+            initValue={configuration.contractRef}
+            onChange={(value) =>
               update((next) => {
-                next.prerequisites = [...next.prerequisites.filter((item) => item.key !== key), { ...item, ...patch }];
-              });
-            return (
-              <div key={key} className="flex flex-col gap-3">
-                <ReportingCheck
-                  label={prerequisiteLabels[key]}
-                  checked={item.ready}
-                  onChange={(ready) => change({ ready })}
-                />
-                <Input
-                  id={`prereq-${key}-owner`}
-                  label="Accountable owner"
-                  initValue={item.owner}
-                  onChange={(owner) => change({ owner })}
-                />
-                <Input
-                  id={`prereq-${key}-source`}
-                  label="Approval evidence reference"
-                  initValue={item.sourceRef}
-                  onChange={(sourceRef) => change({ sourceRef })}
-                />
-              </div>
-            );
-          })}
-        </div>
-      </details>
-      <details>
-        <summary className="cursor-pointer text-heading-100">Source certification</summary>
-        <div className="mt-3 flex flex-col gap-4">
-          {configuration.sources.map((item, index) => (
-            <div key={index} className="flex flex-col gap-3">
-              <Input
-                id={`source-${index}-id`}
-                label="Source name"
-                initValue={item.id}
-                onChange={(value) =>
+                next.contractRef = value;
+              })
+            }
+          />
+          <Textarea
+            id="report-holidays"
+            label="Business calendar holidays (YYYY-MM-DD, one per line)"
+            initValue={configuration.holidays.join("\n")}
+            onChange={(value) =>
+              update((next) => {
+                next.holidays = value
+                  .split(/\n/)
+                  .map((day) => day.trim())
+                  .filter(Boolean);
+              })
+            }
+          />
+          <Input
+            id="report-delivery-channel"
+            label="Agreed delivery channel"
+            initValue={configuration.deliveryChannel}
+            onChange={(value) =>
+              update((next) => {
+                next.deliveryChannel = value;
+              })
+            }
+          />
+          <Input
+            id="report-shared-allocation"
+            label="Shared-container allocation evidence"
+            initValue={configuration.sharedAllocationRef}
+            onChange={(value) =>
+              update((next) => {
+                next.sharedAllocationRef = value;
+              })
+            }
+          />
+          <details>
+            <summary className="cursor-pointer text-heading-100">Prerequisites</summary>
+            <div className="mt-3 flex flex-col gap-4">
+              {["G1", "G2", "G3", "G4", "G5"].map((key) => {
+                const item =
+                  configuration.prerequisites.find((item) => item.key === key) ??
+                  create(ReportingPrerequisiteSchema, { key });
+                const change = (patch: Partial<typeof item>) =>
                   update((next) => {
-                    next.sources[index].id = value;
-                  })
-                }
-              />
-              <Select
-                id={`source-${index}-metric`}
-                label="Measure"
-                value={item.metric}
-                options={["meter", "pool", "hashrate", "host"].map((value) => ({ value, label: reportLabel(value) }))}
-                onChange={(value) =>
-                  update((next) => {
-                    next.sources[index].metric = value;
-                  })
-                }
-              />
-              <ReportingCheck
-                label="Certified"
-                checked={item.certified}
-                onChange={(value) =>
-                  update((next) => {
-                    next.sources[index].certified = value;
-                  })
-                }
-              />
-              <Input
-                id={`source-${index}-ref`}
-                label="Certification evidence reference"
-                initValue={item.sourceRef}
-                onChange={(value) =>
-                  update((next) => {
-                    next.sources[index].sourceRef = value;
-                  })
-                }
-              />
-              <Button
-                variant="textOnly"
-                text="Remove source"
-                onClick={() =>
-                  update((next) => {
-                    next.sources.splice(index, 1);
-                  })
-                }
-              />
+                    next.prerequisites = [
+                      ...next.prerequisites.filter((item) => item.key !== key),
+                      { ...item, ...patch },
+                    ];
+                  });
+                return (
+                  <div key={key} className="flex flex-col gap-3">
+                    <ReportingCheck
+                      label={prerequisiteLabels[key]}
+                      checked={item.ready}
+                      onChange={(ready) => change({ ready })}
+                    />
+                    <Input
+                      id={`prereq-${key}-owner`}
+                      label="Accountable owner"
+                      initValue={item.owner}
+                      onChange={(owner) => change({ owner })}
+                    />
+                    <Input
+                      id={`prereq-${key}-source`}
+                      label="Approval evidence reference"
+                      initValue={item.sourceRef}
+                      onChange={(sourceRef) => change({ sourceRef })}
+                    />
+                  </div>
+                );
+              })}
             </div>
-          ))}
-          <Button
-            variant="secondary"
-            text="Add source"
-            onClick={() =>
-              update((next) => {
-                next.sources.push(create(ReportingSourceSchema, { metric: "host" }));
-              })
-            }
-          />
-        </div>
-      </details>
-      <details>
-        <summary className="cursor-pointer text-heading-100">Authorized representatives</summary>
-        {!canEditRepresentatives ? (
-          <p className="mt-3 text-200 text-text-primary-70">
-            Team management access is required to change representatives.
-          </p>
-        ) : null}
-        <fieldset disabled={!canEditRepresentatives} className="mt-3 flex flex-col gap-4">
-          {configuration.representatives.map((item, index) => (
-            <div key={index} className="flex flex-col gap-3">
-              <Select
-                id={`representative-${index}`}
-                label="Representative"
-                value={item.userId}
-                options={userOptions}
-                placeholder="Existing representative"
-                disabled={!canEditRepresentatives}
-                onChange={(value) =>
-                  update((next) => {
-                    next.representatives[index].userId = value;
-                  })
-                }
-              />
-              <ReportingCheck
-                label="Contractual submission authority"
-                checked={item.canSubmit}
-                onChange={(value) =>
-                  update((next) => {
-                    next.representatives[index].canSubmit = value;
-                  })
-                }
-              />
-              <Input
-                id={`representative-${index}-ref`}
-                label="Authority evidence reference"
-                initValue={item.sourceRef}
-                onChange={(value) =>
-                  update((next) => {
-                    next.representatives[index].sourceRef = value;
-                  })
-                }
-              />
-              <Button
-                variant="textOnly"
-                text="Remove representative"
-                onClick={() =>
-                  update((next) => {
-                    next.representatives.splice(index, 1);
-                  })
-                }
-              />
-            </div>
-          ))}
-          <Button
-            variant="secondary"
-            text="Add representative"
-            disabled={!users.length}
-            onClick={() =>
-              update((next) => {
-                next.representatives.push(create(ReportingRepresentativeSchema, { userId: users[0].userId }));
-              })
-            }
-          />
-        </fieldset>
-      </details>
-      <details>
-        <summary className="cursor-pointer text-heading-100">Register completeness</summary>
-        <div className="mt-3 flex flex-col gap-4">
-          {configuration.registers.map((item, index) => (
-            <div key={index} className="flex flex-col gap-3">
-              <Select
-                id={`register-${index}`}
-                label="Register"
-                value={item.kind}
-                options={["incidents", "obligations", "fees", "pool", "hashrate", "coverage"].map((value) => ({
-                  value,
-                  label: reportLabel(value),
-                }))}
-                onChange={(value) =>
-                  update((next) => {
-                    next.registers[index].kind = value;
-                  })
-                }
-              />
-              <ReportingDate
-                id={`register-${index}-start`}
-                label="Complete from"
-                value={item.start}
-                onChange={(value) =>
-                  update((next) => {
-                    next.registers[index].start = value;
-                  })
-                }
-              />
-              <ReportingDate
-                id={`register-${index}-end`}
-                label="Complete until"
-                value={item.end}
-                onChange={(value) =>
-                  update((next) => {
-                    next.registers[index].end = value;
-                  })
-                }
-              />
-              <Input
-                id={`register-${index}-ref`}
-                label="Completeness evidence reference"
-                initValue={item.sourceRef}
-                onChange={(value) =>
-                  update((next) => {
-                    next.registers[index].sourceRef = value;
-                  })
-                }
-              />
-              <Button
-                variant="textOnly"
-                text="Remove completeness period"
-                onClick={() =>
-                  update((next) => {
-                    next.registers.splice(index, 1);
-                  })
-                }
-              />
-            </div>
-          ))}
-          <Button
-            variant="secondary"
-            text="Add completeness period"
-            onClick={() =>
-              update((next) => {
-                next.registers.push(create(ReportingRegisterCompletenessSchema, { kind: "coverage" }));
-              })
-            }
-          />
-        </div>
-      </details>
-      <details>
-        <summary className="cursor-pointer text-heading-100">Reporting schedule</summary>
-        <div className="mt-3 flex flex-col gap-3">
-          <ReportingCheck
-            label="Schedule recurring reports"
-            checked={!!configuration.schedule}
-            onChange={(checked) =>
-              update((next) => {
-                next.schedule = checked ? create(ReportingScheduleSchema) : undefined;
-              })
-            }
-          />
-          {configuration.schedule ? (
-            <>
-              <Select
-                id="schedule-owner"
-                label="Reporting owner"
-                value={configuration.schedule.ownerUserId}
-                options={owners.map((owner) => ({ value: owner.userId, label: owner.username }))}
-                onChange={(value) =>
-                  update((next) => {
-                    next.schedule!.ownerUserId = value;
-                  })
-                }
-              />
-              <Input
-                id="schedule-ref"
-                label="Schedule evidence reference"
-                initValue={configuration.schedule.sourceRef}
-                onChange={(value) =>
-                  update((next) => {
-                    next.schedule!.sourceRef = value;
-                  })
-                }
-              />
-              {(["monthlyStart", "quarterlyStart", "annualStart"] as const).map((field) => (
-                <ReportingDate
-                  key={field}
-                  id={`schedule-${field}`}
-                  timezone={configuration.timezone || "UTC"}
-                  label={reportLabel(field)}
-                  value={configuration.schedule?.[field]}
-                  onChange={(value) =>
-                    update((next) => {
-                      next.schedule![field] = value;
-                    })
-                  }
-                />
+          </details>
+          <details>
+            <summary className="cursor-pointer text-heading-100">Source certification</summary>
+            <div className="mt-3 flex flex-col gap-4">
+              {configuration.sources.map((item, index) => (
+                <div key={index} className="flex flex-col gap-3">
+                  <Input
+                    id={`source-${index}-id`}
+                    label="Source name"
+                    initValue={item.id}
+                    onChange={(value) =>
+                      update((next) => {
+                        next.sources[index].id = value;
+                      })
+                    }
+                  />
+                  <Select
+                    id={`source-${index}-metric`}
+                    label="Measure"
+                    value={item.metric}
+                    options={["meter", "pool", "hashrate", "host"].map((value) => ({
+                      value,
+                      label: reportLabel(value),
+                    }))}
+                    onChange={(value) =>
+                      update((next) => {
+                        next.sources[index].metric = value;
+                      })
+                    }
+                  />
+                  <ReportingCheck
+                    label="Certified"
+                    checked={item.certified}
+                    onChange={(value) =>
+                      update((next) => {
+                        next.sources[index].certified = value;
+                      })
+                    }
+                  />
+                  <Input
+                    id={`source-${index}-ref`}
+                    label="Certification evidence reference"
+                    initValue={item.sourceRef}
+                    onChange={(value) =>
+                      update((next) => {
+                        next.sources[index].sourceRef = value;
+                      })
+                    }
+                  />
+                  <Button
+                    variant="textOnly"
+                    text="Remove source"
+                    onClick={() =>
+                      update((next) => {
+                        next.sources.splice(index, 1);
+                      })
+                    }
+                  />
+                </div>
               ))}
-            </>
-          ) : null}
-        </div>
-      </details>
+              <Button
+                variant="secondary"
+                text="Add source"
+                onClick={() =>
+                  update((next) => {
+                    next.sources.push(create(ReportingSourceSchema, { metric: "host" }));
+                  })
+                }
+              />
+            </div>
+          </details>
+          <details>
+            <summary className="cursor-pointer text-heading-100">Authorized representatives</summary>
+            {!canEditRepresentatives ? (
+              <p className="mt-3 text-200 text-text-primary-70">
+                Team management access is required to change representatives.
+              </p>
+            ) : null}
+            <fieldset disabled={!canEditRepresentatives} className="mt-3 flex flex-col gap-4">
+              {configuration.representatives.map((item, index) => (
+                <div key={index} className="flex flex-col gap-3">
+                  <Select
+                    id={`representative-${index}`}
+                    label="Representative"
+                    value={item.userId}
+                    options={userOptions}
+                    placeholder="Existing representative"
+                    disabled={!canEditRepresentatives}
+                    onChange={(value) =>
+                      update((next) => {
+                        next.representatives[index].userId = value;
+                      })
+                    }
+                  />
+                  <ReportingCheck
+                    label="Contractual submission authority"
+                    checked={item.canSubmit}
+                    onChange={(value) =>
+                      update((next) => {
+                        next.representatives[index].canSubmit = value;
+                      })
+                    }
+                  />
+                  <Input
+                    id={`representative-${index}-ref`}
+                    label="Authority evidence reference"
+                    initValue={item.sourceRef}
+                    onChange={(value) =>
+                      update((next) => {
+                        next.representatives[index].sourceRef = value;
+                      })
+                    }
+                  />
+                  <Button
+                    variant="textOnly"
+                    text="Remove representative"
+                    onClick={() =>
+                      update((next) => {
+                        next.representatives.splice(index, 1);
+                      })
+                    }
+                  />
+                </div>
+              ))}
+              <Button
+                variant="secondary"
+                text="Add representative"
+                disabled={!users.length}
+                onClick={() =>
+                  update((next) => {
+                    next.representatives.push(create(ReportingRepresentativeSchema, { userId: users[0].userId }));
+                  })
+                }
+              />
+            </fieldset>
+          </details>
+          <details>
+            <summary className="cursor-pointer text-heading-100">Register completeness</summary>
+            <div className="mt-3 flex flex-col gap-4">
+              {configuration.registers.map((item, index) => (
+                <div key={index} className="flex flex-col gap-3">
+                  <Select
+                    id={`register-${index}`}
+                    label="Register"
+                    value={item.kind}
+                    options={["incidents", "obligations", "fees", "pool", "hashrate", "coverage"].map((value) => ({
+                      value,
+                      label: reportLabel(value),
+                    }))}
+                    onChange={(value) =>
+                      update((next) => {
+                        next.registers[index].kind = value;
+                      })
+                    }
+                  />
+                  <ReportingDate
+                    id={`register-${index}-start`}
+                    label="Complete from"
+                    value={item.start}
+                    onChange={(value) =>
+                      update((next) => {
+                        next.registers[index].start = value;
+                      })
+                    }
+                  />
+                  <ReportingDate
+                    id={`register-${index}-end`}
+                    label="Complete until"
+                    value={item.end}
+                    onChange={(value) =>
+                      update((next) => {
+                        next.registers[index].end = value;
+                      })
+                    }
+                  />
+                  <Input
+                    id={`register-${index}-ref`}
+                    label="Completeness evidence reference"
+                    initValue={item.sourceRef}
+                    onChange={(value) =>
+                      update((next) => {
+                        next.registers[index].sourceRef = value;
+                      })
+                    }
+                  />
+                  <Button
+                    variant="textOnly"
+                    text="Remove completeness period"
+                    onClick={() =>
+                      update((next) => {
+                        next.registers.splice(index, 1);
+                      })
+                    }
+                  />
+                </div>
+              ))}
+              <Button
+                variant="secondary"
+                text="Add completeness period"
+                onClick={() =>
+                  update((next) => {
+                    next.registers.push(create(ReportingRegisterCompletenessSchema, { kind: "coverage" }));
+                  })
+                }
+              />
+            </div>
+          </details>
+          <details>
+            <summary className="cursor-pointer text-heading-100">Reporting schedule</summary>
+            <div className="mt-3 flex flex-col gap-3">
+              <ReportingCheck
+                label="Schedule recurring reports"
+                checked={!!configuration.schedule}
+                onChange={(checked) =>
+                  update((next) => {
+                    next.schedule = checked ? create(ReportingScheduleSchema) : undefined;
+                  })
+                }
+              />
+              {configuration.schedule ? (
+                <>
+                  <Select
+                    id="schedule-owner"
+                    label="Reporting owner"
+                    value={configuration.schedule.ownerUserId}
+                    options={owners.map((owner) => ({ value: owner.userId, label: owner.username }))}
+                    onChange={(value) =>
+                      update((next) => {
+                        next.schedule!.ownerUserId = value;
+                      })
+                    }
+                  />
+                  <Input
+                    id="schedule-ref"
+                    label="Schedule evidence reference"
+                    initValue={configuration.schedule.sourceRef}
+                    onChange={(value) =>
+                      update((next) => {
+                        next.schedule!.sourceRef = value;
+                      })
+                    }
+                  />
+                  {(["monthlyStart", "quarterlyStart", "annualStart"] as const).map((field) => (
+                    <ReportingDate
+                      key={field}
+                      id={`schedule-${field}`}
+                      timezone={configuration.timezone || "UTC"}
+                      label={reportLabel(field)}
+                      value={configuration.schedule?.[field]}
+                      onChange={(value) =>
+                        update((next) => {
+                          next.schedule![field] = value;
+                        })
+                      }
+                    />
+                  ))}
+                </>
+              ) : null}
+            </div>
+          </details>
+        </>
+      ) : null}
     </>
   );
 };
@@ -440,6 +480,7 @@ const ReportingSetup = ({
   const sites = siteCatalog?.sites ?? [];
   const [action, setAction] = useState<"configuration" | "authority" | null>(null);
   const [sourceRef, setSourceRef] = useState("");
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
   const original =
     setup.input?.configuration ?? create(ReportingConfigurationSchema, { reportingYearMonth: 1, reportingYearDay: 1 });
   const [draft, setDraft] = useState(() => clone(ReportingConfigurationSchema, original));
@@ -481,13 +522,15 @@ const ReportingSetup = ({
   const members = membersQuery.data?.members ?? [];
   const canEditRepresentatives = setup.canManageRepresentatives && !!membersQuery.data && !membersQuery.error;
   const config = setup.input?.configuration;
-  const configurationValid = Boolean(sourceRef.trim() && draft.timezone.trim());
+  const evidenceRecorded = hasContractEvidence(config);
+  const configurationValid = Boolean(draft.timezone.trim() && (sourceRef.trim() || !hasContractEvidence(draft)));
   const authorityValid = Boolean(userId && (allSites || siteIds.length > 0 || !canCreate));
   const open = (nextAction: typeof action) => {
     setDraft(clone(ReportingConfigurationSchema, original));
     setDraftRevision(setup.input?.revision ?? 0n);
     setDraftRepresentatives(clone(ReportingConfigurationSchema, original).representatives);
     setSourceRef("");
+    setEvidenceOpen(hasContractEvidence(original));
     setAction(nextAction);
   };
   const dismiss = () => setAction(null);
@@ -530,7 +573,9 @@ const ReportingSetup = ({
           ) : null}
         </div>
       </div>
-      {!setup.input ? <p>No reporting inputs.</p> : null}
+      {setup.canCreate && !setup.input ? (
+        <p>Fleet could not assume a reporting timezone from this account's sites. Choose one to start reporting.</p>
+      ) : null}
       {setup.capture.length ? (
         <details>
           <summary className="cursor-pointer">Preserved source coverage</summary>
@@ -568,9 +613,10 @@ const ReportingSetup = ({
           <p>
             {config.timezone || "Timezone unavailable"} · Reporting year starts {config.reportingYearMonth}/
             {config.reportingYearDay}
+            {setup.input?.revision ? "" : " · Assumed from this account's sites"}
           </p>
-          <p>Evidence: {setup.input?.sourceRef || "Unavailable"}</p>
-          {Object.keys(prerequisiteLabels)
+          {evidenceRecorded ? <p>Evidence: {setup.input?.sourceRef || "Unavailable"}</p> : null}
+          {(evidenceRecorded ? Object.keys(prerequisiteLabels) : [])
             .map(
               (key) =>
                 config.prerequisites.find((item) => item.key === key) ?? create(ReportingPrerequisiteSchema, { key }),
@@ -582,7 +628,7 @@ const ReportingSetup = ({
                 {item.sourceRef ? ` · ${item.sourceRef}` : ""}
               </p>
             ))}
-          <details>
+          <details hidden={!evidenceRecorded}>
             <summary className="cursor-pointer">Configuration and evidence</summary>
             <dl className="mt-3 flex flex-col gap-2">
               <div>Contract: {config.contractRef || "Unavailable"}</div>
@@ -614,7 +660,9 @@ const ReportingSetup = ({
               ))}
             </dl>
           </details>
-          {setup.canCreate ? <ReportingRegisters setup={setup} signal={signal} onChanged={onChanged} /> : null}
+          {setup.canCreate && setup.input?.revision ? (
+            <ReportingRegisters setup={setup} signal={signal} onChanged={onChanged} />
+          ) : null}
         </>
       ) : null}
       {action === "configuration" ? (
@@ -632,17 +680,30 @@ const ReportingSetup = ({
             users={members}
             canEditRepresentatives={canEditRepresentatives}
             owners={setup.owners}
+            evidence={evidenceOpen}
             onChange={setDraft}
           />
-          {setup.canManageRepresentatives ? (
-            <AccountState loading={membersQuery.loading} error={membersQuery.error} retry={membersQuery.refresh} />
-          ) : null}
-          <Input
-            id="configuration-evidence"
-            label="Change evidence reference"
-            initValue={sourceRef}
-            onChange={setSourceRef}
-          />
+          {evidenceOpen ? (
+            <>
+              {setup.canManageRepresentatives ? (
+                <AccountState loading={membersQuery.loading} error={membersQuery.error} retry={membersQuery.refresh} />
+              ) : null}
+              <Input
+                id="configuration-evidence"
+                label="Change evidence reference"
+                initValue={sourceRef}
+                onChange={setSourceRef}
+              />
+            </>
+          ) : (
+            <div className="flex flex-col items-start gap-2">
+              <p className="text-200 text-text-primary-70">
+                Reports run on these settings. Figures that depend on a client agreement stay provisional until its
+                evidence is recorded.
+              </p>
+              <Button variant="secondary" text="Add contract evidence" onClick={() => setEvidenceOpen(true)} />
+            </div>
+          )}
         </ReportingForm>
       ) : null}
       {action === "authority" ? (

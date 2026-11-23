@@ -76,6 +76,14 @@ SELECT * FROM hosted_account_asset_interval
 WHERE id=ANY(sqlc.arg(ids)::bigint[]) AND organization_id=sqlc.arg(organization_id)
  AND (client_id=sqlc.arg(client_id) OR subclient_id=sqlc.arg(client_id)) ORDER BY id;
 
+-- name: ListReportingAllocatedSiteLocations :many
+-- Sites holding the client's open allocations, for assuming a reporting timezone.
+SELECT s.id,s.timezone,s.country,s.location_state FROM site s
+WHERE s.org_id=sqlc.arg(organization_id) AND s.deleted_at IS NULL AND EXISTS(
+ SELECT 1 FROM hosted_account_asset_interval i WHERE i.organization_id=s.org_id AND i.site_id=s.id AND i.ended_at IS NULL
+ AND (i.client_id=sqlc.arg(client_id) OR i.subclient_id=sqlc.arg(client_id)))
+ORDER BY s.id;
+
 -- name: ListReportingSites :many
 SELECT id,deleted_at FROM site WHERE id=ANY(sqlc.arg(ids)::bigint[]) AND org_id=sqlc.arg(org_id) ORDER BY id;
 

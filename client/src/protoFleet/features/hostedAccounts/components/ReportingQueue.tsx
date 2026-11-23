@@ -790,7 +790,7 @@ const ReportingAccount = ({
               </div>
               {setup.canCreate && !setup.input ? (
                 <p>
-                  Save reporting inputs in{" "}
+                  Choose a reporting timezone in{" "}
                   <Link
                     className="underline"
                     to={{ search: new URLSearchParams({ account: accountId, view: "settings" }).toString() }}

@@ -466,7 +466,7 @@ describe("reporting access and recorded requests", () => {
     const prepared = within(screen.getByRole("region", { name: "Prepared reports" }));
     await user.click(prepared.getByRole("link", { name: "Reporting settings" }));
     expect(await screen.findByRole("region", { name: "Reporting setup" })).toBeInTheDocument();
-    expect(screen.getByText("No reporting inputs.")).toBeInTheDocument();
+    expect(screen.getByText(/Fleet could not assume a reporting timezone/)).toBeInTheDocument();
   });
 
   it("loads request history one page at a time", async () => {

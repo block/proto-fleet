@@ -382,6 +382,7 @@ message ReportingRegisterCount {
   int64 count = 2 [(buf.validate.field).int64.gte = 0];
 }
 message HostReportingInputsMetadata {
+  // Zero marks assumed defaults that have not been saved.
   int64 revision = 1;
   ReportingConfiguration configuration = 2;
   string source_ref = 3;
@@ -460,7 +461,8 @@ message MutateHostReportingInputsRequest {
   option (buf.validate.message).cel = {id: "reporting_operations", message: "configuration or fact changes are required", expression: "has(this.configuration) || size(this.mutations) > 0"};
   string account_id = 1 [(buf.validate.field).string.uuid = true];
   int64 expected_revision = 2 [(buf.validate.field).int64.gte = 0];
-  string source_ref = 3 [(buf.validate.field).string = {min_len: 1, max_bytes: 2000}];
+  // Required for fact changes and contract evidence; the server derives a reference for other settings.
+  string source_ref = 3 [(buf.validate.field).string.max_bytes = 2000];
   ReportingConfiguration configuration = 4;
   repeated ReportingFactMutation mutations = 5 [(buf.validate.field).repeated.max_items = 200];
 }
@@ -482,7 +484,8 @@ message ListHostReportingFactsResponse {
 message PrepareHostReportRequest {
   string account_id = 1 [(buf.validate.field).string.uuid = true];
   ReportingPeriod period = 2 [(buf.validate.field).required = true];
-  int64 input_revision = 3 [(buf.validate.field).int64.gt = 0];
+  // Zero accepts the assumed defaults of an account without saved reporting inputs.
+  int64 input_revision = 3 [(buf.validate.field).int64.gte = 0];
   optional string report_id = 4 [(buf.validate.field).string.uuid = true];
   int64 expected_revision = 5 [(buf.validate.field).int64.gte = 0];
   optional string correction_of = 6 [(buf.validate.field).string.uuid = true];

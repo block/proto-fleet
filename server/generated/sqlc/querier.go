@@ -2030,6 +2030,8 @@ type Querier interface {
 	ListRepairTickets(ctx context.Context, arg ListRepairTicketsParams) ([]ListRepairTicketsRow, error)
 	// Without a stored grant, account managers hold implicit all-site reporting authority.
 	ListReportingAccountManagers(ctx context.Context, organizationID int64) ([]ListReportingAccountManagersRow, error)
+	// Sites holding the client's open allocations, for assuming a reporting timezone.
+	ListReportingAllocatedSiteLocations(ctx context.Context, arg ListReportingAllocatedSiteLocationsParams) ([]ListReportingAllocatedSiteLocationsRow, error)
 	ListReportingAllocationIntervals(ctx context.Context, arg ListReportingAllocationIntervalsParams) ([]HostedAccountAssetInterval, error)
 	ListReportingAssetSupportMetadata(ctx context.Context, arg ListReportingAssetSupportMetadataParams) ([]ListReportingAssetSupportMetadataRow, error)
 	ListReportingAuthorities(ctx context.Context, arg ListReportingAuthoritiesParams) ([]ListReportingAuthoritiesRow, error)

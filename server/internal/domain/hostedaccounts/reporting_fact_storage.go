@@ -68,8 +68,9 @@ func (s *Service) ReportingInputsMetadata(ctx context.Context, actorID, orgID in
 
 func (s *Service) MutateReportingInputs(ctx context.Context, actorID, orgID int64, accountID string, expected int64, source string, configuration *reporting.Configuration, mutations []reporting.FactMutation) (ReportingInputsMetadata, error) {
 	var zero ReportingInputsMetadata
-	if expected < 0 || strings.TrimSpace(source) == "" || len(source) > 2000 {
-		return zero, fleeterror.NewInvalidArgumentError("input source evidence and revision are required")
+	source = strings.TrimSpace(source)
+	if expected < 0 || len(source) > 2000 {
+		return zero, fleeterror.NewInvalidArgumentError("invalid input source evidence or revision")
 	}
 	ctx, cancel := context.WithTimeout(ctx, miningTransactionTimeout)
 	defer cancel()
@@ -108,6 +109,12 @@ func (s *Service) MutateReportingInputs(ctx context.Context, actorID, orgID int6
 		}
 		if e = reporting.ValidateConfigurationContext(ctx, config); e != nil {
 			return zero, fleeterror.NewInvalidArgumentError(e.Error())
+		}
+		if source == "" {
+			if len(prepared) > 0 || config.ContractEvidence() {
+				return zero, fleeterror.NewInvalidArgumentError("contract evidence and register changes require a source reference")
+			}
+			source = reportingSettingsSource
 		}
 		if !sameReportingRepresentatives(priorConfig.Representatives, config.Representatives) {
 			allowed, err := reportingRepresentativeAuthority(ctx, q, actorID, orgID, accountID)
@@ -167,7 +174,7 @@ func (s *Service) MutateReportingInputs(ctx context.Context, actorID, orgID int6
 			}
 		}
 		if absent {
-			inserted, e := q.InitializeReportingInputs(ctx, sqlc.InitializeReportingInputsParams{OrganizationID: orgID, AccountID: a.account.ID, UpdatedBy: actorID, SourceRef: strings.TrimSpace(source), Configuration: configJSON})
+			inserted, e := q.InitializeReportingInputs(ctx, sqlc.InitializeReportingInputsParams{OrganizationID: orgID, AccountID: a.account.ID, UpdatedBy: actorID, SourceRef: source, Configuration: configJSON})
 			if e != nil {
 				return zero, e
 			}
@@ -262,7 +269,7 @@ func (s *Service) MutateReportingInputs(ctx context.Context, actorID, orgID int6
 				}
 			}
 		}
-		row, e := q.UpdateReportingInputs(ctx, sqlc.UpdateReportingInputsParams{OrganizationID: orgID, AccountID: a.account.ID, Revision: expected + 1, UpdatedBy: actorID, SourceRef: strings.TrimSpace(source), Configuration: configJSON, SiteIds: sites})
+		row, e := q.UpdateReportingInputs(ctx, sqlc.UpdateReportingInputsParams{OrganizationID: orgID, AccountID: a.account.ID, Revision: expected + 1, UpdatedBy: actorID, SourceRef: source, Configuration: configJSON, SiteIds: sites})
 		if e != nil {
 			return zero, e
 		}
@@ -281,7 +288,7 @@ func (s *Service) MutateReportingInputs(ctx context.Context, actorID, orgID int6
 		}
 		slices.Sort(sections)
 		sections = slices.Compact(sections)
-		if e = audit(ctx, q, a.actor, a.account, "save_reporting_inputs", map[string]any{"revision": out.Revision, "previous_revision": expected, "changed_sections": sections, "register_counts": out.RegisterCounts, "source_ref": strings.TrimSpace(source)}); e != nil {
+		if e = audit(ctx, q, a.actor, a.account, "save_reporting_inputs", map[string]any{"revision": out.Revision, "previous_revision": expected, "changed_sections": sections, "register_counts": out.RegisterCounts, "source_ref": source}); e != nil {
 			return zero, e
 		}
 		return out, nil

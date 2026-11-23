@@ -479,6 +479,16 @@ func (s *Service) HostReportingSetup(ctx context.Context, actorID, orgID int64, 
 				}
 				out.Input = &input
 			}
+			if err != nil {
+				// Nothing saved yet: offer the assumed defaults at revision zero.
+				config, ok, err := assumedReportingConfiguration(ctx, q, a)
+				if err != nil {
+					return out, err
+				}
+				if ok {
+					out.Input = &ReportingInputsMetadata{Configuration: config, SiteIDs: []int64{}, RegisterCounts: map[reporting.FactKind]int64{}}
+				}
+			}
 			streams, err := q.ListReportingCaptureStreams(ctx, sqlc.ListReportingCaptureStreamsParams{OrganizationID: orgID, ClientID: a.account.ID})
 			if err != nil {
 				return out, err

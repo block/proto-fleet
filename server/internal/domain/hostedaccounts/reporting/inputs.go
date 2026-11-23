@@ -86,6 +86,17 @@ type Representative struct {
 	SourceRef string `json:"sourceRef"`
 }
 
+// ContractEvidence reports whether the configuration records anything reviewed
+// against a client agreement. The timezone and reporting-year start are plain
+// settings Fleet can assume; everything else needs a supporting reference.
+// Must stay in sync with hasContractEvidence in
+// client/src/protoFleet/features/hostedAccounts/reportingInputs.ts.
+func (c Configuration) ContractEvidence() bool {
+	present := func(value string) bool { return strings.TrimSpace(value) != "" }
+	return c.Schedule != nil || len(c.Registers)+len(c.Holidays)+len(c.Prerequisites)+len(c.Sources)+len(c.Representatives) > 0 ||
+		present(c.ContractRef) || present(c.DeliveryChannel) || present(c.SharedAllocationRef)
+}
+
 func (c Configuration) Ready(key string) bool {
 	for _, g := range c.Prerequisites {
 		if g.Key == key {

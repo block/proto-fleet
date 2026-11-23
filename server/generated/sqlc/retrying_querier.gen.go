@@ -9818,6 +9818,18 @@ func (q *retryingQuerier) ListReportingAccountManagers(ctx context.Context, orga
 	return result, err
 }
 
+func (q *retryingQuerier) ListReportingAllocatedSiteLocations(ctx context.Context, arg ListReportingAllocatedSiteLocationsParams) ([]ListReportingAllocatedSiteLocationsRow, error) {
+	var result []ListReportingAllocatedSiteLocationsRow
+	err := q.retrier.RetryQuery(ctx, "ListReportingAllocatedSiteLocations", func() error {
+		callResult, callErr := q.next.ListReportingAllocatedSiteLocations(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListReportingAllocationIntervals(ctx context.Context, arg ListReportingAllocationIntervalsParams) ([]HostedAccountAssetInterval, error) {
 	var result []HostedAccountAssetInterval
 	err := q.retrier.RetryQuery(ctx, "ListReportingAllocationIntervals", func() error {

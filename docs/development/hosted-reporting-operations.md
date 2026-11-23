@@ -78,8 +78,20 @@ file in JavaScript. Prior sampled workloads do not establish this browser policy
 or large-download delivery acceptance; G4 commissioning must exercise the intended
 browsers, artifact sizes, memory behavior and complete digest-verified delivery.
 
-Record the agreement reference, IANA timezone, reporting-year boundary, holidays,
-source identities and representative evidence. Schedule starts are explicit first
+An account needs no reporting setup. Until a host saves inputs, Fleet assumes a
+calendar year in the timezone of every site that holds the account's open
+allocations. When the host creates the first report, Fleet saves that
+configuration as the first input revision. When those sites do not resolve to one timezone, choose
+it in reporting settings first. Fleet infers a missing site timezone from the
+site's country and state. Some states span two zones, so check the assumed
+timezone before you create the first report. Assumed settings record no contract evidence, so
+every gated figure stays provisional.
+
+Contract evidence is optional and added from the same settings. Changing only
+the timezone or reporting-year boundary needs no source reference; any
+configuration holding contract evidence, and every register change, does.
+Record the agreement reference, holidays, source identities and representative
+evidence. Schedule starts are explicit first
 required monthly, quarterly and annual periods, with a reporting owner and
 supporting calendar reference. An omitted cadence is not inferred from an
 allocation date. Check each configuration revision against its source before saving.

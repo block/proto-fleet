@@ -226,6 +226,54 @@ it("drops pending representative edits after live team-management authority is r
   expect(proposal.mock.calls[0][0].configuration?.representatives).toEqual(setup.input!.configuration!.representatives);
 });
 
+it("offers assumed defaults as a short form and saves them without an evidence reference", async () => {
+  const user = userEvent.setup();
+  const facts = vi.mocked(hostedAccountsClient.listHostReportingFacts);
+  const proposal = vi
+    .spyOn(hostedAccountsClient, "mutateHostReportingInputs")
+    .mockResolvedValue(create(MutateHostReportingInputsResponseSchema));
+  const setup = create(HostReportingSetupSchema, {
+    accountId: "selected-client",
+    canCreate: true,
+    input: { configuration: { timezone: "America/Chicago", reportingYearMonth: 1, reportingYearDay: 1 } },
+  });
+  render(<ReportingSetup setup={setup} signal={new AbortController().signal} onChanged={vi.fn()} />);
+  expect(screen.getByText(/America\/Chicago.*Assumed from this account's sites/)).toBeInTheDocument();
+  expect(screen.queryByText(/^Evidence:/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/pending/)).not.toBeInTheDocument();
+  expect(facts).not.toHaveBeenCalled();
+
+  await user.click(screen.getByRole("button", { name: "Edit reporting configuration" }));
+  const form = within(screen.getByRole("dialog", { name: "Edit reporting configuration" }));
+  expect(form.getByRole("button", { name: "Reporting timezone" })).toHaveTextContent("America/Chicago");
+  expect(form.queryByLabelText("Contract evidence reference")).not.toBeInTheDocument();
+  expect(form.queryByLabelText("Change evidence reference")).not.toBeInTheDocument();
+  expect(form.queryByText("Prerequisites")).not.toBeInTheDocument();
+  await user.click(form.getByRole("button", { name: "Save inputs" }));
+  await waitFor(() => expect(proposal).toHaveBeenCalledTimes(1));
+  expect(proposal.mock.calls[0][0]).toMatchObject({ expectedRevision: 0n, sourceRef: "" });
+  expect(proposal.mock.calls[0][0].configuration).toMatchObject({ timezone: "America/Chicago", prerequisites: [] });
+});
+
+it("requires an evidence reference once contract evidence is added", async () => {
+  const user = userEvent.setup();
+  const setup = create(HostReportingSetupSchema, {
+    accountId: "selected-client",
+    canCreate: true,
+    input: { revision: 2n, configuration: { timezone: "UTC", reportingYearMonth: 1, reportingYearDay: 1 } },
+  });
+  render(<ReportingSetup setup={setup} signal={new AbortController().signal} onChanged={vi.fn()} />);
+  await user.click(screen.getByRole("button", { name: "Edit reporting configuration" }));
+  const form = within(screen.getByRole("dialog", { name: "Edit reporting configuration" }));
+  await user.click(form.getByRole("button", { name: "Add contract evidence" }));
+  expect(form.getByText("Prerequisites")).toBeInTheDocument();
+  expect(form.getByRole("button", { name: "Save inputs" })).toBeEnabled();
+  await user.type(form.getByLabelText("Contract evidence reference"), "MSA-12");
+  expect(form.getByRole("button", { name: "Save inputs" })).toBeDisabled();
+  await user.type(form.getByLabelText("Change evidence reference"), "Signed agreement");
+  expect(form.getByRole("button", { name: "Save inputs" })).toBeEnabled();
+});
+
 it("saves configuration alone against the revision captured when its form opened", async () => {
   const user = userEvent.setup();
   const proposal = vi
