@@ -976,10 +976,10 @@ func reportFromDiscovered(dev *discoverymodels.DiscoveredDevice, ip, port string
 		RpcTls:           dev.GetRpcTls(),
 		Endpoints:        dev.GetEndpoints(),
 		DriverName:       dev.GetDriverName(),
-		Model:            dev.GetModel(),
+		Model:            truncateUTF8(dev.GetModel(), maxPairIdentityBytes),
 		DeviceClass:      dev.GetDeviceClass(),
-		Manufacturer:     dev.GetManufacturer(),
-		FirmwareVersion:  dev.GetFirmwareVersion(),
+		Manufacturer:     truncateUTF8(dev.GetManufacturer(), maxPairIdentityBytes),
+		FirmwareVersion:  truncateUTF8(dev.GetFirmwareVersion(), maxTelemetryFirmwareVersionBytes),
 	}
 }
 

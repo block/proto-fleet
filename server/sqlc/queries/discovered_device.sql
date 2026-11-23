@@ -108,7 +108,25 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
                EXCLUDED.serial_number, EXCLUDED.mac_address
         WHERE (SELECT direct FROM discovery_mode) OR discovered_device.endpoint_key = ''
     ),
-    firmware_version = EXCLUDED.firmware_version,
+    -- Keep the stored version only when the caller trusts the row identity. A row
+    -- found by address can now belong to a replaced device. Telemetry writes the
+    -- version of a device that it polls only when the version changes, and a
+    -- scan result can be older than that write. A scan can also omit the version.
+    firmware_version = CASE
+        WHEN sqlc.arg('trusted_identity')::boolean
+            AND COALESCE(discovered_device.firmware_version, '') <> ''
+            AND (EXCLUDED.firmware_version IS NULL OR EXISTS (
+                SELECT 1
+                FROM device d
+                JOIN device_pairing dp ON dp.device_id = d.id
+                WHERE (d.discovered_device_id = discovered_device.id OR d.device_identifier = discovered_device.device_identifier)
+                  AND d.org_id = discovered_device.org_id
+                  AND d.deleted_at IS NULL
+                  AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+            ))
+        THEN discovered_device.firmware_version
+        ELSE EXCLUDED.firmware_version
+    END,
     is_active = EXCLUDED.is_active,
     -- Keep existing driver_name if already set (prevent discovery flip-flop)
     driver_name = COALESCE(discovered_device.driver_name, EXCLUDED.driver_name),

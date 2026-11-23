@@ -60,23 +60,25 @@ func TestMultiTypeDiscoverer_Discover_Success(t *testing.T) {
 		{
 			name: "ASIC device discovered by Antminer plugin",
 			deviceInfo: sdk.DeviceInfo{
-				SerialNumber: "TEST123",
-				DeviceClass:  sdk.DeviceClassRig,
-				Model:        "S19",
-				Manufacturer: "Bitmain",
-				URLScheme:    "http",
-				MacAddress:   "00:11:22:33:44:55",
+				SerialNumber:    "TEST123",
+				DeviceClass:     sdk.DeviceClassRig,
+				Model:           "S19",
+				Manufacturer:    "Bitmain",
+				URLScheme:       "http",
+				MacAddress:      "00:11:22:33:44:55",
+				FirmwareVersion: "4.1.0",
 			},
 		},
 		{
 			name: "Container class independent of model name",
 			deviceInfo: sdk.DeviceInfo{
-				SerialNumber: "BITMAIN123",
-				DeviceClass:  sdk.DeviceClassContainer,
-				Model:        "S19 Pro",
-				Manufacturer: "Bitmain",
-				URLScheme:    "https",
-				MacAddress:   "00:11:22:33:44:66",
+				SerialNumber:    "BITMAIN123",
+				DeviceClass:     sdk.DeviceClassContainer,
+				Model:           "S19 Pro",
+				Manufacturer:    "Bitmain",
+				URLScheme:       "https",
+				MacAddress:      "00:11:22:33:44:66",
+				FirmwareVersion: "2.0.0",
 			},
 		},
 		{
@@ -144,6 +146,7 @@ func TestMultiTypeDiscoverer_Discover_Success(t *testing.T) {
 			assert.Equal(t, tc.deviceInfo.Manufacturer, device.Manufacturer)
 			assert.Equal(t, tc.deviceInfo.MacAddress, device.MacAddress)
 			assert.Equal(t, tc.deviceInfo.URLScheme, device.UrlScheme)
+			assert.Equal(t, tc.deviceInfo.FirmwareVersion, device.FirmwareVersion)
 			assert.Equal(t, int64(0), device.OrgID)
 			assert.False(t, device.FirstDiscovered.IsZero())
 			assert.False(t, device.LastSeen.IsZero())

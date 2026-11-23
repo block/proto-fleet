@@ -172,6 +172,7 @@ func discoverWithPlugin(ctx context.Context, plugin *LoadedPlugin, pluginName, i
 			DeviceClass:      fleetDevice.DeviceClass,
 			Manufacturer:     fleetDevice.Manufacturer,
 			MacAddress:       fleetDevice.MacAddress,
+			FirmwareVersion:  fleetDevice.FirmwareVersion,
 			Capabilities:     fleetDevice.Capabilities,
 			DriverName:       plugin.Identifier.DriverName,
 		},

@@ -369,4 +369,26 @@ for agent_skill in .agents/skills/*; do
   fi
 done
 
+# The fleetnode UI-test recipes use the Compose project of `just dev`. If the
+# overlay changes the render of a shared database or network, Compose recreates
+# them and restarts the dev stack. The render does not need a Docker daemon.
+dev_compose=(docker compose -f server/docker-compose.yaml)
+ui_test_compose=("${dev_compose[@]}" -f server/docker-compose.fleetnode-ui-test.yaml)
+if [ "$("${dev_compose[@]}" config --hash timescaledb)" != "$("${ui_test_compose[@]}" config --hash timescaledb)" ]; then
+  echo "The fleetnode UI-test overlay must not change the timescaledb service of the dev stack" >&2
+  exit 1
+fi
+if ! diff -u \
+  <("${dev_compose[@]}" config --format json | jq '.networks."fleet-network"') \
+  <("${ui_test_compose[@]}" config --format json | jq '.networks."fleet-network"'); then
+  echo "The fleetnode UI-test overlay must not change fleet-network of the dev stack" >&2
+  exit 1
+fi
+if [ "$("${ui_test_compose[@]}" config --format json \
+  | jq -r '.services."fleet-api".ports | map("\(.host_ip):\(.published):\(.target)") | join(" ")')" \
+  != '127.0.0.1:4000:4000' ]; then
+  echo "The fleetnode UI-test overlay must publish fleet-api on 127.0.0.1:4000" >&2
+  exit 1
+fi
+
 echo "developer workflow configuration and agent skill parity passed"

@@ -473,11 +473,12 @@ steps through the rollout phases every `CT1_UPDATE_STEP` (default 2s) and stops
 answering ordinary services while it is "installing", which exercises the
 maintenance-served status path.
 
-No automated test runs the Fleet runner against the fake pair. `fake-ct1` is a
-separate Go module with a `main` package. The update path also needs the CT1
-plugin and a paired device. The domain tests (`server/internal/domain/frigateupdate`)
-cover the runner against an in-memory controller pair instead. Two tests do use
-the fake pair. The CT1 plugin tests
+The domain tests (`server/internal/domain/frigateupdate`) cover the runner
+against an in-memory controller pair. Three tests use the fake pair.
+`TestFleetNodeReleaseChannelFirmware` in `server/e2e` runs a full update
+through the public API, the Fleet runner, and a real Fleet Node. Start it with
+`just fleetnode-channel-e2e`. See the [E2E testing guide](../../server/e2e/README.md).
+The CT1 plugin tests
 (`plugin/proto/internal/ct1/frigate_update_simulator_test.go`) run the update
 calls against it. `TestCT1SimulatorControllerSoftwareUpdateThroughNode` in
 `server/cmd/fleetnode` runs a full update through the Fleet Node path. It uses

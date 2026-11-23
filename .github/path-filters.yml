@@ -215,6 +215,8 @@ developer_workflows:
   - lefthook.yml
   - scripts/check-changed.sh
   - scripts/check-changed_test.sh
+  # scripts/check-changed_test.sh renders the fleetnode UI-test Compose overlay.
+  - server/docker-compose*.yaml
 
 # Files that the E2E images and client bundles do not contain. The Go compiler
 # and .dockerignore leave out tests and Markdown. The client bundle leaves out

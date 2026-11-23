@@ -31,7 +31,6 @@ import (
 )
 
 const (
-	fleetAPIURL = "http://localhost:4000"
 	// protoSimDiscoveryHost addresses the sim as seen from fleet-api:
 	// discovery runs server-side on the compose bridge network, where the
 	// sim's DNS name is proto-sim. The host-published 127.0.0.1:8080 port is
@@ -43,6 +42,7 @@ const (
 )
 
 var (
+	fleetAPIURL  = envOrDefault("FLEET_E2E_API_URL", "http://localhost:4000")
 	testUsername = envOrDefault("FLEET_E2E_USERNAME", "admin")
 	testPassword = envOrDefault("FLEET_E2E_PASSWORD", "proto")
 )
@@ -349,18 +349,7 @@ func waitForFleetAPIHealth(t *testing.T, ctx context.Context, timeout time.Durat
 // establishes a cookie session — so this helper logs in with a cookie-jar
 // client and mints an API key for the Authorization headers the suite uses.
 func authenticateViaRealAPI(t *testing.T, ctx context.Context, username, password string) string {
-	jar, err := cookiejar.New(nil)
-	require.NoError(t, err, "cookie jar creation should succeed")
-	sessionHTTPClient := &http.Client{Jar: transportguard.NewLoopbackSecureJar(jar)}
-
-	authClient := authv1connect.NewAuthServiceClient(sessionHTTPClient, fleetAPIURL)
-	_, err = authClient.Authenticate(ctx, connect.NewRequest(&authv1.AuthenticateRequest{
-		Username: username,
-		Password: password,
-	}))
-	require.NoError(t, err, "authentication should succeed")
-
-	apiKeyClient := apikeyv1connect.NewApiKeyServiceClient(sessionHTTPClient, fleetAPIURL)
+	apiKeyClient := apikeyv1connect.NewApiKeyServiceClient(sessionHTTPClient(t, ctx, username, password), fleetAPIURL)
 	resp, err := apiKeyClient.CreateApiKey(ctx, connect.NewRequest(&apikeyv1.CreateApiKeyRequest{
 		Name: fmt.Sprintf("e2e-%d", time.Now().UnixNano()),
 	}))
@@ -368,6 +357,21 @@ func authenticateViaRealAPI(t *testing.T, ctx context.Context, username, passwor
 	require.NotEmpty(t, resp.Msg.ApiKey, "api key should not be empty")
 
 	return resp.Msg.ApiKey
+}
+
+// sessionHTTPClient logs in and returns a client that carries the session
+// cookie.
+func sessionHTTPClient(t *testing.T, ctx context.Context, username, password string) *http.Client {
+	t.Helper()
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err, "cookie jar creation should succeed")
+	client := &http.Client{Jar: transportguard.NewLoopbackSecureJar(jar)}
+	_, err = authv1connect.NewAuthServiceClient(client, fleetAPIURL).Authenticate(ctx, connect.NewRequest(&authv1.AuthenticateRequest{
+		Username: username,
+		Password: password,
+	}))
+	require.NoError(t, err, "authentication should succeed")
+	return client
 }
 
 // discoverDeviceViaRealAPI discovers devices via the real API

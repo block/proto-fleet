@@ -163,6 +163,7 @@ changed-checks:
         - "lefthook.yml"
         - "scripts/check-changed.sh"
         - "scripts/check-changed_test.sh"
+        - "server/docker-compose*.yaml"
       run: just test-developer-workflows
 
 pre-push:

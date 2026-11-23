@@ -26,6 +26,10 @@ type DiscoveredDevice struct {
 	// DefaultPasswordActive comes from the PairDevice response (transient): non-nil
 	// true makes pairing record DEFAULT_PASSWORD instead of PAIRED/ACTIVE.
 	DefaultPasswordActive *bool
+	// TrustedIdentity is set by direct discovery when the row identity is
+	// verified, not only reused by address (transient). The save then keeps a
+	// stored firmware version when the scan has none or telemetry polls the row.
+	TrustedIdentity bool
 }
 
 // GetDeviceOrgIdentifier returns the device organization identifier

@@ -34,6 +34,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/miner/remotenode"
@@ -407,6 +408,27 @@ func TestCT1SimulatorControllerSoftwareUpdateThroughNode(t *testing.T) {
 		require.Equal(t, commandtype.FrigateServerUpdate, kind)
 	}
 	require.Len(t, writes, 6, "two begins, one copy, two begins, one start")
+}
+
+// The node refuses a package above its download limit before it downloads
+// anything. Fleet's handle returns that refusal as an invalid argument, which
+// tells the update runner that the same stage cannot succeed later.
+func TestCT1SimulatorControllerSoftwarePackageAboveTheNodeLimitThroughNode(t *testing.T) {
+	const job, size = "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4be1", maxFleetNodeFirmwareArtifactSizeBytes + 1<<20
+	container := startCT1BehindNode(t, false)
+	digest := hex.EncodeToString(make([]byte, sha256.Size))
+	ref := interfaces.FrigatePackageRef{ID: "5a0c7a50-7a2b-4f0e-9d44-2f6f3f3a1b10", Filename: "frigate_9.9.9_linux_arm64.deb", SizeBytes: size, SHA256: digest}
+	manifest := sdk.FrigateManifest{
+		JobID: job, InstanceID: "pair-a", ExpectedInstanceIDs: []string{"pair-a"}, TargetVersion: "9.9.9", SHA256: digest, SizeBytes: size,
+		Actor: "fleet:tester@example.com", Coordination: sdk.FrigateCoordinationSelf,
+	}
+
+	_, err := interfaces.FrigatePackageStager(container.miner).FrigateStagePackage(t.Context(), ref,
+		[]interfaces.FrigateStageTarget{{InstanceID: "pair-a", Manifest: manifest, ManifestSHA256: digest}})
+
+	require.True(t, fleeterror.IsInvalidArgumentError(err), "%v", err)
+	require.ErrorContains(t, err, "exceeds fleet node limit")
+	require.Zero(t, container.artifacts.downloadsOf(pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_CONTROLLER_SOFTWARE_PACKAGE))
 }
 
 func TestCT1SimulatorHashboardFirmwareUpdateThroughNode(t *testing.T) {

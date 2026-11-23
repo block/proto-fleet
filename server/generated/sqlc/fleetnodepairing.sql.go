@@ -804,7 +804,40 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     model = EXCLUDED.model,
     device_class = COALESCE(NULLIF(EXCLUDED.device_class, 0), discovered_device.device_class),
     manufacturer = EXCLUDED.manufacturer,
-    firmware_version = EXCLUDED.firmware_version,
+    -- Keep the stored version only when the report has no endpoint group and the
+    -- row identity is the device's MAC, serial, or container. A row found by
+    -- address can now belong to a replaced device. Telemetry writes the version
+    -- of a device that it polls only when the version changes, and a scan report
+    -- can be older than that write. A report can also omit the version.
+    firmware_version = CASE
+        WHEN EXCLUDED.endpoint_key <> '' OR NOT (
+            discovered_device.device_identifier LIKE 'mac:%'
+            OR discovered_device.device_identifier LIKE 'serial:%'
+            OR discovered_device.device_identifier LIKE 'container:%'
+        )
+        THEN EXCLUDED.firmware_version
+        WHEN COALESCE(discovered_device.firmware_version, '') <> '' AND EXISTS (
+            SELECT 1
+            FROM device d
+            JOIN device_pairing dp ON dp.device_id = d.id
+            WHERE (d.discovered_device_id = discovered_device.id OR d.device_identifier = discovered_device.device_identifier)
+              AND d.org_id = discovered_device.org_id
+              AND d.deleted_at IS NULL
+              AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+        )
+        THEN discovered_device.firmware_version
+        WHEN EXCLUDED.firmware_version IS NULL AND (
+            discovered_device.device_identifier NOT LIKE 'container:%' OR EXISTS (
+                SELECT 1
+                FROM device d
+                WHERE (d.discovered_device_id = discovered_device.id OR d.device_identifier = discovered_device.device_identifier)
+                  AND d.org_id = discovered_device.org_id
+                  AND d.deleted_at IS NULL
+            )
+        )
+        THEN discovered_device.firmware_version
+        ELSE EXCLUDED.firmware_version
+    END,
     discovered_by_fleet_node_id = EXCLUDED.discovered_by_fleet_node_id,
     last_seen = CURRENT_TIMESTAMP,
     is_active = TRUE

@@ -48,7 +48,7 @@ flowchart TB
 
 The e2e tests follow a **system testing** approach:
 
-- Tests interact with the real Fleet API at `http://localhost:4000`
+- Tests interact with the real Fleet API at `http://localhost:4000` (set `FLEET_E2E_API_URL` to use a different address)
 - Uses actual docker-compose services (not mocks or isolated infrastructure)
 - Validates complete workflows through public API endpoints
 
@@ -118,6 +118,34 @@ These tests build the `fleetcli` binary and run its commands against the fleet-a
 `TestFleetCLIFirmwareWorkflow` deletes all firmware files in its last step.
 
 `TestFleetCLILeafCommandCoverage` reads the command manifest only. It does not need the docker-compose environment.
+
+### 3. Fleet Node Release Channels (`TestFleetNodeReleaseChannelFirmware`)
+
+This test updates firmware of devices that a Fleet Node owns, through a release channel. It uses the stack from `server/docker-compose.fleetnode-ui-test.yaml`: fleet-api, an enrolled Fleet Node, a fake Proto rig, and a fake CT1 HA pair. The fake devices are on an internal network that only the node joins.
+
+The test does these steps through the public API:
+
+1. Finds the connected node, discovers the rig and both controllers of the container through the node, and pairs them to the node.
+2. Waits until Fleet shows telemetry for both devices.
+3. Creates one channel for the two devices.
+4. Uploads firmware with a version that is unique to the run, applies it, and waits for the rollout. It does this for rig firmware, CT1 hashboard firmware, and CT1 PSU firmware.
+5. Updates the controller software of the container. It uploads a signed package with a version that is unique to the run, starts the update, and waits until the job succeeds. Then it reads the version of each controller from the update support.
+6. Scans the node's network again and checks that the rig stays on target without a new rollout.
+
+After each firmware rollout, the test reads the version from the device itself with `docker exec`.
+
+Run it from the repository root. The recipe adds `server/docker-compose.fleetnode-channel-e2e.yaml`, which gives the stack its own host ports and fleet-network subnet. The overlay also sets `PROTO_MINER_PORT=0` on the node, so the node can discover the second controller of the fake CT1 on port 8082. With its own Compose project, the stack does not stop a `just dev` stack. The device network keeps the fixed subnet `10.90.0.0/24` of the UI-test overlay. Thus the recipe cannot run while a `just fleetnode-ui-test-up` stack is up (Docker reports `Pool overlaps`):
+
+```bash
+just fleetnode-channel-e2e            # project fnrc-e2e, API on 127.0.0.1:4611
+just fleetnode-channel-e2e-down       # remove the containers, volumes, and release key
+```
+
+The test skips when `FLEET_E2E_FLEETNODE_COMPOSE_PROJECT` is not set. `FLEET_E2E_ROLLOUT_TIMEOUT` sets the wait for each rollout and for the controller software update (default `10m`).
+
+The recipe makes an ECDSA P-256 release key in `/tmp/<project>-ct1-release-key`. The overlay gives the public key to the fake CT1. The test reads the private key from the file in `FLEET_E2E_CT1_RELEASE_KEY` and signs the package with it. Fleet in this stack has no installed release key, so the test sends the public key with the upload. The step `ContainerControllerSoftware` fails when `FLEET_E2E_CT1_RELEASE_KEY` is not set. `just fleetnode-channel-e2e-down` removes the key directory.
+
+To run the test again against the same stack, run the `go test` command at the end of the recipe with the same environment variables. Use a fresh stack for a result that you report. In one of two runs on a used stack, the PSU firmware rollout did not complete. To run the recipe again, first run `just fleetnode-channel-e2e-down`. The recipe makes a new key on each run, and the fake CT1 trusts only the key that it read when it started.
 
 ## Running Tests
 

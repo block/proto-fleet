@@ -110,6 +110,79 @@ func TestNodeEndpointDiscoveryRejectsClusterReplacement(t *testing.T) {
 	require.Equal(t, "opaque-pair", row.Endpoints[0].DeviceKey)
 }
 
+func TestNodeRediscoveryKeepsFirmwareVersionOnlyForTrustedIdentity(t *testing.T) {
+	rig := nodepairing.DiscoveredDeviceReport{IPAddress: "10.0.0.11", Port: "8080", URLScheme: "http",
+		DriverName: "proto", Model: "Rig", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_RIG}
+	container := nodepairing.DiscoveredDeviceReport{IPAddress: "10.0.0.11", Port: "8080", URLScheme: "http",
+		DriverName: "proto", Model: "CT1", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER}
+	controllerGroup := container
+	controllerGroup.Endpoints = []*commonpb.DeviceEndpoint{{Id: "a", DeviceKey: "opaque-pair", Host: "10.0.0.11", Port: 8080, UrlScheme: "http"}}
+	const mac, serial, ct1, auto = "mac:AA:BB:CC:DD:EE:01", "serial:SN-1", "container:0123456789abcdef", "auto:0123456789abcdef"
+	for _, tc := range []struct {
+		name                   string
+		identifier             string
+		first, second          nodepairing.DiscoveredDeviceReport
+		pairing                string
+		stored, reported, want string
+	}{
+		{name: "no version, MAC identity of a node-owned device", identifier: mac, first: rig, second: rig, pairing: "PAIRED", stored: "1.2.3", want: "1.2.3"},
+		{name: "no version, serial identity of an unpaired device", identifier: serial, first: rig, second: rig, stored: "1.2.3", want: "1.2.3"},
+		{name: "no version, container of a node-owned device", identifier: ct1, first: container, second: container, pairing: "PAIRED", stored: "1.2.3", want: "1.2.3"},
+		{name: "no version, container without a device", identifier: ct1, first: container, second: container, stored: "1.2.3"},
+		{name: "no version, address identity of a node-owned device", identifier: auto, first: rig, second: rig, pairing: "PAIRED", stored: "1.2.3"},
+		{name: "no version, controller group at the address of a MAC identity", identifier: mac, first: rig, second: controllerGroup, stored: "1.2.3"},
+		{name: "old version, MAC identity of a node-owned device", identifier: mac, first: rig, second: rig, pairing: "PAIRED", stored: "2.0.0", reported: "1.0.0", want: "2.0.0"},
+		{name: "old version, serial identity of a default-password device", identifier: serial, first: rig, second: rig, pairing: "DEFAULT_PASSWORD", stored: "2.0.0", reported: "1.0.0", want: "2.0.0"},
+		{name: "old version, container of a node-owned device", identifier: ct1, first: container, second: container, pairing: "PAIRED", stored: "2.0.0", reported: "1.0.0", want: "2.0.0"},
+		{name: "version, MAC identity of a node-owned device without a stored version", identifier: mac, first: rig, second: rig, pairing: "PAIRED", reported: "1.0.0", want: "1.0.0"},
+		{name: "version, MAC identity without a device", identifier: mac, first: rig, second: rig, stored: "2.0.0", reported: "1.0.0", want: "1.0.0"},
+		{name: "version, MAC identity of an unpaired device", identifier: mac, first: rig, second: rig, pairing: "UNPAIRED", stored: "2.0.0", reported: "1.0.0", want: "1.0.0"},
+		{name: "version, address identity of a node-owned device", identifier: auto, first: rig, second: rig, pairing: "PAIRED", stored: "2.0.0", reported: "1.0.0", want: "1.0.0"},
+		{name: "version, controller group at the address of a MAC identity", identifier: mac, first: rig, second: controllerGroup, stored: "2.0.0", reported: "1.0.0", want: "1.0.0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, discoveryStore, org := ct1HAStore(t)
+			var node int64
+			require.NoError(t, db.QueryRowContext(t.Context(), `INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+        VALUES ($1,'node',decode(repeat('11',32),'hex'),decode(repeat('22',32),'hex'),'CONFIRMED') RETURNING id`, org).Scan(&node))
+			store := sqlstores.NewSQLFleetNodePairingStore(db)
+			first := tc.first
+			first.DeviceIdentifier, first.FirmwareVersion = tc.identifier, tc.stored
+			_, stored, err := store.UpsertDiscoveredDeviceFromFleetNode(t.Context(), org, node, first)
+			require.NoError(t, err)
+			require.True(t, stored)
+			doi := discovery.DeviceOrgIdentifier{OrgID: org, DeviceIdentifier: tc.identifier}
+			if tc.pairing != "" {
+				d, err := discoveryStore.GetDevice(t.Context(), doi)
+				require.NoError(t, err)
+				deviceStore := sqlstores.NewSQLDeviceStore(db)
+				require.NoError(t, deviceStore.InsertDevice(t.Context(), &d.Device, org, tc.identifier))
+				require.NoError(t, deviceStore.UpsertDevicePairing(t.Context(), &d.Device, org, tc.pairing))
+				if tc.pairing != "UNPAIRED" {
+					device, err := sqlc.New(db).GetDeviceByDeviceIdentifier(t.Context(), sqlc.GetDeviceByDeviceIdentifierParams{OrgID: org, DeviceIdentifier: tc.identifier})
+					require.NoError(t, err)
+					_, err = store.PairDeviceToFleetNode(t.Context(), node, device.ID, org, nil)
+					require.NoError(t, err)
+				}
+			}
+
+			second := tc.second
+			second.DeviceIdentifier, second.FirmwareVersion = tc.identifier, tc.reported
+			if len(second.Endpoints) > 0 {
+				second.DeviceIdentifier, err = deviceendpoints.NodeIdentifier(node, second.DriverName, second.Endpoints)
+				require.NoError(t, err)
+			}
+			saved, stored, err := store.UpsertDiscoveredDeviceFromFleetNode(t.Context(), org, node, second)
+			require.NoError(t, err)
+			require.True(t, stored)
+			require.Equal(t, tc.identifier, saved.DeviceIdentifier)
+			row, err := discoveryStore.GetDevice(t.Context(), doi)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, row.FirmwareVersion)
+		})
+	}
+}
+
 func TestNodeEndpointDiscoveryKeepsInactiveLiveNodeInventorySeparate(t *testing.T) {
 	for _, group := range []string{"opaque-pair", "another-cluster"} {
 		t.Run(group, func(t *testing.T) {

@@ -8,10 +8,13 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
@@ -169,26 +172,58 @@ func TestRunner_RelayStageRefusalFailsTheJob(t *testing.T) {
 }
 
 func TestRunner_RelayStageCallFailureIsRetried(t *testing.T) {
+	for name, callErr := range map[string]error{
+		"no reply":          lostReply(),
+		"no control stream": devicewrite.NotDispatched(fleeterror.NewUnavailableErrorf("fleet node has no active control stream; retry shortly")),
+		"node busy":         devicewrite.NotDispatched(fleeterror.NewPlainError("fleet node busy; retry shortly", connect.CodeResourceExhausted)),
+	} {
+		t.Run(name, func(t *testing.T) {
+			e, relay := newRelayEnv(t)
+			relay.callErr = func(call int) error {
+				if call == 1 {
+					return callErr
+				}
+				return nil
+			}
+			job := e.start("key-1")
+			e.svc.runOnce(e.ctx)
+
+			assert.Equal(t, StateStaging, e.job(job.Row.ID).Row.State)
+			for _, id := range []string{instanceA, instanceB} {
+				in := e.instance(job, id)
+				assert.Equal(t, StageStaging, in.StageState)
+				assert.Len(t, in.ManifestSha256, 64, "the fingerprint is recorded, so cleanup can remove the copy")
+				assert.Contains(t, in.ErrorMessage, "Retrying:")
+			}
+
+			e.advanceToRunning(job)
+			assert.Len(t, relay.calls(), 2)
+		})
+	}
+}
+
+// The node refuses a stage that it can never run, such as a package above its
+// download limit. The same stage cannot succeed later, so the job fails in
+// the same pass.
+func TestRunner_RelayStageThatTheNodeRejectsFailsTheJob(t *testing.T) {
 	e, relay := newRelayEnv(t)
-	relay.callErr = func(call int) error {
-		if call == 1 {
-			return lostReply()
-		}
-		return nil
+	relay.callErr = func(int) error {
+		return sdk.InvalidWriteRequest(fleeterror.NewInvalidArgumentError(
+			"fleet node rejected command: execute command: controller software package size 525336576 exceeds fleet node limit 524288000"))
 	}
 	job := e.start("key-1")
 	e.svc.runOnce(e.ctx)
 
-	assert.Equal(t, StateStaging, e.job(job.Row.ID).Row.State)
-	for _, id := range []string{instanceA, instanceB} {
-		in := e.instance(job, id)
-		assert.Equal(t, StageStaging, in.StageState)
-		assert.Len(t, in.ManifestSha256, 64, "the fingerprint is recorded, so cleanup can remove the copy")
-		assert.Contains(t, in.ErrorMessage, "Retrying:")
-	}
+	got := e.job(job.Row.ID).Row
+	assert.Equal(t, StateFailed, got.State)
+	assert.Equal(t, CodeStageFailed, got.ErrorCode)
+	assert.Contains(t, got.ErrorMessage, "exceeds fleet node limit 524288000")
+	assert.True(t, got.CleanupPending, "cleanup removes the copies that Fleet began")
+	assert.Len(t, relay.calls(), 1)
+	assert.Empty(t, e.updater.startCalls)
 
-	e.advanceToRunning(job)
-	assert.Len(t, relay.calls(), 2)
+	e.svc.sweepCleanup(e.ctx)
+	assert.Zero(t, e.stageCount(), "no copy of the failed job is left on a controller")
 }
 
 func TestRunner_RelayStageWithTheWrongBytesFailsTheJob(t *testing.T) {

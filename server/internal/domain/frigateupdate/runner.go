@@ -16,6 +16,7 @@ import (
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/block/proto-fleet/server/internal/runtimejobs"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -582,6 +583,12 @@ func (s *Service) stageThroughRelay(ctx context.Context, updater interfaces.Frig
 		return nil
 	}
 	defer s.requeueCleanupIfStopped(ctx, job.ID)
+	// The relay, or Fleet's handle for it, found the stage invalid. The same
+	// stage cannot succeed later.
+	if fleeterror.IsInvalidArgumentError(err) {
+		s.failJob(ctx, job.ID, CodeStageFailed, fmt.Sprintf("Fleet cannot copy the package through the Fleet Node: %v", err), true)
+		return nil
+	}
 	if err == nil && len(outcomes) != len(copies) {
 		err = fmt.Errorf("the relay returned %d stage outcomes for %d controllers", len(outcomes), len(copies))
 	}
