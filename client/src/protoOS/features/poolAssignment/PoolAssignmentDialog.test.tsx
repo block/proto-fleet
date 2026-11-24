@@ -395,7 +395,7 @@ test("reviews the boards, credentials, and group capacity for a selected module"
   expect(screen.queryByLabelText("Your password")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Review assignment" })).toBeDisabled();
   const savedPool = await picker.findByRole("radio", { name: "Saved pools" });
-  expect(picker.getByText("Mixed configurations")).toBeVisible();
+  await waitFor(() => expect(picker.getByText("Mixed configurations")).toBeVisible());
   expect(picker.getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
     "Name",
     "Primary pool",
@@ -403,21 +403,23 @@ test("reviews the boards, credentials, and group capacity for a selected module"
   ]);
   fireEvent.click(savedPool);
   fireEvent.click(screen.getByRole("button", { name: "Review assignment" }));
-  const confirmation = await screen.findByRole("dialog", { name: "Assign pool configuration to 2 hashboards?" });
-  expect(
-    within(confirmation).getByText("Assign Saved pools? Pool changes may briefly interrupt mining."),
-  ).toBeVisible();
-  expect(within(confirmation).getByText(pool.url)).toBeVisible();
-  expect(within(confirmation).getByText("Username: account.region.worker")).toBeVisible();
-  expect(within(confirmation).getByText("Affected hashboards (2)")).toBeVisible();
-  expect(within(confirmation).getByText("2 of 4 hashboard places will be used in this group.")).toBeVisible();
+  const confirmation = within(
+    await screen.findByRole("dialog", { name: "Assign pool configuration to 2 hashboards?" }),
+  );
+  await waitFor(() =>
+    expect(confirmation.getByText("Assign Saved pools? Pool changes may briefly interrupt mining.")).toBeVisible(),
+  );
+  expect(confirmation.getByText(pool.url)).toBeVisible();
+  expect(confirmation.getByText("Username: account.region.worker")).toBeVisible();
+  expect(confirmation.getByText("Affected hashboards (2)")).toBeVisible();
+  expect(confirmation.getByText("2 of 4 hashboard places will be used in this group.")).toBeVisible();
   expect(service.review).toHaveBeenCalledWith(
     selection,
     { name: "Saved pools", pools: [], savedPoolSetId: "saved" },
     expect.objectContaining({ signal: expect.any(AbortSignal) }),
   );
   expect(service.apply).not.toHaveBeenCalled();
-  fireEvent.click(within(confirmation).getByRole("button", { name: "Assign" }));
+  fireEvent.click(confirmation.getByRole("button", { name: "Assign" }));
   await waitFor(() => expect(dismiss).toHaveBeenCalledOnce());
   expect(service.apply).toHaveBeenCalledTimes(1);
 });
@@ -462,7 +464,11 @@ test.each([
     const confirmation = within(
       await screen.findByRole("dialog", { name: "Assign pool configuration to 1 hashboard?" }),
     );
-    expect(confirmation.getByText("Assign Saved pools? This hashboard can start mining when assigned.")).toBeVisible();
+    await waitFor(() =>
+      expect(
+        confirmation.getByText("Assign Saved pools? This hashboard can start mining when assigned."),
+      ).toBeVisible(),
+    );
     expect(service.apply).not.toHaveBeenCalled();
     fireEvent.click(confirmation.getByRole("button", { name: "Assign" }));
   }
@@ -569,7 +575,7 @@ test("reports full groups before review and allows reuse of a compatible configu
   });
   render(<PoolAssignmentDialog service={service} controllerId="ct1" target={target} onDismiss={vi.fn()} />);
   fireEvent.click(await screen.findByRole("radio", { name: "Full destination" }));
-  expect(screen.getByText(/configuration would have 5 hashboards/)).toBeVisible();
+  await waitFor(() => expect(screen.getByText(/configuration would have 5 hashboards/)).toBeVisible());
   expect(screen.getByText(/All mining groups are in use/)).toBeVisible();
   expect(screen.getByRole("button", { name: "New pool configuration" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Edit usernames" })).toBeDisabled();
@@ -592,7 +598,7 @@ test("identifies which selected hashboards will move during review", async () =>
   render(<PoolAssignmentDialog service={service} controllerId="ct1" target={target} onDismiss={vi.fn()} />);
   fireEvent.click(await screen.findByRole("radio", { name: "Saved pools" }));
   fireEvent.click(screen.getByRole("button", { name: "Review assignment" }));
-  expect(await screen.findByText(new RegExp(A + " · Already in this group"))).toBeVisible();
+  await waitFor(() => expect(screen.getByText(new RegExp(A + " · Already in this group"))).toBeVisible());
   expect(screen.getByText(new RegExp(B + " · Moves to this group"))).toBeVisible();
 });
 
@@ -603,7 +609,7 @@ test("Edit pool checks and clears a saved attempt before loading the new selecti
   render(<PoolAssignmentDialog service={service} controllerId="ct1" target={selection} onDismiss={vi.fn()} />);
 
   expect(screen.getByRole("dialog", { name: "Edit pool" })).toBeInTheDocument();
-  expect(await screen.findByRole("radio", { name: "Saved pools" })).toBeVisible();
+  await waitFor(() => expect(screen.getByRole("radio", { name: "Saved pools" })).toBeVisible());
   expect(screen.queryByRole("dialog", { name: "Pool assignment status" })).not.toBeInTheDocument();
   expect(service.status).toHaveBeenCalledWith(attempt, expect.objectContaining({ signal: expect.any(AbortSignal) }));
   expect(service.inspect).toHaveBeenCalledWith(selection, expect.objectContaining({ signal: expect.any(AbortSignal) }));
