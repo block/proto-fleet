@@ -18,7 +18,6 @@ export const importHashboardTemperature = () => import("@/protoOS/features/diagn
 export const importDiagnosticView = () =>
   import("@/protoOS/features/diagnostic/components/DiagnosticView/DiagnosticView");
 export const importLogs = () => import("@/protoOS/pages/MinerLogs");
-export const importContainerTanks = () => import("@/protoOS/features/tanks");
 export const importContainerModules = () => import("@/protoOS/features/modules");
 export const importModuleHashboardOverlay = () => import("@/protoOS/features/modules/ModuleHashboardOverlay");
 export const importContainerPools = () => import("@/protoOS/features/pools/PoolStatisticsPage");
@@ -59,7 +58,6 @@ export const settingsRoutePrefetch: readonly RouteImporter[] = [
 
 export const containerRoutePrefetch: readonly RouteImporter[] = [
   importContainerHome,
-  importContainerTanks,
   importContainerModules,
   importContainerPools,
   importModuleHashboardOverlay,

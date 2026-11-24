@@ -14,7 +14,7 @@ const LocationBreadcrumb = ({
   const tank = module?.tankId ? topology.tanks.get(module.tankId) : undefined;
   if (!module || !tank || (board && board.moduleId !== module.id)) return null;
 
-  // Match the Tanks page's ordering for its slotless-tank label fallback.
+  // Use slot order for the slotless-tank label fallback.
   const tanks = [...topology.tanks.values()].sort((a, b) => (a.slot ?? Infinity) - (b.slot ?? Infinity));
   const tankLabel = tank.label?.trim() || `Tank ${tank.slot ?? tanks.findIndex((item) => item.id === tank.id) + 1}`;
 

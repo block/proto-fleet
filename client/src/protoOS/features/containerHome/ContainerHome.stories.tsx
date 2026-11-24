@@ -220,7 +220,7 @@ const overviewGrid: ModuleGrid = {
         label: String(index + 1).padStart(2, "0"),
         position: { column: Math.floor(index / 2) + 1, row: 2 - (index % 2) },
         name: `Tank ${tank} module ${index + 1}`,
-        to: "/tanks",
+        to: `/modules/${tank}/${index + 1}`,
         state,
         boards: state === "attention" ? ["healthy", "attention", "healthy"] : [state, state, state],
       };

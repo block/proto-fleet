@@ -51,9 +51,9 @@ beforeEach(() => {
 test.each(["T1-M1-HB1", "T1-M2-HB1"])("validates and streams a nested module board: %s", (serial) => {
   useMinerStore.getState().hardware.replaceHardware(moduleFixture().hardware);
   render(
-    <MemoryRouter initialEntries={[`/tanks/1/modules/1/${serial}`]}>
+    <MemoryRouter initialEntries={[`/modules/1/1/${serial}`]}>
       <Routes>
-        <Route path="/tanks/:tankId/modules/:moduleId/:serial" element={<HashboardTemperatureWrapper />} />
+        <Route path="/modules/:tankId/:moduleId/:serial" element={<HashboardTemperatureWrapper />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -95,9 +95,9 @@ test("marks a container board's readings not current when a refresh fails", () =
   mocks.hashboardStatus.mockReturnValue({ error: "stream closed" });
   useMinerStore.getState().hardware.replaceHardware(moduleFixture().hardware);
   render(
-    <MemoryRouter initialEntries={["/tanks/1/modules/1/T1-M1-HB1"]}>
+    <MemoryRouter initialEntries={["/modules/1/1/T1-M1-HB1"]}>
       <Routes>
-        <Route path="/tanks/:tankId/modules/:moduleId/:serial" element={<HashboardTemperatureWrapper />} />
+        <Route path="/modules/:tankId/:moduleId/:serial" element={<HashboardTemperatureWrapper />} />
       </Routes>
     </MemoryRouter>,
   );

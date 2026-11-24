@@ -6,7 +6,6 @@ import {
   importContainerHome,
   importContainerModules,
   importContainerPools,
-  importContainerTanks,
   importDiagnosticView,
   importEfficiency,
   importHashboardTemperature,
@@ -57,7 +56,6 @@ const Temperature = lazy(importTemperature);
 const HashboardTemperature = lazy(importHashboardTemperature);
 const DiagnosticView = lazy(importDiagnosticView);
 const Logs = lazy(importLogs);
-const ContainerTanks = lazy(importContainerTanks);
 const ContainerModules = lazy(importContainerModules);
 const ModuleHashboardOverlay = lazy(importModuleHashboardOverlay);
 const ContainerPools = lazy(importContainerPools);
@@ -261,41 +259,6 @@ export const routerConfig: CustomRouteObject[] = [
     title: "Systems",
     fullscreen: true,
   }),
-  createRoute(
-    "tanks/:tankId",
-    <ContainerRoute>
-      <ContainerTanks />
-    </ContainerRoute>,
-    {
-      title: "Tanks",
-    },
-  ),
-  createRoute(
-    "tanks/:tankId/modules/:moduleId",
-    <ContainerRoute>
-      <ContainerTanks />
-    </ContainerRoute>,
-    { title: "Tanks" },
-  ),
-  createRoute(
-    "tanks/:tankId/modules/:moduleId/:serial",
-    <ContainerRoute>
-      <HashboardTemperature />
-    </ContainerRoute>,
-    {
-      title: "Hashboards",
-      fullscreen: true,
-    },
-  ),
-  createRoute(
-    "tanks",
-    <ContainerRoute>
-      <ContainerTanks />
-    </ContainerRoute>,
-    {
-      title: "Tanks",
-    },
-  ),
   {
     ...createRoute(
       "modules",

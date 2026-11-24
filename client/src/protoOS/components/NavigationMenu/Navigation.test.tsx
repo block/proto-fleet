@@ -99,9 +99,9 @@ describe("Navigation", () => {
 
   test("selects the current destination instead of Home outside the Home routes", () => {
     (useDeviceType as Mock).mockReturnValue("container");
-    (useLocation as Mock).mockReturnValue({ pathname: "/tanks" });
+    (useLocation as Mock).mockReturnValue({ pathname: "/modules" });
     const { getByRole } = render(<Navigation type={navigationMenuTypes.app} />);
     expect(getByRole("button", { name: "Home" })).not.toHaveAttribute("aria-current");
-    expect(getByRole("button", { name: "Tanks" })).toHaveAttribute("aria-current", "page");
+    expect(getByRole("button", { name: "Modules" })).toHaveAttribute("aria-current", "page");
   });
 });

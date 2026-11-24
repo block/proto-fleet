@@ -115,10 +115,10 @@ const ModuleModal = ({
     ),
   );
   const { error, pending } = useHashboardStatus({ hashboardSerialNumbers: serials, poll: true });
-  const tankPath = `${minerRoot}/tanks/${tankRouteValue(tank)}`;
+  const listPath = `${minerRoot}/modules`;
   const pathForModule = (item: ModuleNode) =>
     getModulePath?.(item) ??
-    `${tankPath}/modules/${moduleRouteValue(item, modules.findIndex((candidate) => candidate.id === item.id) + 1)}`;
+    `${listPath}/${tankRouteValue(tank)}/${moduleRouteValue(item, modules.findIndex((candidate) => candidate.id === item.id) + 1)}`;
   const modulePath = pathForModule(module);
   const showActionBar = poolActions.available && selectedBoards.length > 0;
   const footerInert = poolActions.open || voltageWriting;
@@ -130,7 +130,7 @@ const ModuleModal = ({
         size="fullscreen"
         title="Modules"
         dialogLabel="Modules"
-        onDismiss={voltageWriting ? undefined : (onClose ?? (() => navigate(tankPath)))}
+        onDismiss={voltageWriting ? undefined : (onClose ?? (() => navigate(listPath)))}
         buttons={[{ text: "Done", variant: "primary", disabled: voltageWriting }]}
         bodyClassName="text-text-primary"
         className="overflow-y-auto"

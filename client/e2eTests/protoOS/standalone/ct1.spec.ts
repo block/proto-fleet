@@ -385,7 +385,7 @@ systemTest(
   },
 );
 
-test("production bundle probes CT1 and survives tank/module deep-link refreshes without login", async ({
+test("production bundle probes CT1 and survives Systems and module deep-link refreshes without login", async ({
   page,
   baseURL,
 }) => {
@@ -459,7 +459,7 @@ test("production bundle probes CT1 and survives tank/module deep-link refreshes 
   await dashboard.openHashrate();
 
   await dashboard.openTank(1);
-  await expect(dashboard.tank(1).getByRole("button", { name: "Module 01, Healthy", exact: true })).toBeVisible();
+  await expect(dashboard.tank(1).getByRole("group", { name: "Module 1", exact: true })).toBeVisible();
   await page.reload();
   await expect(dashboard.power(1)).toBeEnabled();
   await expect(dashboard.power(1)).toBeChecked();
@@ -469,7 +469,7 @@ test("production bundle probes CT1 and survives tank/module deep-link refreshes 
   await dashboard.openModule(true);
   await dashboard.expectNoLogin();
   await page.getByRole("dialog", { name: "Modules", exact: true }).getByRole("button", { name: "Done" }).click();
-  await expect(page).toHaveURL(/\/tanks\/1$/);
+  await expect(page).toHaveURL(/\/modules$/);
 
   expect(probes.size).toBeGreaterThan(0);
   for (const request of probes) {
@@ -489,7 +489,7 @@ test("production bundle probes CT1 and survives tank/module deep-link refreshes 
     apiRequests.some((request) => new URL(request.url()).pathname === "/mdk.v2.HashboardService/GetContainerMap"),
   ).toBe(true);
 
-  // Force both fonts used by Home/tanks to load: CSS failing entirely would
+  // Force both fonts used by Home/Systems to load: CSS failing entirely would
   // otherwise make document.fonts.ready succeed with an empty font set.
   const fontsLoaded = await page.evaluate(async () => {
     const [body, mono] = await Promise.all([
@@ -632,7 +632,12 @@ scopedTest(
       expect(stopped.ok()).toBe(true);
       expectDirectRequest(stopped.request(), baseURL!);
       await expect(dashboard.power(1)).not.toBeChecked();
-      await expect(dashboard.tank(1).getByRole("button", { name: "Module 01, Sleeping", exact: true })).toBeVisible();
+      await expect(
+        dashboard
+          .tank(1)
+          .getByRole("group", { name: "Module 1", exact: true })
+          .getByRole("img", { name: "left hashboard: Sleeping", exact: true }),
+      ).toBeVisible();
       await expect(dashboard.power(2)).toBeChecked();
       const after = await miningStates(request);
       expect(after.filter((board) => board.tank === 1).every((board) => board.state === "MINING_STATE_IDLE")).toBe(
@@ -650,7 +655,12 @@ scopedTest(
       expect(started.ok()).toBe(true);
       expectDirectRequest(started.request(), baseURL!);
       await expect(dashboard.power(1)).toBeChecked();
-      await expect(dashboard.tank(1).getByRole("button", { name: "Module 01, Healthy", exact: true })).toBeVisible();
+      await expect(
+        dashboard
+          .tank(1)
+          .getByRole("group", { name: "Module 1", exact: true })
+          .getByRole("img", { name: "left hashboard: Healthy", exact: true }),
+      ).toBeVisible();
       expect(await miningStates(request)).toEqual(before);
       await dashboard.expectNoLogin();
     });

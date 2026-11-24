@@ -93,7 +93,7 @@ export function buildModuleGrid(
           label: slot === undefined ? String(module.id) : String(slot).padStart(2, "0"),
           position: layout.positions[index],
           name: `${label} module ${slot ?? module.id}`,
-          to: `${minerRoot}/tanks/${tankRouteValue(tank)}/modules/${moduleRouteValue(module, tank.moduleIds.indexOf(module.id) + 1)}`,
+          to: `${minerRoot}/modules/${tankRouteValue(tank)}/${moduleRouteValue(module, tank.moduleIds.indexOf(module.id) + 1)}`,
           state,
           boards,
           attentionSeverity: warning && !critical ? ("warning" as const) : ("critical" as const),

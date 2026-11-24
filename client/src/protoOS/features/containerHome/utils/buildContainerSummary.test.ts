@@ -131,7 +131,7 @@ describe("container summary", () => {
     const grid = buildModuleGrid(hardware, telemetry, [], "/miners/ct1", 1_000);
     expect(grid?.tanks.map((row) => row.modules.map((module) => module.state))).toEqual([["sleeping"], ["healthy"]]);
     expect(grid?.counts).toMatchObject({ sleeping: 1, healthy: 1, attention: 0 });
-    expect(grid?.tanks[0].modules[0].to).toMatch(/^\/miners\/ct1\/tanks\/.+\/modules\/.+/);
+    expect(grid?.tanks[0].modules[0].to).toMatch(/^\/miners\/ct1\/modules\/.+\/.+/);
     // A PSU sample that is too old no longer supports a healthy module.
     const stale = buildModuleGrid(hardware, telemetry, [], "/miners/ct1", 121_000);
     expect(stale?.tanks[1].modules[0].state).toBe("unknown");

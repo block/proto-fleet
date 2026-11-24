@@ -56,7 +56,7 @@ test("keeps the module on screen until a voltage write settles", () => {
   const tank = [...topology.tanks.values()][0];
   const module = [...topology.modules.values()][0];
   render(
-    <MemoryRouter initialEntries={["/tanks/1/modules/1"]}>
+    <MemoryRouter initialEntries={["/modules/1/1"]}>
       <Routes>
         <Route path="*" element={<ModuleModal module={module} tank={tank} topology={topology} />} />
       </Routes>
@@ -75,12 +75,12 @@ test("keeps the module on screen until a voltage write settles", () => {
   expect(screen.getByText(/^Changing the module voltage\./)).toHaveAttribute("role", "status");
   fireEvent.keyDown(document, { key: "Escape" });
   fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
-  expect(screen.getByTestId("path")).toHaveTextContent("/tanks/1/modules/1");
+  expect(screen.getByTestId("path")).toHaveTextContent("/modules/1/1");
 
   fireEvent.click(screen.getByRole("button", { name: "finish write" }));
   exits().forEach((button) => expect(button).toBeEnabled());
   fireEvent.keyDown(document, { key: "Escape" });
-  expect(screen.getByTestId("path")).toHaveTextContent(/^\/tanks\/1$/);
+  expect(screen.getByTestId("path")).toHaveTextContent(/^\/modules$/);
 });
 
 test("mounts the module's power feed", () => {

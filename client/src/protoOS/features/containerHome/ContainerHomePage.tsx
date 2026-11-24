@@ -72,7 +72,7 @@ export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
     );
   };
   const live = useMemo(() => buildContainerLive(hardware, telemetry, unit), [hardware, telemetry, unit]);
-  // PSU samples expire between polls, so module states follow the clock as on the Tanks page.
+  // PSU samples expire between polls, so module states follow the clock.
   const now = usePsuObservationTime(tab === "overview");
   const grid = useMemo(
     () => (tab === "overview" ? buildModuleGrid(hardware, telemetry, errors, minerRoot, now) : undefined),
