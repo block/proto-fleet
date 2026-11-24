@@ -907,6 +907,10 @@ describe("container Home integration", () => {
   });
 
   it.each([
+    [0, "0.0 TH/s"],
+    [0.04, "40.0 GH/s"],
+    [0.5, "500.0 GH/s"],
+    [1, "1.0 TH/s"],
     [5_000, "5.0 PH/s"],
     [2_500_000, "2.5 EH/s"],
   ])("scales overview hashrate %s with the shared unit ladder", async (value, expected) => {

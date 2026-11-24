@@ -150,9 +150,9 @@ export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
     };
     const hashrateHistory = source({ metric: "hashrate" });
     const powerHistory = source({ metric: "facilityPower" });
-    const rateReference = Math.max(1, live.hashrate ?? hashrateHistory?.aggregates?.max?.value ?? 0);
+    const rateReference = live.hashrate ?? hashrateHistory?.aggregates?.max?.value ?? 0;
     const rateScale = formatHashrateWithUnit(rateReference);
-    const rateFactor = rateScale.value / rateReference;
+    const rateFactor = rateReference > 0 ? rateScale.value / rateReference : 1;
     const rateUnits = rateScale.unit.replace("/S", "/s");
     return (
       <>

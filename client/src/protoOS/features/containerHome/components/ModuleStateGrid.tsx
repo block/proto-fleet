@@ -82,7 +82,12 @@ export default function ModuleStateGrid({
                   >
                     {tank.modules.map((module) => {
                       const empty = module.boards.length === 3 && module.boards.every((board) => board === "empty");
-                      const label = empty ? "No boards mapped" : labels[module.state];
+                      const showState = module.state === "attention" || (!empty && module.state !== "healthy");
+                      const label = empty
+                        ? module.state === "attention"
+                          ? `${labels[module.state]}, No boards mapped`
+                          : "No boards mapped"
+                        : labels[module.state];
                       return (
                         <button
                           key={module.id}
@@ -125,7 +130,7 @@ export default function ModuleStateGrid({
                             ))}
                           </span>
                           <span className="flex items-center justify-center gap-0.5 font-mono text-300 leading-5 font-semibold text-text-primary">
-                            {!empty && module.state !== "healthy" ? (
+                            {showState ? (
                               <span data-testid="module-state-marker" className="flex items-center">
                                 <StateMarker state={module.state} severity={module.attentionSeverity} />
                               </span>

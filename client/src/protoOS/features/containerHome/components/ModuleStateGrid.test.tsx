@@ -118,3 +118,26 @@ it("renders blank slots, offline dots, and unknown question marks without moving
   expect(within(sleeping).getByTestId("module-state-marker").querySelector(".bg-intent-info-fill")).toBeInTheDocument();
   expect(sleeping.querySelector('[data-board-state="attention"]')).toHaveClass("bg-intent-critical-80");
 });
+
+it.each(["critical", "warning"] as const)("shows %s PSU faults beside empty module numbers", (severity) => {
+  const grid: ModuleGrid = {
+    counts: { healthy: 0, attention: 1, offline: 0, sleeping: 0, unknown: 0 },
+    tanks: [
+      {
+        id: "tank:1",
+        label: "Tank 1",
+        columns: 8,
+        rows: 2,
+        modules: [{ ...module(1, "attention"), boards: ["empty", "empty", "empty"], attentionSeverity: severity }],
+      },
+    ],
+  };
+  render(<ModuleStateGrid grid={grid} />);
+  const tile = screen.getByRole("button", { name: "Tank 1 module 1, Needs attention, No boards mapped" });
+  expect(tile).toHaveTextContent("01");
+  expect(within(tile).getByTestId("module-state-marker").firstElementChild).toHaveClass(`bg-intent-${severity}-fill`);
+  for (const slot of tile.querySelectorAll('[data-board-state="empty"]')) {
+    expect(slot).toBeEmptyDOMElement();
+    expect(slot).not.toHaveClass("border");
+  }
+});
