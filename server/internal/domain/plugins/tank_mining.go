@@ -1,0 +1,23 @@
+package plugins
+
+import (
+	"context"
+
+	"github.com/block/proto-fleet/server/internal/domain/commandtype"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
+)
+
+func (p *PluginMiner) SetTankMining(ctx context.Context, req sdk.TankMiningRequest) error {
+	if err := req.Validate(); err != nil {
+		return devicewrite.NotDispatched(fleeterror.NewInvalidArgumentError(err.Error()))
+	}
+	controller, ok := p.sdkDevice.(sdk.DeviceTankMiner)
+	if !ok || !p.caps[sdk.CapabilityTankMining] {
+		return devicewrite.NotDispatched(fleeterror.NewUnimplementedError("tank mining unsupported"))
+	}
+	return p.dispatchWrite(ctx, commandtype.SetTankMining, func(ctx context.Context) error {
+		return wrapPluginError(controller.SetTankMining(ctx, req), "tank mining")
+	})
+}

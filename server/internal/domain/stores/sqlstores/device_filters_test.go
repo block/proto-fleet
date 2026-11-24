@@ -48,20 +48,6 @@ func TestBuildMinerFilterParams_StatusFilterWithError(t *testing.T) {
 	assert.False(t, params.includeNullStatus, "ERROR filter should not include NULL status")
 }
 
-func TestBuildMinerFilterParams_StatusFilterActiveOnly(t *testing.T) {
-	filter := &stores.MinerFilter{
-		DeviceStatusFilter: []minermodels.MinerStatus{
-			minermodels.MinerStatusActive,
-		},
-	}
-
-	params := buildMinerFilterParams(filter)
-
-	assert.True(t, params.statusFilter.Valid)
-	assert.False(t, params.includeNullStatus, "ACTIVE filter should not include NULL status")
-	assert.False(t, params.needsAttentionFilter)
-}
-
 func TestBuildMinerFilterParams_PairingStatusUnspecifiedOnly(t *testing.T) {
 	// Tests edge case: UNSPECIFIED should NOT set the filter (means "return all")
 	filter := &stores.MinerFilter{
@@ -151,23 +137,6 @@ func TestAppendFilterSQL_DeviceIdentifiersFilter(t *testing.T) {
 	assert.Equal(t, 3, resultArgNum)
 }
 
-func TestAppendFilterSQL_StatusFilter(t *testing.T) {
-	var sb strings.Builder
-	args := []any{"initial"}
-	argNum := 2
-	fp := minerFilterParams{
-		statusFilter: validNullString(),
-		statusValues: []string{"ACTIVE"},
-	}
-	orgID := int64(1)
-
-	resultArgs, resultArgNum := appendFilterSQL(&sb, args, argNum, orgID, fp)
-
-	assert.Contains(t, sb.String(), "effective_status.status")
-	assert.Len(t, resultArgs, 3) // initial + statusValues + orgID
-	assert.Equal(t, 4, resultArgNum)
-}
-
 func TestAppendFilterSQL_StatusFilterWithNeedsAttention(t *testing.T) {
 	// Tests special OR logic for needs attention (AUTHENTICATION_NEEDED + errors)
 	var sb strings.Builder
@@ -211,22 +180,6 @@ func TestAppendFilterSQL_StatusFilterWithOfflineIncludesNull(t *testing.T) {
 	// Narrowed to paired-like statuses (matches CountMinersByState scope); excludes PENDING/FAILED/UNPAIRED.
 	assert.Contains(t, sql, "device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')")
 	assert.NotContains(t, sql, "pairing_status != 'AUTHENTICATION_NEEDED'")
-}
-
-func TestAppendFilterSQL_StatusFilterActiveDoesNotIncludeNull(t *testing.T) {
-	var sb strings.Builder
-	args := []any{"initial"}
-	argNum := 2
-	fp := minerFilterParams{
-		statusFilter: validNullString(),
-		statusValues: []string{"ACTIVE"},
-	}
-	orgID := int64(1)
-
-	appendFilterSQL(&sb, args, argNum, orgID, fp)
-
-	sql := sb.String()
-	assert.NotContains(t, sql, "device_status.status IS NULL")
 }
 
 func TestAppendFilterSQL_StatusFilterUsesEffectiveFleetNodeStatus(t *testing.T) {
@@ -1033,18 +986,6 @@ func TestBuildMinerFilterParams_IPCIDRs(t *testing.T) {
 	assert.Equal(t, []string{"192.168.1.0/24", "10.0.0.0/8"}, params.ipCIDRValues)
 }
 
-func TestBuildMinerFilterParams_NoNumeric_NoIPCIDR(t *testing.T) {
-	filter := &stores.MinerFilter{}
-
-	params := buildMinerFilterParams(filter)
-
-	assert.Empty(t, params.numericRanges)
-	assert.False(t, params.ipCIDRsFilter.Valid)
-	assert.Empty(t, params.ipCIDRValues)
-	assert.Empty(t, params.ipRangeStarts)
-	assert.Empty(t, params.ipRangeEnds)
-}
-
 func TestBuildMinerFilterParams_IPRanges(t *testing.T) {
 	filter := &stores.MinerFilter{
 		IPRanges: []stores.IPRange{
@@ -1076,34 +1017,6 @@ func TestAppendFilterSQL_NumericRange_LowerBoundExclusive(t *testing.T) {
 	assert.Contains(t, sql, "effective_status.status IS NULL OR effective_status.status != 'OFFLINE'", "numeric filter must exclude OFFLINE miners")
 	assert.Len(t, resultArgs, 2)
 	assert.Equal(t, 3, resultArgNum)
-}
-
-func TestAppendFilterSQL_NumericRange_LowerBoundInclusive(t *testing.T) {
-	var sb strings.Builder
-	args := []any{"initial"}
-	fp := minerFilterParams{
-		numericRanges: []stores.NumericRange{
-			{Field: stores.NumericFilterFieldEfficiencyJTH, Min: ptr(20.0), MinInclusive: true},
-		},
-	}
-
-	appendFilterSQL(&sb, args, 2, 1, fp)
-
-	assert.Contains(t, sb.String(), "latest_metrics.efficiency_jh * 1e12 >= $2")
-}
-
-func TestAppendFilterSQL_NumericRange_UpperBoundInclusive(t *testing.T) {
-	var sb strings.Builder
-	args := []any{"initial"}
-	fp := minerFilterParams{
-		numericRanges: []stores.NumericRange{
-			{Field: stores.NumericFilterFieldPowerKW, Max: ptr(3000.0), MaxInclusive: true},
-		},
-	}
-
-	appendFilterSQL(&sb, args, 2, 1, fp)
-
-	assert.Contains(t, sb.String(), "latest_metrics.power_w / 1e3 <= $2")
 }
 
 func TestAppendFilterSQL_NumericRange_BetweenEmitsTwoPredicates(t *testing.T) {

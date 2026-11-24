@@ -109,7 +109,10 @@ describe("release channel settings refresh", () => {
     expect(screen.getByLabelText("Name")).toHaveValue("Local name");
   });
 
-  it("keeps a pending scope preview through equivalent polling snapshots", async () => {
+  it.each([
+    { name: "equal clone", polledSiteIds: [1n, 2n] },
+    { name: "reordered selectors", polledSiteIds: [2n, 1n] },
+  ])("keeps a pending scope preview through $name polling snapshots", async ({ polledSiteIds }) => {
     vi.useFakeTimers();
     let finish!: (response: PreviewReleaseChannelScopeResponse) => void;
     const previewScope = vi.fn().mockReturnValue(
@@ -117,17 +120,23 @@ describe("release channel settings refresh", () => {
         finish = resolve;
       }),
     );
-    const { channel, update } = renderManage(channelFor(), undefined, previewScope);
-    await act(async () => vi.advanceTimersByTime(300));
+    const initial = channelFor();
+    initial.scope = { ...initial.scope!, siteIds: [1n, 2n] };
+    const { channel, update } = renderManage(initial, undefined, previewScope);
+    await act(async () => vi.advanceTimersByTimeAsync(300));
     expect(previewScope).toHaveBeenCalledOnce();
     for (let poll = 0; poll < 3; poll += 1) {
-      update({ ...channel, scope: { ...channel.scope!, siteIds: [1n] } });
-      await act(async () => vi.advanceTimersByTime(5000));
+      update({ ...channel, scope: { ...channel.scope!, siteIds: [...polledSiteIds] } });
+      await act(async () => vi.advanceTimersByTimeAsync(5000));
+      expect(previewScope).toHaveBeenCalledOnce();
+      expect(screen.getByTestId("scope-preview")).toHaveTextContent("Resolving 2 sites");
+      expect(screen.getByTestId("save-channel")).toBeDisabled();
     }
-    expect(previewScope).toHaveBeenCalledOnce();
-    expect(screen.getByTestId("scope-preview")).toHaveTextContent("Resolving 1 site");
     await act(async () => finish(create(PreviewReleaseChannelScopeResponseSchema, { minerCount: 17, modelCount: 1 })));
     expect(screen.queryByTestId("scope-preview")).not.toBeInTheDocument();
+    expect(screen.getByTestId("save-channel")).toBeDisabled();
+    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    expect(previewScope).toHaveBeenCalledOnce();
   });
 
   it("updates clean settings without losing staged firmware when the channel and assignment change", async () => {

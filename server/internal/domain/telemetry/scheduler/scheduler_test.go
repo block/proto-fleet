@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"slices"
 	"sync"
 	"testing"
@@ -14,6 +15,14 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 )
+
+func newTestScheduler(config Config) *scheduler {
+	return NewScheduler(config, 20*time.Second, 5*time.Second)
+}
+
+func (s *scheduler) fetchAllDue(ctx context.Context, now time.Time) ([]models.Device, error) {
+	return s.FetchDue(ctx, now, math.MaxInt)
+}
 
 type captureLogHandler struct {
 	mu      sync.Mutex
@@ -71,28 +80,12 @@ func attrsFromRecord(record slog.Record) map[string]any {
 	return attrs
 }
 
-func TestNewScheduler(t *testing.T) {
-	t.Run("creates a new scheduler instance", func(t *testing.T) {
-		config := Config{
-			MaxConsecutiveFailures: 10,
-		}
-		s := NewScheduler(config)
-		assert.NotNil(t, s)
-
-		// Verify initial state through public interface
-		assert.Equal(t, 0, s.GetDeviceCount())
-		devices, err := s.GetAllDevices(t.Context())
-		require.NoError(t, err)
-		assert.Empty(t, devices)
-	})
-}
-
 func TestScheduler_AddNewDevices(t *testing.T) {
 	t.Run("adds single new device successfully", func(t *testing.T) {
 		config := Config{
 			MaxConsecutiveFailures: 10,
 		}
-		s := NewScheduler(config)
+		s := newTestScheduler(config)
 		ctx := t.Context()
 		deviceID := models.DeviceIdentifier("123")
 
@@ -106,22 +99,21 @@ func TestScheduler_AddNewDevices(t *testing.T) {
 		require.Len(t, devices, 1)
 		assert.Equal(t, deviceID, devices[0].ID)
 
-		// Verify device was added with zero timestamp so it is immediately eligible for scheduling
-		assert.True(t, devices[0].LastUpdatedAt.IsZero(), "new devices should start with zero timestamp to be immediately eligible for scheduling")
+		assert.True(t, devices[0].LastUpdatedAt.IsZero())
 
 		// Act
-		stale, err := s.FetchDevices(ctx, time.Now())
+		stale, err := s.fetchAllDue(ctx, time.Now())
 
 		// Assert
 		require.NoError(t, err)
-		assert.Len(t, stale, 1, "new device should be immediately returned by FetchDevices")
+		assert.Len(t, stale, 1, "new device should be immediately due")
 	})
 
 	t.Run("adds multiple new devices successfully", func(t *testing.T) {
 		config := Config{
 			MaxConsecutiveFailures: 10,
 		}
-		s := NewScheduler(config)
+		s := newTestScheduler(config)
 		now := time.Date(2026, time.September, 8, 12, 0, 0, 0, time.UTC)
 		current := now
 		s.now = func() time.Time { return current }
@@ -145,12 +137,12 @@ func TestScheduler_AddNewDevices(t *testing.T) {
 			assert.True(t, found, "Device %d should be in scheduler", expectedID)
 		}
 
-		initiallyDue, err := s.FetchDevices(ctx, now.Add(-initialDevicePollSpread))
+		initiallyDue, err := s.fetchAllDue(ctx, now)
 		require.NoError(t, err)
 		assert.Empty(t, initiallyDue, "bulk devices should not all become eligible in one startup wave")
 
-		current = now.Add(initialDevicePollSpread)
-		dueAfterWindow, err := s.FetchDevices(ctx, current)
+		current = now.Add(20 * time.Second)
+		dueAfterWindow, err := s.fetchAllDue(ctx, current)
 		require.NoError(t, err)
 		assert.Len(t, dueAfterWindow, len(deviceIDs))
 	})
@@ -159,7 +151,7 @@ func TestScheduler_AddNewDevices(t *testing.T) {
 		config := Config{
 			MaxConsecutiveFailures: 10,
 		}
-		s := NewScheduler(config)
+		s := newTestScheduler(config)
 		ctx := t.Context()
 		deviceID := models.DeviceIdentifier("123")
 
@@ -176,9 +168,7 @@ func TestScheduler_AddNewDevices(t *testing.T) {
 }
 
 func TestScheduler_AddNewDevicesSpreadsBulkEligibility(t *testing.T) {
-	require.Equal(t, 15*time.Second, initialDevicePollSpread)
-
-	s := NewScheduler(Config{MaxConsecutiveFailures: 10})
+	s := newTestScheduler(Config{MaxConsecutiveFailures: 10})
 	now := time.Date(2026, time.September, 8, 12, 0, 0, 0, time.UTC)
 	current := now
 	s.now = func() time.Time { return current }
@@ -189,14 +179,14 @@ func TestScheduler_AddNewDevicesSpreadsBulkEligibility(t *testing.T) {
 
 	require.NoError(t, s.AddNewDevices(t.Context(), deviceIDs...))
 
-	current = now.Add(initialDevicePollSpread / 2)
-	firstHalf, err := s.FetchDevices(t.Context(), current)
+	current = now.Add(15 * time.Second)
+	firstHalf, err := s.fetchAllDue(t.Context(), current)
 	require.NoError(t, err)
 	assert.NotEmpty(t, firstHalf)
 	assert.Less(t, len(firstHalf), len(deviceIDs))
 
-	current = now.Add(initialDevicePollSpread)
-	secondHalf, err := s.FetchDevices(t.Context(), current)
+	current = now.Add(20 * time.Second)
+	secondHalf, err := s.fetchAllDue(t.Context(), current)
 	require.NoError(t, err)
 	assert.Len(t, secondHalf, len(deviceIDs)-len(firstHalf))
 }
@@ -207,9 +197,9 @@ func TestScheduler_DuplicateDeviceLogsAreAggregated(t *testing.T) {
 	slog.SetDefault(slog.New(handler))
 	t.Cleanup(func() { slog.SetDefault(oldLogger) })
 
-	s := NewScheduler(Config{MaxConsecutiveFailures: 10})
+	s := newTestScheduler(Config{MaxConsecutiveFailures: 10})
 	ctx := t.Context()
-	deviceIDs := []models.DeviceIdentifier{"123", "456", "789"}
+	deviceIDs := []models.DeviceIdentifier{"123", "456", "789", "abc", "def", "ghi"}
 
 	require.NoError(t, s.AddNewDevices(ctx, deviceIDs...))
 	require.NoError(t, s.AddNewDevices(ctx, deviceIDs...))
@@ -219,8 +209,8 @@ func TestScheduler_DuplicateDeviceLogsAreAggregated(t *testing.T) {
 	assert.Equal(t, slog.LevelInfo, record.Level)
 
 	attrs := attrsFromRecord(record)
-	assert.Equal(t, int64(3), attrs["count"])
-	assert.Equal(t, []string{"123", "456", "789"}, attrs["sample_device_ids"])
+	assert.Equal(t, int64(6), attrs["count"])
+	assert.Equal(t, []string{"123", "456", "789", "abc", "def"}, attrs["sample_device_ids"])
 }
 
 func TestScheduler_AlreadyScheduledDeviceLogsAreAggregated(t *testing.T) {
@@ -229,7 +219,7 @@ func TestScheduler_AlreadyScheduledDeviceLogsAreAggregated(t *testing.T) {
 	slog.SetDefault(slog.New(handler))
 	t.Cleanup(func() { slog.SetDefault(oldLogger) })
 
-	s := NewScheduler(Config{MaxConsecutiveFailures: 10})
+	s := newTestScheduler(Config{MaxConsecutiveFailures: 10})
 	ctx := t.Context()
 
 	require.NoError(t, s.AddNewDevices(ctx, "123"))
@@ -262,7 +252,7 @@ func TestScheduler_AddDevices(t *testing.T) {
 		config := Config{
 			MaxConsecutiveFailures: 10,
 		}
-		s := NewScheduler(config)
+		s := newTestScheduler(config)
 		ctx := t.Context()
 		deviceID := models.DeviceIdentifier("123")
 
@@ -272,7 +262,7 @@ func TestScheduler_AddDevices(t *testing.T) {
 
 		// Fetch the device to simulate it being checked out
 		oldTime := time.Now().Add(-2 * time.Hour)
-		oldDevices, err := s.FetchDevices(ctx, time.Now().Add(1*time.Hour))
+		oldDevices, err := s.fetchAllDue(ctx, time.Now().Add(1*time.Hour))
 		require.NoError(t, err)
 		require.Len(t, oldDevices, 1)
 		require.Equal(t, 0, s.GetDeviceCount())
@@ -300,7 +290,7 @@ func TestScheduler_AddDevices(t *testing.T) {
 		config := Config{
 			MaxConsecutiveFailures: 10,
 		}
-		s := NewScheduler(config)
+		s := newTestScheduler(config)
 		ctx := t.Context()
 		device := models.Device{
 			ID:            models.DeviceIdentifier("999"),
@@ -319,7 +309,7 @@ func TestScheduler_AddDevices(t *testing.T) {
 		config := Config{
 			MaxConsecutiveFailures: 10,
 		}
-		s := NewScheduler(config)
+		s := newTestScheduler(config)
 		ctx := t.Context()
 		deviceID := models.DeviceIdentifier("123")
 
@@ -344,7 +334,7 @@ func TestScheduler_RemoveDevices(t *testing.T) {
 		config := Config{
 			MaxConsecutiveFailures: 10,
 		}
-		s := NewScheduler(config)
+		s := newTestScheduler(config)
 		ctx := t.Context()
 		deviceID := models.DeviceIdentifier("123")
 
@@ -368,7 +358,7 @@ func TestScheduler_RemoveDevices(t *testing.T) {
 		config := Config{
 			MaxConsecutiveFailures: 10,
 		}
-		s := NewScheduler(config)
+		s := newTestScheduler(config)
 		ctx := t.Context()
 		deviceIDs := []models.DeviceIdentifier{"123", "456", "789", "101112", "131415"}
 
@@ -388,7 +378,7 @@ func TestScheduler_RemoveDevices(t *testing.T) {
 		config := Config{
 			MaxConsecutiveFailures: 10,
 		}
-		s := NewScheduler(config)
+		s := newTestScheduler(config)
 		ctx := t.Context()
 		deviceID := models.DeviceIdentifier("999")
 
@@ -404,7 +394,7 @@ func TestScheduler_RemoveDevices(t *testing.T) {
 		config := Config{
 			MaxConsecutiveFailures: 10,
 		}
-		s := NewScheduler(config)
+		s := newTestScheduler(config)
 		ctx := t.Context()
 		managedID := models.DeviceIdentifier("123")
 		unmanagedID := models.DeviceIdentifier("999")
@@ -422,17 +412,22 @@ func TestScheduler_RemoveDevices(t *testing.T) {
 		var deviceNotManagedErr DeviceNotManagedErr
 		require.ErrorAs(t, err, &deviceNotManagedErr)
 		assert.Equal(t, unmanagedID, deviceNotManagedErr.DeviceID)
+
+		due, err := s.fetchAllDue(ctx, time.Now())
+		require.NoError(t, err)
+		require.Empty(t, due, "the device before the unmanaged ID must be removed")
 	})
 }
 
-func TestScheduler_FetchDevices(t *testing.T) {
-	t.Run("fetches devices older than threshold", func(t *testing.T) {
+func TestScheduler_FetchDue(t *testing.T) {
+	t.Run("leaves devices with future due times queued", func(t *testing.T) {
 		config := Config{
 			MaxConsecutiveFailures: 10,
 		}
-		s := NewScheduler(config)
+		s := newTestScheduler(config)
 		ctx := t.Context()
 		now := time.Now()
+		s.now = func() time.Time { return now.Add(-6 * time.Hour) }
 
 		// Add devices with different timestamps by adding them as new devices first
 		deviceIDs := []models.DeviceIdentifier{"1", "2", "3", "4"}
@@ -442,7 +437,7 @@ func TestScheduler_FetchDevices(t *testing.T) {
 		}
 
 		// Fetch all devices to clear scheduler
-		_, err := s.FetchDevices(ctx, time.Now().Add(time.Hour))
+		_, err := s.fetchAllDue(ctx, time.Now().Add(time.Hour))
 		require.NoError(t, err)
 
 		// Add them back with specific timestamps
@@ -462,9 +457,8 @@ func TestScheduler_FetchDevices(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		// Fetch devices older than 1 hour
 		threshold := now.Add(-1 * time.Hour)
-		fetchedDevices, err := s.FetchDevices(ctx, threshold)
+		fetchedDevices, err := s.fetchAllDue(ctx, threshold)
 
 		require.NoError(t, err)
 		assert.Len(t, fetchedDevices, 2)
@@ -490,112 +484,81 @@ func TestScheduler_FetchDevices(t *testing.T) {
 		assert.Contains(t, remainingIDs, models.DeviceIdentifier("4"))
 	})
 
-	t.Run("returns empty slice when no old devices", func(t *testing.T) {
-		// Arrange: register devices, check them out, then re-add with time.Now() to simulate a fresh poll
-		config := Config{
-			MaxConsecutiveFailures: 10,
-		}
-		s := NewScheduler(config)
-		ctx := t.Context()
-		deviceIDs := []models.DeviceIdentifier{"1", "2"}
-		for _, id := range deviceIDs {
-			err := s.AddNewDevices(ctx, id)
-			require.NoError(t, err)
-		}
-		// Check out all devices (simulating the scheduler picking them up)
-		_, err := s.FetchDevices(ctx, time.Now())
-		require.NoError(t, err)
-		// Re-add with time.Now() to simulate a just-completed poll
-		for _, id := range deviceIDs {
-			err := s.AddDevices(ctx, models.Device{ID: id, LastUpdatedAt: time.Now()})
-			require.NoError(t, err)
-		}
-
-		// Act: fetch with a threshold 1 hour ago — freshly polled devices should not be stale
-		fetchedDevices, err := s.FetchDevices(ctx, time.Now().Add(-1*time.Hour))
-
-		// Assert
-		require.NoError(t, err)
-		assert.Empty(t, fetchedDevices)
-		assert.Equal(t, 2, s.GetDeviceCount()) // All devices should remain
-	})
-
 	t.Run("returns empty slice when scheduler is empty", func(t *testing.T) {
 		config := Config{
 			MaxConsecutiveFailures: 10,
 		}
-		s := NewScheduler(config)
+		s := newTestScheduler(config)
 		ctx := t.Context()
 		threshold := time.Now().Add(-1 * time.Hour)
 
-		fetchedDevices, err := s.FetchDevices(ctx, threshold)
+		fetchedDevices, err := s.fetchAllDue(ctx, threshold)
 
 		require.NoError(t, err)
 		assert.Empty(t, fetchedDevices)
 		assert.Equal(t, 0, s.GetDeviceCount())
 	})
+}
 
-	t.Run("fetches all devices when all are old", func(t *testing.T) {
-		config := Config{
-			MaxConsecutiveFailures: 10,
-		}
-		s := NewScheduler(config)
-		ctx := t.Context()
-		now := time.Now()
-
-		// Add devices as new first
-		deviceIDs := []models.DeviceIdentifier{"1", "2"}
-		for _, id := range deviceIDs {
-			err := s.AddNewDevices(ctx, id)
+func TestScheduler_ReschedulesCompletedPolls(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		period      time.Duration
+		retry       time.Duration
+		completedAt time.Duration
+		nextDue     time.Duration
+	}{
+		{name: "normal poll keeps its phase", period: 20 * time.Second, retry: 5 * time.Second, completedAt: 4 * time.Second, nextDue: 20 * time.Second},
+		{name: "slow poll keeps the minimum gap", period: 20 * time.Second, retry: 5 * time.Second, completedAt: 6 * time.Second, nextDue: 21 * time.Second},
+		{name: "standard profile uses configured timing", period: 30 * time.Second, retry: 10 * time.Second, completedAt: 11 * time.Second, nextDue: 31 * time.Second},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := NewScheduler(Config{}, tt.period, tt.retry)
+			start := time.Now()
+			s.now = func() time.Time { return start }
+			ctx := t.Context()
+			require.NoError(t, s.AddNewDevices(ctx, "device"))
+			devices, err := s.FetchDue(ctx, start, 1)
 			require.NoError(t, err)
-		}
+			require.Len(t, devices, 1, "single-device admission must be due immediately")
 
-		// Fetch all to clear, then add back with old timestamps
-		_, err := s.FetchDevices(ctx, time.Now().Add(time.Hour))
-		require.NoError(t, err)
+			devices[0].LastUpdatedAt = start.Add(tt.completedAt)
+			require.NoError(t, s.AddDevices(ctx, devices[0]))
 
-		oldDevices := []models.Device{
-			{ID: "1", LastUpdatedAt: now.Add(-3 * time.Hour)},
-			{ID: "2", LastUpdatedAt: now.Add(-2 * time.Hour)},
-		}
-
-		for _, device := range oldDevices {
-			err := s.AddDevices(ctx, device)
+			due := start.Add(tt.nextDue)
+			early, err := s.FetchDue(ctx, due.Add(-time.Nanosecond), 1)
 			require.NoError(t, err)
-		}
+			require.Empty(t, early)
+			fetched, err := s.FetchDue(ctx, due, 1)
+			require.NoError(t, err)
+			require.Equal(t, devices, fetched)
+		})
+	}
+}
 
-		// Fetch devices older than 1 hour (all should be fetched)
-		threshold := now.Add(-1 * time.Hour)
-		fetchedDevices, err := s.FetchDevices(ctx, threshold)
+func TestScheduler_KeepsMinimumGapAfterOverlappingRefresh(t *testing.T) {
+	s := newTestScheduler(Config{})
+	start := time.Now()
+	s.now = func() time.Time { return start }
+	ctx := t.Context()
+	require.NoError(t, s.AddNewDevices(ctx, "device"))
+	devices, err := s.FetchDue(ctx, start, 1)
+	require.NoError(t, err)
+	require.Len(t, devices, 1)
 
-		require.NoError(t, err)
-		assert.Len(t, fetchedDevices, 2)
-		assert.Equal(t, 0, s.GetDeviceCount()) // All devices should be removed from scheduler
-	})
+	refreshed := devices[0]
+	refreshed.LastUpdatedAt = start.Add(time.Second)
+	require.NoError(t, s.AddDevices(ctx, refreshed))
+	completed := devices[0]
+	completed.LastUpdatedAt = start.Add(15 * time.Second)
+	require.NoError(t, s.AddDevices(ctx, completed))
 
-	t.Run("fetched devices can be added back", func(t *testing.T) {
-		config := Config{
-			MaxConsecutiveFailures: 10,
-		}
-		s := NewScheduler(config)
-		ctx := t.Context()
-		deviceID := models.DeviceIdentifier("123")
-
-		// Add device
-		err := s.AddNewDevices(ctx, deviceID)
-		require.NoError(t, err)
-
-		// Fetch it (this should mark it as checked out)
-		fetchedDevices, err := s.FetchDevices(ctx, time.Now().Add(time.Hour))
-		require.NoError(t, err)
-		require.Len(t, fetchedDevices, 1)
-		assert.Equal(t, 0, s.GetDeviceCount())
-
-		// Add it back
-		err = s.AddDevices(ctx, fetchedDevices[0])
-		require.NoError(t, err)
-		assert.Equal(t, 1, s.GetDeviceCount())
-	})
+	early, err := s.FetchDue(ctx, start.Add(20*time.Second), 1)
+	require.NoError(t, err)
+	require.Empty(t, early, "the later completion must move the queued poll")
+	due, err := s.FetchDue(ctx, start.Add(30*time.Second), 1)
+	require.NoError(t, err)
+	require.Equal(t, []models.Device{completed}, due)
 }
 
 func TestScheduler_AddFailedDevices(t *testing.T) {
@@ -604,7 +567,7 @@ func TestScheduler_AddFailedDevices(t *testing.T) {
 			MaxConsecutiveFailures: 10,
 		}
 
-		s := NewScheduler(config)
+		s := newTestScheduler(config)
 		ctx := t.Context()
 		deviceID := models.DeviceIdentifier("123")
 
@@ -613,7 +576,7 @@ func TestScheduler_AddFailedDevices(t *testing.T) {
 		require.NoError(t, err)
 
 		// Simulate fetching and failing
-		fetchedDevices, err := s.FetchDevices(ctx, time.Now().Add(time.Hour))
+		fetchedDevices, err := s.fetchAllDue(ctx, time.Now().Add(time.Hour))
 		require.NoError(t, err)
 		require.Len(t, fetchedDevices, 1)
 		assert.Equal(t, 0, s.GetDeviceCount())
@@ -639,7 +602,7 @@ func TestScheduler_AddFailedDevices(t *testing.T) {
 		config := Config{
 			MaxConsecutiveFailures: 3,
 		}
-		s := NewScheduler(config)
+		s := newTestScheduler(config)
 		ctx := t.Context()
 		deviceID := models.DeviceIdentifier("123")
 
@@ -650,7 +613,7 @@ func TestScheduler_AddFailedDevices(t *testing.T) {
 		// Simulate failing the device exactly MaxConsecutiveFailures times
 		for i := range config.MaxConsecutiveFailures {
 			// Fetch device
-			fetchedDevices, err := s.FetchDevices(ctx, time.Now().Add(time.Hour))
+			fetchedDevices, err := s.fetchAllDue(ctx, time.Now().Add(time.Hour))
 			require.NoError(t, err)
 			require.Len(t, fetchedDevices, 1)
 
@@ -694,7 +657,7 @@ func TestScheduler_AddFailedDevices(t *testing.T) {
 		config := Config{
 			MaxConsecutiveFailures: 2,
 		}
-		s := NewScheduler(config)
+		s := newTestScheduler(config)
 		ctx := t.Context()
 		deviceID := models.DeviceIdentifier("123")
 
@@ -704,7 +667,7 @@ func TestScheduler_AddFailedDevices(t *testing.T) {
 
 		// Fail device max times
 		for range config.MaxConsecutiveFailures {
-			fetchedDevices, err := s.FetchDevices(ctx, time.Now().Add(time.Hour))
+			fetchedDevices, err := s.fetchAllDue(ctx, time.Now().Add(time.Hour))
 			require.NoError(t, err)
 			require.Len(t, fetchedDevices, 1)
 
@@ -869,7 +832,7 @@ func TestScheduler_AddFailedDevices(t *testing.T) {
 				config := Config{
 					MaxConsecutiveFailures: test.MaxConsecutiveFailures,
 				}
-				s := NewScheduler(config)
+				s := newTestScheduler(config)
 				ctx := t.Context()
 
 				maxFetchCount := 0
@@ -885,7 +848,7 @@ func TestScheduler_AddFailedDevices(t *testing.T) {
 
 				for i := range maxFetchCount {
 					// Fetch devices to simulate work being done
-					fetchedDevices, err := s.FetchDevices(ctx, time.Now().Add(time.Hour))
+					fetchedDevices, err := s.fetchAllDue(ctx, time.Now().Add(time.Hour))
 					require.NoError(t, err, "Failed to fetch devices on iteration %d", i)
 
 					for deviceID, scenario := range test.deviceScenario {
@@ -925,7 +888,7 @@ func TestScheduler_AddFailedDevices(t *testing.T) {
 		config := Config{
 			MaxConsecutiveFailures: 2,
 		}
-		s := NewScheduler(config)
+		s := newTestScheduler(config)
 		ctx := t.Context()
 		deviceID := models.DeviceIdentifier("test-device")
 
@@ -945,7 +908,7 @@ func TestScheduler_AddFailedDevices(t *testing.T) {
 		assert.True(t, failedAt.IsZero(), "New device should have zero timestamp")
 
 		// Fail device once (should not be marked as failed yet)
-		fetchedDevices, err := s.FetchDevices(ctx, time.Now().Add(time.Hour))
+		fetchedDevices, err := s.fetchAllDue(ctx, time.Now().Add(time.Hour))
 		require.NoError(t, err)
 		require.Len(t, fetchedDevices, 1)
 
@@ -960,7 +923,7 @@ func TestScheduler_AddFailedDevices(t *testing.T) {
 		assert.True(t, failedAt.IsZero(), "Device should have zero timestamp after first failure")
 
 		// Fail device second time (should be marked as failed)
-		fetchedDevices, err = s.FetchDevices(ctx, time.Now().Add(time.Hour))
+		fetchedDevices, err = s.fetchAllDue(ctx, time.Now().Add(time.Hour))
 		require.NoError(t, err)
 		require.Len(t, fetchedDevices, 1)
 
@@ -981,28 +944,44 @@ func TestScheduler_AddFailedDevices(t *testing.T) {
 func TestScheduler_RequeueDevicesPreservesFailureCount(t *testing.T) {
 	// Arrange
 	config := Config{MaxConsecutiveFailures: 2}
-	s := NewScheduler(config)
+	s := newTestScheduler(config)
 	ctx := t.Context()
+	now := time.Now()
+	s.now = func() time.Time { return now }
 	deviceID := models.DeviceIdentifier("busy-between-failures")
 	require.NoError(t, s.AddNewDevices(ctx, deviceID))
 
-	firstAttempt, err := s.FetchDevices(ctx, time.Now().Add(time.Hour))
+	firstAttempt, err := s.fetchAllDue(ctx, time.Now().Add(time.Hour))
 	require.NoError(t, err)
 	require.Len(t, firstAttempt, 1)
 	require.NoError(t, s.AddFailedDevices(ctx, firstAttempt[0]))
 
-	busyAttempt, err := s.FetchDevices(ctx, time.Now().Add(time.Hour))
+	earlyRetry, err := s.fetchAllDue(ctx, now.Add(5*time.Second-time.Nanosecond))
+	require.NoError(t, err)
+	require.Empty(t, earlyRetry)
+	now = now.Add(5 * time.Second)
+	busyAttempt, err := s.fetchAllDue(ctx, now)
 	require.NoError(t, err)
 	require.Len(t, busyAttempt, 1)
 
+	require.NoError(t, s.RestoreDevices(ctx, busyAttempt...))
+	restored, err := s.fetchAllDue(ctx, now)
+	require.NoError(t, err)
+	require.Equal(t, busyAttempt, restored, "shutdown must restore a retry at its previous due time")
+
 	// Act: a capacity rejection requeues the device without representing either
 	// a successful recovery or an additional device failure.
+	busyAttempt[0].LastUpdatedAt = now.Add(time.Second)
 	require.NoError(t, s.RequeueDevices(ctx, busyAttempt[0]))
 
-	secondFailure, err := s.FetchDevices(ctx, time.Now().Add(time.Hour))
+	earlyRetry, err = s.fetchAllDue(ctx, now.Add(20*time.Second-time.Nanosecond))
+	require.NoError(t, err)
+	require.Empty(t, earlyRetry)
+	now = now.Add(20 * time.Second)
+	secondFailure, err := s.fetchAllDue(ctx, now)
 	require.NoError(t, err)
 	require.Len(t, secondFailure, 1)
-	secondFailure[0].LastUpdatedAt = time.Now()
+	secondFailure[0].LastUpdatedAt = now
 	require.NoError(t, s.AddFailedDevices(ctx, secondFailure[0]))
 
 	// Assert: the failures on either side of BUSY remain consecutive.
@@ -1018,7 +997,7 @@ func TestScheduler_ConcurrentAccess(t *testing.T) {
 		config := Config{
 			MaxConsecutiveFailures: 10,
 		}
-		s := NewScheduler(config)
+		s := newTestScheduler(config)
 		ctx := t.Context()
 
 		done := make(chan bool, 2)
@@ -1056,41 +1035,33 @@ func TestScheduler_ConcurrentAccess(t *testing.T) {
 	})
 
 	t.Run("concurrent fetch operations", func(t *testing.T) {
-		config := Config{
-			MaxConsecutiveFailures: 10,
-		}
-		s := NewScheduler(config)
+		s := newTestScheduler(Config{})
 		ctx := t.Context()
 
-		// Add some devices first
-		for i := range 5 {
-			err := s.AddNewDevices(ctx, models.DeviceIdentifier(fmt.Sprint(i)))
-			require.NoError(t, err)
+		deviceIDs := []models.DeviceIdentifier{"0", "1", "2", "3", "4"}
+		require.NoError(t, s.AddNewDevices(ctx, deviceIDs...))
+		now := time.Now().Add(time.Hour)
+
+		const fetchers = 2
+		batches := make(chan []models.Device, fetchers)
+		for range fetchers {
+			go func() {
+				devices, err := s.fetchAllDue(ctx, now)
+				assert.NoError(t, err)
+				batches <- devices
+			}()
 		}
 
-		done := make(chan bool, 2)
-
-		// Two goroutines trying to fetch devices concurrently
-		go func() {
-			defer func() { done <- true }()
-			_, err := s.FetchDevices(ctx, time.Now().Add(time.Hour))
-			assert.NoError(t, err, "Failed to fetch devices in goroutine 1")
-		}()
-
-		go func() {
-			defer func() { done <- true }()
-			_, err := s.FetchDevices(ctx, time.Now().Add(time.Hour))
-			assert.NoError(t, err, "Failed to fetch devices in goroutine 2")
-		}()
-
-		<-done
-		<-done
-
-		// Verify scheduler is in consistent state
-		count := s.GetDeviceCount()
-		devices, err := s.GetAllDevices(ctx)
+		var fetchedIDs []models.DeviceIdentifier
+		for range fetchers {
+			for _, device := range <-batches {
+				fetchedIDs = append(fetchedIDs, device.ID)
+			}
+		}
+		require.ElementsMatch(t, deviceIDs, fetchedIDs)
+		remaining, err := s.fetchAllDue(ctx, now)
 		require.NoError(t, err)
-		assert.Len(t, devices, count)
+		require.Empty(t, remaining)
 	})
 }
 
@@ -1099,7 +1070,7 @@ func TestScheduler_EdgeCases(t *testing.T) {
 		config := Config{
 			MaxConsecutiveFailures: 10,
 		}
-		s := NewScheduler(config)
+		s := newTestScheduler(config)
 		ctx := t.Context()
 
 		err := s.AddNewDevices(ctx)
@@ -1115,68 +1086,12 @@ func TestScheduler_EdgeCases(t *testing.T) {
 		config := Config{
 			MaxConsecutiveFailures: 10,
 		}
-		s := NewScheduler(config)
+		s := newTestScheduler(config)
 		ctx := t.Context()
 
 		err := s.AddDevices(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, 0, s.GetDeviceCount())
-	})
-
-	t.Run("fetch with exact timestamp boundary", func(t *testing.T) {
-		config := Config{
-			MaxConsecutiveFailures: 10,
-		}
-		s := NewScheduler(config)
-		ctx := t.Context()
-		exactTime := time.Now()
-
-		// Add device as new first
-		deviceID := models.DeviceIdentifier("1")
-		err := s.AddNewDevices(ctx, deviceID)
-		require.NoError(t, err)
-
-		// Fetch all and add back with exact timestamp
-		_, err = s.FetchDevices(ctx, time.Now().Add(time.Hour))
-		require.NoError(t, err)
-
-		device := models.Device{
-			ID:            deviceID,
-			LastUpdatedAt: exactTime,
-		}
-		err = s.AddDevices(ctx, device)
-		require.NoError(t, err)
-
-		// Fetch with exact same timestamp
-		fetchedDevices, err := s.FetchDevices(ctx, exactTime)
-
-		require.NoError(t, err)
-		// The behavior here depends on the binary search implementation
-		assert.Empty(t, fetchedDevices, "Should not fetch device with exact timestamp")
-	})
-
-	t.Run("large number of devices", func(t *testing.T) {
-		config := Config{
-			MaxConsecutiveFailures: 10,
-		}
-		s := NewScheduler(config)
-		ctx := t.Context()
-
-		// Add many devices
-		deviceCount := 1000
-		deviceIDs := make([]models.DeviceIdentifier, deviceCount)
-		for i := range deviceCount {
-			deviceIDs[i] = models.DeviceIdentifier(fmt.Sprint(i))
-		}
-
-		err := s.AddNewDevices(ctx, deviceIDs...)
-		require.NoError(t, err)
-		assert.Equal(t, deviceCount, s.GetDeviceCount())
-
-		// Verify all devices are present
-		devices, err := s.GetAllDevices(ctx)
-		require.NoError(t, err)
-		assert.Len(t, devices, deviceCount)
 	})
 }
 
@@ -1185,7 +1100,7 @@ func TestScheduler_IntegrationScenarios(t *testing.T) {
 		config := Config{
 			MaxConsecutiveFailures: 10,
 		}
-		s := NewScheduler(config)
+		s := newTestScheduler(config)
 		ctx := t.Context()
 		deviceID := models.DeviceIdentifier("123")
 
@@ -1195,7 +1110,7 @@ func TestScheduler_IntegrationScenarios(t *testing.T) {
 		assert.Equal(t, 1, s.GetDeviceCount())
 
 		// 2. Fetch device (simulating work being done)
-		fetchedDevices, err := s.FetchDevices(ctx, time.Now().Add(time.Hour))
+		fetchedDevices, err := s.fetchAllDue(ctx, time.Now().Add(time.Hour))
 		require.NoError(t, err)
 		require.Len(t, fetchedDevices, 1)
 		assert.Equal(t, 0, s.GetDeviceCount())
@@ -1217,54 +1132,5 @@ func TestScheduler_IntegrationScenarios(t *testing.T) {
 		require.Error(t, err)
 		var deviceNotManagedErr DeviceNotManagedErr
 		require.ErrorAs(t, err, &deviceNotManagedErr)
-	})
-
-	t.Run("multiple devices with different timestamps", func(t *testing.T) {
-		config := Config{
-			MaxConsecutiveFailures: 10,
-		}
-		s := NewScheduler(config)
-		ctx := t.Context()
-		now := time.Now()
-
-		// Add devices as new first
-		deviceIDs := []models.DeviceIdentifier{"1", "2", "3", "4", "5"}
-		for _, id := range deviceIDs {
-			err := s.AddNewDevices(ctx, id)
-			require.NoError(t, err)
-		}
-
-		// Fetch all and add back with different timestamps
-		_, err := s.FetchDevices(ctx, time.Now().Add(time.Hour))
-		require.NoError(t, err)
-
-		devices := []models.Device{
-			{ID: "1", LastUpdatedAt: now.Add(-5 * time.Hour)}, // oldest
-			{ID: "2", LastUpdatedAt: now.Add(-3 * time.Hour)},
-			{ID: "3", LastUpdatedAt: now.Add(-1 * time.Hour)},
-			{ID: "4", LastUpdatedAt: now.Add(-30 * time.Minute)},
-			{ID: "5", LastUpdatedAt: now}, // newest
-		}
-
-		for _, device := range devices {
-			err := s.AddDevices(ctx, device)
-			require.NoError(t, err)
-		}
-
-		// Fetch devices older than 2 hours
-		threshold := now.Add(-2 * time.Hour)
-		fetchedDevices, err := s.FetchDevices(ctx, threshold)
-		require.NoError(t, err)
-
-		// Should fetch devices 1 and 2
-		assert.Len(t, fetchedDevices, 2)
-		fetchedIDs := []models.DeviceIdentifier{fetchedDevices[0].ID, fetchedDevices[1].ID}
-		assert.Contains(t, fetchedIDs, models.DeviceIdentifier("1"))
-		assert.Contains(t, fetchedIDs, models.DeviceIdentifier("2"))
-
-		// Remaining devices should be 3, 4, 5
-		remainingDevices, err := s.GetAllDevices(ctx)
-		require.NoError(t, err)
-		assert.Len(t, remainingDevices, 3)
 	})
 }

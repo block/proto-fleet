@@ -141,7 +141,7 @@ export const singleErrorStatusTitles: Record<string, { title: string; subtitle: 
 export const genericStatusTitles: Record<ErrorSource, { title: string; subtitle: string }> = {
   RIG: {
     title: "Your miner has a system issue",
-    subtitle: "Check diagnostics for details",
+    subtitle: "Check Systems for details",
   },
   FAN: {
     title: "Your miner has a fan issue",

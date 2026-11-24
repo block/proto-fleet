@@ -44,10 +44,11 @@ type progressContext struct {
 type progressContextKey struct{}
 
 // TrackProgress registers freshness tracking for the managed job associated
-// with ctx. A job becomes stale after three loop intervals without a completed
-// representative work cycle. Calling the returned function reports completion
-// of one such cycle. It is a no-op outside a Group-managed Start context or
-// when effectiveInterval is not positive.
+// with ctx. A job becomes stale after three loop intervals without reported
+// progress. Calling the returned function reports one completed representative
+// work cycle, or a smaller unit of forward progress such as a dispatched task.
+// It is a no-op outside a Group-managed Start context or when
+// effectiveInterval is not positive.
 func TrackProgress(ctx context.Context, effectiveInterval time.Duration) func() {
 	if effectiveInterval <= 0 || ctx.Err() != nil {
 		return func() {}

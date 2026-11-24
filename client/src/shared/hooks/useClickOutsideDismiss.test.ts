@@ -1,6 +1,6 @@
 import { fireEvent, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { __resetClickOutsideStackForTests, useClickOutsideDismiss } from "./useClickOutsideDismiss";
+import { useClickOutsideDismiss } from "./useClickOutsideDismiss";
 
 const makeEl = (id: string) => {
   const el = document.createElement("div");
@@ -23,7 +23,6 @@ describe("useClickOutsideDismiss", () => {
   });
 
   afterEach(() => {
-    __resetClickOutsideStackForTests();
     document.body.innerHTML = "";
   });
 

@@ -157,75 +157,49 @@ func TestSaveCommandArtifactLog_DoesNotOverwriteCollidingBatchLogNames(t *testin
 	assert.Equal(t, string(dataB), contents[filepath.Base(pathB)])
 }
 
-// TestBundleLogs_MultipleFiles_CreatesZIPWithNameSidecar verifies that when logs from
-// multiple devices are present they are bundled into a ZIP, and a .name sidecar is
-// written with a human-readable filename matching the miner-logs-{timestamp}.zip pattern.
-func TestBundleLogs_MultipleFiles_CreatesZIPWithNameSidecar(t *testing.T) {
-	svc := setupService(t)
-
-	_, err := svc.SaveLogs("batch-multi", "aa:bb:cc:dd:ee:01", []string{"line1"})
-	require.NoError(t, err)
-	_, err = svc.SaveLogs("batch-multi", "aa:bb:cc:dd:ee:02", []string{"line2"})
-	require.NoError(t, err)
-
-	bundlePath, err := svc.bundleLogs("batch-multi")
-
-	require.NoError(t, err)
-	assert.Equal(t, getBatchLogsZipFilePath("batch-multi"), bundlePath)
-
-	_, statErr := os.Stat(bundlePath)
-	assert.NoError(t, statErr, "ZIP should exist at bundle path")
-
-	sidecar, readErr := os.ReadFile(bundlePath + ".name")
-	require.NoError(t, readErr)
-	zipName := string(sidecar)
-	assert.True(t, strings.HasPrefix(zipName, "miner-logs-"), "ZIP name should start with miner-logs-")
-	assert.True(t, strings.HasSuffix(zipName, ".zip"), "ZIP name should end with .zip")
-}
-
-// TestBundleLogs_MultipleFiles_ZIPContainsAllFiles verifies that every per-device CSV
-// is included in the produced ZIP archive.
-func TestBundleLogs_MultipleFiles_ZIPContainsAllFiles(t *testing.T) {
-	svc := setupService(t)
-
-	file1, err := svc.SaveLogs("batch-zip-contents", "aa:bb:cc:dd:ee:01", []string{"a"})
-	require.NoError(t, err)
-	file2, err := svc.SaveLogs("batch-zip-contents", "aa:bb:cc:dd:ee:02", []string{"b"})
-	require.NoError(t, err)
-
-	bundlePath, err := svc.bundleLogs("batch-zip-contents")
-	require.NoError(t, err)
-
-	zr, err := zip.OpenReader(bundlePath)
-	require.NoError(t, err)
-	defer zr.Close()
-
-	names := make([]string, 0, len(zr.File))
-	for _, f := range zr.File {
-		names = append(names, f.Name)
+func TestBundleLogs_MultipleFiles_RoundTrip(t *testing.T) {
+	for _, source := range []string{"direct", "remote"} {
+		t.Run("direct_and_"+source, func(t *testing.T) {
+			svc := setupService(t)
+			const batch = "batch-multi"
+			firstPath, err := svc.SaveLogs(batch, "aa:bb:cc:dd:ee:01", []string{"direct-line"})
+			require.NoError(t, err)
+			var secondPath string
+			wantSecond := "second-line\n"
+			if source == "direct" {
+				secondPath, err = svc.SaveLogs(batch, "aa:bb:cc:dd:ee:02", []string{"second-line"})
+				require.NoError(t, err)
+			} else {
+				content := "Time,Message\n2026-01-01T00:00:00Z,remote-line\n"
+				wantSecond = "Time,Message\n\"2026-01-01T00:00:00Z\",\"remote-line\"\n"
+				info, err := svc.SaveCommandArtifact("remote-miner-logs.csv", int64(len(content)), checksumOf(content), strings.NewReader(content))
+				require.NoError(t, err)
+				secondPath, err = svc.SaveCommandArtifactLog(batch, "aa:bb:cc:dd:ee:02", info.ID)
+				require.NoError(t, err)
+				assert.NoDirExists(t, getCommandArtifactDirPath(info.ID))
+			}
+			bundlePath, err := svc.bundleLogs(batch)
+			require.NoError(t, err)
+			assert.Equal(t, getBatchLogsZipFilePath(batch), bundlePath)
+			sidecar, err := os.ReadFile(bundlePath + ".name")
+			require.NoError(t, err)
+			assert.True(t, strings.HasPrefix(string(sidecar), "miner-logs-"))
+			assert.True(t, strings.HasSuffix(string(sidecar), ".zip"))
+			file, err := svc.GetBatchLogBundleFile(batch)
+			require.NoError(t, err)
+			assert.Equal(t, string(sidecar), file.Filename)
+			data, err := os.ReadFile(bundlePath)
+			require.NoError(t, err)
+			assert.Equal(t, data, file.Data)
+			archive, err := zip.NewReader(bytes.NewReader(file.Data), int64(len(file.Data)))
+			require.NoError(t, err)
+			assert.Len(t, archive.File, 2)
+			assert.Equal(t, map[string]string{
+				filepath.Base(firstPath):  "direct-line\n",
+				filepath.Base(secondPath): wantSecond,
+			}, readZipFileContents(t, bundlePath))
+		})
 	}
-	assert.Contains(t, names, filepath.Base(file1))
-	assert.Contains(t, names, filepath.Base(file2))
-}
-
-func TestSaveCommandArtifactLog_BundlesMixedDirectAndRemoteLogsAsZIP(t *testing.T) {
-	svc := setupService(t)
-	directPath, err := svc.SaveLogs("batch-mixed", "aa:bb:cc:dd:ee:01", []string{"direct-line"})
-	require.NoError(t, err)
-	remoteContent := "Time,Message\n2026-01-01T00:00:00Z,remote-line\n"
-	wantRemoteContent := "Time,Message\n\"2026-01-01T00:00:00Z\",\"remote-line\"\n"
-	info, err := svc.SaveCommandArtifact("remote-miner-logs.csv", int64(len(remoteContent)), checksumOf(remoteContent), strings.NewReader(remoteContent))
-	require.NoError(t, err)
-	remotePath, err := svc.SaveCommandArtifactLog("batch-mixed", "aa:bb:cc:dd:ee:02", info.ID)
-	require.NoError(t, err)
-
-	bundlePath, err := svc.bundleLogs("batch-mixed")
-	require.NoError(t, err)
-	assert.Equal(t, getBatchLogsZipFilePath("batch-mixed"), bundlePath)
-
-	contents := readZipFileContents(t, bundlePath)
-	assert.Equal(t, "direct-line\n", contents[filepath.Base(directPath)])
-	assert.Equal(t, wantRemoteContent, contents[filepath.Base(remotePath)])
 }
 
 // TestBundleLogs_NoFiles_ReturnsEmpty verifies that bundling a batch with no log files
@@ -237,24 +211,6 @@ func TestBundleLogs_NoFiles_ReturnsEmpty(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Empty(t, bundlePath)
-}
-
-// TestGetBatchLogBundleFile_UsesNameSidecar verifies that when a .name sidecar exists
-// the returned FSFile carries the sidecar filename rather than the temp path basename.
-func TestGetBatchLogBundleFile_UsesNameSidecar(t *testing.T) {
-	svc := setupService(t)
-
-	_, err := svc.SaveLogs("batch-sidecar", "cc:dd:ee:ff:00:11", []string{"Time,Message", `2026-01-01T00:00:00Z,"data"`})
-	require.NoError(t, err)
-	_, err = svc.bundleLogs("batch-sidecar")
-	require.NoError(t, err)
-
-	fsFile, err := svc.GetBatchLogBundleFile("batch-sidecar")
-
-	require.NoError(t, err)
-	assert.True(t, strings.HasPrefix(fsFile.Filename, "miner-logs-"), "filename should use sidecar name")
-	assert.True(t, strings.HasSuffix(fsFile.Filename, ".csv"))
-	assert.NotEmpty(t, fsFile.Data)
 }
 
 // TestGetBatchLogBundleFile_NotReady returns an error when the bundle does not exist yet.

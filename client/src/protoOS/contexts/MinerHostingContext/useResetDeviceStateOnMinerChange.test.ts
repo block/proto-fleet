@@ -2,18 +2,19 @@ import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, test } from "vitest";
 
 import { useResetDeviceStateOnMinerChange } from "./useResetDeviceStateOnMinerChange";
+import { ROOT_MODULE_KEY } from "@/protoOS/store/contract";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
 const seedPools = () => useMinerStore.getState().pools.setPoolsInfo([{ url: "stratum+tcp://a" }] as never);
 const seedHardware = () => useMinerStore.getState().hardware.setHashboards([{ serial: "HB-A-1" }] as never);
 const seedCooling = () => {
   useMinerStore.getState().telemetry.updateFanTelemetry(0, { rpm: 4200 } as never);
-  useMinerStore.getState().telemetry.updateCoolingMode("Auto" as never);
+  useMinerStore.getState().telemetry.updateCoolingMode("automatic");
 };
-const poolsCount = () => useMinerStore.getState().pools.poolsInfo?.length ?? 0;
+const poolsCount = () => useMinerStore.getState().pools.byOwner.get(ROOT_MODULE_KEY)?.length ?? 0;
 const hashboardCount = () => useMinerStore.getState().hardware.hashboards.size;
 const fanCount = () => useMinerStore.getState().telemetry.fans.size;
-const coolingMode = () => useMinerStore.getState().telemetry.coolingMode;
+const coolingMode = () => useMinerStore.getState().telemetry.coolingModeByOwner.get(ROOT_MODULE_KEY);
 
 describe("useResetDeviceStateOnMinerChange", () => {
   beforeEach(() => {
@@ -33,7 +34,7 @@ describe("useResetDeviceStateOnMinerChange", () => {
     expect(poolsCount()).toBe(0);
     expect(hashboardCount()).toBe(0);
     expect(fanCount()).toBe(0);
-    expect(coolingMode()).toBeNull();
+    expect(coolingMode()).toBeUndefined();
   });
 
   test("clears device data when the miner key changes in place", () => {
@@ -51,7 +52,7 @@ describe("useResetDeviceStateOnMinerChange", () => {
     expect(poolsCount()).toBe(0);
     expect(hashboardCount()).toBe(0);
     expect(fanCount()).toBe(0);
-    expect(coolingMode()).toBeNull();
+    expect(coolingMode()).toBeUndefined();
   });
 
   test("does nothing in direct mode (empty key)", () => {

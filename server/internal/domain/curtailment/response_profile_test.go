@@ -778,7 +778,7 @@ func TestResponseProfileService_CreateRejectsNonAdminOverrides(t *testing.T) {
 	t.Parallel()
 
 	targetKW := 1000.0
-	slowInterval := nonAdminRestoreBatchIntervalMax + 1
+	slowInterval := nonAdminBatchIntervalMax + 1
 
 	tests := []struct {
 		name   string
@@ -901,7 +901,6 @@ func TestResponseProfileService_DeleteRejectsReferencedProfile(t *testing.T) {
 type responseProfileFakeStore struct {
 	siteBelongs           bool
 	siteCheckCount        int
-	siteCheckOrgID        int64
 	siteCheckSiteID       int64
 	created               *models.ResponseProfile
 	updated               *models.ResponseProfile
@@ -989,9 +988,8 @@ func (s *responseProfileFakeStore) CountAutomationRulesByResponseProfile(context
 	return s.automationRuleCount, nil
 }
 
-func (s *responseProfileFakeStore) SiteBelongsToOrg(_ context.Context, orgID, siteID int64) (bool, error) {
+func (s *responseProfileFakeStore) SiteBelongsToOrg(_ context.Context, _, siteID int64) (bool, error) {
 	s.siteCheckCount++
-	s.siteCheckOrgID = orgID
 	s.siteCheckSiteID = siteID
 	return s.siteBelongs, nil
 }
@@ -1010,4 +1008,8 @@ func ptrInt64(v int64) *int64 {
 
 func ptrFloat64(v float64) *float64 {
 	return &v
+}
+
+func (f *responseProfileFakeStore) CountEnabledAutomationRulesByResponseProfile(context.Context, int64, int64) (int64, error) {
+	return 0, nil
 }

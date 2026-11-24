@@ -5,9 +5,17 @@ import clsx from "clsx";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import {
+  EntityKind,
+  type InventoryItem,
+  InventoryView,
+} from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useSites } from "@/protoFleet/api/sites";
+import { useContainerFilterOptions } from "@/protoFleet/api/useContainerFilterOptions";
 import { type NewRackInput, useDeviceSets } from "@/protoFleet/api/useDeviceSets";
+import { useFleetInventory } from "@/protoFleet/api/useFleetInventory";
+import { useInventoryRacks } from "@/protoFleet/api/useInventoryRacks";
 import type { DeviceSetListItem } from "@/protoFleet/components/DeviceSetList";
 import type { DeviceSetColumn } from "@/protoFleet/components/DeviceSetList";
 import { DEFAULT_PAGE_SIZE, DeviceSetList, issueOptions, useIssueFilter } from "@/protoFleet/components/DeviceSetList";
@@ -26,6 +34,9 @@ import {
 import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import { tankPath } from "@/protoFleet/features/containers/buildTankOverview";
+import MiningActionsMenu from "@/protoFleet/features/containers/MiningActionsMenu";
+import TankInventoryCard from "@/protoFleet/features/containers/TankInventoryCard";
 import { useFleetCreateFlow } from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/context";
 import FleetGroupActionsMenu from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu";
 import FleetGroupListActionBar from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu/FleetGroupListActionBar";
@@ -41,14 +52,20 @@ import { useCreateRacks } from "@/protoFleet/features/fleetManagement/hooks/useC
 import { usePersistDisplayDeepLink } from "@/protoFleet/features/fleetManagement/hooks/usePersistDisplayDeepLink";
 import { BUILDING_URL_PARAM } from "@/protoFleet/features/fleetManagement/utils/buildingFilterUrl";
 import {
+  combinedInventoryOptions,
+  splitInventoryValues,
+} from "@/protoFleet/features/fleetManagement/utils/combinedInventoryFilters";
+import {
   FILTER_URL_PARAM_KEYS,
   fleetListTelemetryRangesFromURL,
+  parseCT1FilterValuesFromURL,
   parseIdFilterValuesFromURL,
   parseUrlToActiveFilters,
   setTelemetryNumericFilterURLParams,
   UNASSIGNED_FILTER_OPTION,
   UNASSIGNED_URL_VALUE,
 } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
+import { inventoryAncestorsFromURL } from "@/protoFleet/features/fleetManagement/utils/inventoryFilterUrl";
 import { mapRackToCardProps } from "@/protoFleet/features/fleetManagement/utils/rackCardMapper";
 import {
   TELEMETRY_FILTER_BOUNDS,
@@ -71,7 +88,7 @@ import { SORT_ASC, SORT_DESC, type SortDirection } from "@/shared/components/Lis
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
-import useMeasure from "@/shared/hooks/useMeasure";
+import { useMountedCallback } from "@/shared/hooks/useMountedCallback";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 import type { NumericRangeValue } from "@/shared/utils/filterValidation";
 
@@ -122,11 +139,22 @@ const TELEMETRY_FILTER_CHIPS: FilterChipsBarNumericFilter[] = TELEMETRY_FILTER_K
 }));
 
 const RacksPage = () => {
+  const [selectedTankIds, setSelectedTankIds] = useState<string[]>([]);
   const navigate = useNavigate();
   const { listRacks, listRackZones, deleteGroup } = useDeviceSets();
   const { listAllBuildings, assignRacksToBuilding } = useBuildings();
   const canEditRack = useHasPermission("rack:manage");
   const canReadSiteCatalog = useHasPermission("site:read");
+  const canReadInventoryFleet = useHasPermission("fleet:read");
+  const canReadInventoryMiners = useHasPermission("miner:read");
+  const useInventory = canReadSiteCatalog && canReadInventoryFleet && canReadInventoryMiners;
+  const openTank = useCallback(
+    (item: InventoryItem) => {
+      if (item.ref?.kind === EntityKind.TANK && item.deviceIdentifier)
+        navigate(tankPath(item.deviceIdentifier, item.ref.id.toString()));
+    },
+    [navigate],
+  );
   // Both "Add to building" and "Add to site" reparent actions are gated
   // by site:manage (server enforces the same). One flag, two actions.
   const canManageSitePlacement = useHasPermission("site:manage");
@@ -239,10 +267,25 @@ const RacksPage = () => {
       includeUnassigned: selectedSiteFilter.includeUnassigned,
     });
   }, [activeSiteFilter, selectedSiteIds, selectedSiteFilter.includeUnassigned]);
-  const effectiveSiteFilterRef = useRef(effectiveSiteFilter);
+  const selectedContainerValues = useMemo(() => parseCT1FilterValuesFromURL(searchParams, "container"), [searchParams]);
+  const containerScopeQuery = selectedContainerValues.map((id) => `container=${id}`).join("&");
+  const containerAncestors = useMemo(
+    () => inventoryAncestorsFromURL(new URLSearchParams(containerScopeQuery), false),
+    [containerScopeQuery],
+  );
+  const availableContainers = useContainerFilterOptions(useInventory);
+  const inventory = useInventoryRacks(useInventory && !effectiveSiteFilter.matchNone, containerAncestors);
+  const listSiteFilter = useMemo(
+    () => ({
+      ...effectiveSiteFilter,
+      matchNone: effectiveSiteFilter.matchNone || (!useInventory && selectedContainerValues.length > 0),
+    }),
+    [effectiveSiteFilter, useInventory, selectedContainerValues],
+  );
+  const effectiveSiteFilterRef = useRef(listSiteFilter);
   useEffect(() => {
-    effectiveSiteFilterRef.current = effectiveSiteFilter;
-  }, [effectiveSiteFilter]);
+    effectiveSiteFilterRef.current = listSiteFilter;
+  }, [listSiteFilter]);
   const getSiteFilter = useCallback(() => effectiveSiteFilterRef.current, []);
   const getSiteIds = useCallback(() => effectiveSiteFilterRef.current.siteIds, []);
   const getIncludeUnassigned = useCallback(() => effectiveSiteFilterRef.current.includeUnassigned, []);
@@ -296,9 +339,9 @@ const RacksPage = () => {
     handleNextPage,
     handlePrevPage,
     resetAndFetch,
-    refreshCurrentPage,
+    refreshCurrentPage: refreshRacks,
   } = useDeviceSetListState(
-    listRacks,
+    useInventory ? inventory.listRacks : listRacks,
     DEFAULT_PAGE_SIZE,
     getErrorComponentTypes,
     getZones,
@@ -309,7 +352,9 @@ const RacksPage = () => {
     getIncludeUnassigned,
     getIncludeNoBuilding,
     getTelemetryRanges,
+    !useInventory,
   );
+  const refreshCurrentPage = useMountedCallback(refreshRacks);
 
   // Propagate external URL sort changes (saved view activation, deep-link
   // nav) into the hook. When the page itself drives the change via
@@ -606,9 +651,10 @@ const RacksPage = () => {
   useEffect(() => {
     outletContext?.publishViewFilterContext({
       availableBuildings: buildingSources,
+      availableContainers,
       availableSites: allSites ?? [],
     });
-  }, [outletContext, buildingSources, allSites]);
+  }, [outletContext, buildingSources, allSites, availableContainers]);
 
   const setBuildingFilter = useCallback(
     (ids: string[]) => {
@@ -616,7 +662,10 @@ const RacksPage = () => {
         (prev) => {
           const next = new URLSearchParams(prev);
           next.delete(BUILDING_URL_PARAM);
-          ids.forEach((id) => {
+          next.delete("container");
+          const { conventional, ct1 } = splitInventoryValues(ids, "container");
+          ct1.forEach((id) => next.append("container", id));
+          conventional.forEach((id) => {
             const trimmed = id.trim();
             if (trimmed === UNASSIGNED_URL_VALUE || (trimmed && /^\d+$/.test(trimmed))) {
               next.append(BUILDING_URL_PARAM, trimmed);
@@ -654,24 +703,27 @@ const RacksPage = () => {
 
   const effectiveSiteKey = useMemo(
     () =>
-      `${effectiveSiteFilter.siteIds.map(String).join(",")}|${effectiveSiteFilter.includeUnassigned}|${effectiveSiteFilter.matchNone ?? false}`,
-    [effectiveSiteFilter],
+      `${listSiteFilter.siteIds.map(String).join(",")}|${listSiteFilter.includeUnassigned}|${listSiteFilter.matchNone ?? false}`,
+    [listSiteFilter],
   );
+  const selectionScopeKey = `${effectiveSiteKey}:${effectiveBuildingKey}:${includeNoBuilding}:${selectedContainerValues.join(",")}`;
   const prevSiteKey = useRef<string | null>(null);
   useEffect(() => {
-    if (prevSiteKey.current !== null && prevSiteKey.current !== effectiveSiteKey) {
+    if (prevSiteKey.current !== null && prevSiteKey.current !== selectionScopeKey) {
       // Drop the prior scope's selection so the bulk-action bar can't stay
       // active on racks that belong to a site the picker no longer shows.
       // (Out-of-order list responses are already dropped by
       // useDeviceSetListState's request-id guard, so rows can't go stale.)
       setSelectedRackIds([]);
+      setSelectedTankIds([]);
     }
-    prevSiteKey.current = effectiveSiteKey;
-  }, [effectiveSiteKey]);
+    prevSiteKey.current = selectionScopeKey;
+  }, [selectionScopeKey]);
 
   const handleFilterChange = useCallback(
     (key: string, values: string[]) => {
       setSelectedRackIds([]);
+      setSelectedTankIds([]);
       if (key === "zone") {
         writeMultiParam("zone", values);
         return;
@@ -694,6 +746,7 @@ const RacksPage = () => {
   const handleNumericFilterChange = useCallback(
     (key: string, value: NumericRangeValue) => {
       setSelectedRackIds([]);
+      setSelectedTankIds([]);
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -756,8 +809,12 @@ const RacksPage = () => {
         key: "building",
         title: "Buildings",
         pluralTitle: "buildings",
-        options: [...allBuildings, UNASSIGNED_FILTER_OPTION],
-        selectedValues: selectedBuildingIdStrings,
+        options: combinedInventoryOptions(
+          [...allBuildings, UNASSIGNED_FILTER_OPTION],
+          "container",
+          useInventory ? availableContainers : [],
+        ),
+        selectedValues: [...selectedBuildingIdStrings, ...selectedContainerValues.map((id) => "container:" + id)],
       },
       {
         key: "zone",
@@ -768,10 +825,22 @@ const RacksPage = () => {
         showGroupDivider: true,
       },
     ],
-    [allSites, selectedSiteValues, allBuildings, selectedBuildingIdStrings, allZones, selectedZones, selectedIssues],
+    [
+      allSites,
+      selectedSiteValues,
+      allBuildings,
+      selectedBuildingIdStrings,
+      allZones,
+      selectedZones,
+      selectedIssues,
+      useInventory,
+      availableContainers,
+      selectedContainerValues,
+    ],
   );
 
   const hasActiveFilters =
+    selectedContainerValues.length > 0 ||
     selectedSiteValues.length > 0 ||
     selectedBuildingIdStrings.length > 0 ||
     selectedZones.length > 0 ||
@@ -783,12 +852,21 @@ const RacksPage = () => {
   // zone/building/issue/`?site=`/telemetry filters) so the count line can show
   // a denominator, mirroring the Miners tab. Only fetched while filters are
   // active — otherwise the displayed count already is the total.
+  const unfilteredInventory = useFleetInventory(
+    {
+      view: InventoryView.EQUIPMENT_GROUPS,
+      pageSize: 1,
+      siteIds: activeSiteFilter.siteIds,
+      includeUnassigned: activeSiteFilter.includeUnassigned,
+    },
+    useInventory && hasActiveFilters,
+  );
   const [totalUnfilteredRacks, setTotalUnfilteredRacks] = useState<number | undefined>(undefined);
   useEffect(() => {
     // Only consumed while filters are active (the count line otherwise shows
     // `totalCount`). Skip the fetch when filters are off and leave the last
     // value — it's ignored, and a scope change re-runs this effect.
-    if (!hasActiveFilters) return;
+    if (!hasActiveFilters || useInventory) return;
     let cancelled = false;
     // `racks` is in the deps as the list-refresh signal: its reference changes
     // whenever the rack list refetches (poll, resetAndFetch, create/delete/move),
@@ -809,7 +887,7 @@ const RacksPage = () => {
     return () => {
       cancelled = true;
     };
-  }, [hasActiveFilters, activeSiteFilter, listRacks, racks]);
+  }, [hasActiveFilters, activeSiteFilter, listRacks, racks, useInventory]);
   const visibleRackScopes = useMemo(
     () =>
       racks.flatMap((rack) => {
@@ -825,15 +903,23 @@ const RacksPage = () => {
       }),
     [racks],
   );
+  const selectedTanks = inventory.items.filter(
+    (item) => item.ref?.kind === EntityKind.TANK && selectedTankIds.includes(String(item.ref.id)),
+  );
   const selectedRackScopes = useMemo(() => {
     const selected = new Set(selectedRackIds);
     return visibleRackScopes.filter((rack) => selected.has(rack.id.toString()));
   }, [selectedRackIds, visibleRackScopes]);
-  const handleSelectAllVisibleRacks = useCallback(
-    () => setSelectedRackIds(visibleRackScopes.map((rack) => rack.id.toString())),
-    [visibleRackScopes],
-  );
-  const handleClearRackSelection = useCallback(() => setSelectedRackIds([]), []);
+  const handleSelectAllVisibleRacks = useCallback(() => {
+    setSelectedRackIds(visibleRackScopes.map((rack) => rack.id.toString()));
+    setSelectedTankIds(
+      inventory.items.filter((item) => item.ref?.kind === EntityKind.TANK).map((item) => String(item.ref!.id)),
+    );
+  }, [visibleRackScopes, inventory.items]);
+  const handleClearRackSelection = useCallback(() => {
+    setSelectedRackIds([]);
+    setSelectedTankIds([]);
+  }, []);
   const handleSelectedRackIdsChange = useCallback(
     (ids: string[]) => {
       if (isBulkActionBusy) return;
@@ -844,10 +930,12 @@ const RacksPage = () => {
 
   const handleClearFilters = useCallback(() => {
     setSelectedRackIds([]);
+    setSelectedTankIds([]);
     // All four URL-driven filter keys cleared in a single updater so they
     // batch into one history entry (react-router resolves the prev against
     // the current location, not a value set by an earlier call this render).
     const hadAny =
+      selectedContainerValues.length > 0 ||
       selectedSiteValues.length > 0 ||
       selectedBuildingIdStrings.length > 0 ||
       selectedZones.length > 0 ||
@@ -871,6 +959,7 @@ const RacksPage = () => {
     selectedBuildingIdStrings,
     selectedIssues,
     selectedSiteValues,
+    selectedContainerValues,
     selectedZones,
     setSearchParams,
     telemetryRanges,
@@ -1064,11 +1153,6 @@ const RacksPage = () => {
     [buildingNameById],
   );
 
-  // Responsive grid measurement
-  const [measureRef, contentRect] = useMeasure<HTMLDivElement>();
-  const RACK_CARD_MIN_WIDTH_PX = 300;
-  const numColumns = Math.max(1, Math.floor((contentRect.width || RACK_CARD_MIN_WIDTH_PX) / RACK_CARD_MIN_WIDTH_PX));
-
   // Polling — refresh current page every 60s, paused while modals are open
   const isModalOpen = !!manageRackFormData || showRackSettingsModal;
   useEffect(() => {
@@ -1084,6 +1168,7 @@ const RacksPage = () => {
   const handleRackSort: typeof handleSort = useCallback(
     (field, direction) => {
       setSelectedRackIds([]);
+      setSelectedTankIds([]);
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -1108,7 +1193,10 @@ const RacksPage = () => {
   const handleRacksViewModeSelect = useCallback(
     (key: string) => {
       const nextViewMode = key === "list" ? "list" : "grid";
-      if (nextViewMode === "grid") setSelectedRackIds([]);
+      if (nextViewMode === "grid") {
+        setSelectedRackIds([]);
+        setSelectedTankIds([]);
+      }
       setRacksViewMode(nextViewMode);
     },
     [setRacksViewMode],
@@ -1116,17 +1204,21 @@ const RacksPage = () => {
 
   const handleRackNextPage = useCallback(() => {
     setSelectedRackIds([]);
+    setSelectedTankIds([]);
     handleNextPage();
   }, [handleNextPage]);
 
   const handleRackPrevPage = useCallback(() => {
     setSelectedRackIds([]);
+    setSelectedTankIds([]);
     handlePrevPage();
   }, [handlePrevPage]);
 
   // Grid pagination
   const firstItemIndex = currentPage * DEFAULT_PAGE_SIZE + 1;
-  const lastItemIndex = currentPage * DEFAULT_PAGE_SIZE + racks.length;
+  const gridItems = useInventory ? inventory.items : undefined;
+  const displayedCount = gridItems?.length ?? racks.length;
+  const lastItemIndex = currentPage * DEFAULT_PAGE_SIZE + displayedCount;
   const shouldRenderGridPagination = !isLoading && totalCount > 0;
 
   // Both guards carry `!isModalOpen` for the same reason: a refetch fired from
@@ -1213,9 +1305,11 @@ const RacksPage = () => {
           title="You haven't set up any racks"
           description="Add a rack and assign miners to rack positions to get started."
           action={
-            <Button variant="primary" onClick={() => setShowRackSettingsModal(true)}>
-              Add rack
-            </Button>
+            canEditRack ? (
+              <Button variant="primary" onClick={() => setShowRackSettingsModal(true)}>
+                Add rack
+              </Button>
+            ) : undefined
           }
         />
         {rackModalSurfaces}
@@ -1230,11 +1324,17 @@ const RacksPage = () => {
           {insideFleetShell ? null : <h1 className="pb-4 text-heading-300 text-text-primary">Racks</h1>}
           <div className="flex flex-col gap-2 pb-6">
             {/* Action button — full-width on tablet/phone */}
-            <div className="block laptop:hidden">
-              <Button variant={variants.secondary} size={sizes.compact} onClick={() => setShowRackSettingsModal(true)}>
-                Add rack
-              </Button>
-            </div>
+            {canEditRack ? (
+              <div className="block laptop:hidden">
+                <Button
+                  variant={variants.secondary}
+                  size={sizes.compact}
+                  onClick={() => setShowRackSettingsModal(true)}
+                >
+                  Add rack
+                </Button>
+              </div>
+            ) : null}
             {/* View toggle — full width on tablet/phone */}
             <div className="block laptop:hidden">
               <SegmentedControl
@@ -1279,14 +1379,16 @@ const RacksPage = () => {
                   closeOnSelect
                 />
               ) : null}
-              <Button
-                className="ml-auto"
-                variant={variants.secondary}
-                size={sizes.compact}
-                onClick={() => setShowRackSettingsModal(true)}
-              >
-                Add rack
-              </Button>
+              {canEditRack ? (
+                <Button
+                  className="ml-auto"
+                  variant={variants.secondary}
+                  size={sizes.compact}
+                  onClick={() => setShowRackSettingsModal(true)}
+                >
+                  Add rack
+                </Button>
+              ) : null}
             </div>
             {/* Filters — shown separately on tablet/phone */}
             <div className="flex flex-row flex-wrap items-center gap-2 laptop:hidden">
@@ -1319,10 +1421,10 @@ const RacksPage = () => {
           data-testid="racks-count-label"
         >
           {formatListCountLabel(totalCount, {
-            unfilteredTotal: totalUnfilteredRacks,
+            unfilteredTotal: useInventory ? unfilteredInventory.total : totalUnfilteredRacks,
             hasActiveFilters,
-            singular: "rack",
-            plural: "racks",
+            singular: useInventory ? "equipment group" : "rack",
+            plural: useInventory ? "equipment groups" : "racks",
           })}
         </div>
         {error ? (
@@ -1336,8 +1438,17 @@ const RacksPage = () => {
           // scroll container.
           <div className="pb-6 laptop:pb-10">
             <DeviceSetList
+              inventoryItems={useInventory ? inventory.items : undefined}
+              onTankClick={openTank}
+              renderTankActions={(item) => (
+                <MiningActionsMenu kind="tank" items={[item]} onRefresh={refreshCurrentPage} />
+              )}
+              selectedTankIds={selectedTankIds}
+              onSelectedTankIdsChange={(ids) => {
+                if (!isBulkActionBusy) setSelectedTankIds(ids);
+              }}
               deviceSets={racks}
-              statsMap={statsMap}
+              statsMap={useInventory ? inventory.statsMap : statsMap}
               renderName={renderName}
               renderMiners={renderMiners}
               renderSite={renderSite}
@@ -1345,7 +1456,11 @@ const RacksPage = () => {
               columns={insideFleetShell ? RACK_COLUMNS_FLEET : RACK_COLUMNS_STANDALONE}
               currentSort={currentSort}
               onSort={handleRackSort}
-              itemName={{ singular: "rack", plural: "racks" }}
+              itemName={
+                useInventory
+                  ? { singular: "equipment group", plural: "equipment groups" }
+                  : { singular: "rack", plural: "racks" }
+              }
               total={totalCount}
               loading={isLoading}
               pageSize={DEFAULT_PAGE_SIZE}
@@ -1362,55 +1477,57 @@ const RacksPage = () => {
             />
           </div>
         ) : (
-          <div className="px-6 laptop:px-10">
-            {isLoading && racks.length === 0 ? (
+          <div className={clsx("px-6 laptop:px-10", PAGE_SCROLL_CHROME_WIDTH)}>
+            {isLoading && displayedCount === 0 ? (
               <div className="flex items-center justify-center py-20">
                 <ProgressCircular indeterminate />
               </div>
-            ) : racks.length === 0 ? (
+            ) : displayedCount === 0 ? (
               <NoFilterResultsEmptyState hasActiveFilters={hasActiveFilters} onClearFilters={handleClearFilters} />
             ) : (
-              <div ref={measureRef}>
-                <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${numColumns}, 1fr)` }}>
-                  {racks.map((rack) => {
-                    const stats = statsMap.get(rack.id);
-                    const {
-                      zone,
-                      rows,
-                      cols,
-                      loading,
-                      statusSegments,
-                      slots,
-                      hashrate,
-                      efficiency,
-                      power,
-                      temperature,
-                    } = mapRackToCardProps(rack, stats, temperatureUnit);
+              // Bound the grid to the scroll viewport: FleetLayout's desktop
+              // max-content width must not feed back into the column count.
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,300px),1fr))] gap-1">
+                {(gridItems ?? racks).map((entry) => {
+                  if ("ref" in entry && entry.ref?.kind === EntityKind.TANK)
                     return (
-                      <RackCard
-                        key={rack.id.toString()}
-                        label={rack.label}
-                        zone={zone}
-                        cols={cols}
-                        rows={rows}
-                        slots={slots}
-                        loading={loading}
-                        statusSegments={statusSegments}
-                        hashrate={hashrate}
-                        efficiency={efficiency}
-                        power={power}
-                        temperature={temperature}
-                        onClick={() => navigate(`/racks/${rack.id}`)}
+                      <TankInventoryCard
+                        key={`tank:${entry.ref.id}`}
+                        item={entry}
+                        onClick={() => openTank(entry)}
+                        actions={<MiningActionsMenu kind="tank" items={[entry]} onRefresh={refreshCurrentPage} />}
                       />
                     );
-                  })}
-                </div>
+                  const rack =
+                    "details" in entry ? (entry.details.case === "rack" ? entry.details.value : undefined) : entry;
+                  if (!rack) return null;
+                  const stats = (useInventory ? inventory.statsMap : statsMap).get(rack.id);
+                  const { zone, rows, cols, loading, statusSegments, slots, hashrate, efficiency, power, temperature } =
+                    mapRackToCardProps(rack, stats, temperatureUnit);
+                  return (
+                    <RackCard
+                      key={rack.id.toString()}
+                      label={rack.label}
+                      zone={zone}
+                      cols={cols}
+                      rows={rows}
+                      slots={slots}
+                      loading={loading}
+                      statusSegments={statusSegments}
+                      hashrate={hashrate}
+                      efficiency={efficiency}
+                      power={power}
+                      temperature={temperature}
+                      onClick={() => navigate(`/racks/${rack.id}`)}
+                    />
+                  );
+                })}
               </div>
             )}
             {shouldRenderGridPagination || (currentPage > 0 && racks.length === 0) ? (
               <div className="sticky left-0 flex flex-col items-center gap-4 py-6">
                 <span className="text-300 text-text-primary">
-                  Showing {firstItemIndex}–{lastItemIndex} of {totalCount} racks
+                  Showing {firstItemIndex}–{lastItemIndex} of {totalCount} {useInventory ? "equipment groups" : "racks"}
                 </span>
                 <div className="flex gap-3">
                   <Button
@@ -1434,9 +1551,11 @@ const RacksPage = () => {
             ) : null}
           </div>
         )}
-        {selectedRackScopes.length > 0 || isBulkActionBusy ? (
+        {selectedRackScopes.length > 0 || selectedTanks.length > 0 || isBulkActionBusy ? (
           <FleetGroupListActionBar
             selectedScopes={selectedRackScopes}
+            selectedTanks={selectedTanks}
+            onRefetchTanks={refreshCurrentPage}
             kind="rack"
             bulkExtraActions={[
               {
@@ -1476,6 +1595,7 @@ const RacksPage = () => {
                     const rackIds = selectedRackScopes.map((scope) => scope.id);
                     setBulkReparentKind(null);
                     setSelectedRackIds([]);
+                    setSelectedTankIds([]);
                     if (bulkReparentKind === "building") {
                       // A rack in another building OR directly in another site
                       // will be moved into the new building's site.
@@ -1515,6 +1635,7 @@ const RacksPage = () => {
                   pushToast({ message: "Selected racks are already in that building.", status: STATUSES.queued });
                   setBulkReparentKind(null);
                   setSelectedRackIds([]);
+                  setSelectedTankIds([]);
                   resolve();
                   return;
                 }
@@ -1527,6 +1648,7 @@ const RacksPage = () => {
                     if (ok) {
                       setBulkReparentKind(null);
                       setSelectedRackIds([]);
+                      setSelectedTankIds([]);
                     }
                     resolve();
                   })

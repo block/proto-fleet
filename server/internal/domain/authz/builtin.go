@@ -79,11 +79,11 @@ func BuiltinRoles() []BuiltinRoleSpec {
 }
 
 // adminSeedPermissions is the formula AllPermissions() − {role:manage,
-// instance:update}. ADMIN holds user:read for the team roster and
+// instance:update, controller:software_update}. ADMIN holds user:read for the team roster and
 // user:manage to mutate non-elevated users. role:manage is excluded
 // for two compounding reasons: it can grant arbitrary permissions (so
 // it's the catalog's ultimate authority key), and the privilege-parity
-// check in the auth domain layer (see requireCallerCanManageTarget)
+// check in the auth domain layer (see RequireCallerCanManageTarget)
 // uses *org-scope role:manage* as the bypass for peer-tier management
 // — only callers who hold it can mutate a target whose permissions
 // equal their own. Without that gate, ADMIN could create new ADMINs
@@ -101,6 +101,9 @@ func adminSeedPermissions() []string {
 	excluded := map[string]bool{
 		PermRoleManage:     true,
 		PermInstanceUpdate: true,
+		// Updating controller software stops mining on the container, so it is
+		// granted deliberately through a custom role (SUPER_ADMIN holds it).
+		PermControllerSoftwareUpdate: true,
 	}
 	all := AllPermissions()
 	out := make([]string, 0, len(all))

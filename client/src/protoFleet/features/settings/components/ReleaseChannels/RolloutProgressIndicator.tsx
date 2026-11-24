@@ -31,7 +31,7 @@ const RolloutProgressIndicator = ({ group, rollout, testId }: RolloutProgressInd
   const status = modelUpdateStatus(group, rollout, undefined);
   const target = `Updating to ${rollout.firmwareVersion}`;
   const label = `${pairLabel(group)}: ${status.label}. ${target}`;
-  const summary = rolloutProgressSummary(counts);
+  const summary = rolloutProgressSummary(counts, rollout);
   const omitted = [
     counts.skipped > 0 ? `${counts.skipped.toLocaleString()} skipped` : "",
     counts.excluded > 0 ? `${counts.excluded.toLocaleString()} excluded` : "",

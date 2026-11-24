@@ -30,9 +30,3 @@ var commandTypeCapabilityMap = map[pb.CommandType][]string{
 func GetRequiredCapabilities(cmdType pb.CommandType) []string {
 	return commandTypeCapabilityMap[cmdType]
 }
-
-// RequiresCapabilityCheck returns true if the command type requires capability checking.
-func RequiresCapabilityCheck(cmdType pb.CommandType) bool {
-	_, exists := commandTypeCapabilityMap[cmdType]
-	return exists
-}

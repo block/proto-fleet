@@ -22,10 +22,10 @@ func TestSQLCurtailmentStore_TargetPhaseSummariesThroughCurtailRestoreLifecycle(
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 
 	eventUUID := uuid.New()
 	inserted, err := store.InsertEventWithTargets(
@@ -96,10 +96,10 @@ func TestSQLCurtailmentStore_ReleasedTargetsCompletePhaseSummaries(t *testing.T)
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 
 	curtailEventUUID := uuid.New()
 	curtailInserted, err := store.InsertEventWithTargets(
@@ -156,10 +156,10 @@ func TestSQLCurtailmentStore_ListTargetsByEventPageBoundaries(t *testing.T) {
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 
 	eventUUID := uuid.New()
 	targets := make([]models.InsertTargetParams, 0, 1001)
@@ -251,13 +251,13 @@ func TestSQLCurtailmentStore_ListTargetSiteCoverageCountsTargetRows(t *testing.T
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
-	siteStore := sqlstores.NewSQLSiteStore(testContext.DatabaseService.DB)
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
+	siteStore := sqlstores.NewSQLSiteStore(testContext.DB)
 
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(user.OrganizationID, 2, "https://172.17.0.1:80")
+	deviceIDs := testContext.CreateTestMiners(user.OrganizationID, 2, "https://172.17.0.1:80")
 	site, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: user.OrganizationID, Name: "coverage-site"})
 	require.NoError(t, err)
 	_, err = siteStore.AssignDevicesToSite(ctx, user.OrganizationID, &site.ID, deviceIDs)

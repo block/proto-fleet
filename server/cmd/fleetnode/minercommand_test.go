@@ -5,9 +5,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -24,6 +26,7 @@ import (
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
@@ -34,6 +37,7 @@ import (
 	minercommandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/curtailmentconfig"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/poolconfig"
 	"github.com/block/proto-fleet/server/internal/domain/miner/logformat"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -300,6 +304,8 @@ func TestHandleMinerCommand_GetsCoolingMode(t *testing.T) {
 	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1",
 		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_GetCoolingMode{GetCoolingMode: &pb.GetCoolingModeAction{}}}), discardLogger(t))
 
+	require.Eventually(t, func() bool { return len(r.getDeviceHandlePool().slots) == 0 }, time.Second, time.Millisecond)
+
 	// Assert
 	got := ack.only(t)
 	require.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
@@ -310,6 +316,14 @@ func TestHandleMinerCommand_GetsCoolingMode(t *testing.T) {
 
 func TestHandleMinerCommand_UpdatesMiningPools(t *testing.T) {
 	// Arrange
+	poolPassword := fmt.Sprintf("pool-credential-%s", t.Name())
+	public, private, err := passwordupdate.GenerateKeypair()
+	require.NoError(t, err)
+	encrypted, err := poolconfig.Encrypt(public, "dev-1", &pb.MiningPoolWriteConfiguration{Pools: []*pb.MiningPoolWriteConfig{
+		{Priority: 0, Url: "stratum+tcp://pool1.example.com:3333", Username: "worker1", Password: proto.String(poolPassword)},
+		{Priority: 1, Url: "stratum+tcp://pool2.example.com:3333", Username: "worker2", Password: proto.String("")},
+	}})
+	require.NoError(t, err)
 	ctrl := gomock.NewController(t)
 	dev := mocks.NewMockDevice(ctrl)
 	dev.EXPECT().
@@ -319,31 +333,42 @@ func TestHandleMinerCommand_UpdatesMiningPools(t *testing.T) {
 			assert.Equal(t, int32(0), pools[0].Priority)
 			assert.Equal(t, "stratum+tcp://pool1.example.com:3333", pools[0].URL)
 			assert.Equal(t, "worker1", pools[0].WorkerName)
+			assert.Equal(t, poolPassword, pools[0].Password)
 			assert.Equal(t, int32(1), pools[1].Priority)
 			assert.Equal(t, "stratum+tcp://pool2.example.com:3333", pools[1].URL)
 			assert.Equal(t, "worker2", pools[1].WorkerName)
+			assert.Empty(t, pools[1].Password)
+			for _, format := range []string{"%v", "%+v", "%#v"} {
+				assert.NotContains(t, fmt.Sprintf(format, pools), poolPassword)
+			}
+			encoded, err := json.Marshal(pools)
+			require.NoError(t, err)
+			assert.NotContains(t, string(encoded), poolPassword)
+			var output strings.Builder
+			slog.New(slog.NewJSONHandler(&output, nil)).Info("pool write", "pools", pools)
+			assert.NotContains(t, output.String(), poolPassword)
 			return nil
 		})
 	dev.EXPECT().Close(gomock.Any()).Return(nil)
 	drv := mocks.NewMockDriver(ctrl)
 	drv.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
-	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
+	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}, passwordUpdatePrivateKey: private}
 	ack := &captureAcker{}
+	var output strings.Builder
+	logger := slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	// Act
 	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1",
 		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_UpdateMiningPools{UpdateMiningPools: &pb.UpdateMiningPoolsAction{
-			Pools: []*pb.MiningPoolConfig{
-				{Priority: 0, Url: "stratum+tcp://pool1.example.com:3333", Username: "worker1"},
-				{Priority: 1, Url: "stratum+tcp://pool2.example.com:3333", Username: "worker2"},
-			},
-		}}}), discardLogger(t))
+			EncryptedConfig: encrypted,
+		}}}), logger)
 
 	// Assert
 	got := ack.only(t)
 	assert.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
 	assert.True(t, got.GetSucceeded())
 	assert.Empty(t, got.GetPayload())
+	assert.NotContains(t, output.String(), poolPassword)
 }
 
 func TestHandleMinerCommand_UpdateMinerPasswordReturnsEncryptedCredentials(t *testing.T) {
@@ -535,6 +560,37 @@ func TestHandleMinerCommand_UpdateMinerPasswordSealsBeforeUpdatingDevice(t *test
 
 	// Assert: gomock fails the test if UpdateMinerPassword is called.
 	assert.Equal(t, pb.AckCode_ACK_CODE_INTERNAL, ack.only(t).GetCode())
+	require.NotNil(t, ack.only(t).GetWriteOutcome())
+	assert.Equal(t, sdk.WriteNotDispatched, ack.only(t).GetWriteOutcome().GetOutcome())
+	assert.Equal(t, "credentials", ack.only(t).GetWriteOutcome().GetStage())
+}
+
+func TestHandleMinerCommand_OversizedPasswordIsNotDispatched(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	dev := mocks.NewMockDevice(ctrl)
+	dev.EXPECT().Close(gomock.Any()).Return(nil)
+	driver := mocks.NewMockDriver(ctrl)
+	driver.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	codec := &credentialCodec{key: bytes.Repeat([]byte{6}, credentialKeySize)}
+	credentials, err := codec.Seal(sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: "root", Password: "old-password"}})
+	require.NoError(t, err)
+	action, privateKey := encryptedPasswordUpdateAction(t, "old-password", strings.Repeat("x", maxCredentialBlobBytes))
+	command := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_UpdateMinerPassword{UpdateMinerPassword: action}})
+	command.Target.CredentialUsername = credentials.Username
+	command.Target.CredentialPassword = credentials.Password
+	r := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: codec, passwordUpdatePrivateKey: privateKey}
+	ack := &captureAcker{}
+
+	r.handleMinerCommand(t.Context(), nil, ack, "oversized-password", command, discardLogger(t))
+
+	// No UpdateMinerPassword expectation: any device write fails the test.
+	got := ack.only(t)
+	require.False(t, got.Succeeded)
+	require.Contains(t, got.ErrorMessage, "encrypted credential exceeds")
+	require.NotNil(t, got.WriteOutcome)
+	require.Equal(t, sdk.WriteNotDispatched, got.WriteOutcome.Outcome)
+	require.Equal(t, string(sdk.WriteStageCredentials), got.WriteOutcome.Stage)
+	require.Equal(t, string(sdk.WriteReasonInvalidRequest), got.WriteOutcome.Reason)
 }
 
 func TestHandleMinerCommand_UpdateMinerPasswordFailedPreconditionAcksUnauthenticated(t *testing.T) {
@@ -641,6 +697,7 @@ func TestHandleMinerCommand_FirmwareUpdateDownloadsArtifactAndCallsDevice(t *tes
 			assert.Equal(t, ref.GetFilename(), firmware.Filename)
 			assert.Equal(t, ref.GetSizeBytes(), firmware.Size)
 			assert.Equal(t, ref.GetSha256(), firmware.SHA256)
+			assert.Equal(t, "queue-message-7", firmware.RequestID)
 			assert.NotEmpty(t, firmware.FilePath)
 			assert.True(t, strings.HasPrefix(firmware.FilePath, firmwareTempRoot+string(os.PathSeparator)))
 			data, err := os.ReadFile(firmware.FilePath)
@@ -658,7 +715,7 @@ func TestHandleMinerCommand_FirmwareUpdateDownloadsArtifactAndCallsDevice(t *tes
 	ack := &captureAcker{}
 
 	r.handleMinerCommand(context.Background(), client, ack, "cmd-1",
-		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_FirmwareUpdate{FirmwareUpdate: &pb.FirmwareUpdateAction{Artifact: ref}}}), discardLogger(t))
+		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_FirmwareUpdate{FirmwareUpdate: &pb.FirmwareUpdateAction{Artifact: ref, RequestId: "queue-message-7"}}}), discardLogger(t))
 
 	got := ack.only(t)
 	assert.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
@@ -798,6 +855,7 @@ func TestPrepareFirmwareArtifactTempRootRemovesOrphans(t *testing.T) {
 }
 
 func TestHandleMinerCommand_GetMiningPoolsReturnsPayload(t *testing.T) {
+	require.Nil(t, (&pb.MiningPoolConfig{}).ProtoReflect().Descriptor().Fields().ByName("password"), "ordinary pool readback must not have a password field on the wire")
 	// Arrange
 	ctrl := gomock.NewController(t)
 	dev := mocks.NewMockDevice(ctrl)
@@ -865,6 +923,8 @@ func TestHandleMinerCommand_GetErrorsReturnsPayload(t *testing.T) {
 	// Act
 	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1",
 		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_GetErrors{GetErrors: &pb.GetErrorsAction{}}}), discardLogger(t))
+
+	require.Eventually(t, func() bool { return len(r.getDeviceHandlePool().slots) == 0 }, time.Second, time.Millisecond)
 
 	// Assert
 	got := ack.only(t)
@@ -1189,12 +1249,14 @@ func TestHandleMinerCommand_GetErrorsReturnsTruncatedPayloadForOversizedPayload(
 	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1",
 		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_GetErrors{GetErrors: &pb.GetErrorsAction{}}}), discardLogger(t))
 
+	require.Eventually(t, func() bool { return len(r.getDeviceHandlePool().slots) == 0 }, time.Second, time.Millisecond)
+
 	// Assert
 	got := ack.only(t)
 	assert.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
 	assert.True(t, got.GetSucceeded())
 	require.NotEmpty(t, got.GetPayload())
-	require.LessOrEqual(t, len(got.GetPayload()), maxAckPayloadBytes)
+	require.LessOrEqual(t, len(got.GetPayload()), maxCommandResultPayloadBytes)
 
 	var result pb.GetErrorsResult
 	require.NoError(t, proto.Unmarshal(got.GetPayload(), &result))
@@ -1431,4 +1493,269 @@ func TestRunMinerActionEnumConverters(t *testing.T) {
 			assert.Equal(t, pb.AckCode_ACK_CODE_BAD_REQUEST, code)
 		}
 	})
+}
+
+type equipmentControlDevice struct {
+	sdk.Device
+	received sdk.ContainerControlRequest
+	err      error
+}
+
+func (d *equipmentControlDevice) SetContainerControl(_ context.Context, req sdk.ContainerControlRequest) error {
+	d.received = req
+	return d.err
+}
+func TestEquipmentCommandBuildsControllerAndPreservesDesiredState(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	driver := mocks.NewMockDriver(ctrl)
+	base := mocks.NewMockDevice(ctrl)
+	base.EXPECT().Close(gomock.Any()).Return(nil)
+	device := &equipmentControlDevice{Device: base}
+	driver.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, _ string, info sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.NewDeviceResult, error) {
+		require.Equal(t, sdk.DeviceClassContainer, info.DeviceClass)
+		require.Equal(t, int32(9443), info.RPCPort)
+		require.True(t, info.RPCTLS)
+		require.Equal(t, int32(8181), info.Port)
+		return sdk.NewDeviceResult{Device: device}, nil
+	})
+	run := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}}
+	acker := &captureAcker{}
+	command := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_SetContainerControl{SetContainerControl: &pb.SetContainerControlAction{Name: "dry_cooler", Enabled: new(false)}}})
+	command.Target.RpcPort = 9443
+	command.Target.RpcTls = true
+	command.Target.Port = "8181"
+	run.handleMinerCommand(t.Context(), nil, acker, "equipment", command, slog.Default())
+	require.True(t, acker.only(t).Succeeded)
+	require.NotNil(t, device.received.Enabled)
+	require.False(t, *device.received.Enabled)
+}
+func TestEquipmentCommandUnsupportedOldPlugin(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	_, err := runMinerAction(t.Context(), nil, "equipment", "", nil, mocks.NewMockDevice(ctrl), &pb.MinerCommand{Action: &pb.MinerCommand_SetContainerControl{SetContainerControl: &pb.SetContainerControlAction{Name: "dry_cooler", Enabled: new(true)}}})
+	require.EqualError(t, err, "unsupported capability: container_control")
+	code, _ := classifyMinerCommandError("execute command", err)
+	require.Equal(t, pb.AckCode_ACK_CODE_UNIMPLEMENTED, code)
+	evidence := sdk.WriteEvidence(err)
+	require.Equal(t, sdk.WriteNotDispatched, evidence.GetReason())
+	require.Equal(t, string(sdk.WriteStageCapability), evidence.Metadata["stage"])
+	require.Equal(t, string(sdk.WriteReasonUnsupported), evidence.Metadata["reason"])
+}
+
+type alarmActionDevice struct {
+	sdk.Device
+	received []sdk.ContainerAlarmRequest
+	err      error
+}
+
+func (d *alarmActionDevice) RunContainerAlarmAction(_ context.Context, req sdk.ContainerAlarmRequest) error {
+	d.received = append(d.received, req)
+	return d.err
+}
+
+func TestContainerAlarmCommandBuildsControllerAndSendsActionOnce(t *testing.T) {
+	for _, action := range []string{sdk.ContainerAlarmActionMute, sdk.ContainerAlarmActionReset} {
+		t.Run(action, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			driver := mocks.NewMockDriver(ctrl)
+			base := mocks.NewMockDevice(ctrl)
+			base.EXPECT().Close(gomock.Any()).Return(nil)
+			device := &alarmActionDevice{Device: base}
+			driver.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, _ string, info sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.NewDeviceResult, error) {
+				require.Equal(t, sdk.DeviceClassContainer, info.DeviceClass, "the action addresses the controller, never a derived device")
+				return sdk.NewDeviceResult{Device: device}, nil
+			})
+			run := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}}
+			acker := &captureAcker{}
+			command := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_RunContainerAlarmAction{RunContainerAlarmAction: &pb.RunContainerAlarmAction{Action: action}}})
+			run.handleMinerCommand(t.Context(), nil, acker, "alarm", command, slog.Default())
+			require.True(t, acker.only(t).Succeeded)
+			require.Equal(t, []sdk.ContainerAlarmRequest{{Action: action}}, device.received)
+		})
+	}
+}
+
+func TestContainerAlarmCommandReportsRefusalAndUnknownOutcomeDistinctly(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		err     error
+		outcome string
+	}{
+		{"refusal", sdk.WriteRefused(errors.New("refused"), sdk.WriteStageDispatch, sdk.WriteReasonRejected), sdk.WriteNotDispatched},
+		{"unknown outcome", sdk.WithWriteOutcome(errors.New("timeout"), sdk.WriteUnknown, sdk.WriteStageDispatch, sdk.WriteReasonTransportFailed), sdk.WriteUnknown},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			driver := mocks.NewMockDriver(ctrl)
+			base := mocks.NewMockDevice(ctrl)
+			base.EXPECT().Close(gomock.Any()).Return(nil)
+			device := &alarmActionDevice{Device: base, err: tc.err}
+			driver.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: device}, nil)
+			run := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}}
+			acker := &captureAcker{}
+			command := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_RunContainerAlarmAction{RunContainerAlarmAction: &pb.RunContainerAlarmAction{Action: sdk.ContainerAlarmActionMute}}})
+			run.handleMinerCommand(t.Context(), nil, acker, "alarm", command, slog.Default())
+			ack := acker.only(t)
+			require.False(t, ack.Succeeded)
+			require.NotNil(t, ack.GetWriteOutcome())
+			require.Equal(t, tc.outcome, ack.GetWriteOutcome().GetOutcome())
+			require.Len(t, device.received, 1, "the node must not replay a plant alarm command")
+		})
+	}
+}
+
+func TestContainerAlarmCommandUnsupportedOldPluginAndInvalidAction(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	_, err := runMinerAction(t.Context(), nil, "alarm", "", nil, mocks.NewMockDevice(ctrl), &pb.MinerCommand{Action: &pb.MinerCommand_RunContainerAlarmAction{RunContainerAlarmAction: &pb.RunContainerAlarmAction{Action: sdk.ContainerAlarmActionMute}}})
+	require.EqualError(t, err, "unsupported capability: container_alarm")
+	code, _ := classifyMinerCommandError("execute command", err)
+	require.Equal(t, pb.AckCode_ACK_CODE_UNIMPLEMENTED, code)
+	require.Equal(t, sdk.WriteNotDispatched, sdk.WriteEvidence(err).GetReason())
+
+	device := &alarmActionDevice{Device: mocks.NewMockDevice(ctrl)}
+	_, err = runMinerAction(t.Context(), nil, "alarm", "", nil, device, &pb.MinerCommand{Action: &pb.MinerCommand_RunContainerAlarmAction{RunContainerAlarmAction: &pb.RunContainerAlarmAction{Action: "silence"}}})
+	require.Error(t, err)
+	require.Equal(t, sdk.WriteNotDispatched, sdk.WriteEvidence(err).GetReason())
+	require.Empty(t, device.received)
+}
+
+type tankMiningDevice struct {
+	sdk.Device
+	received sdk.TankMiningRequest
+}
+
+func (d *tankMiningDevice) SetTankMining(_ context.Context, req sdk.TankMiningRequest) error {
+	d.received = req
+	return nil
+}
+func TestTankMiningCommandBuildsControllerAndPreservesExactScope(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	driver := mocks.NewMockDriver(ctrl)
+	base := mocks.NewMockDevice(ctrl)
+	base.EXPECT().Close(gomock.Any()).Return(nil)
+	device := &tankMiningDevice{Device: base}
+	driver.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, _ string, info sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.NewDeviceResult, error) {
+		require.Equal(t, sdk.DeviceClassContainer, info.DeviceClass)
+		return sdk.NewDeviceResult{Device: device}, nil
+	})
+	run := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}}
+	acker := &captureAcker{}
+	run.handleMinerCommand(t.Context(), nil, acker, "tanks", withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_SetTankMining{SetTankMining: &pb.SetTankMiningAction{Positions: []int32{1, 3}, Mining: new(false)}}}), slog.Default())
+	require.True(t, acker.only(t).Succeeded)
+	require.Equal(t, []int32{1, 3}, device.received.Positions)
+	require.False(t, *device.received.Mining)
+}
+
+func TestHandleMinerCommand_RejectsInvalidEncryptedPoolsBeforeOpeningDevice(t *testing.T) {
+	public, private, err := passwordupdate.GenerateKeypair()
+	require.NoError(t, err)
+	_, wrongPrivate, err := passwordupdate.GenerateKeypair()
+	require.NoError(t, err)
+	config := &pb.MiningPoolWriteConfiguration{Pools: []*pb.MiningPoolWriteConfig{{Url: "stratum+tcp://pool.example.com:3333", Username: "worker", Password: proto.String("secret-pool-password")}}}
+	valid, err := poolconfig.Encrypt(public, "dev-1", config)
+	require.NoError(t, err)
+	wrongTarget, err := poolconfig.Encrypt(public, "other-device", config)
+	require.NoError(t, err)
+	tampered := proto.CloneOf(valid)
+	tampered.Ciphertext[0] ^= 1
+	for _, tc := range []struct {
+		name      string
+		private   []byte
+		encrypted *pb.NodeEncryptedPayload
+		want      pb.AckCode
+	}{
+		{"missing key", nil, valid, pb.AckCode_ACK_CODE_AGENT_INCAPABLE},
+		{"wrong key", wrongPrivate, valid, pb.AckCode_ACK_CODE_BAD_REQUEST},
+		{"wrong target", private, wrongTarget, pb.AckCode_ACK_CODE_BAD_REQUEST},
+		{"tampered", private, tampered, pb.AckCode_ACK_CODE_BAD_REQUEST},
+		{"absent envelope", private, nil, pb.AckCode_ACK_CODE_BAD_REQUEST},
+		{"malformed envelope", private, &pb.NodeEncryptedPayload{}, pb.AckCode_ACK_CODE_BAD_REQUEST},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			driver := mocks.NewMockDriver(gomock.NewController(t)) // No NewDevice or write is allowed.
+			r := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}, passwordUpdatePrivateKey: tc.private}
+			ack := &captureAcker{}
+			command := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_UpdateMiningPools{UpdateMiningPools: &pb.UpdateMiningPoolsAction{EncryptedConfig: tc.encrypted}}})
+			r.handleMinerCommand(t.Context(), nil, ack, "pool-rejection", command, discardLogger(t))
+			assert.Equal(t, tc.want, ack.only(t).GetCode())
+		})
+	}
+}
+
+func TestRunMinerAction_DoesNotExecuteEncryptedPoolConfiguration(t *testing.T) {
+	public, _, err := passwordupdate.GenerateKeypair()
+	require.NoError(t, err)
+	encrypted, err := poolconfig.Encrypt(public, "dev-1", &pb.MiningPoolWriteConfiguration{Pools: []*pb.MiningPoolWriteConfig{{Url: "stratum+tcp://pool.example.com:3333", Username: "worker", Password: proto.String("")}}})
+	require.NoError(t, err)
+	command := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_UpdateMiningPools{UpdateMiningPools: &pb.UpdateMiningPoolsAction{EncryptedConfig: encrypted}}})
+	device := mocks.NewMockDevice(gomock.NewController(t))
+	_, err = runMinerAction(t.Context(), nil, "pool-command", "", nil, device, command)
+	require.Error(t, err)
+}
+
+func TestHandleMinerCommand_RejectsLegacyPlaintextPoolWrite(t *testing.T) {
+	// The old action placed repeated plaintext pool messages at field 1.
+	legacyPool, err := proto.Marshal(&pb.MiningPoolWriteConfig{Url: "stratum+tcp://pool.example.com:3333", Username: "worker", Password: proto.String("legacy-secret")})
+	require.NoError(t, err)
+	legacyAction := protowire.AppendBytes(protowire.AppendTag(nil, 1, protowire.BytesType), legacyPool)
+	action := new(pb.UpdateMiningPoolsAction)
+	require.NoError(t, proto.Unmarshal(legacyAction, action))
+	driver := mocks.NewMockDriver(gomock.NewController(t))
+	r := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}}
+	ack := &captureAcker{}
+	var logs strings.Builder
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	command := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_UpdateMiningPools{UpdateMiningPools: action}})
+	r.handleMinerCommand(t.Context(), nil, ack, "legacy-pool-command", command, logger)
+	assert.Equal(t, pb.AckCode_ACK_CODE_BAD_REQUEST, ack.only(t).GetCode())
+	assert.NotContains(t, ack.only(t).GetErrorMessage(), "legacy-secret")
+	assert.NotContains(t, logs.String(), "legacy-secret")
+}
+
+func TestMinerCommandAckPreservesExecutionEvidence(t *testing.T) {
+	for _, outcome := range []string{sdk.WriteNotDispatched, sdk.WriteCompleted, sdk.WriteUnknown, ""} {
+		t.Run(outcome, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			dev := mocks.NewMockDevice(ctrl)
+			var failure error = sdk.NewErrUnsupportedCapability("reboot")
+			if outcome != "" {
+				failure = sdk.WithWriteOutcome(failure, outcome, "capability", "unsupported")
+			}
+			dev.EXPECT().Reboot(gomock.Any()).Return(failure).Times(1)
+			dev.EXPECT().Close(gomock.Any()).Return(nil)
+			drv := mocks.NewMockDriver(ctrl)
+			drv.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+			r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
+			ack := &captureAcker{}
+			r.handleMinerCommand(t.Context(), nil, ack, "cmd-evidence", withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}}), discardLogger(t))
+			got := ack.only(t)
+			require.False(t, got.Succeeded)
+			require.Equal(t, pb.AckCode_ACK_CODE_UNIMPLEMENTED, got.Code)
+			if outcome == "" {
+				require.Nil(t, got.WriteOutcome)
+				return
+			}
+			require.NotNil(t, got.WriteOutcome)
+			require.Equal(t, outcome, got.WriteOutcome.Outcome)
+			require.Equal(t, "capability", got.WriteOutcome.Stage)
+			require.Equal(t, "unsupported", got.WriteOutcome.Reason)
+		})
+	}
+}
+
+func TestClearPoolCommandChecksLiveDeviceCapability(t *testing.T) {
+	for _, supported := range []bool{false, true} {
+		t.Run(fmt.Sprint(supported), func(t *testing.T) {
+			dev := mocks.NewMockDevice(gomock.NewController(t))
+			dev.EXPECT().DescribeDevice(gomock.Any()).Return(sdk.DeviceInfo{}, sdk.Capabilities{sdk.CapabilityPoolClear: supported}, nil)
+			if supported {
+				dev.EXPECT().UpdateMiningPools(gomock.Any(), gomock.Len(0)).Return(nil)
+			}
+			_, err := (&poolConfigCommand{clearAll: true}).run(t.Context(), dev)
+			if supported {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
 }

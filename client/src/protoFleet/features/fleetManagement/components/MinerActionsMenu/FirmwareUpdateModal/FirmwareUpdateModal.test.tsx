@@ -2,6 +2,7 @@ import type { ComponentProps } from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import FirmwareUpdateModal from "./FirmwareUpdateModal";
+import { FileDropZone } from "@/protoFleet/components/FirmwareUpload";
 import { uploadHookState } from "@/protoFleet/components/FirmwareUpload/useFirmwareUpload.fixtures";
 import type Modal from "@/shared/components/Modal/Modal";
 
@@ -16,7 +17,12 @@ vi.mock("@/protoFleet/api/useFirmwareApi", async (importOriginal) => ({
   }),
 }));
 
-vi.mock("@/protoFleet/components/FirmwareUpload", () => ({
+vi.mock("@/protoFleet/components/FirmwareUpload", async () => ({
+  HashboardBuildField: (
+    await vi.importActual<typeof import("@/protoFleet/components/FirmwareUpload/HashboardBuildField")>(
+      "@/protoFleet/components/FirmwareUpload/HashboardBuildField",
+    )
+  ).default,
   useFirmwareUpload: () => mockUseFirmwareUpload(),
   FileDropZone: vi.fn(() => <div data-testid="file-drop-zone" />),
   FileErrorStatus: vi.fn(({ message }: { message: string }) => <div data-testid="file-error-status">{message}</div>),
@@ -217,6 +223,77 @@ describe("FirmwareUpdateModal", () => {
     expect(screen.getByLabelText("Firmware version")).toHaveValue("2.0.0");
     expect(screen.getByTestId("file-ready-status")).toBeInTheDocument();
     expect(screen.queryByTestId("file-drop-zone")).not.toBeInTheDocument();
+  });
+
+  describe("CT1 PSU firmware", () => {
+    const ct1 = { targetManufacturer: "Proto", targetModel: "CT1" };
+    const psuUpdate = /one module per controller at a time/;
+
+    it("names an existing capsule, explains its update, and reports the component", async () => {
+      mockListFirmwareFiles.mockResolvedValue([
+        {
+          id: "fw-boards",
+          filename: "hashboard-firmware-2.0.0-prod.zip",
+          size: 1024,
+          uploaded_at: "2025-01-01T00:00:00Z",
+          target_manufacturer: "Proto",
+          target_model: "CT1",
+          firmware_version: "2.0.0",
+          hashboard_build: "prod",
+        },
+        {
+          id: "fw-psu",
+          filename: "psu-firmware-boco-HA1200000-0123456789ab.psucap",
+          size: 61000,
+          uploaded_at: "2025-01-02T00:00:00Z",
+          target_manufacturer: "Proto",
+          target_model: "CT1",
+          firmware_version: "app=1410;bl=1110",
+          component: "psu",
+        },
+      ]);
+      const onConfirm = vi.fn();
+      render(<FirmwareUpdateModal open target={ct1} onConfirm={onConfirm} onDismiss={vi.fn()} />);
+
+      fireEvent.click(await screen.findByRole("radio", { name: /Proto CT1 · 2\.0\.0/ }));
+      expect(screen.getByText(/Update all hashboards in this container/)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("radio", { name: /Proto CT1 PSU · app=1410;bl=1110/ }));
+      expect(screen.getByText(psuUpdate)).toBeInTheDocument();
+      expect(screen.queryByText(/Update all hashboards in this container/)).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+      expect(onConfirm).toHaveBeenCalledExactlyOnceWith("fw-psu", "psu");
+    });
+
+    it("uploads a capsule as PSU firmware without a hashboard build", async () => {
+      mockListFirmwareFiles.mockResolvedValue([]);
+      const processFile = vi.fn();
+      const serverConfig = { allowedExtensions: [".zip", ".psucap"] };
+      mockUseFirmwareUpload.mockReturnValue(uploadHookState({ serverConfig, processFile }));
+      const onConfirm = vi.fn();
+      const view = render(<FirmwareUpdateModal open target={ct1} onConfirm={onConfirm} onDismiss={vi.fn()} />);
+      fireEvent.change(await screen.findByLabelText("Firmware version"), { target: { value: "app=1410;bl=1110" } });
+      expect(screen.getByText("Hashboard build")).toBeInTheDocument();
+
+      const capsule = new File(["capsule"], "boco.psucap");
+      act(() => vi.mocked(FileDropZone).mock.lastCall![0].onFileSelect(capsule));
+      expect(processFile).toHaveBeenCalledExactlyOnceWith(capsule, {
+        targetManufacturer: "Proto",
+        targetModel: "CT1",
+        firmwareVersion: "app=1410;bl=1110",
+        hashboardBuild: undefined,
+        component: "psu",
+      });
+
+      mockUseFirmwareUpload.mockReturnValue(
+        uploadHookState({ state: "ready", file: capsule, firmwareFileId: "fw-new", serverConfig, processFile }),
+      );
+      view.rerender(<FirmwareUpdateModal open target={ct1} onConfirm={onConfirm} onDismiss={vi.fn()} />);
+      expect(screen.queryByText("Hashboard build")).not.toBeInTheDocument();
+      expect(screen.getByText(psuUpdate)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+      expect(onConfirm).toHaveBeenCalledExactlyOnceWith("fw-new", "psu");
+    });
   });
 
   it("fails closed when the selected miner target is unavailable", async () => {

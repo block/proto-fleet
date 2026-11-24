@@ -1,0 +1,751 @@
+syntax = "proto3";
+
+package mdk.v2;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "mdk/v2/common.proto";
+import "mdk/v2/hashboard.proto";
+import "mdk/v2/options.proto";
+import "mdk/v2/power.proto";
+import "mdk/v2/tank.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
+
+// TelemetryService provides real-time and historical telemetry data.
+service TelemetryService {
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_tag) = {
+    name: "Telemetry"
+    description: "Real-time health streaming for hashboards, ASICs, containers, and device metrics."
+  };
+  // QueryTankSensorHistory reads source-identified C1 acquisitions from the
+  // owning Frigate's durable PostgreSQL/TimescaleDB store.
+  rpc QueryTankSensorHistory(QueryTankSensorHistoryRequest) returns (QueryTankSensorHistoryResponse) {
+    option (mdk.v2.product) = PRODUCT_FOGHASHING_C1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/telemetry/foghashing/tanks/{tank_key}/history"};
+  }
+  rpc QueryTankProductionHistory(QueryTankProductionHistoryRequest) returns (QueryTankProductionHistoryResponse) {
+    option (mdk.v2.product) = PRODUCT_FOGHASHING_C1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/telemetry/foghashing/tanks/{tank_key}/production"};
+  }
+  // StreamHashboardHealth streams hashboard health snapshots at ~1Hz.
+  rpc StreamHashboardHealth(StreamHashboardHealthRequest) returns (stream StreamHashboardHealthResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/telemetry/hashboards/stream"};
+  }
+
+  // StreamDeviceMetrics streams aggregate device-level metrics.
+  rpc StreamDeviceMetrics(StreamDeviceMetricsRequest) returns (stream StreamDeviceMetricsResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/telemetry/device/stream"};
+  }
+
+  // StreamASICHealth streams per-ASIC health data for a single hashboard.
+  rpc StreamASICHealth(StreamASICHealthRequest) returns (stream StreamASICHealthResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/telemetry/hashboards/{identifier}/asics/stream"};
+  }
+
+  // StreamContainerHealth streams container plant and power-feed telemetry.
+  rpc StreamContainerHealth(StreamContainerHealthRequest) returns (stream StreamContainerHealthResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {get: "/api/v2/telemetry/container/stream"};
+  }
+
+  // QueryTimeSeries queries historical time series data, returning bucketed
+  // aggregates (average, minimum, maximum, and sample count) over the requested
+  // metric, time range, and bucket size.
+  rpc QueryTimeSeries(QueryTimeSeriesRequest) returns (QueryTimeSeriesResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/telemetry/timeseries"};
+  }
+
+  // QueryProductionHistory returns indefinitely retained hourly or daily
+  // production summaries. An optional identifier selects one CT1 board;
+  // otherwise the result is the container aggregate.
+  rpc QueryProductionHistory(QueryProductionHistoryRequest) returns (QueryProductionHistoryResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/telemetry/production/history"};
+  }
+
+  // QueryShareQualityHistory returns indefinitely retained share-quality
+  // summaries without scanning raw nonces and work IDs.
+  rpc QueryShareQualityHistory(QueryShareQualityHistoryRequest) returns (QueryShareQualityHistoryResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/telemetry/shares/history"};
+  }
+
+  // ExportProductionMinuteHistory streams bounded one-minute production
+  // rollups for Flotilla cache hydration. Aggregate scope returns the
+  // container total; board scope returns every board without per-board RPCs.
+  // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
+  rpc ExportProductionMinuteHistory(ExportProductionMinuteHistoryRequest) returns (stream ExportProductionMinuteHistoryChunk) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+  }
+
+  // ExportPlantMinuteHistory streams every retained one-minute plant series
+  // through a bounded bulk cursor. It is consumed by the local Flotilla agent
+  // and avoids one database query per metric and component.
+  // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
+  rpc ExportPlantMinuteHistory(ExportPlantMinuteHistoryRequest) returns (stream ExportPlantMinuteHistoryChunk) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+  }
+
+  // GetContainerHealth returns a point-in-time plant and power-feed snapshot.
+  rpc GetContainerHealth(GetContainerHealthRequest) returns (GetContainerHealthResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/telemetry/container"};
+  }
+
+  // ListContainerPlantEvents returns durable control, setpoint, alarm, fault,
+  // power-feed, and observed-state transitions.
+  rpc ListContainerPlantEvents(ListContainerPlantEventsRequest) returns (ListContainerPlantEventsResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/telemetry/container/events"};
+  }
+
+  // ListContainerPlantAlarmEpisodes reconstructs active and cleared PLC alarm
+  // intervals from the durable transition journal.
+  rpc ListContainerPlantAlarmEpisodes(ListContainerPlantAlarmEpisodesRequest) returns (ListContainerPlantAlarmEpisodesResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/telemetry/container/alarms"};
+  }
+
+  // GetShareQuality returns share acceptance, rejection, and accepted-hashrate statistics over a window.
+  rpc GetShareQuality(GetShareQualityRequest) returns (GetShareQualityResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/telemetry/shares/quality"};
+  }
+
+  // GetHashboardLifetime returns the cumulative runtime the service has
+  // observed for one hashboard. It is preserved independently of retained raw
+  // health samples and excludes unobserved telemetry gaps.
+  rpc GetHashboardLifetime(GetHashboardLifetimeRequest) returns (GetHashboardLifetimeResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/telemetry/hashboards/{identifier}/lifetime"};
+  }
+}
+
+message StreamHashboardHealthRequest {
+  // identifier accepts a CT1 MAC address or R2 serial number.
+  string identifier = 1;
+}
+
+// StreamHashboardHealthResponse contains a health snapshot for a single hashboard.
+message StreamHashboardHealthResponse {
+  // mac_address is the legacy CT1 board identity. It is empty for R2 and must
+  // never contain a synthesized address.
+  string mac_address = 1;
+  HashboardHealth health = 2;
+  MiningState mining_state = 3;
+  // serial is the stable R2 board identity.
+  string serial = 4;
+  // slot is the optional one-based R2 chassis slot.
+  optional uint32 slot = 5;
+}
+
+message StreamDeviceMetricsRequest {}
+
+// StreamDeviceMetricsResponse contains aggregate device-level metrics.
+message StreamDeviceMetricsResponse {
+  double hashrate = 1;
+  double power = 2;
+  double avg_temperature = 3;
+  double efficiency = 4;
+  map<string, int32> boards_by_state = 5;
+  int32 active_boards = 6;
+  google.protobuf.Timestamp timestamp = 7;
+}
+
+message StreamASICHealthRequest {
+  // identifier accepts a CT1 MAC address or R2 serial number.
+  string identifier = 1;
+}
+
+// StreamASICHealthResponse contains per-ASIC health data for a hashboard.
+message StreamASICHealthResponse {
+  // mac_address is the legacy CT1 board identity. It is empty for R2 and must
+  // never contain a synthesized address.
+  string mac_address = 1;
+  repeated ASIC asics = 2;
+  google.protobuf.Timestamp timestamp = 3;
+  // layout is present on the first frame and whenever the physical topology changes.
+  HashboardASICLayout layout = 4;
+  // serial is the stable R2 board identity.
+  string serial = 5;
+  // slot is the optional one-based R2 chassis slot.
+  optional uint32 slot = 6;
+}
+
+message StreamContainerHealthRequest {}
+
+// StreamContainerHealthResponse contains plant and power-feed telemetry.
+message StreamContainerHealthResponse {
+  reserved 1, 2;
+  reserved "tank", "sockets";
+  google.protobuf.Timestamp timestamp = 3;
+  PlantHealth plant = 4;
+  repeated PowerFeed power_feeds = 5;
+}
+
+// PlantHealth contains normalized optional container-plant telemetry.
+message PlantHealth {
+  optional PlantState operating_state = 1;
+  optional bool powered = 2;
+  optional double inlet_temperature_c = 3;
+  optional double outlet_temperature_c = 4;
+  // Deprecated compatibility alias for outside_ambient_temperature_c.
+  optional double ambient_temperature_c = 5 [deprecated = true];
+  optional bool coolant_pump_active = 6;
+  optional bool heat_rejection_active = 7;
+  optional double total_power_w = 8;
+  optional bool critical_alarm_active = 9;
+  reserved 10;
+  optional double heat_rejection_power_w = 11;
+  optional bool alarm_active = 12;
+  optional double facility_power_w = 13;
+  optional double reactive_power_var = 14;
+  optional double apparent_power_va = 15;
+  optional double active_energy_kwh = 16;
+  optional double reactive_energy_kvarh = 17;
+  optional double apparent_energy_kvah = 18;
+  optional double power_factor = 19;
+  optional double pue = 20;
+  optional double dry_cooler_inlet_temperature_c = 21;
+  optional double outlet_a_temperature_c = 22;
+  optional double outlet_b_temperature_c = 23;
+  optional double pump_outlet_pressure_pa = 24;
+  optional double pump_inlet_pressure_pa = 25;
+  optional double heat_rejection_inlet_pressure_pa = 26;
+  optional double heat_rejection_outlet_pressure_pa = 27;
+  optional double tank_a_liquid_level_mm = 28;
+  optional double tank_b_liquid_level_mm = 29;
+  optional double flow_rate_lpm = 30;
+  // Deprecated compatibility alias for inside_ambient_humidity_percent.
+  optional double ambient_humidity_percent = 31 [deprecated = true];
+  optional double filter_pressure_diff_pa = 32;
+  optional double pump_pressure_diff_pa = 33;
+  optional double heat_rejection_pressure_diff_pa = 34;
+  optional double coolant_pump_speed_hz = 35;
+  optional double inside_ambient_temperature_c = 36;
+  optional double inside_ambient_humidity_percent = 37;
+  optional double outside_ambient_temperature_c = 38;
+  // BuzzerActive is the controller's direct audible-alarm output readback.
+  // It is absent when the selected PLC transport does not expose that state.
+  optional bool buzzer_active = 39;
+  optional double outside_ambient_humidity_percent = 40;
+  optional DryCoolerFanReverseStatus dry_cooler_fan_reverse = 41;
+}
+
+// PlantOperatingParameter is one read-only raw PLC operating threshold.
+message PlantOperatingParameter {
+  string code = 1;
+  string boundary = 2;
+  double value = 3;
+  string unit = 4;
+}
+
+// TimeSeriesBucket contains aggregated metrics for a time window.
+message TimeSeriesBucket {
+  google.protobuf.Timestamp time = 1;
+  double avg = 2;
+  double min = 3;
+  double max = 4;
+  int64 count = 5;
+  HistorySource source = 6;
+  uint32 reporting_contributors = 7;
+  optional uint32 expected_contributors = 8;
+  optional bool coverage_complete = 9;
+}
+
+// HistorySource identifies the retained resolution used for a response bucket.
+enum HistorySource {
+  HISTORY_SOURCE_UNSPECIFIED = 0;
+  HISTORY_SOURCE_RAW = 1;
+  HISTORY_SOURCE_HOURLY = 2;
+  HISTORY_SOURCE_MIXED = 3;
+}
+
+enum PsuTemperatureSensor {
+  PSU_TEMPERATURE_SENSOR_UNSPECIFIED = 0;
+  PSU_TEMPERATURE_SENSOR_INLET = 1;
+  PSU_TEMPERATURE_SENSOR_SR_HEATSINK = 2;
+  PSU_TEMPERATURE_SENSOR_PFC_HEATSINK = 3;
+}
+
+// TemperatureSeriesSelector identifies one retained board or PSU sensor.
+// Board indexes are the zero-based indexes advertised by firmware.
+message TemperatureSeriesSelector {
+  oneof source {
+    uint32 board_sensor_index = 1;
+    PsuTemperatureSensor psu_sensor = 2;
+  }
+}
+
+message QueryTimeSeriesRequest {
+  TimeSeriesMetric metric = 1;
+  TimeRange range = 2;
+  BucketSize bucket_size = 3;
+  // identifier is a CT1 MAC address or R2 serial number for board metrics. It
+  // is the phase, distribution-unit, fan, or power-feed ID for component plant
+  // metrics.
+  string identifier = 4;
+  // Required only for TIME_SERIES_METRIC_TEMPERATURE_SENSOR.
+  TemperatureSeriesSelector temperature_selector = 5;
+}
+
+message QueryTimeSeriesResponse {
+  repeated TimeSeriesBucket buckets = 1;
+  TimeSeriesMetric metric = 2;
+  string unit = 3;
+}
+
+message QueryProductionHistoryRequest {
+  TimeRange range = 1;
+  BucketSize bucket_size = 2;
+  string identifier = 3;
+}
+
+message ProductionHistoryBucket {
+  google.protobuf.Timestamp time = 1;
+  optional double hashrate_avg_ths = 2;
+  optional double hashrate_min_ths = 3;
+  optional double hashrate_max_ths = 4;
+  optional double board_power_avg_w = 5;
+  optional double board_power_min_w = 6;
+  optional double board_power_max_w = 7;
+  optional double facility_power_avg_w = 8;
+  optional double facility_power_min_w = 9;
+  optional double facility_power_max_w = 10;
+  optional double pdu_power_avg_w = 11;
+  optional double pdu_power_min_w = 12;
+  optional double pdu_power_max_w = 13;
+  optional double efficiency_j_th = 14;
+  optional double pue = 15;
+  optional double desired_power_w = 16;
+  uint32 online_boards = 17;
+  uint32 mining_boards = 18;
+  uint32 reporting_boards = 19;
+  optional uint32 expected_boards = 20;
+  optional double reporting_coverage = 21;
+  optional double maximum_board_temperature_c = 22;
+  uint64 issue_count = 23;
+  uint64 error_count = 24;
+  uint64 sample_count = 25;
+  double observed_seconds = 26;
+  double mining_seconds = 27;
+}
+
+message QueryProductionHistoryResponse {
+  repeated ProductionHistoryBucket buckets = 1;
+  string identifier = 2;
+  HistorySource source = 3;
+}
+
+enum ShareQualityHistoryGrouping {
+  SHARE_QUALITY_HISTORY_GROUPING_UNSPECIFIED = 0;
+  SHARE_QUALITY_HISTORY_GROUPING_TOTAL = 1;
+  SHARE_QUALITY_HISTORY_GROUPING_BOARD = 2;
+  SHARE_QUALITY_HISTORY_GROUPING_POOL = 3;
+}
+
+message QueryShareQualityHistoryRequest {
+  TimeRange range = 1;
+  BucketSize bucket_size = 2;
+  ShareQualityHistoryGrouping grouping = 3;
+  string identifier = 4;
+  optional int32 pool_id = 5;
+}
+
+message ShareQualityHistoryBucket {
+  google.protobuf.Timestamp time = 1;
+  string key = 2;
+  int64 accepted = 3;
+  int64 rejected = 4;
+  double accepted_difficulty = 5;
+  double reject_rate = 6;
+  repeated ShareRejectReason reject_reasons = 7;
+  uint32 reporting_boards = 8;
+  optional uint32 expected_boards = 9;
+  optional double reporting_coverage = 10;
+  uint64 sample_count = 11;
+  // Present only for pool grouping. Zero is the legacy unattributed pool ID.
+  optional int64 pool_id = 12;
+  // The stable categories of recorded rejected share results in this bucket.
+  ShareRejectCategoryCounts reject_categories = 13;
+}
+
+message QueryShareQualityHistoryResponse {
+  repeated ShareQualityHistoryBucket buckets = 1;
+  ShareQualityHistoryGrouping grouping = 2;
+  HistorySource source = 3;
+}
+
+message ExportPlantMinuteHistoryRequest {
+  TimeRange range = 1;
+}
+
+message PlantMinuteHistoryRecord {
+  TimeSeriesMetric metric = 1;
+  string identifier = 2;
+  google.protobuf.Timestamp time = 3;
+  double avg = 4;
+  double min = 5;
+  double max = 6;
+  int64 count = 7;
+}
+
+message ExportPlantMinuteHistoryChunk {
+  repeated PlantMinuteHistoryRecord records = 1;
+}
+
+enum ProductionMinuteHistoryScope {
+  PRODUCTION_MINUTE_HISTORY_SCOPE_UNSPECIFIED = 0;
+  PRODUCTION_MINUTE_HISTORY_SCOPE_AGGREGATE = 1;
+  PRODUCTION_MINUTE_HISTORY_SCOPE_BOARDS = 2;
+}
+
+message ExportProductionMinuteHistoryRequest {
+  TimeRange range = 1;
+  ProductionMinuteHistoryScope scope = 2;
+}
+
+message ProductionMinuteHistoryRecord {
+  google.protobuf.Timestamp time = 1;
+  // Identifier is empty for the aggregate scope and is the board MAC for the
+  // board scope.
+  string identifier = 2;
+  float hashrate_avg_th = 3;
+  float hashrate_min_th = 4;
+  float hashrate_max_th = 5;
+  float power_avg_w = 6;
+  float power_min_w = 7;
+  float power_max_w = 8;
+  float temperature_max = 9;
+  uint32 issue_count = 10;
+  uint32 sample_count = 11;
+}
+
+message ExportProductionMinuteHistoryChunk {
+  repeated ProductionMinuteHistoryRecord records = 1;
+}
+
+message GetContainerHealthRequest {
+  // Opt in to the shared-database module summary. Default callers do not add
+  // location or hashboard-health reads to the plant snapshot.
+  bool include_module_distribution = 1;
+}
+
+// GetContainerHealthResponse contains a point-in-time container health snapshot.
+message GetContainerHealthResponse {
+  reserved 1, 2;
+  reserved "tank", "sockets";
+  repeated PhaseAggregate phases = 3;
+  google.protobuf.Timestamp timestamp = 4;
+  PlantHealth plant = 5;
+  repeated PowerFeed power_feeds = 6;
+  repeated PlantPowerDistribution power_distributions = 7;
+  repeated PlantCoolingFan cooling_fans = 8;
+  repeated PlantAlarm alarms = 9;
+  repeated PlantFault faults = 10;
+  repeated ContainerControl controls = 11;
+  repeated ContainerSetpoint setpoints = 12;
+  repeated PlantOperatingParameter operating_parameters = 13;
+  optional PlantCoolingFanDirection dry_cooler_direction = 14 [deprecated = true];
+  optional DryCoolerFanReverseStatus dry_cooler_fan_reverse = 15;
+  // Present only when include_module_distribution is requested and supported.
+  ModuleDistribution module_distribution = 16;
+  // Whether the controller can honor PowerService.MuteContainerAlarm on its
+  // active command path, reported with live plant telemetry. Older Frigate
+  // releases omit it; consumers then keep assuming mute is supported.
+  optional bool alarm_mute_supported = 17;
+}
+
+// ModuleDistribution summarizes current physical modules in known tanks.
+// Membership comes from shared locations and commissioned switch-port slots.
+// A configured module grid adds empty modules within those tanks; it does not
+// invent tanks absent from both sources. Unmapped boards are disclosed separately.
+message ModuleDistribution {
+  // Sources are the shared physical location catalog and current persisted
+  // board health, independent of which HA peer owns the boards.
+  uint32 expected_modules = 1;
+  // PSU input power is counted once per module using its newest fresh sample.
+  ModuleDistributionStatistic psu_input_power_w = 2;
+  // Hashboard output power is summed only for fully reporting modules.
+  ModuleDistributionStatistic hashboard_power_w = 3;
+  // Each module is the mean of its boards' mean finite sensor temperatures.
+  ModuleDistributionStatistic hashboard_temperature_c = 4;
+  google.protobuf.Timestamp evaluated_at = 5;
+  uint32 max_age_seconds = 6;
+  uint32 unmapped_boards = 7;
+}
+
+// ModuleDistributionStatistic describes equally weighted reporting modules.
+// Missing modules never contribute synthetic zeros. With partial coverage,
+// min/max/avg describe reporting modules only and complete is false. An empty
+// reporting set has absent numbers, including when the expected set is empty.
+message ModuleDistributionStatistic {
+  optional double min = 1;
+  optional double max = 2;
+  optional double avg = 3;
+  uint32 reporting_modules = 4;
+  // Also requires no unresolved board locations. This covers known topology;
+  // unknown tanks cannot be inferred from telemetry.
+  bool complete = 5;
+  google.protobuf.Timestamp oldest_observed_at = 6;
+  google.protobuf.Timestamp newest_observed_at = 7;
+}
+
+// PhaseAggregate contains aggregate power draw for a single electrical phase.
+message PhaseAggregate {
+  reserved 2, 3;
+  reserved "wattage", "amperage";
+  Phase phase = 1;
+  optional double power_w = 4;
+  optional double current_a = 5;
+  optional double voltage_v = 6;
+}
+
+// PlantPowerDistribution contains one distribution unit's latest readings.
+message PlantPowerDistribution {
+  string component_id = 1;
+  optional int32 active_feed_count = 2;
+  optional double voltage_ab_v = 3;
+  optional double voltage_bc_v = 4;
+  optional double voltage_ca_v = 5;
+  optional double current_a_a = 6;
+  optional double current_b_a = 7;
+  optional double current_c_a = 8;
+  optional double active_power_w = 9;
+  optional double active_energy_kwh = 10;
+}
+
+// PlantCoolingFan contains one cooling fan's latest readings.
+enum PlantCoolingFanDirection {
+  PLANT_COOLING_FAN_DIRECTION_UNSPECIFIED = 0;
+  PLANT_COOLING_FAN_DIRECTION_FORWARD = 1;
+  PLANT_COOLING_FAN_DIRECTION_REVERSE = 2;
+  PLANT_COOLING_FAN_DIRECTION_UNKNOWN = 3;
+}
+
+message PlantCoolingFan {
+  string component_id = 1;
+  optional double power_w = 2;
+  optional double speed_percent = 3;
+  optional bool alarm_active = 4;
+  optional PlantCoolingFanDirection direction = 5;
+}
+
+// PlantAlarm identifies one currently active backend alarm.
+message PlantAlarm {
+  string id = 1;
+  string name = 2;
+  string scope = 3;
+  Severity severity = 4;
+  string component_id = 5;
+}
+
+// PlantFault contains one component's current numeric fault code and optional
+// V0821 error bitmap. The legacy code field remains the fault code so older
+// consumers keep one unique record per component and safely ignore the
+// additive bitmap.
+message PlantFault {
+  string component_id = 1;
+  uint32 code = 2;
+  // Deprecated: error_code was introduced before the V0821 value was
+  // identified as a bitmap. New producers mirror error_bitmap here during the
+  // rolling transition so older generated clients remain source/JSON/wire
+  // compatible. New consumers accept this field only as a bitmap fallback.
+  optional uint32 error_code = 3 [deprecated = true];
+  // Absence means the V0821 error-bitmap telemetry is unavailable. A present
+  // zero means the controller supports it and currently reports no error bits.
+  optional uint32 error_bitmap = 4;
+}
+
+message ListContainerPlantEventsRequest {
+  TimeRange range = 1;
+  string category = 2;
+  string component_id = 3;
+  uint32 limit = 4;
+}
+
+// ContainerPlantEvent is one durable discrete state transition.
+message ContainerPlantEvent {
+  int64 id = 1;
+  google.protobuf.Timestamp observed_at = 2;
+  string category = 3;
+  string component_id = 4;
+  string name = 5;
+  optional bool bool_value = 6;
+  optional double number_value = 7;
+  optional string text_value = 8;
+  optional bool previous_bool_value = 9;
+  optional double previous_number_value = 10;
+  optional string previous_text_value = 11;
+  string unit = 12;
+  Severity severity = 13;
+  string affected_component_id = 14;
+}
+
+message ListContainerPlantEventsResponse {
+  repeated ContainerPlantEvent events = 1;
+}
+
+message ListContainerPlantAlarmEpisodesRequest {
+  TimeRange range = 1;
+  repeated Severity severities = 2;
+  string component_id = 3;
+  optional bool active = 4;
+  uint32 limit = 5;
+  string page_token = 6;
+}
+
+message ContainerPlantAlarmEpisode {
+  int64 opening_event_id = 1;
+  string alarm_id = 2;
+  string name = 3;
+  Severity severity = 4;
+  string component_id = 5;
+  google.protobuf.Timestamp started_at = 6;
+  google.protobuf.Timestamp cleared_at = 7;
+  bool active = 8;
+  bool first_seen_truncated = 9;
+}
+
+message ListContainerPlantAlarmEpisodesResponse {
+  repeated ContainerPlantAlarmEpisode episodes = 1;
+  string next_page_token = 2;
+}
+
+// ShareQualityWindow selects the rolling window for share quality statistics.
+enum ShareQualityWindow {
+  SHARE_QUALITY_WINDOW_UNSPECIFIED = 0;
+  SHARE_QUALITY_WINDOW_15M = 1;
+  SHARE_QUALITY_WINDOW_1H = 2;
+  SHARE_QUALITY_WINDOW_24H = 3;
+}
+
+// ShareRejectReason counts share rejections grouped by recorded reason.
+message ShareRejectReason {
+  string reason = 1;
+  int64 count = 2;
+}
+
+// ShareRejectCategoryCounts groups recorded rejected share results without
+// requiring clients to interpret pool-specific or legacy reason strings.
+// Invalid includes invalid time, low difficulty, and invalid user. Unknown
+// includes unclassified, unfamiliar, or otherwise unattributed results.
+message ShareRejectCategoryCounts {
+  int64 stale = 1;
+  int64 invalid = 2;
+  int64 duplicate = 3;
+  int64 submit_failure = 4;
+  int64 unknown = 5;
+}
+
+// ShareQualityStats contains share acceptance metrics for a single grouping.
+// key is the CT1 MAC address for by_board entries, the pool name for by_pool
+// entries, and empty for the total aggregate. R2 by_board entries use serial.
+message ShareQualityStats {
+  string key = 1;
+  int64 accepted = 2;
+  int64 rejected = 3;
+  double acceptance_rate = 4;
+  repeated ShareRejectReason reject_reasons = 5;
+  // accepted_hashrate_ths is the hashrate derived from accepted
+  // share difficulty over the response window, in terahashes per second.
+  double accepted_hashrate_ths = 6;
+  // serial is the stable R2 board identity for by_board entries. It is empty
+  // for CT1, pool, and total groupings.
+  string serial = 7;
+  // slot is present only when all samples belong to one known R2 slot.
+  optional uint32 slot = 8;
+  // Present only for by_pool entries. Zero is the legacy unattributed pool ID.
+  optional int64 pool_id = 9;
+  // Present for CT1 share quality; absent when categories are unsupported.
+  ShareRejectCategoryCounts reject_categories = 10;
+}
+
+message GetShareQualityRequest {
+  ShareQualityWindow window = 1;
+  // identifier is an optional CT1 MAC address or R2 serial number that
+  // restricts only the by_board breakdown. It does not filter by
+  // pool and is not a pool name.
+  string identifier = 2;
+}
+
+message GetShareQualityResponse {
+  ShareQualityWindow window = 1;
+  ShareQualityStats total = 2;
+  repeated ShareQualityStats by_board = 3;
+  repeated ShareQualityStats by_pool = 4;
+}
+
+// GetHashboardLifetimeRequest selects a board by CT1 MAC address or R2 serial
+// number.
+message GetHashboardLifetimeRequest {
+  string identifier = 1;
+}
+
+// GetHashboardLifetimeResponse contains service-observed lifetime runtime.
+// A nil first_observed_at means the selected board has not yet supplied a
+// persisted health sample.
+message GetHashboardLifetimeResponse {
+  // mac_address is the legacy CT1 identity and is empty for R2.
+  string mac_address = 1;
+  // mining_time_ms is the legacy state-based counter retained for older
+  // clients. It can include READY or MINING intervals with zero hashrate.
+  uint64 mining_time_ms = 2;
+  uint64 powered_on_time_ms = 3;
+  google.protobuf.Timestamp first_observed_at = 4;
+  // serial is the stable R2 identity.
+  string serial = 5;
+  // slot is the current optional one-based R2 chassis slot.
+  optional uint32 slot = 6;
+  // observed_uptime contains only complete-age windows with substantiated
+  // observation time. Telemetry gaps longer than 90 seconds are excluded from
+  // both powered and observed time.
+  repeated HashboardObservedUptimeWindow observed_uptime = 7;
+  // hashing_time_ms is the corrected time the board produced positive finite
+  // hashrate in an operational READY or MINING state. Presence distinguishes
+  // it from the legacy counter returned by older servers. It includes run-in
+  // and internal work that does not use an external pool.
+  optional uint64 hashing_time_ms = 8;
+  // hashing_observed_since marks the corrected counter epoch.
+  google.protobuf.Timestamp hashing_observed_since = 9;
+  // best_effort_hashing_time_ms is the portion of hashing_time_ms inferred by
+  // an explicit operator repair from pre-cutover rows without HA writer
+  // identity. The remainder is owner-authoritative.
+  uint64 best_effort_hashing_time_ms = 10;
+  // hashing_energy_kwh is board-output energy integrated across the same
+  // substantiated positive-hashrate intervals as hashing_time_ms. Presence
+  // distinguishes an initialized counter from an older server.
+  optional double hashing_energy_kwh = 11;
+  // best_effort_hashing_energy_kwh is the portion reconstructed by the
+  // explicit operator repair from pre-cutover rows without HA writer identity.
+  double best_effort_hashing_energy_kwh = 12;
+  // hashing_energy_observed_since marks the hashing-energy counter epoch.
+  google.protobuf.Timestamp hashing_energy_observed_since = 13;
+}
+
+message HashboardObservedUptimeWindow {
+  uint32 window_days = 1;
+  uint64 powered_time_ms = 2;
+  uint64 observed_time_ms = 3;
+}

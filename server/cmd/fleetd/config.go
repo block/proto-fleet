@@ -7,6 +7,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/command"
 	curtailmentReconciler "github.com/block/proto-fleet/server/internal/domain/curtailment/reconciler"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
+	frigateUpdateDomain "github.com/block/proto-fleet/server/internal/domain/frigateupdate"
 	infrastructureDomain "github.com/block/proto-fleet/server/internal/domain/infrastructure"
 	"github.com/block/proto-fleet/server/internal/domain/ipscanner"
 	"github.com/block/proto-fleet/server/internal/domain/marketdata"
@@ -18,6 +19,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/token"
 	"github.com/block/proto-fleet/server/internal/domain/updates"
 	"github.com/block/proto-fleet/server/internal/ha"
+	minerProxyHandler "github.com/block/proto-fleet/server/internal/handlers/minerproxy"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
@@ -25,6 +27,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/logging"
 	"github.com/block/proto-fleet/server/internal/infrastructure/metrics"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
+	"github.com/block/proto-fleet/server/internal/infrastructure/runtimemetrics"
 	"github.com/block/proto-fleet/server/internal/infrastructure/sysmon"
 	"github.com/block/proto-fleet/server/internal/infrastructure/timescaledb"
 )
@@ -56,6 +59,7 @@ type Config struct {
 
 	DB             db.Config                    `embed:"" prefix:"db-" envprefix:"DB_"`
 	Log            logging.Config               `embed:"" prefix:"logging-" envprefix:"LOG_"`
+	MinerProxy     minerProxyHandler.Config     `embed:"" prefix:"miner-proxy-" envprefix:"MINER_PROXY_"`
 	HTTP           HTTPConfig                   `embed:"" prefix:"http-" envprefix:"HTTP_"`
 	Auth           token.Config                 `embed:"" prefix:"auth-" envprefix:"AUTH_"`
 	Session        session.Config               `embed:"" prefix:"session-" envprefix:"SESSION_"`
@@ -74,7 +78,9 @@ type Config struct {
 	MarketData     marketdata.Config            `embed:"" prefix:"market-data-" envprefix:"MARKET_DATA_"`
 	Infrastructure infrastructureDomain.Config  `embed:"" prefix:"infrastructure-" envprefix:"INFRASTRUCTURE_"`
 	Files          files.Config                 `embed:"" prefix:"files-" envprefix:"FILES_"`
+	FrigateUpdate  frigateUpdateDomain.Config   `embed:"" prefix:"frigate-update-" envprefix:"FRIGATE_UPDATE_"`
 	FleetTelemetry fleet_telemetry.Config       `embed:"" prefix:"fleet-telemetry-" envprefix:"FLEET_TELEMETRY_"`
+	RuntimeMetrics runtimemetrics.Config        `embed:"" prefix:"runtime-metrics-" envprefix:"FLEET_RUNTIME_METRICS_"`
 	Metrics        metrics.Config               `embed:"" prefix:"metrics-" envprefix:"FLEET_ALERTS_"`
 	HA             ha.Config                    `embed:"" prefix:"ha-" envprefix:"FLEET_HA_"`
 

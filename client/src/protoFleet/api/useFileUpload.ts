@@ -12,7 +12,6 @@ export interface ChunkedUploadConfig {
 export interface FileUploadOptions {
   onProgress?: (percent: number) => void;
   signal?: AbortSignal;
-  fieldName?: string;
   formFields?: Record<string, string>;
   initiateFields?: Record<string, string | number | boolean>;
   chunked?: ChunkedUploadConfig;
@@ -255,7 +254,7 @@ function uploadDirect(
     for (const [key, value] of Object.entries(options?.formFields ?? {})) {
       formData.append(key, value);
     }
-    formData.append(options?.fieldName ?? "file", file);
+    formData.append("file", file);
     xhr.send(formData);
   });
 }

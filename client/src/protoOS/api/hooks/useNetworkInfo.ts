@@ -10,6 +10,7 @@ import {
   useSetNetworkInfoPending,
 } from "@/protoOS/store";
 import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
+import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 interface UseNetworkInfoProps {
@@ -27,7 +28,7 @@ interface UseNetworkInfoProps {
  */
 
 const useNetworkInfo = ({ poll, pollIntervalMs }: UseNetworkInfoProps) => {
-  const { api } = useMinerHosting();
+  const { adapter } = useMinerHosting();
   const authRetry = useAuthRetry();
   const setNetworkInfo = useSetNetworkInfo();
   const setNetworkInfoError = useSetNetworkInfoError();
@@ -37,29 +38,37 @@ const useNetworkInfo = ({ poll, pollIntervalMs }: UseNetworkInfoProps) => {
   const error = useNetworkInfoError();
   const isFetchingRef = useRef<boolean>(false);
 
-  const fetchData = useCallback(() => {
-    if (!api || isFetchingRef.current) return;
+  const fetchData = useCallback(
+    (signal?: AbortSignal) => {
+      if (!adapter || isFetchingRef.current) return;
 
-    isFetchingRef.current = true;
-    setNetworkInfoPending(true);
+      isFetchingRef.current = true;
+      const accept = beginStoreWrite("networkInfo");
+      setNetworkInfoPending(true);
 
-    authRetry({
-      request: (params) => api.getNetwork(params),
-      onSuccess: (res) => {
-        const responseData = res?.data["network-info"];
-        setNetworkInfo(responseData);
-      },
-      onError: (err) => setNetworkInfoError(err?.error?.message ?? "An error occurred"),
-    }).finally(() => {
-      isFetchingRef.current = false;
-      setNetworkInfoPending(false);
-    });
-  }, [api, authRetry, setNetworkInfo, setNetworkInfoError, setNetworkInfoPending]);
+      authRetry({
+        request: (params) => adapter.getNetworkInfo(params),
+        signal,
+        onSuccess: (networkInfo) => {
+          if (!accept()) return;
+          setNetworkInfo(networkInfo.interfaces);
+        },
+        onError: (err) => setNetworkInfoError(err?.error?.message ?? "An error occurred"),
+      }).finally(() => {
+        isFetchingRef.current = false;
+        setNetworkInfoPending(false);
+      });
+    },
+    [adapter, authRetry, setNetworkInfo, setNetworkInfoError, setNetworkInfoPending],
+  );
 
-  const reload = useCallback(() => {
-    if (isFetchingRef.current) return;
-    fetchData();
-  }, [fetchData]);
+  const reload = useCallback(
+    (signal?: AbortSignal) => {
+      if (isFetchingRef.current) return;
+      fetchData(signal);
+    },
+    [fetchData],
+  );
 
   usePoll({
     fetchData: reload,

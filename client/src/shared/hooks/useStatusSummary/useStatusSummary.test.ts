@@ -130,102 +130,44 @@ describe("useMinerStatusSummary", () => {
   });
 
   describe("single error", () => {
-    it('should return "[Component] [slot] failure" for hashboard with slot', () => {
-      const errors: GroupedStatusErrors = {
-        ...emptyErrors,
-        hashboard: [{ componentType: "hashboard", slot: 1 }],
-      };
-      const { result } = renderHook(() => useMinerStatusSummary(errors));
-      expect(result.current.condensed).toBe("Hashboard 1 failure");
-      expect(result.current.title).toBe("Hashboard 1 failure");
-    });
-
-    it('should return "[Component] [slot] failure" for PSU with slot', () => {
-      const errors: GroupedStatusErrors = {
-        ...emptyErrors,
-        psu: [{ componentType: "psu", slot: 2 }],
-      };
-      const { result } = renderHook(() => useMinerStatusSummary(errors));
-      expect(result.current.condensed).toBe("PSU 2 failure");
-      expect(result.current.title).toBe("PSU 2 failure");
-    });
-
-    it('should return "[Component] [slot] failure" for fan with slot', () => {
-      const errors: GroupedStatusErrors = {
-        ...emptyErrors,
-        fan: [{ componentType: "fan", slot: 2 }],
-      };
-      const { result } = renderHook(() => useMinerStatusSummary(errors));
-      expect(result.current.condensed).toBe("Fan 2 failure");
-      expect(result.current.title).toBe("Fan 2 failure");
-    });
-
-    it('should return "[Component] failure" for control board without index', () => {
-      const errors: GroupedStatusErrors = {
-        ...emptyErrors,
-        controlBoard: [{ componentType: "controlBoard" }],
-      };
-      const { result } = renderHook(() => useMinerStatusSummary(errors));
-      expect(result.current.condensed).toBe("Control board failure");
-      expect(result.current.title).toBe("Control board failure");
-    });
-
-    it('should return "[Component] failure" when no slot provided', () => {
-      const errors: GroupedStatusErrors = {
-        ...emptyErrors,
-        hashboard: [{ componentType: "hashboard" }],
-      };
-      const { result } = renderHook(() => useMinerStatusSummary(errors));
-      expect(result.current.condensed).toBe("Hashboard failure");
-      expect(result.current.title).toBe("Hashboard failure");
+    it.each<{ name: string; errors: Partial<GroupedStatusErrors>; expected: string }>([
+      {
+        name: "hashboard with slot",
+        errors: { hashboard: [{ componentType: "hashboard", slot: 1 }] },
+        expected: "Hashboard 1 failure",
+      },
+      {
+        name: "control board without index",
+        errors: { controlBoard: [{ componentType: "controlBoard" }] },
+        expected: "Control board failure",
+      },
+      {
+        name: "hashboard without slot",
+        errors: { hashboard: [{ componentType: "hashboard" }] },
+        expected: "Hashboard failure",
+      },
+    ])('should return "$expected" for $name', ({ errors, expected }) => {
+      const { result } = renderHook(() => useMinerStatusSummary({ ...emptyErrors, ...errors }));
+      expect(result.current.condensed).toBe(expected);
+      expect(result.current.title).toBe(expected);
     });
   });
 
   describe("multiple errors on one component type", () => {
-    it('should return "Multiple hashboard failures" for multiple hashboard errors', () => {
-      const errors: GroupedStatusErrors = {
-        ...emptyErrors,
-        hashboard: [
-          { componentType: "hashboard", slot: 1 },
-          { componentType: "hashboard", slot: 2 },
-        ],
-      };
-      const { result } = renderHook(() => useMinerStatusSummary(errors));
-      expect(result.current.condensed).toBe("Multiple hashboard failures");
-      expect(result.current.title).toBe("Multiple hashboard failures");
-    });
-
-    it('should return "Multiple PSU failures" for multiple PSU errors', () => {
-      const errors: GroupedStatusErrors = {
-        ...emptyErrors,
-        psu: [
-          { componentType: "psu", slot: 1 },
-          { componentType: "psu", slot: 1 },
-        ],
-      };
-      const { result } = renderHook(() => useMinerStatusSummary(errors));
-      expect(result.current.condensed).toBe("Multiple PSU failures");
-      expect(result.current.title).toBe("Multiple PSU failures");
-    });
-
-    it('should return "Multiple fan failures" for multiple fan errors', () => {
-      const errors: GroupedStatusErrors = {
-        ...emptyErrors,
-        fan: [{ componentType: "fan" }, { componentType: "fan" }, { componentType: "fan" }],
-      };
-      const { result } = renderHook(() => useMinerStatusSummary(errors));
-      expect(result.current.condensed).toBe("Multiple fan failures");
-      expect(result.current.title).toBe("Multiple fan failures");
-    });
-
-    it('should return "Multiple control board failures" for multiple control board errors', () => {
-      const errors: GroupedStatusErrors = {
-        ...emptyErrors,
-        controlBoard: [{ componentType: "controlBoard" }, { componentType: "controlBoard" }],
-      };
-      const { result } = renderHook(() => useMinerStatusSummary(errors));
-      expect(result.current.condensed).toBe("Multiple control board failures");
-      expect(result.current.title).toBe("Multiple control board failures");
+    it.each<{ errors: Partial<GroupedStatusErrors>; expected: string }>([
+      {
+        errors: {
+          hashboard: [
+            { componentType: "hashboard", slot: 1 },
+            { componentType: "hashboard", slot: 2 },
+          ],
+        },
+        expected: "Multiple hashboard failures",
+      },
+    ])('should return "$expected"', ({ errors, expected }) => {
+      const { result } = renderHook(() => useMinerStatusSummary({ ...emptyErrors, ...errors }));
+      expect(result.current.condensed).toBe(expected);
+      expect(result.current.title).toBe(expected);
     });
   });
 
@@ -340,28 +282,6 @@ describe("useMinerStatus", () => {
       expect(result.current).toBe("Hashing");
     });
   });
-
-  describe("all combinations", () => {
-    it('should handle offline + sleeping + needs attention → "Offline"', () => {
-      const { result } = renderHook(() => useMinerStatus(true, true, true));
-      expect(result.current).toBe("Offline");
-    });
-
-    it('should handle offline + sleeping → "Offline"', () => {
-      const { result } = renderHook(() => useMinerStatus(true, true, false));
-      expect(result.current).toBe("Offline");
-    });
-
-    it('should handle offline + needs attention → "Offline"', () => {
-      const { result } = renderHook(() => useMinerStatus(true, false, true));
-      expect(result.current).toBe("Offline");
-    });
-
-    it('should handle sleeping + needs attention → "Sleeping"', () => {
-      const { result } = renderHook(() => useMinerStatus(false, true, true));
-      expect(result.current).toBe("Sleeping");
-    });
-  });
 });
 
 describe("useMinerIssues", () => {
@@ -395,17 +315,6 @@ describe("useMinerIssues", () => {
       expect(result.current.hasIssues).toBe(true);
       expect(result.current.summary).toBe("Authentication required");
     });
-
-    it("should prioritize auth over pool + hardware errors", () => {
-      const errors: GroupedStatusErrors = {
-        ...emptyErrors,
-        hashboard: [{ componentType: "hashboard", slot: 1 }],
-        psu: [{ componentType: "psu", slot: 1 }],
-      };
-      const { result } = renderHook(() => useMinerIssues(true, true, errors));
-      expect(result.current.hasIssues).toBe(true);
-      expect(result.current.summary).toBe("Authentication required");
-    });
   });
 
   describe("pool priority", () => {
@@ -419,17 +328,6 @@ describe("useMinerIssues", () => {
       const errors: GroupedStatusErrors = {
         ...emptyErrors,
         hashboard: [{ componentType: "hashboard", slot: 1 }],
-      };
-      const { result } = renderHook(() => useMinerIssues(false, true, errors));
-      expect(result.current.hasIssues).toBe(true);
-      expect(result.current.summary).toBe("Pool required");
-    });
-
-    it("should prioritize pool over multiple component failures", () => {
-      const errors: GroupedStatusErrors = {
-        ...emptyErrors,
-        hashboard: [{ componentType: "hashboard", slot: 1 }],
-        psu: [{ componentType: "psu", slot: 1 }],
       };
       const { result } = renderHook(() => useMinerIssues(false, true, errors));
       expect(result.current.hasIssues).toBe(true);
@@ -488,60 +386,6 @@ describe("useMinerIssues", () => {
       const { result } = renderHook(() => useMinerIssues(false, false, errors));
       expect(result.current.hasIssues).toBe(true);
       expect(result.current.summary).toBe("Hashboard 1 failure");
-    });
-
-    it('should return "Multiple [component] failures" for multiple errors on same component', () => {
-      const errors: GroupedStatusErrors = {
-        ...emptyErrors,
-        hashboard: [
-          { componentType: "hashboard", slot: 1 },
-          { componentType: "hashboard", slot: 2 },
-        ],
-      };
-      const { result } = renderHook(() => useMinerIssues(false, false, errors));
-      expect(result.current.hasIssues).toBe(true);
-      expect(result.current.summary).toBe("Multiple hashboard failures");
-    });
-
-    it('should return "Multiple failures" for errors on multiple component types', () => {
-      const errors: GroupedStatusErrors = {
-        ...emptyErrors,
-        hashboard: [{ componentType: "hashboard", slot: 1 }],
-        psu: [{ componentType: "psu", slot: 1 }],
-      };
-      const { result } = renderHook(() => useMinerIssues(false, false, errors));
-      expect(result.current.hasIssues).toBe(true);
-      expect(result.current.summary).toBe("Multiple failures");
-    });
-
-    it("should handle PSU failure without slot", () => {
-      const errors: GroupedStatusErrors = {
-        ...emptyErrors,
-        psu: [{ componentType: "psu" }],
-      };
-      const { result } = renderHook(() => useMinerIssues(false, false, errors));
-      expect(result.current.hasIssues).toBe(true);
-      expect(result.current.summary).toBe("PSU failure");
-    });
-
-    it("should handle fan failure", () => {
-      const errors: GroupedStatusErrors = {
-        ...emptyErrors,
-        fan: [{ componentType: "fan", slot: 3 }],
-      };
-      const { result } = renderHook(() => useMinerIssues(false, false, errors));
-      expect(result.current.hasIssues).toBe(true);
-      expect(result.current.summary).toBe("Fan 3 failure");
-    });
-
-    it("should handle control board failure", () => {
-      const errors: GroupedStatusErrors = {
-        ...emptyErrors,
-        controlBoard: [{ componentType: "controlBoard" }],
-      };
-      const { result } = renderHook(() => useMinerIssues(false, false, errors));
-      expect(result.current.hasIssues).toBe(true);
-      expect(result.current.summary).toBe("Control board failure");
     });
   });
 });

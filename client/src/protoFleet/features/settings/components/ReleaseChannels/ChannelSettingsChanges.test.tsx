@@ -6,6 +6,7 @@ import { create } from "@bufbuild/protobuf";
 import { defaultBehavior } from "./behaviorUtils";
 import ChannelSettingsChangesView from "./ChannelSettingsChanges";
 import { getChannelSettingsChanges } from "./channelSettingsChangesUtils";
+import { CONTAINER_NOUNS, DEVICE_NOUNS } from "./rolloutStatus";
 import {
   ReleaseChannelScopeSchema,
   RolloutAutomationThresholdsSchema,
@@ -48,6 +49,47 @@ const expectChange = (label: string, original: string, target: string) => {
 };
 
 describe("channel settings changes preview", () => {
+  it("counts sizes, limits and direct selections with the channel's nouns", () => {
+    const before = draft({
+      behavior: create(RolloutBehaviorSchema, { ...defaultBehavior(), method: RolloutMethod.BATCHED, batchSize: 1 }),
+      scope: create(ReleaseChannelScopeSchema, { deviceIdentifiers: ["rig-1"] }),
+    });
+    const after = draft({
+      behavior: create(RolloutBehaviorSchema, {
+        ...defaultBehavior(),
+        method: RolloutMethod.BATCHED,
+        batchSize: 4,
+        maxConcurrentOffline: 2,
+      }),
+      scope: create(ReleaseChannelScopeSchema, { deviceIdentifiers: ["rig-1", "ct1:north-a"] }),
+    });
+    const onViewMiners = vi.fn();
+    render(
+      <ChannelSettingsChangesView
+        changes={getChannelSettingsChanges(before, after, {}, DEVICE_NOUNS)}
+        onViewMiners={onViewMiners}
+      />,
+    );
+
+    expectChange("Batch size", "1 device", "4 devices");
+    expectChange("Offline limit", "Unlimited", "2 devices");
+    expectChange("Applies to · Devices", "1 device", "2 devices");
+    fireEvent.click(screen.getByRole("button", { name: "View devices" }));
+    expect(onViewMiners).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ nouns: DEVICE_NOUNS, addedCount: 1 }),
+      expect.anything(),
+    );
+    expect(screen.queryByText(/miner/i)).not.toBeInTheDocument();
+
+    // A channel of containers only says containers.
+    const containers = getChannelSettingsChanges(before, after, {}, CONTAINER_NOUNS);
+    expect(containers.changes.find(({ label }) => label === "Batch size")).toMatchObject({
+      before: "1 container",
+      after: "4 containers",
+    });
+    expect(containers.scopeChanges[0].label).toBe("Containers");
+  });
+
   it("shows changed names and descriptions with their previous values", () => {
     render(
       <ChannelSettingsChanges

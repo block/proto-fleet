@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { MeasurementType, type Metric } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { buildKnownSiteIds } from "@/protoFleet/api/sites";
 import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import useFleetCounts from "@/protoFleet/api/useFleetCounts";
@@ -7,24 +7,16 @@ import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import SitePicker, { siteFilterFromActive, useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
-import { EfficiencyPanel } from "@/protoFleet/features/dashboard/components/EfficiencyPanel";
+import DashboardPerformance from "@/protoFleet/features/dashboard/components/DashboardPerformance";
 import FleetHealthMetrics from "@/protoFleet/features/dashboard/components/FleetHealthMetrics";
 import FleetHealthSection from "@/protoFleet/features/dashboard/components/FleetHealthSection";
-import { HashratePanel } from "@/protoFleet/features/dashboard/components/HashratePanel";
-import { PowerPanel } from "@/protoFleet/features/dashboard/components/PowerPanel";
-import SectionHeading from "@/protoFleet/features/dashboard/components/SectionHeading";
 import SitesSection from "@/protoFleet/features/dashboard/components/SitesSection";
-import { TemperaturePanel } from "@/protoFleet/features/dashboard/components/TemperaturePanel";
-import { UptimePanel } from "@/protoFleet/features/dashboard/components/UptimePanel";
 import MarketDataSection from "@/protoFleet/features/marketData/MarketDataSection";
 import { MinersPage } from "@/protoFleet/features/onboarding";
 import { CompleteSetup } from "@/protoFleet/features/onboarding/components/CompleteSetup";
-import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { useRouteSiteScope } from "@/protoFleet/routing/siteScope";
 import { useDuration, useHasPermission, useSetDuration } from "@/protoFleet/store";
-import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
 import ProgressCircular from "@/shared/components/ProgressCircular";
-import { useStickyState } from "@/shared/hooks/useStickyState";
 import { buildVersionInfo } from "@/shared/utils/version";
 
 // Constants for telemetry options - stable references to prevent unnecessary re-renders
@@ -49,8 +41,6 @@ const Dashboard = () => {
   // not enough because SitePicker recomputes its own from the `sites` prop.
   const canReadSites = useHasPermission("site:read");
   const currentYear = new Date().getFullYear();
-  const { refs } = useStickyState();
-  const { bgClass } = usePageBackground();
 
   // The org's site catalog is owned by the shell-level SitesProvider (one
   // shared fetch). useActiveSite uses it to validate the route scope: a
@@ -112,23 +102,6 @@ const Dashboard = () => {
   );
 
   const { data: telemetryData } = useTelemetryMetrics(telemetryOptions);
-
-  // Extract metrics for panels — filter by measurement type
-  const allMetrics = telemetryData?.metrics;
-  const hashrateMetrics = useMemo(
-    () => allMetrics?.filter((m: Metric) => m.measurementType === MeasurementType.HASHRATE),
-    [allMetrics],
-  );
-  const powerMetrics = useMemo(
-    () => allMetrics?.filter((m: Metric) => m.measurementType === MeasurementType.POWER),
-    [allMetrics],
-  );
-  const efficiencyMetrics = useMemo(
-    () => allMetrics?.filter((m: Metric) => m.measurementType === MeasurementType.EFFICIENCY),
-    [allMetrics],
-  );
-  const temperatureStatusCounts = telemetryData?.temperatureStatusCounts;
-  const uptimeStatusCounts = telemetryData?.uptimeStatusCounts;
 
   // Fleet-health tile counts, shared by both dashboard modes. undefined =
   // still loading (skeleton), null = loaded but no data (em-dash).
@@ -193,35 +166,17 @@ const Dashboard = () => {
 
           <MarketDataSection />
 
-          {/* Sites Section — All Sites mode only */}
-          {activeSite.kind === "all" ? <SitesSection sites={sites} /> : null}
+          {/* A failed first load also leaves `sites` empty; the heading picker owns that error and retry. */}
+          {activeSite.kind === "all" && canReadSites && sites?.length !== 0 ? <SitesSection sites={sites} /> : null}
 
-          {/* Performance Section */}
-          <section className="pb-6">
-            <div ref={refs.vertical.start} />
-            <div className={`${bgClass} sticky top-0 z-2 px-6 pt-6 pb-6 laptop:px-10 laptop:pt-10`}>
-              <SectionHeading heading="Performance">
-                <DurationSelector duration={duration} durations={fleetDurations} onSelect={setDuration} />
-              </SectionHeading>
-            </div>
-
-            <div className="flex flex-col gap-4 px-6 pt-4 laptop:px-10">
-              <HashratePanel duration={duration} metrics={hashrateMetrics} />
-              <UptimePanel duration={duration} uptimeStatusCounts={uptimeStatusCounts} />
-              <TemperaturePanel duration={duration} temperatureStatusCounts={temperatureStatusCounts} />
-
-              <div className="grid grid-cols-1 gap-4 laptop:grid-cols-2">
-                <PowerPanel duration={duration} metrics={powerMetrics} totalMiners={totalMiners} />
-                <EfficiencyPanel duration={duration} metrics={efficiencyMetrics} totalMiners={totalMiners} />
-              </div>
-            </div>
-
-            <p className="px-6 pt-6 text-300 text-text-primary laptop:px-10">
-              Some devices do not make all data available to Proto Fleet.
-            </p>
-            {/* eslint-disable-next-line react-hooks/refs -- ref object from useStickyState is passed to <div ref>; React writes .current during commit, not read during render */}
-            <div ref={refs.vertical.end} />
-          </section>
+          <DashboardPerformance
+            duration={duration}
+            onDurationChange={setDuration}
+            metrics={telemetryData?.metrics}
+            totalAssets={totalMiners}
+            uptimeStatusCounts={telemetryData?.uptimeStatusCounts}
+            temperatureStatusCounts={telemetryData?.temperatureStatusCounts}
+          />
 
           {/* Privacy Policy */}
           <footer className="px-5 pt-20 pb-6 text-300 laptop:px-10">

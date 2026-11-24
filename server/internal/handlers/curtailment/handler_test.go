@@ -53,7 +53,7 @@ func TestHandler_PreviewCurtailmentPlanRejectsStaleResponseProfileRevision(t *te
 		Mode:             models.ModeFixedKw,
 		RestoreBatchSize: 50,
 	}}
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 	req := validPreviewCurtailmentPlanRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)
 	req.ResponseProfileId = 201
 	req.ExpectedResponseProfileRevision = "55555555-5555-4555-8555-555555555555"
@@ -80,7 +80,7 @@ func TestHandler_CurtailmentExecutionRejectsPreVersionedClients(t *testing.T) {
 		&session.Info{OrganizationID: 1, Role: "OPERATOR", SessionID: "pre-versioned-execution"},
 		testOrgAssignment(authz.PermCurtailmentManage),
 	)
-	h := NewHandler(nil)
+	h := newTestHandler(nil)
 
 	t.Run("preview", func(t *testing.T) {
 		t.Parallel()
@@ -114,7 +114,7 @@ func TestHandler_PreviewCurtailmentPlanRejectsValuesOutsideResponseProfile(t *te
 
 	store := newHandlerResponseProfileStore()
 	store.profiles = []*models.ResponseProfile{fixedKWWholeOrgExecutionProfile(1, 201, 50)}
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 	req := validPreviewCurtailmentPlanRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)
 	req.ResponseProfileId = 201
 	req.ExpectedResponseProfileRevision = handlerResponseProfileTestRevision
@@ -260,7 +260,7 @@ func TestRequestReadLimitOptionRejectsOversizedBody(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(
-		NewHandler(nil),
+		newTestHandler(nil),
 		RequestReadLimitOption(),
 	))
 	server := httptest.NewServer(mux)
@@ -289,7 +289,7 @@ func TestHandler_StubbedRPCsReturnExpectedAuthOrUnimplemented(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(
-		NewHandler(nil),
+		newTestHandler(nil),
 		connect.WithInterceptors(interceptors.NewErrorMappingInterceptor()),
 	))
 	server := httptest.NewServer(mux)
@@ -522,7 +522,7 @@ func TestHandler_RequestValidation(t *testing.T) {
 func TestHandler_AdminTerminateEventPermissionGate(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(nil)
+	h := newTestHandler(nil)
 	req := connect.NewRequest(&pb.AdminTerminateEventRequest{
 		EventUuid:   "event-uuid",
 		TargetState: pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED,
@@ -675,7 +675,7 @@ func TestHandler_AdminTerminateEventValidation(t *testing.T) {
 func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(nil)
+	h := newTestHandler(nil)
 
 	type call struct {
 		name       string
@@ -770,8 +770,9 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 		{"Preview override + viewer API key", previewWithOverride, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
 		{"Start candidate override + viewer session", startWithCandidateOverride, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
 		{"Start candidate override + viewer API key", startWithCandidateOverride, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
-		{"Start allow_unbounded + viewer session", startWithAllowUnbounded, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
-		{"Start allow_unbounded + viewer API key", startWithAllowUnbounded, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
+		// Running without a cap is the default, so allow_unbounded is not admin-gated.
+		{"Start allow_unbounded + viewer session", startWithAllowUnbounded, "VIEWER", session.AuthMethodSession, connect.CodeUnimplemented},
+		{"Start allow_unbounded + viewer API key", startWithAllowUnbounded, "VIEWER", session.AuthMethodAPIKey, connect.CodeUnimplemented},
 		{"Stop force + viewer session", stopWithForce, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
 		{"Stop force + viewer API key", stopWithForce, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
 		// force_include_maintenance is safety-critical and admin-gated: a
@@ -829,12 +830,12 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 	}
 }
 
-// Preview/Start/Stop require curtailment:manage even when no legacy
+// Preview and Start require curtailment:manage even when no legacy
 // admin-only override field is set.
-func TestHandler_PublicPlanStartStopRequireCurtailmentManage(t *testing.T) {
+func TestHandler_PublicPlanStartRequireCurtailmentManage(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(nil)
+	h := newTestHandler(nil)
 
 	cases := []struct {
 		name   string
@@ -858,15 +859,6 @@ func TestHandler_PublicPlanStartStopRequireCurtailmentManage(t *testing.T) {
 			name: "StartCurtailment",
 			invoke: func(ctx context.Context) error {
 				_, err := h.StartCurtailment(ctx, connect.NewRequest(validStartCurtailmentRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)))
-				return err
-			},
-		},
-		{
-			name: "StopCurtailment",
-			invoke: func(ctx context.Context) error {
-				_, err := h.StopCurtailment(ctx, connect.NewRequest(&pb.StopCurtailmentRequest{
-					EventUuid: "00000000-0000-0000-0000-000000000001",
-				}))
 				return err
 			},
 		},
@@ -904,7 +896,7 @@ func TestHandler_PublicPlanStartStopRequireCurtailmentManage(t *testing.T) {
 func TestHandler_PreviewAndStartRequireScopedPermissionCapability(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(nil)
+	h := newTestHandler(nil)
 	const (
 		orgID       = int64(42)
 		allowedSite = int64(7)
@@ -964,7 +956,7 @@ func TestHandler_PreviewAndStartRequireScopedPermissionCapability(t *testing.T) 
 func TestHandler_PreviewAndStartRequireCompositeSiteContexts(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(nil)
+	h := newTestHandler(nil)
 	const (
 		orgID       = int64(42)
 		allowedSite = int64(7)
@@ -1031,7 +1023,7 @@ func TestHandler_PreviewAndStartRequireExplicitDeviceSiteContexts(t *testing.T) 
 	)
 	store := newHandlerResponseProfileStore()
 	store.deviceSites = map[string]*int64{"hidden-miner": ptrHandlerInt64(deniedSite)}
-	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 	deviceScope := []*pb.CurtailmentScope{
 		{Scope: &pb.CurtailmentScope_DeviceIdentifiers{
 			DeviceIdentifiers: &pb.ScopeDeviceList{DeviceIdentifiers: []string{"hidden-miner"}},
@@ -1087,7 +1079,7 @@ func TestHandler_PreviewAndStartRequireExplicitDeviceSiteContexts(t *testing.T) 
 func TestHandler_PreviewAndStartRequireOrgWideForWholeOrg(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(nil)
+	h := newTestHandler(nil)
 	const (
 		orgID        = int64(42)
 		narrowedSite = int64(7)
@@ -1143,7 +1135,7 @@ func TestHandler_PreviewAndStartRequireOrgWideForWholeOrg(t *testing.T) {
 func TestHandler_AdminTerminateEventRejectsMissingSession(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(nil)
+	h := newTestHandler(nil)
 	req := connect.NewRequest(&pb.AdminTerminateEventRequest{
 		EventUuid:   "event-uuid",
 		TargetState: pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED,
@@ -1162,7 +1154,7 @@ func TestHandler_AdminTerminateEventRejectsMissingSession(t *testing.T) {
 func TestHandler_IngestCurtailmentSignalPermissionGate(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(nil)
+	h := newTestHandler(nil)
 	req := connect.NewRequest(&pb.IngestCurtailmentSignalRequest{
 		ExternalSource:    "ercot-qse",
 		ExternalReference: "ERS10-20260612-0915-EVT001",
@@ -1275,7 +1267,7 @@ func newValidationTestClient(t *testing.T) curtailmentv1connect.CurtailmentServi
 
 	mux := http.NewServeMux()
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(
-		NewHandler(nil),
+		newTestHandler(nil),
 		connect.WithInterceptors(
 			interceptors.NewErrorMappingInterceptor(),
 			validate.NewInterceptor(),
@@ -1337,3 +1329,29 @@ func fixedKWWholeOrgExecutionProfile(orgID, profileID int64, targetKW float64) *
 
 // ptr returns a pointer to v, for setting proto3 optional fields in tests.
 func ptr[T any](v T) *T { return &v }
+
+// Exercise the authorization boundary directly, even when request validation is bypassed.
+func TestRequestResourceContextRequirementsRejectMissingScope(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(nil)
+	for name, request := range map[string]scopeRequest{
+		"preview":           &pb.PreviewCurtailmentPlanRequest{},
+		"start":             &pb.StartCurtailmentRequest{},
+		"empty site":        &pb.StartCurtailmentRequest{Scope: &pb.StartCurtailmentRequest_Site{Site: &pb.ScopeSite{}}},
+		"empty device list": &pb.PreviewCurtailmentPlanRequest{Scope: &pb.PreviewCurtailmentPlanRequest_DeviceIdentifiers{DeviceIdentifiers: &pb.ScopeDeviceList{}}},
+		"unknown terminal":  &pb.StartCurtailmentRequest{Scopes: []*pb.CurtailmentScope{{}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			_, err := h.requestResourceContextRequirements(t.Context(), 42, request)
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+		})
+	}
+	_, err := h.responseProfileResourceContexts(t.Context(), 42, nil, nil, false)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	_, err = h.scopeResourceContextRequirements(t.Context(), 42, domainCurtailment.Scope{Type: "future"}, nil, false)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}

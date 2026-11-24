@@ -116,7 +116,7 @@ vi.mock("@/shared/hooks/useWindowDimensions", () => ({
   useWindowDimensions: () => ({ width: 390, height: 844, isPhone: true, isTablet: false, isDesktop: false }),
 }));
 
-vi.mock("@/protoFleet/components/FullScreenTwoPaneModal", () => ({
+vi.mock("@/shared/components/FullScreenTwoPaneModal", () => ({
   __esModule: true,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test stub mirrors the real prop bag loosely
   default: ({ open, buttons, primaryPane, secondaryPane }: any) =>

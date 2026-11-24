@@ -30,7 +30,7 @@ describe("GlobalActionsWidget", () => {
     expect(getByTestId("global-actions-widget").querySelector("svg")?.parentElement).toHaveClass("h-4", "shrink-0");
   });
 
-  test("opens popover when ellipsis button is clicked", () => {
+  test("opens popover with both actions and their icons when ellipsis button is clicked", () => {
     const { container, getByText } = render(
       <PopoverProvider>
         <GlobalActionsWidget {...defaultProps} />
@@ -42,41 +42,11 @@ describe("GlobalActionsWidget", () => {
 
     expect(getByText("Blink LEDs")).toBeInTheDocument();
     expect(getByText("Download logs")).toBeInTheDocument();
+    expect(getByText("Blink LEDs").closest("button")?.querySelector("svg")).toBeInTheDocument();
+    expect(getByText("Download logs").closest("button")?.querySelector("svg")).toBeInTheDocument();
   });
 
-  test("calls onBlinkLEDs when Blink LEDs button is clicked", () => {
-    const { container, getByText } = render(
-      <PopoverProvider>
-        <GlobalActionsWidget {...defaultProps} />
-      </PopoverProvider>,
-    );
-
-    const ellipsisButton = container.querySelector("button");
-    fireEvent.click(ellipsisButton!);
-
-    const blinkButton = getByText("Blink LEDs").closest("button");
-    fireEvent.click(blinkButton!);
-
-    expect(mockOnBlinkLEDs).toHaveBeenCalledTimes(1);
-  });
-
-  test("calls onDownloadLogs when Download logs button is clicked", () => {
-    const { container, getByText } = render(
-      <PopoverProvider>
-        <GlobalActionsWidget {...defaultProps} />
-      </PopoverProvider>,
-    );
-
-    const ellipsisButton = container.querySelector("button");
-    fireEvent.click(ellipsisButton!);
-
-    const downloadButton = getByText("Download logs").closest("button");
-    fireEvent.click(downloadButton!);
-
-    expect(mockOnDownloadLogs).toHaveBeenCalledTimes(1);
-  });
-
-  test("closes popover after Blink LEDs is clicked", () => {
+  test("calls onBlinkLEDs and closes the popover when Blink LEDs is clicked", () => {
     const { container, getByText, queryByText } = render(
       <PopoverProvider>
         <GlobalActionsWidget {...defaultProps} />
@@ -91,10 +61,11 @@ describe("GlobalActionsWidget", () => {
     const blinkButton = getByText("Blink LEDs").closest("button");
     fireEvent.click(blinkButton!);
 
+    expect(mockOnBlinkLEDs).toHaveBeenCalledTimes(1);
     expect(queryByText("Blink LEDs")).not.toBeInTheDocument();
   });
 
-  test("closes popover after Download logs is clicked", () => {
+  test("calls onDownloadLogs and closes the popover when Download logs is clicked", () => {
     const { container, getByText, queryByText } = render(
       <PopoverProvider>
         <GlobalActionsWidget {...defaultProps} />
@@ -109,6 +80,7 @@ describe("GlobalActionsWidget", () => {
     const downloadButton = getByText("Download logs").closest("button");
     fireEvent.click(downloadButton!);
 
+    expect(mockOnDownloadLogs).toHaveBeenCalledTimes(1);
     expect(queryByText("Download logs")).not.toBeInTheDocument();
   });
 });

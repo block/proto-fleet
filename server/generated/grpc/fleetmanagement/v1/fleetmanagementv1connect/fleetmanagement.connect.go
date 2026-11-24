@@ -49,9 +49,6 @@ const (
 	// FleetManagementServiceGetMinerStateCountsProcedure is the fully-qualified name of the
 	// FleetManagementService's GetMinerStateCounts RPC.
 	FleetManagementServiceGetMinerStateCountsProcedure = "/fleetmanagement.v1.FleetManagementService/GetMinerStateCounts"
-	// FleetManagementServiceGetMinerPoolAssignmentsProcedure is the fully-qualified name of the
-	// FleetManagementService's GetMinerPoolAssignments RPC.
-	FleetManagementServiceGetMinerPoolAssignmentsProcedure = "/fleetmanagement.v1.FleetManagementService/GetMinerPoolAssignments"
 	// FleetManagementServiceGetMinerCoolingModeProcedure is the fully-qualified name of the
 	// FleetManagementService's GetMinerCoolingMode RPC.
 	FleetManagementServiceGetMinerCoolingModeProcedure = "/fleetmanagement.v1.FleetManagementService/GetMinerCoolingMode"
@@ -64,9 +61,9 @@ const (
 	// FleetManagementServiceRenameMinersProcedure is the fully-qualified name of the
 	// FleetManagementService's RenameMiners RPC.
 	FleetManagementServiceRenameMinersProcedure = "/fleetmanagement.v1.FleetManagementService/RenameMiners"
-	// FleetManagementServiceUpdateWorkerNamesProcedure is the fully-qualified name of the
-	// FleetManagementService's UpdateWorkerNames RPC.
-	FleetManagementServiceUpdateWorkerNamesProcedure = "/fleetmanagement.v1.FleetManagementService/UpdateWorkerNames"
+	// FleetManagementServiceReviewWorkerNamesProcedure is the fully-qualified name of the
+	// FleetManagementService's ReviewWorkerNames RPC.
+	FleetManagementServiceReviewWorkerNamesProcedure = "/fleetmanagement.v1.FleetManagementService/ReviewWorkerNames"
 )
 
 // FleetManagementServiceClient is a client for the fleetmanagement.v1.FleetManagementService
@@ -93,10 +90,6 @@ type FleetManagementServiceClient interface {
 	// Get counts of miners in different states without fetching miner data
 	// More efficient than ListMinerStateSnapshots when only counts are needed
 	GetMinerStateCounts(context.Context, *connect.Request[v1.GetMinerStateCountsRequest]) (*connect.Response[v1.GetMinerStateCountsResponse], error)
-	// Get the current pool assignments for a specific miner
-	// Returns the fleet pool IDs that match the miner's currently configured pools
-	// Used to pre-populate the pool selection UI when editing a miner's pools
-	GetMinerPoolAssignments(context.Context, *connect.Request[v1.GetMinerPoolAssignmentsRequest]) (*connect.Response[v1.GetMinerPoolAssignmentsResponse], error)
 	// Get the current cooling mode for a specific miner
 	// Returns the cooling mode configuration from the miner
 	// Used to pre-populate the cooling mode selection UI when editing a miner's settings
@@ -112,10 +105,10 @@ type FleetManagementServiceClient interface {
 	// Supports both single-miner and bulk rename via DeviceSelector.
 	// Persists all names atomically in a single transaction.
 	RenameMiners(context.Context, *connect.Request[v1.RenameMinersRequest]) (*connect.Response[v1.RenameMinersResponse], error)
-	// Update worker names by applying a name config to all selected devices.
-	// Reapplies the miners' current pool settings first, then persists worker names
-	// only for miners whose pool updates succeed so Fleet stays aligned with device state.
-	UpdateWorkerNames(context.Context, *connect.Request[v1.UpdateWorkerNamesRequest]) (*connect.Response[v1.UpdateWorkerNamesResponse], error)
+	// Review generated worker names against each miner's current configuration.
+	// ConfirmReview atomically saves names and schedules canonical pool execution;
+	// device verification is reported separately through the resulting operation.
+	ReviewWorkerNames(context.Context, *connect.Request[v1.ReviewWorkerNamesRequest]) (*connect.Response[v1.ReviewWorkerNamesResponse], error)
 }
 
 // NewFleetManagementServiceClient constructs a client for the
@@ -153,11 +146,6 @@ func NewFleetManagementServiceClient(httpClient connect.HTTPClient, baseURL stri
 			baseURL+FleetManagementServiceGetMinerStateCountsProcedure,
 			opts...,
 		),
-		getMinerPoolAssignments: connect.NewClient[v1.GetMinerPoolAssignmentsRequest, v1.GetMinerPoolAssignmentsResponse](
-			httpClient,
-			baseURL+FleetManagementServiceGetMinerPoolAssignmentsProcedure,
-			opts...,
-		),
 		getMinerCoolingMode: connect.NewClient[v1.GetMinerCoolingModeRequest, v1.GetMinerCoolingModeResponse](
 			httpClient,
 			baseURL+FleetManagementServiceGetMinerCoolingModeProcedure,
@@ -178,9 +166,9 @@ func NewFleetManagementServiceClient(httpClient connect.HTTPClient, baseURL stri
 			baseURL+FleetManagementServiceRenameMinersProcedure,
 			opts...,
 		),
-		updateWorkerNames: connect.NewClient[v1.UpdateWorkerNamesRequest, v1.UpdateWorkerNamesResponse](
+		reviewWorkerNames: connect.NewClient[v1.ReviewWorkerNamesRequest, v1.ReviewWorkerNamesResponse](
 			httpClient,
-			baseURL+FleetManagementServiceUpdateWorkerNamesProcedure,
+			baseURL+FleetManagementServiceReviewWorkerNamesProcedure,
 			opts...,
 		),
 	}
@@ -193,12 +181,11 @@ type fleetManagementServiceClient struct {
 	lookupMinerByIdentifier *connect.Client[v1.LookupMinerByIdentifierRequest, v1.LookupMinerByIdentifierResponse]
 	exportMinerListCsv      *connect.Client[v1.ExportMinerListCsvRequest, v1.ExportMinerListCsvResponse]
 	getMinerStateCounts     *connect.Client[v1.GetMinerStateCountsRequest, v1.GetMinerStateCountsResponse]
-	getMinerPoolAssignments *connect.Client[v1.GetMinerPoolAssignmentsRequest, v1.GetMinerPoolAssignmentsResponse]
 	getMinerCoolingMode     *connect.Client[v1.GetMinerCoolingModeRequest, v1.GetMinerCoolingModeResponse]
 	deleteMiners            *connect.Client[v1.DeleteMinersRequest, v1.DeleteMinersResponse]
 	getMinerModelGroups     *connect.Client[v1.GetMinerModelGroupsRequest, v1.GetMinerModelGroupsResponse]
 	renameMiners            *connect.Client[v1.RenameMinersRequest, v1.RenameMinersResponse]
-	updateWorkerNames       *connect.Client[v1.UpdateWorkerNamesRequest, v1.UpdateWorkerNamesResponse]
+	reviewWorkerNames       *connect.Client[v1.ReviewWorkerNamesRequest, v1.ReviewWorkerNamesResponse]
 }
 
 // ListMinerStateSnapshots calls fleetmanagement.v1.FleetManagementService.ListMinerStateSnapshots.
@@ -226,11 +213,6 @@ func (c *fleetManagementServiceClient) GetMinerStateCounts(ctx context.Context, 
 	return c.getMinerStateCounts.CallUnary(ctx, req)
 }
 
-// GetMinerPoolAssignments calls fleetmanagement.v1.FleetManagementService.GetMinerPoolAssignments.
-func (c *fleetManagementServiceClient) GetMinerPoolAssignments(ctx context.Context, req *connect.Request[v1.GetMinerPoolAssignmentsRequest]) (*connect.Response[v1.GetMinerPoolAssignmentsResponse], error) {
-	return c.getMinerPoolAssignments.CallUnary(ctx, req)
-}
-
 // GetMinerCoolingMode calls fleetmanagement.v1.FleetManagementService.GetMinerCoolingMode.
 func (c *fleetManagementServiceClient) GetMinerCoolingMode(ctx context.Context, req *connect.Request[v1.GetMinerCoolingModeRequest]) (*connect.Response[v1.GetMinerCoolingModeResponse], error) {
 	return c.getMinerCoolingMode.CallUnary(ctx, req)
@@ -251,9 +233,9 @@ func (c *fleetManagementServiceClient) RenameMiners(ctx context.Context, req *co
 	return c.renameMiners.CallUnary(ctx, req)
 }
 
-// UpdateWorkerNames calls fleetmanagement.v1.FleetManagementService.UpdateWorkerNames.
-func (c *fleetManagementServiceClient) UpdateWorkerNames(ctx context.Context, req *connect.Request[v1.UpdateWorkerNamesRequest]) (*connect.Response[v1.UpdateWorkerNamesResponse], error) {
-	return c.updateWorkerNames.CallUnary(ctx, req)
+// ReviewWorkerNames calls fleetmanagement.v1.FleetManagementService.ReviewWorkerNames.
+func (c *fleetManagementServiceClient) ReviewWorkerNames(ctx context.Context, req *connect.Request[v1.ReviewWorkerNamesRequest]) (*connect.Response[v1.ReviewWorkerNamesResponse], error) {
+	return c.reviewWorkerNames.CallUnary(ctx, req)
 }
 
 // FleetManagementServiceHandler is an implementation of the
@@ -280,10 +262,6 @@ type FleetManagementServiceHandler interface {
 	// Get counts of miners in different states without fetching miner data
 	// More efficient than ListMinerStateSnapshots when only counts are needed
 	GetMinerStateCounts(context.Context, *connect.Request[v1.GetMinerStateCountsRequest]) (*connect.Response[v1.GetMinerStateCountsResponse], error)
-	// Get the current pool assignments for a specific miner
-	// Returns the fleet pool IDs that match the miner's currently configured pools
-	// Used to pre-populate the pool selection UI when editing a miner's pools
-	GetMinerPoolAssignments(context.Context, *connect.Request[v1.GetMinerPoolAssignmentsRequest]) (*connect.Response[v1.GetMinerPoolAssignmentsResponse], error)
 	// Get the current cooling mode for a specific miner
 	// Returns the cooling mode configuration from the miner
 	// Used to pre-populate the cooling mode selection UI when editing a miner's settings
@@ -299,10 +277,10 @@ type FleetManagementServiceHandler interface {
 	// Supports both single-miner and bulk rename via DeviceSelector.
 	// Persists all names atomically in a single transaction.
 	RenameMiners(context.Context, *connect.Request[v1.RenameMinersRequest]) (*connect.Response[v1.RenameMinersResponse], error)
-	// Update worker names by applying a name config to all selected devices.
-	// Reapplies the miners' current pool settings first, then persists worker names
-	// only for miners whose pool updates succeed so Fleet stays aligned with device state.
-	UpdateWorkerNames(context.Context, *connect.Request[v1.UpdateWorkerNamesRequest]) (*connect.Response[v1.UpdateWorkerNamesResponse], error)
+	// Review generated worker names against each miner's current configuration.
+	// ConfirmReview atomically saves names and schedules canonical pool execution;
+	// device verification is reported separately through the resulting operation.
+	ReviewWorkerNames(context.Context, *connect.Request[v1.ReviewWorkerNamesRequest]) (*connect.Response[v1.ReviewWorkerNamesResponse], error)
 }
 
 // NewFleetManagementServiceHandler builds an HTTP handler from the service implementation. It
@@ -336,11 +314,6 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 		svc.GetMinerStateCounts,
 		opts...,
 	)
-	fleetManagementServiceGetMinerPoolAssignmentsHandler := connect.NewUnaryHandler(
-		FleetManagementServiceGetMinerPoolAssignmentsProcedure,
-		svc.GetMinerPoolAssignments,
-		opts...,
-	)
 	fleetManagementServiceGetMinerCoolingModeHandler := connect.NewUnaryHandler(
 		FleetManagementServiceGetMinerCoolingModeProcedure,
 		svc.GetMinerCoolingMode,
@@ -361,9 +334,9 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 		svc.RenameMiners,
 		opts...,
 	)
-	fleetManagementServiceUpdateWorkerNamesHandler := connect.NewUnaryHandler(
-		FleetManagementServiceUpdateWorkerNamesProcedure,
-		svc.UpdateWorkerNames,
+	fleetManagementServiceReviewWorkerNamesHandler := connect.NewUnaryHandler(
+		FleetManagementServiceReviewWorkerNamesProcedure,
+		svc.ReviewWorkerNames,
 		opts...,
 	)
 	return "/fleetmanagement.v1.FleetManagementService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -378,8 +351,6 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 			fleetManagementServiceExportMinerListCsvHandler.ServeHTTP(w, r)
 		case FleetManagementServiceGetMinerStateCountsProcedure:
 			fleetManagementServiceGetMinerStateCountsHandler.ServeHTTP(w, r)
-		case FleetManagementServiceGetMinerPoolAssignmentsProcedure:
-			fleetManagementServiceGetMinerPoolAssignmentsHandler.ServeHTTP(w, r)
 		case FleetManagementServiceGetMinerCoolingModeProcedure:
 			fleetManagementServiceGetMinerCoolingModeHandler.ServeHTTP(w, r)
 		case FleetManagementServiceDeleteMinersProcedure:
@@ -388,8 +359,8 @@ func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ..
 			fleetManagementServiceGetMinerModelGroupsHandler.ServeHTTP(w, r)
 		case FleetManagementServiceRenameMinersProcedure:
 			fleetManagementServiceRenameMinersHandler.ServeHTTP(w, r)
-		case FleetManagementServiceUpdateWorkerNamesProcedure:
-			fleetManagementServiceUpdateWorkerNamesHandler.ServeHTTP(w, r)
+		case FleetManagementServiceReviewWorkerNamesProcedure:
+			fleetManagementServiceReviewWorkerNamesHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -419,10 +390,6 @@ func (UnimplementedFleetManagementServiceHandler) GetMinerStateCounts(context.Co
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.GetMinerStateCounts is not implemented"))
 }
 
-func (UnimplementedFleetManagementServiceHandler) GetMinerPoolAssignments(context.Context, *connect.Request[v1.GetMinerPoolAssignmentsRequest]) (*connect.Response[v1.GetMinerPoolAssignmentsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.GetMinerPoolAssignments is not implemented"))
-}
-
 func (UnimplementedFleetManagementServiceHandler) GetMinerCoolingMode(context.Context, *connect.Request[v1.GetMinerCoolingModeRequest]) (*connect.Response[v1.GetMinerCoolingModeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.GetMinerCoolingMode is not implemented"))
 }
@@ -439,6 +406,6 @@ func (UnimplementedFleetManagementServiceHandler) RenameMiners(context.Context, 
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.RenameMiners is not implemented"))
 }
 
-func (UnimplementedFleetManagementServiceHandler) UpdateWorkerNames(context.Context, *connect.Request[v1.UpdateWorkerNamesRequest]) (*connect.Response[v1.UpdateWorkerNamesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.UpdateWorkerNames is not implemented"))
+func (UnimplementedFleetManagementServiceHandler) ReviewWorkerNames(context.Context, *connect.Request[v1.ReviewWorkerNamesRequest]) (*connect.Response[v1.ReviewWorkerNamesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetmanagement.v1.FleetManagementService.ReviewWorkerNames is not implemented"))
 }

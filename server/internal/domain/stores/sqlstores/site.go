@@ -17,6 +17,31 @@ import (
 
 var _ interfaces.SiteStore = &SQLSiteStore{}
 
+func (s *SQLSiteStore) LockContainersForSiteAssignment(ctx context.Context, orgID int64, identifiers []string) ([]models.ContainerSitePlacement, error) {
+	rows, err := s.GetQueries(ctx).LockContainersForSiteAssignment(ctx, sqlc.LockContainersForSiteAssignmentParams{OrgID: orgID, Identifiers: identifiers})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to lock containers: %w", err)
+	}
+	result := make([]models.ContainerSitePlacement, 0, len(rows))
+	for _, row := range rows {
+		var siteID *int64
+		if row.SiteID.Valid {
+			id := row.SiteID.Int64
+			siteID = &id
+		}
+		result = append(result, models.ContainerSitePlacement{Identifier: row.DeviceIdentifier, SiteID: siteID})
+	}
+	return result, nil
+}
+
+func (s *SQLSiteStore) AssignContainersToSite(ctx context.Context, orgID int64, targetSiteID *int64, identifiers []string) (int64, error) {
+	count, err := s.GetQueries(ctx).AssignContainersToSite(ctx, sqlc.AssignContainersToSiteParams{OrgID: orgID, TargetSiteID: ptrToNullInt64(targetSiteID), Identifiers: identifiers})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to assign containers: %w", err)
+	}
+	return count, nil
+}
+
 type SQLSiteStore struct {
 	SQLConnectionManager
 }
@@ -319,17 +344,7 @@ func (s *SQLSiteStore) CountInfrastructureDevicesBySite(ctx context.Context, org
 }
 
 func (s *SQLSiteStore) CountResponseProfilesByInfrastructureDevices(ctx context.Context, orgID int64, ids []int64) (int64, error) {
-	if len(ids) == 0 {
-		return 0, nil
-	}
-	count, err := s.GetQueries(ctx).CountResponseProfilesByInfrastructureDevices(ctx, sqlc.CountResponseProfilesByInfrastructureDevicesParams{
-		OrgID:                   orgID,
-		InfrastructureDeviceIds: ids,
-	})
-	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to count response profiles by infrastructure devices: %v", err)
-	}
-	return count, nil
+	return countResponseProfilesByInfrastructureDevices(ctx, s.GetQueries(ctx), orgID, ids)
 }
 
 func (s *SQLSiteStore) CountActiveCurtailmentEventsByInfrastructureDevices(
@@ -337,20 +352,7 @@ func (s *SQLSiteStore) CountActiveCurtailmentEventsByInfrastructureDevices(
 	orgID int64,
 	ids []int64,
 ) (int64, error) {
-	if len(ids) == 0 {
-		return 0, nil
-	}
-	count, err := s.GetQueries(ctx).CountActiveCurtailmentEventsByInfrastructureDevices(
-		ctx,
-		sqlc.CountActiveCurtailmentEventsByInfrastructureDevicesParams{
-			OrgID:                   orgID,
-			InfrastructureDeviceIds: ids,
-		},
-	)
-	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to count active curtailment events by infrastructure devices: %v", err)
-	}
-	return count, nil
+	return countCurtailmentEventsByInfrastructureDevices(ctx, s.GetQueries(ctx), orgID, ids, true)
 }
 
 func (s *SQLSiteStore) CountNonTerminalCurtailmentEventsByInfrastructureDevices(
@@ -358,20 +360,7 @@ func (s *SQLSiteStore) CountNonTerminalCurtailmentEventsByInfrastructureDevices(
 	orgID int64,
 	ids []int64,
 ) (int64, error) {
-	if len(ids) == 0 {
-		return 0, nil
-	}
-	count, err := s.GetQueries(ctx).CountNonTerminalCurtailmentEventsByInfrastructureDevices(
-		ctx,
-		sqlc.CountNonTerminalCurtailmentEventsByInfrastructureDevicesParams{
-			OrgID:                   orgID,
-			InfrastructureDeviceIds: ids,
-		},
-	)
-	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to count non-terminal curtailment events by infrastructure devices: %v", err)
-	}
-	return count, nil
+	return countCurtailmentEventsByInfrastructureDevices(ctx, s.GetQueries(ctx), orgID, ids, false)
 }
 
 func (s *SQLSiteStore) UnassignRacksFromSite(ctx context.Context, orgID, siteID int64) (int64, error) {
@@ -462,6 +451,9 @@ func (s *SQLSiteStore) LockDevicesForReassign(ctx context.Context, orgID int64, 
 }
 
 func (s *SQLSiteStore) AssignDevicesToSite(ctx context.Context, orgID int64, targetSiteID *int64, deviceIdentifiers []string) (int64, error) {
+	if err := rejectContainerPlacement(ctx, s.GetQueries(ctx), orgID, deviceIdentifiers); err != nil {
+		return 0, err
+	}
 	rowsAffected, err := s.GetQueries(ctx).AssignDevicesToSite(ctx, sqlc.AssignDevicesToSiteParams{
 		OrgID:             orgID,
 		TargetSiteID:      ptrToNullInt64(targetSiteID),

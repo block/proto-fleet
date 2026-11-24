@@ -1,6 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import MinerStatus from "./MinerStatus";
+import type { ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
+import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import {
   DeviceOfflineReason,
@@ -12,14 +14,6 @@ import {
   performanceActions,
 } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/constants";
 import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
-
-vi.mock("@/shared/hooks/useNeedsAttention", () => ({
-  useNeedsAttention: vi.fn(() => false),
-}));
-
-vi.mock("@/shared/hooks/useStatusSummary", () => ({
-  useMinerStatus: vi.fn(() => "Hashing"),
-}));
 
 function createMockMiner(overrides: Partial<MinerStateSnapshot> = {}): MinerStateSnapshot {
   return {
@@ -74,21 +68,6 @@ describe("MinerStatus", () => {
   });
 
   describe("Loading state display", () => {
-    it("should show loading state when device has active batch operation and hasn't reached expected status", () => {
-      const miner = createMockMiner({ deviceStatus: DeviceStatus.OFFLINE });
-
-      render(
-        <MinerStatus
-          miner={miner}
-          errors={[]}
-          activeBatches={[createBatch({ action: deviceActions.reboot })]}
-          errorsLoaded
-        />,
-      );
-
-      expect(screen.getByText("Rebooting")).toBeInTheDocument();
-    });
-
     it("should show pool assignment loading state", () => {
       const miner = createMockMiner({
         deviceStatus: DeviceStatus.NEEDS_MINING_POOL,
@@ -130,9 +109,6 @@ describe("MinerStatus", () => {
     });
 
     it("should prioritize loading state over normal status", async () => {
-      const { useMinerStatus } = await import("@/shared/hooks/useStatusSummary");
-      vi.mocked(useMinerStatus).mockReturnValue("Hashing");
-
       const miner = createMockMiner({ deviceStatus: DeviceStatus.ONLINE });
 
       render(
@@ -205,9 +181,6 @@ describe("MinerStatus", () => {
 
   describe("Normal status display", () => {
     it("should show normal status when no batch operations", async () => {
-      const { useMinerStatus } = await import("@/shared/hooks/useStatusSummary");
-      vi.mocked(useMinerStatus).mockReturnValue("Hashing");
-
       const miner = createMockMiner({ deviceStatus: DeviceStatus.ONLINE });
 
       render(<MinerStatus miner={miner} errors={[]} activeBatches={[]} errorsLoaded />);
@@ -217,11 +190,6 @@ describe("MinerStatus", () => {
     });
 
     it("should show needs attention status when no batches", async () => {
-      const { useNeedsAttention } = await import("@/shared/hooks/useNeedsAttention");
-      const { useMinerStatus } = await import("@/shared/hooks/useStatusSummary");
-      vi.mocked(useNeedsAttention).mockReturnValue(true);
-      vi.mocked(useMinerStatus).mockReturnValue("Needs attention");
-
       const miner = createMockMiner({
         pairingStatus: PairingStatus.AUTHENTICATION_NEEDED,
         deviceStatus: DeviceStatus.ONLINE,
@@ -233,9 +201,6 @@ describe("MinerStatus", () => {
     });
 
     it("should use the sleeping indicator for sleeping miners", async () => {
-      const { useMinerStatus } = await import("@/shared/hooks/useStatusSummary");
-      vi.mocked(useMinerStatus).mockReturnValue("Sleeping");
-
       const miner = createMockMiner({ deviceStatus: DeviceStatus.INACTIVE });
 
       render(<MinerStatus miner={miner} errors={[]} activeBatches={[]} errorsLoaded />);
@@ -245,9 +210,6 @@ describe("MinerStatus", () => {
     });
 
     it("should use the inactive indicator for offline miners", async () => {
-      const { useMinerStatus } = await import("@/shared/hooks/useStatusSummary");
-      vi.mocked(useMinerStatus).mockReturnValue("Offline");
-
       const miner = createMockMiner({ deviceStatus: DeviceStatus.OFFLINE });
 
       render(<MinerStatus miner={miner} errors={[]} activeBatches={[]} errorsLoaded />);
@@ -257,11 +219,6 @@ describe("MinerStatus", () => {
     });
 
     it("lets default-password remediation override sleeping status", async () => {
-      const { useNeedsAttention } = await import("@/shared/hooks/useNeedsAttention");
-      const { useMinerStatus } = await import("@/shared/hooks/useStatusSummary");
-      vi.mocked(useNeedsAttention).mockReturnValue(true);
-      vi.mocked(useMinerStatus).mockReturnValue("Needs attention");
-
       const miner = createMockMiner({
         pairingStatus: PairingStatus.DEFAULT_PASSWORD,
         deviceStatus: DeviceStatus.INACTIVE,
@@ -269,69 +226,34 @@ describe("MinerStatus", () => {
 
       render(<MinerStatus miner={miner} errors={[]} activeBatches={[]} errorsLoaded />);
 
-      expect(useMinerStatus).toHaveBeenLastCalledWith(false, false, true);
       expect(screen.getByText("Needs attention")).toBeInTheDocument();
     });
   });
 
   describe("Status after pool assignment", () => {
-    it("should clear needs attention when pool assigned to device without errors", async () => {
-      const { useNeedsAttention } = await import("@/shared/hooks/useNeedsAttention");
-      const { useMinerStatus } = await import("@/shared/hooks/useStatusSummary");
-
-      vi.mocked(useNeedsAttention).mockReturnValue(true);
-      vi.mocked(useMinerStatus).mockReturnValue("Needs attention");
-
-      const miner = createMockMiner({
-        deviceStatus: DeviceStatus.NEEDS_MINING_POOL,
-      });
-
-      const { rerender } = render(<MinerStatus miner={miner} errors={[]} activeBatches={[]} errorsLoaded />);
+    it.each([
+      { name: "online without errors", status: DeviceStatus.ONLINE, errors: [], expected: "Hashing" },
+      { name: "server device error", status: DeviceStatus.ERROR, errors: [], expected: "Needs attention" },
+      {
+        name: "retained hardware error",
+        status: DeviceStatus.ONLINE,
+        errors: [{ componentType: ComponentType.HASH_BOARD } as ErrorMessage],
+        expected: "Needs attention",
+      },
+    ])("derives the status for $name", ({ status, errors, expected }) => {
+      const miner = createMockMiner({ deviceStatus: DeviceStatus.NEEDS_MINING_POOL });
+      const { rerender } = render(<MinerStatus miner={miner} errors={errors} activeBatches={[]} errorsLoaded />);
       expect(screen.getByText("Needs attention")).toBeInTheDocument();
-
-      // Optimistic update: status changes to ONLINE after pool assignment
-      vi.mocked(useNeedsAttention).mockReturnValue(false);
-      vi.mocked(useMinerStatus).mockReturnValue("Hashing");
-
-      const updatedMiner = createMockMiner({
-        deviceStatus: DeviceStatus.ONLINE,
-      });
-      rerender(<MinerStatus miner={updatedMiner} errors={[]} activeBatches={[]} errorsLoaded />);
-      expect(screen.getByText("Hashing")).toBeInTheDocument();
-      expect(screen.queryByText("Needs attention")).not.toBeInTheDocument();
-    });
-
-    it("should still show needs attention when pool assigned to device with hardware errors", async () => {
-      const { useNeedsAttention } = await import("@/shared/hooks/useNeedsAttention");
-      const { useMinerStatus } = await import("@/shared/hooks/useStatusSummary");
-
-      vi.mocked(useNeedsAttention).mockReturnValue(true);
-      vi.mocked(useMinerStatus).mockReturnValue("Needs attention");
-
-      const miner = createMockMiner({
-        deviceStatus: DeviceStatus.NEEDS_MINING_POOL,
-      });
-
-      const { rerender } = render(<MinerStatus miner={miner} errors={[]} activeBatches={[]} errorsLoaded />);
-      expect(screen.getByText("Needs attention")).toBeInTheDocument();
-
-      // Optimistic update: status changes to ERROR (has hardware errors)
-      vi.mocked(useNeedsAttention).mockReturnValue(true);
-      vi.mocked(useMinerStatus).mockReturnValue("Needs attention");
-
-      const updatedMiner = createMockMiner({
-        deviceStatus: DeviceStatus.ERROR,
-      });
-      rerender(<MinerStatus miner={updatedMiner} errors={[]} activeBatches={[]} errorsLoaded />);
-      expect(screen.getByText("Needs attention")).toBeInTheDocument();
+      rerender(
+        <MinerStatus miner={{ ...miner, deviceStatus: status }} errors={errors} activeBatches={[]} errorsLoaded />,
+      );
+      expect(screen.getByText(expected)).toBeInTheDocument();
+      expect(screen.queryByText(expected === "Hashing" ? "Needs attention" : "Hashing")).not.toBeInTheDocument();
     });
   });
 
   describe("Loading state clears when expected status reached", () => {
     it("should show 'Sleeping' when device reaches INACTIVE during shutdown batch", async () => {
-      const { useMinerStatus } = await import("@/shared/hooks/useStatusSummary");
-      vi.mocked(useMinerStatus).mockReturnValue("Hashing");
-
       const batch = createBatch({ action: deviceActions.shutdown });
       const miner = createMockMiner({ deviceStatus: DeviceStatus.ONLINE });
 
@@ -340,7 +262,7 @@ describe("MinerStatus", () => {
       expect(screen.getByText("Sleeping")).toBeInTheDocument();
 
       // Device reaches INACTIVE status
-      vi.mocked(useMinerStatus).mockReturnValue("Sleeping");
+
       const updatedMiner = createMockMiner({
         deviceStatus: DeviceStatus.INACTIVE,
       });
@@ -352,9 +274,6 @@ describe("MinerStatus", () => {
     });
 
     it("should show actual status when device reaches non-INACTIVE during wakeUp batch", async () => {
-      const { useMinerStatus } = await import("@/shared/hooks/useStatusSummary");
-      vi.mocked(useMinerStatus).mockReturnValue("Sleeping");
-
       const batch = createBatch({ action: deviceActions.wakeUp });
       const miner = createMockMiner({ deviceStatus: DeviceStatus.INACTIVE });
 
@@ -364,7 +283,7 @@ describe("MinerStatus", () => {
       expect(screen.getByText("Waking")).toBeInTheDocument();
 
       // Device reaches ONLINE status
-      vi.mocked(useMinerStatus).mockReturnValue("Hashing");
+
       const updatedMiner = createMockMiner({
         deviceStatus: DeviceStatus.ONLINE,
       });
@@ -377,9 +296,6 @@ describe("MinerStatus", () => {
     });
 
     it("should show loading during reboot until minimum 15 seconds elapsed", async () => {
-      const { useMinerStatus } = await import("@/shared/hooks/useStatusSummary");
-      vi.mocked(useMinerStatus).mockReturnValue("Offline");
-
       const now = Date.now();
       const batch = createBatch({
         action: deviceActions.reboot,
@@ -393,7 +309,7 @@ describe("MinerStatus", () => {
       expect(screen.getByText("Rebooting")).toBeInTheDocument();
 
       // Device reaches ONLINE status after only 10s
-      vi.mocked(useMinerStatus).mockReturnValue("Hashing");
+
       const updatedMiner = createMockMiner({
         deviceStatus: DeviceStatus.ONLINE,
       });
@@ -418,9 +334,6 @@ describe("MinerStatus", () => {
     });
 
     it("should show actual status when device reaches non-NEEDS_MINING_POOL during pool assignment", async () => {
-      const { useMinerStatus } = await import("@/shared/hooks/useStatusSummary");
-      vi.mocked(useMinerStatus).mockReturnValue("Needs attention");
-
       const batch = createBatch({ action: "mining-pool" });
       const miner = createMockMiner({
         deviceStatus: DeviceStatus.NEEDS_MINING_POOL,
@@ -432,7 +345,7 @@ describe("MinerStatus", () => {
       expect(screen.getByText("Adding pools")).toBeInTheDocument();
 
       // Device reaches ONLINE status
-      vi.mocked(useMinerStatus).mockReturnValue("Hashing");
+
       const updatedMiner = createMockMiner({
         deviceStatus: DeviceStatus.ONLINE,
       });
@@ -442,15 +355,6 @@ describe("MinerStatus", () => {
       // Should now show actual "Hashing" status
       expect(screen.getByText("Hashing")).toBeInTheDocument();
       expect(screen.queryByText("Adding pools")).not.toBeInTheDocument();
-    });
-
-    it("should continue showing loading when device hasn't reached expected status", () => {
-      const miner = createMockMiner({ deviceStatus: DeviceStatus.ONLINE });
-      const batch = createBatch({ action: deviceActions.shutdown });
-
-      render(<MinerStatus miner={miner} errors={[]} activeBatches={[batch]} errorsLoaded />);
-
-      expect(screen.getByText("Sleeping")).toBeInTheDocument();
     });
   });
 

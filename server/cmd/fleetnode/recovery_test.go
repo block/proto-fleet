@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"iter"
 	"net/netip"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"buf.build/go/protovalidate"
+	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -438,7 +440,7 @@ func TestHandleRecoverMinerEndpointsBoundsPayloadWithOrderedPrefix(t *testing.T)
 	require.NoError(t, protovalidate.Validate(req))
 	require.LessOrEqual(t, proto.Size(req), 900*1024, "request must fit the server's dispatch limit")
 	require.NoError(t, protovalidate.Validate(full))
-	require.Greater(t, proto.Size(full), maxAckPayloadBytes)
+	require.Greater(t, proto.Size(full), maxCommandResultPayloadBytes)
 	ack := &capturingAcker{}
 
 	r.handleRecoverMinerEndpoints(t.Context(), ack, "recover-large", req, discardLogger(t))
@@ -447,14 +449,14 @@ func TestHandleRecoverMinerEndpointsBoundsPayloadWithOrderedPrefix(t *testing.T)
 	got := ack.sent[0].GetAck()
 	require.Equal(t, pb.AckCode_ACK_CODE_PARTIAL, got.GetCode())
 	require.NotEmpty(t, got.GetPayload())
-	require.LessOrEqual(t, len(got.GetPayload()), maxAckPayloadBytes)
+	require.LessOrEqual(t, len(got.GetPayload()), maxCommandResultPayloadBytes)
 	result := &pb.RecoverMinerEndpointsResult{}
 	require.NoError(t, proto.Unmarshal(got.GetPayload(), result))
 	require.NotEmpty(t, result.GetResults())
 	require.Less(t, len(result.GetResults()), len(full.GetResults()))
 	assert.True(t, proto.Equal(result, &pb.RecoverMinerEndpointsResult{Results: full.Results[:len(result.Results)]}))
 	result.Results = append(result.Results, full.Results[len(result.Results)])
-	assert.Greater(t, proto.Size(result), maxAckPayloadBytes, "retain the largest prefix that fits")
+	assert.Greater(t, proto.Size(result), maxCommandResultPayloadBytes, "retain the largest prefix that fits")
 }
 
 func TestHandleRecoverMinerEndpointsReturnsEmptyPartialOnTimeout(t *testing.T) {
@@ -628,4 +630,70 @@ func TestRecoveryResultIsolatesInvalidPluginEvidence(t *testing.T) {
 	assert.Equal(t, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_ERROR, invalid.GetOutcome())
 	assert.Equal(t, "plugin returned invalid recovery evidence", invalid.GetErrorMessage())
 	assert.Equal(t, pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_FOUND, valid.GetOutcome())
+}
+
+func TestRecoveryTargetsLocalSubnetPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		subnets []string
+		want    int
+	}{
+		{"private subnet", []string{"10.0.0.0/30"}, 2},
+		{"public subnet", []string{"8.8.8.0/24"}, 0},
+		{"IPv6 subnet", []string{"fd00::/120"}, 0},
+		{"broad subnet", []string{"10.0.0.0/16"}, 0},
+		{"aggregate over cap", []string{fmt.Sprintf("10.0.0.0/%d", discoverylimits.MinIPv4PrefixBits), fmt.Sprintf("10.128.0.0/%d", discoverylimits.MinIPv4PrefixBits)}, 0},
+		{"empty detection", nil, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, localSubnets: func() ([]string, error) { return tc.subnets, nil }}
+			addrs, err := r.recoveryScanTargets()
+			if tc.want == 0 {
+				var ce *commandError
+				require.ErrorAs(t, err, &ce)
+				assert.Equal(t, pb.AckCode_ACK_CODE_AGENT_INCAPABLE, ce.code)
+				return
+			}
+			require.NoError(t, err)
+			assert.Len(t, slices.Collect(addrs), tc.want)
+		})
+	}
+}
+
+func TestRecoveryConfiguredSubnetAvoidsPlatformDetection(t *testing.T) {
+	r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, LocalDiscoverySubnet: "10.90.0.0/30"}
+	addrs, err := r.recoveryScanTargets()
+	require.NoError(t, err)
+	assert.Len(t, slices.Collect(addrs), 2)
+}
+
+func TestRecoveryTargetsInterleaveLocalSubnets(t *testing.T) {
+	r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, localSubnets: func() ([]string, error) {
+		return []string{"10.0.0.0/29", "192.168.1.0/29"}, nil
+	}}
+	addrs, err := r.recoveryScanTargets()
+	require.NoError(t, err)
+	first, err := netscan.ParseTarget("10.0.0.0/29")
+	require.NoError(t, err)
+	second, err := netscan.ParseTarget("192.168.1.0/29")
+	require.NoError(t, err)
+	got := slices.Collect(addrs)
+	require.Len(t, got, 12)
+	for i, addr := range got {
+		target := []netscan.Target{first, second}[i%2]
+		require.True(t, target.Contains(addr), "subnet did not get its turn: %s", addr)
+	}
+	want := append(slices.Collect(first.Addresses()), slices.Collect(second.Addresses())...)
+	assert.ElementsMatch(t, want, got)
+}
+
+func TestRecoveryTargetsDeduplicateOverlappingLocalSubnets(t *testing.T) {
+	r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, localSubnets: func() ([]string, error) {
+		return []string{"10.0.0.0/29", "10.0.0.0/30", "10.0.0.0/29"}, nil
+	}}
+	addrs, err := r.recoveryScanTargets()
+	require.NoError(t, err)
+	target, err := netscan.ParseTarget("10.0.0.0/29")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, slices.Collect(target.Addresses()), slices.Collect(addrs))
 }

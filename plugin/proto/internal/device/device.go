@@ -32,6 +32,7 @@ import (
 )
 
 var _ sdk.Device = (*Device)(nil)
+var _ sdk.DeviceStoredPoolReader = (*Device)(nil)
 
 const (
 	defaultStatusTTL          = 5 * time.Second
@@ -70,6 +71,8 @@ type Device struct {
 	statusTTL    time.Duration
 
 	lastFirmwareCheckAt        time.Time
+	lastUptimeSeconds          *uint64
+	lastUptimeObservedAt       time.Time
 	lastDefaultPasswordCheckAt time.Time
 	lastDefaultPasswordActive  *bool
 
@@ -228,6 +231,7 @@ func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabi
 		sdk.CapabilityReboot:              true, // This device supports reboot
 		sdk.CapabilityFirmware:            true, // This device supports firmware updates
 		sdk.CapabilityPoolConfig:          true, // This device supports pool configuration
+		sdk.CapabilityPoolClear:           true, // Clearing validates the live MDKv2 contract before writing.
 		sdk.CapabilityUpdateMinerPassword: true, // This device supports updating web UI password
 		// FULL curtailment uses mining start/stop. Efficiency uses the power target mode.
 		sdk.CapabilityCurtailFull:       true,
@@ -275,7 +279,10 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 
 	minerStatus, err := d.client.GetStatus(ctx)
 	if err != nil {
-		return sdk.DeviceMetrics{}, fmt.Errorf("failed to get miner status: %w", err)
+		// An unreachable miner may be rebooting, so its next successful poll
+		// must not reuse uptime observed before the outage.
+		d.clearFirmwareCacheLocked()
+		return sdk.DeviceMetrics{}, fmt.Errorf("failed to get miner status: %w", sdk.WithDeviceDialFailure(ctx, err))
 	}
 	if minerStatus.IsCurtailed && d.hasActiveFullCurtailment() {
 		minerStatus.State = sdk.HealthHealthyInactive
@@ -307,26 +314,48 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	return metrics, nil
 }
 
-// refreshFirmwareVersion periodically re-fetches firmware version from the device
-// to detect firmware updates. Throttled to avoid excessive API calls.
+// refreshFirmwareVersion periodically reads firmware and uptime from the same
+// system response. Cached uptime always keeps its original observation time.
 func (d *Device) refreshFirmwareVersion(ctx context.Context, metrics *sdk.DeviceMetrics) error {
 	if time.Since(d.lastFirmwareCheckAt) < firmwareRefreshInterval {
+		d.copyUptimeToMetrics(metrics)
 		return nil
 	}
-	fwVersion, err := d.client.GetFirmwareVersion(ctx)
-	d.lastFirmwareCheckAt = time.Now()
+	info, err := d.client.GetSystemInfo(ctx)
 	if err != nil {
+		d.clearFirmwareCacheLocked()
+		d.lastFirmwareCheckAt = time.Now()
 		if errors.Is(err, proto.ErrDeviceIdentity) {
 			return err
 		}
 		slog.Debug("failed to get firmware version during Status", "error", err)
 		return nil
 	}
-	if fwVersion != "" {
-		d.deviceInfo.FirmwareVersion = fwVersion
-		metrics.FirmwareVersion = fwVersion
+	d.recordSystemInfoLocked(info)
+	if info.FirmwareVersion != "" {
+		metrics.FirmwareVersion = info.FirmwareVersion
 	}
+	d.copyUptimeToMetrics(metrics)
 	return nil
+}
+
+// recordSystemInfoLocked caches a successful system response for the firmware
+// refresh interval. Uptime keeps that response's observation time.
+func (d *Device) recordSystemInfoLocked(info proto.SystemInfo) {
+	d.lastFirmwareCheckAt = time.Now()
+	if info.FirmwareVersion != "" {
+		d.deviceInfo.FirmwareVersion = info.FirmwareVersion
+	}
+	d.lastUptimeSeconds = info.UptimeSeconds
+	d.lastUptimeObservedAt = info.UptimeObservedAt
+}
+
+func (d *Device) copyUptimeToMetrics(metrics *sdk.DeviceMetrics) {
+	if d.lastUptimeSeconds != nil {
+		uptime := *d.lastUptimeSeconds
+		metrics.UptimeSeconds = &uptime
+		metrics.UptimeObservedAt = d.lastUptimeObservedAt
+	}
 }
 
 // refreshDefaultPasswordStatus periodically re-fetches the factory-password flag.
@@ -809,7 +838,13 @@ func (d *Device) invalidateStatusAndFirmwareCaches() {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 	d.clearStatusCacheLocked()
+	d.clearFirmwareCacheLocked()
+}
+
+func (d *Device) clearFirmwareCacheLocked() {
 	d.lastFirmwareCheckAt = time.Time{}
+	d.lastUptimeSeconds = nil
+	d.lastUptimeObservedAt = time.Time{}
 }
 
 func (d *Device) clearStatusCacheLocked() {
@@ -901,6 +936,7 @@ func (d *Device) UpdateMiningPools(ctx context.Context, pools []sdk.MiningPoolCo
 			Priority:   int(pool.Priority),
 			URL:        pool.URL,
 			WorkerName: pool.WorkerName,
+			Password:   pool.Password,
 		}
 	}
 
@@ -915,6 +951,10 @@ func (d *Device) UpdateMiningPools(ctx context.Context, pools []sdk.MiningPoolCo
 func (d *Device) GetMiningPools(ctx context.Context) ([]sdk.ConfiguredPool, error) {
 	slog.Debug("Getting mining pools", "deviceID", d.id)
 	return d.client.GetPools(ctx)
+}
+
+func (d *Device) GetStoredMiningPools(ctx context.Context) ([]sdk.StoredMiningPool, error) {
+	return d.client.GetStoredMiningPools(ctx)
 }
 
 // BlinkLED implements the SDK Device interface.
@@ -992,10 +1032,17 @@ func (d *Device) FirmwareUpdate(ctx context.Context, firmware sdk.FirmwareFile) 
 //
 // Returns the current firmware installation status from the rig's sw_update_status.
 func (d *Device) GetFirmwareUpdateStatus(ctx context.Context) (*sdk.FirmwareUpdateStatus, error) {
-	status, err := d.client.GetUpdateStatus(ctx)
+	info, err := d.client.GetSystemInfo(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get update status: %w", err)
 	}
+	// Fleet decides whether a post-install reboot already happened from the
+	// next Status, so it must carry the uptime sampled with this install state.
+	d.mutex.Lock()
+	d.recordSystemInfoLocked(info)
+	d.clearStatusCacheLocked()
+	d.mutex.Unlock()
+	status := info.UpdateStatus
 	if status == nil {
 		return nil, nil
 	}
@@ -1052,7 +1099,7 @@ func (d *Device) UpdateMinerPassword(ctx context.Context, currentPassword string
 	return nil
 }
 
-func (d *Device) TryBatchStatus(ctx context.Context, _ []string) (map[string]sdk.DeviceMetrics, bool, error) {
+func (d *Device) TryBatchStatus(ctx context.Context, _ []sdk.Device) (map[string]sdk.DeviceMetrics, bool, error) {
 	return nil, false, nil
 }
 

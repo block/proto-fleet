@@ -8,7 +8,7 @@ import {
   mockReadOnlyNodes,
   provisionAdminRole,
 } from "../helpers/rbacAdminTestSetup";
-import { cleanupRbacTeamArtifacts, RBAC_ROLE_PREFIX } from "../helpers/rbacTestSetup";
+import { cleanupRbacTeamArtifacts, joinTeamInFreshContext, RBAC_ROLE_PREFIX } from "../helpers/rbacTestSetup";
 import { generateRandomText } from "../helpers/testDataHelper";
 
 test.describe("Proto Fleet - Admin RBAC", () => {
@@ -130,10 +130,12 @@ test.describe("Proto Fleet - Admin RBAC", () => {
     await test.step("Open the pending-node confirmation controls", async () => {
       await settingsNodesPage.reloadPage();
       await settingsNodesPage.waitForNodesListToLoad();
-      await settingsNodesPage.clickNodeActionsMenu("node-pending");
       await settingsNodesPage.validateNodeActionVisible("Confirm enrollment");
+      await settingsNodesPage.validateNodeActionHidden("Revoke");
+      await settingsNodesPage.openNodeDetails("node-pending");
       await settingsNodesPage.validateNodeActionVisible("Revoke");
-      await settingsNodesPage.clickNodeAction("Confirm enrollment");
+      await page.keyboard.press("Escape");
+      await settingsNodesPage.clickConfirmEnrollment("node-pending");
       await settingsNodesPage.validateConfirmNodeModalOpened("node-pending");
     });
   });
@@ -187,7 +189,7 @@ test.describe("Proto Fleet - Admin RBAC", () => {
       await settingsPage.navigateToTeamSettings();
       await settingsTeamPage.validateTeamSettingsPageOpened();
       await settingsTeamPage.validateMemberVisible(testConfig.users.admin.username);
-      await settingsTeamPage.validateAddTeamMemberHidden();
+      await settingsTeamPage.validateInviteTeamMemberHidden();
       await settingsTeamPage.validateMemberActionsHidden(testConfig.users.admin.username);
       await settingsTeamPage.validateRolesTabHidden();
     });
@@ -222,11 +224,17 @@ test.describe("Proto Fleet - Admin RBAC", () => {
       });
     });
 
-    await test.step("Create a team member with an assignable custom role", async () => {
+    await test.step("Invite a team member with an assignable custom role", async () => {
       await settingsPage.navigateToTeamSettings();
       await settingsTeamPage.validateTeamSettingsPageOpened();
       await settingsTeamPage.openMembersTab();
-      await settingsTeamPage.createTeamMemberAndGetTemporaryPassword(createdUsername, baseMemberRole);
+      const invitationCode = await settingsTeamPage.createInvitationAndGetCode(baseMemberRole);
+      await settingsTeamPage.validateInvitationVisible("Pending", baseMemberRole);
+      await joinTeamInFreshContext(browser, test.info(), { invitationCode, username: createdUsername });
+      await settingsTeamPage.reloadPage();
+      await settingsTeamPage.openInvitationsTab();
+      await settingsTeamPage.validateNoInvitationsForRole(baseMemberRole);
+      await settingsTeamPage.openMembersTab();
       await settingsTeamPage.validateMemberRole(createdUsername, baseMemberRole);
     });
 

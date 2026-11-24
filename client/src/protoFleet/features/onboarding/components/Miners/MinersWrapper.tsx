@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import Miners from "./Miners";
-import { MinerDiscoveryMode } from "./types";
+import { type MinerDiscoveryMode, type RemoteDiscoveryReadiness } from "./types";
 import { DeviceIdentifierListSchema } from "@/protoFleet/api/generated/common/v1/device_selector_pb";
-import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
+import {
+  FleetNodeEnrollmentStatus,
+  FleetNodeHARole,
+} from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import { DeviceSelectorSchema } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import {
   Device,
@@ -11,7 +14,7 @@ import {
   DiscoverRequestSchema,
   PairRequestSchema,
 } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
-import { useFleetNodes } from "@/protoFleet/api/useFleetNodes";
+import { type FleetNodeItem, useFleetNodes } from "@/protoFleet/api/useFleetNodes";
 import { useForemanImport } from "@/protoFleet/api/useForemanImport";
 import { useMinerPairing } from "@/protoFleet/api/useMinerPairing";
 import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
@@ -25,8 +28,13 @@ import { ManualDiscoveryTargets } from "@/shared/utils/ipParsing";
 
 // Show a toast if pairing takes longer than this threshold
 const LONG_PAIRING_THRESHOLD_MS = 3000;
-const PARTIAL_REMOTE_COVERAGE_WARNING = "Some Fleet Nodes cannot scan. Discovery may be incomplete.";
-const UNKNOWN_REMOTE_COVERAGE_WARNING = "Could not check Fleet Nodes. Discovery may be incomplete.";
+
+const isActiveNode = (node: FleetNodeItem) =>
+  node.enrollmentStatus !== FleetNodeEnrollmentStatus.REVOKED &&
+  node.haRole !== FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY;
+
+const isDiscoveryConfigured = (node: FleetNodeItem, canReadFleetNodes: boolean) =>
+  !canReadFleetNodes || (!!node.discoveryConfigReported && !!node.discoveryRanges?.length);
 
 type MinersPageProps = {
   /**
@@ -41,21 +49,13 @@ type MinersPageProps = {
    * Only used when mode is 'pairing'
    */
   onExit?: () => void;
-  /** Already-paired miner IDs to filter out from discovery results */
-  pairedMinerIds?: string[];
   /** Callback to notify that pairing completed (triggers CompleteSetup refresh) */
   onPairingCompleted?: () => void;
   /** Callback to refetch the fleet miner list */
   onRefetchMiners?: () => void;
 };
 
-const MinersPage = ({
-  mode = "onboarding",
-  onExit,
-  pairedMinerIds = [],
-  onPairingCompleted,
-  onRefetchMiners,
-}: MinersPageProps) => {
+const MinersPage = ({ mode = "onboarding", onExit, onPairingCompleted, onRefetchMiners }: MinersPageProps) => {
   const navigate = useNavigate();
 
   const { data: networkInfo, pending: networkInfoPending } = useNetworkInfo();
@@ -63,6 +63,8 @@ const MinersPage = ({
   const { discover, pairingPending, pair } = useMinerPairing();
   const { listFleetNodes } = useFleetNodes();
   const canPairMiners = useHasPermission("miner:pair");
+  const canReadFleetNodes = useHasPermission("fleetnode:read");
+  const [fleetNodes, setFleetNodes] = useState<FleetNodeItem[]>([]);
   const { importPending: foremanImportPending, importFromForeman, completeImport } = useForemanImport();
   const [scanDiscoveryPending, setScanDiscoveryPending] = useState(false);
   const [manualDiscoveryPending, setManualDiscoveryPending] = useState(false);
@@ -74,7 +76,7 @@ const MinersPage = ({
   const [foundMiners, setFoundMiners] = useState<Device[]>([]);
   const [lastDiscoveryMode, setLastDiscoveryMode] = useState<string>(minerDiscoveryModes.scan);
   const [lastManualTargets, setLastManualTargets] = useState<ManualDiscoveryTargets | null>(null);
-  const [remoteDiscoveryWarning, setRemoteDiscoveryWarning] = useState<string>();
+  const [remoteDiscoveryReadiness, setRemoteDiscoveryReadiness] = useState<RemoteDiscoveryReadiness>("none");
   const coverageRequestState = useRef({ latestId: 0 });
 
   const refreshRemoteDiscoveryCoverage = useCallback(() => {
@@ -85,23 +87,36 @@ const MinersPage = ({
     void listFleetNodes()
       .then((nodes) => {
         if (requestId !== requestState.latestId) return;
-        const hasIneligibleNode = nodes.some(
-          (node) =>
-            node.enrollmentStatus === FleetNodeEnrollmentStatus.CONFIRMED &&
-            (!node.controlStreamConnected || node.commandProtocolUpgradeRequired),
-        );
-        setRemoteDiscoveryWarning(hasIneligibleNode ? PARTIAL_REMOTE_COVERAGE_WARNING : undefined);
+        setFleetNodes(nodes);
+        const hasIneligibleNode = nodes.some((node) => node.discoveryCoverageDegraded);
+        const activeNodes = nodes.filter(isActiveNode);
+        if (hasIneligibleNode) {
+          setRemoteDiscoveryReadiness("partialCoverage");
+        } else if (activeNodes.length === 0) {
+          setRemoteDiscoveryReadiness("noNodes");
+        } else if (activeNodes.some((node) => node.enrollmentStatus !== FleetNodeEnrollmentStatus.CONFIRMED)) {
+          setRemoteDiscoveryReadiness("enrollmentIncomplete");
+        } else if (activeNodes.some((node) => !isDiscoveryConfigured(node, canReadFleetNodes))) {
+          setRemoteDiscoveryReadiness("discoveryNotConfigured");
+        } else {
+          setRemoteDiscoveryReadiness("none");
+        }
       })
       .catch(() => {
-        if (requestId === requestState.latestId) setRemoteDiscoveryWarning(UNKNOWN_REMOTE_COVERAGE_WARNING);
+        if (requestId === requestState.latestId) setRemoteDiscoveryReadiness("checkFailed");
       });
-  }, [canPairMiners, listFleetNodes]);
+  }, [canPairMiners, canReadFleetNodes, listFleetNodes]);
 
   useEffect(() => {
     const requestState = coverageRequestState.current;
     refreshRemoteDiscoveryCoverage();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshRemoteDiscoveryCoverage();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       requestState.latestId++;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [refreshRemoteDiscoveryCoverage]);
 
@@ -139,17 +154,25 @@ const MinersPage = ({
 
   const { refetch } = useOnboardedStatus();
   // Retain earlier discoveries while refreshing miners returned by later scans.
-  const pairedMinerIdSet = useMemo(() => new Set(pairedMinerIds), [pairedMinerIds]);
   const processDiscoveredMiners = useCallback(
     (devices: Device[]) => {
       setFoundMiners((prevMiners) => {
-        const unpairedDevices = devices.filter(
-          (device) => !device.deviceIdentifier || !pairedMinerIdSet.has(device.deviceIdentifier),
-        );
-        if (unpairedDevices.length === 0) return prevMiners;
-        const miners = [...prevMiners];
-        const indices = new Map(prevMiners.map((miner, index) => [miner.deviceIdentifier, index]));
-        for (const device of unpairedDevices) {
+        if (devices.length === 0) return prevMiners;
+
+        // Add Miners excludes existing pairings. Onboarding keeps them so its
+        // existing authentication-recovery flow remains unchanged.
+        const eligibleDevices: Device[] = [];
+        const pairedIdentifiers = new Set<string>();
+        for (const device of devices) {
+          if (mode === "pairing" && device.alreadyPaired) {
+            pairedIdentifiers.add(device.deviceIdentifier);
+          } else {
+            eligibleDevices.push(device);
+          }
+        }
+        const miners = prevMiners.filter((miner) => !pairedIdentifiers.has(miner.deviceIdentifier));
+        const indices = new Map(miners.map((miner, index) => [miner.deviceIdentifier, index]));
+        for (const device of eligibleDevices) {
           const id = device.deviceIdentifier;
           const index = id ? indices.get(id) : undefined;
           if (index === undefined) {
@@ -162,7 +185,7 @@ const MinersPage = ({
         return miners;
       });
     },
-    [pairedMinerIdSet],
+    [mode],
   );
 
   const handleDiscover = useCallback(
@@ -190,9 +213,22 @@ const MinersPage = ({
     [discover, processDiscoveredMiners, refreshRemoteDiscoveryCoverage],
   );
 
+  const scanAvailable =
+    !!networkInfo?.subnet ||
+    (canPairMiners &&
+      fleetNodes.some(
+        (node) =>
+          isActiveNode(node) &&
+          node.enrollmentStatus === FleetNodeEnrollmentStatus.CONFIRMED &&
+          !node.discoveryCoverageDegraded &&
+          isDiscoveryConfigured(node, canReadFleetNodes),
+      ));
+
+  const networkInfoPendingForScan = networkInfoPending && !scanAvailable;
+
   const handleNetworkScanDiscovery = useCallback(
     (keepResults = false) => {
-      if (!networkInfo?.subnet) return;
+      if (!scanAvailable) return;
 
       foremanCredsRef.current = null;
       if (!keepResults) setFoundMiners([]);
@@ -203,7 +239,7 @@ const MinersPage = ({
         mode: {
           case: "networkScan",
           value: {
-            target: networkInfo.subnet,
+            target: networkInfo?.subnet ?? "",
             useFleetNodeLocalSubnet: true,
           },
         },
@@ -215,7 +251,7 @@ const MinersPage = ({
         }
       });
     },
-    [handleDiscover, networkInfo],
+    [handleDiscover, networkInfo, scanAvailable],
   );
 
   const cancelNetworkScan = useCallback(() => {
@@ -403,23 +439,25 @@ const MinersPage = ({
           onPairingCompleted?.();
         }
 
-        // If this was a Foreman import, create pools/groups/racks and assign devices before refreshing
+        // Import Foreman metadata for paired miners before refreshing. Pool
+        // configurations need credentials that Foreman does not provide.
         if (lastDiscoveryMode === minerDiscoveryModes.foreman && foremanCredsRef.current) {
+          const failedIds = new Set(failedDeviceIds);
           const creds = foremanCredsRef.current;
           foremanCredsRef.current = null;
           if (successCount > 0) {
             await completeImport({
               apiKey: creds.apiKey,
               clientId: creds.clientId,
-              importPools: true,
+              importPools: false,
               importGroups: true,
               importRacks: true,
-              pairedDeviceIdentifiers: selectedMinerIdentifiers.filter((id) => !failedDeviceIds.includes(id)),
+              pairedDeviceIdentifiers: selectedMinerIdentifiers.filter((id) => !failedIds.has(id)),
               onSuccess: () => {},
               onError: (error) => {
                 console.error("Foreman complete import failed:", error);
                 pushToast({
-                  message: "Miners added but failed to import pools/groups/racks from Foreman.",
+                  message: "Miners added but failed to import groups, racks, and names from Foreman.",
                   status: TOAST_STATUSES.error,
                 });
               },
@@ -491,15 +529,16 @@ const MinersPage = ({
       scanDiscoveryPending={scanDiscoveryPending}
       manualDiscoveryPending={manualDiscoveryPending}
       pairingPending={pairingPending}
-      networkInfoPending={networkInfoPending}
-      scanAvailable={!!networkInfo?.subnet}
+      networkInfoPending={networkInfoPendingForScan}
+      scanAvailable={scanAvailable}
+      fleetNodes={canPairMiners ? fleetNodes : undefined}
       onCancelScan={cancelNetworkScan}
       onManualDiscover={handleManualDiscovery}
       onContinue={handleContinue}
       onRescan={handleRescan}
       onForemanImport={handleForemanImport}
       foremanImportPending={foremanImportPending}
-      remoteDiscoveryWarning={canPairMiners ? remoteDiscoveryWarning : undefined}
+      remoteDiscoveryReadiness={canPairMiners ? remoteDiscoveryReadiness : undefined}
       mode={mode}
     />
   );

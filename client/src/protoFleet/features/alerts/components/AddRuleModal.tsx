@@ -3,7 +3,6 @@ import DeliveryPicker from "./DeliveryPicker";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
-import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
 import TargetSelectButton, { getTargetButtonLabel } from "@/protoFleet/components/TargetSelectButton";
 import {
   BuildingSelectionModal,
@@ -23,6 +22,7 @@ import { useHasPermission, useTemperatureUnit } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
+import FullScreenTwoPaneModal from "@/shared/components/FullScreenTwoPaneModal";
 import Input from "@/shared/components/Input";
 import Select from "@/shared/components/Select";
 import { pushToast, STATUSES } from "@/shared/features/toaster";

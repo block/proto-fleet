@@ -1,15 +1,22 @@
 import { motion } from "motion/react";
 import { useCallback, useEffect, useState } from "react";
+import ContainerCooling from "./ContainerCooling";
+import ContainerNetwork from "./ContainerNetwork";
+import ContainerRunInDefaults from "./ContainerRunInDefaults";
 import MinerSystemTagEditModal from "./MinerSystemTagEditModal";
 import { useSystemTag } from "@/protoOS/api";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import CheckForUpdate from "@/protoOS/features/firmwareUpdate/components/CheckForUpdate";
+import ContainerFrigateSoftwareUpdate from "@/protoOS/features/firmwareUpdate/components/ContainerFrigateSoftwareUpdate";
+import ContainerHashboardFirmwareUpload from "@/protoOS/features/firmwareUpdate/components/ContainerHashboardFirmwareUpload";
 import {
   useAccessToken,
   useDismissedLoginModal,
+  useFlowUnit,
   useIsProtoRig,
   usePausedAuthAction,
   useSetDismissedLoginModal,
+  useSetFlowUnit,
   useSetPausedAuthAction,
   useSetTemperatureUnit,
   useSetTheme,
@@ -23,23 +30,31 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Picture from "@/shared/components/Picture";
 import Row from "@/shared/components/Row";
 import SkeletonBar from "@/shared/components/SkeletonBar";
-import { TemperatureUnitsSwitcher, ThemeSwitcher } from "@/shared/features/preferences";
+import { FlowUnitsSwitcher, TemperatureUnitsSwitcher, ThemeSwitcher } from "@/shared/features/preferences";
 import { convertToSentenceCase } from "@/shared/utils/stringUtils";
 
 const General = () => {
   const [showThemeSwitcher, setShowThemeSwitcher] = useState(false);
   const [showTemperatureUnitsSwitcher, setShowTemperatureUnitsSwitcher] = useState(false);
+  const [showFlowUnitsSwitcher, setShowFlowUnitsSwitcher] = useState(false);
   const [showMinerSystemTagEditModal, setShowMinerSystemTagEditModal] = useState(false);
-  const [minerTag, setMinerTag] = useState<string | null>(null);
   const theme = useTheme();
   const setTheme = useSetTheme();
   const temperatureUnit = useTemperatureUnit();
   const setTemperatureUnit = useSetTemperatureUnit();
+  const flowUnit = useFlowUnit();
+  const setFlowUnit = useSetFlowUnit();
 
   const systemInfo = useSystemInfo();
+  const isContainer = systemInfo?.identity.deviceType === "container";
   const isProtoRig = useIsProtoRig();
-  const { getSystemTag } = useSystemTag();
-  const { isFleetHosted } = useMinerHosting();
+  const { getSystemTag, systemTag: minerTag } = useSystemTag();
+  const { adapter, isFleetHosted, minerRoot } = useMinerHosting();
+  // Local hashboard updates are offered only on a direct container connection. Fleet-hosted views keep Fleet's flow.
+  const localHashboardFirmware = isContainer && !isFleetHosted ? adapter?.hashboardFirmware : undefined;
+  // Fleet runs its own controller updates, so the local workflow is for a direct CT1 connection only.
+  const localFrigateUpdate = isContainer && !isFleetHosted ? adapter?.frigateServerUpdate : undefined;
+  const deviceId = systemInfo?.identity.deviceId;
 
   const pausedAuthAction = usePausedAuthAction();
   const setPausedAuthAction = useSetPausedAuthAction();
@@ -50,9 +65,7 @@ const General = () => {
   );
 
   useEffect(() => {
-    getSystemTag({
-      onSuccess: (tag) => setMinerTag(tag),
-    });
+    getSystemTag({});
   }, [getSystemTag]);
 
   const handleMinerIdClick = useCallback(() => {
@@ -83,28 +96,34 @@ const General = () => {
     }
   }, [dismissedLoginModal, setDismissedLoginModal, setPausedAuthAction]);
 
-  const handleTagSaved = useCallback((tag: string) => {
-    setMinerTag(tag);
+  const handleTagSaved = useCallback(() => {
     setShowMinerSystemTagEditModal(false);
   }, []);
 
-  const hasTag = minerTag !== null && minerTag !== "";
+  const hasTag = Boolean(minerTag);
 
   return (
     <>
       <h2 className="mb-10 text-heading-300">General</h2>
-      <div className="mb-10 flex h-68 w-full items-center justify-center rounded-2xl bg-core-primary-5">
-        {isProtoRig ? (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
-            <Picture image={ProtoRigImage} alt={systemInfo?.product_name} />
-            <div className="mt-2 text-center text-heading-100 text-text-primary-50">{systemInfo?.product_name}</div>
-          </motion.div>
-        ) : null}
-      </div>
+      {!isContainer ? (
+        <div
+          className="mb-10 flex h-68 w-full items-center justify-center rounded-2xl bg-core-primary-5"
+          data-testid="rig-product-image"
+        >
+          {isProtoRig ? (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
+              <Picture image={ProtoRigImage} alt={systemInfo?.identity?.productName} />
+              <div className="mt-2 text-center text-heading-100 text-text-primary-50">
+                {systemInfo?.identity?.productName}
+              </div>
+            </motion.div>
+          ) : null}
+        </div>
+      ) : null}
       <div className="mb-10">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-heading-100">Details</h3>
-          {hasTag ? (
+          {hasTag && !isContainer ? (
             <Button
               text="Edit"
               variant={variants.secondary}
@@ -116,11 +135,15 @@ const General = () => {
         </div>
         <Row className="flex justify-between">
           <h4 className="text-emphasis-300">Model</h4>
-          <div className="text-300">{systemInfo?.product_name || <SkeletonBar className="w-20" />}</div>
+          <div className="text-300">
+            {systemInfo?.identity?.productName || (isContainer ? "—" : <SkeletonBar className="w-20" />)}
+          </div>
         </Row>
         <Row className="flex justify-between">
-          <h4 className="text-emphasis-300">Miner ID</h4>
-          {hasTag ? (
+          <h4 className="text-emphasis-300">{isContainer ? "Container ID" : "Miner ID"}</h4>
+          {isContainer ? (
+            <div className="text-300">{systemInfo.identity.deviceId.replace(/^device:/, "")}</div>
+          ) : hasTag ? (
             <div className="text-300" data-testid="miner-id-value">
               {minerTag}
             </div>
@@ -136,18 +159,41 @@ const General = () => {
           )}
         </Row>
       </div>
+      {isContainer ? <ContainerNetwork /> : null}
       <div className="mb-10">
         <h3 className="mb-2 text-heading-100">Firmware</h3>
         <Row className="flex justify-between">
-          <h4 className="text-emphasis-300">Version</h4>
+          <h4 className="text-emphasis-300">{isContainer ? "Control server 1" : "Version"}</h4>
           <div className="text-300" data-testid="firmware-version-value">
-            {systemInfo?.os?.version || <SkeletonBar className="w-20" />}
+            {systemInfo?.operatingSystem?.version || (isContainer ? "—" : <SkeletonBar className="w-20" />)}
           </div>
         </Row>
-        <div className="mt-6 flex justify-center">
-          <CheckForUpdate />
-        </div>
+        {isContainer ? (
+          <>
+            <Row className="flex justify-between">
+              <h4 className="text-emphasis-300">Control server 2</h4>
+              <span>—</span>
+            </Row>
+            <Row className="flex justify-between">
+              <h4 className="text-emphasis-300">Last updated</h4>
+              <span>—</span>
+            </Row>
+          </>
+        ) : null}
+        {localFrigateUpdate && deviceId ? (
+          <ContainerFrigateSoftwareUpdate key={deviceId} update={localFrigateUpdate} deviceId={deviceId} />
+        ) : null}
+        {localHashboardFirmware && deviceId ? (
+          <ContainerHashboardFirmwareUpload key={deviceId} firmware={localHashboardFirmware} deviceId={deviceId} />
+        ) : null}
+        {!isContainer ? (
+          <div className="mt-6 flex justify-center">
+            <CheckForUpdate key={minerRoot} />
+          </div>
+        ) : null}
       </div>
+      {isContainer ? <ContainerCooling key={minerRoot} /> : null}
+      {isContainer ? <ContainerRunInDefaults key={systemInfo.identity.deviceId} /> : null}
       <div className="mb-10">
         <h3 className="mb-2 text-heading-100">Preferences</h3>
         <Row className="flex justify-between">
@@ -180,6 +226,25 @@ const General = () => {
             />
           ) : null}
         </Row>
+        {isContainer ? (
+          <Row className="flex justify-between">
+            <h4 className="text-emphasis-300">Flow</h4>
+            <Button
+              variant={variants.textOnly}
+              onClick={() => setShowFlowUnitsSwitcher(true)}
+              textColor="text-intent-warning-fill"
+              text={flowUnit === "GPM" ? "Gallons per minute" : "Liters per minute"}
+              testId="flow-button"
+            />
+            {showFlowUnitsSwitcher ? (
+              <FlowUnitsSwitcher
+                onClickDone={() => setShowFlowUnitsSwitcher(false)}
+                flowUnit={flowUnit}
+                setFlowUnit={setFlowUnit}
+              />
+            ) : null}
+          </Row>
+        ) : null}
       </div>
       <MinerSystemTagEditModal
         open={showMinerSystemTagEditModal}

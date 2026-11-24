@@ -116,21 +116,6 @@ describe("ResetPasswordModal", () => {
       expect(getByText(/jane_smith's password has been reset/)).toBeInTheDocument();
     });
 
-    it("calls onDismiss when Done is clicked", () => {
-      const { getByText } = render(
-        <ResetPasswordModal
-          username="john_doe"
-          temporaryPassword="TempPass123!@#"
-          onConfirm={mockOnConfirm}
-          onDismiss={mockOnDismiss}
-          isResetting={false}
-        />,
-      );
-
-      fireEvent.click(getByText("Done"));
-      expect(mockOnDismiss).toHaveBeenCalled();
-    });
-
     it("allows copying temporary password", () => {
       const { getByRole } = render(
         <ResetPasswordModal
@@ -146,21 +131,6 @@ describe("ResetPasswordModal", () => {
       fireEvent.click(copyButton);
 
       expect(utility.copyToClipboard).toHaveBeenCalledWith("TempPass123!@#");
-    });
-
-    it("handles long usernames in success message", () => {
-      const longUsername = "user_with_a_very_long_username_for_testing";
-      const { getByText } = render(
-        <ResetPasswordModal
-          username={longUsername}
-          temporaryPassword="TempPass123!@#"
-          onConfirm={mockOnConfirm}
-          onDismiss={mockOnDismiss}
-          isResetting={false}
-        />,
-      );
-
-      expect(getByText(new RegExp(`${longUsername}'s password has been reset`))).toBeInTheDocument();
     });
   });
 

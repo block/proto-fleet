@@ -1,6 +1,7 @@
 package sqlstores_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -12,7 +13,9 @@ func TestReleaseChannelQueries_QueuedFirmwareChecksumIdentity(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
-	for _, tc := range []struct {
+	// The rows share one database. Each row has its own site, channel and device.
+	f := newReleaseChannelQueryFixture(t)
+	for i, tc := range []struct {
 		name          string
 		payload       string
 		status        string
@@ -35,12 +38,12 @@ func TestReleaseChannelQueries_QueuedFirmwareChecksumIdentity(t *testing.T) {
 		{name: "other command type is ignored", payload: `{"firmware_checksum":"other"}`, commandType: "Reboot"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f := newReleaseChannelQueryFixture(t)
-			channel := f.channel("command identity")
+			f.useNewSite(fmt.Sprintf("command-identity-%d", i))
+			channel := f.channel(fmt.Sprintf("command identity %d", i))
 			require.NoError(t, f.q.InsertReleaseChannelTargets(t.Context(), sqlc.InsertReleaseChannelTargetsParams{
 				ChannelID: channel, TargetTypes: []string{"site"}, TargetIds: []int64{f.site},
 			}))
-			device := f.device("current", "Bitmain", "S19", "v2")
+			device := f.device(fmt.Sprintf("current-%d", i), "Bitmain", "S19", "v2")
 			rollout := f.rollout(channel, "Bitmain", "S19")
 			require.NoError(t, f.q.AppendFirmwareRolloutDevices(t.Context(), sqlc.AppendFirmwareRolloutDevicesParams{RolloutID: rollout, DeviceIds: []int64{device.id}}))
 			require.NoError(t, f.q.RecordFirmwareDeployment(t.Context(), sqlc.RecordFirmwareDeploymentParams{

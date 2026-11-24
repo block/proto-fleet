@@ -10,7 +10,7 @@ import (
 )
 
 const listTerminalFirmwareRolloutsNeedingProvenance = `-- name: ListTerminalFirmwareRolloutsNeedingProvenance :many
-SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.behavior_snapshot, r.batch_count, r.current_batch, r.stage_changed_at, r.stage_paused_microseconds, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, r.controller_waiting_since
+SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.behavior_snapshot, r.batch_count, r.current_batch, r.stage_changed_at, r.stage_paused_microseconds, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, r.controller_waiting_since, r.component
 FROM firmware_rollout r
 WHERE r.status <> 'active'
   AND EXISTS (
@@ -18,6 +18,7 @@ WHERE r.status <> 'active'
       FROM firmware_rollout_device rd
       JOIN device d ON d.id = rd.device_id AND d.deleted_at IS NULL
       JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.deleted_at IS NULL
+      CROSS JOIN LATERAL release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version, r.component) AS reported(version)
       JOIN command_batch_log batch ON batch.uuid = rd.last_dispatched_batch_uuid
           AND batch.organization_id = r.org_id
           AND batch.type = 'FirmwareUpdate'
@@ -26,7 +27,7 @@ WHERE r.status <> 'active'
           AND result.device_id = rd.device_id
           AND result.org_id = r.org_id
           AND result.status = 'SUCCESS'
-      JOIN device_firmware_deployment dep ON dep.device_id = rd.device_id
+      JOIN device_firmware_deployment dep ON dep.device_id = rd.device_id AND dep.component = r.component
       JOIN command_batch_log current_batch ON current_batch.uuid = dep.last_command_batch_uuid
           AND (current_batch.organization_id = r.org_id OR current_batch.organization_id IS NULL)
           AND current_batch.type = 'FirmwareUpdate'
@@ -37,7 +38,7 @@ WHERE r.status <> 'active'
           AND current_result.status = 'SUCCESS'
       WHERE rd.rollout_id = r.id
         AND rd.last_dispatched_at IS NOT NULL
-        AND dd.firmware_version = r.firmware_version
+        AND reported.version = r.firmware_version
         AND COALESCE(dep.firmware_checksum, '') <> r.firmware_checksum
         AND (COALESCE(dep.firmware_checksum, '') = '' OR dep.deployed_at <= rd.last_dispatched_at)
   )
@@ -91,6 +92,7 @@ func (q *Queries) ListTerminalFirmwareRolloutsNeedingProvenance(ctx context.Cont
 			&i.CreatedAt,
 			&i.FinishedAt,
 			&i.ControllerWaitingSince,
+			&i.Component,
 		); err != nil {
 			return nil, err
 		}

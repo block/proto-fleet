@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// nullStringFromTarget maps Unknown to NULL for partial upserts.
+// nullStringFromTarget maps Unknown to NULL when replacing source state.
 func nullStringFromTarget(t Target) sql.NullString {
 	switch t {
 	case TargetOff:

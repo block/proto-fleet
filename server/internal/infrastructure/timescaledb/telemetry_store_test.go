@@ -12,6 +12,8 @@ import (
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/block/proto-fleet/server/internal/infrastructure/timescaledb"
 	"github.com/block/proto-fleet/server/internal/testutil"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -61,6 +63,354 @@ func TestTelemetryStore_StoreDeviceMetrics(t *testing.T) {
 	assert.Equal(t, 100_000_000.0, hashRate)
 	assert.Equal(t, 72.5, temp)
 	assert.Equal(t, 1500.0, power)
+}
+
+func TestTelemetryStore_StoreDeviceMetricsUsesSingleStatement(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	db := testutil.GetTestDB(t)
+	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	_, err = db.ExecContext(ctx, `
+		CREATE TABLE telemetry_insert_audit (
+			trigger_level TEXT PRIMARY KEY,
+			invocations INTEGER NOT NULL DEFAULT 0
+		);
+		INSERT INTO telemetry_insert_audit (trigger_level) VALUES ('row'), ('statement');
+
+		CREATE FUNCTION audit_device_metrics_row_insert() RETURNS TRIGGER AS $$
+		BEGIN
+			UPDATE telemetry_insert_audit SET invocations = invocations + 1 WHERE trigger_level = 'row';
+			RETURN NEW;
+		END;
+		$$ LANGUAGE plpgsql;
+		CREATE TRIGGER audit_device_metrics_row_insert
+			AFTER INSERT ON device_metrics
+			FOR EACH ROW EXECUTE FUNCTION audit_device_metrics_row_insert();
+
+		CREATE FUNCTION audit_device_metrics_statement_insert() RETURNS TRIGGER AS $$
+		BEGIN
+			UPDATE telemetry_insert_audit SET invocations = invocations + 1 WHERE trigger_level = 'statement';
+			RETURN NULL;
+		END;
+		$$ LANGUAGE plpgsql;
+		CREATE TRIGGER audit_device_metrics_statement_insert
+			AFTER INSERT ON device_metrics
+			FOR EACH STATEMENT EXECUTE FUNCTION audit_device_metrics_statement_insert();
+	`)
+	require.NoError(t, err)
+
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	metrics := []modelsV2.DeviceMetrics{
+		{
+			DeviceIdentifier: "batch-device-1",
+			Timestamp:        now,
+			Health:           modelsV2.HealthHealthyActive,
+			HashrateHS:       &modelsV2.MetricValue{Value: 100_000_000, Kind: modelsV2.MetricKindRate},
+			FanRPM:           &modelsV2.MetricValue{Value: 0, Kind: modelsV2.MetricKindGauge},
+			EfficiencyJH:     &modelsV2.MetricValue{Value: 15.5, Kind: modelsV2.MetricKindGauge},
+		},
+		{
+			DeviceIdentifier: "batch-device-2",
+			Timestamp:        now,
+			Health:           modelsV2.HealthWarning,
+			TempC:            &modelsV2.MetricValue{Value: 82.5, Kind: modelsV2.MetricKindGauge},
+			PowerW:           &modelsV2.MetricValue{Value: 3200, Kind: modelsV2.MetricKindGauge},
+		},
+		{
+			DeviceIdentifier: "batch-device-1",
+			Timestamp:        now,
+			Health:           modelsV2.HealthCritical,
+			HashrateHS:       &modelsV2.MetricValue{Value: 50_000_000, Kind: modelsV2.MetricKindRate},
+		},
+	}
+
+	require.NoError(t, store.StoreDeviceMetrics(ctx, metrics...))
+
+	var storedRows int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM device_metrics
+		WHERE device_identifier IN ('batch-device-1', 'batch-device-2')
+	`).Scan(&storedRows))
+	assert.Equal(t, 2, storedRows, "the duplicate timestamp/device key should retain ON CONFLICT DO NOTHING behavior")
+
+	type storedMetrics struct {
+		hashRateHS       sql.NullFloat64
+		hashRateHSKind   sql.NullString
+		tempC            sql.NullFloat64
+		tempCKind        sql.NullString
+		fanRPM           sql.NullFloat64
+		fanRPMKind       sql.NullString
+		powerW           sql.NullFloat64
+		powerWKind       sql.NullString
+		efficiencyJH     sql.NullFloat64
+		efficiencyJHKind sql.NullString
+		health           sql.NullString
+	}
+
+	readStoredMetrics := func(deviceIdentifier string) storedMetrics {
+		t.Helper()
+		var stored storedMetrics
+		require.NoError(t, db.QueryRowContext(ctx, `
+			SELECT
+				hash_rate_hs,
+				hash_rate_hs_kind,
+				temp_c,
+				temp_c_kind,
+				fan_rpm,
+				fan_rpm_kind,
+				power_w,
+				power_w_kind,
+				efficiency_jh,
+				efficiency_jh_kind,
+				health
+			FROM device_metrics
+			WHERE time = $1 AND device_identifier = $2
+		`, now, deviceIdentifier).Scan(
+			&stored.hashRateHS,
+			&stored.hashRateHSKind,
+			&stored.tempC,
+			&stored.tempCKind,
+			&stored.fanRPM,
+			&stored.fanRPMKind,
+			&stored.powerW,
+			&stored.powerWKind,
+			&stored.efficiencyJH,
+			&stored.efficiencyJHKind,
+			&stored.health,
+		))
+		return stored
+	}
+
+	assert.Equal(t, storedMetrics{
+		hashRateHS:       sql.NullFloat64{Float64: metrics[0].HashrateHS.Value, Valid: true},
+		hashRateHSKind:   sql.NullString{String: metrics[0].HashrateHS.Kind.String(), Valid: true},
+		fanRPM:           sql.NullFloat64{Float64: metrics[0].FanRPM.Value, Valid: true},
+		fanRPMKind:       sql.NullString{String: metrics[0].FanRPM.Kind.String(), Valid: true},
+		efficiencyJH:     sql.NullFloat64{Float64: metrics[0].EfficiencyJH.Value, Valid: true},
+		efficiencyJHKind: sql.NullString{String: metrics[0].EfficiencyJH.Kind.String(), Valid: true},
+		health:           sql.NullString{String: metrics[0].Health.String(), Valid: true},
+	}, readStoredMetrics(metrics[0].DeviceIdentifier))
+	assert.Equal(t, storedMetrics{
+		tempC:      sql.NullFloat64{Float64: metrics[1].TempC.Value, Valid: true},
+		tempCKind:  sql.NullString{String: metrics[1].TempC.Kind.String(), Valid: true},
+		powerW:     sql.NullFloat64{Float64: metrics[1].PowerW.Value, Valid: true},
+		powerWKind: sql.NullString{String: metrics[1].PowerW.Kind.String(), Valid: true},
+		health:     sql.NullString{String: metrics[1].Health.String(), Valid: true},
+	}, readStoredMetrics(metrics[1].DeviceIdentifier))
+
+	triggerInvocations := make(map[string]int)
+	rows, err := db.QueryContext(ctx, "SELECT trigger_level, invocations FROM telemetry_insert_audit")
+	require.NoError(t, err)
+	defer rows.Close()
+	for rows.Next() {
+		var level string
+		var invocations int
+		require.NoError(t, rows.Scan(&level, &invocations))
+		triggerInvocations[level] = invocations
+	}
+	require.NoError(t, rows.Err())
+	assert.Equal(t, 2, triggerInvocations["row"], "each inserted row should fire row-level triggers")
+	assert.Equal(t, 1, triggerInvocations["statement"], "the batch should execute as one INSERT statement")
+}
+
+func TestTelemetryStore_StoreDeviceMetricsBoundsContainerLockWait(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	config := timescaledb.DefaultConfig()
+	config.WriteTimeout = 4 * time.Second
+	store, err := timescaledb.NewTelemetryStore(db, config)
+	require.NoError(t, err)
+	ctx := t.Context()
+	user := dbSvc.CreateSuperAdminUser()
+	device := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	_, err = db.ExecContext(ctx, "UPDATE discovered_device SET device_class=2 WHERE id=(SELECT discovered_device_id FROM device WHERE id=$1)", device.DatabaseID)
+	require.NoError(t, err)
+
+	lock, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer lock.Rollback()
+	_, err = lock.ExecContext(ctx, "SELECT id FROM organization WHERE id=$1 FOR UPDATE", user.OrganizationID)
+	require.NoError(t, err)
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	ordinary := modelsV2.DeviceMetrics{DeviceIdentifier: "unblocked-device", Timestamp: now}
+	container := modelsV2.DeviceMetrics{
+		DeviceIdentifier: device.ID, Timestamp: now,
+		Container: &sdk.ContainerSnapshot{ObservedAt: now},
+	}
+	err = store.StoreDeviceMetrics(ctx, ordinary, container)
+	var pgErr *pgconn.PgError
+	require.ErrorAs(t, err, &pgErr)
+	require.Equal(t, "55P03", pgErr.Code, "lock waits should fail before the write deadline so the writer can isolate the blocked sample")
+
+	// The failed transaction must roll back and leave independent samples writable.
+	require.NoError(t, store.StoreDeviceMetrics(ctx, ordinary))
+	var rows int
+	require.NoError(t, db.QueryRowContext(ctx, "SELECT count(*) FROM device_metrics WHERE device_identifier=$1", ordinary.DeviceIdentifier).Scan(&rows))
+	require.Equal(t, 1, rows)
+	require.NoError(t, lock.Rollback())
+	require.NoError(t, store.StoreDeviceMetrics(ctx, container))
+}
+
+func TestTelemetryStore_StoreDeviceMetricsKeepsContainerWritesSeparate(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+	containerDevice := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	_, err = db.ExecContext(ctx, "UPDATE discovered_device SET device_class=2 WHERE id=(SELECT discovered_device_id FROM device WHERE id=$1)", containerDevice.DatabaseID)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `
+		CREATE TABLE telemetry_statement_audit (invocations INTEGER NOT NULL);
+		INSERT INTO telemetry_statement_audit VALUES (0);
+		CREATE FUNCTION audit_device_metrics_statement_insert() RETURNS TRIGGER AS $$
+		BEGIN
+			UPDATE telemetry_statement_audit SET invocations = invocations + 1;
+			RETURN NULL;
+		END;
+		$$ LANGUAGE plpgsql;
+		CREATE TRIGGER audit_device_metrics_statement_insert
+			AFTER INSERT ON device_metrics
+			FOR EACH STATEMENT EXECUTE FUNCTION audit_device_metrics_statement_insert();
+	`)
+	require.NoError(t, err)
+
+	now := time.Now().UTC().Truncate(time.Millisecond).Add(999 * time.Nanosecond)
+	container := &sdk.ContainerSnapshot{ObservedAt: now}
+	require.NoError(t, store.StoreDeviceMetrics(ctx,
+		modelsV2.DeviceMetrics{
+			DeviceIdentifier: "ordinary-device",
+			Timestamp:        now,
+			Health:           modelsV2.HealthHealthyActive,
+		},
+		modelsV2.DeviceMetrics{
+			DeviceIdentifier: containerDevice.ID,
+			Timestamp:        now,
+			Health:           modelsV2.HealthHealthyActive,
+			Container:        container,
+		},
+	))
+
+	assert.True(t, container.InventoryAccepted, "container reconciliation should still run")
+	var storedRows int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM device_metrics
+		WHERE time = $1 AND device_identifier IN ($2, $3)
+	`, now, "ordinary-device", containerDevice.ID).Scan(&storedRows))
+	assert.Equal(t, 2, storedRows)
+
+	var semantics int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT metric_semantics FROM device_metrics
+		WHERE device_identifier = $1 AND time = $2
+	`, containerDevice.ID, now).Scan(&semantics))
+	assert.Equal(t, 2, semantics, "sub-microsecond samples must match the scalar container stamp and rollup")
+
+	var statementInvocations int
+	require.NoError(t, db.QueryRowContext(ctx, "SELECT invocations FROM telemetry_statement_audit").Scan(&statementInvocations))
+	assert.Equal(t, 2, statementInvocations, "ordinary and container metrics should use separate INSERT statements")
+}
+
+func TestTelemetryStore_StoreDeviceMetricsRollsBackMixedBatchOnOrdinaryFailure(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+	containerDevice := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	_, err = db.ExecContext(ctx, "UPDATE discovered_device SET device_class=2 WHERE id=(SELECT discovered_device_id FROM device WHERE id=$1)", containerDevice.DatabaseID)
+	require.NoError(t, err)
+
+	const rejectedDevice = "rejected-ordinary-device"
+	_, err = db.ExecContext(ctx, `
+		CREATE FUNCTION reject_test_device_metrics() RETURNS TRIGGER AS $$
+		BEGIN
+			IF NEW.device_identifier = 'rejected-ordinary-device' THEN
+				RAISE EXCEPTION 'rejecting malformed telemetry sample';
+			END IF;
+			RETURN NEW;
+		END;
+		$$ LANGUAGE plpgsql;
+		CREATE TRIGGER reject_test_device_metrics
+			BEFORE INSERT ON device_metrics
+			FOR EACH ROW EXECUTE FUNCTION reject_test_device_metrics();
+	`)
+	require.NoError(t, err)
+
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	container := modelsV2.DeviceMetrics{
+		DeviceIdentifier: containerDevice.ID,
+		Timestamp:        now,
+		Health:           modelsV2.HealthHealthyActive,
+		Container: &sdk.ContainerSnapshot{
+			ObservedAt: now,
+			Plant:      &sdk.ContainerPlant{ObservedAt: now},
+		},
+	}
+	validOrdinary := modelsV2.DeviceMetrics{
+		DeviceIdentifier: "valid-ordinary-device",
+		Timestamp:        now,
+		Health:           modelsV2.HealthHealthyActive,
+	}
+	malformedOrdinary := modelsV2.DeviceMetrics{
+		DeviceIdentifier: rejectedDevice,
+		Timestamp:        now,
+		Health:           modelsV2.HealthHealthyActive,
+	}
+
+	err = store.StoreDeviceMetrics(ctx, container, validOrdinary, malformedOrdinary)
+	require.ErrorContains(t, err, "rejecting malformed telemetry sample")
+
+	var inventoryRows, plantRows, metricRows int
+	require.NoError(t, db.QueryRowContext(ctx, "SELECT COUNT(*) FROM container_inventory WHERE device_id=$1", containerDevice.DatabaseID).Scan(&inventoryRows))
+	require.NoError(t, db.QueryRowContext(ctx, "SELECT COUNT(*) FROM container_plant_metrics WHERE device_id=$1", containerDevice.DatabaseID).Scan(&plantRows))
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM device_metrics
+		WHERE time = $1 AND device_identifier IN ($2, $3, $4)
+	`, now, containerDevice.ID, validOrdinary.DeviceIdentifier, rejectedDevice).Scan(&metricRows))
+	assert.Zero(t, inventoryRows)
+	assert.Zero(t, plantRows)
+	assert.Zero(t, metricRows)
+
+	require.NoError(t, store.StoreDeviceMetrics(ctx, container))
+	require.NoError(t, store.StoreDeviceMetrics(ctx, validOrdinary))
+	require.ErrorContains(t, store.StoreDeviceMetrics(ctx, malformedOrdinary), "rejecting malformed telemetry sample")
+
+	require.NoError(t, db.QueryRowContext(ctx, "SELECT COUNT(*) FROM container_inventory WHERE device_id=$1", containerDevice.DatabaseID).Scan(&inventoryRows))
+	require.NoError(t, db.QueryRowContext(ctx, "SELECT COUNT(*) FROM container_plant_metrics WHERE device_id=$1", containerDevice.DatabaseID).Scan(&plantRows))
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM device_metrics
+		WHERE time = $1 AND device_identifier IN ($2, $3, $4)
+	`, now, containerDevice.ID, validOrdinary.DeviceIdentifier, rejectedDevice).Scan(&metricRows))
+	assert.Equal(t, 1, inventoryRows)
+	assert.Equal(t, 1, plantRows)
+	assert.Equal(t, 2, metricRows)
 }
 
 func TestTelemetryStore_StoreDeviceMetricsWithAsyncCommit(t *testing.T) {
@@ -897,6 +1247,88 @@ func TestTelemetryStore_GetCombinedMetrics_OrgHourlyBodyMatchesRawTailScope(t *t
 	require.NotNil(t, bodyTemp, "expected body temperature status count")
 	assert.Equal(t, int32(1), bodyTemp.OkCount)
 	assert.Equal(t, int32(0), bodyTemp.CriticalCount)
+}
+
+func TestTelemetryStore_GetCombinedMetrics_HistoricalTemperatureUsesRetainedRollups(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	orgID := dbSvc.CreateSuperAdminUser().OrganizationID
+	otherOrgID := dbSvc.CreateSuperAdminUser2().OrganizationID
+	device := dbSvc.CreateDevice(orgID, "proto")
+	otherDevice := dbSvc.CreateDevice(otherOrgID, "proto")
+
+	const day = 24 * time.Hour
+	cutoffDay := time.Now().UTC().Add(-88 * day).Truncate(day)
+	oldDay := cutoffDay.Add(-day)
+	recentDay := cutoffDay.Add(day)
+	recentHour := recentDay.Add(time.Hour)
+	insertTestMetrics(t, db, device.ID, oldDay.Add(2*time.Hour), 100, 50)
+	insertTestMetrics(t, db, otherDevice.ID, oldDay.Add(2*time.Hour), 100, 95)
+	insertTestMetrics(t, db, device.ID, cutoffDay.Add(15*time.Hour), 100, 95)
+	insertTestMetrics(t, db, device.ID, recentHour.Add(10*time.Minute), 100, 80)
+
+	refreshEnd := cutoffDay.Add(2 * day)
+	testutil.RefreshContinuousAggregate(t, db, "device_status_hourly", &oldDay, &refreshEnd)
+	testutil.RefreshContinuousAggregate(t, db, "device_status_daily", &oldDay, &refreshEnd)
+	testutil.RefreshContinuousAggregate(t, db, "device_metrics_daily", &oldDay, &cutoffDay)
+	_, err = db.ExecContext(ctx, `DELETE FROM device_metrics`)
+	require.NoError(t, err)
+
+	t.Run("daily metrics use the requested organization", func(t *testing.T) {
+		start := oldDay.Add(-10 * day)
+		result, err := store.GetCombinedMetrics(t.Context(), models.CombinedMetricsQuery{
+			OrganizationID:   orgID,
+			MeasurementTypes: []models.MeasurementType{models.MeasurementTypeHashrate},
+			TimeRange:        models.TimeRange{StartTime: &start, EndTime: &cutoffDay},
+		})
+		require.NoError(t, err)
+		require.Len(t, result.Metrics, 1)
+		assert.True(t, result.Metrics[0].OpenTime.Equal(oldDay))
+		assert.Equal(t, int32(1), result.Metrics[0].DeviceCount)
+		assert.Equal(t, float64(100), aggValues(result.Metrics[0].AggregatedValues)[models.AggregationTypeAverage])
+	})
+
+	getCounts := func(start, end time.Time, deviceIDs ...models.DeviceIdentifier) []models.TemperatureStatusCount {
+		result, err := store.GetCombinedMetrics(ctx, models.CombinedMetricsQuery{
+			OrganizationID:   orgID,
+			DeviceIDs:        deviceIDs,
+			MeasurementTypes: []models.MeasurementType{models.MeasurementTypeTemperature},
+			TimeRange:        models.TimeRange{StartTime: &start, EndTime: &end},
+		})
+		require.NoError(t, err)
+		return result.TemperatureStatusCounts
+	}
+
+	counts := getCounts(oldDay, refreshEnd)
+	require.Len(t, counts, 3)
+	assert.True(t, counts[0].Timestamp.Equal(oldDay))
+	assert.Equal(t, int32(1), counts[0].OkCount)
+	assert.Zero(t, counts[0].CriticalCount, "exclude devices from other organizations")
+	assert.True(t, counts[1].Timestamp.Equal(cutoffDay))
+	assert.Equal(t, int32(1), counts[1].CriticalCount)
+	assert.True(t, counts[2].Timestamp.Equal(recentDay), "use daily buckets for the full range across the cutoff")
+	assert.Equal(t, int32(1), counts[2].HotCount)
+
+	tailSample := recentDay.Add(6 * time.Hour)
+	insertTestMetrics(t, db, device.ID, tailSample, 100, 95)
+	counts = getCounts(recentDay, recentDay.Add(7*time.Hour))
+	require.Len(t, counts, 2, "keep the hourly body and raw tail within hourly retention")
+	assert.True(t, counts[0].Timestamp.Equal(recentHour), "use hourly buckets within hourly retention")
+	assert.True(t, counts[1].Timestamp.Equal(tailSample))
+	assert.Equal(t, int32(1), counts[1].CriticalCount)
+
+	counts = getCounts(oldDay, cutoffDay, models.DeviceIdentifier(device.ID))
+	require.Len(t, counts, 1)
+	assert.True(t, counts[0].Timestamp.Equal(oldDay))
+	assert.Empty(t, getCounts(oldDay.Add(time.Hour), oldDay.Add(4*time.Hour)))
 }
 
 func TestTelemetryStore_GetCombinedMetrics_RawTailCoversUnmaterializedCompletedHours(t *testing.T) {

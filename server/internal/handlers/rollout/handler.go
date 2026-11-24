@@ -21,7 +21,7 @@ import (
 type ChannelService interface {
 	ListChannels(ctx context.Context, orgID int64, pageSize int32, cursor string) ([]rollout.Channel, string, error)
 	GetChannel(ctx context.Context, orgID, channelID int64) (*rollout.Channel, error)
-	ListChannelMiners(ctx context.Context, orgID, channelID int64, manufacturer, model string, pageSize int32, cursor string) ([]rollout.ChannelMiner, string, error)
+	ListChannelMiners(ctx context.Context, orgID, channelID int64, manufacturer, model, component string, pageSize int32, cursor string) ([]rollout.ChannelMiner, string, error)
 	ListChannelModelGroups(ctx context.Context, orgID, channelID int64, pageSize int32, cursor string) ([]rollout.ModelGroup, string, error)
 	ListMembershipConflicts(ctx context.Context, orgID, channelID int64, pageSize int32, cursor string) ([]rollout.MembershipConflict, string, error)
 	CreateChannel(ctx context.Context, orgID, userID int64, spec rollout.ChannelSpec) (*rollout.Channel, error)
@@ -58,12 +58,21 @@ type ControllerService interface {
 	CompleteRollout(ctx context.Context, orgID, rolloutID int64, m rollout.Mutation) (*rollout.Rollout, error)
 }
 
+// ControllerSoftwareService is a channel's controller software target for its
+// container models.
+type ControllerSoftwareService interface {
+	ListControllerSoftware(ctx context.Context, orgID, channelID int64) ([]rollout.ControllerSoftware, error)
+	SetControllerSoftware(ctx context.Context, orgID, userID, channelID int64, manufacturer, model, version string) error
+	ListControllerSoftwareContainers(ctx context.Context, orgID, channelID int64, manufacturer, model string, pageSize int32, cursor string) ([]rollout.ChannelContainer, string, error)
+}
+
 // Service is the slice of the rollout domain the handler uses.
 type Service interface {
 	ChannelService
 	AssignmentService
 	RolloutService
 	ControllerService
+	ControllerSoftwareService
 }
 
 // Handler serves the release channel, rollout lifecycle, and controller APIs.
@@ -136,6 +145,55 @@ func (h *Handler) ListReleaseChannels(ctx context.Context, r *connect.Request[pb
 	return connect.NewResponse(resp), nil
 }
 
+func (h *Handler) ListReleaseChannelControllerSoftware(ctx context.Context, r *connect.Request[pb.ListReleaseChannelControllerSoftwareRequest]) (*connect.Response[pb.ListReleaseChannelControllerSoftwareResponse], error) {
+	info, err := authorize(ctx)
+	if err != nil {
+		return nil, err
+	}
+	models, err := h.svc.ListControllerSoftware(ctx, info.OrganizationID, r.Msg.ChannelId)
+	if err != nil {
+		return nil, err
+	}
+	resp := &pb.ListReleaseChannelControllerSoftwareResponse{}
+	for i := range models {
+		resp.Models = append(resp.Models, controllerSoftwareToProto(&models[i]))
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *Handler) ListReleaseChannelContainers(ctx context.Context, r *connect.Request[pb.ListReleaseChannelContainersRequest]) (*connect.Response[pb.ListReleaseChannelContainersResponse], error) {
+	info, err := authorize(ctx)
+	if err != nil {
+		return nil, err
+	}
+	containers, cursor, err := h.svc.ListControllerSoftwareContainers(ctx, info.OrganizationID, r.Msg.ChannelId, r.Msg.Manufacturer, r.Msg.Model, r.Msg.PageSize, r.Msg.Cursor)
+	if err != nil {
+		return nil, err
+	}
+	resp := &pb.ListReleaseChannelContainersResponse{Cursor: cursor}
+	for _, c := range containers {
+		resp.Containers = append(resp.Containers, &pb.ReleaseChannelContainer{DeviceIdentifier: c.DeviceIdentifier, ControllerSoftwareVersion: c.ControllerSoftwareVersion, OnTarget: c.OnTarget})
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *Handler) SetReleaseChannelControllerSoftware(ctx context.Context, r *connect.Request[pb.SetReleaseChannelControllerSoftwareRequest]) (*connect.Response[pb.SetReleaseChannelControllerSoftwareResponse], error) {
+	info, err := authorize(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// The target decides which controller software a container must run before
+	// it takes firmware, so it also needs the controller software permission.
+	if _, err := middleware.RequirePermission(ctx, authz.PermControllerSoftwareUpdate, authz.ResourceContext{}); err != nil {
+		return nil, err
+	}
+	err = h.svc.SetControllerSoftware(ctx, info.OrganizationID, info.UserID, r.Msg.ChannelId, r.Msg.Manufacturer, r.Msg.Model, r.Msg.Version)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.SetReleaseChannelControllerSoftwareResponse{}), nil
+}
+
 func (h *Handler) GetReleaseChannel(ctx context.Context, r *connect.Request[pb.GetReleaseChannelRequest]) (*connect.Response[pb.GetReleaseChannelResponse], error) {
 	info, err := authorize(ctx)
 	if err != nil {
@@ -169,7 +227,7 @@ func (h *Handler) ListReleaseChannelMiners(ctx context.Context, r *connect.Reque
 	if err != nil {
 		return nil, err
 	}
-	miners, cursor, err := h.svc.ListChannelMiners(ctx, info.OrganizationID, r.Msg.ChannelId, r.Msg.Manufacturer, r.Msg.Model, r.Msg.PageSize, r.Msg.Cursor)
+	miners, cursor, err := h.svc.ListChannelMiners(ctx, info.OrganizationID, r.Msg.ChannelId, r.Msg.Manufacturer, r.Msg.Model, r.Msg.Component, r.Msg.PageSize, r.Msg.Cursor)
 	if err != nil {
 		return nil, err
 	}

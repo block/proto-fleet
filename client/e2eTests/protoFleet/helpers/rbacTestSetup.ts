@@ -32,16 +32,9 @@ export const RBAC_SCHEDULE_PREFIX = "rbac_schedule";
 export const RBAC_SITE_PREFIX = "rbac_site";
 export const RBAC_BUILDING_PREFIX = "rbac_building";
 export const RBAC_RACK_PREFIX = "rbac_rack";
-export const RBAC_CURTAILMENT_PROFILE_PREFIX = "rbac_curtailment_profile";
-export const RBAC_CURTAILMENT_SOURCE_PREFIX = "rbac_curtailment_source";
 export const RBAC_CURTAILMENT_REASON_PREFIX = "rbac_curtailment_reason";
 export const RBAC_RACK_ZONE = "RbacZone";
 const SHORT_HOOK_TIMEOUT = DEFAULT_TIMEOUT / 6;
-const RBAC_CLEANUP_TARGETS_ANNOTATION = "rbac-cleanup-targets";
-
-type RbacCleanupTarget = "alerts" | "curtailment" | "infrastructure" | "pools" | "schedules" | "team";
-
-const DEFAULT_RBAC_CLEANUP_TARGETS: RbacCleanupTarget[] = ["team"];
 
 type PersistedAdminStorageState = Exclude<
   NonNullable<Parameters<Browser["newContext"]>[0]>["storageState"],
@@ -85,8 +78,8 @@ type ProvisionedMember = {
   username: string;
 };
 
-type ProvisionedMemberWithTemporaryPassword = ProvisionedMember & {
-  temporaryPassword: string;
+type ProvisionedMemberWithInvitation = ProvisionedMember & {
+  invitationCode: string;
 };
 
 type CleanupPages = {
@@ -103,24 +96,6 @@ type CleanupPages = {
   settingsTeamPage: SettingsTeamPage;
 };
 
-export function useRbacHooks(cleanupTargets: RbacCleanupTarget[] = DEFAULT_RBAC_CLEANUP_TARGETS) {
-  test.beforeEach(async ({ page }) => {
-    await installAllSitesInitScript(page);
-    await page.goto("/");
-  });
-
-  test.afterEach("CLEANUP: delete RBAC fixtures", async ({ browser }, testInfo) => {
-    await cleanupRbacArtifacts(browser, testInfo, getCleanupTargetsForTest(testInfo, cleanupTargets));
-  });
-}
-
-export function markRbacCleanupTargets(testInfo: TestInfo, cleanupTargets: RbacCleanupTarget[]) {
-  testInfo.annotations.push({
-    type: RBAC_CLEANUP_TARGETS_ANNOTATION,
-    description: cleanupTargets.join(","),
-  });
-}
-
 export async function provisionRoleAndLogin(
   commonSteps: CommonSteps,
   {
@@ -134,18 +109,13 @@ export async function provisionRoleAndLogin(
   const roleName = generateRandomText(RBAC_ROLE_PREFIX);
   const username = generateRandomText(RBAC_USER_PREFIX);
 
-  const temporaryPassword = await commonSteps.createRoleAndTeamMember({
+  const invitationCode = await commonSteps.createRoleAndTeamInvitation({
     roleName,
     roleDescription,
     permissionKeys,
-    username,
   });
 
-  await commonSteps.completeFirstLoginAsTeamMember({
-    username,
-    temporaryPassword,
-    newPassword: MEMBER_PASSWORD,
-  });
+  await commonSteps.joinTeamWithInvitation({ invitationCode, username, password: MEMBER_PASSWORD });
 
   return { roleName, username };
 }
@@ -160,20 +130,42 @@ export async function provisionRoleViaStoredAdminContext(
     permissionKeys: string[];
     roleDescription: string;
   },
-): Promise<ProvisionedMemberWithTemporaryPassword> {
+): Promise<ProvisionedMemberWithInvitation> {
   return await withStoredAdminContext(browser, testInfo, async ({ commonSteps }) => {
     const roleName = generateRandomText(RBAC_ROLE_PREFIX);
     const username = generateRandomText(RBAC_USER_PREFIX);
 
-    const temporaryPassword = await commonSteps.createRoleAndTeamMember({
+    const invitationCode = await commonSteps.createRoleAndTeamInvitation({
       roleName,
       roleDescription,
       permissionKeys,
-      username,
     });
 
-    return { roleName, temporaryPassword, username };
+    return { roleName, invitationCode, username };
   });
+}
+
+/** Redeems a team invitation with a new login in a separate, signed-out browser context. */
+export async function joinTeamInFreshContext(
+  browser: Browser,
+  testInfo: TestInfo,
+  { invitationCode, username }: { invitationCode: string; username: string },
+) {
+  const isMobile = testInfo.project.use?.isMobile ?? false;
+  const context = await browser.newContext({
+    baseURL: testConfig.baseUrl,
+    storageState: { cookies: [], origins: [] },
+    viewport: testInfo.project.use?.viewport,
+  });
+
+  try {
+    const page = await context.newPage();
+    await page.goto("/auth");
+    const commonSteps = new CommonSteps(new AuthPage(page, isMobile), new MinersPage(page, isMobile));
+    await commonSteps.joinTeamWithInvitation({ invitationCode, username, password: MEMBER_PASSWORD });
+  } finally {
+    await context.close();
+  }
 }
 
 export async function provisionRoleAndLoginViaStoredAdminContext(
@@ -193,10 +185,10 @@ export async function provisionRoleAndLoginViaStoredAdminContext(
     roleDescription,
   });
 
-  await commonSteps.completeFirstLoginAsTeamMember({
+  await commonSteps.joinTeamWithInvitation({
+    invitationCode: provisionedMember.invitationCode,
     username: provisionedMember.username,
-    temporaryPassword: provisionedMember.temporaryPassword,
-    newPassword: MEMBER_PASSWORD,
+    password: MEMBER_PASSWORD,
   });
 
   return {
@@ -226,7 +218,6 @@ export async function createPool(
     await newPoolModal.inputPoolUrl(VALID_POOL_URL);
     await newPoolModal.inputPoolUsername(poolUsername);
     await newPoolModal.clickSaveNewPool();
-    await settingsPoolsPage.validateTextInToast("Pool added");
     await settingsPoolsPage.validatePoolEntryByUniqueName(poolName, VALID_POOL_URL, poolUsername);
   });
 }
@@ -404,160 +395,25 @@ export async function invokeIngestCurtailmentSignal(page: Page, externalReferenc
 }
 
 export async function cleanupRbacTeamArtifacts(browser: Browser, testInfo: TestInfo) {
-  await cleanupRbacArtifacts(browser, testInfo, ["team"]);
-}
-
-async function cleanupRbacArtifacts(browser: Browser, testInfo: TestInfo, cleanupTargets: RbacCleanupTarget[]) {
-  const cleanupTargetSet = new Set(cleanupTargets);
-
-  await withStoredAdminContext(
-    browser,
-    testInfo,
-    async ({
-      alertsPage,
-      energyPage,
-      fleetLocationsPage,
-      page,
-      racksPage,
-      settingsCurtailmentPage,
-      settingsPoolsPage,
-      settingsSchedulesPage,
-      settingsTeamPage,
-    }) => {
-      if (cleanupTargetSet.has("curtailment")) {
-        await energyPage
-          .cleanupStartedCurtailmentsByReasonPrefix(RBAC_CURTAILMENT_REASON_PREFIX)
-          .catch(() => undefined);
-
-        await page.goto("/settings/curtailment");
-        if (
-          await page
-            .getByRole("button", { name: "Add source", exact: true })
-            .isVisible()
-            .catch(() => false)
-        ) {
-          await settingsCurtailmentPage.deleteSourcesByPrefix(RBAC_CURTAILMENT_SOURCE_PREFIX).catch(() => undefined);
-          await settingsCurtailmentPage
-            .deleteResponseProfilesByPrefix(RBAC_CURTAILMENT_PROFILE_PREFIX)
-            .catch(() => undefined);
-        }
-      }
-
-      if (cleanupTargetSet.has("schedules")) {
-        await page.goto("/settings/schedules");
-        if (
-          await page
-            .getByRole("button", { name: "Add a schedule", exact: true })
-            .isVisible()
-            .catch(() => false)
-        ) {
-          await settingsSchedulesPage.deleteSchedulesByPrefix(RBAC_SCHEDULE_PREFIX).catch(() => undefined);
-        }
-      }
-
-      if (cleanupTargetSet.has("alerts") && ALERTS_E2E_ENABLED) {
-        await page.goto("/settings/alerts");
-        if (
-          await page
-            .getByRole("button", { name: "Add destination", exact: true })
-            .isVisible()
-            .catch(() => false)
-        ) {
-          await alertsPage.deleteChannelsByPrefix(RBAC_ALERT_CHANNEL_PREFIX).catch(() => undefined);
-        }
-      }
-
-      if (cleanupTargetSet.has("pools")) {
-        await page.goto("/settings/mining-pools");
-        if (
-          await page
-            .getByRole("button", { name: "Add pool", exact: true })
-            .isVisible()
-            .catch(() => false)
-        ) {
-          await settingsPoolsPage.deletePoolsByPrefix(RBAC_POOL_PREFIX).catch(() => undefined);
-        }
-      }
-
-      if (cleanupTargetSet.has("infrastructure")) {
-        await cleanupInfrastructureFixtures(fleetLocationsPage, racksPage).catch(() => undefined);
-      }
-
-      if (cleanupTargetSet.has("team")) {
-        await page.goto("/settings/team");
-        if (
-          await settingsTeamPage
-            .openMembersTab(SHORT_HOOK_TIMEOUT)
-            .then(() => true)
-            .catch(() => false)
-        ) {
-          await settingsTeamPage.deactivateMembersByPrefix(RBAC_USER_PREFIX).catch(() => undefined);
-        }
-        if (
-          await settingsTeamPage
-            .openRolesTab(SHORT_HOOK_TIMEOUT)
-            .then(() => true)
-            .catch(() => false)
-        ) {
-          await settingsTeamPage.deleteRolesByPrefix(RBAC_ROLE_PREFIX).catch(() => undefined);
-        }
-      }
-    },
-  );
-}
-
-function getCleanupTargetsForTest(testInfo: TestInfo, defaultTargets: RbacCleanupTarget[]): RbacCleanupTarget[] {
-  const cleanupTargets = new Set<RbacCleanupTarget>(defaultTargets);
-
-  for (const annotation of testInfo.annotations) {
-    if (annotation.type !== RBAC_CLEANUP_TARGETS_ANNOTATION || !annotation.description) {
-      continue;
+  await withStoredAdminContext(browser, testInfo, async ({ page, settingsTeamPage }) => {
+    await page.goto("/settings/team");
+    if (
+      await settingsTeamPage
+        .openMembersTab(SHORT_HOOK_TIMEOUT)
+        .then(() => true)
+        .catch(() => false)
+    ) {
+      await settingsTeamPage.deactivateMembersByPrefix(RBAC_USER_PREFIX).catch(() => undefined);
     }
-
-    for (const cleanupTarget of annotation.description.split(",")) {
-      if (isRbacCleanupTarget(cleanupTarget)) {
-        cleanupTargets.add(cleanupTarget);
-      }
+    if (
+      await settingsTeamPage
+        .openRolesTab(SHORT_HOOK_TIMEOUT)
+        .then(() => true)
+        .catch(() => false)
+    ) {
+      await settingsTeamPage.deleteRolesByPrefix(RBAC_ROLE_PREFIX).catch(() => undefined);
     }
-  }
-
-  return [...cleanupTargets];
-}
-
-function isRbacCleanupTarget(value: string): value is RbacCleanupTarget {
-  return ["alerts", "curtailment", "infrastructure", "pools", "schedules", "team"].includes(value);
-}
-
-async function cleanupInfrastructureFixtures(fleetLocationsPage: FleetLocationsPage, racksPage: RacksPage) {
-  await racksPage.navigateToRacksPage();
-  await racksPage.tryAction(() => racksPage.clickViewList(SHORT_HOOK_TIMEOUT), SHORT_HOOK_TIMEOUT);
-  if (
-    !(await racksPage.tryAction(
-      () => racksPage.waitForRackListToLoad({ timeout: SHORT_HOOK_TIMEOUT }),
-      SHORT_HOOK_TIMEOUT,
-    ))
-  ) {
-    return;
-  }
-
-  const rackNames = (await racksPage.listRackNames(SHORT_HOOK_TIMEOUT)).filter((name) =>
-    name.startsWith(RBAC_RACK_PREFIX),
-  );
-  for (const rackName of rackNames) {
-    await racksPage.deleteRackByLabelIfVisible(rackName, SHORT_HOOK_TIMEOUT);
-  }
-
-  const buildingNames = (await fleetLocationsPage.listBuildingNames()).filter((name) =>
-    name.startsWith(RBAC_BUILDING_PREFIX),
-  );
-  for (const buildingName of buildingNames) {
-    await fleetLocationsPage.deleteBuildingByNameIfVisible(buildingName);
-  }
-
-  const siteNames = (await fleetLocationsPage.listSiteNames()).filter((name) => name.startsWith(RBAC_SITE_PREFIX));
-  for (const siteName of siteNames) {
-    await fleetLocationsPage.deleteSiteByNameIfVisible(siteName);
-  }
+  });
 }
 
 async function withStoredAdminContext<T>(
@@ -614,4 +470,42 @@ async function withStoredAdminContext<T>(
   } finally {
     await context.close();
   }
+}
+
+/** Remove only this test's disposable login, even if its username change failed. */
+export async function cleanupSecurityMember(
+  browser: Browser,
+  testInfo: TestInfo,
+  usernames: string[],
+  roleName: string,
+) {
+  await withStoredAdminContext(browser, testInfo, async ({ page }) => {
+    await page.evaluate(
+      async ({ names, roleName }) => {
+        const options = {
+          method: "POST",
+          headers: { "Connect-Protocol-Version": "1", "Content-Type": "application/json" },
+          credentials: "include" as const,
+        };
+        const call = async (method: string, body: object) => {
+          const response = await fetch(`/api-proxy/${method}`, { ...options, body: JSON.stringify(body) });
+          if (!response.ok) throw new Error(`Security test cleanup ${method}: HTTP ${response.status}`);
+          return response.json();
+        };
+        const { users } = (await call("auth.v1.AuthService/ListUsers", {})) as {
+          users: { userId: string; username: string }[];
+        };
+        const members = users.filter((user) => names.includes(user.username));
+        if (members.length !== 1) throw new Error(`Expected one security test login, found ${members.length}`);
+        await call("auth.v1.AuthService/DeactivateUser", { userId: members[0].userId });
+        const { roles } = (await call("authz.v1.AuthzService/ListRoles", {})) as {
+          roles: { roleId: string; name: string }[];
+        };
+        const matching = roles.filter((role) => role.name === roleName);
+        if (matching.length !== 1) throw new Error(`Expected one security test role, found ${matching.length}`);
+        await call("authz.v1.AuthzService/DeleteCustomRole", { roleId: matching[0].roleId });
+      },
+      { names: usernames, roleName },
+    );
+  });
 }

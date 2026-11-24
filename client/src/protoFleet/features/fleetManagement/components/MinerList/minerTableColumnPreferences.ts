@@ -6,16 +6,18 @@ export const configurableMinerColumns = [
   minerCols.ipAddress,
   minerCols.status,
   minerCols.issues,
+  minerCols.poolConfiguration,
+  minerCols.workerName,
   minerCols.hashrate,
   minerCols.efficiency,
   minerCols.powerUsage,
   minerCols.temperature,
   minerCols.firmware,
-  minerCols.workerName,
   minerCols.site,
   minerCols.building,
   minerCols.rack,
   minerCols.groups,
+  minerCols.assignedAccount,
 ] as const;
 
 export type ConfigurableMinerColumn = (typeof configurableMinerColumns)[number];
@@ -84,33 +86,6 @@ export const buildActiveMinerColumns = (preferences: MinerTableColumnPreferences
     .columns.filter((column) => column.visible)
     .map((column) => column.id),
 ];
-
-export const reorderMinerTableColumns = (
-  preferences: MinerTableColumnPreferences,
-  activeId: ConfigurableMinerColumn,
-  overId: ConfigurableMinerColumn,
-): MinerTableColumnPreferences => {
-  const oldIndex = preferences.columns.findIndex((column) => column.id === activeId);
-  const newIndex = preferences.columns.findIndex((column) => column.id === overId);
-
-  if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) {
-    return preferences;
-  }
-
-  const columns = [...preferences.columns];
-  const [movedColumn] = columns.splice(oldIndex, 1);
-  columns.splice(newIndex, 0, movedColumn);
-
-  return { columns };
-};
-
-export const updateMinerTableColumnVisibility = (
-  preferences: MinerTableColumnPreferences,
-  columnId: ConfigurableMinerColumn,
-  visible: boolean,
-): MinerTableColumnPreferences => ({
-  columns: preferences.columns.map((column) => (column.id === columnId ? { ...column, visible } : column)),
-});
 
 export const getMinerTableColumnPreferencesStorageKey = (username: string): string =>
   `${STORAGE_KEY_PREFIX}:${username || "anonymous"}`;

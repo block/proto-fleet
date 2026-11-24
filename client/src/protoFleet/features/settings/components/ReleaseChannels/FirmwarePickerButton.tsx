@@ -27,9 +27,10 @@ interface FirmwarePickerButtonProps {
   disabled?: boolean;
 }
 
-// Button-styled firmware selector for the model group header: the trigger
+// Button-styled version selector for the model group header: the trigger
 // shows the currently selected version and opens a listbox of the available
-// versions. The form-field Select is too heavy for this spot.
+// versions. The form-field Select is too heavy for this spot. The empty option
+// names the cleared state ("No firmware" unless the options say otherwise).
 const FirmwarePickerContent = ({
   label,
   options,
@@ -60,7 +61,7 @@ const FirmwarePickerContent = ({
         <Button
           variant={variants.secondary}
           size={sizes.compact}
-          text={value === "" ? "No firmware" : selectedLabel || "Firmware details unavailable"}
+          text={value === "" ? (selected?.label ?? "No firmware") : selectedLabel || "Firmware details unavailable"}
           suffixIcon={
             <ChevronDown width="w-3" className={clsx("shrink-0 transition-transform", open && "rotate-180")} />
           }

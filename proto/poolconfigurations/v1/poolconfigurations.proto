@@ -1,0 +1,397 @@
+syntax = "proto3";
+
+package poolconfigurations.v1;
+
+import "buf/validate/validate.proto";
+import "fleetmanagement/v1/fleetmanagement.proto";
+import "google/protobuf/timestamp.proto";
+
+// One private library per organization or selected hosted account. Empty
+// account_id selects the operator library; an account workspace must supply its
+// selected account ID. Ownership and live permissions are enforced server-side.
+service PoolConfigurationService {
+  rpc CreateConfiguration(CreateConfigurationRequest) returns (CreateConfigurationResponse);
+  rpc GetConfiguration(GetConfigurationRequest) returns (GetConfigurationResponse);
+  rpc ListConfigurations(ListConfigurationsRequest) returns (ListConfigurationsResponse);
+  rpc DuplicateConfiguration(DuplicateConfigurationRequest) returns (DuplicateConfigurationResponse);
+  rpc SetDefaultConfiguration(SetDefaultConfigurationRequest) returns (SetDefaultConfigurationResponse);
+  rpc ArchiveConfiguration(ArchiveConfigurationRequest) returns (ArchiveConfigurationResponse);
+  rpc ReviewEdit(ReviewEditRequest) returns (ReviewEditResponse);
+  rpc AuthorizeWorkerNameReviews(AuthorizeWorkerNameReviewsRequest) returns (AuthorizeWorkerNameReviewsResponse);
+  rpc AuthorizeReviews(AuthorizeReviewsRequest) returns (AuthorizeReviewsResponse);
+  rpc ConfirmReview(ConfirmReviewRequest) returns (ConfirmReviewResponse);
+  rpc ReviewAssignment(ReviewAssignmentRequest) returns (ReviewAssignmentResponse);
+  rpc GetOperation(GetOperationRequest) returns (GetOperationResponse);
+  rpc ReviewRetry(ReviewRetryRequest) returns (ReviewRetryResponse);
+  rpc ListOperations(ListOperationsRequest) returns (ListOperationsResponse);
+  rpc TestConnection(TestConnectionRequest) returns (TestConnectionResponse);
+  rpc GetAssignments(GetAssignmentsRequest) returns (GetAssignmentsResponse);
+  rpc CheckConfiguration(CheckConfigurationRequest) returns (CheckConfigurationResponse);
+  rpc ReadDevicePools(ReadDevicePoolsRequest) returns (ReadDevicePoolsResponse);
+}
+
+message BoardSelection {
+  option (buf.validate.message).cel = {id: "pool_boards.selection", message: "select modules or hashboards", expression: "this.module_ids.size() + this.hashboard_ids.size() > 0"};
+  repeated int64 module_ids = 1 [(buf.validate.field).repeated = {max_items: 1000, unique: true, items: {int64: {gt: 0}}}];
+  repeated int64 hashboard_ids = 2 [(buf.validate.field).repeated = {max_items: 3000, unique: true, items: {int64: {gt: 0}}}];
+}
+
+message GetAssignmentsRequest {
+  option (buf.validate.message).cel = {
+    id: "pool_assignments.selection"
+    message: "provide exactly one equipment selection"
+    expression: "(this.device_identifiers.size() > 0 ? 1 : 0) + ((this.device_ids.size() > 0 || has(this.boards)) ? 1 : 0) + (has(this.filter) ? 1 : 0) == 1"
+  };
+  string account_id = 1;
+  repeated string device_identifiers = 2 [(buf.validate.field).repeated = {max_items: 10000, unique: true, items: {string: {min_len: 1, max_len: 255}}}];
+  repeated int64 device_ids = 3 [(buf.validate.field).repeated = {max_items: 10000, unique: true, items: {int64: {gt: 0}}}];
+  fleetmanagement.v1.MinerListFilter filter = 4;
+  BoardSelection boards = 5;
+}
+message EquipmentAssignment {
+  int64 device_id = 1;
+  string device_identifier = 2;
+  string configuration_id = 3;
+  string name = 4;
+  string operation_id = 5;
+  // Latest application result, not a claim of continuously verified telemetry.
+  // "adopted" denotes imported settings that Fleet has not applied or verified.
+  string state = 6;
+  string result_code = 7;
+  int64 installation_id = 8;
+  int64 hashboard_id = 9;
+  int64 module_id = 10;
+  google.protobuf.Timestamp updated_at = 11;
+  string device_name = 12;
+  string mac_address = 13;
+}
+message GetAssignmentsResponse {
+  // Visible equipment owned by this scope, including equipment without assignments.
+  repeated EquipmentAssignment assignments = 1;
+  int64 selected_count = 2;
+}
+
+message TestConnectionRequest {
+  option (buf.validate.message).cel = {
+    id: "pool_connection.saved_slot"
+    message: "provide the configuration and version together for a saved slot"
+    expression: "this.configuration_id == '' ? this.expected_version == 0 && this.pool.slot_id == '' : this.expected_version > 0"
+  };
+  string account_id = 1;
+  string configuration_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).ignore = IGNORE_IF_UNPOPULATED];
+  int64 expected_version = 3 [(buf.validate.field).int64.gte = 0];
+  PoolInput pool = 4 [(buf.validate.field).required = true];
+}
+message TestConnectionResponse {
+  // Uses the editor's preview worker values (123 / Miner-123). Success is a
+  // server-to-pool connection result, never proof of equipment application.
+  bool connected = 1;
+}
+
+message PoolInput {
+  // Server-issued identity from this configuration's current saved revision,
+  // retained when reordering. Empty for a new slot; identities cannot be reused
+  // from another configuration. Password omission preserves only an unchanged
+  // URL and username.
+  string slot_id = 1 [(buf.validate.field).string.max_bytes = 36];
+  string url = 2 [(buf.validate.field) = {
+    string: {
+      pattern: "^(stratum\\+(tcp|ssl|ws):\\/\\/(([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\\.[a-zA-Z]{2,})|(\\d{1,3}\\.){3}\\d{1,3}|\\[([0-9a-fA-F:]+)\\])(:\\d{1,5})?|stratum2\\+tcp:\\/\\/(([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\\.[a-zA-Z]{2,})|(\\d{1,3}\\.){3}\\d{1,3}|\\[([0-9a-fA-F:]+)\\]):\\d{1,5}\\/[A-Za-z0-9_+\\/=:.-]+)$"
+      min_len: 12
+      max_len: 256
+    }
+    required: true
+  }];
+  string username = 3 [(buf.validate.field).string = {min_len: 1, max_bytes: 255}];
+  optional string password = 4 [(buf.validate.field).string.max_bytes = 255];
+  string worker_template = 5 [(buf.validate.field).string.max_bytes = 255];
+}
+
+message ConfigurationInput {
+  string name = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  // Primary first, followed by zero, one, or two backups.
+  repeated PoolInput pools = 2 [(buf.validate.field).repeated = {min_items: 1, max_items: 3}];
+}
+
+// Credentials are never returned. has_password supports explicit preserve,
+// replace and clear controls without exposing the stored value.
+message Pool {
+  string slot_id = 1;
+  string url = 2;
+  string username = 3;
+  string worker_template = 4;
+  bool has_password = 5;
+}
+
+message Configuration {
+  string configuration_id = 1;
+  string name = 2;
+  string revision_id = 3;
+  int64 version = 4;
+  bool archived = 5;
+  repeated Pool pools = 6;
+  int64 assigned_count = 7;
+  // Applies to future pairing and ownership transitions.
+  bool is_default = 8;
+}
+
+message CreateConfigurationRequest {
+  option (buf.validate.message).cel = {
+    id: "configuration.create_new_slots"
+    message: "new configurations require empty pool slot identities"
+    expression: "this.configuration.pools.all(p, p.slot_id == '')"
+  };
+  string account_id = 1;
+  ConfigurationInput configuration = 2 [(buf.validate.field).required = true];
+}
+message CreateConfigurationResponse { Configuration configuration = 1; }
+message GetConfigurationRequest {
+  string account_id = 1;
+  string configuration_id = 2 [(buf.validate.field).string.uuid = true];
+}
+message GetConfigurationResponse { Configuration configuration = 1; }
+message ListConfigurationsRequest {
+  string account_id = 1;
+  string page_token = 2 [(buf.validate.field).string.max_len = 2048];
+  int32 page_size = 3 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+  bool include_archived = 4;
+}
+message ListConfigurationsResponse {
+  repeated Configuration configurations = 1;
+  string next_page_token = 2;
+}
+message DuplicateConfigurationRequest {
+  string account_id = 1;
+  string configuration_id = 2 [(buf.validate.field).string.uuid = true];
+  string name = 3 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+}
+message DuplicateConfigurationResponse { Configuration configuration = 1; }
+message ArchiveConfigurationRequest {
+  string account_id = 1;
+  string configuration_id = 2 [(buf.validate.field).string.uuid = true];
+  int64 expected_version = 3 [(buf.validate.field).int64.gt = 0];
+}
+message ArchiveConfigurationResponse {}
+
+message ReviewEditRequest {
+  string account_id = 1;
+  string configuration_id = 2 [(buf.validate.field).string.uuid = true];
+  int64 expected_version = 3 [(buf.validate.field).int64.gt = 0];
+  ConfigurationInput configuration = 4 [(buf.validate.field).required = true];
+}
+message ReviewEditResponse {
+  string review_id = 1;
+  Configuration configuration = 2;
+  bool settings_changed = 3;
+  int64 affected_miners = 4;
+  int64 affected_hashboards = 5;
+  google.protobuf.Timestamp expires_at = 6;
+  repeated ReviewedEquipment equipment = 7;
+}
+message ReviewedEquipment {
+  string kind = 1;
+  int64 target_id = 2;
+  string label = 3;
+  string device_identifier = 4;
+}
+// Password approval for this exact set of immutable worker-name reviews. This
+// does not submit any changes. Only the initiating operator session can use it;
+// each ConfirmReview still rechecks credentials, live authority, and bindings.
+// Approval expires with each review. Never persists the password.
+message AuthorizeWorkerNameReviewsRequest {
+  repeated string review_ids = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 10000, unique: true, items: {string: {uuid: true}}}];
+  string password = 2 [(buf.validate.field).string = {min_len: 1, max_len: 1024}];
+}
+message AuthorizeWorkerNameReviewsResponse {}
+
+message ConfirmReviewRequest {
+  string account_id = 1;
+  string review_id = 2 [(buf.validate.field).string.uuid = true];
+  // Required when this confirmation starts equipment updates unless this exact
+  // worker-name review was authorized for the current session and credential
+  // by AuthorizeReviews or AuthorizeWorkerNameReviews. Must be empty
+  // for settings-only saves, including replays. Replaying an accepted equipment
+  // confirmation returns its original result without rechecking the password.
+  string password = 3 [(buf.validate.field).string.max_len = 1024];
+  // Only valid for removal reviews. This never issues a device write.
+  bool keep_device_settings = 4;
+}
+message ConfirmReviewResponse {
+  Configuration configuration = 1;
+  // Saving settings and applying them are distinct. An operation ID denotes
+  // durable equipment work, not successful application.
+  string operation_id = 2;
+}
+
+// ConfirmReview errors carried in common.v1.FleetErrorDetails.endpoint.
+enum ConfirmReviewErrorCode {
+  CONFIRM_REVIEW_ERROR_CODE_UNSPECIFIED = 0;
+  // FailedPrecondition: under the review lock, the server verified that this
+  // review expired without a saved result. It cannot subsequently be accepted.
+  // An accepted review replays its original result even after expiry. Generic
+  // permission, missing-review, and precondition errors do not imply this outcome.
+  CONFIRM_REVIEW_ERROR_CODE_EXPIRED_UNACCEPTED = 1;
+  // FailedPrecondition: this live, unaccepted review requires password approval
+  // for the current session and credential. Verify the password and confirm
+  // again. This code does not guarantee that the review remains valid later.
+  CONFIRM_REVIEW_ERROR_CODE_AUTHORIZATION_REQUIRED = 2;
+}
+
+message ReviewAssignmentRequest {
+  option (buf.validate.message).cel = {
+    id: "pool_assignment.selection"
+    message: "provide exactly one equipment selection"
+    expression: "(this.device_identifiers.size() > 0 ? 1 : 0) + ((this.device_ids.size() > 0 || has(this.boards)) ? 1 : 0) + (has(this.filter) ? 1 : 0) + (has(this.removal_target) ? 1 : 0) == 1"
+  };
+  option (buf.validate.message).cel = {
+    id: "pool_assignment.intent"
+    message: "removal requires an exact target; assignment requires a configuration and version"
+    expression: "has(this.removal_target) ? (this.configuration_id == '' && this.expected_version == 0) : (this.configuration_id != '' && this.expected_version > 0)"
+  };
+  string account_id = 1;
+  string configuration_id = 2 [(buf.validate.field).ignore = IGNORE_IF_UNPOPULATED, (buf.validate.field).string.uuid = true];
+  int64 expected_version = 3 [(buf.validate.field).ignore = IGNORE_IF_UNPOPULATED, (buf.validate.field).int64.gt = 0];
+  repeated string device_identifiers = 4 [(buf.validate.field).repeated = {max_items: 10000, unique: true, items: {string: {min_len: 1, max_len: 255}}}];
+  // Operator fleet selection, expanded once at review. Account workspaces use
+  // explicit equipment; all resulting equipment must pass owner checks.
+  fleetmanagement.v1.MinerListFilter filter = 5;
+  // Account asset lists expose database IDs instead of device identifiers.
+  repeated int64 device_ids = 6 [(buf.validate.field).repeated = {max_items: 10000, unique: true, items: {int64: {gt: 0}}}];
+  BoardSelection boards = 7;
+  // Explicit removal; omission never implies an empty desired configuration.
+  RetryTarget removal_target = 8;
+}
+message GetOperationRequest {
+  string account_id = 1;
+  string operation_id = 2 [(buf.validate.field).string.uuid = true];
+}
+message OperationTarget {
+  string kind = 1;
+  int64 target_id = 2;
+  string state = 3;
+  string result_code = 4;
+  string label = 5;
+  string device_identifier = 6;
+  google.protobuf.Timestamp updated_at = 7;
+  string mac_address = 8;
+}
+message GetOperationResponse {
+  // apply, clear, or unassign
+  string kind = 6;
+  string operation_id = 1;
+  string configuration_id = 2;
+  repeated OperationTarget targets = 3;
+  string configuration_name = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message ReviewAssignmentResponse {
+  RemovalPreflight removal = 7;
+  string review_id = 1;
+  Configuration configuration = 2;
+  int64 affected_miners = 3;
+  int64 affected_hashboards = 4;
+  google.protobuf.Timestamp expires_at = 5;
+  repeated ReviewedEquipment equipment = 6;
+}
+
+message RetryTarget {
+  string kind = 1 [(buf.validate.field).string.in = "device", (buf.validate.field).string.in = "hashboard_installation"];
+  int64 target_id = 2 [(buf.validate.field).int64.gt = 0];
+}
+message ReviewRetryRequest {
+  string account_id = 1;
+  string operation_id = 2 [(buf.validate.field).string.uuid = true];
+  repeated RetryTarget targets = 3 [(buf.validate.field).repeated = {min_items: 1, max_items: 500}];
+}
+message ReviewRetryResponse {
+  string review_id = 1;
+  Configuration configuration = 2;
+  int64 affected_miners = 3;
+  int64 affected_hashboards = 4;
+  google.protobuf.Timestamp expires_at = 5;
+  repeated ReviewedEquipment equipment = 6;
+}
+
+message ListOperationsRequest {
+  string account_id = 1;
+  string configuration_id = 2 [(buf.validate.field).string.uuid = true];
+  string page_token = 3 [(buf.validate.field).string.max_len = 36];
+}
+message OperationSummary {
+  string operation_id = 1;
+  google.protobuf.Timestamp created_at = 2;
+  int64 target_count = 3;
+  int64 pending_count = 4;
+  int64 failed_count = 5;
+}
+message ListOperationsResponse {
+  repeated OperationSummary operations = 1;
+  string next_page_token = 2;
+}
+
+// Explicit readback only. Does not apply settings or resolve uncertain writes.
+message CheckConfigurationRequest {
+  string account_id = 1;
+  // Empty reads device settings only; an active Fleet assignment must not exist.
+  string configuration_id = 2 [(buf.validate.field).string.uuid = true, (buf.validate.field).ignore = IGNORE_IF_UNPOPULATED];
+  RetryTarget target = 3 [(buf.validate.field).required = true];
+}
+message ReportedPool {
+  uint32 priority = 1;
+  string url = 2;
+  string username = 3;
+}
+message CheckConfigurationResponse {
+  string state = 1;
+  string result_code = 2;
+  google.protobuf.Timestamp checked_at = 3;
+  repeated ReportedPool expected = 4;
+  repeated ReportedPool reported = 5;
+  bool readback_available = 6;
+}
+
+// Read-only batch for equipment without active Fleet assignments. The server
+// authorizes each target and shares one fresh observation per controller.
+// No observations or settings are written to canonical assignments.
+message ReadDevicePoolsRequest {
+  string account_id = 1;
+  // Select at most 4 controllers (resolved from current server bindings), and
+  // continue larger selections in subsequent requests. This avoids queueing
+  // controllers behind slow observations within a shared request deadline.
+  // Duplicate targets are rejected. Per-target denial, changed bindings,
+  // assigned equipment and unreadable hardware return unavailable readings.
+  repeated RetryTarget targets = 2 [(buf.validate.field).repeated = {min_items: 1, max_items: 500}];
+}
+message DevicePoolReading {
+  RetryTarget target = 1;
+  CheckConfigurationResponse reading = 2;
+}
+message ReadDevicePoolsResponse {
+  // Exactly one entry per requested target, in request order. Only authorized
+  // targets expose reported settings; a failing controller does not erase other
+  // controllers' results. Invalid requests or account-level denial fail the RPC.
+  repeated DevicePoolReading readings = 1;
+}
+
+// Preflight evidence for an explicit removal intent. Operation progress is read
+// through GetOperation; an empty operation_id means confirmation is still needed.
+message RemovalPreflight {
+ string verification_state = 1;
+ bool clear_supported = 2;
+ string operation_id = 3;
+ bool keep_device_settings = 4;
+}
+message AuthorizeReviewsRequest {
+ string account_id = 1;
+ repeated string review_ids = 2 [(buf.validate.field).repeated = {min_items: 1, max_items: 10000, unique: true, items: {string: {uuid: true}}}];
+ string password = 3 [(buf.validate.field).string = {min_len: 1, max_len: 1024}];
+}
+message AuthorizeReviewsResponse {}
+
+message SetDefaultConfigurationRequest {
+  string account_id = 1;
+  string configuration_id = 2 [(buf.validate.field).string.uuid = true];
+  int64 expected_version = 3 [(buf.validate.field).int64.gt = 0];
+}
+message SetDefaultConfigurationResponse {}

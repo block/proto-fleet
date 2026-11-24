@@ -1,13 +1,8 @@
 import { useMemo } from "react";
 import KpiLineChart from "@/protoOS/features/kpis/components/KpiLineChart/KpiLineChart";
-import {
-  convertAndFormatMeasurement,
-  useChartDataForMetric,
-  useMiner,
-  useMinerHashboards,
-  useMinerStore,
-} from "@/protoOS/store";
-import { MetricTimeSeries } from "@/protoOS/store";
+import { getLowestAveragePerformer } from "@/protoOS/features/kpis/metricSeries";
+import { useKpiMetricData } from "@/protoOS/features/kpis/useKpiMetricData";
+import { convertAndFormatMeasurement, type MetricTimeSeries } from "@/protoOS/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { type StatProps } from "@/shared/components/Stat";
@@ -37,43 +32,31 @@ const getStats = (stats: StatsArgs): StatProps[] => {
       units: "TH/s",
       size: "small",
     },
-    {
-      label: "Lowest Performer",
-      value: lowestPerformer,
-      size: "small",
-    },
+    { label: "Lowest Performer", value: lowestPerformer, size: "small" },
   ];
 };
 
 const Hashrate = () => {
-  const { chartData, chartLines, xAxisDomain } = useChartDataForMetric("hashrate");
-  const miner = useMiner();
-  const hashboards = useMinerHashboards();
+  const { chartData, chartLines, seriesTimestamps, miner, segmentsLabel, series, xAxisDomain } =
+    useKpiMetricData("hashrate");
   const aggregates = miner?.hashrate?.timeSeries?.aggregates;
 
-  const lowestPerformer = useMemo(() => {
-    if (hashboards.length === 0) return undefined;
-
-    let lowestSlot: number | undefined;
-    let lowestAvg = Infinity;
-
-    hashboards.forEach((hashboard) => {
-      const hashboardAvg = hashboard.hashrate?.timeSeries?.aggregates?.avg?.value;
-      if (typeof hashboardAvg === "number" && hashboardAvg < lowestAvg) {
-        lowestAvg = hashboardAvg;
-        lowestSlot = useMinerStore.getState().hardware.getSlotByHbSn(hashboard.serial);
-      }
-    });
-
-    return lowestSlot === undefined ? undefined : "Hashboard " + lowestSlot;
-  }, [hashboards]);
+  const lowestPerformer = useMemo(() => getLowestAveragePerformer(series), [series]);
 
   return (
     <>
       {aggregates && chartData.length > 0 ? (
         <ErrorBoundary>
           <Stats stats={getStats({ ...aggregates, lowestPerformer })} />
-          <KpiLineChart chartData={chartData} chartLines={chartLines} units="TH/s" xAxisDomainOverride={xAxisDomain} />
+          <KpiLineChart
+            chartData={chartData}
+            seriesTimestamps={seriesTimestamps}
+            chartLines={chartLines}
+            series={series}
+            segmentsLabel={segmentsLabel}
+            units="TH/s"
+            xAxisDomainOverride={xAxisDomain}
+          />
         </ErrorBoundary>
       ) : (
         <div className="flex h-full w-full items-center justify-center">

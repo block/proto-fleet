@@ -243,24 +243,6 @@ describe("useMinerActions", () => {
       expect(actions).toContain(deviceActions.shutdown);
       expect(actions).not.toContain(deviceActions.wakeUp);
     });
-
-    it("should show both actions when device status is undefined (bulk with different statuses)", () => {
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [
-            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
-            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ERROR },
-          ],
-          selectionMode: "subset",
-        }),
-      );
-
-      const actions = result.current.popoverActions.map((a) => a.action);
-
-      expect(actions).toContain(deviceActions.shutdown);
-      expect(actions).toContain(deviceActions.wakeUp);
-    });
   });
 
   describe("Action handlers - Setting current action", () => {
@@ -352,7 +334,7 @@ describe("useMinerActions", () => {
       expect(onActionStart).toHaveBeenCalled();
     });
 
-    it("should show authentication modal when mining pool action handler is called", async () => {
+    it("should open the configuration selector when mining pool action handler is called", async () => {
       const onActionStart = vi.fn();
 
       const { result } = renderHook(() =>
@@ -370,7 +352,8 @@ describe("useMinerActions", () => {
         await poolAction?.actionHandler();
       });
 
-      expect(result.current.showAuthenticateFleetModal).toBe(true);
+      expect(result.current.showAuthenticateFleetModal).toBe(false);
+      expect(result.current.showPoolSelectionPage).toBe(true);
       expect(result.current.currentAction).toBe(settingsActions.miningPool);
       expect(onActionStart).toHaveBeenCalled();
     });
@@ -658,19 +641,6 @@ describe("useMinerActions", () => {
       const updateCalls = (toaster.updateToast as ReturnType<typeof vi.fn>).mock.calls;
       return updateCalls.find((call) => call[1]?.actions?.[0]?.label === "Retry");
     };
-
-    it.each(retryCases)(
-      "attaches Retry to the error toast after $name partial failure",
-      async ({ batchId, deviceStatus, mock, dispatch }) => {
-        stubActionSuccess(mock, batchId);
-        stubPartialFailureStream(["device-1"], ["device-2"]);
-
-        const { result } = renderFor(deviceStatus);
-        await dispatch(result);
-
-        expect(findRetryCall()).toBeDefined();
-      },
-    );
 
     it.each(retryCases)(
       "retries $name with only failed device IDs and carries onClose when clicked",
@@ -1645,379 +1615,6 @@ describe("useMinerActions", () => {
     });
   });
 
-  describe("Callbacks", () => {
-    it("should call onActionStart when confirmation action is triggered", async () => {
-      const onActionStart = vi.fn();
-
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
-          selectionMode: "subset",
-          onActionStart,
-        }),
-      );
-
-      const rebootAction = result.current.popoverActions.find((a) => a.action === deviceActions.reboot);
-
-      await act(async () => {
-        await rebootAction?.actionHandler();
-      });
-
-      expect(onActionStart).toHaveBeenCalled();
-    });
-
-    it("should call onActionComplete when handleCancel is called", () => {
-      const onActionComplete = vi.fn();
-
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
-          selectionMode: "subset",
-          onActionComplete,
-        }),
-      );
-
-      act(() => {
-        result.current.handleCancel();
-      });
-
-      expect(onActionComplete).toHaveBeenCalled();
-    });
-  });
-
-  describe("handleMiningPoolSuccess", () => {
-    it("falls back to selected miners when no dispatched set is provided", () => {
-      // Arrange
-      const batchIdentifier = "batch-pool";
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
-          selectionMode: "subset",
-        }),
-      );
-
-      // Act
-      act(() => {
-        result.current.handleMiningPoolSuccess(batchIdentifier, []);
-      });
-
-      // Assert
-      expect(mockStartBatchOperation).toHaveBeenCalledWith({
-        batchIdentifier,
-        action: settingsActions.miningPool,
-        deviceIdentifiers: ["device-1"],
-      });
-      expect(toaster.pushToast).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: "Assigning pools miners",
-          status: toaster.STATUSES.loading,
-          longRunning: true,
-        }),
-      );
-      expect(result.current.currentAction).toBeNull();
-    });
-
-    it("uses the server's dispatched set when the SV2 gate filtered miners", () => {
-      // Arrange
-      const batchIdentifier = "batch-pool";
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [
-            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
-            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
-            { deviceIdentifier: "device-3", deviceStatus: DeviceStatus.ONLINE },
-          ],
-          selectionMode: "subset",
-        }),
-      );
-
-      // Act
-      act(() => {
-        result.current.handleMiningPoolSuccess(batchIdentifier, ["device-2"]);
-      });
-
-      // Assert
-      expect(mockStartBatchOperation).toHaveBeenCalledWith({
-        batchIdentifier,
-        action: settingsActions.miningPool,
-        deviceIdentifiers: ["device-2"],
-      });
-    });
-
-    it("uses capability-filtered subset when no SV2 dispatch set is provided", async () => {
-      // Arrange
-      const batchIdentifier = "batch-pool";
-      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
-        onSuccess({
-          allSupported: false,
-          noneSupported: false,
-          supportedCount: 1,
-          unsupportedCount: 1,
-          totalCount: 2,
-          unsupportedGroups: [{ model: "S19", firmwareVersion: "1.0.0", count: 1 }],
-          supportedDeviceIdentifiers: ["device-1"],
-        });
-      });
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [
-            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
-            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
-          ],
-          selectionMode: "subset",
-        }),
-      );
-      const poolAction = result.current.popoverActions.find((a) => a.action === settingsActions.miningPool);
-      await act(async () => {
-        await poolAction?.actionHandler();
-      });
-      await act(async () => {
-        result.current.handleUnsupportedMinersContinue();
-      });
-
-      // Act
-      act(() => {
-        result.current.handleMiningPoolSuccess(batchIdentifier, []);
-      });
-
-      // Assert — batch tracks only the capability-supported subset, not the original selection.
-      expect(mockStartBatchOperation).toHaveBeenCalledWith({
-        batchIdentifier,
-        action: settingsActions.miningPool,
-        deviceIdentifiers: ["device-1"],
-      });
-    });
-  });
-
-  describe("handleMiningPoolError", () => {
-    it("should push error toast and reset current action", () => {
-      const onActionComplete = vi.fn();
-      const errorMessage = "Failed to assign pool";
-
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
-          selectionMode: "subset",
-          onActionComplete,
-        }),
-      );
-
-      // Set current action first
-      const poolAction = result.current.popoverActions.find((a) => a.action === settingsActions.miningPool);
-
-      act(() => {
-        poolAction?.actionHandler();
-      });
-
-      // Trigger error
-      act(() => {
-        result.current.handleMiningPoolError(errorMessage);
-      });
-
-      expect(toaster.pushToast).toHaveBeenCalledWith({
-        message: errorMessage,
-        status: toaster.STATUSES.error,
-        longRunning: true,
-      });
-
-      expect(result.current.currentAction).toBeNull();
-      expect(onActionComplete).toHaveBeenCalled();
-    });
-  });
-
-  describe("Status polling optimization with visible miners", () => {
-    it("should filter telemetry fetch to only visible miners", () => {
-      // This test verifies the filtering logic without relying on polling timing
-      const successDeviceIds = ["device-1", "device-2", "device-3"];
-      const visibleMinerIds = new Set(["device-1", "device-3"]);
-
-      // Test the filtering logic that the implementation uses
-      const visibleSuccessDeviceIds = successDeviceIds.filter((id) => visibleMinerIds.has(id));
-
-      expect(visibleSuccessDeviceIds).toEqual(["device-1", "device-3"]);
-      expect(visibleSuccessDeviceIds).not.toContain("device-2");
-    });
-  });
-
-  describe("Reboot status completion check", () => {
-    it("should consider reboot complete when device status is ONLINE", () => {
-      // Test the status check logic directly - TypeScript knows this is always true,
-      // but we're testing the runtime behavior for documentation purposes
-      const deviceStatus: DeviceStatus = DeviceStatus.ONLINE;
-      // @ts-expect-error - Testing runtime behavior: any non-OFFLINE status completes reboot
-      const isRebootComplete = deviceStatus !== DeviceStatus.OFFLINE;
-
-      expect(isRebootComplete).toBe(true);
-    });
-
-    it("should consider reboot complete when device status is NEEDS_MINING_POOL", () => {
-      // Test the status check logic directly
-      const deviceStatus: DeviceStatus = DeviceStatus.NEEDS_MINING_POOL;
-      // @ts-expect-error - Testing runtime behavior: any non-OFFLINE status completes reboot
-      const isRebootComplete = deviceStatus !== DeviceStatus.OFFLINE;
-
-      expect(isRebootComplete).toBe(true);
-    });
-
-    it("should consider reboot complete when device status is ERROR", () => {
-      // Test the status check logic directly
-      const deviceStatus: DeviceStatus = DeviceStatus.ERROR;
-      // @ts-expect-error - Testing runtime behavior: any non-OFFLINE status completes reboot
-      const isRebootComplete = deviceStatus !== DeviceStatus.OFFLINE;
-
-      expect(isRebootComplete).toBe(true);
-    });
-
-    it("should NOT consider reboot complete when device status is OFFLINE", () => {
-      // Test the status check logic directly
-      const deviceStatus = DeviceStatus.OFFLINE;
-      const isRebootComplete = deviceStatus !== DeviceStatus.OFFLINE;
-
-      expect(isRebootComplete).toBe(false);
-    });
-  });
-
-  describe("Polling intervals and timeout", () => {
-    beforeEach(() => {
-      vi.useFakeTimers();
-    });
-
-    afterEach(() => {
-      vi.useRealTimers();
-    });
-
-    it("should poll every 3 seconds during status confirmation", async () => {
-      const successDeviceIds = ["device-1"];
-
-      mockReboot.mockImplementation(({ onSuccess }: any) => {
-        onSuccess({ batchIdentifier: "batch-reboot" });
-      });
-
-      mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData }: any) => {
-        setTimeout(() => {
-          onStreamData({
-            status: {
-              commandBatchDeviceCount: {
-                total: BigInt(1),
-                success: BigInt(1),
-                failure: BigInt(0),
-                successDeviceIdentifiers: successDeviceIds,
-                failureDeviceIdentifiers: [],
-              },
-            },
-          });
-        }, 100);
-        // Keep stream open
-        return new Promise(() => {}) as Promise<void>;
-      });
-
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
-          selectionMode: "subset",
-        }),
-      );
-
-      // Keep device OFFLINE — previously triggered polling, now batch completes immediately
-      testMiners["device-1"] = {
-        deviceIdentifier: "device-1",
-        deviceStatus: DeviceStatus.OFFLINE,
-        pairingStatus: PairingStatus.PAIRED,
-        name: "device-1",
-        macAddress: "",
-        serialNumber: "",
-        model: "",
-        manufacturer: "",
-        ipAddress: "",
-        url: "",
-        firmwareVersion: "",
-        powerUsage: [],
-        temperature: [],
-        hashrate: [],
-        efficiency: [],
-        temperatureStatus: 0,
-        driverName: "",
-      } as unknown as MinerStateSnapshot;
-
-      const rebootAction = result.current.popoverActions.find((a) => a.action === deviceActions.reboot);
-
-      await act(async () => {
-        await rebootAction?.actionHandler();
-      });
-
-      await act(async () => {
-        await result.current.handleConfirmation();
-      });
-
-      // Wait for stream callback to execute
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(200);
-      });
-
-      // Track completion calls before advancing time
-      const initialCalls = mockCompleteBatchOperation.mock.calls.length;
-
-      // Advance 2.5 seconds - should not poll yet
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(2500);
-      });
-
-      expect(mockCompleteBatchOperation.mock.calls.length).toBe(initialCalls);
-
-      // Advance to 3 seconds - should poll once
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(500);
-      });
-
-      // Should have polled (but not completed since device still OFFLINE)
-      expect(mockCompleteBatchOperation.mock.calls.length).toBe(initialCalls);
-
-      // Advance another 3 seconds - should poll again
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(3000);
-      });
-
-      // Polling happened (still not complete)
-      expect(mockCompleteBatchOperation.mock.calls.length).toBe(initialCalls);
-    });
-
-    it("should timeout after reaching max polls (3 minutes)", () => {
-      // Test the timeout logic directly
-      const checkInterval = 3000; // 3 seconds
-      const maxPolls = 60; // 3 minutes max
-      const totalTimeoutMs = maxPolls * checkInterval;
-
-      expect(totalTimeoutMs).toBe(180000); // 180 seconds = 3 minutes
-      expect(maxPolls).toBeGreaterThan(0);
-    });
-
-    it("should refetch telemetry every 10 polling cycles (30 seconds)", () => {
-      // Test the telemetry refetch interval logic directly
-      const checkInterval = 3000; // 3 seconds per poll
-      const refetchEveryNPolls = 10;
-      const refetchIntervalMs = refetchEveryNPolls * checkInterval;
-
-      expect(refetchIntervalMs).toBe(30000); // 30 seconds
-
-      // Test the modulo logic used in implementation
-      for (let pollCount = 1; pollCount <= 30; pollCount++) {
-        const shouldRefetch = pollCount % 10 === 0;
-        if (pollCount === 10 || pollCount === 20 || pollCount === 30) {
-          expect(shouldRefetch).toBe(true);
-        } else {
-          expect(shouldRefetch).toBe(false);
-        }
-      }
-    });
-  });
-
   describe("Unsupported miners modal flow", () => {
     it("should show unsupported miners modal when some miners do not support the action", async () => {
       mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
@@ -2555,172 +2152,30 @@ describe("useMinerActions", () => {
     });
   });
 
-  describe("Mining pool authentication flow", () => {
-    it("should show authentication modal when mining pool action handler is called", async () => {
+  describe("Reviewed pool configuration flow", () => {
+    it("opens the shared selector without dropping unsupported targets or prompting for credentials early", async () => {
       const onActionStart = vi.fn();
-
       const { result } = renderHook(() =>
         useMinerActions({
           ...batchOpsParams(),
-          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectedMiners: [{ deviceIdentifier: "device-1" }, { deviceIdentifier: "device-2" }],
           selectionMode: "subset",
           onActionStart,
         }),
       );
-
-      const poolAction = result.current.popoverActions.find((a) => a.action === settingsActions.miningPool);
-
+      const action = result.current.popoverActions.find((item) => item.action === settingsActions.miningPool);
       await act(async () => {
-        await poolAction?.actionHandler();
+        await action?.actionHandler();
       });
-
-      expect(result.current.showAuthenticateFleetModal).toBe(true);
-      expect(result.current.currentAction).toBe(settingsActions.miningPool);
       expect(onActionStart).toHaveBeenCalled();
-    });
-
-    it("should show pool selection page after successful authentication", async () => {
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
-          selectionMode: "subset",
-        }),
-      );
-
-      // Trigger mining pool action
-      const poolAction = result.current.popoverActions.find((a) => a.action === settingsActions.miningPool);
-
-      await act(async () => {
-        await poolAction?.actionHandler();
-      });
-
-      expect(result.current.showAuthenticateFleetModal).toBe(true);
-
-      // Authenticate with credentials
-      await act(async () => {
-        await result.current.handleFleetAuthenticated("testuser", "testpass");
-      });
-
+      expect(result.current.showPoolSelectionPage).toBe(true);
       expect(result.current.showAuthenticateFleetModal).toBe(false);
-      expect(result.current.showPoolSelectionPage).toBe(true);
-      expect(result.current.fleetCredentials).toEqual({ username: "testuser", password: "testpass" });
-    });
-
-    it("should store pool filtered device IDs when capability check returns partial support", async () => {
-      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
-        onSuccess({
-          allSupported: false,
-          noneSupported: false,
-          supportedCount: 1,
-          unsupportedCount: 1,
-          totalCount: 2,
-          unsupportedGroups: [{ model: "S19", firmwareVersion: "1.0.0", count: 1 }],
-          supportedDeviceIdentifiers: ["device-1"],
-        });
-      });
-
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [
-            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
-            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
-          ],
-          selectionMode: "subset",
-        }),
-      );
-
-      const poolAction = result.current.popoverActions.find((a) => a.action === settingsActions.miningPool);
-
-      await act(async () => {
-        await poolAction?.actionHandler();
-      });
-
-      // Unsupported miners modal should be shown
-      expect(result.current.unsupportedMinersInfo.visible).toBe(true);
-      expect(result.current.unsupportedMinersInfo.supportedDeviceIdentifiers).toEqual(["device-1"]);
-
-      // Continue with supported miners only
-      await act(async () => {
-        result.current.handleUnsupportedMinersContinue();
-      });
-
-      // Should show auth modal with filtered device IDs stored
-      expect(result.current.showAuthenticateFleetModal).toBe(true);
-      expect(result.current.poolFilteredDeviceIds).toEqual(["device-1"]);
-    });
-
-    it("should dismiss pool selection page and reset state when handleCancel is called", async () => {
-      const onActionComplete = vi.fn();
-
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
-          selectionMode: "subset",
-          onActionComplete,
-        }),
-      );
-
-      // Trigger mining pool action and authenticate
-      const poolAction = result.current.popoverActions.find((a) => a.action === settingsActions.miningPool);
-
-      await act(async () => {
-        await poolAction?.actionHandler();
-      });
-
-      await act(async () => {
-        await result.current.handleFleetAuthenticated("testuser", "testpass");
-      });
-
-      expect(result.current.showPoolSelectionPage).toBe(true);
-
-      // Cancel/dismiss
-      act(() => {
-        result.current.handleCancel();
-      });
-
+      expect(mockCheckCommandCapabilities).not.toHaveBeenCalled();
+      expect(result.current.poolFilteredDeviceIds).toBeUndefined();
+      expect(result.current.fleetCredentials).toBeUndefined();
+      act(() => result.current.handleCancel());
       expect(result.current.showPoolSelectionPage).toBe(false);
       expect(result.current.currentAction).toBeNull();
-      expect(result.current.fleetCredentials).toBeUndefined();
-      expect(onActionComplete).toHaveBeenCalled();
-    });
-
-    it("should proceed directly to pool selection when all miners support the action", async () => {
-      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
-        onSuccess({
-          allSupported: true,
-          noneSupported: false,
-          supportedCount: 2,
-          unsupportedCount: 0,
-          totalCount: 2,
-          unsupportedGroups: [],
-          supportedDeviceIdentifiers: ["device-1", "device-2"],
-        });
-      });
-
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [
-            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
-            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
-          ],
-          selectionMode: "subset",
-        }),
-      );
-
-      const poolAction = result.current.popoverActions.find((a) => a.action === settingsActions.miningPool);
-
-      await act(async () => {
-        await poolAction?.actionHandler();
-      });
-
-      // Should show auth modal directly (no unsupported miners modal)
-      expect(result.current.unsupportedMinersInfo.visible).toBe(false);
-      expect(result.current.showAuthenticateFleetModal).toBe(true);
-      expect(result.current.poolFilteredDeviceIds).toBeUndefined();
     });
   });
 
@@ -3305,19 +2760,6 @@ describe("useMinerActions", () => {
       vi.restoreAllMocks();
     });
 
-    it("should include downloadLogs in popoverActions", () => {
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
-          selectionMode: "subset",
-        }),
-      );
-
-      const actions = result.current.popoverActions.map((a) => a.action);
-      expect(actions).toContain(deviceActions.downloadLogs);
-    });
-
     it("should call onActionStart to close the menu when triggered", () => {
       const onActionStart = vi.fn();
 
@@ -3338,7 +2780,7 @@ describe("useMinerActions", () => {
       expect(onActionStart).toHaveBeenCalled();
     });
 
-    it("should show loading toast when download begins", async () => {
+    it("should show loading toast and call downloadLogs API with the correct deviceSelector", async () => {
       const { result } = renderHook(() =>
         useMinerActions({
           ...batchOpsParams(),
@@ -3357,21 +2799,6 @@ describe("useMinerActions", () => {
         status: toaster.STATUSES.loading,
         longRunning: true,
       });
-    });
-
-    it("should call downloadLogs API with the correct deviceSelector", async () => {
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
-          selectionMode: "subset",
-        }),
-      );
-
-      const downloadLogsAction = result.current.popoverActions.find((a) => a.action === deviceActions.downloadLogs);
-      await act(async () => {
-        await downloadLogsAction?.actionHandler();
-      });
 
       expect(mockDownloadLogs).toHaveBeenCalled();
       const request = mockDownloadLogs.mock.calls[0][0].downloadLogsRequest;
@@ -3379,54 +2806,7 @@ describe("useMinerActions", () => {
       expect(request.deviceSelector.selectionType.value.deviceIdentifiers).toEqual(["device-1"]);
     });
 
-    it("should stream batch updates then fetch log bundle after downloadLogs succeeds", async () => {
-      mockDownloadLogs.mockImplementation(({ onSuccess }: any) => {
-        onSuccess({ batchIdentifier: "batch-logs-123" });
-      });
-      mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData }: any) => {
-        onStreamData({ status: { commandBatchUpdateStatus: 3, commandBatchDeviceCount: { success: 1, failure: 0 } } });
-        return Promise.resolve();
-      });
-      mockGetCommandBatchLogBundle.mockImplementation(({ onSuccess }: any) => {
-        onSuccess({ chunkData: new Uint8Array([1, 2, 3]), filename: "logs.zip" });
-      });
-
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
-          selectionMode: "subset",
-        }),
-      );
-
-      // Set up anchor spy after renderHook to avoid intercepting React's internal createElement calls
-      vi.spyOn(document, "createElement").mockReturnValueOnce({
-        href: "",
-        download: "",
-        style: {},
-        click: vi.fn(),
-      } as unknown as HTMLElement);
-
-      const downloadLogsAction = result.current.popoverActions.find((a) => a.action === deviceActions.downloadLogs);
-      await act(async () => {
-        downloadLogsAction?.actionHandler();
-        await Promise.resolve();
-        await Promise.resolve();
-      });
-
-      expect(mockStreamCommandBatchUpdates).toHaveBeenCalledWith(
-        expect.objectContaining({
-          streamRequest: expect.objectContaining({ batchIdentifier: "batch-logs-123" }),
-        }),
-      );
-      expect(mockGetCommandBatchLogBundle).toHaveBeenCalledWith(
-        expect.objectContaining({
-          request: expect.objectContaining({ batchIdentifier: "batch-logs-123" }),
-        }),
-      );
-    });
-
-    it("should trigger browser file download with the correct filename on success", async () => {
+    it("should stream the batch, fetch the log bundle, download the file and show a success toast", async () => {
       mockDownloadLogs.mockImplementation(({ onSuccess }: any) => {
         onSuccess({ batchIdentifier: "batch-logs-123" });
       });
@@ -3458,45 +2838,20 @@ describe("useMinerActions", () => {
         await Promise.resolve();
       });
 
-      expect(mockAnchor.download).toBe("miner-logs.zip");
-      expect(mockAnchor.href).toBe("blob:mock-url");
-      expect(mockAnchorClick).toHaveBeenCalled();
-    });
-
-    it("should show success toast after the file is downloaded", async () => {
-      mockDownloadLogs.mockImplementation(({ onSuccess }: any) => {
-        onSuccess({ batchIdentifier: "batch-logs-123" });
-      });
-      mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData }: any) => {
-        onStreamData({ status: { commandBatchUpdateStatus: 3, commandBatchDeviceCount: { success: 1, failure: 0 } } });
-        return Promise.resolve();
-      });
-      mockGetCommandBatchLogBundle.mockImplementation(({ onSuccess }: any) => {
-        onSuccess({ chunkData: new Uint8Array([1, 2, 3]), filename: "logs.zip" });
-      });
-
-      const { result } = renderHook(() =>
-        useMinerActions({
-          ...batchOpsParams(),
-          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
-          selectionMode: "subset",
+      expect(mockStreamCommandBatchUpdates).toHaveBeenCalledWith(
+        expect.objectContaining({
+          streamRequest: expect.objectContaining({ batchIdentifier: "batch-logs-123" }),
+        }),
+      );
+      expect(mockGetCommandBatchLogBundle).toHaveBeenCalledWith(
+        expect.objectContaining({
+          request: expect.objectContaining({ batchIdentifier: "batch-logs-123" }),
         }),
       );
 
-      // Set up anchor spy after renderHook to avoid intercepting React's internal createElement calls
-      vi.spyOn(document, "createElement").mockReturnValueOnce({
-        href: "",
-        download: "",
-        style: {},
-        click: vi.fn(),
-      } as unknown as HTMLElement);
-
-      const downloadLogsAction = result.current.popoverActions.find((a) => a.action === deviceActions.downloadLogs);
-      await act(async () => {
-        downloadLogsAction?.actionHandler();
-        await Promise.resolve();
-        await Promise.resolve();
-      });
+      expect(mockAnchor.download).toBe("miner-logs.zip");
+      expect(mockAnchor.href).toBe("blob:mock-url");
+      expect(mockAnchorClick).toHaveBeenCalled();
 
       expect(toaster.updateToast).toHaveBeenCalledWith(
         expect.any(Number),

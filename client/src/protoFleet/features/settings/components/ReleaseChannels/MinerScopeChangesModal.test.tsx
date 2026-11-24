@@ -3,10 +3,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { MinerScopeChanges } from "./channelSettingsChangesUtils";
 import MinerScopeChangesModal from "./MinerScopeChangesModal";
+import { DEVICE_NOUNS, MINER_NOUNS } from "./rolloutStatus";
 
 afterEach(cleanup);
 
-const changesFor = (miners: MinerScopeChanges["miners"]): MinerScopeChanges => ({
+const changesFor = (miners: MinerScopeChanges["miners"], nouns = MINER_NOUNS): MinerScopeChanges => ({
+  nouns,
   miners,
   originalCount: miners.filter((miner) => miner.original).length,
   targetCount: miners.filter((miner) => miner.target).length,
@@ -59,6 +61,25 @@ describe("miner scope changes details", () => {
     expect(screen.getByText("No miners match your search.")).toBeInTheDocument();
     fireEvent.change(search, { target: { value: "" } });
     expect(within(screen.getByRole("table", { name: "Miner changes" })).getAllByRole("row")).toHaveLength(4);
+  });
+
+  it("words the list as devices for a channel that holds miners and containers", () => {
+    const changes = changesFor(
+      [
+        { identifier: "rig-1", name: "Rig", original: true, target: false },
+        { identifier: "ct1:north-a", name: "Container North A", original: false, target: true },
+      ],
+      DEVICE_NOUNS,
+    );
+    render(<MinerScopeChangesModal changes={changes} onClose={vi.fn()} />);
+
+    expect(screen.getByText("Device changes")).toBeInTheDocument();
+    expect(screen.getByText("Compare the devices selected directly in Applies to.")).toBeInTheDocument();
+    const table = within(screen.getByRole("table", { name: "Device changes" }));
+    expect(table.getAllByRole("columnheader")[0]).toHaveTextContent("Device");
+    expect(screen.getByText("1–2 of 2 devices")).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search devices" }), { target: { value: "nothing" } });
+    expect(screen.getByText("No devices match your search.")).toBeInTheDocument();
   });
 
   it("paginates the full list and resets to the first page when the search changes", () => {

@@ -1,5 +1,5 @@
 # Production stage using Nginx
-FROM nginx:1.29.0-alpine
+FROM nginx:1.31.6-alpine
 
 # Copy the prebuilt client files
 COPY protoFleet /usr/share/nginx/html

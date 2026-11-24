@@ -3,11 +3,11 @@ import { Link } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 import { MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { encodeFilterToURL } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import { scopedPath } from "@/protoFleet/routing/siteScope";
 import { type ActiveSite, DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 import { Triangle } from "@/shared/assets/icons";
+import ChartWidget from "@/shared/components/ChartWidget";
 import CompositionBar, { type Segment } from "@/shared/components/CompositionBar";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 

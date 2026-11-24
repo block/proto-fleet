@@ -10,6 +10,7 @@ import {
   resetActiveCurtailmentData,
 } from "@/protoFleet/api/activeCurtailmentData";
 import { CURTAILMENT_CHANGED_EVENT } from "@/protoFleet/api/curtailmentEvents";
+import type { CurtailmentSubmitValues } from "@/protoFleet/api/curtailmentTypes";
 import {
   type CurtailmentEvent,
   CurtailmentEventSchema,
@@ -17,6 +18,7 @@ import {
   CurtailmentMode,
   CurtailmentPriority,
   CurtailmentScopeSchema,
+  CurtailmentSourceActorType,
   CurtailmentTargetRollupSchema,
   CurtailmentTargetSchema,
   CurtailmentTargetState,
@@ -30,7 +32,6 @@ import {
   ScopeWholeOrgSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
-import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
 const {
   mockAdminTerminateEvent,
@@ -90,7 +91,6 @@ vi.mock("@/protoFleet/store", () => ({
 const baseSubmitValues: CurtailmentSubmitValues = {
   scopeType: "wholeOrg",
   scopeId: "whole-org",
-  deviceSetIds: [],
   deviceIdentifiers: [],
   responseProfileId: "customPlan",
   curtailmentMode: "fixedKwReduction",
@@ -175,6 +175,26 @@ describe("useCurtailmentApi", () => {
     );
     mockListActiveCurtailments.mockResolvedValue({ event: undefined });
     mockListCurtailmentEvents.mockResolvedValue({ events: [], nextPageToken: "" });
+  });
+
+  it("reloads profile options and explains recovery when Start loses its profile revision", async () => {
+    const reload = vi.fn();
+    window.addEventListener("protoFleet:curtailment-profiles-stale", reload);
+    mockStartCurtailment.mockRejectedValueOnce(
+      new ConnectError(
+        "curtailment response profile changed before execution; reload and retry",
+        Code.FailedPrecondition,
+      ),
+    );
+    const { result } = renderHook(() => useCurtailmentApi());
+    await act(async () => {
+      await expect(result.current.startCurtailment(baseSubmitValues)).rejects.toThrow(
+        "Reload the profile and review the updated plan",
+      );
+    });
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(result.current.startError).toContain("This profile changed");
+    window.removeEventListener("protoFleet:curtailment-profiles-stale", reload);
   });
 
   it("loads and maps active curtailment plus history", async () => {
@@ -521,6 +541,40 @@ describe("useCurtailmentApi", () => {
     expect(result.current.historyEvents[0]).toEqual(
       expect.objectContaining({
         sourceLabel: "Curtailment automation",
+      }),
+    );
+  });
+
+  it("labels scheduled and automation events from the actor when history omits the source", async () => {
+    const activeEvent = curtailmentEvent({
+      externalSource: "curtailment_automation",
+      sourceActorType: CurtailmentSourceActorType.SCHEDULER,
+    });
+    const historyEvents = [
+      curtailmentEvent({ eventUuid: "curt-scheduled", sourceActorType: CurtailmentSourceActorType.SCHEDULER }),
+      curtailmentEvent({ eventUuid: "curt-automation", sourceActorType: CurtailmentSourceActorType.AUTOMATION }),
+      curtailmentEvent({ eventUuid: "curt-manual", sourceActorType: CurtailmentSourceActorType.USER }),
+    ];
+    mockListActiveCurtailments.mockResolvedValueOnce({ event: activeEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: historyEvents, nextPageToken: "" });
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEvent).toEqual(
+      expect.objectContaining({ isAutomationOwned: true, isScheduleOwned: true, sourceLabel: "Schedule" }),
+    );
+    const labelsById = Object.fromEntries(
+      result.current.historyEvents.map((event) => [event.id, event.sourceLabel] as const),
+    );
+    expect(labelsById).toEqual(
+      expect.objectContaining({
+        "curt-scheduled": "Schedule",
+        "curt-automation": "Curtailment automation",
+        "curt-manual": "Manual",
       }),
     );
   });
@@ -2863,5 +2917,16 @@ describe("useCurtailmentApi", () => {
     expect(changedListener).not.toHaveBeenCalled();
 
     window.removeEventListener(CURTAILMENT_CHANGED_EVENT, changedListener);
+  });
+});
+
+describe("curtailment catalog updates", () => {
+  it("keeps refresh stable when only site names load", () => {
+    const { result, rerender } = renderHook(({ names }) => useCurtailmentApi({ siteNameById: names }), {
+      initialProps: { names: new Map<string, string>() },
+    });
+    const refresh = result.current.refreshCurtailment;
+    rerender({ names: new Map([["1", "North site"]]) });
+    expect(result.current.refreshCurtailment).toBe(refresh);
   });
 });

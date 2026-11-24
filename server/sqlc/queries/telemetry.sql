@@ -1,12 +1,15 @@
 -- Telemetry queries for device_metrics table and continuous aggregates
 -- Note: All device identification uses device_identifier (TEXT), not device_id (BIGINT)
 
--- name: InsertDeviceMetrics :exec
+-- name: SetLocalTelemetryLockTimeout :exec
+SELECT set_config('lock_timeout', sqlc.arg('timeout_milliseconds')::BIGINT::TEXT || 'ms', TRUE);
+
+-- name: InsertDeviceMetricsBatch :exec
+-- Inserts one row per element of the parallel arrays. An empty kind marks
+-- an absent measurement, so its value is stored as NULL rather than 0.
 -- site_id is row-stamped from device.site_id (looked up by
 -- device_identifier) so per-site telemetry filters use the row-stamped
--- site even after the device is reassigned. Inline sub-select rather
--- than a CTE+SELECT INSERT — ON CONFLICT on the device_metrics
--- hypertable PK requires VALUES-shape INSERT. The sub-select does NOT
+-- site even after the device is reassigned. The sub-select does NOT
 -- filter by deleted_at: telemetry from a soft-deleted device is still
 -- legitimate per-site history, matching InsertError /
 -- InsertMinerStateSnapshot which also stamp from the device row
@@ -25,30 +28,46 @@ INSERT INTO device_metrics (
     power_w_kind,
     efficiency_jh,
     efficiency_jh_kind,
-    voltage_v,
-    voltage_v_kind,
-    current_a,
-    current_a_kind,
-    inlet_temp_c,
-    outlet_temp_c,
-    ambient_temp_c,
-    chip_count,
-    chip_count_kind,
-    chip_frequency_mhz,
     health,
     site_id
-) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-    $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-    $21, $22, $23,
+) SELECT
+    metrics.time,
+    metrics.device_identifier,
+    CASE WHEN metrics.hash_rate_hs_kind <> '' THEN metrics.hash_rate_hs END,
+    NULLIF(metrics.hash_rate_hs_kind, ''),
+    CASE WHEN metrics.temp_c_kind <> '' THEN metrics.temp_c END,
+    NULLIF(metrics.temp_c_kind, ''),
+    CASE WHEN metrics.fan_rpm_kind <> '' THEN metrics.fan_rpm END,
+    NULLIF(metrics.fan_rpm_kind, ''),
+    CASE WHEN metrics.power_w_kind <> '' THEN metrics.power_w END,
+    NULLIF(metrics.power_w_kind, ''),
+    CASE WHEN metrics.efficiency_jh_kind <> '' THEN metrics.efficiency_jh END,
+    NULLIF(metrics.efficiency_jh_kind, ''),
+    metrics.health,
     (
         SELECT site_id
         FROM device
-        WHERE device_identifier = $2
+        WHERE device_identifier = metrics.device_identifier
         ORDER BY (deleted_at IS NULL) DESC, updated_at DESC, id DESC
         LIMIT 1
     )
-) ON CONFLICT (time, device_identifier) DO NOTHING;
+FROM (
+    SELECT
+        unnest(sqlc.arg('times')::timestamptz[]) AS time,
+        unnest(sqlc.arg('device_identifiers')::text[]) AS device_identifier,
+        unnest(sqlc.arg('hash_rate_hs')::double precision[]) AS hash_rate_hs,
+        unnest(sqlc.arg('hash_rate_hs_kinds')::text[]) AS hash_rate_hs_kind,
+        unnest(sqlc.arg('temp_c')::double precision[]) AS temp_c,
+        unnest(sqlc.arg('temp_c_kinds')::text[]) AS temp_c_kind,
+        unnest(sqlc.arg('fan_rpm')::double precision[]) AS fan_rpm,
+        unnest(sqlc.arg('fan_rpm_kinds')::text[]) AS fan_rpm_kind,
+        unnest(sqlc.arg('power_w')::double precision[]) AS power_w,
+        unnest(sqlc.arg('power_w_kinds')::text[]) AS power_w_kind,
+        unnest(sqlc.arg('efficiency_jh')::double precision[]) AS efficiency_jh,
+        unnest(sqlc.arg('efficiency_jh_kinds')::text[]) AS efficiency_jh_kind,
+        unnest(sqlc.arg('health')::text[]) AS health
+) AS metrics
+ON CONFLICT (time, device_identifier) DO NOTHING;
 
 -- name: GetLatestDeviceMetrics :many
 SELECT
@@ -75,7 +94,7 @@ SELECT
     dm.chip_count_kind,
     dm.chip_frequency_mhz,
     dm.health,
-    dm.site_id
+    dm.site_id, dm.metric_semantics, dm.coverage, dm.topology_observation_id, dm.topology_version_id
 FROM unnest(sqlc.arg('device_identifiers')::text[]) AS ids(device_identifier)
 CROSS JOIN LATERAL (
     SELECT *
@@ -111,7 +130,7 @@ SELECT DISTINCT ON (device_identifier)
     chip_count_kind,
     chip_frequency_mhz,
     health,
-    site_id
+    site_id, metric_semantics, coverage, topology_observation_id, topology_version_id
 FROM device_metrics
 WHERE time >= $1
 ORDER BY device_identifier, time DESC;
@@ -141,7 +160,7 @@ SELECT
     chip_count_kind,
     chip_frequency_mhz,
     health,
-    site_id
+    site_id, metric_semantics, coverage, topology_observation_id, topology_version_id
 FROM device_metrics
 WHERE device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND time >= $1
@@ -176,7 +195,7 @@ SELECT
     chip_count_kind,
     chip_frequency_mhz,
     health,
-    site_id
+    site_id, metric_semantics, coverage, topology_observation_id, topology_version_id
 FROM device_metrics
 WHERE time >= $1
   AND time <= $2
@@ -534,6 +553,34 @@ WHERE bucket >= $1
   AND bucket <= $2
 ORDER BY bucket ASC;
 
+-- name: GetOrgDeviceMetricsDailyAggregates :many
+-- Returns daily aggregates for the current devices in an org.
+WITH latest_device AS (
+    SELECT DISTINCT ON (d.device_identifier)
+        d.device_identifier,
+        d.org_id
+    FROM device d
+    ORDER BY d.device_identifier, (d.deleted_at IS NULL) DESC, d.updated_at DESC, d.id DESC
+)
+SELECT
+    dmd.bucket,
+    dmd.device_identifier,
+    COALESCE(dmd.avg_hash_rate, 0) AS avg_hash_rate,
+    dmd.max_hash_rate,
+    dmd.min_hash_rate,
+    COALESCE(dmd.avg_temp, 0) AS avg_temp,
+    dmd.max_temp,
+    dmd.min_temp,
+    COALESCE(dmd.avg_power, 0) AS avg_power,
+    COALESCE(dmd.avg_efficiency, 0) AS avg_efficiency,
+    dmd.data_points
+FROM device_metrics_daily dmd
+JOIN latest_device d USING (device_identifier)
+WHERE d.org_id = sqlc.arg('org_id')
+  AND dmd.bucket >= sqlc.arg('start_time')
+  AND dmd.bucket <= sqlc.arg('end_time')
+ORDER BY dmd.bucket ASC;
+
 -- =====================================================
 -- Status aggregate queries (temperature histogram + uptime)
 -- =====================================================
@@ -673,6 +720,40 @@ FROM device_status_daily
 WHERE bucket >= $1
   AND bucket <= $2
 ORDER BY bucket ASC;
+
+-- name: GetOrgDeviceStatusDailyAggregates :many
+-- Returns daily status aggregates for the current devices in an org.
+WITH latest_device AS (
+    SELECT DISTINCT ON (d.device_identifier)
+        d.device_identifier,
+        d.org_id
+    FROM device d
+    ORDER BY d.device_identifier, (d.deleted_at IS NULL) DESC, d.updated_at DESC, d.id DESC
+)
+SELECT
+    dsd.bucket,
+    dsd.device_identifier,
+    dsd.temp_below_0,
+    dsd.temp_0_10,
+    dsd.temp_10_20,
+    dsd.temp_20_30,
+    dsd.temp_30_40,
+    dsd.temp_40_50,
+    dsd.temp_50_60,
+    dsd.temp_60_70,
+    dsd.temp_70_80,
+    dsd.temp_80_90,
+    dsd.temp_90_100,
+    dsd.temp_100_plus,
+    dsd.hashing_count,
+    dsd.not_hashing_count,
+    dsd.data_points
+FROM device_status_daily dsd
+JOIN latest_device d USING (device_identifier)
+WHERE d.org_id = sqlc.arg('org_id')
+  AND dsd.bucket >= sqlc.arg('start_time')
+  AND dsd.bucket <= sqlc.arg('end_time')
+ORDER BY dsd.bucket ASC;
 
 -- name: DisableSyncCommit :exec
 SET LOCAL synchronous_commit = off;

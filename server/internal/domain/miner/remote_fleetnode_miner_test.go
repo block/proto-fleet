@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	"github.com/block/proto-fleet/server/generated/sqlc"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -23,6 +26,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/miner/remotenode"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 func TestRemoteFleetNodeMinerApplyCurtailmentConfigForwardsToDelegate(t *testing.T) {
@@ -70,6 +74,7 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsHappyPath(t *testing.T) {
 	got := receiveMetricsResult(t, results)
 	require.NoError(t, got.err)
 	assert.Equal(t, "node-device", got.metrics.DeviceIdentifier)
+	assert.EqualValues(t, 12, got.metrics.FreshnessSourceNodeID)
 	assert.Equal(t, 100.0, got.metrics.HashrateHS.Value)
 	assert.Equal(t, "fw-1", got.metrics.FirmwareVersion)
 }
@@ -131,6 +136,47 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsPreservesComponentPayload(t *testin
 	require.Len(t, got.metrics.HashBoards, 1)
 	require.Len(t, got.metrics.HashBoards[0].ASICs, 1)
 	assert.Equal(t, 83.0, got.metrics.HashBoards[0].ASICs[0].TempC.Value)
+}
+
+func BenchmarkRemoteFleetNodeMinerGetDeviceMetrics(b *testing.B) {
+	miner := newTestRemoteFleetNodeMiner(b, control.NewRegistry())
+	result := telemetryResult("node-device")
+	metrics := modelsV2.DeviceMetrics{
+		DeviceIdentifier: result.GetDeviceIdentifier(),
+		Timestamp:        result.GetTimestamp().AsTime(),
+		FirmwareVersion:  result.GetFirmwareVersion(),
+		Health:           modelsV2.HealthHealthyActive,
+		HashrateHS:       &modelsV2.MetricValue{Value: 100e12, Kind: modelsV2.MetricKindRate},
+	}
+	for index := range 3 {
+		metrics.HashBoards = append(metrics.HashBoards, modelsV2.HashBoardMetrics{
+			ComponentInfo: modelsV2.ComponentInfo{Index: index, Name: fmt.Sprintf("board-%d", index)},
+			HashRateHS:    &modelsV2.MetricValue{Value: 33e12, Kind: modelsV2.MetricKindRate},
+			TempC:         &modelsV2.MetricValue{Value: 72, Kind: modelsV2.MetricKindGauge},
+		})
+	}
+	for index := range 4 {
+		metrics.FanMetrics = append(metrics.FanMetrics, modelsV2.FanMetrics{
+			ComponentInfo: modelsV2.ComponentInfo{Index: index, Name: fmt.Sprintf("fan-%d", index)},
+			RPM:           &modelsV2.MetricValue{Value: 2500, Kind: modelsV2.MetricKindGauge},
+		})
+	}
+	deviceMetricsJSON, err := json.Marshal(metrics)
+	require.NoError(b, err)
+	result.DeviceMetricsJson = deviceMetricsJSON
+	payload, err := proto.Marshal(result)
+	require.NoError(b, err)
+	ack := &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK, Payload: payload}
+	miner.sender = telemetryRetrySender(func(context.Context, *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
+		return ack, nil
+	})
+	ctx := b.Context()
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := miner.GetDeviceMetrics(ctx); err != nil {
+			b.Fatal(err)
+		}
+	}
 }
 
 func TestRemoteFleetNodeMinerGetDeviceMetricsUsesNodeLimiter(t *testing.T) {
@@ -243,7 +289,43 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsNoActiveStream(t *testing.T) {
 	_, err := miner.GetDeviceMetrics(context.Background())
 
 	require.Error(t, err)
-	assert.True(t, fleeterror.IsConnectionError(err))
+	var connectionErr fleeterror.ConnectionError
+	require.ErrorAs(t, err, &connectionErr)
+	require.False(t, connectionErr.DeviceProbeFailed)
+}
+
+func TestRemoteFleetNodeMinerGetDeviceStatusPreservesProbeFailureFromAck(t *testing.T) {
+	for _, confirmed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("confirmed=%t", confirmed), func(t *testing.T) {
+			registry := control.NewRegistry()
+			stream := registry.Register(12)
+			defer stream.Unregister()
+			miner := newTestRemoteFleetNodeMiner(t, registry)
+			type result struct {
+				status models.MinerStatus
+				err    error
+			}
+			results := make(chan result, 1)
+			go func() {
+				status, err := miner.GetDeviceStatus(t.Context())
+				results <- result{status, err}
+			}()
+			command := receiveRemoteCommand(t, stream)
+			stream.PublishAck(&gatewaypb.ControlAck{
+				CommandId: command.GetCommandId(), Code: gatewaypb.AckCode_ACK_CODE_SCAN_FAILED,
+				ErrorMessage: "connection refused", MinerProbeFailed: confirmed,
+			})
+			select {
+			case got := <-results:
+				require.Equal(t, models.MinerStatusOffline, got.status)
+				var connectionErr fleeterror.ConnectionError
+				require.ErrorAs(t, got.err, &connectionErr)
+				require.Equal(t, confirmed, connectionErr.DeviceProbeFailed)
+			case <-time.After(time.Second):
+				t.Fatal("timed out waiting for status")
+			}
+		})
+	}
 }
 
 func TestRemoteFleetNodeMinerGetDeviceMetricsTimesOutWithoutCallerDeadline(t *testing.T) {
@@ -333,12 +415,14 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsMapsBusyAckToResourceExhausted(t *t
 		results <- metricsResult{metrics: metrics, err: err}
 	}()
 
-	cmd := receiveRemoteCommand(t, stream)
-	stream.PublishAck(&gatewaypb.ControlAck{
-		CommandId:    cmd.GetCommandId(),
-		Code:         gatewaypb.AckCode_ACK_CODE_BUSY,
-		ErrorMessage: "retry shortly",
-	})
+	for range 3 {
+		cmd := receiveRemoteCommand(t, stream)
+		stream.PublishAck(&gatewaypb.ControlAck{
+			CommandId:    cmd.GetCommandId(),
+			Code:         gatewaypb.AckCode_ACK_CODE_BUSY,
+			ErrorMessage: "retry shortly",
+		})
+	}
 
 	got := receiveMetricsResult(t, results)
 	require.Error(t, got.err)
@@ -489,6 +573,25 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsRejectsInvalidPayload(t *testing.T)
 	assert.Contains(t, got.err.Error(), "invalid fleet node telemetry payload")
 }
 
+func TestRemoteFleetNodeMinerRejectsInvalidDeviceMetricsJSON(t *testing.T) {
+	miner := newTestRemoteFleetNodeMiner(t, control.NewRegistry())
+	for _, deviceMetricsJSON := range []string{`{`, `{"hashrate_hs": []}`} {
+		result := telemetryResult("node-device")
+		result.DeviceMetricsJson = []byte(deviceMetricsJSON)
+		payload, err := proto.Marshal(result)
+		require.NoError(t, err)
+		miner.sender = telemetryRetrySender(func(context.Context, *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
+			return &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK, Payload: payload}, nil
+		})
+
+		_, err = miner.GetDeviceMetrics(t.Context())
+		require.ErrorContains(t, err, "invalid fleet node telemetry device metrics payload")
+		status, err := miner.GetDeviceStatus(t.Context())
+		require.ErrorContains(t, err, "invalid fleet node telemetry device metrics payload")
+		require.Equal(t, models.MinerStatusOffline, status)
+	}
+}
+
 func TestRemoteFleetNodeMinerGetDeviceMetricsRejectsNonFiniteMetric(t *testing.T) {
 	registry := control.NewRegistry()
 	stream := registry.Register(12)
@@ -524,7 +627,9 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsRejectsMismatchedIdentifier(t *test
 	}()
 
 	cmd := receiveRemoteCommand(t, stream)
-	publishTelemetryAck(t, stream, cmd.GetCommandId(), telemetryResult("other-device"))
+	result := telemetryResult("other-device")
+	result.DeviceMetricsJson = []byte(`{"device_identifier":"node-device"}`)
+	publishTelemetryAck(t, stream, cmd.GetCommandId(), result)
 
 	got := receiveMetricsResult(t, results)
 	require.Error(t, got.err)
@@ -644,6 +749,7 @@ func TestRemoteFleetNodeMinerNeedsMiningPoolKeepsExactStatus(t *testing.T) {
 	result := telemetryResult("node-device")
 	result.DeviceStatus = telemetrypb.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL
 	result.HealthStatus = telemetrypb.DeviceHealthStatus_DEVICE_HEALTH_STATUS_HEALTHY_INACTIVE
+	result.DeviceMetricsJson = []byte(`{"health":"health_healthy_inactive"}`)
 	publishTelemetryAck(t, stream, cmd.GetCommandId(), result)
 
 	got := receiveMetricsResult(t, results)
@@ -666,12 +772,12 @@ type metricsResult struct {
 	err     error
 }
 
-func newTestRemoteFleetNodeMiner(t *testing.T, registry *control.Registry) *RemoteFleetNodeMiner {
+func newTestRemoteFleetNodeMiner(t testing.TB, registry *control.Registry) *RemoteFleetNodeMiner {
 	t.Helper()
 	return newTestRemoteFleetNodeMinerWithGate(t, registry, nil)
 }
 
-func newTestRemoteFleetNodeMinerWithGate(t *testing.T, registry *control.Registry, gate remotenode.Gate) *RemoteFleetNodeMiner {
+func newTestRemoteFleetNodeMinerWithGate(t testing.TB, registry *control.Registry, gate remotenode.Gate) *RemoteFleetNodeMiner {
 	t.Helper()
 	miner, err := newRemoteFleetNodeMiner(remoteTelemetryRoute{
 		fleetNodeID:        12,
@@ -736,10 +842,6 @@ func (g *blockingTelemetryGate) waitForAcquire(t *testing.T) int64 {
 	}
 }
 
-func (g *blockingTelemetryGate) releaseAcquire() {
-	close(g.release)
-}
-
 func receiveRemoteCommand(t *testing.T, stream *control.Stream) *gatewaypb.ControlCommand {
 	t.Helper()
 	select {
@@ -799,4 +901,50 @@ func telemetryResult(deviceID string) *telemetrypb.FleetNodeTelemetryResult {
 
 func ptrFloat64(v float64) *float64 {
 	return &v
+}
+
+func TestContainerClassSurvivesFleetNodeRouting(t *testing.T) {
+	s := &Service{}
+	route, err := s.remoteRouteFromRow(sqlc.GetFleetNodeTelemetryRouteByDeviceIdentifierRow{DeviceClass: 2})
+	require.NoError(t, err)
+	m := &RemoteFleetNodeMiner{route: route}
+	require.Equal(t, commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, m.telemetryRequest(t.Context()).DeviceClass)
+}
+
+func TestFleetNodeEquipmentTelemetryRoundTrip(t *testing.T) {
+	now := time.Now().UTC()
+	snapshot := &sdk.ContainerSnapshot{ObservedAt: now, Fans: []sdk.ContainerFan{{ComponentID: "fan", ObservedAt: now.Add(-time.Minute), SpeedPercent: new(0.0)}}, Controls: &sdk.ContainerControls{ObservedAt: now, Supported: new(true), Controls: []sdk.ContainerControl{{Name: "dry_cooler", Enabled: new(false)}, {Name: "coolant_pump"}}}}
+	data, err := json.Marshal(modelsV2.DeviceMetrics{Container: snapshot})
+	require.NoError(t, err)
+	result := telemetryResult("ct1")
+	result.DeviceMetricsJson = data
+	result.Timestamp = timestamppb.New(now)
+	wire, err := proto.Marshal(result)
+	require.NoError(t, err)
+	decoded := &telemetrypb.FleetNodeTelemetryResult{}
+	require.NoError(t, proto.Unmarshal(wire, decoded))
+	require.NoError(t, validateTelemetryResult(decoded))
+	decodedMetrics, err := decodeTelemetryDeviceMetrics(decoded.GetDeviceMetricsJson())
+	require.NoError(t, err)
+	metrics := telemetryResultToDeviceMetrics(decoded, decodedMetrics, now)
+	require.Equal(t, snapshot, metrics.Container)
+	require.Equal(t, "ct1", metrics.DeviceIdentifier)
+}
+
+type poolClearDelegate struct {
+	interfaces.Miner
+	cleared bool
+	err     error
+}
+
+func (d poolClearDelegate) VerifyPoolsCleared(context.Context) (bool, error) { return d.cleared, d.err }
+func TestRemoteFleetNodeMinerForwardsPoolClearingObservation(t *testing.T) {
+	for _, tc := range []poolClearDelegate{{cleared: true}, {}, {err: fleeterror.NewUnimplementedError("unsupported")}} {
+		m := &RemoteFleetNodeMiner{delegate: tc}
+		cleared, err := m.VerifyPoolsCleared(t.Context())
+		require.Equal(t, tc.cleared, cleared)
+		require.Equal(t, tc.err, err)
+	}
+	_, err := (&RemoteFleetNodeMiner{}).VerifyPoolsCleared(t.Context())
+	require.True(t, fleeterror.IsUnimplementedError(err))
 }

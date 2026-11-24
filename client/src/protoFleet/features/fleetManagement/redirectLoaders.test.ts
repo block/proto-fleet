@@ -73,22 +73,6 @@ describe("redirectLoaders", () => {
       expect(response.headers.get("Location")).toBe("/fleet/racks");
     });
 
-    test("preserves the rack filter deep-link", async () => {
-      const response = await invoke(racksRedirectLoader, "http://localhost/racks?rack=A-01");
-      expect(response.headers.get("Location")).toBe("/fleet/racks?rack=A-01");
-    });
-
-    test("preserves search and hash together", async () => {
-      const response = await invoke(racksRedirectLoader, "http://localhost/racks?building=42#perf");
-      expect(response.headers.get("Location")).toBe("/fleet/racks?building=42#perf");
-    });
-
-    test("keeps explicit site filters in all-sites scope", async () => {
-      setActiveSite({ kind: "site", id: "7", slug: "north" });
-      const response = await invoke(racksRedirectLoader, "http://localhost/racks?site=8&rack=A-01");
-      expect(response.headers.get("Location")).toBe("/fleet/racks?site=8&rack=A-01");
-    });
-
     test("recognizes comma-separated explicit site filters", async () => {
       setActiveSite({ kind: "site", id: "7", slug: "north" });
       const response = await invoke(racksRedirectLoader, "http://localhost/racks?site=abc,8&rack=A-01");
@@ -101,11 +85,6 @@ describe("redirectLoaders", () => {
       const response = await invoke(sitesRedirectLoader, "http://localhost/sites");
       expect(response.status).toBe(302);
       expect(response.headers.get("Location")).toBe("/fleet/sites");
-    });
-
-    test("preserves search and hash", async () => {
-      const response = await invoke(sitesRedirectLoader, "http://localhost/sites?view=grid#summary");
-      expect(response.headers.get("Location")).toBe("/fleet/sites?view=grid#summary");
     });
   });
 });

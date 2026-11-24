@@ -74,7 +74,7 @@ type Device interface {
     FirmwareUpdate(ctx context.Context) error
     
     // Optional capabilities
-    TryBatchStatus(ctx context.Context, ids []string) (map[string]DeviceStatusResponse, bool, error)
+    TryBatchStatus(ctx context.Context, devices []Device) (map[string]DeviceStatusResponse, bool, error)
     TrySubscribe(ctx context.Context, ids []string) (<-chan DeviceStatusResponse, bool, error)
     TryGetWebViewURL(ctx context.Context) (string, bool, error)
     TryGetTimeSeriesData(ctx context.Context, ...) ([]DeviceStatusResponse, string, bool, error)

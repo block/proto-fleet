@@ -18,6 +18,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
+
+	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
+
 	"buf.build/go/protovalidate"
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
@@ -51,7 +55,9 @@ const (
 	maxAckErrorMessageBytes = 4096
 	// Mirrors ControlAck.payload's proto cap; result-bearing commands must not
 	// make the ack itself invalid.
-	maxAckPayloadBytes = 1 << 20
+	maxAckPayloadBytes = 8 << 20
+	// Endpoint recovery and get-errors retain their existing 1 MiB budget.
+	maxCommandResultPayloadBytes = 1 << 20
 	// These aliases keep the runtime and its tests tied to the shared server/node
 	// admission policy. Discovery retains a separate process-wide slot.
 	commandPoolSize               = fleetnodecontrol.MaxConcurrentCommandsPerFleetNode
@@ -65,6 +71,12 @@ var commandTimeout = 10 * time.Minute
 // for the plugin's TCP+protocol handshake on real miners. var so the
 // supervisor test can shrink it.
 var perProbeTimeout = 10 * time.Second
+
+// Bound the initial Hello/Accepted exchange; accepted streams are long-lived.
+// Keep it at or above stableSessionThreshold so a timed-out handshake resets
+// reconnect backoff instead of doubling it. var so transport tests can exercise
+// expiry without waiting 30 seconds.
+var controlHandshakeTimeout = 30 * time.Second
 
 type discoverer interface {
 	Probe(ctx context.Context, ipAddress, port string) (*pb.DiscoveredDeviceReport, error)
@@ -102,9 +114,13 @@ const (
 var errControlSenderClosed = errors.New("control session sender closed")
 
 var (
-	errControlSessionRotated = errors.New("control session credentials rotated")
-	errControlSessionExpired = errors.New("control session credentials expired")
+	errControlSessionRotated   = errors.New("control session credentials rotated")
+	errControlSessionExpired   = errors.New("control session credentials expired")
+	errControlStreamSilent     = errors.New("control stream silent past keepalive deadline")
+	errControlHandshakeTimeout = errors.New("control stream handshake timed out")
 )
+
+const minControlKeepaliveInterval = time.Second
 
 // connect-go bidi streams are not safe for concurrent Send. The receive
 // loop's busy-ack and the worker's completion ack now share a stream;
@@ -134,8 +150,9 @@ func (l *lockedAcker) Close() {
 type endpoint struct{ ip, port string }
 
 type commandError struct {
-	code pb.AckCode
-	msg  string
+	code             pb.AckCode
+	msg              string
+	minerProbeFailed bool
 }
 
 func (e *commandError) Error() string { return e.msg }
@@ -221,7 +238,13 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	r.initControlConcurrency()
 	credentialCtx, endSession := r.beginControlSession(ctx, st)
 	defer endSession()
-	stream := client.ControlStream(credentialCtx)
+	streamCtx, cancelStream := context.WithCancelCause(credentialCtx)
+	defer cancelStream(context.Canceled)
+	handshakeTimer := time.AfterFunc(controlHandshakeTimeout, func() {
+		cancelStream(errControlHandshakeTimeout)
+	})
+	defer handshakeTimer.Stop()
+	stream := client.ControlStream(streamCtx)
 	// stream.Receive parks in http2.pipe on a sync.Cond ctx can't unblock;
 	// the watcher below closes the stream so Ctrl+C returns. Defers run
 	// LIFO: close(done) fires first so the watcher exits quietly on normal
@@ -231,20 +254,25 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	defer close(done)
 	go func() {
 		select {
-		case <-credentialCtx.Done():
+		case <-streamCtx.Done():
 			_ = stream.CloseRequest()
 			_ = stream.CloseResponse()
 		case <-done:
 		}
 	}()
 
+	config, err := r.effectiveDiscoveryConfig()
+	if err != nil {
+		return fmt.Errorf("discovery configuration: %w", err)
+	}
 	if err := stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{
-		MaxCommandProtocolVersion: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+		MaxCommandProtocolVersion: latestCommandProtocolVersion,
+		DiscoveryConfig:           config,
 	}}}); err != nil {
 		if ctx.Err() != nil {
 			return nil
 		}
-		if cause := context.Cause(credentialCtx); cause != nil {
+		if cause := context.Cause(streamCtx); cause != nil {
 			return fmt.Errorf("control session ended while sending hello: %w", cause)
 		}
 		return fmt.Errorf("send hello: %w", err)
@@ -254,7 +282,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		if ctx.Err() != nil {
 			return nil
 		}
-		if cause := context.Cause(credentialCtx); cause != nil {
+		if cause := context.Cause(streamCtx); cause != nil {
 			return fmt.Errorf("control session ended while awaiting acceptance: %w", cause)
 		}
 		return fmt.Errorf("await accepted: %w", err)
@@ -262,6 +290,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	if first.GetAccepted() == nil {
 		return fmt.Errorf("first server message was not Accepted")
 	}
+	handshakeTimer.Stop()
 	logger.Info("control stream opened",
 		"shared_command_limit", commandPoolSize,
 		"deferrable_read_limit", deferrableReadCommandPoolSize,
@@ -271,7 +300,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	// sessionCtx so a dropped stream cancels the in-flight scan immediately;
 	// without it the agent would burn up to commandTimeout finishing an old
 	// scan before opening a new session.
-	sessionCtx, cancelSession := context.WithCancel(credentialCtx)
+	sessionCtx, cancelSession := context.WithCancel(streamCtx)
 
 	// Serialize all sends on the bidi: the worker's completion ack and the
 	// receive loop's busy ack would otherwise race on stream.Send.
@@ -280,6 +309,13 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		cancelSession()
 		sender.Close()
 	}()
+
+	// Servers that predate keepalive leave the interval unset.
+	var received chan struct{}
+	if keepalive := first.GetAccepted().GetKeepaliveInterval().AsDuration(); keepalive > 0 {
+		received = make(chan struct{}, 1)
+		runControlKeepalive(sessionCtx, sender, received, max(keepalive, minControlKeepaliveInterval), cancelStream)
+	}
 
 	// Process-wide lanes owned by RunCmd:
 	//   - discovery and pairing are heavy, report-bearing scans that share an
@@ -298,13 +334,21 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 			if ctx.Err() != nil {
 				return nil
 			}
-			if cause := context.Cause(credentialCtx); cause != nil {
+			if cause := context.Cause(streamCtx); cause != nil {
 				return fmt.Errorf("control session ended: %w", cause)
 			}
 			if errors.Is(err, io.EOF) {
 				return fmt.Errorf("control stream closed by server: %w", err)
 			}
 			return fmt.Errorf("recv: %w", err)
+		}
+		select {
+		case received <- struct{}{}:
+		default:
+		}
+		if cancel := msg.GetCancel(); cancel != nil {
+			r.controlCancels.cancel(cancel.GetCommandId())
+			continue
 		}
 		cmd := msg.GetCommand()
 		if cmd == nil {
@@ -317,14 +361,23 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		admissionClass, commandKind := fleetnodecontrol.AdmissionForCommand(env)
 		releaseSlot, rejectReason, acquired := r.tryAcquireControlCommandSlotDetailed(admissionClass)
 		if acquired {
+			// Registered before the worker starts, so a cancel that follows the
+			// command on the stream always finds it.
+			workerCtx, forget := r.controlCancels.track(sessionCtx, cmd.GetCommandId(), fleetnodecontrol.CommandCancellable(env))
 			r.controlWorkers.Add(1)
 			// All loop-scoped values the handler needs are passed as arguments so each
 			// goroutine releases exactly the permits acquired for that command class.
-			go func(c *pb.ControlCommand, e *pb.AgentCommand, pErr error, release func(), class controlCommandAdmissionClass, kind string) {
+			go func(workerCtx context.Context, forget func(), c *pb.ControlCommand, e *pb.AgentCommand, pErr error, release func(), class controlCommandAdmissionClass, kind string) {
 				defer r.controlWorkers.Done()
+				defer forget()
 				started := time.Now()
+				r.operationMetrics.Started(sessionCtx, kind, string(class))
 				workerAcker := &observedAcker{inner: sender}
+				commandCtx, commandSpan := startFleetNodeCommandSpan(workerCtx, st.FleetNodeID, c, kind, class)
+				defer commandSpan.End()
 				defer func() {
+					recordFleetNodeCommandResult(commandSpan, workerAcker.ack, workerAcker.sendErr)
+					r.operationMetrics.Finished(sessionCtx, kind, string(class), nodeOperationResult(workerAcker.ack, workerAcker.sendErr), time.Since(started))
 					release()
 					sharedActive, deferrableActive, exclusiveActive := r.controlSlotOccupancy()
 					attrs := []any{
@@ -345,8 +398,8 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 					}
 					logger.Debug("control command completed", attrs...)
 				}()
-				r.handleCommand(sessionCtx, client, workerAcker, c, e, pErr, logger)
-			}(cmd, env, parseErr, releaseSlot, admissionClass, commandKind)
+				r.handleCommand(commandCtx, client, workerAcker, c, e, pErr, logger)
+			}(workerCtx, forget, cmd, env, parseErr, releaseSlot, admissionClass, commandKind)
 		} else {
 			sharedActive, deferrableActive, exclusiveActive := r.controlSlotOccupancy()
 			logger.Warn("agent at capacity; rejecting command",
@@ -358,9 +411,54 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 				"deferrable_read_active", deferrableActive,
 				"exclusive_active", exclusiveActive,
 			)
-			r.sendAck(sender, cmd.GetCommandId(), pb.AckCode_ACK_CODE_BUSY, "agent at concurrency limit; retry shortly", logger)
+			_, commandSpan := startFleetNodeCommandSpan(sessionCtx, st.FleetNodeID, cmd, commandKind, admissionClass)
+			workerAcker := &observedAcker{inner: sender}
+			r.operationMetrics.Started(sessionCtx, commandKind, string(admissionClass))
+			r.sendAck(workerAcker, cmd.GetCommandId(), pb.AckCode_ACK_CODE_BUSY, "agent at concurrency limit; retry shortly", logger)
+			r.operationMetrics.Finished(sessionCtx, commandKind, string(admissionClass), nodeOperationResult(workerAcker.ack, workerAcker.sendErr), 0)
+			recordFleetNodeCommandResult(commandSpan, workerAcker.ack, workerAcker.sendErr)
+			commandSpan.End()
 		}
 	}
+}
+
+// runControlKeepalive pings fleetd every interval and retires the stream after
+// fleetnodecontrol.KeepaliveMisses intervals with no server message, so a
+// half-open connection reconnects in seconds rather than at a TCP timeout.
+// The watchdog has its own goroutine so a ping blocked on a dead connection
+// cannot delay it.
+func runControlKeepalive(ctx context.Context, sender acker, received <-chan struct{}, interval time.Duration, cancelStream context.CancelCauseFunc) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		ping := &pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Ping{Ping: &pb.ControlPing{}}}
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if sender.Send(ping) != nil {
+					return
+				}
+			}
+		}
+	}()
+	go func() {
+		deadline := fleetnodecontrol.KeepaliveMisses * interval
+		timer := time.NewTimer(deadline)
+		defer timer.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-received:
+				timer.Reset(deadline)
+			case <-timer.C:
+				cancelStream(errControlStreamSilent)
+				return
+			}
+		}
+	}()
 }
 
 func (r *RunCmd) beginControlSession(parent context.Context, st *bootstrap.State) (context.Context, func()) {
@@ -463,6 +561,8 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 	switch k := env.GetCommand().(type) {
 	case *pb.AgentCommand_Discover:
 		r.handleDiscover(ctx, client, stream, commandID, k.Discover, logger)
+	case *pb.AgentCommand_MinerWeb:
+		r.handleMinerWeb(ctx, stream, commandID, k.MinerWeb, logger)
 	case *pb.AgentCommand_MinerCommand:
 		r.handleMinerCommand(ctx, client, stream, commandID, k.MinerCommand, logger)
 	case *pb.AgentCommand_Pair:
@@ -471,6 +571,10 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 		r.handleTelemetryCommand(ctx, stream, commandID, k.Telemetry, logger)
 	case *pb.AgentCommand_RecoverMinerEndpoints:
 		r.handleRecoverMinerEndpoints(ctx, stream, commandID, k.RecoverMinerEndpoints, logger)
+	case *pb.AgentCommand_ExportCredentialKey:
+		r.handleExportCredentialKey(stream, commandID, k.ExportCredentialKey, logger)
+	case *pb.AgentCommand_InstallCredentialKey:
+		r.handleInstallCredentialKey(stream, commandID, k.InstallCredentialKey, logger)
 	default:
 		if len(env.ProtoReflect().GetUnknown()) > 0 {
 			r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_UNIMPLEMENTED, "server-to-node command type is not supported", logger)
@@ -566,7 +670,11 @@ func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.Discover
 			}
 			return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "no usable ip_addresses after normalization (non-private addresses, scoped/link-local IPv6, and unresolvable hostnames are skipped)")
 		}
-		reports, truncated, probeErr := r.probeTargets(ctx, slices.Values(normalized), ports, logger)
+		targets, scopeErr := r.scopedDiscoveryTargets(slices.Values(normalized))
+		if scopeErr != nil {
+			return nil, false, scopeErr
+		}
+		reports, truncated, probeErr := r.probeTargets(ctx, targets, ports, logger)
 		if resolutionErr != nil && !errors.Is(ctx.Err(), context.Canceled) {
 			return reports, truncated, cmdErr(pb.AckCode_ACK_CODE_SCAN_FAILED, "%s", resolutionErr)
 		}
@@ -583,13 +691,21 @@ func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.Discover
 		if target.Count() > maxIPsPerCommand {
 			return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "ip range expands to %d addresses, exceeds the limit of %d", target.Count(), maxIPsPerCommand)
 		}
-		return r.probeTargets(ctx, target.Addresses(), ports, logger)
+		targets, scopeErr := r.scopedDiscoveryTargets(target.Addresses())
+		if scopeErr != nil {
+			return nil, false, scopeErr
+		}
+		return r.probeTargets(ctx, targets, ports, logger)
 	case *pairingpb.DiscoverRequest_NetworkScan:
 		ports, err := r.resolveAndValidatePorts(ctx, m.NetworkScan.GetPorts())
 		if err != nil {
 			return nil, false, err
 		}
 		targets, err := r.networkScanTargets(ctx, m.NetworkScan)
+		if err != nil {
+			return nil, false, err
+		}
+		targets, err = r.scopedDiscoveryTargets(targets)
 		if err != nil {
 			return nil, false, err
 		}
@@ -631,7 +747,11 @@ func fanOutProbes(ctx context.Context, endpoints iter.Seq[endpoint], concurrency
 		// spoofed endpoint and poison the server's discovery state.
 		// Override with what we actually probed before validating.
 		report.IpAddress = e.ip
-		report.Port = e.port
+		if report.DeviceClass != commonpb.DeviceClass_DEVICE_CLASS_CONTAINER || report.RpcPort <= 0 || strconv.Itoa(int(report.RpcPort)) != e.port {
+			report.Port = e.port
+			report.RpcPort = 0
+			report.RpcTls = false
+		}
 		// One device that violates the gateway's buf-validate rules
 		// (oversized model string, wrong url_scheme, etc.) would fail
 		// the whole ReportDiscoveredDevices batch server-side and lose
@@ -727,26 +847,35 @@ func (r *RunCmd) sendAck(stream acker, commandID string, code pb.AckCode, errMsg
 }
 
 func (r *RunCmd) sendAckWithPayload(stream acker, commandID string, code pb.AckCode, errMsg string, payload []byte, logger *slog.Logger) {
-	if len(payload) > maxAckPayloadBytes {
-		originalBytes := len(payload)
-		payload = nil
-		if code == pb.AckCode_ACK_CODE_OK {
-			code = pb.AckCode_ACK_CODE_INTERNAL
-			errMsg = fmt.Sprintf("ack payload too large: %d bytes exceeds %d byte limit", originalBytes, maxAckPayloadBytes)
-		} else if errMsg == "" {
-			errMsg = fmt.Sprintf("ack payload too large: %d bytes exceeds %d byte limit", originalBytes, maxAckPayloadBytes)
-		}
-		logger.Warn("dropping oversized ack payload", "command_id", commandID, "payload_bytes", originalBytes, "max_payload_bytes", maxAckPayloadBytes)
-	}
-	errMsg = truncateUTF8(errMsg, maxAckErrorMessageBytes)
-	if err := stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Ack{Ack: &pb.ControlAck{
+	r.sendAckWithWriteEvidence(stream, commandID, code, errMsg, payload, nil, logger)
+}
+
+func (r *RunCmd) sendAckWithWriteEvidence(stream acker, commandID string, code pb.AckCode, errMsg string, payload []byte, evidence *errdetails.ErrorInfo, logger *slog.Logger) {
+	r.sendControlAck(stream, &pb.ControlAck{
 		CommandId:    commandID,
-		Succeeded:    code == pb.AckCode_ACK_CODE_OK,
 		ErrorMessage: errMsg,
 		Code:         code,
 		Payload:      payload,
-	}}}); err != nil && !errors.Is(err, errControlSenderClosed) {
-		logger.Warn("send ack failed", "command_id", commandID, "err", err)
+		WriteOutcome: nodeWriteOutcome(evidence),
+	}, logger)
+}
+
+func (r *RunCmd) sendControlAck(stream acker, ack *pb.ControlAck, logger *slog.Logger) {
+	if len(ack.Payload) > maxAckPayloadBytes {
+		originalBytes := len(ack.Payload)
+		ack.Payload = nil
+		if ack.Code == pb.AckCode_ACK_CODE_OK {
+			ack.Code = pb.AckCode_ACK_CODE_INTERNAL
+			ack.ErrorMessage = fmt.Sprintf("ack payload too large: %d bytes exceeds %d byte limit", originalBytes, maxAckPayloadBytes)
+		} else if ack.ErrorMessage == "" {
+			ack.ErrorMessage = fmt.Sprintf("ack payload too large: %d bytes exceeds %d byte limit", originalBytes, maxAckPayloadBytes)
+		}
+		logger.Warn("dropping oversized ack payload", "command_id", ack.CommandId, "payload_bytes", originalBytes, "max_payload_bytes", maxAckPayloadBytes)
+	}
+	ack.Succeeded = ack.Code == pb.AckCode_ACK_CODE_OK
+	ack.ErrorMessage = truncateUTF8(ack.ErrorMessage, maxAckErrorMessageBytes)
+	if err := stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Ack{Ack: ack}}); err != nil && !errors.Is(err, errControlSenderClosed) {
+		logger.Warn("send ack failed", "command_id", ack.CommandId, "err", err)
 	}
 }
 
@@ -763,14 +892,12 @@ func newPluginComponents(parent context.Context, pluginsDir string, fleetNodeID 
 	if deviceHandles == nil {
 		return nil, nil, nil, func() {}, errors.New("device handle pool is required")
 	}
-	// Manager.Shutdown waits the full grace period even when a plugin already
-	// exited, so keep it tight; a stuck plugin still gets killed.
 	manager := plugins.NewManager(&plugins.Config{
 		Enabled:                    true,
 		PluginsDir:                 pluginsDir,
 		MaxStartupTimeSeconds:      30,
 		ShutdownTimeoutSeconds:     10,
-		ShutdownGracePeriodSeconds: 2,
+		ShutdownGracePeriodSeconds: 5,
 		LogLevel:                   "info",
 	})
 	ctx, cancel := context.WithTimeout(parent, 60*time.Second)
@@ -833,9 +960,13 @@ func (p *pluginDiscoverer) DefaultDiscoveryPorts(ctx context.Context) []string {
 
 // SDK drivers often leave DeviceIdentifier empty; the agent has no DB so it
 // synthesizes a stable identifier. ip/port are the trusted probed endpoint
-// (what fanOutProbes also stamps onto the report), not the plugin-reported one,
-// which may be blank or wrong.
+// (what fanOutProbes also stamps onto the report). A CT1 RPC probe keeps its
+// separate web port only when the reported RPC port matches the scanned port.
 func reportFromDiscovered(dev *discoverymodels.DiscoveredDevice, ip, port string, fleetNodeID int64) *pb.DiscoveredDeviceReport {
+	webPort := port
+	if dev.GetDeviceClass() == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER && dev.GetRpcPort() > 0 && strconv.Itoa(int(dev.GetRpcPort())) == port {
+		webPort = dev.GetPort()
+	}
 	deviceID := dev.GetDeviceIdentifier()
 	if deviceID == "" {
 		deviceID = synthesizeIdentifier(dev, ip, port, fleetNodeID)
@@ -843,12 +974,16 @@ func reportFromDiscovered(dev *discoverymodels.DiscoveredDevice, ip, port string
 	return &pb.DiscoveredDeviceReport{
 		DeviceIdentifier: deviceID,
 		IpAddress:        ip,
-		Port:             port,
+		Port:             webPort,
 		UrlScheme:        dev.GetUrlScheme(),
+		RpcPort:          dev.GetRpcPort(),
+		RpcTls:           dev.GetRpcTls(),
+		Endpoints:        dev.GetEndpoints(),
 		DriverName:       dev.GetDriverName(),
-		Model:            dev.GetModel(),
-		Manufacturer:     dev.GetManufacturer(),
-		FirmwareVersion:  dev.GetFirmwareVersion(),
+		Model:            truncateUTF8(dev.GetModel(), maxPairIdentityBytes),
+		DeviceClass:      dev.GetDeviceClass(),
+		Manufacturer:     truncateUTF8(dev.GetManufacturer(), maxPairIdentityBytes),
+		FirmwareVersion:  truncateUTF8(dev.GetFirmwareVersion(), maxTelemetryFirmwareVersionBytes),
 	}
 }
 
@@ -859,6 +994,17 @@ func reportFromDiscovered(dev *discoverymodels.DiscoveredDevice, ip, port string
 // server-side reconciliation). The fleet node id is in the hash so two nodes on
 // overlapping RFC1918 space don't mint the same auto: key for distinct miners.
 func synthesizeIdentifier(dev *discoverymodels.DiscoveredDevice, ip, port string, fleetNodeID int64) string {
+	if identifier, err := deviceendpoints.NodeIdentifier(fleetNodeID, dev.DriverName, dev.Endpoints); err == nil && identifier != "" {
+		return identifier
+	}
+
+	if dev.GetDeviceClass() == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
+		// Without a plugin-defined endpoint group, retain the legacy container
+		// identifier scoped to its scanned address.
+		node := strconv.FormatInt(fleetNodeID, 10)
+		sum := sha256.Sum256([]byte(strings.Join([]string{node, ip, dev.GetDriverName(), dev.GetModel()}, "\x00")))
+		return "container:" + hex.EncodeToString(sum[:8])
+	}
 	if mac := dev.GetMacAddress(); mac != "" {
 		return "mac:" + mac
 	}
@@ -869,3 +1015,22 @@ func synthesizeIdentifier(dev *discoverymodels.DiscoveredDevice, ip, port string
 	sum := sha256.Sum256([]byte(strings.Join([]string{node, ip, port, dev.GetDriverName(), dev.GetModel()}, "\x00")))
 	return "auto:" + hex.EncodeToString(sum[:8])
 }
+
+func nodeWriteOutcome(evidence *errdetails.ErrorInfo) *pb.DeviceWriteOutcome {
+	if evidence == nil {
+		return nil
+	}
+	return &pb.DeviceWriteOutcome{Outcome: evidence.Reason, Stage: evidence.Metadata["stage"], Reason: evidence.Metadata["reason"]}
+}
+
+// latestCommandProtocolVersion is the newest command protocol this node build
+// knows. The node handles every action the generated gateway contract
+// defines, so the hello advertises the newest enum value instead of a literal
+// that each new protocol version would have to bump by hand.
+var latestCommandProtocolVersion = func() pb.CommandProtocolVersion {
+	var latest pb.CommandProtocolVersion
+	for version := range pb.CommandProtocolVersion_name {
+		latest = max(latest, pb.CommandProtocolVersion(version))
+	}
+	return latest
+}()

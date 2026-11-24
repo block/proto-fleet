@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import clsx from "clsx";
 import { create } from "@bufbuild/protobuf";
@@ -15,6 +15,7 @@ import {
 import ManageColumnsModal from "./ManageColumnsModal";
 import createMinerColConfig from "./minerColConfig";
 import { buildActiveMinerColumns, type MinerTableColumnPreferences } from "./minerTableColumnPreferences";
+import { minerIdentifierFromSelectionKey, type MiningSelectionKey, selectedMinerIdentifiers } from "./miningSelection";
 import { getColumnForSortField, getDefaultSortDirection, SORTABLE_COLUMNS } from "./sortConfig";
 import { type DeviceListItem } from "./types";
 import useMinerTableColumnPreferences from "./useMinerTableColumnPreferences";
@@ -23,6 +24,11 @@ import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_
 import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import type { ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
+  EntityKind,
+  HashboardSlotSchema,
+  type InventoryItem,
+} from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
+import {
   IpRangeSchema,
   type MinerListFilter,
   MinerListFilterSchema,
@@ -30,18 +36,30 @@ import {
   NumericRangeFilterSchema,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { MiningAssetKind } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { useModuleHashboards } from "@/protoFleet/api/useModuleHashboards";
+import ListPagination from "@/protoFleet/components/ListPagination";
 import MinerSearchInput from "@/protoFleet/components/MinerSearchInput";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import { useOpenMinerView } from "@/protoFleet/components/SingleMinerWrapper/useOpenMinerView";
 import { ProtoFleetStatusModal } from "@/protoFleet/components/StatusModal";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
-import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
+import { HashboardCell } from "@/protoFleet/features/containers/HashboardCell";
+import { InventoryCell } from "@/protoFleet/features/containers/InventoryCell";
+import MiningActionsMenu from "@/protoFleet/features/containers/MiningActionsMenu";
+import { modulePath } from "@/protoFleet/features/containers/moduleDetail";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
 import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 
+import {
+  combinedInventoryOptions,
+  combineInventoryFilters,
+  separateInventoryFilters,
+  splitInventoryValues,
+} from "@/protoFleet/features/fleetManagement/utils/combinedInventoryFilters";
 import {
   encodeActiveFiltersToURL,
   encodeFilterToURL,
@@ -59,6 +77,15 @@ import {
 } from "@/protoFleet/features/fleetManagement/utils/telemetryFilterBounds";
 import { VIEW_URL_PARAM } from "@/protoFleet/features/fleetManagement/views/savedViews";
 import type { FilterLabelSource } from "@/protoFleet/features/fleetManagement/views/viewSummary";
+import { accountManagementPath, can } from "@/protoFleet/features/hostedAccounts/capabilities";
+import { useHostedAccounts } from "@/protoFleet/features/hostedAccounts/HostedAccountsContext";
+import {
+  allocationKey,
+  type AssetReference,
+  useFleetAccountInventory,
+} from "@/protoFleet/features/hostedAccounts/useFleetAccountInventory";
+import { usePoolConfigurationPermissions } from "@/protoFleet/features/poolConfigurations/api";
+import { PoolAssignments } from "@/protoFleet/features/poolConfigurations/PoolAssignments";
 import { useHasPermission, useUsername } from "@/protoFleet/store";
 
 import { ChevronDown, LogoAlt, Plus, Slider } from "@/shared/assets/icons";
@@ -74,27 +101,29 @@ import {
   type TextareaListFilterItem,
 } from "@/shared/components/List/Filters/types";
 import { type SortDirection } from "@/shared/components/List/types";
+import type { ColConfig } from "@/shared/components/List/types";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import ResponsiveActionGroup, { type ResponsiveActionButton } from "@/shared/components/ResponsiveActionGroup";
 import { Breakpoint } from "@/shared/constants/breakpoints";
 import { classifySubnetLine, normalizeSubnetLine, validateSubnetLine } from "@/shared/utils/filterValidation";
 
-type FleetCredentials = { username: string; password: string };
+type MiningListItem = { selectionKey: MiningSelectionKey } & (
+  { kind: "miner"; row: DeviceListItem } | { kind: "module"; row: InventoryItem }
+);
 
 type MinerModalFlow =
   | { kind: "closed" }
   | { kind: "authenticate-miners"; deviceIdentifier: string }
-  | { kind: "authenticate-fleet"; deviceIdentifier: string; deviceStatus?: DeviceStatus }
   | {
       kind: "pool-selection";
       deviceIdentifier: string;
-      deviceStatus?: DeviceStatus;
-      credentials: FleetCredentials;
     }
   | { kind: "status-modal"; deviceIdentifier: string }
   | { kind: "firmware-history"; deviceIdentifier: string; minerName: string };
 
 type MinerListProps = {
+  inventoryItems?: InventoryItem[];
+  inventoryMinerCount?: number;
   // Optional — when omitted, the heading is suppressed entirely. The Fleet
   // shell uses this on /fleet/miners since the tab nav already labels the
   // view; the standalone /miners route keeps its heading.
@@ -206,6 +235,8 @@ type MinerListProps = {
    * Available buildings for the building filter dropdown.
    */
   availableBuildings?: FilterLabelSource[];
+  availableContainers?: FilterLabelSource[];
+  availableTanks?: FilterLabelSource[];
   /**
    * Exports the full paired miner list as CSV.
    */
@@ -231,9 +262,10 @@ type MinerListProps = {
 };
 
 // Module-level so the `List`'s memoized helpers keep a stable identity.
-const ALL_ROWS_SELECTABLE = () => true;
 
 type ScopedMinerListBodyProps = {
+  inventoryItems?: InventoryItem[];
+  inventoryMinerCount?: number;
   /**
    * Selection-scope identifier — when this changes, internal selection state resets.
    * Replaces the previous key-based remount strategy so children (e.g., the meta-dropdown
@@ -289,6 +321,8 @@ type ScopedMinerListBodyProps = {
 };
 
 const ScopedMinerListBody = ({
+  inventoryItems,
+  inventoryMinerCount,
   selectionScopeKey,
   activeCols,
   deviceItems,
@@ -331,20 +365,158 @@ const ScopedMinerListBody = ({
   onWorkerNameUpdated,
   searchScopeKey,
 }: ScopedMinerListBodyProps) => {
-  const [selectedMinerIds, setSelectedMinerIds] = useState<string[]>([]);
+  const [selectedKeys, setSelectedKeys] = useState<MiningSelectionKey[]>([]);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
+  const hasCT1PlacementFilter =
+    splitInventoryValues(initialActiveFilters.dropdownFilters.building ?? [], "container").ct1.length > 0 ||
+    splitInventoryValues(initialActiveFilters.dropdownFilters.rack ?? [], "tank").ct1.length > 0;
   const [searchExpanded, setSearchExpanded] = useState(Boolean(searchQuery));
   // Reset selection when the scope key changes (filter or page) without remounting the
   // subtree — uses the during-render derive pattern so children keep their own state.
   const [prevSelectionScopeKey, setPrevSelectionScopeKey] = useState(selectionScopeKey);
   if (prevSelectionScopeKey !== selectionScopeKey) {
     setPrevSelectionScopeKey(selectionScopeKey);
-    setSelectedMinerIds([]);
+    setSelectedKeys([]);
     setSelectionMode("none");
   }
   const sortableColumnsSet = useMemo(() => new Set(SORTABLE_COLUMNS), []);
 
-  const currentPageSelectableMinerIds = deviceItems.map((item) => item.deviceIdentifier);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [expansion, setExpansion] = useState<{ scope: string; ids: Set<string> }>({
+    scope: location.key,
+    ids: new Set(),
+  });
+  if (expansion.scope !== location.key) {
+    setExpansion({ scope: location.key, ids: new Set() });
+  }
+  const expanded = useMemo(
+    () => (expansion.scope === location.key ? expansion.ids : new Set<string>()),
+    [expansion, location.key],
+  );
+  const toggleModule = useCallback(
+    (id: string) => {
+      setExpansion((previous) => {
+        const ids = new Set(previous.scope === location.key ? previous.ids : []);
+        if (ids.has(id)) ids.delete(id);
+        else ids.add(id);
+        return { scope: location.key, ids };
+      });
+    },
+    [location.key],
+  );
+  const hashboards = useModuleHashboards(
+    (inventoryItems ?? []).flatMap((item) =>
+      item.ref?.kind === EntityKind.MODULE && expanded.has(String(item.ref.id)) ? [item.ref.id] : [],
+    ),
+    location.key,
+  );
+  const listItems = useMemo<MiningListItem[]>(() => {
+    const minersById = new Map(deviceItems.map((row) => [row.deviceIdentifier, row]));
+    if (!inventoryItems)
+      return deviceItems.map((row) => ({ kind: "miner", row, selectionKey: `miner:${row.deviceIdentifier}` }));
+    return inventoryItems.flatMap<MiningListItem>((item) => {
+      if (item.ref?.kind === EntityKind.MODULE)
+        return [{ kind: "module", row: item, selectionKey: `module:${item.ref.id}` }];
+      const row = minersById.get(item.deviceIdentifier);
+      return row ? [{ kind: "miner", row, selectionKey: `miner:${row.deviceIdentifier}` }] : [];
+    });
+  }, [deviceItems, inventoryItems]);
+  const referencesBySelection = useMemo(
+    () =>
+      new Map<MiningSelectionKey, AssetReference>(
+        (inventoryItems ?? []).flatMap<[MiningSelectionKey, AssetReference]>((item) => {
+          if (item.ref?.kind === EntityKind.MODULE)
+            return [[`module:${item.ref.id}` as MiningSelectionKey, { kind: MiningAssetKind.MODULE, id: item.ref.id }]];
+          if (item.ref?.kind === EntityKind.MINER)
+            return [
+              [
+                `miner:${item.deviceIdentifier}` as MiningSelectionKey,
+                { kind: MiningAssetKind.MINER, id: item.ref.id },
+              ],
+            ];
+          return [];
+        }),
+      ),
+    [inventoryItems],
+  );
+  const fleetAssignments = useFleetAccountInventory([...referencesBySelection.values()], true);
+  const { byAsset: allocationsByAsset, loading: allocationsLoading } = fleetAssignments;
+  const allocationRootId = fleetAssignments.root?.accountId;
+  const listColumns = useMemo<ColConfig<MiningListItem, MiningSelectionKey, MinerColumn>>(() => {
+    const result: ColConfig<MiningListItem, MiningSelectionKey, MinerColumn> = {};
+    for (const column of Object.keys(minerColConfig) as MinerColumn[]) {
+      const config = minerColConfig[column];
+      if (!config) continue;
+      result[column] = {
+        ...config,
+        component: (item, selected) =>
+          item.kind === "miner" ? (
+            config.component?.(item.row, selectedMinerIdentifiers(selected))
+          ) : column === "name" ? (
+            <div className="flex min-w-0 items-center">
+              <button
+                type="button"
+                className="-ml-2 flex size-8 shrink-0 items-center justify-center rounded focus-visible:outline-2 focus-visible:outline-offset-2"
+                aria-label={`${expanded.has(String(item.row.ref?.id)) ? "Collapse" : "Expand"} hashboards for ${item.row.name}`}
+                aria-expanded={expanded.has(String(item.row.ref?.id))}
+                aria-controls={
+                  expanded.has(String(item.row.ref?.id))
+                    ? [1, 2, 3].map((position) => `module-${item.row.ref?.id}-hashboard-${position}`).join(" ")
+                    : undefined
+                }
+                onClick={() => toggleModule(String(item.row.ref?.id))}
+              >
+                <span aria-hidden className={expanded.has(String(item.row.ref?.id)) ? "" : "-rotate-90"}>
+                  <ChevronDown />
+                </span>
+              </button>
+              <div className="min-w-0 flex-1">
+                <InventoryCell item={item.row} column={column} />
+              </div>
+              <MiningActionsMenu kind="module" items={[item.row]} onRefresh={onRefetchMiners} />
+            </div>
+          ) : (
+            <InventoryCell item={item.row} column={column} />
+          ),
+      };
+    }
+    result.assignedAccount = {
+      width: "min-w-48",
+      component: (item) => {
+        const ref = referencesBySelection.get(item.selectionKey);
+        const allocation = ref ? allocationsByAsset.get(allocationKey(ref)) : undefined;
+        if (!allocation) return allocationsLoading ? "Loading…" : "Unavailable";
+        return allocation.ownerAccountId === allocationRootId ? (
+          "Unassigned"
+        ) : (
+          <div data-no-row-click>
+            <Button
+              variant="textOnly"
+              className="justify-start text-left"
+              text={allocation.ownerAccountName}
+              to={accountManagementPath(allocation.ownerAccountId)}
+            />
+          </div>
+        );
+      },
+    };
+    return result;
+  }, [
+    minerColConfig,
+    expanded,
+    toggleModule,
+    onRefetchMiners,
+    referencesBySelection,
+    allocationsByAsset,
+    allocationsLoading,
+    allocationRootId,
+  ]);
+  const currentPageSelectionKeys = listItems.map((item) => item.selectionKey);
+  const selectAllOnPage =
+    selectionMode !== "all" &&
+    (listItems.some((item) => item.kind === "module") ||
+      (inventoryMinerCount !== undefined && totalMiners !== undefined && inventoryMinerCount < totalMiners));
   const headerActionButtons = useMemo<ResponsiveActionButton[]>(
     () => [
       {
@@ -357,10 +529,10 @@ const ScopedMinerListBody = ({
         variant: variants.secondary,
       },
       {
-        disabled: totalMiners === 0,
+        disabled: (inventoryMinerCount ?? totalMiners) === 0,
         loading: exportCsvLoading,
         onClick: onExportCsv,
-        text: "Export CSV",
+        text: inventoryItems ? "Export miners CSV" : "Export CSV",
         variant: variants.secondary,
       },
       {
@@ -369,16 +541,22 @@ const ScopedMinerListBody = ({
         variant: variants.secondary,
       },
     ],
-    [exportCsvLoading, onAddMiners, onExportCsv, onOpenManageColumns, totalMiners],
+    [exportCsvLoading, inventoryItems, inventoryMinerCount, onAddMiners, onExportCsv, onOpenManageColumns, totalMiners],
   );
 
   const handleSelectAllMiners = useCallback(() => {
-    setSelectedMinerIds(currentPageSelectableMinerIds);
-    setSelectionMode("all");
-  }, [currentPageSelectableMinerIds]);
+    // Filter-based commands cannot express typed CT1 placement scopes.
+    if (hasCT1PlacementFilter) return;
+    setSelectedKeys(
+      selectAllOnPage
+        ? currentPageSelectionKeys
+        : listItems.filter((item) => item.kind === "miner").map((item) => item.selectionKey),
+    );
+    setSelectionMode(selectAllOnPage ? "subset" : "all");
+  }, [currentPageSelectionKeys, hasCT1PlacementFilter, listItems, selectAllOnPage]);
 
   const handleSelectNoneMiners = useCallback(() => {
-    setSelectedMinerIds([]);
+    setSelectedKeys([]);
     setSelectionMode("none");
   }, []);
   // The typed query only reaches the URL, and with it selectionScopeKey, after
@@ -402,24 +580,66 @@ const ScopedMinerListBody = ({
     () =>
       selectionMode === "all"
         ? !totalDisabledMinersFresh || totalDisabledMiners > 0 || deviceItems.some(isRowDisabled)
-        : selectedMinerIds.some((id) =>
+        : selectedMinerIdentifiers(selectedKeys).some((id) =>
             deviceItems.some((item) => item.deviceIdentifier === id && isRowDisabled(item)),
           ),
-    [deviceItems, isRowDisabled, selectedMinerIds, selectionMode, totalDisabledMiners, totalDisabledMinersFresh],
+    [deviceItems, isRowDisabled, selectedKeys, selectionMode, totalDisabledMiners, totalDisabledMinersFresh],
+  );
+  const handleItemRef = useCallback(
+    (key: MiningSelectionKey, element: HTMLTableRowElement | null) => {
+      const identifier = minerIdentifierFromSelectionKey(key);
+      if (identifier !== undefined) itemRef?.(identifier, element);
+    },
+    [itemRef],
   );
 
   return (
-    <>
-      <List<DeviceListItem, string, MinerColumn>
-        activeCols={activeCols}
+    <PoolAssignments
+      deviceIdentifiers={deviceItems.map((item) => item.deviceIdentifier)}
+      moduleIds={listItems.flatMap((item) => (item.kind === "module" && item.row.ref ? [item.row.ref.id] : []))}
+      enabled={activeCols.includes("poolConfiguration")}
+    >
+      <List<MiningListItem, MiningSelectionKey, MinerColumn>
+        getChildRows={(item) => {
+          if (item.kind !== "module" || !expanded.has(String(item.row.ref?.id))) return [];
+          const result = hashboards.modules[String(item.row.ref?.id)];
+          return [1, 2, 3].map((position) => {
+            const slot =
+              result?.data?.slots.find((value) => value.position === position) ??
+              create(HashboardSlotSchema, { position, occupancy: "unknown" });
+            const cells: Partial<Record<MinerColumn, ReactNode>> = {};
+            for (const column of Object.keys(minerColConfig) as MinerColumn[])
+              cells[column] = (
+                <HashboardCell slot={slot} column={column} deviceIdentifier={item.row.deviceIdentifier} />
+              );
+            if (!result) cells.status = <span role="status">Loading…</span>;
+            if (result?.error && position === 1)
+              cells.status = (
+                <div>
+                  <p className="text-sm text-text-primary-50" role="alert">
+                    Hashboards unavailable
+                  </p>
+                  <button type="button" className="text-sm underline" onClick={hashboards.retry}>
+                    Retry hashboards
+                  </button>
+                </div>
+              );
+            return {
+              key: `module-${item.row.ref?.id}-hashboard-${position}`,
+              label: `Hashboard ${position} in ${item.row.name}`,
+              cells,
+            };
+          });
+        }}
+        activeCols={activeCols.filter((column) => column !== "assignedAccount" || !!fleetAssignments.root)}
         colTitles={minerColTitles}
-        colConfig={minerColConfig}
+        colConfig={listColumns}
         filters={filters}
         onServerFilter={handleServerFilter}
-        items={deviceItems}
-        itemKey={"deviceIdentifier"}
-        customSelectedItems={selectedMinerIds}
-        customSetSelectedItems={setSelectedMinerIds}
+        items={listItems}
+        itemKey={"selectionKey"}
+        customSelectedItems={selectedKeys}
+        customSetSelectedItems={setSelectedKeys}
         customSelectionMode={selectionMode}
         itemSelectable
         pageScopedSelection
@@ -461,12 +681,12 @@ const ScopedMinerListBody = ({
                 testId="manage-columns-button"
               />
               <Button
-                text="Export CSV"
+                text={inventoryItems ? "Export miners CSV" : "Export CSV"}
                 variant={variants.secondary}
                 size={sizes.compact}
                 onClick={onExportCsv}
                 loading={exportCsvLoading}
-                disabled={totalMiners === 0}
+                disabled={(inventoryMinerCount ?? totalMiners) === 0}
               />
               <Button text="Add miners" variant={variants.secondary} size={sizes.compact} onClick={onAddMiners} />
             </div>
@@ -481,26 +701,42 @@ const ScopedMinerListBody = ({
             />
           </div>
         }
-        renderActionBar={(selectedItems, clearSelection, currentSelectionMode, totalSelectable) => (
-          <div className="flex w-full justify-center">
-            <MinerListActionBar
-              selectedMiners={selectedItems}
-              onClearSelection={clearSelection}
-              onSelectAll={handleSelectAllMiners}
-              onSelectNone={handleSelectNoneMiners}
-              filtersActive={hasActiveFilters}
-              selectionMode={currentSelectionMode}
-              totalCount={totalSelectable}
-              currentFilter={currentFilter}
-              currentSort={currentSortConfig}
-              miners={minersProp}
-              minerIds={minerIdsProp}
-              selectionIncludesUnauthenticatedMiner={selectedIncludesUnauthenticatedMiner}
-              onRefetchMiners={onRefetchMiners}
-              onWorkerNameUpdated={onWorkerNameUpdated}
-            />
-          </div>
-        )}
+        renderActionBar={(selectedItems, clearSelection, currentSelectionMode, totalSelectable) => {
+          const selectedItemKeys = new Set(selectedItems);
+          return (
+            <div className="flex w-full justify-center">
+              <MinerListActionBar
+                selectedKeys={selectedItems}
+                assetReferences={selectedItems.flatMap((key) => {
+                  const ref = referencesBySelection.get(key);
+                  return ref ? [ref] : [];
+                })}
+                onAssigned={() => {
+                  fleetAssignments.refresh();
+                  onRefetchMiners?.();
+                  clearSelection();
+                }}
+                modules={listItems.flatMap((item) =>
+                  item.kind === "module" && selectedItemKeys.has(item.selectionKey) ? [item.row] : [],
+                )}
+                onClearSelection={clearSelection}
+                onSelectAll={hasCT1PlacementFilter ? undefined : handleSelectAllMiners}
+                selectAllOnPage={selectAllOnPage}
+                onSelectNone={handleSelectNoneMiners}
+                filtersActive={hasActiveFilters}
+                selectionMode={currentSelectionMode}
+                totalCount={currentSelectionMode === "all" ? (inventoryMinerCount ?? totalSelectable) : totalSelectable}
+                currentFilter={currentFilter}
+                currentSort={currentSortConfig}
+                miners={minersProp}
+                minerIds={minerIdsProp}
+                selectionIncludesUnauthenticatedMiner={selectedIncludesUnauthenticatedMiner}
+                onRefetchMiners={onRefetchMiners}
+                onWorkerNameUpdated={onWorkerNameUpdated}
+              />
+            </div>
+          );
+        }}
         containerClassName={listClassName}
         tableClassName="mb-4 inline-table w-max !min-w-fit !table-fixed"
         // Match the sibling fleet tabs (Sites/Buildings/Racks), whose filter
@@ -514,15 +750,17 @@ const ScopedMinerListBody = ({
         applyColumnWidthsToCells
         total={totalMiners}
         totalUnfiltered={totalUnfilteredMiners}
-        // Every row is selectable; `totalSelectable = totalMiners` so action-bar
-        // copy and confirmation counts cover both paired and auth-needed miners.
         totalDisabled={0}
-        itemName={{ singular: "miner", plural: "miners" }}
-        itemRef={itemRef}
+        itemName={
+          inventoryItems
+            ? { singular: "mining asset", plural: "mining assets" }
+            : { singular: "miner", plural: "miners" }
+        }
+        itemRef={handleItemRef}
         initialActiveFilters={initialActiveFilters}
         onSelectionModeChange={setSelectionMode}
-        isRowDisabled={isRowDisabled}
-        isRowSelectable={ALL_ROWS_SELECTABLE}
+        isRowDisabled={(item) => item.kind === "miner" && isRowDisabled(item.row)}
+        isRowSelectable={(item) => selectionMode !== "all" || item.kind === "miner"}
         columnsExemptFromDisabledStyling={
           new Set([minerCols.name, minerCols.status, minerCols.issues, minerCols.firmware])
         }
@@ -530,9 +768,15 @@ const ScopedMinerListBody = ({
         currentSort={currentSort}
         onSort={onSort}
         getDefaultSortDirection={getDefaultSortDirection}
-        onRowClick={onRowClick}
+        onRowClick={(item, index) => {
+          if (item.kind === "miner") onRowClick(item.row, index);
+          else {
+            const destination = modulePath(item.row);
+            if (destination) navigate(destination);
+          }
+        }}
         emptyStateRow={
-          totalMiners === 0 || deviceItems.length === 0 ? (
+          totalMiners === 0 || listItems.length === 0 ? (
             <NoFilterResultsEmptyState
               className="sticky left-0 !w-screen tablet:!w-[calc(100vw-theme(spacing.1)*16)] desktop:!w-[calc(100vw-theme(spacing.1)*50)]"
               hasActiveFilters={hasActiveFilters}
@@ -543,49 +787,35 @@ const ScopedMinerListBody = ({
       />
 
       {shouldRenderPagination ? (
-        <div
+        <ListPagination
+          firstItemIndex={firstItemIndex}
+          lastItemIndex={lastItemIndex}
+          total={totalMiners}
+          itemName={inventoryItems ? "mining assets" : "miners"}
+          hasPreviousPage={hasPreviousPage}
+          hasNextPage={hasNextPage}
+          onPrevious={handlePrevPage}
+          onNext={handleNextPage}
           className={clsx(
-            "sticky left-0 flex flex-col items-center gap-4 pt-6",
-            // Under the page's w-max subtree this auto-width sticky bar would
-            // stretch to the table and center Prev/Next off-screen; pin it to
-            // the viewport like the rest of the page-scroll chrome.
+            "sticky left-0 pt-6",
+            // Pin the controls to the viewport when the table scrolls with the page.
             overflowContainer === false && PAGE_SCROLL_CHROME_WIDTH,
             {
               "pb-24": selectionMode !== "none",
               "pb-6": selectionMode === "none",
             },
           )}
-          data-testid="miners-pagination"
-        >
-          <span className="text-300 text-text-primary">
-            Showing {firstItemIndex}–{lastItemIndex} of {totalMiners} miners
-          </span>
-          <div className="flex gap-3">
-            <Button
-              variant={variants.secondary}
-              size={sizes.compact}
-              ariaLabel="Previous page"
-              prefixIcon={<ChevronDown className="rotate-90" />}
-              onClick={handlePrevPage}
-              disabled={!hasPreviousPage}
-            />
-            <Button
-              variant={variants.secondary}
-              size={sizes.compact}
-              ariaLabel="Next page"
-              prefixIcon={<ChevronDown className="rotate-270" />}
-              onClick={handleNextPage}
-              disabled={!hasNextPage}
-            />
-          </div>
-        </div>
+          testId="miners-pagination"
+        />
       ) : null}
-    </>
+    </PoolAssignments>
   );
 };
 
 const MinerList = ({
   title,
+  inventoryItems,
+  inventoryMinerCount,
   minerIds = [],
   miners,
   errorsByDevice,
@@ -616,6 +846,8 @@ const MinerList = ({
   availableRacks = [],
   availableSites = [],
   availableBuildings = [],
+  availableContainers,
+  availableTanks,
   onExportCsv,
   exportCsvLoading = false,
   currentFilter,
@@ -629,11 +861,14 @@ const MinerList = ({
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const username = useUsername();
+  const directory = useHostedAccounts();
+  const hostedRoot = !!directory?.accounts.some((account) => account.depth === 0 && can(account, 16n));
   const { preferences: columnPreferences, setPreferences: setColumnPreferences } =
     useMinerTableColumnPreferences(username);
 
   const [modalFlow, setModalFlow] = useState<MinerModalFlow>({ kind: "closed" });
   const canViewFirmwareHistory = useHasPermission("miner:firmware_update");
+  const { assign: canAssignPoolConfiguration } = usePoolConfigurationPermissions();
   const [showManageColumnsModal, setShowManageColumnsModal] = useState(false);
   const [refreshingMinerIds, setRefreshingMinerIds] = useState<Set<string>>(() => new Set());
 
@@ -691,7 +926,10 @@ const MinerList = ({
     [disabledMinerIdSet],
   );
 
-  const initialActiveFilters = useMemo(() => parseUrlToActiveFilters(searchParams), [searchParams]);
+  const initialActiveFilters = useMemo(
+    () => combineInventoryFilters(parseUrlToActiveFilters(searchParams)),
+    [searchParams],
+  );
 
   // Refs for values that change frequently but are only read at call/render time.
   // Keeps callbacks and minerColConfig stable across polls.
@@ -735,17 +973,8 @@ const MinerList = ({
       const needsAuthentication = miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
       const needsMiningPool = miner.deviceStatus === DeviceStatus.NEEDS_MINING_POOL;
 
-      if (needsAuthentication) {
+      if (needsAuthentication && !needsMiningPool) {
         setModalFlow({ kind: "authenticate-miners", deviceIdentifier });
-        return;
-      }
-
-      if (needsMiningPool) {
-        setModalFlow({
-          kind: "authenticate-fleet",
-          deviceIdentifier,
-          deviceStatus: miner.deviceStatus,
-        });
         return;
       }
 
@@ -754,21 +983,6 @@ const MinerList = ({
     // minersRef is stable — read at call time, not memoization time
     [],
   );
-
-  const handleFleetAuthenticated = useCallback((username: string, password: string) => {
-    setModalFlow((current) => {
-      if (current.kind !== "authenticate-fleet") {
-        return current;
-      }
-
-      return {
-        kind: "pool-selection",
-        deviceIdentifier: current.deviceIdentifier,
-        deviceStatus: current.deviceStatus,
-        credentials: { username, password },
-      };
-    });
-  }, []);
 
   const openMinerView = useOpenMinerView();
   const handleRowClick = useCallback((item: DeviceListItem) => openMinerView(item.miner), [openMinerView]);
@@ -825,7 +1039,7 @@ const MinerList = ({
   );
 
   const selectionFilterKey = useMemo(() => {
-    const encodedFilters = encodeActiveFiltersToURL(initialActiveFilters);
+    const encodedFilters = encodeActiveFiltersToURL(separateInventoryFilters(initialActiveFilters));
     const searchQuery = searchParams.get(MINER_SEARCH_URL_PARAM)?.trim();
     if (searchQuery) encodedFilters.set(MINER_SEARCH_URL_PARAM, searchQuery);
     return encodedFilters.toString();
@@ -839,9 +1053,10 @@ const MinerList = ({
     () => `${(currentFilter?.siteIds ?? []).map(String).join(",")}|${currentFilter?.includeUnassigned ?? false}`,
     [currentFilter],
   );
+  const ancestorScopeKey = JSON.stringify([searchParams.getAll("container"), searchParams.getAll("tank")]);
   const selectionScopeKey = useMemo(
-    () => `${selectionFilterKey}:${currentPage}:${siteScopeKey}`,
-    [currentPage, selectionFilterKey, siteScopeKey],
+    () => `${selectionFilterKey}:${currentPage}:${siteScopeKey}:${ancestorScopeKey}`,
+    [currentPage, selectionFilterKey, siteScopeKey, ancestorScopeKey],
   );
 
   const handleClearFilters = useCallback(() => {
@@ -942,10 +1157,14 @@ const MinerList = ({
       title: "Buildings",
       pluralTitle: "buildings",
       value: "building",
-      options: [...availableBuildings, UNASSIGNED_FILTER_OPTION],
+      options: combinedInventoryOptions(
+        [...availableBuildings, UNASSIGNED_FILTER_OPTION],
+        "container",
+        availableContainers,
+      ),
       defaultOptionIds: [],
     }),
-    [availableBuildings],
+    [availableBuildings, availableContainers],
   );
 
   const racksFilter: DropdownFilterItem = useMemo(
@@ -954,10 +1173,14 @@ const MinerList = ({
       title: "Racks",
       pluralTitle: "racks",
       value: "rack",
-      options: [...availableRacks.map((r) => ({ id: String(r.id), label: r.label })), UNASSIGNED_FILTER_OPTION],
+      options: combinedInventoryOptions(
+        [...availableRacks.map((r) => ({ id: String(r.id), label: r.label })), UNASSIGNED_FILTER_OPTION],
+        "tank",
+        availableTanks,
+      ),
       defaultOptionIds: [],
     }),
-    [availableRacks],
+    [availableRacks, availableTanks],
   );
 
   const firmwareFilter: DropdownFilterItem = useMemo(
@@ -1058,7 +1281,8 @@ const MinerList = ({
   );
 
   const handleServerFilter = useCallback(
-    async (filters: ActiveFilters) => {
+    async (combinedFilters: ActiveFilters) => {
+      const filters = separateInventoryFilters(combinedFilters);
       const minerFilter = create(MinerListFilterSchema, {
         errorComponentTypes: [],
       });
@@ -1200,6 +1424,9 @@ const MinerList = ({
       // Start fresh with filter params, then preserve existing sort + active
       // view so dirtying a view doesn't lose its identity.
       const params = encodeFilterToURL(minerFilter);
+      for (const key of ["tank", "container"]) {
+        (filters.dropdownFilters[key] ?? []).forEach((id) => params.append(key, id));
+      }
       const searchQuery = searchParams.get(MINER_SEARCH_URL_PARAM)?.trim();
       if (searchQuery) params.set(MINER_SEARCH_URL_PARAM, searchQuery);
       const sortParam = searchParams.get("sort");
@@ -1270,9 +1497,12 @@ const MinerList = ({
   }
 
   const firstItemIndex = currentPage * pageSize + 1;
-  const lastItemIndex = currentPage * pageSize + minerIds.length;
+  const lastItemIndex = currentPage * pageSize + (inventoryItems?.length ?? minerIds.length);
   const shouldRenderPagination =
-    !loading && totalMiners !== undefined && totalMiners > 0 && (minerIds.length > 0 || currentPage > 0);
+    !loading &&
+    totalMiners !== undefined &&
+    totalMiners > 0 &&
+    ((inventoryItems?.length ?? minerIds.length) > 0 || currentPage > 0);
 
   return (
     <>
@@ -1298,6 +1528,8 @@ const MinerList = ({
         </div>
       ) : (
         <ScopedMinerListBody
+          inventoryItems={inventoryItems}
+          inventoryMinerCount={inventoryMinerCount}
           selectionScopeKey={selectionScopeKey}
           activeCols={activeCols}
           deviceItems={deviceItems}
@@ -1345,6 +1577,7 @@ const MinerList = ({
       {showManageColumnsModal ? (
         <ManageColumnsModal
           preferences={columnPreferences}
+          showAssignedAccount={hostedRoot}
           onDismiss={handleCloseManageColumns}
           onSave={handleSaveManageColumns}
         />
@@ -1359,29 +1592,15 @@ const MinerList = ({
         />
       ) : null}
 
-      {modalFlow.kind === "authenticate-fleet" ? (
-        <AuthenticateFleetModal
-          open
-          purpose="pool"
-          onAuthenticated={handleFleetAuthenticated}
-          onDismiss={closeModalFlow}
-        />
-      ) : null}
-
-      {modalFlow.kind === "pool-selection" ? (
+      {modalFlow.kind === "pool-selection" && canAssignPoolConfiguration ? (
         <PoolSelectionPageWrapper
           open
           selectedMiners={[
             {
               deviceIdentifier: modalFlow.deviceIdentifier,
-              deviceStatus: modalFlow.deviceStatus,
             },
           ]}
           selectionMode="subset"
-          userUsername={modalFlow.credentials.username}
-          userPassword={modalFlow.credentials.password}
-          onSuccess={closeModalFlow}
-          onError={closeModalFlow}
           onDismiss={closeModalFlow}
         />
       ) : null}
@@ -1393,6 +1612,14 @@ const MinerList = ({
           deviceId={modalFlow.deviceIdentifier}
           miner={miners[modalFlow.deviceIdentifier]}
           onMergeMiners={onMergeMiners}
+          onAuthenticateMiner={() =>
+            setModalFlow({ kind: "authenticate-miners", deviceIdentifier: modalFlow.deviceIdentifier })
+          }
+          onAssignPoolConfiguration={
+            canAssignPoolConfiguration
+              ? () => setModalFlow({ kind: "pool-selection", deviceIdentifier: modalFlow.deviceIdentifier })
+              : undefined
+          }
         />
       ) : null}
 

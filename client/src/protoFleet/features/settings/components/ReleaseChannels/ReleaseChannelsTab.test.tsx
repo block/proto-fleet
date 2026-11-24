@@ -25,7 +25,10 @@ import { useFleetStore } from "@/protoFleet/store";
 const { listFirmwareFiles, pushToast } = vi.hoisted(() => ({ listFirmwareFiles: vi.fn(), pushToast: vi.fn() }));
 const historyActions = { onViewRollout: vi.fn(), onRollbackRollout: vi.fn() };
 
-vi.mock("@/protoFleet/api/useFirmwareApi", () => ({ useFirmwareApi: () => ({ listFirmwareFiles }) }));
+vi.mock("@/protoFleet/api/useFirmwareApi", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/protoFleet/api/useFirmwareApi")>()),
+  useFirmwareApi: () => ({ listFirmwareFiles }),
+}));
 vi.mock("@/shared/features/toaster", () => ({
   pushToast,
   STATUSES: { success: "success", error: "error" },

@@ -8,22 +8,28 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/authz/v1/authzv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/buildings/v1/buildingsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/collection/v1/collectionv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/containers/v1/containersv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/device_set/v1/device_setv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/errors/v1/errorsv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/fleetinventory/v1/fleetinventoryv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/frigateupdate/v1/frigateupdatev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/hosted/v1/hostedv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/inventory/v1/inventoryv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/invitation/v1/invitationv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/maintenance/v1/maintenancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/marketdata/v1/marketdatav1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
+	mininggroupsv1connect "github.com/block/proto-fleet/server/generated/grpc/mininggroups/v1/mininggroupsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
-	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1/poolconfigurationsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/rollout/v1/rolloutv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
@@ -31,6 +37,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 )
 
 // ProcedurePermissions maps gated Connect procedures to the catalog
@@ -43,6 +50,7 @@ import (
 //   - interceptors.UnauthenticatedProcedures
 //   - interceptors.FleetNodeAuthenticatedProcedures
 //   - ProcedurePermissions          (gated by catalog key)
+//   - AccountProcedureCapabilities (separate live account authority)
 //   - ProceduresPendingMigration    (declared but not yet enforced via RequirePermission)
 //
 // Adding a new RPC without registering it fails the contract test
@@ -54,7 +62,34 @@ import (
 // glance: shrinking ProceduresPendingMigration to zero is the exit
 // criterion for retiring the legacy RequireAdmin middleware.
 var ProcedurePermissions = map[string]string{
-	marketdatav1connect.MarketDataServiceGetMarketDataProcedure: authz.PermFleetRead,
+	// Shared pool operations resolve operator permission or selected-account
+	// capability inside a transaction through AuthorizePoolConfiguration.
+	poolconfigurationsv1connect.PoolConfigurationServiceCreateConfigurationProcedure:        authz.PermPoolManage,
+	poolconfigurationsv1connect.PoolConfigurationServiceGetConfigurationProcedure:           authz.PermPoolRead,
+	poolconfigurationsv1connect.PoolConfigurationServiceListConfigurationsProcedure:         authz.PermPoolRead,
+	poolconfigurationsv1connect.PoolConfigurationServiceDuplicateConfigurationProcedure:     authz.PermPoolManage,
+	poolconfigurationsv1connect.PoolConfigurationServiceSetDefaultConfigurationProcedure:    authz.PermPoolManage,
+	poolconfigurationsv1connect.PoolConfigurationServiceArchiveConfigurationProcedure:       authz.PermPoolManage,
+	poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure:                 authz.PermPoolManage,
+	poolconfigurationsv1connect.PoolConfigurationServiceTestConnectionProcedure:             authz.PermPoolManage,
+	poolconfigurationsv1connect.PoolConfigurationServiceAuthorizeWorkerNameReviewsProcedure: authz.PermMinerUpdateWorkerName,
+	poolconfigurationsv1connect.PoolConfigurationServiceAuthorizeReviewsProcedure:           authz.PermPoolRead,
+	poolconfigurationsv1connect.PoolConfigurationServiceConfirmReviewProcedure:              authz.PermPoolRead,
+	poolconfigurationsv1connect.PoolConfigurationServiceReviewAssignmentProcedure:           authz.PermPoolRead,
+	poolconfigurationsv1connect.PoolConfigurationServiceGetOperationProcedure:               authz.PermPoolRead,
+	poolconfigurationsv1connect.PoolConfigurationServiceGetAssignmentsProcedure:             authz.PermPoolRead,
+	poolconfigurationsv1connect.PoolConfigurationServiceCheckConfigurationProcedure:         authz.PermPoolRead,
+	poolconfigurationsv1connect.PoolConfigurationServiceReadDevicePoolsProcedure:            authz.PermPoolRead,
+	poolconfigurationsv1connect.PoolConfigurationServiceReviewRetryProcedure:                authz.PermPoolRead,
+	poolconfigurationsv1connect.PoolConfigurationServiceListOperationsProcedure:             authz.PermPoolRead,
+	// Removal entry points require pool visibility; the domain service also
+	// checks live equipment authority and credentials for the reviewed targets.
+
+	maintenancev1connect.MaintenanceServiceListTicketAssetOptionsProcedure:     authz.PermMaintenanceRead,
+	maintenancev1connect.MaintenanceServiceShareRepairTicketProcedure:          authz.PermMaintenanceManage,
+	maintenancev1connect.MaintenanceServiceSetTicketCommentVisibilityProcedure: authz.PermMaintenanceManage,
+	maintenancev1connect.MaintenanceServiceUpdateTicketTargetProcedure:         authz.PermMaintenanceManage,
+	marketdatav1connect.MarketDataServiceGetMarketDataProcedure:                authz.PermFleetRead,
 	// Activity log — read-only audit trail. Export is the CSV variant of
 	// the same query; filter options is the lookup endpoint that drives
 	// the UI's filter panel. All three sit on activity:read.
@@ -119,12 +154,76 @@ var ProcedurePermissions = map[string]string{
 	authv1connect.AuthServiceUpdateUserRoleProcedure:    authz.PermUserManage,
 	authv1connect.AuthServiceListUsersProcedure:         authz.PermUserRead,
 
+	// Team invitations — user:manage at the handler; the domain layer applies
+	// the same role-hierarchy check at issuance and again at acceptance.
+	invitationv1connect.InvitationServiceCreateTeamInvitationProcedure: authz.PermUserManage,
+	invitationv1connect.InvitationServiceListTeamInvitationsProcedure:  authz.PermUserManage,
+	invitationv1connect.InvitationServiceRevokeTeamInvitationProcedure: authz.PermUserManage,
+	invitationv1connect.InvitationServiceDeleteTeamInvitationProcedure: authz.PermUserManage,
+
 	// Buildings CRUD — site:read for reads, site:manage for writes.
 	// ListBuildingRacks is a building-scoped read; AssignRacksToBuilding
 	// mutates the rack's building/site/zone/grid placement.
 	buildingsv1connect.BuildingServiceListBuildingsProcedure:     authz.PermSiteRead,
 	buildingsv1connect.BuildingServiceGetBuildingProcedure:       authz.PermSiteRead,
 	buildingsv1connect.BuildingServiceListBuildingRacksProcedure: authz.PermSiteRead,
+	// Placement metadata requires management at each current site, without telemetry permissions.
+	containersv1connect.ContainerServiceListContainerPlacementsProcedure: authz.PermSiteManage,
+	// Container lists filter each row by current-site permissions. The handler
+	// also checks fleet:read and miner:read before exposing telemetry.
+	containersv1connect.ContainerServiceListContainersProcedure:                authz.PermSiteRead,
+	fleetinventoryv1connect.FleetInventoryServiceListInventoryProcedure:        authz.PermSiteRead,
+	fleetinventoryv1connect.FleetInventoryServiceListTankOptionsProcedure:      authz.PermSiteRead,
+	fleetinventoryv1connect.FleetInventoryServiceListModuleHistoryProcedure:    authz.PermSiteRead,
+	fleetinventoryv1connect.FleetInventoryServiceGetModuleHashboardsProcedure:  authz.PermSiteRead,
+	fleetinventoryv1connect.FleetInventoryServiceListHashboardHistoryProcedure: authz.PermSiteRead,
+	containersv1connect.ContainerServiceGetMiningStatusProcedure:               authz.PermSiteRead,
+	containersv1connect.ContainerServiceGetPowerTargetProcedure:                authz.PermSiteRead,
+	containersv1connect.ContainerServiceSetMiningProcedure:                     authz.PermSiteRead,
+	containersv1connect.ContainerServiceSetPowerTargetProcedure:                authz.PermMinerSetPowerTarget,
+	containersv1connect.ContainerServiceGetContainerProcedure:                  authz.PermSiteRead,
+	fleetinventoryv1connect.FleetInventoryServiceGetTankHistoryProcedure:       authz.PermSiteRead,
+	// Equipment results enforce the same current-site read permissions as the
+	// container. Writes also require power-target authority and all three read
+	// permissions; cooling-mode is the primary classification recorded here.
+	containersv1connect.ContainerServiceGetEquipmentCommandResultProcedure: authz.PermSiteRead,
+	containersv1connect.ContainerServiceGetTankMiningOptionsProcedure:      authz.PermSiteRead,
+	containersv1connect.ContainerServiceGetModuleMiningOptionsProcedure:    authz.PermSiteRead,
+	// Handler resolves the module and enforces site, fleet and miner reads at its current site.
+	containersv1connect.ContainerServiceGetModulePowerFeedProcedure: authz.PermSiteRead,
+	// Handler enforces container:power_feed and the site, fleet and miner reads at the module's current site.
+	containersv1connect.ContainerServiceControlModulePowerFeedProcedure: authz.PermContainerPowerFeed,
+	// Handler resolves every board and enforces miner:blink_led at its current site.
+	containersv1connect.ContainerServiceGetBoardIdentifyOptionsProcedure: authz.PermSiteRead,
+	containersv1connect.ContainerServiceSetBoardIdentifyProcedure:        authz.PermSiteRead,
+	// Handler resolves the board and enforces fleet:read and miner:read at its current site.
+	containersv1connect.ContainerServiceStreamBoardASICReadingsProcedure: authz.PermSiteRead,
+	// Handler enforces miner:download_logs and the container read permissions at its current site.
+	containersv1connect.ContainerServiceGetControllerLogsProcedure:         authz.PermSiteRead,
+	containersv1connect.ContainerServiceListControllerAuditEventsProcedure: authz.PermSiteRead,
+	// Handler resolves every tank/module and enforces the requested mining permission at its current site.
+	containersv1connect.ContainerServiceSetTankMiningProcedure:             authz.PermSiteRead,
+	mininggroupsv1connect.MiningGroupServiceGetStateProcedure:              authz.PermSiteRead,
+	mininggroupsv1connect.MiningGroupServiceActivateProcedure:              authz.PermSiteRead,
+	mininggroupsv1connect.MiningGroupServiceDeactivateProcedure:            authz.PermSiteRead,
+	mininggroupsv1connect.MiningGroupServiceReviewReturnToDefaultProcedure: authz.PermSiteRead,
+	mininggroupsv1connect.MiningGroupServiceReturnToDefaultProcedure:       authz.PermSiteRead,
+
+	// Frigate software updates. Every method enforces controller:software_update:
+	// container methods at the container's site, package listing and upload at any
+	// site, and package deletion organization-wide.
+	frigateupdatev1connect.FrigateUpdateServiceGetSupportProcedure:    authz.PermControllerSoftwareUpdate,
+	frigateupdatev1connect.FrigateUpdateServiceListPackagesProcedure:  authz.PermControllerSoftwareUpdate,
+	frigateupdatev1connect.FrigateUpdateServiceDeletePackageProcedure: authz.PermControllerSoftwareUpdate,
+	frigateupdatev1connect.FrigateUpdateServiceStartUpdateProcedure:   authz.PermControllerSoftwareUpdate,
+	frigateupdatev1connect.FrigateUpdateServiceGetUpdateProcedure:     authz.PermControllerSoftwareUpdate,
+	frigateupdatev1connect.FrigateUpdateServiceListUpdatesProcedure:   authz.PermControllerSoftwareUpdate,
+	frigateupdatev1connect.FrigateUpdateServiceRetryUpdateProcedure:   authz.PermControllerSoftwareUpdate,
+	frigateupdatev1connect.FrigateUpdateServiceCancelUpdateProcedure:  authz.PermControllerSoftwareUpdate,
+
+	containersv1connect.ContainerServiceSetModuleMiningProcedure:     authz.PermSiteRead,
+	containersv1connect.ContainerServiceSetEquipmentControlProcedure: authz.PermMinerSetCoolingMode,
+	containersv1connect.ContainerServiceRunPlantAlarmActionProcedure: authz.PermMinerSetCoolingMode,
 	// CreateBuilding optionally seeds racks + devices atomically (#559). This
 	// site:manage entry is the primary gate; when the caller opts into
 	// force_clear_conflicting_rack_membership the handler adds an inline
@@ -251,14 +350,13 @@ var ProcedurePermissions = map[string]string{
 	// mutations against matching miner action keys.
 	fleetmanagementv1connect.FleetManagementServiceListMinerStateSnapshotsProcedure: authz.PermMinerRead,
 	fleetmanagementv1connect.FleetManagementServiceRefreshMinersProcedure:           authz.PermMinerRead,
-	fleetmanagementv1connect.FleetManagementServiceGetMinerPoolAssignmentsProcedure: authz.PermMinerRead,
 	fleetmanagementv1connect.FleetManagementServiceGetMinerCoolingModeProcedure:     authz.PermMinerRead,
 	// LookupMinerByIdentifier resolves a scanned MAC/serial to a miner for
 	// the rack-assignment QR flow; handler gates on miner:read.
 	fleetmanagementv1connect.FleetManagementServiceLookupMinerByIdentifierProcedure: authz.PermMinerRead,
 	fleetmanagementv1connect.FleetManagementServiceGetMinerStateCountsProcedure:     authz.PermFleetRead,
 	fleetmanagementv1connect.FleetManagementServiceGetMinerModelGroupsProcedure:     authz.PermFleetRead,
-	fleetmanagementv1connect.FleetManagementServiceUpdateWorkerNamesProcedure:       authz.PermMinerUpdateWorkerName,
+	fleetmanagementv1connect.FleetManagementServiceReviewWorkerNamesProcedure:       authz.PermMinerUpdateWorkerName,
 	fleetmanagementv1connect.FleetManagementServiceRenameMinersProcedure:            authz.PermMinerRename,
 	fleetmanagementv1connect.FleetManagementServiceDeleteMinersProcedure:            authz.PermMinerDelete,
 	fleetmanagementv1connect.FleetManagementServiceExportMinerListCsvProcedure:      authz.PermMinerExportCSV,
@@ -289,13 +387,12 @@ var ProcedurePermissions = map[string]string{
 	// MinerCommandService — each action gates on its matching catalog
 	// key. Stream/batch endpoints gate on fleet:read since they're
 	// status surfaces.
-	minercommandv1connect.MinerCommandServiceBlinkLEDProcedure:          authz.PermMinerBlinkLED,
-	minercommandv1connect.MinerCommandServiceRebootProcedure:            authz.PermMinerReboot,
-	minercommandv1connect.MinerCommandServiceStartMiningProcedure:       authz.PermMinerStartMining,
-	minercommandv1connect.MinerCommandServiceStopMiningProcedure:        authz.PermMinerStopMining,
-	minercommandv1connect.MinerCommandServiceUpdateMiningPoolsProcedure: authz.PermMinerUpdatePools,
-	minercommandv1connect.MinerCommandServiceSetCoolingModeProcedure:    authz.PermMinerSetCoolingMode,
-	minercommandv1connect.MinerCommandServiceSetPowerTargetProcedure:    authz.PermMinerSetPowerTarget,
+	minercommandv1connect.MinerCommandServiceBlinkLEDProcedure:       authz.PermMinerBlinkLED,
+	minercommandv1connect.MinerCommandServiceRebootProcedure:         authz.PermMinerReboot,
+	minercommandv1connect.MinerCommandServiceStartMiningProcedure:    authz.PermMinerStartMining,
+	minercommandv1connect.MinerCommandServiceStopMiningProcedure:     authz.PermMinerStopMining,
+	minercommandv1connect.MinerCommandServiceSetCoolingModeProcedure: authz.PermMinerSetCoolingMode,
+	minercommandv1connect.MinerCommandServiceSetPowerTargetProcedure: authz.PermMinerSetPowerTarget,
 	// Primary procedure gate remains miner:firmware_update; the handler
 	// also requires miner:reboot because successful installs now reboot.
 	minercommandv1connect.MinerCommandServiceFirmwareUpdateProcedure:               authz.PermMinerFirmwareUpdate,
@@ -341,20 +438,6 @@ var ProcedurePermissions = map[string]string{
 	pairingv1connect.PairingServiceDiscoverProcedure: authz.PermMinerPair,
 	pairingv1connect.PairingServicePairProcedure:     authz.PermMinerPair,
 
-	// PoolsService — saved mining pool definitions. ValidatePool drives
-	// an outbound Stratum/SV2 handshake against the caller-supplied
-	// URL, so it sits on the manage key alongside the mutations to
-	// prevent a read-only role from triggering server-side network
-	// probes.
-	poolsv1connect.PoolsServiceListPoolsProcedure:    authz.PermPoolRead,
-	poolsv1connect.PoolsServiceValidatePoolProcedure: authz.PermPoolManage,
-	poolsv1connect.PoolsServiceCreatePoolProcedure:   authz.PermPoolManage,
-	poolsv1connect.PoolsServiceUpdatePoolProcedure:   authz.PermPoolManage,
-	poolsv1connect.PoolsServiceDeletePoolProcedure:   authz.PermPoolManage,
-
-	// RolloutService — release channels exist solely to drive firmware
-	// updates, so every RPC (including reads) sits on the firmware-update
-	// permission; the handler re-checks it.
 	rolloutv1connect.RolloutServiceListReleaseChannelsProcedure:                   authz.PermMinerFirmwareUpdate,
 	rolloutv1connect.RolloutServiceGetReleaseChannelProcedure:                     authz.PermMinerFirmwareUpdate,
 	rolloutv1connect.RolloutServiceListReleaseChannelMinersProcedure:              authz.PermMinerFirmwareUpdate,
@@ -380,6 +463,11 @@ var ProcedurePermissions = map[string]string{
 	rolloutv1connect.RolloutServiceSkipRolloutDevicesProcedure:                    authz.PermMinerFirmwareUpdate,
 	rolloutv1connect.RolloutServiceCompleteRolloutProcedure:                       authz.PermMinerFirmwareUpdate,
 	rolloutv1connect.RolloutServiceListRolloutEventsProcedure:                     authz.PermMinerFirmwareUpdate,
+	// SetReleaseChannelControllerSoftware additionally requires
+	// controller:software_update inside the handler.
+	rolloutv1connect.RolloutServiceListReleaseChannelContainersProcedure:         authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceListReleaseChannelControllerSoftwareProcedure: authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceSetReleaseChannelControllerSoftwareProcedure:  authz.PermMinerFirmwareUpdate,
 
 	// ScheduleService — recurring miner actions. CreateSchedule and
 	// UpdateSchedule additionally re-check the underlying miner action
@@ -415,12 +503,13 @@ var ProcedurePermissions = map[string]string{
 	// This site:manage entry is the primary gate; when the caller opts into
 	// force_clear_conflicting_rack_membership the handler adds an inline
 	// rack:manage check (mirrors AssignDevicesToSite).
-	sitesv1connect.SiteServiceCreateSiteProcedure:            authz.PermSiteManage,
-	sitesv1connect.SiteServiceUpdateSiteProcedure:            authz.PermSiteManage,
-	sitesv1connect.SiteServiceDeleteSiteProcedure:            authz.PermSiteManage,
-	sitesv1connect.SiteServiceAssignDevicesToSiteProcedure:   authz.PermSiteManage,
-	sitesv1connect.SiteServiceAssignBuildingsToSiteProcedure: authz.PermSiteManage,
-	sitesv1connect.SiteServiceAssignRacksToSiteProcedure:     authz.PermSiteManage,
+	sitesv1connect.SiteServiceCreateSiteProcedure:             authz.PermSiteManage,
+	sitesv1connect.SiteServiceUpdateSiteProcedure:             authz.PermSiteManage,
+	sitesv1connect.SiteServiceDeleteSiteProcedure:             authz.PermSiteManage,
+	sitesv1connect.SiteServiceAssignDevicesToSiteProcedure:    authz.PermSiteManage,
+	sitesv1connect.SiteServiceAssignBuildingsToSiteProcedure:  authz.PermSiteManage,
+	sitesv1connect.SiteServiceAssignContainersToSiteProcedure: authz.PermSiteManage,
+	sitesv1connect.SiteServiceAssignRacksToSiteProcedure:      authz.PermSiteManage,
 	// Dedicated OT commissioning reads/writes require org-wide site:manage;
 	// handlers additionally require ADMIN/SUPER_ADMIN.
 	sitesv1connect.SiteServiceGetInfrastructureControlSubnetsProcedure: authz.PermSiteManage,
@@ -477,4 +566,73 @@ var ProceduresPendingMigration = map[string]string{
 	// site_id. Putting it in ProcedurePermissions would force the
 	// same org-scoped site:read gate that this endpoint avoids.
 	sitesv1connect.SiteServiceResolveSiteBySlugProcedure: "inline site:read after slug resolves to site_id",
+}
+
+// AccountProcedureCapabilities records dedicated account authorization paths.
+// Zero marks workspace discovery or invitation consumption, whose authority is
+// established by the live identity/token rather than a body account. Hierarchy
+// operations also support explicit host account:manage; grants and site policy
+// have narrowly checked host recovery or direct-parent alternatives.
+var AccountProcedureCapabilities = map[string]hostedaccounts.Capabilities{
+	hostedv1connect.HostedAccountServiceListAccountReportsProcedure:      hostedaccounts.View,
+	hostedv1connect.HostedAccountServiceGetAccountReportProcedure:        hostedaccounts.View,
+	hostedv1connect.HostedAccountServiceGenerateAccountAnalysisProcedure: hostedaccounts.GenerateReports,
+	hostedv1connect.HostedAccountServiceDeleteAccountAnalysisProcedure:   hostedaccounts.ManageMembers,
+	hostedv1connect.HostedAccountServiceListAccountAnalysesProcedure:     hostedaccounts.View,
+	hostedv1connect.HostedAccountServiceGetAccountAnalysisProcedure:      hostedaccounts.View,
+	hostedv1connect.HostedAccountServiceExportAccountAnalysisProcedure:   hostedaccounts.View,
+	hostedv1connect.HostedAccountServiceExportAccountReportProcedure:     hostedaccounts.View,
+	// Host reporting has its own explicit per-account preparation/publication grants.
+	hostedv1connect.HostedAccountServiceListHostReportingAccountsProcedure:          0,
+	hostedv1connect.HostedAccountServiceGetHostReportingSetupProcedure:              0,
+	hostedv1connect.HostedAccountServiceSetHostReportingAuthorityProcedure:          0,
+	hostedv1connect.HostedAccountServiceMutateHostReportingInputsProcedure:          0,
+	hostedv1connect.HostedAccountServiceListHostReportingFactsProcedure:             0,
+	hostedv1connect.HostedAccountServicePrepareHostReportProcedure:                  0,
+	hostedv1connect.HostedAccountServicePublishHostReportProcedure:                  0,
+	hostedv1connect.HostedAccountServiceListHostReportsProcedure:                    0,
+	hostedv1connect.HostedAccountServiceGetHostReportProcedure:                      0,
+	hostedv1connect.HostedAccountServiceRecordHostReportDeliveryProcedure:           0,
+	hostedv1connect.HostedAccountServiceExportHostReportProcedure:                   0,
+	hostedv1connect.HostedAccountServiceCreateHostReportRequestProcedure:            0,
+	hostedv1connect.HostedAccountServiceRecordHostReportRequestFulfillmentProcedure: 0,
+	hostedv1connect.HostedAccountServiceListHostReportRequestsProcedure:             0,
+	hostedv1connect.HostedAccountServiceListHostReportQueueProcedure:                0,
+	hostedv1connect.HostedAccountServiceAcknowledgeHostReportQueueProcedure:         0,
+	hostedv1connect.HostedAccountServiceRetryHostReportQueueNotificationProcedure:   0,
+	hostedv1connect.HostedAccountServiceListAccountTicketsProcedure:                 hostedaccounts.View,
+	hostedv1connect.HostedAccountServiceGetAccountTicketProcedure:                   hostedaccounts.View,
+	hostedv1connect.HostedAccountServiceCreateAccountTicketProcedure:                hostedaccounts.View,
+	hostedv1connect.HostedAccountServiceCommentAccountTicketProcedure:               hostedaccounts.View,
+	hostedv1connect.HostedAccountServiceChangeAccountTicketStatusProcedure:          hostedaccounts.View,
+	hostedv1connect.HostedAccountServiceListAccountTicketAssetsProcedure:            hostedaccounts.View,
+	hostedv1connect.HostedAccountServiceListAccountActivitiesProcedure:              hostedaccounts.View,
+	hostedv1connect.HostedAccountServiceExportAccountActivitiesProcedure:            hostedaccounts.View,
+	hostedv1connect.HostedAccountServiceGetAccountDashboardProcedure:                hostedaccounts.View,
+	hostedv1connect.HostedAccountServiceGetAccountAssetDetailProcedure:              hostedaccounts.View,
+	hostedv1connect.HostedAccountServiceGetAccountMiningSummaryProcedure:            hostedaccounts.View,
+	hostedv1connect.HostedAccountServiceListAccountAssetsProcedure:                  hostedaccounts.View,
+	hostedv1connect.HostedAccountServiceAssignAccountAssetsProcedure:                hostedaccounts.Delegate,
+	hostedv1connect.HostedAccountServiceCreateAccountKeyProcedure:                   hostedaccounts.View,
+	hostedv1connect.HostedAccountServiceListAccountKeysProcedure:                    hostedaccounts.View,
+	hostedv1connect.HostedAccountServiceRevokeAccountKeyProcedure:                   hostedaccounts.View,
+	hostedv1connect.HostedAccountServiceListAccountsProcedure:                       0,
+	hostedv1connect.HostedAccountServiceGetAccountProcedure:                         hostedaccounts.View,
+	hostedv1connect.HostedAccountServiceListChildrenProcedure:                       hostedaccounts.Delegate,
+	hostedv1connect.HostedAccountServiceCreateAccountProcedure:                      hostedaccounts.Delegate,
+	hostedv1connect.HostedAccountServiceConfigureAccountProcedure:                   hostedaccounts.Delegate,
+	hostedv1connect.HostedAccountServiceRenameAccountProcedure:                      hostedaccounts.ManageMembers,
+	hostedv1connect.HostedAccountServiceListMembersProcedure:                        hostedaccounts.ManageMembers,
+	hostedv1connect.HostedAccountServiceSetMemberRoleProcedure:                      hostedaccounts.ManageMembers,
+	hostedv1connect.HostedAccountServiceRevokeMemberProcedure:                       hostedaccounts.ManageMembers,
+	hostedv1connect.HostedAccountServiceListAncestorGrantsProcedure:                 hostedaccounts.ManageMembers,
+	hostedv1connect.HostedAccountServiceSetAncestorGrantProcedure:                   hostedaccounts.ManageMembers,
+	hostedv1connect.HostedAccountServiceRevokeAncestorGrantProcedure:                hostedaccounts.ManageMembers,
+	hostedv1connect.HostedAccountServiceSetSitePolicyProcedure:                      hostedaccounts.ManageMembers,
+	hostedv1connect.HostedAccountServiceGetSitePolicyProcedure:                      hostedaccounts.View,
+	hostedv1connect.HostedAccountServiceListInvitationsProcedure:                    hostedaccounts.ManageMembers,
+	hostedv1connect.HostedAccountServiceCreateInvitationProcedure:                   hostedaccounts.ManageMembers,
+	hostedv1connect.HostedAccountServiceRevokeInvitationProcedure:                   hostedaccounts.ManageMembers,
+	invitationv1connect.InvitationServiceAcceptInvitationProcedure:                  0,
+	hostedv1connect.HostedAccountServiceReplaceAccountHashboardProcedure:            hostedaccounts.Delegate,
 }

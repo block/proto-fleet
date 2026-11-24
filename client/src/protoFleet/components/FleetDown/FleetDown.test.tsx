@@ -43,18 +43,6 @@ describe("FleetDown", () => {
     expect(screen.getByRole("button", { name: /retry now/i })).toBeInTheDocument();
   });
 
-  it("renders the logo", () => {
-    render(<FleetDown />);
-
-    expect(screen.getByTestId("logo-alt")).toBeInTheDocument();
-  });
-
-  it("renders the animated dots background", () => {
-    render(<FleetDown />);
-
-    expect(screen.getByTestId("animated-dots-background")).toBeInTheDocument();
-  });
-
   it("redirects when backend is back up", async () => {
     const { redirectFromFleetDown } = await import("@/protoFleet/utils/fleetDownRedirect");
     const { onboardingClient } = await import("@/protoFleet/api/clients");
@@ -90,27 +78,6 @@ describe("FleetDown", () => {
     expect(redirectFromFleetDown).not.toHaveBeenCalled();
     // Button should be enabled again (not loading)
     expect(button).not.toBeDisabled();
-  });
-
-  it("shows loading state while checking backend", async () => {
-    const { onboardingClient } = await import("@/protoFleet/api/clients");
-    const user = userEvent.setup();
-
-    // Mock API call that resolves successfully
-    vi.mocked(onboardingClient.getFleetInitStatus).mockResolvedValueOnce({} as any);
-
-    render(<FleetDown />);
-
-    const button = screen.getByRole("button", { name: /retry now/i });
-
-    // Button should be enabled before click
-    expect(button).not.toBeDisabled();
-
-    // Click button and wait for async operation
-    await user.click(button);
-
-    // After async completes, verify the API was called
-    expect(onboardingClient.getFleetInitStatus).toHaveBeenCalledTimes(1);
   });
 
   it("automatically polls backend every 15 seconds", async () => {

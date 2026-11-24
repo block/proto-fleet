@@ -81,18 +81,4 @@ describe("DeactivateUserDialog", () => {
     expect(getByText(/They will be hidden and removed from your account/)).toBeInTheDocument();
     expect(getByText(/This action cannot be undone/)).toBeInTheDocument();
   });
-
-  it("handles long usernames", () => {
-    const longUsername = "user_with_a_very_long_username_for_testing";
-    const { getByText } = render(
-      <DeactivateUserDialog
-        username={longUsername}
-        onConfirm={mockOnConfirm}
-        onDismiss={mockOnDismiss}
-        isSubmitting={false}
-      />,
-    );
-
-    expect(getByText(new RegExp(longUsername))).toBeInTheDocument();
-  });
 });

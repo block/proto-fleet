@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import FirmwareUpdateStatus from "./FirmwareUpdateStatus";
-import { UpdateStatus } from "@/protoOS/api/generatedApi";
+import type { FirmwareUpdateInfo } from "@/protoOS/store/contract";
 
 const meta: Meta<typeof FirmwareUpdateStatus> = {
   title: "Proto OS/Firmware Update/FirmwareUpdateStatus",
@@ -18,10 +18,10 @@ export const Available: Story = {
   args: {
     updateStatus: {
       status: "available",
-      current_version: "1.0.0",
-      new_version: "1.1.0",
+      currentVersion: "1.0.0",
+      newVersion: "1.1.0",
       message: "Update available",
-    } as UpdateStatus,
+    } as FirmwareUpdateInfo,
   },
 };
 
@@ -29,20 +29,19 @@ export const Current: Story = {
   args: {
     updateStatus: {
       status: "current",
-      current_version: "1.0.0",
+      currentVersion: "1.0.0",
       message: "Firmware is up to date",
-    } as UpdateStatus,
+    } as FirmwareUpdateInfo,
   },
 };
 
 export const CurrentWithError: Story = {
   args: {
     updateStatus: {
-      status: "current",
-      current_version: "1.0.0",
-      error: "Download failed",
+      status: "failed",
+      currentVersion: "1.0.0",
       message: "Last update attempt failed: Download failed",
-    } as UpdateStatus,
+    } as FirmwareUpdateInfo,
   },
 };
 
@@ -51,11 +50,11 @@ export const Downloading: Story = {
     installing: true,
     updateStatus: {
       status: "downloading",
-      current_version: "1.0.0",
-      new_version: "1.1.0",
-      progress: 45,
+      currentVersion: "1.0.0",
+      newVersion: "1.1.0",
+      progressPercent: 45,
       message: "Downloading update",
-    } as UpdateStatus,
+    } as FirmwareUpdateInfo,
   },
 };
 
@@ -64,10 +63,10 @@ export const Downloaded: Story = {
     installing: true,
     updateStatus: {
       status: "downloaded",
-      current_version: "1.0.0",
-      new_version: "1.1.0",
+      currentVersion: "1.0.0",
+      newVersion: "1.1.0",
       message: "Ready to install",
-    } as UpdateStatus,
+    } as FirmwareUpdateInfo,
   },
 };
 
@@ -76,11 +75,11 @@ export const Installing: Story = {
     installing: true,
     updateStatus: {
       status: "installing",
-      current_version: "1.0.0",
-      new_version: "1.1.0",
-      progress: 75,
+      currentVersion: "1.0.0",
+      newVersion: "1.1.0",
+      progressPercent: 75,
       message: "Installing update",
-    } as UpdateStatus,
+    } as FirmwareUpdateInfo,
   },
 };
 
@@ -88,30 +87,29 @@ export const Installed: Story = {
   args: {
     installing: false,
     updateStatus: {
-      status: "installed",
+      status: "rebootRequired",
       message: "Update installed",
-    } as UpdateStatus,
+    } as FirmwareUpdateInfo,
   },
 };
 
 export const Error: Story = {
   args: {
     updateStatus: {
-      status: "error",
-      current_version: "1.0.0",
-      error: "Download failed",
+      status: "failed",
+      currentVersion: "1.0.0",
       message: "Update failed",
-    } as UpdateStatus,
+    } as FirmwareUpdateInfo,
   },
 };
 
 export const Success: Story = {
   args: {
     updateStatus: {
-      status: "success",
-      current_version: "1.1.0",
+      status: "complete",
+      currentVersion: "1.1.0",
       message: "Update completed",
-    } as UpdateStatus,
+    } as FirmwareUpdateInfo,
   },
 };
 

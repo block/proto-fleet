@@ -1,0 +1,118 @@
+package poolconfigurations
+
+import (
+	"context"
+
+	fleetpb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+)
+
+type EquipmentAssignments struct {
+	Assignments   []sqlc.ListPoolEquipmentAssignmentsRow
+	SelectedCount int64
+}
+
+// GetAssignments reads current intent without requiring write permission or
+// contacting hardware. Missing/unreadable assignments do not expose another
+// owner's configuration, even to a host operator viewing allocated equipment.
+func (s *Service) GetAssignments(ctx context.Context, accountID string, identifiers []string, deviceIDs []int64, filter *fleetpb.MinerListFilter) (EquipmentAssignments, error) {
+	if err := validateEquipmentSelection(identifiers, deviceIDs, filter); err != nil {
+		return EquipmentAssignments{}, err
+	}
+	if filter != nil {
+		var err error
+		identifiers, err = s.resolvePoolFilter(ctx, accountID, filter)
+		if err != nil {
+			return EquipmentAssignments{}, err
+		}
+	}
+	return withAuthority(ctx, s, accountID, Read, func(q sqlc.Querier, p Principal) (EquipmentAssignments, error) {
+		visible, err := s.authority.PoolEquipmentVisibility(ctx, q, p)
+		if err != nil {
+			return EquipmentAssignments{}, err
+		}
+		rows, err := q.ListPoolEquipmentAssignments(ctx, sqlc.ListPoolEquipmentAssignmentsParams{
+			OrganizationID: p.Scope.OrganizationID, AccountID: p.Scope.account(), DeviceIds: deviceIDs, DeviceIdentifiers: identifiers,
+		})
+		if err != nil {
+			return EquipmentAssignments{}, storageError(err)
+		}
+		lifecycleIDs := make([]int64, 0, len(rows))
+		for _, row := range rows {
+			if visible(row.SiteID) {
+				lifecycleIDs = append(lifecycleIDs, row.DeviceID)
+			}
+		}
+		events, err := lifecycleStates(ctx, q, p.Scope, lifecycleIDs, nil)
+		if err != nil {
+			return EquipmentAssignments{}, err
+		}
+		result := EquipmentAssignments{SelectedCount: int64(len(identifiers) + len(deviceIDs))}
+		seen := make(map[int64]bool, len(rows))
+		for _, row := range rows {
+			if visible(row.SiteID) {
+				applyDeviceLifecycleStatus(&row, events)
+				result.Assignments = append(result.Assignments, row)
+				seen[row.DeviceID] = true
+			}
+		}
+		// Recovery visibility: an incomplete module-membership map excludes a whole
+		// container from the query above, hiding even a retained, caller-owned
+		// whole-container assignment the operator is authorized to retire. Surface
+		// those for explicitly selected equipment so the UI can offer assignment-only
+		// recovery instead of a false "no assignment remains". Ownership (caller's
+		// own) and site visibility are still enforced here.
+		if len(identifiers) > 0 || len(deviceIDs) > 0 {
+			retained, err := q.ListRetainedDeviceAssignmentsForRecovery(ctx, sqlc.ListRetainedDeviceAssignmentsForRecoveryParams{
+				OrganizationID: p.Scope.OrganizationID, AccountID: p.Scope.account(), DeviceIds: deviceIDs, DeviceIdentifiers: identifiers,
+			})
+			if err != nil {
+				return EquipmentAssignments{}, storageError(err)
+			}
+			for _, row := range retained {
+				if seen[row.DeviceID] || !visible(row.SiteID) {
+					continue
+				}
+				seen[row.DeviceID] = true
+				result.Assignments = append(result.Assignments, sqlc.ListPoolEquipmentAssignmentsRow{
+					DeviceID: row.DeviceID, DeviceIdentifier: row.DeviceIdentifier, SiteID: row.SiteID,
+					CustomName: row.CustomName, Manufacturer: row.Manufacturer, Model: row.Model, MacAddress: row.MacAddress,
+					ConfigurationID: row.ConfigurationID, Name: row.Name, OperationID: row.OperationID,
+					State: "recoverable", UpdatedAt: row.UpdatedAt,
+				})
+			}
+		}
+		return result, nil
+	})
+}
+
+func validateEquipmentSelection(identifiers []string, ids []int64, filter *fleetpb.MinerListFilter) error {
+	selections := 0
+	for _, present := range []bool{len(identifiers) > 0, len(ids) > 0, filter != nil} {
+		if present {
+			selections++
+		}
+	}
+	if selections != 1 {
+		return fleeterror.NewInvalidArgumentError("provide exactly one equipment selection")
+	}
+	if len(identifiers) > 10000 || len(ids) > 10000 {
+		return fleeterror.NewInvalidArgumentError("select at most 10000 devices")
+	}
+	seenIDs := map[int64]bool{}
+	for _, id := range ids {
+		if id <= 0 || seenIDs[id] {
+			return fleeterror.NewInvalidArgumentError("select unique valid devices")
+		}
+		seenIDs[id] = true
+	}
+	seen := map[string]bool{}
+	for _, id := range identifiers {
+		if id == "" || len(id) > 255 || seen[id] {
+			return fleeterror.NewInvalidArgumentError("select unique valid devices")
+		}
+		seen[id] = true
+	}
+	return nil
+}

@@ -20,26 +20,3 @@ type TelemetryCollector interface {
 	// RefreshDeviceTimeout returns the configured timeout budget for one refresh operation.
 	RefreshDeviceTimeout() time.Duration
 }
-
-// MockTelemetryCollector provides a mock implementation of TelemetryCollector for testing
-type MockTelemetryCollector struct{}
-
-func NewMockTelemetryCollector() TelemetryCollector {
-	return &MockTelemetryCollector{}
-}
-
-func (m *MockTelemetryCollector) RemoveDevices(_ context.Context, _ ...minerModels.DeviceIdentifier) error {
-	return nil
-}
-
-func (m *MockTelemetryCollector) GetLatestDeviceMetrics(_ context.Context, _ []minerModels.DeviceIdentifier) (map[minerModels.DeviceIdentifier]modelsV2.DeviceMetrics, error) {
-	return nil, nil
-}
-
-func (m *MockTelemetryCollector) RefreshDevice(_ context.Context, _ telemetryModels.Device) error {
-	return nil
-}
-
-func (m *MockTelemetryCollector) RefreshDeviceTimeout() time.Duration {
-	return 10 * time.Second
-}

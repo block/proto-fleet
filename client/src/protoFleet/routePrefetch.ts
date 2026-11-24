@@ -5,7 +5,7 @@
 // those same component files to build the route tree.
 //
 // To add a route: define the factory const here, add it to the
-// relevant tier export below, and add a lazy() wrapper in router.tsx's
+// relevant tier export below for sidebar/settings routes, and add a lazy() wrapper in router.tsx's
 // route tree. The tier addition isn't lint-enforced — a missed entry
 // leaves the chunk un-warmed without breaking the build.
 
@@ -13,6 +13,9 @@ import { singleMinerRoutePrefetch } from "@/protoOS/routePrefetch"; // eslint-di
 import type { RouteImporter } from "@/shared/utils/prefetchRoutes";
 
 export { singleMinerRoutePrefetch };
+
+export const importAccountRoutes = () => import("@/protoFleet/features/hostedAccounts/AccountRoutes");
+export const importAccountInvitation = () => import("@/protoFleet/features/hostedAccounts/AccountInvitation");
 
 export const importDashboard = () => import("@/protoFleet/features/dashboard/pages/Dashboard");
 export const importMiners = () => import("./features/fleetManagement/components/Fleet");
@@ -33,7 +36,7 @@ export const importSettingsLayout = () => import("@/protoFleet/features/settings
 export const importSettingsNetwork = () => import("@/protoFleet/features/settings/components/Network");
 export const importSettingsPreferences = () => import("@/protoFleet/features/settings/components/Preferences");
 export const importSettingsAuth = () => import("@/protoFleet/features/settings/components/Auth");
-export const importSettingsMiningPools = () => import("@/protoFleet/features/settings/components/MiningPools");
+export const importSettingsMiningPools = () => import("@/protoFleet/features/poolConfigurations/ConfigurationLibrary");
 export const importSettingsTeam = () => import("@/protoFleet/features/settings/components/Team");
 export const importSettingsFirmware = () => import("@/protoFleet/features/settings/components/Firmware");
 export const importSettingsNodes = () => import("@/protoFleet/features/settings/components/Nodes/NodesPage");
@@ -44,6 +47,10 @@ export const importSettingsAlerts = () => import("@/protoFleet/features/alerts/p
 export const importSettingsIntegrations = () => import("@/protoFleet/features/settings/components/ApiKeys");
 export const importSettingsUpdates = () => import("@/protoFleet/features/settings/components/Updates");
 export const importSiteDetailPage = () => import("@/protoFleet/features/sites/pages/SiteDetailPage");
+export const importTankPage = () => import("@/protoFleet/features/containers/pages/TankPage");
+export const importModulePage = () => import("@/protoFleet/features/containers/pages/ModulePage");
+export const importContainerPage = () => import("@/protoFleet/features/containers/pages/ContainerPage");
+export const importControllerLogsPage = () => import("@/protoFleet/features/containers/pages/ControllerLogsPage");
 export const importBuildingPage = () => import("@/protoFleet/features/buildings/pages/BuildingPage");
 export const importFleetLayout = () => import("@/protoFleet/features/fleetManagement/components/FleetLayout");
 export const importFleetBuildingsPage = () => import("@/protoFleet/features/fleetManagement/pages/FleetBuildingsPage");
@@ -55,10 +62,13 @@ export const importFleetInfraPage = () => import("@/protoFleet/features/fleetMan
 // Sidebar destinations + the default settings sub-route. App.tsx
 // triggers this at idle so the first nav click has no Suspense flash.
 export const globalRoutePrefetch: readonly RouteImporter[] = [
+  importAccountRoutes,
   importDashboard,
   importFleetLayout,
   importMiners,
   importRacksPage,
+  importTankPage,
+  importModulePage,
   importFleetBuildingsPage,
   importFleetSitesPage,
   importFleetInfraPage,

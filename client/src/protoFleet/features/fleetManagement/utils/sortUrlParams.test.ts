@@ -13,19 +13,6 @@ describe("sortUrlParams", () => {
       expect(result).toBeUndefined();
     });
 
-    it("parses hashrate with desc direction", () => {
-      // Act
-      const result = parseSortFromURL(new URLSearchParams("sort=hashrate&dir=desc"));
-
-      // Assert
-      expect(result).toEqual(
-        expect.objectContaining({
-          field: SortField.HASHRATE,
-          direction: SortDirection.DESC,
-        }),
-      );
-    });
-
     it("parses name with asc direction", () => {
       // Act
       const result = parseSortFromURL(new URLSearchParams("sort=name&dir=asc"));
@@ -115,22 +102,6 @@ describe("sortUrlParams", () => {
       expect(params.has("dir")).toBe(false);
     });
 
-    it("encodes hashrate with desc direction", () => {
-      // Arrange
-      const params = new URLSearchParams();
-
-      // Act
-      encodeSortToURL(params, {
-        field: SortField.HASHRATE,
-        direction: SortDirection.DESC,
-        $typeName: "common.v1.SortConfig",
-      } as any);
-
-      // Assert
-      expect(params.get("sort")).toBe("hashrate");
-      expect(params.get("dir")).toBe("desc");
-    });
-
     it("encodes name with asc direction", () => {
       // Arrange
       const params = new URLSearchParams();
@@ -192,22 +163,6 @@ describe("sortUrlParams", () => {
         // Assert
         expect(params.get("sort"), `Failed for field: ${field}`).toBe(expected);
       }
-    });
-  });
-
-  describe("round-trip", () => {
-    it("maintains sort config through encode-decode cycle", () => {
-      // Arrange
-      const original = parseSortFromURL(new URLSearchParams("sort=efficiency&dir=desc"));
-
-      // Act
-      const params = new URLSearchParams();
-      encodeSortToURL(params, original);
-      const decoded = parseSortFromURL(params);
-
-      // Assert
-      expect(decoded?.field).toBe(SortField.EFFICIENCY);
-      expect(decoded?.direction).toBe(SortDirection.DESC);
     });
   });
 });

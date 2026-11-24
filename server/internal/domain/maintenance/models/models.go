@@ -2,6 +2,7 @@
 package models
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -17,6 +18,10 @@ const (
 	TicketCategoryUnspecified    TicketCategory = 0
 	TicketCategoryMiner          TicketCategory = 1
 	TicketCategoryInfrastructure TicketCategory = 2
+	TicketCategoryModule         TicketCategory = 3
+	TicketCategoryHashboard      TicketCategory = 4
+	TicketCategoryAccount        TicketCategory = 5
+	TicketCategoryOther          TicketCategory = 6
 )
 
 // TicketStatus mirrors repair_ticket.status.
@@ -122,38 +127,44 @@ func DecodeTicketCursor(token string) (TicketCursor, error) {
 
 // RepairTicket is the canonical domain shape for a repair_ticket row.
 type RepairTicket struct {
-	ID              int64
-	OrgID           int64
-	TicketNumber    string
-	Category        TicketCategory
-	Status          TicketStatus
-	Urgent          bool
-	Component       string
-	Diagnosis       *string
-	MinerIdentifier *string
-	AlertID         *string
-	AssigneeUserID  *int64
-	AssigneeName    string
-	WarrantyStatus  WarrantyStatus
-	Resolution      TicketResolution
-	RepairLocation  RepairLocation
-	Notes           *string
-	DailyImpactUsd  float64
-	RMAVendor       *string
-	RMATracking     *string
-	RMAEta          *time.Time
-	SiteID          *int64
-	SiteName        string
-	BuildingID      *int64
-	BuildingName    string
-	Zone            *string
-	RackID          *int64
-	RackLabel       *string
-	GroupLabel      *string
-	CompletedAt     *time.Time
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	DeletedAt       *time.Time
+	SharedWithClients  bool
+	Description        string
+	CreatedByAccountID string
+	Targets            []TicketAsset
+	Audiences          []TicketAudience
+	ID                 int64
+	OrgID              int64
+	TicketNumber       string
+	Category           TicketCategory
+	Status             TicketStatus
+	Urgent             bool
+	Component          string
+	Diagnosis          *string
+	MinerIdentifier    *string
+	AlertID            *string
+	AssigneeUserID     *int64
+	AssigneeName       string
+	WarrantyStatus     WarrantyStatus
+	Resolution         TicketResolution
+	ResolutionNote     string
+	RepairLocation     RepairLocation
+	Notes              *string
+	DailyImpactUsd     float64
+	RMAVendor          *string
+	RMATracking        *string
+	RMAEta             *time.Time
+	SiteID             *int64
+	SiteName           string
+	BuildingID         *int64
+	BuildingName       string
+	Zone               *string
+	RackID             *int64
+	RackLabel          *string
+	GroupLabel         *string
+	CompletedAt        *time.Time
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	DeletedAt          *time.Time
 }
 
 // RepairTicketSummary pairs a RepairTicket with rolled-up comment and
@@ -167,6 +178,9 @@ type RepairTicketSummary struct {
 
 // TicketComment is the domain shape for a repair_ticket_comment row.
 type TicketComment struct {
+	Internal         bool
+	AccountID        string
+	AccountName      string
 	ID               int64
 	OrgID            int64
 	TicketID         int64
@@ -196,25 +210,33 @@ type TicketDetail struct {
 
 // CreateParams is the input shape for creating a new repair ticket.
 type CreateParams struct {
-	OrgID             int64
-	IdempotencyKey    string
-	CreateRequestHash string
-	Category          TicketCategory
-	Urgent            bool
-	Component         string
-	Diagnosis         *string
-	MinerIdentifier   *string
-	AlertID           *string
-	AssigneeUserID    *int64
-	WarrantyStatus    WarrantyStatus
-	DailyImpactUsd    float64
-	SiteID            *int64
-	BuildingID        *int64
-	Zone              *string
-	RackID            *int64
-	RackLabel         *string
-	GroupLabel        *string
-	Notes             *string
+	// BeforeCreate authorizes a new request after replay detection and placement
+	// locks. Replays retain their original result even if target ownership changes.
+	BeforeCreate       func(context.Context) error `json:"-"`
+	ShareWithClients   bool
+	Description        string
+	CreatedByAccountID *int64
+	Targets            []TicketAssetSelection
+	ClientAccountIDs   []string
+	OrgID              int64
+	IdempotencyKey     string
+	CreateRequestHash  string
+	Category           TicketCategory
+	Urgent             bool
+	Component          string
+	Diagnosis          *string
+	MinerIdentifier    *string
+	AlertID            *string
+	AssigneeUserID     *int64
+	WarrantyStatus     WarrantyStatus
+	DailyImpactUsd     float64
+	SiteID             *int64
+	BuildingID         *int64
+	Zone               *string
+	RackID             *int64
+	RackLabel          *string
+	GroupLabel         *string
+	Notes              *string
 }
 
 // UpdateParams is the input shape for updating a repair ticket. Pointer
@@ -222,6 +244,8 @@ type CreateParams struct {
 // ClearAssignee flag unsets assignee_user_id even if AssigneeUserID is
 // nil (CASE branch in the SQL UPDATE).
 type UpdateParams struct {
+	ClosingAccountID  *int64
+	AffectedBoards    []TicketAssetSelection
 	OrgID             int64
 	ID                int64
 	Status            *TicketStatus
@@ -233,6 +257,7 @@ type UpdateParams struct {
 	Diagnosis         *string
 	WarrantyStatus    *WarrantyStatus
 	Resolution        *TicketResolution
+	ResolutionNote    *string
 	RepairLocation    *RepairLocation
 	Notes             *string
 	RMAVendor         *string
@@ -244,14 +269,46 @@ type UpdateParams struct {
 	PartsSelection *[]PartUsage
 }
 
+type TicketAssetSelection struct {
+	Kind           TicketCategory `json:"kind"`
+	ID             int64          `json:"id"`
+	ParentModuleID *int64         `json:"parent_module_id,omitempty"`
+}
+type TicketAsset struct {
+	MinerIdentifier        string         `json:"minerIdentifier,omitempty"`
+	Diagnosis              string         `json:"diagnosis"`
+	WarrantyEvidence       string         `json:"warrantyEvidence"`
+	RepairOutcome          string         `json:"repairOutcome"`
+	RMAOutcome             string         `json:"rmaOutcome"`
+	Kind                   TicketCategory `json:"kind"`
+	ID                     int64          `json:"id"`
+	Label                  string         `json:"label"`
+	Model                  string         `json:"model"`
+	ModuleID               *int64         `json:"moduleId,omitempty"`
+	InstallationID         *int64         `json:"installationId,omitempty"`
+	ContainerID            *int64         `json:"containerId,omitempty"`
+	Position               *int32         `json:"position,omitempty"`
+	SiteID                 *int64         `json:"siteId,omitempty"`
+	ReplacementModuleID    *int64         `json:"replacementModuleId,omitempty"`
+	ReplacementHashboardID *int64         `json:"replacementHashboardId,omitempty"`
+}
+type TicketAudience struct {
+	AccountID string `json:"accountId"`
+	Name      string `json:"name"`
+}
+type CommentScope struct {
+	Internal  bool
+	AccountID string
+}
+
 // BulkCloseParams is the input shape for closing multiple tickets at
-// once with a shared resolution, repair location, and optional notes.
+// once with a shared resolution, client-visible resolution note, and repair location.
 type BulkCloseParams struct {
 	OrgID            int64
 	TicketIDs        []int64
 	Resolution       TicketResolution
+	ResolutionNote   *string
 	RepairLocation   RepairLocation
-	Notes            *string
 	ExpectedVersions map[int64]time.Time
 }
 
@@ -319,4 +376,30 @@ type TicketStats struct {
 	Urgent        int32
 	Overdue       int32
 	AvgAgeHours   float64
+}
+
+type UpdateTargetParams struct {
+	ClearReplacementModule, ClearReplacementHashboard      bool
+	ModelModuleID                                          *int64
+	OrgID, TicketID                                        int64
+	Kind                                                   TicketCategory
+	AssetID                                                int64
+	ExpectedUpdatedAt                                      time.Time
+	Diagnosis, WarrantyEvidence, RepairOutcome, RMAOutcome *string
+	ModuleModel, ReplacementModuleModel                    *string
+	ReplacementModuleID, ReplacementHashboardID            *int64
+}
+
+// PhysicalTicketCategory validates a wider API enum before storage conversion.
+func PhysicalTicketCategory(value int32) (TicketCategory, bool) {
+	switch value {
+	case int32(TicketCategoryMiner):
+		return TicketCategoryMiner, true
+	case int32(TicketCategoryModule):
+		return TicketCategoryModule, true
+	case int32(TicketCategoryHashboard):
+		return TicketCategoryHashboard, true
+	default:
+		return TicketCategoryUnspecified, false
+	}
 }

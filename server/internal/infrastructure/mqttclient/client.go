@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"strconv"
 	"strings"
@@ -14,13 +15,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/mqttlimits"
 	paho "github.com/eclipse/paho.mqtt.golang"
 )
 
 const subscribeQoS byte = 1
-const maxPayloadBytes = 1024
 const reconnectSubscribeTimeout = 10 * time.Second
 const subscribeFailureCode byte = 0x80
+const oversizedPayloadWarningInterval = time.Minute
 
 const (
 	transportTCP = "tcp"
@@ -29,12 +31,35 @@ const (
 
 // Client adapts Eclipse Paho to the curtailment MQTT ingest interface.
 type Client struct {
-	mu             sync.Mutex
-	statusMu       sync.Mutex
-	client         paho.Client
-	subscriptions  map[string]paho.MessageHandler
-	statusReporter func(connected bool, subscribed bool, err error)
-	statusSequence atomic.Uint64
+	mu                sync.Mutex
+	statusMu          sync.Mutex
+	client            paho.Client
+	subscriptions     map[string]paho.MessageHandler
+	statusReporter    func(connected bool, subscribed bool, err error)
+	statusSequence    atomic.Uint64
+	oversizedWarnings payloadWarningThrottle
+	cleanSession      bool
+}
+
+// payloadWarningThrottle shares one warning budget across all topics on a client.
+// It retains only a count, so an unbounded set of topics cannot grow its state.
+type payloadWarningThrottle struct {
+	mu            sync.Mutex
+	nextWarningAt time.Time
+	suppressed    uint64
+}
+
+func (w *payloadWarningThrottle) record(now time.Time) (uint64, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if now.Before(w.nextWarningAt) {
+		w.suppressed++
+		return 0, false
+	}
+	suppressed := w.suppressed
+	w.suppressed = 0
+	w.nextWarningAt = now.Add(oversizedPayloadWarningInterval)
+	return suppressed, true
 }
 
 type subscriptionClient interface {
@@ -70,6 +95,14 @@ func New() *Client {
 	}
 }
 
+// NewProbe creates a connection-test client whose broker state is discarded on
+// disconnect. Runtime ingest uses New to retain durable QoS1 queues.
+func NewProbe() *Client {
+	client := New()
+	client.cleanSession = true
+	return client
+}
+
 func (c *Client) Connect(ctx context.Context, host string, port int32, transport string, username, password, clientIdentity string) error {
 	if port <= 0 {
 		return fmt.Errorf("mqttclient: invalid broker port %d", port)
@@ -81,7 +114,7 @@ func (c *Client) Connect(ctx context.Context, host string, port int32, transport
 	}
 	initialConnectComplete := &atomic.Bool{}
 	initialOnConnectObserved := &atomic.Bool{}
-	opts := clientOptions(brokerURL, tlsConfig, username, password, clientIdentity, func(client paho.Client) {
+	opts := clientOptions(brokerURL, tlsConfig, username, password, clientIdentity, c.cleanSession, func(client paho.Client) {
 		if initialOnConnectObserved.CompareAndSwap(false, true) {
 			return
 		}
@@ -134,6 +167,13 @@ func (c *Client) Subscribe(ctx context.Context, topic string, handler func(paylo
 	messageHandler := func(_ paho.Client, msg paho.Message) {
 		payload, ok := copyPayload(msg.Payload())
 		if !ok {
+			if suppressed, warn := c.oversizedWarnings.record(time.Now()); warn {
+				slog.WarnContext(ctx, "mqttclient: dropping oversized payload",
+					slog.String("topic", msg.Topic()),
+					slog.Int("payload_bytes", len(msg.Payload())),
+					slog.Int("max_payload_bytes", mqttlimits.MaxPayloadBytes),
+					slog.Uint64("suppressed_messages", suppressed))
+			}
 			return
 		}
 		handler(payload, time.Now().UTC())
@@ -161,12 +201,6 @@ func (c *Client) Subscribe(ctx context.Context, topic string, handler func(paylo
 		return fmt.Errorf("mqttclient: subscribe %q: %w", topic, err)
 	}
 	return nil
-}
-
-func (c *Client) reportRuntimeStatus(connected bool, subscribed bool, err error) {
-	c.statusMu.Lock()
-	defer c.statusMu.Unlock()
-	c.reportRuntimeStatusLocked(connected, subscribed, err)
 }
 
 func (c *Client) reportRuntimeStatusLocked(connected bool, subscribed bool, err error) {
@@ -272,7 +306,7 @@ func (c *Client) subscriptionSnapshot() map[string]paho.MessageHandler {
 }
 
 func copyPayload(payload []byte) ([]byte, bool) {
-	if len(payload) > maxPayloadBytes {
+	if len(payload) > mqttlimits.MaxPayloadBytes {
 		return nil, false
 	}
 	return append([]byte(nil), payload...), true
@@ -298,6 +332,7 @@ func clientOptions(
 	username string,
 	password string,
 	clientIdentity string,
+	cleanSession bool,
 	onConnect paho.OnConnectHandler,
 	onConnectionLost paho.ConnectionLostHandler,
 ) *paho.ClientOptions {
@@ -308,7 +343,7 @@ func clientOptions(
 		SetPassword(password).
 		SetAutoReconnect(true).
 		SetResumeSubs(true).
-		SetCleanSession(false).
+		SetCleanSession(cleanSession).
 		SetOnConnectHandler(onConnect).
 		SetOrderMatters(true).
 		SetProtocolVersion(4)

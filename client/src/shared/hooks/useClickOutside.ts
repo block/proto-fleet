@@ -7,10 +7,20 @@ interface ClickOutsideProps {
   ignoreSelectors?: string[];
   // Optional function to determine if a click/touch should be ignored
   shouldIgnore?: (event: MouseEvent | TouchEvent) => boolean;
+  // Closed layers can opt out instead of keeping document listeners mounted.
+  enabled?: boolean;
 }
 
-const useClickOutside = ({ ref, onClickOutside, ignoreSelectors = [], shouldIgnore }: ClickOutsideProps) => {
+const useClickOutside = ({
+  ref,
+  onClickOutside,
+  ignoreSelectors = [],
+  shouldIgnore,
+  enabled = true,
+}: ClickOutsideProps) => {
   useEffect(() => {
+    if (!enabled) return;
+
     function handleClickOutside(event: MouseEvent | TouchEvent) {
       // Skip if we should ignore this event
       if (shouldIgnore && shouldIgnore(event)) {
@@ -47,7 +57,7 @@ const useClickOutside = ({ ref, onClickOutside, ignoreSelectors = [], shouldIgno
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("touchstart", handleClickOutside);
     };
-  }, [onClickOutside, ref, ignoreSelectors, shouldIgnore]);
+  }, [enabled, onClickOutside, ref, ignoreSelectors, shouldIgnore]);
 };
 
 export { useClickOutside };

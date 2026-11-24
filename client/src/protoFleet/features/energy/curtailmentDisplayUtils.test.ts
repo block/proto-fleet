@@ -1,19 +1,25 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment node
+import { describe, expect, it, vi } from "vitest";
 
 import { create } from "@bufbuild/protobuf";
-
 import {
-  CurtailmentEventSchema,
-  CurtailmentScopeSchema,
-  ScopeBuildingSchema,
-} from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
-import {
-  type CurtailmentTargetRollup,
-  formatCurtailmentElapsedDuration,
+  formatCurtailmentDuration,
   getActiveCurtailmentCurtailProgress,
   getActiveCurtailmentRestoreProgress,
   getCurtailmentEventScopeLabel,
-} from "@/protoFleet/features/energy/curtailmentDisplayUtils";
+  mapCurtailmentEventState,
+  mapCurtailmentTargetState,
+} from "@/protoFleet/api/curtailmentDisplayUtils";
+import { getCurtailmentScopeSummary } from "@/protoFleet/api/curtailmentScopes";
+import type { CurtailmentTargetRollup } from "@/protoFleet/api/curtailmentTypes";
+
+import {
+  CurtailmentEventSchema,
+  CurtailmentEventState,
+  CurtailmentScopeSchema,
+  CurtailmentTargetState,
+  ScopeBuildingSchema,
+} from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 
 function rollups(counts: Partial<Record<CurtailmentTargetRollup["state"], number>>): CurtailmentTargetRollup[] {
   return Object.entries(counts).map(([state, count]) => ({
@@ -205,7 +211,7 @@ describe("getActiveCurtailmentRestoreProgress", () => {
   });
 });
 
-describe("formatCurtailmentElapsedDuration", () => {
+describe("formatCurtailmentDuration", () => {
   it.each([
     [0, "0s"],
     [45, "45s"],
@@ -217,11 +223,33 @@ describe("formatCurtailmentElapsedDuration", () => {
     [-5, "0s"],
     [Number.NaN, "0s"],
   ])("formats %s seconds as %s", (seconds, expected) => {
-    expect(formatCurtailmentElapsedDuration(seconds)).toBe(expected);
+    expect(formatCurtailmentDuration(seconds)).toBe(expected);
   });
 });
 
 describe("getCurtailmentEventScopeLabel", () => {
+  it("preserves localized event counts and unlocalized form summaries", () => {
+    const buildingIds = Array.from({ length: 1234 }, (_, index) => String(index + 1));
+    const event = create(CurtailmentEventSchema, {
+      scopes: buildingIds.map((buildingId) =>
+        create(CurtailmentScopeSchema, {
+          scope: { case: "building", value: create(ScopeBuildingSchema, { buildingId: BigInt(buildingId) }) },
+        }),
+      ),
+    });
+    const localeSpy = vi.spyOn(Number.prototype, "toLocaleString").mockImplementation(function (this: number) {
+      return new Intl.NumberFormat("de-DE").format(Number(this));
+    });
+    try {
+      expect(getCurtailmentEventScopeLabel(event)).toBe("1.234 buildings");
+      expect(getCurtailmentScopeSummary({ type: "building", buildingIds }, { fallbackLabel: "Whole fleet" })).toBe(
+        "1234 buildings",
+      );
+    } finally {
+      localeSpy.mockRestore();
+    }
+  });
+
   it("summarizes a typed topology terminal scope without treating it as a generic device set", () => {
     const event = create(CurtailmentEventSchema, {
       scopes: [
@@ -235,5 +263,52 @@ describe("getCurtailmentEventScopeLabel", () => {
     });
 
     expect(getCurtailmentEventScopeLabel(event)).toBe("2 buildings");
+  });
+});
+
+describe("formatCurtailmentDuration styles", () => {
+  it.each([
+    [0, "Immediate", "Immediately"],
+    [1, "1 second", "~1 second"],
+    [61, "1 minute, 1 second", "~2 minutes"],
+    [3600, "60 minutes", "~1 hour"],
+    [3601, "60 minutes, 1 second", "~1 hour 1 minute"],
+  ] as const)("preserves long and estimated duration wording for %s seconds", (seconds, long, estimate) => {
+    expect(formatCurtailmentDuration(seconds, { style: "long" })).toBe(long);
+    expect(formatCurtailmentDuration(seconds, { style: "estimate" })).toBe(estimate);
+  });
+
+  it("omits approximation only when requested for infrastructure delays", () => {
+    expect(formatCurtailmentDuration(61, { style: "estimate", approximate: false })).toBe("2 minutes");
+  });
+});
+
+it("preserves the elapsed display's unlocalized minute and second digits", () => {
+  const localeSpy = vi.spyOn(Number.prototype, "toLocaleString").mockImplementation(function (this: number) {
+    return new Intl.NumberFormat("ar-EG").format(Number(this));
+  });
+  try {
+    expect(formatCurtailmentDuration(123)).toBe("2m 3s");
+    expect(formatCurtailmentDuration(3660)).toBe("١h 1m");
+    expect(formatCurtailmentDuration(123, { style: "long" })).toBe("٢ minutes, ٣ seconds");
+    expect(formatCurtailmentDuration(123, { style: "estimate" })).toBe("~3 minutes");
+  } finally {
+    localeSpy.mockRestore();
+  }
+});
+
+describe("unknown curtailment states", () => {
+  it.each([CurtailmentEventState.UNSPECIFIED, 999])("keeps event state %s out of pending", (state) => {
+    expect(mapCurtailmentEventState(state)).toBe("unknown");
+  });
+  it.each([CurtailmentTargetState.UNSPECIFIED, 999])("keeps target state %s out of pending", (state) => {
+    expect(mapCurtailmentTargetState(state)).toBe("unknown");
+  });
+  it("counts unknown targets as unavailable rather than pending", () => {
+    expect(getActiveCurtailmentCurtailProgress({ rollups: [{ state: "unknown", count: 2 }] })).toMatchObject({
+      pendingCount: 0,
+      unavailableCount: 2,
+      reachedCount: 0,
+    });
   });
 });

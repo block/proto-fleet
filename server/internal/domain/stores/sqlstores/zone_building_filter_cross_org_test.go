@@ -15,40 +15,59 @@ import (
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
-// twoOrgFixture builds two orgs (A and B) with mirror-image building +
-// rack + device topology under a shared zone label. Each filter branch
-// runs against the fixture twice — once as orgA, once as orgB — and
-// asserts each side only ever sees its own devices. If a future
-// refactor drops the dcm.org_id = $orgID clause from any branch, this
-// suite catches it.
+// twoOrgFixture has two organizations, A and B, with the same topology
+// and the same zone label. Each organization has:
+//   - one device in a rack with a building,
+//   - one device in a rack with no building,
+//   - one device with no rack,
+//   - two devices whose only rack membership row has the org_id of the
+//     other organization and points to a rack of that organization (one
+//     rack with a building, one without).
+//
+// The base query limits device rows to the caller's organization. The
+// last two devices make the dcm.org_id = $orgID clause of each
+// rack-membership predicate change a result, so a predicate without the
+// clause fails a subtest.
 type twoOrgFixture struct {
-	orgA       int64
-	orgB       int64
-	buildingA  int64 // owned by orgA
-	buildingB  int64 // owned by orgB
-	devARacked string
-	devBRacked string
-	devANoBldg string
-	devBNoBldg string
-	devANoRack string
-	devBNoRack string
+	orgA              int64
+	orgB              int64
+	buildingA         int64 // owned by orgA
+	buildingB         int64 // owned by orgB
+	devARacked        string
+	devBRacked        string
+	devANoBldg        string
+	devBNoBldg        string
+	devANoRack        string
+	devBNoRack        string
+	devAForeignRack   string // orgA device, orgB membership row, rack in buildingB
+	devBForeignRack   string // orgB device, orgA membership row, rack in buildingA
+	devAForeignNoBldg string // orgA device, orgB membership row, rack with no building
+	devBForeignNoBldg string // orgB device, orgA membership row, rack with no building
 }
 
-func buildTwoOrgFixture(t *testing.T, ctx context.Context, tc *testutil.TestContext) twoOrgFixture {
+const twoOrgSharedZone = "Room 2"
+
+func buildTwoOrgFixture(t *testing.T, ctx context.Context, dbSvc *testutil.DatabaseService) twoOrgFixture {
 	t.Helper()
-	dbSvc := tc.DatabaseService
-	db := tc.ServiceProvider.DB
+	db := dbSvc.DB
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	collectionStore := sqlstores.NewSQLCollectionStore(db)
 	siteStore := sqlstores.NewSQLSiteStore(db)
 	buildingStore := sqlstores.NewSQLBuildingStore(db)
 
-	const sharedZone = "Room 2"
-
 	userA := dbSvc.CreateSuperAdminUser()
 	userB := dbSvc.CreateSuperAdminUser2()
 
-	makeForOrg := func(orgID int64, label string) (int64, string, string, string) {
+	type orgTopology struct {
+		building   int64
+		rackBldg   int64
+		rackNoBldg int64
+		devRacked  string
+		devNoBldg  string
+		devNoRack  string
+	}
+
+	makeForOrg := func(orgID int64, label string) orgTopology {
 		t.Helper()
 		site, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Site " + label})
 		require.NoError(t, err)
@@ -61,7 +80,7 @@ func buildTwoOrgFixture(t *testing.T, ctx context.Context, tc *testutil.TestCont
 		rackBldg, err := collectionStore.CreateCollection(ctx, orgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, "Rack "+label, "")
 		require.NoError(t, err)
 		require.NoError(t, collectionStore.CreateRackExtension(ctx, stores.CreateRackExtensionParams{
-			OrgID: orgID, CollectionID: rackBldg.Id, Rows: 4, Columns: 8, Zone: sharedZone,
+			OrgID: orgID, CollectionID: rackBldg.Id, Rows: 4, Columns: 8, Zone: twoOrgSharedZone,
 			SiteID: &site.ID, BuildingID: &building.ID,
 		}))
 		devRacked := dbSvc.CreateDevice(orgID, "proto")
@@ -73,7 +92,7 @@ func buildTwoOrgFixture(t *testing.T, ctx context.Context, tc *testutil.TestCont
 		rackNoBldg, err := collectionStore.CreateCollection(ctx, orgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, "Rack NoBldg "+label, "")
 		require.NoError(t, err)
 		require.NoError(t, collectionStore.CreateRackExtension(ctx, stores.CreateRackExtensionParams{
-			OrgID: orgID, CollectionID: rackNoBldg.Id, Rows: 4, Columns: 8, Zone: sharedZone,
+			OrgID: orgID, CollectionID: rackNoBldg.Id, Rows: 4, Columns: 8, Zone: twoOrgSharedZone,
 		}))
 		devNoBldg := dbSvc.CreateDevice(orgID, "proto")
 		pairDevice(t, ctx, deviceStore, orgID, devNoBldg.ID)
@@ -84,177 +103,131 @@ func buildTwoOrgFixture(t *testing.T, ctx context.Context, tc *testutil.TestCont
 		devNoRack := dbSvc.CreateDevice(orgID, "proto")
 		pairDevice(t, ctx, deviceStore, orgID, devNoRack.ID)
 
-		return building.ID, devRacked.ID, devNoBldg.ID, devNoRack.ID
+		return orgTopology{
+			building:   building.ID,
+			rackBldg:   rackBldg.Id,
+			rackNoBldg: rackNoBldg.Id,
+			devRacked:  devRacked.ID,
+			devNoBldg:  devNoBldg.ID,
+			devNoRack:  devNoRack.ID,
+		}
 	}
 
-	bldgA, devARacked, devANoBldg, devANoRack := makeForOrg(userA.OrganizationID, "A")
-	bldgB, devBRacked, devBNoBldg, devBNoRack := makeForOrg(userB.OrganizationID, "B")
+	// addForeignMember adds a device of deviceOrg. Its only rack membership
+	// row has the org_id of rackOrg and points to a rack of rackOrg. The
+	// store API cannot write this row, so the helper writes it directly.
+	addForeignMember := func(deviceOrg, rackOrg, rackID int64) string {
+		t.Helper()
+		dev := dbSvc.CreateDevice(deviceOrg, "proto")
+		pairDevice(t, ctx, deviceStore, deviceOrg, dev.ID)
+		_, err := db.ExecContext(ctx, `
+			INSERT INTO device_set_membership (org_id, device_set_id, device_set_type, device_id, device_identifier)
+			VALUES ($1, $2, 'rack', $3, $4)`, rackOrg, rackID, dev.DatabaseID, dev.ID)
+		require.NoError(t, err)
+		return dev.ID
+	}
+
+	a := makeForOrg(userA.OrganizationID, "A")
+	b := makeForOrg(userB.OrganizationID, "B")
 
 	return twoOrgFixture{
-		orgA:       userA.OrganizationID,
-		orgB:       userB.OrganizationID,
-		buildingA:  bldgA,
-		buildingB:  bldgB,
-		devARacked: devARacked,
-		devBRacked: devBRacked,
-		devANoBldg: devANoBldg,
-		devBNoBldg: devBNoBldg,
-		devANoRack: devANoRack,
-		devBNoRack: devBNoRack,
+		orgA:              userA.OrganizationID,
+		orgB:              userB.OrganizationID,
+		buildingA:         a.building,
+		buildingB:         b.building,
+		devARacked:        a.devRacked,
+		devBRacked:        b.devRacked,
+		devANoBldg:        a.devNoBldg,
+		devBNoBldg:        b.devNoBldg,
+		devANoRack:        a.devNoRack,
+		devBNoRack:        b.devNoRack,
+		devAForeignRack:   addForeignMember(userA.OrganizationID, userB.OrganizationID, b.rackBldg),
+		devBForeignRack:   addForeignMember(userB.OrganizationID, userA.OrganizationID, a.rackBldg),
+		devAForeignNoBldg: addForeignMember(userA.OrganizationID, userB.OrganizationID, b.rackNoBldg),
+		devBForeignNoBldg: addForeignMember(userB.OrganizationID, userA.OrganizationID, a.rackNoBldg),
 	}
 }
 
-// assertOrgIsolation runs the filter under both orgs and asserts each
-// side sees only the expected own-org device and never the cross-org
-// device. Centralizes the assertion shape so each branch test stays
-// readable.
-func assertOrgIsolation(
-	t *testing.T,
-	ctx context.Context,
-	store *sqlstores.SQLDeviceStore,
-	fx twoOrgFixture,
-	filter *stores.MinerFilter,
-	wantA, wantB, leakA, leakB string,
-) {
-	t.Helper()
-
-	gotA, totalA := listDevices(t, ctx, store, fx.orgA, filter)
-	assert.Equal(t, int64(1), totalA, "orgA must see exactly one device")
-	assert.Contains(t, gotA, wantA)
-	assert.NotContains(t, gotA, leakA, "orgA must NOT see orgB device")
-
-	gotB, totalB := listDevices(t, ctx, store, fx.orgB, filter)
-	assert.Equal(t, int64(1), totalB, "orgB must see exactly one device")
-	assert.Contains(t, gotB, wantB)
-	assert.NotContains(t, gotB, leakB, "orgB must NOT see orgA device")
-}
-
-// TestBuildingIDs_CrossOrgIsolation: passing orgB's building_id while
-// querying as orgA must not surface orgB's devices. The SQL builder
-// pairs building_id with dcm.org_id, so the explicit cross-org probe
-// goes through the bulk validation layer in real callers — but at the
-// SQL builder level, the org_id clause is what protects an org whose
-// validation layer has been bypassed.
-func TestBuildingIDs_CrossOrgIsolation(t *testing.T) {
+// TestMinerFilter_CrossOrgIsolation runs each rack-membership filter as
+// organization A and as organization B. Each side must get exactly its own
+// devices. The subtests only query the fixture, so they share one database.
+//
+// Each subtest fails when the dcm.org_id = $orgID clause of its predicate
+// is absent, because the fixture has membership rows of the other
+// organization on the caller's devices.
+func TestMinerFilter_CrossOrgIsolation(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	ctx := t.Context()
-	fx := buildTwoOrgFixture(t, ctx, tc)
-	deviceStore := sqlstores.NewSQLDeviceStore(tc.ServiceProvider.DB)
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	fx := buildTwoOrgFixture(t, t.Context(), dbSvc)
+	deviceStore := sqlstores.NewSQLDeviceStore(dbSvc.DB)
 
-	// Each org filters by its own building. With the org_id clause
-	// dropped, both queries would still return their own device because
-	// the building_id is org-specific — but the cross-org assertion is
-	// about the org_id guard fighting an attacker who knows another
-	// org's building_id. We model that by querying orgA with orgB's
-	// building, expecting an empty result.
-	gotA, totalA := listDevices(t, ctx, deviceStore, fx.orgA, &stores.MinerFilter{
-		BuildingIDs: []int64{fx.buildingB},
-	})
-	assert.Equal(t, int64(0), totalA, "orgA filtering by orgB's building must see nothing")
-	assert.NotContains(t, gotA, fx.devBRacked)
-
-	gotB, totalB := listDevices(t, ctx, deviceStore, fx.orgB, &stores.MinerFilter{
-		BuildingIDs: []int64{fx.buildingA},
-	})
-	assert.Equal(t, int64(0), totalB, "orgB filtering by orgA's building must see nothing")
-	assert.NotContains(t, gotB, fx.devARacked)
-
-	// Own-org sanity: each side sees its own racked device when
-	// filtering by its own building. `assertOrgIsolation` applies one
-	// filter to both orgs, which doesn't work here — the filter value
-	// itself (BuildingIDs) is org-specific. Inline both sides.
-	gotAOwn, totalAOwn := listDevices(t, ctx, deviceStore, fx.orgA, &stores.MinerFilter{
-		BuildingIDs: []int64{fx.buildingA},
-	})
-	assert.Equal(t, int64(1), totalAOwn)
-	assert.Contains(t, gotAOwn, fx.devARacked)
-
-	gotBOwn, totalBOwn := listDevices(t, ctx, deviceStore, fx.orgB, &stores.MinerFilter{
-		BuildingIDs: []int64{fx.buildingB},
-	})
-	assert.Equal(t, int64(1), totalBOwn)
-	assert.Contains(t, gotBOwn, fx.devBRacked)
-}
-
-// TestIncludeNoBuilding_CrossOrgIsolation: the IS NULL branch must
-// scope to the caller's org. Without the org_id clause, orgA would see
-// orgB's no-building rack devices.
-func TestIncludeNoBuilding_CrossOrgIsolation(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
+	assertDevices := func(t *testing.T, orgID int64, filter *stores.MinerFilter, msg string, want ...string) {
+		t.Helper()
+		got, total := listDevices(t, t.Context(), deviceStore, orgID, filter)
+		wantSet := make(map[string]struct{}, len(want))
+		for _, id := range want {
+			wantSet[id] = struct{}{}
+		}
+		assert.Equal(t, wantSet, got, msg)
+		assert.Equal(t, int64(len(want)), total, msg)
 	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	ctx := t.Context()
-	fx := buildTwoOrgFixture(t, ctx, tc)
-	deviceStore := sqlstores.NewSQLDeviceStore(tc.ServiceProvider.DB)
 
-	assertOrgIsolation(t, ctx, deviceStore, fx,
-		&stores.MinerFilter{IncludeNoBuilding: true},
-		fx.devANoBldg, fx.devBNoBldg, fx.devBNoBldg, fx.devANoBldg,
-	)
-}
+	// A building filter with the building of the other organization models
+	// a caller that got past the validation layer. The rack of that building
+	// has a membership row for one of the caller's devices.
+	t.Run("BuildingIDs", func(t *testing.T) {
+		assertDevices(t, fx.orgA, &stores.MinerFilter{BuildingIDs: []int64{fx.buildingB}},
+			"orgA filtering by orgB's building must see nothing")
+		assertDevices(t, fx.orgB, &stores.MinerFilter{BuildingIDs: []int64{fx.buildingA}},
+			"orgB filtering by orgA's building must see nothing")
 
-// TestIncludeNoRack_CrossOrgIsolation: the NOT EXISTS branch must
-// scope to the caller's org. Without the org_id clause, the subquery
-// would treat orgB's rack memberships as evidence that orgA's
-// no-rack device is, in fact, racked — which would hide it.
-func TestIncludeNoRack_CrossOrgIsolation(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	ctx := t.Context()
-	fx := buildTwoOrgFixture(t, ctx, tc)
-	deviceStore := sqlstores.NewSQLDeviceStore(tc.ServiceProvider.DB)
-
-	assertOrgIsolation(t, ctx, deviceStore, fx,
-		&stores.MinerFilter{IncludeNoRack: true},
-		fx.devANoRack, fx.devBNoRack, fx.devBNoRack, fx.devANoRack,
-	)
-}
-
-// TestZoneKeysScoped_CrossOrgIsolation: scoped zone_keys carry both
-// building_id and zone. Even with the same zone label across orgs, the
-// org_id clause must scope each query. This is the analog to
-// TestZoneKeysWildcard_CrossOrgIsolation — both branches need
-// coverage because they emit through different SQL shapes.
-func TestZoneKeysScoped_CrossOrgIsolation(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	ctx := t.Context()
-	fx := buildTwoOrgFixture(t, ctx, tc)
-	deviceStore := sqlstores.NewSQLDeviceStore(tc.ServiceProvider.DB)
-
-	// orgA filtering by orgB's (building, zone) tuple: empty.
-	gotA, totalA := listDevices(t, ctx, deviceStore, fx.orgA, &stores.MinerFilter{
-		ZoneKeys: []stores.ZoneKey{{BuildingID: fx.buildingB, Zone: "Room 2"}},
+		assertDevices(t, fx.orgA, &stores.MinerFilter{BuildingIDs: []int64{fx.buildingA}},
+			"orgA filtering by its own building", fx.devARacked)
+		assertDevices(t, fx.orgB, &stores.MinerFilter{BuildingIDs: []int64{fx.buildingB}},
+			"orgB filtering by its own building", fx.devBRacked)
 	})
-	assert.Equal(t, int64(0), totalA, "orgA must see nothing when filtering by orgB's scoped zone")
-	assert.NotContains(t, gotA, fx.devBRacked)
 
-	// orgB filtering by orgA's tuple: empty.
-	gotB, totalB := listDevices(t, ctx, deviceStore, fx.orgB, &stores.MinerFilter{
-		ZoneKeys: []stores.ZoneKey{{BuildingID: fx.buildingA, Zone: "Room 2"}},
+	// The IS NULL branch must not match a rack membership of the other
+	// organization.
+	t.Run("IncludeNoBuilding", func(t *testing.T) {
+		filter := &stores.MinerFilter{IncludeNoBuilding: true}
+		assertDevices(t, fx.orgA, filter, "orgA must see only its own no-building rack device", fx.devANoBldg)
+		assertDevices(t, fx.orgB, filter, "orgB must see only its own no-building rack device", fx.devBNoBldg)
 	})
-	assert.Equal(t, int64(0), totalB, "orgB must see nothing when filtering by orgA's scoped zone")
-	assert.NotContains(t, gotB, fx.devARacked)
 
-	// Own-side sanity: each org sees its own racked device when the
-	// scoped tuple matches its own building.
-	gotAOwn, totalAOwn := listDevices(t, ctx, deviceStore, fx.orgA, &stores.MinerFilter{
-		ZoneKeys: []stores.ZoneKey{{BuildingID: fx.buildingA, Zone: "Room 2"}},
+	// The NOT EXISTS branch must not treat a rack membership of the other
+	// organization as evidence that the caller's device is in a rack.
+	t.Run("IncludeNoRack", func(t *testing.T) {
+		filter := &stores.MinerFilter{IncludeNoRack: true}
+		assertDevices(t, fx.orgA, filter, "orgA devices with no orgA rack membership",
+			fx.devANoRack, fx.devAForeignRack, fx.devAForeignNoBldg)
+		assertDevices(t, fx.orgB, filter, "orgB devices with no orgB rack membership",
+			fx.devBNoRack, fx.devBForeignRack, fx.devBForeignNoBldg)
 	})
-	assert.Equal(t, int64(1), totalAOwn)
-	assert.Contains(t, gotAOwn, fx.devARacked)
 
-	gotBOwn, totalBOwn := listDevices(t, ctx, deviceStore, fx.orgB, &stores.MinerFilter{
-		ZoneKeys: []stores.ZoneKey{{BuildingID: fx.buildingB, Zone: "Room 2"}},
+	// Scoped zone_keys carry the building and the zone. The two
+	// organizations use the same zone label.
+	t.Run("ZoneKeysScoped", func(t *testing.T) {
+		scoped := func(buildingID int64) *stores.MinerFilter {
+			return &stores.MinerFilter{ZoneKeys: []stores.ZoneKey{{BuildingID: buildingID, Zone: twoOrgSharedZone}}}
+		}
+		assertDevices(t, fx.orgA, scoped(fx.buildingB), "orgA must see nothing when filtering by orgB's scoped zone")
+		assertDevices(t, fx.orgB, scoped(fx.buildingA), "orgB must see nothing when filtering by orgA's scoped zone")
+
+		assertDevices(t, fx.orgA, scoped(fx.buildingA), "orgA filtering by its own scoped zone", fx.devARacked)
+		assertDevices(t, fx.orgB, scoped(fx.buildingB), "orgB filtering by its own scoped zone", fx.devBRacked)
 	})
-	assert.Equal(t, int64(1), totalBOwn)
-	assert.Contains(t, gotBOwn, fx.devBRacked)
+
+	// Wildcard zone_keys skip the cross-organization check of the filter
+	// parser, so the dcm.org_id clause is the only boundary for the rack
+	// membership.
+	t.Run("ZoneKeysWildcard", func(t *testing.T) {
+		filter := &stores.MinerFilter{ZoneKeys: []stores.ZoneKey{{BuildingID: 0, Zone: twoOrgSharedZone}}}
+		assertDevices(t, fx.orgA, filter, "orgA must see only its own devices under the shared zone label",
+			fx.devARacked, fx.devANoBldg)
+		assertDevices(t, fx.orgB, filter, "orgB must see only its own devices under the shared zone label",
+			fx.devBRacked, fx.devBNoBldg)
+	})
 }

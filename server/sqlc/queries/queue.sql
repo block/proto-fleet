@@ -5,14 +5,16 @@ INSERT INTO queue_message (
     device_id,
     status,
     retry_count,
-    payload
+    payload,
+    write_epoch
 ) VALUES (
      $1,
      $2,
      $3,
      $4,
      $5,
-     $6
+     $6,
+     COALESCE((SELECT epoch FROM device_write_fence WHERE device_id=$3),0)
 );
 
 -- name: CreateQueueMessages :exec
@@ -22,7 +24,8 @@ INSERT INTO queue_message (
     device_id,
     status,
     retry_count,
-    payload
+    payload,
+    write_epoch
 )
 SELECT
     sqlc.arg('command_batch_log_uuid'),
@@ -30,9 +33,11 @@ SELECT
     devices.device_id,
     'PENDING'::queue_status_enum,
     0,
-    payloads.payload::JSONB
+    payloads.payload::JSONB,
+    epochs.write_epoch
 FROM unnest(sqlc.arg('device_ids')::BIGINT[]) WITH ORDINALITY AS devices(device_id, ord)
-JOIN unnest(sqlc.arg('payloads')::TEXT[]) WITH ORDINALITY AS payloads(payload, ord) USING (ord);
+JOIN unnest(sqlc.arg('payloads')::TEXT[]) WITH ORDINALITY AS payloads(payload, ord) USING (ord)
+JOIN unnest(sqlc.arg('write_epochs')::BIGINT[]) WITH ORDINALITY AS epochs(write_epoch, ord) USING (ord);
 
 -- name: GetQueueMessagesByBatch :many
 SELECT id, device_id, status, error_info, payload
@@ -78,9 +83,18 @@ SET status = 'FAILED'::queue_status_enum,
 WHERE id = $2
   AND status = 'PROCESSING';
 
+-- name: TouchProcessingMessage :exec
+-- Records that a PROCESSING command's device reported progress, so periodic
+-- reaping measures its idle time from that report.
+UPDATE queue_message
+SET updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+  AND status = 'PROCESSING';
+
 -- name: ClaimMessageForProcessing :execresult
 UPDATE queue_message
 SET status = 'PROCESSING'::queue_status_enum,
+    processing_started_at = CURRENT_TIMESTAMP,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $1
   AND status = 'PENDING';
@@ -88,7 +102,7 @@ WHERE id = $1
 -- name: GetMessagesToProcess :many
 SELECT m.id, m.command_batch_log_uuid, m.device_id, m.command_type, m.status,
        m.retry_count, m.error_info, m.payload, m.created_at, m.updated_at,
-       d.org_id
+       d.org_id, m.write_epoch
 FROM queue_message m
 JOIN device d ON m.device_id = d.id
 WHERE m.status = 'PENDING'
@@ -98,9 +112,9 @@ WHERE m.status = 'PENDING'
     FROM queue_message earlier
     WHERE earlier.device_id = m.device_id
       AND (earlier.status = 'PENDING' OR earlier.status = 'PROCESSING')
-      AND earlier.created_at < m.created_at
+      AND (earlier.created_at,earlier.id) < (m.created_at,m.id)
 )
-ORDER BY m.created_at
+ORDER BY m.created_at,m.id
 LIMIT $2;
 
 -- name: ReapMessages :many
@@ -137,6 +151,7 @@ WHERE message.id = candidates.id
   AND message.device_id = device.id
 RETURNING
     message.id,
+    message.retry_count,
     message.device_id,
     message.command_batch_log_uuid,
     message.error_info,
@@ -144,12 +159,37 @@ RETURNING
     device.org_id,
     device.site_id;
 
+-- name: ListRetryableReapedRigConfigMessages :many
+-- Run after ReapMessages establishes FAILED status. A separate statement sees
+-- admissions committed before the reaper obtained its queue locks. FAILED
+-- entries cannot admit new attempts; a later retry claim arbitrates recovery.
+SELECT message.id FROM queue_message AS message
+WHERE message.id = ANY(sqlc.arg('message_ids')::BIGINT[])
+  AND message.status = 'FAILED'
+  AND message.command_type = 'ApplyCurtailmentConfig'
+  AND NOT EXISTS (
+      SELECT 1 FROM device_write_attempt AS attempt
+      WHERE attempt.queue_message_id = message.id
+        AND attempt.status IN ('running', 'unknown')
+  )
+ORDER BY message.id;
+
+-- name: ClaimReapedRigConfigRetry :execrows
+-- The reaper and a late worker share the dequeued retry count. Count the
+-- reaped failure once so only one transaction requests reconciliation.
+UPDATE queue_message
+SET retry_count = retry_count + 1
+WHERE id = sqlc.arg('message_id') AND retry_count = sqlc.arg('retry_count')
+  AND status = 'FAILED' AND command_type = 'ApplyCurtailmentConfig';
+
 -- name: ResetReapedFirmwareStatuses :exec
 UPDATE device_status
 SET
     status = 'ACTIVE'::device_status_enum,
     status_timestamp = CURRENT_TIMESTAMP,
-    status_details = NULL
+    telemetry_status_at = NULL,
+    status_details = NULL,
+    reboot_required_after = NULL
 WHERE device_id = ANY(sqlc.arg('device_ids')::BIGINT[])
   AND status IN ('UPDATING', 'REBOOT_REQUIRED');
 

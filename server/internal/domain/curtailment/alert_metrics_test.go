@@ -1,9 +1,11 @@
 package curtailment
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -484,4 +486,49 @@ func TestNewAlertMetricsLoopValidatesDependencies(t *testing.T) {
 		_, err := NewAlertMetricsLoop(cfg)
 		require.Error(t, err, "missing %s must be rejected", name)
 	}
+}
+
+type fakePendingWork struct {
+	eventAge, edgeAge time.Duration
+	err               error
+}
+
+func (f *fakePendingWork) GetPendingWorkAges(context.Context) (time.Duration, time.Duration, error) {
+	return f.eventAge, f.edgeAge, f.err
+}
+
+type recordingPendingAges struct{ samples [][2]time.Duration }
+
+func (r *recordingPendingAges) EmitCurtailmentPendingAges(eventAge, edgeAge time.Duration) {
+	r.samples = append(r.samples, [2]time.Duration{eventAge, edgeAge})
+}
+
+func TestAlertMetricsTick_PendingAgesResetAndReadFailureDoesNotClear(t *testing.T) {
+	work := &fakePendingWork{eventAge: time.Minute, edgeAge: 30 * time.Second}
+	ages := &recordingPendingAges{}
+	loop := newTestAlertMetricsLoop(t, AlertMetricsConfig{Sources: &fakeSourcesLister{}, Runtime: &fakeRuntime{}, ActiveCurtailment: &fakeActiveLister{}, Emitter: &recordingEmitter{}, PendingWork: work, PendingAges: ages})
+	loop.tick(t.Context())
+	require.Equal(t, [][2]time.Duration{{time.Minute, 30 * time.Second}}, ages.samples)
+	work.err = errors.New("database read failed")
+	loop.tick(t.Context())
+	require.Len(t, ages.samples, 1, "a failed query must not emit a false healthy zero")
+	work.err = nil
+	work.eventAge, work.edgeAge = 0, 0
+	loop.tick(t.Context())
+	require.Equal(t, [2]time.Duration{0, 0}, ages.samples[1], "resolved work must clear both gauges")
+}
+
+func TestAlertMetricsTick_PendingAgesErrorIsQuietOnShutdown(t *testing.T) {
+	var logs bytes.Buffer
+	loop := newTestAlertMetricsLoop(t, AlertMetricsConfig{
+		Sources: &fakeSourcesLister{}, Runtime: &fakeRuntime{}, ActiveCurtailment: &fakeActiveLister{}, Emitter: &recordingEmitter{},
+		PendingWork: &fakePendingWork{err: context.Canceled}, PendingAges: &recordingPendingAges{},
+		Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+	})
+	stopped, cancel := context.WithCancel(t.Context())
+	cancel()
+	loop.tick(stopped)
+	require.NotContains(t, logs.String(), "pending work ages failed", "shutdown must not log a lookup failure")
+	loop.tick(t.Context())
+	require.Contains(t, logs.String(), "pending work ages failed", "a failure outside shutdown must still be logged")
 }

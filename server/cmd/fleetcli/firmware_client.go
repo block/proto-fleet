@@ -39,12 +39,16 @@ type firmwareCheckRequest struct {
 	TargetManufacturer string `json:"target_manufacturer"`
 	TargetModel        string `json:"target_model"`
 	FirmwareVersion    string `json:"firmware_version"`
+	HashboardBuild     string `json:"hashboard_build,omitempty"`
+	Component          string `json:"component,omitempty"`
 }
 
 type firmwareMetadataUpdateRequest struct {
 	TargetManufacturer string `json:"target_manufacturer"`
 	TargetModel        string `json:"target_model"`
 	FirmwareVersion    string `json:"firmware_version"`
+	HashboardBuild     string `json:"hashboard_build,omitempty"`
+	Component          string `json:"component,omitempty"`
 }
 
 type firmwareCheckResponse struct {
@@ -60,6 +64,8 @@ type firmwareFileInfo struct {
 	TargetManufacturer string `json:"target_manufacturer"`
 	TargetModel        string `json:"target_model"`
 	FirmwareVersion    string `json:"firmware_version,omitempty"`
+	HashboardBuild     string `json:"hashboard_build,omitempty"`
+	Component          string `json:"component,omitempty"`
 }
 
 type firmwareListResponse struct {
@@ -76,6 +82,8 @@ type firmwareInitiateRequest struct {
 	TargetManufacturer string `json:"target_manufacturer"`
 	TargetModel        string `json:"target_model"`
 	FirmwareVersion    string `json:"firmware_version"`
+	HashboardBuild     string `json:"hashboard_build,omitempty"`
+	Component          string `json:"component,omitempty"`
 	Force              bool   `json:"force,omitempty"`
 }
 
@@ -223,6 +231,8 @@ func (c *Client) FirmwareCheck(ctx context.Context, sha256Hex string, target fir
 		TargetManufacturer: target.Manufacturer,
 		TargetModel:        target.Model,
 		FirmwareVersion:    target.Version,
+		HashboardBuild:     target.Build,
+		Component:          target.Component,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("marshal firmware check request: %w", err)
@@ -257,6 +267,8 @@ func (c *Client) FirmwareUpdateMetadata(ctx context.Context, fileID string, targ
 		TargetManufacturer: target.Manufacturer,
 		TargetModel:        target.Model,
 		FirmwareVersion:    target.Version,
+		HashboardBuild:     target.Build,
+		Component:          target.Component,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal firmware metadata update request: %w", err)
@@ -301,6 +313,12 @@ func (c *Client) FirmwareUploadDirect(ctx context.Context, filename string, file
 			{"target_manufacturer", target.Manufacturer},
 			{"target_model", target.Model},
 			{"firmware_version", target.Version},
+		}
+		if target.Build != "" {
+			fields = append(fields, struct{ name, value string }{"hashboard_build", target.Build})
+		}
+		if target.Component != "" {
+			fields = append(fields, struct{ name, value string }{"component", target.Component})
 		}
 		for _, field := range fields {
 			if err := mw.WriteField(field.name, field.value); err != nil {
@@ -350,6 +368,8 @@ func (c *Client) FirmwareUploadChunked(ctx context.Context, filename string, fil
 		TargetManufacturer: target.Manufacturer,
 		TargetModel:        target.Model,
 		FirmwareVersion:    target.Version,
+		HashboardBuild:     target.Build,
+		Component:          target.Component,
 		Force:              force,
 	})
 	if err != nil {

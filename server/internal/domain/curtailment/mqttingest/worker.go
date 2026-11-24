@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand"
+	"slices"
 	"sync"
 	"time"
 )
@@ -380,8 +381,17 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 		pendingSuperseded = true
 	}
 
-	if prior.PendingEdge != nil && !w.pendingEdgeRetryReady(prior.PendingEdge) {
-		state := w.advanceLiveness(prior, canonical, liveness)
+	if prior.PendingEdge != nil {
+		// Heartbeats confirm liveness; they do not create a new attempt or
+		// reset the durable edge's age, backoff, or replay identity.
+		pendingTarget := prior.PendingEdge.Target
+		state, _ := w.retryPendingEdge(ctx, prior)
+		if canonical.Target == pendingTarget && canonical.PublishedAt.After(state.LastTargetAt) {
+			// The newer publisher time is the ordering cutoff, so a delayed
+			// older payload cannot override this signal after the edge settles.
+			recordProcessedTarget(&state, canonical)
+		}
+		state = w.advanceLiveness(state, canonical, liveness)
 		w.persistState(ctx, state)
 		return state
 	}
@@ -410,12 +420,11 @@ func (w *sourceWorker) handleMessage(ctx context.Context, prior SourceState, obs
 	state = w.advanceLiveness(state, canonical, liveness)
 
 	if settled && direction == EdgeNone && !suppressRepeatedOff {
-		recordProcessedTarget(&state, canonical)
-
 		// Failed settlements and debounced flips must not settle the source target.
 		debouncedFlip := canonical.Target != prior.LastTarget &&
 			prior.LastTarget != TargetUnknown
 		if !debouncedFlip {
+			recordProcessedTarget(&state, canonical)
 			state.LastTarget = canonical.Target
 		}
 	}
@@ -606,11 +615,22 @@ func (w *sourceWorker) settlePendingEdge(
 	if !isRepeatedOffAssertion(prior, pending) {
 		state.LastEdgeAt = pending.ReceivedAt
 	}
-	state.LastReceivedAt = pending.ReceivedAt
-	state.LastReceivedBroker = pending.ReceivedBroker
+	if pending.Direction != EdgeWatchdogOff && pending.ReceivedAt.After(state.LastReceivedAt) {
+		state.LastReceivedAt = pending.ReceivedAt
+		state.LastReceivedBroker = pending.ReceivedBroker
+	}
 	state.LastTarget = target
-	recordProcessedTarget(&state, pending.canonical())
+	if !newerSameTargetRecorded(prior, pending) {
+		recordProcessedTarget(&state, pending.canonical())
+	}
 	return state
+}
+
+// newerSameTargetRecorded reports whether a heartbeat for the pending target
+// was recorded after the edge's publisher time; settling must not move that
+// ordering cutoff backwards.
+func newerSameTargetRecorded(prior SourceState, pending *PendingEdge) bool {
+	return pending.TargetAt.Before(prior.LastTargetAt) && slices.Contains(prior.LastProcessedTargets, pending.Target)
 }
 
 func isRepeatedOffAssertion(prior SourceState, pending *PendingEdge) bool {
@@ -678,25 +698,7 @@ func (w *sourceWorker) alreadyProcessedTarget(prior SourceState, c CanonicalStat
 	if prior.LastTargetAt.IsZero() || !c.PublishedAt.Equal(prior.LastTargetAt) {
 		return false
 	}
-	if c.Target != prior.LastTarget {
-		for _, target := range prior.LastProcessedTargets {
-			if target == c.Target {
-				return true
-			}
-		}
-		if c.Target == TargetOff {
-			return false
-		}
-		return prior.LastTarget != TargetUnknown &&
-			prior.LastProcessedTarget == c.Target &&
-			prior.LastProcessedTarget != prior.LastTarget
-	}
-	for _, target := range prior.LastProcessedTargets {
-		if target == c.Target {
-			return true
-		}
-	}
-	return c.Target == prior.LastProcessedTarget
+	return slices.Contains(prior.LastProcessedTargets, c.Target)
 }
 
 func shouldAssertRepeatedOff(prior SourceState, c CanonicalState, alreadyProcessed bool) bool {

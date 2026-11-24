@@ -122,7 +122,7 @@ func TestSendControlStreamAcceptedClassifiesDemotion(t *testing.T) {
 		require.NotNil(t, response.GetAccepted())
 		cancelActive()
 		return context.Canceled
-	})
+	}, 0)
 
 	var fleetErr fleeterror.FleetError
 	require.ErrorAs(t, err, &fleetErr)

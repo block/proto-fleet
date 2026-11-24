@@ -7,6 +7,7 @@ import { type ToastProps } from "../../types";
 import { Alert, Dismiss, Success } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 
+import Button from "@/shared/components/Button";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import useCssVariable from "@/shared/hooks/useCssVariable";
 import { cubicBezierValues } from "@/shared/utils/cssUtils";
@@ -17,7 +18,7 @@ import { cubicBezierValues } from "@/shared/utils/cssUtils";
 const extraPaddingForHover = 15;
 const initialTranslateY = 20;
 
-const Toast = ({ message, onClose, status, index, numToasts, ttl = defaultTtl }: ToastProps) => {
+const Toast = ({ message, onClose, status, index, numToasts, ttl = defaultTtl, actions }: ToastProps) => {
   // If Toast is used outside of toaster and we don't have index or numToasts
   // we just assume it's on top with no stacking transform applied.
   const stackOffset = index !== undefined && numToasts !== undefined ? numToasts - index - 1 : 0;
@@ -66,10 +67,27 @@ const Toast = ({ message, onClose, status, index, numToasts, ttl = defaultTtl }:
             {status === STATUSES.error ? <Alert className="text-intent-critical-fill" /> : null}
             <div className="text-heading-100 text-text-primary">{message}</div>
           </div>
-          <button onClick={onClose}>
+          <button onClick={onClose} aria-label="Dismiss notification">
             <Dismiss className="text-text-primary-30" width={iconSizes.small} />
           </button>
         </div>
+        {actions?.length ? (
+          <div
+            className={clsx("mt-3 flex flex-wrap gap-3", onTop ? "opacity-100" : "opacity-0 group-hover:opacity-100")}
+          >
+            {actions.map((action) => (
+              <Button
+                key={action.label}
+                variant="textOnly"
+                text={action.label}
+                onClick={() => {
+                  action.onClick();
+                  onClose();
+                }}
+              />
+            ))}
+          </div>
+        ) : null}
       </div>
     </motion.div>
   );

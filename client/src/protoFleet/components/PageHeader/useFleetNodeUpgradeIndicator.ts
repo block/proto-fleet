@@ -20,7 +20,7 @@ export function useFleetNodeUpgradeIndicator({
   const { pathname } = useLocation();
   const canReadNodes = useHasPermission("fleetnode:read");
   const { listFleetNodes } = useFleetNodes();
-  const [result, setResult] = useState<{ nodeCount: number; pollEpoch: symbol } | null>(null);
+  const [result, setResult] = useState<{ nodeCount: number; required: boolean; pollEpoch: symbol } | null>(null);
   const latestRequestId = useRef(0);
   const isNodeSettingsPath = pathname.replace(/\/+$/, "").toLowerCase() === NODE_SETTINGS_PATH;
   const pollEnabled = enabled && canReadNodes && !isNodeSettingsPath;
@@ -31,9 +31,13 @@ export function useFleetNodeUpgradeIndicator({
     try {
       const nodes = await listFleetNodes();
       if (requestId === latestRequestId.current) {
-        const nodeCount = nodes.filter((node) => node.commandProtocolUpgradeRequired).length;
+        const requiredCount = nodes.filter((node) => node.commandProtocolUpgradeRequired).length;
+        const required = requiredCount > 0;
+        const nodeCount = requiredCount || nodes.filter((node) => node.commandProtocolUpgradeRecommended).length;
         setResult((current) =>
-          current?.pollEpoch === pollEpoch && current.nodeCount === nodeCount ? current : { nodeCount, pollEpoch },
+          current?.pollEpoch === pollEpoch && current.nodeCount === nodeCount && current.required === required
+            ? current
+            : { nodeCount, required, pollEpoch },
         );
       }
     } catch {
@@ -57,7 +61,7 @@ export function useFleetNodeUpgradeIndicator({
   return useMemo(
     () =>
       pollEnabled && result?.pollEpoch === pollEpoch && result.nodeCount > 0
-        ? { nodeCount: result.nodeCount, onClick: openNodeSettings }
+        ? { nodeCount: result.nodeCount, required: result.required, onClick: openNodeSettings }
         : null,
     [openNodeSettings, pollEnabled, pollEpoch, result],
   );

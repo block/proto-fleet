@@ -80,11 +80,6 @@ type Controller struct {
 
 var _ driver.Controller = (*Controller)(nil)
 
-// New returns a fail-closed controller without a deployment allowlist.
-func New() driver.Controller {
-	return NewConfigured(nil)
-}
-
 // NewConfigured returns a controller protected by the deployment-global
 // positive OT control-subnet allowlist.
 func NewConfigured(globalControlSubnets []netip.Prefix, options ...Option) driver.Controller {

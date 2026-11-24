@@ -45,7 +45,9 @@ func newAuditHarness(t *testing.T) *auditHarness {
 			return nil
 		}).AnyTimes()
 
-	svc := infrastructure.NewService(store, siteStore, infrastructure.NewDefaultDriverRegistry(), tx, activity.NewService(activityStore))
+	registry, err := infrastructure.NewConfiguredDriverRegistry(infrastructure.Config{})
+	require.NoError(t, err)
+	svc := infrastructure.NewService(store, siteStore, registry, tx, activity.NewService(activityStore))
 	return &auditHarness{svc: svc, store: store, captured: &captured}
 }
 

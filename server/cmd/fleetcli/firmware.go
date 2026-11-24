@@ -186,6 +186,8 @@ func firmwareEditMetadataCommand() *cli.Command {
 				TargetManufacturer: target.Manufacturer,
 				TargetModel:        target.Model,
 				FirmwareVersion:    target.Version,
+				HashboardBuild:     target.Build,
+				Component:          target.Component,
 			})
 		},
 	}
@@ -339,12 +341,18 @@ type firmwareMetadataUpdateResult struct {
 	TargetManufacturer string `json:"target_manufacturer"`
 	TargetModel        string `json:"target_model"`
 	FirmwareVersion    string `json:"firmware_version"`
+	HashboardBuild     string `json:"hashboard_build,omitempty"`
+	Component          string `json:"component,omitempty"`
 }
 
 type firmwareTarget struct {
 	Manufacturer string
 	Model        string
 	Version      string
+	Build        string
+	// Component is empty for a target's main firmware and "psu" for a CT1
+	// PSU capsule.
+	Component string
 }
 
 func firmwareTargetFlags() []cli.Flag {
@@ -352,6 +360,8 @@ func firmwareTargetFlags() []cli.Flag {
 		&cli.StringFlag{Name: "target-manufacturer", Usage: "Firmware target manufacturer/product"},
 		&cli.StringFlag{Name: "target-model", Usage: "Firmware target miner model"},
 		&cli.StringFlag{Name: "firmware-version", Usage: "Firmware version reported after a successful install"},
+		&cli.StringFlag{Name: "hashboard-build", Usage: "CT1 hashboard build to select from a release archive: prod, dev, or mfgtest"},
+		&cli.StringFlag{Name: "component", Usage: "Firmware component when it is not the target's main firmware: psu for a CT1 PSU capsule (.psucap)"},
 	}
 }
 
@@ -362,6 +372,8 @@ func firmwareTargetFromCommand(cmd *cli.Command) (firmwareTarget, error) {
 		Manufacturer: strings.TrimSpace(cmd.String("target-manufacturer")),
 		Model:        strings.TrimSpace(cmd.String("target-model")),
 		Version:      strings.TrimSpace(cmd.String("firmware-version")),
+		Build:        strings.ToLower(strings.TrimSpace(cmd.String("hashboard-build"))),
+		Component:    strings.ToLower(strings.TrimSpace(cmd.String("component"))),
 	}
 	if err := target.validate(); err != nil {
 		return firmwareTarget{}, err

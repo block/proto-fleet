@@ -47,6 +47,10 @@ message AuthenticationCapabilities {
 
 // Command operations supported by the miner
 message CommandCapabilities {
+  // Explicit tank scope; independent of container-wide or rig start/stop.
+  bool tank_mining_supported = 16;
+  // Exact module scope with expected identity.
+  bool module_mining_supported = 17;
   // Basic operations
   bool reboot_supported = 1;
   bool mining_start_supported = 2;
@@ -111,4 +115,7 @@ message FirmwareCapabilities {
   // Update methods
   bool ota_update_supported = 1;
   bool manual_upload_supported = 2;
+  // The updater performs component reboot and verification itself and reports
+  // completed; Fleet must not require a separate controller reboot capability.
+  bool self_managed_completion = 3;
 }

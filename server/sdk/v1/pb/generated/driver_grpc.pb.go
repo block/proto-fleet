@@ -35,11 +35,23 @@ const (
 	Driver_StopMining_FullMethodName              = "/sdk.v1.Driver/StopMining"
 	Driver_BlinkLED_FullMethodName                = "/sdk.v1.Driver/BlinkLED"
 	Driver_Reboot_FullMethodName                  = "/sdk.v1.Driver/Reboot"
+	Driver_SetTankMining_FullMethodName           = "/sdk.v1.Driver/SetTankMining"
+	Driver_ContainerMining_FullMethodName         = "/sdk.v1.Driver/ContainerMining"
+	Driver_MiningGroups_FullMethodName            = "/sdk.v1.Driver/MiningGroups"
+	Driver_SetModuleMining_FullMethodName         = "/sdk.v1.Driver/SetModuleMining"
+	Driver_SetBoardIdentify_FullMethodName        = "/sdk.v1.Driver/SetBoardIdentify"
+	Driver_ContainerPowerFeed_FullMethodName      = "/sdk.v1.Driver/ContainerPowerFeed"
+	Driver_StreamBoardASICReadings_FullMethodName = "/sdk.v1.Driver/StreamBoardASICReadings"
+	Driver_SetContainerControl_FullMethodName     = "/sdk.v1.Driver/SetContainerControl"
+	Driver_ControllerRecords_FullMethodName       = "/sdk.v1.Driver/ControllerRecords"
+	Driver_RunContainerAlarmAction_FullMethodName = "/sdk.v1.Driver/RunContainerAlarmAction"
+	Driver_FrigateServerUpdate_FullMethodName     = "/sdk.v1.Driver/FrigateServerUpdate"
 	Driver_SetCoolingMode_FullMethodName          = "/sdk.v1.Driver/SetCoolingMode"
 	Driver_GetCoolingMode_FullMethodName          = "/sdk.v1.Driver/GetCoolingMode"
 	Driver_SetPowerTarget_FullMethodName          = "/sdk.v1.Driver/SetPowerTarget"
 	Driver_UpdateMiningPools_FullMethodName       = "/sdk.v1.Driver/UpdateMiningPools"
 	Driver_GetMiningPools_FullMethodName          = "/sdk.v1.Driver/GetMiningPools"
+	Driver_GetStoredMiningPools_FullMethodName    = "/sdk.v1.Driver/GetStoredMiningPools"
 	Driver_DownloadLogs_FullMethodName            = "/sdk.v1.Driver/DownloadLogs"
 	Driver_UpdateFirmware_FullMethodName          = "/sdk.v1.Driver/UpdateFirmware"
 	Driver_GetFirmwareUpdateStatus_FullMethodName = "/sdk.v1.Driver/GetFirmwareUpdateStatus"
@@ -81,12 +93,42 @@ type DriverClient interface {
 	StopMining(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	BlinkLED(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	Reboot(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// Optional controller-only equipment command. Backend support is checked at execution.
+	SetTankMining(ctx context.Context, in *SetTankMiningRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	ContainerMining(ctx context.Context, in *ContainerMiningRequest, opts ...grpc.CallOption) (*ContainerMiningResponse, error)
+	MiningGroups(ctx context.Context, in *MiningGroupsRequest, opts ...grpc.CallOption) (*MiningGroupsResponse, error)
+	SetModuleMining(ctx context.Context, in *SetModuleMiningRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// Optional controller-only identification LED command for one verified board.
+	SetBoardIdentify(ctx context.Context, in *SetBoardIdentifyRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// Optional controller-only module power-feed operations (capability
+	// "container_power_feed"). The payload is a closed JSON operation.
+	ContainerPowerFeed(ctx context.Context, in *ContainerPowerFeedRequest, opts ...grpc.CallOption) (*ContainerPowerFeedResponse, error)
+	// Optional controller-only live ASIC readings for one verified board. The
+	// stream runs until the caller cancels it or the controller ends it.
+	StreamBoardASICReadings(ctx context.Context, in *StreamBoardASICReadingsRequest, opts ...grpc.CallOption) (Driver_StreamBoardASICReadingsClient, error)
+	SetContainerControl(ctx context.Context, in *SetContainerControlRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// Optional controller-only bounded read of the controller's own logs or
+	// audit events (capability "controller_records"). The payloads are the
+	// JSON-encoded sdk.ControllerRecordsRequest and sdk.ControllerRecordsResult.
+	ControllerRecords(ctx context.Context, in *ControllerRecordsRequest, opts ...grpc.CallOption) (*ControllerRecordsResponse, error)
+	// Optional controller-only plant alarm pulse (mute or reset). Success
+	// acknowledges the pulse; only a later plant observation confirms its effect.
+	RunContainerAlarmAction(ctx context.Context, in *RunContainerAlarmActionRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// Optional controller-only Frigate software update operations (capability
+	// "frigate_server_update"). One RPC carries nine operations so the plugin
+	// boundary stays narrow. A Frigate refusal travels as a gRPC status carrying a
+	// google.rpc.ErrorInfo in domain "mdk.v2.frigate" whose reason is the UPDATE_*
+	// code. Unsupported drivers return UNIMPLEMENTED.
+	FrigateServerUpdate(ctx context.Context, in *FrigateServerUpdateRequest, opts ...grpc.CallOption) (*FrigateServerUpdateResponse, error)
 	// CoreV1 - Configuration methods - Required methods
 	SetCoolingMode(ctx context.Context, in *SetCoolingModeRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	GetCoolingMode(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*GetCoolingModeResponse, error)
 	SetPowerTarget(ctx context.Context, in *SetPowerTargetRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	UpdateMiningPools(ctx context.Context, in *UpdateMiningPoolsRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	GetMiningPools(ctx context.Context, in *GetMiningPoolsRequest, opts ...grpc.CallOption) (*GetMiningPoolsResponse, error)
+	// Private complete stored configuration, including disabled slots. Unsupported
+	// firmware returns UNIMPLEMENTED; runtime telemetry is not a substitute.
+	GetStoredMiningPools(ctx context.Context, in *GetStoredMiningPoolsRequest, opts ...grpc.CallOption) (*GetStoredMiningPoolsResponse, error)
 	DownloadLogs(ctx context.Context, in *DownloadLogsRequest, opts ...grpc.CallOption) (*DownloadLogsResponse, error)
 	UpdateFirmware(ctx context.Context, in *UpdateFirmwareRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	GetFirmwareUpdateStatus(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*GetFirmwareUpdateStatusResponse, error)
@@ -245,6 +287,128 @@ func (c *driverClient) Reboot(ctx context.Context, in *DeviceRef, opts ...grpc.C
 	return out, nil
 }
 
+func (c *driverClient) SetTankMining(ctx context.Context, in *SetTankMiningRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Driver_SetTankMining_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *driverClient) ContainerMining(ctx context.Context, in *ContainerMiningRequest, opts ...grpc.CallOption) (*ContainerMiningResponse, error) {
+	out := new(ContainerMiningResponse)
+	err := c.cc.Invoke(ctx, Driver_ContainerMining_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *driverClient) MiningGroups(ctx context.Context, in *MiningGroupsRequest, opts ...grpc.CallOption) (*MiningGroupsResponse, error) {
+	out := new(MiningGroupsResponse)
+	err := c.cc.Invoke(ctx, Driver_MiningGroups_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *driverClient) SetModuleMining(ctx context.Context, in *SetModuleMiningRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Driver_SetModuleMining_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *driverClient) SetBoardIdentify(ctx context.Context, in *SetBoardIdentifyRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Driver_SetBoardIdentify_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *driverClient) ContainerPowerFeed(ctx context.Context, in *ContainerPowerFeedRequest, opts ...grpc.CallOption) (*ContainerPowerFeedResponse, error) {
+	out := new(ContainerPowerFeedResponse)
+	err := c.cc.Invoke(ctx, Driver_ContainerPowerFeed_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *driverClient) StreamBoardASICReadings(ctx context.Context, in *StreamBoardASICReadingsRequest, opts ...grpc.CallOption) (Driver_StreamBoardASICReadingsClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Driver_ServiceDesc.Streams[0], Driver_StreamBoardASICReadings_FullMethodName, opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &driverStreamBoardASICReadingsClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type Driver_StreamBoardASICReadingsClient interface {
+	Recv() (*BoardASICFrame, error)
+	grpc.ClientStream
+}
+
+type driverStreamBoardASICReadingsClient struct {
+	grpc.ClientStream
+}
+
+func (x *driverStreamBoardASICReadingsClient) Recv() (*BoardASICFrame, error) {
+	m := new(BoardASICFrame)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *driverClient) SetContainerControl(ctx context.Context, in *SetContainerControlRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Driver_SetContainerControl_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *driverClient) ControllerRecords(ctx context.Context, in *ControllerRecordsRequest, opts ...grpc.CallOption) (*ControllerRecordsResponse, error) {
+	out := new(ControllerRecordsResponse)
+	err := c.cc.Invoke(ctx, Driver_ControllerRecords_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *driverClient) RunContainerAlarmAction(ctx context.Context, in *RunContainerAlarmActionRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Driver_RunContainerAlarmAction_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *driverClient) FrigateServerUpdate(ctx context.Context, in *FrigateServerUpdateRequest, opts ...grpc.CallOption) (*FrigateServerUpdateResponse, error) {
+	out := new(FrigateServerUpdateResponse)
+	err := c.cc.Invoke(ctx, Driver_FrigateServerUpdate_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *driverClient) SetCoolingMode(ctx context.Context, in *SetCoolingModeRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, Driver_SetCoolingMode_FullMethodName, in, out, opts...)
@@ -284,6 +448,15 @@ func (c *driverClient) UpdateMiningPools(ctx context.Context, in *UpdateMiningPo
 func (c *driverClient) GetMiningPools(ctx context.Context, in *GetMiningPoolsRequest, opts ...grpc.CallOption) (*GetMiningPoolsResponse, error) {
 	out := new(GetMiningPoolsResponse)
 	err := c.cc.Invoke(ctx, Driver_GetMiningPools_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *driverClient) GetStoredMiningPools(ctx context.Context, in *GetStoredMiningPoolsRequest, opts ...grpc.CallOption) (*GetStoredMiningPoolsResponse, error) {
+	out := new(GetStoredMiningPoolsResponse)
+	err := c.cc.Invoke(ctx, Driver_GetStoredMiningPools_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -399,7 +572,7 @@ func (c *driverClient) BatchStatus(ctx context.Context, in *BatchStatusRequest, 
 }
 
 func (c *driverClient) Subscribe(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (Driver_SubscribeClient, error) {
-	stream, err := c.cc.NewStream(ctx, &Driver_ServiceDesc.Streams[0], Driver_Subscribe_FullMethodName, opts...)
+	stream, err := c.cc.NewStream(ctx, &Driver_ServiceDesc.Streams[1], Driver_Subscribe_FullMethodName, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -464,12 +637,42 @@ type DriverServer interface {
 	StopMining(context.Context, *DeviceRef) (*emptypb.Empty, error)
 	BlinkLED(context.Context, *DeviceRef) (*emptypb.Empty, error)
 	Reboot(context.Context, *DeviceRef) (*emptypb.Empty, error)
+	// Optional controller-only equipment command. Backend support is checked at execution.
+	SetTankMining(context.Context, *SetTankMiningRequest) (*emptypb.Empty, error)
+	ContainerMining(context.Context, *ContainerMiningRequest) (*ContainerMiningResponse, error)
+	MiningGroups(context.Context, *MiningGroupsRequest) (*MiningGroupsResponse, error)
+	SetModuleMining(context.Context, *SetModuleMiningRequest) (*emptypb.Empty, error)
+	// Optional controller-only identification LED command for one verified board.
+	SetBoardIdentify(context.Context, *SetBoardIdentifyRequest) (*emptypb.Empty, error)
+	// Optional controller-only module power-feed operations (capability
+	// "container_power_feed"). The payload is a closed JSON operation.
+	ContainerPowerFeed(context.Context, *ContainerPowerFeedRequest) (*ContainerPowerFeedResponse, error)
+	// Optional controller-only live ASIC readings for one verified board. The
+	// stream runs until the caller cancels it or the controller ends it.
+	StreamBoardASICReadings(*StreamBoardASICReadingsRequest, Driver_StreamBoardASICReadingsServer) error
+	SetContainerControl(context.Context, *SetContainerControlRequest) (*emptypb.Empty, error)
+	// Optional controller-only bounded read of the controller's own logs or
+	// audit events (capability "controller_records"). The payloads are the
+	// JSON-encoded sdk.ControllerRecordsRequest and sdk.ControllerRecordsResult.
+	ControllerRecords(context.Context, *ControllerRecordsRequest) (*ControllerRecordsResponse, error)
+	// Optional controller-only plant alarm pulse (mute or reset). Success
+	// acknowledges the pulse; only a later plant observation confirms its effect.
+	RunContainerAlarmAction(context.Context, *RunContainerAlarmActionRequest) (*emptypb.Empty, error)
+	// Optional controller-only Frigate software update operations (capability
+	// "frigate_server_update"). One RPC carries nine operations so the plugin
+	// boundary stays narrow. A Frigate refusal travels as a gRPC status carrying a
+	// google.rpc.ErrorInfo in domain "mdk.v2.frigate" whose reason is the UPDATE_*
+	// code. Unsupported drivers return UNIMPLEMENTED.
+	FrigateServerUpdate(context.Context, *FrigateServerUpdateRequest) (*FrigateServerUpdateResponse, error)
 	// CoreV1 - Configuration methods - Required methods
 	SetCoolingMode(context.Context, *SetCoolingModeRequest) (*emptypb.Empty, error)
 	GetCoolingMode(context.Context, *DeviceRef) (*GetCoolingModeResponse, error)
 	SetPowerTarget(context.Context, *SetPowerTargetRequest) (*emptypb.Empty, error)
 	UpdateMiningPools(context.Context, *UpdateMiningPoolsRequest) (*emptypb.Empty, error)
 	GetMiningPools(context.Context, *GetMiningPoolsRequest) (*GetMiningPoolsResponse, error)
+	// Private complete stored configuration, including disabled slots. Unsupported
+	// firmware returns UNIMPLEMENTED; runtime telemetry is not a substitute.
+	GetStoredMiningPools(context.Context, *GetStoredMiningPoolsRequest) (*GetStoredMiningPoolsResponse, error)
 	DownloadLogs(context.Context, *DownloadLogsRequest) (*DownloadLogsResponse, error)
 	UpdateFirmware(context.Context, *UpdateFirmwareRequest) (*emptypb.Empty, error)
 	GetFirmwareUpdateStatus(context.Context, *DeviceRef) (*GetFirmwareUpdateStatusResponse, error)
@@ -541,6 +744,39 @@ func (UnimplementedDriverServer) BlinkLED(context.Context, *DeviceRef) (*emptypb
 func (UnimplementedDriverServer) Reboot(context.Context, *DeviceRef) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Reboot not implemented")
 }
+func (UnimplementedDriverServer) SetTankMining(context.Context, *SetTankMiningRequest) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetTankMining not implemented")
+}
+func (UnimplementedDriverServer) ContainerMining(context.Context, *ContainerMiningRequest) (*ContainerMiningResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ContainerMining not implemented")
+}
+func (UnimplementedDriverServer) MiningGroups(context.Context, *MiningGroupsRequest) (*MiningGroupsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MiningGroups not implemented")
+}
+func (UnimplementedDriverServer) SetModuleMining(context.Context, *SetModuleMiningRequest) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetModuleMining not implemented")
+}
+func (UnimplementedDriverServer) SetBoardIdentify(context.Context, *SetBoardIdentifyRequest) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetBoardIdentify not implemented")
+}
+func (UnimplementedDriverServer) ContainerPowerFeed(context.Context, *ContainerPowerFeedRequest) (*ContainerPowerFeedResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ContainerPowerFeed not implemented")
+}
+func (UnimplementedDriverServer) StreamBoardASICReadings(*StreamBoardASICReadingsRequest, Driver_StreamBoardASICReadingsServer) error {
+	return status.Errorf(codes.Unimplemented, "method StreamBoardASICReadings not implemented")
+}
+func (UnimplementedDriverServer) SetContainerControl(context.Context, *SetContainerControlRequest) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetContainerControl not implemented")
+}
+func (UnimplementedDriverServer) ControllerRecords(context.Context, *ControllerRecordsRequest) (*ControllerRecordsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ControllerRecords not implemented")
+}
+func (UnimplementedDriverServer) RunContainerAlarmAction(context.Context, *RunContainerAlarmActionRequest) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RunContainerAlarmAction not implemented")
+}
+func (UnimplementedDriverServer) FrigateServerUpdate(context.Context, *FrigateServerUpdateRequest) (*FrigateServerUpdateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FrigateServerUpdate not implemented")
+}
 func (UnimplementedDriverServer) SetCoolingMode(context.Context, *SetCoolingModeRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetCoolingMode not implemented")
 }
@@ -555,6 +791,9 @@ func (UnimplementedDriverServer) UpdateMiningPools(context.Context, *UpdateMinin
 }
 func (UnimplementedDriverServer) GetMiningPools(context.Context, *GetMiningPoolsRequest) (*GetMiningPoolsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetMiningPools not implemented")
+}
+func (UnimplementedDriverServer) GetStoredMiningPools(context.Context, *GetStoredMiningPoolsRequest) (*GetStoredMiningPoolsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetStoredMiningPools not implemented")
 }
 func (UnimplementedDriverServer) DownloadLogs(context.Context, *DownloadLogsRequest) (*DownloadLogsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DownloadLogs not implemented")
@@ -863,6 +1102,207 @@ func _Driver_Reboot_Handler(srv interface{}, ctx context.Context, dec func(inter
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Driver_SetTankMining_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetTankMiningRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).SetTankMining(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_SetTankMining_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).SetTankMining(ctx, req.(*SetTankMiningRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Driver_ContainerMining_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ContainerMiningRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).ContainerMining(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_ContainerMining_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).ContainerMining(ctx, req.(*ContainerMiningRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Driver_MiningGroups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MiningGroupsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).MiningGroups(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_MiningGroups_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).MiningGroups(ctx, req.(*MiningGroupsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Driver_SetModuleMining_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetModuleMiningRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).SetModuleMining(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_SetModuleMining_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).SetModuleMining(ctx, req.(*SetModuleMiningRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Driver_SetBoardIdentify_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetBoardIdentifyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).SetBoardIdentify(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_SetBoardIdentify_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).SetBoardIdentify(ctx, req.(*SetBoardIdentifyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Driver_ContainerPowerFeed_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ContainerPowerFeedRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).ContainerPowerFeed(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_ContainerPowerFeed_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).ContainerPowerFeed(ctx, req.(*ContainerPowerFeedRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Driver_StreamBoardASICReadings_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(StreamBoardASICReadingsRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(DriverServer).StreamBoardASICReadings(m, &driverStreamBoardASICReadingsServer{stream})
+}
+
+type Driver_StreamBoardASICReadingsServer interface {
+	Send(*BoardASICFrame) error
+	grpc.ServerStream
+}
+
+type driverStreamBoardASICReadingsServer struct {
+	grpc.ServerStream
+}
+
+func (x *driverStreamBoardASICReadingsServer) Send(m *BoardASICFrame) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func _Driver_SetContainerControl_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetContainerControlRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).SetContainerControl(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_SetContainerControl_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).SetContainerControl(ctx, req.(*SetContainerControlRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Driver_ControllerRecords_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ControllerRecordsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).ControllerRecords(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_ControllerRecords_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).ControllerRecords(ctx, req.(*ControllerRecordsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Driver_RunContainerAlarmAction_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RunContainerAlarmActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).RunContainerAlarmAction(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_RunContainerAlarmAction_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).RunContainerAlarmAction(ctx, req.(*RunContainerAlarmActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Driver_FrigateServerUpdate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FrigateServerUpdateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).FrigateServerUpdate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_FrigateServerUpdate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).FrigateServerUpdate(ctx, req.(*FrigateServerUpdateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Driver_SetCoolingMode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SetCoolingModeRequest)
 	if err := dec(in); err != nil {
@@ -949,6 +1389,24 @@ func _Driver_GetMiningPools_Handler(srv interface{}, ctx context.Context, dec fu
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DriverServer).GetMiningPools(ctx, req.(*GetMiningPoolsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Driver_GetStoredMiningPools_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetStoredMiningPoolsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).GetStoredMiningPools(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_GetStoredMiningPools_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).GetStoredMiningPools(ctx, req.(*GetStoredMiningPoolsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1272,6 +1730,46 @@ var Driver_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Driver_Reboot_Handler,
 		},
 		{
+			MethodName: "SetTankMining",
+			Handler:    _Driver_SetTankMining_Handler,
+		},
+		{
+			MethodName: "ContainerMining",
+			Handler:    _Driver_ContainerMining_Handler,
+		},
+		{
+			MethodName: "MiningGroups",
+			Handler:    _Driver_MiningGroups_Handler,
+		},
+		{
+			MethodName: "SetModuleMining",
+			Handler:    _Driver_SetModuleMining_Handler,
+		},
+		{
+			MethodName: "SetBoardIdentify",
+			Handler:    _Driver_SetBoardIdentify_Handler,
+		},
+		{
+			MethodName: "ContainerPowerFeed",
+			Handler:    _Driver_ContainerPowerFeed_Handler,
+		},
+		{
+			MethodName: "SetContainerControl",
+			Handler:    _Driver_SetContainerControl_Handler,
+		},
+		{
+			MethodName: "ControllerRecords",
+			Handler:    _Driver_ControllerRecords_Handler,
+		},
+		{
+			MethodName: "RunContainerAlarmAction",
+			Handler:    _Driver_RunContainerAlarmAction_Handler,
+		},
+		{
+			MethodName: "FrigateServerUpdate",
+			Handler:    _Driver_FrigateServerUpdate_Handler,
+		},
+		{
 			MethodName: "SetCoolingMode",
 			Handler:    _Driver_SetCoolingMode_Handler,
 		},
@@ -1290,6 +1788,10 @@ var Driver_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetMiningPools",
 			Handler:    _Driver_GetMiningPools_Handler,
+		},
+		{
+			MethodName: "GetStoredMiningPools",
+			Handler:    _Driver_GetStoredMiningPools_Handler,
 		},
 		{
 			MethodName: "DownloadLogs",
@@ -1345,6 +1847,11 @@ var Driver_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "StreamBoardASICReadings",
+			Handler:       _Driver_StreamBoardASICReadings_Handler,
+			ServerStreams: true,
+		},
 		{
 			StreamName:    "Subscribe",
 			Handler:       _Driver_Subscribe_Handler,

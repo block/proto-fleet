@@ -2,13 +2,17 @@ import { useMemo } from "react";
 import { transformEfficiencyMetricsToChartData } from "./utils";
 import { type Metric } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import LineChart from "@/protoFleet/components/LineChart";
-import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { padChartDataWithNulls } from "@/protoFleet/features/dashboard/utils/chartDataPadding";
 import { getMinerCountSubtitle } from "@/protoFleet/features/dashboard/utils/minerCountSubtitle";
+import ChartWidget from "@/shared/components/ChartWidget";
 import { FleetDuration } from "@/shared/components/DurationSelector";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 
 interface EfficiencyPanelProps {
+  connectNulls?: boolean;
+  padMissingBuckets?: boolean;
+  tooltipNotes?: Record<number, string>;
+  reportingSubtitle?: string;
   duration: FleetDuration;
   /** Efficiency metrics — undefined = not loaded yet, empty array = loaded but no data */
   metrics: Metric[] | undefined;
@@ -16,7 +20,15 @@ interface EfficiencyPanelProps {
   totalMiners: number;
 }
 
-export function EfficiencyPanel({ duration, metrics, totalMiners }: EfficiencyPanelProps) {
+export function EfficiencyPanel({
+  duration,
+  metrics,
+  totalMiners,
+  connectNulls,
+  tooltipNotes,
+  reportingSubtitle,
+  padMissingBuckets = true,
+}: EfficiencyPanelProps) {
   // Transform metrics data to chart format (merging already done by store selectors)
   const chartData = useMemo(() => {
     if (metrics === undefined) return undefined; // Not loaded yet
@@ -25,8 +37,8 @@ export function EfficiencyPanel({ duration, metrics, totalMiners }: EfficiencyPa
     const transformedData = transformEfficiencyMetricsToChartData(metrics);
 
     // Pad with null values for the full duration
-    return padChartDataWithNulls(transformedData, duration);
-  }, [metrics, duration]);
+    return padMissingBuckets ? padChartDataWithNulls(transformedData, duration) : transformedData;
+  }, [metrics, duration, padMissingBuckets]);
 
   // Get the latest efficiency value for the stat display
   const currentEfficiency = useMemo(() => {
@@ -72,7 +84,7 @@ export function EfficiencyPanel({ duration, metrics, totalMiners }: EfficiencyPa
   const efficiencyDisplayValue =
     currentEfficiency !== null && currentEfficiency !== undefined ? currentEfficiency.toFixed(1) : "N/A";
 
-  const subtitle = getMinerCountSubtitle(deviceCount ?? null, totalMiners);
+  const subtitle = reportingSubtitle ?? getMinerCountSubtitle(deviceCount ?? null, totalMiners);
   const stat = {
     label: "Efficiency",
     value: efficiencyDisplayValue,
@@ -84,6 +96,8 @@ export function EfficiencyPanel({ duration, metrics, totalMiners }: EfficiencyPa
   return (
     <ChartWidget stats={stat}>
       <LineChart
+        connectNulls={connectNulls}
+        tooltipNotes={tooltipNotes}
         chartData={chartData}
         aggregateKey="efficiency"
         units="J/TH"

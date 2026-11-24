@@ -25,16 +25,6 @@ export class HomePage extends BasePage {
     return this.page.getByRole("heading", { name: title, exact: true }).first();
   }
 
-  private getOverviewIssueCard(title: string) {
-    return this.page
-      .locator(`//*[self::a or self::div][contains(@class,'rounded-xl')][.//*[normalize-space(text())='${title}']]`)
-      .first();
-  }
-
-  private getOverviewIssueLink(title: string) {
-    return this.page.locator(`//a[contains(@class,'rounded-xl')][.//*[normalize-space(text())='${title}']]`);
-  }
-
   async validateCompleteSetupTitle() {
     await this.validateTitle("Complete setup");
   }
@@ -127,34 +117,17 @@ export class HomePage extends BasePage {
     return selectedDurations[0];
   }
 
-  async clickControlBoardsLink() {
-    await this.page.getByRole("link", { name: "Control Boards" }).click();
-  }
-
-  async clickFansLink() {
-    await this.page.getByRole("link", { name: "Fans" }).click();
-  }
-
-  async clickHashboardsLink() {
-    await this.page.getByRole("link", { name: "Hashboards" }).click();
-  }
-
-  async clickPowerSuppliesLink() {
-    await this.page.getByRole("link", { name: "Power supplies" }).click();
-  }
-
-  async validateOverviewIssueCard(title: string, statusText: string) {
-    const card = this.getOverviewIssueCard(title);
-    await expect(card).toBeVisible();
-    await expect(card).toContainText(statusText);
-  }
-
-  async validateOverviewIssueCardIsNotClickable(title: string) {
-    await expect(this.getOverviewIssueLink(title)).toHaveCount(0);
-  }
-
   async getListOfMinersToAuthenticate(): Promise<string[]> {
     return this.page.getByTestId("modal").getByTestId("model").allTextContents();
+  }
+
+  async validateMinersToAuthenticate(expectedModels: string[]) {
+    // Pairing feedback appears before the auth-needed list finishes refreshing.
+    await expect
+      .poll(async () => (await this.getListOfMinersToAuthenticate()).sort(), {
+        message: "Expected the authentication list to contain exactly the remaining miners",
+      })
+      .toEqual([...expectedModels].sort());
   }
 
   async clickShowMinersButton() {

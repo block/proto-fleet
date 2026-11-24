@@ -62,7 +62,7 @@ func TestExecuteCommandOnDevice_FirmwareDeliveryLease(t *testing.T) {
 				})
 				require.NoError(t, err)
 				minerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
-				minerGetter.EXPECT().GetMiner(gomock.Any(), int64(42)).Return(remote, nil)
+				minerGetter.EXPECT().GetMinerForCommand(gomock.Any(), int64(42)).Return(remote, nil)
 				deviceStore := storeMocks.NewMockDeviceStore(ctrl)
 				if outcome == "success" {
 					deviceStore.EXPECT().GetDeviceStatusForDeviceIdentifiers(gomock.Any(), []tmodels.DeviceIdentifier{"miner-a"}).

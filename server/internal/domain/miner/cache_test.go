@@ -3,6 +3,7 @@ package miner_test
 import (
 	"database/sql"
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
@@ -22,6 +23,9 @@ import (
 type fakePluginManager struct {
 	driver     sdk.Driver
 	driverName string
+	caps       sdk.Capabilities
+	scoped     *sdkMocks.ScopedDriverFixture
+	scopedMu   sync.Mutex
 }
 
 func (f *fakePluginManager) HasPluginForDriverName(driverName string) bool {
@@ -29,12 +33,20 @@ func (f *fakePluginManager) HasPluginForDriverName(driverName string) bool {
 }
 
 func (f *fakePluginManager) GetCapabilitiesForDriverName(_ string) sdk.Capabilities {
+	if f.caps != nil {
+		return f.caps
+	}
 	return sdk.Capabilities{}
 }
 
 func (f *fakePluginManager) GetDriverByDriverName(driverName string) (sdk.Driver, error) {
+	f.scopedMu.Lock()
+	defer f.scopedMu.Unlock()
 	if driverName == f.driverName {
-		return f.driver, nil
+		if f.scoped == nil {
+			f.scoped = &sdkMocks.ScopedDriverFixture{Driver: f.driver}
+		}
+		return f.scoped, nil
 	}
 	return nil, fmt.Errorf("no driver registered for %s", driverName)
 }

@@ -1,6 +1,7 @@
 import { create } from "@bufbuild/protobuf";
 import { type Timestamp, timestampMs } from "@bufbuild/protobuf/wkt";
 
+import { firmwareComponentLabel } from "@/protoFleet/api/firmwareComponent";
 import {
   type MetricComparison,
   type RolloutDeviceCounts as PbRolloutDeviceCounts,
@@ -16,6 +17,7 @@ import {
   RolloutState,
   RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { isCT1FirmwareTarget } from "@/protoFleet/api/useFirmwareApi";
 import type {
   ChannelView,
   ChannelModelGroupView as ReleaseChannelModelGroup,
@@ -44,14 +46,27 @@ export const methodLabels: Record<RolloutMethod, string> = {
   [RolloutMethod.DELEGATED]: "Controlled externally",
 };
 
-export const methodHelpText: Record<RolloutMethod, string> = {
-  [RolloutMethod.UNSPECIFIED]: "",
-  [RolloutMethod.ALL_AT_ONCE]: "Every miner not on the new version updates at once.",
-  [RolloutMethod.BATCHED]:
-    "Miners update in batches of a fixed size. Review after each batch, or let batches follow one another.",
-  [RolloutMethod.PILOT_THEN_CONTINUE]:
-    "A pilot batch updates first. The remaining miners wait until the pilot is reviewed and the update continued.",
-  [RolloutMethod.DELEGATED]: "An external controller decides which miners update and when, through the API.",
+/** What operators call a set of devices: miners, containers, or devices when it holds both. */
+export interface DeviceNouns {
+  singular: string;
+  plural: string;
+}
+
+export const MINER_NOUNS: DeviceNouns = { singular: "miner", plural: "miners" };
+export const CONTAINER_NOUNS: DeviceNouns = { singular: "container", plural: "containers" };
+export const DEVICE_NOUNS: DeviceNouns = { singular: "device", plural: "devices" };
+
+export const methodHelp = (method: RolloutMethod, nouns: DeviceNouns = MINER_NOUNS): string => {
+  switch (method) {
+    case RolloutMethod.BATCHED:
+      return `${capitalize(nouns.plural)} update in batches of a fixed size. Review after each batch, or let batches follow one another.`;
+    case RolloutMethod.PILOT_THEN_CONTINUE:
+      return `A pilot batch updates first. The remaining ${nouns.plural} wait until the pilot is reviewed and the update continued.`;
+    case RolloutMethod.DELEGATED:
+      return `An external controller decides which ${nouns.plural} update and when, through the API.`;
+    default:
+      return `Every ${nouns.singular} not on the new version updates at once.`;
+  }
 };
 
 export const orderLabels: Record<RolloutOrder, string> = {
@@ -315,8 +330,9 @@ export function scopeDevices(rollout: Rollout, devices: RolloutDevice[]): Rollou
 
 export function evidenceScopeLabel(rollout: Rollout): string {
   if (scopedToBatch(rollout)) return batchLabel(rollout);
-  if (isActive(rollout) && rollout.stage === RolloutStage.REST && rollout.batchCount > 0) return "Remaining miners";
-  return "All miners";
+  const { plural } = deviceNouns(rollout);
+  if (isActive(rollout) && rollout.stage === RolloutStage.REST && rollout.batchCount > 0) return `Remaining ${plural}`;
+  return `All ${plural}`;
 }
 
 export function failedDevices(devices: RolloutDevice[]): RolloutDevice[] {
@@ -344,13 +360,17 @@ export function rolloutProgressSegments(counts: RolloutDeviceCounts, status?: Ro
   ].filter((segment) => segment.count > 0);
 }
 
-export function rolloutProgressSummary(counts: RolloutDeviceCounts): string {
-  const minerNoun = counts.total === 1 ? "miner" : "miners";
+export function rolloutProgressSummary(
+  counts: RolloutDeviceCounts,
+  pair: { manufacturer: string; model: string },
+): string {
+  const { singular, plural } = deviceNouns(pair);
+  const noun = counts.total === 1 ? singular : plural;
   const failed = counts.failed > 0 ? `, ${counts.failed.toLocaleString()} failed` : "";
   if (counts.total > 0 && counts.updated === counts.total) {
-    return `${counts.updated.toLocaleString()} ${minerNoun} updated (100%)${failed}`;
+    return `${counts.updated.toLocaleString()} ${noun} updated (100%)${failed}`;
   }
-  return `${counts.updated.toLocaleString()} of ${counts.total.toLocaleString()} ${minerNoun} updated (${counts.percent}%)${failed}`;
+  return `${counts.updated.toLocaleString()} of ${counts.total.toLocaleString()} ${noun} updated (${counts.percent}%)${failed}`;
 }
 
 // "74 of 87 miners updated, 2 failed, Batch 5 of 6": the one-line summary for
@@ -358,7 +378,9 @@ export function rolloutProgressSummary(counts: RolloutDeviceCounts): string {
 export function activeUpdateSummary(rollout: Rollout): string {
   const counts = rolloutDeviceCounts(rollout);
   const failed = failedCount(rollout);
-  const parts = [`${counts.updated.toLocaleString()} of ${rollout.deviceCount.toLocaleString()} miners updated`];
+  const parts = [
+    `${counts.updated.toLocaleString()} of ${rollout.deviceCount.toLocaleString()} ${deviceNouns(rollout).plural} updated`,
+  ];
   if (failed > 0) parts.push(failed === 1 ? "1 failed" : `${failed.toLocaleString()} failed`);
   if (counts.skipped > 0) parts.push(`${counts.skipped.toLocaleString()} skipped`);
   if (counts.excluded > 0) parts.push(`${counts.excluded.toLocaleString()} excluded`);
@@ -477,7 +499,7 @@ export function modelUpdateStatus(
   }
   if (group.activeRolloutId > 0n) return { label: "Refreshing update status", tone: "active" };
   if (group.firmwareVersion === "") return { label: "No firmware assigned", tone: "none" };
-  if (group.minerCount === 0) return { label: "No miners", tone: "none" };
+  if (group.minerCount === 0) return { label: `No ${deviceNouns(group).plural}`, tone: "none" };
   const onTarget = group.onTargetCount;
   const currentFinished = lastFinished?.assignmentGeneration === group.assignmentGeneration ? lastFinished : undefined;
   if (currentFinished?.status === RolloutStatus.COMPLETED_WITH_FAILURES && onTarget < group.minerCount) {
@@ -502,12 +524,78 @@ export function channelUpdateStatus(activeRollouts: Rollout[]): UpdateStatus {
   return { label: parts.join(", "), tone: attention > 0 ? "attention" : "active" };
 }
 
-// "current → target" while miners converge on the assignment, or just the
-// assigned version once every miner reports it.
+// One firmware component of a manufacturer/model pair: a model group, an
+// assignment or a rollout. The empty component is the model's main firmware.
+type FirmwarePair = { manufacturer: string; model: string; component?: string };
+
 // A manufacturer/model pair as the UI names it: the observed identity with
 // unknown halves left out.
-export const pairLabel = (pair: { manufacturer: string; model: string }): string =>
+export const modelLabel = (pair: { manufacturer: string; model: string }): string =>
   `${pair.manufacturer} ${pair.model}`.trim() || "Unknown model";
+
+// A pair's firmware component as the UI names it: "Proto CT1" for its main
+// firmware, "Proto CT1 PSU" for its PSU firmware.
+export const pairLabel = (pair: FirmwarePair): string => {
+  const component = firmwareComponentLabel(pair.component);
+  return component ? `${modelLabel(pair)} ${component}` : modelLabel(pair);
+};
+
+// Proto Containers are grouped and worded apart from miners. The channel API
+// reports no device class, so a container is recognized by its model pair.
+export const isContainerPair = (pair: { manufacturer: string; model: string }): boolean =>
+  isCT1FirmwareTarget({ targetManufacturer: pair.manufacturer, targetModel: pair.model });
+
+/** What operators call the devices of one model pair: miners, or containers. */
+export const deviceNouns = (pair: { manufacturer: string; model: string }): DeviceNouns =>
+  isContainerPair(pair) ? CONTAINER_NOUNS : MINER_NOUNS;
+
+/**
+ * What operators call the devices of several model pairs at once, such as a
+ * channel's or a scope preview's: "devices" only when miners and containers
+ * are both among them. With no pairs to go by, the fallback applies.
+ */
+export function mixedDeviceNouns(
+  pairs: ReadonlyArray<{ manufacturer: string; model: string }>,
+  fallback: DeviceNouns = MINER_NOUNS,
+): DeviceNouns {
+  const containers = pairs.some(isContainerPair);
+  const miners = pairs.some((pair) => !isContainerPair(pair));
+  if (containers && miners) return DEVICE_NOUNS;
+  if (containers) return CONTAINER_NOUNS;
+  return miners ? MINER_NOUNS : fallback;
+}
+
+/** "1 miner" or "2,000 devices": a count worded with the given nouns. */
+export const nounCountLabel = (nouns: DeviceNouns, count: number): string =>
+  `${count.toLocaleString()} ${count === 1 ? nouns.singular : nouns.plural}`;
+
+/** "1 miner" or "2,000 containers": a count of one model pair's devices. */
+export const deviceCountLabel = (pair: { manufacturer: string; model: string }, count: number): string =>
+  nounCountLabel(deviceNouns(pair), count);
+
+export function capitalize(text: string): string {
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+}
+
+/**
+ * "6 miners, 2 containers": a channel's members by device type. The total is
+ * the server's; containers are the members of its container model groups.
+ * A model's other components list the same members, so only its main
+ * firmware group counts.
+ */
+export function channelMembersLabel(
+  total: number,
+  groups: ReadonlyArray<FirmwarePair & { minerCount: number }>,
+): string {
+  const inContainerGroups = groups
+    .filter((group) => isContainerPair(group) && !group.component)
+    .reduce((sum, group) => sum + group.minerCount, 0);
+  const containers = Math.min(total, inContainerGroups);
+  const miners = total - containers;
+  if (containers === 0) return nounCountLabel(MINER_NOUNS, miners);
+  if (miners === 0) return nounCountLabel(CONTAINER_NOUNS, containers);
+  return `${nounCountLabel(MINER_NOUNS, miners)}, ${nounCountLabel(CONTAINER_NOUNS, containers)}`;
+}
 
 // Device identifiers can also be names inherited from Object.prototype.
 export const minerLabel = (deviceIdentifier: string, names: Readonly<Record<string, string>>): string =>
@@ -518,12 +606,27 @@ export const minerLabel = (deviceIdentifier: string, names: Readonly<Record<stri
 // Key joining a model group to the rollouts and assignments of its pair:
 // trimmed and ASCII-folded like the server, so the observed "proto Rig"
 // meets the canonical "Proto Rig". Unknown identities never match anything.
-export const pairKey = (pair: { manufacturer: string; model: string }): string =>
+// A model's controller software target and its main firmware share this key.
+export const modelKey = (pair: { manufacturer: string; model: string }): string =>
   minerTargetKey(pair.manufacturer, pair.model) ?? JSON.stringify(["unknown", pair.manufacturer, pair.model]);
+
+// Key of one firmware component of a pair. Each component has its own
+// assignment, generation and rollouts, so the key keeps them apart.
+export const pairKey = (pair: FirmwarePair): string =>
+  pair.component ? JSON.stringify([modelKey(pair), pair.component]) : modelKey(pair);
+
+// Test id suffix of a group's row: its model, and its component when the row
+// is not for the model's main firmware.
+export const groupTestId = (group: { model: string; component?: string }): string =>
+  group.component ? `${group.model}-${group.component}` : group.model;
+
+// How many hardware models the groups cover; a model's components count once.
+export const modelCount = (groups: readonly { manufacturer: string; model: string }[]): number =>
+  new Set(groups.map(modelKey)).size;
 
 // Finished outcomes belong to one assignment, even when the same artifact
 // is selected again later. Raw model variants still share its canonical key.
-export const assignmentKey = (pair: { manufacturer: string; model: string; assignmentGeneration: bigint }): string =>
+export const assignmentKey = (pair: FirmwarePair & { assignmentGeneration: bigint }): string =>
   JSON.stringify([pairKey(pair), pair.assignmentGeneration.toString()]);
 
 export const channelAssignmentKey = (channelId: bigint, pair: ReleaseChannelModelGroup | Rollout): string =>
@@ -600,6 +703,8 @@ export function rollbackLabel(rollout: Rollout): string {
     : `Roll back to ${rollout.previousFirmwareVersion}`;
 }
 
+// "current → target" while miners converge on the assignment, or just the
+// assigned version once every miner reports it.
 export const modelFirmwareLabel = (group: ReleaseChannelModelGroup): string => {
   if (group.rollbackPending) return "Refreshing assignment";
   if (group.firmwareVersion === "") return "—";

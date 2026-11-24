@@ -1,30 +1,32 @@
-import { useShallow } from "zustand/react/shallow";
+import { useMemo } from "react";
+
+import { asAsicId, ROOT_MODULE_KEY } from "../contract";
+import type { AsicTelemetry, FanTelemetry, HashboardTelemetry, PsuTelemetry } from "../contract";
 import useMinerStore from "../useMinerStore";
+import { getFanId, getHashboardId, getPsuId } from "../utils/entityIds";
 
-// =============================================================================
-// Telemetry Hooks
-// =============================================================================
-
-// Entity hooks
-export const useMinerTelemetry = () => useMinerStore((state) => state.telemetry.miner);
-
-export const useHashboardsTelemetry = () =>
-  useMinerStore(useShallow((state) => Array.from(state.telemetry.hashboards.values())));
-
-export const useHashboardTelemetry = (id: string) => useMinerStore((state) => state.telemetry.hashboards.get(id));
-
-export const useAsicsTelemetry = () => useMinerStore(useShallow((state) => Array.from(state.telemetry.asics.values())));
-
-export const useAsicTelemetry = (id: string) => useMinerStore((state) => state.telemetry.asics.get(id));
-
-export const usePsusTelemetry = () => useMinerStore(useShallow((state) => Array.from(state.telemetry.psus.values())));
-
-export const usePsuTelemetry = (id: number) => useMinerStore((state) => state.telemetry.psus.get(id));
-
-export const useFansTelemetry = () => useMinerStore(useShallow((state) => Array.from(state.telemetry.fans.values())));
-
-export const useFanTelemetry = (id: number) => useMinerStore((state) => state.telemetry.fans.get(id));
-
-export const useCoolingMode = () => useMinerStore((state) => state.telemetry.coolingMode);
-
-export const useIntervalMs = () => useMinerStore((state) => state.telemetry.intervalMs);
+export const useHashboardsTelemetry = (): HashboardTelemetry[] => {
+  const values = useMinerStore((state) => state.telemetry.hashboards);
+  return useMemo(() => [...values.values()], [values]);
+};
+export const useHashboardTelemetry = (serial: string): HashboardTelemetry | undefined =>
+  useMinerStore((state) => state.telemetry.hashboards.get(getHashboardId(serial)));
+export const useAsicsTelemetry = (): AsicTelemetry[] => {
+  const values = useMinerStore((state) => state.telemetry.asics);
+  return useMemo(() => [...values.values()], [values]);
+};
+export const useAsicTelemetry = (id: string): AsicTelemetry | undefined =>
+  useMinerStore((state) => state.telemetry.asics.get(asAsicId(id)));
+export const usePsusTelemetry = (): PsuTelemetry[] => {
+  const values = useMinerStore((state) => state.telemetry.psus);
+  return useMemo(() => [...values.values()], [values]);
+};
+export const usePsuTelemetry = (slot: number): PsuTelemetry | undefined =>
+  useMinerStore((state) => state.telemetry.psus.get(getPsuId(slot)));
+export const useFansTelemetry = (): FanTelemetry[] => {
+  const values = useMinerStore((state) => state.telemetry.fans);
+  return useMemo(() => [...values.values()], [values]);
+};
+export const useFanTelemetry = (slot: number): FanTelemetry | undefined =>
+  useMinerStore((state) => state.telemetry.fans.get(getFanId(slot)));
+export const useCoolingMode = () => useMinerStore((state) => state.telemetry.coolingModeByOwner.get(ROOT_MODULE_KEY));

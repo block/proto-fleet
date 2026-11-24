@@ -2,8 +2,8 @@ import { ElementType, useMemo, useState } from "react";
 import { MemoryRouter } from "react-router-dom";
 
 import MiningPoolsComponent from "./MiningPools";
-import { PoolInfo } from "@/shared/components/MiningPools/types";
 import { getEmptyPoolsInfo } from "@/shared/components/MiningPools/utility";
+import { PoolInfo } from "@/shared/types/pool";
 
 interface MiningPoolsProps {
   defaultPoolUrl: string;

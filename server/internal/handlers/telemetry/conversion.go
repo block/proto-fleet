@@ -284,6 +284,7 @@ func convertMetricsToProto(domainMetrics []models.Metric) ([]*telemetryv1.Metric
 			OpenTime:         timestamppb.New(metric.OpenTime),
 			AggregatedValues: aggregatedValues,
 			DeviceCount:      metric.DeviceCount,
+			ReportingCount:   metric.ReportingCount, ExpectedCount: metric.ExpectedCount, CoverageComplete: metric.CoverageComplete, MetricSemantics: metric.MetricSemantics,
 		}
 	}
 

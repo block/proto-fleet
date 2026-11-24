@@ -86,6 +86,15 @@ PY
     python3 - "$config" <<"PY"
 import sys
 import yaml
+import io
+import json
+import logging
+import runpy
+from unittest.mock import Mock, patch
+from patroni.dcs.etcd3 import Etcd3Client, InvalidAuthToken
+from patroni.log import PatroniLogger
+from patroni.config import Config
+from patroni.postgresql.config import ConfigHandler
 
 with open(sys.argv[1], encoding="utf-8") as config_file:
     config = yaml.safe_load(config_file)
@@ -94,6 +103,57 @@ assert config["etcd3"]["password"] == "value # still a password"
 assert config["restapi"]["authentication"]["password"] == "quoted \"value\": with space"
 assert config["postgresql"]["authentication"]["superuser"]["password"] == "true"
 assert config["postgresql"]["authentication"]["replication"]["password"] == "colon: space"
+
+# Test the effective limits after a new cluster adopts its bootstrap configuration.
+effective = Config(sys.argv[1], validator=None)
+effective.set_dynamic_configuration(config["bootstrap"]["dcs"])
+assert effective["postgresql"]["parameters"]["max_worker_processes"] == 19
+assert effective["postgresql"]["parameters"]["max_connections"] == 1200
+
+# Catch local parameters that Patroni overrides with cluster settings or defaults.
+for name, value in config["postgresql"]["parameters"].items():
+    if name in ConfigHandler.CMDLINE_OPTIONS:
+        assert str(effective["postgresql"]["parameters"][name]) == str(value), name
+
+# Exercise Patroni itself: a missing JSON dependency otherwise silently falls
+# back to plain text, even when the configuration validator succeeds.
+logger = PatroniLogger()
+logger.reload_config(config["log"])
+output = io.StringIO()
+handler = logging.StreamHandler(output)
+handler.setFormatter(logger.log_handler.formatter)
+for level in (logging.INFO, logging.WARNING, logging.ERROR):
+    handler.handle(logging.LogRecord("patroni", level, "", 0, "test message", (), None))
+    record = json.loads(output.getvalue().splitlines()[-1])
+    assert record["level"] == logging.getLevelName(level), record
+    assert record["message"] == "test message", record
+    assert record["timestamp"], record
+
+# Run the packaged launcher, then exercise the upstream logger that otherwise
+# includes an expired credential in its authentication-error record.
+with patch("patroni.__main__.main") as main:
+    runpy.run_path("/usr/local/bin/start-patroni", run_name="__main__")
+    main.assert_called_once_with()
+etcd_logger = logging.getLogger("patroni.dcs.etcd3")
+etcd_logger.addHandler(handler)
+etcd_logger.propagate = False
+client = object.__new__(Etcd3Client)
+client._reauthenticate = False
+client._token = "synthetic-token-must-not-be-logged"
+client.username = "test-user"
+client.password = "test-password"
+client.authenticate = Mock()
+operation = Mock(side_effect=[InvalidAuthToken(), {"ok": True}])
+assert client.handle_auth_errors(operation) == {"ok": True}
+client.authenticate.assert_called_once()
+record = json.loads(output.getvalue().splitlines()[-1])
+assert record["message"] == "Invalid auth token: [redacted]", record
+assert record["level"] == "ERROR", record
+assert "synthetic-token-must-not-be-logged" not in output.getvalue()
+etcd_logger.warning("Unrelated authentication failure: %s", "reason retained")
+record = json.loads(output.getvalue().splitlines()[-1])
+assert record["message"] == "Unrelated authentication failure: reason retained", record
+assert record["level"] == "WARNING", record
 PY
 
     patroni --validate-config --ignore-listen-port "$config"

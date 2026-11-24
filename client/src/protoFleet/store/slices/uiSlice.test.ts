@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
@@ -6,7 +7,7 @@ import { createUISlice } from "./uiSlice";
 import {
   bulkRenameModes,
   createDefaultBulkRenamePreferences,
-} from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/bulkRenameDefinitions";
+} from "@/shared/components/BulkRename/bulkRenameDefinitions";
 
 type TestStore = { ui: UISlice };
 

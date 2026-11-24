@@ -30,9 +30,22 @@ func (h *Handler) GetCombinedMetrics(
 	ctx context.Context,
 	req *connect.Request[telemetryv1.GetCombinedMetricsRequest],
 ) (*connect.Response[telemetryv1.GetCombinedMetricsResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{})
+	info, err := middleware.RequirePermissionAtAnySite(ctx, authz.PermFleetRead)
 	if err != nil {
 		return nil, err
+	}
+	// Explicit sites are an authorization boundary as well as a query filter.
+	// The service resolves their current devices and intersects the selector
+	// before reading history. Unscoped/unassigned reads retain the org gate.
+	if len(req.Msg.SiteIds) == 0 || req.Msg.IncludeUnassigned {
+		if _, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{}); err != nil {
+			return nil, err
+		}
+	}
+	for _, siteID := range req.Msg.SiteIds {
+		if _, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{SiteID: &siteID}); err != nil {
+			return nil, err
+		}
 	}
 	query, err := toCombinedMetricsQuery(req.Msg)
 	if err != nil {

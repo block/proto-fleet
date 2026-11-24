@@ -1,5 +1,5 @@
 import { MemoryRouter, useLocation } from "react-router-dom";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor as waitForDefault, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
@@ -21,6 +21,9 @@ import {
   pausedRigRollout,
   pilotBehavior,
 } from "@/protoFleet/features/settings/components/ReleaseChannels/ReleaseChannels.fixtures";
+
+// The default poll interval is 50 ms. That interval is most of the run time of this file.
+const waitFor: typeof waitForDefault = (callback, options) => waitForDefault(callback, { interval: 1, ...options });
 
 vi.mock("@/shared/hooks/useWindowDimensions", () => ({
   useWindowDimensions: () => ({ width: 1280, height: 600, isPhone: false, isTablet: false, isDesktop: true }),

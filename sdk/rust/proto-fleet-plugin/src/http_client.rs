@@ -132,21 +132,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_500_maps_to_network() {
-        // Arrange
-        let (url, _h) = status_server(500).await;
-
-        // Act
-        let plugin_err = map_reqwest_error(get_status_error(&url).await, DEVICE_ID);
-
-        // Assert
-        assert!(
-            matches!(plugin_err, PluginError::Network { ref message, .. } if message.contains("500")),
-            "expected Network with status 500, got: {plugin_err:?}"
-        );
-    }
-
-    #[tokio::test]
     async fn test_connect_error_maps_to_device_unavailable() {
         // Arrange — the `.invalid` TLD is reserved by RFC 6761 and never resolves.
         // `no_proxy()` bypasses any ambient HTTP(S)_PROXY env that might

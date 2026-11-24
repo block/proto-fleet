@@ -2,6 +2,7 @@ package sqlstores_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -13,10 +14,11 @@ func TestReleaseChannelQueries_TerminalTransitionsRespectPause(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
-	for _, mutation := range pausedRolloutTerminalMutations() {
+	// The rows share one database. Each row has its own channel and rollout.
+	f := newReleaseChannelQueryFixture(t)
+	for i, mutation := range pausedRolloutTerminalMutations() {
 		t.Run(mutation.name, func(t *testing.T) {
-			f := newReleaseChannelQueryFixture(t)
-			channel := f.channel("terminal-pause")
+			channel := f.channel(fmt.Sprintf("terminal-pause-%d", i))
 			rollout := f.rollout(channel, "Bitmain", "S19")
 			rows, err := f.q.PauseFirmwareRollout(t.Context(), sqlc.PauseFirmwareRolloutParams{
 				RolloutID: rollout, ActorType: "user", ActorID: 41, ActorName: "pausing operator",

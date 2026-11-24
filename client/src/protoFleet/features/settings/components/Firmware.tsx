@@ -2,14 +2,28 @@ import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import { useSearchParams } from "react-router-dom";
 import clsx from "clsx";
 import { createPortal } from "react-dom";
-import { type FirmwareFileInfo, type FirmwareMetadataInput, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
+import { HASHBOARD_FIRMWARE_LABEL, PSU_FIRMWARE_LABEL } from "@/protoFleet/api/firmwareComponent";
+import { useContainers } from "@/protoFleet/api/useContainers";
+import {
+  type FirmwareFileInfo,
+  type FirmwareMetadataInput,
+  isCT1FirmwareTarget,
+  PSU_FIRMWARE_COMPONENT,
+  useFirmwareApi,
+} from "@/protoFleet/api/useFirmwareApi";
+import { useFrigatePackages } from "@/protoFleet/api/useFrigatePackages";
 import { type ReleaseChannelsApi, useReleaseChannels } from "@/protoFleet/api/useReleaseChannels";
 import DeleteAllFirmwareDialog from "@/protoFleet/features/settings/components/DeleteAllFirmwareDialog";
 import DeleteFirmwareDialog from "@/protoFleet/features/settings/components/DeleteFirmwareDialog";
 import EditFirmwareMetadataDialog from "@/protoFleet/features/settings/components/EditFirmwareMetadataDialog";
 import FirmwarePageLayout from "@/protoFleet/features/settings/components/FirmwarePageLayout";
+import {
+  FirmwareArtifactSection,
+  FirmwareDeviceSection,
+} from "@/protoFleet/features/settings/components/FirmwareSections";
 import FirmwareUploadDialog from "@/protoFleet/features/settings/components/FirmwareUploadDialog";
 import FirmwareUsageBadge from "@/protoFleet/features/settings/components/FirmwareUsageBadge";
+import FrigatePackages from "@/protoFleet/features/settings/components/FrigatePackages";
 import ActiveUpdatesMonitor, {
   type MonitorRequest,
 } from "@/protoFleet/features/settings/components/ReleaseChannels/ActiveUpdatesMonitor";
@@ -19,6 +33,8 @@ import {
   useLinkedRollout,
 } from "@/protoFleet/features/settings/components/ReleaseChannels/useLinkedRollout";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
+import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
+import { useHasPermission } from "@/protoFleet/store";
 import { Alert, ChevronDown, Edit, Trash } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout, { intents } from "@/shared/components/Callout";
@@ -29,6 +45,8 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimestamp";
 
 type FirmwareFileData = {
+  component?: string;
+  hashboardBuild?: string;
   id: string;
   filename: string;
   targetManufacturer: string;
@@ -135,24 +153,96 @@ function toFileData(info: FirmwareFileInfo): FirmwareFileData {
     targetManufacturer: info.target_manufacturer,
     targetModel: info.target_model,
     firmwareVersion: info.firmware_version ?? "",
+    hashboardBuild: info.hashboard_build,
+    component: info.component,
     checksum: info.sha256 ?? "",
     size: info.size,
     uploadedAt: isoToEpochSeconds(info.uploaded_at),
   };
 }
 
+// Container firmware is listed under Proto Containers, apart from miner firmware.
+const isContainerFirmware = (file: FirmwareFileData): boolean =>
+  isCT1FirmwareTarget({ targetManufacturer: file.targetManufacturer, targetModel: file.targetModel });
+
+// The kinds of firmware file a Proto Container takes, each listed under its
+// own heading in this order. A file belongs to the first kind that accepts it.
+const CONTAINER_FIRMWARE_KINDS: { key: string; title: string; accepts: (file: FirmwareFileData) => boolean }[] = [
+  // Every container file that is not a PSU capsule is a hashboard archive.
+  { key: "hashboard", title: HASHBOARD_FIRMWARE_LABEL, accepts: (file) => file.component !== PSU_FIRMWARE_COMPONENT },
+  { key: "psu", title: PSU_FIRMWARE_LABEL, accepts: (file) => file.component === PSU_FIRMWARE_COMPONENT },
+];
+
+/** Container files grouped by kind; a kind with no file is left out. */
+const containerFirmwareSections = (files: FirmwareFileData[]) =>
+  CONTAINER_FIRMWARE_KINDS.map((kind) => ({
+    kind,
+    files: files.filter((file) => CONTAINER_FIRMWARE_KINDS.find((candidate) => candidate.accepts(file)) === kind),
+  })).filter((section) => section.files.length > 0);
+
+/**
+ * Whether a Proto Container is paired, as far as this caller is concerned.
+ * `hasContainers` is undefined while that is unknown: still loading, not
+ * permitted to list containers, or a check failed. A failed refresh keeps the
+ * last answer.
+ *
+ * Listing containers needs read access at their site; updating controller
+ * software does not. So before an empty list hides the section from a caller
+ * who may update controller software, the server is asked whether a container
+ * is paired where that caller may update it.
+ */
+const usePairedContainers = (
+  canUpdateControllerSoftware: boolean,
+): { hasContainers: boolean | undefined; loading: boolean } => {
+  const canReadSites = useHasPermission("site:read");
+  const canReadFleet = useHasPermission("fleet:read");
+  const canReadMiners = useHasPermission("miner:read");
+  // ListContainers returns a container only to callers holding all three.
+  const canRead = canReadSites && canReadFleet && canReadMiners;
+  const catalog = useContainers([], false, canRead);
+  const { hasUpdatableContainer } = useFrigatePackages();
+  const [hasContainers, setHasContainers] = useState<boolean>();
+  const loaded = canRead && !catalog.loading && catalog.error === undefined;
+  const paired = catalog.containers.length > 0;
+  if (loaded && paired !== hasContainers) setHasContainers(paired);
+  const listed = canRead ? hasContainers : undefined;
+
+  const askServer = canUpdateControllerSoftware && listed === false;
+  const [updatable, setUpdatable] = useState<{ answer?: boolean; settled: boolean }>({ settled: false });
+  useEffect(() => {
+    if (!askServer) return undefined;
+    const abort = new AbortController();
+    hasUpdatableContainer(abort.signal)
+      .then((answer) => {
+        if (!abort.signal.aborted) setUpdatable({ answer, settled: true });
+      })
+      .catch(() => {
+        // Unknown keeps the section, as a failed container list does.
+        if (!abort.signal.aborted) setUpdatable({ settled: true });
+      });
+    return () => abort.abort();
+  }, [askServer, hasUpdatableContainer]);
+
+  if (!askServer) return { hasContainers: listed, loading: canRead && catalog.loading };
+  return { hasContainers: updatable.answer, loading: !updatable.settled };
+};
+
 const FirmwareFilesSection = ({
   actionContainer,
   channelsApi,
   refreshWarning,
   onManageChannel,
+  showFrigatePackages,
 }: {
   actionContainer: HTMLElement | null;
   channelsApi: ReleaseChannelsApi;
   refreshWarning: ReactNode;
   onManageChannel: (channelId: bigint) => void;
+  /** Lists controller software under Proto Containers; needs the controller software update permission. */
+  showFrigatePackages: boolean;
 }) => {
   const { listFirmwareFiles, updateFirmwareMetadata, deleteFirmwareFile, deleteAllFirmwareFiles } = useFirmwareApi();
+  const { hasContainers, loading: containersLoading } = usePairedContainers(showFrigatePackages);
   const [files, setFiles] = useState<FirmwareFileData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
@@ -317,6 +407,47 @@ const FirmwareFilesSection = ({
     />
   );
 
+  const renderFiles = (items: FirmwareFileData[]) => (
+    <List<FirmwareFileData, string, FirmwareColumns>
+      items={items}
+      itemKey="id"
+      activeCols={activeCols}
+      colTitles={colTitles}
+      colConfig={fileColConfig}
+      total={items.length}
+      itemName={{ singular: "file", plural: "files" }}
+      noDataElement={
+        <SettingsEmptyState
+          title="No firmware files uploaded"
+          description="Upload firmware before deploying updates to your fleet."
+        />
+      }
+      actions={availableActions}
+    />
+  );
+
+  const minerFiles = files.filter((file) => !isContainerFirmware(file));
+  const containerFiles = files.filter(isContainerFirmware);
+  // Operators with no Proto Container paired see nothing container-specific.
+  // An unknown answer keeps the section, so a failed check never hides artifacts.
+  const containersApply = !containersLoading && hasContainers !== false;
+  const showContainerFiles = containersApply && !isLoading && containerFiles.length > 0;
+  const showContainers = containersApply && (showFrigatePackages || showContainerFiles);
+
+  let fileContent: ReactNode = null;
+  if (isLoading || containersLoading) {
+    fileContent = <div className="text-center text-text-primary-50">Loading firmware files...</div>;
+  } else if (!showContainers || files.length === 0) {
+    // One ungrouped list of every file, which also carries the empty state.
+    fileContent = renderFiles(files);
+  } else if (minerFiles.length > 0) {
+    fileContent = (
+      <FirmwareDeviceSection title="Miners">
+        <div>{renderFiles(minerFiles)}</div>
+      </FirmwareDeviceSection>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-6">
       {actionContainer ? createPortal(uploadAction, actionContainer) : uploadAction}
@@ -325,7 +456,7 @@ const FirmwareFilesSection = ({
           <Button
             variant={variants.danger}
             size={sizes.compact}
-            text="Delete all"
+            text="Delete all firmware files"
             onClick={() => setShowDeleteAllDialog(true)}
             disabled={isDeletingAll}
             className="phone:w-full"
@@ -333,26 +464,19 @@ const FirmwareFilesSection = ({
         </div>
       ) : null}
 
-      {isLoading ? (
-        <div className="text-center text-text-primary-50">Loading firmware files...</div>
-      ) : (
-        <List<FirmwareFileData, string, FirmwareColumns>
-          items={files}
-          itemKey="id"
-          activeCols={activeCols}
-          colTitles={colTitles}
-          colConfig={fileColConfig}
-          total={files.length}
-          itemName={{ singular: "file", plural: "files" }}
-          noDataElement={
-            <SettingsEmptyState
-              title="No firmware files uploaded"
-              description="Upload firmware before deploying updates to your fleet."
-            />
-          }
-          actions={availableActions}
-        />
-      )}
+      {fileContent}
+      {showContainers ? (
+        <FirmwareDeviceSection title="Proto Containers">
+          {showContainerFiles
+            ? containerFirmwareSections(containerFiles).map(({ kind, files: kindFiles }) => (
+                <FirmwareArtifactSection key={kind.key} title={kind.title}>
+                  {renderFiles(kindFiles)}
+                </FirmwareArtifactSection>
+              ))
+            : null}
+          {showFrigatePackages ? <FrigatePackages /> : null}
+        </FirmwareDeviceSection>
+      ) : null}
 
       <FirmwareUploadDialog
         open={showUploadDialog}
@@ -395,12 +519,34 @@ const FirmwareFilesSection = ({
 const TAB_FILES = "files";
 const TAB_RELEASE_CHANNELS = "releaseChannels";
 export const RELEASE_CHANNELS_TAB_PARAM = "release-channels";
+const FRIGATE_UPDATE_PERMISSION = "controller:software_update";
+const MINER_FIRMWARE_PERMISSION = "miner:firmware_update";
+
+// FrigatePackagesPage is the page for a user who may update controller
+// software but not miner firmware. It never loads miner firmware data, and
+// has no tabs because neither miner firmware view is available.
+const FrigatePackagesPage = () => (
+  <div className="flex flex-col gap-6">
+    <SettingsPageHeader title="Firmware" />
+    <FirmwareDeviceSection title="Proto Containers">
+      <FrigatePackages />
+    </FirmwareDeviceSection>
+  </div>
+);
+
+// The settings route admits either permission; each view checks its own.
+const Firmware = () => {
+  const canManageMinerFirmware = useHasPermission(MINER_FIRMWARE_PERMISSION);
+  const canManageFrigatePackages = useHasPermission(FRIGATE_UPDATE_PERMISSION);
+  return !canManageMinerFirmware && canManageFrigatePackages ? <FrigatePackagesPage /> : <MinerFirmwarePage />;
+};
 
 // The active tab lives in the `tab` search param so other surfaces can
 // deep-link straight to the release channels view. The active-updates monitor
 // consumes channel data on both tabs, so one page-owned poll feeds both views.
-const Firmware = () => {
+const MinerFirmwarePage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
+  const canManageFrigatePackages = useHasPermission(FRIGATE_UPDATE_PERMISSION);
   const activeTab = searchParams.get("tab") === RELEASE_CHANNELS_TAB_PARAM ? TAB_RELEASE_CHANNELS : TAB_FILES;
   const channelsApi = useReleaseChannels();
   const linkedRolloutId = searchParams.get(LINKED_ROLLOUT_PARAM);
@@ -553,6 +699,7 @@ const Firmware = () => {
           channelsApi={channelsApi}
           refreshWarning={refreshWarning}
           onManageChannel={manageChannel}
+          showFrigatePackages={canManageFrigatePackages}
         />
       )}
     </FirmwarePageLayout>

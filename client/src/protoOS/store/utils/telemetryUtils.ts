@@ -1,4 +1,4 @@
-import type { Measurement, MetricUnit } from "../types";
+import type { DisplayMetricUnit, Measurement, TemperatureUnit } from "../types";
 import { getDisplayValue } from "@/shared/utils/stringUtils";
 import {
   convertCtoF,
@@ -15,9 +15,11 @@ import {
  */
 export function convertValueUnits(
   currentValue: Measurement | undefined,
-  preferredUnits: MetricUnit,
+  preferredUnits: DisplayMetricUnit,
 ): Measurement | undefined {
-  if (!currentValue?.value || !currentValue.units) {
+  // Guard only missing value/units — NOT a falsy 0. A 0 reading is legitimate and
+  // must still convert: temperature is affine, so 0°C is 32°F, not 0°F.
+  if (!currentValue || currentValue.value == null || !currentValue.units) {
     return currentValue;
   }
 
@@ -60,7 +62,7 @@ export function convertValueUnits(
 /**
  * Normalize unit strings to standardized format
  */
-function normalizeUnits(units: MetricUnit): string {
+function normalizeUnits(units: DisplayMetricUnit): string {
   const normalized = units.toLowerCase().replace(/[º°]/g, "");
 
   // Temperature normalization
@@ -86,7 +88,9 @@ function normalizeUnits(units: MetricUnit): string {
 /**
  * Detect the type of unit (temperature, power, hashrate, efficiency, etc.)
  */
-function getUnitType(units: string): "temperature" | "power" | "hashrate" | "efficiency" | "percentage" | "unknown" {
+function getUnitType(
+  units: string,
+): "temperature" | "power" | "hashrate" | "efficiency" | "percentage" | "voltage" | "unknown" {
   switch (units) {
     case "c":
     case "f":
@@ -96,6 +100,10 @@ function getUnitType(units: string): "temperature" | "power" | "hashrate" | "eff
     case "kw":
     case "mw":
       return "power";
+
+    case "v":
+    case "mv":
+      return "voltage";
 
     case "th/s":
     case "gh/s":
@@ -180,6 +188,17 @@ function performUnitConversion(value: number, fromUnits: string, toUnits: string
     }
   }
 
+  if (unitType === "voltage") {
+    // V to mV
+    if (fromUnits === "v" && toUnits === "mv") {
+      return value * 1000;
+    }
+    // mV to V
+    if (fromUnits === "mv" && toUnits === "v") {
+      return value / 1000;
+    }
+  }
+
   // No conversion available
   return null;
 }
@@ -200,18 +219,13 @@ export function formatValue(currentValue?: Measurement, displayUnits?: boolean) 
     return "N/A";
   }
 
-  const unitType = currentValue.units && getUnitType(normalizeUnits(currentValue.units));
-  const isTemperature = unitType === "temperature";
-
-  return (
-    getDisplayValue(currentValue.value) +
-    (currentValue.units && displayUnits ? ` ${isTemperature ? "°" : ""}${currentValue.units}` : "")
-  );
+  // Units already carry their display glyph (e.g. "°C", "TH/s"), so append verbatim.
+  return getDisplayValue(currentValue.value) + (currentValue.units && displayUnits ? ` ${currentValue.units}` : "");
 }
 
 export function convertAndFormatMeasurement(
   measurement: Measurement | undefined,
-  preferredUnits: MetricUnit,
+  preferredUnits: DisplayMetricUnit,
   displayUnits: boolean = true,
 ): string | undefined {
   if (!measurement) return undefined;
@@ -219,3 +233,11 @@ export function convertAndFormatMeasurement(
   const converted = convertValueUnits(measurement, preferredUnits);
   return converted ? formatValue(converted, displayUnits) : undefined;
 }
+
+/**
+ * Map the Celsius/Fahrenheit *preference* ("C" | "F") to its display unit token
+ * ("°C" | "°F"). The preference is a semantic choice; the unit token carries the
+ * degree glyph like every other display unit, so callers pass this into the
+ * conversion/formatting helpers and render the returned units verbatim.
+ */
+export const temperatureDisplayUnit = (unit: TemperatureUnit): "°C" | "°F" => (unit === "F" ? "°F" : "°C");

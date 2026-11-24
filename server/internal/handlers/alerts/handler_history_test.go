@@ -243,6 +243,11 @@ func TestDeviceLessTemplateSummariesVisibleWithoutMinerRead(t *testing.T) {
 			summary:   "Facility fan restore failed before miners resumed.",
 		},
 		{
+			template:  string(alerts.RuleTemplateCurtailmentHeartbeat),
+			alertName: "Curtailment Reconciler Stalled",
+			summary:   "The curtailment reconciler heartbeat is stale.",
+		},
+		{
 			template:  string(alerts.RuleTemplateTelemetryPoll),
 			alertName: "Telemetry Poll Failure Rate High",
 			summary:   "Telemetry polling is failing for the last ten minutes.",

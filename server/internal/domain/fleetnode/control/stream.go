@@ -3,6 +3,9 @@ package control
 import (
 	"log/slog"
 	"sync"
+	"time"
+
+	"google.golang.org/protobuf/proto"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
@@ -17,7 +20,9 @@ type Stream struct {
 	fleetNodeID int64
 	conn        *connection
 	Outgoing    <-chan *gatewaypb.ControlCommand
-	Done        <-chan struct{}
+	// Cancels carries command_ids the handler sends to the node as ControlCancel.
+	Cancels <-chan string
+	Done    <-chan struct{}
 }
 
 // Register installs a connection for fleetNodeID, newest-wins: any existing one
@@ -38,6 +43,7 @@ func (r *Registry) RegisterAuthenticated(
 	fleetNodeID int64,
 	sessionFingerprint string,
 	maxCommandProtocolVersion gatewaypb.CommandProtocolVersion,
+	opts ...RegisterOption,
 ) (*Stream, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -45,21 +51,40 @@ func (r *Registry) RegisterAuthenticated(
 	if exists && (fence.revoked || fence.fingerprint != sessionFingerprint) {
 		return nil, errSessionInvalidated
 	}
-	return r.registerLocked(fleetNodeID, maxCommandProtocolVersion), nil
+	return r.registerLocked(fleetNodeID, maxCommandProtocolVersion, opts...), nil
 }
 
-func (r *Registry) registerLocked(fleetNodeID int64, maxCommandProtocolVersion gatewaypb.CommandProtocolVersion) *Stream {
+// RegisterOption sets connection metadata before the connection becomes visible.
+type RegisterOption func(*connection)
+
+// WithDiscoveryConfig records the ranges a node reported in ControlHello; a nil
+// config marks a node that did not report any.
+func WithDiscoveryConfig(config *gatewaypb.DiscoveryConfig) RegisterOption {
+	return func(c *connection) { c.discoveryConfig = proto.CloneOf(config) }
+}
+
+func (r *Registry) registerLocked(
+	fleetNodeID int64,
+	maxCommandProtocolVersion gatewaypb.CommandProtocolVersion,
+	opts ...RegisterOption,
+) *Stream {
 	if old, exists := r.conns[fleetNodeID]; exists {
 		teardown(old)
 	}
+	delete(r.disconnectedAt, fleetNodeID)
 	conn := &connection{
 		outgoing:                  make(chan *gatewaypb.ControlCommand, outgoingBuffer),
+		cancels:                   make(chan string, cancelBuffer),
 		done:                      make(chan struct{}),
 		cmds:                      make(map[string]*inflightCommand),
 		maxCommandProtocolVersion: maxCommandProtocolVersion,
+		connectedAt:               time.Now(),
+	}
+	for _, opt := range opts {
+		opt(conn)
 	}
 	r.conns[fleetNodeID] = conn
-	return &Stream{r: r, fleetNodeID: fleetNodeID, conn: conn, Outgoing: conn.outgoing, Done: conn.done}
+	return &Stream{r: r, fleetNodeID: fleetNodeID, conn: conn, Outgoing: conn.outgoing, Cancels: conn.cancels, Done: conn.done}
 }
 
 // ReplaceSession fences out streams authenticated with older credentials and
@@ -94,6 +119,7 @@ func (r *Registry) disconnectLocked(fleetNodeID int64) {
 	}
 	teardown(conn)
 	delete(r.conns, fleetNodeID)
+	r.disconnectedAt[fleetNodeID] = time.Now()
 }
 
 // Unregister tears the connection down so blocked senders/the handler wake. No-op if
@@ -105,15 +131,19 @@ func (s *Stream) Unregister() {
 	if !ok || conn != s.conn {
 		return
 	}
-	teardown(conn)
-	delete(s.r.conns, s.fleetNodeID)
+	s.r.disconnectLocked(s.fleetNodeID)
 }
 
 // PublishAck routes an agent ack to its in-flight command: a report-bearing command
 // receives it as the terminal event on `events`; an ack-only command receives it on
 // `ack`. Unknown/stale/duplicate command_ids are dropped.
 func (s *Stream) PublishAck(ack *gatewaypb.ControlAck) {
-	s.r.deliverAck(s.fleetNodeID, ack)
+	s.r.mu.Lock()
+	defer s.r.mu.Unlock()
+	if s.r.conns[s.fleetNodeID] != s.conn {
+		return
+	}
+	s.r.deliverAckLocked(s.fleetNodeID, ack)
 }
 
 // PublishBatch routes an agent discovery batch to the in-flight report-bearing command.
@@ -129,6 +159,8 @@ func (r *Registry) PublishPairResults(fleetNodeID int64, commandID string, resul
 // AdmitReport reserves quota for deviceCount devices against the in-flight
 // report-bearing command of kind want (a discovery command_id can't admit pair
 // results or vice versa). Returns errNoInFlightCommand or ErrReportQuotaExceeded.
+// This bounds raw reports per command; the shared request budget is charged
+// only for accepted devices, in PublishBatch.
 func (r *Registry) AdmitReport(fleetNodeID int64, commandID string, deviceCount int, want ReportKind) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -136,7 +168,10 @@ func (r *Registry) AdmitReport(fleetNodeID int64, commandID string, deviceCount 
 	if cmd == nil || !cmd.reportBearing() || cmd.kind != want {
 		return errNoInFlightCommand
 	}
-	if cmd.reported+deviceCount > cmd.maxReports {
+	if deviceCount < 0 || deviceCount > cmd.maxReports-cmd.reported {
+		return ErrReportQuotaExceeded
+	}
+	if cmd.requestBudget != nil && cmd.requestBudget.Exhausted() {
 		return ErrReportQuotaExceeded
 	}
 	cmd.reported += deviceCount
@@ -407,8 +442,10 @@ func artifactExpectationMatches(exp, want ArtifactExpectation) bool {
 // PairPersistMeta is the operator context the gateway needs to persist a pair
 // result authoritatively, returned by AdmitAndScopePairResults.
 type PairPersistMeta struct {
-	OrgID      int64
-	AssignedBy *int64
+	FleetNodeID int64
+	OrgID       int64
+	AssignedBy  *int64
+	Snapshots   map[string]*pairingpb.FleetNodePairTarget
 }
 
 // AdmitAndScopePairResults is the single atomic gate for the gateway's
@@ -430,6 +467,7 @@ func (r *Registry) AdmitAndScopePairResults(fleetNodeID int64, commandID string,
 	}
 
 	kept := make([]*gatewaypb.FleetNodePairResult, 0, len(results))
+	snapshots := make(map[string]*pairingpb.FleetNodePairTarget, len(results))
 	for _, res := range results {
 		id := res.GetDeviceIdentifier()
 		if _, ok := cmd.pair.Targets[id]; !ok {
@@ -439,10 +477,16 @@ func (r *Registry) AdmitAndScopePairResults(fleetNodeID int64, commandID string,
 			continue
 		}
 		delete(cmd.pair.Targets, id)
+		snapshots[id] = proto.CloneOf(cmd.pair.Snapshots[id])
 		kept = append(kept, res)
 	}
 	cmd.reported += len(kept)
-	return kept, PairPersistMeta{OrgID: cmd.pair.OrgID, AssignedBy: cmd.pair.AssignedBy}, nil
+	return kept, PairPersistMeta{
+		FleetNodeID: fleetNodeID,
+		OrgID:       cmd.pair.OrgID,
+		AssignedBy:  cmd.pair.AssignedBy,
+		Snapshots:   snapshots,
+	}, nil
 }
 
 // ReinstatePairTargets returns identifiers to the in-flight pair command's target
@@ -490,6 +534,9 @@ func (r *Registry) deliverEvent(fleetNodeID int64, commandID string, ev CommandE
 	if cmd == nil || !cmd.reportBearing() {
 		return // unknown/stale command_id, or not report-bearing
 	}
+	if ev.Batch != nil && cmd.requestBudget != nil && !cmd.requestBudget.Admit(len(ev.Batch.GetDevices())) {
+		return // request budget crossed; the batch is dropped and the request stops dispatching
+	}
 	select {
 	case cmd.events <- ev:
 	default:
@@ -499,9 +546,7 @@ func (r *Registry) deliverEvent(fleetNodeID int64, commandID string, ev CommandE
 }
 
 // deliverAck routes a terminal ack to its in-flight command under the mutex, by kind.
-func (r *Registry) deliverAck(fleetNodeID int64, ack *gatewaypb.ControlAck) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (r *Registry) deliverAckLocked(fleetNodeID int64, ack *gatewaypb.ControlAck) {
 	cmd := r.inflightFor(fleetNodeID, ack.GetCommandId())
 	if cmd == nil {
 		return // unknown/stale/duplicate command_id

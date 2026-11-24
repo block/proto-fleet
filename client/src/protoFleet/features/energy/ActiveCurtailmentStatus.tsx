@@ -3,72 +3,30 @@ import clsx from "clsx";
 
 import {
   type ActiveCurtailmentCurtailProgress,
-  type ActiveCurtailmentDisplayState,
   type ActiveCurtailmentMinerCompliance,
   type ActiveCurtailmentRestoreProgress,
-  type CurtailmentEventState,
-  type CurtailmentTargetRollup,
   formatCurtailmentAppliesToSummary,
-  formatCurtailmentElapsedDuration,
-  formatCurtailmentKw as formatKw,
+  formatCurtailmentDuration,
   formatCurtailmentMinerCount as formatMinerCount,
   getActiveCurtailmentCurtailProgress,
   getActiveCurtailmentDisplayState,
   getActiveCurtailmentMinerCompliance,
   getActiveCurtailmentRestoreProgress,
   getCurtailmentTargetKw as getTargetKw,
-} from "@/protoFleet/features/energy/curtailmentDisplayUtils";
+} from "@/protoFleet/api/curtailmentDisplayUtils";
+import type {
+  ActiveCurtailmentDisplayState,
+  ActiveCurtailmentEvent,
+  ActiveCurtailmentTargetSiteCoverage,
+  ActiveCurtailmentUnavailableReasonCount,
+} from "@/protoFleet/api/curtailmentTypes";
+import { formatCurtailmentKw as formatKw } from "@/protoFleet/api/curtailmentUtils";
+
 import { Alert, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import CompositionBar, { type Segment } from "@/shared/components/CompositionBar";
 import Header from "@/shared/components/Header";
 import ProgressCircular from "@/shared/components/ProgressCircular";
-
-export interface ActiveCurtailmentEvent {
-  reason: string;
-  state: CurtailmentEventState;
-  scopeLabel: string;
-  sourceLabel: string;
-  isAutomationOwned: boolean;
-  targetSiteCoverage?: ActiveCurtailmentTargetSiteCoverage;
-  createdAt?: string;
-  scheduledStartAt?: string;
-  startedAt?: string;
-  endedAt?: string;
-  selectedMiners: number;
-  estimatedReductionKw: number;
-  targetKw?: number;
-  hasTargetMetrics?: boolean;
-  observedReductionKw: number;
-  remainingPowerKw?: number;
-  facilityFanDeviceCount?: number;
-  fanOffSentAt?: string;
-  fanOnSentAt?: string;
-  fanAirflowReopenedAt?: string;
-  fanLastError?: string;
-  // Curtail dispatch pacing for the rough time-to-curtail estimate; absent
-  // when the event has no explicit batch size (reconciler-side defaults).
-  curtailBatchSize?: number;
-  curtailBatchIntervalSec?: number;
-  // Configured restore wave size; 0 means "up to the safety limit" per wave,
-  // matching the reconciler's restore claim sizing.
-  restoreBatchSize: number;
-  restoreBatchIntervalSec: number;
-  rollups: CurtailmentTargetRollup[];
-  unavailableReasonCounts?: ActiveCurtailmentUnavailableReasonCount[];
-}
-
-export interface ActiveCurtailmentTargetSiteCoverage {
-  complete: boolean;
-  targetCount: number;
-  mappedTargetCount: number;
-  unknownTargetCount: number;
-}
-
-export interface ActiveCurtailmentUnavailableReasonCount {
-  label: string;
-  count: number;
-}
 
 interface ActiveCurtailmentStatusProps {
   event: ActiveCurtailmentEvent;
@@ -154,6 +112,7 @@ const unavailablePowerLabel = "Unavailable";
 const unavailableTimeLabel = "Time unavailable";
 
 const displayStateLabels: Record<ActiveCurtailmentDisplayState, string> = {
+  unknown: "Unknown",
   cancelled: "Cancelled",
   curtailed: "Curtailed",
   curtailing: "Curtailing",
@@ -169,7 +128,7 @@ function getInfrastructureStatus(
   isRestoreFlow: boolean,
   displayState: ActiveCurtailmentDisplayState,
 ): string | null {
-  if ((event.facilityFanDeviceCount ?? 0) <= 0) {
+  if (displayState === "unknown" || (event.facilityFanDeviceCount ?? 0) <= 0) {
     return null;
   }
 
@@ -263,17 +222,8 @@ function formatEstimatedCompletion(remainingSeconds: number, currentTime = new D
     : formatDateTimeValue(estimatedCompletionDate);
 }
 
-function formatKwMagnitude(value: number): string {
-  const finiteValue = Number.isFinite(value) ? value : 0;
-
-  return finiteValue.toLocaleString(undefined, {
-    maximumFractionDigits: 1,
-    minimumFractionDigits: 1,
-  });
-}
-
 function formatPowerProgressValue(currentKw: number, targetKw: number): string {
-  return `${formatKwMagnitude(currentKw)} of ${formatKw(targetKw)}`;
+  return `${formatKw(currentKw, { includeUnit: false })} of ${formatKw(targetKw)}`;
 }
 
 function formatActivePowerValue({ isRestoreFlow, observedReductionKw, targetKw }: FormatActivePowerValueArgs): string {
@@ -331,26 +281,6 @@ function getPowerLabel(displayFlags: ActiveCurtailmentDisplayFlags): string {
   return "Power shed";
 }
 
-function formatDurationLong(totalSeconds: number): string {
-  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) {
-    return "Immediate";
-  }
-
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  const parts: string[] = [];
-
-  if (minutes > 0) {
-    parts.push(`${minutes.toLocaleString()} ${minutes === 1 ? "minute" : "minutes"}`);
-  }
-
-  if (seconds > 0) {
-    parts.push(`${seconds.toLocaleString()} ${seconds === 1 ? "second" : "seconds"}`);
-  }
-
-  return parts.join(", ");
-}
-
 function getRestoreEstimateSeconds({
   selectedMinerCount,
   restoreBatchSize,
@@ -392,10 +322,10 @@ function formatRestoreTimeValue({
   totalRestoreSeconds,
 }: RestoreTimeValueArgs): string {
   if (isRestored) {
-    return formatDurationLong(totalRestoreSeconds);
+    return formatCurtailmentDuration(totalRestoreSeconds, { style: "long" });
   }
 
-  return formatDurationLong(remainingRestoreSeconds);
+  return formatCurtailmentDuration(remainingRestoreSeconds, { style: "long" });
 }
 
 function getDisplayFlags(displayState: ActiveCurtailmentDisplayState): ActiveCurtailmentDisplayFlags {
@@ -457,9 +387,7 @@ function ElapsedProgressValue({ since, until }: { since: string; until?: string 
   const endMs = untilDate?.getTime() ?? nowMs;
   const elapsedSeconds = Math.max((endMs - sinceDate.getTime()) / millisecondsPerSecond, 0);
   return (
-    <div className="text-right text-200 text-text-primary">
-      {formatCurtailmentElapsedDuration(elapsedSeconds)} elapsed
-    </div>
+    <div className="text-right text-200 text-text-primary">{formatCurtailmentDuration(elapsedSeconds)} elapsed</div>
   );
 }
 
@@ -690,6 +618,7 @@ function getActiveCurtailmentActionButton({
       return onDismissRestored ? (
         <Button variant={variants.secondary} size={sizes.compact} text="Dismiss" onClick={onDismissRestored} />
       ) : null;
+    case "unknown":
     case "cancelled":
     case "failed":
       return null;
@@ -829,12 +758,17 @@ export default function ActiveCurtailmentStatus({
     Boolean(event.endedAt) ||
     (remainingRestoreSeconds > 0 && estimatedCompletion !== unavailableTimeLabel);
   const restoreFailureValue = formatMinerCount(compliance.restoreFailedCount);
-  const statusIcon = getActiveCurtailmentStatusIcon({
-    isTerminalFailure: displayFlags.isTerminalFailure,
-    isRestored: displayFlags.isRestored,
-    isRestoreIncomplete: displayFlags.isRestoreIncomplete,
-    isCurtailmentComplete: displayFlags.isCurtailmentComplete,
-  });
+  const statusIcon =
+    displayState === "unknown" ? (
+      <Alert className="text-text-primary-50" />
+    ) : (
+      getActiveCurtailmentStatusIcon({
+        isTerminalFailure: displayFlags.isTerminalFailure,
+        isRestored: displayFlags.isRestored,
+        isRestoreIncomplete: displayFlags.isRestoreIncomplete,
+        isCurtailmentComplete: displayFlags.isCurtailmentComplete,
+      })
+    );
   const incompleteSiteCoverageWarning = formatIncompleteSiteCoverageWarning(event.targetSiteCoverage);
   const infrastructureStatus = getInfrastructureStatus(event, displayFlags.isRestoreFlow, displayState);
 
@@ -887,7 +821,10 @@ export default function ActiveCurtailmentStatus({
               {infrastructureStatus ? <StatBlock label="Infrastructure" value={infrastructureStatus} /> : null}
               <StatBlock label="Restore" value={formatRestoreProfile(event)} />
               {curtailRemainingSeconds > 0 ? (
-                <StatBlock label="Estimated time to curtail" value={formatDurationLong(curtailRemainingSeconds)} />
+                <StatBlock
+                  label="Estimated time to curtail"
+                  value={formatCurtailmentDuration(curtailRemainingSeconds, { style: "long" })}
+                />
               ) : null}
             </>
           )}

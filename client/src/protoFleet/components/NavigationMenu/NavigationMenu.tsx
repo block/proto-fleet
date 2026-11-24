@@ -6,21 +6,22 @@ import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 type NavigationMenuProps = {
   items: NavItem[];
+  roleLabel?: string;
   isVisible?: boolean;
   closeMenu?: () => void;
   rail?: NavigationRail;
 };
 
-const NavigationMenu = ({ items, isVisible, closeMenu, rail }: NavigationMenuProps) => {
+const NavigationMenu = ({ items, isVisible, closeMenu, rail, roleLabel }: NavigationMenuProps) => {
   const { isPhone } = useWindowDimensions();
 
   if (isVisible && isPhone) {
-    return <FloatingNavigation items={items} closeMenu={closeMenu} />;
+    return <FloatingNavigation roleLabel={roleLabel} items={items} closeMenu={closeMenu} />;
   }
 
   if (isPhone) return null;
 
-  return <Navigation items={items} rail={rail} />;
+  return <Navigation roleLabel={roleLabel} items={items} rail={rail} />;
 };
 
 export default NavigationMenu;

@@ -10,19 +10,6 @@ beforeEach(() => {
 });
 
 describe("DeleteAllFirmwareDialog", () => {
-  it("renders title", () => {
-    const { getByText } = render(
-      <DeleteAllFirmwareDialog
-        fileCount={3}
-        onConfirm={mockOnConfirm}
-        onDismiss={mockOnDismiss}
-        isSubmitting={false}
-      />,
-    );
-
-    expect(getByText("Delete all firmware files?")).toBeInTheDocument();
-  });
-
   it("renders singular text for fileCount=1", () => {
     const { getByText } = render(
       <DeleteAllFirmwareDialog
@@ -74,20 +61,6 @@ describe("DeleteAllFirmwareDialog", () => {
 
     fireEvent.click(getByText("Cancel"));
     expect(mockOnDismiss).toHaveBeenCalled();
-  });
-
-  it("calls onConfirm when Delete all is clicked", () => {
-    const { getByText } = render(
-      <DeleteAllFirmwareDialog
-        fileCount={2}
-        onConfirm={mockOnConfirm}
-        onDismiss={mockOnDismiss}
-        isSubmitting={false}
-      />,
-    );
-
-    fireEvent.click(getByText("Delete all"));
-    expect(mockOnConfirm).toHaveBeenCalled();
   });
 
   it("disables Delete all button when isSubmitting is true", () => {

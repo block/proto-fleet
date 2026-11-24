@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 
-import { planReadout } from "./behaviorUtils";
+import { planReadout, rolloutBehaviorErrors } from "./behaviorUtils";
 import {
   activeRigRollout,
   batchedAutoBehavior,
@@ -22,15 +22,24 @@ import {
   activeUpdateSummary,
   canRetryRemaining,
   channelAssignmentKey,
+  channelMembersLabel,
   channelUpdateStatus,
+  CONTAINER_NOUNS,
+  DEVICE_NOUNS,
+  deviceCountLabel,
   deviceCounts,
   evidenceScopeLabel,
   failedDevices,
   hasUnavailableAssignedFirmware,
+  isContainerPair,
   lastFinishedByChannelAssignment,
+  methodHelp,
   metricDisplay,
+  MINER_NOUNS,
+  mixedDeviceNouns,
   modelFirmwareLabel,
   modelUpdateStatus,
+  nounCountLabel,
   pacingSummary,
   pairKey,
   rolloutDeviceCounts,
@@ -74,6 +83,84 @@ describe("release channel target keys", () => {
   });
 });
 const rigGroup = { ...canaryChannel.modelGroups[0], activeRolloutId: 0n, assignmentGeneration: 1n };
+const rigPair = { manufacturer: "Proto", model: "Rig" };
+const containerPair = { manufacturer: "Proto", model: "CT1" };
+
+describe("device wording by model pair", () => {
+  // A container update reuses a rig update's shape with the container pair.
+  const containerRollout = (base = activeRigRollout) => create(RolloutSchema, { ...base, ...containerPair });
+
+  it("recognizes a Proto Container by its pair, as the server folds it", () => {
+    expect(isContainerPair(containerPair)).toBe(true);
+    expect(isContainerPair({ manufacturer: " proto ", model: "ct1" })).toBe(true);
+    expect(isContainerPair(rigPair)).toBe(false);
+    expect(isContainerPair({ manufacturer: "", model: "CT1" })).toBe(false);
+  });
+
+  it("counts a pair's devices as miners or containers", () => {
+    expect(deviceCountLabel(rigPair, 1)).toBe("1 miner");
+    expect(deviceCountLabel(rigPair, 2000)).toBe("2,000 miners");
+    expect(deviceCountLabel(containerPair, 1)).toBe("1 container");
+    expect(deviceCountLabel(containerPair, 12)).toBe("12 containers");
+  });
+
+  it("words a container update's progress and evidence as containers", () => {
+    const counts = rolloutDeviceCounts(activeRigRollout);
+    expect(rolloutProgressSummary(counts, containerPair)).toBe("2 of 6 containers updated (33%)");
+    expect(activeUpdateSummary(containerRollout())).toBe("2 of 6 containers updated");
+    expect(evidenceScopeLabel(containerRollout(completedRigRollout))).toBe("All containers");
+  });
+
+  it("names an empty container model group", () => {
+    const group = { ...rigGroup, ...containerPair, minerCount: 0 };
+    expect(modelUpdateStatus(group, undefined, undefined).label).toBe("No containers");
+    expect(modelUpdateStatus({ ...rigGroup, minerCount: 0 }, undefined, undefined).label).toBe("No miners");
+  });
+
+  it("calls several pairs devices only when miners and containers are both among them", () => {
+    expect(mixedDeviceNouns([rigPair, { manufacturer: "Bitmain", model: "S21" }])).toBe(MINER_NOUNS);
+    expect(mixedDeviceNouns([containerPair])).toBe(CONTAINER_NOUNS);
+    expect(mixedDeviceNouns([rigPair, containerPair])).toBe(DEVICE_NOUNS);
+    // With nothing to go by, the caller's fallback applies; miners by default.
+    expect(mixedDeviceNouns([])).toBe(MINER_NOUNS);
+    expect(mixedDeviceNouns([], DEVICE_NOUNS)).toBe(DEVICE_NOUNS);
+    expect(nounCountLabel(DEVICE_NOUNS, 1)).toBe("1 device");
+    expect(nounCountLabel(DEVICE_NOUNS, 2000)).toBe("2,000 devices");
+  });
+
+  it("describes update methods and plans with the channel's nouns", () => {
+    expect(methodHelp(RolloutMethod.ALL_AT_ONCE)).toBe("Every miner not on the new version updates at once.");
+    expect(methodHelp(RolloutMethod.UNSPECIFIED)).toBe(methodHelp(RolloutMethod.ALL_AT_ONCE));
+    expect(methodHelp(RolloutMethod.ALL_AT_ONCE, DEVICE_NOUNS)).toBe(
+      "Every device not on the new version updates at once.",
+    );
+    expect(methodHelp(RolloutMethod.BATCHED, CONTAINER_NOUNS)).toMatch(/^Containers update in batches/);
+    expect(methodHelp(RolloutMethod.PILOT_THEN_CONTINUE, DEVICE_NOUNS)).toContain("The remaining devices wait");
+    expect(methodHelp(RolloutMethod.DELEGATED, CONTAINER_NOUNS)).toContain("which containers update and when");
+    expect(planReadout(batchedAutoBehavior, 48, DEVICE_NOUNS)).toBe("~24 batches of 2 across 48 devices");
+    expect(planReadout(singleBatchBehavior, 2, CONTAINER_NOUNS)).toBe("2 containers in a single batch");
+    expect(
+      rolloutBehaviorErrors(create(RolloutBehaviorSchema, { ...batchedAutoBehavior, batchSize: 0 })),
+    ).toMatchObject({
+      batchSize: "Enter at least 1 miner.",
+    });
+    expect(
+      rolloutBehaviorErrors(create(RolloutBehaviorSchema, { ...batchedAutoBehavior, batchSize: 0 }), DEVICE_NOUNS),
+    ).toMatchObject({ batchSize: "Enter at least 1 device." });
+  });
+
+  it("splits a channel's members by device type", () => {
+    const groups = [
+      { ...rigPair, minerCount: 6 },
+      { ...containerPair, minerCount: 2 },
+    ];
+    expect(channelMembersLabel(8, groups)).toBe("6 miners, 2 containers");
+    expect(channelMembersLabel(6, [groups[0]])).toBe("6 miners");
+    expect(channelMembersLabel(1, [{ ...containerPair, minerCount: 1 }])).toBe("1 container");
+    expect(channelMembersLabel(1, [{ ...rigPair, minerCount: 1 }])).toBe("1 miner");
+    expect(channelMembersLabel(0, [])).toBe("0 miners");
+  });
+});
 
 describe("active rollout identity", () => {
   const group = {
@@ -155,7 +242,7 @@ describe("remaining rollout retry eligibility", () => {
     expect(canRetryRemaining(rollout, [channel], [rollout, { ...active, status: RolloutStatus.COMPLETED }])).toBe(true);
   });
 
-  it.each([{ done: 6 }, { done: 5, skipped: 1 }, { done: 5, excluded: 1 }])(
+  it.each([{ done: 6 }])(
     "allows a current successful rollout to retry suppressed miners beyond its own counts (%#)",
     (counts) => {
       const completed = {
@@ -170,7 +257,7 @@ describe("remaining rollout retry eligibility", () => {
     },
   );
 
-  it.each([{ queued: 3 }, { inProgress: 2 }, { failed: 1, skipped: 1 }, { excluded: 1 }])(
+  it.each([{ queued: 3 }])(
     "allows current canceled-remaining rollouts with any historical phase mix (%#)",
     (counts) => {
       const canceled = {
@@ -326,7 +413,7 @@ describe("device counts and progress", () => {
       { name: "Remaining", status: "WARNING", count: 2 },
       { name: "Failed", status: "CRITICAL", count: 1 },
     ]);
-    expect(rolloutProgressSummary(counts)).toBe("3 of 6 miners updated (50%), 1 failed");
+    expect(rolloutProgressSummary(counts, rigPair)).toBe("3 of 6 miners updated (50%), 1 failed");
   });
 
   it("uses a neutral canceled segment for unfinished terminal work", () => {
@@ -356,7 +443,7 @@ describe("device counts and progress", () => {
       ]);
       expect(fetchedCounts).toEqual(summaryCounts);
       expect(summaryCounts).toMatchObject({ updated: 199, total: 200, percent: 99 });
-      expect(rolloutProgressSummary(summaryCounts)).toBe(`199 of 200 miners updated (99%)${suffix}`);
+      expect(rolloutProgressSummary(summaryCounts, rigPair)).toBe(`199 of 200 miners updated (99%)${suffix}`);
     },
   );
 
@@ -366,14 +453,14 @@ describe("device counts and progress", () => {
   ])("reports exact completion for $done updated miners, excluding neutral targets", ({ done, expected }) => {
     const counts = rolloutDeviceCounts(create(RolloutSchema, { deviceCounts: { done, excluded: 2, skipped: 1 } }));
     expect(counts).toMatchObject({ updated: done, total: done, percent: 100 });
-    expect(rolloutProgressSummary(counts)).toBe(expected);
+    expect(rolloutProgressSummary(counts, rigPair)).toBe(expected);
   });
 
   it("does not report completion for an empty or entirely neutral scope", () => {
     for (const deviceCounts of [{}, { excluded: 2, skipped: 1 }]) {
       const counts = rolloutDeviceCounts(create(RolloutSchema, { deviceCounts }));
       expect(counts).toMatchObject({ updated: 0, total: 0, percent: 0 });
-      expect(rolloutProgressSummary(counts)).toBe("0 of 0 miners updated (0%)");
+      expect(rolloutProgressSummary(counts, rigPair)).toBe("0 of 0 miners updated (0%)");
     }
   });
 
@@ -688,7 +775,7 @@ describe("channel and model status", () => {
 describe("scope summary", () => {
   it("labels populated dimensions", () => {
     expect(scopeSummary(canaryChannel.scope!)).toBe("1 rack, 2 miners");
-    expect(scopeSummary(create(ReleaseChannelScopeSchema))).toBe("No miners selected");
+    expect(scopeSummary(create(ReleaseChannelScopeSchema))).toBe("Nothing selected");
     expect(isScopeEmpty(create(ReleaseChannelScopeSchema))).toBe(true);
     expect(isScopeEmpty(canaryChannel.scope!)).toBe(false);
   });

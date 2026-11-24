@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
+	"github.com/block/proto-fleet/server/internal/domain/discoveryranges"
+	"github.com/block/proto-fleet/server/internal/domain/netutil"
 )
 
 // LocalSubnetTarget asks a Fleet Node to select its own private IPv4 subnets.
@@ -22,11 +24,6 @@ var (
 	hostnameRE        = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$`)
 	ipv4RangeRE       = regexp.MustCompile(`^(\d{1,3}\.){3}\d{1,3}-\d{1,3}$`)
 	multiOctetRangeRE = regexp.MustCompile(`^\d+(-\d+)?(\.\d+(-\d+)?)+$`)
-	privateIPv4       = [...]netip.Prefix{
-		netip.MustParsePrefix("10.0.0.0/8"),
-		netip.MustParsePrefix("172.16.0.0/12"),
-		netip.MustParsePrefix("192.168.0.0/16"),
-	}
 )
 
 // Resolver is the DNS lookup used by both server and Fleet Node discovery.
@@ -72,8 +69,7 @@ func ParseTarget(raw string) (Target, error) {
 		if !prefix.Addr().Is4() {
 			return Target{}, fmt.Errorf("scan target %q: IPv6 CIDRs are not supported", raw)
 		}
-		first := prefix.Masked().Addr()
-		last := ipv4Addr(ipv4Value(first) | (^uint32(0) >> prefix.Bits()))
+		first, last := netutil.IPv4PrefixBounds(prefix)
 		if prefix.Bits() <= 30 {
 			first = first.Next()
 			last = last.Prev()
@@ -172,18 +168,10 @@ func (t Target) IsPrivate() bool {
 	if t.hostname != "" {
 		return true
 	}
-	if !t.first.IsPrivate() || !t.last.IsPrivate() {
-		return false
+	if t.first.Is4() {
+		return discoveryranges.WithinPrivateNetwork(t.first, t.last)
 	}
-	if !t.first.Is4() {
-		return true // IPv6 targets are literals only.
-	}
-	for _, prefix := range privateIPv4 {
-		if prefix.Contains(t.first) && prefix.Contains(t.last) {
-			return true
-		}
-	}
-	return false
+	return t.first.IsPrivate() && t.last.IsPrivate() // IPv6 targets are literals only.
 }
 
 // Resolve resolves a hostname once, filtering unusable or disallowed answers

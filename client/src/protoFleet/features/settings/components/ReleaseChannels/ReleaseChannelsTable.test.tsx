@@ -22,6 +22,27 @@ import {
 
 afterEach(() => vi.restoreAllMocks());
 
+describe("release channel count column", () => {
+  const header = () => screen.getAllByRole("columnheader")[1];
+  const containerGroup = create(ReleaseChannelModelGroupSchema, { manufacturer: "Proto", model: "CT1", minerCount: 2 });
+
+  it("is headed by what the listed channels hold", () => {
+    const props = { rollouts: [], onManage: vi.fn() };
+    const { rerender } = render(<ReleaseChannelsTable {...props} channels={[canaryChannel]} />);
+    expect(header()).toHaveTextContent(/^Miners$/);
+
+    const containers = { ...canaryChannel, id: 91n, name: "Containers only", modelGroups: [containerGroup] };
+    rerender(<ReleaseChannelsTable {...props} channels={[containers]} />);
+    expect(header()).toHaveTextContent(/^Containers$/);
+
+    rerender(<ReleaseChannelsTable {...props} channels={[canaryChannel, containers]} />);
+    expect(header()).toHaveTextContent(/^Devices$/);
+
+    rerender(<ReleaseChannelsTable {...props} channels={[]} />);
+    expect(header()).toHaveTextContent(/^Miners$/);
+  });
+});
+
 describe("release channel firmware availability", () => {
   it.each([false, true])("shows unavailable assignments with an active update: %s", (active) => {
     const group = {

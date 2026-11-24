@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -173,7 +174,7 @@ func requestRPCStats(t *testing.T, state *MinerState) StatsResponse {
 
 	serverConn, clientConn := net.Pipe()
 	t.Cleanup(func() { _ = clientConn.Close() })
-	go handleRPCConnection(serverConn, state)
+	go handleRPCRequest(context.Background(), serverConn, state, 0, nil)
 
 	if err := json.NewEncoder(clientConn).Encode(RPCRequest{Command: "stats"}); err != nil {
 		t.Fatalf("encode RPC stats request: %v", err)

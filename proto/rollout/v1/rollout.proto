@@ -16,6 +16,18 @@ import "google/protobuf/timestamp.proto";
 // Each enforcement run for one (channel, manufacturer, model) tuple is tracked
 // as a rollout.
 //
+// Component rule: a model's firmware may have more than one component, each
+// assigned, rolled out and verified on its own. The empty component is the
+// model's main firmware; "psu" is the PSU firmware of a CT1 container, whose
+// main firmware is its hashboard firmware. Wherever these rules say "pair",
+// read "pair and component": each (channel, manufacturer, model, component)
+// has its own assignment, generation, single active rollout, reported
+// version, managed-deployment provenance and suppression. A firmware command
+// updates one component, so a pending command, a finished command and a
+// direct command a channel refuses concern that component only. A device
+// still accepts one firmware command at a time, so dispatch for one
+// component waits while a command for another is pending.
+//
 // Exclusive membership resolution: a miner belongs to at most one channel,
 // and channels whose scopes would overlap cannot be saved. If fleet changes
 // later create an overlap, the channel with the unique highest-specificity
@@ -73,7 +85,19 @@ import "google/protobuf/timestamp.proto";
 // different provenance and such an outstanding command: the member's update
 // for the current target is queued behind the outstanding command, so a
 // superseded update that finishes later cannot leave the miner off the
-// assignment with no rollout to correct it.
+// assignment with no rollout to correct it. The one exception is an unknown
+// version under the reported-version rule.
+//
+// Reported-version rule: a miner's reported version is the controller
+// firmware it reports, except for container-class devices (CT1), where it is
+// the hashboard firmware from inventory observed within the last two minutes.
+// That version is set only when complete inventory shows every hashboard on
+// the same version with fresh health; fresh inventory with differing versions
+// reports an empty version and is mismatched. Without fresh, complete
+// inventory the version is unknown, also reported empty: an unknown version is
+// neither on target nor mismatched, so it cannot verify a miner, reopen a
+// verified one, or start a rollout. Provenance and outstanding commands still
+// apply to such a member.
 //
 // Single-active-rollout rule: a (channel, manufacturer, model) pair has at most
 // one ACTIVE rollout, reported as ReleaseChannelModelGroup.active_rollout_id.
@@ -140,6 +164,19 @@ import "google/protobuf/timestamp.proto";
 // current-device attestation: a same-version out-of-band replacement is not
 // detected.
 //
+// Controller software rule: a channel may name a target controller software
+// version for a container model, set with SetReleaseChannelControllerSoftware.
+// The target starts no update; operators update a container's controller
+// software themselves. A container is on the target when the controller
+// software version it reports equals the target after trimming surrounding
+// whitespace and one leading "v". While a target is set, a rollout does not
+// dispatch firmware to a container that is not on it, because the controller
+// is what installs that firmware: the container stays QUEUED, an advance that
+// names it fails with DEVICE_NOT_DISPATCHABLE, and RolloutEvidence.hold_reason
+// reports the wait once no other target can be dispatched. Clearing the target
+// or updating the container releases the hold. A channel without a target is
+// unaffected.
+//
 // "Rollout" is the engine's name; operator-facing copy calls it a firmware
 // update.
 service RolloutService {
@@ -176,6 +213,26 @@ service RolloutService {
     rpc ListReleaseChannelMembershipConflicts(ListReleaseChannelMembershipConflictsRequest) returns (ListReleaseChannelMembershipConflictsResponse) {
         option idempotency_level = NO_SIDE_EFFECTS;
     }
+
+    // Lists a channel's container models with each one's controller software
+    // target and counts, under the RolloutService
+    // controller software rule.
+    rpc ListReleaseChannelControllerSoftware(ListReleaseChannelControllerSoftwareRequest) returns (ListReleaseChannelControllerSoftwareResponse) {
+        option idempotency_level = NO_SIDE_EFFECTS;
+    }
+
+    // Lists one page of containers for an exact observed manufacturer/model
+    // pair. Container details are separate from the channel summary.
+    rpc ListReleaseChannelContainers(ListReleaseChannelContainersRequest) returns (ListReleaseChannelContainersResponse) {
+        option idempotency_level = NO_SIDE_EFFECTS;
+    }
+
+    // Sets or clears a container model's controller software target under the
+    // RolloutService controller software rule. Requires
+    // controller:software_update in addition to the permission every
+    // RolloutService method needs. It starts no update. A version no uploaded
+    // controller software package carries fails with FAILED_PRECONDITION.
+    rpc SetReleaseChannelControllerSoftware(SetReleaseChannelControllerSoftwareRequest) returns (SetReleaseChannelControllerSoftwareResponse);
 
     // Creates a release channel. Fails when the scope overlaps another
     // channel's.
@@ -544,8 +601,10 @@ message ReleaseChannel {
     string description = 3 [(buf.validate.field).string.max_len = 1000];
     ReleaseChannelScope scope = 4;
     RolloutBehavior behavior = 5;
-    // Total manufacturer/model groups, including assigned pairs with no
-    // current members. Retrieve details with ListReleaseChannelModelGroups.
+    // Total model groups. An observed pair has one group for its main
+    // firmware and one more for each other firmware component assigned to it.
+    // An assigned pair with no current members has one group for each
+    // assigned component. Retrieve details with ListReleaseChannelModelGroups.
     int32 model_group_count = 6 [(buf.validate.field).int32.gte = 0];
     int32 miner_count = 7 [(buf.validate.field).int32.gte = 0];
     google.protobuf.Timestamp created_at = 8;
@@ -558,8 +617,10 @@ message ReleaseChannelSummary {
     string name = 2 [(buf.validate.field).string.max_len = 100];
     string description = 3 [(buf.validate.field).string.max_len = 1000];
     RolloutBehavior behavior = 4;
-    // Total manufacturer/model groups, including assigned pairs with no
-    // current members. Retrieve details with ListReleaseChannelModelGroups.
+    // Total model groups. An observed pair has one group for its main
+    // firmware and one more for each other firmware component assigned to it.
+    // An assigned pair with no current members has one group for each
+    // assigned component. Retrieve details with ListReleaseChannelModelGroups.
     int32 model_group_count = 5 [(buf.validate.field).int32.gte = 0];
     int32 miner_count = 6 [(buf.validate.field).int32.gte = 0];
     google.protobuf.Timestamp created_at = 7;
@@ -649,6 +710,11 @@ message ReleaseChannelModelGroup {
     // current presence/readability and known verification failures. Status reads
     // do not rehash payload bytes; dispatch independently verifies the artifact.
     bool firmware_available = 14;
+    // Firmware component this group describes, under the RolloutService
+    // component rule. The assignment, reported versions, on_target_count and
+    // active rollout are this component's. Every observed pair has a group for
+    // its main firmware (empty); another component has a group once assigned.
+    string component = 15 [(buf.validate.field).string = {max_len: 32, in: ["", "psu"]}];
 }
 
 // A miner resolved into a release channel. Observed identities up to 255
@@ -660,7 +726,8 @@ message ReleaseChannelMiner {
     string device_identifier = 2 [(buf.validate.field).string.max_len = 255];
     string manufacturer = 3 [(buf.validate.field).string.max_len = 255];
     string model = 4 [(buf.validate.field).string.max_len = 255];
-    // Firmware version the miner currently reports.
+    // Version under the RolloutService reported-version rule; empty when
+    // unknown or, for a container, mixed. firmware_version_state tells them apart.
     string firmware_version = 5 [(buf.validate.field).string.max_len = 255];
     // Set when the miner belongs to this channel but also matches another under
     // the RolloutService membership rule. Query all matching relations with
@@ -670,6 +737,22 @@ message ReleaseChannelMiner {
     // of the last firmware Fleet deployed to this miner; empty when none is
     // recorded.
     string last_deployed_firmware_checksum = 7 [(buf.validate.field).string = {max_len: 64, pattern: "^$|^[0-9a-f]{64}$"}];
+    FirmwareVersionState firmware_version_state = 8 [(buf.validate.field).enum.defined_only = true];
+}
+
+// How the server classifies a miner's reported version under the
+// RolloutService reported-version rule.
+enum FirmwareVersionState {
+    FIRMWARE_VERSION_STATE_UNSPECIFIED = 0;
+    // firmware_version is the reported version. It is empty for a miner that
+    // reports none, which is mismatched.
+    FIRMWARE_VERSION_STATE_KNOWN = 1;
+    // A container's fresh, complete inventory shows hashboards on differing
+    // versions. The container is mismatched, so enforcement updates it.
+    FIRMWARE_VERSION_STATE_MIXED = 2;
+    // A container without fresh, complete inventory. It is neither on target
+    // nor mismatched.
+    FIRMWARE_VERSION_STATE_UNKNOWN = 3;
 }
 
 // Selector specificity, ordered from most specific to least specific.
@@ -728,6 +811,12 @@ message FirmwareAssignment {
     // or mismatched file fails with FAILED_PRECONDITION (ARTIFACT_MISSING or
     // ARTIFACT_MISMATCH) before anything changes. Empty clears the assignment.
     string firmware_file_id = 3 [(buf.validate.field).string.max_len = 255];
+    // Firmware component of the model this assigns, under the RolloutService
+    // component rule: empty for the model's main firmware, "psu" for a CT1
+    // container's PSU firmware. The file must be firmware for this component;
+    // otherwise the request fails with FAILED_PRECONDITION (ARTIFACT_MISMATCH).
+    // A clear names the component whose assignment it clears.
+    string component = 4 [(buf.validate.field).string = {max_len: 32, in: ["", "psu"]}];
 }
 
 // --- Rollouts ---
@@ -1206,6 +1295,9 @@ message Rollout {
     // identity under the RolloutService artifact identity rule. Every rollout
     // enforces exactly one artifact; clearing an assignment starts none.
     string firmware_checksum = 30 [(buf.validate.field).string = {max_len: 64, pattern: "^[0-9a-f]{64}$"}];
+    // Firmware component the rollout updates, under the RolloutService
+    // component rule: empty for the model's main firmware.
+    string component = 31 [(buf.validate.field).string = {max_len: 32, in: ["", "psu"]}];
 }
 
 // Progress of one miner within a rollout.
@@ -1213,7 +1305,8 @@ message RolloutDevice {
     int64 device_id = 1 [(buf.validate.field).int64.gte = 0];
     string device_identifier = 2 [(buf.validate.field).string.max_len = 255];
     string ip_address = 3 [(buf.validate.field).string.max_len = 45];
-    // Firmware version the miner currently reports.
+    // Version under the RolloutService reported-version rule; empty when
+    // unknown or, for a container, mixed. firmware_version_state tells them apart.
     string firmware_version = 4 [(buf.validate.field).string.max_len = 255];
     RolloutDevicePhase phase = 5 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
     // 1-based batch the miner was snapshotted into; 0 when it is not part of
@@ -1249,6 +1342,7 @@ message RolloutDevice {
     // Note from the SkipRolloutDevices or CompleteRollout call that settled a
     // SKIPPED miner; empty otherwise.
     string skip_note = 22 [(buf.validate.field).string.max_len = 1024];
+    FirmwareVersionState firmware_version_state = 23 [(buf.validate.field).enum.defined_only = true];
 }
 
 // Saved participation of one miner in a rollout, without live telemetry.
@@ -1278,6 +1372,8 @@ message MinerFirmwareHistoryEntry {
     google.protobuf.Timestamp last_sent_at = 17;
     // When this miner first verified the target artifact and health criteria.
     google.protobuf.Timestamp verified_at = 18;
+    // Firmware component the rollout updated; empty for the main firmware.
+    string component = 19 [(buf.validate.field).string = {max_len: 32, in: ["", "psu"]}];
 }
 
 // --- Requests / responses ---
@@ -1346,6 +1442,9 @@ message ListReleaseChannelMinersRequest {
     // Opaque cursor sized for a 255-code-point Unicode device identifier,
     // numeric sort keys and encoding overhead; leave empty for the first page.
     string cursor = 5 [(buf.validate.field).string.max_len = 2048];
+    // Firmware component whose reported version and managed-deployment
+    // provenance each miner carries; empty for the main firmware.
+    string component = 6 [(buf.validate.field).string = {max_len: 32, in: ["", "psu"]}];
 }
 
 message ListReleaseChannelMinersResponse {
@@ -1372,6 +1471,71 @@ message ListReleaseChannelMembershipConflictsResponse {
     repeated ReleaseChannelMembershipConflict conflicts = 1 [(buf.validate.field).repeated.max_items = 100];
     // Opaque cursor sized for a 255-code-point Unicode device identifier,
     // numeric sort keys and encoding overhead; empty when there are no more conflicts.
+    string cursor = 2 [(buf.validate.field).string.max_len = 2048];
+}
+
+// A container resolved into a release channel, with the controller software
+// version it reports under the RolloutService controller software rule.
+message ReleaseChannelContainer {
+    string device_identifier = 1 [(buf.validate.field).string.max_len = 255];
+    // Controller software version the container reports, verbatim; empty when
+    // it reports none.
+    string controller_software_version = 2 [(buf.validate.field).string.max_len = 255];
+    // Whether the reported version is the model's target. False when the model
+    // has no target.
+    bool on_target = 3;
+}
+
+// One container model of a channel: its controller software target and the
+// counts for that model. Observed identities are returned verbatim.
+message ReleaseChannelControllerSoftware {
+    string manufacturer = 1 [(buf.validate.field).string.max_len = 255];
+    string model = 2 [(buf.validate.field).string.max_len = 255];
+    // Target version; empty when the model has no target.
+    string target_version = 3 [(buf.validate.field).string.max_len = 128];
+    // Containers of this model in the channel.
+    int32 container_count = 4 [(buf.validate.field).int32.gte = 0];
+    // Containers reporting the target version; 0 when the model has no target.
+    int32 on_target_count = 5 [(buf.validate.field).int32.gte = 0];
+}
+
+message ListReleaseChannelControllerSoftwareRequest {
+    int64 channel_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message ListReleaseChannelControllerSoftwareResponse {
+    // Every container model with members or a target, ordered by manufacturer
+    // then model. A target whose model has no container in the channel is
+    // listed with a container_count of 0.
+    repeated ReleaseChannelControllerSoftware models = 1 [(buf.validate.field).repeated.max_items = 100];
+}
+
+message SetReleaseChannelControllerSoftwareRequest {
+    int64 channel_id = 1 [(buf.validate.field).int64.gt = 0];
+    // Container model the target is for. Printable ASCII without surrounding
+    // spaces; ASCII letters compare case-insensitively.
+    string manufacturer = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
+    string model = 3 [(buf.validate.field).string = {min_len: 1, max_len: 255, pattern: "^[!-~](?:[ -~]*[!-~])?$"}];
+    // Target controller software version: the version of an uploaded controller
+    // software package. Empty clears the target.
+    string version = 4 [(buf.validate.field).string = {max_len: 128, not_contains: "\x00"}];
+}
+
+message SetReleaseChannelControllerSoftwareResponse {}
+
+message ListReleaseChannelContainersRequest {
+    int64 channel_id = 1 [(buf.validate.field).int64.gt = 0];
+    // Exact observed identities, including empty strings; not wildcard filters.
+    string manufacturer = 2 [(buf.validate.field).string = {max_len: 255, not_contains: "\x00"}];
+    string model = 3 [(buf.validate.field).string = {max_len: 255, not_contains: "\x00"}];
+    // 0 uses the default page size. The maximum is 1000.
+    int32 page_size = 4 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
+    string cursor = 5 [(buf.validate.field).string.max_len = 2048];
+}
+
+message ListReleaseChannelContainersResponse {
+    repeated ReleaseChannelContainer containers = 1 [(buf.validate.field).repeated.max_items = 1000];
+    // Empty on the last page. Pass unchanged with the same channel and pair.
     string cursor = 2 [(buf.validate.field).string.max_len = 2048];
 }
 
@@ -1471,8 +1635,8 @@ message ApplyReleaseChannelFirmwareRequest {
     };
     option (buf.validate.message).cel = {
         id: "assignments_unique_by_manufacturer_model"
-        message: "assignments must contain at most one entry per manufacturer/model pair"
-        expression: "this.assignments.size() > 100 || this.assignments.map(a, string(a.manufacturer.size()) + ':' + a.manufacturer.lowerAscii() + a.model.lowerAscii()).unique()"
+        message: "assignments must contain at most one entry per manufacturer/model pair and component"
+        expression: "this.assignments.size() > 100 || this.assignments.map(a, string(a.manufacturer.size()) + ':' + a.manufacturer.lowerAscii() + a.model.lowerAscii() + ':' + a.component).unique()"
     };
 
     int64 channel_id = 1 [(buf.validate.field).int64.gt = 0];
@@ -1501,8 +1665,8 @@ message PreviewReleaseChannelFirmwareRequest {
     };
     option (buf.validate.message).cel = {
         id: "preview_assignments_unique_by_manufacturer_model"
-        message: "assignments must contain at most one entry per manufacturer/model pair"
-        expression: "this.assignments.size() > 100 || this.assignments.map(a, string(a.manufacturer.size()) + ':' + a.manufacturer.lowerAscii() + a.model.lowerAscii()).unique()"
+        message: "assignments must contain at most one entry per manufacturer/model pair and component"
+        expression: "this.assignments.size() > 100 || this.assignments.map(a, string(a.manufacturer.size()) + ':' + a.manufacturer.lowerAscii() + a.model.lowerAscii() + ':' + a.component).unique()"
     };
     int64 channel_id = 1 [(buf.validate.field).int64.gt = 0];
     // Assignments to plan, with the same constraints as
@@ -1532,7 +1696,9 @@ message ReleaseChannelFirmwarePlan {
     // Members that would be targeted (mismatched under the RolloutService
     // mismatch rule).
     int32 target_count = 5 [(buf.validate.field).int32.gte = 0];
-    // Members already matching the assignment.
+    // Members already matching the assignment. A member whose version is
+    // unknown under the reported-version rule, with matching provenance, is in
+    // neither count.
     int32 on_target_count = 6 [(buf.validate.field).int32.gte = 0];
     // Batches the rollout would snapshot; 0 for all-at-once and DELEGATED.
     int32 batch_count = 7 [(buf.validate.field).int32.gte = 0];
@@ -1542,6 +1708,8 @@ message ReleaseChannelFirmwarePlan {
     bool unchanged = 9;
     // Checksum the assignment would carry; empty when it would clear the pair.
     string firmware_checksum = 10 [(buf.validate.field).string = {max_len: 64, pattern: "^$|^[0-9a-f]{64}$"}];
+    // Firmware component the plan is for; empty for the main firmware.
+    string component = 11 [(buf.validate.field).string = {max_len: 32, in: ["", "psu"]}];
 }
 
 message PreviewReleaseChannelFirmwareResponse {

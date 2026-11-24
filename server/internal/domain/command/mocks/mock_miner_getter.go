@@ -42,19 +42,19 @@ func (m *MockMinerGetter) EXPECT() *MockMinerGetterMockRecorder {
 	return m.recorder
 }
 
-// GetMiner mocks base method.
-func (m *MockMinerGetter) GetMiner(ctx context.Context, deviceID int64) (interfaces.Miner, error) {
+// GetMinerForCommand mocks base method.
+func (m *MockMinerGetter) GetMinerForCommand(ctx context.Context, deviceID int64) (interfaces.Miner, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetMiner", ctx, deviceID)
+	ret := m.ctrl.Call(m, "GetMinerForCommand", ctx, deviceID)
 	ret0, _ := ret[0].(interfaces.Miner)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetMiner indicates an expected call of GetMiner.
-func (mr *MockMinerGetterMockRecorder) GetMiner(ctx, deviceID any) *gomock.Call {
+// GetMinerForCommand indicates an expected call of GetMinerForCommand.
+func (mr *MockMinerGetterMockRecorder) GetMinerForCommand(ctx, deviceID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMiner", reflect.TypeOf((*MockMinerGetter)(nil).GetMiner), ctx, deviceID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMinerForCommand", reflect.TypeOf((*MockMinerGetter)(nil).GetMinerForCommand), ctx, deviceID)
 }
 
 // GetMinerForPasswordUpdate mocks base method.
@@ -96,19 +96,19 @@ func (m *MockCachedMinerGetter) EXPECT() *MockCachedMinerGetterMockRecorder {
 	return m.recorder
 }
 
-// GetMiner mocks base method.
-func (m *MockCachedMinerGetter) GetMiner(ctx context.Context, deviceID int64) (interfaces.Miner, error) {
+// GetMinerForCommand mocks base method.
+func (m *MockCachedMinerGetter) GetMinerForCommand(ctx context.Context, deviceID int64) (interfaces.Miner, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetMiner", ctx, deviceID)
+	ret := m.ctrl.Call(m, "GetMinerForCommand", ctx, deviceID)
 	ret0, _ := ret[0].(interfaces.Miner)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetMiner indicates an expected call of GetMiner.
-func (mr *MockCachedMinerGetterMockRecorder) GetMiner(ctx, deviceID any) *gomock.Call {
+// GetMinerForCommand indicates an expected call of GetMinerForCommand.
+func (mr *MockCachedMinerGetterMockRecorder) GetMinerForCommand(ctx, deviceID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMiner", reflect.TypeOf((*MockCachedMinerGetter)(nil).GetMiner), ctx, deviceID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMinerForCommand", reflect.TypeOf((*MockCachedMinerGetter)(nil).GetMinerForCommand), ctx, deviceID)
 }
 
 // GetMinerForPasswordUpdate mocks base method.

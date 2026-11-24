@@ -10,6 +10,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -17,6 +18,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"buf.build/go/protovalidate"
 
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
@@ -30,7 +33,6 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
-	telemetrypb "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
@@ -99,12 +101,12 @@ func TestControlLoop_AcksAndReports(t *testing.T) {
 			wantDevices:   1,
 		},
 		{
-			name:          "iplist normalizes scoped and canonical ipv6",
+			name:          "iplist excludes ipv6 outside assigned IPv4 ranges",
 			discoverer:    happyDisc,
 			request:       discoverIPList([]string{"fe80::1%eth0", "fe80::1", "FD00::1"}, []string{"4028"}),
 			wantSucceeded: true,
 			wantCode:      pb.AckCode_ACK_CODE_OK,
-			wantDevices:   1,
+			wantDevices:   0,
 		},
 		{
 			name:          "iplist all unusable",
@@ -177,7 +179,7 @@ func TestControlLoop_AcksAndReports(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
-			cmd := &RunCmd{discoverer: tc.discoverer}
+			cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: tc.discoverer}
 			if cmd.discoverer == nil {
 				cmd.discoverer = &stubDiscoverer{}
 			}
@@ -202,6 +204,8 @@ func TestControlLoop_AcksAndReports(t *testing.T) {
 			}
 			reports := fake.reportsCopy()
 			switch {
+			case tc.wantCode == pb.AckCode_ACK_CODE_OK && tc.wantDevices == 0:
+				require.Empty(t, reports)
 			case tc.wantCode == pb.AckCode_ACK_CODE_OK:
 				require.Len(t, reports, 1)
 				assert.Len(t, reports[0].GetDevices(), tc.wantDevices)
@@ -217,18 +221,19 @@ func TestControlLoop_AcksAndReports(t *testing.T) {
 
 func TestDiscoverForCommand_IPListSelectsPrivateAddress(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		input   string
-		answers []string
-		wantIP  string
+		name     string
+		input    string
+		answers  []string
+		wantIP   string
+		excluded bool
 	}{
 		{name: "private IPv4 after public IPv4", input: "miner.lan", answers: []string{"8.8.8.8", "10.0.0.5"}, wantIP: "10.0.0.5"},
-		{name: "private IPv6 after public IPv4", input: "miner.lan", answers: []string{"8.8.8.8", "fd00::5"}, wantIP: "fd00::5"},
+		{name: "private IPv6 after public IPv4", input: "miner.lan", answers: []string{"8.8.8.8", "fd00::5"}, wantIP: "fd00::5", excluded: true},
 		{name: "private IPv4 preferred over private IPv6", input: "miner.lan", answers: []string{"fd00::5", "8.8.8.8", "10.0.0.5"}, wantIP: "10.0.0.5"},
 		{name: "mapped private IPv4 DNS answer", input: "miner.lan", answers: []string{"8.8.8.8", "::ffff:10.0.0.5"}, wantIP: "10.0.0.5"},
 		{name: "private IPv4 literal", input: "10.0.0.5", wantIP: "10.0.0.5"},
 		{name: "mapped private IPv4 literal", input: "::ffff:10.0.0.5", wantIP: "10.0.0.5"},
-		{name: "private IPv6 literal", input: "FD00::5", wantIP: "fd00::5"},
+		{name: "private IPv6 literal", input: "FD00::5", wantIP: "fd00::5", excluded: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
@@ -237,7 +242,7 @@ func TestDiscoverForCommand_IPListSelectsPrivateAddress(t *testing.T) {
 				answers = append(answers, net.IPAddr{IP: net.ParseIP(answer)})
 			}
 			originalAnswers := append([]net.IPAddr{}, answers...)
-			r := &RunCmd{
+			r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
 				resolver: stubResolver{"miner.lan": answers},
 				discoverer: &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
 					tc.wantIP + "|4028": {
@@ -256,6 +261,11 @@ func TestDiscoverForCommand_IPListSelectsPrivateAddress(t *testing.T) {
 			// Assert
 			require.NoError(t, err)
 			assert.False(t, truncated)
+			if tc.excluded {
+				require.Empty(t, reports)
+				assert.Equal(t, originalAnswers, answers)
+				return
+			}
 			require.Len(t, reports, 1)
 			assert.Equal(t, tc.wantIP, reports[0].GetIpAddress())
 			assert.Equal(t, originalAnswers, answers, "DNS answers must not be filtered in place")
@@ -267,7 +277,7 @@ func TestDiscoverForCommand_SkipsNonPrivateResolvedIPListHostname(t *testing.T) 
 	for _, resolved := range []string{"8.8.8.8", "127.0.0.1", "169.254.1.1", "2001:db8::1"} {
 		t.Run(resolved, func(t *testing.T) {
 			// Arrange
-			r := &RunCmd{
+			r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
 				discoverer: &stubDiscoverer{},
 				resolver:   stubResolver{"miner.lan": {{IP: net.ParseIP(resolved)}}},
 			}
@@ -286,7 +296,7 @@ func TestDiscoverForCommand_SkipsNonPrivateResolvedIPListHostname(t *testing.T) 
 
 func TestDiscoverForCommand_ContinuesAfterNonPrivateResolvedIPListHostname(t *testing.T) {
 	// Arrange
-	r := &RunCmd{
+	r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
 		discoverer: &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
 			"10.0.0.5|4028": {
 				DeviceIdentifier: "auto:1",
@@ -314,15 +324,15 @@ func TestDiscoverForCommand_ContinuesAfterNonPrivateResolvedIPListHostname(t *te
 }
 
 func TestControlLoop_UnknownCommandDoesNotCloseStream(t *testing.T) {
-	// Arrange: field 6 is a future top-level AgentCommand oneof arm unknown to
+	// Arrange: field 999 is a future top-level AgentCommand oneof arm unknown to
 	// this node. Follow it with a command the node does understand.
-	unknownPayload := protowire.AppendTag(nil, 6, protowire.BytesType)
+	unknownPayload := protowire.AppendTag(nil, 999, protowire.BytesType)
 	unknownPayload = protowire.AppendBytes(unknownPayload, nil)
 	discoveryPayload := discoverPayload(t, discoverIPList([]string{"10.0.0.5"}, []string{"4028"}))
 	disc := &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
 		"10.0.0.5|4028": {DeviceIdentifier: "auto:1", IpAddress: "10.0.0.5", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
 	}}
-	cmd := &RunCmd{discoverer: disc}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: disc}
 	fake := &controlFakeGateway{}
 	fake.queueWithID("future-command", unknownPayload)
 	fake.queueWithID("known-command", discoveryPayload)
@@ -363,7 +373,7 @@ func TestControlLoop_KnownCommandIgnoresUnrelatedUnknownFields(t *testing.T) {
 	payload := discoverPayload(t, discoverIPList([]string{"10.0.0.5"}, []string{"4028"}))
 	payload = protowire.AppendTag(payload, 100, protowire.VarintType)
 	payload = protowire.AppendVarint(payload, 1)
-	cmd := &RunCmd{discoverer: &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
 		"10.0.0.5|4028": {DeviceIdentifier: "auto:1", IpAddress: "10.0.0.5", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
 	}}}
 	fake := &controlFakeGateway{}
@@ -384,7 +394,7 @@ func TestControlLoop_IgnoresRepeatedAccepted(t *testing.T) {
 	disc := &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
 		"10.0.0.5|4028": {DeviceIdentifier: "auto:1", IpAddress: "10.0.0.5", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
 	}}
-	cmd := &RunCmd{discoverer: disc}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: disc}
 	fake := &controlFakeGateway{}
 	fake.setBehavior(controlFakeBehavior{acceptedLiveness: 2})
 	fake.queue(discoverPayload(t, discoverIPList([]string{"10.0.0.5"}, []string{"4028"})))
@@ -428,7 +438,7 @@ func TestResolveAndValidatePorts(t *testing.T) {
 			t.Parallel()
 
 			// Arrange
-			r := &RunCmd{discoverer: &stubDiscoverer{ports: tc.defaults}}
+			r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: &stubDiscoverer{ports: tc.defaults}}
 
 			// Act
 			got, err := r.resolveAndValidatePorts(context.Background(), tc.supplied)
@@ -463,7 +473,7 @@ func TestControlLoop_PartialResultsSurviveScanDeadline(t *testing.T) {
 			"10.0.0.7": true,
 		},
 	}
-	cmd := &RunCmd{discoverer: disc}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: disc}
 	state := &bootstrap.State{FleetNodeID: 7}
 
 	fake := &controlFakeGateway{}
@@ -525,7 +535,7 @@ func (s *delayingStubDiscoverer) DefaultDiscoveryPorts(_ context.Context) []stri
 
 func TestControlLoop_PermanentErrorPropagates(t *testing.T) {
 	// Arrange
-	cmd := &RunCmd{discoverer: &stubDiscoverer{}}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: &stubDiscoverer{}}
 	state := &bootstrap.State{FleetNodeID: 11}
 
 	fake := &controlFakeGateway{}
@@ -546,7 +556,7 @@ func TestControlLoop_PermanentErrorPropagates(t *testing.T) {
 
 func TestControlLoop_UnimplementedFallsBackToHeartbeatOnly(t *testing.T) {
 	// Arrange
-	cmd := &RunCmd{discoverer: &stubDiscoverer{}}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: &stubDiscoverer{}}
 	state := &bootstrap.State{FleetNodeID: 12}
 
 	fake := &controlFakeGateway{}
@@ -565,7 +575,7 @@ func TestControlLoop_UnimplementedFallsBackToHeartbeatOnly(t *testing.T) {
 
 func TestControlLoop_ReconnectsAfterStreamEOF(t *testing.T) {
 	// Arrange
-	cmd := &RunCmd{discoverer: &stubDiscoverer{}}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: &stubDiscoverer{}}
 	state := &bootstrap.State{FleetNodeID: 9}
 
 	fake := &controlFakeGateway{}
@@ -589,7 +599,201 @@ func TestControlLoop_ReconnectsAfterStreamEOF(t *testing.T) {
 	// Assert: the loop reconnected at least once.
 	assert.GreaterOrEqual(t, fake.helloCount(), 2)
 	for _, got := range fake.helloCommandProtocolVersionsCopy() {
-		assert.Equal(t, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, got)
+		assert.Equal(t, newestCommandProtocolVersion(), got)
+	}
+}
+
+// newestCommandProtocolVersion is the highest version the protocol defines.
+// The node advertises it, so adding a version without updating the hello, or
+// renumbering one, fails the hello assertions.
+func newestCommandProtocolVersion() pb.CommandProtocolVersion {
+	var newest pb.CommandProtocolVersion
+	for version := range pb.CommandProtocolVersion_name {
+		newest = max(newest, pb.CommandProtocolVersion(version))
+	}
+	return newest
+}
+
+func TestControlLoop_HandshakeTimeoutReconnects(t *testing.T) {
+	original := controlHandshakeTimeout
+	controlHandshakeTimeout = 500 * time.Millisecond
+	t.Cleanup(func() { controlHandshakeTimeout = original })
+
+	for _, early503 := range []bool{false, true} {
+		t.Run(fmt.Sprintf("early_503=%t", early503), func(t *testing.T) {
+			gateway := &handshakeControlGateway{
+				entered: make(chan struct{}), exited: make(chan struct{}), acceptedExited: make(chan struct{}, 1),
+			}
+			var wrap []func(http.Handler) http.Handler
+			if early503 {
+				wrap = append(wrap, func(next http.Handler) http.Handler {
+					return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+						if !gateway.attempts.CompareAndSwap(0, 1) {
+							next.ServeHTTP(w, req)
+							return
+						}
+						assert.Equal(t, 2, req.ProtoMajor, "exercise the real HTTP/2 transport")
+						w.WriteHeader(http.StatusServiceUnavailable)
+						_, _ = io.WriteString(w, "maintenance")
+						assert.NoError(t, http.NewResponseController(w).Flush())
+						close(gateway.entered)
+						// Keep the request/response open, as an intermediary can do
+						// while the client has not finished its streaming request.
+						<-req.Context().Done()
+						close(gateway.exited)
+					})
+				})
+			}
+			client := newControlClient(t, gateway, wrap...)
+			cmd := &RunCmd{discoverer: &stubDiscoverer{}}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() { done <- cmd.runControlLoop(ctx, client, &bootstrap.State{FleetNodeID: 7}, discardLogger(t)) }()
+
+			select {
+			case <-gateway.entered:
+			case <-time.After(time.Second):
+				t.Fatal("first handshake did not start")
+			}
+			require.Eventually(t, func() bool { return gateway.helloCount() == 1 }, 5*time.Second, 10*time.Millisecond,
+				"handshake must expire and reconnect within its budget plus reconnect backoff")
+			select {
+			case <-gateway.exited:
+			case <-time.After(time.Second):
+				t.Fatal("timed-out server stream did not exit")
+			}
+			// The replacement Accepted stream must outlive the handshake
+			// budget, even when the server predates keepalive negotiation.
+			select {
+			case err := <-done:
+				t.Fatalf("accepted stream ended: %v", err)
+			case <-gateway.acceptedExited:
+				t.Fatal("accepted server stream ended at the handshake deadline")
+			case <-time.After(3 * controlHandshakeTimeout):
+			}
+			assert.Equal(t, 1, gateway.helloCount(), "healthy stream must not reconnect at the handshake deadline")
+			cancel()
+			select {
+			case err := <-done:
+				require.NoError(t, err)
+			case <-time.After(time.Second):
+				t.Fatal("parent cancellation did not stop the control loop")
+			}
+		})
+	}
+}
+
+func TestControlSession_HandshakeTimeoutAndCancellation(t *testing.T) {
+	original := controlHandshakeTimeout
+	controlHandshakeTimeout = 500 * time.Millisecond
+	t.Cleanup(func() { controlHandshakeTimeout = original })
+	for _, cancelParent := range []bool{false, true} {
+		t.Run(fmt.Sprintf("cancel_parent=%t", cancelParent), func(t *testing.T) {
+			gateway := &handshakeControlGateway{entered: make(chan struct{}), exited: make(chan struct{})}
+			client := newControlClient(t, gateway)
+			cmd := &RunCmd{discoverer: &stubDiscoverer{}}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() { done <- cmd.runControlSession(ctx, discardLogger(t), client, &bootstrap.State{FleetNodeID: 7}) }()
+			select {
+			case <-gateway.entered:
+			case <-time.After(time.Second):
+				t.Fatal("handshake did not start")
+			}
+			if cancelParent {
+				cancel()
+			}
+			select {
+			case err := <-done:
+				if cancelParent {
+					require.NoError(t, err)
+				} else {
+					require.ErrorIs(t, err, errControlHandshakeTimeout)
+					require.NoError(t, ctx.Err(), "handshake timeout must leave the reconnect parent live")
+				}
+			case <-time.After(time.Second):
+				t.Fatal("handshake did not stop within its budget")
+			}
+			select {
+			case <-gateway.exited:
+			case <-time.After(time.Second):
+				t.Fatal("canceled server stream did not exit")
+			}
+		})
+	}
+}
+
+// The first session consumes Hello but never sends Accepted; later sessions
+// delegate to the normal fake.
+type handshakeControlGateway struct {
+	controlFakeGateway
+	attempts       atomic.Int32
+	entered        chan struct{}
+	exited         chan struct{}
+	acceptedExited chan struct{}
+}
+
+func (f *handshakeControlGateway) ControlStream(ctx context.Context, stream *connect.BidiStream[pb.ControlStreamRequest, pb.ControlStreamResponse]) error {
+	if f.attempts.Add(1) != 1 {
+		defer func() {
+			select {
+			case f.acceptedExited <- struct{}{}:
+			default:
+			}
+		}()
+		return f.controlFakeGateway.ControlStream(ctx, stream)
+	}
+	if _, err := stream.Receive(); err != nil {
+		return fmt.Errorf("receive hello: %w", err)
+	}
+	close(f.entered)
+	<-ctx.Done()
+	close(f.exited)
+	return nil
+}
+
+func TestControlSession_HelloCarriesNormalizedDiscoveryRanges(t *testing.T) {
+	tests := []struct {
+		name string
+		cmd  *RunCmd
+		want []string
+	}{
+		{
+			name: "explicit ranges are merged and ordered",
+			cmd:  &RunCmd{DiscoveryRanges: []string{"192.168.1.1", "10.0.0.128/25", "10.0.0.0/25"}},
+			want: []string{"10.0.0.0-10.0.0.255", "192.168.1.1"},
+		},
+		{
+			name: "explicit empty list is reported as disabled",
+			cmd:  &RunCmd{DiscoveryRanges: []string{}, LocalDiscoverySubnet: "10.9.0.0/24"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			tt.cmd.discoverer = &stubDiscoverer{}
+			fake := &controlFakeGateway{}
+			fake.setBehavior(controlFakeBehavior{closeAfterAccepted: true})
+			client := newControlClient(t, fake)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			// Act
+			done := make(chan error, 1)
+			go func() { done <- tt.cmd.runControlLoop(ctx, client, &bootstrap.State{FleetNodeID: 7}, discardLogger(t)) }()
+			require.Eventually(t, func() bool { return fake.helloCount() >= 1 }, 3*time.Second, 20*time.Millisecond)
+			cancel()
+			<-done
+			tt.cmd.waitForControlWorkers(discardLogger(t))
+
+			// Assert
+			configs := fake.helloDiscoveryConfigsCopy()
+			require.NotEmpty(t, configs)
+			require.NotNil(t, configs[0], "an empty config must still be present so the server sees it as reported")
+			assert.Equal(t, tt.want, configs[0].GetRanges())
+		})
 	}
 }
 
@@ -644,6 +848,17 @@ func TestControlReconnectDelayGenericFailuresRemainExponential(t *testing.T) {
 	assert.Equal(t, 4*time.Second, backoff)
 }
 
+func TestControlReconnectDelayHandshakeTimeoutResetsBackoff(t *testing.T) {
+	t.Parallel()
+
+	rng := rand.New(rand.NewSource(42)) //nolint:gosec // deterministic jitter test
+	err := fmt.Errorf("control session ended while awaiting acceptance: %w", errControlHandshakeTimeout)
+	delay, nextBackoff := controlReconnectDelay(err, controlHandshakeTimeout+time.Millisecond, 16*time.Second, rng)
+	assert.GreaterOrEqual(t, delay, time.Second)
+	assert.LessOrEqual(t, delay, 1500*time.Millisecond)
+	assert.Equal(t, 2*controlReconnectInitial, nextBackoff)
+}
+
 type stubDiscoverer struct {
 	probes map[string]*pb.DiscoveredDeviceReport
 	ports  []string
@@ -669,10 +884,13 @@ func (s *stubDiscoverer) DefaultDiscoveryPorts(_ context.Context) []string {
 type controlFakeBehavior struct {
 	closeAfterAccepted bool
 	acceptedLiveness   int
+	serverTimeOffset   time.Duration
 	// closeOnSignal lets tests force a server-side stream close at a precise
 	// moment (e.g., after the agent has started executing a command). The
 	// fake closes its ControlStream handler when this channel becomes ready.
-	closeOnSignal  <-chan struct{}
+	closeOnSignal <-chan struct{}
+	// cancelOnSignal sends a ControlCancel for each command id it receives.
+	cancelOnSignal <-chan string
 	rejectWithCode connect.Code
 	reportErr      error
 	pairReportErr  error
@@ -691,7 +909,9 @@ type controlFakeGateway struct {
 	pending                      []pendingCommand
 	hellos                       int32
 	helloCommandProtocolVersions []pb.CommandProtocolVersion
+	helloDiscoveryConfigs        []*pb.DiscoveryConfig
 	acks                         []*pb.ControlAck
+	commandFrames                []*pb.ControlStreamRequest
 	reports                      []*pb.ReportDiscoveredDevicesRequest
 	pairReports                  []*pb.ReportPairedDevicesRequest
 	behavior                     controlFakeBehavior
@@ -723,6 +943,11 @@ func (f *controlFakeGateway) acksCopy() []*pb.ControlAck {
 	copy(out, f.acks)
 	return out
 }
+func (f *controlFakeGateway) commandFramesCopy() []*pb.ControlStreamRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]*pb.ControlStreamRequest(nil), f.commandFrames...)
+}
 func (f *controlFakeGateway) reportsCopy() []*pb.ReportDiscoveredDevicesRequest {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -735,6 +960,16 @@ func (f *controlFakeGateway) helloCommandProtocolVersionsCopy() []pb.CommandProt
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]pb.CommandProtocolVersion(nil), f.helloCommandProtocolVersions...)
+}
+
+func (f *controlFakeGateway) helloDiscoveryConfigsCopy() []*pb.DiscoveryConfig {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]*pb.DiscoveryConfig, len(f.helloDiscoveryConfigs))
+	for i, config := range f.helloDiscoveryConfigs {
+		out[i] = proto.CloneOf(config)
+	}
+	return out
 }
 
 func (f *controlFakeGateway) ReportDiscoveredDevices(_ context.Context, req *connect.Request[pb.ReportDiscoveredDevicesRequest]) (*connect.Response[pb.ReportDiscoveredDevicesResponse], error) {
@@ -774,6 +1009,7 @@ func (f *controlFakeGateway) pairReportsCopy() []*pb.ReportPairedDevicesRequest 
 func (f *controlFakeGateway) ControlStream(ctx context.Context, stream *connect.BidiStream[pb.ControlStreamRequest, pb.ControlStreamResponse]) error {
 	f.mu.Lock()
 	rejectCode := f.behavior.rejectWithCode
+	serverTimeOffset := f.behavior.serverTimeOffset
 	f.mu.Unlock()
 	if rejectCode != 0 {
 		atomic.AddInt32(&f.hellos, 1)
@@ -789,16 +1025,18 @@ func (f *controlFakeGateway) ControlStream(ctx context.Context, stream *connect.
 	}
 	f.mu.Lock()
 	f.helloCommandProtocolVersions = append(f.helloCommandProtocolVersions, hello.GetMaxCommandProtocolVersion())
+	f.helloDiscoveryConfigs = append(f.helloDiscoveryConfigs, proto.CloneOf(hello.GetDiscoveryConfig()))
 	f.mu.Unlock()
 	atomic.AddInt32(&f.hellos, 1)
 
-	if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{Accepted: &pb.ControlAccepted{ServerTime: timestamppb.Now()}}}); err != nil {
+	if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{Accepted: &pb.ControlAccepted{ServerTime: timestamppb.New(time.Now().Add(serverTimeOffset))}}}); err != nil {
 		return fmt.Errorf("send accepted: %w", err)
 	}
 
 	f.mu.Lock()
 	closeNow := f.behavior.closeAfterAccepted
 	closeOnSignal := f.behavior.closeOnSignal
+	cancelOnSignal := f.behavior.cancelOnSignal
 	acceptedLiveness := f.behavior.acceptedLiveness
 	pending := f.pending
 	f.pending = nil
@@ -807,7 +1045,7 @@ func (f *controlFakeGateway) ControlStream(ctx context.Context, stream *connect.
 		return nil
 	}
 	for range acceptedLiveness {
-		if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{Accepted: &pb.ControlAccepted{ServerTime: timestamppb.Now()}}}); err != nil {
+		if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{Accepted: &pb.ControlAccepted{ServerTime: timestamppb.New(time.Now().Add(serverTimeOffset))}}}); err != nil {
 			return fmt.Errorf("send accepted liveness: %w", err)
 		}
 	}
@@ -844,6 +1082,10 @@ func (f *controlFakeGateway) ControlStream(ctx context.Context, stream *connect.
 			// Test triggered a server-side stream close. nil chan blocks
 			// forever, so this case is inert unless closeOnSignal was set.
 			return nil
+		case id := <-cancelOnSignal:
+			if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Cancel{Cancel: &pb.ControlCancel{CommandId: id}}}); err != nil {
+				return fmt.Errorf("send cancel: %w", err)
+			}
 		case r := <-incoming:
 			if r.err != nil {
 				if errors.Is(r.err, io.EOF) {
@@ -851,18 +1093,21 @@ func (f *controlFakeGateway) ControlStream(ctx context.Context, stream *connect.
 				}
 				return r.err
 			}
-			if ack := r.msg.GetAck(); ack != nil {
-				f.mu.Lock()
-				f.acks = append(f.acks, ack)
-				f.mu.Unlock()
+			f.mu.Lock()
+			if r.msg.GetMinerWebResponse() != nil || r.msg.GetAck() != nil {
+				f.commandFrames = append(f.commandFrames, r.msg)
 			}
+			if ack := r.msg.GetAck(); ack != nil {
+				f.acks = append(f.acks, ack)
+			}
+			f.mu.Unlock()
 		}
 	}
 }
 
 // newControlClient serves fake over h2c. Optional wrap middlewares are applied
 // server-side around the connect handler, outermost last.
-func newControlClient(t *testing.T, fake *controlFakeGateway, wrap ...func(http.Handler) http.Handler) gatewayClient {
+func newControlClient(t *testing.T, fake fleetnodegatewayv1connect.FleetNodeGatewayServiceHandler, wrap ...func(http.Handler) http.Handler) gatewayClient {
 	t.Helper()
 	mux := http.NewServeMux()
 	path, h := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(fake)
@@ -1131,25 +1376,51 @@ func TestReportFromDiscovered(t *testing.T) {
 	}
 }
 
+func TestReportFromDiscoveredLimitsTextFields(t *testing.T) {
+	t.Parallel()
+	// A cut at byte 252 falls inside the 4-byte emoji that starts at byte 251.
+	long := strings.Repeat("a", 251) + "🚨" + strings.Repeat("a", 100)
+	dev := &discoverymodels.DiscoveredDevice{Device: pairingpb.Device{
+		MacAddress:      "aa:bb:cc:dd:ee:ff",
+		DriverName:      "proto",
+		Model:           long,
+		Manufacturer:    long,
+		FirmwareVersion: long,
+	}}
+
+	report := reportFromDiscovered(dev, "10.0.0.5", "8080", 1)
+
+	for field, got := range map[string]string{
+		"model":            report.GetModel(),
+		"manufacturer":     report.GetManufacturer(),
+		"firmware version": report.GetFirmwareVersion(),
+	} {
+		assert.LessOrEqual(t, len(got), 255, field)
+		assert.True(t, utf8.ValidString(got), "%s must stay valid UTF-8", field)
+		assert.True(t, strings.HasPrefix(got, strings.Repeat("a", 251)), "%s must keep its start: %q", field, got)
+	}
+	require.NoError(t, protovalidate.Validate(&pb.ReportDiscoveredDevicesRequest{
+		CommandId: "discover-1",
+		Devices:   []*pb.DiscoveredDeviceReport{report},
+	}))
+}
+
 // blockingDiscoverer holds Probe open per-IP so tests can observe Receive
 // drain and ctx-cancel behavior while a command is in flight.
 type blockingDiscoverer struct {
 	mu        sync.Mutex
 	started   map[string]chan struct{}
 	cancelled map[string]chan struct{}
-	release   map[string]chan struct{}
 }
 
 func newBlockingDiscoverer(ips ...string) *blockingDiscoverer {
 	d := &blockingDiscoverer{
 		started:   map[string]chan struct{}{},
 		cancelled: map[string]chan struct{}{},
-		release:   map[string]chan struct{}{},
 	}
 	for _, ip := range ips {
 		d.started[ip] = make(chan struct{}, 1)
 		d.cancelled[ip] = make(chan struct{}, 1)
-		d.release[ip] = make(chan struct{})
 	}
 	return d
 }
@@ -1158,7 +1429,6 @@ func (b *blockingDiscoverer) Probe(ctx context.Context, ip, _ string) (*pb.Disco
 	b.mu.Lock()
 	start, ok := b.started[ip]
 	cancelled := b.cancelled[ip]
-	release := b.release[ip]
 	b.mu.Unlock()
 	if !ok {
 		return nil, nil
@@ -1167,16 +1437,12 @@ func (b *blockingDiscoverer) Probe(ctx context.Context, ip, _ string) (*pb.Disco
 	case start <- struct{}{}:
 	default:
 	}
+	<-ctx.Done()
 	select {
-	case <-release:
-		return &pb.DiscoveredDeviceReport{DeviceIdentifier: "auto:" + ip, IpAddress: ip, Port: "4028", UrlScheme: "http", DriverName: "antminer"}, nil
-	case <-ctx.Done():
-		select {
-		case cancelled <- struct{}{}:
-		default:
-		}
-		return nil, fmt.Errorf("blocking discoverer cancelled: %w", ctx.Err())
+	case cancelled <- struct{}{}:
+	default:
 	}
+	return nil, fmt.Errorf("blocking discoverer cancelled: %w", ctx.Err())
 }
 
 func (b *blockingDiscoverer) DefaultDiscoveryPorts(_ context.Context) []string {
@@ -1207,18 +1473,11 @@ func (b *blockingDiscoverer) waitCancelled(t *testing.T, ip string) {
 	}
 }
 
-func (b *blockingDiscoverer) release1(ip string) {
-	b.mu.Lock()
-	ch := b.release[ip]
-	b.mu.Unlock()
-	close(ch)
-}
-
 func TestControlLoop_SecondConcurrentDiscoveryGetsBusy(t *testing.T) {
 	// Arrange: discovery is single-flight per node. The first discovery blocks in its
 	// probe, holding the exclusive discovery slot.
 	disc := newBlockingDiscoverer("10.0.0.1")
-	cmd := &RunCmd{discoverer: disc}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: disc}
 	state := &bootstrap.State{FleetNodeID: 7}
 
 	fake := &controlFakeGateway{}
@@ -1270,7 +1529,7 @@ func TestControlLoop_CommandPoolCeilingAcksBusy(t *testing.T) {
 	drv := mocks.NewMockDriver(ctrl)
 	drv.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(sdk.NewDeviceResult{Device: dev}, nil).AnyTimes()
-	cmd := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
 	state := &bootstrap.State{FleetNodeID: 7}
 
 	payload := mustMarshal(t, &pb.AgentCommand{
@@ -1310,92 +1569,8 @@ func TestControlLoop_CommandPoolCeilingAcksBusy(t *testing.T) {
 	cmd.waitForControlWorkers(discardLogger(t))
 }
 
-func TestClassifyControlCommand(t *testing.T) {
-	unknownPayload := protowire.AppendTag(nil, 6, protowire.BytesType)
-	unknownPayload = protowire.AppendBytes(unknownPayload, nil)
-	unknownCommand := &pb.AgentCommand{}
-	require.NoError(t, proto.Unmarshal(unknownPayload, unknownCommand))
-
-	tests := []struct {
-		name    string
-		command *pb.AgentCommand
-		want    controlCommandAdmissionClass
-	}{
-		{
-			name: "telemetry",
-			command: &pb.AgentCommand{Command: &pb.AgentCommand_Telemetry{
-				Telemetry: &telemetrypb.FleetNodeTelemetryRequest{},
-			}},
-			want: controlCommandAdmissionDeferrableRead,
-		},
-		{
-			name: "get cooling mode",
-			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
-				Action: &pb.MinerCommand_GetCoolingMode{GetCoolingMode: &pb.GetCoolingModeAction{}},
-			}}},
-			want: controlCommandAdmissionDeferrableRead,
-		},
-		{
-			name: "get errors",
-			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
-				Action: &pb.MinerCommand_GetErrors{GetErrors: &pb.GetErrorsAction{}},
-			}}},
-			want: controlCommandAdmissionDeferrableRead,
-		},
-		{
-			name: "get mining pools",
-			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
-				Action: &pb.MinerCommand_GetMiningPools{GetMiningPools: &pb.GetMiningPoolsAction{}},
-			}}},
-			want: controlCommandAdmissionGeneral,
-		},
-		{
-			name: "get firmware update status",
-			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
-				Action: &pb.MinerCommand_GetFirmwareUpdateStatus{GetFirmwareUpdateStatus: &pb.GetFirmwareUpdateStatusAction{}},
-			}}},
-			want: controlCommandAdmissionGeneral,
-		},
-		{
-			name: "operator mutation",
-			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
-				Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}},
-			}}},
-			want: controlCommandAdmissionGeneral,
-		},
-		{
-			name:    "empty miner action",
-			command: &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{}}},
-			want:    controlCommandAdmissionGeneral,
-		},
-		{name: "empty envelope", command: &pb.AgentCommand{}, want: controlCommandAdmissionGeneral},
-		{name: "unknown envelope", command: unknownCommand, want: controlCommandAdmissionGeneral},
-		{name: "malformed envelope", want: controlCommandAdmissionGeneral},
-		{
-			name: "discovery",
-			command: &pb.AgentCommand{Command: &pb.AgentCommand_Discover{
-				Discover: &pairingpb.DiscoverRequest{},
-			}},
-			want: controlCommandAdmissionExclusive,
-		},
-		{
-			name: "pairing",
-			command: &pb.AgentCommand{Command: &pb.AgentCommand_Pair{
-				Pair: &pairingpb.FleetNodePairRequest{},
-			}},
-			want: controlCommandAdmissionExclusive,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, classifyControlCommand(tt.command))
-		})
-	}
-}
-
 func TestTryAcquireControlCommandSlot_ReservesCapacityForGeneralCommands(t *testing.T) {
-	cmd := &RunCmd{}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}}
 	cmd.initControlConcurrency()
 	releases := make([]func(), 0, commandPoolSize)
 	for range deferrableReadCommandPoolSize {
@@ -1448,7 +1623,7 @@ func TestTryAcquireControlCommandSlot_ReservesCapacityForGeneralCommands(t *test
 }
 
 func TestTryAcquireControlCommandSlotDetailed_ReportsSaturatedLane(t *testing.T) {
-	cmd := &RunCmd{
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
 		controlCommandSlots:        make(chan struct{}, 1),
 		controlDeferrableReadSlots: make(chan struct{}, 1),
 		controlDiscoverySlot:       make(chan struct{}, 1),
@@ -1476,6 +1651,148 @@ func TestTryAcquireControlCommandSlotDetailed_ReportsSaturatedLane(t *testing.T)
 	exclusiveRelease()
 }
 
+func requireOperatorSlotReleased(t *testing.T, cmd *RunCmd) {
+	t.Helper()
+
+	// The gateway can observe the acknowledgment before the operator worker
+	// returns and releases its shared slot. Keep the reads blocked until then.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		assert.Len(c, cmd.controlDeferrableReadSlots, deferrableReadCommandPoolSize)
+		assert.Len(c, cmd.controlCommandSlots, deferrableReadCommandPoolSize)
+	}, 2*time.Second, 20*time.Millisecond)
+}
+
+func TestControlLoop_ReadCleanupDoesNotRetainControlSlots(t *testing.T) {
+	for _, action := range []string{"get_errors", "get_cooling_mode", "reboot"} {
+		for _, actionFails := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/fails=%t", action, actionFails), func(t *testing.T) {
+				controller := gomock.NewController(t)
+				device := mocks.NewMockDevice(controller)
+				var actionErr error
+				wantCode := pb.AckCode_ACK_CODE_OK
+				if actionFails {
+					actionErr = errors.New("device action failed")
+					wantCode = pb.AckCode_ACK_CODE_INTERNAL
+				}
+				mc := &pb.MinerCommand{}
+				switch action {
+				case "get_errors":
+					mc.Action = &pb.MinerCommand_GetErrors{GetErrors: &pb.GetErrorsAction{}}
+					device.EXPECT().GetErrors(gomock.Any()).Return(sdk.DeviceErrors{}, actionErr)
+				case "get_cooling_mode":
+					mc.Action = &pb.MinerCommand_GetCoolingMode{GetCoolingMode: &pb.GetCoolingModeAction{}}
+					device.EXPECT().GetCoolingMode(gomock.Any()).Return(sdk.CoolingModeAirCooled, actionErr)
+				case "reboot":
+					mc.Action = &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}
+					device.EXPECT().Reboot(gomock.Any()).Return(actionErr)
+				}
+				closeStarted := make(chan struct{})
+				releaseClose := make(chan struct{})
+				unblockClose := sync.OnceFunc(func() { close(releaseClose) })
+				device.EXPECT().Close(gomock.Any()).DoAndReturn(func(context.Context) error {
+					close(closeStarted)
+					<-releaseClose // Ignore the cleanup deadline to model a stuck plugin.
+					return nil
+				})
+				driver := mocks.NewMockDriver(controller)
+				driver.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					Return(sdk.NewDeviceResult{Device: device}, nil)
+				pool := newCleanupTestPool(t, 1)
+				pool.closeTimeout = 5 * time.Second
+				cmd := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}, deviceHandles: pool}
+				fake := &controlFakeGateway{}
+				fake.queue(mustMarshal(t, &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: withTarget(mc)}}))
+				client := newControlClient(t, fake)
+				ctx, cancel := context.WithCancel(t.Context())
+				done := make(chan error, 1)
+				go func() { done <- cmd.runControlLoop(ctx, client, &bootstrap.State{FleetNodeID: 7}, discardLogger(t)) }()
+				t.Cleanup(func() {
+					unblockClose()
+					cancel()
+					<-done
+					cmd.waitForControlWorkers(discardLogger(t))
+				})
+
+				require.Eventually(t, func() bool { return fake.ackCount() == 1 }, time.Second, 5*time.Millisecond,
+					"cleanup must not delay the result ACK")
+				require.Equal(t, wantCode, fake.acksCopy()[0].GetCode())
+				select {
+				case <-closeStarted:
+				case <-time.After(time.Second):
+					t.Fatal("device cleanup did not start")
+				}
+				if action == "reboot" {
+					require.Len(t, cmd.controlCommandSlots, 1, "writes must keep their existing cleanup wait")
+				} else {
+					require.Eventually(t, func() bool {
+						return len(cmd.controlCommandSlots) == 0 && len(cmd.controlDeferrableReadSlots) == 0
+					}, time.Second, 5*time.Millisecond, "completed reads must release control capacity while cleanup is stuck")
+				}
+				_, err := pool.acquire()
+				require.ErrorContains(t, err, "device handle capacity exhausted", "cleanup must keep its separate handle permit")
+				unblockClose()
+				require.Eventually(t, func() bool {
+					return len(cmd.controlCommandSlots) == 0 && len(cmd.controlDeferrableReadSlots) == 0 && len(pool.slots) == 0
+				}, time.Second, 5*time.Millisecond)
+			})
+		}
+	}
+}
+
+func TestControlLoop_StuckReadCleanupsLeaveHandlesForOperatorCommands(t *testing.T) {
+	const handles, reads = 3, 4
+	controller := gomock.NewController(t)
+	releaseClose := make(chan struct{})
+	unblockClose := sync.OnceFunc(func() { close(releaseClose) })
+	device := mocks.NewMockDevice(controller)
+	device.EXPECT().GetCoolingMode(gomock.Any()).Return(sdk.CoolingModeAirCooled, nil).AnyTimes()
+	device.EXPECT().Reboot(gomock.Any()).Return(nil).Times(1)
+	device.EXPECT().Close(gomock.Any()).DoAndReturn(func(context.Context) error {
+		<-releaseClose // Ignore the cleanup deadline to model a stuck plugin.
+		return nil
+	}).AnyTimes()
+	driver := mocks.NewMockDriver(controller)
+	driver.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(sdk.NewDeviceResult{Device: device}, nil).AnyTimes()
+	pool := newCleanupTestPool(t, handles)
+	pool.readHeadroom = 1
+	cmd := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}, deviceHandles: pool}
+	fake := &controlFakeGateway{}
+	readPayload := mustMarshal(t, &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: withTarget(
+		&pb.MinerCommand{Action: &pb.MinerCommand_GetCoolingMode{GetCoolingMode: &pb.GetCoolingModeAction{}}},
+	)}})
+	for i := range reads {
+		fake.queueWithID(fmt.Sprintf("read-%d", i), readPayload)
+	}
+	fake.queueWithID("operator", mustMarshal(t, &pb.AgentCommand{Command: &pb.AgentCommand_MinerCommand{MinerCommand: withTarget(
+		&pb.MinerCommand{Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}},
+	)}}))
+	client := newControlClient(t, fake)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- cmd.runControlLoop(ctx, client, &bootstrap.State{FleetNodeID: 7}, discardLogger(t)) }()
+	t.Cleanup(func() {
+		unblockClose()
+		cancel()
+		<-done
+		cmd.waitForControlWorkers(discardLogger(t))
+	})
+
+	require.Eventually(t, func() bool { return fake.ackCount() == reads+1 }, 2*time.Second, 5*time.Millisecond)
+	readsByCode := map[pb.AckCode]int{}
+	for _, ack := range fake.acksCopy() {
+		if ack.GetCommandId() == "operator" {
+			require.Equal(t, pb.AckCode_ACK_CODE_OK, ack.GetCode(), "stuck read cleanups must not consume the operator handle headroom")
+			continue
+		}
+		readsByCode[ack.GetCode()]++
+	}
+	require.Equal(t, reads, readsByCode[pb.AckCode_ACK_CODE_OK]+readsByCode[pb.AckCode_ACK_CODE_BUSY])
+	require.LessOrEqual(t, readsByCode[pb.AckCode_ACK_CODE_OK], handles-pool.readHeadroom)
+	unblockClose()
+	require.Eventually(t, func() bool { return len(pool.slots) == 0 }, time.Second, 5*time.Millisecond)
+}
+
 func TestControlLoop_DeferrableReadsReserveOperatorCapacity(t *testing.T) {
 	controller := gomock.NewController(t)
 	release := make(chan struct{})
@@ -1498,7 +1815,7 @@ func TestControlLoop_DeferrableReadsReserveOperatorCapacity(t *testing.T) {
 	driver := mocks.NewMockDriver(controller)
 	driver.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(sdk.NewDeviceResult{Device: device}, nil).AnyTimes()
-	cmd := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}}
 	state := &bootstrap.State{FleetNodeID: 7}
 
 	lowPayload := mustMarshal(t, &pb.AgentCommand{
@@ -1541,8 +1858,7 @@ func TestControlLoop_DeferrableReadsReserveOperatorCapacity(t *testing.T) {
 		}
 		return lowBusy && operatorOK
 	}, 3*time.Second, 20*time.Millisecond)
-	assert.Len(t, cmd.controlDeferrableReadSlots, deferrableReadCommandPoolSize)
-	assert.Len(t, cmd.controlCommandSlots, deferrableReadCommandPoolSize)
+	requireOperatorSlotReleased(t, cmd)
 
 	close(release)
 	require.Eventually(t, func() bool {
@@ -1584,7 +1900,7 @@ func TestControlLoop_ReconnectRetainsDeferrableReadPermitsAndOperatorCapacity(t 
 	driver := mocks.NewMockDriver(controller)
 	driver.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(sdk.NewDeviceResult{Device: device}, nil).AnyTimes()
-	cmd := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}}
 	lowPayload := mustMarshal(t, &pb.AgentCommand{
 		Command: &pb.AgentCommand_MinerCommand{MinerCommand: withTarget(
 			&pb.MinerCommand{Action: &pb.MinerCommand_GetCoolingMode{GetCoolingMode: &pb.GetCoolingModeAction{}}},
@@ -1635,8 +1951,7 @@ func TestControlLoop_ReconnectRetainsDeferrableReadPermitsAndOperatorCapacity(t 
 		}
 		return lowBusy && operatorOK
 	}, 2*time.Second, 20*time.Millisecond)
-	assert.Len(t, cmd.controlDeferrableReadSlots, deferrableReadCommandPoolSize)
-	assert.Len(t, cmd.controlCommandSlots, deferrableReadCommandPoolSize)
+	requireOperatorSlotReleased(t, cmd)
 
 	close(releases[0])
 	require.Eventually(t, func() bool {
@@ -1695,7 +2010,7 @@ func TestControlLoop_ReconnectDoesNotWaitForOldWorkersAndRetainsTheirPermits(t *
 	driver := mocks.NewMockDriver(controller)
 	driver.EXPECT().NewDevice(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(sdk.NewDeviceResult{Device: device}, nil).AnyTimes()
-	cmd := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}}
 	payload := mustMarshal(t, &pb.AgentCommand{
 		Command: &pb.AgentCommand_MinerCommand{MinerCommand: withTarget(
 			&pb.MinerCommand{Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}}},
@@ -1776,7 +2091,7 @@ func TestControlLoop_ReconnectDoesNotWaitForOldWorkersAndRetainsTheirPermits(t *
 func TestControlLoop_CtxCancelDuringInFlightUnblocks(t *testing.T) {
 	// Arrange: probe blocks until ctx cancellation.
 	disc := newBlockingDiscoverer("10.0.0.99")
-	cmd := &RunCmd{discoverer: disc}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: disc}
 	state := &bootstrap.State{FleetNodeID: 7}
 
 	fake := &controlFakeGateway{}
@@ -1894,7 +2209,7 @@ func TestControlLoop_SupervisorTruncatedScanAcksPartial(t *testing.T) {
 		},
 		stuckIPs: map[string]bool{"10.0.0.2": true},
 	}
-	cmd := &RunCmd{discoverer: disc}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: disc}
 	state := &bootstrap.State{FleetNodeID: 7}
 
 	fake := &controlFakeGateway{}
@@ -2008,7 +2323,7 @@ func TestControlLoop_DroppedStreamCancelsInFlightScan(t *testing.T) {
 	// it on `streamClose`, so the test can drop the stream at a precise
 	// moment (after observing the probe started).
 	disc := newBlockingDiscoverer("10.0.0.42")
-	cmd := &RunCmd{discoverer: disc}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: disc}
 	state := &bootstrap.State{FleetNodeID: 7}
 
 	streamClose := make(chan struct{})
@@ -2039,34 +2354,6 @@ func TestControlLoop_DroppedStreamCancelsInFlightScan(t *testing.T) {
 	cmd.waitForControlWorkers(discardLogger(t))
 }
 
-func TestDecodeAgentCommandLane(t *testing.T) {
-	// Arrange
-	discover := discoverPayload(t, &pairingpb.DiscoverRequest{
-		Mode: &pairingpb.DiscoverRequest_IpList{IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.1"}}},
-	})
-	minerCmd := mustMarshal(t, &pb.AgentCommand{
-		Command: &pb.AgentCommand_MinerCommand{MinerCommand: &pb.MinerCommand{
-			Target: &pb.MinerConnectionDescriptor{
-				DeviceIdentifier: "d1", DriverName: "virtual", IpAddress: "10.0.0.5", Port: "4028", UrlScheme: "http",
-			},
-			Action: &pb.MinerCommand_Reboot{Reboot: &pb.RebootAction{}},
-		}},
-	})
-
-	// Act
-	discoverEnv, discoverErr := decodeAgentCommand(discover)
-	minerEnv, minerErr := decodeAgentCommand(minerCmd)
-	_, malformedErr := decodeAgentCommand([]byte{0xFF, 0xFE})
-
-	// Assert: discovery takes the exclusive single-flight slot; per-miner commands
-	// and malformed payloads use the broader pool.
-	require.NoError(t, discoverErr)
-	assert.NotNil(t, discoverEnv.GetDiscover(), "discovery is report-bearing")
-	require.NoError(t, minerErr)
-	assert.Nil(t, minerEnv.GetDiscover(), "miner command uses the pool lane")
-	assert.Error(t, malformedErr, "malformed payload uses the pool lane")
-}
-
 func TestControlLoop_DropsCommandWithInvalidCommandID(t *testing.T) {
 	// Arrange: empty command_id violates the proto's min_len=1. The agent
 	// must drop silently rather than ack -- echoing "" back in an ack
@@ -2076,7 +2363,7 @@ func TestControlLoop_DropsCommandWithInvalidCommandID(t *testing.T) {
 	disc := &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
 		"10.0.0.1|4028": {DeviceIdentifier: "auto:1", IpAddress: "10.0.0.1", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
 	}}
-	cmd := &RunCmd{discoverer: disc}
+	cmd := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: disc}
 	state := &bootstrap.State{FleetNodeID: 7}
 
 	fake := &controlFakeGateway{}
@@ -2106,47 +2393,39 @@ func TestControlLoop_DropsCommandWithInvalidCommandID(t *testing.T) {
 	assert.Equal(t, "good", acks[0].GetCommandId())
 }
 
-func TestControlLoop_ConcurrentAcksSerialize(t *testing.T) {
-	// Arrange: two commands. The worker's completion ack for cmd-A and the
-	// receive loop's busy ack for cmd-C overlap on the same bidi stream;
-	// without the lockedAcker wrapper, race detector flags concurrent
-	// stream.Send. Using a fast (non-blocking) discoverer ensures the
-	// worker actually completes and emits its ack.
-	disc := &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
-		"10.0.0.1|4028": {DeviceIdentifier: "auto:a", IpAddress: "10.0.0.1", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
-		"10.0.0.2|4028": {DeviceIdentifier: "auto:b", IpAddress: "10.0.0.2", Port: "4028", UrlScheme: "http", DriverName: "antminer"},
-	}}
-	cmd := &RunCmd{discoverer: disc}
-	state := &bootstrap.State{FleetNodeID: 7}
-
-	fake := &controlFakeGateway{}
-	for _, id := range []string{"cmd-A", "cmd-B", "cmd-C", "cmd-D"} {
-		fake.queueWithID(id, discoverPayload(t, &pairingpb.DiscoverRequest{
-			Mode: &pairingpb.DiscoverRequest_IpList{
-				IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.1"}, Ports: []string{"4028"}},
-			},
-		}))
-	}
-	client := newControlClient(t, fake)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+func TestLockedAcker_SerializesConcurrentSends(t *testing.T) {
+	// Arrange: the busy ack of the receive loop and the completion acks of
+	// the workers share one stream. A connect-go stream is not safe for
+	// concurrent Send.
+	inner := &overlapAcker{}
+	sender := &lockedAcker{inner: inner}
+	const senders, sendsPerSender = 8, 200
+	start := make(chan struct{})
+	var wg sync.WaitGroup
 
 	// Act
-	done := make(chan error, 1)
-	go func() { done <- cmd.runControlLoop(ctx, client, state, discardLogger(t)) }()
+	for range senders {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for range sendsPerSender {
+				assert.NoError(t, sender.Send(&pb.ControlStreamRequest{}))
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
 
-	// Assert: every queued command lands an ack and -race stays clean.
-	require.Eventually(t, func() bool { return fake.ackCount() >= 4 }, 4*time.Second, 20*time.Millisecond)
-	cancel()
-	<-done
-	cmd.waitForControlWorkers(discardLogger(t))
+	// Assert
+	assert.Zero(t, inner.overlaps.Load(), "the stream must see one Send at a time")
+	assert.Equal(t, int32(senders*sendsPerSender), inner.sent.Load())
 }
 
 func TestSendAck_TruncationPreservesUTF8Boundaries(t *testing.T) {
 	// Arrange: 4-byte emoji + ASCII padding sized so the naive byte cut
 	// would land in the middle of an emoji's continuation bytes.
-	r := &RunCmd{}
+	r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}}
 	captured := &capturingAcker{}
 	const emoji = "🚨" // 4 bytes
 	// Choose padding so the cut at 4093 (maxAckErrorMessageBytes-3) lands
@@ -2167,22 +2446,31 @@ func TestSendAck_TruncationPreservesUTF8Boundaries(t *testing.T) {
 	assert.True(t, strings.HasSuffix(got, "..."))
 }
 
-func TestSendAckWithPayload_DowngradesOversizedOKPayload(t *testing.T) {
-	// Arrange
-	r := &RunCmd{}
-	captured := &capturingAcker{}
-	payload := make([]byte, maxAckPayloadBytes+1)
-
-	// Act
-	r.sendAckWithPayload(captured, "cmd-x", pb.AckCode_ACK_CODE_OK, "", payload, discardLogger(t))
-
-	// Assert
-	require.Len(t, captured.sent, 1)
-	got := captured.sent[0].GetAck()
-	assert.Equal(t, pb.AckCode_ACK_CODE_INTERNAL, got.GetCode())
-	assert.False(t, got.GetSucceeded())
-	assert.Empty(t, got.GetPayload())
-	assert.Contains(t, got.GetErrorMessage(), "ack payload too large")
+func TestSendAckWithPayloadLimit(t *testing.T) {
+	const limit = 8 * 1024 * 1024
+	for _, size := range []int{limit, limit + 1} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			captured := &capturingAcker{}
+			payload := make([]byte, size)
+			(&RunCmd{}).sendAckWithPayload(captured, "cmd-x", pb.AckCode_ACK_CODE_OK, "", payload, discardLogger(t))
+			require.Len(t, captured.sent, 1)
+			got := captured.sent[0].GetAck()
+			require.NoError(t, protovalidate.Validate(got))
+			wire := &pb.ControlAck{CommandId: "cmd-x", Succeeded: true, Code: pb.AckCode_ACK_CODE_OK, Payload: payload}
+			if size > limit {
+				require.Error(t, protovalidate.Validate(wire))
+				assert.Equal(t, pb.AckCode_ACK_CODE_INTERNAL, got.GetCode())
+				assert.False(t, got.GetSucceeded())
+				assert.Empty(t, got.GetPayload())
+				assert.Contains(t, got.GetErrorMessage(), "ack payload too large")
+			} else {
+				require.NoError(t, protovalidate.Validate(wire))
+				assert.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
+				assert.True(t, got.GetSucceeded())
+				assert.Equal(t, payload, got.GetPayload())
+			}
+		})
+	}
 }
 
 func TestSendAck_ClosedSessionDropsWithoutWarning(t *testing.T) {
@@ -2194,7 +2482,7 @@ func TestSendAck_ClosedSessionDropsWithoutWarning(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&logs, nil))
 
 	// Act
-	(&RunCmd{}).sendAck(sender, "old-command", pb.AckCode_ACK_CODE_OK, "", logger)
+	(&RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}}).sendAck(sender, "old-command", pb.AckCode_ACK_CODE_OK, "", logger)
 
 	// Assert
 	assert.Empty(t, inner.sent, "a late ack must not reach the discarded session")
@@ -2207,7 +2495,7 @@ func TestSendAck_TransportFailureWarns(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&logs, nil))
 
 	// Act
-	(&RunCmd{}).sendAck(errorAcker{err: io.ErrClosedPipe}, "current-command", pb.AckCode_ACK_CODE_OK, "", logger)
+	(&RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}}).sendAck(errorAcker{err: io.ErrClosedPipe}, "current-command", pb.AckCode_ACK_CODE_OK, "", logger)
 
 	// Assert
 	assert.Contains(t, logs.String(), "send ack failed")
@@ -2229,4 +2517,60 @@ type errorAcker struct {
 
 func (a errorAcker) Send(*pb.ControlStreamRequest) error {
 	return a.err
+}
+
+// overlapAcker counts the Send calls that start while a different Send call
+// is in progress.
+type overlapAcker struct {
+	active   atomic.Int32
+	overlaps atomic.Int32
+	sent     atomic.Int32
+}
+
+func (a *overlapAcker) Send(*pb.ControlStreamRequest) error {
+	if a.active.Add(1) > 1 {
+		a.overlaps.Add(1)
+	}
+	// Yield so that a different sender can enter if nothing stops it.
+	runtime.Gosched()
+	a.active.Add(-1)
+	a.sent.Add(1)
+	return nil
+}
+
+func TestContainerIdentifierFollowsEndpointAcrossControllerFailover(t *testing.T) {
+	controller := &discoverymodels.DiscoveredDevice{Device: pairingpb.Device{
+		DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER,
+		DriverName:  "proto", Model: "CT1", SerialNumber: "controller-a",
+	}}
+	first := reportFromDiscovered(controller, "10.0.0.7", "80", 1)
+	controller.SerialNumber = "controller-b"
+	controller.MacAddress = "bb:bb:bb:bb:bb:bb"
+	second := reportFromDiscovered(controller, "10.0.0.7", "443", 1)
+	require.Equal(t, first.DeviceIdentifier, second.DeviceIdentifier)
+	require.NotEqual(t, first.DeviceIdentifier, reportFromDiscovered(controller, "10.0.0.8", "80", 1).DeviceIdentifier)
+	require.NotEqual(t, first.DeviceIdentifier, reportFromDiscovered(controller, "10.0.0.7", "80", 2).DeviceIdentifier)
+}
+
+func TestFanOutProbes_PreservesVerifiedContainerRPCAndWebPorts(t *testing.T) {
+	for _, rpcPort := range []int32{9443, 9555} {
+		t.Run(fmt.Sprint(rpcPort), func(t *testing.T) {
+			probe := func(_ context.Context, ip, port string) (*pb.DiscoveredDeviceReport, error) {
+				return &pb.DiscoveredDeviceReport{DeviceIdentifier: "serial:ct1", IpAddress: "203.0.113.99", Port: "8181", UrlScheme: "http", DriverName: "proto", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, RpcPort: rpcPort, RpcTls: true}, nil
+			}
+			result, truncated := fanOutProbes(t.Context(), slices.Values([]endpoint{{ip: "10.0.0.1", port: "9443"}}), 1, probe, discardLogger(t))
+			require.False(t, truncated)
+			require.Len(t, result, 1)
+			require.Equal(t, "10.0.0.1", result[0].IpAddress)
+			if rpcPort == 9443 {
+				require.Equal(t, "8181", result[0].Port)
+				require.Equal(t, rpcPort, result[0].RpcPort)
+				require.True(t, result[0].RpcTls)
+			} else {
+				require.Equal(t, "9443", result[0].Port)
+				require.Zero(t, result[0].RpcPort)
+				require.False(t, result[0].RpcTls)
+			}
+		})
+	}
 }

@@ -15,6 +15,8 @@ import ChangePreviewTable from "./ChangePreviewTable";
 import ChannelSettingsChanges from "./ChannelSettingsChanges";
 import { getChannelSettingsChanges, type MinerScopeChanges } from "./channelSettingsChangesUtils";
 import { ModelStatusCell } from "./channelStatus";
+import ControllerSoftwareRow from "./ControllerSoftwareRow";
+import { type ControllerSoftwareApi, controllerSoftwareHoldMessage } from "./controllerSoftwareUtils";
 import FirmwarePickerButton from "./FirmwarePickerButton";
 import MinerScopeChangesModal from "./MinerScopeChangesModal";
 import ModelMinersModal from "./ModelMinersModal";
@@ -22,19 +24,31 @@ import RolloutControls, { type RolloutNumberDraft } from "./RolloutControls";
 import RolloutProgressIndicator from "./RolloutProgressIndicator";
 import {
   activeRolloutForGroup,
+  capitalize,
   channelAssignmentKey,
+  channelMembersLabel,
+  type DeviceNouns,
+  deviceNouns,
+  groupTestId,
   hasUnavailableAssignedFirmware,
+  isContainerPair,
   lastFinishedByChannelAssignment,
+  MINER_NOUNS,
+  mixedDeviceNouns,
+  modelCount,
+  modelKey,
+  modelLabel,
   pacingSummary,
   pairKey,
   pairLabel,
 } from "./rolloutStatus";
 import ScopeEditor from "./ScopeEditor";
 import { isScopeEmpty, rebaseScope, scopeSelectionsEqual, scopeValidationErrors } from "./scopeUtils";
+import { useChannelControllerSoftware } from "./useChannelControllerSoftware";
 import type { ChannelHistoryState } from "./useChannelHistory";
+import { containerFirmwareLabel, PSU_FIRMWARE_COMPONENT } from "@/protoFleet/api/firmwareComponent";
 import {
   type PreviewReleaseChannelScopeResponse,
-  type ReleaseChannelMiner,
   ReleaseChannelModelGroupSchema,
   type ReleaseChannelScope,
   ReleaseChannelScopeSchema,
@@ -51,6 +65,7 @@ import type {
   ChannelView,
   ReleaseChannelDraft,
   ChannelModelGroupView as ReleaseChannelModelGroup,
+  ReleaseChannelsApi,
 } from "@/protoFleet/api/useReleaseChannels";
 import {
   minerTargetKey,
@@ -66,11 +81,10 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 const MAX_FIRMWARE_ASSIGNMENTS = 100;
 const assignmentLimitMessage =
   "Apply up to 100 model changes at a time. Revert some selections or discard them and choose fewer models.";
-const scopeAndFirmwareMessage =
-  "Changing Applies to with an existing firmware assignment could send the previous firmware to newly included miners. Keep the current scope, apply your firmware changes, then edit Applies to.";
-const unsupportedTargetMessage =
-  "Release channels require manufacturer and model names of 1–255 printable ASCII characters. Correct the miner's reported identity before assigning firmware.";
-
+const scopeAndFirmwareMessage = (nouns: DeviceNouns): string =>
+  `Changing Applies to with an existing firmware assignment could send the previous firmware to newly included ${nouns.plural}. Keep the current scope, apply your firmware changes, then edit Applies to.`;
+const unsupportedTargetMessage = (nouns: DeviceNouns): string =>
+  `Release channels require manufacturer and model names of 1–255 printable ASCII characters. Correct the ${nouns.singular}'s reported identity before assigning firmware.`;
 // FirmwareAssignment is narrower than observed miner and upload metadata.
 // Validate the trimmed values sent to the API without changing identity joins.
 const supportsFirmwareAssignment = (manufacturer: string | undefined, model: string | undefined): boolean =>
@@ -151,7 +165,12 @@ function Section({ title, subtext, children }: { title: string; subtext?: string
 
 // Observed groups retain spelling and whitespace for their rows and miner reads.
 // Firmware assignments and rollout joins instead use the normalized pairKey.
-const observedPairKey = (group: ReleaseChannelModelGroup): string => JSON.stringify([group.manufacturer, group.model]);
+const observedPairKey = (group: ReleaseChannelModelGroup): string =>
+  JSON.stringify([group.manufacturer, group.model, group.component]);
+
+// A file is firmware for one component of its target; the main firmware when
+// it names none.
+const fileComponent = (file: FirmwareFileInfo): string => file.component ?? "";
 
 interface FirmwarePickerCellProps {
   group: ReleaseChannelModelGroup;
@@ -163,9 +182,9 @@ interface FirmwarePickerCellProps {
   onStageFirmware: (group: ReleaseChannelModelGroup, fileId: string) => void;
 }
 
-// Files whose target pair matches the group's observed pair under the
-// server's ASCII fold; a group with an unknown identity matches nothing.
-const filesForGroup = (firmwareFiles: FirmwareFileInfo[], group: ReleaseChannelModelGroup): FirmwareFileInfo[] => {
+// Files for any component whose target pair matches the group's observed pair
+// under the server's ASCII fold; a group with an unknown identity matches nothing.
+const filesForModel = (firmwareFiles: FirmwareFileInfo[], group: ReleaseChannelModelGroup): FirmwareFileInfo[] => {
   const key = minerTargetKey(group.manufacturer, group.model);
   return key === null || !supportsFirmwareAssignment(group.manufacturer, group.model)
     ? []
@@ -173,6 +192,10 @@ const filesForGroup = (firmwareFiles: FirmwareFileInfo[], group: ReleaseChannelM
         (f) => supportsFirmwareFileAssignment(f) && minerTargetKey(f.target_manufacturer, f.target_model) === key,
       );
 };
+
+// Files that can be assigned to the group: firmware for its component.
+const filesForGroup = (firmwareFiles: FirmwareFileInfo[], group: ReleaseChannelModelGroup): FirmwareFileInfo[] =>
+  filesForModel(firmwareFiles, group).filter((f) => fileComponent(f) === group.component);
 
 const FirmwarePickerCell = ({
   group,
@@ -214,17 +237,21 @@ const FirmwarePickerCell = ({
       : undefined;
   const targetError = supportsFirmwareAssignment(group.manufacturer, group.model)
     ? undefined
-    : unsupportedTargetMessage;
+    : unsupportedTargetMessage(deviceNouns(group));
 
   return (
     <div className="grid gap-1">
       <FirmwarePickerButton
-        label={`Firmware for ${pairLabel(group)}`}
+        label={
+          isContainerPair(group)
+            ? `${containerFirmwareLabel(group.component)} for ${modelLabel(group)}`
+            : `Firmware for ${pairLabel(group)}`
+        }
         options={options}
         value={value}
         assignment={assignment}
         onChange={(value) => onStageFirmware(group, value)}
-        testId={`channel-firmware-select-${group.model}`}
+        testId={`channel-firmware-select-${groupTestId(group)}`}
         disabled={disabled}
       />
       {!acknowledgedAssignment && hasUnavailableAssignedFirmware(group) ? (
@@ -255,13 +282,13 @@ interface ReleaseChannelManageViewProps {
     channelId?: bigint,
     signal?: AbortSignal,
   ) => Promise<PreviewReleaseChannelScopeResponse>;
-  listChannelMiners: (
-    channelId: bigint,
-    manufacturer?: string,
-    model?: string,
-    signal?: AbortSignal,
-  ) => Promise<ReleaseChannelMiner[]>;
+  listChannelMiners: ReleaseChannelsApi["listChannelMiners"];
   listRolloutDevices: (rolloutId: bigint, signal?: AbortSignal) => Promise<RolloutDevice[]>;
+  // Controller software versions for the channel's containers. Without it the
+  // container table lists assigned firmware only.
+  controllerSoftware?: ControllerSoftwareApi;
+  // What the fleet's devices are called when this channel has none to go by.
+  fleetNouns?: DeviceNouns;
   onSave: (draft: ReleaseChannelDraft) => Promise<void>;
   onCancelCreate?: () => void;
   onDelete?: (channel: ChannelView) => void;
@@ -285,6 +312,8 @@ const ReleaseChannelManageView = ({
   previewScope,
   listChannelMiners,
   listRolloutDevices,
+  controllerSoftware,
+  fleetNouns = MINER_NOUNS,
   onSave,
   onCancelCreate,
   onDelete,
@@ -482,16 +511,65 @@ const ReleaseChannelManageView = ({
         minerCount: model.minerCount,
       }),
     );
-  const displayedPairs = new Set([...livePairs, ...addedGroups.map(pairKey)]);
+  // The server reports a model's main firmware, and another component only
+  // once it is assigned. A model whose catalog holds firmware for another
+  // component can be assigned it, so it gets an unassigned row under the model.
+  const observedGroups = [...liveGroups, ...addedGroups];
+  const observedKeys = new Set(observedGroups.map(observedPairKey));
+  const shownGroups = observedGroups.flatMap((group) => {
+    if (group.component !== "") return [group];
+    const components = new Set(filesForModel(firmwareFiles, group).map(fileComponent));
+    components.delete("");
+    const assignable = [...components]
+      .sort()
+      .map((component) =>
+        create(ReleaseChannelModelGroupSchema, {
+          manufacturer: group.manufacturer,
+          model: group.model,
+          component,
+          minerCount: group.minerCount,
+        }),
+      )
+      .filter((candidate) => !observedKeys.has(observedPairKey(candidate)));
+    return [group, ...assignable];
+  });
+  const displayedPairs = new Set(shownGroups.map(pairKey));
+  // A component row of a model the channel already holds is as live as the
+  // model's own row: its miners and their versions can be read.
+  const shownLivePairs = new Set(shownGroups.filter((group) => livePairs.has(modelKey(group))).map(pairKey));
   const modelGroups: ReleaseChannelModelGroup[] = [
-    ...liveGroups,
-    ...addedGroups,
+    ...shownGroups,
     ...Object.entries(staged)
       .filter(([key]) => !displayedPairs.has(key))
       .map(([, { group }]) => ({ ...group, minerCount: 0, onTargetCount: 0, activeRolloutId: 0n })),
   ];
   const activeCount = new Set(modelGroups.map((group) => activeForGroup(group)?.id).filter((id) => id !== undefined))
     .size;
+  // Channel-wide copy names the devices by what the channel holds or is about
+  // to: miners, containers, or devices when both. A new channel goes by its
+  // scope preview, and an empty one by the rest of the fleet.
+  const nouns = mixedDeviceNouns(
+    channel ? [...liveGroups, ...addedGroups] : (currentPreview?.models ?? []),
+    fleetNouns,
+  );
+  // Each device type gets its own assignment table. A channel with no
+  // container model keeps the single miner table, which also carries the
+  // empty state.
+  const containerGroups = modelGroups.filter(isContainerPair);
+  const minerGroups = modelGroups.filter((group) => !isContainerPair(group));
+  const assignmentSections = [
+    ...(minerGroups.length > 0 || containerGroups.length === 0 ? [{ containers: false, groups: minerGroups }] : []),
+    ...(containerGroups.length > 0 ? [{ containers: true, groups: containerGroups }] : []),
+  ];
+  const controllerSoftwareState = useChannelControllerSoftware({
+    api: controllerSoftware,
+    channelId,
+    channelName: channel?.name ?? "",
+    enabled: liveGroups.some(isContainerPair),
+    refreshKey: channel,
+    minerNames,
+    writeLock,
+  });
   // Derived from the polled channel on every render so the open modal tracks
   // live firmware versions and phases; closes if the group empties.
   const minersGroup =
@@ -518,7 +596,8 @@ const ReleaseChannelManageView = ({
         supportsFirmwareFileAssignment(file) &&
         supportsFirmwareAssignment(group.manufacturer, group.model) &&
         targetKey !== null &&
-        minerTargetKey(file.target_manufacturer, file.target_model) === targetKey
+        minerTargetKey(file.target_manufacturer, file.target_model) === targetKey &&
+        fileComponent(file) === group.component
           ? file
           : undefined;
       if (fileId !== "" && !matchingFile) {
@@ -539,6 +618,7 @@ const ReleaseChannelManageView = ({
           fileId === ""
             ? (acknowledged?.model ?? group.firmwareTargetModel)
             : (matchingFile?.target_model ?? group.model),
+        ...(group.component ? { component: group.component } : {}),
         firmwareFileId: fileId,
       };
       if (!supportsFirmwareAssignment(assignment.manufacturer, assignment.model)) {
@@ -562,7 +642,9 @@ const ReleaseChannelManageView = ({
     scope: savedSettings?.scope ?? create(ReleaseChannelScopeSchema),
     behavior: savedSettings?.behavior ?? create(RolloutBehaviorSchema),
   };
-  const settingsChanges = dirty ? getChannelSettingsChanges(savedSettingsDraft, settingsDraft, minerNames) : null;
+  const settingsChanges = dirty
+    ? getChannelSettingsChanges(savedSettingsDraft, settingsDraft, minerNames, nouns)
+    : null;
   const pendingChangeCount =
     dirtyAssignments.length +
     (settingsChanges ? settingsChanges.changes.length + settingsChanges.scopeChanges.length : 0);
@@ -571,6 +653,9 @@ const ReleaseChannelManageView = ({
     onDirtyChange?.(hasUnsavedChanges);
   }, [hasUnsavedChanges, onDirtyChange]);
   const assignmentCount = dirtyAssignments.filter((assignment) => assignment.firmwareFileId !== "").length;
+  const assignsPsuFirmware = dirtyAssignments.some(
+    (assignment) => assignment.firmwareFileId !== "" && assignment.component === PSU_FIRMWARE_COMPONENT,
+  );
   const clearCount = dirtyAssignments.length - assignmentCount;
   const exceedsAssignmentLimit = dirtyAssignments.length > MAX_FIRMWARE_ASSIGNMENTS;
   const effectiveSettings = dirty ? settingsDraft : savedSettings;
@@ -609,6 +694,9 @@ const ReleaseChannelManageView = ({
       : "",
     clearCount > 0
       ? `Clear firmware assignments for ${clearCount} ${clearCount === 1 ? "model" : "models"} in ${effectiveSettings?.name}. Clearing stops enforcement and cancels remaining updates for these models; updates already dispatched may finish.`
+      : "",
+    assignsPsuFirmware
+      ? "PSU firmware updates one module per controller at a time. A module stops mining while its PSU updates, and a container's update stops if a PSU is left needing recovery."
       : "",
   ]
     .filter(Boolean)
@@ -765,7 +853,7 @@ const ReleaseChannelManageView = ({
   const scopeAndFirmwareWarning = scopeAndFirmwareBlocked ? (
     <div className="grid justify-items-start gap-2">
       <p role="alert" className="text-200 text-intent-critical-fill">
-        {scopeAndFirmwareMessage}
+        {scopeAndFirmwareMessage(nouns)}
       </p>
       <Button
         text="Keep current scope"
@@ -812,6 +900,7 @@ const ReleaseChannelManageView = ({
         <RolloutControls
           behavior={behavior}
           onChange={setBehavior}
+          nouns={nouns}
           numberDraft={{ values: numberDraft, onChange: setNumberDraft }}
           allowDelegated={savedSettings?.behavior?.method === RolloutMethod.DELEGATED}
           disabled={isWriting}
@@ -822,8 +911,8 @@ const ReleaseChannelManageView = ({
         title="Applies to"
         subtext={
           channel
-            ? "Choose which miners belong to this channel. Changes stay pending until you apply them."
-            : "Choose which miners belong to this channel. Firmware can be assigned after creating it."
+            ? `Choose which ${nouns.plural} belong to this channel. Changes stay pending until you apply them.`
+            : `Choose which ${nouns.plural} belong to this channel. Firmware can be assigned after creating it.`
         }
       >
         <ScopeEditor
@@ -843,7 +932,7 @@ const ReleaseChannelManageView = ({
       <Modal
         open
         title="Create release channel"
-        description="Group miners into a release channel, then assign firmware per model. Miners update automatically to their assigned version using the channel's update behavior."
+        description={`Group ${nouns.plural} into a release channel, then assign firmware per model. ${capitalize(nouns.plural)} update automatically to their assigned version using the channel's update behavior.`}
         testId="create-release-channel-modal"
         onDismiss={() => {
           if (!writeInFlightRef.current && !isWriting) onCancelCreate?.();
@@ -874,9 +963,9 @@ const ReleaseChannelManageView = ({
             {activeCount > 0 ? <UpdateActivePill count={activeCount} testId="channel-update-pill" /> : null}
           </div>
           <div className="flex items-center gap-2 text-200 text-text-primary-50">
-            <span>{channel.minerCount === 1 ? "1 miner" : `${channel.minerCount.toLocaleString()} miners`}</span>
+            <span>{channelMembersLabel(channel.minerCount, liveGroups)}</span>
             <span>·</span>
-            <span>{liveGroups.length === 1 ? "1 model" : `${liveGroups.length} models`}</span>
+            <span>{modelCount(liveGroups) === 1 ? "1 model" : `${modelCount(liveGroups)} models`}</span>
           </div>
         </div>
         <div className="flex gap-2 phone:flex-col phone:items-stretch">
@@ -931,110 +1020,151 @@ const ReleaseChannelManageView = ({
       </div>
 
       {!showSettings && !showApplyDialog ? scopeAndFirmwareWarning : null}
-      <Section
-        title="Assigned miners"
-        subtext="Grouped by hardware model. Choose a firmware version for each model, or view its individual miners."
-      >
-        {exceedsAssignmentLimit ? (
-          <p role="alert" className="text-200 text-intent-critical-fill">
-            {assignmentLimitMessage}
-          </p>
-        ) : null}
-        {modelGroups.length === 0 ? (
-          <span className="text-300 text-text-primary-50">
-            No miners in scope yet. Open Channel settings and change Applies to to include miners.
-          </span>
-        ) : (
-          <table aria-label="Assigned miners by model" className="w-full text-left text-200">
-            <thead>
-              <tr className="text-text-primary-50">
-                <th className="py-1.5 pr-4 font-normal">Model</th>
-                <th className="py-1.5 pr-4 font-normal">Miners</th>
-                <th className="py-1.5 pr-4 font-normal">Firmware</th>
-                <th className="py-1.5 pr-4 font-normal">Update status</th>
-                <th className="py-1.5 font-normal">
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody className="text-text-primary">
-              {modelGroups.map((group) => {
-                const acknowledged = acknowledgedAssignments[pairKey(group)];
-                const activeRollout = acknowledged ? undefined : activeForGroup(group);
-                const rolloutPending = group.activeRolloutId > 0n && !activeRollout;
-                return (
-                  <tr
-                    key={observedPairKey(group)}
-                    className="border-t border-border-5"
-                    data-testid={`model-group-${group.model}`}
-                  >
-                    <td className="py-3 pr-4 text-emphasis-300">{pairLabel(group)}</td>
-                    <td className="py-3 pr-4">{group.minerCount.toLocaleString()}</td>
-                    <td className="py-3 pr-4">
-                      <FirmwarePickerCell
+      {assignmentSections.map(({ containers, groups }, index) => (
+        <Section
+          key={containers ? "containers" : "miners"}
+          title={containers ? "Assigned Proto Containers" : "Assigned miners"}
+          subtext={
+            containers
+              ? controllerSoftware
+                ? "Grouped by container model and component. Firmware updates wait for containers that are behind on controller software."
+                : "Grouped by container model and component. Choose a version for each, or view the individual containers."
+              : "Grouped by hardware model. Choose a firmware version for each model, or view its individual miners."
+          }
+        >
+          {exceedsAssignmentLimit && index === 0 ? (
+            <p role="alert" className="text-200 text-intent-critical-fill">
+              {assignmentLimitMessage}
+            </p>
+          ) : null}
+          {groups.length === 0 ? (
+            <span className="text-300 text-text-primary-50">
+              No {nouns.plural} in scope yet. Open Channel settings and change Applies to to include {nouns.plural}.
+            </span>
+          ) : (
+            <table
+              aria-label={containers ? "Assigned Proto Containers by model" : "Assigned miners by model"}
+              className="w-full text-left text-200"
+            >
+              <thead>
+                <tr className="text-text-primary-50">
+                  <th className="py-1.5 pr-4 font-normal">Model</th>
+                  <th className="py-1.5 pr-4 font-normal">{containers ? "Containers" : "Miners"}</th>
+                  <th className="py-1.5 pr-4 font-normal">{containers ? "Version" : "Firmware"}</th>
+                  <th className="py-1.5 pr-4 font-normal">Update status</th>
+                  <th className="py-1.5 font-normal">
+                    <span className="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="text-text-primary">
+                {groups.map((group) => {
+                  const acknowledged = acknowledgedAssignments[pairKey(group)];
+                  const activeRollout = acknowledged ? undefined : activeForGroup(group);
+                  const rolloutPending = group.activeRolloutId > 0n && !activeRollout;
+                  const live = shownLivePairs.has(pairKey(group));
+                  // The target holds every firmware the channel sends a container,
+                  // so each component row says why it waits. The target itself is
+                  // set once per model, on the row of its main firmware.
+                  const holdsFirmware = containers && controllerSoftware !== undefined && live;
+                  const showControllerSoftware = holdsFirmware && !group.component;
+                  const holdMessage =
+                    holdsFirmware &&
+                    !controllerSoftwareState.isRefreshingPair(group) &&
+                    hasFirmwareAssignment(group, acknowledged)
+                      ? controllerSoftwareHoldMessage(controllerSoftwareState.forPair(group))
+                      : null;
+                  return [
+                    showControllerSoftware ? (
+                      <ControllerSoftwareRow
+                        key={`${observedPairKey(group)}:controller-software`}
                         group={group}
-                        firmwareFiles={firmwareFiles}
-                        stagedFileId={staged[pairKey(group)]?.fileId}
-                        acknowledgedAssignment={acknowledged}
-                        selectionError={invalidSelections.get(pairKey(group))}
+                        state={controllerSoftwareState}
                         disabled={isWriting}
-                        onStageFirmware={(g, fileId) => {
-                          if (!writeInFlightRef.current && !isWriting) {
-                            const key = pairKey(g);
-                            setStaged((prev) => {
-                              const next = { ...prev };
-                              if (!isFirmwareChange(g, acknowledged, fileId)) delete next[key];
-                              else next[key] = { fileId, group: g };
-                              return next;
-                            });
-                          }
-                        }}
                       />
-                    </td>
-                    <td className="py-3 pr-4">
-                      {acknowledged ? (
-                        <span className="text-text-primary-50">Refreshing update status</span>
-                      ) : !livePairs.has(pairKey(group)) ? (
-                        <span className="text-text-primary-50">—</span>
-                      ) : activeRollout ? (
-                        <RolloutProgressIndicator
+                    ) : null,
+                    <tr
+                      key={observedPairKey(group)}
+                      className="border-t border-border-5"
+                      data-testid={`model-group-${groupTestId(group)}`}
+                    >
+                      <td className="py-3 pr-4">
+                        <div className="text-emphasis-300">{containers ? modelLabel(group) : pairLabel(group)}</div>
+                        {containers ? (
+                          <div className="text-text-primary-70">{containerFirmwareLabel(group.component)}</div>
+                        ) : null}
+                      </td>
+                      <td className="py-3 pr-4">{group.minerCount.toLocaleString()}</td>
+                      <td className="py-3 pr-4">
+                        <FirmwarePickerCell
                           group={group}
-                          rollout={activeRollout}
-                          testId={`model-group-rollout-progress-${group.model}`}
+                          firmwareFiles={firmwareFiles}
+                          stagedFileId={staged[pairKey(group)]?.fileId}
+                          acknowledgedAssignment={acknowledged}
+                          selectionError={invalidSelections.get(pairKey(group))}
+                          disabled={isWriting}
+                          onStageFirmware={(g, fileId) => {
+                            if (!writeInFlightRef.current && !isWriting) {
+                              const key = pairKey(g);
+                              setStaged((prev) => {
+                                const next = { ...prev };
+                                if (!isFirmwareChange(g, acknowledged, fileId)) delete next[key];
+                                else next[key] = { fileId, group: g };
+                                return next;
+                              });
+                            }
+                          }}
                         />
-                      ) : (
-                        <ModelStatusCell
-                          historyState={historyState}
-                          group={group}
-                          activeRollout={activeRollout}
-                          lastFinished={lastFinished.get(channelAssignmentKey(channel.id, group))}
-                        />
-                      )}
-                    </td>
-                    <td className="py-3 text-right">
-                      {group.minerCount > 0 ? (
-                        <Button
-                          variant={variants.secondary}
-                          size={sizes.compact}
-                          text="View miners"
-                          disabled={
-                            !livePairs.has(pairKey(group)) ||
-                            acknowledged !== undefined ||
-                            rolloutPending ||
-                            group.rollbackPending
-                          }
-                          onClick={() => setMinersPair(observedPairKey(group))}
-                          testId={`view-miners-${group.model}`}
-                        />
-                      ) : null}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </Section>
+                      </td>
+                      <td className="py-3 pr-4">
+                        {acknowledged ? (
+                          <span className="text-text-primary-50">Refreshing update status</span>
+                        ) : !live ? (
+                          <span className="text-text-primary-50">—</span>
+                        ) : activeRollout ? (
+                          <RolloutProgressIndicator
+                            group={group}
+                            rollout={activeRollout}
+                            testId={`model-group-rollout-progress-${groupTestId(group)}`}
+                          />
+                        ) : (
+                          <ModelStatusCell
+                            historyState={historyState}
+                            group={group}
+                            activeRollout={activeRollout}
+                            lastFinished={lastFinished.get(channelAssignmentKey(channel.id, group))}
+                          />
+                        )}
+                        {holdMessage ? (
+                          <p
+                            role="status"
+                            className="mt-1 text-text-primary-70"
+                            data-testid={`controller-software-hold-${groupTestId(group)}`}
+                          >
+                            {holdMessage}
+                          </p>
+                        ) : null}
+                      </td>
+                      <td className="py-3 text-right">
+                        {group.minerCount > 0 ? (
+                          <Button
+                            variant={variants.secondary}
+                            size={sizes.compact}
+                            text={containers ? "View containers" : "View miners"}
+                            disabled={!live || acknowledged !== undefined || rolloutPending || group.rollbackPending}
+                            onClick={() => setMinersPair(observedPairKey(group))}
+                            testId={`view-miners-${groupTestId(group)}`}
+                          />
+                        ) : null}
+                      </td>
+                    </tr>,
+                  ];
+                })}
+              </tbody>
+            </table>
+          )}
+        </Section>
+      ))}
 
       {showSettings ? (
         <Modal
@@ -1100,6 +1230,8 @@ const ReleaseChannelManageView = ({
           onClose={() => setMinersPair(null)}
         />
       ) : null}
+
+      {controllerSoftwareState.dialogs}
 
       <Dialog
         open={showApplyDialog}

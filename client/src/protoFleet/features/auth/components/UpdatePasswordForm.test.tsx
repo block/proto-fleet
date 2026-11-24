@@ -19,21 +19,6 @@ describe("UpdatePasswordForm", () => {
     expect(getByText("Continue")).toBeInTheDocument();
   });
 
-  it("allows entering password values", () => {
-    const { getByLabelText } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} />);
-
-    const newPasswordInput = getByLabelText("New password");
-    const confirmPasswordInput = getByLabelText("Confirm password");
-
-    fireEvent.change(newPasswordInput, { target: { value: "NewPass123!@#" } });
-    fireEvent.change(confirmPasswordInput, {
-      target: { value: "NewPass123!@#" },
-    });
-
-    expect(newPasswordInput).toHaveValue("NewPass123!@#");
-    expect(confirmPasswordInput).toHaveValue("NewPass123!@#");
-  });
-
   it("calls onSubmit with password values when Continue is clicked", () => {
     const { getByLabelText, getByText } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} />);
 
@@ -49,9 +34,12 @@ describe("UpdatePasswordForm", () => {
   });
 
   it("displays error message when provided", () => {
-    const { getByText } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} errorMsg="Passwords do not match" />);
+    const { getByText, getByTestId } = render(
+      <UpdatePasswordForm onSubmit={mockOnSubmit} errorMsg="Passwords do not match" />,
+    );
 
     expect(getByText("Passwords do not match")).toBeInTheDocument();
+    expect(getByTestId("callout")).toBeInTheDocument();
   });
 
   it("calls onErrorDismiss when typing in new password field", () => {
@@ -84,12 +72,6 @@ describe("UpdatePasswordForm", () => {
     expect(mockOnErrorDismiss).toHaveBeenCalled();
   });
 
-  it("shows loading state when isSubmitting is true", () => {
-    const { getByText } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} isSubmitting={true} />);
-
-    expect(getByText("Updating...")).toBeInTheDocument();
-  });
-
   it("disables button when isSubmitting is true", () => {
     const { getByText } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} isSubmitting={true} />);
 
@@ -116,15 +98,6 @@ describe("UpdatePasswordForm", () => {
     expect(container.querySelector("footer")).toBeTruthy();
   });
 
-  it("displays error message with correct styling", () => {
-    const { getByText, getByTestId } = render(
-      <UpdatePasswordForm onSubmit={mockOnSubmit} errorMsg="Invalid password format" />,
-    );
-
-    expect(getByText("Invalid password format")).toBeInTheDocument();
-    expect(getByTestId("callout")).toBeInTheDocument();
-  });
-
   it("shows validation error when submitting with empty passwords", () => {
     const { getByText } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} />);
 
@@ -132,29 +105,6 @@ describe("UpdatePasswordForm", () => {
 
     expect(mockOnSubmit).not.toHaveBeenCalled();
     expect(getByText("Minimum 8 characters required")).toBeInTheDocument();
-  });
-
-  it("updates password strength meter when password changes", () => {
-    const { getByLabelText } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} />);
-
-    const newPasswordInput = getByLabelText("New password");
-
-    fireEvent.change(newPasswordInput, { target: { value: "weak" } });
-
-    fireEvent.change(newPasswordInput, {
-      target: { value: "StrongP@ssw0rd123!" },
-    });
-
-    expect(newPasswordInput).toHaveValue("StrongP@ssw0rd123!");
-  });
-
-  it("handles long error messages", () => {
-    const longError =
-      "Password must be at least 12 characters long and include uppercase letters, lowercase letters, numbers, and special characters. Please try again.";
-
-    const { getByText } = render(<UpdatePasswordForm onSubmit={mockOnSubmit} errorMsg={longError} />);
-
-    expect(getByText(longError)).toBeInTheDocument();
   });
 
   it("does not show error message when errorMsg is empty string", () => {

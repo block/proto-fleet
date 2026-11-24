@@ -34,9 +34,9 @@ func TestNotificationHistoryStore_InsertBatch_Chunks(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	db := testContext.DatabaseService.DB
-	orgID := testContext.DatabaseService.CreateSuperAdminUser().OrganizationID
+	testContext := testutil.NewDatabaseService(t, nil)
+	db := testContext.DB
+	orgID := testContext.CreateSuperAdminUser().OrganizationID
 	store := sqlstores.NewSQLNotificationHistoryStore(db)
 	startsAt := time.Now().Add(-5 * time.Minute).UTC().Truncate(time.Second)
 
@@ -91,9 +91,9 @@ func TestNotificationHistoryStore_ListExcludesResolvedRows(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	db := testContext.DatabaseService.DB
-	orgID := testContext.DatabaseService.CreateSuperAdminUser().OrganizationID
+	testContext := testutil.NewDatabaseService(t, nil)
+	db := testContext.DB
+	orgID := testContext.CreateSuperAdminUser().OrganizationID
 	store := sqlstores.NewSQLNotificationHistoryStore(db)
 	now := time.Now()
 
@@ -116,9 +116,9 @@ func TestNotificationHistoryStore_ListActive_FreshnessGate(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	db := testContext.DatabaseService.DB
-	orgID := testContext.DatabaseService.CreateSuperAdminUser().OrganizationID
+	testContext := testutil.NewDatabaseService(t, nil)
+	db := testContext.DB
+	orgID := testContext.CreateSuperAdminUser().OrganizationID
 	store := sqlstores.NewSQLNotificationHistoryStore(db)
 	now := time.Now()
 
@@ -161,9 +161,9 @@ func TestNotificationHistoryStore_ListActiveGroups_RollsUpPerAlert(t *testing.T)
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	db := testContext.DatabaseService.DB
-	orgID := testContext.DatabaseService.CreateSuperAdminUser().OrganizationID
+	testContext := testutil.NewDatabaseService(t, nil)
+	db := testContext.DB
+	orgID := testContext.CreateSuperAdminUser().OrganizationID
 	store := sqlstores.NewSQLNotificationHistoryStore(db)
 	now := time.Now()
 
@@ -198,9 +198,9 @@ func TestNotificationHistoryStore_ListActiveGroups_SummarizesOnlyDeviceLessGroup
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	db := testContext.DatabaseService.DB
-	orgID := testContext.DatabaseService.CreateSuperAdminUser().OrganizationID
+	testContext := testutil.NewDatabaseService(t, nil)
+	db := testContext.DB
+	orgID := testContext.CreateSuperAdminUser().OrganizationID
 	store := sqlstores.NewSQLNotificationHistoryStore(db)
 	now := time.Now()
 
@@ -241,9 +241,9 @@ func TestNotificationActiveSync_SkipsOversizedIndexedLabels(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	db := testContext.DatabaseService.DB
-	orgID := testContext.DatabaseService.CreateSuperAdminUser().OrganizationID
+	testContext := testutil.NewDatabaseService(t, nil)
+	db := testContext.DB
+	orgID := testContext.CreateSuperAdminUser().OrganizationID
 	store := sqlstores.NewSQLNotificationHistoryStore(db)
 
 	oversized := strings.Repeat("a", 4096)
@@ -272,9 +272,9 @@ func TestNotificationActiveSync_SkipsSeparatorBearingLabels(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	db := testContext.DatabaseService.DB
-	orgID := testContext.DatabaseService.CreateSuperAdminUser().OrganizationID
+	testContext := testutil.NewDatabaseService(t, nil)
+	db := testContext.DB
+	orgID := testContext.CreateSuperAdminUser().OrganizationID
 	store := sqlstores.NewSQLNotificationHistoryStore(db)
 	now := time.Now()
 
@@ -296,9 +296,9 @@ func TestNotificationActiveSync_FingerprintlessKeyIncludesRuleGroup(t *testing.T
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	db := testContext.DatabaseService.DB
-	orgID := testContext.DatabaseService.CreateSuperAdminUser().OrganizationID
+	testContext := testutil.NewDatabaseService(t, nil)
+	db := testContext.DB
+	orgID := testContext.CreateSuperAdminUser().OrganizationID
 	store := sqlstores.NewSQLNotificationHistoryStore(db)
 	now := time.Now()
 
@@ -326,9 +326,9 @@ func TestNotificationHistoryStore_ListActiveByAlert_EmptyRuleGroupMatchesExactly
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	db := testContext.DatabaseService.DB
-	orgID := testContext.DatabaseService.CreateSuperAdminUser().OrganizationID
+	testContext := testutil.NewDatabaseService(t, nil)
+	db := testContext.DB
+	orgID := testContext.CreateSuperAdminUser().OrganizationID
 	store := sqlstores.NewSQLNotificationHistoryStore(db)
 	now := time.Now()
 
@@ -355,9 +355,9 @@ func TestNotificationHistoryStore_ListActiveByAlert_PagesOneAlert(t *testing.T) 
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	db := testContext.DatabaseService.DB
-	orgID := testContext.DatabaseService.CreateSuperAdminUser().OrganizationID
+	testContext := testutil.NewDatabaseService(t, nil)
+	db := testContext.DB
+	orgID := testContext.CreateSuperAdminUser().OrganizationID
 	store := sqlstores.NewSQLNotificationHistoryStore(db)
 	now := time.Now()
 

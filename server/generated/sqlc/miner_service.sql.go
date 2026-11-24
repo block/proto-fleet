@@ -8,12 +8,15 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+
+	"github.com/lib/pq"
 )
 
 const getDeviceWithCredentialsAndIPByDeviceIdentifier = `-- name: GetDeviceWithCredentialsAndIPByDeviceIdentifier :one
 SELECT
     d.id,
     d.device_identifier,
+    dd.device_class,
     dd.model,
     dd.manufacturer,
     dd.driver_name,
@@ -25,11 +28,19 @@ SELECT
     dd.ip_address,
     dd.port,
     dd.url_scheme,
-    d.site_id
+    dd.rpc_port,
+    dd.rpc_tls,
+    dd.endpoints::text AS endpoints,
+    d.site_id,
+    d.discovered_device_id,
+    dp.paired_at,
+    mc.updated_at AS credential_version,
+    COALESCE(f.epoch,0)::bigint AS write_epoch
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN miner_credentials mc ON d.id = mc.device_id
+LEFT JOIN device_write_fence f ON f.device_id=d.id AND f.organization_id=d.org_id
 WHERE d.device_identifier = $1
     AND d.deleted_at IS NULL
     AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
@@ -43,20 +54,28 @@ LIMIT 1
 `
 
 type GetDeviceWithCredentialsAndIPByDeviceIdentifierRow struct {
-	ID               int64
-	DeviceIdentifier string
-	Model            sql.NullString
-	Manufacturer     sql.NullString
-	DriverName       string
-	OrgID            int64
-	SerialNumber     sql.NullString
-	MacAddress       string
-	UsernameEnc      sql.NullString
-	PasswordEnc      sql.NullString
-	IpAddress        string
-	Port             string
-	UrlScheme        string
-	SiteID           sql.NullInt64
+	ID                 int64
+	DeviceIdentifier   string
+	DeviceClass        int32
+	Model              sql.NullString
+	Manufacturer       sql.NullString
+	DriverName         string
+	OrgID              int64
+	SerialNumber       sql.NullString
+	MacAddress         string
+	UsernameEnc        sql.NullString
+	PasswordEnc        sql.NullString
+	IpAddress          string
+	Port               string
+	UrlScheme          string
+	RpcPort            int32
+	RpcTls             bool
+	Endpoints          string
+	SiteID             sql.NullInt64
+	DiscoveredDeviceID int64
+	PairedAt           sql.NullTime
+	CredentialVersion  sql.NullTime
+	WriteEpoch         int64
 }
 
 func (q *Queries) GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx context.Context, deviceIdentifier string) (GetDeviceWithCredentialsAndIPByDeviceIdentifierRow, error) {
@@ -65,6 +84,7 @@ func (q *Queries) GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx context.Co
 	err := row.Scan(
 		&i.ID,
 		&i.DeviceIdentifier,
+		&i.DeviceClass,
 		&i.Model,
 		&i.Manufacturer,
 		&i.DriverName,
@@ -76,94 +96,23 @@ func (q *Queries) GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx context.Co
 		&i.IpAddress,
 		&i.Port,
 		&i.UrlScheme,
+		&i.RpcPort,
+		&i.RpcTls,
+		&i.Endpoints,
 		&i.SiteID,
+		&i.DiscoveredDeviceID,
+		&i.PairedAt,
+		&i.CredentialVersion,
+		&i.WriteEpoch,
 	)
 	return i, err
 }
 
-const getDirectProtoMinerProxyTarget = `-- name: GetDirectProtoMinerProxyTarget :one
+const getDeviceWriteDeletionBindings = `-- name: GetDeviceWriteDeletionBindings :many
 SELECT
     d.id,
     d.device_identifier,
-    d.org_id,
-    d.site_id,
-    d.serial_number,
-    d.mac_address,
-    dd.ip_address,
-    dd.port,
-    dd.url_scheme,
-    dd.driver_name,
-    mc.username_enc,
-    mc.password_enc
-FROM device d
-JOIN discovered_device dd ON d.discovered_device_id = dd.id
-JOIN device_pairing dp ON d.id = dp.device_id
-LEFT JOIN miner_credentials mc ON d.id = mc.device_id
-WHERE d.device_identifier = $1
-    AND d.org_id = $2
-    AND d.deleted_at IS NULL
-    -- Match the miner-list eligibility: a soft-deleted or inactive discovery
-    -- row must not be proxyable via a bookmarked /miners/:id URL, or the proxy
-    -- could keep dialing a stale/reassigned address with stored credentials.
-    AND dd.is_active = TRUE
-    AND dd.deleted_at IS NULL
-    AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
-    AND dd.driver_name = 'proto'
-    -- This HTTP proxy dials the miner from fleet-api. Fleet-node-owned
-    -- devices need a result-capable typed control command instead.
-    AND NOT EXISTS (
-        SELECT 1 FROM fleet_node_device fnd
-        WHERE fnd.device_id = d.id AND fnd.org_id = d.org_id
-    )
-LIMIT 1
-`
-
-type GetDirectProtoMinerProxyTargetParams struct {
-	DeviceIdentifier string
-	OrgID            int64
-}
-
-type GetDirectProtoMinerProxyTargetRow struct {
-	ID               int64
-	DeviceIdentifier string
-	OrgID            int64
-	SiteID           sql.NullInt64
-	SerialNumber     sql.NullString
-	MacAddress       string
-	IpAddress        string
-	Port             string
-	UrlScheme        string
-	DriverName       string
-	UsernameEnc      sql.NullString
-	PasswordEnc      sql.NullString
-}
-
-func (q *Queries) GetDirectProtoMinerProxyTarget(ctx context.Context, arg GetDirectProtoMinerProxyTargetParams) (GetDirectProtoMinerProxyTargetRow, error) {
-	row := q.queryRow(ctx, q.getDirectProtoMinerProxyTargetStmt, getDirectProtoMinerProxyTarget, arg.DeviceIdentifier, arg.OrgID)
-	var i GetDirectProtoMinerProxyTargetRow
-	err := row.Scan(
-		&i.ID,
-		&i.DeviceIdentifier,
-		&i.OrgID,
-		&i.SiteID,
-		&i.SerialNumber,
-		&i.MacAddress,
-		&i.IpAddress,
-		&i.Port,
-		&i.UrlScheme,
-		&i.DriverName,
-		&i.UsernameEnc,
-		&i.PasswordEnc,
-	)
-	return i, err
-}
-
-const getFleetNodeTelemetryRouteByDeviceIdentifier = `-- name: GetFleetNodeTelemetryRouteByDeviceIdentifier :one
-SELECT
-    fnd.fleet_node_id,
-    d.id,
-    d.device_identifier,
-    d.site_id,
+    dd.device_class,
     dd.model,
     dd.manufacturer,
     dd.driver_name,
@@ -175,43 +124,187 @@ SELECT
     dd.ip_address,
     dd.port,
     dd.url_scheme,
-    dd.firmware_version
-FROM fleet_node_device fnd
-JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id AND d.deleted_at IS NULL
-JOIN device_pairing dp ON dp.device_id = d.id
-JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
-JOIN discovered_device dd ON dd.id = d.discovered_device_id
+    dd.rpc_port,
+    dd.rpc_tls,
+    dd.endpoints::text AS endpoints,
+    d.site_id,
+    d.discovered_device_id,
+    dp.paired_at,
+    mc.updated_at AS credential_version,
+    COALESCE(f.epoch,0)::bigint AS write_epoch
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN miner_credentials mc ON d.id = mc.device_id
-WHERE d.device_identifier = $1
+LEFT JOIN device_write_fence f ON f.device_id=d.id AND f.organization_id=d.org_id
+WHERE d.id = ANY($1::bigint[])
+    AND d.org_id = $2
+    AND dd.driver_name = 'proto'
+    AND d.deleted_at IS NULL
     AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
-    AND fn.deleted_at IS NULL
-    AND fn.enrollment_status = 'CONFIRMED'
+    -- Cloud dials this device directly, so exclude fleet-node-owned devices:
+    -- the node owns their I/O and the cloud has no route to them.
+    AND NOT EXISTS (
+        SELECT 1 FROM fleet_node_device fnd
+        WHERE fnd.device_id = d.id AND fnd.org_id = d.org_id
+    )
+ORDER BY d.id
+`
+
+type GetDeviceWriteDeletionBindingsParams struct {
+	DeviceIds      []int64
+	OrganizationID int64
+}
+
+type GetDeviceWriteDeletionBindingsRow struct {
+	ID                 int64
+	DeviceIdentifier   string
+	DeviceClass        int32
+	Model              sql.NullString
+	Manufacturer       sql.NullString
+	DriverName         string
+	OrgID              int64
+	SerialNumber       sql.NullString
+	MacAddress         string
+	UsernameEnc        sql.NullString
+	PasswordEnc        sql.NullString
+	IpAddress          string
+	Port               string
+	UrlScheme          string
+	RpcPort            int32
+	RpcTls             bool
+	Endpoints          string
+	SiteID             sql.NullInt64
+	DiscoveredDeviceID int64
+	PairedAt           sql.NullTime
+	CredentialVersion  sql.NullTime
+	WriteEpoch         int64
+}
+
+func (q *Queries) GetDeviceWriteDeletionBindings(ctx context.Context, arg GetDeviceWriteDeletionBindingsParams) ([]GetDeviceWriteDeletionBindingsRow, error) {
+	rows, err := q.query(ctx, q.getDeviceWriteDeletionBindingsStmt, getDeviceWriteDeletionBindings, pq.Array(arg.DeviceIds), arg.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetDeviceWriteDeletionBindingsRow
+	for rows.Next() {
+		var i GetDeviceWriteDeletionBindingsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeviceIdentifier,
+			&i.DeviceClass,
+			&i.Model,
+			&i.Manufacturer,
+			&i.DriverName,
+			&i.OrgID,
+			&i.SerialNumber,
+			&i.MacAddress,
+			&i.UsernameEnc,
+			&i.PasswordEnc,
+			&i.IpAddress,
+			&i.Port,
+			&i.UrlScheme,
+			&i.RpcPort,
+			&i.RpcTls,
+			&i.Endpoints,
+			&i.SiteID,
+			&i.DiscoveredDeviceID,
+			&i.PairedAt,
+			&i.CredentialVersion,
+			&i.WriteEpoch,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getFleetNodeTelemetryRouteByDeviceIdentifier = `-- name: GetFleetNodeTelemetryRouteByDeviceIdentifier :one
+WITH route AS MATERIALIZED (
+    SELECT d.id, d.device_identifier, d.site_id, d.org_id, d.serial_number,
+        d.mac_address, d.discovered_device_id, fnd.fleet_node_id, dp.paired_at
+    FROM fleet_node_device fnd
+    JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id AND d.deleted_at IS NULL
+    JOIN device_pairing dp ON dp.device_id = d.id
+    JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+    WHERE d.device_identifier = $1
+        AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+        AND fn.deleted_at IS NULL
+        AND fn.enrollment_status = 'CONFIRMED'
+)
+SELECT
+    r.fleet_node_id,
+    r.id,
+    r.device_identifier,
+    r.site_id,
+    dd.device_class,
+    dd.model,
+    dd.manufacturer,
+    dd.driver_name,
+    r.org_id,
+    r.serial_number,
+    r.mac_address,
+    mc.username_enc,
+    mc.password_enc,
+    dd.ip_address,
+    dd.port,
+    dd.url_scheme,
+    dd.rpc_port,
+    dd.rpc_tls,
+    dd.endpoints::text AS endpoints,
+    dd.firmware_version,
+    r.discovered_device_id,
+    r.paired_at,
+    mc.updated_at AS credential_version,
+    COALESCE(f.epoch,0)::bigint AS write_epoch
+FROM route r
+JOIN discovered_device dd ON dd.id = r.discovered_device_id
+LEFT JOIN miner_credentials mc ON r.id = mc.device_id
+LEFT JOIN device_write_fence f ON f.device_id=r.id AND f.organization_id=r.org_id
 LIMIT 1
 `
 
 type GetFleetNodeTelemetryRouteByDeviceIdentifierRow struct {
-	FleetNodeID      int64
-	ID               int64
-	DeviceIdentifier string
-	SiteID           sql.NullInt64
-	Model            sql.NullString
-	Manufacturer     sql.NullString
-	DriverName       string
-	OrgID            int64
-	SerialNumber     sql.NullString
-	MacAddress       string
-	UsernameEnc      sql.NullString
-	PasswordEnc      sql.NullString
-	IpAddress        string
-	Port             string
-	UrlScheme        string
-	FirmwareVersion  sql.NullString
+	FleetNodeID        int64
+	ID                 int64
+	DeviceIdentifier   string
+	SiteID             sql.NullInt64
+	DeviceClass        int32
+	Model              sql.NullString
+	Manufacturer       sql.NullString
+	DriverName         string
+	OrgID              int64
+	SerialNumber       sql.NullString
+	MacAddress         string
+	UsernameEnc        sql.NullString
+	PasswordEnc        sql.NullString
+	IpAddress          string
+	Port               string
+	UrlScheme          string
+	RpcPort            int32
+	RpcTls             bool
+	Endpoints          string
+	FirmwareVersion    sql.NullString
+	DiscoveredDeviceID int64
+	PairedAt           sql.NullTime
+	CredentialVersion  sql.NullTime
+	WriteEpoch         int64
 }
 
 // Resolve the active fleet node and all connection metadata needed for a
 // telemetry sample and remote miner command routing. The server sends this to
 // the node because the node has no database, then validates that the returned
 // telemetry matches this trusted device identifier before storing it.
+// MATERIALIZED keeps the planner from flattening this back into a seven-table
+// join: ownership resolves first, then metadata, credentials and fence.
 func (q *Queries) GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx context.Context, deviceIdentifier string) (GetFleetNodeTelemetryRouteByDeviceIdentifierRow, error) {
 	row := q.queryRow(ctx, q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt, getFleetNodeTelemetryRouteByDeviceIdentifier, deviceIdentifier)
 	var i GetFleetNodeTelemetryRouteByDeviceIdentifierRow
@@ -220,6 +313,7 @@ func (q *Queries) GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx context.Conte
 		&i.ID,
 		&i.DeviceIdentifier,
 		&i.SiteID,
+		&i.DeviceClass,
 		&i.Model,
 		&i.Manufacturer,
 		&i.DriverName,
@@ -231,7 +325,120 @@ func (q *Queries) GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx context.Conte
 		&i.IpAddress,
 		&i.Port,
 		&i.UrlScheme,
+		&i.RpcPort,
+		&i.RpcTls,
+		&i.Endpoints,
 		&i.FirmwareVersion,
+		&i.DiscoveredDeviceID,
+		&i.PairedAt,
+		&i.CredentialVersion,
+		&i.WriteEpoch,
+	)
+	return i, err
+}
+
+const getProtoMinerProxyTarget = `-- name: GetProtoMinerProxyTarget :one
+SELECT
+    d.id,
+    d.device_identifier,
+    d.org_id,
+    d.site_id,
+    d.serial_number,
+    d.mac_address,
+    dd.ip_address,
+    dd.port,
+    dd.url_scheme,
+    dd.rpc_port,
+    dd.rpc_tls,
+    dd.endpoints::text AS endpoints,
+    dd.driver_name,
+    dd.device_class,
+    fnd.fleet_node_id,
+    mc.username_enc,
+    mc.password_enc,
+    d.discovered_device_id,
+    dp.paired_at,
+    mc.updated_at AS credential_version,
+    COALESCE(f.epoch,0)::bigint AS write_epoch
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN miner_credentials mc ON d.id = mc.device_id
+LEFT JOIN device_write_fence f ON f.device_id=d.id AND f.organization_id=d.org_id
+LEFT JOIN fleet_node_device fnd ON fnd.device_id=d.id AND fnd.org_id=d.org_id
+LEFT JOIN fleet_node fn ON fn.id=fnd.fleet_node_id AND fn.org_id=fnd.org_id
+WHERE d.device_identifier = $1
+    AND d.org_id = $2
+    AND d.deleted_at IS NULL
+    -- Match the miner-list eligibility: a soft-deleted or inactive discovery
+    -- row must not be proxyable via a bookmarked /miners/:id URL, or the proxy
+    -- could keep dialing a stale/reassigned address with stored credentials.
+    AND dd.is_active = TRUE
+    AND dd.deleted_at IS NULL
+    AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+    AND dd.driver_name = 'proto'
+    AND (fnd.device_id IS NULL OR (
+        dd.device_class = 1
+        AND fn.deleted_at IS NULL AND fn.enrollment_status = 'CONFIRMED'
+        AND dd.discovered_by_fleet_node_id = fnd.fleet_node_id
+    ))
+LIMIT 1
+`
+
+type GetProtoMinerProxyTargetParams struct {
+	DeviceIdentifier string
+	OrgID            int64
+}
+
+type GetProtoMinerProxyTargetRow struct {
+	ID                 int64
+	DeviceIdentifier   string
+	OrgID              int64
+	SiteID             sql.NullInt64
+	SerialNumber       sql.NullString
+	MacAddress         string
+	IpAddress          string
+	Port               string
+	UrlScheme          string
+	RpcPort            int32
+	RpcTls             bool
+	Endpoints          string
+	DriverName         string
+	DeviceClass        int32
+	FleetNodeID        sql.NullInt64
+	UsernameEnc        sql.NullString
+	PasswordEnc        sql.NullString
+	DiscoveredDeviceID int64
+	PairedAt           sql.NullTime
+	CredentialVersion  sql.NullTime
+	WriteEpoch         int64
+}
+
+func (q *Queries) GetProtoMinerProxyTarget(ctx context.Context, arg GetProtoMinerProxyTargetParams) (GetProtoMinerProxyTargetRow, error) {
+	row := q.queryRow(ctx, q.getProtoMinerProxyTargetStmt, getProtoMinerProxyTarget, arg.DeviceIdentifier, arg.OrgID)
+	var i GetProtoMinerProxyTargetRow
+	err := row.Scan(
+		&i.ID,
+		&i.DeviceIdentifier,
+		&i.OrgID,
+		&i.SiteID,
+		&i.SerialNumber,
+		&i.MacAddress,
+		&i.IpAddress,
+		&i.Port,
+		&i.UrlScheme,
+		&i.RpcPort,
+		&i.RpcTls,
+		&i.Endpoints,
+		&i.DriverName,
+		&i.DeviceClass,
+		&i.FleetNodeID,
+		&i.UsernameEnc,
+		&i.PasswordEnc,
+		&i.DiscoveredDeviceID,
+		&i.PairedAt,
+		&i.CredentialVersion,
+		&i.WriteEpoch,
 	)
 	return i, err
 }

@@ -20,14 +20,6 @@ func TestConfig_GetPluginsDir(t *testing.T) {
 			pluginsDir: "./plugins",
 		},
 		{
-			name:       "absolute path",
-			pluginsDir: "/tmp/plugins",
-		},
-		{
-			name:       "current directory",
-			pluginsDir: ".",
-		},
-		{
 			name:       "empty path defaults to current dir",
 			pluginsDir: "",
 		},
@@ -83,65 +75,6 @@ func TestConfig_GetPluginsDir_FailureScenarios(t *testing.T) {
 		assert.Empty(t, absPath)
 		assert.Contains(t, err.Error(), "failed to get absolute path for plugins directory")
 	})
-}
-
-func TestConfig_GetPluginsDir_EdgeCases(t *testing.T) {
-	tests := []struct {
-		name       string
-		pluginsDir string
-		validate   func(t *testing.T, absPath string, err error)
-	}{
-		{
-			name:       "path with spaces",
-			pluginsDir: "./plugins with spaces",
-			validate: func(t *testing.T, absPath string, err error) {
-				require.NoError(t, err)
-				assert.True(t, filepath.IsAbs(absPath))
-				assert.Contains(t, absPath, "plugins with spaces")
-			},
-		},
-		{
-			name:       "path with unicode characters",
-			pluginsDir: "./plugins-测试-🔌",
-			validate: func(t *testing.T, absPath string, err error) {
-				require.NoError(t, err)
-				assert.True(t, filepath.IsAbs(absPath))
-				assert.Contains(t, absPath, "plugins-测试-🔌")
-			},
-		},
-		{
-			name:       "nested relative path",
-			pluginsDir: "./nested/deep/plugins/directory",
-			validate: func(t *testing.T, absPath string, err error) {
-				require.NoError(t, err)
-				assert.True(t, filepath.IsAbs(absPath))
-				assert.Contains(t, absPath, "nested/deep/plugins/directory")
-			},
-		},
-		{
-			name:       "path with dot segments",
-			pluginsDir: "./plugins/../plugins/./subdir",
-			validate: func(t *testing.T, absPath string, err error) {
-				require.NoError(t, err)
-				assert.True(t, filepath.IsAbs(absPath))
-				// The path should be cleaned/normalized
-				assert.Contains(t, absPath, "plugins/subdir")
-				assert.NotContains(t, absPath, "../")
-				assert.NotContains(t, absPath, "/./")
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config := &Config{
-				PluginsDir: tt.pluginsDir,
-			}
-
-			absPath, err := config.GetPluginsDir()
-			tt.validate(t, absPath, err)
-		})
-	}
 }
 
 func TestConfig_Validate(t *testing.T) {

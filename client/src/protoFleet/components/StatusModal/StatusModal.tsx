@@ -58,6 +58,8 @@ const ProtoFleetStatusModal = ({
   componentAddress,
   showBackButton = true,
   onMergeMiners,
+  onAssignPoolConfiguration,
+  onAuthenticateMiner,
 }: ProtoFleetStatusModalProps) => {
   const isVisible = open ?? true;
 
@@ -251,13 +253,15 @@ const ProtoFleetStatusModal = ({
 
     return {
       props: {
-        title: summary.title,
+        title: needsMiningPool || needsAuthentication ? "Needs attention" : summary.title,
         subtitle: summary.subtitle,
         errors: errorsBySource,
         isSleeping: isMinersleeping,
         isOffline,
         needsAuthentication,
         needsMiningPool,
+        onAssignPoolConfiguration,
+        onAuthenticateMiner,
       },
       title: `${activeMiner?.name || deviceId} status`,
       buttons,
@@ -273,6 +277,8 @@ const ProtoFleetStatusModal = ({
     isOffline,
     needsAuthentication,
     needsMiningPool,
+    onAssignPoolConfiguration,
+    onAuthenticateMiner,
   ]);
 
   // getComponentStatus function - returns complete data including config
@@ -321,6 +327,7 @@ const ProtoFleetStatusModal = ({
       getMinerStatus={getMinerStatus}
       getComponentStatus={getComponentStatus}
       showBackButton={showBackButton}
+      manageFocus
     />
   );
 };

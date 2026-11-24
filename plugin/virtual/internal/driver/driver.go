@@ -104,6 +104,7 @@ func (d *Driver) DescribeDriver(_ context.Context) (sdk.DriverIdentifier, sdk.Ca
 			sdk.CapabilityLEDBlink:           true,
 			sdk.CapabilityCoolingModeAir:     true,
 			sdk.CapabilityCoolingModeImmerse: true,
+			sdk.CapabilityPoolClear:          true,
 			sdk.CapabilityPoolConfig:         true,
 			sdk.CapabilityPoolPriority:       true,
 
@@ -162,6 +163,7 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 	slog.Debug("Discovered virtual miner", "serial", minerCfg.SerialNumber, "ip", ipAddress)
 
 	return sdk.DeviceInfo{
+		DeviceClass:     sdk.DeviceClassRig,
 		Host:            ipAddress,
 		Port:            int32(minerCfg.Port),
 		URLScheme:       "virtual",
@@ -191,6 +193,7 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, _ sd
 
 	// Return full device info from config
 	return sdk.DeviceInfo{
+		DeviceClass:     sdk.DeviceClassRig,
 		Host:            deviceInfo.Host,
 		Port:            int32(minerCfg.Port),
 		URLScheme:       "virtual",

@@ -7,11 +7,14 @@ import (
 	"testing/synctest"
 	"time"
 
+	"connectrpc.com/connect"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
@@ -19,6 +22,7 @@ import (
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
+	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	sdkMocks "github.com/block/proto-fleet/server/sdk/v1/mocks"
 	"github.com/stretchr/testify/assert"
@@ -29,26 +33,19 @@ import (
 // Helper function to create test pairer with all required services
 func createTestPairer(ctrl *gomock.Controller, manager *Manager) *Pairer {
 	transactor := mocks.NewMockTransactor(ctrl)
-	discoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
+	discoveredDeviceStore := stablePairingSnapshotStore(ctrl)
 	deviceStore := mocks.NewMockDeviceStore(ctrl)
 	encryptService := &encrypt.Service{} // Simple instance for testing
 
 	return NewPairer(manager, transactor, discoveredDeviceStore, deviceStore, encryptService)
 }
 
-func TestNewPairer(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	manager := NewManager(&Config{})
-
-	pairer := createTestPairer(ctrl, manager)
-
-	assert.NotNil(t, pairer)
-	assert.Equal(t, manager, pairer.manager)
-	assert.NotNil(t, pairer.transactor)
-	assert.NotNil(t, pairer.deviceStore)
-	assert.NotNil(t, pairer.encryptService)
+// These unit fixtures model a stable discovery snapshot. Database race tests
+// verify that the real store refuses changed snapshots before pairing writes.
+func stablePairingSnapshotStore(ctrl *gomock.Controller) *mocks.MockDiscoveredDeviceStore {
+	store := mocks.NewMockDiscoveredDeviceStore(ctrl)
+	store.EXPECT().LockPairingSnapshot(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	return store
 }
 
 func TestPairer_PairDevice_NoPlugin(t *testing.T) {
@@ -116,7 +113,7 @@ func TestPairer_PairDevice_PluginNoPairingCapability(t *testing.T) {
 	assert.Contains(t, err.Error(), "does not support capability pairing")
 }
 
-func TestPairer_PairDevice_Success(t *testing.T) {
+func TestPairer_PairDevice_InitializesWorkerNameWithoutReadingPools(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -154,14 +151,15 @@ func TestPairer_PairDevice_Success(t *testing.T) {
 		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
 		Driver:     mockDriver,
 		Caps: sdk.Capabilities{
-			sdk.CapabilityPairing: true,
+			sdk.CapabilityPairing:    true,
+			sdk.CapabilityPoolConfig: true,
 		},
 	}
 	manager.pluginsByDriverName["antminer"] = mockPlugin
 
 	// Create pairer with mocked dependencies
 	transactor := mocks.NewMockTransactor(ctrl)
-	discoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
+	discoveredDeviceStore := stablePairingSnapshotStore(ctrl)
 	deviceStore := mocks.NewMockDeviceStore(ctrl)
 	encryptService, err := encrypt.NewService(&encrypt.Config{
 		ServiceMasterKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
@@ -204,11 +202,11 @@ func TestPairer_PairDevice_Success(t *testing.T) {
 	deviceStore.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), device.OrgID, "").Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().GetPairedDeviceBySerialNumber(gomock.Any(), gomock.Any(), device.OrgID).Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().InsertDevice(gomock.Any(), &device.Device, device.OrgID, device.DeviceIdentifier).Return(nil)
-	deviceStore.EXPECT().UpdateWorkerName(
-		gomock.Any(),
+	deviceStore.EXPECT().InitializeWorkerName(
+		gomock.Any(), int64(1),
 		models.DeviceIdentifier(device.DeviceIdentifier),
 		"00:11:22:33:44:55",
-	).Return(nil)
+	).Return(true, nil)
 	deviceStore.EXPECT().UpsertMinerCredentials(gomock.Any(), &device.Device, device.OrgID, gomock.Any(), gomock.Any()).Return(nil)
 	deviceStore.EXPECT().UpsertDevicePairing(gomock.Any(), &device.Device, device.OrgID, "PAIRED").Return(nil)
 	deviceStore.EXPECT().UpsertDeviceStatus(gomock.Any(), models.DeviceIdentifier(device.DeviceIdentifier), models.MinerStatusActive, "").Return(nil)
@@ -279,7 +277,7 @@ func TestPairer_PairDevice_DefaultPasswordActive_PersistsRemediationState(t *tes
 	manager.pluginsByDriverName["proto"] = mockPlugin
 
 	transactor := mocks.NewMockTransactor(ctrl)
-	discoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
+	discoveredDeviceStore := stablePairingSnapshotStore(ctrl)
 	deviceStore := mocks.NewMockDeviceStore(ctrl)
 	encryptService, err := encrypt.NewService(&encrypt.Config{
 		ServiceMasterKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
@@ -313,7 +311,7 @@ func TestPairer_PairDevice_DefaultPasswordActive_PersistsRemediationState(t *tes
 	deviceStore.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), device.OrgID, "").Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().GetPairedDeviceBySerialNumber(gomock.Any(), gomock.Any(), device.OrgID).Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().InsertDevice(gomock.Any(), &device.Device, device.OrgID, device.DeviceIdentifier).Return(nil)
-	deviceStore.EXPECT().UpdateWorkerName(gomock.Any(), models.DeviceIdentifier(device.DeviceIdentifier), "00:11:22:33:44:55").Return(nil)
+	deviceStore.EXPECT().InitializeWorkerName(gomock.Any(), int64(1), models.DeviceIdentifier(device.DeviceIdentifier), "00:11:22:33:44:55").Return(true, nil)
 	deviceStore.EXPECT().UpsertMinerCredentials(gomock.Any(), &device.Device, device.OrgID, gomock.Any(), gomock.Any()).Return(nil)
 	// Key assertions: DEFAULT_PASSWORD pairing state and normal successful initial status.
 	deviceStore.EXPECT().UpsertDevicePairing(gomock.Any(), &device.Device, device.OrgID, "DEFAULT_PASSWORD").Return(nil)
@@ -415,7 +413,7 @@ func TestPairer_GetDeviceInfo_Success(t *testing.T) {
 
 	// Create pairer with mocked dependencies
 	transactor := mocks.NewMockTransactor(ctrl)
-	discoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
+	discoveredDeviceStore := stablePairingSnapshotStore(ctrl)
 	deviceStore := mocks.NewMockDeviceStore(ctrl)
 	encryptService, err := encrypt.NewService(&encrypt.Config{
 		ServiceMasterKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
@@ -676,134 +674,6 @@ func TestPairer_GetDeviceInfo_ProtoWithoutCredentialsRequiresCredentials(t *test
 	assert.Contains(t, err.Error(), "credentials required for secret bundle")
 }
 
-func TestPairer_FetchWorkerNameFromPairedDevice_UsesAnyConfiguredPoolWorkerNameAndClosesDevice(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	manager := NewManager(&Config{})
-	pairer := createTestPairer(ctrl, manager)
-
-	password := "password123"
-	credentials := &pb.Credentials{
-		Username: "admin",
-		Password: &password,
-	}
-
-	discoveredDevice := &discoverymodels.DiscoveredDevice{
-		Device: pb.Device{
-			DeviceIdentifier: "test-device",
-			IpAddress:        "192.168.1.100",
-			Port:             "80",
-			UrlScheme:        "http",
-			DriverName:       "antminer",
-		},
-		OrgID: 1,
-	}
-
-	expectedSecretBundle := sdk.SecretBundle{
-		Version: "v1",
-		Kind: sdk.UsernamePassword{
-			Username: "admin",
-			Password: "password123",
-		},
-	}
-
-	mockDevice := sdkMocks.NewMockDevice(ctrl)
-	mockDevice.EXPECT().
-		GetMiningPools(gomock.Any()).
-		Return([]sdk.ConfiguredPool{
-			{Priority: 1, Username: "wallet.backup-worker"},
-			{Priority: 0, Username: "wallet"},
-		}, nil)
-	mockDevice.EXPECT().
-		Close(gomock.Any()).
-		Return(nil)
-
-	mockDriver := sdkMocks.NewMockDriver(ctrl)
-	mockDriver.EXPECT().
-		NewDevice(gomock.Any(), "test-device", gomock.Any(), gomock.Eq(expectedSecretBundle)).
-		Return(sdk.NewDeviceResult{Device: mockDevice}, nil)
-
-	plugin := &LoadedPlugin{
-		Name:       "test-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
-		Driver:     mockDriver,
-		Caps: sdk.Capabilities{
-			sdk.CapabilityPairing:    true,
-			sdk.CapabilityPoolConfig: true,
-		},
-	}
-	manager.pluginsByDriverName["antminer"] = plugin
-
-	workerName, err := pairer.fetchWorkerNameFromPairedDevice(t.Context(), plugin, discoveredDevice, credentials)
-
-	require.NoError(t, err)
-	assert.Equal(t, "backup-worker", workerName)
-}
-
-func TestPairer_FetchWorkerNameFromPairedDevice_ClosesDeviceOnPoolReadError(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	manager := NewManager(&Config{})
-	pairer := createTestPairer(ctrl, manager)
-
-	password := "password123"
-	credentials := &pb.Credentials{
-		Username: "admin",
-		Password: &password,
-	}
-
-	discoveredDevice := &discoverymodels.DiscoveredDevice{
-		Device: pb.Device{
-			DeviceIdentifier: "test-device",
-			IpAddress:        "192.168.1.100",
-			Port:             "80",
-			UrlScheme:        "http",
-			DriverName:       "antminer",
-		},
-		OrgID: 1,
-	}
-
-	expectedSecretBundle := sdk.SecretBundle{
-		Version: "v1",
-		Kind: sdk.UsernamePassword{
-			Username: "admin",
-			Password: "password123",
-		},
-	}
-
-	mockDevice := sdkMocks.NewMockDevice(ctrl)
-	mockDevice.EXPECT().
-		GetMiningPools(gomock.Any()).
-		Return(nil, fmt.Errorf("pool read failed"))
-	mockDevice.EXPECT().
-		Close(gomock.Any()).
-		Return(nil)
-
-	mockDriver := sdkMocks.NewMockDriver(ctrl)
-	mockDriver.EXPECT().
-		NewDevice(gomock.Any(), "test-device", gomock.Any(), gomock.Eq(expectedSecretBundle)).
-		Return(sdk.NewDeviceResult{Device: mockDevice}, nil)
-
-	plugin := &LoadedPlugin{
-		Name:       "test-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
-		Driver:     mockDriver,
-		Caps: sdk.Capabilities{
-			sdk.CapabilityPairing:    true,
-			sdk.CapabilityPoolConfig: true,
-		},
-	}
-	manager.pluginsByDriverName["antminer"] = plugin
-
-	workerName, err := pairer.fetchWorkerNameFromPairedDevice(t.Context(), plugin, discoveredDevice, credentials)
-
-	require.Error(t, err)
-	assert.Empty(t, workerName)
-	assert.Contains(t, err.Error(), "pool read failed")
-}
-
 // Helper function to create string pointer
 func stringPtr(s string) *string {
 	return &s
@@ -876,7 +746,7 @@ func TestPairer_PairDevice_AntminerAutoCredentials_Success(t *testing.T) {
 
 	// Create pairer with mocked dependencies
 	transactor := mocks.NewMockTransactor(ctrl)
-	discoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
+	discoveredDeviceStore := stablePairingSnapshotStore(ctrl)
 	deviceStore := mocks.NewMockDeviceStore(ctrl)
 	encryptService, err := encrypt.NewService(&encrypt.Config{
 		ServiceMasterKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
@@ -917,11 +787,11 @@ func TestPairer_PairDevice_AntminerAutoCredentials_Success(t *testing.T) {
 	deviceStore.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), device.OrgID, "").Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().GetPairedDeviceBySerialNumber(gomock.Any(), gomock.Any(), device.OrgID).Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().InsertDevice(gomock.Any(), &device.Device, device.OrgID, device.DeviceIdentifier).Return(nil)
-	deviceStore.EXPECT().UpdateWorkerName(
-		gomock.Any(),
+	deviceStore.EXPECT().InitializeWorkerName(
+		gomock.Any(), int64(1),
 		models.DeviceIdentifier(device.DeviceIdentifier),
 		"00:11:22:33:44:55",
-	).Return(nil)
+	).Return(true, nil)
 	deviceStore.EXPECT().UpsertMinerCredentials(gomock.Any(), &device.Device, device.OrgID, gomock.Any(), gomock.Any()).Return(nil)
 	deviceStore.EXPECT().UpsertDevicePairing(gomock.Any(), &device.Device, device.OrgID, "PAIRED").Return(nil)
 	deviceStore.EXPECT().UpsertDeviceStatus(gomock.Any(), models.DeviceIdentifier(device.DeviceIdentifier), models.MinerStatusActive, "").Return(nil)
@@ -981,7 +851,7 @@ func TestPairer_PairDevice_AntminerAutoCredentials_PreservesPairingFirmwareWhenD
 	manager.pluginsByDriverName["antminer"] = mockPlugin
 
 	transactor := mocks.NewMockTransactor(ctrl)
-	discoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
+	discoveredDeviceStore := stablePairingSnapshotStore(ctrl)
 	deviceStore := mocks.NewMockDeviceStore(ctrl)
 	encryptService, err := encrypt.NewService(&encrypt.Config{
 		ServiceMasterKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
@@ -1018,11 +888,11 @@ func TestPairer_PairDevice_AntminerAutoCredentials_PreservesPairingFirmwareWhenD
 	deviceStore.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), device.OrgID, "").Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().GetPairedDeviceBySerialNumber(gomock.Any(), gomock.Any(), device.OrgID).Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().InsertDevice(gomock.Any(), &device.Device, device.OrgID, device.DeviceIdentifier).Return(nil)
-	deviceStore.EXPECT().UpdateWorkerName(
-		gomock.Any(),
+	deviceStore.EXPECT().InitializeWorkerName(
+		gomock.Any(), int64(1),
 		models.DeviceIdentifier(device.DeviceIdentifier),
 		device.MacAddress,
-	).Return(nil)
+	).Return(true, nil)
 	deviceStore.EXPECT().UpsertMinerCredentials(gomock.Any(), &device.Device, device.OrgID, gomock.Any(), gomock.Any()).Return(nil)
 	deviceStore.EXPECT().UpsertDevicePairing(gomock.Any(), &device.Device, device.OrgID, "PAIRED").Return(nil)
 	deviceStore.EXPECT().UpsertDeviceStatus(gomock.Any(), models.DeviceIdentifier(device.DeviceIdentifier), models.MinerStatusActive, "").Return(nil)
@@ -1044,15 +914,17 @@ func TestPairer_PairDevice_AntminerAutoCredentials_AuthFailure(t *testing.T) {
 
 	// Create mock driver that returns a typed authentication error
 	mockDriver := sdkMocks.NewMockDriver(ctrl)
-	mockDriver.EXPECT().
-		PairDevice(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(sdk.DeviceInfo{}, sdk.NewErrorAuthenticationFailed("antminer-device-002"))
+	gomock.InOrder(
+		mockDriver.EXPECT().PairDevice(gomock.Any(), gomock.Any(), sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: "root", Password: "root"}}).Return(sdk.DeviceInfo{}, sdk.NewErrorAuthenticationFailed("antminer-device-002")),
+		mockDriver.EXPECT().PairDevice(gomock.Any(), gomock.Any(), sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: "admin", Password: "second"}}).Return(sdk.DeviceInfo{}, sdk.NewErrorAuthenticationFailed("antminer-device-002")),
+	)
 
 	// Wrap mock driver with default credentials provider
 	driverWithCreds := &mockDriverWithDefaultCredentials{
 		Driver: mockDriver,
 		defaultCredentials: []sdk.UsernamePassword{
 			{Username: "root", Password: "root"},
+			{Username: "admin", Password: "second"},
 		},
 	}
 
@@ -1092,58 +964,70 @@ func TestPairer_PairDevice_AntminerAutoCredentials_AuthFailure(t *testing.T) {
 // TestPairer_PairDevice_AntminerAutoCredentials_NetworkError tests that network errors
 // are not retried and are propagated immediately.
 func TestPairer_PairDevice_AntminerAutoCredentials_NetworkError(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{name: "network", err: fmt.Errorf("plugin pairing failed: connection timeout")},
+		{name: "SDK unavailable", err: sdk.NewErrorDeviceUnavailable("antminer-device-003", fmt.Errorf("connection timeout"))},
+		{name: "RPC unavailable", err: status.Error(codes.Unavailable, "connection timeout")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
 
-	manager := NewManager(&Config{})
+			manager := NewManager(&Config{})
 
-	// Create mock driver that returns a network error (not an auth error)
-	mockDriver := sdkMocks.NewMockDriver(ctrl)
-	mockDriver.EXPECT().
-		PairDevice(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(sdk.DeviceInfo{}, fmt.Errorf("plugin pairing failed: connection timeout")).
-		Times(1) // Should only be called once, not retried
+			// Create mock driver that returns a network error (not an auth error)
+			mockDriver := sdkMocks.NewMockDriver(ctrl)
+			mockDriver.EXPECT().
+				PairDevice(gomock.Any(), gomock.Any(), sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: "root", Password: "root"}}).
+				Return(sdk.DeviceInfo{}, tc.err).
+				Times(1) // Should only be called once, not retried
 
-	// Wrap mock driver with default credentials provider
-	driverWithCreds := &mockDriverWithDefaultCredentials{
-		Driver: mockDriver,
-		defaultCredentials: []sdk.UsernamePassword{
-			{Username: "root", Password: "root"},
-		},
+			// Wrap mock driver with default credentials provider
+			driverWithCreds := &mockDriverWithDefaultCredentials{
+				Driver: mockDriver,
+				defaultCredentials: []sdk.UsernamePassword{
+					{Username: "root", Password: "root"},
+					{Username: "admin", Password: "second"},
+				},
+			}
+
+			// Add mock plugin with pairing capability
+			mockPlugin := &LoadedPlugin{
+				Name:       "antminer-plugin",
+				Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+				Driver:     driverWithCreds,
+				Caps: sdk.Capabilities{
+					sdk.CapabilityPairing: true,
+				},
+			}
+			manager.pluginsByDriverName["antminer"] = mockPlugin
+
+			pairer := createTestPairer(ctrl, manager)
+
+			device := &discoverymodels.DiscoveredDevice{
+				Device: pb.Device{
+					DeviceIdentifier: "antminer-device-003",
+					IpAddress:        "192.168.1.102",
+					Port:             "80",
+					DriverName:       "antminer",
+				},
+				OrgID: 1,
+			}
+
+			// NO credentials provided
+			var credentials *pb.Credentials
+
+			ctx := t.Context()
+			err := pairer.PairDevice(ctx, device, credentials)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.err.Error(), "Unavailable error should be propagated")
+			assert.NotContains(t, err.Error(), "credentials are required", "Should not convert to credentials error")
+		})
 	}
-
-	// Add mock plugin with pairing capability
-	mockPlugin := &LoadedPlugin{
-		Name:       "antminer-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
-		Driver:     driverWithCreds,
-		Caps: sdk.Capabilities{
-			sdk.CapabilityPairing: true,
-		},
-	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
-
-	pairer := createTestPairer(ctrl, manager)
-
-	device := &discoverymodels.DiscoveredDevice{
-		Device: pb.Device{
-			DeviceIdentifier: "antminer-device-003",
-			IpAddress:        "192.168.1.102",
-			Port:             "80",
-			DriverName:       "antminer",
-		},
-		OrgID: 1,
-	}
-
-	// NO credentials provided
-	var credentials *pb.Credentials
-
-	ctx := t.Context()
-	err := pairer.PairDevice(ctx, device, credentials)
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "connection timeout", "Network error should be propagated")
-	assert.NotContains(t, err.Error(), "credentials are required", "Should not convert to credentials error")
 }
 
 // TestPairer_PairDevice_AntminerExplicitCredentials tests that when explicit credentials
@@ -1192,7 +1076,7 @@ func TestPairer_PairDevice_AntminerExplicitCredentials(t *testing.T) {
 
 	// Create pairer with mocked dependencies
 	transactor := mocks.NewMockTransactor(ctrl)
-	discoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
+	discoveredDeviceStore := stablePairingSnapshotStore(ctrl)
 	deviceStore := mocks.NewMockDeviceStore(ctrl)
 	encryptService, err := encrypt.NewService(&encrypt.Config{
 		ServiceMasterKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
@@ -1232,11 +1116,11 @@ func TestPairer_PairDevice_AntminerExplicitCredentials(t *testing.T) {
 	deviceStore.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), gomock.Any(), device.OrgID, "").Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().GetPairedDeviceBySerialNumber(gomock.Any(), gomock.Any(), device.OrgID).Return(nil, fleeterror.NewNotFoundError("no paired device"))
 	deviceStore.EXPECT().InsertDevice(gomock.Any(), &device.Device, device.OrgID, device.DeviceIdentifier).Return(nil)
-	deviceStore.EXPECT().UpdateWorkerName(
-		gomock.Any(),
+	deviceStore.EXPECT().InitializeWorkerName(
+		gomock.Any(), int64(1),
 		models.DeviceIdentifier(device.DeviceIdentifier),
 		"AA:BB:CC:DD:EE:FF",
-	).Return(nil)
+	).Return(true, nil)
 	deviceStore.EXPECT().UpsertMinerCredentials(gomock.Any(), &device.Device, device.OrgID, gomock.Any(), gomock.Any()).Return(nil)
 	deviceStore.EXPECT().UpsertDevicePairing(gomock.Any(), &device.Device, device.OrgID, "PAIRED").Return(nil)
 	deviceStore.EXPECT().UpsertDeviceStatus(gomock.Any(), models.DeviceIdentifier(device.DeviceIdentifier), models.MinerStatusActive, "").Return(nil)
@@ -1322,6 +1206,40 @@ func TestPairer_PairDevice_GRPCUnauthenticatedFromPlugin_ReturnsUnauthenticated(
 	assert.True(t, fleeterror.IsAuthenticationError(err), "expected unauthenticated error, got: %v", err)
 }
 
+func TestPairer_PairDevice_ExplicitCredentials_UnavailableReturnsInternal(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{name: "SDK unavailable", err: sdk.NewErrorDeviceUnavailable("proto-device-unavailable", fmt.Errorf("login connection timeout"))},
+		{name: "RPC unavailable", err: status.Error(codes.Unavailable, "login connection timeout")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			manager := NewManager(&Config{})
+			mockDriver := sdkMocks.NewMockDriver(ctrl)
+			secret := sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: "admin", Password: "custompass"}}
+			mockDriver.EXPECT().PairDevice(gomock.Any(), gomock.Any(), secret).Return(sdk.DeviceInfo{}, tc.err).Times(1)
+			manager.pluginsByDriverName["proto"] = &LoadedPlugin{
+				Name: "proto-plugin", Identifier: sdk.DriverIdentifier{DriverName: "proto"}, Driver: mockDriver,
+				Caps: sdk.Capabilities{sdk.CapabilityPairing: true},
+			}
+			pairer := createTestPairer(ctrl, manager)
+			device := &discoverymodels.DiscoveredDevice{
+				Device: pb.Device{DeviceIdentifier: "proto-device-unavailable", IpAddress: "192.168.1.151", Port: "80", UrlScheme: "http", DriverName: "proto"}, OrgID: 1,
+			}
+			credentials := &pb.Credentials{Username: "admin", Password: stringPtr("custompass")}
+			err := pairer.PairDevice(t.Context(), device, credentials)
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			require.Equal(t, connect.CodeInternal, fleetErr.GRPCCode)
+			assert.Contains(t, err.Error(), tc.err.Error())
+			assert.False(t, fleeterror.IsAuthenticationError(err), "an uncertain login must not request replacement credentials")
+		})
+	}
+}
+
 func TestPairer_PairDevice_DefaultPasswordViaAutoCredentials_ReturnsForbidden(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -1366,6 +1284,65 @@ func TestPairer_PairDevice_DefaultPasswordViaAutoCredentials_ReturnsForbidden(t 
 	assert.True(t, fleeterror.IsForbiddenError(err), "expected forbidden error, got: %v", err)
 }
 
+func TestPairer_PerformReconciliation_DeviceClass(t *testing.T) {
+	for _, tt := range []struct {
+		name          string
+		oldClass      commonpb.DeviceClass
+		newClass      commonpb.DeviceClass
+		expectedClass commonpb.DeviceClass
+	}{
+		{
+			name:          "learns previously unspecified class",
+			oldClass:      commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED,
+			newClass:      commonpb.DeviceClass_DEVICE_CLASS_CONTAINER,
+			expectedClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER,
+		},
+		{
+			name:          "updates known class",
+			oldClass:      commonpb.DeviceClass_DEVICE_CLASS_RIG,
+			newClass:      commonpb.DeviceClass_DEVICE_CLASS_CONTAINER,
+			expectedClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER,
+		},
+		{
+			name:          "preserves known class when new class is unspecified",
+			oldClass:      commonpb.DeviceClass_DEVICE_CLASS_CONTAINER,
+			newClass:      commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED,
+			expectedClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			store := stablePairingSnapshotStore(ctrl)
+			pairer := &Pairer{discoveredDeviceStore: store}
+			oldDOI := discoverymodels.DeviceOrgIdentifier{DeviceIdentifier: "old-discovery", OrgID: 1}
+			newDOI := discoverymodels.DeviceOrgIdentifier{DeviceIdentifier: "new-discovery", OrgID: 1}
+			oldDevice := &discoverymodels.DiscoveredDevice{
+				Device: pb.Device{DeviceIdentifier: oldDOI.DeviceIdentifier, DeviceClass: tt.oldClass},
+				OrgID:  1,
+			}
+			newDevice := &discoverymodels.DiscoveredDevice{
+				Device: pb.Device{DeviceIdentifier: newDOI.DeviceIdentifier, DeviceClass: tt.newClass},
+				OrgID:  1,
+			}
+			store.EXPECT().GetDevice(gomock.Any(), oldDOI).Return(oldDevice, nil)
+			store.EXPECT().Save(gomock.Any(), oldDOI, gomock.Any()).DoAndReturn(
+				func(_ context.Context, _ discoverymodels.DeviceOrgIdentifier, saved *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error) {
+					assert.Equal(t, tt.expectedClass, saved.DeviceClass)
+					return saved, nil
+				},
+			)
+			store.EXPECT().SoftDelete(gomock.Any(), newDOI).Return(nil)
+
+			_, err := pairer.performReconciliation(t.Context(), newDevice, &stores.PairedDeviceInfo{
+				DeviceIdentifier:           "paired-device",
+				DiscoveredDeviceIdentifier: oldDOI.DeviceIdentifier,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, "paired-device", newDevice.DeviceIdentifier)
+		})
+	}
+}
+
 func TestPairer_HandlePairViaStore_ReconcilesAuthRetry(t *testing.T) {
 	for _, byMAC := range []bool{false, true} {
 		name := "serial fallback"
@@ -1388,7 +1365,7 @@ func TestPairer_HandlePairViaStore_ReconcilesAuthRetry(t *testing.T) {
 			}
 
 			transactor := mocks.NewMockTransactor(ctrl)
-			discoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
+			discoveredDeviceStore := stablePairingSnapshotStore(ctrl)
 			deviceStore := mocks.NewMockDeviceStore(ctrl)
 			encryptService, err := encrypt.NewService(&encrypt.Config{
 				ServiceMasterKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
@@ -1491,8 +1468,7 @@ func TestPairer_HandlePairViaStore_ReconcilesAuthRetry(t *testing.T) {
 					return nil
 				})
 			deviceStore.EXPECT().
-				UpdateWorkerName(gomock.Any(), models.DeviceIdentifier("paired-id"), "worker-01").
-				Return(nil)
+				InitializeWorkerName(gomock.Any(), int64(1), models.DeviceIdentifier("paired-id"), "AA:BB:CC:DD:EE:FF").Return(true, nil)
 			deviceStore.EXPECT().
 				UpsertMinerCredentials(gomock.Any(), gomock.Any(), int64(1), gomock.Any(), gomock.Any()).
 				DoAndReturn(func(_ context.Context, updated *pb.Device, _ int64, _ string, _ any) error {
@@ -1509,7 +1485,7 @@ func TestPairer_HandlePairViaStore_ReconcilesAuthRetry(t *testing.T) {
 				UpsertDeviceStatus(gomock.Any(), models.DeviceIdentifier("paired-id"), models.MinerStatusActive, "").
 				Return(nil)
 
-			err = pairer.handlePairViaStore(ctx, device, credentials, "worker-01", false, manager.pluginsByDriverName["antminer"])
+			err = pairer.handlePairViaStore(ctx, device, &device.Device, device.DiscoveredByFleetNodeID, credentials, manager.pluginsByDriverName["antminer"])
 			require.NoError(t, err)
 			require.Equal(t, "paired-id", device.DeviceIdentifier)
 
@@ -1517,13 +1493,13 @@ func TestPairer_HandlePairViaStore_ReconcilesAuthRetry(t *testing.T) {
 	}
 }
 
-func TestPairer_HandlePairViaStore_PreservesExistingWorkerNameOnFallback(t *testing.T) {
+func TestPairer_HandlePairViaStore_PreservesExistingWorkerName(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	manager := NewManager(&Config{})
 	transactor := mocks.NewMockTransactor(ctrl)
-	discoveredDeviceStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
+	discoveredDeviceStore := stablePairingSnapshotStore(ctrl)
 	deviceStore := mocks.NewMockDeviceStore(ctrl)
 	encryptService, err := encrypt.NewService(&encrypt.Config{
 		ServiceMasterKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
@@ -1575,14 +1551,7 @@ func TestPairer_HandlePairViaStore_PreservesExistingWorkerNameOnFallback(t *test
 	deviceStore.EXPECT().
 		UpdateDeviceInfo(gomock.Any(), gomock.Any(), int64(1)).
 		Return(nil)
-	deviceStore.EXPECT().
-		GetDevicePropertiesForRename(gomock.Any(), int64(1), []string{"device-123"}, false).
-		Return([]stores.DeviceRenameProperties{
-			{
-				DeviceIdentifier: "device-123",
-				WorkerName:       "rig-01",
-			},
-		}, nil)
+	deviceStore.EXPECT().InitializeWorkerName(gomock.Any(), int64(1), models.DeviceIdentifier("device-123"), "AA:BB:CC:DD:EE:FF").Return(false, nil)
 	deviceStore.EXPECT().
 		UpsertMinerCredentials(gomock.Any(), gomock.Any(), int64(1), gomock.Any(), gomock.Any()).
 		Return(nil)
@@ -1593,7 +1562,7 @@ func TestPairer_HandlePairViaStore_PreservesExistingWorkerNameOnFallback(t *test
 		UpsertDeviceStatus(gomock.Any(), models.DeviceIdentifier("device-123"), models.MinerStatusActive, "").
 		Return(nil)
 
-	err = pairer.handlePairViaStore(ctx, device, credentials, "AA:BB:CC:DD:EE:FF", true, manager.pluginsByDriverName["antminer"])
+	err = pairer.handlePairViaStore(ctx, device, &device.Device, device.DiscoveredByFleetNodeID, credentials, manager.pluginsByDriverName["antminer"])
 	require.NoError(t, err)
 }
 
@@ -1693,6 +1662,25 @@ func TestPairer_PairDevice_WithoutDefaultCredentialsProvider(t *testing.T) {
 	// Should fail with "credentials required" error because driver doesn't provide defaults
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "credentials are required", "Should require credentials when driver doesn't implement DefaultCredentialsProvider")
+}
+
+func TestContainerAnonymousPairingDoesNotStoreRigCredentials(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	driver := sdkMocks.NewMockDriver(ctrl)
+	manager := NewManager(&Config{})
+	manager.pluginsByDriverName["proto"] = &LoadedPlugin{Identifier: sdk.DriverIdentifier{DriverName: "proto"}, Driver: driver, Caps: sdk.Capabilities{sdk.CapabilityPairing: true, sdk.CapabilityBasicAuth: true, sdk.CapabilityPoolConfig: true}}
+	transactor := mocks.NewMockTransactor(ctrl)
+	store := mocks.NewMockDeviceStore(ctrl)
+	pairer := NewPairer(manager, transactor, stablePairingSnapshotStore(ctrl), store, nil)
+	device := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: "ct1", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", Model: "CT1", Port: "8080", IpAddress: "192.0.2.1", UrlScheme: "http"}, OrgID: 1}
+	driver.EXPECT().PairDevice(gomock.Any(), gomock.Any(), sdk.SecretBundle{Version: "v1"}).Return(sdk.DeviceInfo{DeviceClass: sdk.DeviceClassContainer, SerialNumber: "controller-a", Model: "CT1"}, nil)
+	transactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(context.Context) error) error { return fn(ctx) })
+	store.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), "ct1", int64(1)).Return(nil, fleeterror.NewNotFoundError("missing"))
+	store.EXPECT().InsertDevice(gomock.Any(), gomock.Any(), int64(1), "ct1").Return(nil)
+	store.EXPECT().UpsertDevicePairing(gomock.Any(), gomock.Any(), int64(1), "PAIRED").Return(nil)
+	store.EXPECT().UpsertDeviceStatus(gomock.Any(), models.DeviceIdentifier("ct1"), models.MinerStatusActive, "").Return(nil)
+	// No controller-identity reconciliation, credential, worker-name, or pool lookups are allowed.
+	require.NoError(t, pairer.PairDevice(t.Context(), device, nil))
 }
 
 // Recovery scans probe multiple unpersisted candidates concurrently. Their SDK
@@ -1816,4 +1804,93 @@ func TestCloseUncertainProbeIsBounded(t *testing.T) {
 		require.Equal(t, time.Second, time.Since(start))
 		require.Greater(t, calls, 1)
 	})
+}
+
+// A controller that rejects anonymous pairing needs the operator's token. It is
+// reported like a rig with no working defaults so the device lands in
+// AUTHENTICATION_NEEDED instead of failing to pair.
+func TestContainerRequiringTokenWithoutCredentialsNeedsAuthentication(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	driver := sdkMocks.NewMockDriver(ctrl)
+	manager := NewManager(&Config{})
+	manager.pluginsByDriverName["proto"] = &LoadedPlugin{Identifier: sdk.DriverIdentifier{DriverName: "proto"}, Driver: driver, Caps: sdk.Capabilities{sdk.CapabilityPairing: true}}
+	pairer := NewPairer(manager, mocks.NewMockTransactor(ctrl), stablePairingSnapshotStore(ctrl), mocks.NewMockDeviceStore(ctrl), nil)
+	device := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: "ct1", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", Model: "CT1", Port: "8080", IpAddress: "192.0.2.1", UrlScheme: "http"}, OrgID: 1}
+	driver.EXPECT().PairDevice(gomock.Any(), gomock.Any(), sdk.SecretBundle{Version: "v1"}).Return(sdk.DeviceInfo{}, status.Error(codes.Unauthenticated, "authentication failed"))
+
+	err := pairer.PairDevice(t.Context(), device, nil)
+	require.ErrorContains(t, err, "credentials are required for pairing")
+	require.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
+func TestContainerTokenIsStoredEncryptedWithEmptyUsername(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	driver := sdkMocks.NewMockDriver(ctrl)
+	manager := NewManager(&Config{})
+	manager.pluginsByDriverName["proto"] = &LoadedPlugin{Identifier: sdk.DriverIdentifier{DriverName: "proto"}, Driver: driver, Caps: sdk.Capabilities{sdk.CapabilityPairing: true}}
+	transactor := mocks.NewMockTransactor(ctrl)
+	store := mocks.NewMockDeviceStore(ctrl)
+	encryptService, err := encrypt.NewService(&encrypt.Config{ServiceMasterKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="})
+	require.NoError(t, err)
+	pairer := NewPairer(manager, transactor, stablePairingSnapshotStore(ctrl), store, encryptService)
+	device := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: "ct1", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", Model: "CT1", Port: "8080", IpAddress: "192.0.2.1", UrlScheme: "http"}, OrgID: 1}
+	const token = "0123456789abcdef"
+	driver.EXPECT().PairDevice(gomock.Any(), gomock.Any(), sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Password: token}}).Return(sdk.DeviceInfo{DeviceClass: sdk.DeviceClassContainer, SerialNumber: "controller-a", Model: "CT1"}, nil)
+	transactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, fn func(context.Context) error) error { return fn(ctx) })
+	store.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), "ct1", int64(1)).Return(nil, fleeterror.NewNotFoundError("missing"))
+	store.EXPECT().InsertDevice(gomock.Any(), gomock.Any(), int64(1), "ct1").Return(nil)
+	store.EXPECT().UpsertMinerCredentials(gomock.Any(), gomock.Any(), int64(1), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ *pb.Device, _ int64, usernameEnc string, passwordEnc *secrets.Text) error {
+			require.NotEmpty(t, usernameEnc, "an empty username still stores ciphertext")
+			require.NotContains(t, passwordEnc.Value(), token)
+			username, err := encryptService.Decrypt(usernameEnc)
+			require.NoError(t, err)
+			require.Empty(t, username)
+			password, err := encryptService.Decrypt(passwordEnc.Value())
+			require.NoError(t, err)
+			require.Equal(t, token, string(password))
+			return nil
+		})
+	store.EXPECT().UpsertDevicePairing(gomock.Any(), gomock.Any(), int64(1), "PAIRED").Return(nil)
+	store.EXPECT().UpsertDeviceStatus(gomock.Any(), models.DeviceIdentifier("ct1"), models.MinerStatusActive, "").Return(nil)
+
+	require.NoError(t, pairer.PairDevice(t.Context(), device, &pb.Credentials{Password: stringPtr(token)}))
+}
+
+func TestProtectedHAControllerIsNotPairedYet(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	driver := sdkMocks.NewMockDriver(ctrl)
+	manager := NewManager(&Config{})
+	manager.pluginsByDriverName["proto"] = &LoadedPlugin{Identifier: sdk.DriverIdentifier{DriverName: "proto"}, Driver: driver, Caps: sdk.Capabilities{sdk.CapabilityPairing: true}}
+	// No transaction or store calls: nothing is saved for an unrecorded HA pair.
+	pairer := NewPairer(manager, mocks.NewMockTransactor(ctrl), stablePairingSnapshotStore(ctrl), mocks.NewMockDeviceStore(ctrl), nil)
+	device := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: "ct1", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", Model: "CT1", Port: "8080", IpAddress: "192.0.2.1", UrlScheme: "http", RpcPort: 9095}, OrgID: 1}
+	const token = "0123456789abcdef"
+	members := []string{"controller-a", "controller-b"}
+	driver.EXPECT().PairDevice(gomock.Any(), gomock.Any(), sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Password: token}}).Return(sdk.DeviceInfo{
+		DeviceClass: sdk.DeviceClassContainer, SerialNumber: "controller-a", Model: "CT1",
+		Endpoints: []sdk.DeviceEndpoint{{ID: "controller-a", DeviceKey: "ha-1", MemberIDs: members, Host: "192.0.2.1", Port: 8080, URLScheme: "http", RPCPort: 9095}},
+	}, nil)
+
+	err := pairer.PairDevice(t.Context(), device, &pb.Credentials{Password: stringPtr(token)})
+	require.ErrorContains(t, err, "Fleet cannot pair token-protected HA pairs yet")
+	require.True(t, fleeterror.IsFailedPreconditionError(err))
+	require.NotContains(t, err.Error(), token)
+}
+
+func TestReplacedControllerIdentityMismatchTellsOperatorWhatToDo(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	driver := sdkMocks.NewMockDriver(ctrl)
+	manager := NewManager(&Config{})
+	manager.pluginsByDriverName["proto"] = &LoadedPlugin{Identifier: sdk.DriverIdentifier{DriverName: "proto"}, Driver: driver, Caps: sdk.Capabilities{sdk.CapabilityPairing: true}}
+	pairer := NewPairer(manager, mocks.NewMockTransactor(ctrl), stablePairingSnapshotStore(ctrl), mocks.NewMockDeviceStore(ctrl), nil)
+	device := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: "ct1", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", Model: "CT1", Port: "8080", IpAddress: "192.0.2.1", UrlScheme: "http", RpcPort: 9095, SerialNumber: "controller-a"}, OrgID: 1}
+	const token = "0123456789abcdef"
+	const guidance = "CT1 controller identity mismatch: a different controller now answers at this address"
+	driver.EXPECT().PairDevice(gomock.Any(), gomock.Any(), gomock.Any()).Return(sdk.DeviceInfo{}, status.Error(codes.FailedPrecondition, guidance))
+
+	err := pairer.PairDevice(t.Context(), device, &pb.Credentials{Password: stringPtr(token)})
+	require.ErrorContains(t, err, guidance)
+	require.True(t, fleeterror.IsFailedPreconditionError(err))
+	require.NotContains(t, err.Error(), token)
 }

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, test } from "vitest";
 import { cidrToSubnetMask } from "@/shared/utils/network";
 

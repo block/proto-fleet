@@ -252,7 +252,7 @@ it("returns to the previous page after bulk-closing the final visible rows", asy
       value: {
         resolution: 3,
         repairLocation: 0,
-        notes: "",
+        resolutionNote: "Waiting for replacement",
       },
     }),
   );

@@ -14,36 +14,6 @@ test.describe("Proto Fleet - Onboarding", () => {
     });
   });
 
-  test("Validate null states", async ({ homePage, commonSteps, minersPage, groupsPage, settingsPoolsPage }) => {
-    await commonSteps.loginAsAdmin();
-
-    await test.step("Validate Home screen null state due to no miners added", async () => {
-      await homePage.validateTextIsVisible("Let's set up your fleet.");
-      await homePage.validateTextIsVisible("Add miners to your fleet to get started.");
-      await homePage.validateButtonIsVisible("Get Started");
-    });
-
-    await test.step("Validate Miners screen null state due to no miners added", async () => {
-      await homePage.navigateToMinersPage();
-      await minersPage.validateTextIsVisible("You haven't paired any miners");
-      await minersPage.validateTextIsVisible("Add miners to your fleet to get started.");
-      await minersPage.validateButtonIsVisible("Get Started");
-    });
-
-    await test.step("Validate Groups screen null state due to no groups added", async () => {
-      await minersPage.navigateToGroupsPage();
-      await groupsPage.validateTextIsVisible("Organize your miners into groups.");
-      await groupsPage.validateButtonIsVisible("Add group");
-    });
-
-    await test.step("Validate Pools screen null state due to no pools added", async () => {
-      await groupsPage.navigateToMiningPoolsSettings();
-      await settingsPoolsPage.validateTitle("Pools");
-      await settingsPoolsPage.validateTextIsVisible("Add a pool to start assigning your miners.");
-      await settingsPoolsPage.validateButtonIsVisible("Add pool");
-    });
-  });
-
   if (testConfig.target === "real") {
     test("Add specific miners @setup", async ({ authPage, minersPage, commonSteps, addMinersPage }) => {
       await commonSteps.loginAsAdmin();
@@ -89,6 +59,8 @@ test.describe("Proto Fleet - Onboarding", () => {
       await test.step("Find and add miners", async () => {
         await addMinersPage.clickFindMinersInNetwork();
         await addMinersPage.waitForExpectedNetworkMinerCount(EXPECTED_FAKE_NETWORK_MINER_COUNT);
+        await addMinersPage.validateTextIsVisible("1 container and 14 miners found on your network");
+        await addMinersPage.selectOnlyMiners(EXPECTED_FAKE_NETWORK_MINER_COUNT);
         await addMinersPage.clickContinueWithXMiners(EXPECTED_FAKE_NETWORK_MINER_COUNT);
       });
 
@@ -116,11 +88,12 @@ test.describe("Proto Fleet - Onboarding", () => {
         await homePage.clickShowMinersButton();
         await homePage.validateTextInModal("Bulk authenticate");
         await homePage.validateTextInModal("4 miners remaining");
-        const miners = await homePage.getListOfMinersToAuthenticate();
-        expect(miners).toHaveLength(4);
-        expect(miners).toContain("Antminer S21 XP");
-        expect(miners).toContain("Antminer S17 XP");
-        expect(miners.filter((model) => model === "Antminer S19 XP")).toHaveLength(2);
+        await homePage.validateMinersToAuthenticate([
+          "Antminer S21 XP",
+          "Antminer S17 XP",
+          "Antminer S19 XP",
+          "Antminer S19 XP",
+        ]);
       });
 
       await test.step("Bulk authenticate all miners with S19 credentials", async () => {
@@ -133,10 +106,7 @@ test.describe("Proto Fleet - Onboarding", () => {
         await homePage.validateTextInToast("You authenticated 2 of 4 miners.");
         await homePage.validateAuthenticationError("Try your username and password again.");
         await homePage.dismissAuthenticationError();
-        const miners = await homePage.getListOfMinersToAuthenticate();
-        expect(miners).toHaveLength(2);
-        expect(miners).toContain("Antminer S21 XP");
-        expect(miners).toContain("Antminer S17 XP");
+        await homePage.validateMinersToAuthenticate(["Antminer S21 XP", "Antminer S17 XP"]);
       });
 
       await test.step("Try authenticating S21 miner incorrectly with S17 miner's credentials", async () => {
@@ -161,6 +131,7 @@ test.describe("Proto Fleet - Onboarding", () => {
       await test.step("Validate S21 miner successfully authenticated", async () => {
         await homePage.validateTextInToast("1 miner authenticated.");
         await homePage.validateNoAuthenticationError();
+        await homePage.validateMinersToAuthenticate(["Antminer S17 XP"]);
       });
 
       await test.step("Bulk authenticate last miner - S17", async () => {

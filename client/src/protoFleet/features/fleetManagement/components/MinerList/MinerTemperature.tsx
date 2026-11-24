@@ -1,10 +1,10 @@
 import { INACTIVE_PLACEHOLDER } from "./constants";
+import { MinerMetricValue } from "./MinerMeasurement";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { getMinerMeasurement } from "@/protoFleet/features/fleetManagement/utils/getMinerMeasurement";
 import { useTemperatureUnit } from "@/protoFleet/store";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import { getLatestMeasurementWithData } from "@/shared/utils/measurementUtils";
-import { getDisplayValue } from "@/shared/utils/stringUtils";
 import { convertCtoF } from "@/shared/utils/telemetryFormat";
 
 type MinerTemperatureProps = {
@@ -36,11 +36,7 @@ const MinerTemperature = ({ miner }: MinerTemperatureProps) => {
 
   const displayValue = temperatureUnit === "F" ? convertCtoF(latestValue) : latestValue;
 
-  return (
-    <>
-      {getDisplayValue(displayValue)} °{temperatureUnit}
-    </>
-  );
+  return <MinerMetricValue value={displayValue} unit={`°${temperatureUnit}`} />;
 };
 
 export default MinerTemperature;

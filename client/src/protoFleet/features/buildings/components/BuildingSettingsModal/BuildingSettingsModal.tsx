@@ -14,13 +14,13 @@ import {
 } from "@/protoFleet/api/buildings";
 import { PerBuildingCreateErrorReason } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { Alert } from "@/shared/assets/icons";
 import {
   counterScaleMaximum,
   counterScaleMinimum,
   counterStartInputMaxLength,
   defaultCounterScale,
-} from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/RenameOptionsModals/constants";
-import { Alert } from "@/shared/assets/icons";
+} from "@/shared/components/BulkRename/RenameOptionsModals/constants";
 import { variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Input from "@/shared/components/Input";

@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { poolInfoAttributes } from "../constants";
-import { PoolConnectionTestProps, PoolIndex, PoolInfo } from "../types";
+import { PoolConnectionTestProps } from "../types";
 import { urlValidationErrors, validateURLScheme } from "./constants";
 import { Info } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
 import Input from "@/shared/components/Input";
 import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
+import { PoolIndex, PoolInfo } from "@/shared/types/pool";
 import { deepClone } from "@/shared/utils/utility";
 
 interface PoolFormProps {

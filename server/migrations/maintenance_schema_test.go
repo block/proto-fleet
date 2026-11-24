@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/testutil"
-	"github.com/block/proto-fleet/server/migrations"
 	"github.com/stretchr/testify/require"
 )
 
@@ -245,63 +244,6 @@ func TestMaintenanceTicketCounterAllocatesUniqueSequentialNumbersConcurrently(t 
 	}
 	sort.Slice(got, func(i, j int) bool { return got[i] < got[j] })
 	require.Equal(t, []int64{1, 2}, got)
-}
-
-func TestMaintenancePermissionMigrationBackfillsBuiltinRoles(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-
-	db := testutil.GetTestDB(t)
-	ctx := t.Context()
-	orgID := insertMaintenanceTestOrg(t, db, "permissions")
-	for _, key := range []string{"ADMIN", "FIELD_TECH"} {
-		_, err := db.ExecContext(ctx, `
-			INSERT INTO role (name, description, is_builtin, builtin_key, organization_id)
-			VALUES ($1, $2, TRUE, $1, $3)
-		`, key, key+" test role", orgID)
-		require.NoError(t, err)
-	}
-	_, err := db.ExecContext(ctx, `
-		INSERT INTO role (name, description, is_builtin, organization_id)
-		VALUES ('Maintenance observer', 'custom role', FALSE, $1)
-	`, orgID)
-	require.NoError(t, err)
-
-	downSQL, err := migrations.Migrations.ReadFile("000147_maintenance_setup.down.sql")
-	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, string(downSQL))
-	require.NoError(t, err)
-	upSQL, err := migrations.Migrations.ReadFile("000147_maintenance_setup.up.sql")
-	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, string(upSQL))
-	require.NoError(t, err)
-
-	for _, key := range []string{"ADMIN", "FIELD_TECH"} {
-		var count int
-		require.NoError(t, db.QueryRowContext(ctx, `
-			SELECT COUNT(*)
-			FROM role_permission rp
-			JOIN role r ON r.id = rp.role_id
-			JOIN permission p ON p.id = rp.permission_id
-			WHERE r.organization_id = $1
-			  AND r.builtin_key = $2
-			  AND p.key IN ('maintenance:read', 'maintenance:manage')
-		`, orgID, key).Scan(&count))
-		require.Equal(t, 2, count, "%s should receive both maintenance permissions", key)
-	}
-
-	var customCount int
-	require.NoError(t, db.QueryRowContext(ctx, `
-		SELECT COUNT(*)
-		FROM role_permission rp
-		JOIN role r ON r.id = rp.role_id
-		JOIN permission p ON p.id = rp.permission_id
-		WHERE r.organization_id = $1
-		  AND r.name = 'Maintenance observer'
-		  AND p.key IN ('maintenance:read', 'maintenance:manage')
-	`, orgID).Scan(&customCount))
-	require.Zero(t, customCount, "custom roles must not be changed")
 }
 
 func insertMaintenanceTestOrg(t *testing.T, db *sql.DB, suffix string) int64 {

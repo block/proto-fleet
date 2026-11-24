@@ -223,10 +223,16 @@ test.describe("Firmware rollout helper guards", { tag: "@smoke" }, () => {
     await expect(page.locator("#pilot-size")).toHaveValue("3");
   });
 
-  test("scope removal checks the draft selection and its Original and Target preview before applying", async ({
-    page,
-  }) => {
-    await page.setContent(`
+  // The fake fleet gives its Rig miners the same name, so the helper must
+  // also find the rows when only the identifier differs.
+  for (const [label, removedMiner, remainingMiner] of [
+    ["distinct miner names", "Rig A", "Rig B"],
+    ["two miners with the same name", "Proto Rig", "Proto Rig"],
+  ]) {
+    test(`scope removal checks the draft selection and its Original and Target preview before applying (${label})`, async ({
+      page,
+    }) => {
+      await page.setContent(`
       ${responsiveModalActions}
       <button>Miners 2 miners</button>
       <section data-testid="channel-settings-modal">
@@ -246,26 +252,27 @@ test.describe("Firmware rollout helper guards", { tag: "@smoke" }, () => {
       </section>
       <section data-testid="miner-scope-changes-modal" hidden>
         <h2>Miner changes</h2>
-        <p>Rig A</p>
+        <p>${removedMiner}</p>
         <table aria-label="Miner changes">
           <thead><tr><th>Miner</th><th>Original</th><th>Target</th></tr></thead>
           <tbody>
-            <tr><th scope="row"><span>Rig B</span><span>miner-b</span></th><td>Included</td><td>Included</td></tr>
-            <tr><th scope="row"><span>Rig A</span><span>miner-a</span></th><td>Included</td><td>Not included</td></tr>
+            <tr><th scope="row"><span>${remainingMiner}</span><span>miner-b</span></th><td>Included</td><td>Included</td></tr>
+            <tr><th scope="row"><span>${removedMiner}</span><span>miner-a</span></th><td>Included</td><td>Not included</td></tr>
           </tbody>
         </table>
         <button onclick="this.closest('section').hidden = true">Done</button>
       </section>
       <div data-testid="toaster-container"></div>
     `);
-    const firmware = new SettingsFirmwarePage(page);
-    await firmware.validateScopeMinerSelection(1);
-    await firmware.reviewChannelChanges();
-    await firmware.validateScopeMinerRemoval("Rig A", "Rig B");
-    await expect(page.getByTestId("toaster-container")).toBeEmpty();
-    await firmware.confirmChannelChanges();
-    await expect(page.getByTestId("apply-firmware-dialog")).toBeHidden();
-  });
+      const firmware = new SettingsFirmwarePage(page);
+      await firmware.validateScopeMinerSelection(1);
+      await firmware.reviewChannelChanges();
+      await firmware.validateScopeMinerRemoval(removedMiner, remainingMiner);
+      await expect(page.getByTestId("toaster-container")).toBeEmpty();
+      await firmware.confirmChannelChanges();
+      await expect(page.getByTestId("apply-firmware-dialog")).toBeHidden();
+    });
+  }
 
   test("reviewing settings with staged firmware leaves both changes pending until confirmation", async ({ page }) => {
     await page.setContent(`
@@ -546,7 +553,7 @@ test.describe("Firmware rollout helper guards", { tag: "@smoke" }, () => {
       </section>
       <section data-testid="delete-channel-dialog" hidden>
         <h2>Delete release channel?</h2>
-        <p>Miners in ${channel} keep their current firmware, but it is no longer enforced for them and the channel's update history is removed.</p>
+        <p>Deleting ${channel} stops firmware enforcement and removes its update history. Cancel active updates and wait for any dispatched commands to finish before deleting.</p>
         <button onclick="document.querySelector('[data-testid=channel-settings-modal]').remove(); document.querySelector('#target-row').remove(); this.closest('section').remove(); document.querySelector('#deleted').textContent = '${channel}'">Delete channel</button>
       </section>
       <table><tbody>

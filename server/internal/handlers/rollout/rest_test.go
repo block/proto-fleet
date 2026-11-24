@@ -147,7 +147,7 @@ func TestRESTDelegatedActionsUseAPIKeyAuthorizationAndRevisionErrors(t *testing.
 	require.NoError(t, err)
 	key, _, err := provider.ApiKeyService.Create(t.Context(), owner.DatabaseID, owner.OrganizationID, user.UserID, owner.Username, "External controller", nil)
 	require.NoError(t, err)
-	auth := interceptors.NewAuthInterceptor(provider.SessionService, provider.UserStore, provider.UserStore, provider.ApiKeyService, provider.PermissionResolver, nil, nil, nil)
+	auth := interceptors.NewAuthInterceptor(provider.SessionService, provider.UserStore, provider.UserStore, provider.ApiKeyService, provider.PermissionResolver, nil, nil, nil, nil)
 	svc := newFakeService()
 	_, rpc := rolloutv1connect.NewRolloutServiceHandler(NewHandler(svc), connect.WithInterceptors(interceptors.NewErrorMappingInterceptor(), auth, validate.NewInterceptor()))
 	mux := http.NewServeMux()

@@ -28,16 +28,27 @@ message NewDeviceRequest {
   string device_id = 1;     // Unique device instance ID
   DeviceInfo info = 2;     // Device connection info
   SecretBundle secret = 3;   // Secret for device access
+  // Explicit scoped resolution. Empty preserves unconditional NewDevice replacement.
+  // Nonempty requests reuse only when scope AND complete request configuration match.
+  string reuse_scope_key = 4;
 }
 
 // Response containing the created device identifier
 message NewDeviceResponse { 
   string device_id = 1;      // Unique device instance ID
+  // Echoed only by runtimes implementing scoped resolution.
+  string reuse_scope_key = 2;
+  // Opaque registration token: exactly 32 bytes for scoped registrations.
+  // Scoped clients must carry it unchanged on every operation. Empty only for unscoped registrations.
+  bytes backend_generation = 3;
 }
 
 // Reference to a specific device instance
 message DeviceRef { 
-  string device_id = 1; 
+  string device_id = 1;
+  // Opaque 32-byte token matching the concrete backend returned by scoped NewDevice.
+  // Carry it unchanged; empty only when referencing an unscoped registration.
+  bytes backend_generation = 2;
 }
 
 // ============================================================================
@@ -245,12 +256,21 @@ message DeviceMetrics {
   // determine it (e.g. status probe failed or an older plugin), and consumers
   // must not change remediation state.
   optional bool default_password_active = 17;
+  ContainerSnapshot container = 18;
+
+  // Whole elapsed seconds since device boot; absent means unknown, zero is valid.
+  optional uint64 uptime_seconds = 19;
+  // Start of the device request that sampled uptime. Cache this together with
+  // uptime_seconds unchanged. Missing observation time provides no reboot evidence.
+  google.protobuf.Timestamp uptime_observed_at = 20;
 }
 
 
 // Request to describe device capabilities
 message DescribeDeviceRequest { 
-  string device_id = 1; 
+  string device_id = 1;
+  // Same opaque 32-byte token as DeviceRef; empty only for an unscoped registration.
+  bytes backend_generation = 2;
 }
 
 // Response with device-specific capabilities
@@ -367,6 +387,7 @@ message MiningPool {
   int32 priority = 1;        // 0 = default, 1 = backup1, 2 = backup2
   string url = 2;            // e.g., stratum+tcp://pool.example:3333
   string worker_name = 3;    // Worker name or address
+  optional string password = 4; // Required on writes; present empty means an empty credential
 }
 
 message UpdateMiningPoolsRequest {
@@ -389,6 +410,18 @@ message GetMiningPoolsResponse {
   repeated ConfiguredPool pools = 1;
 }
 
+// StoredMiningPool is private stored configuration, including disabled slots.
+message StoredMiningPool {
+  int32 priority = 1;
+  string url = 2;
+  string username = 3;
+  // Absent means unavailable or masked; present empty proves stored empty.
+  optional string password = 4;
+}
+
+message GetStoredMiningPoolsRequest { DeviceRef ref = 1; }
+message GetStoredMiningPoolsResponse { repeated StoredMiningPool pools = 1; }
+
 message DownloadLogsRequest {
   DeviceRef ref = 1;
   google.protobuf.Timestamp since = 2; // optional: only logs since this time
@@ -398,6 +431,14 @@ message DownloadLogsRequest {
 message DownloadLogsResponse {
   string log_data = 1; // log content as text
   bool more_data = 2;  // true if more data is available (use same batch_log_uuid)
+}
+
+// DeviceClass identifies the independently discoverable hardware unit.
+// Tanks and modules belong to a container; they are not separate devices.
+enum DeviceClass {
+  DEVICE_CLASS_UNSPECIFIED = 0;
+  DEVICE_CLASS_RIG = 1;
+  DEVICE_CLASS_CONTAINER = 2;
 }
 
 message DeviceInfo {
@@ -440,6 +481,12 @@ message DeviceInfo {
   // DEFAULT_PASSWORD remediation state immediately instead of waiting for the
   // first telemetry poll.
   optional bool default_password_active = 10;
+  DeviceClass device_class = 11;
+  // Native RPC listener on host; zero selects the driver's default.
+  // port/url_scheme continue to describe the web endpoint.
+  int32 rpc_port = 12;
+  bool rpc_tls = 13;
+  repeated DeviceEndpoint endpoints = 14;
 }
 
 message DiscoverDeviceRequest {
@@ -538,6 +585,9 @@ message FirmwareFileInfo {
   int64 file_size = 3;
   string id = 4;
   string sha256 = 5;
+  // Stable across automatic retries of one Fleet command and different for
+  // every new command; empty when the server does not provide one.
+  string request_id = 6;
 }
 
 // Uploads firmware to a device. The server resolves the firmware file on disk
@@ -549,7 +599,15 @@ message UpdateFirmwareRequest {
 
 // Response containing the current firmware installation status on a device.
 message GetFirmwareUpdateStatusResponse {
-  string state = 1;            // "current", "downloaded", "installing", "installed"
+  // "current", "downloading", "downloaded", "installing", "installed",
+  // "confirming", "success", or "error". Devices declaring
+  // firmware_self_managed report "completed" once the updater rebooted and
+  // verified every component, or "failed" once it finished with component
+  // failures; the server neither reboots nor automatically retries them.
+  // They report "continue" between steps that each change the device: the
+  // server then calls FirmwareUpdate again with the same file and request ID.
+  // This call must only read and must never start or change an update.
+  string state = 1;
   optional int32 progress = 2; // Install progress percentage (0-100)
   optional string error = 3;   // Error message if installation failed
 }
@@ -633,8 +691,26 @@ enum MinerError {
   HASHBOARD_WARN_CRC_HIGH                  = 8001;
   THERMAL_MARGIN_LOW                       = 8002;
 
+
+  // Additional board diagnostics shared by MDKv2 and future drivers.
+  ASIC_OVERVOLTAGE = 3008;
+  ASIC_UNDERVOLTAGE = 3009;
+  ASIC_ENUMERATION_FAILED = 3010;
+  ASIC_ECC_ERROR = 3011;
+  ASIC_TEMPERATURE_IMBALANCE = 3012;
+  HASHBOARD_STARTUP_FAILED = 3013;
+  HASHBOARD_NO_STACK_RUNNING = 3014;
+  HASHBOARD_STACK_ENUMERATION_FAILED = 3015;
+  BOARD_BUSBAR_VOLTAGE_DROP = 3505;
+  BOARD_POWER_RAIL_FAULT = 3506;
+  REFERENCE_CLOCK_FAULT = 3016;
+  DIAGNOSTIC_STORAGE_FAULT = 5004;
+  FIRMWARE_RUNTIME_ERROR = 5005;
+  ASIC_THERMAL_THROTTLING = 8003;
+
   // 9000–9999: Catch-alls
   VENDOR_ERROR_UNMAPPED                    = 9000;
+
 }
 
 // Severity represents the criticality level of an error
@@ -672,7 +748,7 @@ message DeviceError {
   map<string, string> vendor_attributes = 8;        // e.g., firmware, code, serials
 
   string device_id = 9;                             // Device this error belongs to
-  optional string component_id = 10;                // Optional component identifier (numeric index as string, e.g., "0", "1", "2")
+  optional string component_id = 10;                // Optional component identifier, opaque and stable for the component: a slot index for a single miner (e.g., "0", "1", "2") or an identity for a container component (e.g., "mac:<MAC>"). It need not parse as a number.
   string impact = 11;                               // Human-readable business impact (e.g., "Stops mining", "Reduces hashrate by 30%")
   string summary = 12;                              // High level summary - typically raw message from miner
   ComponentType component_type = 13;                // Type of component (PSU, fan, hashboard, etc.)
@@ -714,12 +790,45 @@ service Driver {
   rpc BlinkLED(DeviceRef) returns (google.protobuf.Empty);
   rpc Reboot(DeviceRef) returns (google.protobuf.Empty);
 
+  // Optional controller-only equipment command. Backend support is checked at execution.
+  rpc SetTankMining(SetTankMiningRequest) returns (google.protobuf.Empty);
+  rpc ContainerMining(ContainerMiningRequest) returns (ContainerMiningResponse);
+  rpc MiningGroups(MiningGroupsRequest) returns (MiningGroupsResponse);
+  rpc SetModuleMining(SetModuleMiningRequest) returns (google.protobuf.Empty);
+  // Optional controller-only identification LED command for one verified board.
+  rpc SetBoardIdentify(SetBoardIdentifyRequest) returns (google.protobuf.Empty);
+  // Optional controller-only module power-feed operations (capability
+  // "container_power_feed"). The payload is a closed JSON operation.
+  rpc ContainerPowerFeed(ContainerPowerFeedRequest) returns (ContainerPowerFeedResponse);
+  // Optional controller-only live ASIC readings for one verified board. The
+  // stream runs until the caller cancels it or the controller ends it.
+  rpc StreamBoardASICReadings(StreamBoardASICReadingsRequest) returns (stream BoardASICFrame);
+  rpc SetContainerControl(SetContainerControlRequest) returns (google.protobuf.Empty);
+  // Optional controller-only bounded read of the controller's own logs or
+  // audit events (capability "controller_records"). The payloads are the
+  // JSON-encoded sdk.ControllerRecordsRequest and sdk.ControllerRecordsResult.
+  rpc ControllerRecords(ControllerRecordsRequest) returns (ControllerRecordsResponse);
+
+  // Optional controller-only plant alarm pulse (mute or reset). Success
+  // acknowledges the pulse; only a later plant observation confirms its effect.
+  rpc RunContainerAlarmAction(RunContainerAlarmActionRequest) returns (google.protobuf.Empty);
+
+  // Optional controller-only Frigate software update operations (capability
+  // "frigate_server_update"). One RPC carries nine operations so the plugin
+  // boundary stays narrow. A Frigate refusal travels as a gRPC status carrying a
+  // google.rpc.ErrorInfo in domain "mdk.v2.frigate" whose reason is the UPDATE_*
+  // code. Unsupported drivers return UNIMPLEMENTED.
+  rpc FrigateServerUpdate(FrigateServerUpdateRequest) returns (FrigateServerUpdateResponse);
+
   // CoreV1 - Configuration methods - Required methods
   rpc SetCoolingMode(SetCoolingModeRequest) returns (google.protobuf.Empty);
   rpc GetCoolingMode(DeviceRef) returns (GetCoolingModeResponse);
   rpc SetPowerTarget(SetPowerTargetRequest) returns (google.protobuf.Empty);
   rpc UpdateMiningPools(UpdateMiningPoolsRequest) returns (google.protobuf.Empty);
   rpc GetMiningPools(GetMiningPoolsRequest) returns (GetMiningPoolsResponse);
+  // Private complete stored configuration, including disabled slots. Unsupported
+  // firmware returns UNIMPLEMENTED; runtime telemetry is not a substitute.
+  rpc GetStoredMiningPools(GetStoredMiningPoolsRequest) returns (GetStoredMiningPoolsResponse);
   rpc DownloadLogs(DownloadLogsRequest) returns (DownloadLogsResponse);
   rpc UpdateFirmware(UpdateFirmwareRequest) returns (google.protobuf.Empty);
   rpc GetFirmwareUpdateStatus(DeviceRef) returns (GetFirmwareUpdateStatusResponse);
@@ -748,4 +857,504 @@ service Driver {
 
   // CoreV1 - Error System - Required method
   rpc GetErrors(DeviceRef) returns (DeviceErrors);
+}
+
+// Container topology and health are observations, not independently paired miners.
+message ContainerHA {
+ google.protobuf.Timestamp observed_at = 1;
+ bool degraded = 2;
+}
+message ContainerSnapshot {
+ // Uniform hashboard version from complete, fresh inventory.
+ string hashboard_firmware_version = 10;
+ // Complete, fresh inventory with differing versions. Neither field set
+ // means the hashboard version is unknown.
+ bool hashboard_firmware_mixed = 11;
+ // Uniform PSU firmware version that every located board of a complete, fresh
+ // inventory reports for its module's PSU.
+ string psu_firmware_version = 12;
+ // Complete, fresh inventory with differing PSU firmware versions. Neither
+ // field set means the PSU firmware version is unknown.
+ bool psu_firmware_mixed = 13;
+ ContainerHA ha = 9;
+ // Inventory observations without physical placement; position must be zero.
+ repeated ContainerHashboard unlocated_hashboards = 8;
+ ContainerRollup metrics = 7;
+ repeated ContainerFan fans = 5;
+ ContainerControls controls = 6;
+  google.protobuf.Timestamp observed_at = 1;
+  repeated ContainerTank tanks = 2;
+  ContainerPlant plant = 3;
+  bool topology_complete = 4;
+}
+message ContainerTank {
+ ContainerRollup metrics = 3;
+ bool topology_complete = 4;
+  int32 position = 1;
+  repeated ContainerModule modules = 2;
+}
+message ContainerModule {
+  // All required board identity evidence agrees; required for module controls.
+  // reported_id may still identify metrics when this is false.
+  bool identity_confirmed = 8;
+  repeated ContainerHashboard hashboards = 7;
+  int32 position = 1;
+  string reported_id = 2;
+  // unknown, active, inactive, offline, maintenance, error, needs_mining_pool,
+  // updating, reboot_required.
+  string state = 3;
+  google.protobuf.Timestamp observed_at = 4;
+  ContainerModuleMetrics metrics = 5;
+  ContainerModuleIssues issues = 6;
+}
+
+// Slot observations resolve to durable hardware identities on the server.
+// Untrusted aliases retained only to detect conflicting placement evidence.
+// These claims never create, enrich, or move inventory.
+message HashboardIdentityClaim {
+  string mac_address = 1;
+  string serial = 2;
+}
+
+message ContainerHashboard {
+ optional double power_w = 18;
+ optional double efficiency_jh = 19;
+ ContainerFeedEvidence feed = 20;
+  repeated HashboardIdentityClaim identity_claims = 17;
+  string unavailable_reason = 16; // Bounded SDK reason code for rejected evidence.
+  int32 position = 1;
+  string occupancy = 2; // occupied, empty, or unknown
+  string mac_address = 3;
+  string serial = 4;
+  string state = 5;
+  string mining_state = 6;
+  optional bool isolated = 7;
+  google.protobuf.Timestamp observed_at = 8;
+  google.protobuf.Timestamp state_observed_at = 9;
+  optional double hashrate_hs = 10;
+  optional double temperature_c = 11;
+  optional bool hashrail_ok = 12;
+  optional bool refclks_ok = 13;
+  // Original MDK v2 JSON in firmware units, split to avoid repeating metadata
+  // in telemetry history. PSU evidence remains module-owned. Not current unless
+  // the associated source observation is fresh.
+  bytes metadata_json = 14;
+  bytes health_json = 15;
+}
+
+// SI units; absent values are unavailable. Power is module PSU input power.
+message ContainerModuleMetrics {
+ optional double efficiency_jh = 5;
+ ContainerRollup rollup = 6;
+  google.protobuf.Timestamp observed_at = 1;
+  optional double hashrate_hs = 2;
+  optional double power_w = 3;
+  optional double temperature_c = 4;
+}
+
+message ContainerPlant {
+ optional double dry_cooler_inlet_temperature_c = 9;
+ google.protobuf.Timestamp observed_at = 1;
+ optional double total_power_w = 2;
+ optional double facility_power_w = 3;
+ optional double pue = 4;
+ optional double inlet_temperature_c = 5;
+ optional double outlet_temperature_c = 6;
+ // Absent means the controller did not report the flag, not that it is clear.
+ optional bool alarm_active = 7;
+ optional bool critical_alarm_active = 8;
+ // Absent when the controller's PLC transport does not expose buzzer state.
+ optional bool buzzer_active = 10;
+}
+
+// Latest component observations. Missing scalar values are unavailable, not zero.
+message ContainerFan {
+ string component_id = 1;
+ google.protobuf.Timestamp observed_at = 2;
+ optional double speed_percent = 3;
+ optional double power_w = 4;
+ optional string direction = 5;
+ optional bool alarm_active = 6;
+}
+// A successful independent read; absent capability flags mean unknown.
+message ContainerControls {
+ google.protobuf.Timestamp observed_at = 1;
+ optional bool supported = 2;
+ repeated ContainerControl controls = 3;
+ repeated ContainerSetpoint setpoints = 4;
+ optional bool main_circuit_breaker_supported = 5;
+ optional bool main_circuit_breaker_closed = 6;
+ optional bool alarm_reset_supported = 7;
+ optional bool alarm_mute_supported = 8;
+ optional bool dry_cooler_fan_reverse_supported = 9;
+}
+message ContainerControl {
+ string name = 1;
+ optional bool enabled = 2;
+}
+message ContainerSetpoint {
+ string name = 1;
+ optional double value = 2;
+ string unit = 3;
+}
+
+message SetContainerControlRequest {
+  DeviceRef ref = 1;
+  string name = 2;
+  optional bool enabled = 3;
+}
+
+message RunContainerAlarmActionRequest {
+  DeviceRef ref = 1;
+  // "mute" silences the alarm buzzer; "reset" asks the controller to clear
+  // latched alarms. Neither clears the condition that raised an alarm.
+  string action = 2;
+}
+
+// Current evidence, independently timestamped from module classification.
+message ContainerModuleIssues {
+ map<string, google.protobuf.Timestamp> source_times = 4;
+ google.protobuf.Timestamp observed_at = 1;
+ bool complete = 2;
+ repeated ContainerModuleIssue items = 3;
+}
+message ContainerModuleIssue {
+ string component = 1;
+ string component_id = 2;
+ string cause = 3;
+ string severity = 4; // fault, warning, or observation
+ MinerError canonical_error = 6;
+ google.protobuf.Timestamp observed_at = 5;
+}
+
+message SetTankMiningRequest {
+  DeviceRef ref = 1;
+  repeated int32 positions = 2;
+  optional bool mining = 3;
+}
+
+message ModuleMiningTarget {
+  int32 tank = 1;
+  int32 module = 2;
+  string reported_id = 3;
+}
+message SetModuleMiningRequest {
+  DeviceRef ref = 1;
+  repeated ModuleMiningTarget modules = 2;
+  optional bool mining = 3;
+}
+
+// Physical placement plus the identities Fleet observed for that placement.
+message BoardIdentifyTarget {
+  int32 tank = 1;
+  int32 module = 2;
+  int32 slot = 3;
+  string module_reported_id = 4;
+  string mac_address = 5;
+}
+message SetBoardIdentifyRequest {
+  DeviceRef ref = 1;
+  BoardIdentifyTarget board = 2;
+  // "blink" or "off".
+  string mode = 3;
+}
+
+message StreamBoardASICReadingsRequest {
+  DeviceRef ref = 1;
+  BoardIdentifyTarget board = 2;
+}
+
+// Physical position of one ASIC on its board.
+message BoardASICPosition {
+  int32 index = 1;
+  int32 stack_id = 2;
+  int32 stack_index = 3;
+  int32 x = 4;
+  int32 y = 5;
+}
+
+message BoardASICLayout {
+  int32 stack_count = 1;
+  int32 asics_per_stack = 2;
+  int32 total_asics = 3;
+  repeated BoardASICPosition positions = 4;
+}
+
+// One ASIC's readings at the frame's observation time.
+message BoardASICReading {
+  int32 index = 1;
+  double temperature_c = 2;
+  double hashrate_ghs = 3;
+  double voltage_v = 4;
+  double frequency_mhz = 5;
+  double pass_rate_percent = 6;
+  // Absent when the controller did not report thermal quarantine.
+  optional bool thermal_quarantined = 7;
+}
+
+message BoardASICFrame {
+  // The controller's identity for the board that produced the readings.
+  string mac_address = 1;
+  google.protobuf.Timestamp observed_at = 2;
+  // Present on the first frame and whenever the board's topology changes.
+  BoardASICLayout layout = 3;
+  repeated BoardASICReading asics = 4;
+}
+
+// Poll-time physical measurements; never allocated customer power.
+message ContainerRollup {
+ // Container-only inventory count; these boards have no physical placement.
+ uint32 unlocated_hashboards = 13;
+ optional double hashrate_hs = 1;
+ optional double power_w = 2;
+ optional double efficiency_jh = 3;
+ optional double temperature_c = 4;
+ optional double min_temperature_c = 5;
+ optional double max_temperature_c = 6;
+ MetricCoverage hashrate = 7;
+ MetricCoverage power = 8;
+ MetricCoverage temperature = 9;
+ string power_source = 10;
+ string attribution = 11;
+ map<string, google.protobuf.Timestamp> source_times = 12;
+}
+message MetricCoverage {
+ int32 reporting = 1;
+ int32 expected = 2;
+ bool topology_complete = 3;
+ google.protobuf.Timestamp oldest_at = 4;
+ google.protobuf.Timestamp newest_at = 5;
+}
+message ContainerFeedEvidence {
+ string power_feed_id = 1;
+ string expected_power_feed_id = 2;
+ string wiring_status = 3;
+ repeated string wiring_reasons = 4;
+ int32 configured_tank = 5;
+ int32 configured_module = 6;
+ string observed_power_feed_id = 7;
+}
+
+// Discovered device address. The plugin defines the opaque endpoint ID and
+// shared device key; Fleet scopes the key by driver and network owner.
+message DeviceEndpoint {
+  string id = 1;
+  string device_key = 2;
+  string host = 3;
+  int32 port = 4;
+  string url_scheme = 5;
+  int32 rpc_port = 6;
+  bool rpc_tls = 7;
+  // Current group members. Discovery removes routes for replaced members.
+  repeated string member_ids = 8;
+}
+
+// Closed SDK MiningGroupRequest/Result JSON schema, validated on both ends.
+// Requests can contain credentials and must never be logged.
+message MiningGroupsRequest { DeviceRef ref = 1; bytes payload = 2; }
+message MiningGroupsResponse { bytes payload = 1; }
+
+message ControllerRecordsRequest { DeviceRef ref = 1; bytes payload = 2; }
+message ControllerRecordsResponse { bytes payload = 1; }
+message ContainerMiningRequest { DeviceRef ref = 1; bytes payload = 2; }
+message ContainerMiningResponse { bytes payload = 1; }
+message ContainerPowerFeedRequest { DeviceRef ref = 1; bytes payload = 2; }
+message ContainerPowerFeedResponse { bytes payload = 1; }
+
+// FrigateServerUpdateRequest selects exactly one operation. Staging operations
+// and support are instance-scoped; instance_id is the Frigate instance ID of an
+// endpoint of the device. Start, status, retry, and cancel address the HA pair.
+message FrigateServerUpdateRequest {
+  DeviceRef ref = 1;
+  oneof operation {
+    FrigateUpdateSupportRequest support = 2;
+    FrigateStageBeginRequest stage_begin = 3;
+    FrigateStageAppendRequest stage_append = 4;
+    FrigateStageCommitRequest stage_commit = 5;
+    FrigateStageAbortRequest stage_abort = 6;
+    FrigateUpdateStartRequest start = 7;
+    FrigateUpdateStatusRequest status = 8;
+    FrigateUpdateRetryRequest retry = 9;
+    FrigateUpdateCancelRequest cancel = 10;
+  }
+}
+
+// FrigateServerUpdateResponse carries the result of the requested operation:
+// support for support; stage_progress for stage_begin and stage_append;
+// stage_commit for stage_commit; stage_abort for stage_abort; rollout for
+// start, retry, and cancel; status for status.
+message FrigateServerUpdateResponse {
+  oneof result {
+    FrigateUpdateSupportResponse support = 1;
+    FrigateStageProgress stage_progress = 2;
+    FrigateStageCommitResult stage_commit = 3;
+    google.protobuf.Empty stage_abort = 4;
+    FrigateRollout rollout = 5;
+    FrigateStatus status = 6;
+  }
+}
+
+message FrigateUpdateSupportRequest {}
+
+message FrigateUpdateSupportResponse {
+  repeated FrigateInstanceSupport instances = 1;
+}
+
+// FrigateInstanceSupport mirrors mdk.v2.GetServerUpdateSupportResponse for one
+// instance. error is non-empty (and the remaining fields empty) when that
+// instance could not be queried.
+message FrigateInstanceSupport {
+  string instance_id = 1;
+  string peer_instance_id = 2;
+  string running_version = 3;
+  string architecture = 4;
+  string installation_type = 5; // "", "debian_package", or "direct_binary"
+  bool helper_available = 6;
+  string support_message = 7;
+  string cluster_id = 8;
+  string active_job_id = 9;
+  int64 spool_free_bytes = 10;
+  uint32 etcd_members_total = 11;
+  uint32 etcd_members_healthy = 12;
+  repeated string trusted_release_key_ids = 13;
+  bool self_coordination_supported = 14;
+  bool remote_trigger_allowed = 15;
+  string error = 16;
+}
+
+// FrigateManifest mirrors the mdk.v2.ServerUpdateManifest fields a self-coordinated
+// update uses. Flotilla connection fields and the maintenance token are
+// deliberately absent and always sent empty.
+message FrigateManifest {
+  string job_id = 1;
+  string site_id = 2;
+  string container_id = 3;
+  string instance_id = 4;
+  repeated string expected_instance_ids = 5;
+  string release_tag = 6;
+  string target_version = 7;
+  int64 asset_id = 8;
+  string asset_name = 9;
+  string sha256 = 10;
+  int64 size_bytes = 11;
+  string actor = 12;
+  string coordination = 13; // "" (legacy) or "self"
+  bytes release_statement = 14;
+  bytes release_signature = 15;
+}
+
+message FrigateStageBeginRequest {
+  string instance_id = 1;
+  FrigateManifest manifest = 2;
+}
+
+message FrigateStageAppendRequest {
+  string instance_id = 1;
+  string job_id = 2;
+  string manifest_sha256 = 3;
+  int64 offset = 4;
+  bytes chunk = 5;
+  string actor = 6;
+}
+
+message FrigateStageCommitRequest {
+  string instance_id = 1;
+  string job_id = 2;
+  string manifest_sha256 = 3;
+  string actor = 4;
+}
+
+message FrigateStageAbortRequest {
+  string instance_id = 1;
+  string job_id = 2;
+  string manifest_sha256 = 3;
+  string actor = 4;
+}
+
+message FrigateStageProgress {
+  string job_id = 1;
+  string manifest_sha256 = 2;
+  int64 next_offset = 3;
+  int64 size_bytes = 4;
+}
+
+message FrigateStageCommitResult {
+  string job_id = 1;
+  int64 bytes_staged = 2;
+  string sha256 = 3;
+}
+
+message FrigateUpdateStartRequest {
+  string job_id = 1;
+  string target_version = 2;
+  repeated string expected_instance_ids = 3;
+  bool stage_only = 4;
+  string idempotency_key = 5;
+  map<string, string> expected_manifest_sha256 = 6;
+  string actor = 7;
+}
+
+message FrigateUpdateStatusRequest {
+  string job_id = 1;
+}
+
+message FrigateUpdateRetryRequest {
+  string job_id = 1;
+  string idempotency_key = 2;
+  string actor = 3;
+}
+
+message FrigateUpdateCancelRequest {
+  string job_id = 1;
+  string idempotency_key = 2;
+  string actor = 3;
+}
+
+message FrigateStatus {
+  FrigateRollout rollout = 1;
+  bool served_by_maintenance = 2;
+  string answered_by = 3; // Frigate instance ID of the endpoint that answered.
+}
+
+// FrigateRollout mirrors mdk.v2.ServerUpdateRollout. Phase strings are
+// lowercase: verifying, stopping, installing, migrating, starting, succeeded,
+// failed, cancelled, verified, abandoned. An unrecognized phase is "unknown".
+message FrigateRollout {
+  string job_id = 1;
+  string target_version = 2;
+  string phase = 3;
+  repeated FrigateInstanceProgress instances = 4;
+  string driver_instance_id = 5;
+  string migration_executor_instance_id = 6;
+  string error_code = 7;
+  string error_message = 8;
+  string next_step = 9;
+  bool stage_only = 10;
+  bool disruption_started = 11;
+  bool retryable = 12;
+  bool cancellable = 13;
+  uint32 automatic_retries = 14;
+  string actor = 15;
+  google.protobuf.Timestamp created_at = 16;
+  google.protobuf.Timestamp updated_at = 17;
+  google.protobuf.Timestamp stopped_at = 18;
+  google.protobuf.Timestamp expires_at = 19;
+  string from_version = 20;
+  string package_sha256 = 21;
+  string release_key_id = 22;
+}
+
+// FrigateInstanceProgress mirrors mdk.v2.ServerUpdateInstanceProgress. Phase is
+// one of connecting, staged, stopped, installed, migrated, started, failed, or
+// "unknown".
+message FrigateInstanceProgress {
+  string instance_id = 1;
+  string phase = 2;
+  google.protobuf.Timestamp last_contact = 3;
+  string running_version = 4;
+  bool migration_executed = 5;
+  string error_code = 6;
+  string error_message = 7;
+  string manifest_sha256 = 8;
+  bool contact_stale = 9;
 }

@@ -1,28 +1,48 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { HashboardInfo } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useMinerStore } from "@/protoOS/store";
+import type { HashboardHardwareData } from "@/protoOS/store/types";
+
+// Seed the store with the hashboards the miner reports. The adapter produces
+// normalized descriptors (serial/slot/bay/board); this hook only writes slices.
+const populateStore = (hashboards: HashboardHardwareData[]) => {
+  const { hardware } = useMinerStore.getState();
+  const serials: string[] = [];
+  hashboards.forEach((hashboard) => {
+    if (!hardware.getHashboard(hashboard.serial)) {
+      hardware.addHashboard(hashboard);
+    }
+    serials.push(hashboard.serial);
+  });
+
+  if (!hardware.getMiner() && serials.length > 0) {
+    hardware.setMiner({
+      controlBoardSerial: "unknown", // TODO: Get from API when available
+      hashboardSerials: serials,
+    });
+  }
+};
 
 const useHashboards = () => {
-  const { api } = useMinerHosting();
-  const [data, setData] = useState<HashboardInfo[]>();
+  const { adapter } = useMinerHosting();
+  const [data, setData] = useState<HashboardHardwareData[]>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
 
   useEffect(() => {
-    if (!api) {
+    if (!adapter) {
       return;
     }
 
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch on mount; setState inside async fetch is the external-sync pattern
     setPending(true);
 
-    api
-      .getAllHashboards()
-      .then((res) => {
-        const hashboards = res?.data["hashboards-info"];
+    adapter
+      .getHashboards()
+      .then((hashboards) => {
         setData(hashboards);
+        populateStore(hashboards);
       })
       .catch((err) => {
         setError(err?.error?.message ?? "An error occurred");
@@ -30,37 +50,7 @@ const useHashboards = () => {
       .finally(() => {
         setPending(false);
       });
-  }, [api]);
-
-  useEffect(() => {
-    if (!data) return;
-    // Populate MinerInfoStore with basic hashboard info
-    const hashboardSerials: string[] = [];
-    data?.forEach((hb) => {
-      if (hb.hb_sn && hb.slot) {
-        const existingHashboard = useMinerStore.getState().hardware.getHashboard(hb.hb_sn);
-        if (!existingHashboard) {
-          useMinerStore.getState().hardware.addHashboard({
-            serial: hb.hb_sn,
-            slot: hb.slot,
-            board: hb.board,
-            bay: Math.floor((hb.slot - 1) / 3) + 1,
-            asicIds: [], // Will be populated later by useHashboardStatus
-          });
-        }
-        hashboardSerials.push(hb.hb_sn);
-      }
-    });
-
-    // Create or update the miner record with hashboard serials
-    const existingMiner = useMinerStore.getState().hardware.getMiner();
-    if (!existingMiner && hashboardSerials.length > 0) {
-      useMinerStore.getState().hardware.setMiner({
-        controlBoardSerial: "unknown", // TODO: Get from API when available
-        hashboardSerials,
-      });
-    }
-  }, [data]);
+  }, [adapter]);
 
   return useMemo(() => ({ pending, error, data }), [pending, error, data]);
 };

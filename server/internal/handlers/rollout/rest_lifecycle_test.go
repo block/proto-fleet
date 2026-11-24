@@ -65,7 +65,7 @@ func newRESTLifecycle(t *testing.T) *restLifecycle {
 	require.NoError(t, err)
 	require.NotZero(t, key.ID)
 	sessions := session.NewService(session.Config{CookieName: "fleet_session", Duration: time.Hour, IDBytes: 32}, sqlstores.NewSQLSessionStore(database.DB))
-	auth := interceptors.NewAuthInterceptor(sessions, userStore, userStore, keySvc, authz.NewPermissionResolver(database.DB), nil, nil, nil)
+	auth := interceptors.NewAuthInterceptor(sessions, userStore, userStore, keySvc, authz.NewPermissionResolver(database.DB), nil, nil, nil, nil)
 	fileSvc, err := files.NewService(files.Config{})
 	require.NoError(t, err)
 	deviceStore := sqlstores.NewSQLDeviceStore(database.DB)

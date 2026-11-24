@@ -8,7 +8,7 @@ import (
 
 	curtailmentv1 "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
 	devicesetv1 "github.com/block/proto-fleet/server/generated/grpc/device_set/v1"
-	poolsv1 "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
+	poolconfigurationsv1 "github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
@@ -481,7 +481,7 @@ func TestValidationRequiredFieldsUsesLiveProtoRules(t *testing.T) {
 	}{
 		{
 			name:    "empty request violations",
-			message: (&poolsv1.ValidatePoolRequest{}).ProtoReflect().Descriptor(),
+			message: (&poolconfigurationsv1.PoolInput{}).ProtoReflect().Descriptor(),
 			want:    []string{"url", "username"},
 		},
 		{
@@ -507,7 +507,7 @@ func TestValidationRequiredFieldsUsesLiveProtoRules(t *testing.T) {
 }
 
 func TestValidateManifestRequirementsRejectsGapsAndStaleExceptions(t *testing.T) {
-	message := (&poolsv1.ValidatePoolRequest{}).ProtoReflect().Descriptor()
+	message := (&poolconfigurationsv1.PoolInput{}).ProtoReflect().Descriptor()
 	if err := validateManifestRequirements(message, renderOptions{}); err == nil ||
 		!strings.Contains(err.Error(), "url") || !strings.Contains(err.Error(), "username") {
 		t.Fatalf("validation gap error = %v, want url and username", err)

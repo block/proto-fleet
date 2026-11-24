@@ -36,7 +36,7 @@ describe("BulkCloseModal", () => {
       });
       render(<DismissibleBulkClose onSubmit={() => pending} />);
       await user.click(screen.getByRole("radio", { name: /Deferred/ }));
-      await user.type(screen.getByLabelText("Notes (optional)"), "Waiting for parts");
+      await user.type(screen.getByLabelText("Resolution note (visible to clients)"), "Waiting for parts");
       await user.click(screen.getByRole("button", { name: "Close tickets" }));
       expect(screen.getByRole("button", { name: "Close tickets" })).toBeDisabled();
       const attemptDismiss = () =>
@@ -44,16 +44,16 @@ describe("BulkCloseModal", () => {
           ? user.keyboard("{Escape}")
           : user.click(screen.getByRole("button", { name: dismiss === "Cancel" ? "Cancel" : "Close dialog" }));
       await attemptDismiss();
-      expect(screen.getByLabelText("Notes (optional)")).toHaveValue("Waiting for parts");
+      expect(screen.getByLabelText("Resolution note (visible to clients)")).toHaveValue("Waiting for parts");
       expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
       await act(async () => finish(success));
       if (!success) {
         expect(screen.getByRole("alert")).toHaveTextContent("Unable to close tickets");
-        expect(screen.getByLabelText("Notes (optional)")).toHaveValue("Waiting for parts");
+        expect(screen.getByLabelText("Resolution note (visible to clients)")).toHaveValue("Waiting for parts");
         expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();
         await attemptDismiss();
       }
-      expect(screen.queryByLabelText("Notes (optional)")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Resolution note (visible to clients)")).not.toBeInTheDocument();
     },
   );
 
@@ -69,14 +69,17 @@ describe("BulkCloseModal", () => {
       "text-300",
     );
     expect(screen.getByText("Issue was fixed")).toHaveClass("text-right", "text-300");
-    expect(screen.queryByLabelText("Notes (optional)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Resolution note (visible to clients)")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Close tickets" })).toHaveClass("bg-core-primary-fill");
     expect(screen.getByRole("button", { name: "Close tickets" })).not.toHaveClass("bg-intent-critical-fill");
     expect(screen.getByRole("button", { name: "Close tickets" })).toBeDisabled();
 
     fireEvent.click(screen.getByRole("radio", { name: /Repaired/ }));
 
-    expect(screen.getByLabelText("Notes (optional)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Resolution note (visible to clients)")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Resolution note (visible to clients)"), {
+      target: { value: "Repair verified" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Close tickets" }));
 
     await waitFor(() => expect(onSuccess).toHaveBeenCalledOnce());
@@ -93,6 +96,9 @@ describe("BulkCloseModal", () => {
       target: { value: String(RepairLocation.REPAIR_BENCH) },
     });
     fireEvent.click(screen.getByRole("radio", { name: /Deferred/ }));
+    fireEvent.change(screen.getByLabelText("Resolution note (visible to clients)"), {
+      target: { value: "Repair verified" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Close tickets" }));
 
     await waitFor(() =>
@@ -101,9 +107,13 @@ describe("BulkCloseModal", () => {
           case: "bulkClose",
           value: expect.objectContaining({
             repairLocation: RepairLocation.UNSPECIFIED,
+            resolutionNote: "Repair verified",
           }),
         }),
       ),
+    );
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ value: expect.not.objectContaining({ notes: expect.anything() }) }),
     );
   });
 });

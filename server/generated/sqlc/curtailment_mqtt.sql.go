@@ -39,10 +39,10 @@ WITH candidate AS (
     LIMIT 1
 )
 UPDATE curtailment_rig_config_reconciliation reconciliation
-SET lease_expires_at = CURRENT_TIMESTAMP + INTERVAL '90 seconds'
+SET lease_expires_at = CURRENT_TIMESTAMP + INTERVAL '90 seconds', delivery_attempts = delivery_attempts + 1
 FROM candidate
 WHERE reconciliation.organization_id = candidate.organization_id
-RETURNING reconciliation.organization_id, reconciliation.requested_by, reconciliation.desired_generation, reconciliation.enqueued_generation, reconciliation.retry_at, reconciliation.lease_expires_at, reconciliation.last_error, reconciliation.created_at, reconciliation.updated_at, reconciliation.full_reconcile_generation
+RETURNING reconciliation.organization_id, reconciliation.requested_by, reconciliation.desired_generation, reconciliation.enqueued_generation, reconciliation.retry_at, reconciliation.lease_expires_at, reconciliation.last_error, reconciliation.created_at, reconciliation.updated_at, reconciliation.full_reconcile_generation, reconciliation.delivery_attempts
 `
 
 func (q *Queries) ClaimRigConfigReconciliation(ctx context.Context) (CurtailmentRigConfigReconciliation, error) {
@@ -59,6 +59,7 @@ func (q *Queries) ClaimRigConfigReconciliation(ctx context.Context) (Curtailment
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.FullReconcileGeneration,
+		&i.DeliveryAttempts,
 	)
 	return i, err
 }
@@ -72,7 +73,8 @@ SET enqueued_generation = GREATEST(reconciliation.enqueued_generation, $1),
         ELSE reconciliation.retry_at
     END,
     lease_expires_at = NULL,
-    last_error = NULL
+    last_error = NULL,
+    delivery_attempts = 0
 WHERE reconciliation.organization_id = $2
   AND reconciliation.enqueued_generation < $1
 RETURNING reconciliation.organization_id
@@ -93,6 +95,24 @@ func (q *Queries) CompleteRigConfigReconciliation(ctx context.Context, arg Compl
 	return err
 }
 
+const countLiveCurtailmentEventsByMQTTSource = `-- name: CountLiveCurtailmentEventsByMQTTSource :one
+SELECT count(*) FROM curtailment_automation_rule r
+WHERE r.org_id = $1 AND r.mqtt_source_id = $2::bigint
+AND curtailment_automation_rule_has_live_event(r.id,r.org_id)
+`
+
+type CountLiveCurtailmentEventsByMQTTSourceParams struct {
+	OrganizationID int64
+	SourceID       int64
+}
+
+func (q *Queries) CountLiveCurtailmentEventsByMQTTSource(ctx context.Context, arg CountLiveCurtailmentEventsByMQTTSourceParams) (int64, error) {
+	row := q.queryRow(ctx, q.countLiveCurtailmentEventsByMQTTSourceStmt, countLiveCurtailmentEventsByMQTTSource, arg.OrganizationID, arg.SourceID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deleteDisabledMQTTSourceConfigByOrg = `-- name: DeleteDisabledMQTTSourceConfigByOrg :one
 WITH changed AS (
 DELETE FROM curtailment_mqtt_source_config config
@@ -100,22 +120,12 @@ WHERE config.id = $1
   AND config.organization_id = $2
   AND config.enabled = FALSE
 RETURNING config.organization_id, config.service_user_id
-), requested AS (
-    INSERT INTO curtailment_rig_config_reconciliation (
-        organization_id,
-        requested_by,
-        full_reconcile_generation
-    )
-    SELECT organization_id, service_user_id, 1
-    FROM changed
-    ON CONFLICT (organization_id) DO UPDATE
-    SET requested_by = EXCLUDED.requested_by,
-        desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        retry_at = CURRENT_TIMESTAMP,
-        last_error = NULL
 )
-SELECT COUNT(*)::BIGINT FROM changed
+SELECT COUNT(*)::BIGINT
+FROM changed
+CROSS JOIN LATERAL request_curtailment_rig_config_reconciliation(
+    changed.organization_id, changed.service_user_id, TRUE
+) requested
 `
 
 type DeleteDisabledMQTTSourceConfigByOrgParams struct {
@@ -228,22 +238,12 @@ INSERT INTO curtailment_mqtt_source_config (
     $13
 )
 RETURNING id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, broker_transport, mqtt_username, mqtt_password_enc, payload_format, staleness_threshold_sec, enabled, created_at, updated_at
-), requested AS (
-    INSERT INTO curtailment_rig_config_reconciliation (
-        organization_id,
-        requested_by,
-        full_reconcile_generation
-    )
-    SELECT organization_id, service_user_id, 1
-    FROM changed
-    ON CONFLICT (organization_id) DO UPDATE
-    SET requested_by = EXCLUDED.requested_by,
-        desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        retry_at = CURRENT_TIMESTAMP,
-        last_error = NULL
 )
-SELECT id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, broker_transport, mqtt_username, mqtt_password_enc, payload_format, staleness_threshold_sec, enabled, created_at, updated_at FROM changed
+SELECT changed.id, changed.organization_id, changed.service_user_id, changed.source_name, changed.topic, changed.broker_primary_host, changed.broker_secondary_host, changed.broker_port, changed.broker_transport, changed.mqtt_username, changed.mqtt_password_enc, changed.payload_format, changed.staleness_threshold_sec, changed.enabled, changed.created_at, changed.updated_at
+FROM changed
+CROSS JOIN LATERAL request_curtailment_rig_config_reconciliation(
+    changed.organization_id, changed.service_user_id, TRUE
+) requested
 `
 
 type InsertMQTTSourceConfigParams struct {
@@ -474,21 +474,28 @@ WHERE target.organization_id = $1
   AND target.requested_generation <= $3
   AND d.deleted_at IS NULL
   AND dd.manufacturer = 'Proto'
+  AND dd.device_class <> $4::integer
   AND dp.pairing_status = 'PAIRED'
 ORDER BY d.device_identifier
 `
 
 type ListRigConfigReconciliationTargetsParams struct {
-	OrganizationID     int64
-	EnqueuedGeneration int64
-	DesiredGeneration  int64
+	OrganizationID       int64
+	EnqueuedGeneration   int64
+	DesiredGeneration    int64
+	ContainerDeviceClass int32
 }
 
 // Run after claiming in a separate statement: its fresh snapshot includes
 // targets committed by a concurrent requester before the claim obtained its
 // organization lock. Targets refreshed after the claim remain for the next pass.
 func (q *Queries) ListRigConfigReconciliationTargets(ctx context.Context, arg ListRigConfigReconciliationTargetsParams) ([]string, error) {
-	rows, err := q.query(ctx, q.listRigConfigReconciliationTargetsStmt, listRigConfigReconciliationTargets, arg.OrganizationID, arg.EnqueuedGeneration, arg.DesiredGeneration)
+	rows, err := q.query(ctx, q.listRigConfigReconciliationTargetsStmt, listRigConfigReconciliationTargets,
+		arg.OrganizationID,
+		arg.EnqueuedGeneration,
+		arg.DesiredGeneration,
+		arg.ContainerDeviceClass,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -510,32 +517,84 @@ func (q *Queries) ListRigConfigReconciliationTargets(ctx context.Context, arg Li
 	return items, nil
 }
 
-const requestRigConfigReconciliation = `-- name: RequestRigConfigReconciliation :exec
-INSERT INTO curtailment_rig_config_reconciliation (
-    organization_id,
-    requested_by,
-    full_reconcile_generation
-) VALUES (
-    $1,
-    $2,
-    1
+const listRigConfigSourceScopes = `-- name: ListRigConfigSourceScopes :many
+SELECT d.device_identifier,
+ COALESCE(array_agg(DISTINCT rule.mqtt_source_id) FILTER (WHERE rule.id IS NOT NULL), ARRAY[]::bigint[])::bigint[] AS source_ids
+FROM device d
+JOIN discovered_device dd ON dd.id = d.discovered_device_id
+JOIN device_pairing dp ON dp.device_id = d.id
+LEFT JOIN (curtailment_automation_rule rule
+ JOIN curtailment_response_profile profile ON profile.id = rule.response_profile_id AND profile.org_id = rule.org_id
+ JOIN curtailment_response_profile_revision revision ON revision.response_profile_id = profile.id
+ JOIN curtailment_automation_execution_grant grant_row ON grant_row.rule_id = rule.id AND grant_row.org_id = rule.org_id AND grant_row.response_profile_id = profile.id AND grant_row.response_profile_revision = revision.revision
+ JOIN curtailment_mqtt_source_config src ON src.id = rule.mqtt_source_id AND src.organization_id = rule.org_id AND src.enabled)
+ON rule.org_id = d.org_id AND rule.enabled
+AND ((grant_row.authorization_envelope_json->>'miner_scope_unbounded')::boolean = TRUE
+ OR (grant_row.authorization_envelope_json->'selected_resource_site_ids') @> jsonb_build_array(d.site_id)
+ OR (grant_row.authorization_envelope_json->'current_member_site_ids') @> jsonb_build_array(d.site_id))
+AND (
+ (profile.scope_json->>'whole_org')::boolean = TRUE
+ OR (profile.scope_json = '{}'::jsonb AND profile.site_id IS NULL)
+ OR profile.site_id = d.site_id
+ OR (profile.scope_json->>'site_id')::bigint = d.site_id
+ OR (profile.scope_json->'site_ids') @> jsonb_build_array(d.site_id)
+ OR (profile.scope_json->'device_identifiers') @> jsonb_build_array(d.device_identifier)
+ OR EXISTS (
+  SELECT 1 FROM building b WHERE b.org_id = d.org_id AND b.deleted_at IS NULL
+  AND (profile.scope_json->'building_ids') @> jsonb_build_array(b.id)
+  AND (d.building_id = b.id OR EXISTS (
+   SELECT 1 FROM device_set_membership membership JOIN device_set rack ON rack.id = membership.device_set_id AND rack.org_id = membership.org_id AND rack.type = 'rack' AND rack.deleted_at IS NULL
+   JOIN device_set_rack placement ON placement.device_set_id = rack.id AND placement.org_id = rack.org_id
+   WHERE membership.device_id = d.id AND membership.org_id = d.org_id AND membership.device_set_type = 'rack' AND placement.building_id = b.id
+  ))
+ )
+ OR EXISTS (
+  SELECT 1 FROM device_set_membership membership JOIN device_set selected ON selected.id = membership.device_set_id AND selected.org_id = membership.org_id AND selected.deleted_at IS NULL
+  WHERE membership.device_id = d.id AND membership.org_id = d.org_id
+  AND ((membership.device_set_type = 'rack' AND selected.type = 'rack' AND (profile.scope_json->'rack_ids') @> jsonb_build_array(selected.id))
+   OR (membership.device_set_type = 'group' AND selected.type = 'group' AND (profile.scope_json->'group_ids') @> jsonb_build_array(selected.id)))
+ )
 )
-ON CONFLICT (organization_id) DO UPDATE
-SET requested_by = EXCLUDED.requested_by,
-    desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-    full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-    retry_at = CURRENT_TIMESTAMP,
-    last_error = NULL
+WHERE d.org_id = $1 AND d.deleted_at IS NULL
+AND dd.manufacturer = 'Proto' AND dd.device_class <> $2::integer AND dp.pairing_status = 'PAIRED'
+AND (cardinality($3::text[]) = 0 OR d.device_identifier = ANY($3::text[]))
+GROUP BY d.device_identifier ORDER BY d.device_identifier
 `
 
-type RequestRigConfigReconciliationParams struct {
-	OrganizationID int64
-	RequestedBy    int64
+type ListRigConfigSourceScopesParams struct {
+	OrganizationID       int64
+	ContainerDeviceClass int32
+	DeviceIdentifiers    []string
 }
 
-func (q *Queries) RequestRigConfigReconciliation(ctx context.Context, arg RequestRigConfigReconciliationParams) error {
-	_, err := q.exec(ctx, q.requestRigConfigReconciliationStmt, requestRigConfigReconciliation, arg.OrganizationID, arg.RequestedBy)
-	return err
+type ListRigConfigSourceScopesRow struct {
+	DeviceIdentifier string
+	SourceIds        []int64
+}
+
+// Every eligible requested rig receives only source providers whose enabled
+// rules select it. Empty source_ids actively clears an obsolete fallback.
+func (q *Queries) ListRigConfigSourceScopes(ctx context.Context, arg ListRigConfigSourceScopesParams) ([]ListRigConfigSourceScopesRow, error) {
+	rows, err := q.query(ctx, q.listRigConfigSourceScopesStmt, listRigConfigSourceScopes, arg.OrganizationID, arg.ContainerDeviceClass, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRigConfigSourceScopesRow
+	for rows.Next() {
+		var i ListRigConfigSourceScopesRow
+		if err := rows.Scan(&i.DeviceIdentifier, pq.Array(&i.SourceIds)); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const requestRigConfigReconciliationForDevices = `-- name: RequestRigConfigReconciliationForDevices :exec
@@ -548,20 +607,17 @@ WITH eligible AS MATERIALIZED (
       AND d.device_identifier = ANY($2::text[])
       AND d.deleted_at IS NULL
       AND dd.manufacturer = 'Proto'
+      AND dd.device_class <> $3::integer
       AND dp.pairing_status = 'PAIRED'
+), reset_budget AS (
+ DELETE FROM curtailment_rig_config_delivery_attempt attempt USING eligible
+ WHERE attempt.organization_id = eligible.org_id AND attempt.device_id = eligible.id RETURNING attempt.device_id
 ), requested AS (
-    INSERT INTO curtailment_rig_config_reconciliation (
-        organization_id,
-        requested_by
-    )
-    SELECT DISTINCT org_id, $3::bigint
-    FROM eligible
-    ON CONFLICT (organization_id) DO UPDATE
-    SET requested_by = EXCLUDED.requested_by,
-        desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        retry_at = CURRENT_TIMESTAMP,
-        last_error = NULL
-    RETURNING organization_id, desired_generation
+    SELECT organizations.org_id AS organization_id,
+           request_curtailment_rig_config_reconciliation(
+               organizations.org_id, $4::bigint, FALSE
+           ) AS desired_generation
+    FROM (SELECT DISTINCT org_id FROM eligible) organizations
 )
 INSERT INTO curtailment_rig_config_target (
     organization_id,
@@ -577,15 +633,21 @@ SET requested_generation = EXCLUDED.requested_generation
 `
 
 type RequestRigConfigReconciliationForDevicesParams struct {
-	OrganizationID    int64
-	DeviceIdentifiers []string
-	RequestedBy       int64
+	OrganizationID       int64
+	DeviceIdentifiers    []string
+	ContainerDeviceClass int32
+	RequestedBy          int64
 }
 
 // Lock/update the organization before writing targets. Completion and terminal
 // retry follow the same lock order so concurrent requests cannot lose targets.
 func (q *Queries) RequestRigConfigReconciliationForDevices(ctx context.Context, arg RequestRigConfigReconciliationForDevicesParams) error {
-	_, err := q.exec(ctx, q.requestRigConfigReconciliationForDevicesStmt, requestRigConfigReconciliationForDevices, arg.OrganizationID, pq.Array(arg.DeviceIdentifiers), arg.RequestedBy)
+	_, err := q.exec(ctx, q.requestRigConfigReconciliationForDevicesStmt, requestRigConfigReconciliationForDevices,
+		arg.OrganizationID,
+		pq.Array(arg.DeviceIdentifiers),
+		arg.ContainerDeviceClass,
+		arg.RequestedBy,
+	)
 	return err
 }
 
@@ -599,13 +661,29 @@ WITH eligible AS MATERIALIZED (
       AND d.id = $2
       AND d.deleted_at IS NULL
       AND dd.manufacturer = 'Proto'
+      AND dd.device_class <> $3::integer
       AND dp.pairing_status = 'PAIRED'
+), budget AS (
+ -- The first ten terminal failures retry after five seconds; later ones keep
+ -- retrying on the ten-minute slow period, so a rig that was unreachable for
+ -- longer still receives its current config once it reconnects.
+ INSERT INTO curtailment_rig_config_delivery_attempt AS attempt (organization_id, device_id, attempts)
+ SELECT org_id,id,1 FROM eligible
+ ON CONFLICT (organization_id,device_id) DO UPDATE SET attempts = attempt.attempts + 1
+ RETURNING organization_id,device_id,attempts
 ), requested AS (
 UPDATE curtailment_rig_config_reconciliation reconciliation
 SET desired_generation = reconciliation.desired_generation + 1,
-    retry_at = CURRENT_TIMESTAMP + INTERVAL '5 seconds',
-    last_error = 'config command reached terminal failure'
-FROM eligible
+    retry_at = CASE
+        WHEN budget.attempts <= 10 THEN CURRENT_TIMESTAMP + INTERVAL '5 seconds'
+        -- A slow retry never postpones other devices' work that is already due.
+        WHEN reconciliation.desired_generation > reconciliation.enqueued_generation
+            THEN LEAST(reconciliation.retry_at, CURRENT_TIMESTAMP + INTERVAL '10 minutes')
+        ELSE CURRENT_TIMESTAMP + INTERVAL '10 minutes'
+    END,
+    last_error = 'config command reached terminal failure',
+    delivery_attempts = 0
+FROM eligible JOIN budget ON budget.organization_id = eligible.org_id AND budget.device_id = eligible.id
 WHERE reconciliation.organization_id = eligible.org_id
 RETURNING reconciliation.organization_id, reconciliation.desired_generation
 )
@@ -622,34 +700,50 @@ SET requested_generation = EXCLUDED.requested_generation
 `
 
 type RequeueRigConfigReconciliationAfterTerminalFailureParams struct {
-	OrganizationID int64
-	DeviceID       int64
+	OrganizationID       int64
+	DeviceID             int64
+	ContainerDeviceClass int32
 }
 
 // The command queue has bounded per-message retries. Retain only the failed
 // eligible device for another attempt; successful devices need no new command.
 func (q *Queries) RequeueRigConfigReconciliationAfterTerminalFailure(ctx context.Context, arg RequeueRigConfigReconciliationAfterTerminalFailureParams) error {
-	_, err := q.exec(ctx, q.requeueRigConfigReconciliationAfterTerminalFailureStmt, requeueRigConfigReconciliationAfterTerminalFailure, arg.OrganizationID, arg.DeviceID)
+	_, err := q.exec(ctx, q.requeueRigConfigReconciliationAfterTerminalFailureStmt, requeueRigConfigReconciliationAfterTerminalFailure, arg.OrganizationID, arg.DeviceID, arg.ContainerDeviceClass)
 	return err
 }
 
 const retryRigConfigReconciliation = `-- name: RetryRigConfigReconciliation :exec
 UPDATE curtailment_rig_config_reconciliation
-SET retry_at = CURRENT_TIMESTAMP + INTERVAL '5 seconds',
+SET retry_at = CURRENT_TIMESTAMP + CASE
+        WHEN delivery_attempts >= $1::INTEGER
+            THEN make_interval(secs => $2::INTEGER)
+        ELSE make_interval(secs => 5 * GREATEST(delivery_attempts, 1))
+    END,
     lease_expires_at = NULL,
-    last_error = $1
-WHERE organization_id = $2
-  AND desired_generation >= $3
+    last_error = $3
+WHERE organization_id = $4
+  AND desired_generation >= $5
 `
 
 type RetryRigConfigReconciliationParams struct {
+	FastAttempts      int32
+	SlowRetrySeconds  int32
 	LastError         sql.NullString
 	OrganizationID    int64
 	DesiredGeneration int64
 }
 
+// Each claim counts a delivery attempt. Fast retries back off linearly; once
+// they are spent the organization keeps retrying on a slow period, so a short
+// outage cannot strand stale fallback providers on its rigs.
 func (q *Queries) RetryRigConfigReconciliation(ctx context.Context, arg RetryRigConfigReconciliationParams) error {
-	_, err := q.exec(ctx, q.retryRigConfigReconciliationStmt, retryRigConfigReconciliation, arg.LastError, arg.OrganizationID, arg.DesiredGeneration)
+	_, err := q.exec(ctx, q.retryRigConfigReconciliationStmt, retryRigConfigReconciliation,
+		arg.FastAttempts,
+		arg.SlowRetrySeconds,
+		arg.LastError,
+		arg.OrganizationID,
+		arg.DesiredGeneration,
+	)
 	return err
 }
 
@@ -659,23 +753,18 @@ UPDATE curtailment_mqtt_source_config config
 SET enabled = $1
 WHERE config.id = $2
   AND config.organization_id = $3
+AND ($1 = TRUE OR NOT EXISTS (
+ SELECT 1 FROM curtailment_automation_rule rule
+ WHERE rule.mqtt_source_id = config.id AND rule.org_id = config.organization_id
+ AND curtailment_automation_rule_has_live_event(rule.id, rule.org_id)
+))
 RETURNING id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, broker_transport, mqtt_username, mqtt_password_enc, payload_format, staleness_threshold_sec, enabled, created_at, updated_at
-), requested AS (
-    INSERT INTO curtailment_rig_config_reconciliation (
-        organization_id,
-        requested_by,
-        full_reconcile_generation
-    )
-    SELECT organization_id, service_user_id, 1
-    FROM changed
-    ON CONFLICT (organization_id) DO UPDATE
-    SET requested_by = EXCLUDED.requested_by,
-        desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        retry_at = CURRENT_TIMESTAMP,
-        last_error = NULL
 )
-SELECT id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, broker_transport, mqtt_username, mqtt_password_enc, payload_format, staleness_threshold_sec, enabled, created_at, updated_at FROM changed
+SELECT changed.id, changed.organization_id, changed.service_user_id, changed.source_name, changed.topic, changed.broker_primary_host, changed.broker_secondary_host, changed.broker_port, changed.broker_transport, changed.mqtt_username, changed.mqtt_password_enc, changed.payload_format, changed.staleness_threshold_sec, changed.enabled, changed.created_at, changed.updated_at
+FROM changed
+CROSS JOIN LATERAL request_curtailment_rig_config_reconciliation(
+    changed.organization_id, changed.service_user_id, TRUE
+) requested
 `
 
 type SetMQTTSourceConfigEnabledParams struct {
@@ -745,22 +834,12 @@ SET
 WHERE config.id = $12
   AND config.organization_id = $13
 RETURNING id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, broker_transport, mqtt_username, mqtt_password_enc, payload_format, staleness_threshold_sec, enabled, created_at, updated_at
-), requested AS (
-    INSERT INTO curtailment_rig_config_reconciliation (
-        organization_id,
-        requested_by,
-        full_reconcile_generation
-    )
-    SELECT organization_id, service_user_id, 1
-    FROM changed
-    ON CONFLICT (organization_id) DO UPDATE
-    SET requested_by = EXCLUDED.requested_by,
-        desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        retry_at = CURRENT_TIMESTAMP,
-        last_error = NULL
 )
-SELECT id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, broker_transport, mqtt_username, mqtt_password_enc, payload_format, staleness_threshold_sec, enabled, created_at, updated_at FROM changed
+SELECT changed.id, changed.organization_id, changed.service_user_id, changed.source_name, changed.topic, changed.broker_primary_host, changed.broker_secondary_host, changed.broker_port, changed.broker_transport, changed.mqtt_username, changed.mqtt_password_enc, changed.payload_format, changed.staleness_threshold_sec, changed.enabled, changed.created_at, changed.updated_at
+FROM changed
+CROSS JOIN LATERAL request_curtailment_rig_config_reconciliation(
+    changed.organization_id, changed.service_user_id, TRUE
+) requested
 `
 
 type UpdateMQTTSourceConfigParams struct {
@@ -906,8 +985,8 @@ type UpsertMQTTSourceStateParams struct {
 	PendingRetryAt        sql.NullTime
 }
 
-// Subscriber upserts source signal state on each successful message receive,
-// after precedence/dedup processing. Singleton per source.
+// Replace the source's signal state after receive, pending-edge, watchdog,
+// and retry processing. Singleton per source.
 func (q *Queries) UpsertMQTTSourceState(ctx context.Context, arg UpsertMQTTSourceStateParams) error {
 	_, err := q.exec(ctx, q.upsertMQTTSourceStateStmt, upsertMQTTSourceState,
 		arg.SourceConfigID,

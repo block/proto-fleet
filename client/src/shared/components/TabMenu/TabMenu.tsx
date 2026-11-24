@@ -15,17 +15,21 @@ type TabMenuProps = {
     [key: string]: TabMenuItem;
   };
   basePath?: string; // Optional base path for navigation
+  activePathAliases?: Partial<Record<string, string[]>>;
 };
 
 // Mark the TabMenu component with memo to prevent unnecessary re-renders
-const TabMenu = memo(({ items, basePath = "" }: TabMenuProps) => {
+const TabMenu = memo(({ items, activePathAliases, basePath = "" }: TabMenuProps) => {
   const navigate = useNavigate();
   const location = useLocation();
 
   // Derive active item from location
   const activeItem = useMemo(() => {
-    return Object.keys(items).find((key) => basePath + items[key].path === location.pathname);
-  }, [location.pathname, items, basePath]);
+    return Object.keys(items).find((key) => {
+      const paths = [basePath + items[key].path, ...(activePathAliases?.[key] ?? [])];
+      return paths.includes(location.pathname);
+    });
+  }, [location.pathname, items, activePathAliases, basePath]);
 
   // Create memoized tab elements to prevent them from re-rendering
   const tabElements = Object.entries(items).map(([key, { name, value, units, path }]) => (

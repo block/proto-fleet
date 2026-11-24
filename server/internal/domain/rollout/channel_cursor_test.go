@@ -20,7 +20,7 @@ func TestChannelPaginationRejectsInvalidUTF8Cursors(t *testing.T) {
 	require.NoError(t, err)
 	for _, raw := range []string{"\xff", "\xc3", "\xc0\xaf", "\xed\xa0\x80"} {
 		t.Run(encodeCursor(raw), func(t *testing.T) {
-			_, _, err := f.svc.ListChannelMiners(ctx, f.orgID, channel.ID, "", "", 1, encodeCursor(raw, "1"))
+			_, _, err := f.svc.ListChannelMiners(ctx, f.orgID, channel.ID, "", "", "", 1, encodeCursor(raw, "1"))
 			require.True(t, fleeterror.IsInvalidArgumentError(err), "miner cursor: %v", err)
 			_, _, err = f.svc.ListChannelModelGroups(ctx, f.orgID, channel.ID, 1, encodeCursor(raw, "Rig"))
 			require.True(t, fleeterror.IsInvalidArgumentError(err), "manufacturer cursor: %v", err)
@@ -54,14 +54,14 @@ func TestChannelPaginationAcceptsLongDeviceIdentifiers(t *testing.T) {
 			_, err = f.svc.CreateChannel(ctx, f.orgID, 1, ChannelSpec{Name: "B", Scope: Scope{GroupIDs: []int64{groupB}}})
 			require.NoError(t, err)
 
-			wantMiners, _, err := f.svc.ListChannelMiners(ctx, f.orgID, a.ID, "", "", 100, "")
+			wantMiners, _, err := f.svc.ListChannelMiners(ctx, f.orgID, a.ID, "", "", "", 100, "")
 			require.NoError(t, err)
 			require.Len(t, wantMiners, 3)
 			var gotMiners []ChannelMiner
 			cursor := ""
 			for page := range wantMiners {
 				require.NoError(t, protovalidate.Validate(&rolloutv1.ListReleaseChannelMinersRequest{ChannelId: a.ID, PageSize: 1, Cursor: cursor}))
-				miners, next, err := f.svc.ListChannelMiners(ctx, f.orgID, a.ID, "", "", 1, cursor)
+				miners, next, err := f.svc.ListChannelMiners(ctx, f.orgID, a.ID, "", "", "", 1, cursor)
 				require.NoError(t, err)
 				require.Len(t, miners, 1)
 				require.NoError(t, protovalidate.Validate(&rolloutv1.ListReleaseChannelMinersResponse{Cursor: next}))

@@ -10,6 +10,8 @@ import Modal from "@/shared/components/Modal/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular/ProgressCircular";
 
 interface EditableFirmwareFile {
+  component?: string;
+  hashboardBuild?: string;
   filename: string;
   targetManufacturer: string;
   targetModel: string;
@@ -42,7 +44,13 @@ const EditFirmwareMetadataDialog = ({
     seedModel: file?.targetModel,
   });
 
-  const metadata = { targetManufacturer, targetModel: resolvedModel, firmwareVersion };
+  const metadata = {
+    targetManufacturer,
+    targetModel: resolvedModel,
+    firmwareVersion,
+    ...(file?.hashboardBuild ? { hashboardBuild: file.hashboardBuild } : {}),
+    ...(file?.component ? { component: file.component } : {}),
+  };
   const canSubmit =
     modelGroups !== null && modelsError === null && hasCompleteFirmwareTarget(metadata) && !isSubmitting;
 

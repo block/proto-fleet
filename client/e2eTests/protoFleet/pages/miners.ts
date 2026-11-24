@@ -110,44 +110,14 @@ export class MinersPage extends BasePage {
 
   private async dismissAddFilterPopover() {
     const popover = this.page.getByTestId("nested-dropdown-filter-popover");
-    if (this.isMobile) {
-      const box = await popover.boundingBox();
-      const viewport = this.page.viewportSize();
-
-      if (box && viewport) {
-        const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
-        const candidates = [
-          {
-            x: clamp(box.x - 12, 4, viewport.width - 4),
-            y: clamp(box.y + 12, 4, viewport.height - 4),
-          },
-          {
-            x: clamp(box.x + box.width + 12, 4, viewport.width - 4),
-            y: clamp(box.y + 12, 4, viewport.height - 4),
-          },
-          {
-            x: clamp(box.x + 12, 4, viewport.width - 4),
-            y: clamp(box.y - 12, 4, viewport.height - 4),
-          },
-          {
-            x: clamp(box.x + 12, 4, viewport.width - 4),
-            y: clamp(box.y + box.height + 12, 4, viewport.height - 4),
-          },
-        ];
-
-        for (const { x, y } of candidates) {
-          await this.page.mouse.click(x, y);
-          if (await popover.isHidden().catch(() => true)) {
-            return;
-          }
-        }
-      }
+    const sheet = this.page.getByTestId("nested-dropdown-filter-popover-sheet");
+    if (await sheet.isVisible()) {
+      await this.page.keyboard.press("Escape");
+    } else {
+      // Desktop/tablet only support outside dismissal. Applying a filter moves the
+      // trigger under the frozen popover, so use the non-interactive Fleet heading.
+      await this.page.getByTestId("fleet-layout").getByRole("heading", { name: "Fleet", exact: true }).click();
     }
-
-    // Desktop keeps the trigger stable while the popover is open, so toggling it remains
-    // the most direct close path there. On mobile this is only a fallback when the outside
-    // tap candidates above are unavailable.
-    await this.page.getByTestId("filter-nested-filters-meta").click();
     await expect(popover).toBeHidden();
   }
 
@@ -161,6 +131,7 @@ export class MinersPage extends BasePage {
   async filterRigMiners() {
     await this.filterMinersByModel(PROTO_RIG_MODEL);
     await this.waitForAntminersToDisappear();
+    await expect(this.page.getByTestId("list-body").locator("tr")).not.toHaveCount(0);
   }
 
   async applyPowerFilter(min: number | undefined, max: number | undefined) {
@@ -222,12 +193,6 @@ export class MinersPage extends BasePage {
 
   async validateMinerInList(ipAddress: string) {
     await expect(await this.getMinerRowByIp(ipAddress)).toBeVisible();
-  }
-
-  async validateMinerValue(minerName: string, columnTestId: string, expectedValue: string) {
-    const minerRow = await this.getMinerRowByIp(minerName);
-    const columnLocator = minerRow.locator(`//td[@data-testid='${columnTestId}']`);
-    await expect(columnLocator).toHaveText(expectedValue);
   }
 
   async waitForMinerValue(
@@ -440,29 +405,6 @@ export class MinersPage extends BasePage {
     await expect(popover).toBeHidden();
   }
 
-  async dismissBulkActionsPopoverIfVisible() {
-    const popover = this.getBulkActionsPopover();
-    if (!(await popover.isVisible().catch(() => false))) {
-      return;
-    }
-
-    await this.page.keyboard.press("Escape").catch(() => undefined);
-    if (!(await popover.isVisible().catch(() => false))) {
-      return;
-    }
-
-    const mobileSheet = this.page.getByTestId("actions-menu-popover-sheet");
-    if (await mobileSheet.isVisible().catch(() => false)) {
-      await mobileSheet.click({ position: { x: 8, y: 8 } });
-    }
-
-    if (await popover.isVisible().catch(() => false)) {
-      await this.page.mouse.click(8, 8);
-    }
-
-    await expect(popover).toBeHidden();
-  }
-
   async clickEditMiningPoolButton() {
     await this.page.getByTestId("mining-pool-popover-button").click();
   }
@@ -523,16 +465,6 @@ export class MinersPage extends BasePage {
     await this.page.getByTestId("update-worker-name-input").fill(name);
   }
 
-  async continueUpdateWorkerNameNoChangesIfVisible() {
-    const dialog = this.page.getByTestId("update-worker-name-no-changes-dialog");
-    try {
-      await dialog.waitFor({ state: "visible", timeout: DEFAULT_INTERVAL });
-      await dialog.getByRole("button", { name: "Yes, continue", exact: true }).click();
-    } catch {
-      // Dialog not present, continue
-    }
-  }
-
   async clickBulkWorkerNameSave() {
     await this.bulkWorkerNameSaveButton().click();
   }
@@ -543,10 +475,6 @@ export class MinersPage extends BasePage {
 
   async validateBulkWorkerNameSaveLabel(expectedLabel: string) {
     await expect(this.bulkWorkerNameSaveButton()).toHaveText(expectedLabel);
-  }
-
-  async closeBulkWorkerNameModal() {
-    await this.page.getByLabel("Close update worker names").click();
   }
 
   async continueBulkRenameOverwriteWarningIfVisible() {
@@ -608,11 +536,6 @@ export class MinersPage extends BasePage {
     return this.isMobile
       ? this.page.getByTestId("bulk-rename-mobile-preview")
       : this.page.getByTestId("bulk-rename-desktop-preview");
-  }
-
-  async validateBulkRenamePreviewContainsName(name: string) {
-    const container = this.bulkRenamePreviewContainer();
-    await expect(container).toContainText(name);
   }
 
   async getBulkRenamePreviewName(): Promise<string> {
@@ -933,31 +856,6 @@ export class MinersPage extends BasePage {
     return (await minerRow.getByTestId("workerName").innerText()).trim();
   }
 
-  async validateMinerWorkerName(ipAddress: string, expectedWorkerName: string) {
-    const minerRow = await this.getMinerRowByIp(ipAddress);
-    await expect(minerRow.getByTestId("workerName")).toContainText(expectedWorkerName);
-  }
-
-  async getMinerWithNonEmptyWorkerName(): Promise<{ ipAddress: string; workerName: string }> {
-    const rows = this.page.getByTestId("list-body").locator("tr");
-    const rowCount = await rows.count();
-
-    for (let i = 0; i < rowCount; i++) {
-      const row = rows.nth(i);
-      await row.scrollIntoViewIfNeeded();
-      const workerName = (await row.getByTestId("workerName").innerText()).trim();
-
-      if (workerName && workerName !== "—") {
-        return {
-          ipAddress: (await row.getByTestId("ipAddress").innerText()).trim(),
-          workerName,
-        };
-      }
-    }
-
-    throw new Error("Expected at least one visible miner with a non-empty worker name");
-  }
-
   async getAuthenticatedMinersWithNonEmptyWorkerNames(
     count: number,
   ): Promise<Array<{ ipAddress: string; workerName: string }>> {
@@ -1032,14 +930,6 @@ export class MinersPage extends BasePage {
 
   async clickUnpairConfirm() {
     await this.page.getByTestId("unpair-confirm-button").click();
-  }
-
-  async validateUpdateInProgress() {
-    await expect(this.page.getByText(/Update in progress|updates in progress/)).toBeVisible();
-  }
-
-  async validateUpdateCompleted() {
-    await expect(this.page.getByText(/Update in progress|updates in progress/)).toBeHidden();
   }
 
   async waitForMinersListToLoad() {
@@ -1164,36 +1054,6 @@ export class MinersPage extends BasePage {
     }).toPass({ timeout: timeoutMs });
   }
 
-  async validateAllMinersIssues(issue: string, expected: boolean = true) {
-    await expect(async () => {
-      try {
-        // To make sure all miners are loaded and we are not missing any issues due to lazy loading
-        await this.waitForColumnValuesToLoad("status");
-        // To avoid miner actions hiding some valuable data in screenshots
-        await this.uncheckSelectAllCheckbox();
-        const rows = this.page.getByTestId("list-body").locator("tr");
-        const rowCount = await rows.count();
-        for (let i = rowCount - 1; i >= 0; i--) {
-          await rows.nth(i).scrollIntoViewIfNeeded();
-          const issuesLocator = rows.nth(i).locator(`//td[@data-testid='issues']`);
-
-          if (expected) {
-            await expect(issuesLocator).toContainText(issue, {
-              timeout: DEFAULT_INTERVAL,
-            });
-          } else {
-            await expect(issuesLocator).not.toContainText(issue, {
-              timeout: DEFAULT_INTERVAL,
-            });
-          }
-        }
-      } catch (error) {
-        await this.reloadPage();
-        throw error;
-      }
-    }).toPass({ timeout: PROLONGED_TIMEOUT });
-  }
-
   async validateActionableMinersIssues(issue: string, expected: boolean = true, expectedCount?: number) {
     await expect(async () => {
       try {
@@ -1233,10 +1093,6 @@ export class MinersPage extends BasePage {
         throw error;
       }
     }).toPass({ timeout: PROLONGED_TIMEOUT });
-  }
-
-  async validateNoMinerWithIssue(issue: string) {
-    await this.validateAllMinersIssues(issue, false);
   }
 
   async validateNoActionableMinerWithIssue(issue: string, expectedCount?: number) {
@@ -1465,11 +1321,6 @@ export class MinersPage extends BasePage {
     return this.page.getByTestId(this.isMobile ? "bulk-rename-save-button-mobile" : "bulk-rename-save-button");
   }
 
-  async clickMinerElementByTestId(ipAddress: string, testId: string) {
-    const minerRow = await this.getMinerRowByIp(ipAddress);
-    await minerRow.getByTestId(testId).click();
-  }
-
   /**
    * Click a miner cell's interactive element and wait for the status modal to open.
    * Targets the button inside the cell (not the td itself) to avoid clicking
@@ -1488,10 +1339,6 @@ export class MinersPage extends BasePage {
       await target.click();
       await expect(modalTitle).toBeVisible({ timeout: 3000 });
     }).toPass({ timeout: DEFAULT_TIMEOUT });
-  }
-
-  async validateMinerIssuesModalOpened(minerName: string) {
-    await this.validateTitleInModal(`${minerName} status`);
   }
 
   async validateErrorInModal(errorText: string, iconId: IssueIconId) {

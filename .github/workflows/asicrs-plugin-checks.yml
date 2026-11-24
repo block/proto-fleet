@@ -34,10 +34,10 @@ jobs:
           rustup toolchain install nightly --profile minimal --component rustfmt --component clippy --allow-downgrade
           rustup override set nightly
 
-      - name: Install protoc
-        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          preinstall: "false"
 
       - name: Cache Cargo registry & build
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -72,10 +72,10 @@ jobs:
           rustup toolchain install nightly --profile minimal
           rustup override set nightly
 
-      - name: Install protoc
-        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          preinstall: "false"
 
       - name: Cache Cargo registry & build
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

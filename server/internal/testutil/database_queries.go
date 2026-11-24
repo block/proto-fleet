@@ -52,7 +52,7 @@ func (s *DatabaseService) CreateSuperAdminUser() *TestUser {
 	username := "alice@example.com"
 	password := "fizzbuzz"
 	organizationName := "Super organization 1"
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
 	assert.NoError(s.t, err, "could not hash pass")
 
 	externalUserID := id.GenerateID()
@@ -92,7 +92,7 @@ func (s *DatabaseService) CreateSuperAdminUser() *TestUser {
 
 		err = q.CreateUserOrganization(context.Background(), sqlc.CreateUserOrganizationParams{
 			UserID:         userID,
-			RoleID:         roleID,
+			RoleID:         sql.NullInt64{Int64: roleID, Valid: true},
 			OrganizationID: orgID,
 		})
 		if err != nil {
@@ -123,7 +123,7 @@ func (s *DatabaseService) CreateSuperAdminUser2() *TestUser {
 	username := "bob@example.com"
 	password := "password123"
 	organizationName := "Super organization 2"
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
 	assert.NoError(s.t, err, "could not hash pass")
 
 	externalUserID := id.GenerateID()
@@ -163,7 +163,7 @@ func (s *DatabaseService) CreateSuperAdminUser2() *TestUser {
 
 		err = q.CreateUserOrganization(context.Background(), sqlc.CreateUserOrganizationParams{
 			UserID:         userID,
-			RoleID:         roleID,
+			RoleID:         sql.NullInt64{Int64: roleID, Valid: true},
 			OrganizationID: orgID,
 		})
 		if err != nil {

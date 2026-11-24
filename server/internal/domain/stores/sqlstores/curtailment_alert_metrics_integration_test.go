@@ -96,10 +96,10 @@ func TestSQLCurtailmentStore_RuleMutationGuardsCoverExternalReference(t *testing
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	db := testContext.DatabaseService.DB
+	db := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(db)
 	orgID := user.OrganizationID
 
@@ -118,6 +118,7 @@ func TestSQLCurtailmentStore_RuleMutationGuardsCoverExternalReference(t *testing
 	require.NoError(t, store.SetAutomationActiveEvent(ctx, ruleID, sourceA, eventUUID, time.Now()))
 
 	_, err = store.UpdateAutomationRule(ctx, models.AutomationRule{
+		AdminControlsGranted:    true,
 		ID:                      ruleID,
 		OrgID:                   orgID,
 		RuleName:                "guard-rule",
@@ -127,7 +128,7 @@ func TestSQLCurtailmentStore_RuleMutationGuardsCoverExternalReference(t *testing
 	}, models.ResponseProfileFanSettings{})
 	require.True(t, fleeterror.IsFailedPreconditionError(err), "re-pointing the rule must be blocked, got %v", err)
 
-	_, err = store.SetAutomationRuleEnabled(ctx, orgID, ruleID, false, uuid.Nil, models.ResponseProfileFanSettings{})
+	_, err = store.SetAutomationRuleEnabled(ctx, orgID, ruleID, false, uuid.Nil, models.ResponseProfileFanSettings{}, true)
 	require.True(t, fleeterror.IsFailedPreconditionError(err), "disabling the rule must be blocked, got %v", err)
 
 	err = store.DeleteAutomationRule(ctx, orgID, ruleID)
@@ -153,10 +154,10 @@ func TestSQLCurtailmentStore_ListMQTTSourcesWithActiveCurtailment(t *testing.T) 
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	db := testContext.DatabaseService.DB
+	db := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(db)
 	orgID := user.OrganizationID
 	profileID := seedResponseProfile(t, db, orgID, "alert-metrics-profile")

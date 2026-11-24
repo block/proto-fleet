@@ -1,41 +1,11 @@
 import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
+import { submitWithPasswordAttemptRetry } from "../helpers/passwordAttemptRetry";
 import { generateRandomText } from "../helpers/testDataHelper";
 
-type WorkerNameRestoreTarget = {
-  ipAddress: string;
-  workerName: string;
-};
-
 test.describe("Miner Settings Actions", () => {
-  let workerNameRestoreTargets: WorkerNameRestoreTarget[] = [];
-
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
-  });
-
-  test.afterEach(async ({ commonSteps, minersPage, loginModal }) => {
-    if (workerNameRestoreTargets.length > 0) {
-      const restoreTargets = [...workerNameRestoreTargets];
-
-      try {
-        await commonSteps.goToMinersPage();
-        await minersPage.filterRigMiners();
-
-        for (const restoreTarget of restoreTargets) {
-          await minersPage.clickMinerThreeDotsButton(restoreTarget.ipAddress);
-          await minersPage.clickUpdateWorkerNameButton();
-          await loginModal.loginAsAdminForWorkerNames();
-          await minersPage.validateUpdateWorkerNameModalOpened();
-          await minersPage.fillUpdateWorkerNameInput(restoreTarget.workerName);
-          await minersPage.clickSaveInModal();
-          await minersPage.continueUpdateWorkerNameNoChangesIfVisible();
-          await minersPage.validateMinerWorkerName(restoreTarget.ipAddress, restoreTarget.workerName);
-        }
-      } finally {
-        workerNameRestoreTargets = [];
-      }
-    }
   });
 
   test("Download logs from a miner action menu starts a log bundle download", async ({
@@ -65,90 +35,106 @@ test.describe("Miner Settings Actions", () => {
   });
 
   if (testConfig.target !== "real") {
-    test(
-      "Update worker name from a miner action menu and restore the original value",
-      { tag: "@smoke" },
-      async ({ minersPage, commonSteps, loginModal }) => {
-        let minerIp: string;
-        let originalWorkerName: string;
-        const updatedWorkerName = generateRandomText("worker-e2e");
-
-        await test.step("Find a Proto rig with an existing worker name", async () => {
-          await commonSteps.loginAsAdmin();
-          await commonSteps.goToMinersPage();
-          await minersPage.filterRigMiners();
-          const [selectedWorkerNamedMiner] = await minersPage.getAuthenticatedMinersWithNonEmptyWorkerNames(1);
-          minerIp = selectedWorkerNamedMiner.ipAddress;
-          originalWorkerName = selectedWorkerNamedMiner.workerName;
-        });
-
-        await test.step("Update the worker name through the single-miner action flow", async () => {
-          workerNameRestoreTargets = [{ ipAddress: minerIp, workerName: originalWorkerName }];
-
-          await minersPage.clickMinerThreeDotsButton(minerIp);
-          await minersPage.clickUpdateWorkerNameButton();
-          await loginModal.loginAsAdminForWorkerNames();
-          await minersPage.validateUpdateWorkerNameModalOpened();
-          await minersPage.fillUpdateWorkerNameInput(updatedWorkerName);
-          await minersPage.clickSaveInModal();
-
-          await minersPage.validateTextInToastGroup("Worker name updated");
-          await minersPage.validateMinerWorkerName(minerIp, updatedWorkerName);
-        });
-      },
-    );
-
-    test("Bulk update worker names action updates the selected miners", async ({
+    test("Single worker-name review rejects changes when a configuration is required @smoke", async ({
       minersPage,
       commonSteps,
       loginModal,
       page,
     }) => {
-      let selectedMiners: WorkerNameRestoreTarget[] = [];
-      const updatedWorkerNamePrefix = generateRandomText("worker-bulk");
-
-      await test.step("Select a Proto rig from the miners table", async () => {
-        await commonSteps.loginAsAdmin();
-        await commonSteps.goToMinersPage();
-        await minersPage.filterRigMiners();
-
-        selectedMiners = await minersPage.getAuthenticatedMinersWithNonEmptyWorkerNames(2);
-        workerNameRestoreTargets = selectedMiners;
-
-        await minersPage.clickMinerCheckbox(selectedMiners[0].ipAddress);
-        await minersPage.clickMinerCheckbox(selectedMiners[1].ipAddress);
-        await minersPage.validateActionBarMinerCount(2);
+      await commonSteps.loginAsAdmin();
+      await commonSteps.goToMinersPage();
+      await minersPage.filterRigMiners();
+      const [miner] = await minersPage.getAuthenticatedMinersWithNonEmptyWorkerNames(1);
+      const updatedWorkerName = generateRandomText("worker-rejected");
+      await page.route(/\/ReviewWorkerNames$/, (route) =>
+        route.fulfill({
+          status: 400,
+          json: { code: "failed_precondition", message: "Assign a pool configuration before changing worker names." },
+        }),
+      );
+      const confirmations: string[] = [];
+      page.on("request", (request) => {
+        if (/\/ConfirmReview$/.test(request.url())) confirmations.push(request.url());
       });
 
-      await test.step("Authenticate into the bulk worker-name flow and apply the updates", async () => {
-        const requestPromise = page.waitForRequest(/UpdateWorkerNames/);
-        const responsePromise = page.waitForResponse(/UpdateWorkerNames/);
+      await minersPage.clickMinerThreeDotsButton(miner.ipAddress);
+      await minersPage.clickUpdateWorkerNameButton();
+      await loginModal.loginAsAdminForWorkerNames();
+      await minersPage.validateUpdateWorkerNameModalOpened();
+      await minersPage.fillUpdateWorkerNameInput(updatedWorkerName);
+      const response = await submitWithPasswordAttemptRetry(page, /\/ReviewWorkerNames$/, async () => {
+        await minersPage.clickSaveInModal();
+      });
+      test.expect(response.status()).toBe(400);
+      test.expect(await response.json()).toMatchObject({
+        code: "failed_precondition",
+        message: "Assign a pool configuration before changing worker names.",
+      });
+      await minersPage.validateTextInToastGroup("Failed to update worker name");
+      await test.expect(page.getByRole("dialog", { name: "Review worker names", exact: true })).toBeHidden();
+      test.expect(confirmations).toEqual([]);
+      await page.reload();
+      await minersPage.validateMinersPageOpened();
+      await test.expect.poll(() => minersPage.getMinerWorkerName(miner.ipAddress)).toBe(miner.workerName);
+    });
 
-        await minersPage.clickActionsMenuButton();
-        await minersPage.clickUpdateWorkerNameButton();
-        await loginModal.loginAsAdminForWorkerNames();
-        await minersPage.validateBulkWorkerNameModalOpened();
-        await minersPage.validateBulkWorkerNameSaveLabel("Apply to 2 miners");
-        await minersPage.clickBulkRenamePropertyToggle("custom");
-        await minersPage.clickBulkRenamePropertyOptions("custom");
-        await minersPage.fillCustomPropertyPrefix(updatedWorkerNamePrefix);
-        await minersPage.saveCustomPropertyOptions();
-        await minersPage.validateModalIsClosed();
+    test("Bulk worker-name review rejects changes when a configuration is required", async ({
+      minersPage,
+      commonSteps,
+      loginModal,
+      page,
+    }) => {
+      await commonSteps.loginAsAdmin();
+      await commonSteps.goToMinersPage();
+      await minersPage.filterRigMiners();
+      const selectedMiners = await minersPage.getAuthenticatedMinersWithNonEmptyWorkerNames(2);
+      const updatedWorkerNamePrefix = generateRandomText("worker-bulk-rejected");
+      await page.route(/\/ReviewWorkerNames$/, (route) =>
+        route.fulfill({
+          status: 400,
+          json: { code: "failed_precondition", message: "Assign a pool configuration before changing worker names." },
+        }),
+      );
+      const confirmations: string[] = [];
+      page.on("request", (request) => {
+        if (/\/ConfirmReview$/.test(request.url())) confirmations.push(request.url());
+      });
+      for (const miner of selectedMiners) {
+        await minersPage.clickMinerCheckbox(miner.ipAddress);
+      }
+      await minersPage.validateActionBarMinerCount(2);
+
+      await minersPage.clickActionsMenuButton();
+      await minersPage.clickUpdateWorkerNameButton();
+      await loginModal.loginAsAdminForWorkerNames();
+      await minersPage.validateBulkWorkerNameModalOpened();
+      await minersPage.validateBulkWorkerNameSaveLabel("Apply to 2 miners");
+      await minersPage.clickBulkRenamePropertyToggle("custom");
+      await minersPage.clickBulkRenamePropertyOptions("custom");
+      await minersPage.fillCustomPropertyPrefix(updatedWorkerNamePrefix);
+      await minersPage.saveCustomPropertyOptions();
+      await minersPage.validateModalIsClosed();
+      const response = await submitWithPasswordAttemptRetry(page, /\/ReviewWorkerNames$/, async () => {
         await minersPage.clickBulkWorkerNameSave();
         await minersPage.continueBulkRenameOverwriteWarningIfVisible();
-
-        const request = await requestPromise;
-        const response = await responsePromise;
-        const requestBody = request.postDataJSON();
-
-        test.expect(request.method()).toBe("POST");
-        test.expect(requestBody).toHaveProperty("deviceSelector");
-        test.expect(requestBody.deviceSelector).toHaveProperty("includeDevices");
-        test.expect(requestBody.deviceSelector.includeDevices.deviceIdentifiers).toHaveLength(2);
-        test.expect(JSON.stringify(requestBody.nameConfig)).toContain(updatedWorkerNamePrefix);
-        test.expect(response.status()).toBe(200);
-        await minersPage.validateTitleNotVisible("Update worker names");
       });
+      const request = response.request();
+      test.expect(request.method()).toBe("POST");
+      test.expect(request.postDataJSON().deviceSelector.includeDevices.deviceIdentifiers).toHaveLength(2);
+      test.expect(JSON.stringify(request.postDataJSON().nameConfig)).toContain(updatedWorkerNamePrefix);
+      test.expect(response.status()).toBe(400);
+      test.expect(await response.json()).toMatchObject({
+        code: "failed_precondition",
+        message: "Assign a pool configuration before changing worker names.",
+      });
+      await minersPage.validateTextInToastGroup("Failed to update worker names");
+      await test.expect(page.getByRole("dialog", { name: "Review worker names", exact: true })).toBeHidden();
+      test.expect(confirmations).toEqual([]);
+      await page.reload();
+      await minersPage.validateMinersPageOpened();
+      for (const miner of selectedMiners) {
+        await test.expect.poll(() => minersPage.getMinerWorkerName(miner.ipAddress)).toBe(miner.workerName);
+      }
     });
   }
 

@@ -102,6 +102,7 @@ func TestExternalPreparedSecretsUsePerHostCertificates(t *testing.T) {
 	config := externalTestConfig()
 	t.Setenv("ENABLE_BETA_ALERTS", "false")
 	t.Setenv("ENABLE_TRACING", "false")
+	t.Setenv("TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS", "true")
 	require.NoError(t, PrepareExternal(root, [3]string{config.DatabaseAIP, config.DatabaseBIP, config.WitnessIP}, config.PublicURL))
 	var sharedEnvironment []byte
 	for i, name := range []string{"ha-a", "ha-b", "ha-c"} {
@@ -121,6 +122,9 @@ func TestExternalPreparedSecretsUsePerHostCertificates(t *testing.T) {
 		require.Error(t, verifyEndpointCertificate(filepath.Join(node.SecretsDir, "fleet-client.crt"), testVirtualIP, roots, x509.ExtKeyUsageServerAuth))
 		environment, err := os.ReadFile(filepath.Join(node.SecretsDir, fleetEnvironmentFile))
 		require.NoError(t, err)
+		profile, err := loadUpdateCompatibleProfile(filepath.Join(node.SecretsDir, fleetEnvironmentFile))
+		require.NoError(t, err)
+		require.True(t, profile.enabled("TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS"))
 		if i == 0 {
 			sharedEnvironment = environment
 		} else {

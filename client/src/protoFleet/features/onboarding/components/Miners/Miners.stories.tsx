@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { action } from "storybook/actions";
 import MinersComponent from "./Miners";
+import { createScaleDiscoveryMiners, scaleFleetNodes } from "./scaleDiscoveryFixture";
 import { Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
+import { useFleetStore } from "@/protoFleet/store";
 
 type MinersProps = {
   minersCount: number;
@@ -14,6 +16,7 @@ export const Miners = ({ minersCount }: MinersProps) => {
       (_, i) =>
         ({
           $typeName: "pairing.v1.Device",
+          fleetNodeId: 0n,
           macAddress: `0d:04:8a:54:fa:${(i + 10).toString(16).padStart(2, "0")}`,
           deviceIdentifier: `5440...88${(i + 10).toString().padStart(2, "0")}`,
         }) as Device,
@@ -53,4 +56,30 @@ export default {
       },
     },
   },
+};
+
+export const FiftyThousandMiners = () => {
+  const [miners] = useState(createScaleDiscoveryMiners);
+  useEffect(() => {
+    const previous = useFleetStore.getState().auth.permissions;
+    useFleetStore.getState().auth.setPermissions(["miner:pair", "fleetnode:read"]);
+    return () => useFleetStore.getState().auth.setPermissions(previous);
+  }, []);
+  return (
+    <MinersComponent
+      mode="pairing"
+      initialStep="pairing"
+      foundMiners={miners}
+      fleetNodes={scaleFleetNodes}
+      scanDiscoveryPending={false}
+      manualDiscoveryPending={false}
+      pairingPending={false}
+      networkInfoPending={false}
+      scanAvailable
+      onCancelScan={action("cancel scan")}
+      onManualDiscover={action("manual discovery")}
+      onContinue={action("pair selected miners")}
+      onRescan={action("rescan")}
+    />
+  );
 };

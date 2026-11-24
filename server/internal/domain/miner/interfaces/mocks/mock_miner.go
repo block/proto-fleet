@@ -527,6 +527,84 @@ func (mr *MockMinerMockRecorder) UpdateMiningPools(ctx, payload any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateMiningPools", reflect.TypeOf((*MockMiner)(nil).UpdateMiningPools), ctx, payload)
 }
 
+// MockPoolClearVerifier is a mock of PoolClearVerifier interface.
+type MockPoolClearVerifier struct {
+	ctrl     *gomock.Controller
+	recorder *MockPoolClearVerifierMockRecorder
+	isgomock struct{}
+}
+
+// MockPoolClearVerifierMockRecorder is the mock recorder for MockPoolClearVerifier.
+type MockPoolClearVerifierMockRecorder struct {
+	mock *MockPoolClearVerifier
+}
+
+// NewMockPoolClearVerifier creates a new mock instance.
+func NewMockPoolClearVerifier(ctrl *gomock.Controller) *MockPoolClearVerifier {
+	mock := &MockPoolClearVerifier{ctrl: ctrl}
+	mock.recorder = &MockPoolClearVerifierMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockPoolClearVerifier) EXPECT() *MockPoolClearVerifierMockRecorder {
+	return m.recorder
+}
+
+// VerifyPoolsCleared mocks base method.
+func (m *MockPoolClearVerifier) VerifyPoolsCleared(ctx context.Context) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "VerifyPoolsCleared", ctx)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// VerifyPoolsCleared indicates an expected call of VerifyPoolsCleared.
+func (mr *MockPoolClearVerifierMockRecorder) VerifyPoolsCleared(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "VerifyPoolsCleared", reflect.TypeOf((*MockPoolClearVerifier)(nil).VerifyPoolsCleared), ctx)
+}
+
+// MockStoredMiningPoolReader is a mock of StoredMiningPoolReader interface.
+type MockStoredMiningPoolReader struct {
+	ctrl     *gomock.Controller
+	recorder *MockStoredMiningPoolReaderMockRecorder
+	isgomock struct{}
+}
+
+// MockStoredMiningPoolReaderMockRecorder is the mock recorder for MockStoredMiningPoolReader.
+type MockStoredMiningPoolReaderMockRecorder struct {
+	mock *MockStoredMiningPoolReader
+}
+
+// NewMockStoredMiningPoolReader creates a new mock instance.
+func NewMockStoredMiningPoolReader(ctrl *gomock.Controller) *MockStoredMiningPoolReader {
+	mock := &MockStoredMiningPoolReader{ctrl: ctrl}
+	mock.recorder = &MockStoredMiningPoolReaderMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockStoredMiningPoolReader) EXPECT() *MockStoredMiningPoolReaderMockRecorder {
+	return m.recorder
+}
+
+// GetStoredMiningPools mocks base method.
+func (m *MockStoredMiningPoolReader) GetStoredMiningPools(ctx context.Context) ([]interfaces.MinerStoredPool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetStoredMiningPools", ctx)
+	ret0, _ := ret[0].([]interfaces.MinerStoredPool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetStoredMiningPools indicates an expected call of GetStoredMiningPools.
+func (mr *MockStoredMiningPoolReaderMockRecorder) GetStoredMiningPools(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetStoredMiningPools", reflect.TypeOf((*MockStoredMiningPoolReader)(nil).GetStoredMiningPools), ctx)
+}
+
 // MockFirmwareUpdateStatusProvider is a mock of FirmwareUpdateStatusProvider interface.
 type MockFirmwareUpdateStatusProvider struct {
 	ctrl     *gomock.Controller

@@ -4,13 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
+	"math/rand"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/block/proto-fleet/server/internal/handlers/minerproxy"
 
 	"connectrpc.com/connect"
 	"github.com/coreos/go-systemd/v22/daemon"
@@ -20,6 +22,8 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/netscan"
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
+	"github.com/block/proto-fleet/server/internal/infrastructure/runtimemetrics"
+	"github.com/block/proto-fleet/server/internal/releaseinfo"
 )
 
 const (
@@ -31,8 +35,10 @@ const (
 var controlWorkerShutdownTimeout = 10 * time.Second
 
 type RunCmd struct {
-	HeartbeatInterval    time.Duration `name:"heartbeat-interval" default:"30s" help:"interval between UploadHeartbeat calls (maximum 30s)"`
-	LocalDiscoverySubnet string        `name:"local-discovery-subnet" env:"FLEETNODE_LOCAL_DISCOVERY_SUBNET" help:"CIDR to scan for automatic local-subnet discovery instead of detecting the host subnet"`
+	operationMetrics     *runtimemetrics.NodeMetrics `kong:"-"`
+	DiscoveryRanges      []string                    `name:"discovery-ranges" help:"Assigned private IPv4 CIDRs or start-end ranges; file changes require restart"`
+	HeartbeatInterval    time.Duration               `name:"heartbeat-interval" default:"30s" help:"interval between UploadHeartbeat calls (maximum 30s)"`
+	LocalDiscoverySubnet string                      `name:"local-discovery-subnet" env:"FLEETNODE_LOCAL_DISCOVERY_SUBNET" help:"CIDR to scan for automatic local-subnet discovery instead of detecting the host subnet"`
 
 	now                      func() time.Time                                                         `kong:"-"`
 	clientFactory            func(serverURL string, tokenSource func() string) (gatewayClient, error) `kong:"-"`
@@ -40,7 +46,13 @@ type RunCmd struct {
 	parentCtx                context.Context                                                          `kong:"-"` //nolint:containedctx // test seam for daemon shutdown without OS signals
 	discoverer               discoverer                                                               `kong:"-"`
 	driverGetter             driverGetter                                                             `kong:"-"`
+	webOnce                  sync.Once                                                                `kong:"-"`
+	webClient                *minerproxy.NodeClient                                                   `kong:"-"`
+	webSlots                 chan struct{}                                                            `kong:"-"`
 	minerSecrets             secretProvider                                                           `kong:"-"`
+	credentials              *credentialCodec                                                         `kong:"-"`
+	statePath                string                                                                   `kong:"-"`
+	state                    *bootstrap.State                                                         `kong:"-"`
 	passwordUpdatePrivateKey []byte                                                                   `kong:"-"`
 	pairer                   pairer                                                                   `kong:"-"`
 	telemetry                telemetryFetcher                                                         `kong:"-"`
@@ -51,8 +63,11 @@ type RunCmd struct {
 	firmwareTempRoot         string                                                                   `kong:"-"`
 	notifyReady              func() error                                                             `kong:"-"`
 
-	stateMu sync.Mutex `kong:"-"` // guards session state and the active control-session cancel func.
-	pairMu  sync.Mutex `kong:"-"` // serializes pair commands; held until every pair worker exits (see handlePairCommand).
+	// stateMu guards mutable state and the active control-session cancel function.
+	stateMu sync.Mutex `kong:"-"`
+	// saveMu serializes state-file snapshots. Acquire it before stateMu when persisting.
+	saveMu sync.Mutex `kong:"-"`
+	pairMu sync.Mutex `kong:"-"` // serializes pair commands; held until every pair worker exits (see handlePairCommand).
 
 	controlSessionCancel context.CancelCauseFunc `kong:"-"`
 
@@ -63,6 +78,10 @@ type RunCmd struct {
 	controlDeferrableReadSlots chan struct{}  `kong:"-"`
 	controlDiscoverySlot       chan struct{}  `kong:"-"`
 	controlWorkers             sync.WaitGroup `kong:"-"`
+	// controlCancels holds the cancel function of each in-flight command a
+	// ControlCancel may stop.
+	controlCancels   commandCancels       `kong:"-"`
+	boardASICStreams boardASICStreamLimit `kong:"-"`
 }
 
 type gatewayClient interface {
@@ -75,10 +94,16 @@ type gatewayClient interface {
 }
 
 func (r *RunCmd) Run(c *Context) error {
-	return r.run(c, os.Stdout)
+	err := r.run(c, slog.Default())
+	if err != nil {
+		// kong prints the error on stderr too, but under systemd that stream is
+		// PRIORITY=info; this is the line `journalctl -p warning` must show.
+		slog.Error("daemon exiting", "error", err)
+	}
+	return err
 }
 
-func (r *RunCmd) run(c *Context, logOutput io.Writer) error {
+func (r *RunCmd) run(c *Context, logger *slog.Logger) error {
 	if err := r.validateHeartbeatInterval(); err != nil {
 		return err
 	}
@@ -134,7 +159,6 @@ func (r *RunCmd) run(c *Context, logOutput io.Writer) error {
 		return operatorActionRequired(fmt.Errorf("state at %s has no api_key; complete enrollment via `fleetnode refresh` before running the daemon", path))
 	}
 
-	logger := slog.New(slog.NewTextHandler(logOutput, nil))
 	switch {
 	case resolvedPluginsDir != "":
 		logger.Info("plugins dir resolved", "plugins_dir", resolvedPluginsDir)
@@ -205,6 +229,11 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 	if err := bootstrap.ValidateServerURL(st.ServerURL, st.AllowInsecureTransport); err != nil {
 		return operatorActionRequired(err)
 	}
+	r.statePath, r.state = path, st
+	r.warnInvalidLegacyDiscoverySubnet(logger)
+	if _, err := r.effectiveDiscoveryConfig(); err != nil {
+		return operatorActionRequired(fmt.Errorf("discovery ranges: %w", err))
+	}
 	r.firmwareTempRoot = filepath.Join(c.StateDir, firmwareArtifactTempDirName)
 	if err := prepareFirmwareArtifactTempRoot(r.firmwareTempRoot); err != nil {
 		return operatorActionRequired(fmt.Errorf("prepare firmware temp dir: %w", err))
@@ -228,6 +257,7 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 		if r.minerSecrets == nil {
 			r.minerSecrets = credentials
 		}
+		r.credentials = credentials
 		if r.passwordUpdatePrivateKey == nil {
 			privateKey, err := decodePasswordUpdatePrivateKey(st)
 			if err != nil {
@@ -240,7 +270,7 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 	tokenSource := func() string {
 		r.stateMu.Lock()
 		defer r.stateMu.Unlock()
-		return st.SessionToken
+		return r.state.SessionToken
 	}
 	client, err := r.clientFactory(st.ServerURL, tokenSource)
 	if err != nil {
@@ -248,6 +278,8 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 	}
 
 	logger.Info("daemon started",
+		"version", version,
+		"release_repository", releaseinfo.Repository,
 		"fleet_node_id", st.FleetNodeID,
 		"server_url", st.ServerURL,
 		"heartbeat_interval", r.HeartbeatInterval.String(),
@@ -255,7 +287,7 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 		"session_expires_at", st.SessionExpiresAt.Format(time.RFC3339),
 	)
 
-	if err := r.tick(ctx, client, st, path, logger); err != nil {
+	if err := r.tick(ctx, client, logger); err != nil {
 		return err
 	}
 	if ctx.Err() != nil {
@@ -274,7 +306,7 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := r.runHeartbeatLoop(loopCtx, client, st, path, logger); err != nil {
+		if err := r.runHeartbeatLoop(loopCtx, client, logger); err != nil {
 			errCh <- err
 			cancelLoops()
 		}
@@ -333,7 +365,7 @@ func (r *RunCmd) waitForControlWorkers(logger *slog.Logger) {
 	}
 }
 
-func (r *RunCmd) runHeartbeatLoop(ctx context.Context, client gatewayClient, st *bootstrap.State, path string, logger *slog.Logger) error {
+func (r *RunCmd) runHeartbeatLoop(ctx context.Context, client gatewayClient, logger *slog.Logger) error {
 	ticker := time.NewTicker(r.HeartbeatInterval)
 	defer ticker.Stop()
 	for {
@@ -341,7 +373,7 @@ func (r *RunCmd) runHeartbeatLoop(ctx context.Context, client gatewayClient, st 
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			if err := r.tick(ctx, client, st, path, logger); err != nil {
+			if err := r.tick(ctx, client, logger); err != nil {
 				return err
 			}
 		}
@@ -358,26 +390,35 @@ func (r *RunCmd) sessionNeedsRefresh(st *bootstrap.State) bool {
 	return st.SessionExpiresAt.Sub(r.now()) < sessionRefreshLeeway
 }
 
-func (r *RunCmd) refreshAndSave(ctx context.Context, st *bootstrap.State, path string, logger *slog.Logger) error {
-	logger.Info("refreshing session", "fleet_node_id", st.FleetNodeID, "session_expires_at", st.SessionExpiresAt.Format(time.RFC3339))
+func (r *RunCmd) stateSnapshot() bootstrap.State {
+	r.stateMu.Lock()
+	defer r.stateMu.Unlock()
+	return *r.state
+}
+
+func (r *RunCmd) refreshAndSave(ctx context.Context, logger *slog.Logger) error {
 	// Handshake on a shallow copy so the 2-RPC call doesn't hold stateMu and
 	// stall the control loop's token reads.
-	next := *st
+	next := r.stateSnapshot()
+	logger.Info("refreshing session", "fleet_node_id", next.FleetNodeID, "session_expires_at", next.SessionExpiresAt.Format(time.RFC3339))
 	if err := bootstrap.Refresh(ctx, &next); err != nil {
 		if errors.Is(err, bootstrap.ErrBeginAuthRejected) || connect.CodeOf(err) != connect.CodeUnauthenticated {
 			return err
 		}
-		logger.Warn("session refresh completion rejected; retrying handshake once", "fleet_node_id", st.FleetNodeID, "err", err)
+		logger.Warn("session refresh completion rejected; retrying handshake once", "fleet_node_id", next.FleetNodeID, "err", err)
 		if err := bootstrap.Refresh(ctx, &next); err != nil {
 			return err
 		}
 	}
+	r.saveMu.Lock()
+	defer r.saveMu.Unlock()
 	r.stateMu.Lock()
-	st.SessionToken = next.SessionToken
-	st.SessionExpiresAt = next.SessionExpiresAt
+	r.state.SessionToken = next.SessionToken
+	r.state.SessionExpiresAt = next.SessionExpiresAt
 	// Snapshot under the lock so SaveState's yaml.Marshal doesn't race the
 	// tokenSource goroutine that the control loop will add later.
-	snapshot := *st
+	snapshot := *r.state
+	path := r.statePath
 	cancelControlSession := r.controlSessionCancel
 	r.stateMu.Unlock()
 	if cancelControlSession != nil {
@@ -386,7 +427,7 @@ func (r *RunCmd) refreshAndSave(ctx context.Context, st *bootstrap.State, path s
 	if err := bootstrap.SaveState(path, &snapshot); err != nil {
 		return fmt.Errorf("save state after refresh: %w", err)
 	}
-	logger.Info("session refreshed", "fleet_node_id", st.FleetNodeID, "session_expires_at", st.SessionExpiresAt.Format(time.RFC3339))
+	logger.Info("session refreshed", "fleet_node_id", snapshot.FleetNodeID, "session_expires_at", snapshot.SessionExpiresAt.Format(time.RFC3339))
 	return nil
 }
 
@@ -412,9 +453,10 @@ func isRetryableRefreshError(err error) bool {
 // tick runs one heartbeat cycle. A non-nil return is a permanent condition
 // (revoked credential / deleted fleet_node) that requires re-enrollment;
 // transient errors return nil so the next tick retries.
-func (r *RunCmd) tick(ctx context.Context, client gatewayClient, st *bootstrap.State, path string, logger *slog.Logger) error {
-	if r.sessionNeedsRefresh(st) {
-		if err := r.refreshAndSave(ctx, st, path, logger); err != nil {
+func (r *RunCmd) tick(ctx context.Context, client gatewayClient, logger *slog.Logger) error {
+	st := r.stateSnapshot()
+	if r.sessionNeedsRefresh(&st) {
+		if err := r.refreshAndSave(ctx, logger); err != nil {
 			if errors.Is(err, bootstrap.ErrBeginAuthRejected) {
 				return operatorActionRequired(fmt.Errorf("%w. The server returns Unauthenticated for any of: revoked api_key, identity_pubkey mismatch, expired challenge, or server clock drift. Exiting; local credentials are preserved, re-enroll once the operator-side cause is resolved", bootstrap.ErrBeginAuthRejected))
 			}
@@ -422,11 +464,15 @@ func (r *RunCmd) tick(ctx context.Context, client gatewayClient, st *bootstrap.S
 				return operatorActionRequired(fmt.Errorf("session refresh requires operator action: %w", err))
 			}
 			logger.Error("session refresh failed; will retry on next tick", "fleet_node_id", st.FleetNodeID, "err", err)
-			return nil
+			// Inside the refresh leeway the current session still authenticates.
+			if st.SessionToken == "" || !r.now().Before(st.SessionExpiresAt) {
+				return nil
+			}
 		}
 	}
 
-	err := r.sendHeartbeat(ctx, client)
+	heartbeatLogger := logger.With("fleet_node_id", st.FleetNodeID)
+	err := r.sendHeartbeat(ctx, client, heartbeatLogger)
 	if err == nil {
 		logger.Info("heartbeat sent", "fleet_node_id", st.FleetNodeID)
 		return nil
@@ -440,7 +486,7 @@ func (r *RunCmd) tick(ctx context.Context, client gatewayClient, st *bootstrap.S
 	}
 
 	logger.Warn("heartbeat rejected as Unauthenticated; refreshing session and retrying", "fleet_node_id", st.FleetNodeID, "err", err)
-	if refreshErr := r.refreshAndSave(ctx, st, path, logger); refreshErr != nil {
+	if refreshErr := r.refreshAndSave(ctx, logger); refreshErr != nil {
 		if errors.Is(refreshErr, bootstrap.ErrBeginAuthRejected) {
 			return operatorActionRequired(fmt.Errorf("%w. The server returns Unauthenticated for any of: revoked api_key, identity_pubkey mismatch, expired challenge, or server clock drift. Exiting; re-enroll once the operator-side cause is resolved", bootstrap.ErrBeginAuthRejected))
 		}
@@ -450,7 +496,7 @@ func (r *RunCmd) tick(ctx context.Context, client gatewayClient, st *bootstrap.S
 		logger.Error("post-Unauthenticated refresh failed; will retry on next tick", "fleet_node_id", st.FleetNodeID, "err", refreshErr)
 		return nil
 	}
-	retryErr := r.sendHeartbeat(ctx, client)
+	retryErr := r.sendHeartbeat(ctx, client, heartbeatLogger)
 	if retryErr == nil {
 		logger.Info("heartbeat sent after refresh", "fleet_node_id", st.FleetNodeID)
 		return nil
@@ -464,12 +510,40 @@ func (r *RunCmd) tick(ctx context.Context, client gatewayClient, st *bootstrap.S
 
 const heartbeatTimeout = 30 * time.Second
 
-func (r *RunCmd) sendHeartbeat(ctx context.Context, client gatewayClient) error {
+func (r *RunCmd) sendHeartbeat(ctx context.Context, client gatewayClient, logger *slog.Logger) error {
 	callCtx, cancel := context.WithTimeout(ctx, heartbeatTimeout)
 	defer cancel()
-	_, err := client.UploadHeartbeat(callCtx, connect.NewRequest(&pb.UploadHeartbeatRequest{
-		SentAt: timestamppb.New(r.now()),
-	}))
+	req := connect.NewRequest(&pb.UploadHeartbeatRequest{
+		SentAt:      timestamppb.New(r.now()),
+		IpAddresses: localIPAddresses(),
+		Version:     truncateUTF8(version, maxHeartbeatVersionBytes),
+	})
+	// This metadata update is idempotent; hardware commands must not use this retry.
+	var err error
+	for attempt, backoff := range [...]time.Duration{0, 250 * time.Millisecond, time.Second} {
+		if backoff > 0 {
+			timer := time.NewTimer(backoff + time.Duration(rand.Int63n(int64(backoff/2)+1)))
+			select {
+			case <-callCtx.Done():
+				timer.Stop()
+				return errors.Join(fmt.Errorf("heartbeat interrupted: %w", callCtx.Err()), err)
+			case <-timer.C:
+			}
+		}
+		if ctxErr := callCtx.Err(); ctxErr != nil {
+			return errors.Join(fmt.Errorf("heartbeat interrupted: %w", ctxErr), err)
+		}
+		_, err = client.UploadHeartbeat(callCtx, req)
+		if err == nil {
+			if attempt > 0 {
+				logger.Info("heartbeat recovered after transient failure", "attempts", attempt+1, "code", connect.CodeUnavailable.String())
+			}
+			return nil
+		}
+		if connect.CodeOf(err) != connect.CodeUnavailable {
+			return err
+		}
+	}
 	return err
 }
 

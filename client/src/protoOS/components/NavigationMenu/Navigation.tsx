@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import clsx from "clsx";
 
 import { navigationItems, navigationMenuTypes } from "./constants";
+import InfoItem from "./InfoItem";
 import IpAddressInfo from "./InfoItem/IpAddressInfo";
 import type { IpAddressInfoProps } from "./InfoItem/IpAddressInfo";
 import LocationInfo from "./InfoItem/LocationInfo";
@@ -16,8 +17,10 @@ import type { VersionInfoProps } from "./InfoItem/VersionInfo";
 import { AppNavigationItems, OnboardingNavigationItems } from "./NavigationItems";
 import { NavigationItemValue, NavigationMenuType } from "./types";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { useDeviceType } from "@/protoOS/store";
 import { Logo } from "@/shared/assets/icons";
 import { useNavigate } from "@/shared/hooks/useNavigate";
+import { buildVersionInfo } from "@/shared/utils/version";
 
 interface NavigationProps {
   ipAddressInfo?: IpAddressInfoProps;
@@ -41,6 +44,8 @@ const Navigation = ({
   const isApp = useMemo(() => type === navigationMenuTypes.app, [type]);
 
   const { minerRoot, closeButton } = useMinerHosting();
+  const deviceType = useDeviceType();
+  const appHomeItem = deviceType === "container" ? navigationItems.containerHome : navigationItems.home;
 
   const isOnboarding = useMemo(() => type === navigationMenuTypes.onboarding, [type]);
 
@@ -48,14 +53,17 @@ const Navigation = ({
   const location = useLocation();
   const { pathname } = useMemo(() => location, [location]);
   const pageName = useMemo(() => {
-    // Remove leading slash
-    const route = pathname.replace(/^\//, "");
+    const localPath =
+      minerRoot && (pathname === minerRoot || pathname.startsWith(`${minerRoot}/`))
+        ? pathname.slice(minerRoot.length)
+        : pathname;
+    const route = localPath.replace(/^\//, "").replace(/\/$/, "");
     if (route.length) {
       return route;
     } else {
-      return isApp ? navigationItems.home : navigationItems.onboarding;
+      return isApp ? appHomeItem : navigationItems.onboarding;
     }
-  }, [pathname, isApp]);
+  }, [pathname, minerRoot, isApp, appHomeItem]);
 
   const handleClick = useCallback(
     (navigationItem: NavigationItemValue) => {
@@ -68,8 +76,8 @@ const Navigation = ({
   return (
     <div
       className={clsx(
-        "absolute z-30 flex h-full max-h-[calc(100vh-16px)] w-[240px] flex-col overflow-auto rounded-lg border-r border-border-5 bg-surface-base text-text-primary-70",
-        "laptop:static laptop:z-auto laptop:max-h-screen laptop:rounded-none",
+        "absolute z-30 flex h-full max-h-[calc(100vh-16px)] w-60 flex-col overflow-auto rounded-lg border-r border-border-5 bg-surface-base text-text-primary-70",
+        "laptop:static laptop:z-auto laptop:max-h-screen laptop:w-50 laptop:rounded-none",
       )}
     >
       <div className="grow">
@@ -77,7 +85,7 @@ const Navigation = ({
           {closeButton ? (
             closeButton
           ) : (
-            <Link to={isApp ? `${minerRoot}/${navigationItems.home}` : `${minerRoot}/${navigationItems.onboarding}`}>
+            <Link to={isApp ? `${minerRoot}/${appHomeItem}` : `${minerRoot}/${navigationItems.onboarding}`}>
               <Logo className="text-text-primary hover:cursor-pointer" />
             </Link>
           )}
@@ -96,6 +104,14 @@ const Navigation = ({
         <IpAddressInfo loading={ipAddressInfo?.loading} value={ipAddressInfo?.value} />
 
         <VersionInfo loading={versionInfo?.loading} value={versionInfo?.value} />
+
+        {/* The web client's own build, which ships separately from the device firmware above. */}
+        <InfoItem
+          label="ProtoOS Version"
+          value={buildVersionInfo.version}
+          divider={false}
+          testId="protoos-version-info-item"
+        />
 
         <MacAddressInfo loading={macInfo?.loading} value={macInfo?.value} />
       </div>

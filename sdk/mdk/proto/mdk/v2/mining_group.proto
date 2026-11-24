@@ -1,0 +1,575 @@
+syntax = "proto3";
+
+package mdk.v2;
+
+import "google/api/annotations.proto";
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/timestamp.proto";
+import "mdk/v2/options.proto";
+import "mdk/v2/pool.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
+
+// MiningGroupService manages CT1 hashboard ownership and independent Stratum
+// policy. It never grants customer authorization; Proto Fleet owns RBAC.
+service MiningGroupService {
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_tag) = {
+    name: "Mining groups"
+    description: "CT1 hosted mining groups, exclusive hashboard ownership, and container mining inhibition."
+  };
+
+  rpc GetMiningGroupCapability(GetMiningGroupCapabilityRequest) returns (GetMiningGroupCapabilityResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/mining-groups/capability"};
+  }
+  rpc ListMiningGroups(ListMiningGroupsRequest) returns (ListMiningGroupsResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/mining-groups"};
+  }
+  rpc GetMiningGroup(GetMiningGroupRequest) returns (GetMiningGroupResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/mining-groups/by-id/{id}"};
+  }
+  rpc CreateMiningGroup(CreateMiningGroupRequest) returns (CreateMiningGroupResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (mdk.v2.tunnel_mutation_route) = TUNNEL_MUTATION_ROUTE_SHARED_STATE;
+    option (google.api.http) = {post: "/api/v2/mining-groups" body: "*"};
+  }
+  rpc UpdateMiningGroup(UpdateMiningGroupRequest) returns (UpdateMiningGroupResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (mdk.v2.tunnel_mutation_route) = TUNNEL_MUTATION_ROUTE_SHARED_STATE;
+    option (google.api.http) = {put: "/api/v2/mining-groups/by-id/{id}" body: "*"};
+  }
+  // Operator-only, presence-safe intent patch.
+  rpc UpdateMiningGroupIntent(UpdateMiningGroupIntentRequest) returns (UpdateMiningGroupIntentResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (mdk.v2.tunnel_mutation_route) = TUNNEL_MUTATION_ROUTE_SHARED_STATE;
+    option (google.api.http) = {patch: "/api/v2/mining-groups/by-id/{id}/intent" body: "*"};
+  }
+  rpc DeleteMiningGroup(DeleteMiningGroupRequest) returns (DeleteMiningGroupResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (mdk.v2.tunnel_mutation_route) = TUNNEL_MUTATION_ROUTE_SHARED_STATE;
+    option (google.api.http) = {delete: "/api/v2/mining-groups/by-id/{id}"};
+  }
+  rpc ActivateMiningGroups(ActivateMiningGroupsRequest) returns (ActivateMiningGroupsResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (mdk.v2.tunnel_mutation_route) = TUNNEL_MUTATION_ROUTE_SHARED_STATE;
+    option (google.api.http) = {post: "/api/v2/mining-groups/activate" body: "*"};
+  }
+  rpc DeactivateMiningGroups(DeactivateMiningGroupsRequest) returns (DeactivateMiningGroupsResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (mdk.v2.tunnel_mutation_route) = TUNNEL_MUTATION_ROUTE_SHARED_STATE;
+    option (google.api.http) = {post: "/api/v2/mining-groups/deactivate" body: "*"};
+  }
+  rpc SetContainerMiningSuspended(SetContainerMiningSuspendedRequest) returns (SetContainerMiningSuspendedResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (mdk.v2.tunnel_mutation_route) = TUNNEL_MUTATION_ROUTE_SHARED_STATE;
+    option (google.api.http) = {put: "/api/v2/mining-groups/container-suspend" body: "*"};
+  }
+  rpc ListMiningGroupMemberships(ListMiningGroupMembershipsRequest) returns (ListMiningGroupMembershipsResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/mining-groups/memberships"};
+  }
+  rpc RequestMiningGroupTransfer(RequestMiningGroupTransferRequest) returns (RequestMiningGroupTransferResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (mdk.v2.tunnel_mutation_route) = TUNNEL_MUTATION_ROUTE_SHARED_STATE;
+    option (google.api.http) = {post: "/api/v2/mining-groups/transfers" body: "*"};
+  }
+  rpc GetMiningGroupOperation(GetMiningGroupOperationRequest) returns (GetMiningGroupOperationResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/mining-groups/operations/{id}"};
+  }
+  rpc GetMiningGroupTelemetry(GetMiningGroupTelemetryRequest) returns (GetMiningGroupTelemetryResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/mining-groups/by-id/{group_id}/telemetry"};
+  }
+  rpc QueryMiningGroupHistory(QueryMiningGroupHistoryRequest) returns (QueryMiningGroupHistoryResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/mining-groups/by-id/{group_id}/history"};
+  }
+  rpc ListMiningGroupPools(ListMiningGroupPoolsRequest) returns (ListMiningGroupPoolsResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/mining-groups/by-id/{group_id}/pools"};
+  }
+  rpc ReplaceMiningGroupPools(ReplaceMiningGroupPoolsRequest) returns (ReplaceMiningGroupPoolsResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (mdk.v2.tunnel_mutation_route) = TUNNEL_MUTATION_ROUTE_SHARED_STATE;
+    option (google.api.http) = {put: "/api/v2/mining-groups/by-id/{group_id}/pools" body: "*"};
+  }
+  // CopyMiningGroupPools copies a reviewed pool set into an empty group. The
+  // controller keeps the source endpoints and passwords and changes only the
+  // requested usernames. Copying pools does not transfer any boards.
+  rpc CopyMiningGroupPools(CopyMiningGroupPoolsRequest) returns (CopyMiningGroupPoolsResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {post: "/api/v2/mining-groups/by-id/{group_id}/pools/copy" body: "*"};
+  }
+  // UpdateDefaultMiningGroupWorkerNames atomically updates only reviewed Default
+  // pool usernames. Endpoints, passwords, and other pool settings stay intact.
+  rpc UpdateDefaultMiningGroupWorkerNames(UpdateDefaultMiningGroupWorkerNamesRequest) returns (UpdateDefaultMiningGroupWorkerNamesResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {post: "/api/v2/mining-groups/default/worker-names" body: "*"};
+  }
+  rpc GetMiningGroupPoolDiagnostics(GetMiningGroupPoolDiagnosticsRequest) returns (GetMiningGroupPoolDiagnosticsResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/mining-groups/by-id/{group_id}/pool-diagnostics"};
+  }
+  rpc TestMiningGroupPoolConnection(TestMiningGroupPoolConnectionRequest) returns (TestMiningGroupPoolConnectionResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (mdk.v2.tunnel_mutation_route) = TUNNEL_MUTATION_ROUTE_SHARED_STATE;
+    option (google.api.http) = {post: "/api/v2/mining-groups/by-id/{group_id}/pools/{pool_id}/test"};
+  }
+  rpc GetPoolConnectionSharingState(GetPoolConnectionSharingStateRequest) returns (GetPoolConnectionSharingStateResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/mining-groups/connection-sharing"};
+  }
+  rpc SetPoolConnectionSharingEnabled(SetPoolConnectionSharingEnabledRequest) returns (SetPoolConnectionSharingEnabledResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (mdk.v2.tunnel_mutation_route) = TUNNEL_MUTATION_ROUTE_SHARED_STATE;
+    option (google.api.http) = {put: "/api/v2/mining-groups/connection-sharing" body: "*"};
+  }
+  rpc RetryPoolConnectionSharingProfile(RetryPoolConnectionSharingProfileRequest) returns (RetryPoolConnectionSharingProfileResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (mdk.v2.tunnel_mutation_route) = TUNNEL_MUTATION_ROUTE_SHARED_STATE;
+    option (google.api.http) = {post: "/api/v2/mining-groups/connection-sharing/retry" body: "*"};
+  }
+}
+
+message MiningGroupCapability {
+  string name = 1;
+  uint32 version = 2;
+  bool enabled = 3;
+  bool suspended = 4;
+  int64 state_revision = 5;
+  uint32 max_groups = 6;
+  uint32 max_pools_per_group = 7;
+  repeated string supported_pll_algorithms = 8;
+  string assignment_granularity = 9;
+  reserved 10, 11;
+  reserved "metadata_patch_supported", "intent_patch_supported";
+  uint32 max_boards_per_group = 12;
+  // This controller implements CopyMiningGroupPools on its local MDK API.
+  bool pool_copy_supported = 13;
+  // True when the controller uses the saved legacy pools for Default.
+  // False when native DATUM overrides them.
+  optional bool default_pool_writes_supported = 14;
+  // This controller can atomically update the saved Default pool usernames.
+  // False when the store lacks support or native DATUM overrides Default pools.
+  optional bool default_pool_worker_name_update_supported = 15;
+}
+message GetMiningGroupCapabilityRequest {}
+message GetMiningGroupCapabilityResponse { MiningGroupCapability capability = 1; }
+
+message MiningGroupRecord {
+  string id = 1;
+  string name = 2;
+  optional string external_ref = 3;
+  int64 revision = 4;
+  bool desired_mining = 5;
+  int64 reset_generation = 6;
+  optional double requested_board_watts = 7;
+  string pll_algorithm = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+  google.protobuf.Timestamp deleted_at = 11;
+  // Present for Default. Changes when any saved legacy pool setting changes.
+  optional int64 default_pool_revision = 12;
+}
+// Writable customer metadata only; operating policy uses the intent RPC.
+message MiningGroupMetadata {
+  string name = 1;
+  optional string external_ref = 2;
+}
+message ListMiningGroupsRequest {}
+message ListMiningGroupsResponse {
+  repeated MiningGroupRecord groups = 1;
+  repeated MiningGroupOperationRecord pending_operations = 2;
+  repeated MiningGroupInventoryIssue inventory_issues = 3;
+}
+message MiningGroupInventoryIssue {
+  reserved 1;
+  reserved "module_id";
+  string group_id = 2;
+  string reason = 3;
+  uint32 current_boards = 4;
+  uint32 retained_boards = 5;
+  repeated string power_feed_ids = 6;
+  string mac_address = 7;
+  optional string physical_module_id = 8;
+}
+message GetMiningGroupRequest { string id = 1; }
+message GetMiningGroupResponse { MiningGroupRecord group = 1; }
+message CreateMiningGroupRequest {
+  reserved 1;
+  reserved "settings";
+  string idempotency_key = 2;
+  MiningGroupMetadata metadata = 3;
+}
+message CreateMiningGroupResponse { MiningGroupRecord group = 1; }
+message UpdateMiningGroupRequest {
+  string id = 1;
+  int64 expected_revision = 2;
+  reserved 3;
+  reserved "settings";
+  string idempotency_key = 4;
+  MiningGroupMetadata metadata = 5;
+  // Required and nonempty; must contain name and/or external_ref.
+  // Paths are relative to metadata. Unselected fields are preserved;
+  // selected absent external_ref clears it. Metadata never changes intent.
+  google.protobuf.FieldMask update_mask = 6;
+}
+message UpdateMiningGroupResponse { MiningGroupRecord group = 1; }
+message UpdateMiningGroupIntentRequest {
+  string id = 1;
+  int64 expected_revision = 2;
+  bool desired_mining = 3;
+  optional double requested_board_watts = 4;
+  string pll_algorithm = 5;
+  bool reset_requested = 6;
+  string idempotency_key = 7;
+  // Required and nonempty. Allowed paths: desired_mining,
+  // requested_board_watts, pll_algorithm, reset_requested. Unselected values
+  // are preserved. Selected absent watts restores entitlement; selected empty
+  // PLL restores NONE. The selected tunnel peer must advertise this method.
+  google.protobuf.FieldMask update_mask = 8;
+}
+// Success means the desired intent committed, not that owners have applied it.
+// GetMiningGroupTelemetry reports allocation, application, and pending owners.
+message UpdateMiningGroupIntentResponse { MiningGroupRecord group = 1; }
+message DeleteMiningGroupRequest { string id = 1; int64 expected_revision = 2; string idempotency_key = 3; }
+message DeleteMiningGroupResponse {}
+message ActivateMiningGroupsRequest { int64 expected_state_revision = 1; string idempotency_key = 2; }
+message ActivateMiningGroupsResponse { MiningGroupCapability capability = 1; }
+message DeactivateMiningGroupsRequest { int64 expected_state_revision = 1; string idempotency_key = 2; }
+message DeactivateMiningGroupsResponse { MiningGroupCapability capability = 1; }
+message SetContainerMiningSuspendedRequest { int64 expected_state_revision = 1; bool suspended = 2; string idempotency_key = 3; }
+message SetContainerMiningSuspendedResponse { MiningGroupCapability capability = 1; }
+
+message MiningGroupMembershipRecord {
+  reserved 1;
+  reserved "module_id";
+  string group_id = 2;
+  int64 generation = 3;
+  google.protobuf.Timestamp assigned_at = 4;
+  string mac_address = 5;
+}
+message ListMiningGroupMembershipsRequest { optional string group_id = 1; }
+message ListMiningGroupMembershipsResponse { repeated MiningGroupMembershipRecord memberships = 1; }
+
+message MiningGroupOperationRecord {
+  string id = 1;
+  string kind = 2;
+  string phase = 3;
+  string source_group_id = 4;
+  string destination_group_id = 5;
+  reserved 6;
+  reserved "module_ids";
+  google.protobuf.Timestamp requested_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  string error = 9;
+  uint32 stop_boards_total = 10;
+  uint32 stop_boards_confirmed = 11;
+  repeated MiningGroupStopBlocker stop_blockers = 12;
+  repeated string mac_addresses = 13;
+}
+message MiningGroupStopBlocker {
+  string mac_address = 1;
+  string power_feed_id = 2;
+  google.protobuf.Timestamp last_seen_at = 3;
+}
+message RequestMiningGroupTransferRequest {
+  string source_group_id = 1; // Empty for explicit adoption of verified unassigned boards.
+  string destination_group_id = 2;
+  reserved 3;
+  reserved "module_ids";
+  int64 source_expected_revision = 4;
+  int64 destination_expected_revision = 5;
+  string idempotency_key = 6;
+  repeated string mac_addresses = 7;
+  // When supplied, require that Default still has the reviewed pool settings.
+  optional int64 source_expected_default_pool_revision = 8;
+}
+message RequestMiningGroupTransferResponse { MiningGroupOperationRecord operation = 1; }
+message GetMiningGroupOperationRequest { string id = 1; }
+message GetMiningGroupOperationResponse { MiningGroupOperationRecord operation = 1; }
+
+message MiningGroupTelemetryRecord {
+  string group_id = 1;
+  uint32 expected_boards = 2;
+  uint32 reporting_boards = 3;
+  double hashrate_th = 4;
+  double board_power_watts = 5;
+  optional double efficiency_j_th = 6;
+  google.protobuf.Timestamp freshest_at = 7;
+  bool mining_available = 8;
+  string availability_reason = 9;
+  bool partial_coverage = 10;
+  optional double requested_board_watts = 11;
+  double allocated_board_watts = 12;
+  double applied_board_watts = 13;
+  uint32 pending_owner_boards = 14;
+  int64 plan_version = 15;
+  string plan_phase = 16;
+  double container_budget_watts = 17;
+  double staged_board_watts = 18;
+  uint32 staged_boards = 19;
+  uint32 hold_confirmed_owners = 20;
+  uint32 hold_ready_owners = 21;
+  // Fresh firmware health with rails, clocks, or significant draw while held.
+  repeated MiningGroupPoweredBoard powered_while_held = 22;
+  uint32 present_boards = 23;
+  // Current interlocks that prevent a staged plan from becoming active.
+  repeated string hold_reasons = 24;
+}
+message MiningGroupPoweredBoard {
+  string mac_address = 1;
+  string owner_server_id = 2;
+  string firmware_state = 3;
+  google.protobuf.Timestamp observed_at = 4;
+  bool hashrail_on = 5;
+  bool refclks_on = 6;
+}
+message MiningGroupBoardTelemetryRecord {
+  string mac_address = 1;
+  string group_id = 2;
+  int64 membership_generation = 3;
+  google.protobuf.Timestamp assigned_at = 4;
+  google.protobuf.Timestamp observed_at = 5;
+  bool present = 6;
+  bool reporting = 7;
+  optional double hashrate_th = 8;
+  optional double board_power_watts = 9;
+  optional double efficiency_j_th = 10;
+  double allocated_board_watts = 11;
+  double applied_board_watts = 12;
+  bool mining_available = 13;
+  string availability_reason = 14;
+  int64 observed_time_ms = 15;
+  int64 powered_on_time_ms = 16;
+  int64 hashing_time_ms = 17;
+}
+message GetMiningGroupTelemetryRequest {
+  string group_id = 1;
+  repeated string mac_addresses = 2; // Empty selects all current members.
+}
+message GetMiningGroupTelemetryResponse {
+  MiningGroupTelemetryRecord telemetry = 1;
+  repeated MiningGroupBoardTelemetryRecord boards = 2;
+}
+
+message MiningGroupHistoryBucket {
+  google.protobuf.Timestamp start = 1;
+  double hashrate_th = 2;
+  double board_power_watts = 3;
+  optional double efficiency_j_th = 4;
+  uint32 expected_boards = 5;
+  uint32 reporting_boards = 6;
+  bool partial_coverage = 7;
+  string source = 8;
+  // Summed ownership-scoped board time, not group wall-clock uptime.
+  int64 observed_time_ms = 9;
+  int64 powered_on_time_ms = 10;
+  int64 hashing_time_ms = 11;
+}
+message QueryMiningGroupHistoryRequest {
+  string group_id = 1;
+  google.protobuf.Timestamp start = 2;
+  google.protobuf.Timestamp end = 3;
+  uint32 bucket_seconds = 4;
+  repeated string mac_addresses = 5; // Empty selects members at observation time.
+}
+message QueryMiningGroupHistoryResponse { repeated MiningGroupHistoryBucket buckets = 1; }
+
+message MiningGroupPoolRecord {
+  int32 id = 1;
+  string name = 2;
+  string url = 3;
+  string username = 4;
+  int32 priority = 5;
+  bool enabled = 6;
+  optional double share_weight = 7;
+}
+message MiningGroupPoolInput {
+  MiningGroupPoolRecord pool = 1;
+  // Write-only; absent preserves an existing pool's credential.
+  optional string password = 2;
+}
+message ListMiningGroupPoolsRequest { string group_id = 1; }
+message ListMiningGroupPoolsResponse { repeated MiningGroupPoolRecord pools = 1; }
+message ReplaceMiningGroupPoolsRequest {
+  string group_id = 1;
+  int64 expected_revision = 2;
+  string idempotency_key = 3;
+  repeated MiningGroupPoolInput pools = 4;
+}
+message ReplaceMiningGroupPoolsResponse {
+  MiningGroupRecord group = 1;
+  repeated MiningGroupPoolRecord pools = 2;
+}
+message MiningGroupPoolCopy {
+  // The complete public source pool record from the operator's review.
+  MiningGroupPoolRecord source = 1;
+  // The complete new pool username. Use the current value to keep that username.
+  string username = 2;
+}
+message CopyMiningGroupPoolsRequest {
+  // An existing non-default destination with no pools, boards, or pending transfers.
+  string group_id = 1;
+  int64 expected_revision = 2;
+  string idempotency_key = 3;
+  // May be "default" to copy the legacy pool set.
+  string source_group_id = 4;
+  int64 source_expected_revision = 5;
+  // Include every source pool exactly once.
+  repeated MiningGroupPoolCopy pools = 6;
+  // Required for Default. Guards changes to settings, including passwords.
+  optional int64 source_expected_default_pool_revision = 7;
+}
+message CopyMiningGroupPoolsResponse {
+  MiningGroupRecord group = 1;
+  repeated MiningGroupPoolRecord pools = 2;
+}
+message DefaultMiningGroupWorkerNameUpdate {
+  int64 pool_id = 1;
+  // The complete pool username, including the account and worker name.
+  string username = 2;
+}
+message UpdateDefaultMiningGroupWorkerNamesRequest {
+  // The reviewed Default group revision and legacy pool revision.
+  int64 expected_revision = 1;
+  int64 expected_default_pool_revision = 2;
+  string idempotency_key = 3;
+  // Include only the pool usernames to change, with one update per ID.
+  repeated DefaultMiningGroupWorkerNameUpdate updates = 4;
+}
+message UpdateDefaultMiningGroupWorkerNamesResponse {
+  MiningGroupRecord group = 1;
+  // All saved Default pools, including inactive pools, without passwords.
+  repeated Pool pools = 2;
+}
+message GetMiningGroupPoolDiagnosticsRequest { string group_id = 1; }
+message GetMiningGroupPoolDiagnosticsResponse {
+  repeated PoolConnectionDiagnostics pools = 1;
+  bool weighted_mode = 2;
+  string observer_server_id = 3;
+  repeated string observed_mac_addresses = 4;
+  google.protobuf.Timestamp observed_at = 5;
+  repeated PoolConnectionSharingDiagnostic sharing = 6;
+}
+message TestMiningGroupPoolConnectionRequest { string group_id = 1; int32 pool_id = 2; string idempotency_key = 3; }
+message TestMiningGroupPoolConnectionResponse {
+  bool success = 1;
+  double latency_ms = 2;
+  string error = 3;
+}
+
+// MiningGroupsSnapshot is an optional, nonsecret full-sync object. It is
+// negotiated independently of the frozen CT1 tunnel protocol-v1 registry.
+message MiningGroupsSnapshot {
+  MiningGroupCapability capability = 1;
+  repeated MiningGroupRecord groups = 2;
+  repeated MiningGroupMembershipRecord memberships = 3;
+  repeated MiningGroupTelemetryRecord telemetry = 4;
+  repeated MiningGroupPoolSet pool_sets = 5;
+  google.protobuf.Timestamp observed_at = 6;
+  repeated MiningGroupOperationRecord pending_operations = 7;
+  repeated MiningGroupInventoryIssue inventory_issues = 8;
+  repeated MiningGroupBoardTelemetryRecord board_telemetry = 9;
+  PoolConnectionSharingState pool_connection_sharing = 10;
+}
+
+message PoolConnectionSharingDiagnostic {
+  int32 pool_id = 1;
+  string mode = 2;
+  string reason = 3;
+  string profile_id = 4;
+  string profile_revision = 5;
+  string profile_source = 6;
+  string profile_fingerprint = 7;
+  string upstream_id = 8;
+  uint64 physical_generation = 9;
+  bool authorized = 10;
+}
+
+message PoolConnectionSharingProfile {
+  string id = 1;
+  string revision = 2;
+  string endpoint = 3;
+  string work_policy = 4;
+  string source = 5;
+  string fingerprint = 6;
+  uint32 max_accounts = 7;
+  double max_hashrate_th = 8;
+  double min_account_hashrate_th = 9;
+  double max_share_interval_seconds = 10;
+  string qualification_date = 11;
+  string reviewer = 12;
+  string evidence_ref = 13;
+  bool disabled = 14;
+  bool revoked = 15;
+  bool quarantined = 16;
+  string quarantine_reason = 17;
+  google.protobuf.Timestamp quarantined_at = 18;
+  string cleanup_notice = 19;
+  string profile_key = 20;
+  string quarantine_fingerprint = 21;
+}
+
+message PoolConnectionSharingState {
+  bool supported = 1;
+  bool configuration_allowed = 2;
+  bool desired_enabled = 3;
+  bool effective_enabled = 4;
+  int64 revision = 5;
+  string blocker = 6;
+  string observer_server_id = 7;
+  google.protobuf.Timestamp observed_at = 8;
+  optional uint32 physical_connections = 9;
+  optional uint32 logical_leases = 10;
+  repeated PoolConnectionSharingProfile profiles = 11;
+  uint32 implementation_max_accounts = 12;
+  string registry_fingerprint = 13;
+}
+message GetPoolConnectionSharingStateRequest {}
+message GetPoolConnectionSharingStateResponse { PoolConnectionSharingState state = 1; }
+message SetPoolConnectionSharingEnabledRequest {
+  int64 expected_revision = 1;
+  bool enabled = 2;
+  string idempotency_key = 3;
+}
+message SetPoolConnectionSharingEnabledResponse { PoolConnectionSharingState state = 1; }
+message RetryPoolConnectionSharingProfileRequest {
+  string profile_key = 1;
+  int64 expected_revision = 2;
+  string expected_quarantine_fingerprint = 3;
+  string requalification_evidence_ref = 4;
+  string idempotency_key = 5;
+}
+message RetryPoolConnectionSharingProfileResponse { PoolConnectionSharingState state = 1; }
+
+message MiningGroupPoolSet {
+  string group_id = 1;
+  repeated MiningGroupPoolRecord pools = 2;
+}

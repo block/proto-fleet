@@ -1,0 +1,194 @@
+syntax = "proto3";
+
+package mdk.v2;
+
+option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
+
+import "google/protobuf/timestamp.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_swagger) = {
+  info: {
+    title: "Proto MDK v2"
+    version: ""
+    description: "REST API for managing and monitoring Bitcoin mining hardware."
+  }
+};
+
+// MiningState represents the operational state of a hashboard.
+enum MiningState {
+  MINING_STATE_UNSPECIFIED = 0;
+  MINING_STATE_DISCONNECTED = 1;
+  MINING_STATE_IDENTIFYING = 2;
+  MINING_STATE_CONFIGURING = 3;
+  MINING_STATE_MINING = 4;
+  MINING_STATE_ERROR = 5;
+  MINING_STATE_IDLE = 6;
+  MINING_STATE_INIT = 7;
+  MINING_STATE_STARTUP = 8;
+  MINING_STATE_READY = 9;
+  MINING_STATE_FLASHING = 10;
+}
+
+// Severity represents the severity level of an alert.
+enum Severity {
+  SEVERITY_UNSPECIFIED = 0;
+  SEVERITY_INFO = 1;
+  SEVERITY_WARNING = 2;
+  SEVERITY_ERROR = 3;
+  SEVERITY_CRITICAL = 4;
+}
+
+// TuningAlgorithm names the canonical mining tuning algorithm shared by all
+// products. Implementations map these semantic values to their native tuning
+// engine without exposing product-specific enum fields on the MDK API.
+enum TuningAlgorithm {
+  TUNING_ALGORITHM_UNSPECIFIED = 0;
+  TUNING_ALGORITHM_NONE = 1;
+  TUNING_ALGORITHM_VOLTAGE_BALANCE = 2;
+  TUNING_ALGORITHM_TEMPERATURE_GRADIENT_WITH_VOLTAGE_BALANCE = 3;
+  TUNING_ALGORITHM_FMARGIN = 4;
+  TUNING_ALGORITHM_DEBUG = 5;
+  TUNING_ALGORITHM_FMARGIN_THERMAL_THROTTLE = 6;
+  TUNING_ALGORITHM_FMARGIN_DELTA_THERMAL_THROTTLE = 7;
+}
+
+// TimeSeriesMetric identifies the metric type for time series queries.
+enum TimeSeriesMetric {
+  reserved "TIME_SERIES_METRIC_TANK_INLET_TEMP", "TIME_SERIES_METRIC_TANK_OUTLET_TEMP", "TIME_SERIES_METRIC_TANK_WATTAGE";
+  TIME_SERIES_METRIC_UNSPECIFIED = 0;
+  TIME_SERIES_METRIC_HASHRATE = 1;
+  TIME_SERIES_METRIC_POWER = 2;
+  TIME_SERIES_METRIC_TEMPERATURE = 3;
+  TIME_SERIES_METRIC_VOLTAGE = 4;
+  // Plant metrics are container-scoped and ignore the identifier field.
+  TIME_SERIES_METRIC_PLANT_INLET_TEMPERATURE = 5;
+  TIME_SERIES_METRIC_PLANT_OUTLET_TEMPERATURE = 6;
+  TIME_SERIES_METRIC_PLANT_POWER = 7;
+  TIME_SERIES_METRIC_PLANT_AMBIENT_TEMPERATURE = 8;
+  TIME_SERIES_METRIC_PLANT_HEAT_REJECTION_POWER = 9;
+  TIME_SERIES_METRIC_PLANT_FACILITY_POWER = 10;
+  TIME_SERIES_METRIC_PLANT_REACTIVE_POWER = 11;
+  TIME_SERIES_METRIC_PLANT_APPARENT_POWER = 12;
+  TIME_SERIES_METRIC_PLANT_ACTIVE_ENERGY = 13;
+  TIME_SERIES_METRIC_PLANT_REACTIVE_ENERGY = 14;
+  TIME_SERIES_METRIC_PLANT_APPARENT_ENERGY = 15;
+  TIME_SERIES_METRIC_PLANT_POWER_FACTOR = 16;
+  TIME_SERIES_METRIC_PLANT_PUE = 17;
+  TIME_SERIES_METRIC_PLANT_DRY_COOLER_INLET_TEMPERATURE = 18;
+  TIME_SERIES_METRIC_PLANT_OUTLET_A_TEMPERATURE = 19;
+  TIME_SERIES_METRIC_PLANT_OUTLET_B_TEMPERATURE = 20;
+  TIME_SERIES_METRIC_PLANT_PUMP_OUTLET_PRESSURE = 21;
+  TIME_SERIES_METRIC_PLANT_PUMP_INLET_PRESSURE = 22;
+  TIME_SERIES_METRIC_PLANT_HEAT_REJECTION_INLET_PRESSURE = 23;
+  TIME_SERIES_METRIC_PLANT_HEAT_REJECTION_OUTLET_PRESSURE = 24;
+  TIME_SERIES_METRIC_PLANT_TANK_A_LIQUID_LEVEL = 25;
+  TIME_SERIES_METRIC_PLANT_TANK_B_LIQUID_LEVEL = 26;
+  TIME_SERIES_METRIC_PLANT_FLOW_RATE = 27;
+  TIME_SERIES_METRIC_PLANT_AMBIENT_HUMIDITY = 28;
+  TIME_SERIES_METRIC_PLANT_FILTER_PRESSURE_DIFFERENTIAL = 29;
+  TIME_SERIES_METRIC_PLANT_PUMP_PRESSURE_DIFFERENTIAL = 30;
+  TIME_SERIES_METRIC_PLANT_HEAT_REJECTION_PRESSURE_DIFFERENTIAL = 31;
+  TIME_SERIES_METRIC_PLANT_COOLANT_PUMP_SPEED = 32;
+  // Component metrics require identifier to select a phase, distribution
+  // unit, fan, or power feed.
+  TIME_SERIES_METRIC_PLANT_PHASE_POWER = 33;
+  TIME_SERIES_METRIC_PLANT_PHASE_CURRENT = 34;
+  TIME_SERIES_METRIC_PLANT_PHASE_VOLTAGE = 35;
+  TIME_SERIES_METRIC_PLANT_DISTRIBUTION_ACTIVE_FEEDS = 36;
+  TIME_SERIES_METRIC_PLANT_DISTRIBUTION_VOLTAGE_AB = 37;
+  TIME_SERIES_METRIC_PLANT_DISTRIBUTION_VOLTAGE_BC = 38;
+  TIME_SERIES_METRIC_PLANT_DISTRIBUTION_VOLTAGE_CA = 39;
+  TIME_SERIES_METRIC_PLANT_DISTRIBUTION_CURRENT_A = 40;
+  TIME_SERIES_METRIC_PLANT_DISTRIBUTION_CURRENT_B = 41;
+  TIME_SERIES_METRIC_PLANT_DISTRIBUTION_CURRENT_C = 42;
+  TIME_SERIES_METRIC_PLANT_DISTRIBUTION_POWER = 43;
+  TIME_SERIES_METRIC_PLANT_DISTRIBUTION_ACTIVE_ENERGY = 44;
+  TIME_SERIES_METRIC_PLANT_FAN_POWER = 45;
+  TIME_SERIES_METRIC_PLANT_FAN_SPEED = 46;
+  TIME_SERIES_METRIC_POWER_FEED_POWER = 47;
+  TIME_SERIES_METRIC_POWER_FEED_CURRENT = 48;
+  TIME_SERIES_METRIC_POWER_FEED_VOLTAGE = 49;
+  TIME_SERIES_METRIC_POWER_FEED_VOLTAGE_AB = 50;
+  TIME_SERIES_METRIC_POWER_FEED_VOLTAGE_BC = 51;
+  TIME_SERIES_METRIC_POWER_FEED_VOLTAGE_CA = 52;
+  TIME_SERIES_METRIC_POWER_FEED_CURRENT_A = 53;
+  TIME_SERIES_METRIC_POWER_FEED_CURRENT_B = 54;
+  TIME_SERIES_METRIC_POWER_FEED_CURRENT_C = 55;
+  // Sensor-specific board or PSU temperature history. Requests must include a
+  // TemperatureSeriesSelector; the legacy TEMPERATURE metric remains the
+  // aggregate across every board sensor.
+  TIME_SERIES_METRIC_TEMPERATURE_SENSOR = 56;
+  TIME_SERIES_METRIC_PLANT_INSIDE_AMBIENT_TEMPERATURE = 57;
+  TIME_SERIES_METRIC_PLANT_INSIDE_AMBIENT_HUMIDITY = 58;
+  TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_TEMPERATURE = 59;
+  TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_HUMIDITY = 60;
+}
+
+// HealthStatus represents the overall health of the system.
+enum HealthStatus {
+  HEALTH_STATUS_UNSPECIFIED = 0;
+  HEALTH_STATUS_HEALTHY = 1;
+  HEALTH_STATUS_DEGRADED = 2;
+  HEALTH_STATUS_UNHEALTHY = 3;
+}
+
+// PowerFeedState represents the state of a container power feed.
+enum PowerFeedState {
+  POWER_FEED_STATE_UNSPECIFIED = 0;
+  POWER_FEED_STATE_ENABLED = 1;
+  POWER_FEED_STATE_DISABLED = 2;
+}
+
+// Phase represents an electrical phase.
+enum Phase {
+  PHASE_UNSPECIFIED = 0;
+  PHASE_A = 1;
+  PHASE_B = 2;
+  PHASE_C = 3;
+}
+
+// PlantState represents a backend-reported container-plant operating state.
+enum PlantState {
+  PLANT_STATE_UNSPECIFIED = 0;
+  PLANT_STATE_RUNNING = 1;
+  PLANT_STATE_STANDBY = 2;
+  PLANT_STATE_SLEEPING = 3;
+}
+
+// LogLevel represents the severity level for log filtering.
+enum LogLevel {
+  LOG_LEVEL_UNSPECIFIED = 0;
+  LOG_LEVEL_DEBUG = 1;
+  LOG_LEVEL_INFO = 2;
+  LOG_LEVEL_WARNING = 3;
+  LOG_LEVEL_ERROR = 4;
+}
+
+// BucketSize represents the aggregation interval for time series queries.
+enum BucketSize {
+  BUCKET_SIZE_UNSPECIFIED = 0;
+  BUCKET_SIZE_1M = 1;
+  BUCKET_SIZE_5M = 2;
+  BUCKET_SIZE_15M = 3;
+  BUCKET_SIZE_1H = 4;
+  BUCKET_SIZE_1D = 5;
+}
+
+// PageRequest specifies pagination parameters.
+message PageRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+}
+
+// PageResponse contains pagination metadata.
+message PageResponse {
+  string next_page_token = 1;
+  int32 total_count = 2;
+}
+
+// TimeRange specifies a time window for queries.
+message TimeRange {
+  google.protobuf.Timestamp start = 1;
+  google.protobuf.Timestamp end = 2;
+}

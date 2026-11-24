@@ -102,7 +102,7 @@ func TestChannelUpdatesRejectReplacementRuntimeConflicts(t *testing.T) {
 				Scope: Scope{DeviceIdentifiers: []string{test.identifier}},
 			})
 			require.True(t, fleeterror.IsFailedPreconditionError(err), "%v", err)
-			require.ErrorContains(t, err, test.channel+" (1 miners)")
+			require.ErrorContains(t, err, test.channel+" (1 device)")
 			unchanged, err := f.svc.GetChannel(ctx, f.orgID, channel.ID)
 			require.NoError(t, err)
 			assert.Equal(t, *channel, *unchanged, "rejected scope changes must preserve all channel fields and selectors")

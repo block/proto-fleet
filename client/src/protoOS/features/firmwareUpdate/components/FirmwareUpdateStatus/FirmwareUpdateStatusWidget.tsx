@@ -1,15 +1,15 @@
 import { useMemo } from "react";
 import clsx from "clsx";
 
-import { UpdateStatus } from "@/protoOS/api/generatedApi";
 import WidgetWrapper from "@/protoOS/components/PageHeader/WidgetWrapper";
+import type { FirmwareUpdateInfo } from "@/protoOS/store/contract";
 import { variants as buttonVariants } from "@/shared/components/Button";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import StatusCircle, { type StatusCircleProps, variants } from "@/shared/components/StatusCircle";
 import { statuses } from "@/shared/components/StatusCircle/constants";
 
 interface FirmwareUpdateStatusWidgetProps {
-  updateStatus?: UpdateStatus;
+  updateStatus?: FirmwareUpdateInfo;
   loading?: boolean;
   installing?: boolean;
   statusMessage?: string;
@@ -25,9 +25,9 @@ const FirmwareUpdateStatusWidget = ({
 }: FirmwareUpdateStatusWidgetProps) => {
   const status: StatusCircleProps["status"] = useMemo(() => {
     switch (updateStatus?.status) {
-      case "error":
+      case "failed":
         return statuses.error;
-      case "success":
+      case "complete":
         return statuses.normal;
       default:
         return statuses.pending;
@@ -41,16 +41,16 @@ const FirmwareUpdateStatusWidget = ({
       className={clsx({
         "hover:cursor-progress": loading,
       })}
-      variant={updateStatus?.status === "installed" ? buttonVariants.primary : undefined}
+      variant={updateStatus?.status === "rebootRequired" ? buttonVariants.primary : undefined}
     >
       {installing ? (
         <div className="flex items-center gap-2 text-xs">
           <div className="flex items-center">
             <ProgressCircular indeterminate dataTestId="miner-status-spinner" size={12} />
           </div>
-          {updateStatus?.progress != null ? <>{updateStatus.progress}%</> : null}
+          {updateStatus?.progressPercent != null ? <>{updateStatus.progressPercent}%</> : null}
         </div>
-      ) : updateStatus?.status !== "installed" ? (
+      ) : updateStatus?.status !== "rebootRequired" ? (
         <div className="flex items-center">
           <StatusCircle removeMargin={true} status={status} variant={variants.simple} width={"w-2"} />
         </div>

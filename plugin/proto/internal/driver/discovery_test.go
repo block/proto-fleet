@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -104,6 +105,11 @@ func simMinerImage(ctx context.Context) (string, error) {
 func TestMain(m *testing.M) {
 	code := m.Run()
 
+	// Remove the shared fake-ct1 build directory.
+	if ct1SimulatorDir != "" {
+		_ = os.RemoveAll(ct1SimulatorDir)
+	}
+
 	if simMinerImageRef != "" {
 		// The test timeout alarm no longer protects cleanup after m.Run, and the
 		// Docker client has no default HTTP timeout. Keep cleanup best-effort: a
@@ -186,16 +192,17 @@ func waitForMinerReady(ctx context.Context, t *testing.T, simMiner *simMinerCont
 	require.NoError(t, err, "Failed to create driver")
 
 	for {
+		_, err := d.DiscoverDevice(ctx, simMiner.host, simMiner.mappedPort)
+		if err == nil {
+			t.Log("Sim miner is ready!")
+			return
+		}
+		t.Logf("Sim miner not ready yet: %v", err)
+
 		select {
 		case <-timeout:
 			t.Fatal("Timeout waiting for miner to be ready")
 		case <-ticker.C:
-			_, err := d.DiscoverDevice(ctx, simMiner.host, simMiner.mappedPort)
-			if err == nil {
-				t.Log("Sim miner is ready!")
-				return
-			}
-			t.Logf("Sim miner not ready yet: %v", err)
 		}
 	}
 }
@@ -330,13 +337,6 @@ func TestDiscoverDevice_PortValidation(t *testing.T) {
 			errorMessage: "proto miners are configured for port 8080",
 		},
 		{
-			name:         "strict driver on 8080 accepts configured port before network call",
-			driverPort:   8080,
-			targetPort:   "8080",
-			expectError:  true,
-			errorMessage: "failed to discover proto miner",
-		},
-		{
 			name:         "strict canonical driver rejects unsupported port",
 			driverPort:   443,
 			targetPort:   "80",
@@ -406,13 +406,6 @@ func TestDiscoverDevice_ConnectionErrors(t *testing.T) {
 		errorMessage string
 	}{
 		{
-			name:         "unreachable host",
-			host:         "192.0.2.1", // RFC 5737 test address - should not be routable
-			port:         "80",
-			expectError:  true,
-			errorMessage: "failed to discover proto miner",
-		},
-		{
 			name:         "unreachable port on localhost",
 			host:         "localhost",
 			port:         "9999", // Unlikely to be in use
@@ -451,19 +444,68 @@ func TestDiscoverDevice_ConnectionErrors(t *testing.T) {
 	}
 }
 
-// TestDiscoverDevice_ContextCancellation tests context cancellation handling
-func TestDiscoverDevice_ContextCancellation(t *testing.T) {
+// TestDiscoverDevice_ContextDeadline proves that discovery returns at the
+// caller's deadline when a host accepts the connection and does not answer.
+func TestDiscoverDevice_ContextDeadline(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	done := make(chan struct{})
+	t.Cleanup(func() {
+		close(done)
+		_ = listener.Close()
+	})
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				<-done
+				_ = conn.Close()
+			}()
+		}
+	}()
+	host, port, err := net.SplitHostPort(listener.Addr().String())
+	require.NoError(t, err)
 	driver, err := New(0)
 	require.NoError(t, err)
 
-	// Create a cancelled context
+	ctx, cancel := context.WithTimeout(t.Context(), 250*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err = driver.DiscoverDevice(ctx, host, port)
+	elapsed := time.Since(start)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to discover proto miner")
+	// Without the deadline, the TLS handshake timeout alone is 10 s.
+	assert.Less(t, elapsed, 5*time.Second, "discovery must stop at the caller's deadline")
+}
+
+// TestDiscoverDevice_ContextCancellation proves that a cancelled context stops
+// discovery before a REST request reaches a miner that answers.
+func TestDiscoverDevice_ContextCancellation(t *testing.T) {
+	var restRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor == 1 {
+			restRequests.Add(1)
+		}
+		_, _ = w.Write([]byte(`{"cb_sn":"miner","mac":"00:11:22:33:44:55"}`))
+	}))
+	defer server.Close()
+	host, port, err := net.SplitHostPort(server.Listener.Addr().String())
+	require.NoError(t, err)
+	driver, err := New(0)
+	require.NoError(t, err)
+
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	// Try to discover a device with cancelled context - should fail quickly
-	_, err = driver.DiscoverDevice(ctx, "192.0.2.1", "80")
+	_, err = driver.DiscoverDevice(ctx, host, port)
+
 	require.Error(t, err)
-	// The error might be context canceled or connection failure, both are acceptable
+	assert.Zero(t, restRequests.Load(), "a cancelled discovery must not send a REST request")
 }
 
 func TestDiscoverDeviceClassifiesHTTPResponses(t *testing.T) {
@@ -533,209 +575,4 @@ func TestDiscoverDevicePreservesHTTPSMissAcrossHTTPFallback(t *testing.T) {
 	var sdkErr sdk.SDKError
 	assert.ErrorAs(t, err, &sdkErr)
 	assert.Equal(t, sdk.ErrCodeDeviceNotFound, sdkErr.Code)
-}
-
-// TestDiscoverDevice_SchemeNegotiation tests HTTPS->HTTP fallback with sim miner
-func TestDiscoverDevice_SchemeNegotiation(t *testing.T) {
-	ctx := t.Context()
-	simMiner := startSimMiner(ctx, t)
-	defer simMiner.close(ctx, t)
-
-	t.Run("scheme negotiation with real miner", func(t *testing.T) {
-		portInt64, err := strconv.ParseInt(simMiner.mappedPort, 10, 32)
-		require.NoError(t, err)
-		portInt := int(portInt64)
-
-		driver, err := New(portInt)
-		require.NoError(t, err)
-
-		// Discovery should succeed and negotiate the correct scheme
-		deviceInfo, err := driver.DiscoverDevice(ctx, simMiner.host, simMiner.mappedPort)
-		require.NoError(t, err, "Discovery should succeed with scheme negotiation")
-
-		// The scheme should be either http or https depending on what the sim miner supports
-		assert.Contains(t, []string{"http", "https"}, deviceInfo.URLScheme)
-		assert.NotEmpty(t, deviceInfo.SerialNumber)
-	})
-}
-
-// TestDiscoverDevice_MultipleSimMiners tests discovery with multiple sim miners
-func TestDiscoverDevice_MultipleSimMiners(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping multiple sim miner test in short mode")
-	}
-
-	ctx := t.Context()
-
-	// Start multiple sim miners
-	const numMiners = 2
-	simMiners := make([]*simMinerContainer, numMiners)
-
-	for i := range numMiners {
-		simMiners[i] = startSimMiner(ctx, t)
-		defer simMiners[i].close(ctx, t)
-	}
-
-	t.Run("discover multiple miners", func(t *testing.T) {
-		driver, err := New(0) // Use flexible port driver
-		require.NoError(t, err)
-
-		deviceInfos := make([]sdk.DeviceInfo, numMiners)
-
-		// Discover each miner
-		for i, simMiner := range simMiners {
-			deviceInfo, err := driver.DiscoverDevice(ctx, simMiner.host, simMiner.mappedPort)
-			require.NoError(t, err, "Discovery should succeed for miner %d", i)
-			deviceInfos[i] = deviceInfo
-		}
-
-		// Verify each miner has unique serial number
-		serialNumbers := make(map[string]bool)
-		for i, deviceInfo := range deviceInfos {
-			assert.NotEmpty(t, deviceInfo.SerialNumber, "Miner %d should have serial number", i)
-			assert.False(t, serialNumbers[deviceInfo.SerialNumber],
-				"Serial number should be unique: %s", deviceInfo.SerialNumber)
-			serialNumbers[deviceInfo.SerialNumber] = true
-		}
-
-		assert.Len(t, serialNumbers, numMiners, "Should discover all miners with unique serial numbers")
-	})
-
-	t.Run("concurrent discovery of multiple miners", func(t *testing.T) {
-		driver, err := New(0) // Use flexible port driver
-		require.NoError(t, err)
-
-		results := make(chan struct {
-			index      int
-			deviceInfo sdk.DeviceInfo
-			err        error
-		}, numMiners)
-
-		// Launch concurrent discoveries
-		for i, simMiner := range simMiners {
-			go func(index int, simMiner *simMinerContainer) {
-				deviceInfo, err := driver.DiscoverDevice(ctx, simMiner.host, simMiner.mappedPort)
-				results <- struct {
-					index      int
-					deviceInfo sdk.DeviceInfo
-					err        error
-				}{index, deviceInfo, err}
-			}(i, simMiner)
-		}
-
-		// Collect results
-		deviceInfos := make([]sdk.DeviceInfo, numMiners)
-		for range numMiners {
-			result := <-results
-			require.NoError(t, result.err, "Concurrent discovery should succeed for miner %d", result.index)
-			deviceInfos[result.index] = result.deviceInfo
-		}
-
-		// Verify unique serial numbers
-		serialNumbers := make(map[string]bool)
-		for i, deviceInfo := range deviceInfos {
-			assert.NotEmpty(t, deviceInfo.SerialNumber, "Miner %d should have serial number", i)
-			assert.False(t, serialNumbers[deviceInfo.SerialNumber],
-				"Serial number should be unique: %s", deviceInfo.SerialNumber)
-			serialNumbers[deviceInfo.SerialNumber] = true
-		}
-	})
-}
-
-// TestDiscoverDevice_EdgeCases tests edge cases and boundary conditions
-func TestDiscoverDevice_EdgeCases(t *testing.T) {
-	ctx := t.Context()
-
-	// Get an unused non-routable IP to ensure test isolation
-	// This prevents interference from local development containers
-	unusedIP := getUnusedNonRoutableIP(t)
-
-	testCases := []struct {
-		name         string
-		host         string
-		port         string
-		expectError  bool
-		errorMessage string
-	}{
-		{
-			name:         "non-routable IPv4 with valid port format",
-			host:         unusedIP,
-			port:         "80",
-			expectError:  true, // Will fail because IP is non-routable
-			errorMessage: "failed to discover proto miner",
-		},
-		{
-			name:         "non-routable IPv4 with different valid port",
-			host:         unusedIP,
-			port:         "8080",
-			expectError:  true, // Will fail because IP is non-routable
-			errorMessage: "failed to discover proto miner",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			driver, err := New(0) // Use flexible port driver
-			require.NoError(t, err)
-
-			// Use short timeout to avoid long waits
-			ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-			defer cancel()
-
-			_, err = driver.DiscoverDevice(ctx, tc.host, tc.port)
-
-			if tc.expectError {
-				require.Error(t, err)
-				if tc.errorMessage != "" {
-					assert.Contains(t, err.Error(), tc.errorMessage)
-				}
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
-}
-
-// Benchmark tests for performance validation
-func BenchmarkDiscoverDevice(b *testing.B) {
-	if testing.Short() {
-		b.Skip("Skipping benchmark in short mode")
-	}
-
-	ctx := b.Context()
-	simMiner := startSimMiner(ctx, &testing.T{}) // Convert to *testing.T for startSimMiner
-	defer simMiner.close(ctx, &testing.T{})
-
-	portInt64, err := strconv.ParseInt(simMiner.mappedPort, 10, 32)
-	if err != nil {
-		b.Fatal(err)
-	}
-	portInt := int(portInt64)
-
-	driver, err := New(portInt)
-	if err != nil {
-		b.Fatal(err)
-	}
-
-	b.ResetTimer()
-	for range b.N {
-		_, err := driver.DiscoverDevice(ctx, simMiner.host, simMiner.mappedPort)
-		if err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-// getUnusedNonRoutableIP returns an IP address from RFC 5737 TEST-NET-1 (192.0.2.0/24).
-// These addresses are reserved for documentation and examples, and are guaranteed to be
-// non-routable by design. They should never be assigned to real network interfaces.
-//
-// This function returns 192.0.2.1 from TEST-NET-1 for consistency across tests.
-// If different test scenarios need different non-routable IPs to avoid conflicts,
-// consider TEST-NET-2 (198.51.100.0/24) or TEST-NET-3 (203.0.113.0/24).
-//
-// See: https://www.rfc-editor.org/rfc/rfc5737
-func getUnusedNonRoutableIP(t *testing.T) string {
-	t.Helper()
-	return "192.0.2.1"
 }

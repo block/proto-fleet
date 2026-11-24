@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 
+import { resetCurtailmentProfileSession } from "@/protoFleet/api/curtailmentProfileSession";
+import type { ResponseProfile, ResponseProfileFormValues } from "@/protoFleet/api/curtailmentTypes";
 import {
   CurtailmentLevel,
   CurtailmentMode,
@@ -20,13 +22,7 @@ import {
   ScopeSiteSchema,
   ScopeWholeOrgSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
-import useCurtailmentResponseProfiles, {
-  clearCurtailmentResponseProfileSessionCacheForTest,
-} from "@/protoFleet/api/useCurtailmentResponseProfiles";
-import type {
-  ResponseProfile,
-  ResponseProfileFormValues,
-} from "@/protoFleet/features/settings/components/Curtailment/types";
+import useCurtailmentResponseProfiles from "@/protoFleet/api/useCurtailmentResponseProfiles";
 
 const {
   mockCreateCurtailmentResponseProfile,
@@ -132,7 +128,7 @@ describe("useCurtailmentResponseProfiles", () => {
     mockHandleAuthErrors.mockReset();
     mockListCurtailmentResponseProfiles.mockReset();
     mockUpdateCurtailmentResponseProfile.mockReset();
-    clearCurtailmentResponseProfileSessionCacheForTest();
+    resetCurtailmentProfileSession();
   });
 
   it("lists and maps response profiles for the settings cards", async () => {
@@ -150,9 +146,9 @@ describe("useCurtailmentResponseProfiles", () => {
       targetSummary: "2,000 kW target",
       scope: "Site 101",
       restoreBehavior: "Restore immediately",
-      deadlineSummary: "Within 15 min",
       formValues: {
         ...fixedKwFormValues,
+        responseDeadlineMinutes: "",
         scopeType: "site",
         facilityFanDeviceIds: ["31", "32"],
         fanOffDelaySec: "45",
@@ -383,6 +379,32 @@ describe("useCurtailmentResponseProfiles", () => {
     expect(mockUpdateCurtailmentResponseProfile).toHaveBeenLastCalledWith(
       expect.objectContaining({ expectedRevision: latestRevision }),
     );
+  });
+
+  it("refreshes binding metadata and explains an edit blocked by newly enabled automation rules", async () => {
+    mockListCurtailmentResponseProfiles.mockResolvedValue({
+      profiles: [wholeOrgApiProfile({ enabledAutomationRuleCount: 2, automationBindingStatus: "enabled" })],
+    });
+    mockUpdateCurtailmentResponseProfile.mockRejectedValueOnce(
+      new ConnectError(
+        "curtailment response profile is bound to enabled automation rules; disable those rules before editing",
+        Code.FailedPrecondition,
+      ),
+    );
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+    await act(async () => {
+      await result.current.listResponseProfiles();
+    });
+    await expect(
+      act(async () => {
+        await result.current.updateResponseProfile("7", fixedKwFormValues);
+      }),
+    ).rejects.toThrow("Disable the automation rules using this profile before editing it.");
+    expect(result.current.responseProfiles[0]).toMatchObject({
+      enabledAutomationRuleCount: 2,
+      automationBindingStatus: "enabled",
+    });
+    expect(mockListCurtailmentResponseProfiles).toHaveBeenCalledTimes(2);
   });
 
   it("does not treat other failed preconditions as revision conflicts", async () => {
@@ -616,22 +638,29 @@ describe("useCurtailmentResponseProfiles", () => {
     );
   });
 
-  it("rejects batch restore profiles without a positive restore batch size", async () => {
-    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
-
-    await expect(
-      act(async () => {
+  it.each(["", "0"])(
+    "allows restore batch size %j with an interval using the safety limit",
+    async (restoreBatchSize) => {
+      mockCreateCurtailmentResponseProfile.mockResolvedValueOnce({
+        profile: apiProfile({ restoreBatchIntervalSec: 60 }),
+      });
+      const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+      await act(async () => {
         await result.current.createResponseProfile({
           ...fixedKwFormValues,
           restoreBehavior: "automaticBatchRestore",
-          restoreBatchSize: "",
-          restoreIntervalSec: "",
+          restoreBatchSize,
+          restoreIntervalSec: "60",
         });
-      }),
-    ).rejects.toThrow("Enter restore batch size greater than 0 for batch restore.");
-
-    expect(mockCreateCurtailmentResponseProfile).not.toHaveBeenCalled();
-  });
+      });
+      expect(mockCreateCurtailmentResponseProfile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          restoreBatchSize: 0,
+          restoreBatchIntervalSec: 60,
+        }),
+      );
+    },
+  );
 
   it("preserves site in the CRUD payload when site values are present", async () => {
     mockCreateCurtailmentResponseProfile.mockResolvedValueOnce({ profile: apiProfile() });

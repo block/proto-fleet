@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { ProtoOSStatusModal as StatusModal } from "@/protoOS/components/StatusModal";
 import Card from "@/protoOS/features/diagnostic/components/Card";
-import CardHeader from "@/protoOS/features/diagnostic/components/CardHeader";
 import { useErrorsByComponent, useMinerFan } from "@/protoOS/store";
 import { Alert, FanIndicatorV2 as FanIndicator } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import FanValue from "@/shared/components/FanValue";
+import HardwareCardHeader from "@/shared/components/HardwareCardHeader";
 
 interface FanStatusCardProps {
   slot: number;
@@ -18,7 +18,7 @@ function FanStatusCard({ slot }: FanStatusCardProps) {
 
   // Compute display values
   const rpm = fanData?.rpm?.latest?.value ?? 0;
-  const pwm = fanData?.percentage?.latest?.value ?? 0;
+  const pwm = fanData?.speedPercent?.latest?.value ?? 0;
   const position = fanData?.slot ?? slot;
   const name = `Fan ${position}`;
 
@@ -27,7 +27,7 @@ function FanStatusCard({ slot }: FanStatusCardProps) {
 
   return (
     <Card>
-      <CardHeader
+      <HardwareCardHeader
         title={name}
         statusIcon={hasErrors ? <Alert className="text-intent-critical-fill" width={iconSizes.small} /> : null}
         componentIcon={<FanIndicator position={position} />}

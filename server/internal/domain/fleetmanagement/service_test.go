@@ -16,9 +16,11 @@ import (
 	"go.uber.org/mock/gomock"
 
 	capabilitiespb "github.com/block/proto-fleet/server/generated/grpc/capabilities/v1"
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	commonv1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	errorsv1 "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
@@ -27,6 +29,7 @@ import (
 	diagnosticsmodels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
@@ -131,8 +134,8 @@ func TestService_ListMinerStateSnapshots_ShouldReturnAllDevices(t *testing.T) {
 	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
 
 	// Create 2 unpaired devices
-	for i := 1; i <= 2; i++ {
-		deviceIdentifier := fmt.Sprintf("unpaired-device-%d", i)
+	for i, deviceClass := range []commonpb.DeviceClass{commonpb.DeviceClass_DEVICE_CLASS_RIG, commonpb.DeviceClass_DEVICE_CLASS_CONTAINER} {
+		deviceIdentifier := fmt.Sprintf("unpaired-device-%d", i+1)
 		doi := discoverymodels.DeviceOrgIdentifier{
 			DeviceIdentifier: deviceIdentifier,
 			OrgID:            testUser.OrganizationID,
@@ -141,6 +144,7 @@ func TestService_ListMinerStateSnapshots_ShouldReturnAllDevices(t *testing.T) {
 			Device: pairingpb.Device{
 				DeviceIdentifier: deviceIdentifier,
 				Model:            "S19 Pro",
+				DeviceClass:      deviceClass,
 				Manufacturer:     "Bitmain",
 				DriverName:       "ANTMINER",
 				IpAddress:        fmt.Sprintf("192.168.1.%d", 100+i),
@@ -171,8 +175,14 @@ func TestService_ListMinerStateSnapshots_ShouldReturnAllDevices(t *testing.T) {
 	// Assert
 	require.NoError(t, err)
 	require.NotNil(t, resp)
-	assert.Len(t, resp.Miners, 4, "Should return both paired and unpaired devices")
-	assert.Equal(t, int32(4), resp.TotalMiners)
+	assert.Len(t, resp.Miners, 3, "Should return paired and unpaired miners, excluding containers")
+	assert.Equal(t, int32(3), resp.TotalMiners)
+	classes := map[string]commonpb.DeviceClass{}
+	for _, miner := range resp.Miners {
+		classes[miner.DeviceIdentifier] = miner.DeviceClass
+	}
+	assert.Equal(t, commonpb.DeviceClass_DEVICE_CLASS_RIG, classes["unpaired-device-1"])
+	assert.NotContains(t, classes, "unpaired-device-2")
 	assert.Empty(t, resp.Cursor) // No more pages
 }
 
@@ -193,11 +203,10 @@ func TestService_RefreshMiners_ShouldReturnErrorWithoutSnapshotWhenRefreshTimesO
 		deadlineRefreshTelemetryCollector{},
 		testContext.ServiceProvider.MinerService,
 		testContext.ServiceProvider.PluginService,
-		sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService),
 		sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, transactor),
 		sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB),
 		sqlstores.NewSQLBuildingStore(testContext.ServiceProvider.DB),
-		testContext.ServiceProvider.CommandService,
+		nil,
 		activity.NewService(sqlstores.NewSQLActivityStore(testContext.ServiceProvider.DB)),
 	)
 
@@ -228,11 +237,10 @@ func TestService_RefreshMiners_ShouldTrimDeviceIDs(t *testing.T) {
 		collector,
 		testContext.ServiceProvider.MinerService,
 		testContext.ServiceProvider.PluginService,
-		sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService),
 		sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, transactor),
 		sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB),
 		sqlstores.NewSQLBuildingStore(testContext.ServiceProvider.DB),
-		testContext.ServiceProvider.CommandService,
+		nil,
 		activity.NewService(sqlstores.NewSQLActivityStore(testContext.ServiceProvider.DB)),
 	)
 
@@ -273,8 +281,7 @@ func TestService_RefreshMiners_ShouldRejectWhitespaceOnlyDeviceID(t *testing.T) 
 	service := fleetmanagement.NewService(
 		nil,
 		nil,
-		fleetmanagement.NewMockTelemetryCollector(),
-		nil,
+		testutil.NewMockTelemetryCollector(),
 		nil,
 		nil,
 		nil,
@@ -295,7 +302,7 @@ func TestService_RefreshMiners_ShouldRejectWhitespaceOnlyDeviceID(t *testing.T) 
 
 func TestService_LookupMinerByIdentifier_ShouldRejectEmptyIdentifier(t *testing.T) {
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, 1)
-	service := fleetmanagement.NewService(nil, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+	service := fleetmanagement.NewService(nil, nil, testutil.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
 
 	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{Identifier: ""})
 
@@ -306,7 +313,7 @@ func TestService_LookupMinerByIdentifier_ShouldRejectEmptyIdentifier(t *testing.
 
 func TestService_LookupMinerByIdentifier_ShouldRejectWhitespaceOnlyIdentifier(t *testing.T) {
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, 1)
-	service := fleetmanagement.NewService(nil, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+	service := fleetmanagement.NewService(nil, nil, testutil.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
 
 	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{Identifier: "   "})
 
@@ -328,7 +335,7 @@ func TestService_LookupMinerByIdentifier_ShouldPropagateStoreNotFound(t *testing
 		GetPairedDeviceBySerialNumber(gomock.Any(), serial, orgID).
 		Return(nil, fleeterror.NewNotFoundErrorf("no paired device found with serial_number=%s org_id=%d", serial, orgID))
 
-	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+	service := fleetmanagement.NewService(deviceStore, nil, testutil.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
 	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
@@ -365,7 +372,7 @@ func TestService_LookupMinerByIdentifier_ShouldTrimIdentifierBeforeLookup(t *tes
 			}}, "", int64(1), nil
 		})
 
-	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+	service := fleetmanagement.NewService(deviceStore, nil, testutil.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
 	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
@@ -399,7 +406,7 @@ func TestService_LookupMinerByIdentifier_ShouldLookupByMACWhenTypeIsMAC(t *testi
 			PairingStatus:    "UNPAIRED",
 		}}, "", int64(1), nil)
 
-	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+	service := fleetmanagement.NewService(deviceStore, nil, testutil.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
 	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
@@ -432,7 +439,7 @@ func TestService_LookupMinerByIdentifier_ShouldInferMACWhenTypeUnspecified(t *te
 			PairingStatus:    "UNPAIRED",
 		}}, "", int64(1), nil)
 
-	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+	service := fleetmanagement.NewService(deviceStore, nil, testutil.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
 	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
@@ -464,7 +471,7 @@ func TestService_LookupMinerByIdentifier_ShouldInferSerialWhenTypeUnspecified(t 
 			PairingStatus:    "UNPAIRED",
 		}}, "", int64(1), nil)
 
-	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil, nil)
+	service := fleetmanagement.NewService(deviceStore, nil, testutil.NewMockTelemetryCollector(), nil, nil, nil, nil, nil, nil, nil)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
 	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
@@ -508,7 +515,7 @@ func TestService_LookupMinerByIdentifier_ShouldReturnHydratedSnapshot(t *testing
 		GetRackDetailsForDevices(gomock.Any(), orgID, []string{deviceID}).
 		Return(map[string]interfaces.DeviceRackDetails{}, nil)
 
-	service := fleetmanagement.NewService(deviceStore, nil, fleetmanagement.NewMockTelemetryCollector(), nil, nil, nil, nil, collectionStore, nil, nil, nil)
+	service := fleetmanagement.NewService(deviceStore, nil, testutil.NewMockTelemetryCollector(), nil, nil, nil, collectionStore, nil, nil, nil)
 
 	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
 	resp, err := service.LookupMinerByIdentifier(ctx, &pb.LookupMinerByIdentifierRequest{
@@ -545,11 +552,10 @@ func TestService_RefreshMiners_ShouldRefreshFleetNodeOwnedMiner(t *testing.T) {
 		collector,
 		testContext.ServiceProvider.MinerService,
 		testContext.ServiceProvider.PluginService,
-		sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService),
 		sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, transactor),
 		sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB),
 		sqlstores.NewSQLBuildingStore(testContext.ServiceProvider.DB),
-		testContext.ServiceProvider.CommandService,
+		nil,
 		activity.NewService(sqlstores.NewSQLActivityStore(testContext.ServiceProvider.DB)),
 	)
 
@@ -581,7 +587,6 @@ func TestService_RefreshMiners_ShouldReturnSanitizedRefreshFailure(t *testing.T)
 		deviceStore,
 		nil,
 		failingRefreshTelemetryCollector{err: errors.New("secret database host: db.internal")},
-		nil,
 		nil,
 		nil,
 		nil,
@@ -643,8 +648,7 @@ func TestService_RefreshMinerResourceContexts_ShouldResolveHiddenDeviceSites(t *
 	service := fleetmanagement.NewService(
 		deviceStore,
 		nil,
-		fleetmanagement.NewMockTelemetryCollector(),
-		nil,
+		testutil.NewMockTelemetryCollector(),
 		nil,
 		nil,
 		nil,
@@ -705,43 +709,43 @@ func TestService_ListMinerStateSnapshots_ShouldFilterByPairingStatus(t *testing.
 		},
 	}
 
+	// Arrange
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	// Create unpaired devices
+	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
+	for i := 1; i <= 3; i++ {
+		deviceIdentifier := fmt.Sprintf("unpaired-device-%d", i)
+		doi := discoverymodels.DeviceOrgIdentifier{
+			DeviceIdentifier: deviceIdentifier,
+			OrgID:            testUser.OrganizationID,
+		}
+		device := &discoverymodels.DiscoveredDevice{
+			Device: pairingpb.Device{
+				DeviceIdentifier: deviceIdentifier,
+				Model:            "S19 Pro",
+				Manufacturer:     "Bitmain",
+				DriverName:       "ANTMINER",
+				IpAddress:        fmt.Sprintf("192.168.1.%d", 100+i),
+				Port:             "4028",
+				UrlScheme:        "http",
+			},
+			IsActive: true,
+			OrgID:    testUser.OrganizationID,
+		}
+		_, err := discoveredDeviceStore.Save(t.Context(), doi, device)
+		require.NoError(t, err)
+	}
+
+	// Create paired devices
+	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:80")
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Arrange
-			testContext := testutil.InitializeDBServiceInfrastructure(t)
-			testUser := testContext.DatabaseService.CreateSuperAdminUser()
-
-			// Create unpaired devices
-			discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
-			for i := 1; i <= 3; i++ {
-				deviceIdentifier := fmt.Sprintf("unpaired-device-%d", i)
-				doi := discoverymodels.DeviceOrgIdentifier{
-					DeviceIdentifier: deviceIdentifier,
-					OrgID:            testUser.OrganizationID,
-				}
-				device := &discoverymodels.DiscoveredDevice{
-					Device: pairingpb.Device{
-						DeviceIdentifier: deviceIdentifier,
-						Model:            "S19 Pro",
-						Manufacturer:     "Bitmain",
-						DriverName:       "ANTMINER",
-						IpAddress:        fmt.Sprintf("192.168.1.%d", 100+i),
-						Port:             "4028",
-						UrlScheme:        "http",
-					},
-					IsActive: true,
-					OrgID:    testUser.OrganizationID,
-				}
-				_, err := discoveredDeviceStore.Save(t.Context(), doi, device)
-				require.NoError(t, err)
-			}
-
-			// Create paired devices
-			testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:80")
-
-			ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
-			service := testContext.ServiceProvider.FleetManagementService
-
 			req := &pb.ListMinerStateSnapshotsRequest{
 				PageSize: 10,
 				Filter: &pb.MinerListFilter{
@@ -905,66 +909,6 @@ func TestService_ListMinerStateSnapshots_ShouldSupportPagination(t *testing.T) {
 	assert.NotEqual(t, resp.Miners[0].DeviceIdentifier, resp2.Miners[0].DeviceIdentifier)
 }
 
-func TestService_ListMinerStateSnapshots_ShouldUseDefaultPageSize(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping test in short mode")
-	}
-
-	// Arrange
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	testUser := testContext.DatabaseService.CreateSuperAdminUser()
-
-	// Create 3 devices
-	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 3, "https://172.17.0.1:80")
-
-	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
-	service := testContext.ServiceProvider.FleetManagementService
-
-	// Request with page size of 0 (should use default of 50)
-	req := &pb.ListMinerStateSnapshotsRequest{
-		PageSize: 0,
-	}
-
-	// Act
-	resp, err := service.ListMinerStateSnapshots(ctx, req)
-
-	// Assert
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-	assert.Len(t, resp.Miners, 3, "Should return all 3 devices")
-	assert.Empty(t, resp.Cursor, "Should not have a cursor (all fit in default page size)")
-}
-
-func TestService_ListMinerStateSnapshots_ShouldCapMaxPageSize(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping test in short mode")
-	}
-
-	// Arrange
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	testUser := testContext.DatabaseService.CreateSuperAdminUser()
-
-	// Create 2 devices
-	testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:80")
-
-	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
-	service := testContext.ServiceProvider.FleetManagementService
-
-	// Request with very large page size (should be capped to max of 1000)
-	req := &pb.ListMinerStateSnapshotsRequest{
-		PageSize: 5000,
-	}
-
-	// Act
-	resp, err := service.ListMinerStateSnapshots(ctx, req)
-
-	// Assert
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-	// Should successfully return results (not fail due to large page size)
-	assert.Len(t, resp.Miners, 2)
-}
-
 func TestService_ListMinerStateSnapshots_ShouldReturnEmptyForNoDevices(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping test in short mode")
@@ -1063,122 +1007,129 @@ func TestService_ListMinerStateSnapshots_ShouldFilterByErrorComponentTypes(t *te
 		name                string
 		errorComponentTypes []errorsv1.ComponentType
 		expectedCount       int
+		expectedDevices     []int
 		expectedDescription string
 	}{
 		{
 			name:                "Filter for PSU errors only",
 			errorComponentTypes: []errorsv1.ComponentType{errorsv1.ComponentType_COMPONENT_TYPE_PSU},
 			expectedCount:       1,
+			expectedDevices:     []int{0},
 			expectedDescription: "Should return only devices with PSU errors",
 		},
 		{
 			name:                "Filter for FAN errors only",
 			errorComponentTypes: []errorsv1.ComponentType{errorsv1.ComponentType_COMPONENT_TYPE_FAN},
 			expectedCount:       1,
+			expectedDevices:     []int{1},
 			expectedDescription: "Should return only devices with FAN errors",
 		},
 		{
 			name:                "Filter for HASH_BOARD errors only",
 			errorComponentTypes: []errorsv1.ComponentType{errorsv1.ComponentType_COMPONENT_TYPE_HASH_BOARD},
 			expectedCount:       1,
+			expectedDevices:     []int{2},
 			expectedDescription: "Should return only devices with HASH_BOARD errors",
 		},
 		{
 			name:                "Filter for multiple component types (PSU and FAN)",
 			errorComponentTypes: []errorsv1.ComponentType{errorsv1.ComponentType_COMPONENT_TYPE_PSU, errorsv1.ComponentType_COMPONENT_TYPE_FAN},
 			expectedCount:       2,
+			expectedDevices:     []int{0, 1},
 			expectedDescription: "Should return devices with PSU or FAN errors",
 		},
 		{
 			name:                "Filter for CONTROL_BOARD errors (no matching devices)",
 			errorComponentTypes: []errorsv1.ComponentType{errorsv1.ComponentType_COMPONENT_TYPE_CONTROL_BOARD},
 			expectedCount:       0,
+			expectedDevices:     []int{},
 			expectedDescription: "Should return no devices when no errors match",
 		},
 		{
 			name:                "Empty filter",
 			errorComponentTypes: []errorsv1.ComponentType{},
 			expectedCount:       4,
+			expectedDevices:     []int{0, 1, 2, 3},
 			expectedDescription: "Should return all devices when no filter specified",
 		},
 	}
 
+	// Arrange
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+
+	// Create 4 miners: 1 with PSU error, 1 with FAN error, 1 with HASH_BOARD error, 1 with no errors
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 4, "https://172.17.0.1:80")
+
+	// Create error store
+	transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
+	errorStore := sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, transactor)
+	ctx := t.Context()
+
+	// Helper function to create component ID
+	makeComponentID := func(deviceIdx int, componentType string, componentIdx int) string {
+		return fmt.Sprintf("%d_%s_%d", deviceIdx, componentType, componentIdx)
+	}
+
+	// Create PSU error for device 0
+	psuComponentID := makeComponentID(0, "psu", 0)
+	err := errorStore.UpsertErrors(ctx, testUser.OrganizationID, deviceIDs[0], []diagnosticsmodels.ErrorMessage{{
+		MinerError:        diagnosticsmodels.PSUFaultGeneric,
+		Severity:          diagnosticsmodels.SeverityMajor,
+		Summary:           "PSU fault detected",
+		Impact:            "Reduced power efficiency",
+		CauseSummary:      "Power supply unit malfunction",
+		RecommendedAction: "Check PSU connections",
+		FirstSeenAt:       time.Now().Add(-time.Hour),
+		LastSeenAt:        time.Now(),
+		DeviceID:          deviceIDs[0],
+		ComponentID:       &psuComponentID,
+		ComponentType:     diagnosticsmodels.ComponentTypePSU,
+	}}, time.Now(), time.Minute)
+	require.NoError(t, err)
+
+	// Create FAN error for device 1
+	fanComponentID := makeComponentID(1, "fan", 0)
+	err = errorStore.UpsertErrors(ctx, testUser.OrganizationID, deviceIDs[1], []diagnosticsmodels.ErrorMessage{{
+		MinerError:        diagnosticsmodels.FanFailed,
+		Severity:          diagnosticsmodels.SeverityMajor,
+		Summary:           "Fan failure detected",
+		Impact:            "Increased temperature risk",
+		CauseSummary:      "Fan motor failure",
+		RecommendedAction: "Replace faulty fan",
+		FirstSeenAt:       time.Now().Add(-time.Hour),
+		LastSeenAt:        time.Now(),
+		DeviceID:          deviceIDs[1],
+		ComponentID:       &fanComponentID,
+		ComponentType:     diagnosticsmodels.ComponentTypeFans,
+	}}, time.Now(), time.Minute)
+	require.NoError(t, err)
+
+	// Create HASH_BOARD error for device 2
+	hashboardComponentID := makeComponentID(2, "hashboard", 0)
+	err = errorStore.UpsertErrors(ctx, testUser.OrganizationID, deviceIDs[2], []diagnosticsmodels.ErrorMessage{{
+		MinerError:        diagnosticsmodels.HashboardOverTemperature,
+		Severity:          diagnosticsmodels.SeverityCritical,
+		Summary:           "Hashboard over temperature",
+		Impact:            "Reduced hashrate",
+		CauseSummary:      "Cooling system inadequate",
+		RecommendedAction: "Improve cooling",
+		FirstSeenAt:       time.Now().Add(-time.Hour),
+		LastSeenAt:        time.Now(),
+		DeviceID:          deviceIDs[2],
+		ComponentID:       &hashboardComponentID,
+		ComponentType:     diagnosticsmodels.ComponentTypeHashBoards,
+	}}, time.Now(), time.Minute)
+	require.NoError(t, err)
+
+	// Device 3 has no errors
+
+	// Create auth context and service
+	authCtx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	service := testContext.ServiceProvider.FleetManagementService
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Arrange
-			testContext := testutil.InitializeDBServiceInfrastructure(t)
-			testUser := testContext.DatabaseService.CreateSuperAdminUser()
-
-			// Create 4 miners: 1 with PSU error, 1 with FAN error, 1 with HASH_BOARD error, 1 with no errors
-			deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 4, "https://172.17.0.1:80")
-
-			// Create error store
-			transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
-			errorStore := sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, transactor)
-			ctx := t.Context()
-
-			// Helper function to create component ID
-			makeComponentID := func(deviceIdx int, componentType string, componentIdx int) string {
-				return fmt.Sprintf("%d_%s_%d", deviceIdx, componentType, componentIdx)
-			}
-
-			// Create PSU error for device 0
-			psuComponentID := makeComponentID(0, "psu", 0)
-			_, err := errorStore.UpsertError(ctx, testUser.OrganizationID, deviceIDs[0], &diagnosticsmodels.ErrorMessage{
-				MinerError:        diagnosticsmodels.PSUFaultGeneric,
-				Severity:          diagnosticsmodels.SeverityMajor,
-				Summary:           "PSU fault detected",
-				Impact:            "Reduced power efficiency",
-				CauseSummary:      "Power supply unit malfunction",
-				RecommendedAction: "Check PSU connections",
-				FirstSeenAt:       time.Now().Add(-time.Hour),
-				LastSeenAt:        time.Now(),
-				DeviceID:          deviceIDs[0],
-				ComponentID:       &psuComponentID,
-				ComponentType:     diagnosticsmodels.ComponentTypePSU,
-			})
-			require.NoError(t, err)
-
-			// Create FAN error for device 1
-			fanComponentID := makeComponentID(1, "fan", 0)
-			_, err = errorStore.UpsertError(ctx, testUser.OrganizationID, deviceIDs[1], &diagnosticsmodels.ErrorMessage{
-				MinerError:        diagnosticsmodels.FanFailed,
-				Severity:          diagnosticsmodels.SeverityMajor,
-				Summary:           "Fan failure detected",
-				Impact:            "Increased temperature risk",
-				CauseSummary:      "Fan motor failure",
-				RecommendedAction: "Replace faulty fan",
-				FirstSeenAt:       time.Now().Add(-time.Hour),
-				LastSeenAt:        time.Now(),
-				DeviceID:          deviceIDs[1],
-				ComponentID:       &fanComponentID,
-				ComponentType:     diagnosticsmodels.ComponentTypeFans,
-			})
-			require.NoError(t, err)
-
-			// Create HASH_BOARD error for device 2
-			hashboardComponentID := makeComponentID(2, "hashboard", 0)
-			_, err = errorStore.UpsertError(ctx, testUser.OrganizationID, deviceIDs[2], &diagnosticsmodels.ErrorMessage{
-				MinerError:        diagnosticsmodels.HashboardOverTemperature,
-				Severity:          diagnosticsmodels.SeverityCritical,
-				Summary:           "Hashboard over temperature",
-				Impact:            "Reduced hashrate",
-				CauseSummary:      "Cooling system inadequate",
-				RecommendedAction: "Improve cooling",
-				FirstSeenAt:       time.Now().Add(-time.Hour),
-				LastSeenAt:        time.Now(),
-				DeviceID:          deviceIDs[2],
-				ComponentID:       &hashboardComponentID,
-				ComponentType:     diagnosticsmodels.ComponentTypeHashBoards,
-			})
-			require.NoError(t, err)
-
-			// Device 3 has no errors
-
-			// Create auth context and service
-			authCtx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
-			service := testContext.ServiceProvider.FleetManagementService
-
 			// Act
 			req := &pb.ListMinerStateSnapshotsRequest{
 				PageSize: 10,
@@ -1193,14 +1144,16 @@ func TestService_ListMinerStateSnapshots_ShouldFilterByErrorComponentTypes(t *te
 			require.NotNil(t, resp)
 			assert.Len(t, resp.Miners, tc.expectedCount, tc.expectedDescription)
 
-			// Verify the returned miners have the expected errors if filtering was applied
-			if len(tc.errorComponentTypes) > 0 && tc.expectedCount > 0 {
-				for _, miner := range resp.Miners {
-					// The miner should have an error status since it has component errors
-					// Note: The actual error details would be in the error service, not directly in the miner snapshot
-					assert.NotNil(t, miner, "Returned miner should not be nil")
-				}
+			// Each filter must select the miners that have the matching errors.
+			wantIDs := make([]string, 0, len(tc.expectedDevices))
+			for _, deviceIdx := range tc.expectedDevices {
+				wantIDs = append(wantIDs, deviceIDs[deviceIdx])
 			}
+			gotIDs := make([]string, 0, len(resp.Miners))
+			for _, miner := range resp.Miners {
+				gotIDs = append(gotIDs, miner.DeviceIdentifier)
+			}
+			assert.ElementsMatch(t, wantIDs, gotIDs, tc.expectedDescription)
 		})
 	}
 }
@@ -1245,17 +1198,15 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateCapabilitiesForPairedDevi
 
 	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
 	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
-	poolStore := sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService)
 	errorStore := sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB))
 	collectionStore := sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB)
 	activitySvc := activity.NewService(sqlstores.NewSQLActivityStore(testContext.ServiceProvider.DB))
 	service := fleetmanagement.NewService(
 		deviceStore,
 		discoveredDeviceStore,
-		fleetmanagement.NewMockTelemetryCollector(),
+		testutil.NewMockTelemetryCollector(),
 		testContext.ServiceProvider.MinerService,
 		mockCapabilities,
-		poolStore,
 		errorStore,
 		collectionStore,
 		sqlstores.NewSQLBuildingStore(testContext.ServiceProvider.DB),
@@ -1363,17 +1314,15 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateCapabilitiesForUnpairedDe
 
 	// Create service with mock capabilities provider
 	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
-	poolStore := sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService)
 	errorStore := sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB))
 	collectionStore := sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB)
 	activitySvc := activity.NewService(sqlstores.NewSQLActivityStore(testContext.ServiceProvider.DB))
 	service := fleetmanagement.NewService(
 		deviceStore,
 		discoveredDeviceStore,
-		fleetmanagement.NewMockTelemetryCollector(),
+		testutil.NewMockTelemetryCollector(),
 		testContext.ServiceProvider.MinerService,
 		mockCapabilities,
-		poolStore,
 		errorStore,
 		collectionStore,
 		sqlstores.NewSQLBuildingStore(testContext.ServiceProvider.DB),
@@ -1449,17 +1398,15 @@ func TestService_ListMinerStateSnapshots_ShouldCacheCapabilities(t *testing.T) {
 
 	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
 	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
-	poolStore := sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService)
 	errorStore := sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB))
 	collectionStore := sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB)
 	activitySvc := activity.NewService(sqlstores.NewSQLActivityStore(testContext.ServiceProvider.DB))
 	service := fleetmanagement.NewService(
 		deviceStore,
 		discoveredDeviceStore,
-		fleetmanagement.NewMockTelemetryCollector(),
+		testutil.NewMockTelemetryCollector(),
 		testContext.ServiceProvider.MinerService,
 		mockCapabilities,
-		poolStore,
 		errorStore,
 		collectionStore,
 		sqlstores.NewSQLBuildingStore(testContext.ServiceProvider.DB),
@@ -2367,18 +2314,9 @@ func TestService_DeleteMiners_ShouldWaitForPendingUnpairs(t *testing.T) {
 
 	// WaitForPendingUnpairs should return promptly (background Unpair
 	// will fail since there's no real device, but that's expected — best-effort)
-	done := make(chan struct{})
-	go func() {
-		service.WaitForPendingUnpairs(1 * time.Minute)
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		// Expected: completed within timeout
-	case <-time.After(1 * time.Minute):
-		t.Fatal("WaitForPendingUnpairs did not complete within timeout")
-	}
+	drainCtx, cancelDrain := context.WithTimeout(t.Context(), time.Minute)
+	defer cancelDrain()
+	require.NoError(t, service.WaitForPendingUnpairs(drainCtx))
 }
 
 // TestService_RenameMiners_PersistsCustomName verifies that the custom name is stored
@@ -2823,4 +2761,43 @@ func TestService_RenameMiners_EmptySelectorReturnsSuccess(t *testing.T) {
 
 	// Assert — no error when fleet is empty
 	require.NoError(t, err)
+}
+
+func TestService_EmbeddedNodeViewRequiresLiveCompatibleConnection(t *testing.T) {
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	device := testContext.DatabaseService.CreateDevice(user.OrganizationID, "proto")
+	database := testContext.ServiceProvider.DB
+	q := sqlc.New(database)
+	_, err := q.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{DeviceID: device.DatabaseID, PairingStatus: sqlc.PairingStatusEnumPAIRED})
+	require.NoError(t, err)
+	pairMinerToFleetNode(t, database, user.OrganizationID, device.ID)
+	nodes, err := q.ListFleetNodeDevices(t.Context(), sqlc.ListFleetNodeDevicesParams{OrgID: user.OrganizationID})
+	require.NoError(t, err)
+	require.Len(t, nodes, 1)
+	require.Equal(t, device.DatabaseID, nodes[0].DeviceID)
+	nodeID := nodes[0].FleetNodeID
+	rows, err := q.TransferDiscoveredDeviceAttribution(t.Context(), sqlc.TransferDiscoveredDeviceAttributionParams{FleetNodeID: nodeID, DeviceID: device.DatabaseID, OrgID: user.OrganizationID})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, rows)
+	registry := control.NewRegistry()
+	service := testContext.ServiceProvider.FleetManagementService
+	service.WithMinerWebCapability(registry)
+	ctx := testutil.MockAuthContextForTesting(t.Context(), user.DatabaseID, user.OrganizationID)
+	assertAvailable := func(want bool) {
+		response, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{PageSize: 10})
+		require.NoError(t, err)
+		require.Len(t, response.Miners, 1)
+		require.Equal(t, want, response.Miners[0].EmbeddedWebViewAvailable)
+	}
+	assertAvailable(false)
+	legacy, err := registry.RegisterAuthenticated(nodeID, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7)
+	require.NoError(t, err)
+	assertAvailable(false)
+	legacy.Unregister()
+	current, err := registry.RegisterAuthenticated(nodeID, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V8)
+	require.NoError(t, err)
+	assertAvailable(true)
+	current.Unregister()
+	assertAvailable(false)
 }

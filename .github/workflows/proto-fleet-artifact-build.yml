@@ -21,6 +21,11 @@ on:
         required: false
         default: 1
         type: number
+      protoos_retention_days:
+        description: Number of days to retain the ProtoOS artifact. The default (0) uses retention_days.
+        required: false
+        default: 0
+        type: number
       channel:
         description: Build channel metadata. Release builds omit this from deployment version.txt.
         required: false
@@ -111,7 +116,7 @@ jobs:
           RELEASE_REPOSITORY: ${{ needs.metadata.outputs.release_repository }}
         run: bash deployment-files/scripts/package-release-installers.sh "$RELEASE_REPOSITORY" "$RUNNER_TEMP/release-installers"
       - name: Upload installers
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: proto-fleet-release-installers
           path: ${{ runner.temp }}/release-installers/*
@@ -164,7 +169,7 @@ jobs:
           Write-Host "Windows uninstaller prepared at $uninstallerPath"
 
       - name: Upload Windows installer artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: proto-fleet-windows-installer
           path: |
@@ -205,6 +210,7 @@ jobs:
           go build -v -ldflags "-X main.version=$VERSION -X github.com/block/proto-fleet/server/internal/releaseinfo.Repository=$RELEASE_REPOSITORY" -o fleetd-${{ matrix.arch }} ./cmd/fleetd
           go build -v -ldflags "-X github.com/block/proto-fleet/server/internal/releaseinfo.Repository=$RELEASE_REPOSITORY" -o fleet-ha-${{ matrix.arch }} ./cmd/fleet-ha
           CGO_ENABLED=0 go build -v -ldflags "-X github.com/block/proto-fleet/server/internal/releaseinfo.Repository=$RELEASE_REPOSITORY" -o fleet-db-transition-${{ matrix.arch }} ./cmd/fleet-db-transition
+          CGO_ENABLED=0 go build -v -o fleet-device-write-recovery-${{ matrix.arch }} ./cmd/fleet-device-write-recovery
           updater_binary="proto-fleet-updater-${{ matrix.arch }}"
           CGO_ENABLED=0 go build -v -ldflags "-X main.version=$VERSION -X github.com/block/proto-fleet/server/internal/releaseinfo.Repository=$RELEASE_REPOSITORY" -o "$updater_binary" ./cmd/fleet-updater
           if ! command -v readelf >/dev/null || ! readelf -h "$updater_binary" >/dev/null; then
@@ -262,6 +268,7 @@ jobs:
             fleetd-${{ matrix.arch }} \
             fleet-ha-${{ matrix.arch }} \
             fleet-db-transition-${{ matrix.arch }} \
+            fleet-device-write-recovery-${{ matrix.arch }} \
             proto-fleet-updater-${{ matrix.arch }} \
             proto-plugin-${{ matrix.arch }} \
             antminer-plugin-${{ matrix.arch }} \
@@ -272,7 +279,7 @@ jobs:
             version.txt
 
       - name: Upload server artifact for job use
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: proto-fleet-server-artifact-${{ matrix.arch }}
           path: ./server/proto-fleet-server-${{ needs.metadata.outputs.version }}-${{ matrix.arch }}.tar.gz
@@ -306,7 +313,16 @@ jobs:
       - name: Build Fleet Node and Go plugins
         run: |
           go work sync
-          go build -v -o server/fleetnode ./server/cmd/fleetnode
+          go build -v -ldflags "-X main.version=$VERSION -X github.com/block/proto-fleet/server/internal/releaseinfo.Repository=$RELEASE_REPOSITORY" -o server/fleetnode ./server/cmd/fleetnode
+          fleetnode_version=$(server/fleetnode --version)
+          if [[ "$fleetnode_version" != "$VERSION" ]]; then
+            echo "::error::Fleet Node reports version '$fleetnode_version', expected '$VERSION'"
+            exit 1
+          fi
+          if [[ "$(server/fleetnode --print-release-repository)" != "$RELEASE_REPOSITORY" ]]; then
+            echo '::error::Fleet Node publishing repository was not embedded correctly.'
+            exit 1
+          fi
           go build -o server/proto-plugin ./plugin/proto
           go build -o server/antminer-plugin ./plugin/antminer
 
@@ -362,7 +378,7 @@ jobs:
           deployment-files/fleetnode/tests/qualify-package.sh "$VERSION" "$PACKAGE_DIR"
 
       - name: Upload Fleet Node artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fleetnode-linux-${{ matrix.arch }}
           path: |
@@ -385,7 +401,7 @@ jobs:
         uses: ./.github/actions/hermit-setup
 
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           cache: "npm"
           cache-dependency-path: "./client/package-lock.json"
@@ -415,7 +431,7 @@ jobs:
           tar -czf "proto-fleet-client-${VERSION}.tar.gz" dist/protoFleet
 
       - name: Upload client artifact for job use
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: proto-fleet-client-artifact
           path: ./client/proto-fleet-client-${{ needs.metadata.outputs.version }}.tar.gz
@@ -431,12 +447,14 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Hermit
         uses: ./.github/actions/hermit-setup
 
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           cache: "npm"
           cache-dependency-path: "./client/package-lock.json"
@@ -476,14 +494,60 @@ jobs:
         env:
           VERSION: ${{ needs.metadata.outputs.version }}
 
+      # Only v* release tags map to a valid Debian version. Nightly builds skip the CT1 package.
+      # SOURCE_DATE_EPOCH comes from the commit time, so the same staged tree and tarball give
+      # the same .deb. A new run of the same tag gives a different .deb. Release builds do not
+      # set build_date, so the build date is the time of the run, and the manifest records the
+      # tarball SHA-256.
+      - name: Stage ProtoOS bundle for CT1 Frigate
+        if: startsWith(needs.metadata.outputs.version, 'v')
+        working-directory: ./client
+        env:
+          COMMIT: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" >> "$GITHUB_ENV"
+          export SOURCE_DATE_EPOCH
+          python3 -I ../deployment-files/scripts/create-protoos-frigate-bundle.py \
+            --repository "$REPOSITORY" \
+            --tag "$VERSION" \
+            --commit "$COMMIT" \
+            --archive "proto-os-${VERSION}.tar.gz" \
+            --source dist/protoOS \
+            --output dist/protoOS-frigate
+
+      - name: Build ProtoOS CT1 .deb package
+        if: startsWith(needs.metadata.outputs.version, 'v')
+        working-directory: ./client
+        run: |
+          nfpm package --config nfpm-proto-os-deb.yaml --packager deb --target "proto-os_${VERSION}_all.deb"
+          sha256sum "proto-os_${VERSION}_all.deb" > "proto-os_${VERSION}_all.deb.sha256"
+
+      - name: Verify ProtoOS CT1 .deb package
+        if: startsWith(needs.metadata.outputs.version, 'v')
+        working-directory: ./client
+        env:
+          COMMIT: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 -I ../deployment-files/scripts/create-protoos-frigate-bundle.py \
+            --repository "$REPOSITORY" \
+            --tag "$VERSION" \
+            --commit "$COMMIT" \
+            --archive "proto-os-${VERSION}.tar.gz" \
+            --verify-deb "proto-os_${VERSION}_all.deb"
+
       - name: Upload ProtoOS artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: proto-os-artifact
           path: |
             ./client/proto-os-${{ needs.metadata.outputs.version }}.tar.gz
             ./client/proto-os_${{ needs.metadata.outputs.version }}.ipk
-          retention-days: ${{ inputs.retention_days }}
+            ./client/proto-os_${{ needs.metadata.outputs.version }}_all.deb
+            ./client/proto-os_${{ needs.metadata.outputs.version }}_all.deb.sha256
+          retention-days: ${{ inputs.protoos_retention_days || inputs.retention_days }}
 
   build-timescaledb-image:
     name: Build TimescaleDB images (${{ matrix.arch }})
@@ -546,7 +610,7 @@ jobs:
           echo "${{ matrix.arch }} image size: $(du -h timescaledb-${{ matrix.arch }}.tar.gz | cut -f1)"
 
       - name: Upload TimescaleDB image artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: proto-fleet-timescaledb-${{ matrix.arch }}
           path: timescaledb-${{ matrix.arch }}.tar.gz
@@ -583,26 +647,26 @@ jobs:
           mkdir -p deployment/client
 
       - name: Download server artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: proto-fleet-server-artifact-${{ matrix.arch }}
           path: /tmp/server-artifacts
 
       - name: Download client artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: proto-fleet-client-artifact
           path: /tmp
 
       - name: Download Windows installer artifact
         if: matrix.arch == 'amd64'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: proto-fleet-windows-installer
           path: /tmp/windows-installer
 
       - name: Download TimescaleDB image artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: proto-fleet-timescaledb-${{ matrix.arch }}
           path: /tmp/timescaledb-images
@@ -614,6 +678,7 @@ jobs:
           mv fleetd-${{ matrix.arch }} fleetd
           mv fleet-ha-${{ matrix.arch }} fleet-ha
           mv fleet-db-transition-${{ matrix.arch }} fleet-db-transition
+          mv fleet-device-write-recovery-${{ matrix.arch }} fleet-device-write-recovery
           mkdir -p ../updater
           mv proto-fleet-updater-${{ matrix.arch }} ../updater/proto-fleet-updater
           mv proto-plugin-${{ matrix.arch }} proto-plugin
@@ -718,6 +783,7 @@ jobs:
             deployment/images/fleet.tar.gz \
             deployment/cloud-release.json \
             deployment/server/fleet-db-transition \
+            deployment/server/fleet-device-write-recovery \
             deployment/updater/proto-fleet-updater \
             deployment/updater/proto-fleet-updater.service; do
             if ! grep -Fxq "$required_path" "$RUNNER_TEMP/deployment-bundle-contents.txt"; then
@@ -727,7 +793,7 @@ jobs:
           done
 
       - name: Upload deployment bundle artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: proto-fleet-deployment-bundle-${{ matrix.arch }}
           path: |

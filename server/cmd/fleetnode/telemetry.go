@@ -10,11 +10,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
+
 	"buf.build/go/protovalidate"
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
@@ -33,7 +36,9 @@ var telemetryCommandTimeout = 4 * time.Second
 // return their own error before the supervisor abandons context-ignoring calls.
 var telemetrySupervisorGrace = 100 * time.Millisecond
 
-const maxTelemetryDeviceMetricsJSONBytes = 256 * 1024
+// CT1 snapshots include the full container topology and board observations.
+// Reserve 64 KiB for the result envelope inside the 8 MiB ControlAck payload.
+const maxTelemetryDeviceMetricsJSONBytes = maxAckPayloadBytes - 64*1024
 const maxTelemetryFirmwareVersionBytes = 255
 
 type telemetryFetcher interface {
@@ -56,12 +61,14 @@ type pluginTelemetryFetcher struct {
 	inflight      map[string]*telemetrySlot
 	workerTokens  chan struct{}
 	deviceHandles *deviceHandlePool
+	cached        map[string]*cachedTelemetryDevice
 }
 
 type telemetrySlot struct {
 	fetcher          *pluginTelemetryFetcher
 	deviceIdentifier string
 	released         bool
+	abandoned        bool
 }
 
 func newPluginTelemetryFetcher(manager *plugins.Manager, minerSecrets secretProvider, deviceHandles *deviceHandlePool) (*pluginTelemetryFetcher, error) {
@@ -74,11 +81,14 @@ func newPluginTelemetryFetcher(manager *plugins.Manager, minerSecrets secretProv
 	if deviceHandles == nil {
 		return nil, fmt.Errorf("device handle pool is required")
 	}
-	return &pluginTelemetryFetcher{
+	fetcher := &pluginTelemetryFetcher{
 		manager:       manager,
 		minerSecrets:  minerSecrets,
 		deviceHandles: deviceHandles,
-	}, nil
+		cached:        make(map[string]*cachedTelemetryDevice),
+	}
+	context.AfterFunc(deviceHandles.ctx, fetcher.clearCachedDevices)
+	return fetcher, nil
 }
 
 func (r *RunCmd) handleTelemetryCommand(ctx context.Context, stream acker, commandID string, req *telemetrypb.FleetNodeTelemetryRequest, logger *slog.Logger) {
@@ -93,12 +103,13 @@ func (r *RunCmd) handleTelemetryCommand(ctx context.Context, stream acker, comma
 
 	result, err := supervisedTelemetryFetch(ctx, r.telemetry, req, telemetryTimeout(req), logger)
 	if err != nil {
-		code := pb.AckCode_ACK_CODE_INTERNAL
+		ack := &pb.ControlAck{CommandId: commandID, Code: pb.AckCode_ACK_CODE_INTERNAL, ErrorMessage: redactTelemetrySecrets(err.Error())}
 		var ce *commandError
 		if errors.As(err, &ce) {
-			code = ce.code
+			ack.Code = ce.code
+			ack.MinerProbeFailed = ce.minerProbeFailed
 		}
-		r.sendAck(stream, commandID, code, redactTelemetrySecrets(err.Error()), logger)
+		r.sendControlAck(stream, ack, logger)
 		return
 	}
 	payload, err := proto.Marshal(result)
@@ -148,7 +159,7 @@ func abandonTelemetryFetch(fetcher telemetryFetcher, req *telemetrypb.FleetNodeT
 	return ok && abandoner.AbandonTelemetryFetch(req.GetDeviceIdentifier())
 }
 
-func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.FleetNodeTelemetryRequest) (*telemetrypb.FleetNodeTelemetryResult, error) {
+func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.FleetNodeTelemetryRequest) (_ *telemetrypb.FleetNodeTelemetryResult, fetchErr error) {
 	plugin, err := f.manager.GetPluginByDriverNameWithCapability(req.GetDriverName(), sdk.CapabilityRealtimeTelemetry)
 	if err != nil {
 		return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "no telemetry-capable driver %q: %v", req.GetDriverName(), err)
@@ -163,9 +174,13 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "invalid port %q: %v", req.GetPort(), err)
 	}
 	deviceInfo := sdk.DeviceInfo{
+		DeviceClass:     sdk.DeviceClass(req.GetDeviceClass()),
 		Host:            req.GetIpAddress(),
 		Port:            port,
 		URLScheme:       req.GetUrlScheme(),
+		RPCPort:         req.GetRpcPort(),
+		RPCTLS:          req.GetRpcTls(),
+		Endpoints:       deviceendpoints.ToSDK(req.GetEndpoints()),
 		SerialNumber:    req.GetSerialNumber(),
 		Model:           req.GetModel(),
 		Manufacturer:    req.GetManufacturer(),
@@ -183,30 +198,37 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 	}
 	defer slot.releaseWorker()
 
-	lease, err := f.deviceHandles.acquire()
+	key, err := telemetryClientFingerprint(deviceInfo, secret)
 	if err != nil {
-		return nil, err
+		return nil, cmdErr(pb.AckCode_ACK_CODE_INTERNAL, "cannot identify telemetry credentials")
 	}
-
 	redactions := telemetrySecretRedactions(secret)
-	// A sample owns its registration through asynchronous close. A later sample
-	// or command for this miner must have a different SDK handle.
-	handleID := "telemetry-" + uuid.NewString()
-	created, err := plugin.Driver.NewDevice(ctx, handleID, deviceInfo, secret)
-	if err != nil {
-		lease.releaseAfterFailedCreation(ctx, plugin.Driver, handleID, err)
-		code, msg := classifyTelemetryError("create telemetry device", err, redactions...)
-		return nil, cmdErr(code, "%s", msg)
+	entry := f.takeCachedDevice(req.GetDeviceIdentifier(), plugin, key)
+	if entry == nil {
+		lease, acquireErr := f.deviceHandles.acquireRead()
+		if acquireErr != nil {
+			return nil, acquireErr
+		}
+		// Commands and replacement clients always get distinct registrations.
+		handleID := "telemetry-" + uuid.NewString()
+		created, createErr := plugin.Driver.NewDevice(ctx, handleID, deviceInfo, secret)
+		if createErr != nil {
+			lease.releaseAfterFailedCreation(ctx, plugin.Driver, handleID, createErr)
+			return nil, telemetryCommandError("create telemetry device", createErr, redactions...)
+		}
+		entry = &cachedTelemetryDevice{
+			device: created.Device, handleID: handleID, lease: lease, plugin: plugin, key: key,
+			expiresAt: time.Now().Add(telemetryDeviceTTL),
+		}
 	}
-	defer lease.close(created.Device)
+	defer func() { f.finishCachedDevice(ctx, slot, entry, fetchErr == nil) }()
 
-	sdkMetrics, err := created.Device.Status(ctx)
+	sdkMetrics, err := entry.device.Status(ctx)
 	if err != nil {
-		code, msg := classifyTelemetryError("fetch telemetry", err, redactions...)
-		return nil, cmdErr(code, "%s", msg)
+		return nil, telemetryCommandError("fetch telemetry", err, redactions...)
 	}
 	v2Metrics := mappers.SDKDeviceMetricsToV2(sdkMetrics)
-	if err := validateTelemetryMetricsIdentity(req.GetDeviceIdentifier(), handleID, v2Metrics); err != nil {
+	if err := validateTelemetryMetricsIdentity(req.GetDeviceIdentifier(), entry.handleID, v2Metrics); err != nil {
 		return nil, err
 	}
 	// Gateway telemetry is keyed by the physical miner, never the SDK handle.
@@ -252,6 +274,9 @@ func (f *pluginTelemetryFetcher) AbandonTelemetryFetch(deviceIdentifier string) 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	slot := f.inflight[deviceIdentifier]
+	if slot != nil {
+		slot.abandoned = true
+	}
 	return slot != nil
 }
 
@@ -277,11 +302,15 @@ func validateTelemetryMetricsIdentity(requestedDeviceIdentifier, handleID string
 
 func telemetryDialTarget(req *telemetrypb.FleetNodeTelemetryRequest) *pb.MinerConnectionDescriptor {
 	return &pb.MinerConnectionDescriptor{
+		DeviceClass:        req.GetDeviceClass(),
 		DeviceIdentifier:   req.GetDeviceIdentifier(),
 		DriverName:         req.GetDriverName(),
 		IpAddress:          req.GetIpAddress(),
 		Port:               req.GetPort(),
 		UrlScheme:          req.GetUrlScheme(),
+		RpcPort:            req.GetRpcPort(),
+		RpcTls:             req.GetRpcTls(),
+		Endpoints:          req.GetEndpoints(),
 		SerialNumber:       req.GetSerialNumber(),
 		MacAddress:         req.GetMacAddress(),
 		CredentialUsername: req.GetCredentialUsername(),
@@ -327,6 +356,9 @@ func classifyTelemetryError(stage string, err error, redactions ...string) (pb.A
 	if isNodeAuthFailure(err) {
 		return pb.AckCode_ACK_CODE_UNAUTHENTICATED, msg
 	}
+	if sdk.DeviceProbeFailed(err) {
+		return pb.AckCode_ACK_CODE_SCAN_FAILED, msg
+	}
 	var sdkErr sdk.SDKError
 	if errors.As(err, &sdkErr) {
 		if sdkErr.Code == sdk.ErrCodeDeviceUnavailable {
@@ -348,6 +380,11 @@ func classifyTelemetryError(stage string, err error, redactions ...string) (pb.A
 	return pb.AckCode_ACK_CODE_INTERNAL, msg
 }
 
+func telemetryCommandError(stage string, err error, redactions ...string) *commandError {
+	code, msg := classifyTelemetryError(stage, err, redactions...)
+	return &commandError{code: code, msg: msg, minerProbeFailed: code == pb.AckCode_ACK_CODE_SCAN_FAILED && sdk.DeviceProbeFailed(err)}
+}
+
 func isDefaultPasswordActiveTelemetryError(err error) bool {
 	if err == nil {
 		return false
@@ -358,6 +395,14 @@ func isDefaultPasswordActiveTelemetryError(err error) bool {
 }
 
 func telemetryResultFromV2(deviceIdentifier string, metrics modelsV2.DeviceMetrics, status telemetrypb.DeviceStatus) (*telemetrypb.FleetNodeTelemetryResult, error) {
+	// Capture freshness before the legacy timestamp fallback. Unknown observation
+	// times must not become fresh just because a response is assembled now.
+	var observationAge *durationpb.Duration
+	if observed := metrics.FreshnessObservationTime(); !observed.IsZero() {
+		if age := time.Since(observed); age >= 0 {
+			observationAge = durationpb.New(age)
+		}
+	}
 	if metrics.Timestamp.IsZero() {
 		metrics.Timestamp = time.Now().UTC()
 	}
@@ -369,17 +414,24 @@ func telemetryResultFromV2(deviceIdentifier string, metrics modelsV2.DeviceMetri
 		return nil, fmt.Errorf("device metrics payload is %d bytes, max %d", len(metricsJSON), maxTelemetryDeviceMetricsJSONBytes)
 	}
 	result := &telemetrypb.FleetNodeTelemetryResult{
-		DeviceIdentifier:  deviceIdentifier,
-		Timestamp:         timestamppb.New(metrics.Timestamp),
-		FirmwareVersion:   truncateUTF8(metrics.FirmwareVersion, maxTelemetryFirmwareVersionBytes),
-		DeviceStatus:      status,
-		HealthStatus:      healthStatusFromV2(metrics.Health),
-		HashrateHs:        metricValue(metrics.HashrateHS),
-		TempC:             metricValue(metrics.TempC),
-		FanRpm:            metricValue(metrics.FanRPM),
-		PowerW:            metricValue(metrics.PowerW),
-		EfficiencyJh:      metricValue(metrics.EfficiencyJH),
-		DeviceMetricsJson: metricsJSON,
+		DeviceIdentifier:        deviceIdentifier,
+		Timestamp:               timestamppb.New(metrics.Timestamp),
+		FirmwareVersion:         truncateUTF8(metrics.FirmwareVersion, maxTelemetryFirmwareVersionBytes),
+		DeviceStatus:            status,
+		HealthStatus:            healthStatusFromV2(metrics.Health),
+		HashrateHs:              metricValue(metrics.HashrateHS),
+		TempC:                   metricValue(metrics.TempC),
+		FanRpm:                  metricValue(metrics.FanRPM),
+		PowerW:                  metricValue(metrics.PowerW),
+		EfficiencyJh:            metricValue(metrics.EfficiencyJH),
+		DeviceMetricsJson:       metricsJSON,
+		UptimeSeconds:           metrics.UptimeSeconds,
+		TelemetryObservationAge: observationAge,
+	}
+	if metrics.UptimeSeconds != nil && !metrics.UptimeObservedAt.IsZero() {
+		if age := time.Since(metrics.UptimeObservedAt); age >= 0 {
+			result.UptimeObservationAge = durationpb.New(age)
+		}
 	}
 	if metrics.HealthReason != nil {
 		result.HealthReason = truncateUTF8(*metrics.HealthReason, maxAckErrorMessageBytes)

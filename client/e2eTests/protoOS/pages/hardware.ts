@@ -45,9 +45,4 @@ export class HardwarePage extends BasePage {
     await expect(this.psusSection().getByText("Model PSU-3600W")).toHaveCount(2);
     await expect(this.psusSection().getByText(/PSU-PROTO-SIM-/)).toHaveCount(2);
   }
-
-  async validateNoFansConnectedCalloutHidden() {
-    await expect(this.fansSection().getByText("No fans connected")).toHaveCount(0);
-    await expect(this.fansSection().getByText("This miner is set to immersion cooling")).toHaveCount(0);
-  }
 }

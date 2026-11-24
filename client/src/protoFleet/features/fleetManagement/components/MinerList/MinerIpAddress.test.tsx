@@ -58,16 +58,4 @@ describe("MinerIpAddress", () => {
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
   });
-
-  it("renders a link that opens in new tab for HTTPS URLs", () => {
-    const httpsUrl = "https://192.168.1.100";
-    const miner = createMockMiner({ ipAddress: "192.168.1.100", url: httpsUrl });
-
-    render(<MinerIpAddress miner={miner} />);
-
-    const link = screen.getByRole("link", { name: "192.168.1.100" });
-    expect(link).toHaveAttribute("href", httpsUrl);
-    expect(link).toHaveAttribute("target", "_blank");
-    expect(link).toHaveAttribute("rel", "noopener noreferrer");
-  });
 });

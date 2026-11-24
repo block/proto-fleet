@@ -168,10 +168,12 @@ func TestMinerCommandHandleSurvivesTelemetryAndConcurrentCommand(t *testing.T) {
 	}()
 	requireHandleTestSignal(t, ctx, gateway.started)
 
-	sample, err := newHandleTestTelemetryFetcher(t, driver, r.getDeviceHandlePool()).Fetch(ctx, handleTestTelemetryRequest())
+	fetcher := newHandleTestTelemetryFetcher(t, driver, r.getDeviceHandlePool())
+	sample, err := fetcher.Fetch(ctx, handleTestTelemetryRequest())
 	require.NoError(t, err)
 	requirePhysicalTelemetryIdentity(t, sample)
 	assert.Equal(t, "2.0.0", sample.GetFirmwareVersion())
+	fetcher.clearCachedDevices()
 	requireHandleTestSignal(t, ctx, telemetryClosed)
 
 	// A redelivered command ID must also get a fresh registration while the
@@ -237,6 +239,7 @@ func TestTelemetryHandleSurvivesPreviousSampleDelayedClose(t *testing.T) {
 	first, err := fetcher.Fetch(ctx, handleTestTelemetryRequest())
 	require.NoError(t, err)
 	requirePhysicalTelemetryIdentity(t, first)
+	fetcher.clearCachedDevices()
 	requireHandleTestSignal(t, ctx, firstCloseStarted)
 	outcome := make(chan telemetryFetchOutcome, 1)
 	go func() {
@@ -262,6 +265,7 @@ func TestTelemetryHandleSurvivesPreviousSampleDelayedClose(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
+	fetcher.clearCachedDevices()
 	requireHandleTestSignal(t, ctx, closed[1])
 	assert.NotEmpty(t, handles[0])
 	assert.NotEqual(t, "dev-1", handles[0])

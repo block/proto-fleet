@@ -15,51 +15,28 @@ import (
 )
 
 func main() {
-	// Get configuration from environment variables with validation
-	minerType := getEnv("MINER_TYPE", "Antminer S19j Pro")
-	serialNumber := getEnv("SERIAL_NUMBER", "fake-antminer-1")
-	macAddress := getEnv("MAC_ADDRESS", "00:11:22:33:44:55")
-	firmwareVersion := getEnv("FIRMWARE_VERSION", "2.0.0")
-
-	// Validate required environment variables
-	if err := validateConfig(minerType, serialNumber, macAddress); err != nil {
-		log.Fatalf("Configuration validation failed: %v", err)
+	fleet, err := loadMinerFleet()
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	log.Printf("Starting fake Antminer server: %s (SN: %s)", minerType, serialNumber)
-
-	// Parse error configuration from environment
-	errorConfig := parseErrorConfig()
-
-	// Create miner state
-	state := &MinerState{
-		MinerType:       minerType,
-		SerialNumber:    serialNumber,
-		MacAddress:      macAddress,
-		FirmwareVersion: firmwareVersion,
-		IPAddress:       getIPAddr(),
-		Hostname:        "antminer-" + serialNumber,
-		NetMask:         getEnv("NETMASK", "255.255.255.0"),
-		Gateway:         getEnv("GATEWAY", "192.168.2.1"),
-		DNSServers:      getEnvAllowEmpty("DNS_SERVERS", "8.8.8.8"),
-		HashRate:        110.0,
-		Temperature:     45.0,
-		Pools: []Pool{
-			{
-				URL:  "stratum+tcp://btc.example.com:3333",
-				User: "worker1",
-				Pass: "x",
-			},
-		},
-		BitmainWorkMode: WorkModeNormal,
-		Username:        getEnv("USERNAME", "root"),
-		Password:        getEnv("PASSWORD", "root"),
-		ErrorConfig:     errorConfig,
+	rpc, err := net.Listen("tcp", ":4028")
+	if err != nil {
+		log.Fatalf("failed to start RPC server: %v", err)
 	}
+	runMinerFleet(fleet, rpc, ":80")
+}
 
+func runMinerFleet(fleet *minerFleet, rpc net.Listener, httpAddress string) {
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	if err := fleet.startMetrics(context.Background()); err != nil {
+		log.Fatal(err)
+	}
+
+	defer fleet.stopMetrics()
 
 	// Create wait group for server goroutines
 	var wg sync.WaitGroup
@@ -68,7 +45,7 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := startRPCServer(ctx, state); err != nil && err != context.Canceled {
+		if err := startRPCServer(ctx, fleet, rpc); err != nil && err != context.Canceled {
 			log.Printf("RPC server error: %v", err)
 		}
 	}()
@@ -77,7 +54,7 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := startHTTPServer(ctx, state); err != nil && err != context.Canceled {
+		if err := startHTTPServer(ctx, fleet, httpAddress); err != nil && err != context.Canceled {
 			log.Printf("HTTP server error: %v", err)
 		}
 	}()
@@ -105,13 +82,10 @@ func main() {
 	}
 }
 
-func startRPCServer(ctx context.Context, state *MinerState) error {
-	// Listen on the standard cgminer API port
-	listener, err := net.Listen("tcp", ":4028")
-	if err != nil {
-		return fmt.Errorf("failed to start RPC server: %w", err)
-	}
+func startRPCServer(ctx context.Context, fleet *minerFleet, listener net.Listener) error {
 	defer listener.Close()
+	var workers sync.WaitGroup
+	defer workers.Wait()
 
 	// Handle graceful shutdown
 	go func() {
@@ -119,7 +93,7 @@ func startRPCServer(ctx context.Context, state *MinerState) error {
 		listener.Close()
 	}()
 
-	log.Println("RPC server listening on :4028")
+	log.Printf("RPC server listening on %s", listener.Addr())
 
 	for {
 		conn, err := listener.Accept()
@@ -133,12 +107,29 @@ func startRPCServer(ctx context.Context, state *MinerState) error {
 			}
 		}
 
-		go handleRPCConnection(conn, state)
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			// Accepted connections drain through shutdown; rpcConnectionTimeout bounds them.
+			fleet.handleRPC(context.WithoutCancel(ctx), conn)
+		}()
 	}
 }
 
-func startHTTPServer(ctx context.Context, state *MinerState) error {
+type minerHTTPHandler struct {
+	*http.ServeMux
+	protected http.Handler
+}
+
+func (h *minerHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.protected.ServeHTTP(w, r)
+}
+
+func createHTTPHandler(state *MinerState) *minerHTTPHandler {
 	mux := http.NewServeMux()
+	if state.LoadMode {
+		mux.Handle("/fake-api/v1/load/led", digestAuthMiddleware(state)(loadLEDAudit(state)))
+	}
 
 	// Register API endpoints
 	mux.HandleFunc("/cgi-bin/get_system_info.cgi", createSystemInfoHandler(state))
@@ -170,23 +161,50 @@ func startHTTPServer(ctx context.Context, state *MinerState) error {
 		}
 	})
 
+	return &minerHTTPHandler{ServeMux: mux, protected: protectedHandler}
+}
+
+func startHTTPServer(ctx context.Context, fleet *minerFleet, address string) error {
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		return fmt.Errorf("failed to start HTTP server: %w", err)
+	}
+	defer listener.Close()
+
+	var connections sync.WaitGroup
 	server := &http.Server{
-		Addr:    ":80",
-		Handler: protectedHandler,
+		Addr:    address,
+		Handler: fleet,
+		// A forced Close cancels requests after the grace period, but it does not
+		// join their goroutines. Keep their deferred metrics inside the lifetime.
+		ConnState: func(_ net.Conn, state http.ConnState) {
+			switch state {
+			case http.StateNew:
+				connections.Add(1)
+			case http.StateClosed, http.StateHijacked:
+				connections.Done()
+			}
+		},
 	}
 
-	// Handle graceful shutdown
+	// Serve returns when listeners close, before Shutdown drains handlers.
+	shutdownDone := make(chan struct{})
 	go func() {
+		defer close(shutdownDone)
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		server.Shutdown(shutdownCtx)
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			_ = server.Close()
+		}
 	}()
 
-	log.Println("HTTP server listening on :80")
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	log.Printf("HTTP server listening on %s", listener.Addr())
+	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("failed to start HTTP server: %w", err)
 	}
+	<-shutdownDone
+	connections.Wait()
 	return nil
 }
 
@@ -323,4 +341,47 @@ func parseBool(key string, defaultValue bool) bool {
 		}
 	}
 	return defaultValue
+}
+
+func newMinerState(ip string) (*MinerState, error) {
+	// Get configuration from environment variables with validation
+	minerType := getEnv("MINER_TYPE", "Antminer S19j Pro")
+	serialNumber := getEnv("SERIAL_NUMBER", "fake-antminer-1")
+	macAddress := getEnv("MAC_ADDRESS", "00:11:22:33:44:55")
+	firmwareVersion := getEnv("FIRMWARE_VERSION", "2.0.0")
+
+	// Validate required environment variables
+	if err := validateConfig(minerType, serialNumber, macAddress); err != nil {
+		return nil, fmt.Errorf("configuration validation failed: %w", err)
+	}
+
+	// Parse error configuration from environment
+	errorConfig := parseErrorConfig()
+
+	// Create miner state
+	return &MinerState{
+		digestNonce:     generateNonce(),
+		MinerType:       minerType,
+		SerialNumber:    serialNumber,
+		MacAddress:      macAddress,
+		FirmwareVersion: firmwareVersion,
+		IPAddress:       ip,
+		Hostname:        "antminer-" + serialNumber,
+		NetMask:         getEnv("NETMASK", "255.255.255.0"),
+		Gateway:         getEnv("GATEWAY", "192.168.2.1"),
+		DNSServers:      getEnvAllowEmpty("DNS_SERVERS", "8.8.8.8"),
+		HashRate:        110.0,
+		Temperature:     45.0,
+		Pools: []Pool{
+			{
+				URL:  "stratum+tcp://btc.example.com:3333",
+				User: "worker1",
+				Pass: "x",
+			},
+		},
+		BitmainWorkMode: WorkModeNormal,
+		Username:        getEnv("USERNAME", "root"),
+		Password:        getEnv("PASSWORD", "root"),
+		ErrorConfig:     errorConfig,
+	}, nil
 }

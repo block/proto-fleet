@@ -37,11 +37,6 @@ export class CoolingPage extends BasePage {
     await expect(this.immersionCoolingRadio()).toBeChecked();
   }
 
-  async isAirCooledSelected() {
-    await this.waitForCoolingOptions();
-    return this.airCoolingRadio().isChecked();
-  }
-
   async isImmersionCooledSelected() {
     await this.waitForCoolingOptions();
     return this.immersionCoolingRadio().isChecked();

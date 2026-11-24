@@ -21,10 +21,10 @@ func TestSQLCurtailmentStore_ListActiveEvents_ReturnsLiveTargetRollups(t *testin
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 
 	targetedUUID := uuid.New()
 	offlineReason := "offline"

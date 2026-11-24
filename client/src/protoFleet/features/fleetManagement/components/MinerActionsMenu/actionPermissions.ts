@@ -46,15 +46,12 @@ export const ACTION_PERMISSIONS: Record<SupportedAction, string | readonly strin
   [performanceActions.managePower]: "miner:set_power_target",
   [performanceActions.curtail]: "curtailment:manage",
 
-  // Pool assignment opens PoolSelectionPage, which calls usePools()
-  // (ListPools / pool:read) before writing the miner-side pool config
-  // (UpdateMiningPools / miner:update_pools). Roles missing pool:read
-  // would otherwise enter a flow that 403s on the very first request;
-  // require both up front.
+  // Both applying pools and changing worker names review the current library
+  // and require live equipment-write authority at confirmation.
   [settingsActions.miningPool]: ["miner:update_pools", "pool:read"],
   [settingsActions.coolingMode]: "miner:set_cooling_mode",
   [settingsActions.rename]: "miner:rename",
-  [settingsActions.updateWorkerNames]: "miner:update_worker_names",
+  [settingsActions.updateWorkerNames]: ["miner:update_worker_names", "miner:update_pools", "pool:read"],
   [settingsActions.security]: "miner:update_password",
 
   // Each add-to flow lists candidates (read) before writing membership
@@ -77,7 +74,7 @@ export const ACTION_PERMISSIONS: Record<SupportedAction, string | readonly strin
 // hasAllRequired returns true when every required key is present in
 // the caller's effective permission set. A single-string requirement
 // is treated as a one-element AND set.
-const hasAllRequired = (required: string | readonly string[], permissions: readonly string[]): boolean => {
+export const hasAllRequired = (required: string | readonly string[], permissions: readonly string[]): boolean => {
   if (typeof required === "string") {
     return permissions.includes(required);
   }

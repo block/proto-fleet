@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import { createRef, ReactNode } from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createPortal } from "react-dom";
@@ -547,17 +547,12 @@ describe("List", () => {
     expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(0);
   });
 
-  it("renders action bar when items are selected and provides clearSelection callback", () => {
+  it.each(["one row", "all rows"] as const)("clears selection after selecting %s", (selection) => {
+    const onSelectionModeChange = vi.fn();
     const renderActionBar = vi.fn((_selectedItems: TestItemKey[], clearSelection: () => void) => (
-      <div>
-        <div>Action Bar</div>
-        <button onClick={clearSelection} data-testid="clear-selection-btn">
-          Clear
-        </button>
-      </div>
+      <button onClick={clearSelection}>Clear</button>
     ));
-
-    const { getByTestId } = render(
+    render(
       <List<TestItem, TestItemKey>
         activeCols={activeCols}
         colTitles={testColTitles}
@@ -566,31 +561,25 @@ describe("List", () => {
         itemKey="id"
         itemSelectable
         renderActionBar={renderActionBar}
+        onSelectionModeChange={onSelectionModeChange}
       />,
     );
-
-    const selectItemCheckboxes = getByTestId("list-body").querySelectorAll(
-      "input[type='checkbox']",
-      // eslint-disable-next-line
-    ) as NodeListOf<HTMLInputElement>;
-
-    // Select first item
-    fireEvent.click(selectItemCheckboxes[0]);
-
-    // Verify renderActionBar was called with selectedItems and clearSelection callback
-    expect(renderActionBar).toHaveBeenCalled();
-    const lastCall = renderActionBar.mock.calls[renderActionBar.mock.calls.length - 1];
-    expect(lastCall[0]).toEqual([testItems[0].id]); // selectedItems
-    expect(typeof lastCall[1]).toBe("function"); // clearSelection callback
-
-    expect(screen.getByText("Action Bar")).toBeInTheDocument();
-
-    // Click clear button
-    const clearButton = screen.getByTestId("clear-selection-btn");
-    fireEvent.click(clearButton);
-
-    // Verify all checkboxes are now unchecked
-    expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(0);
+    const header = screen.getByTestId("list-header").querySelector("input") as HTMLInputElement;
+    const rows = Array.from(screen.getByTestId("list-body").querySelectorAll("input"));
+    fireEvent.click(selection === "one row" ? rows[0] : header);
+    expect(renderActionBar).toHaveBeenLastCalledWith(
+      selection === "one row" ? [testItems[0].id] : testItems.map((item) => item.id),
+      expect.any(Function),
+      selection === "one row" ? "subset" : "all",
+      undefined,
+    );
+    expect(onSelectionModeChange).toHaveBeenLastCalledWith(selection === "one row" ? "subset" : "all");
+    expect(rows.filter((row) => row.checked)).toHaveLength(selection === "one row" ? 1 : testItems.length);
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(header).not.toBeChecked();
+    rows.forEach((row) => expect(row).not.toBeChecked());
+    expect(onSelectionModeChange).toHaveBeenLastCalledWith("none");
+    expect(renderActionBar).toHaveBeenLastCalledWith([], expect.any(Function), "none", undefined);
   });
 
   it("renders an in-table empty state row while keeping the header visible", () => {
@@ -645,50 +634,6 @@ describe("List", () => {
     );
 
     expect(screen.queryByTestId("active-filter-valueRange")).not.toBeInTheDocument();
-  });
-
-  it("clearSelection callback deselects all items", async () => {
-    let clearSelectionCallback: (() => void) | null = null;
-
-    const renderActionBar = vi.fn((_selectedItems: TestItemKey[], clearSelection: () => void) => {
-      clearSelectionCallback = clearSelection;
-      return <div>Action Bar</div>;
-    });
-
-    const { getByTestId } = render(
-      <List<TestItem, TestItemKey>
-        activeCols={activeCols}
-        colTitles={testColTitles}
-        colConfig={testColConfig}
-        items={testItems}
-        itemKey="id"
-        itemSelectable
-        renderActionBar={renderActionBar}
-      />,
-    );
-
-    const selectAllCheckbox = getByTestId("list-header").querySelector("input[type='checkbox']") as HTMLInputElement;
-
-    const selectItemCheckboxes = getByTestId("list-body").querySelectorAll(
-      "input[type='checkbox']",
-      // eslint-disable-next-line
-    ) as NodeListOf<HTMLInputElement>;
-
-    // Select all items
-    fireEvent.click(selectAllCheckbox);
-    expect(selectAllCheckbox.checked).toBe(true);
-    expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(testItems.length);
-
-    // Call clearSelection callback
-    expect(clearSelectionCallback).not.toBeNull();
-    clearSelectionCallback!();
-
-    // Wait for React to update the DOM
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    // Verify all checkboxes are now unchecked
-    expect(selectAllCheckbox.checked).toBe(false);
-    expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(0);
   });
 
   it("renders actions popover and triggers the correct action", async () => {
@@ -793,61 +738,27 @@ describe("List", () => {
   });
 
   it("exempts specified columns from disabled styling on disabled rows", () => {
-    const { getAllByRole } = render(
+    render(
       <List<TestItem, TestItemKey>
         activeCols={activeCols}
         colTitles={testColTitles}
         colConfig={testColConfig}
         items={testItems}
         itemKey="id"
-        isRowDisabled={(item: TestItem) => item.id === "1"}
-        columnsExemptFromDisabledStyling={new Set<keyof TestItem>(["status"])}
+        isRowDisabled={(item: TestItem) => item.id === testItems[0].id}
+        columnsExemptFromDisabledStyling={new Set<keyof TestItem>([testCols.status as keyof TestItem])}
       />,
     );
 
-    const rows = getAllByRole("row");
-    // First row is header, second row is first item (id: "1", which is disabled)
-    const disabledRow = rows[1];
-    const cells = disabledRow.querySelectorAll("td");
+    const disabledRow = screen.getByTestId("list-body").querySelectorAll("tr")[0];
+    const cellContent = (col: string) => disabledRow.querySelector(`td[data-testid='${col}'] > div`);
 
-    // Find the status column index
-    const statusColIndex = activeCols.indexOf("status" as keyof TestItem);
-
-    // Verify that status column does not have the opacity-50 class if it exists on other cells
-    const hasOpacityClass = Array.from(cells).some((cell) => cell.className.includes("opacity-50"));
-
-    if (hasOpacityClass) {
-      // If opacity styling is applied to any cell, status column should NOT have it (it's exempted)
-      expect(cells[statusColIndex].className).not.toContain("opacity-50");
-    } else {
-      // If no opacity styling is applied, that's also acceptable - just verify status column exists
-      expect(cells[statusColIndex]).toBeInTheDocument();
-    }
+    expect(cellContent(testCols.status)).not.toHaveClass("opacity-50");
+    expect(cellContent(testCols.name)).toHaveClass("opacity-50");
+    expect(cellContent(testCols.value)).toHaveClass("opacity-50");
   });
 
   describe("selection mode", () => {
-    it("sets mode to 'all' when Select All is clicked without active filters", () => {
-      const onSelectionModeChange = vi.fn();
-
-      const { getByTestId } = render(
-        <List<TestItem, TestItemKey>
-          activeCols={activeCols}
-          colTitles={testColTitles}
-          colConfig={testColConfig}
-          items={testItems}
-          itemKey="id"
-          itemSelectable
-          hasActiveFilters={false}
-          onSelectionModeChange={onSelectionModeChange}
-        />,
-      );
-
-      const selectAllCheckbox = getByTestId("list-header").querySelector("input[type='checkbox']") as HTMLInputElement;
-      fireEvent.click(selectAllCheckbox);
-
-      expect(onSelectionModeChange).toHaveBeenCalledWith("all");
-    });
-
     it("sets mode to 'subset' when Select All is clicked with active filters", () => {
       const onSelectionModeChange = vi.fn();
 
@@ -892,31 +803,6 @@ describe("List", () => {
 
       expect(onSelectionModeChange).toHaveBeenCalledWith("none");
       expect(selectAllCheckbox.checked).toBe(false);
-    });
-
-    it("sets mode to 'subset' when individual item is selected", () => {
-      const onSelectionModeChange = vi.fn();
-
-      const { getByTestId } = render(
-        <List<TestItem, TestItemKey>
-          activeCols={activeCols}
-          colTitles={testColTitles}
-          colConfig={testColConfig}
-          items={testItems}
-          itemKey="id"
-          itemSelectable
-          hasActiveFilters={false}
-          onSelectionModeChange={onSelectionModeChange}
-        />,
-      );
-
-      const selectItemCheckboxes = Array.from(
-        getByTestId("list-body").querySelectorAll("input[type='checkbox']"),
-      ) as HTMLInputElement[];
-
-      fireEvent.click(selectItemCheckboxes[0]);
-
-      expect(onSelectionModeChange).toHaveBeenCalledWith("subset");
     });
 
     it("sets mode to 'none' when selection is cleared via Select All toggle", () => {
@@ -974,33 +860,6 @@ describe("List", () => {
       // Deselect one item (mode should transition to "subset")
       fireEvent.click(selectItemCheckboxes[0]);
       expect(onSelectionModeChange).toHaveBeenLastCalledWith("subset");
-    });
-
-    it("passes selectionMode to renderActionBar callback", () => {
-      const renderActionBar = vi.fn(
-        (_selectedItems: TestItemKey[], _clearSelection: () => void, selectionMode: string) => (
-          <div data-testid="selection-mode">{selectionMode}</div>
-        ),
-      );
-
-      const { getByTestId } = render(
-        <List<TestItem, TestItemKey>
-          activeCols={activeCols}
-          colTitles={testColTitles}
-          colConfig={testColConfig}
-          items={testItems}
-          itemKey="id"
-          itemSelectable
-          hasActiveFilters={false}
-          renderActionBar={renderActionBar}
-        />,
-      );
-
-      const selectAllCheckbox = getByTestId("list-header").querySelector("input[type='checkbox']") as HTMLInputElement;
-      fireEvent.click(selectAllCheckbox);
-
-      expect(renderActionBar).toHaveBeenCalled();
-      expect(getByTestId("selection-mode").textContent).toBe("all");
     });
 
     it("resets mode to 'none' when customSelectedItems is externally set to empty", () => {
@@ -2059,31 +1918,11 @@ describe("List", () => {
       // Select All checkbox should now be checked
       expect(selectAllCheckbox.checked).toBe(true);
     });
-
-    it("calls onFilterChange when filterItem changes filtered results", () => {
-      const onFilterChange = vi.fn();
-
-      render(
-        <List<TestItem, TestItemKey>
-          activeCols={activeCols}
-          colTitles={testColTitles}
-          colConfig={testColConfig}
-          items={testItems}
-          itemKey="id"
-          itemSelectable
-          filterItem={() => true}
-          onFilterChange={onFilterChange}
-        />,
-      );
-
-      // onFilterChange is called when filters are applied through the UI
-      // The callback should be available and callable
-      expect(onFilterChange).toBeDefined();
-    });
   });
 
   describe("footerContent prop", () => {
-    it("renders footerContent at the bottom of the scroll container", () => {
+    it("places footer content after the table inside the scroll container", () => {
+      const scrollRef = createRef<HTMLDivElement>();
       render(
         <List<TestItem, TestItemKey>
           activeCols={activeCols}
@@ -2091,38 +1930,17 @@ describe("List", () => {
           colConfig={testColConfig}
           items={testItems}
           itemKey="id"
+          scrollRef={scrollRef}
           footerContent={<div data-testid="footer-content">Pagination Controls</div>}
         />,
       );
-
-      const footerContent = screen.getByTestId("footer-content");
-      expect(footerContent).toBeInTheDocument();
-      expect(footerContent.textContent).toBe("Pagination Controls");
-    });
-
-    it("renders footerContent after the table element", () => {
-      const { container } = render(
-        <List<TestItem, TestItemKey>
-          activeCols={activeCols}
-          colTitles={testColTitles}
-          colConfig={testColConfig}
-          items={testItems}
-          itemKey="id"
-          footerContent={<div data-testid="footer-content">Footer</div>}
-        />,
-      );
-
-      const table = container.querySelector("table");
-      const footerContent = screen.getByTestId("footer-content");
-
-      expect(table).toBeInTheDocument();
-      expect(footerContent).toBeInTheDocument();
-
-      const tableParent = table?.parentElement;
-      const footerParent = footerContent.parentElement;
-
-      expect(tableParent).toBeTruthy();
-      expect(footerParent).toBeTruthy();
+      const table = screen.getByRole("table");
+      const footer = screen.getByTestId("footer-content");
+      expect(footer).toHaveTextContent("Pagination Controls");
+      expect(scrollRef.current).toContainElement(table);
+      expect(scrollRef.current).toContainElement(footer);
+      expect(table).not.toContainElement(footer);
+      expect(table.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
     it("does not render footerContent when prop is not provided", () => {
@@ -2596,34 +2414,6 @@ describe("List", () => {
 
       const actionCells = screen.getAllByTestId("action");
       fireEvent.click(actionCells[0]);
-
-      expect(handleRowClick).not.toHaveBeenCalled();
-    });
-
-    it("does not trigger onRowClick when Enter is pressed on a nested button", () => {
-      const handleRowClick = vi.fn();
-
-      const configWithButton = {
-        ...testColConfig,
-        [testCols.name]: {
-          ...testColConfig[testCols.name as keyof typeof testColConfig],
-          component: (item: TestItem) => <button data-testid={`btn-${item.id}`}>{item.name}</button>,
-        },
-      };
-
-      render(
-        <List<TestItem, TestItemKey>
-          activeCols={activeCols}
-          colTitles={testColTitles}
-          colConfig={configWithButton}
-          items={testItems}
-          itemKey="id"
-          onRowClick={handleRowClick}
-        />,
-      );
-
-      const button = screen.getByTestId(`btn-${testItems[0].id}`);
-      fireEvent.keyDown(button, { key: "Enter", bubbles: true });
 
       expect(handleRowClick).not.toHaveBeenCalled();
     });

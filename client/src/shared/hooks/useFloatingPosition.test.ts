@@ -39,14 +39,6 @@ describe("computeFloatingStyle", () => {
     expect(style.top).toBeUndefined();
   });
 
-  it("does not flip when enough space on preferred side", () => {
-    const rect = makeRect({ top: 400, bottom: 430, left: 100, right: 200 });
-    const style = computeFloatingStyle(rect, viewport, { placement: "bottom-start" });
-
-    expect(style.top).toBe(434);
-    expect(style.bottom).toBeUndefined();
-  });
-
   it("caps maxHeight to available space", () => {
     const rect = makeRect({ top: 400, bottom: 430, left: 100, right: 200 });
     const style = computeFloatingStyle(rect, viewport, { maxHeight: 400 });

@@ -3,8 +3,8 @@ import { useMemo } from "react";
 import { DEFAULT_CHART_HEIGHT } from "./constants";
 import type { SegmentedMetricPanelProps } from "./types";
 import { durationToHours, getCurrentBreakdown, processMultiDayChartData } from "./utils";
-import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { StatusBreakdownPanel } from "@/protoFleet/features/dashboard/components/StatusBreakdownPanel";
+import ChartWidget from "@/shared/components/ChartWidget";
 import SegmentedBarChart from "@/shared/components/SegmentedBarChart";
 
 // Constants for bar chart display
@@ -59,6 +59,8 @@ export const SegmentedMetricPanel = ({
   segmentConfig,
   duration,
   className,
+  assetLabel = "miner",
+  populationLabel = "fleet",
 }: SegmentedMetricPanelProps) => {
   // Process the chart data - returns array of arrays for multi-day views
   const processedChartData = useMemo(
@@ -68,8 +70,8 @@ export const SegmentedMetricPanel = ({
 
   // Calculate current breakdown from processed chart data (shares logic with chart)
   const currentBreakdown = useMemo(
-    () => getCurrentBreakdown(processedChartData, segmentConfig),
-    [processedChartData, segmentConfig],
+    () => getCurrentBreakdown(processedChartData, segmentConfig, populationLabel),
+    [processedChartData, segmentConfig, populationLabel],
   );
 
   // Extract segment keys from config
@@ -150,7 +152,7 @@ export const SegmentedMetricPanel = ({
                   segmentKeys={segmentKeys}
                   colorMap={colorMap}
                   segmentConfig={segmentConfig}
-                  units={{ singular: "miner", plural: "miners" }}
+                  units={{ singular: assetLabel, plural: `${assetLabel}s` }}
                   height={DEFAULT_CHART_HEIGHT}
                   percentageDisplay={true}
                   xAxisTickInterval={getXAxisTickInterval(hours, isMultiDay)}

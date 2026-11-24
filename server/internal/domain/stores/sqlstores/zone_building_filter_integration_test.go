@@ -38,10 +38,9 @@ type zoneFixture struct {
 	devNoRack string   // 1 device with no rack membership
 }
 
-func buildZoneFixture(t *testing.T, ctx context.Context, tc *testutil.TestContext) zoneFixture {
+func buildZoneFixture(t *testing.T, ctx context.Context, dbSvc *testutil.DatabaseService) zoneFixture {
 	t.Helper()
-	dbSvc := tc.DatabaseService
-	db := tc.ServiceProvider.DB
+	db := dbSvc.DB
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
 	collectionStore := sqlstores.NewSQLCollectionStore(db)
 	siteStore := sqlstores.NewSQLSiteStore(db)
@@ -128,246 +127,149 @@ func listDevices(t *testing.T, ctx context.Context, store *sqlstores.SQLDeviceSt
 	return got, total
 }
 
-func TestZoneKeys_ScopedDistinguishesCrossBuildingCollision(t *testing.T) {
+// The subtests only query this fixture; keep them sequential and share one
+// database clone. Cross-organization isolation has its own fixture in
+// zone_building_filter_cross_org_test.go.
+func TestZoneBuildingFilters(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
+	tc := testutil.NewDatabaseService(t, nil)
 	ctx := t.Context()
 	fx := buildZoneFixture(t, ctx, tc)
-	deviceStore := sqlstores.NewSQLDeviceStore(tc.ServiceProvider.DB)
+	deviceStore := sqlstores.NewSQLDeviceStore(tc.DB)
 
-	// Scoped zone_keys to (B1, "Room 2") should match exactly the two
-	// devices in B1 — never the two in B2 with the same zone label. This is
-	// the marquee bug fix: the legacy org-wide zones filter would return all
-	// four.
-	filter := &stores.MinerFilter{
-		ZoneKeys: []stores.ZoneKey{{BuildingID: fx.buildingA, Zone: "Room 2"}},
-	}
-	got, total := listDevices(t, ctx, deviceStore, fx.orgID, filter)
+	t.Run("ZoneKeys_ScopedDistinguishesCrossBuildingCollision", func(t *testing.T) {
+		ctx := t.Context()
+		// Scoped zone_keys to (B1, "Room 2") should match exactly the two
+		// devices in B1 — never the two in B2 with the same zone label. This is
+		// the marquee bug fix: the legacy org-wide zones filter would return all
+		// four.
+		filter := &stores.MinerFilter{
+			ZoneKeys: []stores.ZoneKey{{BuildingID: fx.buildingA, Zone: "Room 2"}},
+		}
+		got, total := listDevices(t, ctx, deviceStore, fx.orgID, filter)
 
-	assert.Equal(t, int64(2), total)
-	for _, d := range fx.devsInB1 {
-		assert.Contains(t, got, d, "B1 device should match scoped zone_keys=(B1, Room 2)")
-	}
-	for _, d := range fx.devsInB2 {
-		assert.NotContains(t, got, d, "B2 device must NOT match scoped zone_keys=(B1, Room 2)")
-	}
-}
+		assert.Equal(t, int64(2), total)
+		for _, d := range fx.devsInB1 {
+			assert.Contains(t, got, d, "B1 device should match scoped zone_keys=(B1, Room 2)")
+		}
+		for _, d := range fx.devsInB2 {
+			assert.NotContains(t, got, d, "B2 device must NOT match scoped zone_keys=(B1, Room 2)")
+		}
+	})
 
-func TestZoneKeys_WildcardMatchesAllBuildings(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	ctx := t.Context()
-	fx := buildZoneFixture(t, ctx, tc)
-	deviceStore := sqlstores.NewSQLDeviceStore(tc.ServiceProvider.DB)
+	t.Run("ZoneKeys_WildcardMatchesAllBuildings", func(t *testing.T) {
+		ctx := t.Context()
+		// Wildcard {0, "Room 2"} preserves the legacy "any building" semantics.
+		// The fixture has 5 devices in racks labeled "Room 2": 2 in B1, 2 in B2,
+		// 1 in the no-building rack.
+		filter := &stores.MinerFilter{
+			ZoneKeys: []stores.ZoneKey{{BuildingID: 0, Zone: "Room 2"}},
+		}
+		got, total := listDevices(t, ctx, deviceStore, fx.orgID, filter)
 
-	// Wildcard {0, "Room 2"} preserves the legacy "any building" semantics.
-	// The fixture has 5 devices in racks labeled "Room 2": 2 in B1, 2 in B2,
-	// 1 in the no-building rack.
-	filter := &stores.MinerFilter{
-		ZoneKeys: []stores.ZoneKey{{BuildingID: 0, Zone: "Room 2"}},
-	}
-	got, total := listDevices(t, ctx, deviceStore, fx.orgID, filter)
+		assert.Equal(t, int64(5), total)
+		for _, d := range append(append([]string{}, fx.devsInB1...), fx.devsInB2...) {
+			assert.Contains(t, got, d)
+		}
+		assert.Contains(t, got, fx.devNoBldg, "wildcard zone matches the no-building rack too")
+		assert.NotContains(t, got, fx.devNoRack, "no-rack device is excluded by any zone_keys filter")
+	})
 
-	assert.Equal(t, int64(5), total)
-	for _, d := range append(append([]string{}, fx.devsInB1...), fx.devsInB2...) {
-		assert.Contains(t, got, d)
-	}
-	assert.Contains(t, got, fx.devNoBldg, "wildcard zone matches the no-building rack too")
-	assert.NotContains(t, got, fx.devNoRack, "no-rack device is excluded by any zone_keys filter")
-}
+	t.Run("ZoneKeys_MixedScopedAndWildcardUnion", func(t *testing.T) {
+		ctx := t.Context()
+		// Scoped (B1, "Room 2") OR wildcard (0, "Nonexistent") — wildcard side
+		// matches nothing, scoped side matches B1's two devices. Proves both
+		// branches emit and OR cleanly.
+		filter := &stores.MinerFilter{
+			ZoneKeys: []stores.ZoneKey{
+				{BuildingID: fx.buildingA, Zone: "Room 2"},
+				{BuildingID: 0, Zone: "Nonexistent Zone"},
+			},
+		}
+		got, total := listDevices(t, ctx, deviceStore, fx.orgID, filter)
+		assert.Equal(t, int64(2), total)
+		for _, d := range fx.devsInB1 {
+			assert.Contains(t, got, d)
+		}
+	})
 
-func TestZoneKeys_MixedScopedAndWildcardUnion(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	ctx := t.Context()
-	fx := buildZoneFixture(t, ctx, tc)
-	deviceStore := sqlstores.NewSQLDeviceStore(tc.ServiceProvider.DB)
+	t.Run("BuildingIDs_ScopesToBuilding", func(t *testing.T) {
+		ctx := t.Context()
+		filter := &stores.MinerFilter{
+			BuildingIDs: []int64{fx.buildingA},
+		}
+		got, total := listDevices(t, ctx, deviceStore, fx.orgID, filter)
+		assert.Equal(t, int64(2), total)
+		for _, d := range fx.devsInB1 {
+			assert.Contains(t, got, d)
+		}
+		for _, d := range fx.devsInB2 {
+			assert.NotContains(t, got, d)
+		}
+	})
 
-	// Scoped (B1, "Room 2") OR wildcard (0, "Nonexistent") — wildcard side
-	// matches nothing, scoped side matches B1's two devices. Proves both
-	// branches emit and OR cleanly.
-	filter := &stores.MinerFilter{
-		ZoneKeys: []stores.ZoneKey{
-			{BuildingID: fx.buildingA, Zone: "Room 2"},
-			{BuildingID: 0, Zone: "Nonexistent Zone"},
-		},
-	}
-	got, total := listDevices(t, ctx, deviceStore, fx.orgID, filter)
-	assert.Equal(t, int64(2), total)
-	for _, d := range fx.devsInB1 {
-		assert.Contains(t, got, d)
-	}
-}
+	t.Run("IncludeNoBuilding_SurfacesNullBuildingRack", func(t *testing.T) {
+		ctx := t.Context()
+		// include_no_building alone — surfaces only the one device in the
+		// no-building rack. Does NOT surface devices in B1 or B2, and does NOT
+		// surface the no-rack device (use include_no_rack for that).
+		filter := &stores.MinerFilter{IncludeNoBuilding: true}
+		got, total := listDevices(t, ctx, deviceStore, fx.orgID, filter)
+		assert.Equal(t, int64(1), total)
+		assert.Contains(t, got, fx.devNoBldg)
+		assert.NotContains(t, got, fx.devNoRack)
+	})
 
-func TestBuildingIDs_ScopesToBuilding(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	ctx := t.Context()
-	fx := buildZoneFixture(t, ctx, tc)
-	deviceStore := sqlstores.NewSQLDeviceStore(tc.ServiceProvider.DB)
+	t.Run("IncludeNoRack_SurfacesUnrackedDevice", func(t *testing.T) {
+		ctx := t.Context()
+		// include_no_rack alone — surfaces only the one device with no
+		// device_set_membership row.
+		filter := &stores.MinerFilter{IncludeNoRack: true}
+		got, total := listDevices(t, ctx, deviceStore, fx.orgID, filter)
+		assert.Equal(t, int64(1), total)
+		assert.Contains(t, got, fx.devNoRack)
+		assert.NotContains(t, got, fx.devNoBldg, "no-rack must NOT include racked-but-no-building")
+	})
 
-	filter := &stores.MinerFilter{
-		BuildingIDs: []int64{fx.buildingA},
-	}
-	got, total := listDevices(t, ctx, deviceStore, fx.orgID, filter)
-	assert.Equal(t, int64(2), total)
-	for _, d := range fx.devsInB1 {
-		assert.Contains(t, got, d)
-	}
-	for _, d := range fx.devsInB2 {
-		assert.NotContains(t, got, d)
-	}
-}
+	t.Run("IncludeNoBuildingPlusBuildingIDs_OR", func(t *testing.T) {
+		ctx := t.Context()
+		// building_ids = [B1] + include_no_building = true should union: B1's two
+		// devices + the no-building rack's one device.
+		filter := &stores.MinerFilter{
+			BuildingIDs:       []int64{fx.buildingA},
+			IncludeNoBuilding: true,
+		}
+		got, total := listDevices(t, ctx, deviceStore, fx.orgID, filter)
+		assert.Equal(t, int64(3), total)
+		for _, d := range fx.devsInB1 {
+			assert.Contains(t, got, d)
+		}
+		assert.Contains(t, got, fx.devNoBldg)
+		assert.NotContains(t, got, fx.devNoRack)
+	})
 
-func TestIncludeNoBuilding_SurfacesNullBuildingRack(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	ctx := t.Context()
-	fx := buildZoneFixture(t, ctx, tc)
-	deviceStore := sqlstores.NewSQLDeviceStore(tc.ServiceProvider.DB)
+	t.Run("ZoneKeysIntersectBuildingIDs_AND", func(t *testing.T) {
+		ctx := t.Context()
+		// building_ids=[B1] AND zone_keys=[{B2, "Room 2"}]: B1 devices fail the
+		// zone predicate, B2 devices fail the building predicate → empty.
+		filter := &stores.MinerFilter{
+			BuildingIDs: []int64{fx.buildingA},
+			ZoneKeys:    []stores.ZoneKey{{BuildingID: fx.buildingB, Zone: "Room 2"}},
+		}
+		_, total := listDevices(t, ctx, deviceStore, fx.orgID, filter)
+		assert.Equal(t, int64(0), total, "AND of disjoint scopes returns no devices")
 
-	// include_no_building alone — surfaces only the one device in the
-	// no-building rack. Does NOT surface devices in B1 or B2, and does NOT
-	// surface the no-rack device (use include_no_rack for that).
-	filter := &stores.MinerFilter{IncludeNoBuilding: true}
-	got, total := listDevices(t, ctx, deviceStore, fx.orgID, filter)
-	assert.Equal(t, int64(1), total)
-	assert.Contains(t, got, fx.devNoBldg)
-	assert.NotContains(t, got, fx.devNoRack)
-}
-
-func TestIncludeNoRack_SurfacesUnrackedDevice(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	ctx := t.Context()
-	fx := buildZoneFixture(t, ctx, tc)
-	deviceStore := sqlstores.NewSQLDeviceStore(tc.ServiceProvider.DB)
-
-	// include_no_rack alone — surfaces only the one device with no
-	// device_set_membership row.
-	filter := &stores.MinerFilter{IncludeNoRack: true}
-	got, total := listDevices(t, ctx, deviceStore, fx.orgID, filter)
-	assert.Equal(t, int64(1), total)
-	assert.Contains(t, got, fx.devNoRack)
-	assert.NotContains(t, got, fx.devNoBldg, "no-rack must NOT include racked-but-no-building")
-}
-
-func TestIncludeNoBuildingPlusBuildingIDs_OR(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	ctx := t.Context()
-	fx := buildZoneFixture(t, ctx, tc)
-	deviceStore := sqlstores.NewSQLDeviceStore(tc.ServiceProvider.DB)
-
-	// building_ids = [B1] + include_no_building = true should union: B1's two
-	// devices + the no-building rack's one device.
-	filter := &stores.MinerFilter{
-		BuildingIDs:       []int64{fx.buildingA},
-		IncludeNoBuilding: true,
-	}
-	got, total := listDevices(t, ctx, deviceStore, fx.orgID, filter)
-	assert.Equal(t, int64(3), total)
-	for _, d := range fx.devsInB1 {
-		assert.Contains(t, got, d)
-	}
-	assert.Contains(t, got, fx.devNoBldg)
-	assert.NotContains(t, got, fx.devNoRack)
-}
-
-func TestZoneKeysIntersectBuildingIDs_AND(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	ctx := t.Context()
-	fx := buildZoneFixture(t, ctx, tc)
-	deviceStore := sqlstores.NewSQLDeviceStore(tc.ServiceProvider.DB)
-
-	// building_ids=[B1] AND zone_keys=[{B2, "Room 2"}]: B1 devices fail the
-	// zone predicate, B2 devices fail the building predicate → empty.
-	filter := &stores.MinerFilter{
-		BuildingIDs: []int64{fx.buildingA},
-		ZoneKeys:    []stores.ZoneKey{{BuildingID: fx.buildingB, Zone: "Room 2"}},
-	}
-	_, total := listDevices(t, ctx, deviceStore, fx.orgID, filter)
-	assert.Equal(t, int64(0), total, "AND of disjoint scopes returns no devices")
-
-	// Matching scope returns B1's two devices.
-	filter = &stores.MinerFilter{
-		BuildingIDs: []int64{fx.buildingA},
-		ZoneKeys:    []stores.ZoneKey{{BuildingID: fx.buildingA, Zone: "Room 2"}},
-	}
-	got, total := listDevices(t, ctx, deviceStore, fx.orgID, filter)
-	assert.Equal(t, int64(2), total)
-	for _, d := range fx.devsInB1 {
-		assert.Contains(t, got, d)
-	}
-}
-
-// TestZoneKeysWildcard_CrossOrgIsolation guards the single-layer defense:
-// wildcard zone_keys skip the parseFilter cross-org check, so the SQL
-// builder's dcm.org_id = $orgID clause is the only org boundary. If a
-// future refactor drops that clause, this test catches it.
-func TestZoneKeysWildcard_CrossOrgIsolation(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping database integration test in short mode")
-	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
-	dbSvc := tc.DatabaseService
-	db := tc.ServiceProvider.DB
-	deviceStore := sqlstores.NewSQLDeviceStore(db)
-	collectionStore := sqlstores.NewSQLCollectionStore(db)
-	ctx := t.Context()
-
-	userA := dbSvc.CreateSuperAdminUser()
-	userB := dbSvc.CreateSuperAdminUser2()
-	devA := dbSvc.CreateDevice(userA.OrganizationID, "proto")
-	devB := dbSvc.CreateDevice(userB.OrganizationID, "proto")
-	pairDevice(t, ctx, deviceStore, userA.OrganizationID, devA.ID)
-	pairDevice(t, ctx, deviceStore, userB.OrganizationID, devB.ID)
-
-	const sharedZone = "shared-zone"
-	for _, who := range []struct {
-		orgID    int64
-		deviceID string
-		label    string
-	}{
-		{userA.OrganizationID, devA.ID, "Rack A"},
-		{userB.OrganizationID, devB.ID, "Rack B"},
-	} {
-		rack, err := collectionStore.CreateCollection(ctx, who.orgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, who.label, "")
-		require.NoError(t, err)
-		require.NoError(t, collectionStore.CreateRackExtension(ctx, stores.CreateRackExtensionParams{
-			OrgID: who.orgID, CollectionID: rack.Id, Rows: 4, Columns: 8, Zone: sharedZone,
-		}))
-		_, err = collectionStore.AddDevicesToCollection(ctx, who.orgID, rack.Id, []string{who.deviceID})
-		require.NoError(t, err)
-	}
-
-	wildcard := &stores.MinerFilter{
-		ZoneKeys: []stores.ZoneKey{{BuildingID: 0, Zone: sharedZone}},
-	}
-	gotA, totalA := listDevices(t, ctx, deviceStore, userA.OrganizationID, wildcard)
-	assert.Equal(t, int64(1), totalA)
-	assert.Contains(t, gotA, devA.ID)
-	assert.NotContains(t, gotA, devB.ID)
-
-	gotB, totalB := listDevices(t, ctx, deviceStore, userB.OrganizationID, wildcard)
-	assert.Equal(t, int64(1), totalB)
-	assert.Contains(t, gotB, devB.ID)
-	assert.NotContains(t, gotB, devA.ID)
+		// Matching scope returns B1's two devices.
+		filter = &stores.MinerFilter{
+			BuildingIDs: []int64{fx.buildingA},
+			ZoneKeys:    []stores.ZoneKey{{BuildingID: fx.buildingA, Zone: "Room 2"}},
+		}
+		got, total := listDevices(t, ctx, deviceStore, fx.orgID, filter)
+		assert.Equal(t, int64(2), total)
+		for _, d := range fx.devsInB1 {
+			assert.Contains(t, got, d)
+		}
+	})
 }

@@ -76,6 +76,7 @@ func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabi
 		sdk.CapabilityMiningStop:        true,
 		sdk.CapabilityLEDBlink:          true,
 		sdk.CapabilityCoolingModeAir:    true,
+		sdk.CapabilityPoolClear:         true,
 		sdk.CapabilityPoolConfig:        true,
 		sdk.CapabilityHashrateReported:  true,
 		sdk.CapabilityPowerUsage:        true,
@@ -282,7 +283,7 @@ func (d *Device) UpdateMiningPools(ctx context.Context, pools []sdk.MiningPoolCo
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
-	d.pools = pools
+	d.pools = append([]sdk.MiningPoolConfig(nil), pools...)
 	slog.Info("Virtual miner pools updated", "device_id", d.id, "pool_count", len(pools))
 	return nil
 }
@@ -307,7 +308,23 @@ func (d *Device) GetMiningPools(ctx context.Context) ([]sdk.ConfiguredPool, erro
 	return result, nil
 }
 
+// GetStoredMiningPools observes the virtual firmware's actual complete storage.
+func (d *Device) GetStoredMiningPools(ctx context.Context) ([]sdk.StoredMiningPool, error) {
+	if err := d.waitForLatency(ctx, false); err != nil {
+		return nil, err
+	}
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+	result := make([]sdk.StoredMiningPool, len(d.pools))
+	for i, p := range d.pools {
+		password := p.Password
+		result[i] = sdk.StoredMiningPool{Priority: p.Priority, URL: p.URL, Username: p.WorkerName, Password: &password}
+	}
+	return result, nil
+}
+
 // UpdateMinerPassword implements sdk.DeviceConfiguration.
+
 func (d *Device) UpdateMinerPassword(ctx context.Context, _, _ string) error {
 	if err := d.waitForLatency(ctx, true); err != nil {
 		return err
@@ -382,7 +399,7 @@ func (d *Device) sampleLatency(includeInternal bool) time.Duration {
 }
 
 // TryBatchStatus implements sdk.DeviceOptional.
-func (d *Device) TryBatchStatus(_ context.Context, _ []string) (map[string]sdk.DeviceMetrics, bool, error) {
+func (d *Device) TryBatchStatus(_ context.Context, _ []sdk.Device) (map[string]sdk.DeviceMetrics, bool, error) {
 	return nil, false, nil
 }
 

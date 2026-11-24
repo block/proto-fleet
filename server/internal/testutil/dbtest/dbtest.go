@@ -75,7 +75,22 @@ func GetTestDB(t *testing.T) *sql.DB {
 		dropTestDatabase(context.Background(), t, &adminConfig, dbName)
 	})
 
+	// Maintenance must not race backdated fixtures or deliberate lock barriers.
+	// Policy tests can still run jobs explicitly, or enable their own schedule.
+	PauseBackgroundJobs(t, conn)
 	return conn
+}
+
+func disableScheduledMaintenance(ctx context.Context, conn *sql.DB) error {
+	// Retention and aggregate refresh workers can acquire table locks between
+	// coordinated test transactions, or remove/materialize their fixture data.
+	// Bootstrap jobs must also be disabled because they can schedule new policies.
+	_, err := conn.ExecContext(ctx, `SELECT alter_job(job_id, scheduled => false)
+ FROM timescaledb_information.jobs WHERE scheduled`)
+	if err != nil {
+		return fmt.Errorf("disable test database background jobs: %w", err)
+	}
+	return nil
 }
 
 const (
@@ -459,9 +474,15 @@ func tryCreateTestDatabase(ctx context.Context, adminConfig *db.Config, dbName s
 // source (SQLSTATE 55006). Parallel tests all clone the same template, so this
 // is expected under load rather than a real failure.
 func isRetryableCreateError(msg string) bool {
-	return isTransientServerError(msg) ||
-		strings.Contains(msg, pgObjectInUse) ||
-		strings.Contains(msg, templateSourceInUse)
+	return isTransientServerError(msg) || isDatabaseInUseError(msg)
+}
+
+// isDatabaseInUseError reports whether a statement that needs a database to
+// itself found another session attached to it (SQLSTATE 55006). Unlike a
+// transient server error, the connection that issued the statement is still
+// usable, so the same session can evict the other one and try again.
+func isDatabaseInUseError(msg string) bool {
+	return strings.Contains(msg, pgObjectInUse) || strings.Contains(msg, templateSourceInUse)
 }
 
 // isMissingTemplateError reports whether a clone failed because its source

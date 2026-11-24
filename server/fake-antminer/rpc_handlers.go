@@ -1,9 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net"
 	"time"
 )
@@ -56,22 +56,42 @@ const (
 	thsToGhsConversionFactor = 1000
 )
 
-func handleRPCConnection(conn net.Conn, state *MinerState) {
+func handleRPCRequest(ctx context.Context, conn net.Conn, state *MinerState, delay time.Duration, metrics *operationMetrics) {
 	defer conn.Close()
+	start := time.Now()
+	operation := "rpc:unknown"
+	failed := true
+	if metrics != nil {
+		defer func() { metrics.record(operation, time.Since(start), failed) }()
+	}
+	ctx, cancel := context.WithTimeout(ctx, rpcConnectionTimeout)
+	defer cancel()
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	defer stop()
 
 	if err := conn.SetReadDeadline(time.Now().Add(rpcConnectionTimeout)); err != nil {
-		log.Printf("Failed to set read deadline: %v", err)
+		state.logf("Failed to set read deadline: %v", err)
 		return
 	}
 
 	var request RPCRequest
 	decoder := json.NewDecoder(conn)
 	if err := decoder.Decode(&request); err != nil {
-		log.Printf("Failed to decode request: %v", err)
+		state.logf("Failed to decode request: %v", err)
 		return
 	}
 
-	log.Printf("Received RPC command: %s", request.Command)
+	state.logf("Received RPC command: %s", request.Command)
+	switch request.Command {
+	case "version", "summary", "pools", "devs", "stats":
+		operation = "rpc:" + request.Command
+	}
+	if err := waitResponse(ctx, delay); err != nil {
+		return
+	}
+	if request.Command == "stats" || request.Command == "summary" || request.Command == "devs" {
+		state.advanceTelemetry()
+	}
 
 	var response interface{}
 	switch request.Command {
@@ -86,14 +106,15 @@ func handleRPCConnection(conn net.Conn, state *MinerState) {
 	case "stats":
 		response = generateStatsResponse(state)
 	default:
-		log.Printf("Unknown command: %s", request.Command)
+		state.logf("Unknown command: %s", request.Command)
 		response = map[string]string{"error": "unknown command"}
 	}
 
 	if err := json.NewEncoder(conn).Encode(response); err != nil {
-		log.Printf("Failed to encode response: %v", err)
+		state.logf("Failed to encode response: %v", err)
 		return
 	}
+	failed = operation == "rpc:unknown"
 }
 
 func generateStatsResponse(state *MinerState) StatsResponse {

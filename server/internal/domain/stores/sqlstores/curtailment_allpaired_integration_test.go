@@ -40,9 +40,9 @@ func TestSQLCurtailmentStore_ClaimAllPairedPolicyTargets_InsertsReopensAndSkipsC
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	db := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	db := testContext.DB
 	ctx := t.Context()
 	store := sqlstores.NewSQLCurtailmentStore(db)
 
@@ -152,11 +152,11 @@ func TestSQLCurtailmentStore_ClaimAllPairedPolicyTargets_FillsBatchPastEarlierRe
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(user.OrganizationID, 3, "https://172.17.0.1:80")
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
+	deviceIDs := testContext.CreateTestMiners(user.OrganizationID, 3, "https://172.17.0.1:80")
 
 	_, err := store.InsertEventWithTargets(
 		ctx,
@@ -212,11 +212,11 @@ func TestSQLCurtailmentStore_ListRecentlyResolvedCurtailedDevicesExcludesCurrent
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(user.OrganizationID, 2, "https://172.17.0.1:80")
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
+	deviceIDs := testContext.CreateTestMiners(user.OrganizationID, 2, "https://172.17.0.1:80")
 
 	insertResolved := func(deviceIdentifier string) *models.InsertEventResult {
 		params := curtailmentStoreTestEvent(
@@ -263,13 +263,13 @@ func TestSQLCurtailmentStore_ListActiveCurtailedDevices_AllPairedScopeLockAndRel
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	db := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	db := testContext.DB
 	ctx := t.Context()
 	store := sqlstores.NewSQLCurtailmentStore(db)
 
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(user.OrganizationID, 3, "https://172.17.0.1:80")
+	deviceIDs := testContext.CreateTestMiners(user.OrganizationID, 3, "https://172.17.0.1:80")
 	unclaimed, released, unavailable := deviceIDs[0], deviceIDs[1], deviceIDs[2]
 
 	inserted, err := store.InsertEventWithTargets(
@@ -319,9 +319,9 @@ func TestSQLCurtailmentStore_BulkRefreshAllPairedTargetReadiness_FlipsAndSkips(t
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	db := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	db := testContext.DB
 	ctx := t.Context()
 	store := sqlstores.NewSQLCurtailmentStore(db)
 
@@ -463,22 +463,22 @@ func TestSQLCurtailmentStore_BulkRefreshAllPairedTargetReadiness_FlipsAndSkips(t
 }
 
 // Pins the graceful-Stop release predicate against real SQL: only all-paired
-// targets with no dispatch attempt at all (NULL dispatch timestamps,
-// retry_count = 0, and no prior restore cycle) are released; anything with
-// attempt history routes through the restore reset instead.
-// curtail_failure_count is deliberately ignored — readiness flaps inflate it
-// without a command ever being sent. restore_started_at guards the
-// Stop -> Recurtail -> Stop cascade: the recurtail reset wipes retry_count and
-// dispatch timestamps, so the surviving restore stamp is the only evidence a
-// row was ever actually dispatched.
-func TestSQLCurtailmentStore_BeginRestoreTransition_ReleasesOnlyNeverAttemptedAllPairedTargets(t *testing.T) {
+// targets with no possible send (NULL dispatch timestamps, no ambiguous
+// attempt, and no prior restore cycle) are released; anything that may have
+// reached the miner routes through the restore reset instead. retry_count
+// and curtail_failure_count are deliberately ignored — admission skips and
+// readiness flaps inflate them without a command ever being sent.
+// restore_started_at guards the Stop -> Recurtail -> Stop cascade: the
+// recurtail reset wipes dispatch evidence, so the surviving restore stamp is
+// the only evidence a row was ever actually dispatched.
+func TestSQLCurtailmentStore_BeginRestoreTransition_ReleasesOnlyNeverSentAllPairedTargets(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	db := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	db := testContext.DB
 	ctx := t.Context()
 	store := sqlstores.NewSQLCurtailmentStore(db)
 
@@ -491,6 +491,7 @@ func TestSQLCurtailmentStore_BeginRestoreTransition_ReleasesOnlyNeverAttemptedAl
 			curtailmentStoreAllPairedTarget("ap-restore-never-unavailable", models.TargetStateUnavailable, "offline"),
 			curtailmentStoreAllPairedTarget("ap-restore-flapped", models.TargetStateUnavailable, "offline"),
 			curtailmentStoreAllPairedTarget("ap-restore-attempted", models.TargetStatePending, "curtail batch dispatch failed"),
+			curtailmentStoreAllPairedTarget("ap-restore-possibly-sent", models.TargetStatePending, "curtail batch dispatch failed"),
 			curtailmentStoreAllPairedTarget("ap-restore-dispatched", models.TargetStateDispatched, ""),
 			curtailmentStoreAllPairedTarget("ap-restore-recurtailed", models.TargetStatePending, ""),
 		},
@@ -498,8 +499,9 @@ func TestSQLCurtailmentStore_BeginRestoreTransition_ReleasesOnlyNeverAttemptedAl
 	require.NoError(t, err)
 
 	// Flap history: readiness churn bumped curtail_failure_count without any
-	// dispatch. Attempted: a failed dispatch bumped retry_count. Dispatched:
-	// a successful enqueue stamped last_dispatched_at.
+	// dispatch. Attempted: a known-unsent failure bumped retry_count. Possibly
+	// sent: an ambiguous failure also recorded a possible send. Dispatched: a
+	// successful enqueue stamped last_dispatched_at.
 	_, err = db.ExecContext(ctx, `
 		UPDATE curtailment_target SET curtail_failure_count = 2
 		WHERE curtailment_event_id = $1 AND device_identifier = 'ap-restore-flapped'
@@ -508,6 +510,11 @@ func TestSQLCurtailmentStore_BeginRestoreTransition_ReleasesOnlyNeverAttemptedAl
 	_, err = db.ExecContext(ctx, `
 		UPDATE curtailment_target SET retry_count = 1, curtail_failure_count = 1
 		WHERE curtailment_event_id = $1 AND device_identifier = 'ap-restore-attempted'
+	`, inserted.ID)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `
+		UPDATE curtailment_target SET retry_count = 1, curtail_failure_count = 1, curtail_possibly_sent = TRUE
+		WHERE curtailment_event_id = $1 AND device_identifier = 'ap-restore-possibly-sent'
 	`, inserted.ID)
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, `
@@ -551,17 +558,17 @@ func TestSQLCurtailmentStore_BeginRestoreTransition_ReleasesOnlyNeverAttemptedAl
 		got[device] = row
 	}
 	require.NoError(t, rows.Err())
-	require.Len(t, got, 6)
+	require.Len(t, got, 7)
 
-	for _, device := range []string{"ap-restore-never-pending", "ap-restore-never-unavailable", "ap-restore-flapped"} {
+	for _, device := range []string{"ap-restore-never-pending", "ap-restore-never-unavailable", "ap-restore-flapped", "ap-restore-attempted"} {
 		row := got[device]
-		assert.Equal(t, string(models.TargetStateReleased), row.state, "%s: never-attempted targets release without restore", device)
+		assert.Equal(t, string(models.TargetStateReleased), row.state, "%s: never-sent targets release without restore", device)
 		assert.Equal(t, models.DesiredStateCurtailed, row.desiredState, "%s: released rows are untouched by the restore reset", device)
 		assert.False(t, row.restoreState.Valid, "%s: no restore phase for released rows", device)
 	}
-	for _, device := range []string{"ap-restore-attempted", "ap-restore-dispatched", "ap-restore-recurtailed"} {
+	for _, device := range []string{"ap-restore-possibly-sent", "ap-restore-dispatched", "ap-restore-recurtailed"} {
 		row := got[device]
-		assert.Equal(t, string(models.TargetStatePending), row.state, "%s: attempt history routes through the restore queue", device)
+		assert.Equal(t, string(models.TargetStatePending), row.state, "%s: possible sends route through the restore queue", device)
 		assert.Equal(t, models.DesiredStateActive, row.desiredState, device)
 		require.True(t, row.restoreState.Valid, device)
 		assert.Equal(t, string(models.TargetStatePending), row.restoreState.String, device)

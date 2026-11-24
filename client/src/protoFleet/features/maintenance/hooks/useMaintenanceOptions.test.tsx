@@ -1,10 +1,11 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import MaintenanceOptionsProvider from "../components/MaintenanceOptionsProvider";
+import type { useMaintenanceApi } from "@/protoFleet/api/maintenance";
 
 let canManage = true;
-const listAssignees = vi.fn(async ({ onSuccess, onFinally }) => {
-  onSuccess([{ userId: 5n, username: "alex", roleName: "Technician" }]);
+const listAssignees = vi.fn<ReturnType<typeof useMaintenanceApi>["listAssignees"]>(async ({ onSuccess, onFinally }) => {
+  onSuccess?.([{ $typeName: "maintenance.v1.Assignee", userId: 5n, username: "alex", roleName: "Technician" }]);
   onFinally?.();
 });
 const listSites = vi.fn(async ({ maintenanceOptionsScope, onSuccess }) => {
@@ -58,4 +59,66 @@ it("skips the manage catalog for read-only maintenance users", async () => {
 
   expect(listSites).toHaveBeenCalledTimes(1);
   expect(result.current.manageableSites).toEqual([]);
+});
+
+it("exposes a pending retry after an initial assignee failure and clears the error on success", async () => {
+  listAssignees.mockImplementationOnce(async ({ onError }) => onError?.("Options unavailable"));
+  const { result } = renderHook(() => useMaintenanceOptions(), { wrapper: MaintenanceOptionsProvider });
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  expect(result.current.error).toBe("Options unavailable");
+  expect(result.current.assignees).toEqual([]);
+  expect(result.current.manageableSites).toEqual([{ id: "9", name: "Phoenix" }]);
+
+  let finishRetry!: () => void;
+  listAssignees.mockImplementationOnce(
+    ({ onSuccess }) =>
+      new Promise<void>((resolve) => {
+        finishRetry = () => {
+          onSuccess?.([{ $typeName: "maintenance.v1.Assignee", userId: 5n, username: "alex", roleName: "Technician" }]);
+          resolve();
+        };
+      }),
+  );
+  let retry!: Promise<void>;
+  act(() => {
+    retry = result.current.refresh();
+  });
+  expect(result.current.loading).toBe(true);
+  await act(async () => {
+    finishRetry();
+    await retry;
+  });
+  expect(result.current.loading).toBe(false);
+  expect(result.current.error).toBeNull();
+  expect(result.current.currentAssignee?.id).toBe("5");
+});
+
+it("retains loaded assignees while refreshing and after a transient failure", async () => {
+  const { result } = renderHook(() => useMaintenanceOptions(), { wrapper: MaintenanceOptionsProvider });
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  const previousAssignees = result.current.assignees;
+  let finishRefresh!: () => void;
+  listAssignees.mockImplementationOnce(
+    ({ onError }) =>
+      new Promise<void>((resolve) => {
+        finishRefresh = () => {
+          onError?.("Options unavailable");
+          resolve();
+        };
+      }),
+  );
+
+  let refresh!: Promise<void>;
+  act(() => {
+    refresh = result.current.refresh();
+  });
+  expect(result.current.loading).toBe(true);
+  expect(result.current.assignees).toEqual(previousAssignees);
+  await act(async () => {
+    finishRefresh();
+    await refresh;
+  });
+  expect(result.current.loading).toBe(false);
+  expect(result.current.error).toBe("Options unavailable");
+  expect(result.current.assignees).toEqual(previousAssignees);
 });

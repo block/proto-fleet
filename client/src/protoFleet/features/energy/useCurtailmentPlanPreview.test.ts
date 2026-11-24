@@ -3,13 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 
+import type { CurtailmentFormValues } from "@/protoFleet/api/curtailmentTypes";
 import {
   CurtailmentCandidateSchema,
   CurtailmentMode,
   FixedKwParamsSchema,
   PreviewCurtailmentPlanResponseSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
-import type { CurtailmentFormValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import {
   buildPreviewCurtailmentPlanRequest,
   createCurtailmentPlanPreview,
@@ -40,7 +40,6 @@ const baseValues: CurtailmentFormValues = {
   buildingTargetIds: [],
   rackTargetIds: [],
   groupTargetIds: [],
-  deviceSetIds: [],
   deviceIdentifiers: [],
   responseProfileId: "customPlan",
   curtailmentMode: "fixedKwReduction",
@@ -111,6 +110,25 @@ describe("useCurtailmentPlanPreview", () => {
     vi.useRealTimers();
   });
 
+  it("reloads profile options and preserves the conflict recovery message for Preview", async () => {
+    const reload = vi.fn();
+    window.addEventListener("protoFleet:curtailment-profiles-stale", reload);
+    mockPreviewCurtailmentPlan.mockRejectedValueOnce(
+      new ConnectError(
+        "curtailment response profile changed before execution; reload and retry",
+        Code.FailedPrecondition,
+      ),
+    );
+    const { result } = renderHook(() =>
+      useCurtailmentPlanPreview({ open: true, values: baseValues, debounceMs: 0, refreshIntervalMs: 0 }),
+    );
+    await waitFor(() =>
+      expect(result.current.previewError).toContain("Reload the profile and review the updated plan"),
+    );
+    expect(reload).toHaveBeenCalledTimes(1);
+    window.removeEventListener("protoFleet:curtailment-profiles-stale", reload);
+  });
+
   it("builds supported fixed-kW preview requests", () => {
     const wholeFleetRequest = buildPreviewCurtailmentPlanRequest(baseValues);
     expect(wholeFleetRequest?.responseProfileId).toBe(0n);
@@ -124,8 +142,8 @@ describe("useCurtailmentPlanPreview", () => {
       throw new Error("Expected fixedKw mode params");
     }
     expect(wholeFleetRequest.modeParams.value.targetKw).toBe(40);
-    expect(wholeFleetRequest?.includeMaintenance).toBe(true);
-    expect(wholeFleetRequest?.forceIncludeMaintenance).toBe(true);
+    expect(wholeFleetRequest?.includeMaintenance).toBe(false);
+    expect(wholeFleetRequest?.forceIncludeMaintenance).toBe(false);
 
     const minerRequest = buildPreviewCurtailmentPlanRequest({
       ...baseValues,
@@ -330,17 +348,6 @@ describe("useCurtailmentPlanPreview", () => {
     expect(buildPreviewCurtailmentPlanRequest({ ...baseValues, targetKw: "" })).toBeUndefined();
     expect(buildPreviewCurtailmentPlanRequest({ ...baseValues, targetKw: "0" })).toBeUndefined();
     expect(
-      buildPreviewCurtailmentPlanRequest({ ...baseValues, scopeType: "deviceSet", deviceSetIds: [] }),
-    ).toBeUndefined();
-    expect(
-      buildPreviewCurtailmentPlanRequest({
-        ...baseValues,
-        scopeType: "deviceSet",
-        scopeId: "racks",
-        deviceSetIds: ["rack-1"],
-      }),
-    ).toBeUndefined();
-    expect(
       buildPreviewCurtailmentPlanRequest({
         ...baseValues,
         scopeType: "site",
@@ -356,23 +363,6 @@ describe("useCurtailmentPlanPreview", () => {
         siteId: "0",
       }),
     ).toBeUndefined();
-  });
-
-  it("surfaces unsupported device-set previews without calling the API", () => {
-    const { result } = renderPreviewHook({
-      ...baseValues,
-      scopeType: "deviceSet",
-      scopeId: "racks",
-      deviceSetIds: ["rack-1"],
-    });
-
-    expect(result.current).toEqual({
-      preview: undefined,
-      previewError:
-        "Rack and group curtailment previews are not supported yet. Select specific miners or the whole fleet to preview and start this curtailment.",
-      isPreviewLoading: false,
-    });
-    expect(mockPreviewCurtailmentPlan).not.toHaveBeenCalled();
   });
 
   it("skips site-scoped previews with invalid site ids", () => {
@@ -411,8 +401,8 @@ describe("useCurtailmentPlanPreview", () => {
 
     expect(mockPreviewCurtailmentPlan).toHaveBeenCalledWith(
       expect.objectContaining({
-        includeMaintenance: true,
-        forceIncludeMaintenance: true,
+        includeMaintenance: false,
+        forceIncludeMaintenance: false,
       }),
       expect.objectContaining({
         signal: expect.any(AbortSignal),

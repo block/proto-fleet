@@ -103,8 +103,9 @@ describe("SiteResourcePanel", () => {
     refetchComponents.mockClear();
   });
 
-  it("defaults to the Buildings gallery", () => {
+  it("defaults to the Buildings gallery with an accurate tab-group label", () => {
     renderPanel();
+    expect(screen.getByRole("group", { name: "Site resources" })).toBeInTheDocument();
     expect(screen.getByTestId("building-card")).toHaveTextContent("North Hall");
     expect(screen.queryByTestId("rack-card")).not.toBeInTheDocument();
   });

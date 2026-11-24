@@ -52,7 +52,7 @@ describe("useSystemStatus", () => {
     currentDefaultPasswordActive = undefined;
 
     (useMinerHosting as Mock).mockReturnValue({
-      api: {
+      adapter: {
         getSystemStatus: mockGetSystemStatus,
       },
     });
@@ -63,28 +63,29 @@ describe("useSystemStatus", () => {
     (useSetPasswordSet as Mock).mockReturnValue(mockSetPasswordSet);
     (useSetDefaultPasswordActive as Mock).mockReturnValue(mockSetDefaultPasswordActive);
     (usePoll as Mock).mockImplementation(({ fetchData, enabled }) => {
+      // Mirror real usePoll: hand fetchData an AbortSignal so the request can
+      // cancel on unmount/navigation.
       if (enabled) {
-        void fetchData();
+        void fetchData(new AbortController().signal);
       }
     });
 
     mockGetStoreState.mockImplementation(() => ({
-      minerStatus: { defaultPasswordActive: currentDefaultPasswordActive },
+      minerStatus: { lifecycle: { defaultPasswordActive: currentDefaultPasswordActive } },
+      beginStoreWrite: () => ({ connectionGeneration: 0, requestId: 1 }),
+      acceptStoreWrite: () => true,
     }));
 
-    mockGetSystemStatus.mockResolvedValue({
-      data: {
-        onboarded: true,
-        password_set: true,
-      },
-    });
+    mockGetSystemStatus.mockResolvedValue({ onboarded: true, passwordSet: true });
   });
 
   test("stores onboarded and password_set from the status response", async () => {
     renderHook(() => useSystemStatus());
 
     await waitFor(() => {
-      expect(mockGetSystemStatus).toHaveBeenCalledWith({ secure: false });
+      // usePoll threads its AbortController's signal into the request so the
+      // in-flight fetch cancels on unmount/navigation.
+      expect(mockGetSystemStatus).toHaveBeenCalledWith({ signal: expect.any(AbortSignal) });
     });
 
     expect(mockSetOnboarded).toHaveBeenCalledWith(true);

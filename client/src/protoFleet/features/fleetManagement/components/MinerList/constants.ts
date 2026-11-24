@@ -6,6 +6,8 @@ export const MINERS_PAGE_SIZE = 50;
 export const minerCols = {
   name: "name",
   workerName: "workerName",
+  poolConfiguration: "poolConfiguration",
+  assignedAccount: "assignedAccount",
   model: "model",
   macAddress: "macAddress",
   ipAddress: "ipAddress",
@@ -27,6 +29,8 @@ export type MinerColumn = (typeof minerCols)[keyof typeof minerCols];
 export const minerColTitles: ColTitles<MinerColumn> = {
   name: "Name",
   workerName: "Worker name",
+  poolConfiguration: "Pool configuration",
+  assignedAccount: "Allocated to",
   model: "Model",
   macAddress: "MAC address",
   ipAddress: "IP address",
@@ -63,3 +67,15 @@ export const componentIssues = {
   hashBoards: "hash-boards",
   psu: "psu",
 };
+
+export const miningColumnWidths = {
+  name: "w-[208px] max-w-[208px]",
+  model: "w-[176px]",
+  poolConfiguration: "w-[208px]",
+  status: "w-[200px]",
+  hashrate: "w-[80px]",
+  efficiency: "w-[80px]",
+  powerUsage: "w-[80px]",
+  temperature: "w-[80px]",
+  site: "w-[160px]",
+} as const;

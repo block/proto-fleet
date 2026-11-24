@@ -2,6 +2,7 @@ package curtailment
 
 import (
 	"context"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -11,6 +12,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	domainCurtailment "github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
@@ -19,15 +21,15 @@ func (h *Handler) ListCurtailmentAutomationRules(ctx context.Context, _ *connect
 	if err != nil {
 		return nil, err
 	}
-	if h.automation == nil {
-		return nil, errCurtailmentNotImplemented("ListCurtailmentAutomationRules")
+	if err := requireService(h.automation, "ListCurtailmentAutomationRules"); err != nil {
+		return nil, err
 	}
 	rules, err := h.automation.List(ctx, info.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
-	if h.responseProfiles == nil {
-		return nil, errCurtailmentNotImplemented("ListCurtailmentAutomationRules")
+	if err := requireService(h.responseProfiles, "ListCurtailmentAutomationRules"); err != nil {
+		return nil, err
 	}
 	profiles, err := h.responseProfiles.List(ctx, info.OrganizationID)
 	if err != nil {
@@ -107,8 +109,8 @@ func (h *Handler) GetCurtailmentAutomationRule(ctx context.Context, req *connect
 	if err != nil {
 		return nil, err
 	}
-	if h.automation == nil {
-		return nil, errCurtailmentNotImplemented("GetCurtailmentAutomationRule")
+	if err := requireService(h.automation, "GetCurtailmentAutomationRule"); err != nil {
+		return nil, err
 	}
 	rule, err := h.getAutomationRuleWithProfilePermission(ctx, info.OrganizationID, req.Msg.GetRuleId())
 	if err != nil {
@@ -122,8 +124,8 @@ func (h *Handler) CreateCurtailmentAutomationRule(ctx context.Context, req *conn
 	if err != nil {
 		return nil, err
 	}
-	if h.automation == nil {
-		return nil, errCurtailmentNotImplemented("CreateCurtailmentAutomationRule")
+	if err := requireService(h.automation, "CreateCurtailmentAutomationRule"); err != nil {
+		return nil, err
 	}
 	profile, err := h.getResponseProfileWithSitePermission(ctx, info.OrganizationID, req.Msg.GetResponseProfileId())
 	if err != nil {
@@ -136,7 +138,10 @@ func (h *Handler) CreateCurtailmentAutomationRule(ctx context.Context, req *conn
 	if err != nil {
 		return nil, err
 	}
-	rule := automationRuleFromCreateRequest(info.OrganizationID, req.Msg)
+	if err := requireAutomationGrantPermission(ctx, profile, expectedProfileRevision); err != nil {
+		return nil, err
+	}
+	rule := automationRuleFromCreateRequest(info.OrganizationID, info.UserID, req.Msg)
 	created, err := h.automation.Create(ctx, domainCurtailment.SaveAutomationRuleRequest{
 		Rule:                               rule,
 		CanUseAdminControls:                canUseAdminControls(info),
@@ -154,8 +159,8 @@ func (h *Handler) UpdateCurtailmentAutomationRule(ctx context.Context, req *conn
 	if err != nil {
 		return nil, err
 	}
-	if h.automation == nil {
-		return nil, errCurtailmentNotImplemented("UpdateCurtailmentAutomationRule")
+	if err := requireService(h.automation, "UpdateCurtailmentAutomationRule"); err != nil {
+		return nil, err
 	}
 	if _, err := h.getAutomationRuleWithProfilePermission(ctx, info.OrganizationID, req.Msg.GetRuleId()); err != nil {
 		return nil, err
@@ -171,7 +176,10 @@ func (h *Handler) UpdateCurtailmentAutomationRule(ctx context.Context, req *conn
 	if err != nil {
 		return nil, err
 	}
-	rule := automationRuleFromUpdateRequest(info.OrganizationID, req.Msg)
+	if err := requireAutomationGrantPermission(ctx, profile, expectedProfileRevision); err != nil {
+		return nil, err
+	}
+	rule := automationRuleFromUpdateRequest(info.OrganizationID, info.UserID, req.Msg)
 	updated, err := h.automation.Update(ctx, domainCurtailment.SaveAutomationRuleRequest{
 		Rule:                               rule,
 		CanUseAdminControls:                canUseAdminControls(info),
@@ -189,8 +197,8 @@ func (h *Handler) SetCurtailmentAutomationRuleEnabled(ctx context.Context, req *
 	if err != nil {
 		return nil, err
 	}
-	if h.automation == nil {
-		return nil, errCurtailmentNotImplemented("SetCurtailmentAutomationRuleEnabled")
+	if err := requireService(h.automation, "SetCurtailmentAutomationRuleEnabled"); err != nil {
+		return nil, err
 	}
 	rule, profile, err := h.getAutomationRuleWithAuthorizedProfile(ctx, info.OrganizationID, req.Msg.GetRuleId())
 	if err != nil {
@@ -203,6 +211,9 @@ func (h *Handler) SetCurtailmentAutomationRuleEnabled(ctx context.Context, req *
 			req.Msg.GetExpectedResponseProfileRevision(),
 		)
 		if err != nil {
+			return nil, err
+		}
+		if err := requireAutomationGrantPermission(ctx, profile, expectedProfileRevision); err != nil {
 			return nil, err
 		}
 	}
@@ -226,8 +237,8 @@ func (h *Handler) DeleteCurtailmentAutomationRule(ctx context.Context, req *conn
 	if err != nil {
 		return nil, err
 	}
-	if h.automation == nil {
-		return nil, errCurtailmentNotImplemented("DeleteCurtailmentAutomationRule")
+	if err := requireService(h.automation, "DeleteCurtailmentAutomationRule"); err != nil {
+		return nil, err
 	}
 	if _, err := h.getAutomationRuleWithProfilePermission(ctx, info.OrganizationID, req.Msg.GetRuleId()); err != nil {
 		return nil, err
@@ -236,6 +247,20 @@ func (h *Handler) DeleteCurtailmentAutomationRule(ctx context.Context, req *conn
 		return nil, err
 	}
 	return connect.NewResponse(&pb.DeleteCurtailmentAutomationRuleResponse{}), nil
+}
+
+// requireAutomationGrantPermission authorizes the caller for the persisted
+// authorization envelope that binding copies into the rule's execution grant,
+// which can cover more sites than the profile's miners occupy today. The store
+// pins the same revision, and the revision changes whenever the envelope does.
+func requireAutomationGrantPermission(ctx context.Context, profile *models.ResponseProfile, expectedRevision uuid.UUID) error {
+	if profile == nil {
+		return fleeterror.NewNotFoundError("curtailment response profile not found")
+	}
+	if profile.Revision != expectedRevision {
+		return fleeterror.NewFailedPreconditionError("curtailment response profile changed before automation rule save; retry")
+	}
+	return requireAuthorizationEnvelopePermissions(ctx, authz.PermCurtailmentManage, profile.AuthorizationEnvelopeJSON)
 }
 
 func (h *Handler) getAutomationRuleWithProfilePermission(ctx context.Context, orgID, ruleID int64) (*models.AutomationRule, error) {
@@ -266,8 +291,8 @@ func (h *Handler) requireAutomationRuleProfilePermission(ctx context.Context, ru
 	if err := requireResourceContextPermissions(ctx, authz.PermCurtailmentManage, requirements); err != nil {
 		return nil, err
 	}
-	if h.responseProfiles == nil {
-		return nil, errCurtailmentNotImplemented("GetCurtailmentAutomationRule")
+	if err := requireService(h.responseProfiles, "GetCurtailmentAutomationRule"); err != nil {
+		return nil, err
 	}
 	profile, err := h.responseProfiles.Get(ctx, rule.OrgID, rule.ResponseProfileID)
 	if err != nil {
@@ -302,10 +327,10 @@ func (h *Handler) responseProfileDeviceSitesForAutomationRules(
 	if len(deviceIdentifiers) == 0 {
 		return map[string]*int64{}, nil
 	}
-	if h.responseProfiles == nil {
-		return nil, nil
+	if requireService(h.responseProfiles, "automation rule scope authorization") == nil {
+		return h.responseProfiles.ListDeviceSites(ctx, orgID, deviceIdentifiers)
 	}
-	return h.responseProfiles.ListDeviceSites(ctx, orgID, deviceIdentifiers)
+	return nil, nil
 }
 
 func (h *Handler) automationRuleProfileResourceContextRequirements(
@@ -323,7 +348,7 @@ func (h *Handler) automationRuleProfileResourceContextRequirements(
 	}, deviceSites, false)
 }
 
-func automationRuleFromCreateRequest(orgID int64, msg *pb.CreateCurtailmentAutomationRuleRequest) models.AutomationRule {
+func automationRuleFromCreateRequest(orgID, userID int64, msg *pb.CreateCurtailmentAutomationRuleRequest) models.AutomationRule {
 	enabled := true
 	if msg.Enabled != nil {
 		enabled = msg.GetEnabled()
@@ -333,18 +358,20 @@ func automationRuleFromCreateRequest(orgID int64, msg *pb.CreateCurtailmentAutom
 		RuleName:          msg.GetRuleName(),
 		TriggerType:       automationTriggerTypeFromProto(msg.GetTriggerType()),
 		MQTTSourceID:      msg.GetMqttSourceId(),
+		Schedule:          automationScheduleFromProto(msg.GetSchedule(), userID),
 		ResponseProfileID: msg.GetResponseProfileId(),
 		Enabled:           enabled,
 	}
 }
 
-func automationRuleFromUpdateRequest(orgID int64, msg *pb.UpdateCurtailmentAutomationRuleRequest) models.AutomationRule {
+func automationRuleFromUpdateRequest(orgID, userID int64, msg *pb.UpdateCurtailmentAutomationRuleRequest) models.AutomationRule {
 	return models.AutomationRule{
 		ID:                msg.GetRuleId(),
 		OrgID:             orgID,
 		RuleName:          msg.GetRuleName(),
 		TriggerType:       automationTriggerTypeFromProto(msg.GetTriggerType()),
 		MQTTSourceID:      msg.GetMqttSourceId(),
+		Schedule:          automationScheduleFromProto(msg.GetSchedule(), userID),
 		ResponseProfileID: msg.GetResponseProfileId(),
 	}
 }
@@ -354,6 +381,8 @@ func automationTriggerTypeFromProto(v pb.CurtailmentAutomationTriggerType) model
 	case pb.CurtailmentAutomationTriggerType_CURTAILMENT_AUTOMATION_TRIGGER_TYPE_MQTT,
 		pb.CurtailmentAutomationTriggerType_CURTAILMENT_AUTOMATION_TRIGGER_TYPE_UNSPECIFIED:
 		return models.AutomationTriggerTypeMQTT
+	case pb.CurtailmentAutomationTriggerType_CURTAILMENT_AUTOMATION_TRIGGER_TYPE_SCHEDULE:
+		return models.AutomationTriggerTypeSchedule
 	default:
 		return models.AutomationTriggerType(v.String())
 	}
@@ -363,6 +392,8 @@ func automationTriggerTypeProto(v models.AutomationTriggerType) pb.CurtailmentAu
 	switch v {
 	case models.AutomationTriggerTypeMQTT:
 		return pb.CurtailmentAutomationTriggerType_CURTAILMENT_AUTOMATION_TRIGGER_TYPE_MQTT
+	case models.AutomationTriggerTypeSchedule:
+		return pb.CurtailmentAutomationTriggerType_CURTAILMENT_AUTOMATION_TRIGGER_TYPE_SCHEDULE
 	default:
 		return pb.CurtailmentAutomationTriggerType_CURTAILMENT_AUTOMATION_TRIGGER_TYPE_UNSPECIFIED
 	}
@@ -387,6 +418,8 @@ func toAutomationRuleProto(rule *models.AutomationRule) *pb.CurtailmentAutomatio
 		return nil
 	}
 	out := &pb.CurtailmentAutomationRule{
+		BindingStatus:       rule.BindingStatus,
+		ExecutionStatus:     rule.ExecutionStatus,
 		RuleId:              rule.ID,
 		RuleName:            rule.RuleName,
 		TriggerType:         automationTriggerTypeProto(rule.TriggerType),
@@ -396,9 +429,11 @@ func toAutomationRuleProto(rule *models.AutomationRule) *pb.CurtailmentAutomatio
 		ResponseProfileName: rule.ResponseProfileName,
 		Enabled:             rule.Enabled,
 		CurrentSignal:       automationSignalProto(rule.LastSignal),
+		Schedule:            automationScheduleProto(rule.Schedule),
 		CreatedAt:           timestamppb.New(rule.CreatedAt),
 		UpdatedAt:           timestamppb.New(rule.UpdatedAt),
 	}
+	setAutomationScheduleWindow(out, rule.Schedule, time.Now())
 	if rule.LastSignalAt != nil {
 		out.LastSignalAt = timestamppb.New(*rule.LastSignalAt)
 	}

@@ -23,6 +23,15 @@ describe("AsicTablePreview", () => {
     expect(chips).toHaveLength(4);
   });
 
+  it("renders a list far longer than its grid", () => {
+    // More entries than a function call can take as arguments.
+    const asics: AsicData[] = Array.from({ length: 200_000 }, (_, i) => ({ row: i % 2, col: 0, value: 50 }));
+
+    render(<AsicTablePreview asics={asics} {...defaultProps} />);
+
+    expect(screen.getAllByTestId(/^asic-/)).toHaveLength(2);
+  });
+
   it("handles sparse grids correctly", () => {
     const asics: AsicData[] = [
       { row: 0, col: 0, value: 50 },
@@ -143,13 +152,11 @@ describe("AsicTablePreview", () => {
     const midOpacity = parseFloat(midChip!.style.opacity);
     const highOpacity = parseFloat(highChip!.style.opacity);
 
-    // All should be within the mapped range
-    expect(lowOpacity).toBeGreaterThanOrEqual(0.05);
+    // The opacity decreases as the value increases, and stays in the mapped range.
     expect(lowOpacity).toBeLessThanOrEqual(0.4);
-    expect(midOpacity).toBeGreaterThanOrEqual(0.05);
-    expect(midOpacity).toBeLessThanOrEqual(0.4);
+    expect(lowOpacity).toBeGreaterThan(midOpacity);
+    expect(midOpacity).toBeGreaterThan(highOpacity);
     expect(highOpacity).toBeGreaterThanOrEqual(0.05);
-    expect(highOpacity).toBeLessThanOrEqual(0.4);
   });
 
   it("uses default colors when not provided", () => {

@@ -113,6 +113,12 @@ const (
 	templateDetachTimeout  = 30 * time.Second
 	templateDetachInterval = 100 * time.Millisecond
 
+	// templatePublishTimeout bounds how long publication keeps retrying a rename
+	// that found a session attached to the staging database. PostgreSQL waits
+	// five seconds for that session to leave before it fails each rename, so
+	// this allows about six attempts. See publishTemplateDatabase.
+	templatePublishTimeout = 30 * time.Second
+
 	// templateRebuildWaitInterval is the poll interval while waiting for
 	// somebody else's rebuild to publish.
 	templateRebuildWaitInterval = 100 * time.Millisecond
@@ -361,7 +367,7 @@ func buildTemplateDatabase(
 	// inside the database, and that counts as a connected session: every clone
 	// would fail with "source database is being accessed by other users", and
 	// the rename below would fail too. Evict it now that ALLOW_CONNECTIONS false
-	// stops the launcher reattaching.
+	// makes any scheduler started later exit as soon as it has attached.
 	if err := detachTemplateSessions(ctx, adminConn, staging); err != nil {
 		abandonTemplate(adminConfig, staging)
 		return err
@@ -385,13 +391,44 @@ func buildTemplateDatabase(
 		abandonTemplate(adminConfig, staging)
 		return fmt.Errorf("drop superseded template: %w", err)
 	}
-	if _, err := adminConn.ExecContext(ctx, fmt.Sprintf("ALTER DATABASE %s RENAME TO %s",
-		quoteIdentifier(staging), quoteIdentifier(name))); err != nil {
+	if err := publishTemplateDatabase(ctx, adminConn, staging, name); err != nil {
 		abandonTemplate(adminConfig, staging)
-		return fmt.Errorf("publish template database: %w", err)
+		return err
 	}
 
 	return nil
+}
+
+// publishTemplateDatabase renames the sealed staging database to its published
+// name, trying again while another session is attached to it.
+//
+// The rename needs the database to itself, and detaching sessions beforehand
+// cannot guarantee that. From TimescaleDB 2.32 the rename statement itself makes
+// the launcher start a scheduler for the database. That worker exits once it
+// finds connections disabled, but when it attaches before the rename has
+// checked for other sessions, PostgreSQL waits five seconds for it to leave and
+// then fails the rename with SQLSTATE 55006; the worker only exits after that.
+// Every attempt summons another worker, so one retry is not enough: keep
+// renaming until templatePublishTimeout.
+func publishTemplateDatabase(ctx context.Context, adminConn *sql.Conn, staging string, name string) error {
+	rename := fmt.Sprintf("ALTER DATABASE %s RENAME TO %s", quoteIdentifier(staging), quoteIdentifier(name))
+	deadline := time.Now().Add(templatePublishTimeout)
+
+	for {
+		_, err := adminConn.ExecContext(ctx, rename)
+		if err == nil {
+			return nil
+		}
+		if !isDatabaseInUseError(err.Error()) || !time.Now().Before(deadline) {
+			return fmt.Errorf("publish template database: %w", err)
+		}
+
+		// The worker described above has exited by now. Anything still attached
+		// will not leave on its own, so evict it before renaming again.
+		if err := detachTemplateSessions(ctx, adminConn, staging); err != nil {
+			return err
+		}
+	}
 }
 
 // templateIsReusable reports whether an existing template can be cloned as-is.
@@ -529,6 +566,12 @@ func migrateTemplateDatabase(ctx context.Context, adminConfig *db.Config, name s
 		// anyway. Treat the template as untrustworthy rather than publishing it.
 		return fmt.Errorf("migrate template database: deadline passed and terminating the "+
 			"migration backend failed: %w", watchdogErr)
+	}
+	// Disable jobs before publishing so clones never start maintenance workers
+	// against test fixtures. Sealing below also evicts workers already running.
+	if err := disableScheduledMaintenance(ctx, conn); err != nil {
+		_ = conn.Close()
+		return err
 	}
 	if err := conn.Close(); err != nil {
 		return fmt.Errorf("close template connection: %w", err)
@@ -860,6 +903,8 @@ func templateNameFor(config *db.Config) string {
 // one that does not match.
 func migrationSetFingerprint(role string) string {
 	hash := sha256.New()
+	// Invalidate templates built before all background jobs were disabled.
+	_, _ = hash.Write([]byte("unscheduled-maintenance-v2\x00"))
 	_, _ = hash.Write([]byte(role))
 	_, _ = hash.Write([]byte{0})
 

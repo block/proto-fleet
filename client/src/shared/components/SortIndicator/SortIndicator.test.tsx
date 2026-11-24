@@ -1,99 +1,79 @@
-import { render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import SortIndicator from "./SortIndicator";
+import type { SortDirection } from "@/shared/components/List/types";
+
+vi.mock("@/shared/assets/icons", () => ({
+  ArrowUp: () => <span data-testid="arrow-up" />,
+  ArrowDown: () => <span data-testid="arrow-down" />,
+}));
+
+type Row = {
+  name: string;
+  direction?: SortDirection;
+  defaultDirection?: SortDirection;
+  isHovering?: boolean;
+  icon: "arrow-up" | "arrow-down";
+  grey: boolean;
+};
 
 describe("SortIndicator", () => {
-  describe("not sorted", () => {
-    it("renders invisible placeholder when not hovering", () => {
-      // Act
-      const { container } = render(<SortIndicator direction={undefined} />);
+  it("renders invisible placeholder when not sorted and not hovering", () => {
+    const { container } = render(<SortIndicator direction={undefined} />);
 
-      // Assert
-      const indicator = container.querySelector("div");
-      expect(indicator).toHaveClass("invisible");
-    });
-
-    it("renders grey arrow showing defaultDirection when hovering (defaults to DESC)", () => {
-      // Act
-      const { container } = render(<SortIndicator direction={undefined} isHovering />);
-
-      // Assert
-      const indicator = container.querySelector("div");
-      expect(indicator).toHaveClass("text-text-primary-50");
-      // Default is DESC, so should show down arrow
-      expect(container.querySelector("svg")).toBeTruthy();
-    });
-
-    it("renders grey up arrow when hovering with defaultDirection=asc", () => {
-      // Act
-      const { container } = render(<SortIndicator direction={undefined} defaultDirection="asc" isHovering />);
-
-      // Assert
-      const indicator = container.querySelector("div");
-      expect(indicator).toHaveClass("text-text-primary-50");
-    });
+    expect(container.querySelector("div")).toHaveClass("invisible");
   });
 
-  describe("sorted ascending", () => {
-    it("renders up arrow in primary color when not hovering", () => {
-      // Act
-      const { container } = render(<SortIndicator direction="asc" />);
+  it.each<Row>([
+    { name: "not sorted, hover, no defaultDirection", isHovering: true, icon: "arrow-up", grey: true },
+    {
+      name: "not sorted, hover, defaultDirection asc",
+      defaultDirection: "asc",
+      isHovering: true,
+      icon: "arrow-up",
+      grey: true,
+    },
+    {
+      name: "not sorted, hover, defaultDirection desc",
+      defaultDirection: "desc",
+      isHovering: true,
+      icon: "arrow-down",
+      grey: true,
+    },
+    { name: "sorted asc, no hover", direction: "asc", icon: "arrow-up", grey: false },
+    { name: "sorted asc, hover (desc preview)", direction: "asc", isHovering: true, icon: "arrow-down", grey: true },
+    { name: "sorted desc, no hover", direction: "desc", icon: "arrow-down", grey: false },
+    { name: "sorted desc, hover (asc preview)", direction: "desc", isHovering: true, icon: "arrow-up", grey: true },
+  ])("$name: shows $icon, grey=$grey", ({ direction, defaultDirection, isHovering, icon, grey }) => {
+    const { container } = render(
+      <SortIndicator direction={direction} defaultDirection={defaultDirection} isHovering={isHovering} />,
+    );
 
-      // Assert
-      const indicator = container.querySelector("div");
-      expect(indicator).not.toHaveClass("text-text-primary-50");
-    });
-
-    it("renders grey down arrow when hovering (DESC preview)", () => {
-      // Act
-      const { container } = render(<SortIndicator direction="asc" isHovering />);
-
-      // Assert
-      const indicator = container.querySelector("div");
+    const indicator = container.querySelector("div");
+    expect(indicator).not.toHaveClass("invisible");
+    expect(screen.getByTestId(icon)).toBeInTheDocument();
+    expect(screen.queryByTestId(icon === "arrow-up" ? "arrow-down" : "arrow-up")).not.toBeInTheDocument();
+    if (grey) {
       expect(indicator).toHaveClass("text-text-primary-50");
-    });
-  });
-
-  describe("sorted descending", () => {
-    it("renders down arrow in primary color when not hovering", () => {
-      // Act
-      const { container } = render(<SortIndicator direction="desc" />);
-
-      // Assert
-      const indicator = container.querySelector("div");
+    } else {
       expect(indicator).not.toHaveClass("text-text-primary-50");
-    });
-
-    it("renders grey up arrow when hovering (ASC preview)", () => {
-      // Act
-      const { container } = render(<SortIndicator direction="desc" isHovering />);
-
-      // Assert
-      const indicator = container.querySelector("div");
-      expect(indicator).toHaveClass("text-text-primary-50");
-    });
+    }
   });
 
   describe("accessibility", () => {
     it("has aria-hidden attribute", () => {
-      // Act
       const { container } = render(<SortIndicator direction="asc" />);
 
-      // Assert
-      const indicator = container.querySelector("div");
-      expect(indicator).toHaveAttribute("aria-hidden", "true");
+      expect(container.querySelector("div")).toHaveAttribute("aria-hidden", "true");
     });
   });
 
   describe("styling", () => {
     it("applies custom className", () => {
-      // Act
       const { container } = render(<SortIndicator direction="asc" className="custom-class" />);
 
-      // Assert
-      const indicator = container.querySelector("div");
-      expect(indicator).toHaveClass("custom-class");
+      expect(container.querySelector("div")).toHaveClass("custom-class");
     });
   });
 });

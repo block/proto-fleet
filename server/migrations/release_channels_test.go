@@ -13,88 +13,37 @@ import (
 	"github.com/block/proto-fleet/server/migrations"
 )
 
-// The release channel migration must round-trip: down removes every object it
-// created and up restores them. Functions are checked explicitly because a
-// down that forgot them would still succeed, and so would the CREATE OR
-// REPLACE in the next up.
-func TestReleaseChannelsMigrationDownAndUp(t *testing.T) {
+// The controller software target migration must round-trip: down removes the
+// table and its version key function, and up restores them.
+func TestReleaseChannelControllerSoftwareMigrationDownAndUp(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
-	downSQL, err := migrations.Migrations.ReadFile("000148_release_channels.down.sql")
+	controllerSoftwareDownSQL, err := migrations.Current.ReadFile("current/001096_internal_release_channel_controller_software.down.sql")
 	require.NoError(t, err)
-	upSQL, err := migrations.Migrations.ReadFile("000148_release_channels.up.sql")
-	require.NoError(t, err)
-	reservationDownSQL, err := migrations.Migrations.ReadFile("000149_rollout_enforcement_state.down.sql")
-	require.NoError(t, err)
-	reservationUpSQL, err := migrations.Migrations.ReadFile("000149_rollout_enforcement_state.up.sql")
-	require.NoError(t, err)
-	labelsDownSQL, err := migrations.Migrations.ReadFile("000150_rollout_activity_labels.down.sql")
-	require.NoError(t, err)
-	labelsUpSQL, err := migrations.Migrations.ReadFile("000150_rollout_activity_labels.up.sql")
-	require.NoError(t, err)
-	delegatedDownSQL, err := migrations.Migrations.ReadFile("000153_delegated_rollout_events.down.sql")
-	require.NoError(t, err)
-	delegatedUpSQL, err := migrations.Migrations.ReadFile("000153_delegated_rollout_events.up.sql")
+	controllerSoftwareUpSQL, err := migrations.Current.ReadFile("current/001096_internal_release_channel_controller_software.up.sql")
 	require.NoError(t, err)
 
-	relations := []string{
-		"release_channel", "release_channel_target", "release_channel_firmware",
-		"firmware_rollout", "firmware_rollout_device", "device_firmware_deployment",
-		"release_channel_placement", "release_channel_match", "release_channel_resolution",
-		"release_channel_member", "release_channel_conflict", "firmware_rollout_suppressed_device",
-	}
-	functions := []string{"release_channel_pair_key", "firmware_rollout_bump_revision", "firmware_rollout_touch_from_rows"}
-	triggers := []string{
-		"firmware_rollout_revision", "firmware_rollout_device_inserted", "firmware_rollout_device_updated",
-		"device_firmware_deployment_inserted", "device_firmware_deployment_updated",
-		"firmware_rollout_device_deleted", "device_firmware_deployment_deleted",
-	}
 	count := func(query, name string) int {
 		var n int
 		require.NoError(t, db.QueryRowContext(ctx, query, name).Scan(&n))
 		return n
 	}
-	requireObjects := func(present bool) {
+	requireControllerSoftware := func(present bool) {
 		t.Helper()
-		for _, name := range relations {
-			require.Equal(t, present, count(`SELECT count(*) FROM pg_class WHERE relname = $1 AND relkind IN ('r', 'v')`, name) == 1, name)
-		}
-		for _, name := range functions {
-			require.Equal(t, present, count(`SELECT count(*) FROM pg_proc WHERE proname = $1`, name) == 1, name)
-		}
-		for _, name := range triggers {
-			require.Equal(t, present, count(`SELECT count(*) FROM pg_trigger WHERE tgname = $1 AND NOT tgisinternal`, name) == 1, name)
-		}
+		require.Equal(t, present, count(`SELECT count(*) FROM pg_class WHERE relname = $1 AND relkind = 'r'`, "release_channel_controller_software") == 1)
+		require.Equal(t, present, count(`SELECT count(*) FROM pg_proc WHERE proname = $1`, "release_channel_controller_software_key") == 1)
 	}
 
-	requireObjects(true)
-	// Later event history and reservations reference the shipped tables.
-	// Unwind dependent migrations and their label wrappers in reverse order.
-	_, err = db.ExecContext(ctx, string(delegatedDownSQL))
+	requireControllerSoftware(true)
+	_, err = db.ExecContext(ctx, string(controllerSoftwareDownSQL))
 	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, string(labelsDownSQL))
+	requireControllerSoftware(false)
+	_, err = db.ExecContext(ctx, string(controllerSoftwareUpSQL))
 	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, string(reservationDownSQL))
-	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, string(downSQL))
-	require.NoError(t, err)
-	requireObjects(false)
-	_, err = db.ExecContext(ctx, string(upSQL))
-	require.NoError(t, err)
-	requireObjects(true)
-	_, err = db.ExecContext(ctx, string(reservationUpSQL))
-	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, string(labelsUpSQL))
-	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, string(delegatedUpSQL))
-	require.NoError(t, err)
-
-	var members int
-	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM release_channel_member`).Scan(&members))
-	require.Equal(t, 0, members)
+	requireControllerSoftware(true)
 }
 
 // Membership resolution against live placement: the most specific selector
@@ -190,7 +139,7 @@ func TestReleaseChannelsSchemaFoldsPairKeys(t *testing.T) {
 
 	upsert := `INSERT INTO release_channel_firmware (channel_id, manufacturer, model, firmware_checksum, assigned_by)
 		VALUES ($1, $2, $3, 'sum', 1)
-		ON CONFLICT (channel_id, release_channel_pair_key(manufacturer), release_channel_pair_key(model))
+		ON CONFLICT (channel_id, release_channel_pair_key(manufacturer), release_channel_pair_key(model), component)
 		DO UPDATE SET assignment_generation = release_channel_firmware.assignment_generation + 1`
 	f.exec(upsert, channel, "Bitmain", "S19")
 	f.exec(upsert, channel, "bitmain", "s19")
@@ -206,6 +155,30 @@ func TestReleaseChannelsSchemaFoldsPairKeys(t *testing.T) {
 	require.Error(t, err, "a second active rollout for the same folded pair must be rejected")
 	f.exec(`UPDATE firmware_rollout SET status = 'canceled' WHERE id = $1`, first)
 	f.rollout(channel, "bitmain", "s19")
+
+	// Another firmware component of the pair has its own assignment and its
+	// own active rollout, each still unique per folded pair.
+	assign := `INSERT INTO release_channel_firmware (channel_id, manufacturer, model, component, firmware_checksum, assigned_by)
+		VALUES ($1, $2, $3, 'psu', 'capsule', 1)`
+	f.exec(assign, channel, "BITMAIN", "S19")
+	_, err = db.ExecContext(f.t.Context(), assign, channel, "bitmain", "s19")
+	require.Error(t, err, "a second assignment of the same folded pair and component must be rejected")
+	var assignments int
+	require.NoError(t, db.QueryRowContext(f.t.Context(), `SELECT count(*) FROM release_channel_firmware WHERE channel_id = $1`, channel).Scan(&assignments))
+	require.Equal(t, 2, assignments)
+	start := `INSERT INTO firmware_rollout (org_id, channel_id, manufacturer, model, component, firmware_checksum, firmware_version, assignment_generation)
+		VALUES ($1, $2, $3, 's19', 'psu', 'capsule', 'v1', 1)`
+	f.exec(start, f.org, channel, "Bitmain")
+	_, err = db.ExecContext(f.t.Context(), start, f.org, channel, "bitmain")
+	require.Error(t, err, "a second active rollout for the same folded pair and component must be rejected")
+
+	// Provenance is one row per device and component.
+	d := f.device("components", 0)
+	record := `INSERT INTO device_firmware_deployment (device_id, component, firmware_checksum, firmware_version) VALUES ($1, $2, 'sum', 'v1')`
+	f.exec(record, d.id, "")
+	f.exec(record, d.id, "psu")
+	_, err = db.ExecContext(f.t.Context(), record, d.id, "psu")
+	require.Error(t, err)
 }
 
 // The revision rule: a rollout starts at 1 whatever else its creating

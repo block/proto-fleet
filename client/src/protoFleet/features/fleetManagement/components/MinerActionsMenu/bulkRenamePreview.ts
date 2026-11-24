@@ -1,26 +1,5 @@
 import { create } from "@bufbuild/protobuf";
 import {
-  bulkRenameModes,
-  bulkRenameSeparators,
-  getBulkRenamePropertyDefinition,
-  getEnabledBulkRenameProperties,
-} from "./bulkRenameDefinitions";
-import type {
-  BulkRenameMode,
-  BulkRenamePreferences,
-  BulkRenamePreviewMiner,
-  BulkRenamePropertyId,
-  BulkRenamePropertyPreview,
-  BulkRenamePropertyState,
-} from "./bulkRenameDefinitions";
-import {
-  type CustomPropertyOptionsValues,
-  customPropertyTypes,
-  fixedStringSections,
-  type FixedValueOptionsValues,
-  type QualifierOptionsValues,
-} from "./RenameOptionsModals/types";
-import {
   CharacterSection,
   CounterPropertySchema,
   FixedValuePropertySchema,
@@ -35,10 +14,26 @@ import {
   StringPropertySchema,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-
-function formatCounter(value: number, scale: number): string {
-  return value.toString().padStart(scale, "0");
-}
+import {
+  bulkRenameModes,
+  bulkRenameSeparators,
+  getBulkRenamePropertyDefinition,
+  getEnabledBulkRenameProperties,
+} from "@/shared/components/BulkRename/bulkRenameDefinitions";
+import type {
+  BulkRenameMode,
+  BulkRenamePreferences,
+  BulkRenamePreviewMiner,
+  BulkRenamePropertyState,
+} from "@/shared/components/BulkRename/bulkRenameDefinitions";
+import { evaluateBulkRenamePreviewName } from "@/shared/components/BulkRename/bulkRenamePreview";
+import {
+  type CustomPropertyOptionsValues,
+  customPropertyTypes,
+  fixedStringSections,
+  type FixedValueOptionsValues,
+  type QualifierOptionsValues,
+} from "@/shared/components/BulkRename/RenameOptionsModals/types";
 
 function getMinerDisplayName(snapshot: Pick<MinerStateSnapshot, "name" | "manufacturer" | "model">): string {
   if (snapshot.name.trim() !== "") {
@@ -56,51 +51,19 @@ function getFixedValueSection(options: FixedValueOptionsValues): CharacterSectio
   return options.stringSection === fixedStringSections.last ? CharacterSection.LAST : CharacterSection.FIRST;
 }
 
-function getFixedPreviewValue(type: FixedValueType, miner: BulkRenamePreviewMiner): string {
-  switch (type) {
-    case FixedValueType.MAC_ADDRESS:
-      return miner.macAddress;
-    case FixedValueType.SERIAL_NUMBER:
-      return miner.serialNumber;
-    case FixedValueType.WORKER_NAME:
-      return miner.workerName;
-    case FixedValueType.MINER_NAME:
-      return miner.minerName;
-    case FixedValueType.MODEL:
-      return miner.model;
-    case FixedValueType.MANUFACTURER:
-      return miner.manufacturer;
-    case FixedValueType.LOCATION:
-    case FixedValueType.UNSPECIFIED:
-      return "";
-  }
-}
+const fixedValueTypes = {
+  macAddress: FixedValueType.MAC_ADDRESS,
+  serialNumber: FixedValueType.SERIAL_NUMBER,
+  workerName: FixedValueType.WORKER_NAME,
+  minerName: FixedValueType.MINER_NAME,
+  model: FixedValueType.MODEL,
+  manufacturer: FixedValueType.MANUFACTURER,
+};
 
-function getQualifierPreviewValue(type: QualifierType, miner: BulkRenamePreviewMiner): string {
-  switch (type) {
-    case QualifierType.RACK:
-      return miner.rackLabel;
-    case QualifierType.RACK_POSITION:
-      return miner.rackPosition;
-    case QualifierType.BUILDING:
-    case QualifierType.UNSPECIFIED:
-      return "";
-  }
-}
-
-function truncateFixedPreviewValue(value: string, characterCount: number, section: CharacterSection): string {
-  const runes = Array.from(value);
-
-  if (characterCount >= runes.length) {
-    return value;
-  }
-
-  if (section === CharacterSection.LAST) {
-    return runes.slice(-characterCount).join("");
-  }
-
-  return runes.slice(0, characterCount).join("");
-}
+const qualifierTypes = {
+  rackLabel: QualifierType.RACK,
+  rackPosition: QualifierType.RACK_POSITION,
+};
 
 function buildNameProperty(property: BulkRenamePropertyState): NameProperty | null {
   const definition = getBulkRenamePropertyDefinition(property.id);
@@ -151,14 +114,14 @@ function buildNameProperty(property: BulkRenamePropertyState): NameProperty | nu
     });
   }
 
-  if (definition.kind === "fixed") {
+  if (definition.fixedField) {
     const options = property.options as FixedValueOptionsValues;
 
     return create(NamePropertySchema, {
       kind: {
         case: "fixedValue",
         value: create(FixedValuePropertySchema, {
-          type: definition.fixedValueType,
+          type: fixedValueTypes[definition.fixedField],
           characterCount: options.characterCount === "all" ? undefined : options.characterCount,
           section: getFixedValueSection(options),
         }),
@@ -166,70 +129,19 @@ function buildNameProperty(property: BulkRenamePropertyState): NameProperty | nu
     });
   }
 
+  if (!definition.qualifierField) return null;
   const options = property.options as QualifierOptionsValues;
 
   return create(NamePropertySchema, {
     kind: {
       case: "qualifier",
       value: create(QualifierPropertySchema, {
-        type: definition.qualifierType,
+        type: qualifierTypes[definition.qualifierField],
         prefix: options.prefix.trim(),
         suffix: options.suffix.trim(),
       }),
     },
   });
-}
-
-function evaluateNameProperty(property: NameProperty, miner: BulkRenamePreviewMiner, counterIndex: number): string {
-  switch (property.kind.case) {
-    case "stringAndCounter":
-      return `${property.kind.value.prefix}${formatCounter(
-        property.kind.value.counterStart + counterIndex,
-        property.kind.value.counterScale,
-      )}${property.kind.value.suffix}`;
-    case "counter":
-      return formatCounter(property.kind.value.counterStart + counterIndex, property.kind.value.counterScale);
-    case "stringValue":
-      return property.kind.value.value;
-    case "fixedValue": {
-      const rawValue = getFixedPreviewValue(property.kind.value.type, miner);
-
-      if (rawValue === "") {
-        return "";
-      }
-
-      if (property.kind.value.characterCount === undefined) {
-        return rawValue;
-      }
-
-      const characterCount = property.kind.value.characterCount;
-      const section =
-        property.kind.value.section === CharacterSection.LAST ? CharacterSection.LAST : CharacterSection.FIRST;
-
-      return truncateFixedPreviewValue(rawValue, characterCount, section);
-    }
-    case "qualifier": {
-      const rawValue = getQualifierPreviewValue(property.kind.value.type, miner);
-
-      if (rawValue.trim() === "") {
-        return "";
-      }
-
-      return `${property.kind.value.prefix}${rawValue}${property.kind.value.suffix}`;
-    }
-    case undefined:
-      return "";
-  }
-}
-
-function evaluateBulkRenamePropertySegment(
-  property: BulkRenamePropertyState,
-  miner: BulkRenamePreviewMiner,
-  counterIndex: number,
-): string {
-  const nameProperty = buildNameProperty(property);
-
-  return nameProperty === null ? "" : evaluateNameProperty(nameProperty, miner, counterIndex);
 }
 
 export const buildBulkRenameConfig = (preferences: BulkRenamePreferences): MinerNameConfig =>
@@ -239,18 +151,6 @@ export const buildBulkRenameConfig = (preferences: BulkRenamePreferences): Miner
       .map(buildNameProperty)
       .filter((property): property is NameProperty => property !== null),
   });
-
-export const evaluateBulkRenamePreviewName = (
-  config: MinerNameConfig,
-  miner: BulkRenamePreviewMiner,
-  counterIndex: number,
-): string => {
-  const segments = config.properties
-    .map((property) => evaluateNameProperty(property, miner, counterIndex))
-    .filter((segment) => segment.trim() !== "");
-
-  return segments.join(config.separator).trim();
-};
 
 export const hasEmptyBulkRenameConfig = (preferences: BulkRenamePreferences): boolean =>
   buildBulkRenameConfig(preferences).properties.length === 0;
@@ -267,8 +167,9 @@ export const hasNoBulkRenameChanges = (
     return false;
   }
 
-  const config = buildBulkRenameConfig(preferences);
-  const previewNames = previewMiners.map((miner) => evaluateBulkRenamePreviewName(config, miner, miner.counterIndex));
+  const previewNames = previewMiners.map((miner) =>
+    evaluateBulkRenamePreviewName(preferences, miner, miner.counterIndex),
+  );
 
   if (previewNames.every((name) => name.trim() === "")) {
     return true;
@@ -359,68 +260,4 @@ export const takePreviewMiners = <T>(
     miners: [...miners.slice(0, headCount), ...miners.slice(-tailCount)],
     showEllipsis: true,
   };
-};
-
-export const buildBulkRenamePropertyPreview = (
-  preferences: BulkRenamePreferences,
-  propertyId: BulkRenamePropertyId,
-  miner: BulkRenamePreviewMiner,
-  counterIndex: number,
-): BulkRenamePropertyPreview => {
-  const separator = bulkRenameSeparators[preferences.separator].value;
-  const segments = getEnabledBulkRenameProperties(preferences)
-    .map((property) => ({
-      propertyId: property.id,
-      value: evaluateBulkRenamePropertySegment(property, miner, counterIndex),
-    }))
-    .filter((segment) => segment.value.trim() !== "");
-
-  let previewName = "";
-  let highlightStartIndex: number | undefined;
-  let highlightedText: string | undefined;
-
-  for (const segment of segments) {
-    if (previewName !== "") {
-      previewName += separator;
-    }
-
-    const valueStartIndex = previewName.length;
-    previewName += segment.value;
-
-    if (segment.propertyId === propertyId) {
-      highlightedText = segment.value;
-      highlightStartIndex = valueStartIndex;
-    }
-  }
-
-  return {
-    previewName: previewName.trim(),
-    highlightedText,
-    highlightStartIndex,
-  };
-};
-
-export const findBulkRenamePropertyPreviewMinerIndex = (
-  preferences: BulkRenamePreferences,
-  propertyId: BulkRenamePropertyId,
-  previewMiners: BulkRenamePreviewMiner[],
-): number | null => {
-  if (previewMiners.length === 0) {
-    return null;
-  }
-
-  const property = preferences.properties.find((candidate) => candidate.id === propertyId);
-  if (property === undefined) {
-    return 0;
-  }
-
-  if (getBulkRenamePropertyDefinition(propertyId).kind === "custom") {
-    return 0;
-  }
-
-  const previewMinerIndex = previewMiners.findIndex(
-    (miner) => evaluateBulkRenamePropertySegment(property, miner, miner.counterIndex).trim() !== "",
-  );
-
-  return previewMinerIndex === -1 ? null : previewMinerIndex;
 };

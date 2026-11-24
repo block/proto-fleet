@@ -1,0 +1,20 @@
+-- name: LockPoolEquipmentOrganization :one
+-- Hardware updates may overlap, while assignment/account mutations wait.
+SELECT id FROM organization WHERE id=$1 FOR SHARE;
+
+-- name: GetPoolConfigurationRuntime :one
+SELECT d.id,d.device_identifier,COALESCE(d.worker_name,'')::text AS worker_name,
+ (d.worker_name IS NOT NULL)::boolean AS worker_name_set,COALESCE(d.mac_address,'')::text AS mac_address,
+ dd.id AS discovery_id,dd.driver_name,COALESCE(dd.manufacturer,'')::text AS manufacturer,COALESCE(dd.model,'')::text AS model,
+ dd.device_class,f.epoch,f.state,device_write_identity_keys(d.id)::text[] AS identity_keys
+FROM device d JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=d.org_id
+JOIN device_write_fence f ON f.device_id=d.id AND f.organization_id=d.org_id
+WHERE d.org_id=$1 AND d.id=$2 AND d.deleted_at IS NULL AND dd.deleted_at IS NULL;
+
+-- name: ListPoolEquipmentIdentities :many
+SELECT id,device_write_identity_keys(id)::text[] AS identity_keys FROM device
+WHERE org_id=$1 AND id=ANY(sqlc.arg(device_ids)::bigint[]) AND deleted_at IS NULL ORDER BY id;
+
+-- name: RefreshPoolConfigurationReadiness :exec
+UPDATE container_mining_group_state SET observed=$3,observed_at=clock_timestamp(),updated_at=clock_timestamp()
+WHERE organization_id=$1 AND device_id=$2;

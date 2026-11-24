@@ -32,6 +32,7 @@ test("maintenance ticket completion consumes inventory exactly once", async ({ p
     status: "TICKET_STATUS_COMPLETED",
     expectedUpdatedAt: beforeCompletion.body.detail.ticket.updatedAt,
     resolution: "TICKET_RESOLUTION_REPAIRED",
+    resolutionNote: "E2E repair verified",
     repairLocation: "REPAIR_LOCATION_ON_RACK",
     partsSelection: { parts: [{ inventoryPartId: part!.id, partName, quantity: 1 }] },
   };

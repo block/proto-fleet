@@ -19,6 +19,12 @@ class CompatibilityTests(unittest.TestCase):
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("database dependency\n")
+            build_requirements = (
+                root / "deployment-files/ha/patroni-build-requirements.txt"
+            )
+            build_requirements.write_text("initial build dependency\n")
+            launcher = root / "deployment-files/ha/scripts/start-patroni.py"
+            launcher.write_text("initial launcher\n")
             migrations = root / "server/migrations/current"
             migrations.mkdir(parents=True)
             up = migrations / "000001_initial.up.sql"
@@ -28,7 +34,12 @@ class CompatibilityTests(unittest.TestCase):
             initial = cloud.metadata(root)
             self.assertEqual(initial["schema_version"], 1)
             self.assertEqual(set(initial), {"schema_version", "compatibility_sha256"})
+            launcher.write_text("changed launcher\n")
+            self.assertNotEqual(cloud.metadata(root), initial)
+            launcher.write_text("initial launcher\n")
             (root / "server/main.go").write_text("changed app\n")
+            self.assertEqual(cloud.metadata(root), initial)
+            build_requirements.write_text("changed build dependency\n")
             self.assertEqual(cloud.metadata(root), initial)
             down.write_text("DROP TABLE example CASCADE;\n")
             changed = cloud.metadata(root)
@@ -48,6 +59,11 @@ class CompatibilityTests(unittest.TestCase):
             self.assertEqual(with_legacy["schema_version"], 1)
             self.assertNotEqual(with_legacy, changed)
             legacy.unlink()
+            archive = migrations.parent / "legacy_internal.fixture"
+            archive.write_text("archived migration SQL\n")
+            self.assertEqual(cloud.metadata(root)["schema_version"], 1)
+            self.assertNotEqual(cloud.metadata(root), changed)
+            archive.unlink()
             assertion = (
                 root / "server/internal/infrastructure/db/baseline/assertions.json"
             )

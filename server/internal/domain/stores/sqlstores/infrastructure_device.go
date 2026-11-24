@@ -163,51 +163,21 @@ func (s *SQLInfrastructureDeviceStore) LockInfrastructureDeviceForWrite(ctx cont
 }
 
 func (s *SQLInfrastructureDeviceStore) CountResponseProfilesByInfrastructureDevice(ctx context.Context, orgID, id int64) (int64, error) {
-	count, err := s.GetQueries(ctx).CountResponseProfilesByInfrastructureDevice(
-		ctx,
-		sqlc.CountResponseProfilesByInfrastructureDeviceParams{
-			OrgID:                   orgID,
-			InfrastructureDeviceIds: []int64{id},
-		},
-	)
-	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to count response profiles by infrastructure device: %v", err)
-	}
-	return count, nil
+	return countResponseProfilesByInfrastructureDevices(ctx, s.GetQueries(ctx), orgID, []int64{id})
 }
 
 func (s *SQLInfrastructureDeviceStore) CountActiveCurtailmentEventsByInfrastructureDevice(
 	ctx context.Context,
 	orgID, id int64,
 ) (int64, error) {
-	count, err := s.GetQueries(ctx).CountActiveCurtailmentEventsByInfrastructureDevices(
-		ctx,
-		sqlc.CountActiveCurtailmentEventsByInfrastructureDevicesParams{
-			OrgID:                   orgID,
-			InfrastructureDeviceIds: []int64{id},
-		},
-	)
-	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to count active curtailment events by infrastructure device: %v", err)
-	}
-	return count, nil
+	return countCurtailmentEventsByInfrastructureDevices(ctx, s.GetQueries(ctx), orgID, []int64{id}, true)
 }
 
 func (s *SQLInfrastructureDeviceStore) CountNonTerminalCurtailmentEventsByInfrastructureDevice(
 	ctx context.Context,
 	orgID, id int64,
 ) (int64, error) {
-	count, err := s.GetQueries(ctx).CountNonTerminalCurtailmentEventsByInfrastructureDevices(
-		ctx,
-		sqlc.CountNonTerminalCurtailmentEventsByInfrastructureDevicesParams{
-			OrgID:                   orgID,
-			InfrastructureDeviceIds: []int64{id},
-		},
-	)
-	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to count non-terminal curtailment events by infrastructure device: %v", err)
-	}
-	return count, nil
+	return countCurtailmentEventsByInfrastructureDevices(ctx, s.GetQueries(ctx), orgID, []int64{id}, false)
 }
 
 func (s *SQLInfrastructureDeviceStore) UpdateInfrastructureDevice(ctx context.Context, params models.UpdateParams) (*models.Device, error) {

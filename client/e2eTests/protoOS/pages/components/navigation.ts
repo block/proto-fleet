@@ -40,9 +40,9 @@ export class NavigationComponent extends BasePage {
 
   async navigateToDiagnostics() {
     await this.clickNavigationMenuIfMobile();
-    await this.clickNavigationItem("Diagnostics");
-    await expect(this.page).toHaveURL(/.*\/diagnostics/);
-    await this.validateTitle("Diagnostics");
+    await this.clickNavigationItem("Systems");
+    await expect(this.page).toHaveURL(/.*\/systems/);
+    await this.validateTitle("Systems");
   }
 
   async navigateToLogs() {

@@ -49,6 +49,7 @@ export interface UpdatePillData {
 
 export interface FleetNodeUpgradePillData {
   nodeCount: number;
+  required: boolean;
   onClick: () => void;
 }
 
@@ -133,9 +134,13 @@ function HeaderWidgets({
             return fleetNodeUpgradePill ? (
               <Button
                 key={widget}
-                ariaLabel={`Open node settings for ${fleetNodeUpgradePill.nodeCount} ${fleetNodeUpgradePill.nodeCount === 1 ? "Fleet Node" : "Fleet Nodes"} requiring an upgrade`}
+                ariaLabel={`Open node settings for ${fleetNodeUpgradePill.nodeCount} ${fleetNodeUpgradePill.nodeCount === 1 ? "Fleet Node" : "Fleet Nodes"} with upgrades ${fleetNodeUpgradePill.required ? "required" : "recommended"}`}
                 className="max-w-full min-w-0 overflow-hidden"
-                prefixIcon={<Alert className="text-intent-critical-fill" />}
+                prefixIcon={
+                  <Alert
+                    className={fleetNodeUpgradePill.required ? "text-intent-critical-fill" : "text-intent-warning-fill"}
+                  />
+                }
                 variant={variants.secondary}
                 size={sizes.compact}
                 onClick={fleetNodeUpgradePill.onClick}
@@ -143,8 +148,9 @@ function HeaderWidgets({
               >
                 <span className="block min-w-0 truncate">
                   {fleetNodeUpgradePill.nodeCount === 1
-                    ? "Fleet Node upgrade required"
-                    : `${fleetNodeUpgradePill.nodeCount} Fleet Nodes need upgrades`}
+                    ? "Fleet Node upgrade"
+                    : `${fleetNodeUpgradePill.nodeCount} Fleet Node upgrades`}{" "}
+                  {fleetNodeUpgradePill.required ? "required" : "recommended"}
                 </span>
               </Button>
             ) : null;
@@ -303,7 +309,7 @@ function PageHeader({
                 testId="navigation-menu-button"
               />
             ) : null}
-            <div className="min-w-0 flex-1" data-testid="page-header-selector-area">
+            <div className="flex min-w-0 flex-1 items-center gap-4" data-testid="page-header-selector-area">
               {isDashboard || !canReadSites ? null : (
                 <SitePicker sites={sites} error={sitesError} onRetry={refetchSites} />
               )}

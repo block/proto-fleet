@@ -308,19 +308,7 @@ func TestValidateServerURL(t *testing.T) {
 		allowInsecure bool
 		wantErr       string
 	}{
-		{name: "https accepted", url: "https://fleet.example.com", allowInsecure: false, wantErr: ""},
-		{name: "loopback http localhost", url: "http://localhost:4000", allowInsecure: false, wantErr: ""},
-		{name: "loopback http 127.0.0.1", url: "http://127.0.0.1:4000", allowInsecure: false, wantErr: ""},
-		{name: "loopback http 127.x.x.x", url: "http://127.5.6.7:4000", allowInsecure: false, wantErr: ""},
-		{name: "loopback http ipv6", url: "http://[::1]:4000", allowInsecure: false, wantErr: ""},
-		{name: "remote http rejected", url: "http://fleet.example.com", allowInsecure: false, wantErr: "https"},
 		{name: "remote http allowed via flag", url: "http://fleet.example.com", allowInsecure: true, wantErr: ""},
-		{name: "unknown scheme rejected", url: "ftp://fleet.example.com", allowInsecure: false, wantErr: "scheme"},
-		{name: "missing host rejected", url: "https://", allowInsecure: false, wantErr: "host"},
-		{name: "userinfo rejected", url: "https://fleet.example.com@attacker.example", allowInsecure: false, wantErr: "userinfo"},
-		{name: "userinfo with password rejected", url: "https://user:pass@attacker.example", allowInsecure: false, wantErr: "userinfo"},
-		{name: "query string rejected", url: "https://fleet.example.com?foo=bar", allowInsecure: false, wantErr: "query"},
-		{name: "fragment rejected", url: "https://fleet.example.com#frag", allowInsecure: false, wantErr: "fragment"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

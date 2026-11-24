@@ -1,8 +1,7 @@
 import { useOutletContext } from "react-router-dom";
 
-import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
-import { type FilterLabelSource } from "@/protoFleet/features/fleetManagement/views/viewSummary";
+import { type FilterSummaryContext } from "@/protoFleet/features/fleetManagement/views/viewSummary";
 
 export interface FleetOutletContext {
   sites: SiteWithCounts[] | undefined;
@@ -29,12 +28,7 @@ export interface FleetOutletContext {
    * without filters skip the call. Each child publishes only the keys it
    * knows about — defaults fill the rest.
    */
-  publishViewFilterContext: (ctx: {
-    availableGroups?: DeviceSet[];
-    availableRacks?: DeviceSet[];
-    availableBuildings?: FilterLabelSource[];
-    availableSites?: FilterLabelSource[];
-  }) => void;
+  publishViewFilterContext: (ctx: Partial<FilterSummaryContext>) => void;
   /**
    * Saved view the URL activates on the current tab, if any. URL state that
    * a saved view supplies (e.g. `display`) is scoped to that view and must

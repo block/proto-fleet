@@ -32,6 +32,7 @@ type facilityFanController struct {
 	sites       interfaces.SiteStore
 	registry    *driver.Registry
 	audit       AuditLogger
+	metrics     Metrics
 	cursorMu    sync.Mutex
 	nextDevices map[facilityFanCommandKey]int
 }
@@ -47,15 +48,20 @@ func NewFacilityFanController(
 	sites interfaces.SiteStore,
 	registry *driver.Registry,
 	audit AuditLogger,
+	recorder Metrics,
 ) FacilityFanController {
 	if audit == nil {
 		audit = NoOpAuditLogger{}
+	}
+	if recorder == nil {
+		recorder = NoOpMetrics{}
 	}
 	return &facilityFanController{
 		devices:     devices,
 		sites:       sites,
 		registry:    registry,
 		audit:       audit,
+		metrics:     recorder,
 		nextDevices: make(map[facilityFanCommandKey]int),
 	}
 }
@@ -218,6 +224,7 @@ func (c *facilityFanController) logFailure(ctx context.Context, event *models.Ev
 		},
 	}
 	if err := c.audit.LogStrict(ctx, row); err != nil {
+		c.metrics.IncAuditWriteFailure(row.Type)
 		slog.Error("curtailment facility fan failure audit failed", "event_uuid", event.EventUUID, "error", err)
 	}
 }
@@ -244,6 +251,7 @@ func (c *facilityFanController) logSkipped(
 		},
 	}
 	if err := c.audit.LogStrict(ctx, row); err != nil {
+		c.metrics.IncAuditWriteFailure(row.Type)
 		slog.Error("curtailment facility fan skip audit failed", "event_uuid", event.EventUUID, "error", err)
 	}
 }

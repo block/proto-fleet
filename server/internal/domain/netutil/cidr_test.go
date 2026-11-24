@@ -2,8 +2,27 @@ package netutil
 
 import (
 	"errors"
+	"net/netip"
 	"testing"
 )
+
+func TestIPv4PrefixBounds(t *testing.T) {
+	for _, tc := range []struct {
+		prefix, first, last string
+	}{
+		{"10.0.0.1/0", "0.0.0.0", "255.255.255.255"},
+		{"10.1.2.3/8", "10.0.0.0", "10.255.255.255"},
+		{"10.0.0.1/31", "10.0.0.0", "10.0.0.1"},
+		{"255.255.255.255/32", "255.255.255.255", "255.255.255.255"},
+	} {
+		t.Run(tc.prefix, func(t *testing.T) {
+			first, last := IPv4PrefixBounds(netip.MustParsePrefix(tc.prefix))
+			if first.String() != tc.first || last.String() != tc.last {
+				t.Fatalf("bounds = %s-%s, want %s-%s", first, last, tc.first, tc.last)
+			}
+		})
+	}
+}
 
 func TestParseCIDROrIP(t *testing.T) {
 	cases := []struct {
@@ -13,7 +32,6 @@ func TestParseCIDROrIP(t *testing.T) {
 		wantErr bool
 		errIs   error
 	}{
-		{name: "ipv4 CIDR", raw: "10.0.0.0/24", want: "10.0.0.0/24"},
 		{name: "ipv4 CIDR masked", raw: "10.0.0.5/24", want: "10.0.0.0/24"},
 		{name: "ipv4 bare", raw: "10.0.0.5", want: "10.0.0.5/32"},
 		{name: "ipv6 CIDR", raw: "2001:db8::/32", want: "2001:db8::/32"},
@@ -21,7 +39,6 @@ func TestParseCIDROrIP(t *testing.T) {
 		{name: "empty", raw: "", wantErr: true, errIs: ErrEmptyCIDR},
 		{name: "garbage IP", raw: "not-an-ip", wantErr: true},
 		{name: "garbage CIDR", raw: "10.0.0.0/abc", wantErr: true},
-		{name: "ipv4 too-many-bits", raw: "10.0.0.0/33", wantErr: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

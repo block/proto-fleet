@@ -4,13 +4,17 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strconv"
 	"time"
+
+	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
 
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
@@ -160,10 +164,15 @@ func discoverWithPlugin(ctx context.Context, plugin *LoadedPlugin, pluginName, i
 			IpAddress:        fleetDevice.IpAddress,
 			Port:             fleetDevice.Port,
 			UrlScheme:        fleetDevice.UrlScheme,
+			RpcPort:          fleetDevice.RpcPort,
+			RpcTls:           fleetDevice.RpcTls,
+			Endpoints:        fleetDevice.Endpoints,
 			SerialNumber:     fleetDevice.SerialNumber,
 			Model:            fleetDevice.Model,
+			DeviceClass:      fleetDevice.DeviceClass,
 			Manufacturer:     fleetDevice.Manufacturer,
 			MacAddress:       fleetDevice.MacAddress,
+			FirmwareVersion:  fleetDevice.FirmwareVersion,
 			Capabilities:     fleetDevice.Capabilities,
 			DriverName:       plugin.Identifier.DriverName,
 		},
@@ -186,15 +195,23 @@ func discoverWithPlugin(ctx context.Context, plugin *LoadedPlugin, pluginName, i
 // convertSDKDeviceInfoToFleetDevice converts SDK DeviceInfo to Fleet pb.Device format.
 func convertSDKDeviceInfoToFleetDevice(deviceInfo sdk.DeviceInfo, ipAddress, port, driverName string) *pb.Device {
 
+	webPort := port
+	if deviceInfo.DeviceClass == sdk.DeviceClassContainer && deviceInfo.RPCPort > 0 && strconv.Itoa(int(deviceInfo.RPCPort)) == port {
+		webPort = strconv.Itoa(int(deviceInfo.Port))
+	}
 	macAddress := networking.NormalizeMAC(deviceInfo.MacAddress)
 
 	return &pb.Device{
 		DeviceIdentifier: "",
 		IpAddress:        ipAddress,
-		Port:             port,
+		Port:             webPort,
 		UrlScheme:        deviceInfo.URLScheme,
+		RpcPort:          deviceInfo.RPCPort,
+		RpcTls:           deviceInfo.RPCTLS,
+		Endpoints:        deviceendpoints.FromSDK(deviceInfo.Endpoints),
 		SerialNumber:     deviceInfo.SerialNumber,
 		Model:            deviceInfo.Model,
+		DeviceClass:      commonpb.DeviceClass(deviceInfo.DeviceClass),
 		Manufacturer:     deviceInfo.Manufacturer,
 		MacAddress:       macAddress,
 		FirmwareVersion:  deviceInfo.FirmwareVersion,

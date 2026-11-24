@@ -42,12 +42,12 @@ func TestFirmwareReuse_RejectsUnhealthyPayloadWithoutPriorAvailabilityCheck(t *t
 					assert.False(t, reusable, "the pre-upload check must not let the caller skip a needed upload")
 					assert.Empty(t, foundID)
 				case "streamed upload":
-					saved, err = svc.SaveFirmwareUpload("replacement.swu", strings.NewReader(content), testFirmwareMetadata(), false)
+					saved, err = svc.SaveFirmwareUpload(t.Context(), "replacement.swu", strings.NewReader(content), testFirmwareMetadata(), false)
 				case "staged upload":
 					staged, stageErr := svc.StageFirmwareUpload(strings.NewReader(content))
 					require.NoError(t, stageErr)
 					defer staged.Discard()
-					saved, err = svc.SaveFirmwareUploadFromPath("replacement.swu", staged.Path, testFirmwareMetadata(), false, staged.Checksum)
+					saved, err = svc.SaveFirmwareUploadFromPath(t.Context(), "replacement.swu", staged.Path, testFirmwareMetadata(), false, staged.Checksum)
 				}
 				require.NoError(t, err)
 				assert.NotContains(t, svc.checksumIndex[checksum], originalID)
@@ -90,7 +90,7 @@ func TestFirmwareReuse_SkipsCorruptCandidateAndReusesHealthyDuplicate(t *testing
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(getFirmwareDirPath(corruptID), "first.swu"), []byte("corrupt"), 0600))
 
-	saved, err := svc.SaveFirmwareUpload("duplicate.swu", strings.NewReader(content), testFirmwareMetadata(), false)
+	saved, err := svc.SaveFirmwareUpload(t.Context(), "duplicate.swu", strings.NewReader(content), testFirmwareMetadata(), false)
 	require.NoError(t, err)
 	assert.True(t, saved.Reused)
 	assert.Equal(t, healthyID, saved.FirmwareFileID)

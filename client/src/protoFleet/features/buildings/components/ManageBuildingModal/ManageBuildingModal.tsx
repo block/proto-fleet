@@ -17,11 +17,11 @@ import RackReparentWarningDialog, { type ReparentedRack } from "./RackReparentWa
 import { type BuildingAssignmentMode, type GridCellKey, parseCellKey } from "./types";
 import { type RackPlacementInput, useBuildings } from "@/protoFleet/api/buildings";
 import { type Building, type BuildingRack } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
-import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { DismissCircle } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
+import FullScreenTwoPaneModal from "@/shared/components/FullScreenTwoPaneModal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 

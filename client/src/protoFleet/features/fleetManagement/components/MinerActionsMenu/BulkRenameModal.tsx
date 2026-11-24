@@ -2,39 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { type DragEndEvent } from "@dnd-kit/core";
 import {
-  type BulkRenamePreferences,
-  type BulkRenamePreviewMiner,
-  type BulkRenamePropertyId,
-  type BulkRenamePropertyOptions,
-  reorderBulkRenameProperties,
-  shouldWarnAboutBulkRenameDuplicates,
-  updateBulkRenameProperty,
-} from "./bulkRenameDefinitions";
-import BulkRenameDialogs from "./BulkRenameDialogs";
-import BulkRenameOptionModals from "./BulkRenameOptionModals";
-import {
   buildBulkRenameConfig,
-  buildBulkRenamePropertyPreview,
-  evaluateBulkRenamePreviewName,
-  findBulkRenamePropertyPreviewMinerIndex,
   mapSnapshotsToBulkRenamePreviewMiners,
   mapSnapshotToBulkRenamePreviewMiner,
   shouldShowBulkRenameNoChangesWarning,
   takePreviewMiners,
 } from "./bulkRenamePreview";
-import BulkRenamePreviewPanel, { type PreviewRow } from "./BulkRenamePreviewPanel";
-import BulkRenamePropertyForm from "./BulkRenamePropertyForm";
 import {
   getBulkRenameFailureMessage,
   getBulkRenameLoadingMessage,
   getBulkRenameRequestFailureMessage,
   getBulkRenameSuccessMessage,
 } from "./bulkRenameToastMessages";
-import {
-  type CustomPropertyOptionsValues,
-  type FixedValueOptionsValues,
-  type QualifierOptionsValues,
-} from "./RenameOptionsModals/types";
 import { fleetManagementClient } from "@/protoFleet/api/clients";
 import { DeviceIdentifierListSchema } from "@/protoFleet/api/generated/common/v1/device_selector_pb";
 import {
@@ -49,13 +28,36 @@ import {
   type MinerStateSnapshot,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import useRenameMiners from "@/protoFleet/api/useRenameMiners";
-import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
 import {
   applyFleetSelectablePairingStatuses,
   isFleetSelectablePairingStatus,
 } from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
 import { useAuthErrors, useBulkRenamePreferences, useSetBulkRenamePreferences } from "@/protoFleet/store";
+import {
+  type BulkRenamePreferences,
+  type BulkRenamePreviewMiner,
+  type BulkRenamePropertyId,
+  type BulkRenamePropertyOptions,
+  reorderBulkRenameProperties,
+  shouldWarnAboutBulkRenameDuplicates,
+  updateBulkRenameProperty,
+} from "@/shared/components/BulkRename/bulkRenameDefinitions";
+import BulkRenameDialogs from "@/shared/components/BulkRename/BulkRenameDialogs";
+import BulkRenameOptionModals from "@/shared/components/BulkRename/BulkRenameOptionModals";
+import {
+  buildBulkRenamePropertyPreview,
+  evaluateBulkRenamePreviewName,
+  findBulkRenamePropertyPreviewMinerIndex,
+} from "@/shared/components/BulkRename/bulkRenamePreview";
+import BulkRenamePreviewPanel, { type PreviewRow } from "@/shared/components/BulkRename/BulkRenamePreviewPanel";
+import BulkRenamePropertyForm from "@/shared/components/BulkRename/BulkRenamePropertyForm";
+import {
+  type CustomPropertyOptionsValues,
+  type FixedValueOptionsValues,
+  type QualifierOptionsValues,
+} from "@/shared/components/BulkRename/RenameOptionsModals/types";
 import { variants } from "@/shared/components/Button";
+import FullScreenTwoPaneModal from "@/shared/components/FullScreenTwoPaneModal";
 import { type SelectionMode } from "@/shared/components/List";
 import { pushToast, removeToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
@@ -92,8 +94,7 @@ const getSelectionCount = (selectionMode: SelectionMode, selectedMinerIds: strin
 };
 
 const computePreviewNames = (preferences: BulkRenamePreferences, previewMiners: BulkRenamePreviewMiner[]): string[] => {
-  const config = buildBulkRenameConfig(preferences);
-  return previewMiners.map((miner) => evaluateBulkRenamePreviewName(config, miner, miner.counterIndex));
+  return previewMiners.map((miner) => evaluateBulkRenamePreviewName(preferences, miner, miner.counterIndex));
 };
 
 const getPreviewRows = (previewMiners: BulkRenamePreviewMiner[], previewNames: string[]): PreviewRow[] =>

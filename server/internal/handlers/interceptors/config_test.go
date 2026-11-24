@@ -2,7 +2,9 @@ package interceptors
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -11,20 +13,107 @@ import (
 
 	"github.com/block/proto-fleet/server/generated/grpc/alerts/v1/alertsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
+	containerspb "github.com/block/proto-fleet/server/generated/grpc/containers/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/containers/v1/containersv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
+	fleetnodeadmin "github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/invitation/v1/invitationv1connect"
+	poolpb "github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1/poolconfigurationsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
-func TestUpdateWorkerNamesProcedureIsRedacted(t *testing.T) {
-	procedure := fleetmanagementv1connect.FleetManagementServiceUpdateWorkerNamesProcedure
+func TestPoolConnectionRequestsNeverLogCredentials(t *testing.T) {
+	out := captureSlogWarn(t)
+	procedure := poolconfigurationsv1connect.PoolConfigurationServiceTestConnectionProcedure
+	require.True(t, SensitiveBodyProcedures[procedure])
+	require.True(t, allowsSelectedAccount(procedure))
+	logging := NewRequestLoggingInterceptor(slog.LevelDebug, RedactedRequestProcedures, RedactedResponseProcedures)
+	handler := connect.NewUnaryHandler(procedure,
+		func(context.Context, *connect.Request[poolpb.TestConnectionRequest]) (*connect.Response[poolpb.TestConnectionResponse], error) {
+			return connect.NewResponse(&poolpb.TestConnectionResponse{Connected: true}), nil
+		}, connect.WithInterceptors(logging))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	client := connect.NewClient[poolpb.TestConnectionRequest, poolpb.TestConnectionResponse](server.Client(), server.URL+procedure)
+	password := "private-connection-password"
+	_, err := client.CallUnary(t.Context(), connect.NewRequest(&poolpb.TestConnectionRequest{Pool: &poolpb.PoolInput{Url: "stratum+tcp://private.example", Username: "private-payout", Password: &password}}))
+	require.NoError(t, err)
+	logged := out.String()
+	require.Contains(t, logged, procedure)
+	require.NotContains(t, logged, password)
+	require.NotContains(t, logged, "private-payout")
+	require.NotContains(t, logged, "private.example")
+}
+
+func TestReviewWorkerNamesProcedureIsRedacted(t *testing.T) {
+	procedure := fleetmanagementv1connect.FleetManagementServiceReviewWorkerNamesProcedure
 
 	assert.Contains(t, RedactedRequestProcedures, procedure)
 	assert.True(t, SensitiveBodyProcedures[procedure])
+}
+
+func TestListFleetNodesResponseIsRedactedFromDebugLogs(t *testing.T) {
+	// Arrange
+	out := captureSlogWarn(t)
+	procedure := fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodesProcedure
+	node := &fleetnodeadmin.FleetNodeSummary{
+		IpAddresses: []string{"192.0.2.42", "fd00::42"},
+		Version:     "v0.5.1-private-test",
+		EnrolledBy:  "operator@example.com",
+	}
+	logging := NewRequestLoggingInterceptor(slog.LevelDebug, RedactedRequestProcedures, RedactedResponseProcedures)
+	handler := connect.NewUnaryHandler(procedure,
+		func(context.Context, *connect.Request[fleetnodeadmin.ListFleetNodesRequest]) (*connect.Response[fleetnodeadmin.ListFleetNodesResponse], error) {
+			return connect.NewResponse(&fleetnodeadmin.ListFleetNodesResponse{FleetNodes: []*fleetnodeadmin.FleetNodeSummary{node}}), nil
+		}, connect.WithInterceptors(logging))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	client := connect.NewClient[fleetnodeadmin.ListFleetNodesRequest, fleetnodeadmin.ListFleetNodesResponse](server.Client(), server.URL+procedure)
+
+	// Act
+	resp, err := client.CallUnary(t.Context(), connect.NewRequest(&fleetnodeadmin.ListFleetNodesRequest{}))
+
+	// Assert
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.FleetNodes, 1)
+	require.Equal(t, node.IpAddresses, resp.Msg.FleetNodes[0].IpAddresses)
+	require.Equal(t, node.Version, resp.Msg.FleetNodes[0].Version)
+	require.Equal(t, node.EnrolledBy, resp.Msg.FleetNodes[0].EnrolledBy)
+	logged := out.String()
+	require.Contains(t, logged, procedure)
+	require.Contains(t, logged, "result=[REDACTED]")
+	for _, value := range append(node.IpAddresses, node.Version, node.EnrolledBy) {
+		require.NotContains(t, logged, value)
+	}
+}
+
+func TestControllerRecordBodiesNeverReachDebugLogs(t *testing.T) {
+	out := captureSlogWarn(t)
+	procedure := containersv1connect.ContainerServiceGetControllerLogsProcedure
+	require.True(t, SensitiveBodyProcedures[containersv1connect.ContainerServiceListControllerAuditEventsProcedure])
+	logging := NewRequestLoggingInterceptor(slog.LevelDebug, RedactedRequestProcedures, RedactedResponseProcedures)
+	handler := connect.NewUnaryHandler(procedure,
+		func(context.Context, *connect.Request[containerspb.GetControllerLogsRequest]) (*connect.Response[containerspb.GetControllerLogsResponse], error) {
+			return connect.NewResponse(&containerspb.GetControllerLogsResponse{Entries: []*containerspb.ControllerLogEntry{{Message: "login by operator@10.20.0.4"}}}), nil
+		}, connect.WithInterceptors(logging))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	client := connect.NewClient[containerspb.GetControllerLogsRequest, containerspb.GetControllerLogsResponse](server.Client(), server.URL+procedure)
+
+	_, err := client.CallUnary(t.Context(), connect.NewRequest(&containerspb.GetControllerLogsRequest{DeviceIdentifier: "ct1-private", Component: "auth"}))
+
+	require.NoError(t, err)
+	logged := out.String()
+	require.Contains(t, logged, procedure)
+	require.NotContains(t, logged, "operator@10.20.0.4")
+	require.NotContains(t, logged, "ct1-private")
 }
 
 func TestSiteMapCsvProceduresAreSensitiveBody(t *testing.T) {
@@ -187,7 +276,7 @@ func TestCurtailmentNonAdminProceduresStayApiKeyAccessible(t *testing.T) {
 func TestInstanceUpdateProceduresAreSessionOnly(t *testing.T) {
 	t.Parallel()
 
-	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, nil, SessionOnlyProcedures, FleetNodeAuthenticatedProcedures)
+	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, nil, nil, SessionOnlyProcedures, FleetNodeAuthenticatedProcedures)
 
 	procedures := []string{
 		instancev1connect.InstanceUpdateServiceGetUpdateStatusProcedure,
@@ -230,7 +319,7 @@ func TestInstanceUpdateResponsesAreRedacted(t *testing.T) {
 func TestAuthInterceptor_AdminTerminateEventRejectsApiKeyAuth(t *testing.T) {
 	t.Parallel()
 
-	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, nil, SessionOnlyProcedures, FleetNodeAuthenticatedProcedures)
+	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, nil, nil, SessionOnlyProcedures, FleetNodeAuthenticatedProcedures)
 
 	header := http.Header{}
 	header.Set("Authorization", "Bearer fleet_test_some_key")
@@ -247,6 +336,43 @@ func TestAuthInterceptor_AdminTerminateEventRejectsApiKeyAuth(t *testing.T) {
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
 
+// Team invitations mint login access: management and signed-in acceptance
+// reject API keys, and only the bearer-code redemption RPCs are public.
+func TestInvitationProceduresAreSessionOnlyAndRedacted(t *testing.T) {
+	t.Parallel()
+
+	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, nil, nil, SessionOnlyProcedures, FleetNodeAuthenticatedProcedures)
+	for _, procedure := range []string{
+		invitationv1connect.InvitationServiceCreateTeamInvitationProcedure,
+		invitationv1connect.InvitationServiceListTeamInvitationsProcedure,
+		invitationv1connect.InvitationServiceRevokeTeamInvitationProcedure,
+		invitationv1connect.InvitationServiceDeleteTeamInvitationProcedure,
+		invitationv1connect.InvitationServiceAcceptInvitationProcedure,
+	} {
+		assert.Contains(t, SessionOnlyProcedures, procedure)
+		assert.NotContains(t, UnauthenticatedProcedures, procedure)
+		header := http.Header{}
+		header.Set("Authorization", "Bearer fleet_test_some_key")
+		_, err := interceptor.authenticate(context.Background(), procedure, header)
+		require.Error(t, err)
+		var fleetErr fleeterror.FleetError
+		require.ErrorAs(t, err, &fleetErr)
+		assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode, procedure)
+	}
+	for _, procedure := range []string{
+		invitationv1connect.InvitationServicePreviewInvitationProcedure,
+		invitationv1connect.InvitationServiceRegisterInvitedUserProcedure,
+		invitationv1connect.InvitationServiceAcceptInvitationProcedure,
+	} {
+		assert.Contains(t, RedactedRequestProcedures, procedure, "requests carry the bearer code")
+		assert.True(t, SensitiveBodyProcedures[procedure], procedure)
+	}
+	assert.Contains(t, UnauthenticatedProcedures, invitationv1connect.InvitationServicePreviewInvitationProcedure)
+	assert.Contains(t, UnauthenticatedProcedures, invitationv1connect.InvitationServiceRegisterInvitedUserProcedure)
+	assert.Contains(t, RedactedResponseProcedures, invitationv1connect.InvitationServiceCreateTeamInvitationProcedure, "responses carry the bearer code")
+	assert.True(t, SensitiveBodyProcedures[invitationv1connect.InvitationServiceCreateTeamInvitationProcedure])
+}
+
 // UpdateUserRole mutates RBAC state and must reject API-key auth — a leaked
 // user API key with user:manage would otherwise be able to escalate or
 // reassign roles outside an interactive session.
@@ -256,7 +382,7 @@ func TestAuthInterceptor_UpdateUserRoleRejectsApiKeyAuth(t *testing.T) {
 	assert.Contains(t, SessionOnlyProcedures, authv1connect.AuthServiceUpdateUserRoleProcedure,
 		"UpdateUserRole must be session-only; role mutations should not be reachable via API key")
 
-	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, nil, SessionOnlyProcedures, FleetNodeAuthenticatedProcedures)
+	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, nil, nil, SessionOnlyProcedures, FleetNodeAuthenticatedProcedures)
 
 	header := http.Header{}
 	header.Set("Authorization", "Bearer fleet_test_some_key")
@@ -271,4 +397,13 @@ func TestAuthInterceptor_UpdateUserRoleRejectsApiKeyAuth(t *testing.T) {
 	var fleetErr fleeterror.FleetError
 	require.ErrorAs(t, err, &fleetErr)
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
+func TestWorkerNameBatchAuthorizationRequiresSessionAndRedactsPasswords(t *testing.T) {
+	procedure := poolconfigurationsv1connect.PoolConfigurationServiceAuthorizeWorkerNameReviewsProcedure
+	assert.Contains(t, SessionOnlyProcedures, procedure)
+	assert.Contains(t, RedactedRequestProcedures, procedure)
+	assert.True(t, SensitiveBodyProcedures[procedure])
+	assert.False(t, allowsSelectedAccount(procedure))
+	assert.False(t, allowsAccountKey(procedure))
 }

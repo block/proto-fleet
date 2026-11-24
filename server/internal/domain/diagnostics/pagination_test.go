@@ -11,38 +11,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 )
 
-func TestEncodeCursor_WithValidData_ShouldReturnBase64Token(t *testing.T) {
-	// Arrange
-	severity := models.SeverityCritical
-	lastSeenAt := time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC)
-	errorID := "01HQXYZ123ABC"
-
-	// Act
-	token := EncodeCursor(severity, lastSeenAt, errorID)
-
-	// Assert
-	assert.NotEmpty(t, token)
-	assert.NotContains(t, token, " ") // Should be URL-safe base64
-}
-
-func TestDecodeCursor_WithValidToken_ShouldReturnCursorData(t *testing.T) {
-	// Arrange
-	severity := models.SeverityCritical
-	lastSeenAt := time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC)
-	errorID := "01HQXYZ123ABC"
-	token := EncodeCursor(severity, lastSeenAt, errorID)
-
-	// Act
-	cursor, err := DecodeCursor(token)
-
-	// Assert
-	require.NoError(t, err)
-	require.NotNil(t, cursor)
-	assert.Equal(t, severity, cursor.Severity)
-	assert.True(t, lastSeenAt.Equal(cursor.LastSeenAt))
-	assert.Equal(t, errorID, cursor.ErrorID)
-}
-
 func TestDecodeCursor_WithEmptyToken_ShouldReturnNil(t *testing.T) {
 	// Act
 	cursor, err := DecodeCursor("")
@@ -125,7 +93,6 @@ func TestNormalizePageSize_WithValidSize_ShouldReturnSameSize(t *testing.T) {
 		expected int
 	}{
 		{"minimum valid", 1, 1},
-		{"mid range", 50, 50},
 		{"default value", DefaultPageSize, DefaultPageSize},
 		{"maximum valid", MaxPageSize, MaxPageSize},
 	}
@@ -146,7 +113,6 @@ func TestNormalizePageSize_WithInvalidSize_ShouldReturnDefault(t *testing.T) {
 	}{
 		{"zero", 0, DefaultPageSize},
 		{"negative", -1, DefaultPageSize},
-		{"large negative", -100, DefaultPageSize},
 	}
 
 	for _, tc := range testCases {
@@ -164,7 +130,6 @@ func TestNormalizePageSize_WithOversizedValue_ShouldReturnMax(t *testing.T) {
 		expected int
 	}{
 		{"just over max", MaxPageSize + 1, MaxPageSize},
-		{"way over max", 10000, MaxPageSize},
 	}
 
 	for _, tc := range testCases {

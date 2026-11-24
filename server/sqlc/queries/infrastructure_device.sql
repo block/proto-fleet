@@ -153,26 +153,3 @@ WHERE id = sqlc.arg('id')
   AND site_id = sqlc.arg('expected_site_id')
   AND deleted_at IS NULL
 RETURNING *;
-
--- name: CountResponseProfilesByInfrastructureDevice :one
-SELECT COUNT(*)
-FROM curtailment_response_profile
-WHERE org_id = sqlc.arg('org_id')
-  AND facility_fan_device_ids @> sqlc.arg('infrastructure_device_ids')::bigint[];
-
--- name: CountActiveCurtailmentEventsByInfrastructureDevices :one
-SELECT COUNT(*)
-FROM curtailment_event
-WHERE org_id = sqlc.arg('org_id')
-  AND (
-    state IN ('pending', 'active', 'restoring')
-    OR fan_last_error IS NOT NULL
-  )
-  AND facility_fan_device_ids && sqlc.arg('infrastructure_device_ids')::BIGINT[];
-
--- name: CountNonTerminalCurtailmentEventsByInfrastructureDevices :one
-SELECT COUNT(*)
-FROM curtailment_event
-WHERE org_id = sqlc.arg('org_id')
-  AND state IN ('pending', 'active', 'restoring')
-  AND facility_fan_device_ids && sqlc.arg('infrastructure_device_ids')::BIGINT[];

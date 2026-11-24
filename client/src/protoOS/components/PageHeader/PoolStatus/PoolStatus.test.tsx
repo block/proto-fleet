@@ -63,18 +63,6 @@ describe("Pool Status", () => {
     expect(queryByTestId("pool-info-popover")).not.toBeInTheDocument();
   });
 
-  test("renders connected state of pool status widget", () => {
-    const { getByTestId } = render(
-      <PopoverProvider>
-        <PoolStatus onClickViewPools={onClickViewPools} poolsInfo={[aliveDefaultPool]} />
-      </PopoverProvider>,
-    );
-
-    // Connected state - the component no longer shows icons, just the status text
-    const widget = getByTestId("pool-status-widget");
-    expect(widget).toBeInTheDocument();
-  });
-
   test("renders pool status popover", () => {
     const { getByTestId } = render(
       <PopoverProvider>
@@ -109,18 +97,6 @@ describe("Pool Status", () => {
     expect(getByText(backupPoolUrl)).toBeInTheDocument();
   });
 
-  test("renders no pools configured state of pool status widget", () => {
-    const { getByTestId } = render(
-      <PopoverProvider>
-        <PoolStatus onClickViewPools={onClickViewPools} />
-      </PopoverProvider>,
-    );
-
-    // No pools configured state - the component no longer shows icons, just the status text
-    const widget = getByTestId("pool-status-widget");
-    expect(widget).toBeInTheDocument();
-  });
-
   test("renders no pools configured state in the popover", () => {
     const { getByTestId, getByText } = render(
       <PopoverProvider>
@@ -131,18 +107,6 @@ describe("Pool Status", () => {
     const buttonElement = getByTextWithinWidget(buttonLabel);
     fireEvent.click(buttonElement);
     expect(getByText("No mining pools")).toBeInTheDocument();
-  });
-
-  test("renders disconnected state of pool status widget", () => {
-    const { getByTestId } = render(
-      <PopoverProvider>
-        <PoolStatus onClickViewPools={onClickViewPools} poolsInfo={[deadDefaultPool]} />
-      </PopoverProvider>,
-    );
-
-    // Disconnected state - the component no longer shows icons, just the status text
-    const widget = getByTestId("pool-status-widget");
-    expect(widget).toBeInTheDocument();
   });
 
   test("renders disconnected state in the popover", () => {

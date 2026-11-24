@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 
 import {
@@ -6,7 +7,6 @@ import {
   normalizeSubnetLine,
   type NumericRangeBounds,
   type NumericRangeValue,
-  validateCidrLine,
   validateNumericRange,
   validateSubnetLine,
 } from "./filterValidation";
@@ -64,47 +64,6 @@ describe("validateNumericRange", () => {
   });
 });
 
-describe("validateCidrLine", () => {
-  it("accepts a canonical IPv4 CIDR", () => {
-    expect(validateCidrLine("192.168.1.0/24")).toBeNull();
-  });
-
-  it("accepts a routable IPv6 CIDR", () => {
-    expect(validateCidrLine("2001:db8::/64")).toBeNull();
-  });
-
-  it("accepts a non-canonical CIDR (host bits set) — server normalizes", () => {
-    expect(validateCidrLine("192.168.1.5/24")).toBeNull();
-  });
-
-  it("accepts a bare IPv4 address (treated as /32)", () => {
-    expect(validateCidrLine("10.0.0.5")).toBeNull();
-  });
-
-  it("accepts a bare routable IPv6 address (treated as /128)", () => {
-    expect(validateCidrLine("2001:db8::1")).toBeNull();
-  });
-
-  it("rejects garbage", () => {
-    expect(validateCidrLine("not a cidr")).toBeTypeOf("string");
-    expect(validateCidrLine("")).toBeTypeOf("string");
-    expect(validateCidrLine("999.999.999.999")).toBeTypeOf("string");
-    expect(validateCidrLine("192.168.1.0/33")).toBeTypeOf("string");
-    expect(validateCidrLine("192.168.1.0/-1")).toBeTypeOf("string");
-  });
-
-  it("rejects scoped and link-local IPv6", () => {
-    expect(validateCidrLine("fe80::1")).toBeTypeOf("string");
-    expect(validateCidrLine("fe80::/64")).toBeTypeOf("string");
-    expect(validateCidrLine("fe80::1%en0")).toBeTypeOf("string");
-  });
-
-  it("trims surrounding whitespace before validating", () => {
-    expect(validateCidrLine("  192.168.1.0/24  ")).toBeNull();
-    expect(validateCidrLine("  2001:db8::1  ")).toBeNull();
-  });
-});
-
 describe("normalizeCidrLine", () => {
   it("masks host bits to canonical network", () => {
     expect(normalizeCidrLine("192.168.1.5/24")).toBe("192.168.1.0/24");
@@ -135,7 +94,7 @@ describe("normalizeCidrLine", () => {
 });
 
 describe("validateSubnetLine", () => {
-  it("accepts everything validateCidrLine accepts", () => {
+  it("accepts a CIDR and a bare IP address", () => {
     expect(validateSubnetLine("192.168.1.0/24")).toBeNull();
     expect(validateSubnetLine("10.0.0.5")).toBeNull();
     expect(validateSubnetLine("2001:db8::/64")).toBeNull();

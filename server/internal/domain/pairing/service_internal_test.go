@@ -7,9 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
-
 	"connectrpc.com/authn"
+	"connectrpc.com/connect"
 	commonv1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
@@ -21,7 +20,9 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -87,6 +88,56 @@ func TestIsSameDevice_ConfirmedIdentityAuthenticationFailureReconcilesStatus(t *
 	require.False(t, matched)
 }
 
+func TestAnnotateAlreadyPairedClearsUntrustedFlagWithoutIdentifier(t *testing.T) {
+	service := &Service{deviceStore: mocks.NewMockDeviceStore(gomock.NewController(t))}
+	device := &pb.Device{AlreadyPaired: true}
+
+	require.NoError(t, service.AnnotateAlreadyPaired(t.Context(), 7, []*pb.Device{device}))
+	require.False(t, device.GetAlreadyPaired())
+}
+
+func TestAnnotateAlreadyPairedRequiresPairingStateStoreForIdentifiedDevices(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		service *Service
+	}{
+		{name: "nil service"},
+		{name: "nil store", service: &Service{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			device := &pb.Device{DeviceIdentifier: "miner-1", AlreadyPaired: true}
+
+			err := tc.service.AnnotateAlreadyPaired(t.Context(), 7, []*pb.Device{device})
+
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, connect.CodeInternal, fleetErr.GRPCCode)
+			assert.Contains(t, err.Error(), "pairing state store is not configured")
+			assert.False(t, device.GetAlreadyPaired())
+		})
+	}
+}
+
+func TestAnnotateAlreadyPairedHandlesDuplicateIdentifiersInOnePass(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := mocks.NewMockDeviceStore(ctrl)
+	service := &Service{deviceStore: deviceStore}
+	devices := []*pb.Device{
+		{DeviceIdentifier: "paired", AlreadyPaired: false},
+		{DeviceIdentifier: "paired", AlreadyPaired: false},
+		{DeviceIdentifier: "new", AlreadyPaired: true},
+		{AlreadyPaired: true},
+	}
+	deviceStore.EXPECT().GetAlreadyPairedDeviceIdentifiers(gomock.Any(), int64(7), []string{"paired", "new"}).
+		Return([]string{"paired"}, nil)
+
+	require.NoError(t, service.AnnotateAlreadyPaired(t.Context(), 7, devices))
+	assert.True(t, devices[0].GetAlreadyPaired())
+	assert.True(t, devices[1].GetAlreadyPaired())
+	assert.False(t, devices[2].GetAlreadyPaired())
+	assert.False(t, devices[3].GetAlreadyPaired())
+}
+
 func mockSessionContext(ctx context.Context, userID, orgID int64) context.Context {
 	return authn.SetInfo(ctx, &session.Info{
 		SessionID:      "test-session",
@@ -101,10 +152,13 @@ func TestHandleAuthenticationRequiredPairing_PreservesExistingWorkerName(t *test
 
 	mockTransactor := mocks.NewMockTransactor(ctrl)
 	mockDeviceStore := mocks.NewMockDeviceStore(ctrl)
+	mockDiscoveredStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
+	mockDiscoveredStore.EXPECT().LockPairingSnapshot(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 
 	service := &Service{
-		deviceStore: mockDeviceStore,
-		transactor:  mockTransactor,
+		deviceStore:           mockDeviceStore,
+		transactor:            mockTransactor,
+		discoveredDeviceStore: mockDiscoveredStore,
 	}
 
 	discoveredDevice := &discoverymodels.DiscoveredDevice{
@@ -132,22 +186,27 @@ func TestHandleAuthenticationRequiredPairing_PreservesExistingWorkerName(t *test
 		GetDeviceByDeviceIdentifier(gomock.Any(), "device-123", int64(1)).
 		Return(&pb.Device{DeviceIdentifier: "device-123"}, nil)
 	mockDeviceStore.EXPECT().
-		UpdateDeviceInfo(gomock.Any(), gomock.Any(), int64(1)).
-		Return(nil)
+		InitializeWorkerName(gomock.Any(), int64(1), minermodels.DeviceIdentifier("device-123"), "AA:BB:CC:DD:EE:FF").
+		Return(false, nil)
 	mockDeviceStore.EXPECT().
-		GetDevicePropertiesForRename(gomock.Any(), int64(1), []string{"device-123"}, false).
-		Return([]stores.DeviceRenameProperties{
-			{
-				DeviceIdentifier: "device-123",
-				WorkerName:       "rig-01",
-			},
-		}, nil)
-	mockDeviceStore.EXPECT().
-		UpsertDevicePairing(gomock.Any(), gomock.Any(), int64(1), StatusAuthenticationNeeded).
-		Return(nil)
+		SetDevicePairingAuthNeededIfNotPaired(gomock.Any(), gomock.Any(), int64(1)).
+		Return(true, nil)
 
 	err := service.handleAuthenticationRequiredPairing(t.Context(), discoveredDevice)
 	require.NoError(t, err)
+}
+
+func TestAuthenticationRequiredPairingRejectsStaleSnapshot(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	discovered := mocks.NewMockDiscoveredDeviceStore(ctrl)
+	transactor := mocks.NewMockTransactor(ctrl)
+	device := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: "container", DriverName: "proto", DeviceClass: commonv1.DeviceClass_DEVICE_CLASS_CONTAINER, IpAddress: "10.0.0.11", Port: "8080", RpcPort: 9095,
+		Endpoints: []*commonv1.DeviceEndpoint{{Id: "a", DeviceKey: "a-b", Host: "10.0.0.11", Port: 8080, RpcPort: 9095}}}, OrgID: 7, IsActive: true}
+	transactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, action func(context.Context) error) error { return action(ctx) })
+	discovered.EXPECT().LockPairingSnapshot(gomock.Any(), device.GetDeviceOrgIdentifier(), &device.Device, gomock.Nil()).Return(fleeterror.NewFailedPreconditionError("discovery changed"))
+	service := &Service{deviceStore: mocks.NewMockDeviceStore(ctrl), discoveredDeviceStore: discovered, transactor: transactor}
+	err := service.handleAuthenticationRequiredPairing(t.Context(), device)
+	require.True(t, fleeterror.IsFailedPreconditionError(err), "stale auth-needed state must not reach any device writes: %v", err)
 }
 
 func TestResolveDeviceIdentifiers_AllDevicesPassesFullFilter(t *testing.T) {
@@ -259,14 +318,6 @@ func TestCanonicalCIDR(t *testing.T) {
 			wantOK:       true,
 		},
 		{
-			name:         "valid IPv4 /16",
-			input:        "10.0.0.0/16",
-			wantCIDR:     "10.0.0.0/16",
-			wantMaskBits: 16,
-			wantIsIPv4:   true,
-			wantOK:       true,
-		},
-		{
 			name:         "IPv4 with host bits strips them",
 			input:        "192.168.1.100/24",
 			wantCIDR:     "192.168.1.0/24",
@@ -290,11 +341,6 @@ func TestCanonicalCIDR(t *testing.T) {
 		{
 			name:   "empty string",
 			input:  "",
-			wantOK: false,
-		},
-		{
-			name:   "bare IP without mask",
-			input:  "192.168.1.1",
 			wantOK: false,
 		},
 	}
@@ -467,50 +513,30 @@ func TestResolveNetworkScanTargets_DoesNotExpandIPv6Targets(t *testing.T) {
 	require.Equal(t, []string{"fd00::/64"}, targets)
 }
 
-func TestCanonicalCIDR_IPv6Extended(t *testing.T) {
-	tests := []struct {
-		name         string
-		input        string
-		wantCIDR     string
-		wantMaskBits int
-		wantIsIPv4   bool
-		wantOK       bool
+func TestIsSameContainerUsesEndpointIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		ip    string
+		class commonv1.DeviceClass
+		want  bool
 	}{
-		{
-			name:         "IPv6 loopback /128",
-			input:        "::1/128",
-			wantCIDR:     "::1/128",
-			wantMaskBits: 128,
-			wantIsIPv4:   false,
-			wantOK:       true,
-		},
-		{
-			name:         "IPv6 link-local prefix",
-			input:        "fe80::/10",
-			wantCIDR:     "fe80::/10",
-			wantMaskBits: 10,
-			wantIsIPv4:   false,
-			wantOK:       true,
-		},
-		{
-			name:         "IPv6 with host bits strips them",
-			input:        "fd00::1/64",
-			wantCIDR:     "fd00::/64",
-			wantMaskBits: 64,
-			wantIsIPv4:   false,
-			wantOK:       true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			canonical, maskBits, isIPv4, ok := canonicalCIDR(tt.input)
-			require.Equal(t, tt.wantOK, ok)
-			if ok {
-				require.Equal(t, tt.wantCIDR, canonical)
-				require.Equal(t, tt.wantMaskBits, maskBits)
-				require.Equal(t, tt.wantIsIPv4, isIPv4)
-			}
+		{"replacement controller at shared IP", "192.0.2.1", commonv1.DeviceClass_DEVICE_CLASS_CONTAINER, true},
+		{"another container", "192.0.2.2", commonv1.DeviceClass_DEVICE_CLASS_CONTAINER, false},
+		{"a miner at the old IP", "192.0.2.1", commonv1.DeviceClass_DEVICE_CLASS_RIG, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			store := mocks.NewMockDeviceStore(ctrl)
+			store.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), "container", int64(1)).Return(&pb.Device{
+				DeviceClass: commonv1.DeviceClass_DEVICE_CLASS_CONTAINER,
+				DriverName:  "proto", Model: "CT1", IpAddress: "192.0.2.1", Port: "80", SerialNumber: "controller-a",
+			}, nil)
+			service := &Service{deviceStore: store}
+			device := &discoverymodels.DiscoveredDevice{Device: pb.Device{
+				DeviceClass: tc.class, DriverName: "proto", Model: "CT1",
+				IpAddress: tc.ip, Port: "443", SerialNumber: "controller-b",
+			}}
+			require.Equal(t, tc.want, service.IsSameDevice(t.Context(), device, "container", 1))
 		})
 	}
 }

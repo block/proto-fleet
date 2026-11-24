@@ -1,0 +1,371 @@
+syntax = "proto3";
+
+package mdk.v2;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "mdk/v2/options.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
+
+// PSUFirmwareService updates CT1 PSU module firmware over the hashboard L2
+// link. A job targets one PSU module: Frigate reserves every module member,
+// stops mining, stages a signed PSUCAP v1 capsule on the module's PSU leader,
+// applies it, and restores mining. Board firmware fences the cluster over CAN
+// and remains the final authority for signature trust.
+service PSUFirmwareService {
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_tag) = {
+    name: "PSU Firmware"
+    description: "CT1 PSU module firmware capsule upload and update deployment."
+  };
+
+  // UploadPSUFirmwareCapsule streams one signed capsule to the connected
+  // Frigate node. The first message must contain metadata; subsequent messages
+  // carry bounded capsule chunks. The node verifies the capsule structure,
+  // digests, and embedded signature before caching it by SHA-256.
+  rpc UploadPSUFirmwareCapsule(stream UploadPSUFirmwareCapsuleRequest) returns (UploadPSUFirmwareCapsuleResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+  }
+
+  // BeginPSUFirmwareCapsuleUpload starts a chunked unary capsule upload for
+  // clients that cannot send client-streaming calls, such as browsers using
+  // the Connect or REST gateways. It validates the same metadata as
+  // UploadPSUFirmwareCapsule and returns an upload ID that exists only on the
+  // connected node. Idle uploads expire.
+  rpc BeginPSUFirmwareCapsuleUpload(BeginPSUFirmwareCapsuleUploadRequest) returns (BeginPSUFirmwareCapsuleUploadResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {
+      post: "/api/v2/psu-firmware/uploads"
+      body: "*"
+    };
+  }
+
+  // WritePSUFirmwareCapsuleUploadChunk writes capsule bytes at an exact
+  // offset. Repeating an already received chunk is accepted, so a client can
+  // safely retry after a lost response.
+  rpc WritePSUFirmwareCapsuleUploadChunk(WritePSUFirmwareCapsuleUploadChunkRequest) returns (WritePSUFirmwareCapsuleUploadChunkResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {
+      post: "/api/v2/psu-firmware/uploads/{upload_id}/chunks"
+      body: "*"
+    };
+  }
+
+  // CommitPSUFirmwareCapsuleUpload verifies and caches a complete capsule,
+  // exactly like the final step of UploadPSUFirmwareCapsule. An incomplete
+  // upload is refused without discarding received bytes.
+  rpc CommitPSUFirmwareCapsuleUpload(CommitPSUFirmwareCapsuleUploadRequest) returns (CommitPSUFirmwareCapsuleUploadResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {post: "/api/v2/psu-firmware/uploads/{upload_id}/commit"};
+  }
+
+  // AbortPSUFirmwareCapsuleUpload discards an unfinished upload. Aborting an
+  // unknown or expired upload succeeds.
+  rpc AbortPSUFirmwareCapsuleUpload(AbortPSUFirmwareCapsuleUploadRequest) returns (AbortPSUFirmwareCapsuleUploadResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {delete: "/api/v2/psu-firmware/uploads/{upload_id}"};
+  }
+
+  // ListPSUFirmwareCapsules lists capsules cached on the connected node.
+  rpc ListPSUFirmwareCapsules(ListPSUFirmwareCapsulesRequest) returns (ListPSUFirmwareCapsulesResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {get: "/api/v2/psu-firmware/capsules"};
+  }
+
+  // GetPSUFirmwareBoardStatus reads one locally owned board's PSU firmware
+  // staging, apply, and leadership state.
+  rpc GetPSUFirmwareBoardStatus(GetPSUFirmwareBoardStatusRequest) returns (GetPSUFirmwareBoardStatusResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {get: "/api/v2/psu-firmware/boards/{mac_address}/status"};
+  }
+
+  // StartPSUFirmwareUpdate starts one module update with a cached capsule.
+  // Every connected module member must be owned by the connected node.
+  rpc StartPSUFirmwareUpdate(StartPSUFirmwareUpdateRequest) returns (StartPSUFirmwareUpdateResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {
+      post: "/api/v2/psu-firmware/updates"
+      body: "*"
+    };
+  }
+
+  // GetPSUFirmwareUpdate returns the current state of one update job.
+  rpc GetPSUFirmwareUpdate(GetPSUFirmwareUpdateRequest) returns (GetPSUFirmwareUpdateResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {get: "/api/v2/psu-firmware/updates/{task_id}"};
+  }
+
+  // ListPSUFirmwareUpdates lists active and retained update jobs, newest first.
+  rpc ListPSUFirmwareUpdates(ListPSUFirmwareUpdatesRequest) returns (ListPSUFirmwareUpdatesResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {get: "/api/v2/psu-firmware/updates"};
+  }
+
+  // CancelPSUFirmwareUpdate cancels a job before its apply command is sent.
+  // Once the leader has been asked to program the PSU, board firmware owns
+  // completion and the job can no longer be cancelled.
+  rpc CancelPSUFirmwareUpdate(CancelPSUFirmwareUpdateRequest) returns (CancelPSUFirmwareUpdateResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {post: "/api/v2/psu-firmware/updates/{task_id}/cancel"};
+  }
+}
+
+// PSUFirmwarePhase mirrors the board firmware's PSU update phase.
+enum PSUFirmwarePhase {
+  PSU_FIRMWARE_PHASE_UNSPECIFIED = 0;
+  PSU_FIRMWARE_PHASE_EMPTY = 1;
+  PSU_FIRMWARE_PHASE_STAGING = 2;
+  PSU_FIRMWARE_PHASE_VALIDATING = 3;
+  PSU_FIRMWARE_PHASE_READY = 4;
+  PSU_FIRMWARE_PHASE_FENCING = 5;
+  PSU_FIRMWARE_PHASE_ENTERING_BOOTLOADER = 6;
+  PSU_FIRMWARE_PHASE_PROGRAMMING = 7;
+  PSU_FIRMWARE_PHASE_EXITING_BOOTLOADER = 8;
+  PSU_FIRMWARE_PHASE_REPROBING = 9;
+  PSU_FIRMWARE_PHASE_VERIFYING = 10;
+  PSU_FIRMWARE_PHASE_SUCCEEDED = 11;
+  PSU_FIRMWARE_PHASE_FAILED = 12;
+  PSU_FIRMWARE_PHASE_RECOVERY_REQUIRED = 13;
+}
+
+// PSUFirmwareError mirrors the board firmware's PSU update error.
+enum PSUFirmwareError {
+  PSU_FIRMWARE_ERROR_UNSPECIFIED = 0;
+  PSU_FIRMWARE_ERROR_NONE = 1;
+  PSU_FIRMWARE_ERROR_NOT_LEADER = 2;
+  PSU_FIRMWARE_ERROR_STORAGE = 3;
+  PSU_FIRMWARE_ERROR_CAPSULE_FORMAT = 4;
+  PSU_FIRMWARE_ERROR_CAPSULE_HASH = 5;
+  PSU_FIRMWARE_ERROR_CAPSULE_SIGNATURE = 6;
+  PSU_FIRMWARE_ERROR_CAPSULE_TRUST = 7;
+  PSU_FIRMWARE_ERROR_TARGET_MISMATCH = 8;
+  PSU_FIRMWARE_ERROR_CLUSTER_INCOMPATIBLE = 9;
+  PSU_FIRMWARE_ERROR_BARRIER_TIMEOUT = 10;
+  PSU_FIRMWARE_ERROR_I2C = 11;
+  PSU_FIRMWARE_ERROR_BOOTLOADER_STATE = 12;
+  PSU_FIRMWARE_ERROR_VENDOR_STATUS = 13;
+}
+
+// PSUFirmwareComponentRole identifies one PSU controller.
+enum PSUFirmwareComponentRole {
+  PSU_FIRMWARE_COMPONENT_ROLE_UNSPECIFIED = 0;
+  PSU_FIRMWARE_COMPONENT_ROLE_PRIMARY1 = 1;
+  PSU_FIRMWARE_COMPONENT_ROLE_PRIMARY2 = 2;
+  PSU_FIRMWARE_COMPONENT_ROLE_SECONDARY = 3;
+}
+
+// PSUFirmwareUpdateState is the Frigate job lifecycle.
+enum PSUFirmwareUpdateState {
+  PSU_FIRMWARE_UPDATE_STATE_UNSPECIFIED = 0;
+  // QUEUED waits for a module update slot.
+  PSU_FIRMWARE_UPDATE_STATE_QUEUED = 1;
+  // PREPARING stops member mining and resolves the PSU leader.
+  PSU_FIRMWARE_UPDATE_STATE_PREPARING = 2;
+  // STAGING transfers the capsule to the leader.
+  PSU_FIRMWARE_UPDATE_STATE_STAGING = 3;
+  // VALIDATING waits for the leader to verify the staged capsule.
+  PSU_FIRMWARE_UPDATE_STATE_VALIDATING = 4;
+  // APPLYING waits for board firmware to program and verify the PSU.
+  PSU_FIRMWARE_UPDATE_STATE_APPLYING = 5;
+  // RESTORING restores mining on members that were mining before the job.
+  PSU_FIRMWARE_UPDATE_STATE_RESTORING = 6;
+  PSU_FIRMWARE_UPDATE_STATE_SUCCEEDED = 7;
+  PSU_FIRMWARE_UPDATE_STATE_FAILED = 8;
+  PSU_FIRMWARE_UPDATE_STATE_CANCELLED = 9;
+}
+
+// PSUFirmwareComponent describes one vendor image in a capsule.
+message PSUFirmwareComponent {
+  PSUFirmwareComponentRole role = 1;
+  uint32 target_id = 2;
+  uint32 image_size_bytes = 3;
+  // sha256 is the lowercase hex digest of the complete vendor image.
+  string sha256 = 4;
+}
+
+// PSUFirmwareCapsule describes one locally verified, cached capsule.
+message PSUFirmwareCapsule {
+  // capsule_id is the lowercase hex SHA-256 of the complete sealed capsule.
+  string capsule_id = 1;
+  int64 size_bytes = 2;
+  // vendor is the PSU payload vendor, for example "BOCO".
+  string vendor = 3;
+  string manufacturer_id = 4;
+  string manufacturer_model = 5;
+  string manufacturer_revision = 6;
+  // signer_subject is the embedded leaf certificate subject. Board firmware
+  // decides whether that signer is trusted.
+  string signer_subject = 7;
+  repeated PSUFirmwareComponent components = 8;
+  // file_name is the client-supplied display name.
+  string file_name = 9;
+  google.protobuf.Timestamp uploaded_at = 10;
+}
+
+message PSUFirmwareCapsuleUploadMetadata {
+  // file_name is a safe single-component display name.
+  string file_name = 1;
+  // size_bytes is the exact capsule size, at most 512 KiB.
+  int64 size_bytes = 2;
+  // sha256 is the optional expected lowercase hex SHA-256 of the capsule.
+  string sha256 = 3;
+}
+
+message UploadPSUFirmwareCapsuleRequest {
+  oneof payload {
+    PSUFirmwareCapsuleUploadMetadata metadata = 1;
+    // chunk carries at most 1 MiB of capsule bytes.
+    bytes chunk = 2;
+  }
+}
+
+message UploadPSUFirmwareCapsuleResponse {
+  PSUFirmwareCapsule capsule = 1;
+}
+
+message BeginPSUFirmwareCapsuleUploadRequest {
+  PSUFirmwareCapsuleUploadMetadata metadata = 1;
+}
+
+message BeginPSUFirmwareCapsuleUploadResponse {
+  // upload_id identifies the upload on the connected node only.
+  string upload_id = 1;
+  // max_chunk_bytes is the largest accepted chunk data size.
+  uint32 max_chunk_bytes = 2;
+  // expires_at is when the upload is discarded unless another call uses it.
+  google.protobuf.Timestamp expires_at = 3;
+}
+
+message WritePSUFirmwareCapsuleUploadChunkRequest {
+  string upload_id = 1;
+  // offset is the byte offset of data within the capsule.
+  int64 offset = 2;
+  bytes data = 3;
+}
+
+message WritePSUFirmwareCapsuleUploadChunkResponse {
+  // next_offset is the number of contiguous capsule bytes received.
+  int64 next_offset = 1;
+  int64 total_bytes = 2;
+  google.protobuf.Timestamp expires_at = 3;
+}
+
+message CommitPSUFirmwareCapsuleUploadRequest {
+  string upload_id = 1;
+}
+
+message CommitPSUFirmwareCapsuleUploadResponse {
+  PSUFirmwareCapsule capsule = 1;
+}
+
+message AbortPSUFirmwareCapsuleUploadRequest {
+  string upload_id = 1;
+}
+
+message AbortPSUFirmwareCapsuleUploadResponse {}
+
+message ListPSUFirmwareCapsulesRequest {}
+
+message ListPSUFirmwareCapsulesResponse {
+  repeated PSUFirmwareCapsule capsules = 1;
+}
+
+// PSUFirmwareBoardStatus is one board's firmware-reported PSU update state.
+message PSUFirmwareBoardStatus {
+  string mac_address = 1;
+  PSUFirmwarePhase phase = 2;
+  PSUFirmwareError error = 3;
+  PSUFirmwareComponentRole component = 4;
+  // capsule_id is the lowercase hex SHA-256 of the capsule the phase refers to.
+  string capsule_id = 5;
+  uint32 total_size_bytes = 6;
+  uint32 staged_bytes = 7;
+  uint32 programmed_bytes = 8;
+  uint32 component_offset = 9;
+  uint32 vendor_status = 10;
+  string current_app_revision = 11;
+  string current_boot_revision = 12;
+  bool recovery_required = 13;
+  // psu_leader reports whether the board is its module's valid PSU leader.
+  bool psu_leader = 14;
+}
+
+message GetPSUFirmwareBoardStatusRequest {
+  string mac_address = 1;
+}
+
+message GetPSUFirmwareBoardStatusResponse {
+  PSUFirmwareBoardStatus status = 1;
+}
+
+// PSUFirmwareUpdateMember is one reserved module member.
+message PSUFirmwareUpdateMember {
+  string mac_address = 1;
+  // mining_before reports whether mining intent was set when the job started.
+  bool mining_before = 2;
+  // restore_error is set when mining could not be restored.
+  string restore_error = 3;
+  // reserved reports whether Frigate reserved the member. Disconnected or
+  // unmanaged members are not reserved; board firmware still fences them.
+  bool reserved = 4;
+}
+
+// PSUFirmwareUpdate is one module update job.
+message PSUFirmwareUpdate {
+  string task_id = 1;
+  // server_id is the Frigate node that owns this job.
+  string server_id = 2;
+  string module_id = 3;
+  string capsule_id = 4;
+  bool force = 5;
+  bool recover = 6;
+  PSUFirmwareUpdateState state = 7;
+  string leader_mac_address = 8;
+  repeated PSUFirmwareUpdateMember members = 9;
+  // leader_status is the most recent firmware status read from the leader.
+  PSUFirmwareBoardStatus leader_status = 10;
+  string error = 11;
+  google.protobuf.Timestamp created_at = 12;
+  google.protobuf.Timestamp started_at = 13;
+  google.protobuf.Timestamp completed_at = 14;
+  // apply_requested reports whether the apply command may have reached the
+  // leader. After that point the job cannot be cancelled.
+  bool apply_requested = 15;
+}
+
+message StartPSUFirmwareUpdateRequest {
+  string capsule_id = 1;
+  string module_id = 2;
+  // force reapplies an exact capsule that already succeeded.
+  bool force = 3;
+  // recover restages the exact capsule and resumes the leader's recovery
+  // journal instead of starting a new update.
+  bool recover = 4;
+}
+
+message StartPSUFirmwareUpdateResponse {
+  PSUFirmwareUpdate update = 1;
+}
+
+message GetPSUFirmwareUpdateRequest {
+  string task_id = 1;
+}
+
+message GetPSUFirmwareUpdateResponse {
+  PSUFirmwareUpdate update = 1;
+}
+
+message ListPSUFirmwareUpdatesRequest {}
+
+message ListPSUFirmwareUpdatesResponse {
+  repeated PSUFirmwareUpdate updates = 1;
+}
+
+message CancelPSUFirmwareUpdateRequest {
+  string task_id = 1;
+}
+
+message CancelPSUFirmwareUpdateResponse {
+  PSUFirmwareUpdate update = 1;
+}

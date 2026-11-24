@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/plugins"
@@ -414,7 +415,7 @@ func (failingCredentialSealer) Seal(sdk.SecretBundle) (*pb.EncryptedCredentials,
 }
 
 func fakePairTarget() *pairingpb.FleetNodePairTarget {
-	return &pairingpb.FleetNodePairTarget{DeviceIdentifier: "mac:aa", IpAddress: "10.0.0.5", Port: "80", DriverName: "fakedrv"}
+	return &pairingpb.FleetNodePairTarget{DeviceIdentifier: "mac:aa", IpAddress: "10.0.0.5", Port: "80", UrlScheme: "http", DriverName: "fakedrv"}
 }
 
 func TestPluginPairer_BasicAuthRejectsUnreportableCredentials(t *testing.T) {
@@ -502,7 +503,7 @@ func TestPluginPairer_DefaultCredentialsReportsEncryptedCredentials(t *testing.T
 	// Arrange: no operator creds; the driver provides a working default.
 	active := true
 	drv := &fakePairDriver{
-		pairResult: sdk.DeviceInfo{SerialNumber: "SN1", DefaultPasswordActive: &active},
+		pairResult: sdk.DeviceInfo{SerialNumber: "SN1", DefaultPasswordActive: &active, DeviceClass: sdk.DeviceClassContainer},
 		defaults:   []sdk.UsernamePassword{{Username: "admin", Password: "admin"}},
 	}
 	codec := &credentialCodec{key: bytes.Repeat([]byte{2}, credentialKeySize)}
@@ -520,6 +521,7 @@ func TestPluginPairer_DefaultCredentialsReportsEncryptedCredentials(t *testing.T
 	assert.Equal(t, sdk.UsernamePassword{Username: "admin", Password: "admin"}, bundle.Kind)
 	require.NotNil(t, res.DefaultPasswordActive)
 	assert.True(t, res.GetDefaultPasswordActive())
+	assert.Equal(t, commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, res.DeviceClass)
 }
 
 func TestPluginPairer_DefaultCredentialsSkipsUnreportable(t *testing.T) {
@@ -578,4 +580,58 @@ func (p *ctxIgnoringPairer) Pair(_ context.Context, target *pairingpb.FleetNodeP
 		return r
 	}
 	return &pb.FleetNodePairResult{DeviceIdentifier: id, Outcome: pb.PairOutcome_PAIR_OUTCOME_ERROR}
+}
+
+func TestPluginPairer_AnonymousContainerDoesNotReportRigDefaults(t *testing.T) {
+	driver := &fakePairDriver{pairResult: sdk.DeviceInfo{SerialNumber: "ct1", DeviceClass: sdk.DeviceClassContainer}, defaults: []sdk.UsernamePassword{{Username: "admin", Password: "proto"}}}
+	pairer := newTestPairer(t, sdk.Capabilities{sdk.CapabilityPairing: true, sdk.CapabilityBasicAuth: true}, driver)
+	target := fakePairTarget()
+	target.DeviceClass = commonpb.DeviceClass_DEVICE_CLASS_CONTAINER
+	result := pairer.Pair(t.Context(), target, nil)
+	require.Equal(t, pb.PairOutcome_PAIR_OUTCOME_PAIRED, result.Outcome)
+	require.Nil(t, result.EncryptedCredentials)
+	require.Equal(t, []sdk.SecretBundle{{Version: "v1"}}, driver.gotBundles)
+}
+
+func TestPluginPairer_ProtectedContainerWithoutTokenNeedsAuthentication(t *testing.T) {
+	driver := &fakePairDriver{pairErr: sdk.NewErrorAuthenticationFailed("ct1")}
+	pairer := newTestPairer(t, sdk.Capabilities{sdk.CapabilityPairing: true}, driver)
+	target := fakePairTarget()
+	target.DeviceClass = commonpb.DeviceClass_DEVICE_CLASS_CONTAINER
+	result := pairer.Pair(t.Context(), target, nil)
+	require.Equal(t, pb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED, result.Outcome, "no credential was tried, so none failed")
+	require.Nil(t, result.EncryptedCredentials)
+}
+
+func TestPluginPairer_ContainerTokenIsSealedWithEmptyUsername(t *testing.T) {
+	driver := &fakePairDriver{pairResult: sdk.DeviceInfo{SerialNumber: "ct1", DeviceClass: sdk.DeviceClassContainer}}
+	codec := &credentialCodec{key: bytes.Repeat([]byte{1}, credentialKeySize)}
+	pairer := newTestPairerWithCredentials(t, sdk.Capabilities{sdk.CapabilityPairing: true}, driver, codec)
+	target := fakePairTarget()
+	target.DeviceClass = commonpb.DeviceClass_DEVICE_CLASS_CONTAINER
+	token := "0123456789abcdef"
+	result := pairer.Pair(t.Context(), target, &pairingpb.Credentials{Password: &token})
+	require.Equal(t, pb.PairOutcome_PAIR_OUTCOME_PAIRED, result.Outcome)
+	require.Equal(t, []sdk.SecretBundle{{Version: "v1", Kind: sdk.UsernamePassword{Password: token}}}, driver.gotBundles)
+	require.NotEmpty(t, result.GetEncryptedCredentials().GetUsername(), "an empty username still seals to a stored blob")
+	bundle, err := codec.Open(result.GetEncryptedCredentials())
+	require.NoError(t, err)
+	require.Equal(t, sdk.UsernamePassword{Password: token}, bundle.Kind)
+}
+
+func TestPluginPairer_ProtectedHAControllerIsNotPairedYet(t *testing.T) {
+	members := []string{"controller-a", "controller-b"}
+	driver := &fakePairDriver{pairResult: sdk.DeviceInfo{SerialNumber: "controller-a", DeviceClass: sdk.DeviceClassContainer, Endpoints: []sdk.DeviceEndpoint{
+		{ID: "controller-a", DeviceKey: "ha-1", MemberIDs: members, Host: "192.0.2.1", Port: 8080, URLScheme: "http", RPCPort: 9095},
+	}}}
+	codec := &credentialCodec{key: bytes.Repeat([]byte{1}, credentialKeySize)}
+	pairer := newTestPairerWithCredentials(t, sdk.Capabilities{sdk.CapabilityPairing: true}, driver, codec)
+	target := fakePairTarget()
+	target.DeviceClass = commonpb.DeviceClass_DEVICE_CLASS_CONTAINER
+	token := "0123456789abcdef"
+	result := pairer.Pair(t.Context(), target, &pairingpb.Credentials{Password: &token})
+	require.Equal(t, pb.PairOutcome_PAIR_OUTCOME_ERROR, result.Outcome)
+	require.Contains(t, result.ErrorMessage, "Fleet cannot pair token-protected HA pairs yet")
+	require.NotContains(t, result.ErrorMessage, token)
+	require.Nil(t, result.EncryptedCredentials)
 }

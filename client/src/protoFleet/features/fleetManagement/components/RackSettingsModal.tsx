@@ -19,13 +19,13 @@ import {
   rackLabelMaxLength,
 } from "@/protoFleet/features/fleetManagement/components/bulkRackLabels";
 import { type RackFormData } from "@/protoFleet/features/fleetManagement/components/ManageRackModal/types";
+import { useHasPermission } from "@/protoFleet/store";
 import {
   counterScaleMaximum,
   counterScaleMinimum,
   counterStartInputMaxLength,
   defaultCounterScale,
-} from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/RenameOptionsModals/constants";
-import { useHasPermission } from "@/protoFleet/store";
+} from "@/shared/components/BulkRename/RenameOptionsModals/constants";
 
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";

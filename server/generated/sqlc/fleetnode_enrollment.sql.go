@@ -9,6 +9,8 @@ import (
 	"context"
 	"database/sql"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 const bindEnrollmentToFleetNode = `-- name: BindEnrollmentToFleetNode :execrows
@@ -73,17 +75,18 @@ func (q *Queries) CancelPendingEnrollment(ctx context.Context, arg CancelPending
 
 const confirmEnrollment = `-- name: ConfirmEnrollment :execrows
 UPDATE pending_enrollment
-SET status = 'CONFIRMED', consumed_at = $1
+SET status = 'CONFIRMED', consumed_at = $1, confirmed_by = $3
 WHERE id = $2 AND status = 'AWAITING_CONFIRMATION'
 `
 
 type ConfirmEnrollmentParams struct {
-	ConsumedAt sql.NullTime
-	ID         int64
+	ConsumedAt  sql.NullTime
+	ID          int64
+	ConfirmedBy sql.NullInt64
 }
 
 func (q *Queries) ConfirmEnrollment(ctx context.Context, arg ConfirmEnrollmentParams) (int64, error) {
-	result, err := q.exec(ctx, q.confirmEnrollmentStmt, confirmEnrollment, arg.ConsumedAt, arg.ID)
+	result, err := q.exec(ctx, q.confirmEnrollmentStmt, confirmEnrollment, arg.ConsumedAt, arg.ID, arg.ConfirmedBy)
 	if err != nil {
 		return 0, err
 	}
@@ -139,16 +142,17 @@ func (q *Queries) CreateFleetNode(ctx context.Context, arg CreateFleetNodeParams
 }
 
 const createPendingEnrollment = `-- name: CreatePendingEnrollment :one
-INSERT INTO pending_enrollment (code_hash, org_id, created_by, status, expires_at)
-VALUES ($1, $2, $3, 'PENDING', $4)
-RETURNING id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at
+INSERT INTO pending_enrollment (code_hash, org_id, created_by, status, expires_at, standby_for_node_id)
+VALUES ($1, $2, $3, 'PENDING', $4, $5)
+RETURNING id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at, confirmed_by, standby_for_node_id
 `
 
 type CreatePendingEnrollmentParams struct {
-	CodeHash  string
-	OrgID     int64
-	CreatedBy int64
-	ExpiresAt time.Time
+	CodeHash         string
+	OrgID            int64
+	CreatedBy        int64
+	ExpiresAt        time.Time
+	StandbyForNodeID sql.NullInt64
 }
 
 func (q *Queries) CreatePendingEnrollment(ctx context.Context, arg CreatePendingEnrollmentParams) (PendingEnrollment, error) {
@@ -157,6 +161,7 @@ func (q *Queries) CreatePendingEnrollment(ctx context.Context, arg CreatePending
 		arg.OrgID,
 		arg.CreatedBy,
 		arg.ExpiresAt,
+		arg.StandbyForNodeID,
 	)
 	var i PendingEnrollment
 	err := row.Scan(
@@ -169,6 +174,40 @@ func (q *Queries) CreatePendingEnrollment(ctx context.Context, arg CreatePending
 		&i.ExpiresAt,
 		&i.ConsumedAt,
 		&i.CreatedAt,
+		&i.ConfirmedBy,
+		&i.StandbyForNodeID,
+	)
+	return i, err
+}
+
+const getCancelledEnrollmentByFleetNode = `-- name: GetCancelledEnrollmentByFleetNode :one
+SELECT id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at, confirmed_by, standby_for_node_id
+FROM pending_enrollment
+WHERE id = $1 AND fleet_node_id = $2 AND org_id = $3 AND status = 'CANCELLED'
+`
+
+type GetCancelledEnrollmentByFleetNodeParams struct {
+	ID          int64
+	FleetNodeID sql.NullInt64
+	OrgID       int64
+}
+
+// Supports retrying teardown after authentication revocation has committed.
+func (q *Queries) GetCancelledEnrollmentByFleetNode(ctx context.Context, arg GetCancelledEnrollmentByFleetNodeParams) (PendingEnrollment, error) {
+	row := q.queryRow(ctx, q.getCancelledEnrollmentByFleetNodeStmt, getCancelledEnrollmentByFleetNode, arg.ID, arg.FleetNodeID, arg.OrgID)
+	var i PendingEnrollment
+	err := row.Scan(
+		&i.ID,
+		&i.CodeHash,
+		&i.OrgID,
+		&i.CreatedBy,
+		&i.FleetNodeID,
+		&i.Status,
+		&i.ExpiresAt,
+		&i.ConsumedAt,
+		&i.CreatedAt,
+		&i.ConfirmedBy,
+		&i.StandbyForNodeID,
 	)
 	return i, err
 }
@@ -176,7 +215,7 @@ func (q *Queries) CreatePendingEnrollment(ctx context.Context, arg CreatePending
 const getFleetNodeByID = `-- name: GetFleetNodeByID :one
 SELECT id, org_id, name, identity_pubkey, encryption_pubkey,
        enrollment_status, last_seen_at, created_at, updated_at
-FROM fleet_node
+FROM fleet_node_live
 WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL
 `
 
@@ -217,7 +256,7 @@ func (q *Queries) GetFleetNodeByID(ctx context.Context, arg GetFleetNodeByIDPara
 const getFleetNodeByIDUnscoped = `-- name: GetFleetNodeByIDUnscoped :one
 SELECT id, org_id, name, identity_pubkey, encryption_pubkey,
        enrollment_status, last_seen_at, created_at, updated_at
-FROM fleet_node
+FROM fleet_node_live
 WHERE id = $1 AND deleted_at IS NULL
 `
 
@@ -251,7 +290,7 @@ func (q *Queries) GetFleetNodeByIDUnscoped(ctx context.Context, id int64) (GetFl
 }
 
 const getPendingEnrollmentByCodeHash = `-- name: GetPendingEnrollmentByCodeHash :one
-SELECT id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at
+SELECT id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at, confirmed_by, standby_for_node_id
 FROM pending_enrollment
 WHERE code_hash = $1
 `
@@ -269,12 +308,14 @@ func (q *Queries) GetPendingEnrollmentByCodeHash(ctx context.Context, codeHash s
 		&i.ExpiresAt,
 		&i.ConsumedAt,
 		&i.CreatedAt,
+		&i.ConfirmedBy,
+		&i.StandbyForNodeID,
 	)
 	return i, err
 }
 
 const getPendingEnrollmentByFleetNode = `-- name: GetPendingEnrollmentByFleetNode :one
-SELECT id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at
+SELECT id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at, confirmed_by, standby_for_node_id
 FROM pending_enrollment
 WHERE fleet_node_id = $1 AND org_id = $2 AND status = 'AWAITING_CONFIRMATION'
 `
@@ -300,19 +341,38 @@ func (q *Queries) GetPendingEnrollmentByFleetNode(ctx context.Context, arg GetPe
 		&i.ExpiresAt,
 		&i.ConsumedAt,
 		&i.CreatedAt,
+		&i.ConfirmedBy,
+		&i.StandbyForNodeID,
 	)
 	return i, err
 }
 
 const listFleetNodesForOrganization = `-- name: ListFleetNodesForOrganization :many
 SELECT a.id, a.org_id, a.name, a.identity_pubkey,
-       a.enrollment_status, a.last_seen_at, a.created_at, a.updated_at,
+       a.enrollment_status, h.last_seen_at, a.created_at, a.updated_at,
        COALESCE(pe.status, '')::text AS pending_enrollment_status,
-       pe.id AS pending_enrollment_id
+       pe.id AS pending_enrollment_id,
+       COALESCE(h.ip_addresses, '{}'::text[])::text[] AS ip_addresses,
+       COALESCE(h.version, '')::text AS version,
+       COALESCE(u.username, '')::text AS enrolled_by,
+       pe.standby_for_node_id,
+       p.active_node_id AS ha_active_node_id,
+       p.standby_node_id AS ha_standby_node_id,
+       COALESCE(p.standby_ready, false)::boolean AS ha_standby_ready,
+       COALESCE(p.status_reason, '')::text AS ha_status_reason
 FROM fleet_node a
 LEFT JOIN pending_enrollment pe
   ON pe.fleet_node_id = a.id
  AND pe.status = 'AWAITING_CONFIRMATION'
+LEFT JOIN fleet_node_ha_pair p
+  ON p.org_id = a.org_id AND (p.active_node_id = a.id OR p.standby_node_id = a.id)
+LEFT JOIN fleet_node_heartbeat h ON h.fleet_node_id = a.id AND h.org_id = a.org_id
+LEFT JOIN LATERAL (
+    SELECT confirmed_by FROM pending_enrollment
+    WHERE fleet_node_id = a.id AND org_id = a.org_id AND status = 'CONFIRMED'
+    ORDER BY consumed_at DESC, id DESC LIMIT 1
+) completed ON TRUE
+LEFT JOIN "user" u ON u.id = completed.confirmed_by
 WHERE a.org_id = $1
   AND a.deleted_at IS NULL
 ORDER BY a.created_at DESC
@@ -329,6 +389,14 @@ type ListFleetNodesForOrganizationRow struct {
 	UpdatedAt               time.Time
 	PendingEnrollmentStatus string
 	PendingEnrollmentID     sql.NullInt64
+	IpAddresses             []string
+	Version                 string
+	EnrolledBy              string
+	StandbyForNodeID        sql.NullInt64
+	HaActiveNodeID          sql.NullInt64
+	HaStandbyNodeID         sql.NullInt64
+	HaStandbyReady          bool
+	HaStatusReason          string
 }
 
 // A fleet node can have multiple pending_enrollment rows over its lifetime
@@ -355,6 +423,14 @@ func (q *Queries) ListFleetNodesForOrganization(ctx context.Context, orgID int64
 			&i.UpdatedAt,
 			&i.PendingEnrollmentStatus,
 			&i.PendingEnrollmentID,
+			pq.Array(&i.IpAddresses),
+			&i.Version,
+			&i.EnrolledBy,
+			&i.StandbyForNodeID,
+			&i.HaActiveNodeID,
+			&i.HaStandbyNodeID,
+			&i.HaStandbyReady,
+			&i.HaStatusReason,
 		); err != nil {
 			return nil, err
 		}
@@ -370,11 +446,12 @@ func (q *Queries) ListFleetNodesForOrganization(ctx context.Context, orgID int64
 }
 
 const lockFleetNodeByID = `-- name: LockFleetNodeByID :one
-SELECT id, org_id, name, identity_pubkey, encryption_pubkey,
-       enrollment_status, last_seen_at, created_at, updated_at
-FROM fleet_node
-WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL
-FOR UPDATE
+SELECT fn.id, fn.org_id, fn.name, fn.identity_pubkey, fn.encryption_pubkey,
+       fn.enrollment_status, h.last_seen_at, fn.created_at, fn.updated_at
+FROM fleet_node fn
+LEFT JOIN fleet_node_heartbeat h ON h.fleet_node_id=fn.id AND h.org_id=fn.org_id
+WHERE fn.id = $1 AND fn.org_id = $2 AND fn.deleted_at IS NULL
+FOR NO KEY UPDATE OF fn
 `
 
 type LockFleetNodeByIDParams struct {
@@ -397,6 +474,91 @@ type LockFleetNodeByIDRow struct {
 func (q *Queries) LockFleetNodeByID(ctx context.Context, arg LockFleetNodeByIDParams) (LockFleetNodeByIDRow, error) {
 	row := q.queryRow(ctx, q.lockFleetNodeByIDStmt, lockFleetNodeByID, arg.ID, arg.OrgID)
 	var i LockFleetNodeByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Name,
+		&i.IdentityPubkey,
+		&i.EncryptionPubkey,
+		&i.EnrollmentStatus,
+		&i.LastSeenAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const lockFleetNodeDevicesForRevocation = `-- name: LockFleetNodeDevicesForRevocation :many
+SELECT d.id
+FROM device d
+JOIN fleet_node_device fnd ON fnd.device_id=d.id AND fnd.org_id=d.org_id
+WHERE fnd.fleet_node_id=$1 AND fnd.org_id=$2
+ORDER BY d.id
+FOR NO KEY UPDATE OF d
+`
+
+type LockFleetNodeDevicesForRevocationParams struct {
+	FleetNodeID int64
+	OrgID       int64
+}
+
+// Teardown follows dispatch's device-before-child order and retains routing
+// children until any admitted physical call has actually returned.
+func (q *Queries) LockFleetNodeDevicesForRevocation(ctx context.Context, arg LockFleetNodeDevicesForRevocationParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.lockFleetNodeDevicesForRevocationStmt, lockFleetNodeDevicesForRevocation, arg.FleetNodeID, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockFleetNodeIdentityByID = `-- name: LockFleetNodeIdentityByID :one
+SELECT fn.id, fn.org_id, fn.name, fn.identity_pubkey, fn.encryption_pubkey,
+       fn.enrollment_status, h.last_seen_at, fn.created_at, fn.updated_at
+FROM fleet_node fn
+LEFT JOIN fleet_node_heartbeat h ON h.fleet_node_id=fn.id AND h.org_id=fn.org_id
+WHERE fn.id = $1 AND fn.org_id = $2 AND fn.deleted_at IS NULL
+FOR KEY SHARE OF fn
+`
+
+type LockFleetNodeIdentityByIDParams struct {
+	ID    int64
+	OrgID int64
+}
+
+type LockFleetNodeIdentityByIDRow struct {
+	ID               int64
+	OrgID            int64
+	Name             string
+	IdentityPubkey   []byte
+	EncryptionPubkey []byte
+	EnrollmentStatus string
+	LastSeenAt       sql.NullTime
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
+// Keep the routing identity alive during a device wait without blocking
+// authentication revocation. Writers revalidate with LockFleetNodeByID after
+// acquiring the device lock before they mutate any binding children.
+func (q *Queries) LockFleetNodeIdentityByID(ctx context.Context, arg LockFleetNodeIdentityByIDParams) (LockFleetNodeIdentityByIDRow, error) {
+	row := q.queryRow(ctx, q.lockFleetNodeIdentityByIDStmt, lockFleetNodeIdentityByID, arg.ID, arg.OrgID)
+	var i LockFleetNodeIdentityByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -485,19 +647,33 @@ func (q *Queries) SweepExpiredEnrollments(ctx context.Context, expiresAt time.Ti
 }
 
 const updateFleetNodeLastSeenAt = `-- name: UpdateFleetNodeLastSeenAt :execrows
-UPDATE fleet_node
-SET last_seen_at = $1
-WHERE id = $2 AND org_id = $3 AND deleted_at IS NULL
+INSERT INTO fleet_node_heartbeat (fleet_node_id,org_id,last_seen_at,ip_addresses,version)
+SELECT fn.id,fn.org_id,$1::timestamptz,
+       COALESCE($2::text[], '{}'::text[]), $3::text
+FROM fleet_node fn
+WHERE fn.id=$4 AND fn.org_id=$5 AND fn.deleted_at IS NULL
+ON CONFLICT (fleet_node_id) DO UPDATE
+SET last_seen_at=GREATEST(fleet_node_heartbeat.last_seen_at,EXCLUDED.last_seen_at),
+    ip_addresses=CASE WHEN EXCLUDED.last_seen_at >= fleet_node_heartbeat.last_seen_at THEN EXCLUDED.ip_addresses ELSE fleet_node_heartbeat.ip_addresses END,
+    version=CASE WHEN EXCLUDED.last_seen_at >= fleet_node_heartbeat.last_seen_at THEN EXCLUDED.version ELSE fleet_node_heartbeat.version END
 `
 
 type UpdateFleetNodeLastSeenAtParams struct {
-	LastSeenAt sql.NullTime
-	ID         int64
-	OrgID      int64
+	LastSeenAt  time.Time
+	IpAddresses []string
+	Version     string
+	ID          int64
+	OrgID       int64
 }
 
 func (q *Queries) UpdateFleetNodeLastSeenAt(ctx context.Context, arg UpdateFleetNodeLastSeenAtParams) (int64, error) {
-	result, err := q.exec(ctx, q.updateFleetNodeLastSeenAtStmt, updateFleetNodeLastSeenAt, arg.LastSeenAt, arg.ID, arg.OrgID)
+	result, err := q.exec(ctx, q.updateFleetNodeLastSeenAtStmt, updateFleetNodeLastSeenAt,
+		arg.LastSeenAt,
+		pq.Array(arg.IpAddresses),
+		arg.Version,
+		arg.ID,
+		arg.OrgID,
+	)
 	if err != nil {
 		return 0, err
 	}

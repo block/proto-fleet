@@ -8,6 +8,11 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
+
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
@@ -32,17 +37,23 @@ var telemetryScheduleTimeout = 5 * time.Second
 
 type Store interface { //nolint:interfacebloat // Pairing coordinates several sqlc-backed persistence operations in one transaction boundary.
 	PairDeviceToFleetNode(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) (int64, error)
+	DeviceHasRevokedFleetNodeStatus(ctx context.Context, deviceID, orgID int64) (bool, error)
 	LockDeviceForFleetNodePairing(ctx context.Context, deviceID, orgID int64) (bool, error)
 	TransferDiscoveredDeviceAttribution(ctx context.Context, fleetNodeID, deviceID, orgID int64) (int64, error)
+	ClearFleetNodeRevokedStatus(ctx context.Context, fleetNodeID, deviceID, orgID int64) (int64, error)
 	DeviceHasActiveCloudPairing(ctx context.Context, deviceID, orgID int64) (bool, error)
 	DeviceHasActivePairing(ctx context.Context, deviceID, orgID int64) (bool, error)
+	IsFleetNodeHAStandby(ctx context.Context, fleetNodeID, orgID int64) (bool, error)
 	UnpairDevice(ctx context.Context, deviceID, orgID int64) (int64, error)
 	ListFleetNodeDevices(ctx context.Context, orgID int64, fleetNodeID *int64) ([]FleetNodeDevice, error)
+	CountFleetNodeDevicesByNode(ctx context.Context, orgID int64) (map[int64]int64, error)
 	ListFleetNodeDiscoveredDevices(ctx context.Context, orgID int64, fleetNodeID *int64, filter FleetNodeDiscoveredDeviceFilter) ([]FleetNodeDiscoveredDevice, error)
-	UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID int64, fleetNodeID int64, report DiscoveredDeviceReport) (int64, error)
+	LockDiscoveredDeviceReports(ctx context.Context, orgID int64, reports []DiscoveredDeviceReport) error
+	UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID int64, fleetNodeID int64, report DiscoveredDeviceReport) (DiscoveredDeviceReport, bool, error)
 	DeviceExistsInOrg(ctx context.Context, deviceID, orgID int64) (bool, error)
 	GetDeviceIDByDeviceIdentifier(ctx context.Context, identifier string) (int64, error)
 	GetFleetNodePairedDeviceIdentifier(ctx context.Context, deviceID, orgID int64) (string, error)
+	GetFleetNodePairingTarget(ctx context.Context, deviceID, orgID int64) (*pairingpb.FleetNodePairTarget, error)
 }
 
 type minerCredentialDeleter interface {
@@ -60,7 +71,7 @@ type FleetNodeDiscoveredDeviceFilter struct {
 }
 
 type TelemetryScheduler interface {
-	AddDevices(ctx context.Context, deviceID ...telemetrymodels.DeviceIdentifier) error
+	AddPairedDevices(ctx context.Context, deviceID ...telemetrymodels.DeviceIdentifier) error
 }
 
 type Service struct {
@@ -74,6 +85,7 @@ type Service struct {
 	deviceStore           stores.DeviceStore
 	discoveredDeviceStore stores.DiscoveredDeviceStore
 	dispatcher            control.Sender
+	discoveryConfig       func(int64) *gatewaypb.DiscoveryConfig
 
 	invalidateMiner    func(context.Context, int64)
 	rigConfigReapplier func(context.Context, int64, int64, []string)
@@ -89,6 +101,17 @@ func (s *Service) WithProvisioning(deviceStore stores.DeviceStore, discoveredDev
 	s.deviceStore = deviceStore
 	s.discoveredDeviceStore = discoveredDeviceStore
 	s.dispatcher = dispatcher
+	if source, ok := dispatcher.(interface {
+		DiscoveryConfig(fleetNodeID int64) *gatewaypb.DiscoveryConfig
+	}); ok {
+		s.discoveryConfig = source.DiscoveryConfig
+	}
+	return s
+}
+
+// WithDiscoveryConfig supplies live connection metadata for alternate dispatchers.
+func (s *Service) WithDiscoveryConfig(config func(int64) *gatewaypb.DiscoveryConfig) *Service {
+	s.discoveryConfig = config
 	return s
 }
 
@@ -149,18 +172,38 @@ func (s *Service) PairDevice(ctx context.Context, fleetNodeID, deviceID, orgID i
 // and transfers discovery attribution. (PairDevice and PersistFleetNodePairResult
 // both wrap it.)
 func (s *Service) pairDeviceLocked(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) error {
-	if err := s.lockFleetNodeForPairing(ctx, fleetNodeID, orgID); err != nil {
+	if err := s.lockFleetNodeIdentityForPairing(ctx, fleetNodeID, orgID); err != nil {
 		return err
 	}
 	if err := s.lockDeviceForPairing(ctx, deviceID, orgID); err != nil {
 		return err
 	}
-	return s.pairDeviceWithLocks(ctx, fleetNodeID, deviceID, orgID, assignedBy)
+	if err := s.lockFleetNodeForPairing(ctx, fleetNodeID, orgID); err != nil {
+		return err
+	}
+	if err := s.validateDeviceDiscoveryScope(ctx, fleetNodeID, deviceID, orgID); err != nil {
+		return err
+	}
+	if err := s.pairDeviceWithLocks(ctx, fleetNodeID, deviceID, orgID, assignedBy); err != nil {
+		return err
+	}
+	// A direct binding does not run miner provisioning. If revocation removed
+	// the previous assignment while this transaction waited, this final check
+	// sees its committed status marker and rolls back the new binding.
+	revoked, err := s.store.DeviceHasRevokedFleetNodeStatus(ctx, deviceID, orgID)
+	if err != nil {
+		return logInternal("check revoked fleet node status", clientErrPair, err)
+	}
+	if revoked {
+		return fleeterror.NewFailedPreconditionError("miner was unpaired by fleet node revocation; discover and pair it through the replacement node")
+	}
+	return nil
 }
 
 func (s *Service) lockFleetNodeForPairing(ctx context.Context, fleetNodeID, orgID int64) error {
 	// Lock-and-recheck in the TX so a concurrent revoke can't soft-delete the node
-	// between the status check and the INSERT. Matches Confirm/Revoke lock order.
+	// between the status check and the INSERT. Acquire after the device lock,
+	// so waiting for physical dispatch does not delay authentication revocation.
 	node, lockErr := s.enrollmentStore.LockFleetNodeByID(ctx, fleetNodeID, orgID)
 	if lockErr != nil {
 		if fleeterror.IsNotFoundError(lockErr) {
@@ -171,13 +214,35 @@ func (s *Service) lockFleetNodeForPairing(ctx context.Context, fleetNodeID, orgI
 	if node.EnrollmentStatus != enrollment.FleetNodeStatusConfirmed {
 		return fleeterror.NewFailedPreconditionError("fleet node is not confirmed; cannot pair until enrollment completes")
 	}
+	// A separate statement after the lock sees a failover that committed while
+	// this transaction waited, so devices never land on a standby.
+	standby, err := s.store.IsFleetNodeHAStandby(ctx, fleetNodeID, orgID)
+	if err != nil {
+		return logInternal("check HA standby", clientErrLookupFleetNodeForPairing, err)
+	}
+	if standby {
+		return fleeterror.NewFailedPreconditionError("fleet node is an HA standby; pair devices to its active node")
+	}
+	return nil
+}
+
+func (s *Service) lockFleetNodeIdentityForPairing(ctx context.Context, fleetNodeID, orgID int64) error {
+	node, err := s.enrollmentStore.LockFleetNodeIdentityByID(ctx, fleetNodeID, orgID)
+	if err != nil {
+		if fleeterror.IsNotFoundError(err) {
+			return fleeterror.NewNotFoundError("fleet node not found")
+		}
+		return logInternal("lock fleet node identity", clientErrLookupFleetNodeForPairing, err)
+	}
+	if node.EnrollmentStatus != enrollment.FleetNodeStatusConfirmed {
+		return fleeterror.NewFailedPreconditionError("fleet node is not confirmed; cannot pair until enrollment completes")
+	}
 	return nil
 }
 
 func (s *Service) lockDeviceForPairing(ctx context.Context, deviceID, orgID int64) error {
-	// Keep the Fleet Node -> device lock order used by this flow. Cloud recovery
-	// takes only the device lock, so a stale scan that waits here rechecks
-	// ownership after this transaction commits.
+	// Wait without an enrollment mutation lock, then recheck the node before
+	// modifying the binding. Cloud recovery also serializes on this device.
 	locked, deviceLockErr := s.store.LockDeviceForFleetNodePairing(ctx, deviceID, orgID)
 	if deviceLockErr != nil {
 		return logInternal("lock device for pairing", clientErrPair, deviceLockErr)
@@ -258,7 +323,7 @@ func (s *Service) scheduleTelemetryIdentifier(ctx context.Context, identifier te
 	if s.telemetry == nil {
 		return nil
 	}
-	if err := s.telemetry.AddDevices(ctx, identifier); err != nil {
+	if err := s.telemetry.AddPairedDevices(ctx, identifier); err != nil {
 		return fleeterror.LogInternal(component, "schedule telemetry", clientErrPair, err)
 	}
 	return nil
@@ -344,6 +409,14 @@ func (s *Service) ListPairs(ctx context.Context, orgID int64) ([]FleetNodeDevice
 	return pairs, nil
 }
 
+func (s *Service) CountDevicesByNode(ctx context.Context, orgID int64) (map[int64]int64, error) {
+	counts, err := s.store.CountFleetNodeDevicesByNode(ctx, orgID)
+	if err != nil {
+		return nil, fleeterror.LogInternal(component, "count pairs by fleet node", clientErrList, err)
+	}
+	return counts, nil
+}
+
 func (s *Service) ListDevicesForFleetNode(ctx context.Context, fleetNodeID, orgID int64) ([]FleetNodeDevice, error) {
 	pairs, err := s.store.ListFleetNodeDevices(ctx, orgID, &fleetNodeID)
 	if err != nil {
@@ -375,14 +448,13 @@ func (s *Service) ListDiscoveredDevicesForFleetNode(ctx context.Context, orgID i
 	return devices, nextCursor, nil
 }
 
-// UpsertDiscoveredDevices validates the whole batch up front, then runs
+// UpsertDiscoveredDevices validates report fields up front, then runs
 // every upsert inside a single transaction so a mid-batch failure can't
-// leave a committed prefix. Ownership-rejected rows (0 rows affected) are
-// counted in rejectedOwnership without aborting the tx — they're the
-// store's normal "we refused to overwrite a hijacked row" signal.
-// Returns the indices into reports the store actually accepted so the
-// caller can forward only those rows to operator-facing consumers.
-func (s *Service) UpsertDiscoveredDevices(ctx context.Context, fleetNodeID, orgID int64, reports []DiscoveredDeviceReport) (acceptedIdx []int, rejectedOwnership int64, err error) {
+// leave a committed prefix. Ownership conflicts and invalid endpoint groups
+// are counted in rejectedOwnership without aborting the transaction.
+// Returns accepted reports with their persisted class so operator-facing
+// consumers retain known classes when a node omits them on rediscovery.
+func (s *Service) UpsertDiscoveredDevices(ctx context.Context, fleetNodeID, orgID int64, reports []DiscoveredDeviceReport) (acceptedReports []DiscoveredDeviceReport, rejectedOwnership int64, err error) {
 	for i, r := range reports {
 		if vErr := validateReport(r); vErr != nil {
 			return nil, 0, fleeterror.NewInvalidArgumentErrorf("report %d: %v", i, vErr)
@@ -392,28 +464,52 @@ func (s *Service) UpsertDiscoveredDevices(ctx context.Context, fleetNodeID, orgI
 	// locals reset on each entry; accumulating onto the named returns would
 	// double-count a retried batch.
 	var (
-		accepted []int
+		accepted []DiscoveredDeviceReport
 		rejected int64
 	)
 	if txErr := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		accepted = accepted[:0]
 		rejected = 0
-		for i, r := range reports {
-			rows, upErr := s.store.UpsertDiscoveredDeviceFromFleetNode(ctx, orgID, fleetNodeID, r)
-			if upErr != nil {
-				return fleeterror.LogInternal(component, "upsert discovered device", clientErrUpsertDiscoveredDevice, upErr)
-			}
-			if rows == 0 {
+		if err := s.store.LockDiscoveredDeviceReports(ctx, orgID, reports); err != nil {
+			return logInternal("lock discovered device reports", clientErrUpsertDiscoveredDevice, err)
+		}
+		for _, r := range reports {
+			if endpointErr := validateReportEndpoints(r); endpointErr != nil {
+				slog.WarnContext(ctx, "rejected Fleet Node device discovery endpoints", "fleet_node_id", fleetNodeID, "org_id", orgID, "device_identifier", r.DeviceIdentifier, "reason", endpointErr)
 				rejected++
 				continue
 			}
-			accepted = append(accepted, i)
+			saved, stored, upErr := s.store.UpsertDiscoveredDeviceFromFleetNode(ctx, orgID, fleetNodeID, r)
+			if upErr != nil {
+				return logInternal("upsert discovered device", clientErrUpsertDiscoveredDevice, upErr)
+			}
+			if !stored {
+				rejected++
+				continue
+			}
+			accepted = append(accepted, saved)
 		}
 		return nil
 	}); txErr != nil {
 		return nil, 0, txErr
 	}
 	return accepted, rejected, nil
+}
+
+func validateReportEndpoints(r DiscoveredDeviceReport) error {
+	if len(r.Endpoints) > 0 {
+		if _, err := deviceendpoints.Key(r.Endpoints); err != nil {
+			return err
+		}
+		if len(r.Endpoints) != 1 {
+			return fmt.Errorf("discovery must report one scanned endpoint")
+		}
+		c := r.Endpoints[0]
+		if c.Host != r.IPAddress || strconv.Itoa(int(c.Port)) != r.Port || c.UrlScheme != r.URLScheme || c.RpcPort != r.RPCPort || c.RpcTls != r.RPCTLS {
+			return fmt.Errorf("device endpoint must match the scanned endpoint")
+		}
+	}
+	return nil
 }
 
 func validateReport(r DiscoveredDeviceReport) error {
@@ -438,6 +534,12 @@ func validateReport(r DiscoveredDeviceReport) error {
 	// stratum+tcp) so an injection payload such as "javascript:alert(1)//"
 	// can't be stored. The clickable web URL is separately restricted to
 	// http/https at construction (constructWebViewURL).
+	if r.RPCPort < 0 || r.RPCPort > 65535 {
+		return fmt.Errorf("rpc_port must be in 0..65535")
+	}
+	if (r.RPCPort != 0 || r.RPCTLS) && r.DeviceClass != commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
+		return fmt.Errorf("RPC endpoint requires a container")
+	}
 	if r.URLScheme != "" && !networking.IsValidURLScheme(r.URLScheme) {
 		return fmt.Errorf("url_scheme %q is not a valid scheme", r.URLScheme)
 	}

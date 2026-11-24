@@ -50,10 +50,14 @@ func (h *Handler) ListFleetNodeDiscoveredDevices(ctx context.Context, req *conne
 			IpAddress:        d.IPAddress,
 			Port:             d.Port,
 			UrlScheme:        d.URLScheme,
+			RpcPort:          d.RPCPort,
+			RpcTls:           d.RPCTLS,
+			Endpoints:        d.Endpoints,
 			DriverName:       d.DriverName,
 			Model:            d.Model,
 			Manufacturer:     d.Manufacturer,
 			FirmwareVersion:  d.FirmwareVersion,
+			DeviceClass:      d.DeviceClass,
 			PairingStatus:    d.PairingStatus,
 		}
 		if !d.LastSeen.IsZero() {
@@ -87,6 +91,9 @@ func (h *Handler) PairDiscoveredDevicesOnFleetNode(ctx context.Context, req *con
 	if node.EnrollmentStatus != enrollment.FleetNodeStatusConfirmed {
 		return fleeterror.NewFailedPreconditionError("fleet node is not CONFIRMED")
 	}
+	if err := h.ha.RequireNotStandby(ctx, info.OrganizationID, fleetNodeID); err != nil {
+		return err
+	}
 
 	credentials := req.Msg.GetCredentials()
 	assignedBy := info.UserID
@@ -118,7 +125,7 @@ func (h *Handler) PairDiscoveredDevicesOnFleetNode(ctx context.Context, req *con
 	if len(targets) == 0 {
 		return fleeterror.NewInvalidArgumentError("no pairable devices for the requested selection")
 	}
-	return h.pairing.PairOnNode(ctx, fleetNodeID, targets, credentials, info.OrganizationID, &assignedBy, onResults)
+	return h.pairing.PairTargetsOnNode(ctx, fleetNodeID, targets, credentials, info.OrganizationID, &assignedBy, onResults)
 }
 
 func devicePairingResultFromGatewayResult(result *gatewaypb.FleetNodePairResult) *pb.DevicePairingResult {

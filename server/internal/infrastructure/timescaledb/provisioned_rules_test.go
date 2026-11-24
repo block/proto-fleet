@@ -31,6 +31,7 @@ func TestPackagedDefaultRuleSet(t *testing.T) {
 	for _, group := range doc.Groups {
 		for _, rule := range group.Rules {
 			titlesByGroup[group.Name] = append(titlesByGroup[group.Name], rule.Title)
+			require.LessOrEqual(t, len(rule.UID), 40, "Grafana rule UIDs must fit its provisioning limit")
 			provisionedUIDs[rule.UID] = struct{}{}
 		}
 	}
@@ -42,6 +43,7 @@ func TestPackagedDefaultRuleSet(t *testing.T) {
 		"Telemetry Poll Failure Rate High",
 	}, titlesByGroup["proto-fleet-defaults"])
 	require.ElementsMatch(t, []string{
+		"Curtailment Reconciler Stale",
 		"Curtailment Active",
 		"Curtailment Source Unreachable",
 	}, titlesByGroup["proto-fleet-curtailment"])

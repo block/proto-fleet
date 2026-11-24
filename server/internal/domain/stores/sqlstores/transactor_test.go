@@ -4,32 +4,25 @@ import (
 	"context"
 	"database/sql"
 	"testing"
+	"time"
 
-	poolspb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
-	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 // setupTransactorTest creates the test infrastructure needed for transactor tests
-func setupTransactorTest(t *testing.T) (*sqlstores.SQLTransactor, *sqlstores.SQLPoolStore) {
+func setupTransactorTest(t *testing.T) *sqlstores.SQLTransactor {
 	t.Helper()
 
 	db := testutil.GetTestDB(t)
-	config, err := testutil.GetTestConfig()
-	require.NoError(t, err)
-	encryptService, err := encrypt.NewService(&encrypt.Config{ServiceMasterKey: config.ServiceMasterKey})
-	require.NoError(t, err)
-
 	transactor := sqlstores.NewSQLTransactor(db)
-	poolStore := sqlstores.NewSQLPoolStore(db, encryptService)
 
-	_, err = db.Exec(`INSERT INTO organization (id, org_id, name) VALUES (1, 'test-org-1', 'Test Organization 1') ON CONFLICT DO NOTHING`)
+	_, err := db.Exec(`INSERT INTO organization (id, org_id, name) VALUES (1, 'test-org-1', 'Test Organization 1') ON CONFLICT DO NOTHING`)
 	require.NoError(t, err, "Failed to create test organization")
 
-	return transactor, poolStore
+	return transactor
 }
 
 func TestWithTransaction_OuterRollback(t *testing.T) {
@@ -39,12 +32,13 @@ func TestWithTransaction_OuterRollback(t *testing.T) {
 
 	// Arrange
 	ctx := t.Context()
-	transactor, poolStore := setupTransactorTest(t)
+	transactor := setupTransactorTest(t)
 
-	testPoolConfig := &poolspb.PoolConfig{
-		Url:      "stratum+tcp://test.pool.com:3333",
-		Username: "test.worker",
-		Password: wrapperspb.String("test123"),
+	testPoolConfig := sqlc.CreatePoolParams{
+		OrgID:     1,
+		CreatedAt: time.Now(),
+		Url:       "stratum+tcp://test.pool.com:3333",
+		Username:  "test.worker",
 	}
 
 	// Act
@@ -52,7 +46,7 @@ func TestWithTransaction_OuterRollback(t *testing.T) {
 	err := transactor.RunInTx(ctx, func(ctx context.Context) error {
 		innerErr := transactor.RunInTx(ctx, func(ctx context.Context) error {
 			var createErr error
-			poolID, createErr = poolStore.CreatePool(ctx, testPoolConfig, 1)
+			poolID, createErr = transactor.GetQueries(ctx).CreatePool(ctx, testPoolConfig)
 			return createErr
 		})
 		require.NoError(t, innerErr)
@@ -63,7 +57,7 @@ func TestWithTransaction_OuterRollback(t *testing.T) {
 	// Assert
 	require.Error(t, err)
 
-	_, err = poolStore.GetPool(ctx, 1, poolID)
+	_, err = transactor.GetQueries(ctx).GetPool(ctx, sqlc.GetPoolParams{OrgID: 1, ID: poolID})
 	require.Error(t, err, "Pool should not exist after transaction rollback")
 }
 
@@ -74,19 +68,20 @@ func TestWithTransaction_InnerRollback(t *testing.T) {
 
 	// Arrange
 	ctx := t.Context()
-	transactor, poolStore := setupTransactorTest(t)
+	transactor := setupTransactorTest(t)
 
-	testPoolConfig := &poolspb.PoolConfig{
-		Url:      "stratum+tcp://test.pool.com:3333",
-		Username: "test.worker",
-		Password: wrapperspb.String("test123"),
+	testPoolConfig := sqlc.CreatePoolParams{
+		OrgID:     1,
+		CreatedAt: time.Now(),
+		Url:       "stratum+tcp://test.pool.com:3333",
+		Username:  "test.worker",
 	}
 
 	// Act
 	var poolID int64
 	err := transactor.RunInTx(ctx, func(ctx context.Context) error {
 		var createErr error
-		poolID, createErr = poolStore.CreatePool(ctx, testPoolConfig, 1)
+		poolID, createErr = transactor.GetQueries(ctx).CreatePool(ctx, testPoolConfig)
 		require.NoError(t, createErr)
 		return transactor.RunInTx(ctx, func(_ context.Context) error {
 			return sql.ErrTxDone
@@ -96,7 +91,7 @@ func TestWithTransaction_InnerRollback(t *testing.T) {
 	// Assert
 	require.Error(t, err)
 
-	_, err = poolStore.GetPool(ctx, 1, poolID)
+	_, err = transactor.GetQueries(ctx).GetPool(ctx, sqlc.GetPoolParams{OrgID: 1, ID: poolID})
 	require.Error(t, err, "Pool should not exist after transaction rollback")
 }
 
@@ -107,31 +102,33 @@ func TestNestedTransactions_DatabaseLevel(t *testing.T) {
 
 	// Arrange
 	ctx := t.Context()
-	transactor, poolStore := setupTransactorTest(t)
+	transactor := setupTransactorTest(t)
 
-	outerPoolConfig := &poolspb.PoolConfig{
-		Url:      "stratum+tcp://outer.pool.com:3333",
-		Username: "outer.worker",
-		Password: wrapperspb.String("outer123"),
+	outerPoolConfig := sqlc.CreatePoolParams{
+		OrgID:     1,
+		CreatedAt: time.Now(),
+		Url:       "stratum+tcp://outer.pool.com:3333",
+		Username:  "outer.worker",
 	}
 
-	innerPoolConfig := &poolspb.PoolConfig{
-		Url:      "stratum+tcp://inner.pool.com:3333",
-		Username: "inner.worker",
-		Password: wrapperspb.String("inner123"),
+	innerPoolConfig := sqlc.CreatePoolParams{
+		OrgID:     1,
+		CreatedAt: time.Now(),
+		Url:       "stratum+tcp://inner.pool.com:3333",
+		Username:  "inner.worker",
 	}
 
 	// Act - This test will deadlock if nested transactions are created at DB level
 	var outerPoolID, innerPoolID int64
 	err := transactor.RunInTx(ctx, func(outerCtx context.Context) error {
 		var outerErr error
-		outerPoolID, outerErr = poolStore.CreatePool(outerCtx, outerPoolConfig, 1)
+		outerPoolID, outerErr = transactor.GetQueries(outerCtx).CreatePool(outerCtx, outerPoolConfig)
 		require.NoError(t, outerErr)
 
 		// Attempt a nested transaction
 		return transactor.RunInTx(outerCtx, func(innerCtx context.Context) error {
 			var innerErr error
-			innerPoolID, innerErr = poolStore.CreatePool(innerCtx, innerPoolConfig, 1)
+			innerPoolID, innerErr = transactor.GetQueries(innerCtx).CreatePool(innerCtx, innerPoolConfig)
 			require.NoError(t, innerErr)
 
 			// If these are truly separate transactions at DB level, this would likely cause a deadlock
@@ -139,7 +136,7 @@ func TestNestedTransactions_DatabaseLevel(t *testing.T) {
 
 			// Read the outer pool from the inner transaction context
 			// This should succeed if there's proper transaction handling (same transaction)
-			_, getErr := poolStore.GetPool(innerCtx, 1, outerPoolID)
+			_, getErr := transactor.GetQueries(innerCtx).GetPool(innerCtx, sqlc.GetPoolParams{OrgID: 1, ID: outerPoolID})
 			return getErr
 		})
 	})
@@ -149,9 +146,9 @@ func TestNestedTransactions_DatabaseLevel(t *testing.T) {
 
 	// Verify both pools were created in the same transaction
 	// by checking if they both exist
-	_, outerErr := poolStore.GetPool(ctx, 1, outerPoolID)
+	_, outerErr := transactor.GetQueries(ctx).GetPool(ctx, sqlc.GetPoolParams{OrgID: 1, ID: outerPoolID})
 	require.NoError(t, outerErr)
 
-	_, innerErr := poolStore.GetPool(ctx, 1, innerPoolID)
+	_, innerErr := transactor.GetQueries(ctx).GetPool(ctx, sqlc.GetPoolParams{OrgID: 1, ID: innerPoolID})
 	require.NoError(t, innerErr)
 }

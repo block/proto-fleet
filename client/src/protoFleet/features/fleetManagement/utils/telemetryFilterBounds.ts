@@ -24,31 +24,6 @@ export type TelemetryFilterKey = keyof typeof TELEMETRY_FILTER_BOUNDS;
 export const TELEMETRY_FILTER_KEYS: readonly TelemetryFilterKey[] = ["hashrate", "temperature", "efficiency", "power"];
 
 /**
- * Maps a `NumericField` proto enum value to the matching bounds entry, or
- * undefined for fields the UI doesn't surface in v1 (UNSPECIFIED, voltage,
- * current — backend supports them but the dropdown excludes them per #139).
- */
-export const telemetryFilterBoundsForProtoField = (
-  field: NumericField,
-): (typeof TELEMETRY_FILTER_BOUNDS)[TelemetryFilterKey] | undefined => {
-  switch (field) {
-    case NumericField.HASHRATE_THS:
-      return TELEMETRY_FILTER_BOUNDS.hashrate;
-    case NumericField.EFFICIENCY_JTH:
-      return TELEMETRY_FILTER_BOUNDS.efficiency;
-    case NumericField.POWER_KW:
-      return TELEMETRY_FILTER_BOUNDS.power;
-    case NumericField.TEMPERATURE_C:
-      return TELEMETRY_FILTER_BOUNDS.temperature;
-    case NumericField.UNSPECIFIED:
-    case NumericField.VOLTAGE_V:
-    case NumericField.CURRENT_A:
-    default:
-      return undefined;
-  }
-};
-
-/**
  * Inverse map: telemetry filter key → proto NumericField. Used by the
  * MinerList serializer to turn ActiveFilters numericFilters into proto
  * NumericRangeFilter entries.

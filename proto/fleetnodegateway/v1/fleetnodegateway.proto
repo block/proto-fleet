@@ -9,8 +9,10 @@ package fleetnodegateway.v1;
 
 import "buf/validate/validate.proto";
 import "common/v1/cooling.proto";
+import "common/v1/common.proto";
 import "curtailment/v1/curtailment.proto";
 import "errors/v1/errors.proto";
+import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 import "minercommand/v1/command.proto";
 import "pairing/v1/pairing.proto";
@@ -91,6 +93,10 @@ message UploadEventsResponse {
 
 message UploadHeartbeatRequest {
     google.protobuf.Timestamp sent_at = 1 [(buf.validate.field).required = true];
+    // Local interface addresses reported by the node, not its NAT/proxy address.
+    repeated string ip_addresses = 2 [(buf.validate.field).repeated = {max_items: 64, items: {string: {ip: true, max_len: 45}}}];
+    // Running binary's release version; empty when unavailable.
+    string version = 3 [(buf.validate.field).string.max_len = 128];
 }
 
 message UploadHeartbeatResponse {
@@ -104,6 +110,8 @@ enum CommandArtifactPurpose {
     COMMAND_ARTIFACT_PURPOSE_UNSPECIFIED      = 0;
     COMMAND_ARTIFACT_PURPOSE_MINER_LOGS       = 1;
     COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD = 2;
+    // A controller software package that the node copies to CT1 controllers.
+    COMMAND_ARTIFACT_PURPOSE_CONTROLLER_SOFTWARE_PACKAGE = 3;
 }
 
 message CommandArtifactRef {
@@ -189,6 +197,12 @@ message DiscoveredDeviceReport {
     string model            = 6 [(buf.validate.field).string.max_len = 255];
     string manufacturer     = 7 [(buf.validate.field).string.max_len = 255];
     string firmware_version = 8 [(buf.validate.field).string.max_len = 255];
+    common.v1.DeviceClass device_class = 9 [(buf.validate.field).enum.defined_only = true];
+  // Independent native RPC listener on the same host; zero uses the driver default.
+  int32 rpc_port = 10 [(buf.validate.field).int32 = {gte: 0, lte: 65535}];
+  bool rpc_tls = 11;
+
+  repeated common.v1.DeviceEndpoint endpoints = 12 [(buf.validate.field).repeated.max_items = 16];
 }
 
 message ReportDiscoveredDevicesResponse {
@@ -228,6 +242,7 @@ message FleetNodePairResult {
     // password is still active. Cloud stores the pairing as DEFAULT_PASSWORD so
     // operators can remediate it from the security flow.
     optional bool default_password_active = 12;
+    common.v1.DeviceClass device_class = 14 [(buf.validate.field).enum.defined_only = true];
     // The credentials the node authenticated with, encrypted by the fleet node
     // under its local credential key. Cloud stores the fields in miner_credentials
     // and returns them in MinerConnectionDescriptor for node-side
@@ -259,6 +274,9 @@ message ControlStreamRequest {
 
         ControlHello hello = 1;
         ControlAck   ack   = 2;
+        ControlPing  ping  = 3;
+        MinerWebResponseChunk miner_web_response = 4;
+        CommandFrame command_frame = 5;
     }
 }
 
@@ -268,6 +286,8 @@ message ControlStreamResponse {
 
         ControlAccepted accepted = 1;
         ControlCommand  command  = 2;
+        // Sent only to V17 nodes.
+        ControlCancel   cancel   = 3;
     }
 }
 
@@ -279,20 +299,99 @@ enum CommandProtocolVersion {
     COMMAND_PROTOCOL_VERSION_UNSPECIFIED = 0;
     // V1 supports the current server-to-node command envelope.
     COMMAND_PROTOCOL_VERSION_V1 = 1;
+    // V2 adds named container equipment desired-state commands.
+    COMMAND_PROTOCOL_VERSION_V2 = 2;
+    // V3 seals complete mining pool writes for the target node.
+    COMMAND_PROTOCOL_VERSION_V3 = 3;
+    // V4 adds explicitly scoped tank mining commands.
+    COMMAND_PROTOCOL_VERSION_V4 = 4;
+    // V5 adds module mining with expected hardware identity.
+    COMMAND_PROTOCOL_VERSION_V5 = 5;
+    // V6 adds CT1 module and hashboard mining-pool assignments.
+    COMMAND_PROTOCOL_VERSION_V6 = 6;
+    // V7 adds standby credential key transfer and ControlPing keepalive.
+    COMMAND_PROTOCOL_VERSION_V7 = 7;
+    // V8 adds the restricted Proto miner API transport, chunked responses,
+    // and typed container mining/status/power commands.
+    COMMAND_PROTOCOL_VERSION_V8 = 8;
+    // V9 verifies complete stored and runtime pool clearing on the node.
+    COMMAND_PROTOCOL_VERSION_V9 = 9;
+    // V10 adds verified CT1 board identification LED commands.
+    COMMAND_PROTOCOL_VERSION_V10 = 10;
+    // V11 adds bounded on-demand reads of CT1 controller logs and audit events.
+    COMMAND_PROTOCOL_VERSION_V11 = 11;
+    // V13 adds read-only CT1 module power-feed inspection.
+    COMMAND_PROTOCOL_VERSION_V13 = 13;
+    // V14 adds CT1 plant alarm mute and reset pulses.
+    COMMAND_PROTOCOL_VERSION_V14 = 14;
+    // V15 adds mining-group deactivation with validated replay receipts.
+    COMMAND_PROTOCOL_VERSION_V15 = 15;
+    // V16 adds CT1 module power-feed on, off, cycle and override clearing.
+    COMMAND_PROTOCOL_VERSION_V16 = 16;
+    // V17 adds command cancel, command frames and the on-demand CT1 board ASIC
+    // stream that uses them.
+    COMMAND_PROTOCOL_VERSION_V17 = 17;
+    // V18 supports durable pool replacements and reads of saved Default settings.
+    COMMAND_PROTOCOL_VERSION_V18 = 18;
+    // V19 reads complete hashboard identity inventory before mining-group activation.
+    COMMAND_PROTOCOL_VERSION_V19 = 19;
+    // V20 adds controller software updates of a CT1 container.
+    COMMAND_PROTOCOL_VERSION_V20 = 20;
 }
 
 message ControlHello {
     // Highest server-to-node command protocol version this fleet node supports.
     CommandProtocolVersion max_command_protocol_version = 1;
+    // Effective node-local configuration. Absent on older nodes.
+    DiscoveryConfig discovery_config = 2;
+}
+
+message DiscoveryConfig {
+    repeated string ranges = 1 [(buf.validate.field).repeated = {max_items: 256, items: {string: {min_len: 1, max_len: 64}}}];
 }
 
 message ControlAccepted {
     google.protobuf.Timestamp server_time = 1;
+    // Set for V7 nodes. The server repeats ControlAccepted and the node sends
+    // ControlPing at this interval; either side ends the stream after three
+    // intervals without a message from the other.
+    google.protobuf.Duration keepalive_interval = 2;
+}
+
+message ControlPing {}
+
+// Asks the node to stop one in-flight command the server no longer needs. The
+// node stops a command that only reads: telemetry, discovery, and a miner
+// command that reads or drives an indicator. It ignores a cancel for anything
+// else, so a physical write is never interrupted part way. A cancelled command
+// still sends its terminal ack, which the server may have stopped waiting for.
+message ControlCancel {
+    string command_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+}
+
+// One message of output from a command that reports before its terminal ack,
+// bound to that command on the authenticated node's current ControlStream. The
+// command defines the payload's type. The server keeps only the newest unread
+// frame of a command.
+message CommandFrame {
+    string command_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+    // At most 512 KiB. The server checks the size per command, not as a
+    // validation rule: a message that fails validation ends the whole
+    // ControlStream, while an oversized payload ends only its own command.
+    bytes payload = 2;
+}
+
+// TraceContext carries W3C trace propagation fields for one server-issued
+// command. Fleet nodes treat missing or invalid context as a new trace.
+message TraceContext {
+    string traceparent = 1 [(buf.validate.field).string.max_len = 512];
+    string tracestate  = 2 [(buf.validate.field).string.max_len = 512];
 }
 
 message ControlCommand {
-    string command_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
-    bytes  payload    = 2 [(buf.validate.field).bytes.max_len = 1048576];
+    string       command_id    = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+    bytes        payload       = 2 [(buf.validate.field).bytes.max_len = 1048576];
+    TraceContext trace_context = 3;
 }
 
 // MinerConnectionDescriptor tells a fleet node how to reach one of its local
@@ -319,6 +418,51 @@ message MinerConnectionDescriptor {
     // 0001.
     bytes credential_username = 8 [(buf.validate.field).bytes.max_len = 4096];
     bytes credential_password = 9 [(buf.validate.field).bytes.max_len = 4096];
+  // Independent native RPC listener on the same host; zero uses the driver default.
+  int32 rpc_port = 10 [(buf.validate.field).int32 = {gte: 0, lte: 65535}];
+  bool rpc_tls = 11;
+  common.v1.DeviceClass device_class = 12 [(buf.validate.field).enum.defined_only = true];
+  repeated common.v1.DeviceEndpoint endpoints = 13 [(buf.validate.field).repeated.max_items = 16];
+}
+
+// An authorized request to an assigned Proto rig, never an arbitrary URL.
+// Authentication is performed by the node using target's encrypted credentials.
+// Existing embedded controls send small JSON bodies; firmware check/install do
+// not upload a firmware file through this API.
+message MinerWebRequest {
+    MinerConnectionDescriptor target = 1 [(buf.validate.field).required = true];
+    string method = 2 [(buf.validate.field).string = {in: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]}];
+    string path = 3 [(buf.validate.field).string = {min_len: 1, max_len: 2048}];
+    string query = 4 [(buf.validate.field).string.max_len = 8192];
+    repeated MinerWebHeader headers = 5 [(buf.validate.field).repeated.max_items = 32];
+    bytes body = 6 [(buf.validate.field).bytes.max_len = 524288];
+    // Execution budget starts when the node handles the request; delivery time
+    // does not consume it. The server bounds its response wait independently.
+    google.protobuf.Duration timeout = 7 [(buf.validate.field).required = true, (buf.validate.field).duration.gt = {}];
+}
+
+message MinerWebHeader {
+    string name = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+    string value = 2 [(buf.validate.field).string.max_len = 8192];
+}
+
+message MinerWebResponseHead {
+    uint32 status_code = 1 [(buf.validate.field).uint32 = {gte: 200, lte: 599}];
+    repeated MinerWebHeader headers = 2 [(buf.validate.field).repeated.max_items = 7];
+}
+
+// Bound to one command on the authenticated node's current ControlStream.
+// One head, zero or more data chunks, and one end precede the terminal ack.
+// Success requires both a complete response and an OK ack. Aggregate response
+// limits are enforced by the server independently of the per-frame limit.
+message MinerWebResponseChunk {
+    string command_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+    oneof part {
+        option (buf.validate.oneof).required = true;
+        MinerWebResponseHead head = 2;
+        bytes data = 3 [(buf.validate.field).bytes = {min_len: 1, max_len: 65536}];
+        bool end = 4 [(buf.validate.field).bool.const = true];
+    }
 }
 
 // RecoverMinerEndpointsRequest asks a fleet node to find the current endpoints
@@ -405,6 +549,18 @@ message MinerCommand {
         GetFirmwareUpdateStatusAction get_firmware_update_status = 16;
         GetCoolingModeAction get_cooling_mode = 17;
         ApplyCurtailmentConfigAction apply_curtailment_config = 18;
+        SetContainerControlAction set_container_control = 19;
+        SetTankMiningAction set_tank_mining = 20;
+        SetModuleMiningAction set_module_mining = 21;
+        MiningGroupsAction mining_groups = 22;
+        ContainerMiningAction container_mining = 23;
+        VerifyPoolsClearedAction verify_pools_cleared = 24;
+        SetBoardIdentifyAction set_board_identify = 25;
+        ControllerRecordsAction controller_records = 26;
+        ContainerPowerFeedAction container_power_feed = 27;
+        RunContainerAlarmAction run_container_alarm_action = 28;
+        StreamBoardASICReadingsAction stream_board_asic_readings = 29;
+        FrigateUpdateAction frigate_update = 30;
     }
 }
 
@@ -414,6 +570,13 @@ message StopMiningAction {}
 message BlinkLedAction {}
 message UncurtailAction {}
 message GetMiningPoolsAction {}
+message VerifyPoolsClearedAction {}
+
+// The node reads every stored slot (including credentials and disabled slots)
+// and runtime pool before reporting success. No private credentials cross the gateway.
+message VerifyPoolsClearedResult {
+    optional bool cleared = 1 [(buf.validate.field).required = true];
+}
 message GetErrorsAction {}
 message GetFirmwareUpdateStatusAction {}
 message GetCoolingModeAction {}
@@ -446,6 +609,9 @@ message UpdateMinerPasswordResult {
 
 message FirmwareUpdateAction {
     CommandArtifactRef artifact = 1 [(buf.validate.field).required = true];
+    // Stable across automatic retries of one Fleet command and different for
+    // every new command, so a driver can resume rather than repeat an update.
+    string request_id = 2 [(buf.validate.field).string.max_len = 128];
 }
 
 message CurtailAction {
@@ -480,8 +646,30 @@ message MiningPoolConfig {
     string username = 3 [(buf.validate.field).string.max_len = 512];
 }
 
+// Write-only configuration. Ordinary pool readback uses MiningPoolConfig and
+// never returns the password supplied to a device.
+message MiningPoolWriteConfig {
+    int32 priority = 1 [(buf.validate.field).int32 = {gte: 0, lte: 2}];
+    string url = 2 [(buf.validate.field) = {
+        string: {
+            pattern: "^(stratum\\+(tcp|ssl|ws):\\/\\/(([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\\.[a-zA-Z]{2,})|(\\d{1,3}\\.){3}\\d{1,3}|\\[([0-9a-fA-F:]+)\\])(:\\d{1,5})?|stratum2\\+tcp:\\/\\/(([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\\.[a-zA-Z]{2,})|(\\d{1,3}\\.){3}\\d{1,3}|\\[([0-9a-fA-F:]+)\\]):\\d{1,5}\\/[A-Za-z0-9_+\\/=:.-]+)$"
+            min_len: 12
+            max_len: 256
+        }
+    }];
+    string username = 3 [(buf.validate.field).string.max_len = 512];
+    // Exact credential to write, including an explicitly empty value.
+    optional string password = 4 [(buf.validate.field).required = true];
+}
+
+message MiningPoolWriteConfiguration {
+    option (buf.validate.message).cel = {id: "pool_write.clear", message: "clear_all requires no pools; updates require pools", expression: "this.clear_all ? this.pools.size() == 0 : this.pools.size() > 0"};
+    repeated MiningPoolWriteConfig pools = 1 [(buf.validate.field).repeated = {max_items: 3}];
+    bool clear_all = 2;
+}
+
 message UpdateMiningPoolsAction {
-    repeated MiningPoolConfig pools = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 3}];
+    NodeEncryptedPayload encrypted_config = 1 [(buf.validate.field).required = true];
 }
 
 message GetMiningPoolsResult {
@@ -536,6 +724,7 @@ message GetErrorsResult {
 //   3 = MinerCommand miner_command   (per-miner command path)
 //   4 = FleetNodeTelemetryRequest telemetry (per-miner telemetry path)
 //   5 = RecoverMinerEndpointsRequest recover_miner_endpoints (offline endpoint recovery)
+//   6, 7 = standby credential key export and install
 message AgentCommand {
     oneof command {
         option (buf.validate.oneof).required = true;
@@ -545,7 +734,29 @@ message AgentCommand {
         MinerCommand miner_command = 3;
         telemetry.v1.FleetNodeTelemetryRequest telemetry = 4;
         RecoverMinerEndpointsRequest recover_miner_endpoints = 5;
+        ExportCredentialKey export_credential_key = 6;
+        InstallCredentialKey install_credential_key = 7;
+        MinerWebRequest miner_web = 8;
     }
+}
+
+// Seals the active node's miner credential key to its standby so the standby
+// can open the active node's stored miner credentials after failover. The
+// server forwards the sealed key without being able to read it.
+message ExportCredentialKey {
+    bytes recipient_public_key = 1 [(buf.validate.field).bytes.len = 32];
+}
+
+// Replaces a standby's unused credential key with its active node's key.
+message InstallCredentialKey {
+    NodeEncryptedPayload sealed_key = 1 [(buf.validate.field).required = true];
+}
+
+// ControlAck payload for both credential key commands. sealed_key is set only
+// by export. fingerprint is the SHA-256 of the key the node now holds.
+message CredentialKeyResult {
+    NodeEncryptedPayload sealed_key = 1;
+    bytes fingerprint = 2 [(buf.validate.field).bytes.len = 32];
 }
 
 message ControlAck {
@@ -554,7 +765,20 @@ message ControlAck {
     string error_message = 3 [(buf.validate.field).string.max_len = 4096];
     AckCode code         = 4;
     // Optional typed result payload for command kinds that return data.
-    bytes payload        = 5 [(buf.validate.field).bytes.max_len = 1048576];
+    bytes payload        = 5 [(buf.validate.field).bytes.max_len = 8388608];
+    // SDK execution evidence, independent of the command result code. Absent or
+    // invalid evidence does not establish that a failed device write ended.
+    DeviceWriteOutcome write_outcome = 6;
+    // Set on failed telemetry when the plugin confirms it could not connect to the miner.
+    bool miner_probe_failed = 7;
+}
+
+// DeviceWriteOutcome carries bounded SDK evidence, never firmware error text.
+// Consumers ignore unrecognized identifiers without discarding the command result.
+message DeviceWriteOutcome {
+    string outcome = 1 [(buf.validate.field).string.max_len = 64];
+    string stage = 2 [(buf.validate.field).string.max_len = 32];
+    string reason = 3 [(buf.validate.field).string.max_len = 32];
 }
 
 // AckCode is the structured outcome class for a ControlCommand. error_message
@@ -586,4 +810,204 @@ enum AckCode {
     // FORBIDDEN: the miner denied access for a non-authentication remediation
     // reason, e.g. default-password lockout.
     ACK_CODE_FORBIDDEN       = 11;
+    // FAILED_PRECONDITION: the device refused the command before starting it.
+    // error_message is the operator-facing reason; retrying unchanged cannot succeed.
+    ACK_CODE_FAILED_PRECONDITION = 12;
+}
+
+message SetContainerControlAction {
+  string name = 1 [(buf.validate.field).string = {in: ["dry_cooler", "dry_cooler_auto", "tank_led_light", "coolant_pump", "air_conditioner_1", "air_conditioner_2", "main_circuit_breaker"]}];
+  optional bool enabled = 2 [(buf.validate.field).required = true];
+}
+
+message SetTankMiningAction {
+  repeated int32 positions = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 100, unique: true, items: {int32: {gt: 0}}}];
+  optional bool mining = 2 [(buf.validate.field).required = true];
+}
+
+message ModuleMiningTarget {
+  int32 tank = 1 [(buf.validate.field).int32.gt = 0];
+  int32 module = 2 [(buf.validate.field).int32.gt = 0];
+  string reported_id = 3 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+}
+message SetModuleMiningAction {
+  repeated ModuleMiningTarget modules = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 100}];
+  optional bool mining = 2 [(buf.validate.field).required = true];
+}
+
+// One board, addressed by placement and the identities Fleet confirmed there.
+message SetBoardIdentifyAction {
+  int32 tank = 1 [(buf.validate.field).int32.gt = 0];
+  int32 module = 2 [(buf.validate.field).int32.gt = 0];
+  int32 slot = 3 [(buf.validate.field).int32 = {gte: 1, lte: 3}];
+  string module_reported_id = 4 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  string mac_address = 5 [(buf.validate.field).string = {min_len: 1, max_len: 64}];
+  string mode = 6 [(buf.validate.field).string = {in: ["blink", "off"]}];
+}
+
+// Follows one confirmed board's live ASIC readings, addressed like
+// SetBoardIdentifyAction. The node sends each sample as a CommandFrame whose
+// payload is a BoardASICStreamFrame, until the controller ends the stream, the
+// server sends ControlCancel, or the node's own lifetime passes. The terminal
+// ack payload is StreamBoardASICReadingsResult.
+message StreamBoardASICReadingsAction {
+  int32 tank = 1 [(buf.validate.field).int32.gt = 0];
+  int32 module = 2 [(buf.validate.field).int32.gt = 0];
+  int32 slot = 3 [(buf.validate.field).int32 = {gte: 1, lte: 3}];
+  string module_reported_id = 4 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  string mac_address = 5 [(buf.validate.field).string = {min_len: 1, max_len: 64}];
+}
+
+// Why a node's board ASIC stream ended. The server maps it to the same outcome
+// a directly reached controller's stream would have.
+enum BoardASICStreamEnd {
+  BOARD_ASIC_STREAM_END_UNSPECIFIED = 0;
+  // The controller ended the stream.
+  BOARD_ASIC_STREAM_END_CONTROLLER_ENDED = 1;
+  // The server cancelled the command, or the node's lifetime for it passed.
+  BOARD_ASIC_STREAM_END_CANCELED = 2;
+  // The controller no longer places the confirmed board at its slot.
+  BOARD_ASIC_STREAM_END_BOARD_CHANGED = 3;
+  // The node's driver or the controller cannot stream ASIC readings.
+  BOARD_ASIC_STREAM_END_UNSUPPORTED = 4;
+  // The controller or its connection failed.
+  BOARD_ASIC_STREAM_END_UNAVAILABLE = 5;
+  // The node already relays its maximum number of streams; none was started.
+  BOARD_ASIC_STREAM_END_AT_CAPACITY = 6;
+}
+
+message StreamBoardASICReadingsResult {
+  BoardASICStreamEnd end = 1 [(buf.validate.field).enum.defined_only = true];
+}
+
+message BoardASICStreamPosition {
+  int32 index = 1;
+  int32 stack_id = 2;
+  int32 stack_index = 3;
+  int32 x = 4;
+  int32 y = 5;
+}
+
+message BoardASICStreamLayout {
+  int32 stack_count = 1;
+  int32 asics_per_stack = 2;
+  int32 total_asics = 3;
+  repeated BoardASICStreamPosition positions = 4 [(buf.validate.field).repeated.max_items = 4096];
+}
+
+message BoardASICStreamReading {
+  int32 index = 1;
+  double temperature_c = 2;
+  double hashrate_ghs = 3;
+  double voltage_v = 4;
+  double frequency_mhz = 5;
+  double pass_rate_percent = 6;
+  // Absent when the controller did not report thermal quarantine.
+  optional bool thermal_quarantined = 7;
+}
+
+// One sample of a board's ASIC readings, the CommandFrame payload of a
+// StreamBoardASICReadings command. layout is set on the first frame and
+// whenever the board's topology changes.
+message BoardASICStreamFrame {
+  string mac_address = 1 [(buf.validate.field).string.max_len = 64];
+  google.protobuf.Timestamp observed_at = 2;
+  BoardASICStreamLayout layout = 3;
+  repeated BoardASICStreamReading asics = 4 [(buf.validate.field).repeated.max_items = 4096];
+}
+
+// A single plant alarm pulse. Success acknowledges the pulse, not its effect.
+message RunContainerAlarmAction {
+  string action = 1 [(buf.validate.field).string = {in: ["mute", "reset"]}];
+}
+
+// Closed SDK MiningGroupRequest JSON. Passwords are empty in request;
+// replace_pools carries its credentials exclusively in encrypted_pools.
+message MiningGroupsAction {
+ bytes request = 1 [(buf.validate.field).bytes = {min_len: 1, max_len: 16384}];
+ NodeEncryptedPayload encrypted_pools = 2;
+}
+
+// One bounded controller log or audit read, encoded as sdk.ControllerRecordsRequest.
+// The ack payload is the encoded sdk.ControllerRecordsResult. Nodes reject
+// unknown request fields, so a new request field needs a new protocol version;
+// servers ignore unknown result fields.
+message ControllerRecordsAction {
+  bytes request = 1 [(buf.validate.field).bytes = {min_len: 1, max_len: 4096}];
+}
+
+// Closed SDK container operation; request/result JSON is validated at both ends.
+message ContainerMiningAction {
+  bytes request = 1 [(buf.validate.field).bytes = {min_len: 1, max_len: 4096}];
+}
+
+// Closed SDK container power-feed operation (sdk.ContainerPowerFeedRequest
+// JSON). Nodes and plugins reject unknown actions and unknown request fields,
+// so adding either needs a new command protocol version that the server
+// requires before it routes the new request. Servers ignore unknown result
+// fields, so a newer node or plugin may add result fields without one.
+message ContainerPowerFeedAction {
+  bytes request = 1 [(buf.validate.field).bytes = {min_len: 1, max_len: 4096}];
+}
+
+// One controller software update call for a CT1 container. The ack payload is
+// a FrigateUpdateResult. The request and response bytes are SDK messages, so
+// they are part of this contract. Nodes ignore unknown request fields and
+// refuse unknown operations. A new operation, or a new request field that a
+// node must obey, needs a new command protocol version. The server must require
+// that version before it sends such a request. Servers ignore unknown response
+// fields.
+message FrigateUpdateAction {
+  oneof call {
+    option (buf.validate.oneof).required = true;
+
+    // One SDK-encoded update call (the plugin's FrigateServerUpdateRequest):
+    // support, stage begin, stage commit, stage abort, start, status, retry or
+    // cancel. A node refuses a stage append, because package bytes do not
+    // cross the control stream.
+    bytes request = 1 [(buf.validate.field).bytes = {min_len: 1, max_len: 65536}];
+    // Copies one package to one or more controllers.
+    FrigateUpdateStage stage = 2;
+  }
+}
+
+// The node downloads the package once. For each target it then begins the copy,
+// appends the bytes the controller does not have yet, and commits.
+message FrigateUpdateStage {
+  CommandArtifactRef package = 1 [(buf.validate.field).required = true];
+  repeated FrigateUpdateStageTarget targets = 2 [(buf.validate.field).repeated = {min_items: 1, max_items: 4}];
+}
+
+// One controller that takes the package.
+message FrigateUpdateStageTarget {
+  // The SDK-encoded stage-begin call for this controller.
+  bytes begin_request = 1 [(buf.validate.field).bytes = {min_len: 1, max_len: 65536}];
+  // The manifest fingerprint that Fleet recorded for this copy. The node sends
+  // no package bytes when the controller reports a different fingerprint.
+  string manifest_sha256 = 2 [(buf.validate.field).string = {len: 64, pattern: "^[a-f0-9]{64}$"}];
+}
+
+// One outcome for a request. For a stage, one outcome per target, in the order
+// of the targets.
+message FrigateUpdateResult {
+  repeated FrigateUpdateOutcome outcomes = 1 [(buf.validate.field).repeated.max_items = 4];
+}
+
+message FrigateUpdateOutcome {
+  oneof outcome {
+    // The SDK-encoded response (the plugin's FrigateServerUpdateResponse).
+    bytes response = 1 [(buf.validate.field).bytes.max_len = 1048576];
+    // The controller refused the call. A refusal is final.
+    FrigateUpdateRefusal refusal = 2;
+    // The copy to one stage target failed. Fleet can send the stage again.
+    string error = 3 [(buf.validate.field).string.max_len = 4096];
+  }
+}
+
+// A refusal from the controller, with its UPDATE_* reason.
+message FrigateUpdateRefusal {
+  string reason = 1 [(buf.validate.field).string.max_len = 128];
+  string message = 2 [(buf.validate.field).string.max_len = 4096];
+  // The gRPC status code that the controller used.
+  uint32 code = 3 [(buf.validate.field).uint32.lte = 16];
 }

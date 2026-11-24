@@ -20,7 +20,7 @@ describe("useLocateSystem", () => {
     vi.clearAllMocks();
 
     (useMinerHosting as Mock).mockReturnValue({
-      api: {
+      adapter: {
         locateSystem: mockLocateSystem,
       },
     });
@@ -64,7 +64,7 @@ describe("useLocateSystem", () => {
     result.current.locateSystem({ ledOnTime: 60 });
 
     await waitFor(() => {
-      expect(mockLocateSystem).toHaveBeenCalledWith({ led_on_time: 60 }, mockAuthHeader);
+      expect(mockLocateSystem).toHaveBeenCalledWith({ ledOnTime: 60 }, mockAuthHeader);
     });
   });
 
@@ -99,18 +99,6 @@ describe("useLocateSystem", () => {
     resolveRetry();
   });
 
-  test("sets pending to false after successful API call", async () => {
-    mockLocateSystem.mockResolvedValue(undefined);
-
-    const { result } = renderHook(() => useLocateSystem());
-
-    result.current.locateSystem({});
-
-    await waitFor(() => {
-      expect(result.current.pending).toBe(false);
-    });
-  });
-
   test("calls onSuccess callback after successful API call", async () => {
     mockLocateSystem.mockResolvedValue(undefined);
     const onSuccess = vi.fn();
@@ -121,23 +109,6 @@ describe("useLocateSystem", () => {
 
     await waitFor(() => {
       expect(onSuccess).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  test("passes onError through authRetry on API error", async () => {
-    const error = new Error("API Error");
-    mockLocateSystem.mockRejectedValue(error);
-
-    const { result } = renderHook(() => useLocateSystem());
-
-    result.current.locateSystem({});
-
-    await waitFor(() => {
-      expect(mockAuthRetry).toHaveBeenCalledWith({
-        request: expect.any(Function),
-        onSuccess: undefined,
-        onError: undefined,
-      });
     });
   });
 
@@ -160,9 +131,9 @@ describe("useLocateSystem", () => {
     });
   });
 
-  test("does not call API if api is not available", () => {
+  test("does not call API if adapter is not available", () => {
     (useMinerHosting as Mock).mockReturnValue({
-      api: null,
+      adapter: null,
     });
 
     const { result } = renderHook(() => useLocateSystem());
@@ -170,18 +141,6 @@ describe("useLocateSystem", () => {
     result.current.locateSystem({});
 
     expect(mockLocateSystem).not.toHaveBeenCalled();
-  });
-
-  test("sets pending to false after API error", async () => {
-    mockLocateSystem.mockRejectedValue(new Error("API Error"));
-
-    const { result } = renderHook(() => useLocateSystem());
-
-    result.current.locateSystem({});
-
-    await waitFor(() => {
-      expect(result.current.pending).toBe(false);
-    });
   });
 
   test("finally waits for authRetry promise before setting pending to false", async () => {

@@ -3,6 +3,8 @@ package pairing
 import (
 	"time"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+
 	domainpairing "github.com/block/proto-fleet/server/internal/domain/pairing"
 )
 
@@ -17,17 +19,23 @@ const (
 )
 
 type DiscoveredDeviceReport struct {
+	RPCPort          int32
+	RPCTLS           bool
+	Endpoints        []*commonpb.DeviceEndpoint
 	DeviceIdentifier string
 	IPAddress        string
 	Port             string
 	URLScheme        string
 	DriverName       string
+	DeviceClass      commonpb.DeviceClass
 	Model            string
 	Manufacturer     string
 	FirmwareVersion  string
 }
 
 type FleetNodeDevice struct {
+	Manufacturer     string
+	Model            string
 	FleetNodeID      int64
 	DeviceID         int64
 	DeviceIdentifier string
@@ -40,6 +48,9 @@ type FleetNodeDevice struct {
 // or credential retry. PairingStatus is empty when never attempted, or
 // "AUTHENTICATION_NEEDED" after pairing or recovery needs new credentials.
 type FleetNodeDiscoveredDevice struct {
+	RPCPort          int32
+	RPCTLS           bool
+	Endpoints        []*commonpb.DeviceEndpoint
 	ID               int64
 	FleetNodeID      int64
 	DeviceIdentifier string
@@ -47,6 +58,7 @@ type FleetNodeDiscoveredDevice struct {
 	Port             string
 	URLScheme        string
 	DriverName       string
+	DeviceClass      commonpb.DeviceClass
 	Model            string
 	Manufacturer     string
 	FirmwareVersion  string

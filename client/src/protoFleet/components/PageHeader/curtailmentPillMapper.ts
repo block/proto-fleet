@@ -1,11 +1,5 @@
 import { type CurtailmentPillEvent, isCurtailmentPillState } from "./curtailmentPillTypes";
 import {
-  getFixedKwTarget,
-  hasCurtailmentEstimatedReductionKw,
-  hasCurtailmentTargetMetrics,
-} from "@/protoFleet/api/curtailmentMappers";
-import type { CurtailmentEvent as ProtoCurtailmentEvent } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
-import {
   getActiveCurtailmentDisplayState,
   getCurtailmentEventEstimatedReductionKw,
   getCurtailmentEventLiveTargetCount,
@@ -14,7 +8,13 @@ import {
   getCurtailmentTargetRollups,
   isActiveCurtailmentEventState,
   mapCurtailmentEventState,
-} from "@/protoFleet/features/energy/curtailmentDisplayUtils";
+} from "@/protoFleet/api/curtailmentDisplayUtils";
+import {
+  getFixedKwTarget,
+  hasCurtailmentEstimatedReductionKw,
+  hasCurtailmentTargetMetrics,
+} from "@/protoFleet/api/curtailmentMappers";
+import type { CurtailmentEvent as ProtoCurtailmentEvent } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 
 export function mapCurtailmentPillEvent(event?: ProtoCurtailmentEvent): CurtailmentPillEvent | null {
   if (!event) {

@@ -279,7 +279,7 @@ describe("PageHeader", () => {
             estimatedReductionKw: 126.4,
             targetMetricsAvailable: true,
           }}
-          fleetNodeUpgradePill={{ nodeCount: 1, onClick: vi.fn() }}
+          fleetNodeUpgradePill={{ nodeCount: 1, required: false, onClick: vi.fn() }}
           rolloutPillData={{ activeRollouts: [activeRigRollout], hasVisiblePill: true }}
           schedulePillData={createSchedulePillData({
             hasVisibleSchedules: true,
@@ -294,7 +294,9 @@ describe("PageHeader", () => {
     expect(within(inlineWidgets).getByText("Active alerts pill (1)")).toBeVisible();
     const mobileWidgets = screen.getByTestId("page-header-mobile-widgets");
     const widgetContents = [
-      within(mobileWidgets).getByRole("button", { name: "Open node settings for 1 Fleet Node requiring an upgrade" }),
+      within(mobileWidgets).getByRole("button", {
+        name: "Open node settings for 1 Fleet Node with upgrades recommended",
+      }),
       within(mobileWidgets).getByText("Curtailment pill"),
       within(mobileWidgets).getByText("Night reboot"),
       within(mobileWidgets).getByRole("button", {
@@ -351,19 +353,19 @@ describe("PageHeader", () => {
             hasVisibleSchedules: true,
             pillSchedule: createPillSchedule("Night reboot"),
           })}
-          fleetNodeUpgradePill={{ nodeCount: 2, onClick }}
+          fleetNodeUpgradePill={{ nodeCount: 2, required: false, onClick }}
         />
       </MemoryRouter>,
     );
 
     const widgets = screen.getByTestId("page-header-desktop-widgets");
     const upgradeButton = within(widgets).getByRole("button", {
-      name: "Open node settings for 2 Fleet Nodes requiring an upgrade",
+      name: "Open node settings for 2 Fleet Nodes with upgrades recommended",
     });
     const schedulePill = within(widgets).getByText("Night reboot");
 
-    expect(upgradeButton).toHaveTextContent("2 Fleet Nodes need upgrades");
-    expect(within(upgradeButton).getByTestId("alert-icon")).toHaveClass("text-intent-critical-fill");
+    expect(upgradeButton).toHaveTextContent("2 Fleet Node upgrades recommended");
+    expect(within(upgradeButton).getByTestId("alert-icon")).toHaveClass("text-intent-warning-fill");
     expect(upgradeButton.compareDocumentPosition(schedulePill) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     await userEvent.click(upgradeButton);
@@ -377,12 +379,14 @@ describe("PageHeader", () => {
       <MemoryRouter>
         <PageHeader
           schedulePillData={createSchedulePillData()}
-          fleetNodeUpgradePill={{ nodeCount: 1, onClick: vi.fn() }}
+          fleetNodeUpgradePill={{ nodeCount: 1, required: true, onClick: vi.fn() }}
         />
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("Fleet Node upgrade required")).toBeInTheDocument();
+    const button = screen.getByRole("button", { name: "Open node settings for 1 Fleet Node with upgrades required" });
+    expect(button).toHaveTextContent("Fleet Node upgrade required");
+    expect(within(button).getByTestId("alert-icon")).toHaveClass("text-intent-critical-fill");
   });
 
   it("leads the desktop widgets with the active alerts pill", () => {

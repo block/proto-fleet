@@ -253,7 +253,9 @@ func (s *Server) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 	}
 	var operation updaterapi.Operation
 	var err error
-	if request.Complete {
+	if request.PrepareOnly || request.Prepared {
+		operation, err = s.manager.TriggerPreparedWithID(request.TargetVersion, request.OperationID, request.PrepareOnly, request.Prepared, request.Complete)
+	} else if request.Complete {
 		operation, err = s.manager.TriggerCompleteWithID(request.TargetVersion, request.OperationID)
 	} else {
 		operation, err = s.manager.TriggerWithID(request.TargetVersion, request.OperationID)

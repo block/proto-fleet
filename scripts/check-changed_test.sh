@@ -105,45 +105,157 @@ for job in protobuf-lint client-check server-lint plugin-proto-lint plugin-antmi
   done
 done
 
-client_init_recipe="$(just --dry-run _client-init 2>&1)"
-client_init_fingerprint="${client_init_recipe%%$'\nif [ "false" != true ]'*}"
-for install_input in client/package.json client/package-lock.json client/.npmrc; do
-  if [[ "$client_init_fingerprint" != *"$install_input"* ]]; then
-    echo "Client dependency fingerprint omits: $install_input" >&2
-    exit 1
-  fi
-done
+# The global list does not include all workflows. Thus each filter must list
+# the workflow that the gate calls for it, and each composite action that the
+# workflow uses. If not, a change to that file does not start the job.
+ci_filter_paths() {
+  awk -v filter="$1" '
+    $0 == filter ":" { capture = 1; next }
+    capture && /^[^[:space:]]/ { exit }
+    capture && /^  - / { sub(/^  - /, ""); gsub(/^"|"$/, ""); print }
+  ' .github/path-filters.yml
+}
 
-for install_input in \
-  'client/node_modules/.package-lock.json' 'git hash-object "$TREE_LOCK"' \
-  'node --version' 'npm --version' 'node=$NODE_VERSION' 'npm=$NPM_VERSION' \
-  process.platform 'host-platform=$HOST_PLATFORM' \
-  process.arch 'host-arch=$HOST_ARCH' \
-  glibcVersionRuntime '"glibc"' '"musl"' 'host-libc=$HOST_LIBC' \
-  'install_args=(--include=dev --include=optional --dry-run=false)' \
-  'install_args+=(--registry "$COREPACK_NPM_REGISTRY")' \
-  'npm config list --json "${install_args[@]}"' \
-  '"$INSTALL_CONFIG"'; do
-  if [[ "$client_init_fingerprint" != *"$install_input"* ]]; then
-    echo "Client dependency fingerprint omits install context: $install_input" >&2
-    exit 1
-  fi
-done
-
-for cache_guard in \
-  'sed -n '\''1p'\'' "$STAMP"' \
-  'sed -n '\''2p'\'' "$STAMP"' \
-  'printf '\''%s\n%s\n'\'' "$WANT_HASH" "$TREE_HASH"'; do
-  if [[ "$client_init_recipe" != *"$cache_guard"* ]]; then
-    echo "Client dependency cache omits installed-tree guard: $cache_guard" >&2
-    exit 1
-  fi
-done
-
-if [[ "$client_init_recipe" != *'npm clean-install "${install_args[@]}"'* ]]; then
-  echo "Client dependency config snapshot and install must use the same arguments" >&2
+gated_workflows="$(awk '
+  /^  [a-z0-9-]+:$/ { filter = ""; next }
+  match($0, /needs\.changes\.outputs\.[a-z_]+ == /) { filter = substr($0, RSTART + 22, RLENGTH - 26) }
+  filter != "" && /^    uses: \.\/\.github\/workflows\// { sub(/^    uses: \.\//, ""); print filter, $0 }
+' .github/workflows/pr-gate.yml)"
+if [ -z "$gated_workflows" ]; then
+  echo "PR Gate jobs with a path filter could not be parsed" >&2
   exit 1
 fi
+
+while read -r filter workflow; do
+  filter_paths="$(ci_filter_paths "$filter")"
+  if ! grep -qxF "$workflow" <<<"$filter_paths"; then
+    echo "CI filter '$filter' does not list its workflow: $workflow" >&2
+    exit 1
+  fi
+  while IFS= read -r action; do
+    if ! grep -qxF "$action/**" <<<"$filter_paths" \
+      && ! printf '%s\n' "${ci_global_paths[@]}" | grep -qxF "$action/**"; then
+      echo "CI filter '$filter' does not list an action that $workflow uses: $action" >&2
+      exit 1
+    fi
+  done < <(grep -oE 'uses: \./\.github/actions/[a-z0-9-]+' "$workflow" | sed 's|^uses: \./||' | sort -u)
+done <<<"$gated_workflows"
+
+# The check above reads the workflows and the composite actions. Thus this test
+# must run for each change to them. If not, a new `uses:` line passes the gate
+# and the filter stays incorrect until a subsequent change to the filter file.
+developer_workflow_paths="$(ci_filter_paths developer_workflows)"
+for guard_input in '.github/workflows/**' '.github/actions/**'; do
+  if ! grep -qxF "$guard_input" <<<"$developer_workflow_paths"; then
+    echo "CI filter 'developer_workflows' does not list an input of this test: $guard_input" >&2
+    exit 1
+  fi
+done
+
+# Run the _client-init recipe in a fixture tree. Fake node and npm commands
+# supply the host identity and record each install.
+client_init_fixture="$test_tmp/client-init"
+mkdir -p "$client_init_fixture/bin" "$client_init_fixture/tree/client"
+cat > "$client_init_fixture/bin/node" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+  --version) printf '%s\n' "$FAKE_NODE_VERSION" ;;
+  '-p process.platform') printf '%s\n' "$FAKE_HOST_PLATFORM" ;;
+  '-p process.arch') printf '%s\n' "$FAKE_HOST_ARCH" ;;
+  -p\ *) printf '%s\n' "$FAKE_HOST_LIBC" ;;
+  *) exit 1 ;;
+esac
+SH
+cat > "$client_init_fixture/bin/npm" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --version) printf '%s\n' "$FAKE_NPM_VERSION" ;;
+  config)
+    [ "${2:-} ${3:-}" = 'list --json' ] || exit 1
+    shift 3
+    printf '%s\n' "$*" > "$CLIENT_INIT_FIXTURE/config-arguments"
+    printf '{"arguments":"%s","config":"%s"}\n' "$*" "$FAKE_NPM_CONFIG"
+    ;;
+  clean-install)
+    shift
+    printf '%s\n' "$*" >> "$CLIENT_INIT_FIXTURE/installs"
+    mkdir -p node_modules
+    printf 'installed tree\n' > node_modules/.package-lock.json
+    ;;
+  *) exit 1 ;;
+esac
+SH
+chmod +x "$client_init_fixture/bin/node" "$client_init_fixture/bin/npm"
+
+(
+  unset COREPACK_NPM_REGISTRY
+  export CLIENT_INIT_FIXTURE="$client_init_fixture"
+  export FAKE_NODE_VERSION=v1.0.0 FAKE_NPM_VERSION=1.0.0 FAKE_NPM_CONFIG=default
+  export FAKE_HOST_PLATFORM=linux FAKE_HOST_ARCH=x64 FAKE_HOST_LIBC=glibc
+  PATH="$client_init_fixture/bin:$PATH"
+  client_init_tree="$client_init_fixture/tree"
+  client_init_stamp="$client_init_tree/.cache/client-deps/install-inputs.hash"
+  client_init_tree_lock="$client_init_tree/client/node_modules/.package-lock.json"
+  printf '{}\n' > "$client_init_tree/client/package.json"
+  printf '{}\n' > "$client_init_tree/client/package-lock.json"
+  : > "$client_init_tree/client/.npmrc"
+  : > "$client_init_fixture/installs"
+
+  # Run the recipe. Fail unless the number of recorded installs is "$1".
+  expect_client_installs() {
+    just --justfile "$PWD/justfile" --working-directory "$client_init_tree" \
+      _client-init >/dev/null
+    if [ "$(wc -l < "$client_init_fixture/installs" | tr -d '[:space:]')" -ne "$1" ]; then
+      echo "Client dependency cache: $2" >&2
+      exit 1
+    fi
+    if [ "$(tail -n 1 "$client_init_fixture/installs")" != "$(cat "$client_init_fixture/config-arguments")" ]; then
+      echo "Client dependency config snapshot and install must use the same arguments" >&2
+      exit 1
+    fi
+    if [ "$(sed -n '2p' "$client_init_stamp")" != "$(git hash-object "$client_init_tree_lock")" ]; then
+      echo "Client dependency stamp does not record the installed tree" >&2
+      exit 1
+    fi
+  }
+
+  installs=1
+  expect_client_installs "$installs" "the first run did not install"
+  if [ "$(cat "$client_init_fixture/installs")" != '--include=dev --include=optional --dry-run=false' ]; then
+    echo "Client install must include dev and optional dependencies" >&2
+    exit 1
+  fi
+  expect_client_installs "$installs" "a run with no change installed again"
+
+  for install_input in \
+    client/package.json client/package-lock.json client/.npmrc \
+    FAKE_NODE_VERSION FAKE_NPM_VERSION \
+    FAKE_HOST_PLATFORM FAKE_HOST_ARCH FAKE_HOST_LIBC \
+    FAKE_NPM_CONFIG COREPACK_NPM_REGISTRY; do
+    previous_hash="$(sed -n '1p' "$client_init_stamp")"
+    case "$install_input" in
+      client/*) printf 'changed\n' >> "$client_init_tree/$install_input" ;;
+      *) export "$install_input=changed" ;;
+    esac
+    installs=$((installs + 1))
+    expect_client_installs "$installs" "a change of $install_input did not install"
+    if [ "$(sed -n '1p' "$client_init_stamp")" = "$previous_hash" ]; then
+      echo "Client dependency fingerprint omits: $install_input" >&2
+      exit 1
+    fi
+  done
+  if [ "$(tail -n 1 "$client_init_fixture/installs")" != '--include=dev --include=optional --dry-run=false --registry changed' ]; then
+    echo "Client install must use the configured registry" >&2
+    exit 1
+  fi
+
+  printf 'changed\n' >> "$client_init_tree_lock"
+  installs=$((installs + 1))
+  expect_client_installs "$installs" "a changed installed tree did not install"
+  rm -rf "$client_init_tree/client/node_modules"
+  installs=$((installs + 1))
+  expect_client_installs "$installs" "a missing installed tree did not install"
+)
 
 /bin/bash -u -c 'registry_args=(); printf "%s" ${registry_args[@]+"${registry_args[@]}"}'
 
@@ -256,5 +368,27 @@ for agent_skill in .agents/skills/*; do
     exit 1
   fi
 done
+
+# The fleetnode UI-test recipes use the Compose project of `just dev`. If the
+# overlay changes the render of a shared database or network, Compose recreates
+# them and restarts the dev stack. The render does not need a Docker daemon.
+dev_compose=(docker compose -f server/docker-compose.yaml)
+ui_test_compose=("${dev_compose[@]}" -f server/docker-compose.fleetnode-ui-test.yaml)
+if [ "$("${dev_compose[@]}" config --hash timescaledb)" != "$("${ui_test_compose[@]}" config --hash timescaledb)" ]; then
+  echo "The fleetnode UI-test overlay must not change the timescaledb service of the dev stack" >&2
+  exit 1
+fi
+if ! diff -u \
+  <("${dev_compose[@]}" config --format json | jq '.networks."fleet-network"') \
+  <("${ui_test_compose[@]}" config --format json | jq '.networks."fleet-network"'); then
+  echo "The fleetnode UI-test overlay must not change fleet-network of the dev stack" >&2
+  exit 1
+fi
+if [ "$("${ui_test_compose[@]}" config --format json \
+  | jq -r '.services."fleet-api".ports | map("\(.host_ip):\(.published):\(.target)") | join(" ")')" \
+  != '127.0.0.1:4000:4000' ]; then
+  echo "The fleetnode UI-test overlay must publish fleet-api on 127.0.0.1:4000" >&2
+  exit 1
+fi
 
 echo "developer workflow configuration and agent skill parity passed"

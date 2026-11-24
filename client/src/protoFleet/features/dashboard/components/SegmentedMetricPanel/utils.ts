@@ -326,7 +326,11 @@ export const processMultiDayChartData = (
 /**
  * Calculate current breakdown from processed chart data
  */
-export const getCurrentBreakdown = (processedChartData: SegmentedBarChartData[][], segmentConfig: SegmentConfig) => {
+export const getCurrentBreakdown = (
+  processedChartData: SegmentedBarChartData[][],
+  segmentConfig: SegmentConfig,
+  populationLabel = "fleet",
+) => {
   // Get the last chart (for multi-day view, this is the most recent day)
   if (!processedChartData || processedChartData.length === 0) return [];
   const lastChart = processedChartData[processedChartData.length - 1];
@@ -348,7 +352,7 @@ export const getCurrentBreakdown = (processedChartData: SegmentedBarChartData[][
     // Include all segments that should be displayed in breakdown, regardless of count
     if (config.displayInBreakdown !== false) {
       const percentageValue = total > 0 ? Math.round((count / total) * 100) : 0;
-      const percentageLabel = config.percentageLabel || `${percentageValue}% of fleet`;
+      const percentageLabel = config.percentageLabel || `${percentageValue}% of ${populationLabel}`;
 
       breakdown.push({
         key,

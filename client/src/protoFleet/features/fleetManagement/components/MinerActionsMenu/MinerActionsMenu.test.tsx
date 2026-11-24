@@ -431,8 +431,8 @@ describe("MinerActionsMenu", () => {
     expect(props.poolNeededCount).toBe(totalCount);
     expect(props.selectionMode).toBe("all");
     expect(props.selectedMiners).toEqual([{ deviceIdentifier: "miner-1" }, { deviceIdentifier: "miner-2" }]);
-    expect(props.userUsername).toBe("testuser");
-    expect(props.userPassword).toBe("testpass");
+    expect(props).not.toHaveProperty("userUsername");
+    expect(props).not.toHaveProperty("userPassword");
   });
 
   test("renders PoolSelectionPageWrapper with open=false when currentAction is not miningPool", () => {

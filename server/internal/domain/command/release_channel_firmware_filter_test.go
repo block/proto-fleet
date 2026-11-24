@@ -170,7 +170,7 @@ func TestFirmwareUpdateSelectorsWithOneConnection(t *testing.T) {
 			svc := &Service{
 				config: &Config{}, conn: conn, executionService: &ExecutionService{run: run},
 				filesService: fs, deviceStore: deviceStore,
-				deviceResolver:                   fleetmanagement.NewService(deviceStore, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil),
+				deviceResolver:                   fleetmanagement.NewService(deviceStore, nil, nil, nil, nil, nil, nil, nil, nil, nil),
 				activitySvc:                      activity.NewService(sqlstores.NewSQLActivityStore(conn)),
 				messageQueue:                     queue.NewDatabaseMessageQueue(&queue.Config{}, conn),
 				startStatusUpdateRoutineOverride: func(string, onFinishedCallbackFunc) {},

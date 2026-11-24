@@ -1,21 +1,24 @@
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
 
 import SiteDetailPage from "./SiteDetailPage";
+import { containersClient } from "@/protoFleet/api/clients";
 import {
   BuildingSchema,
   type BuildingWithCounts,
   BuildingWithCountsSchema,
 } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { ListContainersResponseSchema } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { SiteSchema, type SiteWithCounts, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
 const listBuildingsBySiteMock = vi.hoisted(() => vi.fn());
 const listSitesMock = vi.hoisted(() => vi.fn());
+const listContainersMock = vi.spyOn(containersClient, "listContainers");
 
 vi.mock("@/protoFleet/api/buildings", () => ({
   useBuildings: () => ({
@@ -57,8 +60,9 @@ vi.mock("@/protoFleet/api/useTelemetryMetrics", () => ({
   useTelemetryMetrics: (options: unknown) => useTelemetryMetricsMock(options),
 }));
 
+const refetchSiteStatsMock = vi.hoisted(() => vi.fn());
 const useSiteStatsMock = vi.hoisted(() =>
-  vi.fn((_options: unknown) => ({ stats: undefined, error: null, refetch: vi.fn() })),
+  vi.fn((_options: unknown) => ({ stats: undefined, error: null, refetch: refetchSiteStatsMock })),
 );
 
 vi.mock("@/protoFleet/api/useSiteStats", () => ({
@@ -66,11 +70,7 @@ vi.mock("@/protoFleet/api/useSiteStats", () => ({
 }));
 
 vi.mock("@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection", () => ({
-  DeviceSetPerformanceSection: ({ className, gapClassName }: { className?: string; gapClassName?: string }) => (
-    <div className={className} data-gap-class={gapClassName} data-testid="device-set-performance-section">
-      Performance charts
-    </div>
-  ),
+  DeviceSetPerformanceSection: () => <div data-testid="device-set-performance-section">Performance charts</div>,
 }));
 
 vi.mock("@/protoFleet/features/sites/components/SiteModals", () => ({
@@ -157,6 +157,7 @@ const renderPage = (initialEntry = "/sites/7") =>
 describe("SiteDetailPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    listContainersMock.mockReset().mockResolvedValue(create(ListContainersResponseSchema));
     localStorage.clear();
     useFleetStore.setState((state) => {
       state.ui.activeSite = DEFAULT_ACTIVE_SITE;
@@ -236,30 +237,6 @@ describe("SiteDetailPage", () => {
     expect(screen.getByTestId("site-detail-edit").parentElement).toHaveClass("ml-3", "shrink-0");
   });
 
-  it("uses the detail view spacing rhythm for sections and section content", async () => {
-    useFleetStore.setState((state) => {
-      state.auth.permissions = ["fleet:read"];
-    });
-
-    renderPage("/sites/7");
-
-    expect(await screen.findByTestId("site-detail-page")).toHaveClass(
-      "gap-10",
-      "px-4",
-      "py-6",
-      "laptop:px-8",
-      "laptop:py-10",
-    );
-    expect(screen.getByTestId("site-detail-heading")).toHaveClass("gap-3", "px-2");
-    expect(screen.getByTestId("site-detail-metrics-section")).toHaveClass("gap-3", "px-2");
-    expect(screen.getByTestId("site-metric-hashrate-value")).toHaveClass("text-emphasis-400");
-    expect(screen.getByTestId("site-metric-power-value")).toHaveClass("text-emphasis-400");
-    expect(screen.getByTestId("site-detail-buildings-section")).toHaveClass("gap-3");
-    expect(screen.getByTestId("site-detail-performance")).toHaveClass("gap-3");
-    expect(screen.getByTestId("device-set-performance-section")).toHaveClass("p-2");
-    expect(screen.getByTestId("device-set-performance-section")).toHaveAttribute("data-gap-class", "gap-1");
-  });
-
   it("renders the performance section scoped to the resolved site for fleet:read operators", async () => {
     useFleetStore.setState((state) => {
       state.auth.permissions = ["fleet:read"];
@@ -302,6 +279,65 @@ describe("SiteDetailPage", () => {
     await waitFor(() => expect(screen.getByTestId("site-detail-breadcrumb-switcher")).toHaveTextContent("Austin"));
     expect(screen.queryByTestId("location-probe")).not.toBeInTheDocument();
     expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "8", slug: "austin" });
+  });
+
+  it("shows an assigned container in Buildings on a container-only site", async () => {
+    listContainersMock.mockResolvedValue(
+      create(ListContainersResponseSchema, {
+        containers: [{ deviceIdentifier: "ct1-south", name: "South CT1", site: { id: 7n, label: "Dallas" } }],
+      }),
+    );
+    renderPage();
+    const card = await screen.findByTestId("container-card-ct1-south");
+    expect(card).toHaveAttribute("href", "/containers/ct1-south");
+    expect(screen.getByTestId("site-detail-buildings-section")).toContainElement(card);
+    expect(screen.queryByTestId("site-detail-buildings-empty")).not.toBeInTheDocument();
+    expect(listContainersMock).toHaveBeenCalledWith(
+      { siteIds: [7n], includeUnassigned: false },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(screen.getByTestId("site-metric-buildings-value")).toHaveTextContent("1");
+  });
+
+  it("shows buildings and containers together and counts both in the metrics fallback", async () => {
+    listBuildingsBySiteMock.mockImplementation(({ onSuccess }: { onSuccess: (rows: BuildingWithCounts[]) => void }) =>
+      onSuccess([create(BuildingWithCountsSchema, { building: { id: 4n, name: "Building A", siteId: 7n } })]),
+    );
+    listContainersMock.mockResolvedValue(
+      create(ListContainersResponseSchema, {
+        containers: [{ deviceIdentifier: "ct1", name: "CT1", site: { id: 7n } }],
+      }),
+    );
+    renderPage();
+    expect(await screen.findByTestId("container-card-ct1")).toBeInTheDocument();
+    expect(screen.getByTestId("building-card-4")).toBeInTheDocument();
+    expect(screen.getByTestId("site-metric-buildings-value")).toHaveTextContent("2");
+  });
+
+  it("refreshes container membership and site metrics after assignment and unassignment", async () => {
+    renderPage();
+    await screen.findByTestId("site-detail-buildings-empty");
+    listContainersMock.mockResolvedValue(
+      create(ListContainersResponseSchema, {
+        containers: [{ deviceIdentifier: "new-ct1", name: "New CT1", site: { id: 7n } }],
+      }),
+    );
+    act(() => useFleetStore.getState().ui.bumpSitesRevision());
+    expect(await screen.findByTestId("container-card-new-ct1")).toBeInTheDocument();
+    expect(refetchSiteStatsMock).toHaveBeenCalled();
+    listContainersMock.mockResolvedValue(create(ListContainersResponseSchema));
+    act(() => useFleetStore.getState().ui.bumpSitesRevision());
+    expect(await screen.findByTestId("site-detail-buildings-empty")).toBeInTheDocument();
+    expect(screen.queryByTestId("container-card-new-ct1")).not.toBeInTheDocument();
+  });
+
+  it("shows a retryable error instead of claiming the site is empty when containers cannot load", async () => {
+    listContainersMock.mockRejectedValueOnce(new Error("Container request failed"));
+    renderPage();
+    expect(await screen.findByTestId("site-detail-containers-error")).toHaveTextContent("Container request failed");
+    expect(screen.queryByTestId("site-detail-buildings-empty")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByTestId("site-detail-buildings-empty")).toBeInTheDocument();
   });
 
   // beforeEach already resolves the page's building fetch with [], so these

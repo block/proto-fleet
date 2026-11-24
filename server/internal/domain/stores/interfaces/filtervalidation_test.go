@@ -2,6 +2,7 @@ package interfaces
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"testing"
@@ -17,6 +18,7 @@ import (
 type stubBuildingStore struct {
 	BuildingStore
 	owned map[int64]struct{}
+	err   error
 }
 
 func newOwnedStore(ids ...int64) *stubBuildingStore {
@@ -28,6 +30,9 @@ func newOwnedStore(ids ...int64) *stubBuildingStore {
 }
 
 func (s *stubBuildingStore) BuildingsByIDs(_ context.Context, _ int64, ids []int64) ([]int64, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
 	out := make([]int64, 0, len(ids))
 	for _, id := range ids {
 		if _, ok := s.owned[id]; ok {
@@ -82,6 +87,114 @@ func installRecordingHandler(t *testing.T) *recordingHandler {
 	return h
 }
 
+// TestValidateFilterBuildings covers the ownership rule that the miner-list
+// and rack-list filters share. Each caller keeps only a wiring test.
+func TestValidateFilterBuildings(t *testing.T) {
+	tests := []struct {
+		name        string
+		buildingIDs []int64
+		zoneKeys    []ZoneKey
+		// store is nil when the case must not reach the store.
+		store BuildingStore
+		// wantErr is false for an accepted filter.
+		wantErr bool
+		// wantInvalidArgument is true for a caller error, false for an internal error.
+		wantInvalidArgument bool
+		// errContains and errOmits apply only when they are not empty.
+		errContains string
+		errOmits    string
+	}{
+		{
+			name:        "owned building IDs pass",
+			buildingIDs: []int64{7, 9},
+			store:       newOwnedStore(7, 9),
+		},
+		{
+			name:                "cross-org building ID is rejected without an ID echo",
+			buildingIDs:         []int64{7, 99},
+			store:               newOwnedStore(7),
+			wantErr:             true,
+			wantInvalidArgument: true,
+			errContains:         "building_ids",
+			errOmits:            "99",
+		},
+		{
+			name:        "store error is internal",
+			buildingIDs: []int64{7},
+			store:       &stubBuildingStore{err: errors.New("db down")},
+			wantErr:     true,
+		},
+		{
+			name:        "nil store with explicit building IDs is internal",
+			buildingIDs: []int64{7},
+			wantErr:     true,
+		},
+		{
+			name: "wildcard zone keys do not reach the store",
+			zoneKeys: []ZoneKey{
+				{BuildingID: 0, Zone: "building-a"},
+				{BuildingID: 0, Zone: "building-b"},
+			},
+		},
+		{
+			name: "owned scoped zone keys pass",
+			zoneKeys: []ZoneKey{
+				{BuildingID: 7, Zone: "Room 2"},
+				{BuildingID: 9, Zone: "Room 2"},
+			},
+			store: newOwnedStore(7, 9),
+		},
+		{
+			name: "scoped and wildcard zone keys pass together",
+			zoneKeys: []ZoneKey{
+				{BuildingID: 7, Zone: "Room 2"},
+				{BuildingID: 0, Zone: "Other Zone"},
+			},
+			store: newOwnedStore(7),
+		},
+		{
+			name: "cross-org scoped zone key is rejected without an ID echo",
+			zoneKeys: []ZoneKey{
+				{BuildingID: 7, Zone: "Room 2"},
+				{BuildingID: 99, Zone: "Cold Aisle"},
+			},
+			store:               newOwnedStore(7),
+			wantErr:             true,
+			wantInvalidArgument: true,
+			errContains:         "building_ids",
+			errOmits:            "99",
+		},
+		{
+			name:        "building IDs and zone keys with one owned building pass",
+			buildingIDs: []int64{7},
+			zoneKeys: []ZoneKey{
+				{BuildingID: 7, Zone: "Room 2"},
+				{BuildingID: 0, Zone: "Wildcard Zone"},
+			},
+			store: newOwnedStore(7),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateFilterBuildings(context.Background(), 42, tc.buildingIDs, tc.zoneKeys, tc.store)
+
+			if !tc.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Equal(t, tc.wantInvalidArgument, fleeterror.IsInvalidArgumentError(err))
+			if tc.errContains != "" {
+				assert.Contains(t, err.Error(), tc.errContains)
+			}
+			if tc.errOmits != "" {
+				assert.NotContains(t, err.Error(), tc.errOmits)
+			}
+		})
+	}
+}
+
 func TestValidateFilterBuildings_CrossOrgEmitsAuditLog(t *testing.T) {
 	// One owned (7) + one cross-org (99) — rejected_count is 1.
 	handler := installRecordingHandler(t)
@@ -95,32 +208,6 @@ func TestValidateFilterBuildings_CrossOrgEmitsAuditLog(t *testing.T) {
 	require.Len(t, handler.records, 1, "expected exactly one audit log record")
 	rec := handler.records[0]
 	assert.Equal(t, slog.LevelWarn, rec.Level)
-	assert.Equal(t, "cross_org_filter_probe", rec.Message)
-	attrs := attrsByKey(rec)
-	assert.NotContains(t, attrs, "event", "event key is redundant with the log message")
-	assert.Equal(t, int64(42), attrs["org_id"])
-	assert.Equal(t, int64(1), attrs["rejected_count"])
-}
-
-func TestValidateFilterBuildings_CrossOrgZoneKey_EmitsAuditLog(t *testing.T) {
-	// Same assertion shape but rejected via zone_keys instead of
-	// building_ids — confirms the audit fires on either path.
-	handler := installRecordingHandler(t)
-	store := newOwnedStore(7)
-
-	err := ValidateFilterBuildings(
-		context.Background(),
-		42,
-		nil,
-		[]ZoneKey{{BuildingID: 7, Zone: "Room 2"}, {BuildingID: 99, Zone: "Cold Aisle"}},
-		store,
-	)
-
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-
-	require.Len(t, handler.records, 1)
-	rec := handler.records[0]
 	assert.Equal(t, "cross_org_filter_probe", rec.Message)
 	attrs := attrsByKey(rec)
 	assert.NotContains(t, attrs, "event", "event key is redundant with the log message")

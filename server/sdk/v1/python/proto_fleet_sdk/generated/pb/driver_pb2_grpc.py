@@ -106,6 +106,61 @@ class DriverStub(object):
                 request_serializer=pb_dot_driver__pb2.DeviceRef.SerializeToString,
                 response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
                 _registered_method=True)
+        self.SetTankMining = channel.unary_unary(
+                '/sdk.v1.Driver/SetTankMining',
+                request_serializer=pb_dot_driver__pb2.SetTankMiningRequest.SerializeToString,
+                response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                _registered_method=True)
+        self.ContainerMining = channel.unary_unary(
+                '/sdk.v1.Driver/ContainerMining',
+                request_serializer=pb_dot_driver__pb2.ContainerMiningRequest.SerializeToString,
+                response_deserializer=pb_dot_driver__pb2.ContainerMiningResponse.FromString,
+                _registered_method=True)
+        self.MiningGroups = channel.unary_unary(
+                '/sdk.v1.Driver/MiningGroups',
+                request_serializer=pb_dot_driver__pb2.MiningGroupsRequest.SerializeToString,
+                response_deserializer=pb_dot_driver__pb2.MiningGroupsResponse.FromString,
+                _registered_method=True)
+        self.SetModuleMining = channel.unary_unary(
+                '/sdk.v1.Driver/SetModuleMining',
+                request_serializer=pb_dot_driver__pb2.SetModuleMiningRequest.SerializeToString,
+                response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                _registered_method=True)
+        self.SetBoardIdentify = channel.unary_unary(
+                '/sdk.v1.Driver/SetBoardIdentify',
+                request_serializer=pb_dot_driver__pb2.SetBoardIdentifyRequest.SerializeToString,
+                response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                _registered_method=True)
+        self.ContainerPowerFeed = channel.unary_unary(
+                '/sdk.v1.Driver/ContainerPowerFeed',
+                request_serializer=pb_dot_driver__pb2.ContainerPowerFeedRequest.SerializeToString,
+                response_deserializer=pb_dot_driver__pb2.ContainerPowerFeedResponse.FromString,
+                _registered_method=True)
+        self.StreamBoardASICReadings = channel.unary_stream(
+                '/sdk.v1.Driver/StreamBoardASICReadings',
+                request_serializer=pb_dot_driver__pb2.StreamBoardASICReadingsRequest.SerializeToString,
+                response_deserializer=pb_dot_driver__pb2.BoardASICFrame.FromString,
+                _registered_method=True)
+        self.SetContainerControl = channel.unary_unary(
+                '/sdk.v1.Driver/SetContainerControl',
+                request_serializer=pb_dot_driver__pb2.SetContainerControlRequest.SerializeToString,
+                response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                _registered_method=True)
+        self.ControllerRecords = channel.unary_unary(
+                '/sdk.v1.Driver/ControllerRecords',
+                request_serializer=pb_dot_driver__pb2.ControllerRecordsRequest.SerializeToString,
+                response_deserializer=pb_dot_driver__pb2.ControllerRecordsResponse.FromString,
+                _registered_method=True)
+        self.RunContainerAlarmAction = channel.unary_unary(
+                '/sdk.v1.Driver/RunContainerAlarmAction',
+                request_serializer=pb_dot_driver__pb2.RunContainerAlarmActionRequest.SerializeToString,
+                response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                _registered_method=True)
+        self.FrigateServerUpdate = channel.unary_unary(
+                '/sdk.v1.Driver/FrigateServerUpdate',
+                request_serializer=pb_dot_driver__pb2.FrigateServerUpdateRequest.SerializeToString,
+                response_deserializer=pb_dot_driver__pb2.FrigateServerUpdateResponse.FromString,
+                _registered_method=True)
         self.SetCoolingMode = channel.unary_unary(
                 '/sdk.v1.Driver/SetCoolingMode',
                 request_serializer=pb_dot_driver__pb2.SetCoolingModeRequest.SerializeToString,
@@ -130,6 +185,11 @@ class DriverStub(object):
                 '/sdk.v1.Driver/GetMiningPools',
                 request_serializer=pb_dot_driver__pb2.GetMiningPoolsRequest.SerializeToString,
                 response_deserializer=pb_dot_driver__pb2.GetMiningPoolsResponse.FromString,
+                _registered_method=True)
+        self.GetStoredMiningPools = channel.unary_unary(
+                '/sdk.v1.Driver/GetStoredMiningPools',
+                request_serializer=pb_dot_driver__pb2.GetStoredMiningPoolsRequest.SerializeToString,
+                response_deserializer=pb_dot_driver__pb2.GetStoredMiningPoolsResponse.FromString,
                 _registered_method=True)
         self.DownloadLogs = channel.unary_unary(
                 '/sdk.v1.Driver/DownloadLogs',
@@ -298,6 +358,88 @@ class DriverServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def SetTankMining(self, request, context):
+        """Optional controller-only equipment command. Backend support is checked at execution.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ContainerMining(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def MiningGroups(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SetModuleMining(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SetBoardIdentify(self, request, context):
+        """Optional controller-only identification LED command for one verified board.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ContainerPowerFeed(self, request, context):
+        """Optional controller-only module power-feed operations (capability
+        "container_power_feed"). The payload is a closed JSON operation.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StreamBoardASICReadings(self, request, context):
+        """Optional controller-only live ASIC readings for one verified board. The
+        stream runs until the caller cancels it or the controller ends it.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SetContainerControl(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ControllerRecords(self, request, context):
+        """Optional controller-only bounded read of the controller's own logs or
+        audit events (capability "controller_records"). The payloads are the
+        JSON-encoded sdk.ControllerRecordsRequest and sdk.ControllerRecordsResult.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RunContainerAlarmAction(self, request, context):
+        """Optional controller-only plant alarm pulse (mute or reset). Success
+        acknowledges the pulse; only a later plant observation confirms its effect.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def FrigateServerUpdate(self, request, context):
+        """Optional controller-only Frigate software update operations (capability
+        "frigate_server_update"). One RPC carries nine operations so the plugin
+        boundary stays narrow. A Frigate refusal travels as a gRPC status carrying a
+        google.rpc.ErrorInfo in domain "mdk.v2.frigate" whose reason is the UPDATE_*
+        code. Unsupported drivers return UNIMPLEMENTED.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def SetCoolingMode(self, request, context):
         """CoreV1 - Configuration methods - Required methods
         """
@@ -325,6 +467,14 @@ class DriverServicer(object):
 
     def GetMiningPools(self, request, context):
         """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetStoredMiningPools(self, request, context):
+        """Private complete stored configuration, including disabled slots. Unsupported
+        firmware returns UNIMPLEMENTED; runtime telemetry is not a substitute.
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -494,6 +644,61 @@ def add_DriverServicer_to_server(servicer, server):
                     request_deserializer=pb_dot_driver__pb2.DeviceRef.FromString,
                     response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
             ),
+            'SetTankMining': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetTankMining,
+                    request_deserializer=pb_dot_driver__pb2.SetTankMiningRequest.FromString,
+                    response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            ),
+            'ContainerMining': grpc.unary_unary_rpc_method_handler(
+                    servicer.ContainerMining,
+                    request_deserializer=pb_dot_driver__pb2.ContainerMiningRequest.FromString,
+                    response_serializer=pb_dot_driver__pb2.ContainerMiningResponse.SerializeToString,
+            ),
+            'MiningGroups': grpc.unary_unary_rpc_method_handler(
+                    servicer.MiningGroups,
+                    request_deserializer=pb_dot_driver__pb2.MiningGroupsRequest.FromString,
+                    response_serializer=pb_dot_driver__pb2.MiningGroupsResponse.SerializeToString,
+            ),
+            'SetModuleMining': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetModuleMining,
+                    request_deserializer=pb_dot_driver__pb2.SetModuleMiningRequest.FromString,
+                    response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            ),
+            'SetBoardIdentify': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetBoardIdentify,
+                    request_deserializer=pb_dot_driver__pb2.SetBoardIdentifyRequest.FromString,
+                    response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            ),
+            'ContainerPowerFeed': grpc.unary_unary_rpc_method_handler(
+                    servicer.ContainerPowerFeed,
+                    request_deserializer=pb_dot_driver__pb2.ContainerPowerFeedRequest.FromString,
+                    response_serializer=pb_dot_driver__pb2.ContainerPowerFeedResponse.SerializeToString,
+            ),
+            'StreamBoardASICReadings': grpc.unary_stream_rpc_method_handler(
+                    servicer.StreamBoardASICReadings,
+                    request_deserializer=pb_dot_driver__pb2.StreamBoardASICReadingsRequest.FromString,
+                    response_serializer=pb_dot_driver__pb2.BoardASICFrame.SerializeToString,
+            ),
+            'SetContainerControl': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetContainerControl,
+                    request_deserializer=pb_dot_driver__pb2.SetContainerControlRequest.FromString,
+                    response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            ),
+            'ControllerRecords': grpc.unary_unary_rpc_method_handler(
+                    servicer.ControllerRecords,
+                    request_deserializer=pb_dot_driver__pb2.ControllerRecordsRequest.FromString,
+                    response_serializer=pb_dot_driver__pb2.ControllerRecordsResponse.SerializeToString,
+            ),
+            'RunContainerAlarmAction': grpc.unary_unary_rpc_method_handler(
+                    servicer.RunContainerAlarmAction,
+                    request_deserializer=pb_dot_driver__pb2.RunContainerAlarmActionRequest.FromString,
+                    response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            ),
+            'FrigateServerUpdate': grpc.unary_unary_rpc_method_handler(
+                    servicer.FrigateServerUpdate,
+                    request_deserializer=pb_dot_driver__pb2.FrigateServerUpdateRequest.FromString,
+                    response_serializer=pb_dot_driver__pb2.FrigateServerUpdateResponse.SerializeToString,
+            ),
             'SetCoolingMode': grpc.unary_unary_rpc_method_handler(
                     servicer.SetCoolingMode,
                     request_deserializer=pb_dot_driver__pb2.SetCoolingModeRequest.FromString,
@@ -518,6 +723,11 @@ def add_DriverServicer_to_server(servicer, server):
                     servicer.GetMiningPools,
                     request_deserializer=pb_dot_driver__pb2.GetMiningPoolsRequest.FromString,
                     response_serializer=pb_dot_driver__pb2.GetMiningPoolsResponse.SerializeToString,
+            ),
+            'GetStoredMiningPools': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetStoredMiningPools,
+                    request_deserializer=pb_dot_driver__pb2.GetStoredMiningPoolsRequest.FromString,
+                    response_serializer=pb_dot_driver__pb2.GetStoredMiningPoolsResponse.SerializeToString,
             ),
             'DownloadLogs': grpc.unary_unary_rpc_method_handler(
                     servicer.DownloadLogs,
@@ -980,6 +1190,303 @@ class Driver(object):
             _registered_method=True)
 
     @staticmethod
+    def SetTankMining(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sdk.v1.Driver/SetTankMining',
+            pb_dot_driver__pb2.SetTankMiningRequest.SerializeToString,
+            google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ContainerMining(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sdk.v1.Driver/ContainerMining',
+            pb_dot_driver__pb2.ContainerMiningRequest.SerializeToString,
+            pb_dot_driver__pb2.ContainerMiningResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def MiningGroups(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sdk.v1.Driver/MiningGroups',
+            pb_dot_driver__pb2.MiningGroupsRequest.SerializeToString,
+            pb_dot_driver__pb2.MiningGroupsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SetModuleMining(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sdk.v1.Driver/SetModuleMining',
+            pb_dot_driver__pb2.SetModuleMiningRequest.SerializeToString,
+            google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SetBoardIdentify(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sdk.v1.Driver/SetBoardIdentify',
+            pb_dot_driver__pb2.SetBoardIdentifyRequest.SerializeToString,
+            google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ContainerPowerFeed(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sdk.v1.Driver/ContainerPowerFeed',
+            pb_dot_driver__pb2.ContainerPowerFeedRequest.SerializeToString,
+            pb_dot_driver__pb2.ContainerPowerFeedResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StreamBoardASICReadings(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/sdk.v1.Driver/StreamBoardASICReadings',
+            pb_dot_driver__pb2.StreamBoardASICReadingsRequest.SerializeToString,
+            pb_dot_driver__pb2.BoardASICFrame.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SetContainerControl(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sdk.v1.Driver/SetContainerControl',
+            pb_dot_driver__pb2.SetContainerControlRequest.SerializeToString,
+            google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ControllerRecords(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sdk.v1.Driver/ControllerRecords',
+            pb_dot_driver__pb2.ControllerRecordsRequest.SerializeToString,
+            pb_dot_driver__pb2.ControllerRecordsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RunContainerAlarmAction(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sdk.v1.Driver/RunContainerAlarmAction',
+            pb_dot_driver__pb2.RunContainerAlarmActionRequest.SerializeToString,
+            google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def FrigateServerUpdate(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sdk.v1.Driver/FrigateServerUpdate',
+            pb_dot_driver__pb2.FrigateServerUpdateRequest.SerializeToString,
+            pb_dot_driver__pb2.FrigateServerUpdateResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def SetCoolingMode(request,
             target,
             options=(),
@@ -1104,6 +1611,33 @@ class Driver(object):
             '/sdk.v1.Driver/GetMiningPools',
             pb_dot_driver__pb2.GetMiningPoolsRequest.SerializeToString,
             pb_dot_driver__pb2.GetMiningPoolsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetStoredMiningPools(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sdk.v1.Driver/GetStoredMiningPools',
+            pb_dot_driver__pb2.GetStoredMiningPoolsRequest.SerializeToString,
+            pb_dot_driver__pb2.GetStoredMiningPoolsResponse.FromString,
             options,
             channel_credentials,
             insecure,

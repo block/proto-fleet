@@ -1,4 +1,4 @@
-import type { ActiveCurtailmentDisplayState } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
+import type { ActiveCurtailmentDisplayState } from "@/protoFleet/api/curtailmentTypes";
 
 export const curtailmentPillStates = [
   "pending",

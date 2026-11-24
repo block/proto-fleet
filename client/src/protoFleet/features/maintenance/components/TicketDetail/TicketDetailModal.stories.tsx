@@ -1,8 +1,28 @@
+import { create } from "@bufbuild/protobuf";
 import type { Meta, StoryObj } from "@storybook/react";
 import { action } from "storybook/actions";
+import { expect, spyOn, userEvent, waitFor, within } from "storybook/test";
 
 import MaintenanceOptionsProvider from "../MaintenanceOptionsProvider";
 import TicketDetailModal from "./TicketDetailModal";
+import { maintenanceClient, sitesClient } from "@/protoFleet/api/clients";
+import {
+  CreateTicketCommentResponseSchema,
+  DeleteTicketCommentResponseSchema,
+  GetRepairTicketResponseSchema,
+  ListAssigneesResponseSchema,
+  ListTicketAssetOptionsResponseSchema,
+  RepairTicketSchema,
+  SetTicketCommentVisibilityResponseSchema,
+  ShareRepairTicketResponseSchema,
+  TicketCategory,
+  TicketCommentSchema,
+  TicketStatus,
+  UpdateRepairTicketResponseSchema,
+  UpdateTicketTargetResponseSchema,
+} from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
+import { ListSitesResponseSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { useFleetStore } from "@/protoFleet/store";
 
 const ACTIVE_TICKET_IDS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"];
 const COMPLETED_TICKET_IDS = ["101", "102", "103", "104", "105", "106", "107", "108", "109", "110"];
@@ -67,5 +87,219 @@ export const CompletedRepair: Story = {
   args: {
     ticketId: "101",
     ticketIds: COMPLETED_TICKET_IDS,
+  },
+};
+
+const assignmentPreview = (state: "empty" | "loading" | "error") => () => {
+  const permissions = useFleetStore.getState().auth.permissions;
+  useFleetStore.setState((store) => {
+    store.auth.permissions = ["maintenance:read", "maintenance:manage"];
+  });
+  const ticket = create(RepairTicketSchema, {
+    id: 255n,
+    ticketNumber: "TK-0255",
+    category: TicketCategory.INFRASTRUCTURE,
+    status: TicketStatus.OPEN,
+    component: "Electrical",
+    diagnosis: "Breaker tripped",
+    updatedAt: { seconds: 1_700_000_000n },
+  });
+  const assignees = spyOn(maintenanceClient, "listAssignees").mockResolvedValue(create(ListAssigneesResponseSchema));
+  if (state === "loading") assignees.mockImplementation(() => new Promise(() => {}));
+  if (state === "error") {
+    assignees.mockRejectedValueOnce(new Error("Maintenance options could not be loaded."));
+    assignees.mockResolvedValue(
+      create(ListAssigneesResponseSchema, {
+        assignees: [{ userId: 3n, username: "Sam", roleName: "Technician" }],
+      }),
+    );
+  }
+  const mocks = [
+    assignees,
+    spyOn(sitesClient, "listSites").mockResolvedValue(create(ListSitesResponseSchema)),
+    spyOn(maintenanceClient, "getRepairTicket").mockImplementation(async () =>
+      create(GetRepairTicketResponseSchema, { detail: { ticket } }),
+    ),
+    spyOn(maintenanceClient, "updateRepairTicket").mockImplementation(async (request) => {
+      if (request.clearAssignee) {
+        ticket.assigneeUserId = undefined;
+        ticket.assigneeName = "";
+      } else if (request.assigneeUserId !== undefined) {
+        ticket.assigneeUserId = request.assigneeUserId;
+        ticket.assigneeName = "Sam";
+      }
+      return create(UpdateRepairTicketResponseSchema, { ticket });
+    }),
+    spyOn(maintenanceClient, "createTicketComment").mockResolvedValue(create(CreateTicketCommentResponseSchema)),
+    spyOn(maintenanceClient, "deleteTicketComment").mockResolvedValue(create(DeleteTicketCommentResponseSchema)),
+  ];
+  return () => {
+    mocks.forEach((mock) => mock.mockRestore());
+    useFleetStore.setState((store) => {
+      store.auth.permissions = permissions;
+    });
+  };
+};
+
+const openAssignment: Story["play"] = async ({ canvasElement }) => {
+  const body = within(canvasElement.ownerDocument.body);
+  await waitFor(() => expect(body.getByRole("button", { name: "Update status" })).toBeVisible());
+  const moreActions = body.queryByRole("button", { name: "More actions" });
+  if (moreActions) await userEvent.click(moreActions);
+  const assign = await body.findByRole("button", { name: "Assign" });
+  await waitFor(() => expect(assign).toBeVisible());
+  await userEvent.click(assign);
+};
+
+export const AssignmentEmpty: Story = {
+  args: { ticketId: "255" },
+  beforeEach: assignmentPreview("empty"),
+  play: async (context) => {
+    await openAssignment(context);
+    await waitFor(() =>
+      expect(within(context.canvasElement.ownerDocument.body).getByText("No assignees available.")).toBeVisible(),
+    );
+  },
+};
+
+export const AssignmentLoading: Story = {
+  args: { ticketId: "255" },
+  beforeEach: assignmentPreview("loading"),
+  play: openAssignment,
+};
+
+export const AssignmentError: Story = {
+  args: { ticketId: "255" },
+  beforeEach: assignmentPreview("error"),
+  play: async (context) => {
+    await openAssignment(context);
+    await waitFor(() =>
+      expect(within(context.canvasElement.ownerDocument.body).getByRole("button", { name: "Retry" })).toBeVisible(),
+    );
+  },
+};
+
+const moduleIncident = (sharedWithClients = false, component = "Hashboard") => {
+  const previousPermissions = useFleetStore.getState().auth.permissions;
+  useFleetStore.setState((store) => {
+    store.auth.permissions = ["maintenance:read", "maintenance:manage"];
+  });
+  const ticket = create(RepairTicketSchema, {
+    id: 272n,
+    ticketNumber: "TK-0272",
+    category: TicketCategory.MODULE,
+    status: TicketStatus.IN_PROGRESS,
+    component,
+    sharedWithClients,
+    description: "Module stopped hashing",
+    diagnosis: "Investigating power delivery",
+    updatedAt: { seconds: 1793335200n, nanos: 123456789 },
+    targets: [{ kind: TicketCategory.MODULE, id: 51n, label: "Module 51", model: "Model A" }],
+    audiences: [{ accountId: "11111111-1111-4111-8111-111111111111", name: "Northstar Mining" }],
+  });
+  const comments = [
+    create(TicketCommentSchema, {
+      id: 1n,
+      userName: "Technician",
+      text: "Checking the original module",
+      internal: true,
+    }),
+    ...(sharedWithClients
+      ? [
+          create(TicketCommentSchema, {
+            id: 2n,
+            userName: "Technician",
+            text: "We are investigating the module's power delivery.",
+            internal: false,
+          }),
+        ]
+      : []),
+  ];
+  const mocks = [
+    spyOn(maintenanceClient, "getRepairTicket").mockImplementation(async () =>
+      create(GetRepairTicketResponseSchema, {
+        detail: {
+          ticket,
+          comments,
+        },
+      }),
+    ),
+    spyOn(maintenanceClient, "listAssignees").mockResolvedValue(create(ListAssigneesResponseSchema)),
+    spyOn(sitesClient, "listSites").mockResolvedValue(create(ListSitesResponseSchema)),
+    spyOn(maintenanceClient, "listTicketAssetOptions").mockResolvedValue(
+      create(ListTicketAssetOptionsResponseSchema, {
+        assets: [
+          {
+            kind: TicketCategory.HASHBOARD,
+            id: 84n,
+            label: "Original HB-84 (removed)",
+            moduleId: 51n,
+            installationId: 12n,
+            model: "Model A",
+          },
+        ],
+      }),
+    ),
+    spyOn(maintenanceClient, "updateTicketTarget").mockImplementation(async (request) => {
+      Object.assign(ticket.targets[0], request);
+      return create(UpdateTicketTargetResponseSchema, { ticket });
+    }),
+    spyOn(maintenanceClient, "updateRepairTicket").mockImplementation(async (request) => {
+      if (request.component !== undefined) ticket.component = request.component;
+      if (request.diagnosis !== undefined) ticket.diagnosis = request.diagnosis;
+      return create(UpdateRepairTicketResponseSchema, { ticket });
+    }),
+    spyOn(maintenanceClient, "createTicketComment").mockImplementation(async (request) => {
+      const comment = create(TicketCommentSchema, {
+        id: BigInt(comments.length + 1),
+        userName: "Technician",
+        text: request.text,
+        internal: request.internal ?? true,
+      });
+      comments.push(comment);
+      return create(CreateTicketCommentResponseSchema, { comment });
+    }),
+    spyOn(maintenanceClient, "shareRepairTicket").mockImplementation(async () => {
+      ticket.sharedWithClients = true;
+      return create(ShareRepairTicketResponseSchema, { ticket });
+    }),
+    spyOn(maintenanceClient, "setTicketCommentVisibility").mockImplementation(async (request) => {
+      const comment = comments.find((item) => item.id === request.commentId);
+      if (comment) comment.internal = request.internal ?? false;
+      return create(SetTicketCommentVisibilityResponseSchema);
+    }),
+  ];
+  return () => {
+    mocks.forEach((mock) => mock.mockRestore());
+    useFleetStore.setState((store) => {
+      store.auth.permissions = previousPermissions;
+    });
+  };
+};
+export const ModuleIncident: Story = { args: { ticketId: "272" }, beforeEach: () => moduleIncident() };
+export const SharedWithClients: Story = {
+  args: { ticketId: "272" },
+  beforeEach: () => moduleIncident(true),
+};
+export const InternalComponentTriage: Story = {
+  args: { ticketId: "272" },
+  beforeEach: () => moduleIncident(false, "Unknown"),
+};
+export const TargetEvidence: Story = {
+  args: { ticketId: "272" },
+  beforeEach: () => moduleIncident(),
+  play: async ({ canvasElement }) => {
+    await userEvent.click(
+      await within(canvasElement.ownerDocument.body).findByRole("button", { name: "Edit Module 51 evidence" }),
+    );
+  },
+};
+export const HistoricalBoards: Story = {
+  args: { ticketId: "272" },
+  beforeEach: () => moduleIncident(),
+  play: async ({ canvasElement }) => {
+    await userEvent.click(
+      await within(canvasElement.ownerDocument.body).findByRole("button", { name: "Add affected boards" }),
+    );
   },
 };

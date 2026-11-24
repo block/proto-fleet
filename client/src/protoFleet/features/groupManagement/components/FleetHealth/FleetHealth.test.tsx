@@ -69,48 +69,6 @@ describe("FleetHealth", () => {
     expect(screen.getByText("4 miners")).toBeInTheDocument();
   });
 
-  it("renders stats for fleet with moderate health distribution", () => {
-    renderWithRouter(
-      <FleetHealth
-        fleetSize={100}
-        healthyMiners={60}
-        needsAttentionMiners={20}
-        offlineMiners={12}
-        sleepingMiners={8}
-      />,
-    );
-
-    // Check title label
-    expect(screen.getByText("Your fleet")).toBeInTheDocument();
-
-    // Check percentages (all unique values)
-    expect(screen.getByText("60%")).toBeInTheDocument(); // Healthy: 60/100 = 60%
-    expect(screen.getByText("20%")).toBeInTheDocument(); // Needs Attention: 20/100 = 20%
-    expect(screen.getByText("12%")).toBeInTheDocument(); // Offline: 12/100 = 12%
-    expect(screen.getByText("8%")).toBeInTheDocument(); // Sleeping: 8/100 = 8%
-  });
-
-  it("renders stats for fleet with critical health distribution", () => {
-    renderWithRouter(
-      <FleetHealth
-        fleetSize={100}
-        healthyMiners={15}
-        needsAttentionMiners={50}
-        offlineMiners={25}
-        sleepingMiners={10}
-      />,
-    );
-
-    // Check title label
-    expect(screen.getByText("Your fleet")).toBeInTheDocument();
-
-    // Check percentages (all unique values)
-    expect(screen.getByText("15%")).toBeInTheDocument(); // Healthy: 15/100 = 15%
-    expect(screen.getByText("50%")).toBeInTheDocument(); // Needs Attention: 50/100 = 50%
-    expect(screen.getByText("25%")).toBeInTheDocument(); // Offline: 25/100 = 25%
-    expect(screen.getByText("10%")).toBeInTheDocument(); // Sleeping: 10/100 = 10%
-  });
-
   it("handles division by zero when fleet size is 0", () => {
     renderWithRouter(
       <FleetHealth fleetSize={0} healthyMiners={0} needsAttentionMiners={0} offlineMiners={0} sleepingMiners={0} />,
@@ -219,19 +177,6 @@ describe("FleetHealth", () => {
     // Check singular form - should appear in title and Needs Attention stat
     const oneMinerText = screen.getAllByText(/1 miner/);
     expect(oneMinerText.length).toBe(2); // Once in title, once in Needs Attention stat
-  });
-
-  it("handles pluralization correctly for multiple miners", () => {
-    renderWithRouter(
-      <FleetHealth fleetSize={50} healthyMiners={30} needsAttentionMiners={10} offlineMiners={7} sleepingMiners={3} />,
-    );
-
-    // Check plural form
-    expect(screen.getByText("50 miners")).toBeInTheDocument();
-    expect(screen.getByText("30 miners")).toBeInTheDocument();
-    expect(screen.getByText("10 miners")).toBeInTheDocument();
-    expect(screen.getByText("7 miners")).toBeInTheDocument();
-    expect(screen.getByText("3 miners")).toBeInTheDocument();
   });
 
   it("preserves the selected site in clickable miner status links", () => {

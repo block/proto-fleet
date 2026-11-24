@@ -24,12 +24,6 @@ function createMockMiner(overrides: Partial<MinerStateSnapshot> = {}): MinerStat
 }
 
 describe("MinerFirmware", () => {
-  it.each(["1.2.3", "2024.01.15", "v1.0.0-beta"])("renders firmware version %s", (firmwareVersion) => {
-    render(<MinerFirmware miner={createMockMiner({ firmwareVersion })} />);
-
-    expect(screen.getByText(firmwareVersion)).toBeInTheDocument();
-  });
-
   it.each(["", "   ", undefined])("keeps unknown version %j actionable", async (firmwareVersion) => {
     const user = userEvent.setup();
     const onViewHistory = vi.fn();

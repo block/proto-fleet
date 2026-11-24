@@ -2,7 +2,10 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
+import {
+  FleetNodeEnrollmentStatus,
+  FleetNodeHARole,
+} from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import { type FleetNodeItem, useFleetNodes } from "@/protoFleet/api/useFleetNodes";
 import { useFleetNodeUpgradeIndicator } from "@/protoFleet/components/PageHeader/useFleetNodeUpgradeIndicator";
 import { useHasPermission } from "@/protoFleet/store";
@@ -15,14 +18,25 @@ vi.mock("@/protoFleet/store", () => ({
   useHasPermission: vi.fn(),
 }));
 
-const node = (upgradeRequired: boolean): FleetNodeItem => ({
+const node = (upgradeRecommended: boolean): FleetNodeItem => ({
   fleetNodeId: "1",
   pendingEnrollmentId: null,
   name: "node-1",
   enrollmentStatus: FleetNodeEnrollmentStatus.CONFIRMED,
   identityFingerprint: "abcd1234abcd1234",
-  commandProtocolUpgradeRequired: upgradeRequired,
+  commandProtocolUpgradeRequired: false,
+  commandProtocolUpgradeRecommended: upgradeRecommended,
   controlStreamConnected: true,
+  discoveryCoverageDegraded: false,
+  pairedDeviceCount: 0,
+  haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED,
+  haPeerNodeId: null,
+  haPeerNodeName: "",
+  haStandbyReady: false,
+  haStatusReason: "",
+  ipAddresses: [],
+  version: "",
+  enrolledBy: "",
   createdAt: null,
   lastSeenAt: new Date(),
 });
@@ -41,7 +55,7 @@ const Harness = ({ enabled = true }: { enabled?: boolean }) => {
   return (
     <>
       {pill ? (
-        <button type="button" onClick={pill.onClick}>
+        <button type="button" data-required={pill.required} onClick={pill.onClick}>
           Upgrade {pill.nodeCount}
         </button>
       ) : null}
@@ -62,23 +76,34 @@ describe("useFleetNodeUpgradeIndicator", () => {
       createEnrollmentCode: vi.fn(),
       confirmFleetNode: vi.fn(),
       revokeFleetNode: vi.fn(),
+      listFleetNodeDevices: vi.fn(),
+      listFleetNodeDiscoveredDevices: vi.fn(),
+      discoverOnFleetNode: vi.fn(),
+      pairDiscoveredDevicesOnFleetNode: vi.fn(),
     });
   });
 
-  it("shows the number of incompatible connected nodes and opens node settings", async () => {
+  it("prioritizes required upgrades, including required-only responses, and opens node settings", async () => {
+    listFleetNodes.mockResolvedValue([
+      node(false),
+      node(true),
+      { ...node(false), commandProtocolUpgradeRequired: true },
+      { ...node(true), commandProtocolUpgradeRequired: true },
+    ]);
     render(
       <MemoryRouter initialEntries={["/dashboard"]}>
         <Harness />
       </MemoryRouter>,
     );
 
-    const button = await screen.findByRole("button", { name: "Upgrade 1" });
+    const button = await screen.findByRole("button", { name: "Upgrade 2" });
+    expect(button).toHaveAttribute("data-required", "true");
     fireEvent.click(button);
 
     expect(screen.getByTestId("pathname")).toHaveTextContent("/settings/nodes");
   });
 
-  it("stays hidden when every connected node supports current commands", async () => {
+  it("stays hidden when no node needs an upgrade", async () => {
     listFleetNodes.mockResolvedValue([node(false)]);
 
     render(

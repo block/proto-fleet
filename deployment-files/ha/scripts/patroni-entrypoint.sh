@@ -82,4 +82,4 @@ install -d -m 0700 -o postgres -g postgres "$PGDATA"
 install -d -m 2775 -o postgres -g postgres /var/run/postgresql
 
 # exec preserves Patroni's signals and exit status as the container's own.
-exec gosu postgres patroni "${run_dir}/patroni.yml"
+exec gosu postgres start-patroni "${run_dir}/patroni.yml"

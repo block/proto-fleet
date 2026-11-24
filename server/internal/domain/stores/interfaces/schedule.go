@@ -58,7 +58,7 @@ type SchedulePriorityStore interface {
 	ListScheduleIDStatuses(ctx context.Context, orgID int64) ([]ScheduleIDStatus, error)
 }
 
-//go:generate go run go.uber.org/mock/mockgen -source=schedule.go -destination=mocks/mock_schedule_store.go -package=mocks ScheduleProcessorStore ScheduleTargetStore
+//go:generate go run go.uber.org/mock/mockgen -source=schedule.go -destination=mocks/mock_schedule_store.go -package=mocks -exclude_interfaces=ScheduleStore,SchedulePriorityStore ScheduleProcessorStore ScheduleTargetStore
 
 // ScheduleProcessorStore defines store methods used exclusively by the schedule processor.
 // Cross-org queries return ScheduleWithOrg to provide the org_id that the proto

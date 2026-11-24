@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package mdk.v2;
+
+option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "mdk/v2/common.proto";
+import "mdk/v2/options.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+// AlertService provides alert management and streaming.
+service AlertService {
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_tag) = {
+    name: "Alerts"
+    description: "Alert management, acknowledgement, and real-time streaming."
+  };
+  // ListAlerts returns alerts with optional filtering and pagination.
+  rpc ListAlerts(ListAlertsRequest) returns (ListAlertsResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {
+      get: "/api/v2/alerts"
+    };
+  }
+
+  // AcknowledgeAlert marks an alert as acknowledged.
+  rpc AcknowledgeAlert(AcknowledgeAlertRequest) returns (AcknowledgeAlertResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (google.api.http) = {
+      post: "/api/v2/alerts/{id}/acknowledge"
+    };
+  }
+
+  // StreamAlerts streams new alerts as they fire.
+  rpc StreamAlerts(StreamAlertsRequest) returns (stream StreamAlertsResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {
+      get: "/api/v2/alerts/stream"
+    };
+  }
+}
+
+// AlertSourceKind identifies the typed resource class that emitted an alert.
+enum AlertSourceKind {
+  ALERT_SOURCE_KIND_UNSPECIFIED = 0;
+  ALERT_SOURCE_KIND_SYSTEM = 1;
+  ALERT_SOURCE_KIND_FAN = 2;
+  ALERT_SOURCE_KIND_CONTROL_BOARD = 3;
+  ALERT_SOURCE_KIND_POWER_SUPPLY = 4;
+  ALERT_SOURCE_KIND_HASHBOARD = 5;
+}
+
+// Alert represents a system alert.
+message Alert {
+  int64 id = 1;
+  string hashboard_mac = 2;
+  Severity severity = 3;
+  string category = 4;
+  string message = 5;
+  string details = 6;
+  google.protobuf.Timestamp created_at = 7;
+  bool acknowledged = 8;
+  google.protobuf.Timestamp acknowledged_at = 9;
+  AlertSourceKind source_kind = 10;
+  // resource_id is the source's stable ID for non-hashboard sources. R2
+  // hashboards use serial instead.
+  string resource_id = 11;
+  string code = 12;
+  // slot is one-based when the source has a physical chassis slot.
+  optional uint32 slot = 13;
+  // serial is the stable R2 hashboard identity and is empty for other sources.
+  string serial = 14;
+}
+
+message ListAlertsRequest {
+  Severity severity = 1;
+  string category = 2;
+  optional bool acknowledged = 3;
+  PageRequest page = 4;
+}
+
+message ListAlertsResponse {
+  repeated Alert alerts = 1;
+  PageResponse page = 2;
+}
+
+message AcknowledgeAlertRequest {
+  int64 id = 1;
+}
+
+message AcknowledgeAlertResponse {
+  Alert alert = 1;
+}
+
+message StreamAlertsRequest {
+  Severity min_severity = 1;
+}
+
+message StreamAlertsResponse {
+  Alert alert = 1;
+}

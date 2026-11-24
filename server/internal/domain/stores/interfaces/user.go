@@ -1,6 +1,6 @@
 package interfaces
 
-//go:generate go run go.uber.org/mock/mockgen -source=user.go -destination=mocks/mock_user_store.go -package=mocks UserStore UserManagementStore
+//go:generate go run go.uber.org/mock/mockgen -source=user.go -destination=mocks/mock_user_store.go -package=mocks -exclude_interfaces=BreakGlassUserStore UserStore UserManagementStore
 
 import (
 	"context"
@@ -34,10 +34,14 @@ type UserManagementStore interface { //nolint:interfacebloat // user mgmt store 
 	UpdateUserPasswordAndClearPasswordChangeFlag(ctx context.Context, userID int64, passwordHash string) error
 	AdminResetUserPassword(ctx context.Context, userID int64, passwordHash string) (int64, error)
 	CountActiveRepairTicketsAssignedToUser(ctx context.Context, organizationID int64, userID int64) (int64, error)
+	// Must run in the deactivation transaction before acquiring user/role locks.
+	LockAndCountSoleHostedAccountAdministrations(ctx context.Context, organizationID int64, userID int64) (int64, error)
 	SoftDeleteUser(ctx context.Context, userID int64) error
 	UpdateLastLogin(ctx context.Context, userID int64) error
 	ListUsersForOrganization(ctx context.Context, organizationID int64) ([]User, error)
 	GetUserRoleName(ctx context.Context, userID int64, organizationID int64) (string, error)
+	// Must run in the mutation transaction; locks organization, affiliation and role.
+	GetActiveUserRoleNameForUpdate(ctx context.Context, userID int64, organizationID int64) (string, error)
 	ListPermissionKeysByRoleID(ctx context.Context, roleID int64) ([]string, error)
 }
 

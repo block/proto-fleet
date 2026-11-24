@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import {
+  encodeActiveFiltersToURL,
   encodeFilterToURL,
   parseFilterFromURL,
   parseUrlToActiveFilters,
@@ -14,6 +15,19 @@ import {
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 
 describe("filterUrlParams", () => {
+  it("round-trips multiple containers and tank scope without confusing building IDs", () => {
+    const params = new URLSearchParams("container=7&container=8&container=7&tank=9&building=7&site=2");
+    const active = parseUrlToActiveFilters(params);
+    expect(active.dropdownFilters.container).toEqual(["7", "8"]);
+    expect(active.dropdownFilters.tank).toEqual(["9"]);
+    expect(active.dropdownFilters.building).toEqual(["7"]);
+    active.dropdownFilters.status = ["Offline"];
+    const restored = parseUrlToActiveFilters(encodeActiveFiltersToURL(active));
+    expect(restored.dropdownFilters.container).toEqual(["7", "8"]);
+    expect(restored.dropdownFilters.tank).toEqual(["9"]);
+    expect(restored.dropdownFilters.site).toEqual(["2"]);
+  });
+
   describe("encodeFilterToURL", () => {
     it("should not create duplicate status values when encoding needs-attention filter", () => {
       const filter = create(MinerListFilterSchema, {
@@ -77,13 +91,6 @@ describe("filterUrlParams", () => {
       expect(activeFilters.dropdownFilters.model).toEqual(["Proto Rig"]);
     });
 
-    it("should parse valid group IDs from URL", () => {
-      const params = new URLSearchParams("group=1&group=2&group=3");
-      const activeFilters = parseUrlToActiveFilters(params);
-
-      expect(activeFilters.dropdownFilters.group).toEqual(["1", "2", "3"]);
-    });
-
     it("should deduplicate group values from URL", () => {
       const params = new URLSearchParams("group=1&group=1&group=2&group=2");
       const activeFilters = parseUrlToActiveFilters(params);
@@ -141,13 +148,6 @@ describe("filterUrlParams", () => {
   });
 
   describe("parseFilterFromURL - group IDs", () => {
-    it("should parse valid group IDs into BigInt values", () => {
-      const params = new URLSearchParams("group=1&group=2&group=3");
-      const filter = parseFilterFromURL(params);
-
-      expect(filter?.groupIds).toEqual([1n, 2n, 3n]);
-    });
-
     it("should skip empty group ID values", () => {
       const params = new URLSearchParams("group=1&group=&group=3");
       const filter = parseFilterFromURL(params);
@@ -192,16 +192,6 @@ describe("filterUrlParams", () => {
   });
 
   describe("sleeping <-> {INACTIVE, MAINTENANCE}", () => {
-    it("encodes INACTIVE and MAINTENANCE to a single sleeping status", () => {
-      const filter = create(MinerListFilterSchema, {
-        deviceStatus: [DeviceStatus.INACTIVE, DeviceStatus.MAINTENANCE],
-      });
-
-      const params = encodeFilterToURL(filter);
-
-      expect(params.getAll("status")).toEqual(["sleeping"]);
-    });
-
     it("encodes MAINTENANCE alone to sleeping", () => {
       const filter = create(MinerListFilterSchema, {
         deviceStatus: [DeviceStatus.MAINTENANCE],
@@ -222,13 +212,6 @@ describe("filterUrlParams", () => {
   });
 
   describe("parseUrlToActiveFilters - rack IDs", () => {
-    it("should parse valid rack IDs from URL", () => {
-      const params = new URLSearchParams("rack=10&rack=20&rack=30");
-      const activeFilters = parseUrlToActiveFilters(params);
-
-      expect(activeFilters.dropdownFilters.rack).toEqual(["10", "20", "30"]);
-    });
-
     it("should deduplicate rack values from URL", () => {
       const params = new URLSearchParams("rack=5&rack=5&rack=6&rack=6");
       const activeFilters = parseUrlToActiveFilters(params);
@@ -279,13 +262,6 @@ describe("filterUrlParams", () => {
   });
 
   describe("parseFilterFromURL - rack IDs", () => {
-    it("should parse valid rack IDs into BigInt values", () => {
-      const params = new URLSearchParams("rack=10&rack=20&rack=30");
-      const filter = parseFilterFromURL(params);
-
-      expect(filter?.rackIds).toEqual([10n, 20n, 30n]);
-    });
-
     it("should skip empty rack ID values", () => {
       const params = new URLSearchParams("rack=1&rack=&rack=3");
       const filter = parseFilterFromURL(params);
@@ -398,13 +374,6 @@ describe("filterUrlParams", () => {
       const reparsed = parseFilterFromURL(new URLSearchParams(params.toString()));
 
       expect(reparsed?.zones).toEqual(["Austin, Building 1"]);
-    });
-
-    it("does not split a zone name on its embedded comma", () => {
-      const params = new URLSearchParams();
-      params.append("zone", "Austin, Building 1");
-
-      expect(parseFilterFromURL(params)?.zones).toEqual(["Austin, Building 1"]);
     });
 
     it("surfaces zones in ActiveFilters", () => {

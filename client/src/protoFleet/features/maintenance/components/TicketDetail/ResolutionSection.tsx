@@ -7,12 +7,12 @@ export const ResolutionSectionContent = ({
   resolution,
   repairLocation,
   partsUsed,
-  notes,
+  resolutionNote,
 }: {
   resolution: string;
   repairLocation: string;
   partsUsed: Array<{ name: string; quantity: number }>;
-  notes: string;
+  resolutionNote: string;
 }) => (
   <div className="flex flex-col gap-3">
     <span className="text-emphasis-300 font-medium">Resolution</span>
@@ -20,7 +20,9 @@ export const ResolutionSectionContent = ({
       <tbody className="border-y border-border-5">
         <tr
           className={
-            repairLocation !== "unknown" || partsUsed.length > 0 || notes ? "border-b border-border-5" : undefined
+            repairLocation !== "unknown" || partsUsed.length > 0 || resolutionNote
+              ? "border-b border-border-5"
+              : undefined
           }
         >
           <th scope="row" className="w-2/5 py-3 pr-3 text-left text-300 font-normal text-text-primary-70">
@@ -29,7 +31,7 @@ export const ResolutionSectionContent = ({
           <td className="py-3 pl-3 text-right text-300 text-text-primary">{resolution}</td>
         </tr>
         {repairLocation !== "unknown" ? (
-          <tr className={partsUsed.length > 0 || notes ? "border-b border-border-5" : undefined}>
+          <tr className={partsUsed.length > 0 || resolutionNote ? "border-b border-border-5" : undefined}>
             <th scope="row" className="w-2/5 py-3 pr-3 text-left text-300 font-normal text-text-primary-70">
               Repair location
             </th>
@@ -37,7 +39,7 @@ export const ResolutionSectionContent = ({
           </tr>
         ) : null}
         {partsUsed.length > 0 ? (
-          <tr className={notes ? "border-b border-border-5" : undefined}>
+          <tr className={resolutionNote ? "border-b border-border-5" : undefined}>
             <th scope="row" className="w-2/5 py-3 pr-3 text-left text-300 font-normal text-text-primary-70">
               Parts used
             </th>
@@ -50,12 +52,12 @@ export const ResolutionSectionContent = ({
             </td>
           </tr>
         ) : null}
-        {notes ? (
+        {resolutionNote ? (
           <tr>
             <th scope="row" className="w-2/5 py-3 pr-3 text-left text-300 font-normal text-text-primary-70">
-              Notes
+              Resolution note
             </th>
-            <td className="py-3 pl-3 text-right text-300 whitespace-pre-wrap text-text-primary">{notes}</td>
+            <td className="py-3 pl-3 text-right text-300 whitespace-pre-wrap text-text-primary">{resolutionNote}</td>
           </tr>
         ) : null}
       </tbody>

@@ -124,7 +124,7 @@ const Search = ({
   const showToolbarClear = isToolbar && (showClearWhenEmpty || Boolean(value));
 
   return (
-    <div className="w-full tablet:w-80">
+    <div className="w-full max-w-full tablet:w-80">
       <div
         className={clsx({
           // Fixed at control height (h-8, the same as a compact Button) rather

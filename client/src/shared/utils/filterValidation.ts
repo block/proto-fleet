@@ -1,4 +1,4 @@
-import { categorizeIpEntry, isValidCidr, isValidIpv4, isValidIpv6, isValidIpv6Cidr } from "./ipParsing";
+import { categorizeIpEntry, isValidIpv4, isValidIpv6, isValidIpv6Cidr } from "./ipParsing";
 
 export type NumericRangeValue = {
   min?: number;
@@ -55,28 +55,10 @@ export const validateNumericRange = (value: NumericRangeValue, bounds: NumericRa
 };
 
 /**
- * Returns null if the line is a valid IPv4/IPv6 CIDR or bare IP address
- * (treated as /32 or /128). Returns a human-readable error string otherwise.
- * Link-local and scoped IPv6 are rejected to match discovery/pairing support.
- */
-export const validateCidrLine = (line: string): string | null => {
-  const trimmed = line.trim();
-  if (trimmed === "") return "Empty value";
-
-  if (trimmed.includes("/")) {
-    return isValidCidr(trimmed) || isValidIpv6Cidr(trimmed)
-      ? null
-      : "Not a valid CIDR (e.g. 255.255.255.0/24 or 2001:db8::/64)";
-  }
-
-  return isValidIpv4(trimmed) || isValidIpv6(trimmed) ? null : "Not a valid IP address or CIDR";
-};
-
-/**
  * Normalizes a CIDR or bare IP to canonical network form, mirroring the
  * server's parseCIDR semantics. IPv4 inputs are canonicalized client-side;
  * IPv6 bare IPs become /128, while IPv6 CIDRs are left as-is for the server
- * to canonicalize. Assumes the input has already passed validateCidrLine; on
+ * to canonicalize. Assumes the input is a valid CIDR or IP address; on
  * bad input it returns the trimmed value unchanged.
  */
 export const normalizeCidrLine = (line: string): string => {
@@ -107,8 +89,8 @@ export const normalizeCidrLine = (line: string): string => {
 };
 
 /**
- * Validates a subnet-filter line. Superset of {@link validateCidrLine}: also
- * accepts an IPv4 range in the same syntax the onboarding discovery flow uses —
+ * Validates a subnet-filter line. Accepts a CIDR, a bare IP address, and
+ * an IPv4 range in the same syntax the onboarding discovery flow uses —
  * short (`10.0.0.10-20`) or full (`10.0.0.10-10.0.0.20`), optional spaces around
  * the dash. Hostnames are intentionally rejected here (the fleet filter matches
  * by IP, not name). Returns null when valid, else an error string. Built on the

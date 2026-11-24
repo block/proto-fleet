@@ -1,15 +1,17 @@
 import { type ReactElement, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import CurtailmentStartModal, {
-  type CurtailmentFormValues,
-  type CurtailmentPlanPreview,
-  type CurtailmentResponseProfileOption,
-  type CurtailmentStartModalMode,
-  type CurtailmentStartModalVariant,
-} from "@/protoFleet/features/energy/CurtailmentStartModal";
+import type {
+  CurtailmentFormValues,
+  CurtailmentPlanPreview,
+  CurtailmentResponseProfileOption,
+  CurtailmentStartModalMode,
+  CurtailmentStartModalVariant,
+} from "@/protoFleet/api/curtailmentTypes";
+import CurtailmentStartModal from "@/protoFleet/features/energy/CurtailmentStartModal";
 import CurtailmentStopConfirmationDialog from "@/protoFleet/features/energy/CurtailmentStopConfirmationDialog";
 import type { FacilityFanDeviceOption } from "@/protoFleet/features/energy/FacilityFanSelectionModal";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { withMockedMinerSelectionApis } from "@/protoFleet/stories/MockedMinerSelectionApis";
 
 const meta = {
@@ -26,6 +28,7 @@ export default meta;
 type Story = StoryObj<typeof CurtailmentStartModal>;
 
 interface ModalStoryProps {
+  actionError?: string;
   initialValues?: Partial<CurtailmentFormValues>;
   mode?: CurtailmentStartModalMode;
   preview?: CurtailmentPlanPreview;
@@ -195,6 +198,37 @@ export const FullFleet: Story = {
   ),
 };
 
+export const RestrictedSavedProfile: Story = {
+  name: "Operator with inherited all-paired targeting",
+  beforeEach: () => {
+    const previousRole = useFleetStore.getState().auth.role;
+    useFleetStore.getState().auth.setRole("FIELD_TECH");
+    return () => useFleetStore.getState().auth.setRole(previousRole);
+  },
+  render: () => {
+    const profile: CurtailmentResponseProfileOption = {
+      id: "7",
+      label: "All paired miners",
+      revision: "33333333-3333-4333-8333-333333333333",
+      values: {
+        ...configuredValues,
+        scopeType: "wholeOrg",
+        curtailmentMode: "fullFleet",
+        targetKw: "",
+        forceIncludeAllPairedMiners: true,
+        includeMaintenance: true,
+      },
+    };
+    return (
+      <ModalStory
+        initialValues={{ ...profile.values, responseProfileId: profile.id, responseProfileRevision: profile.revision }}
+        responseProfiles={[profile]}
+        preview={{ ...preview, targetKw: 45 }}
+      />
+    );
+  },
+};
+
 export const EditMode: Story = {
   name: "Edit mode",
   render: () => <ModalStory initialValues={configuredValues} preview={preview} mode="edit" />,
@@ -213,6 +247,17 @@ export const ResponseProfileWithInfrastructure: Story = {
         fanRestoreDelaySec: "90",
       }}
       preview={preview}
+    />
+  ),
+};
+
+export const SubmissionFailure: Story = {
+  name: "Submission failure",
+  render: () => (
+    <ModalStory
+      initialValues={configuredValues}
+      preview={preview}
+      actionError="Unable to start curtailment. The selected response profile changed. Reload the profile and try again."
     />
   ),
 };

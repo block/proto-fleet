@@ -36,7 +36,7 @@ func newScanTestService(t *testing.T, discover discoverFunc) *Service {
 	caps := pairingmocks.NewMockCapabilitiesProvider(ctrl)
 	caps.EXPECT().GetMinerCapabilitiesForDevice(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	store := storemocks.NewMockDiscoveredDeviceStore(ctrl)
-	store.EXPECT().Save(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+	store.EXPECT().SaveDirect(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, id discoverymodels.DeviceOrgIdentifier, d *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error) {
 			d.DeviceIdentifier = id.DeviceIdentifier
 			return d, nil
@@ -201,7 +201,7 @@ func TestNetworkScanWarnsOnPersistenceFailureAndRetainsHealthyHosts(t *testing.T
 				return d, nil
 			})
 			store := storemocks.NewMockDiscoveredDeviceStore(gomock.NewController(t))
-			store.EXPECT().Save(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+			store.EXPECT().SaveDirect(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 				func(_ context.Context, _ discoverymodels.DeviceOrgIdentifier, d *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error) {
 					if d.IpAddress != "192.168.1.3" {
 						return nil, errors.New(`duplicate key value violates unique constraint "discovered_device_org_endpoint_key" (SQLSTATE 23505)`)
@@ -250,7 +250,7 @@ func TestNetworkScanSuccessfulSiblingRecoversPersistenceFailure(t *testing.T) {
 		return testIdentifiedDevice(), nil
 	})
 	store := storemocks.NewMockDiscoveredDeviceStore(gomock.NewController(t))
-	store.EXPECT().Save(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+	store.EXPECT().SaveDirect(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ discoverymodels.DeviceOrgIdentifier, d *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error) {
 			if d.Port == "80" {
 				close(firstSaveFailed)

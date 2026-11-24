@@ -1,0 +1,4 @@
+/* Keep live table data behind menu surfaces out of these captures without moving the menu. */
+[data-testid="list-body"] {
+  visibility: hidden;
+}

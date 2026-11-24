@@ -1,4 +1,4 @@
-import { create, toJsonString } from "@bufbuild/protobuf";
+import { create, type MessageInitShape, toJsonString } from "@bufbuild/protobuf";
 import { TimestampSchema } from "@bufbuild/protobuf/wkt";
 import { type Browser, type Page, type Route, type TestInfo } from "@playwright/test";
 import { testConfig } from "../config/test.config";
@@ -173,7 +173,7 @@ function createTimestamp(date: Date) {
   });
 }
 
-function createNodeSummary({
+export function createNodeSummary({
   fleetNodeId,
   pendingEnrollmentId,
   name,
@@ -181,6 +181,7 @@ function createNodeSummary({
   createdAt,
   lastSeenAt,
   identityFingerprint,
+  extra,
 }: {
   fleetNodeId: bigint;
   pendingEnrollmentId?: bigint;
@@ -189,8 +190,10 @@ function createNodeSummary({
   createdAt?: Date;
   lastSeenAt?: Date;
   identityFingerprint: string;
+  extra?: MessageInitShape<typeof FleetNodeSummarySchema>;
 }) {
   return create(FleetNodeSummarySchema, {
+    ...extra,
     fleetNodeId,
     pendingEnrollmentId,
     name,
@@ -201,7 +204,7 @@ function createNodeSummary({
   });
 }
 
-function fulfillFleetNodes(route: Route, nodes: ReturnType<typeof createNodeSummary>[]) {
+export function fulfillFleetNodes(route: Route, nodes: ReturnType<typeof createNodeSummary>[]) {
   return route.fulfill({
     status: 200,
     contentType: "application/json",

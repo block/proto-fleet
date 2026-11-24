@@ -1,31 +1,49 @@
 # Filter definitions consumed by dorny/paths-filter in the PR gate workflow.
 # Each filter's file globs determine whether its reusable workflow runs for a PR.
-# The `global` filter lists shared tooling / infra paths; including its anchor
-# in another filter means those paths also retrigger that filter's workflow.
+#
+# The `global` list holds the paths that every job depends on: the gate and the
+# Hermit toolchain. Each filter also lists its own workflow file, the composite
+# actions that the workflow uses, and the files outside its area that its job
+# reads. Thus a change to one workflow file starts only the jobs that list it.
+# scripts/check-changed_test.sh fails when a filter omits its own workflow file
+# or one of its composite actions. The `developer_workflows` filter runs that
+# test for each change to a workflow or a composite action.
+#
+# The gate sets `predicate-quantifier: some-with-excludes`. A pattern with a
+# leading `!` removes files from its filter, and no other pattern in that
+# filter can add them back.
 
 global: &global
-  - .github/actions/**
-  - .github/workflows/**
-  - .github/*.{yml,yaml}
-  - .github/skills/**
+  - .github/path-filters.yml
+  - .github/workflows/pr-gate.yml
+  - .github/actions/hermit-setup/**
   - bin/**
   - hermit-packages/**
-  - just/**
-  - justfile
-  - scripts/**
-  - deployment-files/docker-compose*.{yml,yaml}
-  - deployment-files/*.sh
-  - deployment-files/scripts/**
 
 deployment_config:
   - *global
+  - .github/workflows/deployment-config-checks.yml
+  # test_protoos_frigate_bundle.py reads the tag rules in this workflow.
+  - .github/workflows/release.yml
+  - deployment-files/docker-compose*.{yml,yaml}
+  - deployment-files/*.sh
+  - deployment-files/scripts/**
+  - deployment-files/client/**
   - deployment-files/fleetnode/**
   - deployment-files/ha/**
   - deployment-files/profiles/**
+  - deployment-files/server/otel-collector-config.datadog.yaml
   - deployment-files/tests/**
+  - deployment-files/updater/**
+  - client/nginx.runner-protofleet.conf
+  # The ProtoOS Frigate package test builds with this config and checks these files.
+  - client/nfpm-proto-os-deb.yaml
+  - client/public/**
   - server/migrations/**
+  - server/monitoring/grafana/**
   - server/timescaledb/**
   - server/docker-compose.base.yaml
+  - server/docker-compose.yaml
   - server/internal/infrastructure/db/config.go
   - server/internal/infrastructure/timescaledb/config.go
   - server/internal/domain/telemetry/config.go
@@ -33,48 +51,73 @@ deployment_config:
 
 proto:
   - *global
+  - .github/workflows/protofleet-proto-checks.yml
   - buf.lock
   - buf.yaml
   - proto/**
 
 client:
   - *global
+  - .github/workflows/protofleet-client-checks.yml
   - client/**
   - deployment-files/client/**
 
 server:
   - *global
+  - .github/actions/go-cache-setup/**
+  - .github/workflows/protofleet-server-checks.yml
   - go.work
   - go.work.sum
   - proto/**
   - server/**
+  - sdk/mdk/**
   - deployment-files/server/**
+  # Server tests read these files.
+  - .github/workflows/nightly-builds.yml
+  - .github/workflows/proto-fleet-artifact-build.yml
+  - .github/workflows/release.yml
+  - client/src/protoFleet/routing/siteScope.tsx
+  - deployment-files/client/nginx.*.conf
+  - deployment-files/ha/compose.yaml
+  - deployment-files/ha/firewall.nft.tmpl
+  - deployment-files/ha/fleet-compose.yaml
+  - deployment-files/ha/patroni.yml.tmpl
+  - deployment-files/run-fleet.sh
 
 antminer_plugin:
   - *global
+  - .github/actions/go-cache-setup/**
+  - .github/workflows/protofleet-antminer-plugin-checks.yml
   - go.work
   - go.work.sum
   - just/go-plugin.just
   - proto/**
   - plugin/antminer/**
+  - server/fake-antminer/**
   - server/go.mod
   - server/go.sum
   - server/sdk/**
 
 proto_plugin:
   - *global
+  - .github/actions/go-cache-setup/**
+  - .github/workflows/protofleet-proto-plugin-checks.yml
   - go.work
   - go.work.sum
   - just/go-plugin.just
   - proto/**
   - plugin/proto/**
+  - sdk/mdk/**
   - server/fake-proto-rig/**
+  - server/fake-ct1/**
   - server/go.mod
   - server/go.sum
   - server/sdk/**
 
 virtual_plugin:
   - *global
+  - .github/actions/go-cache-setup/**
+  - .github/workflows/protofleet-virtual-plugin-checks.yml
   - go.work
   - go.work.sum
   - plugin/virtual/**
@@ -84,13 +127,17 @@ virtual_plugin:
 
 asicrs_plugin:
   - *global
+  - .github/workflows/asicrs-plugin-checks.yml
   - plugin/asicrs/**
   - sdk/rust/**
   - server/sdk/v1/pb/driver.proto
 
 python:
   - *global
+  - .github/workflows/python-tests.yml
   - packages/proto-python-gen/**
+  # The generator setup and its tarball include this script.
+  - scripts/pip-config.sh
   - server/buf.gen.yaml
   - server/buf.yaml
   - server/sdk/v1/pb/**
@@ -98,16 +145,23 @@ python:
 
 example_python_plugin:
   - *global
+  - .github/workflows/protofleet-example-python-plugin-checks.yml
   - plugin/example-python/**
   - server/sdk/v1/python/**
 
 contract_tests:
   - *global
+  - .github/actions/go-cache-setup/**
+  - .github/workflows/protofleet-contract-checks.yml
+  # The job runs `just test-contract`, which builds asicrs from the repository root.
+  - justfile
+  - .dockerignore
   - go.work
   - go.work.sum
   - plugin/antminer/**
   - plugin/asicrs/**
   - plugin/proto/**
+  - sdk/mdk/**
   - sdk/rust/**
   - server/go.mod
   - server/go.sum
@@ -116,24 +170,43 @@ contract_tests:
 
 rust_sdk:
   - *global
+  - .github/workflows/rust-sdk-checks.yml
   - sdk/rust/**
   - server/sdk/v1/pb/driver.proto
 
 windows:
   - *global
+  - .github/workflows/windows-csharp-checks.yml
   - deployment-files/windows/**
 
 powershell:
   - *global
+  - .github/workflows/powershell-lint.yml
   - "**/*.ps1"
+
+dependencies:
+  - *global
+  - .github/actions/go-cache-setup/**
+  - .github/workflows/vulnerability-scan.yml
+  # The scanner versions and the lockfile list are in the `vuln-scan` recipes.
+  - justfile
+  - osv-scanner.toml
+  - go.work
+  - go.work.sum
+  - "**/go.mod"
+  - "**/go.sum"
+  - "**/package-lock.json"
+  - "**/Cargo.lock"
+  - "**/*requirements*.txt"
 
 developer_workflows:
   - .agents/**
   - .claude/**
-  - .github/actions/hermit-setup/**
+  # scripts/check-changed_test.sh reads each gated workflow and its actions.
+  - .github/actions/**
   - .github/path-filters.yml
   - .github/review-policy.json
-  - .github/workflows/pr-gate.yml
+  - .github/workflows/**
   - "**/AGENTS.md"
   - CLAUDE.md
   - CONTRIBUTING.md
@@ -142,9 +215,24 @@ developer_workflows:
   - lefthook.yml
   - scripts/check-changed.sh
   - scripts/check-changed_test.sh
+  # scripts/check-changed_test.sh renders the fleetnode UI-test Compose overlay.
+  - server/docker-compose*.yaml
+
+# Files that the E2E images and client bundles do not contain. The Go compiler
+# and .dockerignore leave out tests and Markdown. The client bundle leaves out
+# unit tests and stories.
+e2e_excludes: &e2e_excludes
+  - "!**/*.md"
+  - "!**/*_test.go"
+  - "!**/*.test.{ts,tsx}"
+  - "!**/*.stories.{ts,tsx}"
 
 protofleet_e2e:
   - *global
+  - *e2e_excludes
+  - .github/actions/go-cache-setup/**
+  - .github/workflows/protofleet-e2e-tests.yml
+  - .dockerignore
   - client/.npmrc
   - client/e2eTests/protoFleet/**
   - client/package.json
@@ -161,10 +249,16 @@ protofleet_e2e:
   - go.work.sum
   - plugin/antminer/**
   - plugin/proto/**
+  - sdk/mdk/**
   - server/**
 
 protoos_e2e:
   - *global
+  - *e2e_excludes
+  - .github/actions/go-cache-setup/**
+  - .github/workflows/protoos-e2e-tests.yml
+  - .dockerignore
+  - sdk/mdk/**
   - client/.npmrc
   - client/e2eTests/protoOS/**
   - client/package.json
@@ -178,5 +272,6 @@ protoos_e2e:
   - client/vite.config.ts
   - client/vitePlugins/**
   - server/fake-proto-rig/**
+  - server/fake-ct1/**
   - server/go.mod
   - server/go.sum

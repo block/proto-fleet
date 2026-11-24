@@ -20,6 +20,9 @@ export const SHARED_TO_ERROR_COMPONENT: Record<ComponentType, ErrorComponentType
   psu: ErrorComponentType.PSU,
   fan: ErrorComponentType.FAN,
   controlBoard: ErrorComponentType.CONTROL_BOARD,
+  // Tanks are container infrastructure, not a miner error source; the error API
+  // has no tank component, so it maps to UNSPECIFIED like "other".
+  tank: ErrorComponentType.UNSPECIFIED,
   other: ErrorComponentType.UNSPECIFIED,
 };
 
@@ -31,6 +34,7 @@ export const COMPONENT_TITLES: Record<ComponentType, string> = {
   hashboard: "Hashboard status",
   psu: "PSU status",
   controlBoard: "Control board status",
+  tank: "Tank status",
   other: "Needs attention",
 };
 
@@ -42,6 +46,7 @@ export const COMPONENT_NAMES: Record<ComponentType, string> = {
   hashboard: "Hashboard",
   psu: "PSU",
   controlBoard: "Control board",
+  tank: "Tank",
   other: "Needs attention",
 };
 

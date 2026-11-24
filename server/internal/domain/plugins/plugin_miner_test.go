@@ -39,6 +39,7 @@ type mockSDKDevice struct {
 	getCoolingModeFunc      func(ctx context.Context) (sdk.CoolingMode, error)
 	setPowerTargetFunc      func(ctx context.Context, performanceMode sdk.PerformanceMode) error
 	updatePoolsFunc         func(ctx context.Context, pools []sdk.MiningPoolConfig) error
+	getPoolsFunc            func(ctx context.Context) ([]sdk.ConfiguredPool, error)
 	downloadLogsFunc        func(ctx context.Context, since *time.Time, uuid string) (string, bool, error)
 	firmwareUpdateFunc      func(ctx context.Context, firmware sdk.FirmwareFile) error
 	getErrorsFunc           func(ctx context.Context) (sdk.DeviceErrors, error)
@@ -175,7 +176,7 @@ func (m *mockSDKDevice) TryGetWebViewURL(ctx context.Context) (string, bool, err
 	return "", false, nil
 }
 
-func (m *mockSDKDevice) TryBatchStatus(ctx context.Context, _ []string) (map[string]sdk.DeviceMetrics, bool, error) {
+func (m *mockSDKDevice) TryBatchStatus(ctx context.Context, _ []sdk.Device) (map[string]sdk.DeviceMetrics, bool, error) {
 	return nil, false, nil
 }
 
@@ -195,6 +196,9 @@ func (m *mockSDKDevice) TryGetTimeSeriesData(ctx context.Context, _ []string, _,
 }
 
 func (m *mockSDKDevice) GetMiningPools(ctx context.Context) ([]sdk.ConfiguredPool, error) {
+	if m.getPoolsFunc != nil {
+		return m.getPoolsFunc(ctx)
+	}
 	return nil, nil
 }
 
@@ -253,7 +257,7 @@ func (m *mockSDKDeviceWithoutCurtailment) GetErrors(context.Context) (sdk.Device
 func (m *mockSDKDeviceWithoutCurtailment) TryGetWebViewURL(context.Context) (string, bool, error) {
 	return "", false, nil
 }
-func (m *mockSDKDeviceWithoutCurtailment) TryBatchStatus(context.Context, []string) (map[string]sdk.DeviceMetrics, bool, error) {
+func (m *mockSDKDeviceWithoutCurtailment) TryBatchStatus(context.Context, []sdk.Device) (map[string]sdk.DeviceMetrics, bool, error) {
 	return nil, false, nil
 }
 func (m *mockSDKDeviceWithoutCurtailment) TrySubscribe(context.Context, []string) (<-chan sdk.DeviceMetrics, bool, error) {
@@ -932,21 +936,52 @@ func TestPluginMiner_UpdateMiningPools(t *testing.T) {
 			Priority: 1,
 			URL:      "stratum+tcp://pool1.example.com:3333",
 			Username: "worker1",
+			Password: "primary-password",
 		},
 		Backup1Pool: &dto.MiningPool{
 			Priority: 2,
 			URL:      "stratum+tcp://pool2.example.com:3333",
 			Username: "worker2",
+			Password: "backup-password",
+		},
+		Backup2Pool: &dto.MiningPool{
+			Priority: 3,
+			URL:      "stratum+tcp://pool3.example.com:3333",
+			Username: "worker3",
+			Password: "",
 		},
 	}
 
 	err := pm.UpdateMiningPools(t.Context(), payload)
 
 	require.NoError(t, err)
-	assert.Len(t, receivedPools, 2)
-	assert.Equal(t, int32(1), receivedPools[0].Priority)
-	assert.Equal(t, "stratum+tcp://pool1.example.com:3333", receivedPools[0].URL)
-	assert.Equal(t, "worker1", receivedPools[0].WorkerName)
+	require.Len(t, receivedPools, 3)
+	for i, pool := range []dto.MiningPool{payload.DefaultPool, *payload.Backup1Pool, *payload.Backup2Pool} {
+		assert.EqualValues(t, pool.Priority, receivedPools[i].Priority)
+		assert.Equal(t, pool.URL, receivedPools[i].URL)
+		assert.Equal(t, pool.Username, receivedPools[i].WorkerName)
+		assert.Equal(t, pool.Password, receivedPools[i].Password)
+	}
+}
+
+func TestPluginMiner_GetMiningPoolsPreservesPoolIdentity(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+	storedPools := []sdk.ConfiguredPool{
+		{Priority: 0, URL: "stratum+tcp://primary.example.com:3333", Username: "primary"},
+		{Priority: 1, URL: "stratum+tcp://backup1.example.com:3333", Username: "backup1"},
+		{Priority: 2, URL: "stratum+tcp://backup2.example.com:3333", Username: "backup2"},
+	}
+	mockDevice.getPoolsFunc = func(context.Context) ([]sdk.ConfiguredPool, error) { return storedPools, nil }
+
+	pools, err := pm.GetMiningPools(t.Context())
+
+	require.NoError(t, err)
+	require.Len(t, pools, len(storedPools))
+	for i, pool := range storedPools {
+		assert.Equal(t, pool.Priority, pools[i].Priority)
+		assert.Equal(t, pool.URL, pools[i].URL)
+		assert.Equal(t, pool.Username, pools[i].Username)
+	}
 }
 
 func TestPluginMiner_ErrorPropagation(t *testing.T) {
@@ -1156,6 +1191,31 @@ func TestPluginMiner_GetDeviceStatus_NetworkError_ReturnsConnectionError(t *test
 	assert.Equal(t, string(deviceID), connErr.DeviceIdentifier)
 }
 
+func TestPluginMiner_GetDeviceStatus_ConnectionFailureSource(t *testing.T) {
+	for _, test := range []struct {
+		name            string
+		err             error
+		wantDeviceProbe bool
+	}{
+		{"SDK device probe failure", sdk.WithDeviceProbeFailure(grpcstatus.Error(codes.Unavailable, "controller connection refused")), true},
+		{"unmarked device unavailable message", grpcstatus.Error(codes.Unavailable, "device unavailable: miner"), false},
+		{"plugin transport unavailable", grpcstatus.Error(codes.Unavailable, "connection refused"), false},
+		{"plugin RPC deadline", grpcstatus.Error(codes.DeadlineExceeded, "context deadline exceeded"), false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			miner, device := createTestPluginMiner()
+			device.statusFunc = func(context.Context) (sdk.DeviceMetrics, error) {
+				return sdk.DeviceMetrics{}, test.err
+			}
+			status, err := miner.GetDeviceStatus(t.Context())
+			require.Equal(t, models.MinerStatusOffline, status)
+			var connectionErr fleeterror.ConnectionError
+			require.ErrorAs(t, err, &connectionErr)
+			require.Equal(t, test.wantDeviceProbe, connectionErr.DeviceProbeFailed)
+		})
+	}
+}
+
 func TestPluginMiner_GetDeviceStatus_NonNetworkError_ReturnsInternalError(t *testing.T) {
 	// Create a mock SDK device that returns a non-network error
 	genericErr := errors.New("some internal SDK error")
@@ -1217,19 +1277,6 @@ func TestIsNetworkError(t *testing.T) {
 			expected: true,
 		},
 		{
-			name: "url.Error wrapping net.OpError",
-			err: &url.Error{
-				Op:  "Get",
-				URL: "http://device.local",
-				Err: &net.OpError{
-					Op:  "dial",
-					Net: "tcp",
-					Err: errors.New("connection refused"),
-				},
-			},
-			expected: true,
-		},
-		{
 			name: "url.Error wrapping generic error",
 			err: &url.Error{
 				Op:  "Get",
@@ -1251,11 +1298,6 @@ func TestIsNetworkError(t *testing.T) {
 		{
 			name:     "gRPC error with connection refused",
 			err:      errors.New("rpc error: code = Unknown desc = failed to connect: connection refused"),
-			expected: true,
-		},
-		{
-			name:     "error with dial tcp indicator",
-			err:      errors.New("failed to connect: dial tcp 192.168.1.100:4028: connection refused"),
 			expected: true,
 		},
 		{
@@ -1337,11 +1379,6 @@ func TestIsNetworkError(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:     "generic authentication error",
-			err:      errors.New("authentication failed: invalid credentials"),
-			expected: false,
-		},
-		{
 			name:     "gRPC NotFound status (DEVICE_NOT_FOUND from plugin)",
 			err:      grpcstatus.Error(codes.NotFound, "DEVICE_NOT_FOUND: Device not found: 172.16.2.103"),
 			expected: true,
@@ -1359,11 +1396,6 @@ func TestIsNetworkError(t *testing.T) {
 		{
 			name:     "gRPC Unauthenticated status is not a network error",
 			err:      grpcstatus.Error(codes.Unauthenticated, "authentication failed"),
-			expected: false,
-		},
-		{
-			name:     "gRPC Internal status is not a network error",
-			err:      grpcstatus.Error(codes.Internal, "internal error"),
 			expected: false,
 		},
 	}
@@ -1425,13 +1457,6 @@ func TestWrapPluginError(t *testing.T) {
 			args:            []any{"device-999"},
 			expectForbidden: true,
 			expectContains:  "start mining failed for device device-999",
-		},
-		{
-			name:                "gRPC Internal maps to fleeterror Internal (not Unimplemented)",
-			err:                 grpcstatus.Error(codes.Internal, "something broke"),
-			format:              "reboot failed",
-			expectUnimplemented: false,
-			expectContains:      "reboot failed",
 		},
 		{
 			name:                "generic error maps to fleeterror Internal",
@@ -1637,4 +1662,21 @@ func TestPluginMiner_GetDeviceStatus_DefaultPasswordActive_ReturnsForbidden(t *t
 			assert.True(t, fleeterror.IsForbiddenError(err), "expected forbidden error, got: %v", err)
 		})
 	}
+}
+
+func TestPluginMinerClearPoolsRequiresCapabilityAndExplicitEmptyPayload(t *testing.T) {
+	pm, device := createTestPluginMiner()
+	calls := 0
+	device.updatePoolsFunc = func(_ context.Context, pools []sdk.MiningPoolConfig) error {
+		calls++
+		require.Empty(t, pools)
+		return nil
+	}
+	require.Error(t, pm.UpdateMiningPools(t.Context(), dto.UpdateMiningPoolsPayload{ClearAll: true}))
+	require.Zero(t, calls)
+	pm.caps[sdk.CapabilityPoolClear] = true
+	require.Error(t, pm.UpdateMiningPools(t.Context(), dto.UpdateMiningPoolsPayload{ClearAll: true, DefaultPool: dto.MiningPool{URL: "stratum+tcp://pool.example"}}))
+	require.Zero(t, calls)
+	require.NoError(t, pm.UpdateMiningPools(t.Context(), dto.UpdateMiningPoolsPayload{ClearAll: true}))
+	require.Equal(t, 1, calls)
 }

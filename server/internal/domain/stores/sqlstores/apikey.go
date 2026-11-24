@@ -39,6 +39,7 @@ func (s *SQLApiKeyStore) CreateApiKey(ctx context.Context, key *interfaces.ApiKe
 		Prefix:         key.Prefix,
 		KeyHash:        key.KeyHash,
 		UserID:         sql.NullInt64{Int64: *key.UserID, Valid: true},
+		SubjectKind:    string(key.SubjectKind),
 		OrganizationID: key.OrganizationID,
 		CreatedAt:      key.CreatedAt,
 		ExpiresAt:      timePtrToNullTime(key.ExpiresAt),

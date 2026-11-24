@@ -14,8 +14,7 @@ type FixedKw struct {
 	// Default 0 (strict): only OutcomeTargetReached succeeds. Positive
 	// values open the OutcomeUndershootTolerated branch where Σpower_w
 	// in [target_kw - tolerance_kw, target_kw) takes all candidates.
-	// Negative values are not allowed and produce InsufficientLoad with
-	// AvailableKW=-1 sentinel; callers should reject before constructing.
+	// NewFixedKw rejects negative values.
 	ToleranceKW float64
 
 	// ExclusionSummary is the per-reason exclusion count surfaced in the
@@ -25,7 +24,7 @@ type FixedKw struct {
 	ExclusionSummary InsufficientLoadDetail
 }
 
-// New constructs a FixedKw mode. Target must be > 0; tolerance must be >= 0.
+// NewFixedKw constructs a FixedKw mode. Target must be > 0; tolerance must be >= 0.
 // Returns an error rather than silently coercing so calling code does not
 // accidentally promote a 0 target into a no-op selection.
 func NewFixedKw(targetKW, toleranceKW float64, summary InsufficientLoadDetail) (*FixedKw, error) {

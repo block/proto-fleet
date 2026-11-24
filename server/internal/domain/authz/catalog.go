@@ -17,23 +17,25 @@ const (
 	PermFleetRead = "fleet:read"
 
 	// miner — per-row reads and miner-scoped actions. Site-scoped resource.
-	PermMinerRead             = "miner:read"
-	PermMinerBlinkLED         = "miner:blink_led"
-	PermMinerReboot           = "miner:reboot"
-	PermMinerStartMining      = "miner:start_mining"
-	PermMinerStopMining       = "miner:stop_mining"
-	PermMinerUpdatePools      = "miner:update_pools"
-	PermMinerUpdateWorkerName = "miner:update_worker_names"
-	PermMinerRename           = "miner:rename"
-	PermMinerDelete           = "miner:delete"
-	PermMinerSetCoolingMode   = "miner:set_cooling_mode"
-	PermMinerSetPowerTarget   = "miner:set_power_target"
-	PermMinerFirmwareUpdate   = "miner:firmware_update"
-	PermMinerDownloadLogs     = "miner:download_logs"
-	PermMinerUpdatePassword   = "miner:update_password"
-	PermMinerUnpair           = "miner:unpair"
-	PermMinerPair             = "miner:pair"
-	PermMinerExportCSV        = "miner:export_csv"
+	PermMinerActivateMiningGroups   = "miner:activate_mining_groups"
+	PermMinerDeactivateMiningGroups = "miner:deactivate_mining_groups"
+	PermMinerRead                   = "miner:read"
+	PermMinerBlinkLED               = "miner:blink_led"
+	PermMinerReboot                 = "miner:reboot"
+	PermMinerStartMining            = "miner:start_mining"
+	PermMinerStopMining             = "miner:stop_mining"
+	PermMinerUpdatePools            = "miner:update_pools"
+	PermMinerUpdateWorkerName       = "miner:update_worker_names"
+	PermMinerRename                 = "miner:rename"
+	PermMinerDelete                 = "miner:delete"
+	PermMinerSetCoolingMode         = "miner:set_cooling_mode"
+	PermMinerSetPowerTarget         = "miner:set_power_target"
+	PermMinerFirmwareUpdate         = "miner:firmware_update"
+	PermMinerDownloadLogs           = "miner:download_logs"
+	PermMinerUpdatePassword         = "miner:update_password"
+	PermMinerUnpair                 = "miner:unpair"
+	PermMinerPair                   = "miner:pair"
+	PermMinerExportCSV              = "miner:export_csv"
 
 	// rack — site-scoped physical organization.
 	PermRackRead   = "rack:read"
@@ -70,7 +72,8 @@ const (
 	PermScheduleRead   = "schedule:read"
 	PermScheduleManage = "schedule:manage"
 
-	// fleetnode — top-nav admin operations.
+	// fleetnode — top-nav admin operations. Manage includes HA standby
+	// enrollment and authorizes Fleet to provision the shared credential key.
 	PermFleetnodeRead   = "fleetnode:read"
 	PermFleetnodeManage = "fleetnode:manage"
 
@@ -89,6 +92,10 @@ const (
 	// role — custom role + ADMIN/FIELD_TECH editing.
 	PermRoleManage = "role:manage"
 
+	// account — host control of the customer hierarchy. This does not grant
+	// customer membership, private views, or customer pool overrides.
+	PermAccountManage = "account:manage"
+
 	// instance — server-instance administration: seeing release update
 	// prompts, changing the release channel, and triggering upgrades.
 	PermInstanceUpdate = "instance:update"
@@ -96,6 +103,18 @@ const (
 	// maintenance — organization-wide repair ticket lifecycle.
 	PermMaintenanceRead   = "maintenance:read"
 	PermMaintenanceManage = "maintenance:manage"
+
+	// controller — CT1 controller administration. software_update uploads
+	// Frigate packages and updates a container's controllers, which stops
+	// mining while they install. Site-scoped at the container's site; it has
+	// no :read partner and is not seeded into ADMIN.
+	PermControllerSoftwareUpdate = "controller:software_update"
+
+	// container — CT1 container plant control. power_feed switches, cycles and
+	// clears the override of the PDU outlet that supplies one module. It is
+	// site-scoped at the container's site and has no :read partner; reading a
+	// feed needs only the site, fleet and miner reads.
+	PermContainerPowerFeed = "container:power_feed"
 )
 
 // Resource identifiers used to group catalog entries for the admin UI
@@ -116,8 +135,11 @@ const (
 	ResourceAPIKey      = "apikey"
 	ResourceUser        = "user"
 	ResourceRole        = "role"
+	ResourceAccount     = "account"
 	ResourceInstance    = "instance"
 	ResourceMaintenance = "maintenance"
+	ResourceController  = "controller"
+	ResourceContainer   = "container"
 )
 
 // CatalogEntry is the in-code shape of a single permission. The wire-level
@@ -136,6 +158,8 @@ type CatalogEntry struct {
 var catalog = []CatalogEntry{
 	{PermFleetRead, "View the dashboard, live telemetry, and fleet diagnostics.", ResourceFleet},
 
+	{PermMinerActivateMiningGroups, "Enable per-hashboard pool configuration on a container", ResourceMiner},
+	{PermMinerDeactivateMiningGroups, "Disable per-hashboard pool configuration on an unallocated container", ResourceMiner},
 	{PermMinerRead, "View a miner's details, status, and the fleet-wide miner list. Required for every other miner action.", ResourceMiner},
 	{PermMinerBlinkLED, "Flash a miner's locator LED.", ResourceMiner},
 	{PermMinerReboot, "Reboot a miner.", ResourceMiner},
@@ -145,10 +169,10 @@ var catalog = []CatalogEntry{
 	{PermMinerUpdateWorkerName, "Change a miner's worker names.", ResourceMiner},
 	{PermMinerRename, "Rename a miner.", ResourceMiner},
 	{PermMinerDelete, "Delete a miner from the fleet, unpairing the physical device.", ResourceMiner},
-	{PermMinerSetCoolingMode, "Change a miner's cooling mode.", ResourceMiner},
-	{PermMinerSetPowerTarget, "Change a miner's power target.", ResourceMiner},
+	{PermMinerSetCoolingMode, "Change a miner's cooling mode. With power target, also operates container equipment and mutes or resets container alarms.", ResourceMiner},
+	{PermMinerSetPowerTarget, "Change a miner's power target. With cooling mode, also operates container equipment and mutes or resets container alarms.", ResourceMiner},
 	{PermMinerFirmwareUpdate, "Install firmware on a miner. Installs can reboot the device, so this also needs reboot access.", ResourceMiner},
-	{PermMinerDownloadLogs, "Download diagnostic logs from a miner.", ResourceMiner},
+	{PermMinerDownloadLogs, "Download diagnostic logs from a miner, and read a container controller's logs and, with activity read, its audit trail.", ResourceMiner},
 	{PermMinerUpdatePassword, "Change a miner's local web interface password.", ResourceMiner},
 	{PermMinerUnpair, "Unpair a miner from the fleet.", ResourceMiner},
 	{PermMinerPair, "Discover, pair, and bulk-import miners into the fleet.", ResourceMiner},
@@ -186,11 +210,16 @@ var catalog = []CatalogEntry{
 	{PermUserManage, "Create, deactivate, reset passwords, and reassign roles for users in the organization.", ResourceUser},
 
 	{PermRoleManage, "Create, edit, and delete custom roles, and view all roles and permissions. Built-in roles cannot be modified.", ResourceRole},
+	{PermAccountManage, "Manage client accounts and delegation. Does not grant access to client data or pool overrides.", ResourceAccount},
 
 	{PermInstanceUpdate, "See available server updates, change the release channel, and apply server upgrades.", ResourceInstance},
 
 	{PermMaintenanceRead, "View repair tickets, maintenance history, and parts inventory.", ResourceMaintenance},
 	{PermMaintenanceManage, "Create, assign, update, and close repair tickets; manage parts inventory.", ResourceMaintenance},
+
+	{PermControllerSoftwareUpdate, "Upload controller software packages and update Proto Container controller software. Updates stop mining controllers while they install.", ResourceController},
+
+	{PermContainerPowerFeed, "Turn a CT1 module's power feed on or off, cycle it, and clear its operator override. Cutting a feed removes power from the module's boards without stopping mining first.", ResourceContainer},
 }
 
 // AllPermissions returns the canonical permission keys in catalog order. The
@@ -216,35 +245,6 @@ func AllPermissionsSorted() []string {
 func Catalog() []CatalogEntry {
 	out := make([]CatalogEntry, len(catalog))
 	copy(out, catalog)
-	return out
-}
-
-// CatalogByResource groups the catalog by resource for UI display.
-// Within each resource bucket, entries are in declaration order. Map
-// iteration order in Go is not stable, so callers that need a fixed
-// resource order should drive iteration from a separate ordered list
-// (e.g., the slice returned by ResourceOrder).
-func CatalogByResource() map[string][]CatalogEntry {
-	groups := make(map[string][]CatalogEntry)
-	for _, entry := range catalog {
-		groups[entry.Resource] = append(groups[entry.Resource], entry)
-	}
-	return groups
-}
-
-// ResourceOrder returns resource identifiers in the order they were
-// declared in the catalog. Pair with CatalogByResource to render
-// grouped permissions in a deterministic, declaration-driven order.
-func ResourceOrder() []string {
-	seen := make(map[string]bool, 16)
-	out := make([]string, 0, 16)
-	for _, entry := range catalog {
-		if seen[entry.Resource] {
-			continue
-		}
-		seen[entry.Resource] = true
-		out = append(out, entry.Resource)
-	}
 	return out
 }
 

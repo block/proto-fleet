@@ -15,6 +15,7 @@ import (
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
@@ -110,7 +111,7 @@ type recordingTelemetryScheduler struct {
 	devices chan []telemetrymodels.DeviceIdentifier
 }
 
-func (s recordingTelemetryScheduler) AddDevices(_ context.Context, deviceID ...telemetrymodels.DeviceIdentifier) error {
+func (s recordingTelemetryScheduler) AddPairedDevices(_ context.Context, deviceID ...telemetrymodels.DeviceIdentifier) error {
 	copied := append([]telemetrymodels.DeviceIdentifier(nil), deviceID...)
 	s.devices <- copied
 	return nil
@@ -136,7 +137,7 @@ func TestPersistFleetNodePairResult_PairedWithoutReportedCredentials(t *testing.
 
 	// Act: a paired report may omit credentials when the driver did not use
 	// reportable auth material.
-	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, pairResult("mac:p-no-creds", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy)
+	status, err := pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, node, orgID, &assignedBy, "mac:p-no-creds"), pairResult("mac:p-no-creds", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED))
 
 	// Assert
 	require.NoError(t, err)
@@ -160,7 +161,7 @@ func TestPersistFleetNodePairResult_StoresFleetNodeEncryptedCredentialsInMinerCr
 	assignedBy := int64(1)
 
 	// Act
-	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, result, &assignedBy)
+	status, err := pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, node, orgID, &assignedBy, result.GetDeviceIdentifier()), result)
 
 	// Assert
 	require.NoError(t, err)
@@ -193,7 +194,7 @@ func TestPersistFleetNodePairResult_RejectsEmptyFleetNodeEncryptedCredentials(t 
 			assignedBy := int64(1)
 
 			// Act
-			_, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, result, &assignedBy)
+			_, err := pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, node, orgID, &assignedBy, result.GetDeviceIdentifier()), result)
 
 			// Assert: empty encrypted_credentials is rejected instead of falling
 			// back to plaintext or committing a node binding with unusable bytes.
@@ -229,33 +230,13 @@ func TestPersistFleetNodePairResult_ClearsStaleCredentialsWhenBindingToFleetNode
 	assignedBy := int64(1)
 
 	// Act
-	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, result, &assignedBy)
+	status, err := pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, node, orgID, &assignedBy, result.GetDeviceIdentifier()), result)
 
 	// Assert
 	require.NoError(t, err)
 	assert.Equal(t, fleetnodepairing.StatusPaired, status)
 	assert.True(t, deviceBoundToNode(t, db, orgID, node, identifier))
 	assert.False(t, hasMinerCredentials(t, db, orgID, identifier), "binding to a fleet node clears stale direct credentials")
-}
-
-func TestPersistFleetNodePairResult_NodeReportedDefaultCredentialStatusWithoutCredentialMaterial(t *testing.T) {
-	// Arrange: a basic-auth pairing with no reportable credentials, but with a
-	// successful pair result from the node.
-	ctx := t.Context()
-	db, orgID, pairing, enrollment := setupPairingTest(t)
-	node := createFleetNode(t, enrollment, orgID, "node-persist-default")
-	upsertNodeDiscovered(t, pairing, orgID, node, "mac:p-default")
-	result := pairResult("mac:p-default", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED)
-	assignedBy := int64(1)
-
-	// Act
-	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, result, &assignedBy)
-
-	// Assert: paired and bound; no credential material is stored.
-	require.NoError(t, err)
-	assert.Equal(t, fleetnodepairing.StatusPaired, status)
-	assert.True(t, deviceBoundToNode(t, db, orgID, node, "mac:p-default"))
-	assert.False(t, hasMinerCredentials(t, db, orgID, "mac:p-default"))
 }
 
 func TestPersistFleetNodePairResult_DefaultPasswordActivePersistsRemediationState(t *testing.T) {
@@ -271,7 +252,7 @@ func TestPersistFleetNodePairResult_DefaultPasswordActivePersistsRemediationStat
 	assignedBy := int64(1)
 
 	// Act
-	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, result, &assignedBy)
+	status, err := pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, node, orgID, &assignedBy, result.GetDeviceIdentifier()), result)
 
 	// Assert
 	require.NoError(t, err)
@@ -305,7 +286,7 @@ func TestPersistFleetNodePairResult_DefaultPasswordUnknownPreservesExistingRemed
 	assignedBy := int64(1)
 
 	// Act
-	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, result, &assignedBy)
+	status, err := pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, node, orgID, &assignedBy, result.GetDeviceIdentifier()), result)
 
 	// Assert: absent default_password_active preserves the existing remediation
 	// state instead of treating "unknown" as explicit false.
@@ -341,31 +322,13 @@ func TestPersistFleetNodePairResult_DefaultPasswordInactiveClearsExistingRemedia
 	assignedBy := int64(1)
 
 	// Act
-	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, result, &assignedBy)
+	status, err := pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, node, orgID, &assignedBy, result.GetDeviceIdentifier()), result)
 
 	// Assert: explicit false clears DEFAULT_PASSWORD back to ordinary PAIRED.
 	require.NoError(t, err)
 	assert.Equal(t, fleetnodepairing.StatusPaired, status)
 	assert.Equal(t, "PAIRED", devicePairingStatus(t, db, orgID, identifier))
 	assert.True(t, deviceBoundToNode(t, db, orgID, node, identifier))
-}
-
-func TestPersistFleetNodePairResult_StoresNoCredentialsWhenEncryptedCredentialsAbsent(t *testing.T) {
-	// Arrange: a successful pair result with no encrypted credentials.
-	ctx := t.Context()
-	db, orgID, pairing, enrollment := setupPairingTest(t)
-	node := createFleetNode(t, enrollment, orgID, "node-persist-blankpw")
-	upsertNodeDiscovered(t, pairing, orgID, node, "mac:p-blankpw")
-	result := pairResult("mac:p-blankpw", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED)
-	assignedBy := int64(1)
-
-	// Act
-	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, result, &assignedBy)
-
-	// Assert: paired; plaintext blank-password credentials are not stored.
-	require.NoError(t, err)
-	assert.Equal(t, fleetnodepairing.StatusPaired, status)
-	assert.False(t, hasMinerCredentials(t, db, orgID, "mac:p-blankpw"))
 }
 
 func TestPersistFleetNodePairResult_AuthNeededThenRetrySucceeds(t *testing.T) {
@@ -377,7 +340,7 @@ func TestPersistFleetNodePairResult_AuthNeededThenRetrySucceeds(t *testing.T) {
 	assignedBy := int64(1)
 
 	// Act 1: no credentials -> AUTHENTICATION_NEEDED, not bound.
-	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, pairResult("mac:p-retry", gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED), &assignedBy)
+	status, err := pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, node, orgID, &assignedBy, "mac:p-retry"), pairResult("mac:p-retry", gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED))
 	require.NoError(t, err)
 
 	// Assert 1
@@ -389,7 +352,7 @@ func TestPersistFleetNodePairResult_AuthNeededThenRetrySucceeds(t *testing.T) {
 	// creds stored.
 	retryResult := pairResult("mac:p-retry", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED)
 	retryResult.EncryptedCredentials = &gatewaypb.EncryptedCredentials{Username: []byte("retry-user-ciphertext"), Password: []byte("retry-pass-ciphertext")}
-	status, err = pairing.PersistFleetNodePairResult(ctx, node, orgID, retryResult, &assignedBy)
+	status, err = pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, node, orgID, &assignedBy, retryResult.GetDeviceIdentifier()), retryResult)
 	require.NoError(t, err)
 
 	// Assert 2
@@ -423,7 +386,7 @@ func TestPersistFleetNodePairResult_AuthNeededDoesNotDowngradeCloudPaired(t *tes
 
 	// Act: the node reports AUTH_NEEDED with different identity fields (pairResult
 	// reports sn-/aa:bb:cc:<id>, distinct from the seeded values).
-	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, pairResult("mac:cloud-authneeded", gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED), &assignedBy)
+	status, err := pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, node, orgID, &assignedBy, "mac:cloud-authneeded"), pairResult("mac:cloud-authneeded", gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED))
 	require.NoError(t, err)
 
 	// Assert: the cloud-dialed device keeps PAIRED (no downgrade), the returned
@@ -460,7 +423,7 @@ func TestPersistFleetNodePairResult_AuthNeededDoesNotDowngradeCloudDefaultPasswo
 
 	// Act: the node reports AUTH_NEEDED after the cloud already marked the rig
 	// DEFAULT_PASSWORD.
-	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, pairResult("mac:cloud-default-authneeded", gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED), &assignedBy)
+	status, err := pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, node, orgID, &assignedBy, "mac:cloud-default-authneeded"), pairResult("mac:cloud-default-authneeded", gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED))
 	require.NoError(t, err)
 
 	// Assert: the cloud-dialed device keeps DEFAULT_PASSWORD (no downgrade).
@@ -494,7 +457,7 @@ func TestPersistFleetNodePairResult_AuthNeededDoesNotDowngradeNodeBound(t *testi
 	assignedBy := int64(1)
 
 	// Act: a stale AUTH_NEEDED for the now-paired device.
-	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, pairResult("mac:node-bound", gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED), &assignedBy)
+	status, err := pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, node, orgID, &assignedBy, "mac:node-bound"), pairResult("mac:node-bound", gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED))
 	require.NoError(t, err)
 
 	// Assert: the bound device stays PAIRED; the stale report did not downgrade it.
@@ -581,9 +544,11 @@ func TestPersistFleetNodePairResult_AuthNeededPreservesExistingSerial(t *testing
 	assignedBy := int64(1)
 
 	// Act: an AUTH_NEEDED result with no serial_number (common for auth failures).
-	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID,
+	status, err := pairing.PersistFleetNodePairResult(
+		ctx,
+		pairPersistMeta(t, db, node, orgID, &assignedBy, "mac:keep-serial"),
 		&gatewaypb.FleetNodePairResult{DeviceIdentifier: "mac:keep-serial", Outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED},
-		&assignedBy)
+	)
 	require.NoError(t, err)
 
 	// Assert: AUTHENTICATION_NEEDED recorded, but the prior serial is preserved.
@@ -605,11 +570,11 @@ func TestPersistFleetNodePairResult_RejectsForeignNode(t *testing.T) {
 	assignedBy := int64(1)
 
 	// Act
-	_, err := pairing.PersistFleetNodePairResult(ctx, nodeB, orgID, pairResult("mac:p-foreign", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy)
+	_, err := pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, nodeB, orgID, &assignedBy, "mac:p-foreign"), pairResult("mac:p-foreign", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED))
 
 	// Assert
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not discovered by this fleet node")
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), "foreign discovery ownership must fail the locked snapshot check")
 	assert.False(t, deviceExists(t, db, orgID, "mac:p-foreign"), "a rejected result must not create a device")
 }
 
@@ -634,13 +599,12 @@ func TestPersistFleetNodePairResult_SerialConflictFailsCleanly(t *testing.T) {
 	assignedBy := int64(1)
 
 	// Act: a PAIRED report for the auto: device carrying the already-registered serial.
-	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID,
-		&gatewaypb.FleetNodePairResult{
-			DeviceIdentifier: "auto:abcd1234",
-			Outcome:          gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED,
-			SerialNumber:     "sn-dup",
-			MacAddress:       "aa:bb:cc:00:au:02",
-		}, &assignedBy)
+	status, err := pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, node, orgID, &assignedBy, "auto:abcd1234"), &gatewaypb.FleetNodePairResult{
+		DeviceIdentifier: "auto:abcd1234",
+		Outcome:          gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED,
+		SerialNumber:     "sn-dup",
+		MacAddress:       "aa:bb:cc:00:au:02",
+	})
 
 	// Assert: the serial conflict surfaces as a clean FAILED (no error), and the tx
 	// rolled back so no device row was created for the auto: identifier.
@@ -679,12 +643,11 @@ func TestPersistFleetNodePairResult_UpdateSerialConflictFailsCleanly(t *testing.
 	assignedBy := int64(1)
 
 	// Act: an AUTH_NEEDED retry for the existing device reports the taken serial.
-	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID,
-		&gatewaypb.FleetNodePairResult{
-			DeviceIdentifier: "mac:upd-dup",
-			Outcome:          gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED,
-			SerialNumber:     "sn-taken",
-		}, &assignedBy)
+	status, err := pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, node, orgID, &assignedBy, "mac:upd-dup"), &gatewaypb.FleetNodePairResult{
+		DeviceIdentifier: "mac:upd-dup",
+		Outcome:          gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED,
+		SerialNumber:     "sn-taken",
+	})
 
 	// Assert: clean FAILED (no Internal error), and the device's serial is unchanged.
 	require.NoError(t, err)
@@ -705,7 +668,7 @@ func TestPersistFleetNodePairResult_ErrorPersistsNothing(t *testing.T) {
 	assignedBy := int64(1)
 
 	// Act
-	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, pairResult("mac:p-error", gatewaypb.PairOutcome_PAIR_OUTCOME_ERROR), &assignedBy)
+	status, err := pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, node, orgID, &assignedBy, "mac:p-error"), pairResult("mac:p-error", gatewaypb.PairOutcome_PAIR_OUTCOME_ERROR))
 
 	// Assert
 	require.NoError(t, err)
@@ -734,7 +697,7 @@ func TestPersistFleetNodePairResult_PairedInvalidatesMinerCache(t *testing.T) {
 	assignedBy := int64(1)
 
 	// Act
-	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, pairResult("mac:p-invalidate", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy)
+	status, err := pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, node, orgID, &assignedBy, "mac:p-invalidate"), pairResult("mac:p-invalidate", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED))
 
 	// Assert: the node-reported pair evicts the device's stale direct handle so the next
 	// command re-resolves over the ControlStream instead of dialing the cached handle.
@@ -746,7 +709,7 @@ func TestPersistFleetNodePairResult_PairedInvalidatesMinerCache(t *testing.T) {
 func TestPersistFleetNodePairResult_PairedSchedulesTelemetry(t *testing.T) {
 	// Arrange: a node-discovered device and a recorder for telemetry refreshes.
 	ctx := t.Context()
-	_, orgID, pairing, enrollment := setupPairingTest(t)
+	db, orgID, pairing, enrollment := setupPairingTest(t)
 	node := createFleetNode(t, enrollment, orgID, "node-persist-schedule")
 	upsertNodeDiscovered(t, pairing, orgID, node, "mac:p-schedule")
 	scheduler := recordingTelemetryScheduler{devices: make(chan []telemetrymodels.DeviceIdentifier, 1)}
@@ -754,7 +717,7 @@ func TestPersistFleetNodePairResult_PairedSchedulesTelemetry(t *testing.T) {
 	assignedBy := int64(1)
 
 	// Act
-	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, pairResult("mac:p-schedule", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy)
+	status, err := pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, node, orgID, &assignedBy, "mac:p-schedule"), pairResult("mac:p-schedule", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED))
 
 	// Assert: the node-reported pair queues the same immediate telemetry refresh
 	// as the direct PairDevice path.
@@ -771,7 +734,7 @@ func TestPersistFleetNodePairResult_PairedSchedulesTelemetry(t *testing.T) {
 func TestPersistFleetNodePairResult_AuthNeededDoesNotInvalidate(t *testing.T) {
 	// Arrange
 	ctx := t.Context()
-	_, orgID, pairing, enrollment := setupPairingTest(t)
+	db, orgID, pairing, enrollment := setupPairingTest(t)
 	node := createFleetNode(t, enrollment, orgID, "node-persist-noinvalidate")
 	upsertNodeDiscovered(t, pairing, orgID, node, "mac:p-noinvalidate")
 	var invalidated []int64
@@ -779,7 +742,7 @@ func TestPersistFleetNodePairResult_AuthNeededDoesNotInvalidate(t *testing.T) {
 	assignedBy := int64(1)
 
 	// Act: a non-PAIRED outcome binds no device.
-	status, err := pairing.PersistFleetNodePairResult(ctx, node, orgID, pairResult("mac:p-noinvalidate", gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED), &assignedBy)
+	status, err := pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, node, orgID, &assignedBy, "mac:p-noinvalidate"), pairResult("mac:p-noinvalidate", gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED))
 
 	// Assert: nothing bound, so nothing is evicted.
 	require.NoError(t, err)
@@ -808,6 +771,28 @@ func TestResolvePairTargets(t *testing.T) {
 	for _, tg := range all {
 		assert.Equal(t, "virtual", tg.GetDriverName(), "targets carry the discovery driver for plugin routing")
 	}
+}
+
+func TestResolvePairTargets_ExcludesAnotherOrgsDiscoveries(t *testing.T) {
+	// Arrange
+	ctx := t.Context()
+	db, orgID, pairing, enrollment := setupPairingTest(t)
+	const otherOrgID = int64(2)
+	_, err := db.Exec(`INSERT INTO organization (id, org_id, name) VALUES ($1, 'other-org', 'Other Org')`, otherOrgID)
+	require.NoError(t, err)
+	node := createFleetNode(t, enrollment, orgID, "node-own")
+	otherNode := createFleetNode(t, enrollment, otherOrgID, "node-other")
+	upsertNodeDiscovered(t, pairing, otherOrgID, otherNode, "mac:other-org")
+
+	// Act
+	viaOwnNode, err := pairing.ResolvePairTargets(ctx, node, orgID, []string{"mac:other-org"}, false, nil)
+	require.NoError(t, err)
+	viaDiscoveringNode, err := pairing.ResolvePairTargets(ctx, otherNode, orgID, []string{"mac:other-org"}, false, nil)
+	require.NoError(t, err)
+
+	// Assert
+	assert.Empty(t, viaOwnNode)
+	assert.Empty(t, viaDiscoveringNode, "the caller's org scope must exclude discoveries even from the reporting node")
 }
 
 func TestResolvePairTargets_ExcludesPairedDeviceWithDivergedDiscoveryLinkage(t *testing.T) {

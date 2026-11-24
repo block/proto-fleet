@@ -256,6 +256,7 @@ func TestPrepareInstallBundlesCreatesRoleScopedBundles(t *testing.T) {
 	t.Setenv("ENABLE_TRACING", "true")
 	t.Setenv("DD_API_KEY", "test-datadog-key")
 	t.Setenv("MARKET_DATA_ENABLED", "true")
+	t.Setenv("TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS", "true")
 	t.Setenv("MARKET_DATA_COINGECKO_API_KEY", "test-coingecko-key")
 	exportDir := filepath.Join(t.TempDir(), "exports")
 	require.NoError(t, os.Mkdir(exportDir, 0o700))
@@ -291,6 +292,7 @@ func TestPrepareInstallBundlesCreatesRoleScopedBundles(t *testing.T) {
 		require.True(t, profile.enabled("ENABLE_TRACING"))
 		require.Equal(t, "test-datadog-key", profile["DD_API_KEY"])
 		require.True(t, profile.enabled("MARKET_DATA_ENABLED"))
+		require.True(t, profile.enabled("TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS"))
 		require.Equal(t, "test-coingecko-key", profile["MARKET_DATA_COINGECKO_API_KEY"])
 	}
 }

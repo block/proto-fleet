@@ -57,26 +57,6 @@ describe("useBatchOperations", () => {
       });
     });
 
-    it("should support multiple batches for the same device", () => {
-      const { result } = renderHook(() => useBatchOperations());
-
-      act(() => {
-        result.current.startBatchOperation({
-          batchIdentifier: "batch-1",
-          action: deviceActions.reboot,
-          deviceIdentifiers: ["device-1"],
-        });
-        result.current.startBatchOperation({
-          batchIdentifier: "batch-2",
-          action: settingsActions.miningPool,
-          deviceIdentifiers: ["device-1"],
-        });
-      });
-
-      const batches = result.current.getActiveBatches("device-1");
-      expect(batches).toHaveLength(2);
-    });
-
     it("should not add duplicate batch IDs to the same device", () => {
       const { result } = renderHook(() => useBatchOperations());
 

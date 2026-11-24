@@ -1,20 +1,26 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
 
 import { AutomationResponseProfileRevisionConflictError } from "@/protoFleet/api/automationResponseProfileRevisionConflict";
+import type {
+  AutomationRuleFormValues,
+  ResponseProfile,
+  ScheduleRuleFormValues,
+} from "@/protoFleet/api/curtailmentTypes";
 import {
   type CurtailmentAutomationRule,
   CurtailmentAutomationRuleSchema,
   CurtailmentAutomationSignal,
   CurtailmentAutomationTriggerType,
+  CurtailmentScheduleDayOfWeek,
+  CurtailmentScheduleFrequency,
+  CurtailmentScheduleSchema,
+  CurtailmentScheduleType,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import useCurtailmentAutomationRules from "@/protoFleet/api/useCurtailmentAutomationRules";
-import type {
-  AutomationRuleFormValues,
-  ResponseProfile,
-} from "@/protoFleet/features/settings/components/Curtailment/types";
 
 const {
   mockCreateCurtailmentAutomationRule,
@@ -53,6 +59,37 @@ const formValues: AutomationRuleFormValues = {
   sourceId: "11",
   responseProfileId: "21",
   responseProfileRevision: "11111111-1111-4111-8111-111111111111",
+};
+
+const weeknightSchedule = {
+  scheduleType: CurtailmentScheduleType.RECURRING,
+  timezone: "America/Chicago",
+  startDate: "2026-06-01",
+  startTime: "22:00",
+  endTime: "06:00",
+  endDate: "",
+  frequency: CurtailmentScheduleFrequency.WEEKLY,
+  daysOfWeek: [CurtailmentScheduleDayOfWeek.MONDAY, CurtailmentScheduleDayOfWeek.FRIDAY],
+  dayOfMonth: 0,
+  untilDate: "",
+};
+
+const scheduleFormValues: ScheduleRuleFormValues = {
+  name: "Weeknight peak",
+  responseProfileId: "21",
+  responseProfileRevision: "11111111-1111-4111-8111-111111111111",
+  schedule: {
+    scheduleType: "recurring",
+    timezone: "America/Chicago",
+    startDate: "2026-06-01",
+    startTime: "22:00",
+    endTime: "06:00",
+    endDate: "",
+    frequency: "weekly",
+    daysOfWeek: [CurtailmentScheduleDayOfWeek.FRIDAY, CurtailmentScheduleDayOfWeek.MONDAY],
+    dayOfMonth: "",
+    untilDate: "",
+  },
 };
 
 function apiRule(overrides: Partial<CurtailmentAutomationRule> = {}): CurtailmentAutomationRule {
@@ -139,6 +176,74 @@ describe("useCurtailmentAutomationRules", () => {
         expectedResponseProfileRevision: formValues.responseProfileRevision,
       }),
     );
+  });
+
+  it("maps schedule rules with their schedule and current window", async () => {
+    const windowStart = new Date("2026-06-12T03:00:00Z");
+    const windowEnd = new Date("2026-06-12T11:00:00Z");
+    mockListCurtailmentAutomationRules.mockResolvedValueOnce({
+      rules: [
+        apiRule({
+          triggerType: CurtailmentAutomationTriggerType.SCHEDULE,
+          mqttSourceId: 0n,
+          mqttSourceName: "",
+          schedule: create(CurtailmentScheduleSchema, weeknightSchedule),
+          windowStartAt: timestampFromDate(windowStart),
+          windowEndAt: timestampFromDate(windowEnd),
+        }),
+      ],
+    });
+
+    const { result } = renderHook(() => useCurtailmentAutomationRules(false));
+
+    await act(async () => {
+      await result.current.listAutomationRules();
+    });
+
+    expect(result.current.automationRules[0]).toMatchObject({
+      conditionType: "schedule",
+      schedule: {
+        ...scheduleFormValues.schedule,
+        daysOfWeek: [CurtailmentScheduleDayOfWeek.MONDAY, CurtailmentScheduleDayOfWeek.FRIDAY],
+      },
+      windowStartAt: windowStart,
+      windowEndAt: windowEnd,
+    });
+    expect(result.current.automationRules[0]).not.toHaveProperty("sourceId");
+    expect(result.current.automationRules[0]).not.toHaveProperty("sourceId");
+    expect(result.current.automationRules[0].conditionSummary).toMatch(/^Weekly on Mon, Fri, /);
+  });
+
+  it("creates and updates schedule rules with a schedule instead of a source", async () => {
+    mockCreateCurtailmentAutomationRule.mockResolvedValueOnce({ rule: apiRule() });
+    mockUpdateCurtailmentAutomationRule.mockResolvedValueOnce({ rule: apiRule() });
+
+    const { result } = renderHook(() => useCurtailmentAutomationRules(false));
+
+    await act(async () => {
+      await result.current.createScheduleRule(scheduleFormValues);
+    });
+
+    const createRequest = mockCreateCurtailmentAutomationRule.mock.calls[0][0];
+    expect(createRequest).toMatchObject({
+      ruleName: "Weeknight peak",
+      triggerType: CurtailmentAutomationTriggerType.SCHEDULE,
+      mqttSourceId: 0n,
+      responseProfileId: 21n,
+      expectedResponseProfileRevision: scheduleFormValues.responseProfileRevision,
+      enabled: true,
+    });
+    expect(createRequest.schedule).toMatchObject(weeknightSchedule);
+
+    await act(async () => {
+      await result.current.updateScheduleRule("7", scheduleFormValues);
+    });
+
+    expect(mockUpdateCurtailmentAutomationRule.mock.calls[0][0]).toMatchObject({
+      ruleId: 7n,
+      triggerType: CurtailmentAutomationTriggerType.SCHEDULE,
+      schedule: weeknightSchedule,
+    });
   });
 
   it("toggles and deletes automation rules by id", async () => {
@@ -244,5 +349,13 @@ describe("useCurtailmentAutomationRules", () => {
     expect(caughtError).toEqual(expect.objectContaining({ message: "Select a valid source." }));
     expect(result.current.createError).toBe("Select a valid source.");
     expect(mockCreateCurtailmentAutomationRule).not.toHaveBeenCalled();
+  });
+  it("retains automation execution failures for the rule view", async () => {
+    mockListCurtailmentAutomationRules.mockResolvedValue({ rules: [apiRule({ lastError: "No eligible miners" })] });
+    const { result } = renderHook(() => useCurtailmentAutomationRules(false));
+    await act(async () => {
+      await result.current.listAutomationRules();
+    });
+    expect(result.current.automationRules[0]?.lastError).toBe("No eligible miners");
   });
 });

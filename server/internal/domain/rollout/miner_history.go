@@ -21,6 +21,7 @@ type MinerFirmwareHistoryEntry struct {
 	ChannelName      string
 	Manufacturer     string
 	Model            string
+	Component        string
 	FirmwareVersion  string
 	FirmwareChecksum string
 	RolloutStatus    string
@@ -96,7 +97,7 @@ func (s *Service) ListMinerFirmwareHistory(ctx context.Context, orgID int64, dev
 	for _, row := range rows {
 		entry := MinerFirmwareHistoryEntry{
 			RolloutID: row.RolloutID, ChannelID: row.ChannelID, ChannelName: row.ChannelName,
-			Manufacturer: row.Manufacturer, Model: row.Model,
+			Manufacturer: row.Manufacturer, Model: row.Model, Component: row.Component,
 			FirmwareVersion: row.FirmwareVersion, FirmwareChecksum: row.FirmwareChecksum,
 			RolloutStatus: row.RolloutStatus, CancelReason: row.CancelReason,
 			Paused: row.RolloutStatus == StatusActive && row.PausedAt.Valid,

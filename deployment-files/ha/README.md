@@ -15,8 +15,9 @@ The topology is:
 - one unused LAN IPv4 address shared by keepalived on `ha-a` and `ha-b`;
 - host networking on PostgreSQL `5432`, Patroni `8008`, and etcd `2379`/`2380`.
 
-Node joins, certificate rotation, rollback, and restore automation are
-intentionally deferred.
+Node joins, certificate rotation, and rollback are intentionally deferred.
+For a database restore with a rebuilt etcd cluster, follow the
+[Fleet lease recovery procedure](etcd-maintenance.md#recover-the-fleet-lease-after-an-etcd-rebuild).
 
 Release bundles include the `fleet-ha` host utility in this directory. From a
 source checkout, build the same binary with:
@@ -115,6 +116,40 @@ loopback and the exact load-balancer subnet CIDRs. See
 to a release supporting this key before adding it to existing `fleet.env` files:
 older HA tools reject unknown keys. Setting the process environment on
 `fleet-ha update` does not change installed configuration.
+
+Operational runtime metrics are off by default. HA installation and
+`prepare-external` accept `FLEET_RUNTIME_METRICS_ENABLED=true` or `false` and
+persist it in `/etc/proto-fleet/ha/fleet.env`. Before enabling, check that
+`127.0.0.1:9090` is available on both Fleet hosts (for example, with
+`sudo ss -ltnp 'sport = :9090'`). The HA profile uses this fixed host-network
+port; a bind failure prevents Fleet startup. Free the port or set the flag to
+`false` and use the controlled HA restart workflow to recover.
+Upgrade both hosts to a release supporting this key before adding it to their
+`fleet.env` files. Before rolling back to an older release, remove the key from
+both hosts' files; older HA tools reject unknown keys. See
+[runtime metrics](../../docs/runtime-metrics.md) for the collector contract.
+
+Committed telemetry freshness tracking is off by default. HA installation and
+`prepare-external` accept `TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS=true` or `false`,
+persist it in `/etc/proto-fleet/ha/fleet.env`, and pass it to the API container.
+For interactive installation, export the value on `ha-a` and preserve it through
+`sudo`, as in the tracing example above:
+
+```bash
+export TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS=true
+curl -fsSL https://fleet.proto.xyz/install.sh | sudo --preserve-env=SSH_AUTH_SOCK,TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS bash -s -- --ha
+```
+
+Updates preserve the installed value. For an existing deployment, upgrade both
+hosts to a release supporting this key before adding it to each host's
+`fleet.env`; older HA tools reject unknown keys. Before rolling back to a release
+that does not support the key, remove it from both hosts' `fleet.env` files.
+Apply configuration changes through the normal controlled HA restart workflow.
+See the [telemetry freshness rollout order](../../docs/telemetry-freshness.md)
+for tracking, observer, and notification prerequisites. All serving Fleet Nodes must
+support observation-age reporting before enabling freshness notifications.
+Tracking alone does not install the independent observer or enable its alerts;
+disabling tracking freezes watermarks rather than establishing healthy telemetry.
 
 Market data is off by default. HA installation and `prepare-external` also
 capture the `MARKET_DATA_*` settings documented in [market data](../../docs/market-data.md),
@@ -266,6 +301,67 @@ sudo docker exec -u postgres proto-fleet-ha-patroni-1 \
 No restart is required. Increasing retention does not recover WAL that has
 already been removed.
 
+### PostgreSQL worker and connection capacity
+
+| Setting | Limit |
+| --- | --- |
+| PostgreSQL workers | 19: eight Timescale, eight parallel-query, three spare |
+| PostgreSQL connections | 1,200: two API pools plus 200 slots for other clients |
+| Connections per HA API | 500 open, 500 idle |
+| Database connection lifetime | 15 minutes |
+| Miner-handle cache | 100,000 entries, one-minute expiry |
+
+The HA connection settings do not apply to standalone profiles. Larger pools
+and caches use more memory. Miner-handle invalidation rules are unchanged.
+
+Patroni reads these PostgreSQL limits from its shared cluster configuration;
+local `postgresql.parameters` values are ignored. New clusters use
+`bootstrap.dcs.postgresql.parameters`.
+
+Existing clusters need the database limits set before updating Fleet. An
+application update does not change shared settings. Record the current values
+and identify the primary and synchronous standby:
+
+```bash
+sudo docker exec -u postgres proto-fleet-ha-patroni-1 \
+  patronictl -c /run/proto-fleet-ha/patroni.yml list
+sudo docker exec -u postgres proto-fleet-ha-patroni-1 \
+  patronictl -c /run/proto-fleet-ha/patroni.yml show-config
+sudo docker exec -u postgres proto-fleet-ha-patroni-1 \
+  psql -X -d postgres -c 'SHOW max_worker_processes; SHOW max_connections;'
+```
+
+Check both effective limits on both database hosts. If the worker limit is below
+19 or the connection limit is below 1,200, schedule a database maintenance window.
+Confirm healthy HA, synchronous replication, and no replication lag. Apply the
+shared settings once. Omit any parameter already at or above its target so this
+procedure only increases limits:
+
+```bash
+sudo docker exec -u postgres proto-fleet-ha-patroni-1 \
+  patronictl -c /run/proto-fleet-ha/patroni.yml \
+  edit-config proto-fleet --pg max_worker_processes=19 --pg max_connections=1200 --force
+```
+
+Restart the current standby with `patronictl restart proto-fleet <standby>
+--pending --force`. Confirm that it uses the target limits and has returned to
+synchronous streaming with no lag. Then restart the current primary with
+`patronictl restart proto-fleet <primary> --pending --force`. Run these commands
+through the same `docker exec` and Patroni configuration path shown above. Do not
+restart both databases together. The primary restart can interrupt database access.
+The `--force` option skips interactive prompts; complete the checks above first.
+
+Verify the effective limits on both hosts, no pending restart, healthy
+`fleet-ha status`, fresh telemetry, and successful scheduled jobs. Record the
+change and observe the next busy maintenance interval for worker-start failures.
+Changing these limits does not enable topology cleanup.
+
+Before reducing the connection limit, restore smaller API pools on both hosts.
+If a rollback decreases either database limit, restart the primary before the standby.
+Follow [Patroni's shared-memory parameter procedure](https://patroni.readthedocs.io/en/latest/patroni_configuration.html#postgresql-parameters-that-touch-shared-memory)
+for restart ordering. Restoring previous limits can restore worker or connection
+pressure.
+
 ### HA readiness alerts
 
 Each database host runs the same file-provisioned Grafana rule. The active
@@ -308,6 +404,40 @@ Fleet images, then rechecks that this host is passive. It stops and replaces
 `fleet-api`, `fleet-client`, and the local Grafana sidecar; etcd, Patroni,
 PostgreSQL, and keepalived remain running. The command returns only after the
 target version is healthy and passive.
+
+For orchestration that prepares both hosts before either application stops,
+first require `prepared-update-v1` in **both** the installed CLI's
+`fleet-ha update --capabilities` JSON and the running updater's
+`/v1/status` `capabilities` list on each host. Run the following on both hosts,
+including the active host, and require both preparations to succeed:
+
+```bash
+sudo /opt/proto-fleet/deployment/ha/fleet-ha update v0.2.11 --prepare-only
+```
+
+Preparation verifies and extracts the release, preserves configuration, loads
+images, checks the target schema, and fsyncs a private prepared tree and receipt
+while the old application stays online. It also checks that the target CLI
+supports the protocol. The receipt survives updater restarts and binds the
+release to its source version and configuration. Configuration changes, missing
+images, a different target, or changed prepared files require preparation again.
+Activation never silently downloads or prepares a missing release.
+
+Activate the passive host with `fleet-ha update v0.2.11 --prepared`, then use
+`fleet-ha update v0.2.11 --prepared --complete` on the old active host. Use
+`--prepared` without `--complete` if the peer has already taken over. Activation rechecks
+the schema, loaded image availability, local role, and configuration before the
+existing stop/swap/recovery flow. It does not repeat extraction or image loading.
+
+Install the first release introducing this protocol through the ordinary update
+workflow. Only later rollouts can prepare both hosts this way; require both
+capability probes rather than inferring support from a version number.
+
+Controlled starts of a stopped passive application can skip the normal
+15-second restart delay after confirming a healthy active peer. A root-owned,
+one-shot token is consumed before Fleet executes and removed on failed starts.
+Every later container process restart retains the cooldown; systemd startup
+also clears leftover tokens.
 
 After the peer is confirmed on the target release, complete the update from
 the old active host:
@@ -417,6 +547,20 @@ A passive update rechecks the local role, active peer, and control path just
 before stopping Fleet. This crash-only profile accepts the small role-change
 window before process exit; if the peer fails in that interval, durable update
 recovery restarts the local application.
+
+A planned Fleet stop closes HTTP admission and drains requests before stopping
+runtime jobs. After a clean drain and renewal shutdown, Fleet expires only its
+exact live lease; the stored epoch remains and the peer can acquire immediately.
+The drain includes pending background unpairs and confirmed plugin process exit.
+Endpoint-probe suppression lasts only through the HTTP shutdown deadline. If a
+handler remains blocked, Fleet stops lease renewal and takes the fatal-abort path;
+voluntary release still requires completed cleanup.
+Failed or incomplete cleanup, ownership loss, and crashes keep the normal
+lease-expiry path. Active application updates stop the API first, retaining nginx while Fleet
+attempts its clean drain. Docker forces an incomplete API stop after three
+seconds. Compose then tears down the remaining application containers with a
+one-second grace. Each of the two commands has its own five-second bound. The
+update still verifies that the peer serves the public endpoint.
 
 ## etcd capacity
 

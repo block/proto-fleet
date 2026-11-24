@@ -1,4 +1,6 @@
+import LocalFirmwareUpload from "../LocalFirmwareUpload";
 import { useFirmwareUpdate, useSystemInfo, useSystemReboot } from "@/protoOS/api";
+import { useFirmwareUpload } from "@/protoOS/api/hooks/useFirmwareUpload";
 import { statusLabelFromUpdateStatus } from "@/protoOS/features/firmwareUpdate/utility";
 import { useFirmwareUpdateInstalling, useFwUpdateStatus, useSystemInfoPending } from "@/protoOS/store";
 import { SettingsSolid } from "@/shared/assets/icons";
@@ -13,6 +15,13 @@ const CheckForUpdate = () => {
   const systemInfoPending = useSystemInfoPending();
   const { reload: reloadSystemInfo } = useSystemInfo({ poll: false });
   const { rebootSystem, pending: rebootPending } = useSystemReboot();
+  const {
+    uploadFirmware,
+    clearError: clearUploadError,
+    pending: uploadPending,
+    error: uploadError,
+    supported: uploadSupported,
+  } = useFirmwareUpload(reloadSystemInfo);
 
   const checkForUpdates = () => {
     checkFirmwareUpdate()
@@ -25,8 +34,8 @@ const CheckForUpdate = () => {
   };
 
   return (
-    <>
-      {installing || updateStatus?.status === "available" || updateStatus?.status === "installed" ? (
+    <div className="flex w-full flex-wrap justify-center gap-3">
+      {installing || updateStatus?.status === "available" || updateStatus?.status === "rebootRequired" ? (
         <Header
           title={statusLabelFromUpdateStatus(updateStatus, true)}
           testId="firmware-update-inline-status"
@@ -40,8 +49,8 @@ const CheckForUpdate = () => {
               text:
                 updateStatus?.status === "available" ? "Install" : convertToSentenceCase(updateStatus?.status || ""),
               variant: "secondary",
-              className: updateStatus?.status === "installed" ? "hidden" : "",
-              disabled: installing || pendingUpdate,
+              className: updateStatus?.status === "rebootRequired" ? "hidden" : "",
+              disabled: installing || pendingUpdate || uploadPending,
               loading: installing || pendingUpdate,
               onClick: () => {
                 updateFirmware();
@@ -50,8 +59,9 @@ const CheckForUpdate = () => {
             {
               text: "Reboot",
               variant: "primary",
-              className: updateStatus?.status === "installed" ? "" : "hidden",
+              className: updateStatus?.status === "rebootRequired" ? "" : "hidden",
               loading: rebootPending,
+              disabled: uploadPending,
               onClick: () => {
                 rebootSystem();
               },
@@ -63,13 +73,30 @@ const CheckForUpdate = () => {
           variant="secondary"
           size="compact"
           loading={systemInfoPending}
+          disabled={uploadPending}
           testId="check-for-updates-button"
           onClick={() => checkForUpdates()}
         >
           Check for updates
         </Button>
       )}
-    </>
+      {uploadSupported ? (
+        <LocalFirmwareUpload
+          disabled={
+            !updateStatus ||
+            updateStatus.status === "unknown" ||
+            installing ||
+            pendingUpdate ||
+            rebootPending ||
+            updateStatus.status === "rebootRequired"
+          }
+          pending={uploadPending}
+          error={uploadError}
+          onClearError={clearUploadError}
+          onUpload={uploadFirmware}
+        />
+      ) : null}
+    </div>
   );
 };
 

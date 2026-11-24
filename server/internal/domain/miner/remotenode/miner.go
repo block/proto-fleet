@@ -22,10 +22,12 @@ import (
 	curtailmentpb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
 	errorspb "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/commandresult"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/poolconfig"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/miner/logformat"
@@ -54,11 +56,18 @@ type LogArtifactSaver interface {
 
 // Config carries everything the adapter needs to address a fleet-node-paired miner.
 type Config struct {
-	Sender       CommandSender
-	FleetNodeID  int64
-	OrgID        int64
-	SiteID       int64
-	LogArtifacts LogArtifactSaver
+	DeviceClass commonpb.DeviceClass
+	Endpoints   []*commonpb.DeviceEndpoint
+	RPCPort     int32
+	RPCTLS      bool
+	WriteGate   interfaces.MinerWriteGate
+	// EncryptionPublicKey resolves the current node key for each pool write.
+	EncryptionPublicKey func(context.Context) ([]byte, error)
+	Sender              CommandSender
+	FleetNodeID         int64
+	OrgID               int64
+	SiteID              int64
+	LogArtifacts        LogArtifactSaver
 	// Gate, if set, bounds concurrent commands the server has in flight to this
 	// fleet node so a large batch paces rather than oversubscribing the node.
 	Gate Gate
@@ -88,19 +97,22 @@ type Config struct {
 // value (no live connection), so caching the handle is safe; stream liveness is
 // resolved per command by the registry.
 type Miner struct {
-	sender             CommandSender
-	gate               Gate
-	deferrableReadGate Gate
-	logGate            Gate
-	logArtifacts       LogArtifactSaver
-	fleetNodeID        int64
-	orgID              int64
-	siteID             int64
-	desc               *gatewaypb.MinerConnectionDescriptor
-	connInfo           networking.ConnectionInfo
+	writeGate           interfaces.MinerWriteGate
+	encryptionPublicKey func(context.Context) ([]byte, error)
+	sender              CommandSender
+	gate                Gate
+	deferrableReadGate  Gate
+	logGate             Gate
+	logArtifacts        LogArtifactSaver
+	fleetNodeID         int64
+	orgID               int64
+	siteID              int64
+	desc                *gatewaypb.MinerConnectionDescriptor
+	connInfo            networking.ConnectionInfo
 }
 
 var _ interfaces.Miner = (*Miner)(nil)
+var _ interfaces.PoolClearVerifier = (*Miner)(nil)
 var _ interfaces.FirmwareUpdateStatusProvider = (*Miner)(nil)
 var _ interfaces.MinerCurtailmentConfigurator = (*Miner)(nil)
 
@@ -131,20 +143,26 @@ func New(cfg Config) (*Miner, error) {
 		return nil, fleeterror.NewInternalErrorf("remote-node miner: connection info: %v", err)
 	}
 	return &Miner{
-		sender:             cfg.Sender,
-		gate:               cfg.Gate,
-		deferrableReadGate: cfg.DeferrableReadGate,
-		logGate:            cfg.LogDownloadGate,
-		logArtifacts:       cfg.LogArtifacts,
-		fleetNodeID:        cfg.FleetNodeID,
-		orgID:              cfg.OrgID,
-		siteID:             cfg.SiteID,
+		writeGate:           cfg.WriteGate,
+		sender:              cfg.Sender,
+		encryptionPublicKey: cfg.EncryptionPublicKey,
+		gate:                cfg.Gate,
+		deferrableReadGate:  cfg.DeferrableReadGate,
+		logGate:             cfg.LogDownloadGate,
+		logArtifacts:        cfg.LogArtifacts,
+		fleetNodeID:         cfg.FleetNodeID,
+		orgID:               cfg.OrgID,
+		siteID:              cfg.SiteID,
 		desc: &gatewaypb.MinerConnectionDescriptor{
 			DeviceIdentifier:   cfg.DeviceIdentifier,
+			DeviceClass:        cfg.DeviceClass,
 			DriverName:         cfg.DriverName,
 			IpAddress:          cfg.IPAddress,
 			Port:               cfg.Port,
 			UrlScheme:          cfg.URLScheme,
+			RpcPort:            cfg.RPCPort,
+			RpcTls:             cfg.RPCTLS,
+			Endpoints:          cfg.Endpoints,
 			SerialNumber:       cfg.SerialNumber,
 			MacAddress:         cfg.MacAddress,
 			CredentialUsername: cfg.CredentialUsername,
@@ -197,7 +215,7 @@ func (m *Miner) Uncurtail(ctx context.Context, _ sdk.UncurtailRequest) error {
 // FleetNode. Plaintext is never accepted on the node transport.
 func (m *Miner) ApplyCurtailmentConfig(ctx context.Context, payload dto.ApplyCurtailmentConfigPayload) error {
 	if payload.EncryptedConfig == nil {
-		return fleeterror.NewFailedPreconditionError("encrypted curtailment config is required for fleet-node miner")
+		return devicewrite.NotDispatched(fleeterror.NewFailedPreconditionError("encrypted curtailment config is required for fleet-node miner"))
 	}
 	return m.dispatch(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_ApplyCurtailmentConfig{
 		ApplyCurtailmentConfig: &gatewaypb.ApplyCurtailmentConfigAction{
@@ -232,11 +250,8 @@ func (m *Miner) dispatchWithArtifacts(ctx context.Context, mc *gatewaypb.MinerCo
 		return err
 	}
 	defer release()
-	ack, _, err := m.sendWithoutGateWithArtifactResults(ctx, mc, artifacts)
-	if err != nil {
-		return err
-	}
-	return ackToError(ack)
+	_, _, err = m.sendInSlotWithArtifactResults(ctx, mc, artifacts)
+	return err
 }
 
 func (m *Miner) send(ctx context.Context, mc *gatewaypb.MinerCommand) (*gatewaypb.ControlAck, error) {
@@ -245,7 +260,7 @@ func (m *Miner) send(ctx context.Context, mc *gatewaypb.MinerCommand) (*gatewayp
 		return nil, err
 	}
 	defer release()
-	return m.sendWithoutGate(ctx, mc)
+	return m.sendInSlot(ctx, mc)
 }
 
 func (m *Miner) sendWithCommandTimeout(ctx context.Context, timeout time.Duration, mc *gatewaypb.MinerCommand) (*gatewaypb.ControlAck, error) {
@@ -253,13 +268,24 @@ func (m *Miner) sendWithCommandTimeout(ctx context.Context, timeout time.Duratio
 	if err != nil {
 		return nil, err
 	}
-	defer release()
 
+	// The initial queue wait retains its existing budget. Once admitted, every
+	// attempt, backoff, and subsequent queue wait shares this one deadline.
 	commandCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	send := func(ctx context.Context) (*gatewaypb.ControlAck, error) { return m.sendInSlot(ctx, mc) }
+	var ack *gatewaypb.ControlAck
+	// Only an explicit pre-dispatch rejection of a deferrable read proves it is
+	// safe to submit a fresh command. Transport errors are ambiguous.
+	if class, _ := control.AdmissionForMinerCommand(mc); class == control.CommandAdmissionDeferrableRead {
+		acquire := func(ctx context.Context) (func(), error) { return m.acquireGate(ctx, mc) }
+		ack, err = RetryRejectedBusy(commandCtx, release, busyRetryMinRemaining, acquire, send,
+			"fleet_node_id", m.fleetNodeID, "device_identifier", m.desc.GetDeviceIdentifier())
+	} else {
+		ack, err = sendThenRelease(commandCtx, release, send)
+	}
 
-	ack, err := m.sendWithoutGate(commandCtx, mc)
-	if err != nil && errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, context.DeadlineExceeded) {
 		return nil, fleeterror.NewConnectionError(m.desc.GetDeviceIdentifier(), err)
 	}
 	return ack, err
@@ -286,40 +312,95 @@ func acquireFleetNodeGate(ctx context.Context, gate Gate, fleetNodeID int64, slo
 	// the DB command queue holds the backlog while this worker waits for a slot.
 	release, err := gate.Acquire(ctx, fleetNodeID)
 	if err != nil {
-		return nil, fleeterror.NewPlainError(
+		// Admission failed before any command was submitted to the node.
+		return nil, devicewrite.NotDispatched(fleeterror.NewPlainError(
 			fmt.Sprintf("timed out waiting for a %s slot: %v", slotName, err),
 			connect.CodeResourceExhausted,
-		)
+		))
 	}
 	return release, nil
 }
 
-func (m *Miner) sendWithoutGate(ctx context.Context, mc *gatewaypb.MinerCommand) (*gatewaypb.ControlAck, error) {
+func (m *Miner) sendInSlot(ctx context.Context, mc *gatewaypb.MinerCommand) (*gatewaypb.ControlAck, error) {
 	cmd, err := m.controlCommandForMiner(id.GenerateID(), mc)
 	if err != nil {
-		return nil, err
+		return nil, devicewrite.NotDispatched(err)
 	}
-	ack, err := m.sender.SendCommand(ctx, m.fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd)
+	version, err := minimumCommandProtocolVersion(mc)
 	if err != nil {
-		return nil, mapSendCommandError(err)
+		return nil, devicewrite.NotDispatched(err)
 	}
-	return ack, nil
+	var ack *gatewaypb.ControlAck
+	err = m.withPhysicalWriteAdmission(ctx, mc, func(ctx context.Context) (*gatewaypb.ControlAck, error) {
+		var err error
+		ack, err = m.sender.SendCommand(ctx, m.fleetNodeID, version, cmd)
+		return ack, err
+	})
+	return ack, err
 }
 
-func (m *Miner) sendWithoutGateWithArtifactResults(ctx context.Context, mc *gatewaypb.MinerCommand, artifacts []control.ArtifactExpectation) (*gatewaypb.ControlAck, []*gatewaypb.CommandArtifactRef, error) {
+// minimumCommandProtocolVersion is the oldest command protocol whose nodes run
+// mc. An older node never receives the command.
+func minimumCommandProtocolVersion(mc *gatewaypb.MinerCommand) (gatewaypb.CommandProtocolVersion, error) {
+	version := gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1
+	if mc.GetRunContainerAlarmAction() != nil {
+		version = ContainerAlarmCommandProtocolVersion
+	} else if feed := mc.GetContainerPowerFeed(); feed != nil {
+		// Inspection and writes have separate minimums; an undecodable request
+		// takes the newer one so an older node never sees it.
+		version = PowerFeedWriteCommandProtocolVersion
+		if r, err := sdk.DecodeContainerPowerFeedRequest(feed.Request); err == nil && r.ReadOnly() {
+			version = PowerFeedInspectCommandProtocolVersion
+		}
+	} else if mc.GetControllerRecords() != nil {
+		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V11
+	} else if mc.GetSetBoardIdentify() != nil {
+		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V10
+	} else if mc.GetVerifyPoolsCleared() != nil {
+		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V9
+	} else if mc.GetContainerMining() != nil {
+		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V8
+	} else if mc.GetMiningGroups() != nil {
+		request, err := sdk.DecodeMiningGroupRequest(mc.GetMiningGroups().Request)
+		if err != nil {
+			return version, err
+		}
+		version = miningGroupCommandVersion(request)
+	} else if mc.GetSetModuleMining() != nil {
+		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V5
+	} else if mc.GetSetTankMining() != nil {
+		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V4
+	} else if mc.GetUpdateMiningPools() != nil {
+		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3
+	} else if mc.GetSetContainerControl() != nil {
+		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2
+	} else if mc.GetFrigateUpdate() != nil {
+		version = FrigateUpdateCommandProtocolVersion
+	}
+	return version, nil
+}
+
+func (m *Miner) sendInSlotWithArtifactResults(ctx context.Context, mc *gatewaypb.MinerCommand, artifacts []control.ArtifactExpectation) (*gatewaypb.ControlAck, []*gatewaypb.CommandArtifactRef, error) {
 	sender, ok := m.sender.(ArtifactCommandSender)
 	if !ok {
-		return nil, nil, fleeterror.NewInternalError("fleet node command sender does not support artifact results")
+		return nil, nil, devicewrite.NotDispatched(fleeterror.NewInternalError("fleet node command sender does not support artifact results"))
 	}
 	cmd, err := m.controlCommandForMiner(id.GenerateID(), mc)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, devicewrite.NotDispatched(err)
 	}
-	ack, refs, err := sender.SendCommandWithArtifactResults(ctx, m.fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd, artifacts)
+	version, err := minimumCommandProtocolVersion(mc)
 	if err != nil {
-		return nil, nil, mapSendCommandError(err)
+		return nil, nil, devicewrite.NotDispatched(err)
 	}
-	return ack, refs, nil
+	var ack *gatewaypb.ControlAck
+	var refs []*gatewaypb.CommandArtifactRef
+	err = m.withPhysicalWriteAdmission(ctx, mc, func(ctx context.Context) (*gatewaypb.ControlAck, error) {
+		var err error
+		ack, refs, err = sender.SendCommandWithArtifactResults(ctx, m.fleetNodeID, version, cmd, artifacts)
+		return ack, err
+	})
+	return ack, refs, err
 }
 
 func (m *Miner) controlCommandForMiner(commandID string, mc *gatewaypb.MinerCommand) (*gatewaypb.ControlCommand, error) {
@@ -340,10 +421,14 @@ func (m *Miner) controlCommandForMiner(commandID string, mc *gatewaypb.MinerComm
 }
 
 func mapSendCommandError(err error) error {
+	notEnqueued := control.IsCommandNotEnqueued(err)
 	if errors.Is(err, control.ErrNoActiveStream) {
 		// Retryable, not permanent (Unavailable is not in the queue's permanent-fail
 		// set), so a node mid-reconnect re-attempts rather than dropping the command.
-		return fleeterror.NewUnavailableErrorf("fleet node has no active control stream; retry shortly")
+		err = fleeterror.NewUnavailableErrorf("fleet node has no active control stream; retry shortly")
+	}
+	if notEnqueued {
+		return devicewrite.NotDispatched(err)
 	}
 	return err
 }
@@ -392,10 +477,19 @@ func ackToError(ack *gatewaypb.ControlAck) error {
 	if code == gatewaypb.AckCode_ACK_CODE_BUSY {
 		// Retryable, not permanent: ResourceExhausted stays out of the permanent-fail
 		// set, so a momentarily-saturated node re-attempts rather than dropping the batch.
-		return fleeterror.NewPlainError(
+		err := fleeterror.NewPlainError(
 			fmt.Sprintf("fleet node busy; retry shortly: %s", reason),
 			connect.CodeResourceExhausted,
 		)
+		if IsRejectedBusy(ack) {
+			// The node rejects BUSY commands before device dispatch.
+			return devicewrite.NotDispatched(err)
+		}
+		return err
+	}
+	if code == gatewaypb.AckCode_ACK_CODE_FAILED_PRECONDITION {
+		// The device's own refusal, already worded for the operator.
+		return fleeterror.NewFailedPreconditionError(reason)
 	}
 	return fleeterror.NewInternalErrorf("fleet node reported command failure: %s", reason)
 }
@@ -403,11 +497,28 @@ func ackToError(ack *gatewaypb.ControlAck) error {
 func (m *Miner) UpdateMiningPools(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error {
 	pools, err := miningPoolConfigsFromPayload(payload)
 	if err != nil {
+		return devicewrite.NotDispatched(err)
+	}
+	if m.encryptionPublicKey == nil {
+		return devicewrite.NotDispatched(fleeterror.NewFailedPreconditionError("fleet node pool config encryption key is unavailable"))
+	}
+	command := &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_UpdateMiningPools{UpdateMiningPools: &gatewaypb.UpdateMiningPoolsAction{}}}
+	release, err := m.acquireGate(ctx, command)
+	if err != nil {
 		return err
 	}
-	return m.dispatch(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_UpdateMiningPools{
-		UpdateMiningPools: &gatewaypb.UpdateMiningPoolsAction{Pools: pools},
-	}})
+	defer release()
+	key, err := m.encryptionPublicKey(ctx)
+	if err != nil {
+		return devicewrite.NotDispatched(err)
+	}
+	encrypted, err := poolconfig.Encrypt(key, m.desc.GetDeviceIdentifier(), &gatewaypb.MiningPoolWriteConfiguration{Pools: pools, ClearAll: payload.ClearAll})
+	if err != nil {
+		return devicewrite.NotDispatched(fleeterror.NewInvalidArgumentErrorf("seal fleet node pool config: %v", err))
+	}
+	command.GetUpdateMiningPools().EncryptedConfig = encrypted
+	_, err = m.sendInSlot(ctx, command)
+	return err
 }
 
 func (m *Miner) UpdateMinerPassword(ctx context.Context, payload dto.UpdateMinerPasswordPayload) error {
@@ -417,7 +528,7 @@ func (m *Miner) UpdateMinerPassword(ctx context.Context, payload dto.UpdateMiner
 
 func (m *Miner) UpdateMinerPasswordWithCredentials(ctx context.Context, payload dto.UpdateMinerPasswordPayload) (*gatewaypb.EncryptedCredentials, error) {
 	if payload.EncryptedPasswordUpdate == nil {
-		return nil, fleeterror.NewFailedPreconditionError("encrypted password update payload is required for fleet-node miner")
+		return nil, devicewrite.NotDispatched(fleeterror.NewFailedPreconditionError("encrypted password update payload is required for fleet-node miner"))
 	}
 	ack, err := m.send(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_UpdateMinerPassword{
 		UpdateMinerPassword: &gatewaypb.UpdateMinerPasswordAction{
@@ -425,9 +536,6 @@ func (m *Miner) UpdateMinerPasswordWithCredentials(ctx context.Context, payload 
 		},
 	}})
 	if err != nil {
-		return nil, err
-	}
-	if err := ackToError(ack); err != nil {
 		return nil, err
 	}
 
@@ -472,7 +580,7 @@ func (m *Miner) DownloadLogs(ctx context.Context, batchLogUUID string) error {
 	}
 	defer release()
 
-	ack, refs, err := m.sendWithoutGateWithArtifactResults(ctx, command, []control.ArtifactExpectation{{
+	ack, refs, err := m.sendInSlotWithArtifactResults(ctx, command, []control.ArtifactExpectation{{
 		Direction:        control.ArtifactDirectionUpload,
 		Purpose:          gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
 		DeviceIdentifier: m.desc.GetDeviceIdentifier(),
@@ -537,16 +645,16 @@ func logDownloadRejectedError(ack *gatewaypb.ControlAck) error {
 
 func (m *Miner) FirmwareUpdate(ctx context.Context, firmware sdk.FirmwareFile) error {
 	if firmware.ID == "" {
-		return fleeterror.NewInternalError("firmware file ID is required for fleet-node firmware update")
+		return devicewrite.NotDispatched(fleeterror.NewInternalError("firmware file ID is required for fleet-node firmware update"))
 	}
 	if firmware.Filename == "" {
-		return fleeterror.NewInternalError("firmware filename is required for fleet-node firmware update")
+		return devicewrite.NotDispatched(fleeterror.NewInternalError("firmware filename is required for fleet-node firmware update"))
 	}
 	if firmware.Size <= 0 {
-		return fleeterror.NewInternalError("firmware size is required for fleet-node firmware update")
+		return devicewrite.NotDispatched(fleeterror.NewInternalError("firmware size is required for fleet-node firmware update"))
 	}
 	if firmware.SHA256 == "" {
-		return fleeterror.NewInternalError("firmware sha256 is required for fleet-node firmware update")
+		return devicewrite.NotDispatched(fleeterror.NewInternalError("firmware sha256 is required for fleet-node firmware update"))
 	}
 	ref := &gatewaypb.CommandArtifactRef{
 		ArtifactId: firmware.ID,
@@ -562,7 +670,7 @@ func (m *Miner) FirmwareUpdate(ctx context.Context, firmware sdk.FirmwareFile) e
 		DeviceIdentifier: m.desc.GetDeviceIdentifier(),
 	}
 	return m.dispatchWithArtifacts(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_FirmwareUpdate{
-		FirmwareUpdate: &gatewaypb.FirmwareUpdateAction{Artifact: ref},
+		FirmwareUpdate: &gatewaypb.FirmwareUpdateAction{Artifact: ref, RequestId: firmware.RequestID},
 	}}, []control.ArtifactExpectation{expectation})
 }
 
@@ -826,8 +934,14 @@ func cloneEncryptedCredentials(creds *gatewaypb.EncryptedCredentials) *gatewaypb
 	}
 }
 
-func miningPoolConfigsFromPayload(payload dto.UpdateMiningPoolsPayload) ([]*gatewaypb.MiningPoolConfig, error) {
-	pools := make([]*gatewaypb.MiningPoolConfig, 0, 3)
+func miningPoolConfigsFromPayload(payload dto.UpdateMiningPoolsPayload) ([]*gatewaypb.MiningPoolWriteConfig, error) {
+	if payload.ClearAll {
+		if payload.DefaultPool != (dto.MiningPool{}) || payload.Backup1Pool != nil || payload.Backup2Pool != nil || payload.ReapplyCurrentPoolsWithStoredWorkerName || payload.DesiredWorkerName != "" {
+			return nil, fleeterror.NewInvalidArgumentError("clearing pools cannot include pool settings")
+		}
+		return nil, nil
+	}
+	pools := make([]*gatewaypb.MiningPoolWriteConfig, 0, 3)
 
 	pool, err := miningPoolConfigFromDTO(payload.DefaultPool, "default")
 	if err != nil {
@@ -852,14 +966,37 @@ func miningPoolConfigsFromPayload(payload dto.UpdateMiningPoolsPayload) ([]*gate
 	return pools, nil
 }
 
-func miningPoolConfigFromDTO(pool dto.MiningPool, poolName string) (*gatewaypb.MiningPoolConfig, error) {
+func miningPoolConfigFromDTO(pool dto.MiningPool, poolName string) (*gatewaypb.MiningPoolWriteConfig, error) {
 	if pool.Priority > math.MaxInt32 {
 		return nil, fleeterror.NewInvalidArgumentErrorf(
 			"%s pool priority %d exceeds int32 maximum", poolName, pool.Priority)
 	}
-	return &gatewaypb.MiningPoolConfig{
+	return &gatewaypb.MiningPoolWriteConfig{
 		Priority: int32(pool.Priority), //nolint:gosec // G115: Priority validated above to fit in int32.
 		Url:      pool.URL,
 		Username: pool.Username,
+		Password: proto.String(pool.Password),
 	}, nil
+}
+
+// VerifyPoolsCleared keeps private firmware credentials on the node and accepts
+// only an explicit, complete observation from a compatible command protocol.
+func (m *Miner) VerifyPoolsCleared(ctx context.Context) (bool, error) {
+	ack, err := m.send(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_VerifyPoolsCleared{
+		VerifyPoolsCleared: &gatewaypb.VerifyPoolsClearedAction{},
+	}})
+	if err != nil {
+		return false, err
+	}
+	if err := ackToError(ack); err != nil {
+		return false, err
+	}
+	var result gatewaypb.VerifyPoolsClearedResult
+	if err := proto.Unmarshal(ack.GetPayload(), &result); err != nil {
+		return false, fleeterror.NewInternalError("invalid pool clearing observation")
+	}
+	if err := protovalidate.Validate(&result); err != nil {
+		return false, fleeterror.NewInternalError("incomplete pool clearing observation")
+	}
+	return result.GetCleared(), nil
 }

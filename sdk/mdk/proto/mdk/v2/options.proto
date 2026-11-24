@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package mdk.v2;
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
+
+// Product identifies which mining product an RPC applies to.
+enum Product {
+  PRODUCT_UNSPECIFIED = 0;
+  PRODUCT_COMMON = 1;
+  PRODUCT_CT1 = 2;
+  PRODUCT_R2 = 3;
+  PRODUCT_FOGHASHING_C1 = 4;
+}
+
+// TunnelAccess classifies whether an MDK method may be dispatched through the
+// Flotilla tunnel. Methods default to denied and must opt in explicitly.
+enum TunnelAccess {
+  // Unspecified access is fail-closed and equivalent to no tunnel access.
+  TUNNEL_ACCESS_UNSPECIFIED = 0;
+  TUNNEL_ACCESS_READ = 1;
+  TUNNEL_ACCESS_MUTATE = 2;
+}
+
+// TunnelMutationRoute classifies the HA execution paths a tunneled mutation
+// may use. Mutations default to primary-only and must explicitly opt in to
+// durable shared-state execution on an unfenced standby.
+enum TunnelMutationRoute {
+  TUNNEL_MUTATION_ROUTE_UNSPECIFIED = 0;
+  TUNNEL_MUTATION_ROUTE_SHARED_STATE = 1;
+}
+
+extend google.protobuf.MethodOptions {
+  // product tags an RPC with the mining product it applies to.
+  Product product = 50000;
+  // tunnel_access allowlists a method for descriptor-driven tunnel dispatch.
+  TunnelAccess tunnel_access = 50001;
+  // tunnel_mutation_route opt-ins a mutation to standby shared-state dispatch.
+  TunnelMutationRoute tunnel_mutation_route = 50002;
+}

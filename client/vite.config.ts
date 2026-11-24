@@ -6,6 +6,7 @@ import { defineConfig, loadEnv } from "vite";
 import fs from "fs";
 import path, { resolve } from "path";
 import process from "process";
+import { normalizeProxyTarget } from "./vitePlugins/normalizeProxyTarget";
 import { responsiveImagePlugin } from "./vitePlugins/responsiveImagePlugin";
 
 // eslint-disable-next-line no-undef
@@ -138,7 +139,9 @@ export default defineConfig(({ mode, command }) => {
 
   let proxies;
   if (mode === "protoFleet") {
-    const proxyUrl = env.FLEET_PROXY_URL || process.env.FLEET_PROXY_URL || "http://localhost:4000";
+    const proxyUrl = normalizeProxyTarget(
+      env.FLEET_PROXY_URL || process.env.FLEET_PROXY_URL || "http://localhost:4000",
+    );
     const apiProxyConfig = {
       target: proxyUrl,
       rewrite: (path: string) => path.replace(/^\/api-proxy/, ""),
@@ -155,16 +158,16 @@ export default defineConfig(({ mode, command }) => {
     };
   } else {
     // For ProtoOS: Use PROXY_URL from .env file
-    const targetUrl = env.PROXY_URL || process.env.PROXY_URL;
-    proxies = targetUrl
+    const configuredTarget = env.PROXY_URL || process.env.PROXY_URL;
+    const targetUrl = configuredTarget ? normalizeProxyTarget(configuredTarget) : undefined;
+    const minerApiProxy = targetUrl
       ? {
-          "/api/v1": {
-            target: targetUrl,
-            changeOrigin: true,
-            secure: false,
-          },
+          target: targetUrl,
+          changeOrigin: true,
+          secure: false,
         }
-      : {};
+      : undefined;
+    proxies = minerApiProxy ? { "/api/v1": minerApiProxy, "/api/v2": minerApiProxy, "/mdk.v2.": minerApiProxy } : {};
 
     // Log which proxy is being used for clarity
 
@@ -179,6 +182,7 @@ export default defineConfig(({ mode, command }) => {
 
   return {
     ...(modes[mode] || defaultConfig),
+    cacheDir: resolve(_dirname, "node_modules/.vite", mode),
     base: "/",
     envDir: process.cwd(),
     plugins: [react(), responsiveImagePlugin(), moveHtmlFiles(mode), copyPublicDirectory(mode, command)],
@@ -194,6 +198,7 @@ export default defineConfig(({ mode, command }) => {
       globals: true,
       environment: "jsdom",
       setupFiles: ["tests/setup.ts"],
+      include: ["**/*.{test,spec}.?(c|m)[jt]s?(x)", "../vitePlugins/**/*.test.ts"],
     },
     server: {
       proxy: proxies,

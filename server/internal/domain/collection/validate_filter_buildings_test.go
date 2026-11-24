@@ -2,7 +2,6 @@ package collection
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -17,7 +16,6 @@ import (
 type stubBuildingStore struct {
 	interfaces.BuildingStore
 	owned map[int64]struct{}
-	err   error
 }
 
 func newOwnedStore(ids ...int64) *stubBuildingStore {
@@ -29,9 +27,6 @@ func newOwnedStore(ids ...int64) *stubBuildingStore {
 }
 
 func (s *stubBuildingStore) BuildingsByIDs(_ context.Context, _ int64, ids []int64) ([]int64, error) {
-	if s.err != nil {
-		return nil, s.err
-	}
 	out := make([]int64, 0, len(ids))
 	for _, id := range ids {
 		if _, ok := s.owned[id]; ok {
@@ -44,6 +39,11 @@ func (s *stubBuildingStore) BuildingsByIDs(_ context.Context, _ int64, ids []int
 // callValidate is the test entry point. svc is constructed directly so
 // these tests don't drag in the full collection service dependency
 // graph — validateFilterBuildings only needs buildingStore.
+//
+// The ownership cases of the shared rule are in
+// interfaces.TestValidateFilterBuildings. This file keeps the wrapper
+// guards, the input checks that only this caller reaches, and one
+// wiring test.
 func callValidate(t *testing.T, store interfaces.BuildingStore, filter *interfaces.DeviceSetFilter) error {
 	t.Helper()
 	svc := &Service{buildingStore: store}
@@ -59,14 +59,6 @@ func TestValidateFilterBuildings_EmptyFilter(t *testing.T) {
 	// No building IDs, no zone keys → nothing to validate, store is
 	// untouched (pass nil to prove it).
 	err := callValidate(t, nil, &interfaces.DeviceSetFilter{})
-	require.NoError(t, err)
-}
-
-func TestValidateFilterBuildings_BuildingIDs_HappyPath(t *testing.T) {
-	store := newOwnedStore(7, 9)
-	err := callValidate(t, store, &interfaces.DeviceSetFilter{
-		BuildingIDs: []int64{7, 9},
-	})
 	require.NoError(t, err)
 }
 
@@ -86,71 +78,6 @@ func TestValidateFilterBuildings_BuildingIDs_RejectsZeroAndNegative(t *testing.T
 			assert.Contains(t, err.Error(), "building_ids")
 		})
 	}
-}
-
-func TestValidateFilterBuildings_BuildingIDs_RejectsCrossOrg(t *testing.T) {
-	// Building 99 not in caller's org; 7 is. The bulk check rejects
-	// when len(found) < len(requested). Error message must not echo
-	// the rejected ID.
-	store := newOwnedStore(7)
-	err := callValidate(t, store, &interfaces.DeviceSetFilter{
-		BuildingIDs: []int64{7, 99},
-	})
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-	assert.Contains(t, err.Error(), "building_ids")
-	assert.NotContains(t, err.Error(), "99")
-}
-
-func TestValidateFilterBuildings_BuildingIDs_StoreError(t *testing.T) {
-	store := &stubBuildingStore{err: errors.New("db down")}
-	err := callValidate(t, store, &interfaces.DeviceSetFilter{BuildingIDs: []int64{7}})
-	require.Error(t, err)
-	// Internal errors (not InvalidArgument) when the bulk check itself fails.
-	assert.False(t, fleeterror.IsInvalidArgumentError(err))
-}
-
-func TestValidateFilterBuildings_BuildingIDs_NilStoreWithExplicitIDs(t *testing.T) {
-	// Defensive: nil store with explicit IDs is a server
-	// misconfiguration, must surface as Internal so it shows up in
-	// production logs.
-	err := callValidate(t, nil, &interfaces.DeviceSetFilter{BuildingIDs: []int64{7}})
-	require.Error(t, err)
-	assert.False(t, fleeterror.IsInvalidArgumentError(err))
-}
-
-func TestValidateFilterBuildings_ZoneKeys_AllWildcard(t *testing.T) {
-	// Wildcard entries (BuildingID == 0) don't trigger the cross-org
-	// check; nil store proves the helper never calls into it.
-	err := callValidate(t, nil, &interfaces.DeviceSetFilter{
-		ZoneKeys: []interfaces.ZoneKey{
-			{BuildingID: 0, Zone: "building-a"},
-			{BuildingID: 0, Zone: "building-b"},
-		},
-	})
-	require.NoError(t, err)
-}
-
-func TestValidateFilterBuildings_ZoneKeys_AllScoped(t *testing.T) {
-	store := newOwnedStore(7, 9)
-	err := callValidate(t, store, &interfaces.DeviceSetFilter{
-		ZoneKeys: []interfaces.ZoneKey{
-			{BuildingID: 7, Zone: "Room 2"},
-			{BuildingID: 9, Zone: "Room 2"},
-		},
-	})
-	require.NoError(t, err)
-}
-
-func TestValidateFilterBuildings_ZoneKeys_MixedScopedAndWildcard(t *testing.T) {
-	store := newOwnedStore(7)
-	err := callValidate(t, store, &interfaces.DeviceSetFilter{
-		ZoneKeys: []interfaces.ZoneKey{
-			{BuildingID: 7, Zone: "Room 2"},
-			{BuildingID: 0, Zone: "Other Zone"},
-		},
-	})
-	require.NoError(t, err)
 }
 
 func TestValidateFilterBuildings_ZoneKeys_RejectsNegativeBuildingID(t *testing.T) {
@@ -188,29 +115,4 @@ func TestValidateFilterBuildings_ZoneKeys_RejectsCrossOrgScoped(t *testing.T) {
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 	assert.Contains(t, err.Error(), "building_ids")
 	assert.NotContains(t, err.Error(), "99")
-}
-
-func TestValidateFilterBuildings_ZoneKeys_WildcardSkipsCrossOrgCheck(t *testing.T) {
-	// All-wildcard request: store never consulted, nil store is fine.
-	err := callValidate(t, nil, &interfaces.DeviceSetFilter{
-		ZoneKeys: []interfaces.ZoneKey{
-			{BuildingID: 0, Zone: "Room 2"},
-		},
-	})
-	require.NoError(t, err)
-}
-
-func TestValidateFilterBuildings_BuildingAndZoneCombined(t *testing.T) {
-	// building_ids + scoped zone_keys + wildcard zone_keys all carrying
-	// the same scoped building id — the bulk lookup dedupes, so a store
-	// owning just 7 satisfies the check.
-	store := newOwnedStore(7)
-	err := callValidate(t, store, &interfaces.DeviceSetFilter{
-		BuildingIDs: []int64{7},
-		ZoneKeys: []interfaces.ZoneKey{
-			{BuildingID: 7, Zone: "Room 2"},
-			{BuildingID: 0, Zone: "Wildcard Zone"},
-		},
-	})
-	require.NoError(t, err)
 }

@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 import { POLL_INTERVAL_MS } from "./constants";
 import { useBuildings } from "@/protoFleet/api/buildings";
+import { miningInventoryRequest } from "@/protoFleet/api/fleetInventory";
 import {
   type SortConfig,
   SortConfigSchema,
@@ -16,10 +17,12 @@ import {
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { buildKnownSiteIds } from "@/protoFleet/api/sites";
 import useAuthNeededMiners from "@/protoFleet/api/useAuthNeededMiners";
+import { useContainerFilterOptions } from "@/protoFleet/api/useContainerFilterOptions";
 import { useDeviceErrors } from "@/protoFleet/api/useDeviceErrors";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useExportMinerListCsv from "@/protoFleet/api/useExportMinerListCsv";
 import useFleet from "@/protoFleet/api/useFleet";
+import { useTankFilterOptions } from "@/protoFleet/api/useTankFilterOptions";
 import {
   intersectSiteFilters,
   isMatchNoneSiteFilter,
@@ -38,6 +41,7 @@ import { useBatchOperations } from "@/protoFleet/features/fleetManagement/hooks/
 import { hasReachedExpectedStatus } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
 import { parseFilterFromURL } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import { FLEET_VISIBLE_PAIRING_STATUSES } from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
+import { inventoryAncestorsFromURL } from "@/protoFleet/features/fleetManagement/utils/inventoryFilterUrl";
 import { encodeSortToURL, parseSortFromURL } from "@/protoFleet/features/fleetManagement/utils/sortUrlParams";
 import type { FilterLabelSource } from "@/protoFleet/features/fleetManagement/views/viewSummary";
 import Miners from "@/protoFleet/features/onboarding/components/Miners";
@@ -45,6 +49,7 @@ import { isPathScopable } from "@/protoFleet/routing/siteScope";
 import { useHasPermission } from "@/protoFleet/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import { SORT_ASC, SORT_DESC } from "@/shared/components/List/types";
+import { useMountedCallback } from "@/shared/hooks/useMountedCallback";
 
 // Default sort: Name ascending (alphabetical A-Z)
 const DEFAULT_SORT_CONFIG: SortConfig = create(SortConfigSchema, {
@@ -87,6 +92,9 @@ const Fleet = () => {
   const navigate = useNavigate();
   // ListDeviceSets (racks + groups) is rack:read-gated; skip those fetches
   // without it so the miner list opens cleanly (filters just degrade to empty).
+  const canReadInventorySites = useHasPermission("site:read");
+  const canReadInventoryFleet = useHasPermission("fleet:read");
+  const useInventory = canReadInventorySites && canReadInventoryFleet;
   const canReadRacks = useHasPermission("rack:read");
   const { listGroups, listRacks } = useDeviceSets();
   const { listAllBuildings } = useBuildings();
@@ -100,6 +108,7 @@ const Fleet = () => {
     minersChangedAt,
     publishViewFilterContext,
   } = useFleetOutletContext();
+  const refreshAfterAction = useMountedCallback(notifyMinersChanged);
   // Validate scope against catalog *access* (authoritative now), not
   // sitesLoaded — a mid-session PermissionDenied clears `sites` to [] while
   // sitesLoaded stays true, which would otherwise strip a reachable scoped
@@ -152,6 +161,9 @@ const Fleet = () => {
 
   // Get filter and sort from URL - memoize to avoid recreating on every render
   const [searchParams] = useSearchParams();
+  const inventoryAncestors = useMemo(() => inventoryAncestorsFromURL(searchParams), [searchParams]);
+  const availableContainers = useContainerFilterOptions(useInventory);
+  const availableTanks = useTankFilterOptions(useInventory);
   const urlFilter = useMemo(() => parseFilterFromURL(searchParams), [searchParams]);
   // currentFilter folds the SitePicker's active site into the URL filter so
   // every downstream query (list, count, auth-needed, CSV) is scoped.
@@ -160,7 +172,7 @@ const Fleet = () => {
     [urlFilter, activeSiteIds, activeIncludeUnassigned],
   );
   const currentFilter = currentScopedFilter.filter;
-  const siteScopeMatchesNoRows = currentScopedFilter.matchNone;
+  const siteScopeMatchesNoRows = currentScopedFilter.matchNone || (!useInventory && inventoryAncestors.length > 0);
   const currentSortConfig = useMemo(() => parseSortFromURL(searchParams) ?? DEFAULT_SORT_CONFIG, [searchParams]);
 
   // Convert proto SortField to MinerColumn for UI component
@@ -188,11 +200,12 @@ const Fleet = () => {
   } = useAuthNeededMiners({
     pageSize: 1,
     filter: currentFilter,
-    enabled: !siteScopeMatchesNoRows,
+    enabled: !siteScopeMatchesNoRows && inventoryAncestors.length === 0,
   });
   const totalAuthNeededMinersFresh = totalAuthNeededMinersInitialLoadCompleted && !totalAuthNeededMinersLoading;
   const { exportCsv, isExportingCsv } = useExportMinerListCsv({
     filter: currentFilter,
+    enabled: !siteScopeMatchesNoRows && inventoryAncestors.length === 0,
   });
 
   // Fetch unfiltered total count for the "X of Y miners" header display.
@@ -211,6 +224,7 @@ const Fleet = () => {
     return applySiteScopeToMinerFilter(urlSiteFilter, activeSiteIds, activeIncludeUnassigned).filter;
   }, [urlFilter, activeSiteIds, activeIncludeUnassigned]);
   const { totalMiners: totalUnfilteredMiners, refreshCurrentPage: refreshUnfilteredCount } = useFleet({
+    inventory: useInventory,
     pageSize: 1,
     filter: siteScopedTotalFilter,
     pairingStatuses: FLEET_VISIBLE_PAIRING_STATUSES,
@@ -219,6 +233,8 @@ const Fleet = () => {
 
   // Fetch all devices (both paired and unpaired) with a single API call
   const {
+    inventoryItems,
+    inventoryMinerCount,
     minerIds,
     miners,
     totalMiners,
@@ -235,6 +251,8 @@ const Fleet = () => {
     goToNextPage,
     goToPrevPage,
   } = useFleet({
+    inventory: useInventory,
+    ancestors: inventoryAncestors,
     pageSize: MINERS_PAGE_SIZE,
     filter: currentFilter,
     sort: currentSortConfig,
@@ -317,8 +335,18 @@ const Fleet = () => {
       availableRacks,
       availableBuildings: readableAvailableBuildings,
       availableSites,
+      availableContainers,
+      availableTanks,
     });
-  }, [publishViewFilterContext, availableGroups, availableRacks, readableAvailableBuildings, availableSites]);
+  }, [
+    publishViewFilterContext,
+    availableGroups,
+    availableRacks,
+    readableAvailableBuildings,
+    availableSites,
+    availableContainers,
+    availableTanks,
+  ]);
 
   const refetchAll = useCallback(() => {
     refetch();
@@ -363,8 +391,20 @@ const Fleet = () => {
 
   return (
     <>
+      {!useInventory && inventoryAncestors.length > 0 ? (
+        <p className="px-6 pt-4 text-300 text-text-primary-70 laptop:px-10">
+          Container and tank filters require access to container inventory.
+        </p>
+      ) : null}
+      {useInventory && miningInventoryRequest(currentFilter, undefined, inventoryAncestors).minerFilter ? (
+        <p className="px-6 pt-4 text-300 text-text-primary-70 laptop:px-10">
+          These filters apply to miners. Clear them to include modules.
+        </p>
+      ) : null}
       <ErrorBoundary>
         <MinerList
+          inventoryItems={siteScopeMatchesNoRows ? [] : inventoryItems}
+          inventoryMinerCount={siteScopeMatchesNoRows ? 0 : inventoryMinerCount}
           title={insideFleetShell ? undefined : "Miners"}
           minerIds={siteScopeMatchesNoRows ? [] : minerIds}
           miners={siteScopeMatchesNoRows ? {} : miners}
@@ -400,11 +440,13 @@ const Fleet = () => {
           availableRacks={availableRacks}
           availableSites={availableSites}
           availableBuildings={readableAvailableBuildings}
+          availableContainers={useInventory ? availableContainers : undefined}
+          availableTanks={useInventory ? availableTanks : undefined}
           currentFilter={currentFilter}
           currentSortConfig={currentSortConfig}
-          onExportCsv={siteScopeMatchesNoRows ? () => undefined : exportCsv}
+          onExportCsv={inventoryAncestors.length > 0 ? undefined : siteScopeMatchesNoRows ? () => undefined : exportCsv}
           exportCsvLoading={siteScopeMatchesNoRows ? false : isExportingCsv}
-          onRefetchMiners={notifyMinersChanged}
+          onRefetchMiners={refreshAfterAction}
           onRefreshMinersComplete={refreshVisibleRows}
           onWorkerNameUpdated={updateMinerWorkerName}
           onMergeMiners={mergeMiners}
@@ -416,7 +458,6 @@ const Fleet = () => {
         <Miners
           mode="pairing"
           onExit={handleAddMinersClose}
-          pairedMinerIds={minerIds}
           onPairingCompleted={notifyPairingCompleted}
           onRefetchMiners={refetchAll}
         />

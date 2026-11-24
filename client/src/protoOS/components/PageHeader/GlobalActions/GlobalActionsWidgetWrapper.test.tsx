@@ -67,12 +67,6 @@ describe("GlobalActionsWidgetWrapper", () => {
     });
   });
 
-  test("renders GlobalActionsWidget", () => {
-    const { container } = render(<GlobalActionsWidgetWrapper />);
-    const button = container.querySelector("button");
-    expect(button).toBeInTheDocument();
-  });
-
   test("sets pausedAuthAction and calls checkAccess when Blink LEDs is clicked", () => {
     const { container, getByText } = render(<GlobalActionsWidgetWrapper />);
 

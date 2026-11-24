@@ -7,7 +7,6 @@ package sqlc
 
 import (
 	"context"
-	"database/sql"
 	"time"
 
 	"github.com/lib/pq"
@@ -347,7 +346,7 @@ SELECT
     chip_count_kind,
     chip_frequency_mhz,
     health,
-    site_id
+    site_id, metric_semantics, coverage, topology_observation_id, topology_version_id
 FROM device_metrics
 WHERE time >= $1
   AND time <= $2
@@ -397,6 +396,10 @@ func (q *Queries) GetAllDeviceMetricsTimeSeries(ctx context.Context, arg GetAllD
 			&i.ChipFrequencyMhz,
 			&i.Health,
 			&i.SiteID,
+			&i.MetricSemantics,
+			&i.Coverage,
+			&i.TopologyObservationID,
+			&i.TopologyVersionID,
 		); err != nil {
 			return nil, err
 		}
@@ -889,7 +892,7 @@ SELECT
     chip_count_kind,
     chip_frequency_mhz,
     health,
-    site_id
+    site_id, metric_semantics, coverage, topology_observation_id, topology_version_id
 FROM device_metrics
 WHERE device_identifier = ANY($3::text[])
   AND time >= $1
@@ -944,6 +947,10 @@ func (q *Queries) GetDeviceMetricsTimeSeries(ctx context.Context, arg GetDeviceM
 			&i.ChipFrequencyMhz,
 			&i.Health,
 			&i.SiteID,
+			&i.MetricSemantics,
+			&i.Coverage,
+			&i.TopologyObservationID,
+			&i.TopologyVersionID,
 		); err != nil {
 			return nil, err
 		}
@@ -1135,7 +1142,7 @@ SELECT DISTINCT ON (device_identifier)
     chip_count_kind,
     chip_frequency_mhz,
     health,
-    site_id
+    site_id, metric_semantics, coverage, topology_observation_id, topology_version_id
 FROM device_metrics
 WHERE time >= $1
 ORDER BY device_identifier, time DESC
@@ -1175,6 +1182,10 @@ func (q *Queries) GetLatestAllDeviceMetrics(ctx context.Context, argTime time.Ti
 			&i.ChipFrequencyMhz,
 			&i.Health,
 			&i.SiteID,
+			&i.MetricSemantics,
+			&i.Coverage,
+			&i.TopologyObservationID,
+			&i.TopologyVersionID,
 		); err != nil {
 			return nil, err
 		}
@@ -1214,10 +1225,10 @@ SELECT
     dm.chip_count_kind,
     dm.chip_frequency_mhz,
     dm.health,
-    dm.site_id
+    dm.site_id, dm.metric_semantics, dm.coverage, dm.topology_observation_id, dm.topology_version_id
 FROM unnest($2::text[]) AS ids(device_identifier)
 CROSS JOIN LATERAL (
-    SELECT time, device_identifier, hash_rate_hs, hash_rate_hs_kind, temp_c, temp_c_kind, fan_rpm, fan_rpm_kind, power_w, power_w_kind, efficiency_jh, efficiency_jh_kind, voltage_v, voltage_v_kind, current_a, current_a_kind, inlet_temp_c, outlet_temp_c, ambient_temp_c, chip_count, chip_count_kind, chip_frequency_mhz, health, site_id
+    SELECT time, device_identifier, hash_rate_hs, hash_rate_hs_kind, temp_c, temp_c_kind, fan_rpm, fan_rpm_kind, power_w, power_w_kind, efficiency_jh, efficiency_jh_kind, voltage_v, voltage_v_kind, current_a, current_a_kind, inlet_temp_c, outlet_temp_c, ambient_temp_c, chip_count, chip_count_kind, chip_frequency_mhz, health, site_id, metric_semantics, coverage, topology_observation_id, topology_version_id
     FROM device_metrics
     WHERE device_metrics.device_identifier = ids.device_identifier
       AND device_metrics.time >= $1
@@ -1265,6 +1276,80 @@ func (q *Queries) GetLatestDeviceMetrics(ctx context.Context, arg GetLatestDevic
 			&i.ChipFrequencyMhz,
 			&i.Health,
 			&i.SiteID,
+			&i.MetricSemantics,
+			&i.Coverage,
+			&i.TopologyObservationID,
+			&i.TopologyVersionID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getOrgDeviceMetricsDailyAggregates = `-- name: GetOrgDeviceMetricsDailyAggregates :many
+WITH latest_device AS (
+    SELECT DISTINCT ON (d.device_identifier)
+        d.device_identifier,
+        d.org_id
+    FROM device d
+    ORDER BY d.device_identifier, (d.deleted_at IS NULL) DESC, d.updated_at DESC, d.id DESC
+)
+SELECT
+    dmd.bucket,
+    dmd.device_identifier,
+    COALESCE(dmd.avg_hash_rate, 0) AS avg_hash_rate,
+    dmd.max_hash_rate,
+    dmd.min_hash_rate,
+    COALESCE(dmd.avg_temp, 0) AS avg_temp,
+    dmd.max_temp,
+    dmd.min_temp,
+    COALESCE(dmd.avg_power, 0) AS avg_power,
+    COALESCE(dmd.avg_efficiency, 0) AS avg_efficiency,
+    dmd.data_points
+FROM device_metrics_daily dmd
+JOIN latest_device d USING (device_identifier)
+WHERE d.org_id = $1
+  AND dmd.bucket >= $2
+  AND dmd.bucket <= $3
+ORDER BY dmd.bucket ASC
+`
+
+type GetOrgDeviceMetricsDailyAggregatesParams struct {
+	OrgID     int64
+	StartTime time.Time
+	EndTime   time.Time
+}
+
+// Returns daily aggregates for the current devices in an org.
+func (q *Queries) GetOrgDeviceMetricsDailyAggregates(ctx context.Context, arg GetOrgDeviceMetricsDailyAggregatesParams) ([]DeviceMetricsDaily, error) {
+	rows, err := q.query(ctx, q.getOrgDeviceMetricsDailyAggregatesStmt, getOrgDeviceMetricsDailyAggregates, arg.OrgID, arg.StartTime, arg.EndTime)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeviceMetricsDaily
+	for rows.Next() {
+		var i DeviceMetricsDaily
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.DeviceIdentifier,
+			&i.AvgHashRate,
+			&i.MaxHashRate,
+			&i.MinHashRate,
+			&i.AvgTemp,
+			&i.MaxTemp,
+			&i.MinTemp,
+			&i.AvgPower,
+			&i.AvgEfficiency,
+			&i.DataPoints,
 		); err != nil {
 			return nil, err
 		}
@@ -1547,6 +1632,88 @@ func (q *Queries) GetOrgDeviceMetricsRawBucketAggregates(ctx context.Context, ar
 	return items, nil
 }
 
+const getOrgDeviceStatusDailyAggregates = `-- name: GetOrgDeviceStatusDailyAggregates :many
+WITH latest_device AS (
+    SELECT DISTINCT ON (d.device_identifier)
+        d.device_identifier,
+        d.org_id
+    FROM device d
+    ORDER BY d.device_identifier, (d.deleted_at IS NULL) DESC, d.updated_at DESC, d.id DESC
+)
+SELECT
+    dsd.bucket,
+    dsd.device_identifier,
+    dsd.temp_below_0,
+    dsd.temp_0_10,
+    dsd.temp_10_20,
+    dsd.temp_20_30,
+    dsd.temp_30_40,
+    dsd.temp_40_50,
+    dsd.temp_50_60,
+    dsd.temp_60_70,
+    dsd.temp_70_80,
+    dsd.temp_80_90,
+    dsd.temp_90_100,
+    dsd.temp_100_plus,
+    dsd.hashing_count,
+    dsd.not_hashing_count,
+    dsd.data_points
+FROM device_status_daily dsd
+JOIN latest_device d USING (device_identifier)
+WHERE d.org_id = $1
+  AND dsd.bucket >= $2
+  AND dsd.bucket <= $3
+ORDER BY dsd.bucket ASC
+`
+
+type GetOrgDeviceStatusDailyAggregatesParams struct {
+	OrgID     int64
+	StartTime time.Time
+	EndTime   time.Time
+}
+
+// Returns daily status aggregates for the current devices in an org.
+func (q *Queries) GetOrgDeviceStatusDailyAggregates(ctx context.Context, arg GetOrgDeviceStatusDailyAggregatesParams) ([]DeviceStatusDaily, error) {
+	rows, err := q.query(ctx, q.getOrgDeviceStatusDailyAggregatesStmt, getOrgDeviceStatusDailyAggregates, arg.OrgID, arg.StartTime, arg.EndTime)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeviceStatusDaily
+	for rows.Next() {
+		var i DeviceStatusDaily
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.DeviceIdentifier,
+			&i.TempBelow0,
+			&i.Temp010,
+			&i.Temp1020,
+			&i.Temp2030,
+			&i.Temp3040,
+			&i.Temp4050,
+			&i.Temp5060,
+			&i.Temp6070,
+			&i.Temp7080,
+			&i.Temp8090,
+			&i.Temp90100,
+			&i.Temp100Plus,
+			&i.HashingCount,
+			&i.NotHashingCount,
+			&i.DataPoints,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getOrgDeviceStatusHourlyAggregates = `-- name: GetOrgDeviceStatusHourlyAggregates :many
 WITH latest_device AS (
     SELECT DISTINCT ON (d.device_identifier)
@@ -1629,8 +1796,7 @@ func (q *Queries) GetOrgDeviceStatusHourlyAggregates(ctx context.Context, arg Ge
 	return items, nil
 }
 
-const insertDeviceMetrics = `-- name: InsertDeviceMetrics :exec
-
+const insertDeviceMetricsBatch = `-- name: InsertDeviceMetricsBatch :exec
 INSERT INTO device_metrics (
     time,
     device_identifier,
@@ -1644,95 +1810,101 @@ INSERT INTO device_metrics (
     power_w_kind,
     efficiency_jh,
     efficiency_jh_kind,
-    voltage_v,
-    voltage_v_kind,
-    current_a,
-    current_a_kind,
-    inlet_temp_c,
-    outlet_temp_c,
-    ambient_temp_c,
-    chip_count,
-    chip_count_kind,
-    chip_frequency_mhz,
     health,
     site_id
-) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-    $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-    $21, $22, $23,
+) SELECT
+    metrics.time,
+    metrics.device_identifier,
+    CASE WHEN metrics.hash_rate_hs_kind <> '' THEN metrics.hash_rate_hs END,
+    NULLIF(metrics.hash_rate_hs_kind, ''),
+    CASE WHEN metrics.temp_c_kind <> '' THEN metrics.temp_c END,
+    NULLIF(metrics.temp_c_kind, ''),
+    CASE WHEN metrics.fan_rpm_kind <> '' THEN metrics.fan_rpm END,
+    NULLIF(metrics.fan_rpm_kind, ''),
+    CASE WHEN metrics.power_w_kind <> '' THEN metrics.power_w END,
+    NULLIF(metrics.power_w_kind, ''),
+    CASE WHEN metrics.efficiency_jh_kind <> '' THEN metrics.efficiency_jh END,
+    NULLIF(metrics.efficiency_jh_kind, ''),
+    metrics.health,
     (
         SELECT site_id
         FROM device
-        WHERE device_identifier = $2
+        WHERE device_identifier = metrics.device_identifier
         ORDER BY (deleted_at IS NULL) DESC, updated_at DESC, id DESC
         LIMIT 1
     )
-) ON CONFLICT (time, device_identifier) DO NOTHING
+FROM (
+    SELECT
+        unnest($1::timestamptz[]) AS time,
+        unnest($2::text[]) AS device_identifier,
+        unnest($3::double precision[]) AS hash_rate_hs,
+        unnest($4::text[]) AS hash_rate_hs_kind,
+        unnest($5::double precision[]) AS temp_c,
+        unnest($6::text[]) AS temp_c_kind,
+        unnest($7::double precision[]) AS fan_rpm,
+        unnest($8::text[]) AS fan_rpm_kind,
+        unnest($9::double precision[]) AS power_w,
+        unnest($10::text[]) AS power_w_kind,
+        unnest($11::double precision[]) AS efficiency_jh,
+        unnest($12::text[]) AS efficiency_jh_kind,
+        unnest($13::text[]) AS health
+) AS metrics
+ON CONFLICT (time, device_identifier) DO NOTHING
 `
 
-type InsertDeviceMetricsParams struct {
-	Time             time.Time
-	DeviceIdentifier string
-	HashRateHs       sql.NullFloat64
-	HashRateHsKind   sql.NullString
-	TempC            sql.NullFloat64
-	TempCKind        sql.NullString
-	FanRpm           sql.NullFloat64
-	FanRpmKind       sql.NullString
-	PowerW           sql.NullFloat64
-	PowerWKind       sql.NullString
-	EfficiencyJh     sql.NullFloat64
-	EfficiencyJhKind sql.NullString
-	VoltageV         sql.NullFloat64
-	VoltageVKind     sql.NullString
-	CurrentA         sql.NullFloat64
-	CurrentAKind     sql.NullString
-	InletTempC       sql.NullFloat64
-	OutletTempC      sql.NullFloat64
-	AmbientTempC     sql.NullFloat64
-	ChipCount        sql.NullInt32
-	ChipCountKind    sql.NullString
-	ChipFrequencyMhz sql.NullFloat64
-	Health           sql.NullString
+type InsertDeviceMetricsBatchParams struct {
+	Times             []time.Time
+	DeviceIdentifiers []string
+	HashRateHs        []float64
+	HashRateHsKinds   []string
+	TempC             []float64
+	TempCKinds        []string
+	FanRpm            []float64
+	FanRpmKinds       []string
+	PowerW            []float64
+	PowerWKinds       []string
+	EfficiencyJh      []float64
+	EfficiencyJhKinds []string
+	Health            []string
 }
 
-// Telemetry queries for device_metrics table and continuous aggregates
-// Note: All device identification uses device_identifier (TEXT), not device_id (BIGINT)
+// Inserts one row per element of the parallel arrays. An empty kind marks
+// an absent measurement, so its value is stored as NULL rather than 0.
 // site_id is row-stamped from device.site_id (looked up by
 // device_identifier) so per-site telemetry filters use the row-stamped
-// site even after the device is reassigned. Inline sub-select rather
-// than a CTE+SELECT INSERT — ON CONFLICT on the device_metrics
-// hypertable PK requires VALUES-shape INSERT. The sub-select does NOT
+// site even after the device is reassigned. The sub-select does NOT
 // filter by deleted_at: telemetry from a soft-deleted device is still
 // legitimate per-site history, matching InsertError /
 // InsertMinerStateSnapshot which also stamp from the device row
 // regardless of soft-delete state. Duplicate historical identifiers are
 // resolved deterministically, preferring the live device row.
-func (q *Queries) InsertDeviceMetrics(ctx context.Context, arg InsertDeviceMetricsParams) error {
-	_, err := q.exec(ctx, q.insertDeviceMetricsStmt, insertDeviceMetrics,
-		arg.Time,
-		arg.DeviceIdentifier,
-		arg.HashRateHs,
-		arg.HashRateHsKind,
-		arg.TempC,
-		arg.TempCKind,
-		arg.FanRpm,
-		arg.FanRpmKind,
-		arg.PowerW,
-		arg.PowerWKind,
-		arg.EfficiencyJh,
-		arg.EfficiencyJhKind,
-		arg.VoltageV,
-		arg.VoltageVKind,
-		arg.CurrentA,
-		arg.CurrentAKind,
-		arg.InletTempC,
-		arg.OutletTempC,
-		arg.AmbientTempC,
-		arg.ChipCount,
-		arg.ChipCountKind,
-		arg.ChipFrequencyMhz,
-		arg.Health,
+func (q *Queries) InsertDeviceMetricsBatch(ctx context.Context, arg InsertDeviceMetricsBatchParams) error {
+	_, err := q.exec(ctx, q.insertDeviceMetricsBatchStmt, insertDeviceMetricsBatch,
+		pq.Array(arg.Times),
+		pq.Array(arg.DeviceIdentifiers),
+		pq.Array(arg.HashRateHs),
+		pq.Array(arg.HashRateHsKinds),
+		pq.Array(arg.TempC),
+		pq.Array(arg.TempCKinds),
+		pq.Array(arg.FanRpm),
+		pq.Array(arg.FanRpmKinds),
+		pq.Array(arg.PowerW),
+		pq.Array(arg.PowerWKinds),
+		pq.Array(arg.EfficiencyJh),
+		pq.Array(arg.EfficiencyJhKinds),
+		pq.Array(arg.Health),
 	)
+	return err
+}
+
+const setLocalTelemetryLockTimeout = `-- name: SetLocalTelemetryLockTimeout :exec
+
+SELECT set_config('lock_timeout', $1::BIGINT::TEXT || 'ms', TRUE)
+`
+
+// Telemetry queries for device_metrics table and continuous aggregates
+// Note: All device identification uses device_identifier (TEXT), not device_id (BIGINT)
+func (q *Queries) SetLocalTelemetryLockTimeout(ctx context.Context, timeoutMilliseconds int64) error {
+	_, err := q.exec(ctx, q.setLocalTelemetryLockTimeoutStmt, setLocalTelemetryLockTimeout, timeoutMilliseconds)
 	return err
 }

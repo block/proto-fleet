@@ -10,14 +10,18 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
+
 	"buf.build/go/protovalidate"
 	"connectrpc.com/connect"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/plugins"
+	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
@@ -66,6 +70,18 @@ func newPluginPairer(manager *plugins.Manager, credentials credentialSealer) *pl
 
 func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePairTarget, creds *pairingpb.Credentials) *pb.FleetNodePairResult {
 	res := &pb.FleetNodePairResult{DeviceIdentifier: target.GetDeviceIdentifier()}
+	if err := validateTargetAddresses(target.GetIpAddress(), target.GetEndpoints()); err != nil {
+		res.Outcome = pb.PairOutcome_PAIR_OUTCOME_ERROR
+		res.ErrorMessage = err.Error()
+		return res
+	}
+	// Pairing passes the plugin's discovered scheme through unchanged. Plugins
+	// may use schemes outside the command dialer's supported protocol list.
+	if scheme := target.GetUrlScheme(); scheme != "" && !networking.IsValidURLScheme(scheme) {
+		res.Outcome = pb.PairOutcome_PAIR_OUTCOME_ERROR
+		res.ErrorMessage = fmt.Sprintf("url_scheme %q is not a valid scheme", scheme)
+		return res
+	}
 
 	plugin, err := p.manager.GetPluginByDriverNameWithCapability(target.GetDriverName(), sdk.CapabilityPairing)
 	if err != nil {
@@ -84,8 +100,22 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 		Host:            target.GetIpAddress(),
 		Port:            port,
 		URLScheme:       target.GetUrlScheme(),
+		RPCPort:         target.GetRpcPort(),
+		RPCTLS:          target.GetRpcTls(),
+		Endpoints:       deviceendpoints.ToSDK(target.GetEndpoints()),
 		Manufacturer:    target.GetManufacturer(),
 		FirmwareVersion: target.GetFirmwareVersion(),
+		DeviceClass:     sdk.DeviceClass(target.GetDeviceClass()),
+	}
+	pairDevice := func(bundle sdk.SecretBundle) (sdk.DeviceInfo, error) {
+		updated, err := plugin.Driver.PairDevice(ctx, deviceInfo, bundle)
+		if err != nil {
+			return sdk.DeviceInfo{}, err
+		}
+		if err := deviceendpoints.ValidatePairingResult(deviceInfo.Endpoints, updated.Endpoints); err != nil {
+			return sdk.DeviceInfo{}, err
+		}
+		return updated, nil
 	}
 
 	if bundle, ok := secretBundleFor(plugin.Caps, creds); ok {
@@ -100,13 +130,31 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 			res.ErrorMessage = truncateUTF8(fmt.Sprintf("encrypt credentials: %v", err), maxAckErrorMessageBytes)
 			return res
 		}
-		updated, pairErr := plugin.Driver.PairDevice(ctx, deviceInfo, bundle)
+		updated, pairErr := pairDevice(bundle)
 		if pairErr != nil {
 			classifyNodePairError(pairErr, res)
 			return res
 		}
 		setPaired(res, updated)
 		res.EncryptedCredentials = encrypted
+		return res
+	}
+
+	// A container may expose public MDK reads. Let its plugin decide; never
+	// borrow a rig factory password and report it as a verified credential.
+	if deviceInfo.DeviceClass == sdk.DeviceClassContainer {
+		updated, pairErr := pairDevice(sdk.SecretBundle{Version: "v1"})
+		if pairErr != nil {
+			if isNodeAuthFailure(pairErr) {
+				// The controller requires a credential none was supplied for.
+				res.Outcome = pb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED
+				res.ErrorMessage = "credentials required for pairing"
+				return res
+			}
+			classifyNodePairError(pairErr, res)
+			return res
+		}
+		setPaired(res, updated)
 		return res
 	}
 
@@ -123,7 +171,7 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 				res.ErrorMessage = truncateUTF8(fmt.Sprintf("encrypt credentials: %v", err), maxAckErrorMessageBytes)
 				return res
 			}
-			updated, pairErr := plugin.Driver.PairDevice(ctx, deviceInfo, bundle)
+			updated, pairErr := pairDevice(bundle)
 			if pairErr != nil {
 				if isNodeAuthFailure(pairErr) {
 					continue
@@ -170,6 +218,7 @@ func setPaired(res *pb.FleetNodePairResult, info sdk.DeviceInfo) {
 	res.Outcome = pb.PairOutcome_PAIR_OUTCOME_PAIRED
 	res.SerialNumber = truncateUTF8(info.SerialNumber, maxPairIdentityBytes)
 	res.MacAddress = truncateUTF8(info.MacAddress, maxPairMACBytes)
+	res.DeviceClass = commonpb.DeviceClass(info.DeviceClass)
 	res.Model = truncateUTF8(info.Model, maxPairIdentityBytes)
 	res.Manufacturer = truncateUTF8(info.Manufacturer, maxPairIdentityBytes)
 	res.FirmwareVersion = truncateUTF8(info.FirmwareVersion, maxPairIdentityBytes)

@@ -8,7 +8,6 @@ import (
 )
 
 // GetInfo extracts session information from the context.
-// This replaces token.GetClientAuthJWTClaims for session-based authentication.
 func GetInfo(ctx context.Context) (*Info, error) {
 	info, ok := authn.GetInfo(ctx).(*Info)
 	if !ok {

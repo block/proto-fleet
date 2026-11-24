@@ -6,6 +6,7 @@ import "google/protobuf/timestamp.proto";
 import "google/protobuf/duration.proto";
 import "buf/validate/validate.proto";
 import "common/v1/measurement.proto";
+import "common/v1/common.proto";
 
 // Service for retrieving telemetry data from mining devices
 service TelemetryService {
@@ -256,6 +257,11 @@ message FleetNodeTelemetryRequest {
   bytes credential_username = 13 [(buf.validate.field).bytes.max_len = 4096];
   bytes credential_password = 14 [(buf.validate.field).bytes.max_len = 4096];
   google.protobuf.Duration timeout = 15;
+  common.v1.DeviceClass device_class = 16 [(buf.validate.field).enum.defined_only = true];
+  // Independent native RPC listener on the same host; zero uses the driver default.
+  int32 rpc_port = 17 [(buf.validate.field).int32 = {gte: 0, lte: 65535}];
+  bool rpc_tls = 18;
+  repeated common.v1.DeviceEndpoint endpoints = 19 [(buf.validate.field).repeated.max_items = 16];
 }
 
 message FleetNodeTelemetryResult {
@@ -276,7 +282,20 @@ message FleetNodeTelemetryResult {
   // JSON encoding of server/internal/domain/telemetry/models/v2.DeviceMetrics.
   // This preserves component-level metrics without duplicating the V2 model in
   // the control proto. Scalar fields above remain for validation and fallback.
-  bytes device_metrics_json = 14 [(buf.validate.field).bytes.max_len = 262144];
+  // Allow CT1 topology and board observations while leaving envelope space in
+  // the 8 MiB ControlAck payload. Keep the node-side encoder limit in sync.
+  bytes device_metrics_json = 14 [(buf.validate.field).bytes.max_len = 8323072];
+  // Whole elapsed seconds since device boot; absent means unknown, zero is valid.
+  optional uint64 uptime_seconds = 15;
+  // Age of the uptime observation when the node builds this result, including
+  // time spent in the plugin cache. The server derives a conservative observation
+  // time from its own request start and this age, avoiding node clock skew.
+  // Missing or negative age provides no reboot evidence to the server.
+  google.protobuf.Duration uptime_observation_age = 16;
+  // Age of the telemetry snapshot at response assembly, preserving cached data's
+  // original timestamp. Absent means no trustworthy observation time. The server
+  // subtracts this age from its own request start to avoid node clock skew.
+  google.protobuf.Duration telemetry_observation_age = 17;
 }
 
 message GetCombinedMetricsRequest {
@@ -312,6 +331,12 @@ message AggregatedValue {
     double value = 2; // e.g., 75.5 for AVERAGE, 1000 for MAX
 }
 message Metric {
+    // Present for saved physical equipment rollups. Counts use the metric
+    // contributor unit, independently of device_count.
+    optional int32 reporting_count = 5;
+    optional int32 expected_count = 6;
+    optional bool coverage_complete = 7;
+    optional int32 metric_semantics = 8;
     MeasurementType measurement_type = 1;
     google.protobuf.Timestamp open_time = 2;
     repeated AggregatedValue aggregated_values = 3; // e.g., AVERAGE, MIN, MAX

@@ -31,6 +31,9 @@ type CommandFilterInput struct {
 	Actor             session.Actor
 	Source            session.Source
 	DeviceIdentifiers []string
+	// FirmwareComponent is the component a FirmwareUpdate command updates;
+	// empty for a device's main firmware and for every other command.
+	FirmwareComponent string
 }
 
 // CommandFilterOutput partitions identifiers into kept and skipped.

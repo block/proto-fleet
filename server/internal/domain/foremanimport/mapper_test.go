@@ -3,7 +3,9 @@ package foremanimport
 import (
 	"testing"
 
+	"github.com/block/proto-fleet/server/internal/infrastructure/foreman"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseModel(t *testing.T) {
@@ -60,36 +62,18 @@ func TestParseModel(t *testing.T) {
 	}
 }
 
-func TestPoolNameFromURL(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "strips port",
-			input:    "mine.ocean.xyz:3334",
-			expected: "mine.ocean.xyz",
-		},
-		{
-			name:     "no port returns as-is",
-			input:    "mine.ocean.xyz",
-			expected: "mine.ocean.xyz",
-		},
-		{
-			name:     "stratum prefix with port strips scheme and port",
-			input:    "stratum+tcp://ca.stratum.braiins.com:3333",
-			expected: "ca.stratum.braiins.com",
-		},
+func TestNormalizeForemanData_OmitsPoolsAndDoesNotInferWorkerNames(t *testing.T) {
+	miners := []foreman.Miner{
+		{ID: 1, Name: "North miner", Pools: []foreman.Pool{{URL: "pool.example:3333", Worker: "wallet.main.worker1"}}},
+		{ID: 2, Pools: []foreman.Pool{{URL: "pool.example:3333", Worker: "wallet.main.worker2"}}},
+		{ID: 3, Pools: []foreman.Pool{{URL: "pool.example:3333", Worker: "wallet.main.worker1"}}},
 	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			// Act
-			result := poolNameFromURL(tc.input)
-
-			// Assert
-			assert.Equal(t, tc.expected, result)
-		})
+	data := normalizeForemanData(miners, nil, nil)
+	require.Empty(t, data.Pools, "Foreman import must not build configurations from observed pool usernames")
+	require.Len(t, data.Miners, len(miners))
+	assert.Equal(t, "North miner", data.Miners[0].Name)
+	for _, miner := range data.Miners {
+		assert.Empty(t, miner.WorkerName)
 	}
+	assert.Equal(t, "wallet.main.worker1", miners[0].Pools[0].Worker)
 }

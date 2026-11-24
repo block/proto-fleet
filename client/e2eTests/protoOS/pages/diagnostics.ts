@@ -34,15 +34,19 @@ export class DiagnosticsPage extends BasePage {
     return this.section(sectionTestIdName).getByTestId("card").nth(index);
   }
 
+  private infoButton(sectionTestIdName: string, cardIndex: number) {
+    const name = sectionTestIdName === "Hashboards" ? `Slot ${cardIndex + 1} info` : "More info";
+    return this.cardInSection(sectionTestIdName, cardIndex).getByRole("button", { name, exact: true });
+  }
+
   async cardHasMoreInfoButton(sectionTestIdName: string, cardIndex: number): Promise<boolean> {
-    const card = this.cardInSection(sectionTestIdName, cardIndex);
-    return (await card.getByRole("button", { name: "More info" }).count()) > 0;
+    return (await this.infoButton(sectionTestIdName, cardIndex).count()) > 0;
   }
 
   async validateEmptySlotCard(sectionTestIdName: string, cardIndex: number, expectedText: string | RegExp) {
     const card = this.cardInSection(sectionTestIdName, cardIndex);
     await expect(card.getByText(expectedText)).toBeVisible();
-    await expect(card.getByRole("button", { name: "More info" })).toHaveCount(0);
+    await expect(this.infoButton(sectionTestIdName, cardIndex)).toHaveCount(0);
   }
 
   async validateCardInfoOrEmptySlot(
@@ -53,6 +57,7 @@ export class DiagnosticsPage extends BasePage {
       metadata: Array<{ label: string }>;
       emptySlotText: RegExp;
       allowExtraMetadataRows?: boolean;
+      dialogName?: string;
     },
   ): Promise<"info" | "empty"> {
     const hasMoreInfo = await this.cardHasMoreInfoButton(sectionTestIdName, cardIndex);
@@ -63,6 +68,9 @@ export class DiagnosticsPage extends BasePage {
     }
 
     await this.openMoreInfoForCard(sectionTestIdName, cardIndex);
+    if (expected.dialogName) {
+      await expect(this.page.getByRole("dialog", { name: expected.dialogName, exact: true })).toBeVisible();
+    }
     await this.validateStatusModalMetrics(expected.metrics);
     await this.validateStatusModalMetadataRows(expected.metadata, { allowExtraRows: expected.allowExtraMetadataRows });
     await this.closeStatusModal();
@@ -70,8 +78,7 @@ export class DiagnosticsPage extends BasePage {
   }
 
   async openMoreInfoForCard(sectionTestIdName: string, cardIndex: number) {
-    const card = this.cardInSection(sectionTestIdName, cardIndex);
-    await card.getByRole("button", { name: "More info" }).click();
+    await this.infoButton(sectionTestIdName, cardIndex).click();
     await this.validateModalIsOpen();
   }
 

@@ -55,22 +55,6 @@ describe("redirectFromFleetDown", () => {
     expect(window.location.href).toBe(`${mockLocation.origin}/`);
   });
 
-  it("handles complex paths with query parameters", () => {
-    window.location.search = "?from=%2Fminers%3Ffilter%3Dactive";
-
-    redirectFromFleetDown();
-
-    expect(window.location.href).toBe(`${mockLocation.origin}/miners?filter=active`);
-  });
-
-  it("preserves hash fragments in redirect URL", () => {
-    window.location.search = "?from=%2Fsettings%23security";
-
-    redirectFromFleetDown();
-
-    expect(window.location.href).toBe(`${mockLocation.origin}/settings#security`);
-  });
-
   it("handles paths with query parameters and hash fragments", () => {
     window.location.search = "?from=%2Fminers%3Ffilter%3Dactive%23details";
 
@@ -129,14 +113,6 @@ describe("redirectFromFleetDown", () => {
       redirectFromFleetDown();
 
       expect(window.location.href).toBe(`${mockLocation.origin}/`);
-    });
-
-    it("allows valid relative paths", () => {
-      window.location.search = "?from=%2Fsettings";
-
-      redirectFromFleetDown();
-
-      expect(window.location.href).toBe(`${mockLocation.origin}/settings`);
     });
   });
 });

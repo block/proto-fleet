@@ -5,7 +5,10 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
+	"connectrpc.com/connect"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
@@ -54,32 +57,43 @@ func TestEmitTerminalCommandDropsZeroOrgID(t *testing.T) {
 	require.Empty(t, rec.events[0].SiteID)
 }
 
-// every commandtype.Type must produce a stable, lower_snake_case label string.
+// The kind label of fleet_command_total is a metric contract. Each
+// commandtype.Type has one fixed lower_snake_case label.
 func TestCommandKindLabelCoversEveryCommandType(t *testing.T) {
-	allTypes := []commandtype.Type{
-		commandtype.StartMining,
-		commandtype.StopMining,
-		commandtype.SetCoolingMode,
-		commandtype.SetPowerTarget,
-		commandtype.UpdateMiningPools,
-		commandtype.DownloadLogs,
-		commandtype.Reboot,
-		commandtype.BlinkLED,
-		commandtype.FirmwareUpdate,
-		commandtype.Unpair,
-		commandtype.UpdateMinerPassword,
-		commandtype.Curtail,
-		commandtype.Uncurtail,
-		commandtype.ApplyCurtailmentConfig,
+	labels := map[commandtype.Type]string{
+		commandtype.StartMining:            "start_mining",
+		commandtype.StopMining:             "stop_mining",
+		commandtype.SetCoolingMode:         "set_cooling_mode",
+		commandtype.SetPowerTarget:         "set_power_target",
+		commandtype.UpdateMiningPools:      "update_mining_pools",
+		commandtype.DownloadLogs:           "download_logs",
+		commandtype.Reboot:                 "reboot",
+		commandtype.BlinkLED:               "blink_led",
+		commandtype.FirmwareUpdate:         "firmware_update",
+		commandtype.Unpair:                 "unpair",
+		commandtype.UpdateMinerPassword:    "update_miner_password",
+		commandtype.Curtail:                "curtail",
+		commandtype.Uncurtail:              "uncurtail",
+		commandtype.ApplyCurtailmentConfig: "apply_curtailment_config",
+		commandtype.SetContainerControl:    "set_container_control",
+		commandtype.SetTankMining:          "set_tank_mining",
+		commandtype.SetModuleMining:        "set_module_mining",
+		commandtype.ContainerMining:        "container_mining",
+		commandtype.SetBoardIdentify:       "set_board_identify",
+		commandtype.FrigateServerUpdate:    "frigate_server_update",
+		commandtype.ContainerAlarmAction:   "container_alarm_action",
+		commandtype.ControlPowerFeed:       "control_power_feed",
 	}
-	seen := make(map[string]struct{}, len(allTypes))
-	for _, cmd := range allTypes {
-		label := commandKindLabel(cmd)
-		require.NotEmpty(t, label, "command type %v produced empty label", t)
-		_, dup := seen[label]
-		require.False(t, dup, "command type %v duplicates label %q", t, label)
-		seen[label] = struct{}{}
+
+	// String returns "Undefined" for the first value after the last declared type.
+	declared := 0
+	for cmd := commandtype.StartMining; cmd.String() != "Undefined"; cmd++ {
+		declared++
+		want, ok := labels[cmd]
+		require.True(t, ok, "command type %s has no expected label in this table", cmd.String())
+		require.Equal(t, want, commandKindLabel(cmd), "label of command type %s", cmd.String())
 	}
+	require.Equal(t, len(labels), declared, "the table must have one row for each declared command type")
 }
 
 // emitTerminalCommand with the nop emitter must not panic.
@@ -140,4 +154,34 @@ func TestEmitReapedCommandMetricsNilEmitterIsSafe(t *testing.T) {
 	esNop.emitReapedCommandMetrics(context.Background(), []reapedCommand{
 		{orgID: 1, commandType: "Reboot"},
 	})
+}
+
+type recordingOperationalMetrics struct {
+	started, finished, committed, persistenceFailed int
+	outcomes                                        []string
+}
+
+func (r *recordingOperationalMetrics) CommandStarted(context.Context, string, string, time.Time) {
+	r.started++
+}
+func (r *recordingOperationalMetrics) CommandAttemptFinished(_ context.Context, _, _, result string, _ time.Duration) {
+	r.finished++
+	r.outcomes = append(r.outcomes, result)
+}
+func (r *recordingOperationalMetrics) CommandCommitted(context.Context, string, string, string, time.Time) {
+	r.committed++
+}
+func (r *recordingOperationalMetrics) CommandPersistenceFailed(context.Context, string) {
+	r.persistenceFailed++
+}
+func TestCommandOutcomeDoesNotConfuseCancellationWithSuccess(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	require.Equal(t, "success", commandOutcome(ctx, nil))
+	require.Equal(t, "canceled", commandOutcome(ctx, context.Canceled))
+	require.Equal(t, "timeout", commandOutcome(t.Context(), context.DeadlineExceeded))
+	require.Equal(t, "failure", commandOutcome(t.Context(), errors.New("failure")))
+	require.Equal(t, "canceled", commandOutcome(t.Context(), fleeterror.NewCanceledError()))
+	require.Equal(t, "timeout", commandOutcome(t.Context(), fleeterror.NewPlainError("deadline", connect.CodeDeadlineExceeded)))
+	require.Equal(t, "firmware", commandClass(commandtype.FirmwareUpdate))
 }

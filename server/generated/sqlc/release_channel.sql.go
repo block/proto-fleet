@@ -104,6 +104,7 @@ WITH locked_rollout AS MATERIALIZED (
     WHERE candidate.channel_id = $5
       AND release_channel_pair_key(candidate.manufacturer) = release_channel_pair_key($6::text)
       AND release_channel_pair_key(candidate.model) = release_channel_pair_key($7::text)
+      AND candidate.component = $8::text
       AND candidate.status = 'active'
     FOR UPDATE
 )
@@ -127,6 +128,7 @@ type CancelActiveFirmwareRolloutParams struct {
 	ChannelID    int64
 	Manufacturer string
 	Model        string
+	Component    string
 }
 
 // Cancels the pair's active rollout because its assignment changed:
@@ -143,6 +145,7 @@ func (q *Queries) CancelActiveFirmwareRollout(ctx context.Context, arg CancelAct
 		arg.ChannelID,
 		arg.Manufacturer,
 		arg.Model,
+		arg.Component,
 	)
 	return err
 }
@@ -202,8 +205,9 @@ SET firmware_checksum = '',
 WHERE channel_id = $2
   AND release_channel_pair_key(manufacturer) = release_channel_pair_key($3::text)
   AND release_channel_pair_key(model) = release_channel_pair_key($4::text)
+  AND component = $5::text
   AND firmware_checksum <> ''
-RETURNING channel_id, manufacturer, model, firmware_checksum, firmware_version, firmware_target_manufacturer, firmware_target_model, assignment_generation, assigned_by, updated_at, previous_firmware_checksum, previous_firmware_version
+RETURNING channel_id, manufacturer, model, firmware_checksum, firmware_version, firmware_target_manufacturer, firmware_target_model, assignment_generation, assigned_by, updated_at, previous_firmware_checksum, previous_firmware_version, component
 `
 
 type ClearReleaseChannelFirmwareParams struct {
@@ -211,6 +215,7 @@ type ClearReleaseChannelFirmwareParams struct {
 	ChannelID    int64
 	Manufacturer string
 	Model        string
+	Component    string
 }
 
 // Clears an assigned pair, advancing its generation; the row stays so the
@@ -221,6 +226,7 @@ func (q *Queries) ClearReleaseChannelFirmware(ctx context.Context, arg ClearRele
 		arg.ChannelID,
 		arg.Manufacturer,
 		arg.Model,
+		arg.Component,
 	)
 	var i ReleaseChannelFirmware
 	err := row.Scan(
@@ -236,49 +242,54 @@ func (q *Queries) ClearReleaseChannelFirmware(ctx context.Context, arg ClearRele
 		&i.UpdatedAt,
 		&i.PreviousFirmwareChecksum,
 		&i.PreviousFirmwareVersion,
+		&i.Component,
 	)
 	return i, err
 }
 
 const countReleaseChannelFirmwarePreviewMembers = `-- name: CountReleaseChannelFirmwarePreviewMembers :one
 WITH members AS (
-    SELECT COALESCE(dd.firmware_version, '') = $1::text
-           AND COALESCE(dep.firmware_checksum, '') = $2::text
+    SELECT (reported.version = $1::text) AS version_matches,
+           COALESCE(dep.firmware_checksum, '') = $2::text
            AND NOT EXISTS (
                SELECT 1 FROM queue_message qm
                WHERE qm.device_id = d.id
                  AND qm.command_type = 'FirmwareUpdate'
                  AND qm.status IN ('PENDING', 'PROCESSING')
+                 AND COALESCE(qm.payload->>'firmware_component', '') = $3::text
                  AND CASE WHEN COALESCE(qm.payload->>'firmware_checksum', '') <> ''
                      THEN qm.payload->>'firmware_checksum' <> $2::text
-                     ELSE NOT (COALESCE(qm.payload->>'firmware_file_id', '') = ANY(COALESCE($3::text[], '{}')))
+                     ELSE NOT (COALESCE(qm.payload->>'firmware_file_id', '') = ANY(COALESCE($4::text[], '{}')))
                  END
-           ) AS on_target,
+           ) AS provenance_matches,
            EXISTS (
                SELECT 1 FROM firmware_rollout_suppressed_device s
                WHERE s.channel_id = m.channel_id
                  AND s.device_id = d.id
-                 AND s.manufacturer_key = release_channel_pair_key($4::text)
-                 AND s.model_key = release_channel_pair_key($5::text)
-                 AND s.assignment_generation = $6::bigint
+                 AND s.manufacturer_key = release_channel_pair_key($5::text)
+                 AND s.model_key = release_channel_pair_key($6::text)
+                 AND s.component = $3::text
+                 AND s.assignment_generation = $7::bigint
            ) AS suppressed
     FROM release_channel_member m
     JOIN device d ON d.id = m.device_id
     JOIN discovered_device dd ON dd.id = d.discovered_device_id
-    LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
-    WHERE m.org_id = $7
-      AND m.channel_id = $8
-      AND release_channel_pair_key(dd.manufacturer) = release_channel_pair_key($4::text)
-      AND release_channel_pair_key(dd.model) = release_channel_pair_key($5::text)
+    CROSS JOIN LATERAL release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version, $3::text) AS reported(version)
+    LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id AND dep.component = $3::text
+    WHERE m.org_id = $8
+      AND m.channel_id = $9
+      AND release_channel_pair_key(dd.manufacturer) = release_channel_pair_key($5::text)
+      AND release_channel_pair_key(dd.model) = release_channel_pair_key($6::text)
 )
-SELECT count(*) FILTER (WHERE NOT on_target AND NOT suppressed)::int AS target_count,
-       count(*) FILTER (WHERE on_target)::int AS on_target_count
+SELECT count(*) FILTER (WHERE (version_matches IS FALSE OR NOT provenance_matches) AND NOT suppressed)::int AS target_count,
+       count(*) FILTER (WHERE version_matches IS TRUE AND provenance_matches)::int AS on_target_count
 FROM members
 `
 
 type CountReleaseChannelFirmwarePreviewMembersParams struct {
 	FirmwareVersion      string
 	FirmwareChecksum     string
+	Component            string
 	AssignedFileIds      []string
 	Manufacturer         string
 	Model                string
@@ -300,6 +311,7 @@ func (q *Queries) CountReleaseChannelFirmwarePreviewMembers(ctx context.Context,
 	row := q.queryRow(ctx, q.countReleaseChannelFirmwarePreviewMembersStmt, countReleaseChannelFirmwarePreviewMembers,
 		arg.FirmwareVersion,
 		arg.FirmwareChecksum,
+		arg.Component,
 		pq.Array(arg.AssignedFileIds),
 		arg.Manufacturer,
 		arg.Model,
@@ -315,20 +327,20 @@ func (q *Queries) CountReleaseChannelFirmwarePreviewMembers(ctx context.Context,
 const createFirmwareRollout = `-- name: CreateFirmwareRollout :one
 
 INSERT INTO firmware_rollout (
-    org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version,
+    org_id, channel_id, manufacturer, model, component, firmware_checksum, firmware_version,
     previous_firmware_checksum, previous_firmware_version, assignment_generation,
     stage, stage_changed_at, behavior_snapshot, batch_count,
     started_by_type, started_by_id, started_by_name,
     last_action_by_type, last_action_by_id, last_action_by_name
 )
 VALUES (
-    $1, $2, $3, $4, $5, $6,
-    $7, $8, $9,
-    $10, clock_timestamp(), $11, $12,
-    $13, $14, $15,
-    $13, $14, $15
+    $1, $2, $3, $4, $5, $6, $7,
+    $8, $9, $10,
+    $11, clock_timestamp(), $12, $13,
+    $14, $15, $16,
+    $14, $15, $16
 )
-RETURNING id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, stage_paused_microseconds, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at, controller_waiting_since
+RETURNING id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, stage_paused_microseconds, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at, controller_waiting_since, component
 `
 
 type CreateFirmwareRolloutParams struct {
@@ -336,6 +348,7 @@ type CreateFirmwareRolloutParams struct {
 	ChannelID                int64
 	Manufacturer             string
 	Model                    string
+	Component                string
 	FirmwareChecksum         string
 	FirmwareVersion          string
 	PreviousFirmwareChecksum string
@@ -358,6 +371,7 @@ func (q *Queries) CreateFirmwareRollout(ctx context.Context, arg CreateFirmwareR
 		arg.ChannelID,
 		arg.Manufacturer,
 		arg.Model,
+		arg.Component,
 		arg.FirmwareChecksum,
 		arg.FirmwareVersion,
 		arg.PreviousFirmwareChecksum,
@@ -403,6 +417,7 @@ func (q *Queries) CreateFirmwareRollout(ctx context.Context, arg CreateFirmwareR
 		&i.CreatedAt,
 		&i.FinishedAt,
 		&i.ControllerWaitingSince,
+		&i.Component,
 	)
 	return i, err
 }
@@ -618,10 +633,11 @@ func (q *Queries) FinishFirmwareRollout(ctx context.Context, arg FinishFirmwareR
 }
 
 const getActiveFirmwareRolloutForPair = `-- name: GetActiveFirmwareRolloutForPair :one
-SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, stage_paused_microseconds, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at, controller_waiting_since FROM firmware_rollout
+SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, stage_paused_microseconds, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at, controller_waiting_since, component FROM firmware_rollout
 WHERE channel_id = $1
   AND release_channel_pair_key(manufacturer) = release_channel_pair_key($2::text)
   AND release_channel_pair_key(model) = release_channel_pair_key($3::text)
+  AND component = $4::text
   AND status = 'active'
 `
 
@@ -629,10 +645,16 @@ type GetActiveFirmwareRolloutForPairParams struct {
 	ChannelID    int64
 	Manufacturer string
 	Model        string
+	Component    string
 }
 
 func (q *Queries) GetActiveFirmwareRolloutForPair(ctx context.Context, arg GetActiveFirmwareRolloutForPairParams) (FirmwareRollout, error) {
-	row := q.queryRow(ctx, q.getActiveFirmwareRolloutForPairStmt, getActiveFirmwareRolloutForPair, arg.ChannelID, arg.Manufacturer, arg.Model)
+	row := q.queryRow(ctx, q.getActiveFirmwareRolloutForPairStmt, getActiveFirmwareRolloutForPair,
+		arg.ChannelID,
+		arg.Manufacturer,
+		arg.Model,
+		arg.Component,
+	)
 	var i FirmwareRollout
 	err := row.Scan(
 		&i.ID,
@@ -666,12 +688,13 @@ func (q *Queries) GetActiveFirmwareRolloutForPair(ctx context.Context, arg GetAc
 		&i.CreatedAt,
 		&i.FinishedAt,
 		&i.ControllerWaitingSince,
+		&i.Component,
 	)
 	return i, err
 }
 
 const getFirmwareRollout = `-- name: GetFirmwareRollout :one
-SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, stage_paused_microseconds, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at, controller_waiting_since FROM firmware_rollout
+SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, stage_paused_microseconds, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at, controller_waiting_since, component FROM firmware_rollout
 WHERE id = $1 AND org_id = $2
 `
 
@@ -715,12 +738,13 @@ func (q *Queries) GetFirmwareRollout(ctx context.Context, arg GetFirmwareRollout
 		&i.CreatedAt,
 		&i.FinishedAt,
 		&i.ControllerWaitingSince,
+		&i.Component,
 	)
 	return i, err
 }
 
 const getFirmwareRolloutForUpdate = `-- name: GetFirmwareRolloutForUpdate :one
-SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, stage_paused_microseconds, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at, controller_waiting_since FROM firmware_rollout
+SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, stage_paused_microseconds, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at, controller_waiting_since, component FROM firmware_rollout
 WHERE id = $1 AND org_id = $2
 FOR UPDATE
 `
@@ -767,6 +791,7 @@ func (q *Queries) GetFirmwareRolloutForUpdate(ctx context.Context, arg GetFirmwa
 		&i.CreatedAt,
 		&i.FinishedAt,
 		&i.ControllerWaitingSince,
+		&i.Component,
 	)
 	return i, err
 }
@@ -785,7 +810,7 @@ func (q *Queries) GetFirmwareRolloutPollWatermark(ctx context.Context) (int64, e
 }
 
 const getFirmwareRolloutWithChannel = `-- name: GetFirmwareRolloutWithChannel :one
-SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.behavior_snapshot, r.batch_count, r.current_batch, r.stage_changed_at, r.stage_paused_microseconds, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, r.controller_waiting_since, c.name AS channel_name
+SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.behavior_snapshot, r.batch_count, r.current_batch, r.stage_changed_at, r.stage_paused_microseconds, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, r.controller_waiting_since, r.component, c.name AS channel_name
 FROM firmware_rollout r
 JOIN release_channel c ON c.id = r.channel_id
 WHERE r.id = $1 AND r.org_id = $2
@@ -836,17 +861,19 @@ func (q *Queries) GetFirmwareRolloutWithChannel(ctx context.Context, arg GetFirm
 		&i.FirmwareRollout.CreatedAt,
 		&i.FirmwareRollout.FinishedAt,
 		&i.FirmwareRollout.ControllerWaitingSince,
+		&i.FirmwareRollout.Component,
 		&i.ChannelName,
 	)
 	return i, err
 }
 
 const getLatestFirmwareRolloutForPair = `-- name: GetLatestFirmwareRolloutForPair :one
-SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, stage_paused_microseconds, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at, controller_waiting_since FROM firmware_rollout
+SELECT id, org_id, channel_id, manufacturer, model, firmware_checksum, firmware_version, previous_firmware_checksum, previous_firmware_version, assignment_generation, status, cancel_reason, stage, behavior_snapshot, batch_count, current_batch, stage_changed_at, stage_paused_microseconds, paused_at, revision, revision_txid, updated_at, started_by_type, started_by_id, started_by_name, last_action_by_type, last_action_by_id, last_action_by_name, created_at, finished_at, controller_waiting_since, component FROM firmware_rollout
 WHERE channel_id = $1
   AND release_channel_pair_key(manufacturer) = release_channel_pair_key($2::text)
   AND release_channel_pair_key(model) = release_channel_pair_key($3::text)
-  AND assignment_generation = $4
+  AND component = $4::text
+  AND assignment_generation = $5
 ORDER BY id DESC
 LIMIT 1
 `
@@ -855,6 +882,7 @@ type GetLatestFirmwareRolloutForPairParams struct {
 	ChannelID            int64
 	Manufacturer         string
 	Model                string
+	Component            string
 	AssignmentGeneration int64
 }
 
@@ -866,6 +894,7 @@ func (q *Queries) GetLatestFirmwareRolloutForPair(ctx context.Context, arg GetLa
 		arg.ChannelID,
 		arg.Manufacturer,
 		arg.Model,
+		arg.Component,
 		arg.AssignmentGeneration,
 	)
 	var i FirmwareRollout
@@ -901,6 +930,7 @@ func (q *Queries) GetLatestFirmwareRolloutForPair(ctx context.Context, arg GetLa
 		&i.CreatedAt,
 		&i.FinishedAt,
 		&i.ControllerWaitingSince,
+		&i.Component,
 	)
 	return i, err
 }
@@ -989,20 +1019,27 @@ func (q *Queries) GetReleaseChannelDeletionState(ctx context.Context, channelID 
 }
 
 const getReleaseChannelFirmware = `-- name: GetReleaseChannelFirmware :one
-SELECT channel_id, manufacturer, model, firmware_checksum, firmware_version, firmware_target_manufacturer, firmware_target_model, assignment_generation, assigned_by, updated_at, previous_firmware_checksum, previous_firmware_version FROM release_channel_firmware
+SELECT channel_id, manufacturer, model, firmware_checksum, firmware_version, firmware_target_manufacturer, firmware_target_model, assignment_generation, assigned_by, updated_at, previous_firmware_checksum, previous_firmware_version, component FROM release_channel_firmware
 WHERE channel_id = $1
   AND release_channel_pair_key(manufacturer) = release_channel_pair_key($2::text)
   AND release_channel_pair_key(model) = release_channel_pair_key($3::text)
+  AND component = $4::text
 `
 
 type GetReleaseChannelFirmwareParams struct {
 	ChannelID    int64
 	Manufacturer string
 	Model        string
+	Component    string
 }
 
 func (q *Queries) GetReleaseChannelFirmware(ctx context.Context, arg GetReleaseChannelFirmwareParams) (ReleaseChannelFirmware, error) {
-	row := q.queryRow(ctx, q.getReleaseChannelFirmwareStmt, getReleaseChannelFirmware, arg.ChannelID, arg.Manufacturer, arg.Model)
+	row := q.queryRow(ctx, q.getReleaseChannelFirmwareStmt, getReleaseChannelFirmware,
+		arg.ChannelID,
+		arg.Manufacturer,
+		arg.Model,
+		arg.Component,
+	)
 	var i ReleaseChannelFirmware
 	err := row.Scan(
 		&i.ChannelID,
@@ -1017,6 +1054,7 @@ func (q *Queries) GetReleaseChannelFirmware(ctx context.Context, arg GetReleaseC
 		&i.UpdatedAt,
 		&i.PreviousFirmwareChecksum,
 		&i.PreviousFirmwareVersion,
+		&i.Component,
 	)
 	return i, err
 }
@@ -1136,7 +1174,7 @@ func (q *Queries) InsertReleaseChannelTargets(ctx context.Context, arg InsertRel
 }
 
 const listActiveFirmwareRollouts = `-- name: ListActiveFirmwareRollouts :many
-SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.behavior_snapshot, r.batch_count, r.current_batch, r.stage_changed_at, r.stage_paused_microseconds, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, r.controller_waiting_since, c.name AS channel_name, c.max_concurrent_offline AS channel_max_concurrent_offline
+SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.behavior_snapshot, r.batch_count, r.current_batch, r.stage_changed_at, r.stage_paused_microseconds, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, r.controller_waiting_since, r.component, c.name AS channel_name, c.max_concurrent_offline AS channel_max_concurrent_offline
 FROM firmware_rollout r
 JOIN release_channel c ON c.id = r.channel_id
 WHERE r.status = 'active'
@@ -1192,6 +1230,7 @@ func (q *Queries) ListActiveFirmwareRollouts(ctx context.Context) ([]ListActiveF
 			&i.FirmwareRollout.CreatedAt,
 			&i.FirmwareRollout.FinishedAt,
 			&i.FirmwareRollout.ControllerWaitingSince,
+			&i.FirmwareRollout.Component,
 			&i.ChannelName,
 			&i.ChannelMaxConcurrentOffline,
 		); err != nil {
@@ -1253,7 +1292,11 @@ func (q *Queries) ListDeviceIDsByIdentifiers(ctx context.Context, arg ListDevice
 const listFirmwareRolloutDevices = `-- name: ListFirmwareRolloutDevices :many
 SELECT rd.device_id,
        d.device_identifier,
-       COALESCE(dd.firmware_version, '')::text AS firmware_version,
+       COALESCE(reported.version, '')::text AS firmware_version,
+       (reported.version IS NOT NULL)::boolean AS firmware_version_known,
+       CASE WHEN reported.version IS NULL THEN 'unknown'
+            WHEN reported.version = '' AND dd.device_class = 2 THEN 'mixed'
+            ELSE 'known' END::text AS firmware_version_state,
        COALESCE(dd.ip_address, '')::text AS ip_address,
        rd.batch_index,
        rd.position,
@@ -1317,6 +1360,7 @@ SELECT rd.device_id,
            WHERE qm.device_id = d.id
              AND qm.command_type = 'FirmwareUpdate'
              AND qm.status IN ('PENDING', 'PROCESSING')
+             AND COALESCE(qm.payload->>'firmware_component', '') = r.component
              AND COALESCE(qm.payload->>'firmware_checksum', '') <> ''
        ), '{}'::text[])::text[] AS pending_firmware_checksums,
        COALESCE((
@@ -1325,8 +1369,24 @@ SELECT rd.device_id,
            WHERE qm.device_id = d.id
              AND qm.command_type = 'FirmwareUpdate'
              AND qm.status IN ('PENDING', 'PROCESSING')
+             AND COALESCE(qm.payload->>'firmware_component', '') = r.component
              AND COALESCE(qm.payload->>'firmware_checksum', '') = ''
        ), '{}'::text[])::text[] AS pending_legacy_firmware_file_ids,
+       (EXISTS (
+           SELECT 1 FROM queue_message qm
+           WHERE qm.device_id = d.id
+             AND qm.command_type = 'FirmwareUpdate'
+             AND qm.status IN ('PENDING', 'PROCESSING')
+             AND COALESCE(qm.payload->>'firmware_component', '') <> r.component
+       ))::boolean AS other_component_command_pending,
+       COALESCE((
+           SELECT max(qm.updated_at)
+           FROM queue_message qm
+           WHERE qm.device_id = d.id
+             AND qm.command_type = 'FirmwareUpdate'
+             AND qm.status IN ('SUCCESS', 'FAILED')
+             AND COALESCE(qm.payload->>'firmware_component', '') <> r.component
+       ), 'epoch'::timestamptz)::timestamptz AS other_component_command_finished_at,
        (member.device_id IS NOT NULL)::boolean AS is_channel_member,
        member.device_id IS NOT NULL
        AND release_channel_pair_key(dd.manufacturer) = release_channel_pair_key(r.manufacturer)
@@ -1337,8 +1397,9 @@ JOIN device d ON d.id = rd.device_id
 LEFT JOIN release_channel_member member ON member.org_id = r.org_id
     AND member.device_id = d.id AND member.channel_id = r.channel_id
 LEFT JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.deleted_at IS NULL
+CROSS JOIN LATERAL release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version, r.component) AS reported(version)
 LEFT JOIN device_status ds ON ds.device_id = d.id
-LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
+LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id AND dep.component = r.component
 LEFT JOIN LATERAL (
     SELECT dm.hash_rate_hs, dm.power_w, dm.efficiency_jh, dm.temp_c
     FROM device_metrics dm
@@ -1355,45 +1416,49 @@ ORDER BY rd.position NULLS LAST, d.device_identifier
 `
 
 type ListFirmwareRolloutDevicesRow struct {
-	DeviceID                     int64
-	DeviceIdentifier             string
-	FirmwareVersion              string
-	IpAddress                    string
-	BatchIndex                   sql.NullInt32
-	Position                     sql.NullInt32
-	Attempts                     int32
-	FirstSentAt                  sql.NullTime
-	LastSentAt                   sql.NullTime
-	LastDispatchedAt             sql.NullTime
-	LastDispatchedBatchUuid      sql.NullString
-	LastDispatchSucceeded        bool
-	VerifiedAt                   sql.NullTime
-	HaltedAt                     sql.NullTime
-	HaltReason                   string
-	LastError                    string
-	SkipNote                     string
-	ExcludedAt                   sql.NullTime
-	BaselineStatus               sql.NullString
-	BaselineHashRateHs           sql.NullFloat64
-	BaselinePowerW               sql.NullFloat64
-	BaselineEfficiencyJh         sql.NullFloat64
-	BaselineTempC                sql.NullFloat64
-	BaselineOpenErrors           sql.NullInt32
-	BaselineAt                   sql.NullTime
-	Status                       string
-	HashRateHs                   sql.NullFloat64
-	PowerW                       sql.NullFloat64
-	EfficiencyJh                 sql.NullFloat64
-	TempC                        sql.NullFloat64
-	OpenErrors                   int32
-	ErrorsSinceBaseline          int32
-	LastDeployedFirmwareChecksum string
-	LastDeployedFirmwareVersion  string
-	LastDeployedAt               sql.NullTime
-	PendingFirmwareChecksums     []string
-	PendingLegacyFirmwareFileIds []string
-	IsChannelMember              bool
-	InScope                      sql.NullBool
+	DeviceID                        int64
+	DeviceIdentifier                string
+	FirmwareVersion                 string
+	FirmwareVersionKnown            bool
+	FirmwareVersionState            string
+	IpAddress                       string
+	BatchIndex                      sql.NullInt32
+	Position                        sql.NullInt32
+	Attempts                        int32
+	FirstSentAt                     sql.NullTime
+	LastSentAt                      sql.NullTime
+	LastDispatchedAt                sql.NullTime
+	LastDispatchedBatchUuid         sql.NullString
+	LastDispatchSucceeded           bool
+	VerifiedAt                      sql.NullTime
+	HaltedAt                        sql.NullTime
+	HaltReason                      string
+	LastError                       string
+	SkipNote                        string
+	ExcludedAt                      sql.NullTime
+	BaselineStatus                  sql.NullString
+	BaselineHashRateHs              sql.NullFloat64
+	BaselinePowerW                  sql.NullFloat64
+	BaselineEfficiencyJh            sql.NullFloat64
+	BaselineTempC                   sql.NullFloat64
+	BaselineOpenErrors              sql.NullInt32
+	BaselineAt                      sql.NullTime
+	Status                          string
+	HashRateHs                      sql.NullFloat64
+	PowerW                          sql.NullFloat64
+	EfficiencyJh                    sql.NullFloat64
+	TempC                           sql.NullFloat64
+	OpenErrors                      int32
+	ErrorsSinceBaseline             int32
+	LastDeployedFirmwareChecksum    string
+	LastDeployedFirmwareVersion     string
+	LastDeployedAt                  sql.NullTime
+	PendingFirmwareChecksums        []string
+	PendingLegacyFirmwareFileIds    []string
+	OtherComponentCommandPending    bool
+	OtherComponentCommandFinishedAt time.Time
+	IsChannelMember                 bool
+	InScope                         sql.NullBool
 }
 
 // Every miner in a rollout with its bookkeeping, baseline, live health (device
@@ -1402,6 +1467,13 @@ type ListFirmwareRolloutDevicesRow struct {
 // and errors opened since its baseline), provenance, the checksums of pending or processing
 // FirmwareUpdate commands (or file IDs for legacy commands without a checksum),
 // and channel membership separately from eligibility for the rollout's pair.
+// The reported version, provenance and pending commands are those of the
+// rollout's component. A pending update of another component is reported
+// separately: it changes nothing this rollout verifies, but a device takes one
+// firmware command at a time, so dispatch waits for it. The time its latest
+// finished update of another component ended is reported too, or the epoch
+// when it has none: the device could not verify this rollout's update while
+// that command ran, so the resend interval is measured from its end.
 // Existing targets remain tied to their paired device when firmware changes its
 // reported manufacturer/model: the engine still verifies the update's outcome,
 // but in_scope must be true before dispatching another compatible update.
@@ -1432,6 +1504,8 @@ func (q *Queries) ListFirmwareRolloutDevices(ctx context.Context, rolloutID int6
 			&i.DeviceID,
 			&i.DeviceIdentifier,
 			&i.FirmwareVersion,
+			&i.FirmwareVersionKnown,
+			&i.FirmwareVersionState,
 			&i.IpAddress,
 			&i.BatchIndex,
 			&i.Position,
@@ -1466,6 +1540,8 @@ func (q *Queries) ListFirmwareRolloutDevices(ctx context.Context, rolloutID int6
 			&i.LastDeployedAt,
 			pq.Array(&i.PendingFirmwareChecksums),
 			pq.Array(&i.PendingLegacyFirmwareFileIds),
+			&i.OtherComponentCommandPending,
+			&i.OtherComponentCommandFinishedAt,
 			&i.IsChannelMember,
 			&i.InScope,
 		); err != nil {
@@ -1538,7 +1614,7 @@ func (q *Queries) ListFirmwareRolloutOfflineSlots(ctx context.Context, channelID
 }
 
 const listFirmwareRollouts = `-- name: ListFirmwareRollouts :many
-SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.behavior_snapshot, r.batch_count, r.current_batch, r.stage_changed_at, r.stage_paused_microseconds, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, r.controller_waiting_since, c.name AS channel_name
+SELECT r.id, r.org_id, r.channel_id, r.manufacturer, r.model, r.firmware_checksum, r.firmware_version, r.previous_firmware_checksum, r.previous_firmware_version, r.assignment_generation, r.status, r.cancel_reason, r.stage, r.behavior_snapshot, r.batch_count, r.current_batch, r.stage_changed_at, r.stage_paused_microseconds, r.paused_at, r.revision, r.revision_txid, r.updated_at, r.started_by_type, r.started_by_id, r.started_by_name, r.last_action_by_type, r.last_action_by_id, r.last_action_by_name, r.created_at, r.finished_at, r.controller_waiting_since, r.component, c.name AS channel_name
 FROM firmware_rollout r
 JOIN release_channel c ON c.id = r.channel_id
 WHERE r.org_id = $1
@@ -1624,6 +1700,7 @@ func (q *Queries) ListFirmwareRollouts(ctx context.Context, arg ListFirmwareRoll
 			&i.FirmwareRollout.CreatedAt,
 			&i.FirmwareRollout.FinishedAt,
 			&i.FirmwareRollout.ControllerWaitingSince,
+			&i.FirmwareRollout.Component,
 			&i.ChannelName,
 		); err != nil {
 			return nil, err
@@ -1640,11 +1717,11 @@ func (q *Queries) ListFirmwareRollouts(ctx context.Context, arg ListFirmwareRoll
 }
 
 const listReleaseChannelFirmware = `-- name: ListReleaseChannelFirmware :many
-SELECT f.channel_id, f.manufacturer, f.model, f.firmware_checksum, f.firmware_version, f.firmware_target_manufacturer, f.firmware_target_model, f.assignment_generation, f.assigned_by, f.updated_at, f.previous_firmware_checksum, f.previous_firmware_version
+SELECT f.channel_id, f.manufacturer, f.model, f.firmware_checksum, f.firmware_version, f.firmware_target_manufacturer, f.firmware_target_model, f.assignment_generation, f.assigned_by, f.updated_at, f.previous_firmware_checksum, f.previous_firmware_version, f.component
 FROM release_channel_firmware f
 JOIN release_channel c ON c.id = f.channel_id
 WHERE c.org_id = $1
-ORDER BY f.channel_id, f.manufacturer, f.model
+ORDER BY f.channel_id, f.manufacturer, f.model, f.component
 `
 
 // Every pair row of an org's channels, assigned or cleared.
@@ -1670,6 +1747,7 @@ func (q *Queries) ListReleaseChannelFirmware(ctx context.Context, orgID int64) (
 			&i.UpdatedAt,
 			&i.PreviousFirmwareChecksum,
 			&i.PreviousFirmwareVersion,
+			&i.Component,
 		); err != nil {
 			return nil, err
 		}
@@ -1685,7 +1763,7 @@ func (q *Queries) ListReleaseChannelFirmware(ctx context.Context, orgID int64) (
 }
 
 const listReleaseChannelFirmwareNeedingRollout = `-- name: ListReleaseChannelFirmwareNeedingRollout :many
-SELECT f.channel_id, f.manufacturer, f.model, f.firmware_checksum, f.firmware_version,
+SELECT f.channel_id, f.manufacturer, f.model, f.component, f.firmware_checksum, f.firmware_version,
        f.firmware_target_manufacturer, f.firmware_target_model, f.assignment_generation,
        f.assigned_by, f.updated_at, c.org_id
 FROM release_channel_firmware f
@@ -1696,6 +1774,7 @@ AND NOT EXISTS (
     WHERE r.channel_id = f.channel_id
       AND release_channel_pair_key(r.manufacturer) = release_channel_pair_key(f.manufacturer)
       AND release_channel_pair_key(r.model) = release_channel_pair_key(f.model)
+      AND r.component = f.component
       AND r.status = 'active'
 )
 AND EXISTS (
@@ -1703,19 +1782,21 @@ AND EXISTS (
     FROM release_channel_member m
     JOIN device d ON d.id = m.device_id
     JOIN discovered_device dd ON dd.id = d.discovered_device_id
-    LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
+    CROSS JOIN LATERAL release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version, f.component) AS reported(version)
+    LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id AND dep.component = f.component
     WHERE m.org_id = c.org_id
       AND m.channel_id = f.channel_id
       AND release_channel_pair_key(dd.manufacturer) = release_channel_pair_key(f.manufacturer)
       AND release_channel_pair_key(dd.model) = release_channel_pair_key(f.model)
-      AND NOT (
-          COALESCE(dd.firmware_version, '') = f.firmware_version
-          AND COALESCE(dep.firmware_checksum, '') = f.firmware_checksum
-          AND NOT EXISTS (
+      AND (
+          (reported.version = f.firmware_version) IS FALSE
+          OR COALESCE(dep.firmware_checksum, '') <> f.firmware_checksum
+          OR EXISTS (
               SELECT 1 FROM queue_message qm
               WHERE qm.device_id = d.id
                 AND qm.command_type = 'FirmwareUpdate'
                 AND qm.status IN ('PENDING', 'PROCESSING')
+                AND COALESCE(qm.payload->>'firmware_component', '') = f.component
           )
       )
       AND NOT EXISTS (
@@ -1724,16 +1805,18 @@ AND EXISTS (
             AND s.device_id = d.id
             AND s.manufacturer_key = release_channel_pair_key(f.manufacturer)
             AND s.model_key = release_channel_pair_key(f.model)
+            AND s.component = f.component
             AND s.assignment_generation = f.assignment_generation
       )
 )
-ORDER BY f.channel_id, f.manufacturer, f.model
+ORDER BY f.channel_id, f.manufacturer, f.model, f.component
 `
 
 type ListReleaseChannelFirmwareNeedingRolloutRow struct {
 	ChannelID                  int64
 	Manufacturer               string
 	Model                      string
+	Component                  string
 	FirmwareChecksum           string
 	FirmwareVersion            string
 	FirmwareTargetManufacturer string
@@ -1746,8 +1829,8 @@ type ListReleaseChannelFirmwareNeedingRolloutRow struct {
 
 // Assigned pairs with no active rollout and at least one mismatched,
 // unsuppressed member: late joiners, re-entries and miners that drifted. Any
-// outstanding FirmwareUpdate counts as a mismatch here because the assigned
-// file set is only known per pair; ListReleaseChannelMismatchedMembers makes
+// outstanding FirmwareUpdate of the assignment's component counts as a
+// mismatch here because the assigned file set is only known per pair; ListReleaseChannelMismatchedMembers makes
 // the final call.
 func (q *Queries) ListReleaseChannelFirmwareNeedingRollout(ctx context.Context) ([]ListReleaseChannelFirmwareNeedingRolloutRow, error) {
 	rows, err := q.query(ctx, q.listReleaseChannelFirmwareNeedingRolloutStmt, listReleaseChannelFirmwareNeedingRollout)
@@ -1762,6 +1845,7 @@ func (q *Queries) ListReleaseChannelFirmwareNeedingRollout(ctx context.Context) 
 			&i.ChannelID,
 			&i.Manufacturer,
 			&i.Model,
+			&i.Component,
 			&i.FirmwareChecksum,
 			&i.FirmwareVersion,
 			&i.FirmwareTargetManufacturer,
@@ -1792,12 +1876,13 @@ SELECT m.channel_id,
        d.device_identifier,
        COALESCE(dd.manufacturer, '')::text AS manufacturer,
        COALESCE(dd.model, '')::text AS model,
-       COALESCE(dd.firmware_version, '')::text AS firmware_version,
+       COALESCE(reported.version, '')::text AS firmware_version,
        COALESCE(dep.firmware_checksum, '')::text AS last_deployed_firmware_checksum
 FROM release_channel_member m
 JOIN device d ON d.id = m.device_id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
-LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
+CROSS JOIN LATERAL release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version, ''::text) AS reported(version)
+LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id AND dep.component = ''::text
 WHERE m.org_id = $1
 ORDER BY d.device_identifier
 `
@@ -1815,7 +1900,8 @@ type ListReleaseChannelMembersRow struct {
 
 // --- Membership ---
 // Every miner resolved into one of the org's channels, with its observed
-// identity, reported firmware and managed-deployment provenance.
+// identity, and the reported firmware and managed-deployment provenance of
+// its main component.
 func (q *Queries) ListReleaseChannelMembers(ctx context.Context, orgID int64) ([]ListReleaseChannelMembersRow, error) {
 	rows, err := q.query(ctx, q.listReleaseChannelMembersStmt, listReleaseChannelMembers, orgID)
 	if err != nil {
@@ -1938,25 +2024,30 @@ SELECT m.device_id,
        d.device_identifier,
        COALESCE(dd.manufacturer, '')::text AS manufacturer,
        COALESCE(dd.model, '')::text AS model,
-       COALESCE(dd.firmware_version, '')::text AS firmware_version,
+       COALESCE(reported.version, '')::text AS firmware_version,
+       CASE WHEN reported.version IS NULL THEN 'unknown'
+            WHEN reported.version = '' AND dd.device_class = 2 THEN 'mixed'
+            ELSE 'known' END::text AS firmware_version_state,
        COALESCE(dep.firmware_checksum, '')::text AS last_deployed_firmware_checksum
 FROM release_channel_member m
 JOIN device d ON d.id = m.device_id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
-LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
-WHERE m.org_id = $1
-  AND m.channel_id = $2
-  AND ($3::text IS NULL OR COALESCE(dd.manufacturer, '') = $3)
-  AND ($4::text IS NULL OR COALESCE(dd.model, '') = $4)
+CROSS JOIN LATERAL release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version, $1::text) AS reported(version)
+LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id AND dep.component = $1::text
+WHERE m.org_id = $2
+  AND m.channel_id = $3
+  AND ($4::text IS NULL OR COALESCE(dd.manufacturer, '') = $4)
+  AND ($5::text IS NULL OR COALESCE(dd.model, '') = $5)
   AND (
-    $5::text IS NULL
-    OR (d.device_identifier, d.id) > ($5::text, $6::bigint)
+    $6::text IS NULL
+    OR (d.device_identifier, d.id) > ($6::text, $7::bigint)
   )
 ORDER BY d.device_identifier, d.id
-LIMIT $7
+LIMIT $8
 `
 
 type ListReleaseChannelMinersPageParams struct {
+	Component       string
 	OrgID           int64
 	ChannelID       int64
 	Manufacturer    sql.NullString
@@ -1973,14 +2064,17 @@ type ListReleaseChannelMinersPageRow struct {
 	Manufacturer                 string
 	Model                        string
 	FirmwareVersion              string
+	FirmwareVersionState         string
 	LastDeployedFirmwareChecksum string
 }
 
 // One page of a channel's members, optionally filtered by observed
 // manufacturer and model (verbatim), ordered by identifier. The cursor is the
-// (device_identifier, device_id) of the last row of the previous page.
+// (device_identifier, device_id) of the last row of the previous page. The
+// reported version and provenance are those of the requested component.
 func (q *Queries) ListReleaseChannelMinersPage(ctx context.Context, arg ListReleaseChannelMinersPageParams) ([]ListReleaseChannelMinersPageRow, error) {
 	rows, err := q.query(ctx, q.listReleaseChannelMinersPageStmt, listReleaseChannelMinersPage,
+		arg.Component,
 		arg.OrgID,
 		arg.ChannelID,
 		arg.Manufacturer,
@@ -2003,6 +2097,7 @@ func (q *Queries) ListReleaseChannelMinersPage(ctx context.Context, arg ListRele
 			&i.Manufacturer,
 			&i.Model,
 			&i.FirmwareVersion,
+			&i.FirmwareVersionState,
 			&i.LastDeployedFirmwareChecksum,
 		); err != nil {
 			return nil, err
@@ -2025,7 +2120,8 @@ SELECT d.id AS device_id,
 FROM release_channel_member m
 JOIN device d ON d.id = m.device_id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
-LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
+CROSS JOIN LATERAL release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version, $1::text) AS reported(version)
+LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id AND dep.component = $1::text
 LEFT JOIN LATERAL (
     SELECT dm.efficiency_jh
     FROM device_metrics dm
@@ -2036,40 +2132,43 @@ LEFT JOIN LATERAL (
     ORDER BY dm.time DESC
     LIMIT 1
 ) hm ON true
-WHERE m.org_id = $1
-  AND m.channel_id = $2
-  AND release_channel_pair_key(dd.manufacturer) = release_channel_pair_key($3::text)
-  AND release_channel_pair_key(dd.model) = release_channel_pair_key($4::text)
-  AND NOT (
-      COALESCE(dd.firmware_version, '') = $5::text
-      AND COALESCE(dep.firmware_checksum, '') = $6::text
-      AND NOT EXISTS (
+WHERE m.org_id = $2
+  AND m.channel_id = $3
+  AND release_channel_pair_key(dd.manufacturer) = release_channel_pair_key($4::text)
+  AND release_channel_pair_key(dd.model) = release_channel_pair_key($5::text)
+  AND (
+      (reported.version = $6::text) IS FALSE
+      OR COALESCE(dep.firmware_checksum, '') <> $7::text
+      OR EXISTS (
           SELECT 1 FROM queue_message qm
           WHERE qm.device_id = d.id
             AND qm.command_type = 'FirmwareUpdate'
             AND qm.status IN ('PENDING', 'PROCESSING')
+            AND COALESCE(qm.payload->>'firmware_component', '') = $1::text
             AND CASE WHEN COALESCE(qm.payload->>'firmware_checksum', '') <> ''
-                THEN qm.payload->>'firmware_checksum' <> $6::text
-                ELSE NOT (COALESCE(qm.payload->>'firmware_file_id', '') = ANY(COALESCE($7::text[], '{}')))
+                THEN qm.payload->>'firmware_checksum' <> $7::text
+                ELSE NOT (COALESCE(qm.payload->>'firmware_file_id', '') = ANY(COALESCE($8::text[], '{}')))
             END
       )
   )
   AND NOT EXISTS (
       SELECT 1 FROM firmware_rollout_device rd
-      WHERE rd.rollout_id = $8 AND rd.device_id = d.id
+      WHERE rd.rollout_id = $9 AND rd.device_id = d.id
   )
   AND NOT EXISTS (
       SELECT 1 FROM firmware_rollout_suppressed_device s
       WHERE s.channel_id = m.channel_id
         AND s.device_id = d.id
-        AND s.manufacturer_key = release_channel_pair_key($3::text)
-        AND s.model_key = release_channel_pair_key($4::text)
-        AND s.assignment_generation = $9::bigint
+        AND s.manufacturer_key = release_channel_pair_key($4::text)
+        AND s.model_key = release_channel_pair_key($5::text)
+        AND s.component = $1::text
+        AND s.assignment_generation = $10::bigint
   )
 ORDER BY d.device_identifier
 `
 
 type ListReleaseChannelMismatchedMembersParams struct {
+	Component            string
 	OrgID                int64
 	ChannelID            int64
 	Manufacturer         string
@@ -2087,9 +2186,10 @@ type ListReleaseChannelMismatchedMembersRow struct {
 	EfficiencyJh     sql.NullFloat64
 }
 
-// Members of one pair the enforcement loop should update: the reported
-// version or provenance differs from the assignment, or a FirmwareUpdate for
-// another checksum is still pending or processing. Commands without a checksum
+// Members of one pair the enforcement loop should update for one component:
+// the version reported for it or its provenance differs from the assignment,
+// or a FirmwareUpdate of that component for another checksum is still pending
+// or processing. A pending update of another component changes nothing here. Commands without a checksum
 // fall back to assigned_file_ids (the files carrying the assigned checksum).
 // Excludes miners already in rollout_id (0 for a
 // new rollout) and suppressed miners (firmware_rollout_suppressed_device).
@@ -2098,6 +2198,7 @@ type ListReleaseChannelMismatchedMembersRow struct {
 // Samples before the paired device's creation cannot determine its order.
 func (q *Queries) ListReleaseChannelMismatchedMembers(ctx context.Context, arg ListReleaseChannelMismatchedMembersParams) ([]ListReleaseChannelMismatchedMembersRow, error) {
 	rows, err := q.query(ctx, q.listReleaseChannelMismatchedMembersStmt, listReleaseChannelMismatchedMembers,
+		arg.Component,
 		arg.OrgID,
 		arg.ChannelID,
 		arg.Manufacturer,
@@ -2130,38 +2231,62 @@ func (q *Queries) ListReleaseChannelMismatchedMembers(ctx context.Context, arg L
 }
 
 const listReleaseChannelModelGroupsPage = `-- name: ListReleaseChannelModelGroupsPage :many
-WITH members AS (
+WITH pairs AS (
     SELECT m.device_id,
            COALESCE(dd.manufacturer, '')::text AS manufacturer,
            COALESCE(dd.model, '')::text AS model,
-           COALESCE(dd.firmware_version, '')::text AS firmware_version,
-           COALESCE(dep.firmware_checksum, '')::text AS deployed_checksum
+           dd.device_class,
+           dd.firmware_version AS controller_version
     FROM release_channel_member m
     JOIN device d ON d.id = m.device_id
     JOIN discovered_device dd ON dd.id = d.discovered_device_id
-    LEFT JOIN device_firmware_deployment dep ON dep.device_id = d.id
     WHERE m.org_id = $2 AND m.channel_id = $1
+), components AS (
+    SELECT DISTINCT p.manufacturer, p.model, ''::text AS component
+    FROM pairs p
+    UNION
+    SELECT DISTINCT p.manufacturer, p.model, f.component
+    FROM pairs p
+    JOIN release_channel_firmware f
+      ON f.channel_id = $1
+     AND f.firmware_checksum <> ''
+     AND f.component <> ''
+     AND release_channel_pair_key(f.manufacturer) = release_channel_pair_key(p.manufacturer)
+     AND release_channel_pair_key(f.model) = release_channel_pair_key(p.model)
+), members AS (
+    SELECT p.device_id,
+           p.manufacturer,
+           p.model,
+           c.component,
+           COALESCE(reported.version, '')::text AS firmware_version,
+           COALESCE(dep.firmware_checksum, '')::text AS deployed_checksum
+    FROM pairs p
+    JOIN components c ON c.manufacturer = p.manufacturer AND c.model = p.model
+    CROSS JOIN LATERAL release_channel_firmware_version(p.device_id, p.device_class, p.controller_version, c.component) AS reported(version)
+    LEFT JOIN device_firmware_deployment dep ON dep.device_id = p.device_id AND dep.component = c.component
 ), groups AS (
     SELECT manufacturer,
            model,
+           component,
            count(*)::int AS miner_count,
            (array_agg(DISTINCT firmware_version ORDER BY firmware_version))[1:10]::text[] AS reported_versions,
            count(DISTINCT firmware_version)::int AS reported_version_count
     FROM members
-    GROUP BY manufacturer, model
+    GROUP BY manufacturer, model, component
     UNION ALL
-    SELECT f.manufacturer, f.model, 0, ARRAY[]::text[], 0
+    SELECT f.manufacturer, f.model, f.component, 0, ARRAY[]::text[], 0
     FROM release_channel_firmware f
     WHERE f.channel_id = $1
       AND f.firmware_checksum <> ''
       AND NOT EXISTS (
-          SELECT 1 FROM members mm
+          SELECT 1 FROM pairs mm
           WHERE release_channel_pair_key(mm.manufacturer) = release_channel_pair_key(f.manufacturer)
             AND release_channel_pair_key(mm.model) = release_channel_pair_key(f.model)
       )
 )
 SELECT g.manufacturer,
        g.model,
+       g.component,
        g.miner_count,
        g.reported_versions,
        g.reported_version_count,
@@ -2172,7 +2297,7 @@ SELECT g.manufacturer,
        COALESCE(f.assignment_generation, 0)::bigint AS assignment_generation,
        COALESCE(r.id, 0)::bigint AS active_rollout_id,
        (SELECT count(*) FROM members mm
-         WHERE mm.manufacturer = g.manufacturer AND mm.model = g.model
+         WHERE mm.manufacturer = g.manufacturer AND mm.model = g.model AND mm.component = g.component
            AND f.firmware_checksum IS NOT NULL AND f.firmware_checksum <> ''
            AND mm.firmware_version = f.firmware_version
            AND mm.deployed_checksum = f.firmware_checksum)::int AS on_target_count
@@ -2182,16 +2307,18 @@ LEFT JOIN release_channel_firmware f
        ON f.channel_id = c.id
       AND release_channel_pair_key(f.manufacturer) = release_channel_pair_key(g.manufacturer)
       AND release_channel_pair_key(f.model) = release_channel_pair_key(g.model)
+      AND f.component = g.component
 LEFT JOIN firmware_rollout r
        ON r.channel_id = c.id AND r.status = 'active'
       AND release_channel_pair_key(r.manufacturer) = release_channel_pair_key(g.manufacturer)
       AND release_channel_pair_key(r.model) = release_channel_pair_key(g.model)
+      AND r.component = g.component
 WHERE (
     $3::text IS NULL
-    OR (g.manufacturer, g.model) > ($3::text, $4::text)
+    OR (g.manufacturer, g.model, g.component) > ($3::text, $4::text, $5::text)
 )
-ORDER BY g.manufacturer, g.model
-LIMIT $5
+ORDER BY g.manufacturer, g.model, g.component
+LIMIT $6
 `
 
 type ListReleaseChannelModelGroupsPageParams struct {
@@ -2199,12 +2326,14 @@ type ListReleaseChannelModelGroupsPageParams struct {
 	OrgID             int64
 	AfterManufacturer sql.NullString
 	AfterModel        sql.NullString
+	AfterComponent    sql.NullString
 	PageLimit         int32
 }
 
 type ListReleaseChannelModelGroupsPageRow struct {
 	Manufacturer               string
 	Model                      string
+	Component                  string
 	MinerCount                 int32
 	ReportedVersions           []string
 	ReportedVersionCount       int32
@@ -2217,10 +2346,14 @@ type ListReleaseChannelModelGroupsPageRow struct {
 	OnTargetCount              int32
 }
 
-// One page of a channel's manufacturer/model groups: every observed pair among
-// its members plus every assigned pair with no current members, each joined to
-// its assignment (by folded key) and active rollout. Ordered by observed
-// manufacturer then model; the cursor is the pair of the last row.
+// One page of a channel's model groups. A group is one firmware component of
+// an observed manufacturer/model pair: every observed pair has its main
+// component (”), and one more group for each other component assigned to it.
+// Every assignment of a pair with no current members is a group too. Each
+// group is joined to its assignment (by folded key and component) and active
+// rollout. Ordered by observed manufacturer, model, then component; the
+// cursor is the group of the last row.
+// Reported versions and on_target_count are those of the group's component.
 // on_target_count follows the contract's definition: reported version and
 // provenance equal the assignment.
 func (q *Queries) ListReleaseChannelModelGroupsPage(ctx context.Context, arg ListReleaseChannelModelGroupsPageParams) ([]ListReleaseChannelModelGroupsPageRow, error) {
@@ -2229,6 +2362,7 @@ func (q *Queries) ListReleaseChannelModelGroupsPage(ctx context.Context, arg Lis
 		arg.OrgID,
 		arg.AfterManufacturer,
 		arg.AfterModel,
+		arg.AfterComponent,
 		arg.PageLimit,
 	)
 	if err != nil {
@@ -2241,6 +2375,7 @@ func (q *Queries) ListReleaseChannelModelGroupsPage(ctx context.Context, arg Lis
 		if err := rows.Scan(
 			&i.Manufacturer,
 			&i.Model,
+			&i.Component,
 			&i.MinerCount,
 			pq.Array(&i.ReportedVersions),
 			&i.ReportedVersionCount,
@@ -2276,9 +2411,10 @@ JOIN firmware_rollout_suppressed_device s
  AND s.device_id = m.device_id
  AND s.manufacturer_key = release_channel_pair_key($1::text)
  AND s.model_key = release_channel_pair_key($2::text)
- AND s.assignment_generation = $3::bigint
-WHERE m.org_id = $4
-  AND m.channel_id = $5
+ AND s.component = $3::text
+ AND s.assignment_generation = $4::bigint
+WHERE m.org_id = $5
+  AND m.channel_id = $6
   AND release_channel_pair_key(dd.manufacturer) = release_channel_pair_key($1::text)
   AND release_channel_pair_key(dd.model) = release_channel_pair_key($2::text)
 ORDER BY d.device_identifier
@@ -2287,6 +2423,7 @@ ORDER BY d.device_identifier
 type ListReleaseChannelSuppressedMembersParams struct {
 	Manufacturer         string
 	Model                string
+	Component            string
 	AssignmentGeneration int64
 	OrgID                int64
 	ChannelID            int64
@@ -2303,6 +2440,7 @@ func (q *Queries) ListReleaseChannelSuppressedMembers(ctx context.Context, arg L
 	rows, err := q.query(ctx, q.listReleaseChannelSuppressedMembersStmt, listReleaseChannelSuppressedMembers,
 		arg.Manufacturer,
 		arg.Model,
+		arg.Component,
 		arg.AssignmentGeneration,
 		arg.OrgID,
 		arg.ChannelID,
@@ -2597,6 +2735,7 @@ WITH originals AS (
           AND previous_rollout.channel_id = current_rollout.channel_id
           AND release_channel_pair_key(previous_rollout.manufacturer) = release_channel_pair_key(current_rollout.manufacturer)
           AND release_channel_pair_key(previous_rollout.model) = release_channel_pair_key(current_rollout.model)
+          AND previous_rollout.component = current_rollout.component
           AND previous_rollout.assignment_generation = current_rollout.assignment_generation
         ORDER BY previous_rollout.id DESC
         LIMIT 1
@@ -2627,32 +2766,34 @@ const recordFirmwareDeployment = `-- name: RecordFirmwareDeployment :exec
 WITH observations AS (
     SELECT DISTINCT ids.device_id, ids.deployment_present, ids.deployed_at, ids.firmware_checksum
     FROM (
-        SELECT unnest($4::bigint[]) AS device_id,
-               unnest($5::boolean[]) AS deployment_present,
-               unnest($6::timestamptz[]) AS deployed_at,
-               unnest($7::text[]) AS firmware_checksum
+        SELECT unnest($5::bigint[]) AS device_id,
+               unnest($6::boolean[]) AS deployment_present,
+               unnest($7::timestamptz[]) AS deployed_at,
+               unnest($8::text[]) AS firmware_checksum
     ) ids
 ), updated AS (
     UPDATE device_firmware_deployment dep
-    SET firmware_checksum = $1,
-        firmware_version = $2,
-        rollout_id = $3,
+    SET firmware_checksum = $2,
+        firmware_version = $3,
+        rollout_id = $4,
         deployed_at = GREATEST(clock_timestamp(), dep.deployed_at + INTERVAL '1 microsecond')
     FROM observations observed
     WHERE observed.deployment_present
       AND dep.device_id = observed.device_id
+      AND dep.component = $1::text
       AND dep.deployed_at = observed.deployed_at
       AND dep.firmware_checksum = observed.firmware_checksum
     RETURNING dep.device_id
 )
-INSERT INTO device_firmware_deployment (device_id, firmware_checksum, firmware_version, rollout_id, deployed_at)
-SELECT observed.device_id, $1, $2, $3, clock_timestamp()
+INSERT INTO device_firmware_deployment (device_id, component, firmware_checksum, firmware_version, rollout_id, deployed_at)
+SELECT observed.device_id, $1::text, $2, $3, $4, clock_timestamp()
 FROM observations observed
 WHERE NOT observed.deployment_present
-ON CONFLICT (device_id) DO NOTHING
+ON CONFLICT (device_id, component) DO NOTHING
 `
 
 type RecordFirmwareDeploymentParams struct {
+	Component                 string
 	FirmwareChecksum          string
 	FirmwareVersion           string
 	RolloutID                 sql.NullInt64
@@ -2663,7 +2804,7 @@ type RecordFirmwareDeploymentParams struct {
 }
 
 // Managed-deployment provenance: the miners listed reported the artifact a
-// rollout dispatched to them. Each aligned observation must still match the
+// rollout dispatched to them for its component. Each aligned observation must still match the
 // current provenance; losing that race is a no-op and the caller reloads it.
 // Observed absence only permits insertion, never replacement of a concurrent
 // insert. Existing rows advance their timestamp strictly, including writes in
@@ -2672,6 +2813,7 @@ type RecordFirmwareDeploymentParams struct {
 // The triggers on device_firmware_deployment advance the rollout's revision.
 func (q *Queries) RecordFirmwareDeployment(ctx context.Context, arg RecordFirmwareDeploymentParams) error {
 	_, err := q.exec(ctx, q.recordFirmwareDeploymentStmt, recordFirmwareDeployment,
+		arg.Component,
 		arg.FirmwareChecksum,
 		arg.FirmwareVersion,
 		arg.RolloutID,
@@ -2770,6 +2912,7 @@ WITH reset AS (
           AND previous_rollout.channel_id = current_rollout.channel_id
           AND release_channel_pair_key(previous_rollout.manufacturer) = release_channel_pair_key(current_rollout.manufacturer)
           AND release_channel_pair_key(previous_rollout.model) = release_channel_pair_key(current_rollout.model)
+          AND previous_rollout.component = current_rollout.component
           AND previous_rollout.assignment_generation = current_rollout.assignment_generation
         ORDER BY previous_rollout.id DESC
         LIMIT 1
@@ -2846,12 +2989,13 @@ SELECT s.device_id,
        d.device_identifier,
        COALESCE(dd.manufacturer, '')::text AS manufacturer,
        COALESCE(dd.model, '')::text AS model,
-       COALESCE(dd.firmware_version, '')::text AS firmware_version,
+       COALESCE(reported.version, '')::text AS firmware_version,
        COALESCE(owner.channel_id, 0)::bigint AS owner_channel_id,
        COALESCE(owner.name, '')::text AS owner_channel_name
 FROM scoped s
 JOIN device d ON d.id = s.device_id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
+CROSS JOIN LATERAL release_channel_firmware_version(d.id, dd.device_class, dd.firmware_version, ''::text) AS reported(version)
 LEFT JOIN LATERAL (
     SELECT DISTINCT c.id AS channel_id, c.name
     FROM release_channel_match rm
@@ -3151,14 +3295,14 @@ func (q *Queries) UpdateReleaseChannel(ctx context.Context, arg UpdateReleaseCha
 const upsertReleaseChannelFirmware = `-- name: UpsertReleaseChannelFirmware :one
 
 INSERT INTO release_channel_firmware (
-    channel_id, manufacturer, model, firmware_checksum, firmware_version,
+    channel_id, manufacturer, model, component, firmware_checksum, firmware_version,
     firmware_target_manufacturer, firmware_target_model, assignment_generation, assigned_by
 )
 VALUES (
-    $1, $2, $3, $4, $5,
-    $6, $7, 1, $8
+    $1, $2, $3, $4, $5, $6,
+    $7, $8, 1, $9
 )
-ON CONFLICT (channel_id, release_channel_pair_key(manufacturer), release_channel_pair_key(model)) DO UPDATE
+ON CONFLICT (channel_id, release_channel_pair_key(manufacturer), release_channel_pair_key(model), component) DO UPDATE
 SET previous_firmware_checksum = release_channel_firmware.firmware_checksum,
     previous_firmware_version = release_channel_firmware.firmware_version,
     firmware_checksum = EXCLUDED.firmware_checksum,
@@ -3168,13 +3312,14 @@ SET previous_firmware_checksum = release_channel_firmware.firmware_checksum,
     assignment_generation = release_channel_firmware.assignment_generation + 1,
     assigned_by = EXCLUDED.assigned_by,
     updated_at = now()
-RETURNING channel_id, manufacturer, model, firmware_checksum, firmware_version, firmware_target_manufacturer, firmware_target_model, assignment_generation, assigned_by, updated_at, previous_firmware_checksum, previous_firmware_version
+RETURNING channel_id, manufacturer, model, firmware_checksum, firmware_version, firmware_target_manufacturer, firmware_target_model, assignment_generation, assigned_by, updated_at, previous_firmware_checksum, previous_firmware_version, component
 `
 
 type UpsertReleaseChannelFirmwareParams struct {
 	ChannelID                  int64
 	Manufacturer               string
 	Model                      string
+	Component                  string
 	FirmwareChecksum           string
 	FirmwareVersion            string
 	FirmwareTargetManufacturer string
@@ -3183,7 +3328,8 @@ type UpsertReleaseChannelFirmwareParams struct {
 }
 
 // --- Firmware assignments ---
-// Assigns an artifact to a pair and advances the pair's generation. The
+// Assigns an artifact to one component of a pair and advances that
+// assignment's generation. The
 // stored key keeps the case it was first written with. assigned_by is the
 // owning user for enforcement commands, separate from the rollout's audit
 // actor. Reconciliation and retries retain this assignment's owner.
@@ -3192,6 +3338,7 @@ func (q *Queries) UpsertReleaseChannelFirmware(ctx context.Context, arg UpsertRe
 		arg.ChannelID,
 		arg.Manufacturer,
 		arg.Model,
+		arg.Component,
 		arg.FirmwareChecksum,
 		arg.FirmwareVersion,
 		arg.FirmwareTargetManufacturer,
@@ -3212,6 +3359,7 @@ func (q *Queries) UpsertReleaseChannelFirmware(ctx context.Context, arg UpsertRe
 		&i.UpdatedAt,
 		&i.PreviousFirmwareChecksum,
 		&i.PreviousFirmwareVersion,
+		&i.Component,
 	)
 	return i, err
 }

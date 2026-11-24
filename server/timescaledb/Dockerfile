@@ -25,7 +25,7 @@
 ############################
 # Build timescaledb-tune from source
 ############################
-FROM golang:1.26.6-alpine AS tools
+FROM golang:1.26.11-alpine AS tools
 
 RUN CGO_ENABLED=0 go install github.com/timescale/timescaledb-tune/cmd/timescaledb-tune@v0.18.1
 
@@ -36,8 +36,19 @@ FROM ubuntu:24.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-# Versions — pin these for reproducible builds
+# Versions — pin each package that the apt-get install command names.
+# Change the pins together. Each version must exist for amd64 and arm64.
+# Do not decrease TIMESCALEDB_VERSION or TOOLKIT_VERSION: a database needs the
+# library for the extension version that created it. See README.md.
 ARG PG_MAJOR=18
+# PostgreSQL 18.7 makes TimescaleDB background jobs record a failure. Hold
+# 18.6 until a TimescaleDB release supports 18.7.
+ARG PG_VERSION=18.6-1.pgdg24.04+2
+# The last pgvector build for PostgreSQL 18.6.
+ARG PGVECTOR_VERSION=0.8.7-1.pgdg24.04+1
+# The extension and its loader use this version. "-1806" is the 18.6 build.
+ARG TIMESCALEDB_VERSION=2.32.1~ubuntu24.04-1806
+ARG TOOLKIT_VERSION=1:1.28.0~ubuntu24.04
 
 # Create postgres user/group with UID/GID 999 matching the official postgres Docker
 # image convention. Note: the HA image used UID 1000 — the entrypoint handles
@@ -61,7 +72,7 @@ RUN set -eux; \
     locale-gen en_US.UTF-8; \
     \
     # --- PostgreSQL PGDG repository ---
-    curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+    curl -fsSL https://apt.postgresql.org/pub/repos/apt/ACCC4CF8.asc \
         | gpg --dearmor -o /usr/share/keyrings/postgresql.gpg; \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/postgresql.gpg] \
         https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
@@ -77,11 +88,12 @@ RUN set -eux; \
     # --- Install PostgreSQL + TimescaleDB + Toolkit + pgvector ---
     apt-get update; \
     apt-get install -y --no-install-recommends \
-        postgresql-${PG_MAJOR} \
-        postgresql-client-${PG_MAJOR} \
-        timescaledb-2-postgresql-${PG_MAJOR} \
-        timescaledb-toolkit-postgresql-${PG_MAJOR} \
-        postgresql-${PG_MAJOR}-pgvector; \
+        postgresql-${PG_MAJOR}=${PG_VERSION} \
+        postgresql-client-${PG_MAJOR}=${PG_VERSION} \
+        timescaledb-2-postgresql-${PG_MAJOR}=${TIMESCALEDB_VERSION} \
+        timescaledb-2-loader-postgresql-${PG_MAJOR}=${TIMESCALEDB_VERSION} \
+        timescaledb-toolkit-postgresql-${PG_MAJOR}=${TOOLKIT_VERSION} \
+        postgresql-${PG_MAJOR}-pgvector=${PGVECTOR_VERSION}; \
     \
     # --- Cleanup to minimize image size ---
     apt-get purge -y --auto-remove \

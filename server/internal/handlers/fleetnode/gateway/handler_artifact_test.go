@@ -301,7 +301,7 @@ func TestDownloadCommandArtifactServesFirmwarePayload(t *testing.T) {
 			// must not prevent the remote miner from downloading its payload.
 			switch tc.metadataState {
 			case "edited":
-				_, err := h.files.UpdateFirmwareMetadata(fileID, files.FirmwareMetadata{
+				_, err := h.files.UpdateFirmwareMetadata(t.Context(), fileID, files.FirmwareMetadata{
 					TargetManufacturer: "Other",
 					TargetModel:        "Different",
 					FirmwareVersion:    "9.9.9",

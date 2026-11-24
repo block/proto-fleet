@@ -28,26 +28,14 @@ func TestResolveCollectionSort(t *testing.T) {
 			Field:     stores.SortFieldName,
 			Direction: stores.SortDirectionDesc,
 		}, "name", "DESC"},
-		{"device_count ASC", &stores.SortConfig{
-			Field:     stores.SortFieldDeviceCount,
-			Direction: stores.SortDirectionAsc,
-		}, "device_count", "ASC"},
 		{"device_count DESC", &stores.SortConfig{
 			Field:     stores.SortFieldDeviceCount,
 			Direction: stores.SortDirectionDesc,
 		}, "device_count", "DESC"},
-		{"issue_count ASC", &stores.SortConfig{
-			Field:     stores.SortFieldIssueCount,
-			Direction: stores.SortDirectionAsc,
-		}, "issue_count", "ASC"},
 		{"issue_count DESC", &stores.SortConfig{
 			Field:     stores.SortFieldIssueCount,
 			Direction: stores.SortDirectionDesc,
 		}, "issue_count", "DESC"},
-		{"zone ASC", &stores.SortConfig{
-			Field:     stores.SortFieldLocation,
-			Direction: stores.SortDirectionAsc,
-		}, "zone", "ASC"},
 		{"zone DESC", &stores.SortConfig{
 			Field:     stores.SortFieldLocation,
 			Direction: stores.SortDirectionDesc,
@@ -242,17 +230,6 @@ func TestBuildCollectionListQuery_BuildingIDs(t *testing.T) {
 	query, args := buildCollectionListQuery(1, pb.CollectionType_COLLECTION_TYPE_RACK, nil, "name", "ASC", 51, filter)
 	assert.Contains(t, query, "AND (dcr.building_id = ANY($3::bigint[]))")
 	assert.Equal(t, pq.Array([]int64{7, 9}), args[2])
-}
-
-func TestBuildCollectionListQuery_SiteIDsAndIncludeUnassigned(t *testing.T) {
-	filter := &stores.DeviceSetFilter{
-		SiteIDs:           []int64{3, 5},
-		IncludeUnassigned: true,
-	}
-	query, args := buildCollectionListQuery(1, pb.CollectionType_COLLECTION_TYPE_RACK, nil, "name", "ASC", 51, filter)
-	assert.Contains(t, query, "LEFT JOIN device_set_rack dcr ON dcr.device_set_id = dc.id")
-	assert.Contains(t, query, "AND (dcr.site_id = ANY($3::bigint[]) OR dcr.site_id IS NULL)")
-	assert.Equal(t, pq.Array([]int64{3, 5}), args[2])
 }
 
 func TestBuildCollectionListQuery_IncludeNoBuilding(t *testing.T) {

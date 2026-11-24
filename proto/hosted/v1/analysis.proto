@@ -1,0 +1,72 @@
+syntax = "proto3";
+
+package hosted.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+// Analyses are frozen client-generated snapshots. Account administrators may
+// permanently delete them; issued host reports retain their immutable history.
+message AccountAnalysis {
+  string analysis_id = 1;
+  string account_id = 2;
+  string name = 3;
+  string kind = 4;
+  google.protobuf.Timestamp start = 5;
+  google.protobuf.Timestamp end = 6;
+  string timezone = 7;
+  google.protobuf.Timestamp created_at = 8;
+  repeated int64 site_ids = 9;
+  repeated string limitations = 10;
+  repeated AnalysisTable tables = 11;
+}
+message AnalysisTable {
+  string key = 1;
+  string title = 2;
+  repeated string columns = 3;
+  repeated AnalysisRow rows = 4;
+}
+message AnalysisRow { repeated string cells = 1; }
+message GenerateAccountAnalysisRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 200}];
+  string kind = 3 [(buf.validate.field).string = {in: ["miner_performance", "energy_usage", "issues_repairs"]}];
+  google.protobuf.Timestamp start = 4 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp end = 5 [(buf.validate.field).required = true];
+  string timezone = 6 [(buf.validate.field).string = {min_len: 1, max_len: 100}];
+  optional int64 site_id = 7 [(buf.validate.field).int64.gt = 0];
+  string request_id = 8 [(buf.validate.field).string.uuid = true];
+}
+message GenerateAccountAnalysisResponse { AccountAnalysis analysis = 1; }
+message ListAccountAnalysesRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+  string page_token = 3 [(buf.validate.field).string.max_len = 2048];
+  string search = 4 [(buf.validate.field).string.max_len = 200];
+  string kind = 5 [(buf.validate.field).string = {in: ["", "miner_performance", "energy_usage", "issues_repairs"]}];
+}
+// List summaries omit tables; GetAccountAnalysis returns the frozen details.
+message ListAccountAnalysesResponse {
+  repeated AccountAnalysis analyses = 1;
+  string next_page_token = 2;
+}
+message GetAccountAnalysisRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string analysis_id = 2 [(buf.validate.field).string.uuid = true];
+}
+message GetAccountAnalysisResponse { AccountAnalysis analysis = 1; }
+message DeleteAccountAnalysisRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string analysis_id = 2 [(buf.validate.field).string.uuid = true];
+}
+message DeleteAccountAnalysisResponse {}
+message ExportAccountAnalysisRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string analysis_id = 2 [(buf.validate.field).string.uuid = true];
+}
+message ExportAccountAnalysisResponse {
+  bytes chunk = 1;
+  string filename = 2;
+  string media_type = 3;
+  string sha256 = 4;
+}

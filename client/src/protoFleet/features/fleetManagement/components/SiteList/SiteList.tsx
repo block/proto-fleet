@@ -2,7 +2,6 @@ import { type ReactNode, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 
 import FleetGroupActionsMenu from "../FleetGroupActionsMenu";
-import { type RowAction } from "../RowActionsMenu";
 import { type FleetListStats } from "@/protoFleet/api/generated/common/v1/fleet_list_stats_pb";
 import { type Site, type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { createSiteColConfig } from "@/protoFleet/features/fleetManagement/components/SiteList/siteColConfig";
@@ -11,6 +10,7 @@ import { useTemperatureUnit } from "@/protoFleet/store";
 import { ArrowRight, Edit } from "@/shared/assets/icons";
 import List, { type SelectionMode } from "@/shared/components/List";
 import { type ColTitles } from "@/shared/components/List/types";
+import { type RowAction } from "@/shared/components/RowActionsMenu";
 
 export type SiteListItem = {
   id: string;

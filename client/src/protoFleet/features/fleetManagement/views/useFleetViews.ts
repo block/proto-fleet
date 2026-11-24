@@ -46,7 +46,6 @@ export type UseFleetViewsResult = {
   renameUserView: (id: string, name: string) => void;
   updateUserViewParams: (id: string, searchParams: string) => void;
   deleteUserView: (id: string) => void;
-  reorderUserViews: (orderedIds: string[]) => void;
 };
 
 const useFleetViews = (username: string): UseFleetViewsResult => {
@@ -134,30 +133,12 @@ const useFleetViews = (username: string): UseFleetViewsResult => {
     [commit],
   );
 
-  const reorderUserViews = useCallback<UseFleetViewsResult["reorderUserViews"]>(
-    (orderedIds) => {
-      const indexById = new Map(orderedIds.map((id, index) => [id, index]));
-      commit((current) => {
-        const next = [...current.views].sort((a, b) => {
-          const aIndex = indexById.has(a.id) ? indexById.get(a.id)! : Number.MAX_SAFE_INTEGER;
-          const bIndex = indexById.has(b.id) ? indexById.get(b.id)! : Number.MAX_SAFE_INTEGER;
-          return aIndex - bIndex;
-        });
-        const sameOrder = next.every((view, i) => view.id === current.views[i]?.id);
-        if (sameOrder) return current;
-        return { ...current, views: next };
-      });
-    },
-    [commit],
-  );
-
   return {
     record,
     addUserView,
     renameUserView,
     updateUserViewParams,
     deleteUserView,
-    reorderUserViews,
   };
 };
 

@@ -31,6 +31,8 @@ const TemperatureUnitsSwitcher = ({
   return (
     <Modal
       title="Temperature"
+      dialogLabel="Temperature"
+      manageFocus
       onDismiss={onClickDone}
       buttons={[
         {

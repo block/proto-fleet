@@ -88,6 +88,21 @@ const (
 	HashboardWarnCRCHigh MinerError = 8001
 	ThermalMarginLow     MinerError = 8002
 
+	ASICOvervoltage                 MinerError = 3008
+	ASICUndervoltage                MinerError = 3009
+	ASICEnumerationFailed           MinerError = 3010
+	ASICECCError                    MinerError = 3011
+	ASICTemperatureImbalance        MinerError = 3012
+	HashboardStartupFailed          MinerError = 3013
+	HashboardNoStackRunning         MinerError = 3014
+	HashboardStackEnumerationFailed MinerError = 3015
+	BoardBusbarVoltageDrop          MinerError = 3505
+	BoardPowerRailFault             MinerError = 3506
+	ReferenceClockFault             MinerError = 3016
+	DiagnosticStorageFault          MinerError = 5004
+	FirmwareRuntimeError            MinerError = 5005
+	ASICThermalThrottling           MinerError = 8003
+
 	// Catch-alls
 	VendorErrorUnmapped MinerError = 9000
 )
@@ -506,6 +521,20 @@ var minerErrorInfo = map[MinerError]MinerErrorInfo{
 	},
 
 	// Catch-all (9000-9999)
+	ASICOvervoltage:                 {Name: "Asic Overvoltage", DefaultSeverity: SeverityMajor, DefaultSummary: "Firmware reported a board diagnostic condition", DefaultAction: "Inspect board diagnostics and firmware logs", DefaultImpact: "Board operation may be degraded"},
+	ASICUndervoltage:                {Name: "Asic Undervoltage", DefaultSeverity: SeverityMajor, DefaultSummary: "Firmware reported a board diagnostic condition", DefaultAction: "Inspect board diagnostics and firmware logs", DefaultImpact: "Board operation may be degraded"},
+	ASICEnumerationFailed:           {Name: "Asic Enumeration Failed", DefaultSeverity: SeverityMajor, DefaultSummary: "Firmware reported a board diagnostic condition", DefaultAction: "Inspect board diagnostics and firmware logs", DefaultImpact: "Board operation may be degraded"},
+	ASICECCError:                    {Name: "Asic Ecc Error", DefaultSeverity: SeverityMajor, DefaultSummary: "Firmware reported a board diagnostic condition", DefaultAction: "Inspect board diagnostics and firmware logs", DefaultImpact: "Board operation may be degraded"},
+	ASICTemperatureImbalance:        {Name: "Asic Temperature Imbalance", DefaultSeverity: SeverityMajor, DefaultSummary: "Firmware reported a board diagnostic condition", DefaultAction: "Inspect board diagnostics and firmware logs", DefaultImpact: "Board operation may be degraded"},
+	HashboardStartupFailed:          {Name: "Hashboard Startup Failed", DefaultSeverity: SeverityMajor, DefaultSummary: "Firmware reported a board diagnostic condition", DefaultAction: "Inspect board diagnostics and firmware logs", DefaultImpact: "Board operation may be degraded"},
+	HashboardNoStackRunning:         {Name: "Hashboard No Stack Running", DefaultSeverity: SeverityMajor, DefaultSummary: "Firmware reported a board diagnostic condition", DefaultAction: "Inspect board diagnostics and firmware logs", DefaultImpact: "Board operation may be degraded"},
+	HashboardStackEnumerationFailed: {Name: "Hashboard Stack Enumeration Failed", DefaultSeverity: SeverityMajor, DefaultSummary: "Firmware reported a board diagnostic condition", DefaultAction: "Inspect board diagnostics and firmware logs", DefaultImpact: "Board operation may be degraded"},
+	BoardBusbarVoltageDrop:          {Name: "Board Busbar Voltage Drop", DefaultSeverity: SeverityMajor, DefaultSummary: "Firmware reported a board diagnostic condition", DefaultAction: "Inspect board diagnostics and firmware logs", DefaultImpact: "Board operation may be degraded"},
+	BoardPowerRailFault:             {Name: "Board Power Rail Fault", DefaultSeverity: SeverityMajor, DefaultSummary: "Firmware reported a board diagnostic condition", DefaultAction: "Inspect board diagnostics and firmware logs", DefaultImpact: "Board operation may be degraded"},
+	ReferenceClockFault:             {Name: "Reference Clock Fault", DefaultSeverity: SeverityMajor, DefaultSummary: "Firmware reported a board diagnostic condition", DefaultAction: "Inspect board diagnostics and firmware logs", DefaultImpact: "Board operation may be degraded"},
+	DiagnosticStorageFault:          {Name: "Diagnostic Storage Fault", DefaultSeverity: SeverityMajor, DefaultSummary: "Firmware reported a board diagnostic condition", DefaultAction: "Inspect board diagnostics and firmware logs", DefaultImpact: "Board operation may be degraded"},
+	FirmwareRuntimeError:            {Name: "Firmware Runtime Error", DefaultSeverity: SeverityMajor, DefaultSummary: "Firmware reported a board diagnostic condition", DefaultAction: "Inspect board diagnostics and firmware logs", DefaultImpact: "Board operation may be degraded"},
+	ASICThermalThrottling:           {Name: "Asic Thermal Throttling", DefaultSeverity: SeverityMajor, DefaultSummary: "Firmware reported a board diagnostic condition", DefaultAction: "Inspect board diagnostics and firmware logs", DefaultImpact: "Board operation may be degraded"},
 	VendorErrorUnmapped: {
 		Name:            "Vendor Error Unmapped",
 		DefaultSummary:  "Vendor-specific error not yet mapped to canonical code",

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
@@ -9,6 +10,14 @@ import {
 import { ActivityEntrySchema } from "@/protoFleet/api/generated/activity/v1/activity_pb";
 
 describe("formatActivityDescription", () => {
+  it("distinguishes container unpairing from miner unpairing", () => {
+    expect(formatActivityDescription(create(ActivityEntrySchema, { eventType: "unpair_container" }))).toBe(
+      "Unpaired container",
+    );
+    expect(formatActivityDescription(create(ActivityEntrySchema, { eventType: "unpair_miners" }))).toBe(
+      "Unpaired miners",
+    );
+  });
   it("uses plain language for auth activity", () => {
     const entry = create(ActivityEntrySchema, {
       eventType: "login_failed",
@@ -16,6 +25,25 @@ describe("formatActivityDescription", () => {
     });
 
     expect(formatActivityDescription(entry)).toBe("Couldn't log in");
+  });
+
+  it("describes team invitations with readable role names and no code", () => {
+    const created = create(ActivityEntrySchema, {
+      eventType: "create_team_invitation",
+      description: "Team invitation created for FIELD_TECH",
+      metadata: { role_name: "FIELD_TECH", invitation_id: "11111111-1111-4111-8111-111111111111" },
+    });
+    const accepted = create(ActivityEntrySchema, {
+      eventType: "accept_team_invitation",
+      description: "tech joined the team as ADMIN",
+      metadata: { role_name: "ADMIN" },
+    });
+
+    expect(formatActivityDescription(created)).toBe("Created user invitation: Field Tech");
+    expect(formatActivityDescription(accepted)).toBe("Joined team: Admin");
+    expect(formatActivityDescription(create(ActivityEntrySchema, { eventType: "revoke_team_invitation" }))).toBe(
+      "Revoked user invitation",
+    );
   });
 
   it("identifies break-glass resets and their target", () => {
@@ -139,27 +167,34 @@ describe("formatActivityDescription", () => {
     expect(formatActivityDescription(create(ActivityEntrySchema, { eventType }))).toBe(label);
   });
 
-  it.each([
-    ["rollout_retried", "Retried failed firmware updates"],
-    ["rollout_advanced", "Advanced firmware update"],
-    ["rollout_devices_skipped", "Skipped firmware update targets"],
-    ["rollout_device_failed", "Firmware update target failed"],
-    ["rollout_controller_timed_out", "Firmware update controller timed out"],
-  ])("preserves target names and firmware versions for %s", (eventType, label) => {
-    const description = `${label}: Failed devices (id=42) Device device(s) → force-cleared-failed`;
-    const entry = create(ActivityEntrySchema, {
-      eventType,
-      description,
-      metadata: {
-        channel_name: "Failed devices (id=42)",
-        manufacturer: "Device",
-        model: "device(s)",
-        firmware_version: "force-cleared-failed",
-      },
-    });
+  it("keeps the channel, model and version of a controller software version change", () => {
+    const eventType = "release_channel_controller_software_changed";
+    const description = "Set controller software version: Site North Proto CT1 → 1.6.0";
 
-    expect(formatActivityDescription(entry)).toBe(description);
+    expect(formatActivityDescription(create(ActivityEntrySchema, { eventType, description }))).toBe(description);
+    expect(formatActivityDescription(create(ActivityEntrySchema, { eventType }))).toBe(
+      "Changed controller software version",
+    );
   });
+
+  it.each([["rollout_retried", "Retried failed firmware updates"]])(
+    "preserves target names and firmware versions for %s",
+    (eventType, label) => {
+      const description = `${label}: Failed devices (id=42) Device device(s) → force-cleared-failed`;
+      const entry = create(ActivityEntrySchema, {
+        eventType,
+        description,
+        metadata: {
+          channel_name: "Failed devices (id=42)",
+          manufacturer: "Device",
+          model: "device(s)",
+          firmware_version: "force-cleared-failed",
+        },
+      });
+
+      expect(formatActivityDescription(entry)).toBe(description);
+    },
+  );
 
   it("cleans fallback descriptions without changing backend values", () => {
     const entry = create(ActivityEntrySchema, {
