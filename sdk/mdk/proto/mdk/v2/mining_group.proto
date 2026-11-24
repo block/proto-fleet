@@ -114,6 +114,19 @@ service MiningGroupService {
     option (mdk.v2.tunnel_mutation_route) = TUNNEL_MUTATION_ROUTE_SHARED_STATE;
     option (google.api.http) = {put: "/api/v2/mining-groups/by-id/{group_id}/pools" body: "*"};
   }
+  // CopyMiningGroupPools copies a reviewed pool set into an empty group. The
+  // controller keeps the source endpoints and passwords and changes only the
+  // requested usernames. Copying pools does not transfer any boards.
+  rpc CopyMiningGroupPools(CopyMiningGroupPoolsRequest) returns (CopyMiningGroupPoolsResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {post: "/api/v2/mining-groups/by-id/{group_id}/pools/copy" body: "*"};
+  }
+  // UpdateDefaultMiningGroupWorkerNames atomically updates only reviewed Default
+  // pool usernames. Endpoints, passwords, and other pool settings stay intact.
+  rpc UpdateDefaultMiningGroupWorkerNames(UpdateDefaultMiningGroupWorkerNamesRequest) returns (UpdateDefaultMiningGroupWorkerNamesResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {post: "/api/v2/mining-groups/default/worker-names" body: "*"};
+  }
   rpc GetMiningGroupPoolDiagnostics(GetMiningGroupPoolDiagnosticsRequest) returns (GetMiningGroupPoolDiagnosticsResponse) {
     option (mdk.v2.product) = PRODUCT_CT1;
     option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
@@ -157,6 +170,14 @@ message MiningGroupCapability {
   reserved 10, 11;
   reserved "metadata_patch_supported", "intent_patch_supported";
   uint32 max_boards_per_group = 12;
+  // This controller implements CopyMiningGroupPools on its local MDK API.
+  bool pool_copy_supported = 13;
+  // True when the controller uses the saved legacy pools for Default.
+  // False when native DATUM overrides them.
+  optional bool default_pool_writes_supported = 14;
+  // This controller can atomically update the saved Default pool usernames.
+  // False when the store lacks support or native DATUM overrides Default pools.
+  optional bool default_pool_worker_name_update_supported = 15;
 }
 message GetMiningGroupCapabilityRequest {}
 message GetMiningGroupCapabilityResponse { MiningGroupCapability capability = 1; }
@@ -173,6 +194,8 @@ message MiningGroupRecord {
   google.protobuf.Timestamp created_at = 9;
   google.protobuf.Timestamp updated_at = 10;
   google.protobuf.Timestamp deleted_at = 11;
+  // Present for Default. Changes when any saved legacy pool setting changes.
+  optional int64 default_pool_revision = 12;
 }
 // Writable customer metadata only; operating policy uses the intent RPC.
 message MiningGroupMetadata {
@@ -285,6 +308,8 @@ message RequestMiningGroupTransferRequest {
   int64 destination_expected_revision = 5;
   string idempotency_key = 6;
   repeated string mac_addresses = 7;
+  // When supplied, require that Default still has the reviewed pool settings.
+  optional int64 source_expected_default_pool_revision = 8;
 }
 message RequestMiningGroupTransferResponse { MiningGroupOperationRecord operation = 1; }
 message GetMiningGroupOperationRequest { string id = 1; }
@@ -402,6 +427,47 @@ message ReplaceMiningGroupPoolsRequest {
 message ReplaceMiningGroupPoolsResponse {
   MiningGroupRecord group = 1;
   repeated MiningGroupPoolRecord pools = 2;
+}
+message MiningGroupPoolCopy {
+  // The complete public source pool record from the operator's review.
+  MiningGroupPoolRecord source = 1;
+  // The complete new pool username. Use the current value to keep that username.
+  string username = 2;
+}
+message CopyMiningGroupPoolsRequest {
+  // An existing non-default destination with no pools, boards, or pending transfers.
+  string group_id = 1;
+  int64 expected_revision = 2;
+  string idempotency_key = 3;
+  // May be "default" to copy the legacy pool set.
+  string source_group_id = 4;
+  int64 source_expected_revision = 5;
+  // Include every source pool exactly once.
+  repeated MiningGroupPoolCopy pools = 6;
+  // Required for Default. Guards changes to settings, including passwords.
+  optional int64 source_expected_default_pool_revision = 7;
+}
+message CopyMiningGroupPoolsResponse {
+  MiningGroupRecord group = 1;
+  repeated MiningGroupPoolRecord pools = 2;
+}
+message DefaultMiningGroupWorkerNameUpdate {
+  int64 pool_id = 1;
+  // The complete pool username, including the account and worker name.
+  string username = 2;
+}
+message UpdateDefaultMiningGroupWorkerNamesRequest {
+  // The reviewed Default group revision and legacy pool revision.
+  int64 expected_revision = 1;
+  int64 expected_default_pool_revision = 2;
+  string idempotency_key = 3;
+  // Include only the pool usernames to change, with one update per ID.
+  repeated DefaultMiningGroupWorkerNameUpdate updates = 4;
+}
+message UpdateDefaultMiningGroupWorkerNamesResponse {
+  MiningGroupRecord group = 1;
+  // All saved Default pools, including inactive pools, without passwords.
+  repeated Pool pools = 2;
 }
 message GetMiningGroupPoolDiagnosticsRequest { string group_id = 1; }
 message GetMiningGroupPoolDiagnosticsResponse {

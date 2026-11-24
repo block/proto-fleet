@@ -3,6 +3,8 @@ import PoolConfigurationUpdates, { PoolConfigurationUpdateResults } from "./Pool
 import PoolHashboards, { UnassignedHashboards } from "./PoolHashboards";
 import {
   type LocalPoolConfiguration,
+  type LocalPoolConfigurationPage,
+  MINING_GROUP_LIMIT_MESSAGE,
   type PoolAssignmentService,
   type PoolAssignmentTarget,
   type PoolConfigurationUpdate,
@@ -52,7 +54,7 @@ export default function PoolConfigurationLibrary({
 }) {
   const controllerId = useMinerStore((state) => state.systemInfo.data?.identity.deviceId);
   const generation = useMinerStore((state) => state.connectionGeneration);
-  const [data, setData] = useState<{ configurations: LocalPoolConfiguration[]; total: number }>();
+  const [data, setData] = useState<LocalPoolConfigurationPage>();
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState<string>();
   const [editing, setEditing] = useState<LocalPoolConfiguration | "new">();
@@ -69,7 +71,14 @@ export default function PoolConfigurationLibrary({
     setError(undefined);
     setRevision((value) => value + 1);
   };
-  const poolActions = usePoolAssignmentActions({ onConfigurationSaved: refresh, onAssignmentsChanged: onReload });
+  const poolActions = usePoolAssignmentActions({
+    onConfigurationSaved: refresh,
+    onAssignmentsChanged: () => {
+      refresh();
+      onReload();
+    },
+    showRecovery: true,
+  });
   const deleteSelectedConfiguration = async () => {
     if (busy || !deleting) return;
     const request = new AbortController();
@@ -110,6 +119,7 @@ export default function PoolConfigurationLibrary({
     },
   });
   const configurations = (data?.configurations ?? []).map((item) => ({ ...item, configurationId: item.id }));
+  const noGroupSpace = data && data.capacity.groupsUsed >= data.capacity.maxGroups;
   const viewing = details?.update ? undefined : details?.configuration;
   const canConfirmDeletion = deleting?.assignedCount === 0 && !deleteError?.unconfirmed;
   const inventoryWarning = configuration.locationsAvailable
@@ -149,12 +159,13 @@ export default function PoolConfigurationLibrary({
         <Button
           variant="primary"
           size="compact"
-          disabled={locked || !data || Boolean(error)}
+          disabled={locked || !data || noGroupSpace || Boolean(error)}
           className="shrink-0 phone:w-full"
           text="Create configuration"
           onClick={() => setEditing("new")}
         />
       </div>
+      {noGroupSpace ? <p role="status">{MINING_GROUP_LIMIT_MESSAGE}</p> : null}
       {configuration.suspended ? (
         <Callout intent="warning" prefixIcon={<Alert />} title="Container mining is paused." />
       ) : null}
@@ -170,7 +181,7 @@ export default function PoolConfigurationLibrary({
           assignmentBlockers={assignmentBlockers}
           poolPickerOpen={poolActions.open}
           onEditPool={
-            poolActions.available && !locked && !refreshing && !inventoryWarning
+            poolActions.canEditPool && !locked && !refreshing && !inventoryWarning
               ? (macs) => poolActions.editPool({ macs, unassignedOnly: true })
               : undefined
           }
@@ -215,10 +226,7 @@ export default function PoolConfigurationLibrary({
               />
             )}
             emptyState={
-              <SettingsEmptyState
-                title={page ? "No configurations on this page" : "No pool configurations yet"}
-                description="Create a configuration with a primary pool and up to two backups."
-              />
+              <SettingsEmptyState title={page ? "No configurations on this page" : "No pool configurations yet"} />
             }
           />
           <PageControls
@@ -232,13 +240,14 @@ export default function PoolConfigurationLibrary({
       {inventoryWarning ? null : reloadButton}
       {poolActions.recoveryButton}
       {poolActions.dialog}
-      {editing && controllerId ? (
+      {editing && controllerId && data ? (
         <PoolAssignmentDialog
           key={editing === "new" ? "new" : editing.id}
           service={service}
           controllerId={controllerId}
           target={CONFIGURATION_TARGET}
           configuration={editing}
+          configurationCapacity={data.capacity}
           onDismiss={() => setEditing(undefined)}
           onConfigurationSaved={() => {
             setEditing(undefined);

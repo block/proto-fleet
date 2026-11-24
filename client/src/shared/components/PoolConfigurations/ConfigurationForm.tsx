@@ -4,6 +4,31 @@ import Button from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
 import Input from "@/shared/components/Input";
 
+export function PoolSlotFields({
+  label,
+  actions,
+  children,
+}: {
+  label: string;
+  actions?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={label}
+      className="flex flex-col gap-4 rounded-xl border border-border-10 p-4"
+      data-dd-privacy="mask"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-heading-100">{label}</h3>
+        {actions}
+      </div>
+      {children}
+    </div>
+  );
+}
+
 export function ConfigurationForm<T extends ConfigurationPoolDraft>({
   name,
   nameReadOnly = false,
@@ -13,6 +38,7 @@ export function ConfigurationForm<T extends ConfigurationPoolDraft>({
   newPool,
   validateURL,
   maxPools = 3,
+  fixedPoolList = false,
   hasSavedPassword,
   canPreservePassword,
   passwordRequired,
@@ -28,6 +54,7 @@ export function ConfigurationForm<T extends ConfigurationPoolDraft>({
   newPool: () => T;
   validateURL: (url: string) => string | undefined;
   maxPools?: number;
+  fixedPoolList?: boolean;
   hasSavedPassword?: (pool: T) => boolean;
   canPreservePassword?: (pool: T) => boolean;
   passwordRequired?: (pool: T) => boolean;
@@ -63,38 +90,37 @@ export function ConfigurationForm<T extends ConfigurationPoolDraft>({
         maxLength={255}
       />
       {pools.map((pool, index) => (
-        <div
+        <PoolSlotFields
           key={pool.key}
-          role="group"
-          aria-label={poolSlotLabel(index)}
-          className="flex flex-col gap-4 rounded-xl border border-border-10 p-4"
-          data-dd-privacy="mask"
+          label={poolSlotLabel(index)}
+          actions={
+            !fixedPoolList ? (
+              <div className="flex gap-3">
+                {index > 0 ? <Button variant="textOnly" text="Move up" onClick={() => move(pool.key, -1)} /> : null}
+                {index < pools.length - 1 ? (
+                  <Button variant="textOnly" text="Move down" onClick={() => move(pool.key, 1)} />
+                ) : null}
+                {pools.length > 1 ? (
+                  <Button
+                    variant="textOnly"
+                    text="Remove"
+                    onClick={() =>
+                      onChangePools((current) => {
+                        if (current.length <= 1) return current;
+                        return current.filter((item) => item.key !== pool.key);
+                      })
+                    }
+                  />
+                ) : null}
+              </div>
+            ) : null
+          }
         >
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-heading-100">{poolSlotLabel(index)}</h3>
-            <div className="flex gap-3">
-              {index > 0 ? <Button variant="textOnly" text="Move up" onClick={() => move(pool.key, -1)} /> : null}
-              {index < pools.length - 1 ? (
-                <Button variant="textOnly" text="Move down" onClick={() => move(pool.key, 1)} />
-              ) : null}
-              {pools.length > 1 ? (
-                <Button
-                  variant="textOnly"
-                  text="Remove"
-                  onClick={() =>
-                    onChangePools((current) => {
-                      if (current.length <= 1) return current;
-                      return current.filter((item) => item.key !== pool.key);
-                    })
-                  }
-                />
-              ) : null}
-            </div>
-          </div>
           <Input
             id={`pool-url-${pool.key}`}
             label="Pool URL"
             initValue={pool.url}
+            readOnly={fixedPoolList}
             sanitize={(value) => value.trim()}
             onChange={(url) => update(pool.key, { url })}
             error={validateURL(pool.url)}
@@ -132,9 +158,9 @@ export function ConfigurationForm<T extends ConfigurationPoolDraft>({
           )}
           {connectionTest?.(pool)}
           {poolControls?.(pool)}
-        </div>
+        </PoolSlotFields>
       ))}
-      {pools.length < maxPools ? (
+      {!fixedPoolList && pools.length < maxPools ? (
         <Button
           variant="secondary"
           text="Add backup pool"

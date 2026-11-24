@@ -37,6 +37,8 @@ const isPoolAttempt = (value: unknown, key: string, storagePrefix: string): valu
     typeof attempt.configurationConfirmed === "boolean" &&
     (attempt.unassignedOnly === undefined || typeof attempt.unassignedOnly === "boolean") &&
     (attempt.restoreLegacyMining === undefined || typeof attempt.restoreLegacyMining === "boolean") &&
+    (attempt.unsubmittedWorkerNameBoards === undefined ||
+      (Number.isSafeInteger(attempt.unsubmittedWorkerNameBoards) && attempt.unsubmittedWorkerNameBoards >= 0)) &&
     Array.isArray(attempt.pools) &&
     Array.isArray(attempt.operationIds),
   );
@@ -93,6 +95,7 @@ export const savePoolAttempt = (controller: string, attempt: PoolAssignmentAttem
     unassignedOnly,
     destinationId,
     destinationRevision,
+    destinationDefaultPoolRevision,
     unconfirmedTransferRevision,
     destinationRef,
     configurationOnly,
@@ -100,6 +103,7 @@ export const savePoolAttempt = (controller: string, attempt: PoolAssignmentAttem
     operationIds,
     phase,
     restoreLegacyMining,
+    unsubmittedWorkerNameBoards,
   } = attempt;
   localStorage.setItem(
     prefix(controller) + id,
@@ -110,6 +114,7 @@ export const savePoolAttempt = (controller: string, attempt: PoolAssignmentAttem
       unassignedOnly,
       destinationId,
       destinationRevision,
+      destinationDefaultPoolRevision,
       unconfirmedTransferRevision,
       destinationRef,
       configurationOnly,
@@ -118,6 +123,7 @@ export const savePoolAttempt = (controller: string, attempt: PoolAssignmentAttem
       operationIds,
       phase,
       restoreLegacyMining,
+      unsubmittedWorkerNameBoards,
     }),
   );
   notifyPoolAttempts(controller);

@@ -17,6 +17,89 @@ import (
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
+func TestDefaultPoolPasswordRotationInvalidatesCopyAndTransfer(t *testing.T) {
+	s := NewContainerState(ContainerConfig{ServerID: "groups", Tanks: 1, ModulesPerTank: 1, SlotsPerModule: 1, Seed: 1})
+	api := &grpcAPI{state: s}
+	ctx := t.Context()
+	if _, err := api.StopMining(ctx, &mdk.StopMiningRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	capability, err := api.GetMiningGroupCapability(ctx, &mdk.GetMiningGroupCapabilityRequest{})
+	if err != nil || !capability.GetCapability().GetDefaultPoolWritesSupported() {
+		t.Fatalf("Default pool writes unavailable: %v", err)
+	}
+	if _, err := api.ActivateMiningGroups(ctx, &mdk.ActivateMiningGroupsRequest{
+		ExpectedStateRevision: capability.Capability.StateRevision, IdempotencyKey: "activate",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	getDefault := func() *mdk.MiningGroupRecord {
+		t.Helper()
+		response, err := api.GetMiningGroup(ctx, &mdk.GetMiningGroupRequest{Id: "default"})
+		if err != nil || response.GetGroup().GetDefaultPoolRevision() <= 0 {
+			t.Fatalf("Default pool revision unavailable: %v", err)
+		}
+		return response.Group
+	}
+	source := getDefault()
+	destination, err := api.CreateMiningGroup(ctx, &mdk.CreateMiningGroupRequest{
+		Metadata: &mdk.MiningGroupMetadata{Name: "New worker"}, IdempotencyKey: "create",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	copyRequest := &mdk.CopyMiningGroupPoolsRequest{
+		GroupId: destination.Group.Id, ExpectedRevision: destination.Group.Revision,
+		SourceGroupId: "default", SourceExpectedRevision: source.Revision, IdempotencyKey: "copy",
+	}
+	for _, pool := range s.miningGroups.pools["default"] {
+		copyRequest.Pools = append(copyRequest.Pools, &mdk.MiningGroupPoolCopy{Source: proto.CloneOf(pool.Pool), Username: "account.worker"})
+	}
+	if _, err := api.CopyMiningGroupPools(ctx, copyRequest); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("unguarded Default copy: %v", err)
+	}
+	rotatePassword := func(password string) {
+		t.Helper()
+		if _, err := api.UpdatePool(ctx, &mdk.UpdatePoolRequest{
+			Pool: &mdk.Pool{Id: int64(copyRequest.Pools[0].Source.Id)}, Password: password,
+			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"id"}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rotatePassword("first-rotation")
+	copyRequest.SourceExpectedDefaultPoolRevision = source.DefaultPoolRevision
+	if _, err := api.CopyMiningGroupPools(ctx, copyRequest); status.Code(err) != codes.Aborted {
+		t.Fatalf("stale Default copy: %v", err)
+	}
+	copyRequest.SourceExpectedDefaultPoolRevision = getDefault().DefaultPoolRevision
+	copied, err := api.CopyMiningGroupPools(ctx, copyRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.miningGroups.pools[destination.Group.Id][0].GetPassword() != "first-rotation" {
+		t.Fatal("copy lost the rotated password")
+	}
+	rotatePassword("second-rotation")
+	members, err := api.ListMiningGroupMemberships(ctx, &mdk.ListMiningGroupMembershipsRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mac := members.Memberships[0].MacAddress
+	transfer := &mdk.RequestMiningGroupTransferRequest{
+		SourceGroupId: "default", SourceExpectedRevision: source.Revision,
+		SourceExpectedDefaultPoolRevision: copyRequest.SourceExpectedDefaultPoolRevision,
+		DestinationGroupId:                copied.Group.Id, DestinationExpectedRevision: copied.Group.Revision,
+		MacAddresses: []string{mac}, IdempotencyKey: "transfer",
+	}
+	if _, err := api.RequestMiningGroupTransfer(ctx, transfer); status.Code(err) != codes.Aborted {
+		t.Fatalf("stale Default transfer: %v", err)
+	}
+	if s.miningGroups.members[mac].GroupId != "default" {
+		t.Fatal("stale transfer changed board membership")
+	}
+}
+
 func TestMiningGroupsWorkflow(t *testing.T) {
 	s := NewContainerState(ContainerConfig{ServerID: "groups", Tanks: 1, ModulesPerTank: 2, SlotsPerModule: 3, Seed: 1})
 	listener, err := net.Listen("tcp", "127.0.0.1:0")

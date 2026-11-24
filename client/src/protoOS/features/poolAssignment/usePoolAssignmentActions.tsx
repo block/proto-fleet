@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { readPoolAttempts, subscribeToPoolAttempts } from "./attemptStorage";
 import PoolAssignmentDialog from "./PoolAssignmentDialog";
+import { hasWorkerNameUpdate, useWorkerNameUpdateOwner } from "./workerNameUpdates";
 import type { PoolAssignmentAttempt, PoolAssignmentTarget } from "@/protoOS/api/adapters/poolAssignment";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import useMinerStore from "@/protoOS/store/useMinerStore";
@@ -10,9 +11,11 @@ import type { RowAction } from "@/shared/components/RowActionsMenu";
 export function usePoolAssignmentActions({
   onConfigurationSaved,
   onAssignmentsChanged,
+  showRecovery = false,
 }: {
   onConfigurationSaved?: () => void;
   onAssignmentsChanged?: () => void;
+  showRecovery?: boolean;
 } = {}) {
   const { adapter, isFleetHosted } = useMinerHosting();
   const identity = useMinerStore((state) => state.systemInfo.data?.identity);
@@ -20,12 +23,14 @@ export function usePoolAssignmentActions({
   const [request, setRequest] = useState<{
     target: PoolAssignmentTarget;
     generation: number;
-    selectedCount?: number;
     openStatus?: boolean;
+    workerNames?: boolean;
   }>();
   const service = !isFleetHosted ? adapter?.poolAssignment : undefined;
   const controllerId = identity?.deviceId;
-  const recoveryController = service ? controllerId : undefined;
+  const owner = useId();
+  const workerNameUpdateOwner = useWorkerNameUpdateOwner(controllerId);
+  const recoveryController = service && showRecovery ? controllerId : undefined;
   const [recovery, setRecovery] = useState<{ controller: string; attempt?: PoolAssignmentAttempt }>();
   useEffect(() => {
     if (!recoveryController) return;
@@ -37,28 +42,36 @@ export function usePoolAssignmentActions({
   }, [recoveryController]);
   const tracked = recovery?.controller === recoveryController ? recovery?.attempt : undefined;
   const available = Boolean(service && controllerId);
-  const activeRequest = request?.generation === generation ? request : undefined;
-  const editPool = (target?: PoolAssignmentTarget, selectedCount?: number) => {
-    if (available && target?.macs.length) setRequest({ target, generation, selectedCount });
+  const openAssignment = (target: PoolAssignmentTarget | undefined, workerNames: boolean) => {
+    if (service && target?.macs.length && controllerId && !hasWorkerNameUpdate(controllerId))
+      setRequest({ target, generation, workerNames });
   };
-  const action = (target?: PoolAssignmentTarget, selectedCount?: number): RowAction[] =>
+  const action = (target?: PoolAssignmentTarget, scope: "board" | "module" = "board"): RowAction[] =>
     available
       ? [
           {
             label: "Edit pool",
             testId: "set-board-pools",
-            disabled: !target?.macs.length,
-            onClick: () => editPool(target, selectedCount),
+            disabled: !target?.macs.length || workerNameUpdateOwner !== undefined,
+            onClick: () => openAssignment(target, false),
+          },
+          {
+            label: scope === "module" || (target?.macs.length ?? 0) > 1 ? "Update worker names" : "Update worker name",
+            testId: "update-board-worker-name",
+            disabled: !target?.macs.length || workerNameUpdateOwner !== undefined,
+            onClick: () => openAssignment(target, true),
           },
         ]
       : [];
+  const activeRequest = request?.generation === generation ? request : undefined;
   return {
     available,
+    canEditPool: available && workerNameUpdateOwner === undefined,
     action,
-    editPool,
-    open: Boolean(activeRequest),
+    editPool: (target?: PoolAssignmentTarget) => openAssignment(target, false),
+    open: Boolean(activeRequest) && workerNameUpdateOwner !== owner,
     recoveryButton:
-      available && tracked ? (
+      available && tracked && workerNameUpdateOwner === undefined ? (
         <Button
           className="mb-4"
           variant="secondary"
@@ -74,8 +87,9 @@ export function usePoolAssignmentActions({
           service={service}
           controllerId={controllerId}
           target={activeRequest.target}
-          selectedCount={activeRequest.selectedCount}
           openStatus={activeRequest.openStatus}
+          workerNames={activeRequest.workerNames}
+          workerNameUpdateOwner={owner}
           onConfigurationSaved={onConfigurationSaved}
           onAssignmentsChanged={onAssignmentsChanged}
           onDismiss={() => setRequest(undefined)}

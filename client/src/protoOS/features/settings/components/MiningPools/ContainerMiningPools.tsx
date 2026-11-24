@@ -9,6 +9,7 @@ import { validateContainerPoolURL } from "@/protoOS/api/adapters/poolURL";
 import type { MinerAdapter, SavedPoolSettings } from "@/protoOS/api/adapters/types";
 import Pools from "@/protoOS/components/MiningPools/Pools";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { usePoolAssignmentActions } from "@/protoOS/features/poolAssignment/usePoolAssignmentActions";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 import { Alert } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
@@ -101,6 +102,14 @@ const ContainerMiningPools = () => {
       .catch((error: unknown) => setError(readFailureMessage(error)));
   };
 
+  const poolAssignment = adapter?.poolAssignment;
+  const showGroupLibrary = configuration?.mode === "groups" && poolAssignment && !unavailable;
+  const recovery = usePoolAssignmentActions({
+    onConfigurationSaved: reloadPools,
+    onAssignmentsChanged: reloadPools,
+    showRecovery: !showGroupLibrary && (configuration !== undefined || unavailable),
+  });
+
   const mutate = async (operation: () => Promise<void>) => {
     if (writing.current || unavailable || refreshing || !canEditContainerPools)
       throw new Error("Reload pools before making changes.");
@@ -163,13 +172,13 @@ const ContainerMiningPools = () => {
     });
   };
 
-  if (configuration?.mode === "groups" && adapter?.poolAssignment && !unavailable)
+  if (showGroupLibrary)
     return (
       <>
         <MiningGroupOperations operations={configuration.pendingOperations} />
         <PoolConfigurationLibrary
           key={`${connectionGeneration}:${revision}`}
-          service={adapter.poolAssignment}
+          service={poolAssignment}
           configuration={configuration}
           refreshing={refreshing}
           onReload={reloadPools}
@@ -180,6 +189,8 @@ const ContainerMiningPools = () => {
   return (
     <>
       <ContentHeader title="Pools" subtitle={subtitle} />
+      {recovery.recoveryButton}
+      {recovery.dialog}
       {error ? (
         <div role="alert" className="mb-6 space-y-3">
           <Callout intent={intents.danger} prefixIcon={<Alert />} title={error} />

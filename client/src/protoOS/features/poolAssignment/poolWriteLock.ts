@@ -6,9 +6,11 @@ const openLockDatabase = (name: string) =>
     request.onerror = () => reject(request.error);
   });
 
-type PoolWrite = (signal: AbortSignal) => Promise<void>;
-
-export async function withPoolWriteLock(controllerId: string, signal: AbortSignal, write: PoolWrite) {
+export async function withPoolWriteLock<T>(
+  controllerId: string,
+  signal: AbortSignal,
+  write: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
   const name = `proto-os:pool-write:${encodeURIComponent(controllerId)}`;
   if (navigator.locks) {
     return navigator.locks.request(name, { signal }, () => write(signal));
@@ -19,12 +21,12 @@ export async function withPoolWriteLock(controllerId: string, signal: AbortSigna
   const database = await openLockDatabase(name);
   try {
     signal.throwIfAborted();
-    await new Promise<void>((resolve, reject) => {
+    return await new Promise<T>((resolve, reject) => {
       const transaction = database.transaction("lock", "readwrite");
       const store = transaction.objectStore("lock");
       const guard = new AbortController();
       const writeSignal = AbortSignal.any([signal, guard.signal]);
-      let result: Promise<void> | undefined;
+      let result: Promise<T> | undefined;
       let finished = false;
       const cancelWhileWaiting = () => {
         if (!result) transaction.abort();

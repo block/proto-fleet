@@ -58,6 +58,8 @@ const RenameOptionsModal = ({
   <Modal
     open={true}
     title="Options"
+    dialogLabel="Options"
+    manageFocus
     onDismiss={onDismiss}
     hideHeaderOnPhone
     divider={false}

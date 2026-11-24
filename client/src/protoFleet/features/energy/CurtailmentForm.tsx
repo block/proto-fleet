@@ -40,9 +40,6 @@ import type {
 
 import { formatCurtailmentKw as formatKw, isCurtailmentAdmin } from "@/protoFleet/api/curtailmentUtils";
 import { MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import FullScreenTwoPaneModal, {
-  type FullScreenTwoPaneModalProps,
-} from "@/protoFleet/components/FullScreenTwoPaneModal";
 import TargetSelectButton, { getTargetButtonLabel } from "@/protoFleet/components/TargetSelectButton";
 import {
   BuildingSelectionModal,
@@ -67,6 +64,7 @@ import { Alert, LightningAlt, Question } from "@/shared/assets/icons";
 import Button, { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
+import FullScreenTwoPaneModal, { type FullScreenTwoPaneModalProps } from "@/shared/components/FullScreenTwoPaneModal";
 import Input from "@/shared/components/Input";
 import Modal, { ModalSelectAllFooter } from "@/shared/components/Modal";
 import Popover, { PopoverProvider, popoverSizes, usePopover } from "@/shared/components/Popover";

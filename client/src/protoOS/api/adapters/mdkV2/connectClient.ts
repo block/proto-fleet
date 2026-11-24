@@ -17,6 +17,7 @@ import type {
   FirmwareServiceWriteFirmwareArtifactUploadChunkBody,
   HashboardServiceGetHashboardEventsParams,
   HashboardServiceListRecoveryEvidenceParams,
+  MiningGroupServiceCopyMiningGroupPoolsBody,
   MiningGroupServiceDeleteMiningGroupParams,
   MiningGroupServiceReplaceMiningGroupPoolsBody,
   MiningGroupServiceUpdateMiningGroupBody,
@@ -38,6 +39,7 @@ import type {
   V2ClearPowerTargetScopedRequest,
   V2ClearPowerTargetScopedResponse,
   V2CommitFirmwareArtifactUploadResponse,
+  V2CopyMiningGroupPoolsResponse,
   V2CreateMiningGroupRequest,
   V2CreateMiningGroupResponse,
   V2CreatePoolRequest,
@@ -103,6 +105,8 @@ import type {
   V2StartModuleRunInResponse,
   V2StopMiningScopedResponse,
   V2StreamASICHealthResponse,
+  V2UpdateDefaultMiningGroupWorkerNamesRequest,
+  V2UpdateDefaultMiningGroupWorkerNamesResponse,
   V2UpdateMiningGroupIntentResponse,
   V2UpdateMiningGroupResponse,
   V2UpdatePoolResponse,
@@ -164,6 +168,15 @@ export interface MdkV2Client {
     data: MiningGroupServiceReplaceMiningGroupPoolsBody,
     params?: AdapterRequestOptions,
   ): HttpResponse<V2ReplaceMiningGroupPoolsResponse>;
+  miningGroupServiceCopyMiningGroupPools(
+    path: { groupId: string },
+    data: MiningGroupServiceCopyMiningGroupPoolsBody,
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2CopyMiningGroupPoolsResponse>;
+  miningGroupServiceUpdateDefaultMiningGroupWorkerNames(
+    data: V2UpdateDefaultMiningGroupWorkerNamesRequest,
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2UpdateDefaultMiningGroupWorkerNamesResponse>;
   miningGroupServiceUpdateMiningGroupIntent(
     path: { id: string },
     data: MiningGroupServiceUpdateMiningGroupIntentBody,
@@ -676,6 +689,10 @@ export const createMdkV2Client = (transport: Transport): MdkV2Client => {
       unary(transport, miningGroup.activateMiningGroups, data, params),
     miningGroupServiceReplaceMiningGroupPools: (path, data, params) =>
       unary(transport, miningGroup.replaceMiningGroupPools, { ...path, ...data }, params),
+    miningGroupServiceCopyMiningGroupPools: (path, data, params) =>
+      unary(transport, miningGroup.copyMiningGroupPools, { ...path, ...data }, params),
+    miningGroupServiceUpdateDefaultMiningGroupWorkerNames: (data, params) =>
+      unary(transport, miningGroup.updateDefaultMiningGroupWorkerNames, data, params),
     miningGroupServiceUpdateMiningGroupIntent: (path, data, params) =>
       unary(transport, miningGroup.updateMiningGroupIntent, { ...path, ...data }, params),
     miningGroupServiceRequestMiningGroupTransfer: (data, params) =>

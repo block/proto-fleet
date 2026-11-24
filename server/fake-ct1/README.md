@@ -65,8 +65,13 @@ plus the MiningGroup service described in
 [Mining groups in Fleet](#mining-groups-in-fleet). They share the REST state and clock.
 Whole-container priority pool writes are held in memory and visible through REST,
 Connect, and gRPC reads. Enabling mining groups copies the configured pools and
-credentials into the Default group and assigns all boards to it. Whole-container
-pool writes are refused after activation. Restarting the simulator resets its pools.
+credentials into the Default group and assigns all boards to it. Legacy pool
+writes edit Default even after activation. They advance the Default pool revision,
+including when only a password changes. ProtoOS can copy a reviewed Default or
+hosted pool set into an empty group and change its worker names before a board
+transfer. It can also update the worker names of the entire Default group in one
+request. That request checks both revisions and preserves saved passwords.
+Restarting the simulator resets its pools.
 Weighted pool allocation and real pool connections are not simulated.
 
 SetContainerControl writes return controller-register confirmation. The dedicated main breaker remains unsupported, matching the REST
@@ -75,8 +80,8 @@ development listener is plaintext without authentication; see
 [CT1 transport configuration](../../docs/development/ct1-grpc.md) for the
 production plugin's TLS/token settings.
 
-The HTTP origin serves the same methods, except the MiningGroup service, as Connect routes
-(`/mdk.v2.<Service>/<Method>`), ahead of the `--web-root` static fallback. Native
+The HTTP origin also serves the mining-group methods as Connect routes
+(`/mdk.v2.<Service>/<Method>`), before the `--web-root` static fallback. Native
 status codes are kept as Connect codes.
 
 REST, Connect, and native gRPC calls share one request lifecycle: calls from

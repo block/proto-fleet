@@ -73,7 +73,7 @@ vi.mock("@/shared/hooks/useWindowDimensions", () => ({
   }),
 }));
 
-vi.mock("@/protoFleet/components/FullScreenTwoPaneModal", () => ({
+vi.mock("@/shared/components/FullScreenTwoPaneModal", () => ({
   __esModule: true,
   default: ({ open, buttons, primaryPane, secondaryPane }: any) =>
     open ? (

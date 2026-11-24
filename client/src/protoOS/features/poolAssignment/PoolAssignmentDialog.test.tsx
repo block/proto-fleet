@@ -2,16 +2,19 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { beforeEach, expect, test, vi } from "vitest";
 import { readPoolAttempts, savePoolAttempt } from "./attemptStorage";
 import PoolAssignmentDialog from "./PoolAssignmentDialog";
-import type {
-  PoolAssignmentAttempt,
-  PoolAssignmentPlan,
-  PoolAssignmentService,
+import {
+  type PoolAssignmentAttempt,
+  type PoolAssignmentPlan,
+  type PoolAssignmentService,
+  type WorkerNameReview,
+  WorkerNameUpdateRolledBack,
 } from "@/protoOS/api/adapters/poolAssignment";
-import { pushToast } from "@/shared/features/toaster";
+import { pushToast, updateToast } from "@/shared/features/toaster";
 
 vi.mock("@/shared/features/toaster", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/shared/features/toaster")>()),
-  pushToast: vi.fn(),
+  pushToast: vi.fn(() => 42),
+  updateToast: vi.fn(),
 }));
 
 const A = "aa:bb:cc:00:00:01",
@@ -24,7 +27,8 @@ const pool = {
   priority: 0,
   enabled: true,
 };
-const saved = { id: "saved", name: "Saved pools", revision: "2", mining: true, pools: [pool] };
+const saved = { id: "saved", name: "Saved pools", revision: "2", mining: true, pools: [pool], projectedBoards: 2 };
+const capacity = { groupsUsed: 2, maxGroups: 5, maxBoards: 4, maxPools: 4 };
 const target = { macs: [A, B] };
 const boards = [
   { mac: A, location: "Tank 1 · Module 1 · Board 1" },
@@ -50,15 +54,20 @@ const pendingStatus = {
 const fixture = () => {
   const service = {
     listConfigurations: vi.fn().mockResolvedValue([]),
-    listConfigurationPage: vi.fn().mockResolvedValue({ configurations: [], total: 0 }),
+    listConfigurationPage: vi.fn().mockResolvedValue({ configurations: [], total: 0, capacity }),
     deleteConfiguration: vi.fn().mockResolvedValue(undefined),
     inspect: vi.fn().mockResolvedValue({
-      boards,
       savedPools: [saved],
       mixedConfigurations: false,
-      maxPools: 3,
-      requiresActivation: false,
+      capacity,
     }),
+    inspectWorkerNames: vi
+      .fn<PoolAssignmentService["inspectWorkerNames"]>()
+      .mockImplementation(async (selection) => [
+        { configuration: saved, boards: boards.filter(({ mac }) => selection.macs.includes(mac)) },
+      ]),
+    reviewWorkerNames: vi.fn<PoolAssignmentService["reviewWorkerNames"]>(),
+    applyWorkerNames: vi.fn<PoolAssignmentService["applyWorkerNames"]>(),
     review: vi.fn().mockImplementation(async (current) => ({
       id: "next-attempt",
       name: "Saved pools",
@@ -67,6 +76,7 @@ const fixture = () => {
       stamp: "review",
       pools: [],
       savedPoolSet: saved,
+      capacity: { ...capacity, destinationBoards: current.macs.length },
       mining: true,
       requiresActivation: false,
       destinationId: "saved",
@@ -119,7 +129,218 @@ beforeEach(() => {
   });
   localStorage.clear();
   vi.mocked(pushToast).mockClear();
+  vi.mocked(updateToast).mockClear();
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 20, 240, 40));
+});
+
+test.each([
+  "during save",
+  "during status polling",
+  "after leaving the module",
+  "when status reads fail",
+  "when the transfer remains pending",
+  "after a rejected copy rolls back",
+] as const)("uses Fleet confirmations and reports worker name progress in a toast %s", async (completion) => {
+  const { service } = fixture();
+  const boardTarget = { macs: [A] };
+  const username = "account.region.rig-02";
+  const updatedPool = { ...pool, username };
+  const review: WorkerNameReview = {
+    groups: [
+      {
+        workerName: "rig-02",
+        assignment: {
+          id: "worker-review",
+          name: "Saved pools",
+          target: boardTarget,
+          boards: [boards[0]],
+          stamp: "review",
+          originalPools: saved.pools,
+          pools: [{ ...updatedPool, password: "", preservePassword: true }],
+          capacity: { ...capacity, destinationBoards: 1 },
+          mining: true,
+          requiresActivation: false,
+          destinationId: saved.id,
+          destinationRef: "proto-os:pools:saved",
+          transfers: [],
+        },
+      },
+    ],
+    unchangedCount: 0,
+    capacity,
+  };
+  service.reviewWorkerNames.mockResolvedValue(review);
+  let finishSave!: () => void;
+  const saving = new Promise<void>((resolve) => {
+    finishSave = resolve;
+  });
+  let writeSignal: AbortSignal | null | undefined;
+  service.applyWorkerNames.mockImplementation(async (_review, callbacks, options) => {
+    writeSignal = options?.signal;
+    const completed = {
+      ...attempt,
+      id: "worker-review",
+      macs: [A],
+      destinationId: saved.id,
+      pools: [updatedPool],
+      unsubmittedWorkerNameBoards: 0,
+    };
+    callbacks.track(completed);
+    await saving;
+    if (completion === "after a rejected copy rolls back") throw new WorkerNameUpdateRolledBack(completed.id);
+    if (completion !== "during save") return { ...pendingStatus, state: "pending" };
+    callbacks.saved(completed);
+    return { state: "saved", message: "Worker names saved.", confirmed: 1, total: 1, blockers: [] };
+  });
+  const dismiss = vi.fn();
+  const dialog = (
+    <PoolAssignmentDialog service={service} controllerId="ct1" target={boardTarget} workerNames onDismiss={dismiss} />
+  );
+  const view = render(dialog);
+  const editor = await screen.findByRole("dialog", { name: "Update worker names" });
+  const apply = within(editor).getByRole("button", { name: "Apply to 1 hashboard" });
+  await waitFor(() => expect(apply).toBeEnabled());
+  fireEvent.click(apply);
+  const noChanges = await screen.findByRole("dialog", { name: "You haven't made any changes" });
+  fireEvent.click(within(noChanges).getByRole("button", { name: "No, keep editing" }));
+  expect(service.reviewWorkerNames).not.toHaveBeenCalled();
+  fireEvent.click(await within(editor).findByRole("checkbox", { name: "Custom" }));
+  fireEvent.click(within(editor).getByRole("button", { name: "Open Custom options" }));
+  const options = await screen.findByRole("dialog", { name: "Options" });
+  fireEvent.change(within(options).getByTestId("custom-property-prefix-input"), { target: { value: "rig-0" } });
+  fireEvent.change(within(options).getByTestId("custom-property-counter-start-input"), { target: { value: "2" } });
+  fireEvent.click(within(options).getByTestId("custom-property-options-save-button"));
+  expect(await within(editor).findAllByText("rig-02")).not.toHaveLength(0);
+  fireEvent.click(apply);
+  const overwrite = await screen.findByRole("dialog", { name: "Overwrite existing worker names?" });
+  expect(service.reviewWorkerNames).not.toHaveBeenCalled();
+  fireEvent.click(within(overwrite).getByRole("button", { name: "Yes, continue" }));
+  const confirmation = await screen.findByRole("dialog", { name: "Review worker names" });
+  expect(confirmation).toHaveTextContent("account.region.worker");
+  expect(confirmation).toHaveTextContent("account.region.rig-02");
+  expect(confirmation).toHaveTextContent("rig-02");
+  expect(screen.queryByLabelText("Pool password (optional)")).not.toBeInTheDocument();
+  expect(service.inspect).not.toHaveBeenCalled();
+  expect(service.reviewWorkerNames).toHaveBeenCalledWith(
+    boardTarget,
+    {
+      namesByMac: { [A]: "rig-02" },
+      sources: [{ configuration: saved, boards: [boards[0]] }],
+    },
+    expect.anything(),
+  );
+  expect(service.applyWorkerNames).not.toHaveBeenCalled();
+  fireEvent.click(within(confirmation).getByRole("button", { name: "Save and update equipment" }));
+  await waitFor(() => expect(readPoolAttempts("ct1")).toHaveLength(1));
+  expect(pushToast).toHaveBeenCalledExactlyOnceWith({
+    message: "Updating worker name",
+    status: "loading",
+    longRunning: true,
+  });
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(dismiss).not.toHaveBeenCalled();
+
+  if (completion === "after leaving the module") {
+    view.rerender(<p>Settings page</p>);
+    expect(writeSignal?.aborted).toBe(false);
+    await act(async () => finishSave());
+    expect(service.status).toHaveBeenCalledOnce();
+    expect(updateToast).toHaveBeenLastCalledWith(42, { message: "Worker names saved.", status: "success" });
+    expect(dismiss).not.toHaveBeenCalled();
+    expect(readPoolAttempts("ct1")).toEqual([]);
+    return;
+  }
+
+  if (completion === "after a rejected copy rolls back") {
+    await act(async () => finishSave());
+    expect(readPoolAttempts("ct1")).toEqual([]);
+    expect(dismiss).not.toHaveBeenCalled();
+    const message = new WorkerNameUpdateRolledBack("worker-review").message;
+    await waitFor(() => expect(screen.getByText(message)).toBeVisible());
+    expect(updateToast).toHaveBeenLastCalledWith(42, { message, status: "error" });
+    expect(service.status).not.toHaveBeenCalled();
+    return;
+  }
+
+  if (completion === "when the transfer remains pending") {
+    vi.useFakeTimers();
+    try {
+      service.status.mockResolvedValue({ ...pendingStatus, state: "pending" });
+      await act(async () => finishSave());
+      await act(() => vi.advanceTimersByTimeAsync(59_000));
+      expect(service.status.mock.calls.length).toBeGreaterThan(1);
+      expect(dismiss).not.toHaveBeenCalled();
+      await act(() => vi.advanceTimersByTimeAsync(1_000));
+      expect(updateToast).toHaveBeenLastCalledWith(42, {
+        message: "The controller is still updating worker names. Check Pool assignment status in Settings → Pools.",
+        status: "error",
+      });
+      expect(dismiss).toHaveBeenCalledOnce();
+      expect(readPoolAttempts("ct1")).toMatchObject([{ id: "worker-review", operationIds: ["operation"] }]);
+      const checked = service.status.mock.calls.length;
+      await act(() => vi.advanceTimersByTimeAsync(60_000));
+      expect(service.status).toHaveBeenCalledTimes(checked);
+      expect(service.applyWorkerNames).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+    return;
+  }
+
+  if (completion === "when status reads fail") {
+    vi.useFakeTimers();
+    try {
+      service.status.mockRejectedValue(new Error("Controller unavailable"));
+      await act(async () => finishSave());
+      expect(service.status).toHaveBeenCalledTimes(1);
+      await act(() => vi.advanceTimersByTimeAsync(6_000));
+      expect(service.status).toHaveBeenCalledTimes(2);
+      expect(dismiss).not.toHaveBeenCalled();
+      await act(() => vi.advanceTimersByTimeAsync(12_000));
+      expect(updateToast).toHaveBeenLastCalledWith(42, {
+        message: "Controller unavailable Check Pool assignment status in Settings → Pools.",
+        status: "error",
+      });
+      expect(dismiss).toHaveBeenCalledOnce();
+      expect(readPoolAttempts("ct1")).toHaveLength(1);
+      await act(() => vi.advanceTimersByTimeAsync(60_000));
+      expect(service.status).toHaveBeenCalledTimes(3);
+      expect(pushToast).toHaveBeenCalledOnce();
+      expect(service.applyWorkerNames).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+    return;
+  }
+
+  await act(async () => finishSave());
+  await waitFor(() => expect(dismiss).toHaveBeenCalledOnce());
+  expect(updateToast).toHaveBeenLastCalledWith(42, { message: "Worker names saved.", status: "success" });
+  expect(pushToast).toHaveBeenCalledTimes(1);
+  expect(service.status).toHaveBeenCalledTimes(completion === "during status polling" ? 1 : 0);
+  expect(readPoolAttempts("ct1")).toEqual([]);
+});
+
+test("warns when two reported serials produce the same worker name", async () => {
+  const { service } = fixture();
+  service.inspectWorkerNames.mockResolvedValue([
+    {
+      configuration: saved,
+      boards: [
+        { ...boards[0], serialNumber: "A B" },
+        { ...boards[1], serialNumber: "A-B" },
+      ],
+    },
+  ]);
+  render(<PoolAssignmentDialog service={service} controllerId="ct1" target={target} workerNames onDismiss={vi.fn()} />);
+  const editor = await screen.findByRole("dialog", { name: "Update worker names" });
+  const apply = within(editor).getByRole("button", { name: "Apply to 2 hashboards" });
+  await waitFor(() => expect(apply).toBeEnabled());
+  expect(within(editor).queryByRole("radio", { name: "Period ( . )" })).not.toBeInTheDocument();
+  fireEvent.click(within(editor).getByRole("checkbox", { name: "Serial number" }));
+  fireEvent.click(apply);
+  expect(await screen.findByRole("dialog", { name: "Duplicate names" })).toBeInTheDocument();
+  expect(service.reviewWorkerNames).not.toHaveBeenCalled();
 });
 
 test("reviews only the remaining boards after a partial transfer", async () => {
@@ -159,30 +380,20 @@ test("reviews only the remaining boards after a partial transfer", async () => {
   expect(readPoolAttempts("ct1")).toEqual([]);
 });
 
-test("keeps Fleet's short confirmation for multiple selected boards in one module", async () => {
+test("reviews the boards, credentials, and group capacity for a selected module", async () => {
   const { service } = fixture();
   service.inspect.mockResolvedValue({
-    boards,
     savedPools: [saved],
     mixedConfigurations: true,
-    maxPools: 3,
-    requiresActivation: false,
+    capacity,
   });
   const dismiss = vi.fn();
   const selection = { ...target, modules: [[A, B]] };
-  render(
-    <PoolAssignmentDialog
-      service={service}
-      controllerId="ct1"
-      target={selection}
-      selectedCount={2}
-      onDismiss={dismiss}
-    />,
-  );
+  render(<PoolAssignmentDialog service={service} controllerId="ct1" target={selection} onDismiss={dismiss} />);
   const picker = within(await screen.findByRole("dialog", { name: "Edit pool" }));
   expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   expect(screen.queryByLabelText("Your password")).not.toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Assign" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Review assignment" })).toBeDisabled();
   const savedPool = await picker.findByRole("radio", { name: "Saved pools" });
   expect(picker.getByText("Mixed configurations")).toBeVisible();
   expect(picker.getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
@@ -191,13 +402,15 @@ test("keeps Fleet's short confirmation for multiple selected boards in one modul
     "Backup pool",
   ]);
   fireEvent.click(savedPool);
-  fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review assignment" }));
   const confirmation = await screen.findByRole("dialog", { name: "Assign pool configuration to 2 hashboards?" });
   expect(
     within(confirmation).getByText("Assign Saved pools? Pool changes may briefly interrupt mining."),
   ).toBeVisible();
-  expect(within(confirmation).queryByText(pool.url)).not.toBeInTheDocument();
-  expect(within(confirmation).queryByText(/Affected hashboards/)).not.toBeInTheDocument();
+  expect(within(confirmation).getByText(pool.url)).toBeVisible();
+  expect(within(confirmation).getByText("Username: account.region.worker")).toBeVisible();
+  expect(within(confirmation).getByText("Affected hashboards (2)")).toBeVisible();
+  expect(within(confirmation).getByText("2 of 4 hashboard places will be used in this group.")).toBeVisible();
   expect(service.review).toHaveBeenCalledWith(
     selection,
     { name: "Saved pools", pools: [], savedPoolSetId: "saved" },
@@ -212,12 +425,15 @@ test("keeps Fleet's short confirmation for multiple selected boards in one modul
 test.each([
   { label: "one hashboard", selection: { macs: [A] } },
   { label: "one module with multiple hashboards", selection: { macs: [A, B], modules: [[A, B]] } },
-])("assigns $label after the first Assign click", async ({ selection }) => {
+])("requires review before assigning $label", async ({ selection }) => {
   const { service } = fixture();
   const dismiss = vi.fn();
   render(<PoolAssignmentDialog service={service} controllerId="ct1" target={selection} onDismiss={dismiss} />);
   fireEvent.click(await screen.findByRole("radio", { name: "Saved pools" }));
-  fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review assignment" }));
+  const confirmation = await screen.findByRole("dialog", { name: /Assign pool configuration to/ });
+  expect(service.apply).not.toHaveBeenCalled();
+  fireEvent.click(within(confirmation).getByRole("button", { name: "Assign" }));
 
   await waitFor(() => expect(dismiss).toHaveBeenCalledOnce());
   expect(pushToast).toHaveBeenCalledWith({ message: "Pool assignment saved.", status: "success" });
@@ -263,11 +479,9 @@ test.each([
 test("offers a new configuration when no saved configuration can take the unassigned boards", async () => {
   const { service } = fixture();
   service.inspect.mockResolvedValue({
-    boards,
     savedPools: [],
     mixedConfigurations: false,
-    maxPools: 3,
-    requiresActivation: false,
+    capacity,
   });
   render(
     <PoolAssignmentDialog
@@ -294,10 +508,92 @@ test("requires confirmation for a single assignment when the plan would pause co
   }));
   render(<PoolAssignmentDialog service={service} controllerId="ct1" target={{ macs: [A] }} onDismiss={vi.fn()} />);
   fireEvent.click(await screen.findByRole("radio", { name: "Saved pools" }));
-  fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review assignment" }));
 
-  expect(await screen.findByText("Container mining must pause to enable pool assignments.")).toBeVisible();
+  await waitFor(() =>
+    expect(screen.getByText("Container mining must pause to enable pool assignments.")).toBeVisible(),
+  );
   expect(service.apply).not.toHaveBeenCalled();
+});
+
+test("reviews the complete username for only the selected board before saving a copy", async () => {
+  const { service } = fixture();
+  const review = service.review.getMockImplementation()!;
+  const username = "Fixed.Account..Region.Worker";
+  service.review.mockImplementationOnce(async (selection, choice) => ({
+    ...(await review(selection)),
+    name: choice.name,
+    pools: choice.pools,
+    savedPoolSet: undefined,
+    usernameSource: choice.usernameSource,
+    capacity: { ...capacity, groupsUsed: 3, destinationBoards: 1 },
+  }));
+  render(<PoolAssignmentDialog service={service} controllerId="ct1" target={{ macs: [A] }} onDismiss={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("radio", { name: "Saved pools" }));
+  fireEvent.click(screen.getByRole("button", { name: "Edit usernames" }));
+  const editor = within(await screen.findByRole("dialog", { name: "Edit pool usernames" }));
+  expect(editor.getByLabelText("Pool URL")).toHaveAttribute("readonly");
+  expect(editor.getByLabelText("Username")).toHaveValue(pool.username);
+  fireEvent.change(editor.getByLabelText("Name"), { target: { value: "Board one pools" } });
+  expect(editor.getByRole("button", { name: "Review assignment" })).toBeDisabled();
+  fireEvent.change(editor.getByLabelText("Username"), { target: { value: username } });
+  fireEvent.change(editor.getByLabelText("Pool password (optional)"), { target: { value: "new secret" } });
+  fireEvent.click(editor.getByRole("button", { name: "Review assignment" }));
+
+  const confirmation = within(await screen.findByRole("dialog", { name: /Assign pool configuration to/ }));
+  await waitFor(() => expect(confirmation.getByText("Username: " + username)).toBeVisible());
+  expect(confirmation.getByText(new RegExp(A))).toBeVisible();
+  expect(confirmation.queryByText(new RegExp(B))).not.toBeInTheDocument();
+  expect(confirmation.getByText(/3 of 5 mining groups/)).toBeVisible();
+  expect(confirmation.getByText(/provider’s connection limits/)).toBeVisible();
+  expect(confirmation.queryByText("new secret")).not.toBeInTheDocument();
+  expect(service.review).toHaveBeenCalledWith(
+    { macs: [A] },
+    expect.objectContaining({
+      usernameSource: expect.objectContaining({ id: saved.id, revision: saved.revision }),
+      pools: [expect.objectContaining({ username })],
+    }),
+    expect.anything(),
+  );
+  expect(service.apply).not.toHaveBeenCalled();
+  fireEvent.click(confirmation.getByRole("button", { name: "Assign" }));
+  await waitFor(() => expect(service.apply).toHaveBeenCalledTimes(1));
+});
+
+test("reports full groups before review and allows reuse of a compatible configuration", async () => {
+  const { service } = fixture();
+  service.inspect.mockResolvedValue({
+    savedPools: [saved, { ...saved, id: "full", name: "Full destination", projectedBoards: 5 }],
+    mixedConfigurations: true,
+    capacity: { ...capacity, groupsUsed: capacity.maxGroups },
+  });
+  render(<PoolAssignmentDialog service={service} controllerId="ct1" target={target} onDismiss={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("radio", { name: "Full destination" }));
+  expect(screen.getByText(/configuration would have 5 hashboards/)).toBeVisible();
+  expect(screen.getByText(/All mining groups are in use/)).toBeVisible();
+  expect(screen.getByRole("button", { name: "New pool configuration" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Edit usernames" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Review assignment" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("radio", { name: "Saved pools" }));
+  expect(screen.getByRole("button", { name: "Review assignment" })).toBeEnabled();
+  service.inspect.mockResolvedValueOnce({ savedPools: [saved], mixedConfigurations: false, capacity });
+  fireEvent.click(screen.getByRole("button", { name: "Reload configurations" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "New pool configuration" })).toBeEnabled());
+  expect(service.review).not.toHaveBeenCalled();
+});
+
+test("identifies which selected hashboards will move during review", async () => {
+  const { service } = fixture();
+  const review = service.review.getMockImplementation()!;
+  service.review.mockImplementationOnce(async (selection) => ({
+    ...(await review(selection)),
+    transfers: [{ source: "default", macs: [B] }],
+  }));
+  render(<PoolAssignmentDialog service={service} controllerId="ct1" target={target} onDismiss={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("radio", { name: "Saved pools" }));
+  fireEvent.click(screen.getByRole("button", { name: "Review assignment" }));
+  expect(await screen.findByText(new RegExp(A + " · Already in this group"))).toBeVisible();
+  expect(screen.getByText(new RegExp(B + " · Moves to this group"))).toBeVisible();
 });
 
 test("Edit pool checks and clears a saved attempt before loading the new selection", async () => {
@@ -324,6 +620,29 @@ test("opening assignment status after reload shows the result and never repeats 
   expect(service.review).not.toHaveBeenCalled();
   expect(service.apply).not.toHaveBeenCalled();
   expect(service.status).toHaveBeenCalledWith(attempt, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+});
+
+test("ends the status check when another tab already cleared the attempt", async () => {
+  const { service } = fixture();
+  const dismiss = vi.fn();
+  render(<PoolAssignmentDialog service={service} controllerId="ct1" target={target} openStatus onDismiss={dismiss} />);
+  await waitFor(() => expect(screen.getByText("There is no pool assignment to check.")).toBeVisible());
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  expect(dismiss).toHaveBeenCalledOnce();
+  expect(service.inspect).not.toHaveBeenCalled();
+  expect(service.apply).not.toHaveBeenCalled();
+});
+
+test("worker name recovery tells the operator to review unsubmitted boards again", async () => {
+  const { service } = fixture();
+  savePoolAttempt("ct1", { ...attempt, unsubmittedWorkerNameBoards: 2 });
+  render(<PoolAssignmentDialog service={service} controllerId="ct1" target={target} openStatus onDismiss={vi.fn()} />);
+
+  const recovery = await screen.findByRole("dialog", { name: "Worker name update status" });
+  expect(
+    within(recovery).getByText("Review the other 2 selected hashboards again after this update finishes."),
+  ).toBeInTheDocument();
+  expect(service.applyWorkerNames).not.toHaveBeenCalled();
 });
 
 test.each([
@@ -530,9 +849,17 @@ test("serializes controller writes across separate dialogs", async () => {
   const [first, second] = await screen.findAllByRole("dialog", { name: "Edit pool" });
   for (const dialog of [first, second]) {
     fireEvent.click(await within(dialog).findByRole("radio", { name: "Saved pools" }));
-    fireEvent.click(within(dialog).getByRole("button", { name: "Assign" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Review assignment" }));
   }
   await waitFor(() => expect(service.review).toHaveBeenCalledTimes(2));
+  const confirmations = await waitFor(() => {
+    const dialogs = screen.getAllByRole("dialog", { name: "Assign pool configuration to 1 hashboard?" });
+    expect(dialogs).toHaveLength(2);
+    return dialogs;
+  });
+  for (const confirmation of confirmations)
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Assign" }));
+  await waitFor(() => expect(service.apply).toHaveBeenCalledTimes(1));
   expect(service.apply).toHaveBeenCalledTimes(1);
   rejectFirstWrite!(new Error("No changes were saved"));
   await waitFor(() => expect(service.apply).toHaveBeenCalledTimes(2));
@@ -543,7 +870,7 @@ test("failed inspection offers retry without a save action", async () => {
   service.inspect.mockRejectedValueOnce(new Error("Controller unavailable"));
   render(<PoolAssignmentDialog service={service} controllerId="ct1" target={target} onDismiss={vi.fn()} />);
   expect(await screen.findByText("Controller unavailable")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Assign" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Review assignment" })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   expect(await screen.findByRole("radio", { name: "Saved pools" })).toBeInTheDocument();
   expect(service.apply).not.toHaveBeenCalled();
@@ -579,6 +906,7 @@ test("new configurations use Fleet's primary and backup form before returning to
     boards: boards.filter((board) => current.macs.includes(board.mac)),
     stamp: "review",
     pools: choice.pools,
+    capacity: { ...capacity, destinationBoards: 0 },
     mining: true,
     requiresActivation: false,
     destinationRef: "proto-os:pools:create",
@@ -594,11 +922,9 @@ test("new configurations use Fleet's primary and backup form before returning to
       };
       track({ ...attempt, id: plan.id, configurationOnly: true, destinationId: "created", pools: created.pools });
       service.inspect.mockResolvedValue({
-        boards: [{ mac: A }, { mac: B }],
         savedPools: [saved, created],
         mixedConfigurations: false,
-        maxPools: 3,
-        requiresActivation: false,
+        capacity,
       });
       return { state: "saved", message: "Pool configuration saved.", confirmed: 0, total: 0, blockers: [] };
     },
@@ -637,6 +963,7 @@ test.each([false, true])("reviews edits only if hashboards use the configuration
     boards: assigned ? boards : [],
     stamp: "review",
     pools: choice.pools,
+    capacity: { ...capacity, destinationBoards: 0 },
     mining: true,
     requiresActivation: false,
     destinationId: saved.id,
@@ -660,6 +987,7 @@ test.each([false, true])("reviews edits only if hashboards use the configuration
         deletable: true,
         isDefault: false,
       }}
+      configurationCapacity={capacity}
       onConfigurationSaved={onSaved}
       onDismiss={vi.fn()}
     />,
@@ -669,7 +997,7 @@ test.each([false, true])("reviews edits only if hashboards use the configuration
   fireEvent.click(within(editor).getByRole("button", { name: assigned ? "Review changes" : "Save configuration" }));
   if (assigned) {
     const review = await screen.findByRole("dialog", { name: "Review pool configuration changes" });
-    expect(within(review).getByText(`Tank 1 · Module 1 · Board 1 · ${A}`)).toBeVisible();
+    await waitFor(() => expect(within(review).getByText(`Tank 1 · Module 1 · Board 1 · ${A}`)).toBeVisible());
     expect(within(review).getByText("Edited draft", { exact: false })).toBeVisible();
     expect(service.apply).not.toHaveBeenCalled();
     fireEvent.click(within(review).getByRole("button", { name: "Cancel" }));

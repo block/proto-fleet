@@ -2,7 +2,9 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, expect, test, vi } from "vitest";
 import MiningPools from "./MiningPools";
 import { MdkV2Adapter, type MdkV2Client } from "@/protoOS/api/adapters/mdkV2/MdkV2Adapter";
+import type { PoolAssignmentService } from "@/protoOS/api/adapters/poolAssignment";
 import type { ContainerPoolConfiguration } from "@/protoOS/api/adapters/poolConfiguration";
+import { removePoolAttempt, savePoolAttempt } from "@/protoOS/features/poolAssignment/attemptStorage";
 
 const state = vi.hoisted(() => ({
   fleet: false,
@@ -15,12 +17,17 @@ const state = vi.hoisted(() => ({
     savePoolSettings: vi.fn(),
     deletePoolSettings: vi.fn(),
     reorderPoolSettings: vi.fn(),
+    poolAssignment: undefined as Pick<PoolAssignmentService, "status"> | undefined,
   },
 }));
 vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({
   useMinerHosting: () => ({ isFleetHosted: state.fleet, adapter: state.adapter }),
 }));
 vi.mock("@/protoOS/store", () => ({ useDeviceType: () => "container" }));
+vi.mock("@/protoOS/store/useMinerStore", () => ({
+  default: (select: (state: unknown) => unknown) =>
+    select({ systemInfo: { data: { identity: { deviceId: "ct1" } } }, connectionGeneration: 1 }),
+}));
 vi.mock("@/protoOS/api", () => ({
   usePoolsInfo: () => ({
     data: state.pools,
@@ -45,6 +52,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   state.fleet = false;
   state.error = undefined;
+  state.adapter.poolAssignment = undefined;
   state.adapter.getContainerPoolConfiguration.mockResolvedValue(containerConfiguration);
   state.adapter.getPoolSettings.mockResolvedValue(
     state.pools.map((pool) => ({ ...pool, id: "42", password: "", enabled: true })),
@@ -107,6 +115,40 @@ test("unknown mode blocks editing even when legacy pools could be read", async (
   expect(await screen.findByRole("alert")).toHaveTextContent("confirm mining-group mode");
   expect(screen.queryByText("Update")).not.toBeInTheDocument();
   expect(screen.queryByText("Add pool")).not.toBeInTheDocument();
+});
+
+test.each([false, true])("offers worker name recovery outside grouped mode (read fails: %s)", async (readFails) => {
+  const attempt = {
+    id: "worker-update",
+    macs: ["aa:bb:cc:00:00:01"],
+    destinationRef: "proto-os:pools:test",
+    pools: [],
+    configurationConfirmed: true,
+    operationIds: [],
+    phase: "Moving selected hashboards",
+    unsubmittedWorkerNameBoards: 0,
+  };
+  const status = vi.fn().mockResolvedValue({
+    state: "unknown",
+    message: "The controller could not confirm the assignment.",
+    confirmed: 0,
+    total: 1,
+    blockers: [],
+  });
+  state.adapter.poolAssignment = { status };
+  if (readFails) state.adapter.getContainerPoolConfiguration.mockRejectedValue(new Error("offline"));
+  savePoolAttempt("ct1", attempt);
+  try {
+    render(<MiningPools />);
+    if (readFails) expect(await screen.findByRole("alert")).toHaveTextContent("confirm mining-group mode");
+    else expect(await screen.findByText("Primary")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Pool assignment status" }));
+    expect(await screen.findByRole("dialog", { name: "Worker name update status" })).toBeInTheDocument();
+    expect(await screen.findByText("The controller could not confirm the assignment.")).toBeInTheDocument();
+    expect(status).toHaveBeenCalledWith(attempt, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  } finally {
+    act(() => removePoolAttempt("ct1", attempt.id));
+  }
 });
 
 test.each(["FAILED", "COMPLETE", "QUIESCING"])(

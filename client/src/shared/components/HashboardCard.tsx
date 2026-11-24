@@ -29,16 +29,6 @@ export default function HashboardCard({
   actions,
   children,
 }: HashboardCardProps) {
-  const indicator =
-    position !== undefined ? <HashboardIndicatorV2 width="w-4" position={position} totalSlots={totalSlots} /> : null;
-  const componentIcon = selectionControl ? (
-    <div className="flex items-center gap-3">
-      {selectionControl}
-      {indicator}
-    </div>
-  ) : (
-    indicator
-  );
   return (
     <article
       aria-label={title}
@@ -49,8 +39,13 @@ export default function HashboardCard({
         title={title}
         titleAs="h3"
         infoAriaLabel={`${title} info`}
+        selectionControl={selectionControl}
         statusIcon={statusIcon}
-        componentIcon={componentIcon}
+        componentIcon={
+          position !== undefined ? (
+            <HashboardIndicatorV2 width="w-4" position={position} totalSlots={totalSlots} />
+          ) : null
+        }
         onInfoIconClick={onInfoClick}
         actions={actions}
       />

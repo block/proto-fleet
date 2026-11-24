@@ -6,6 +6,7 @@ interface HardwareCardHeaderProps {
   title: string;
   titleAs?: "span" | "h3";
   infoAriaLabel?: string;
+  selectionControl?: ReactNode;
   statusIcon?: ReactNode | null;
   componentIcon?: ReactNode | null;
   onInfoIconClick?: () => void;
@@ -16,6 +17,7 @@ function HardwareCardHeader({
   title,
   titleAs: Title = "span",
   infoAriaLabel = "More info",
+  selectionControl,
   statusIcon = null,
   componentIcon = null,
   actions = null,
@@ -24,6 +26,7 @@ function HardwareCardHeader({
   return (
     <div className="flex flex-row items-center gap-3 @xs:gap-6">
       <div className="flex min-w-0 basis-full items-center gap-2" title={title}>
+        {selectionControl ? <div className="shrink-0">{selectionControl}</div> : null}
         {statusIcon ? <div className="shrink-0">{statusIcon}</div> : null}
         <Title className="truncate text-emphasis-300 text-text-primary">{title}</Title>
       </div>

@@ -7,7 +7,7 @@ CT1 adapter. Generation produces native gRPC and Connect-Go bindings under
 client. These are separate from Fleet's public/browser APIs.
 
 `proto/mdk/v2` contains the complete, unmodified `proto/mdk/v2` sources from
-Frigate at `4777091bd21bcc51b1b0b687191cab4f4393a582`.
+Frigate at `d4721d4ed1abcbc68491fe86cf253d77655620f7`.
 No repository-root license file was present at this pin;
 these remain internal Frigate sources, not independently licensed public code.
 External annotation dependencies are pinned in `buf.lock` and retain their

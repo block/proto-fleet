@@ -43,6 +43,8 @@ const BulkRenameDialogs = (props: BulkRenameDialogsProps) => {
       {showDuplicateNamesWarning ? (
         <Dialog
           open={open}
+          manageFocus
+          onDismiss={onDismissDuplicateNames}
           title="Duplicate names"
           titleSize="text-heading-200"
           subtitle={duplicateNamesDialogBody}
@@ -67,6 +69,8 @@ const BulkRenameDialogs = (props: BulkRenameDialogsProps) => {
       {showNoChangesWarning ? (
         <Dialog
           open={open}
+          manageFocus
+          onDismiss={onDismissNoChanges}
           title="You haven't made any changes"
           titleSize="text-heading-200"
           subtitle={noChangesDialogBody}
@@ -91,6 +95,8 @@ const BulkRenameDialogs = (props: BulkRenameDialogsProps) => {
       {props.showOverwriteWarning ? (
         <Dialog
           open={open}
+          manageFocus
+          onDismiss={props.onDismissOverwriteWarning}
           title={props.overwriteDialogTitle ?? "Overwrite existing names?"}
           titleSize="text-heading-200"
           subtitle={props.overwriteDialogBody}

@@ -1,38 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
-import { type DragEndEvent } from "@dnd-kit/core";
 
 import {
-  bulkRenameModes,
-  type BulkRenamePreferences,
-  type BulkRenamePreviewMiner,
-  type BulkRenamePropertyId,
-  type BulkRenamePropertyOptions,
-  reorderBulkRenameProperties,
-  shouldWarnAboutBulkRenameDuplicates,
-  updateBulkRenameProperty,
-} from "./bulkRenameDefinitions";
-import BulkRenameDialogs from "./BulkRenameDialogs";
-import BulkRenameOptionModals from "./BulkRenameOptionModals";
-import {
   buildBulkRenameConfig,
-  buildBulkRenamePropertyPreview,
-  evaluateBulkRenamePreviewName,
-  findBulkRenamePropertyPreviewMinerIndex,
   getMinerPreviewName,
   mapSnapshotsToBulkRenamePreviewMiners,
   mapSnapshotToBulkRenamePreviewMiner,
   shouldShowBulkRenameNoChangesWarning,
   takePreviewMiners,
 } from "./bulkRenamePreview";
-import BulkRenamePreviewPanel, { type PreviewRow } from "./BulkRenamePreviewPanel";
-import BulkRenamePropertyForm from "./BulkRenamePropertyForm";
-import {
-  type CustomPropertyOptionsValues,
-  type FixedValueOptionsValues,
-  type QualifierOptionsValues,
-} from "./RenameOptionsModals/types";
 import { fleetManagementClient } from "@/protoFleet/api/clients";
 import { DeviceIdentifierListSchema } from "@/protoFleet/api/generated/common/v1/device_selector_pb";
 import {
@@ -48,7 +25,6 @@ import {
   type MinerStateSnapshot,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import useUpdateWorkerNames from "@/protoFleet/api/useUpdateWorkerNames";
-import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
 import {
   applyFleetSelectablePairingStatuses,
   isFleetSelectablePairingStatus,
@@ -59,9 +35,16 @@ import {
   useFleetStore,
   useSetBulkWorkerNamePreferences,
 } from "@/protoFleet/store";
-import { Info } from "@/shared/assets/icons";
-import { variants } from "@/shared/components/Button";
-import Callout from "@/shared/components/Callout";
+import {
+  bulkRenameModes,
+  type BulkRenamePreferences,
+  type BulkRenamePreviewMiner,
+  shouldWarnAboutBulkRenameDuplicates,
+} from "@/shared/components/BulkRename/bulkRenameDefinitions";
+import BulkRenameDialogs from "@/shared/components/BulkRename/BulkRenameDialogs";
+import { evaluateBulkRenamePreviewName } from "@/shared/components/BulkRename/bulkRenamePreview";
+import { type PreviewRow } from "@/shared/components/BulkRename/BulkRenamePreviewPanel";
+import BulkWorkerNameEditor from "@/shared/components/BulkRename/BulkWorkerNameEditor";
 import { type SelectionMode } from "@/shared/components/List";
 import { pushToast, removeToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
@@ -89,11 +72,6 @@ const noChangesDialogBody =
   "You can continue to retain your existing worker names, or keep editing. Do you want to continue anyway?";
 const overwriteDialogBody =
   "This will replace existing worker names for the selected miners in Fleet. The apply action will also update current pool settings to use the new worker names.";
-const emptyOptionsPreview = {
-  previewName: "",
-  highlightedText: undefined,
-  highlightStartIndex: undefined,
-} as const;
 const previewSortCollator = new Intl.Collator(undefined, {
   numeric: true,
   sensitivity: "base",
@@ -108,20 +86,18 @@ function getSelectionCount(selectionMode: SelectionMode, selectedMinerIds: strin
 }
 
 function computePreviewNames(preferences: BulkRenamePreferences, previewMiners: BulkRenamePreviewMiner[]): string[] {
-  const config = buildBulkRenameConfig(preferences);
-  return previewMiners.map((miner) => evaluateBulkRenamePreviewName(config, miner, miner.counterIndex));
+  return previewMiners.map((miner) => evaluateBulkRenamePreviewName(preferences, miner, miner.counterIndex));
 }
 
 function buildVisibleWorkerNamesByDeviceIdentifier(
   preferences: BulkRenamePreferences,
   previewMiners: BulkRenamePreviewMiner[],
 ): Record<string, string> {
-  const config = buildBulkRenameConfig(preferences);
-
   return Object.fromEntries(
     previewMiners
       .map(
-        (miner) => [miner.deviceIdentifier, evaluateBulkRenamePreviewName(config, miner, miner.counterIndex)] as const,
+        (miner) =>
+          [miner.deviceIdentifier, evaluateBulkRenamePreviewName(preferences, miner, miner.counterIndex)] as const,
       )
       .filter(([, workerName]) => workerName.trim() !== ""),
   );
@@ -131,18 +107,6 @@ function getPreviewRows(previewMiners: BulkRenamePreviewMiner[], previewNames: s
   return previewMiners.map((miner, index) => ({
     currentName: miner.currentName,
     newName: previewNames[index] ?? "",
-  }));
-}
-
-function buildOptionsPreviewPreferences(
-  preferences: BulkRenamePreferences,
-  propertyId: BulkRenamePropertyId,
-  options: BulkRenamePropertyOptions | null,
-): BulkRenamePreferences {
-  return updateBulkRenameProperty(preferences, propertyId, (property) => ({
-    ...property,
-    enabled: true,
-    options: options ?? property.options,
   }));
 }
 
@@ -360,8 +324,6 @@ const BulkWorkerNameModal = ({
   const [showPreviewEllipsis, setShowPreviewEllipsis] = useState(false);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [activeOptionsPropertyId, setActiveOptionsPropertyId] = useState<BulkRenamePropertyId | null>(null);
-  const [activeOptionsDraft, setActiveOptionsDraft] = useState<BulkRenamePropertyOptions | null>(null);
   const [showDuplicateNamesWarning, setShowDuplicateNamesWarning] = useState(false);
   const [showNoChangesWarning, setShowNoChangesWarning] = useState(false);
   const [showOverwriteWarning, setShowOverwriteWarning] = useState(false);
@@ -577,8 +539,6 @@ const BulkWorkerNameModal = ({
   useEffect(() => {
     if (!open) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- reset modal state on close
-      setActiveOptionsPropertyId(null);
-      setActiveOptionsDraft(null);
       setShowDuplicateNamesWarning(false);
       setShowNoChangesWarning(false);
       setShowOverwriteWarning(false);
@@ -657,55 +617,6 @@ const BulkWorkerNameModal = ({
       window.clearTimeout(timeoutId);
     };
   }, [preferences, open]);
-
-  const handleToggleEnabled = useCallback(
-    (propertyId: BulkRenamePropertyId, enabled: boolean) => {
-      setBulkWorkerNamePreferences(
-        updateBulkRenameProperty(preferences, propertyId, (property) => ({
-          ...property,
-          enabled,
-        })),
-      );
-    },
-    [preferences, setBulkWorkerNamePreferences],
-  );
-
-  const handleUpdateOptions = useCallback(
-    (
-      propertyId: BulkRenamePropertyId,
-      options: CustomPropertyOptionsValues | FixedValueOptionsValues | QualifierOptionsValues,
-    ) => {
-      setBulkWorkerNamePreferences(
-        updateBulkRenameProperty(preferences, propertyId, (property) => ({
-          ...property,
-          options,
-        })),
-      );
-      setActiveOptionsDraft(null);
-      setActiveOptionsPropertyId(null);
-    },
-    [preferences, setBulkWorkerNamePreferences],
-  );
-
-  const handleDismissOptions = useCallback(() => {
-    setActiveOptionsDraft(null);
-    setActiveOptionsPropertyId(null);
-  }, []);
-
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event;
-
-      if (!over || active.id === over.id) {
-        return;
-      }
-
-      setBulkWorkerNamePreferences(
-        reorderBulkRenameProperties(preferences, active.id as BulkRenamePropertyId, over.id as BulkRenamePropertyId),
-      );
-    },
-    [preferences, setBulkWorkerNamePreferences],
-  );
 
   const proceedWithSubmit = useCallback(
     async (username: string, password: string) => {
@@ -860,90 +771,23 @@ const BulkWorkerNameModal = ({
     submitWithAuthenticatedCredentials();
   }, [shouldShowOverwriteConfirmation, submitWithAuthenticatedCredentials]);
 
-  const activeOptionsProperty = useMemo(
-    () => preferences.properties.find((property) => property.id === activeOptionsPropertyId) ?? null,
-    [activeOptionsPropertyId, preferences.properties],
-  );
-
-  const activeOptionsPreview = useMemo(() => {
-    if (activeOptionsProperty === null || previewMiners.length === 0) {
-      return emptyOptionsPreview;
-    }
-
-    const previewPreferences = buildOptionsPreviewPreferences(
-      preferences,
-      activeOptionsProperty.id,
-      activeOptionsDraft,
-    );
-    const previewMinerIndex = findBulkRenamePropertyPreviewMinerIndex(
-      previewPreferences,
-      activeOptionsProperty.id,
-      previewMiners,
-    );
-
-    if (previewMinerIndex === null) {
-      return emptyOptionsPreview;
-    }
-
-    return buildBulkRenamePropertyPreview(
-      previewPreferences,
-      activeOptionsProperty.id,
-      previewMiners[previewMinerIndex],
-      previewMiners[previewMinerIndex].counterIndex,
-    );
-  }, [activeOptionsDraft, activeOptionsProperty, preferences, previewMiners]);
-
   const previewRows = useMemo(() => getPreviewRows(previewMiners, previewNames), [previewMiners, previewNames]);
-  const isBusy = isSubmitting;
 
   return (
     <>
       {workerNameReview}
-      <FullScreenTwoPaneModal
+      <BulkWorkerNameEditor
         open={open}
-        title="Update worker names"
+        preferences={preferences}
+        onPreferencesChange={setBulkWorkerNamePreferences}
+        previewMiners={previewMiners}
+        previewRows={previewRows}
+        showPreviewEllipsis={showPreviewEllipsis}
+        isLoadingPreview={isLoadingPreview}
+        isBusy={isSubmitting}
+        applyLabel={`Apply to ${formatMinerCount(selectionCount)}`}
+        onApply={handleSubmit}
         onDismiss={onDismiss}
-        isBusy={isBusy}
-        closeAriaLabel="Close update worker names"
-        buttons={[
-          {
-            text: selectionCount === 1 ? "Apply to 1 miner" : `Apply to ${selectionCount} miners`,
-            variant: variants.primary,
-            onClick: () => void handleSubmit(),
-            disabled: isBusy || isLoadingPreview,
-            testId: "bulk-worker-name-save-button",
-          },
-        ]}
-        primaryPane={
-          <BulkRenamePropertyForm
-            preferences={preferences}
-            propertiesTitle="Worker name properties"
-            onDragEnd={handleDragEnd}
-            onOpenOptions={setActiveOptionsPropertyId}
-            onToggleEnabled={handleToggleEnabled}
-            onChangeSeparator={(separator) =>
-              setBulkWorkerNamePreferences({
-                ...preferences,
-                separator,
-              })
-            }
-            leadingContent={
-              <Callout
-                className="mb-3"
-                intent="default"
-                prefixIcon={<Info />}
-                title="Worker names determine how miners appear in pool dashboards."
-              />
-            }
-          />
-        }
-        secondaryPane={
-          <BulkRenamePreviewPanel
-            isLoadingPreview={isLoadingPreview}
-            previewRows={previewRows}
-            showPreviewEllipsis={showPreviewEllipsis}
-          />
-        }
       />
 
       <BulkRenameDialogs
@@ -967,17 +811,6 @@ const BulkWorkerNameModal = ({
           setShowOverwriteWarning(false);
           submitWithAuthenticatedCredentials();
         }}
-      />
-
-      <BulkRenameOptionModals
-        activeOptionsPropertyId={activeOptionsProperty?.id ?? null}
-        activeOptionsPropertyOptions={activeOptionsProperty?.options ?? null}
-        previewName={activeOptionsPreview.previewName}
-        highlightedText={activeOptionsPreview.highlightedText}
-        highlightStartIndex={activeOptionsPreview.highlightStartIndex}
-        onDismiss={handleDismissOptions}
-        onChange={setActiveOptionsDraft}
-        onConfirm={handleUpdateOptions}
       />
     </>
   );

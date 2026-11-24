@@ -7,7 +7,7 @@ import { createUISlice } from "./uiSlice";
 import {
   bulkRenameModes,
   createDefaultBulkRenamePreferences,
-} from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/bulkRenameDefinitions";
+} from "@/shared/components/BulkRename/bulkRenameDefinitions";
 
 type TestStore = { ui: UISlice };
 

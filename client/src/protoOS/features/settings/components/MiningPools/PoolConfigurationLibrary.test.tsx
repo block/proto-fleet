@@ -51,6 +51,7 @@ const local: LocalPoolConfiguration = {
     },
   ],
 };
+const capacity = { groupsUsed: 1, maxGroups: 10, maxBoards: 4, maxPools: 3 };
 const fixture = (configurations = [local]) =>
   ({
     listConfigurations: vi.fn().mockResolvedValue(configurations),
@@ -58,17 +59,19 @@ const fixture = (configurations = [local]) =>
     listConfigurationPage: vi.fn().mockImplementation(async (offset, limit) => ({
       configurations: configurations.slice(offset, offset + limit),
       total: configurations.length,
+      capacity,
     })),
     deleteConfiguration: vi.fn().mockResolvedValue(undefined),
     inspect: vi.fn().mockResolvedValue({
-      boards: [],
-      savedPools: configurations,
+      savedPools: [],
       mixedConfigurations: false,
-      maxPools: 3,
-      requiresActivation: false,
+      capacity,
     }),
     review: vi.fn(),
     apply: vi.fn(),
+    inspectWorkerNames: vi.fn(),
+    reviewWorkerNames: vi.fn(),
+    applyWorkerNames: vi.fn(),
     status: vi.fn(),
     checkMiningRecovery: vi.fn(),
   }) satisfies PoolAssignmentService;
@@ -78,8 +81,9 @@ beforeEach(() => {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 20, 240, 40));
 });
 
-test("reloads pools and membership when an operator clears a completed recovery record", async () => {
-  const service = fixture();
+test("reloads assignment counts and membership when an operator clears a completed recovery record", async () => {
+  const service = fixture([{ ...local, assignedCount: 4 }]);
+  service.listConfigurationPage.mockResolvedValueOnce({ configurations: [local], total: 1, capacity });
   const onReload = vi.fn();
   service.status.mockResolvedValue({
     state: "saved",
@@ -105,6 +109,7 @@ test("reloads pools and membership when an operator clears a completed recovery 
   fireEvent.click(await screen.findByRole("button", { name: "Pool assignment status" }));
   fireEvent.click(await screen.findByRole("button", { name: "Done" }));
   expect(onReload).toHaveBeenCalledOnce();
+  expect(await screen.findByRole("cell", { name: "4" })).toBeVisible();
 });
 
 test.each([
@@ -268,6 +273,11 @@ test("assigns only eligible matches through the pool picker and reloads membersh
   ];
   const blockedMac = unassignedBoards[3].mac;
   const target = { macs: unassignedBoards.slice(0, 2).map(({ mac }) => mac), unassignedOnly: true };
+  service.inspect.mockResolvedValue({
+    savedPools: [{ ...local, projectedBoards: 4 }],
+    mixedConfigurations: false,
+    capacity,
+  });
   service.review.mockResolvedValue({
     id: "new-assignment",
     name: local.name,
@@ -276,6 +286,7 @@ test("assigns only eligible matches through the pool picker and reloads membersh
     stamp: "revision",
     pools: [],
     savedPoolSet: local,
+    capacity: { ...capacity, destinationBoards: 4 },
     mining: false,
     requiresActivation: false,
     destinationId: local.id,

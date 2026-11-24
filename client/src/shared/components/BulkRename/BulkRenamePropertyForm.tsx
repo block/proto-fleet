@@ -36,16 +36,23 @@ interface BulkRenamePropertyFormProps {
   propertiesTitle?: string;
   separatorTitle?: string;
   leadingContent?: ReactNode;
+  propertyLabels?: Partial<Record<BulkRenamePropertyId, string>>;
+  separatorIds?: readonly BulkRenameSeparatorId[];
 }
 
 interface SortablePropertyRowProps {
   property: BulkRenamePropertyState;
   onOpenOptions: (propertyId: BulkRenamePropertyId) => void;
   onToggleEnabled: (propertyId: BulkRenamePropertyId, enabled: boolean) => void;
+  label?: string;
 }
 
-const SortablePropertyRow = ({ property, onOpenOptions, onToggleEnabled }: SortablePropertyRowProps) => {
-  const definition = getBulkRenamePropertyDefinition(property.id);
+const SortablePropertyRow = ({
+  property,
+  onOpenOptions,
+  onToggleEnabled,
+  label = getBulkRenamePropertyDefinition(property.id).label,
+}: SortablePropertyRowProps) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: property.id });
 
   return (
@@ -63,7 +70,7 @@ const SortablePropertyRow = ({ property, onOpenOptions, onToggleEnabled }: Sorta
         <button
           type="button"
           className="cursor-grab touch-none text-text-primary hover:text-text-primary active:cursor-grabbing"
-          aria-label={`Reorder ${definition.label}`}
+          aria-label={`Reorder ${label}`}
           data-testid={`bulk-rename-reorder-${property.id}`}
           {...attributes}
           {...listeners}
@@ -74,11 +81,11 @@ const SortablePropertyRow = ({ property, onOpenOptions, onToggleEnabled }: Sorta
         <button
           type="button"
           className="min-w-0 flex-1 text-left text-emphasis-300 text-text-primary"
-          aria-label={`Edit ${definition.label} options`}
+          aria-label={`Edit ${label} options`}
           data-testid={`bulk-rename-settings-${property.id}`}
           onClick={() => onOpenOptions(property.id)}
         >
-          <span className="truncate">{definition.label}</span>
+          <span className="truncate">{label}</span>
         </button>
 
         <div className="flex items-center gap-2">
@@ -86,19 +93,25 @@ const SortablePropertyRow = ({ property, onOpenOptions, onToggleEnabled }: Sorta
             <button
               type="button"
               className="flex h-8 w-8 items-center justify-center rounded-full text-text-primary-70 transition hover:bg-core-primary-5 hover:text-text-primary"
-              aria-label={`Open ${definition.label} options`}
+              aria-label={`Open ${label} options`}
               data-testid={`bulk-rename-options-${property.id}`}
               onClick={() => onOpenOptions(property.id)}
             >
               <Slider width="w-4" />
             </button>
           ) : null}
-          <Switch checked={property.enabled} setChecked={() => onToggleEnabled(property.id, !property.enabled)} />
+          <Switch
+            ariaLabel={label}
+            checked={property.enabled}
+            setChecked={() => onToggleEnabled(property.id, !property.enabled)}
+          />
         </div>
       </div>
     </div>
   );
 };
+
+const allSeparatorIds = Object.keys(bulkRenameSeparators) as BulkRenameSeparatorId[];
 
 const BulkRenamePropertyForm = ({
   preferences,
@@ -109,6 +122,8 @@ const BulkRenamePropertyForm = ({
   propertiesTitle = "Name properties",
   separatorTitle = "Property separator",
   leadingContent,
+  propertyLabels,
+  separatorIds = allSeparatorIds,
 }: BulkRenamePropertyFormProps) => {
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -134,6 +149,7 @@ const BulkRenamePropertyForm = ({
                 <SortablePropertyRow
                   key={property.id}
                   property={property}
+                  label={propertyLabels?.[property.id]}
                   onOpenOptions={onOpenOptions}
                   onToggleEnabled={onToggleEnabled}
                 />
@@ -146,17 +162,17 @@ const BulkRenamePropertyForm = ({
       <div className="flex flex-col gap-3">
         <h2 className="text-emphasis-300 text-text-primary">{separatorTitle}</h2>
         <div className="flex flex-wrap gap-x-4 gap-y-0 laptop:gap-6">
-          {Object.entries(bulkRenameSeparators).map(([separatorId, separator]) => (
+          {separatorIds.map((separatorId) => (
             <label key={separatorId} className="flex h-12 items-center">
               <div className="flex w-8 items-center" data-testid={`bulk-rename-separator-${separatorId}`}>
                 <Radio
                   name="bulk-rename-separator"
                   value={separatorId}
                   selected={preferences.separator === separatorId}
-                  onChange={() => onChangeSeparator(separatorId as BulkRenameSeparatorId)}
+                  onChange={() => onChangeSeparator(separatorId)}
                 />
               </div>
-              <span className="text-300 text-text-primary">{separator.label}</span>
+              <span className="text-300 text-text-primary">{bulkRenameSeparators[separatorId].label}</span>
             </label>
           ))}
         </div>

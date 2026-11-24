@@ -62,7 +62,7 @@ const Modules = () => {
   const poolActions = usePoolAssignmentActions();
   const actionsFor = (ids: string[]) => [
     ...actions.actionsFor(ids),
-    ...poolActions.action(topology?.kind === "container" ? modulePoolTarget(topology, ids) : undefined),
+    ...poolActions.action(topology?.kind === "container" ? modulePoolTarget(topology, ids) : undefined, "module"),
   ];
   const filterOptions = useMemo(() => moduleFilters(rows), [rows]);
   const visibleRows = useMemo(
@@ -123,7 +123,6 @@ const Modules = () => {
           <h1 ref={heading} tabIndex={-1} className="mb-4 text-heading-300">
             Modules
           </h1>
-          {poolActions.recoveryButton}
           {error ? (
             <p role="alert" className="mb-4 text-300 text-text-critical">
               Could not refresh module readings. Displayed values may be out of date.

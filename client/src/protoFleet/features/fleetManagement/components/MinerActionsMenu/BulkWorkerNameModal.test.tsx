@@ -2,20 +2,20 @@ import { type ComponentProps, type ReactNode } from "react";
 import { act, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
-import {
-  bulkRenameModes,
-  bulkRenamePropertyIds,
-  createDefaultBulkRenamePreferences,
-  updateBulkRenameProperty,
-} from "./bulkRenameDefinitions";
 import BulkWorkerNameModal from "./BulkWorkerNameModal";
-import { customPropertyTypes } from "./RenameOptionsModals/types";
 import { SortConfigSchema, SortDirection, SortField } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import {
   type MinerStateSnapshot,
   MinerStateSnapshotSchema,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { useFleetStore } from "@/protoFleet/store";
+import {
+  bulkRenameModes,
+  bulkRenamePropertyIds,
+  createDefaultBulkRenamePreferences,
+  updateBulkRenameProperty,
+} from "@/shared/components/BulkRename/bulkRenameDefinitions";
+import { customPropertyTypes } from "@/shared/components/BulkRename/RenameOptionsModals/types";
 
 const {
   mockBulkRenameDialogs,
@@ -107,23 +107,23 @@ vi.mock("@/shared/hooks/useWindowDimensions", () => ({
   })),
 }));
 
-vi.mock("@/protoFleet/components/FullScreenTwoPaneModal", () => ({
+vi.mock("@/shared/components/FullScreenTwoPaneModal", () => ({
   default: mockFullScreenTwoPaneModal,
 }));
 
-vi.mock("./BulkRenamePropertyForm", () => ({
+vi.mock("@/shared/components/BulkRename/BulkRenamePropertyForm", () => ({
   default: () => <div data-testid="bulk-worker-name-form" />,
 }));
 
-vi.mock("./BulkRenamePreviewPanel", () => ({
+vi.mock("@/shared/components/BulkRename/BulkRenamePreviewPanel", () => ({
   default: () => <div data-testid="bulk-worker-name-preview" />,
 }));
 
-vi.mock("./BulkRenameDialogs", () => ({
+vi.mock("@/shared/components/BulkRename/BulkRenameDialogs", () => ({
   default: mockBulkRenameDialogs,
 }));
 
-vi.mock("./BulkRenameOptionModals", () => ({
+vi.mock("@/shared/components/BulkRename/BulkRenameOptionModals", () => ({
   default: () => null,
 }));
 

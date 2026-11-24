@@ -152,8 +152,8 @@ Library catalogue reads are bounded and do not fetch the board inventory. The
 initial mode read keeps the existing configuration snapshot. Moving boards requires
 a current inventory read. Configuration deletion checks group membership.
 Controller-reported settings do not
-prove that every board has applied them. Frigate stores the complete pool username;
-ProtoOS does not extract or infer a separate worker name.
+prove that every board has applied them. Frigate stores the complete pool username,
+which ProtoOS shows in the pool library.
 
 Container-wide edits remain available when the controller reports the supported
 group protocol with groups disabled, no suspension, and no pending group change.
@@ -180,23 +180,59 @@ unavailable. Pool reads time out after ten seconds so **Reload pools** stays usa
 Use **Reload pools** to refresh the configuration.
 In **Modules**, choose **Edit
 pool** from a module's actions or the selected-module action bar. Module details
-also support selecting board cards before **Edit pool**, or editing one board
-from its actions. Module selection captures its currently reported physical
-boards.
+also show the action bar when you select hashboards. Use **Select all** to select
+the installed boards in the module. Open **Actions** to edit pools or update
+worker names. Each board also has its own actions menu.
 
 ProtoOS reuses Fleet's configuration picker, primary/backup form, and
 modal presentation. It opens **Edit pool** directly without Fleet's password
 step. Choose a named configuration or **New pool configuration**. Saving a new
 configuration creates an unused local pool set and returns to the picker.
-**Assign** checks the exact equipment. A single selected hashboard or module
-applies the configuration immediately. For multiple selected items, confirm the
-number of affected hashboards before ProtoOS applies the configuration. The
-picker identifies selections with mixed configurations. It closes and shows a
-notification when the controller confirms the saved assignment.
-Users never create mining groups themselves. ProtoOS handles groups behind the
-flow. Saved sets are reused by identity, never by guessing passwords from public
-URLs and usernames. Complete usernames are applied as entered. Pool passwords
-remain in memory until their write; recovery records contain no passwords.
+**Review assignment** shows the exact hashboards, pool URLs, complete usernames,
+and available places in the destination group. Select **Assign** to confirm.
+The picker identifies selections with mixed configurations. It closes and shows
+a notification when the controller confirms the saved assignment.
+
+Select a saved configuration and choose **Edit usernames** to make a copy for
+the selected hashboards. The copy keeps the source pool order, URLs, enabled
+states, and weights. Enter each full username, including any periods, as the
+pool expects it. Enter any required passwords again. Saving the copy moves only
+the reviewed hashboards. Use a module selection to apply one configuration to
+its current boards. Use board selection to assign different usernames to
+siblings. A module selection creates no rule for future boards in those slots.
+ProtoOS asks for a fresh review when a reviewed board moves or is replaced
+before submission. A saved username belongs to its controller's configuration
+and group membership.
+
+Use **Update worker name** from a board's actions to start with its current
+pool configuration. The same action is available for modules and selected
+boards. ProtoOS uses Fleet's full-screen worker name editor. Choose and order
+properties such as MAC address, tank, or a custom string or counter. Select a
+separator and check the preview. **Apply** uses Fleet's confirmations and opens
+**Review worker names**. **Save and update equipment** updates the pool usernames.
+The editor suggests replacing the suffix after the last period and keeps
+backup usernames with no suffix. Generated worker names use one segment.
+Review the complete pool usernames before saving. Use **Edit pool → Edit
+usernames** to enter exact values for worker names with periods or another
+account format.
+
+Apply one worker name to every hashboard in a mining group to update its pools
+in place. For a subset or different names within one group, ProtoOS creates a
+group for each new name and moves only its selected hashboards. Frigate copies
+the current pool settings and passwords directly on the controller. This
+requires pool-copy support and enough free group slots. A Default worker-name
+update also requires a controller that can check the reviewed pool revision
+when it saves. After an interrupted
+update, open **Settings → Pools** and check **Pool assignment status** before retrying. ProtoOS checks
+submitted writes without repeating them.
+
+The picker shows the controller's limits for groups, hashboards, and pools.
+If all group places are in use, choose a saved configuration with space or
+delete an unused configuration in **Settings → Pools**. Reusing a saved
+configuration uses its existing credentials. A new group can open separate pool
+connections. The pool provider can enforce its own connection limits.
+Pool passwords remain in memory until the write. Recovery records contain no
+passwords.
 
 Local writes are available only on direct CT1 Connect connections. The picker
 can assign the controller's Default configuration, configurations created in
@@ -214,7 +250,7 @@ Start mining from the controller's mining controls if you want it to resume.
 Review the assignment again before moving boards after activation.
 
 A nonsecret recovery record is stored per controller and attempt in the browser.
-**Pool assignment status** on Modules restores it after reload. Recovery only
+**Pool assignment status** in **Settings → Pools** restores it after reload. Recovery only
 reads status, membership, and pool records; it never replays writes. A missing
 credential-write acknowledgement remains uncertain even when public pool fields
 match. Long-running transfers keep their status record; partial or failed changes
