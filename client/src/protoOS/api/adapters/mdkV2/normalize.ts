@@ -366,7 +366,21 @@ const boardRollup = (boards: BoardEntry[], power?: number): LevelRollup => {
     }
     return total;
   };
-  const temps = boards.flatMap(({ board }) => board.health?.temperatures ?? []).filter(Number.isFinite);
+  // Frigate retains the last health payload after a disconnect. A successful
+  // map request must not make that payload current again. Use the same two-minute
+  // health window as CT1 PSU observations when a source timestamp is supplied.
+  const now = Date.now();
+  const temps = boards
+    .flatMap(({ board }) => {
+      if (board.miningState === V2MiningState.MINING_STATE_DISCONNECTED) return [];
+      const timestamp = board.health?.timestamp;
+      if (timestamp !== undefined) {
+        const at = Date.parse(timestamp);
+        if (!Number.isFinite(at) || at > now + 5_000 || now - at >= 120_000) return [];
+      }
+      return board.health?.temperatures ?? [];
+    })
+    .filter(Number.isFinite);
   const asicTemps = boards.flatMap(({ board }) => {
     const value = board.health?.averageAsicTemperatureC;
     return typeof value === "number" && Number.isFinite(value) ? [value] : [];

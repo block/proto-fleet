@@ -124,13 +124,6 @@ function buildStorySeries({
   return source;
 }
 
-function storyStatistics(item: HomeSeries, { empty, zero, temperature }: StoryDataOptions) {
-  if (empty) return { high: "—", low: "—", average: "—" };
-  if (zero) return { high: "0.0 kW", low: "0.0 kW", average: "0.0 kW" };
-  if (temperature) return { high: "68.0 °C", low: "60.0 °C", average: "65.5 °C" };
-  return { high: item.high!, low: item.low!, average: item.average! };
-}
-
 function MetricStory({
   empty = false,
   temperature = false,
@@ -180,11 +173,6 @@ function MetricStory({
           loading,
           error: error ? "Could not refresh history. Displayed history may be out of date." : undefined,
         }}
-        categories={(temperature ? [] : powerSeries.filter((item) => item.label === "Fans")).map((item) => ({
-          id: item.id,
-          label: item.label,
-          ...storyStatistics(item, { ...dataOptions, empty: empty || partial }),
-        }))}
       />
     </div>
   );
@@ -199,12 +187,23 @@ export const Loading = () => <MetricStory empty loading />;
 export const StaleHistory = () => <MetricStory error />;
 export const ZeroPower = () => <MetricStory zero />;
 
-const overviewChart = (id: string, label: string, units: string, source: HomeSeries) => ({
-  id,
-  label,
-  stats: { label, value: source.latest, preformatted: true },
-  history: { ...history, stacked: false, units, series: [{ ...source, id, label }] },
-});
+const overviewChart = (id: string, label: string, units: string, value: number) => {
+  const source: HomeSeries = {
+    id,
+    label,
+    color: "var(--color-core-accent-fill)",
+    latest: `${value.toFixed(1)} ${units}`,
+    high: `${(value + 1).toFixed(1)} ${units}`,
+    low: `${(value - 1).toFixed(1)} ${units}`,
+    points: series[0].points.map((point, index) => ({ ...point, value: value + Math.sin(index / 10) })),
+  };
+  return {
+    id,
+    label,
+    stats: { label, value: source.latest, preformatted: true, valueSuffix: `Max ${source.high} · Min ${source.low}` },
+    history: { ...history, stacked: false, units, series: [source] },
+  };
+};
 const moduleStates = (tank: number, module: number): OverviewModuleStatus =>
   tank === 1 && module % 2 === 0 ? "sleeping" : tank === 2 && module === 3 ? "attention" : "healthy";
 const overviewGrid: ModuleGrid = {
@@ -237,31 +236,10 @@ function OverviewStory({ quiet = false }: { quiet?: boolean }) {
         duration={duration}
         onDurationChange={setDuration}
         production={[
-          overviewChart("hashrate", "Hashrate", "TH/s", series[0]),
-          {
-            id: "temperature",
-            label: "Temperature",
-            stats: ["Ambient outside", "Fluid inlet", "Fluid outlet"].map((label, index) => ({
-              label,
-              labelClassName: ["text-text-primary-50", "text-intent-info-50", "text-intent-critical-50"][index],
-              valueClassName: ["text-text-primary", "text-intent-info-fill", "text-intent-critical-fill"][index],
-              value: `${24 + index * 8}.0 °C`,
-              preformatted: true,
-            })),
-            history: {
-              ...history,
-              stacked: false,
-              units: "°C",
-              series: ["Ambient outside", "Fluid inlet", "Fluid outlet"].map((label, index) => ({
-                ...series[index],
-                id: ["outsideTemperature", "inletTemperature", "outletTemperature"][index],
-                label,
-                latest: `${24 + index * 8}.0 °C`,
-              })),
-            },
-          },
-          overviewChart("power", "Power", "kW", series[2]),
-          overviewChart("efficiency", "Efficiency", "J/TH", series[1]),
+          overviewChart("hashrate", "Hashrate", "PH/s", 48),
+          { ...overviewChart("temperature", "Average hashboard temp", "°C", 49), label: "Temperature" },
+          overviewChart("power", "Power", "kW", 820),
+          overviewChart("efficiency", "Efficiency", "J/TH", 17.1),
         ]}
         grid={overviewGrid}
         issues={

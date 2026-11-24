@@ -497,8 +497,8 @@ the schematic does not infer individual tank fill percentages.
 The Power page shows facility total, mining power, each reported PDU, and combined
 fan history as separate lines over the selected period. These measurements overlap
 and are not stacked. PDU readings appear in the chart legend rather than the top
-summary. The top summary remains live; Fans High/Low/Average describe
-the selected period. Missing history remains unavailable rather than zero.
+summary. The top summary remains live. Missing history remains unavailable
+rather than zero.
 Pump, air-conditioning, and auxiliary power histories are not exposed by the
 current API, so their series and statistics cards are omitted. Power has no
 System/Hashboards selector because percentage-band history is unsupported.

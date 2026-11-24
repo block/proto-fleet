@@ -6,6 +6,8 @@ import ContainerHomeLayout from "./ContainerHomeLayout";
 import ContainerHomePage from "./ContainerHomePage";
 import { containerHistoryKey, type ContainerHistoryRequest } from "@/protoOS/api/adapters/containerHistory";
 import { MdkV2Adapter, type MdkV2Client } from "@/protoOS/api/adapters/mdkV2/MdkV2Adapter";
+import { moduleFixture } from "@/protoOS/api/adapters/mdkV2/moduleFixtures";
+import { toCanonicalSystemInfo } from "@/protoOS/api/adapters/mdkV2/normalize";
 import { toCanonicalContainer } from "@/protoOS/api/adapters/mdkV2/normalize";
 import type { ContainerSettings } from "@/protoOS/api/adapters/types";
 import { containerRoutePrefetch, importContainerHome, singleMinerRoutePrefetch } from "@/protoOS/routePrefetch";
@@ -811,6 +813,64 @@ describe("container Home integration", () => {
     },
   );
 
+  it.each(["Back to module", "Done", "Escape"])("returns from ASIC details to Overview with %s", async (dismiss) => {
+    const fixture = moduleFixture();
+    const store = useMinerStore.getState();
+    store.systemInfo.setSystemInfo(toCanonicalSystemInfo({ info: { id: "ct1", product: "CT1" } }));
+    store.hardware.replaceHardware(fixture.hardware);
+    store.telemetry.mergeTelemetry(fixture.telemetry);
+    mocks.adapter.getCurrentTelemetry.mockResolvedValue(fixture.telemetry);
+    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/?keep=value"] });
+    render(<RouterProvider router={router} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Tank 1 module 1,/ }));
+    const module = await screen.findByRole("dialog", { name: "Modules" });
+    fireEvent.click(within(module).getAllByRole("button", { name: "View" })[0]);
+    const board = await screen.findByRole("dialog", { name: "Hashboards" });
+    expect(router.state.location.pathname).toBe("/miners/ct1/");
+    fireEvent.click(within(board).getByRole("button", { name: "Board 1" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Board 2" }));
+    expect(within(board).getByRole("button", { name: "Board 2" })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/miners/ct1/");
+    if (dismiss === "Escape") fireEvent.keyDown(document, { key: "Escape" });
+    else fireEvent.click(within(board).getByRole("button", { name: dismiss }));
+    const restored = await screen.findByRole("dialog", { name: "Modules" });
+    fireEvent.click(within(restored).getByRole("button", { name: "Close dialog" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(router.state.location.pathname).toBe("/miners/ct1/");
+    expect(router.state.location.search).toBe("?keep=value");
+    expect(screen.getByRole("heading", { name: "Container overview" })).toBeInTheDocument();
+  });
+
+  it("keeps the selected slot across module ID changes and clears removed locations", async () => {
+    const hardware = useMinerStore.getState().hardware;
+    const topology = hardware.topology;
+    if (topology?.kind !== "container") throw new Error("expected container");
+    const originalModule = [...topology.modules.values()][0];
+    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+    render(<RouterProvider router={router} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Tank 1 module 1,/ }));
+    expect(await screen.findByRole("dialog", { name: "Modules" })).toBeInTheDocument();
+    const nextId = `${originalModule.id}:remapped` as typeof originalModule.id;
+    const modules = new Map([[nextId, { ...originalModule, id: nextId }]]);
+    const tanks = new Map([...topology.tanks].map(([id, tank]) => [id, { ...tank, moduleIds: [nextId] }]));
+    act(() =>
+      useMinerStore.getState().hardware.replaceHardware({
+        ...hardware,
+        topology: { ...topology, modules, tanks },
+      }),
+    );
+    expect(screen.getByRole("dialog", { name: "Modules" })).toBeInTheDocument();
+    act(() =>
+      useMinerStore.getState().hardware.replaceHardware({
+        ...hardware,
+        topology: { ...topology, modules: new Map() },
+      }),
+    );
+    expect(screen.queryByRole("dialog", { name: "Modules" })).not.toBeInTheDocument();
+    act(() => useMinerStore.getState().hardware.replaceHardware(hardware));
+    expect(screen.queryByRole("dialog", { name: "Modules" })).not.toBeInTheDocument();
+  });
+
   it("switches modules without leaving Overview", async () => {
     const fixture = toCanonicalContainer(
       {
@@ -957,7 +1017,7 @@ describe("container Home integration", () => {
     expect(screen.queryByRole("button", { name: "Hashboards" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "System" })).not.toBeInTheDocument();
     for (const label of ["Pumps", "AC", "Aux"]) expect(screen.queryByText(label)).not.toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Fans period statistics" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Fans period statistics" })).not.toBeInTheDocument();
     const legend = screen.getByRole("list", { name: "Latest series values" });
     expect(legend).toHaveTextContent("Facility total2.0 kW");
     expect(legend).toHaveTextContent("Mining power1.0 kW");
@@ -990,7 +1050,7 @@ describe("container Home integration", () => {
     const legend = await screen.findByRole("list", { name: "Latest series values" });
     await waitFor(() => expect(legend).toHaveTextContent("Facility total2.0 kW"));
     expect(legend).toHaveTextContent("pdu-west—");
-    expect(screen.getByRole("region", { name: "Fans period statistics" })).toHaveTextContent("—");
+    expect(legend).toHaveTextContent("Fans—");
   });
 
   it("supports direct Fluid entry and back/forward navigation without unrelated history queries", async () => {

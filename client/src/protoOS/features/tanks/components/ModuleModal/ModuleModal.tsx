@@ -12,6 +12,7 @@ import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import ComponentSection from "@/protoOS/features/diagnostic/components/ComponentSection";
 import EmptySlotCard from "@/protoOS/features/diagnostic/components/EmptySlotCard";
 import HashboardStatusCard from "@/protoOS/features/diagnostic/components/HashboardStatusCard";
+import HashboardTemperatureWrapper from "@/protoOS/features/diagnostic/components/HashboardTemperature/HashboardTemperatureWrapper";
 import PsuStatusCard from "@/protoOS/features/diagnostic/components/PsuStatusCard";
 import { modulePoolTarget } from "@/protoOS/features/poolAssignment/targets";
 import { usePoolAssignmentActions } from "@/protoOS/features/poolAssignment/usePoolAssignmentActions";
@@ -33,6 +34,7 @@ const ModuleModal = ({
   onSelectModule,
   modulePath: getModulePath,
   moduleLabel,
+  keepHashboardsInModal = false,
 }: {
   module: ModuleNode;
   tank: TankNode;
@@ -41,6 +43,7 @@ const ModuleModal = ({
   onSelectModule?: (module: ModuleNode) => void;
   modulePath?: (module: ModuleNode) => string;
   moduleLabel?: (module: ModuleNode) => string;
+  keepHashboardsInModal?: boolean;
 }) => {
   const poolActions = usePoolAssignmentActions();
   const boards = moduleHashboards(module, topology);
@@ -61,6 +64,8 @@ const ModuleModal = ({
     selectedBoards.length,
   )[0];
   const modulePoolAction = poolActions.action(poolTarget)[0];
+  const [selectedBoard, setSelectedBoard] = useState<string>();
+  if (selectedBoard && !boards.some((board) => board.identity.value === selectedBoard)) setSelectedBoard(undefined);
   const bodyRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const dialog = bodyRef.current?.closest<HTMLElement>('[role="dialog"]');
@@ -91,7 +96,7 @@ const ModuleModal = ({
       document.removeEventListener("keydown", trapFocus);
       if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true });
     };
-  }, []);
+  }, [selectedBoard]);
   const navigate = useNavigate();
   // Leaving the module mid-write would drop the write's outcome, so the ways out wait for it.
   const [voltageWriting, setVoltageWriting] = useState(false);
@@ -112,6 +117,22 @@ const ModuleModal = ({
     getModulePath?.(item) ??
     `${tankPath}/modules/${moduleRouteValue(item, modules.findIndex((candidate) => candidate.id === item.id) + 1)}`;
   const modulePath = pathForModule(module);
+
+  if (selectedBoard) {
+    const closeBoard = () => setSelectedBoard(undefined);
+    return (
+      <Modal
+        size="fullscreen"
+        showHeader={false}
+        dialogLabel="Hashboards"
+        manageFocus
+        onDismiss={closeBoard}
+        bodyClassName="p-0"
+      >
+        <HashboardTemperatureWrapper serial={selectedBoard} onClose={closeBoard} onSelectBoard={setSelectedBoard} />
+      </Modal>
+    );
+  }
 
   return (
     <Modal
@@ -215,6 +236,7 @@ const ModuleModal = ({
                   }
                   actions={voltageWriting || !mac ? undefined : poolActions.action({ macs: [mac] })}
                   viewTo={`${modulePath}/${encodeURIComponent(board.identity.value)}${search}`}
+                  onView={keepHashboardsInModal ? () => setSelectedBoard(board.identity.value) : undefined}
                   viewDisabled={voltageWriting}
                 />
               ) : (

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  type V2GetContainerMapResponse,
   type V2Hashboard,
   V2HashboardErrorCause,
   V2MiningOperatingState,
@@ -225,6 +226,36 @@ describe("MDK v2 CT1 normalization", () => {
     result.telemetry.hashboards.set(first.hashboardId, { ...first, reportedIssueCount: null });
     useMinerStore.getState().telemetry.mergeTelemetry(result.telemetry);
     expect(useMinerStore.getState().telemetry.hashboards.get(first.hashboardId)?.reportedIssueCount).toBeNull();
+  });
+
+  test.each(["disconnected", "expired"])("excludes %s temperatures from live rollups", (reason) => {
+    const wire: V2GetContainerMapResponse = structuredClone(map);
+    const slots = wire.containerMap!.tanks![0].modules![0].slots!;
+    const board = slots[0].hashboard!;
+    board.health!.temperatures = [78];
+    const health = board.health as NonNullable<V2Hashboard["health"]>;
+    health.timestamp = new Date(Date.now() - (reason === "expired" ? 120_000 : 0)).toISOString();
+    if (reason === "disconnected") board.miningState = V2MiningState.MINING_STATE_DISCONNECTED;
+    const check = (expected: number | null) => {
+      const { telemetry } = toCanonicalContainer(wire, { averageHashboardTemperatureC: 78 }, {}, "ct1");
+      for (const rollup of telemetry.rollupsByEntity.values()) {
+        if (rollup.boardCount === 0) continue;
+        expect(rollup.temperature?.latest?.value).toBe(expected);
+        expect(rollup.minimumTemperature?.latest?.value).toBe(expected);
+        expect(rollup.maximumTemperature?.latest?.value).toBe(expected);
+      }
+    };
+    check(null);
+    slots.push({
+      hashboard: {
+        ...board,
+        macAddress: "current",
+        miningState: V2MiningState.MINING_STATE_IDLE,
+        health: { ...board.health, timestamp: new Date().toISOString(), temperatures: [40] },
+      } as typeof board,
+      powerFeedId: "P1",
+    });
+    check(40);
   });
 
   test("preserves tank layout and rolls up actual temperature extrema", () => {

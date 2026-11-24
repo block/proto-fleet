@@ -21,7 +21,7 @@ import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import ModuleModal from "@/protoOS/features/tanks/components/ModuleModal/ModuleModal";
 import { usePsuObservationTime } from "@/protoOS/hooks/usePsuObservationTime";
 import { useDuration, useMinerStore, useSetDuration } from "@/protoOS/store";
-import type { MetricTimeSeries } from "@/protoOS/store/contract";
+import type { MetricTimeSeries, ModuleNode } from "@/protoOS/store/contract";
 import { useDetailedErrors } from "@/protoOS/store/hooks/useMinerStatus";
 import { useTemperatureUnit } from "@/protoOS/store/hooks/useUI";
 import { formatHashrateWithUnit } from "@/shared/utils/telemetryFormat";
@@ -45,14 +45,32 @@ export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
   const mode: HomeChartMode = tab === "temperature" && requestedMode === "fluid" ? "fluid" : "system";
   const errors = useDetailedErrors();
   const [issuesOpen, setIssuesOpen] = useState(false);
-  const [selectedModuleId, setSelectedModuleId] = useState<string>();
+  const [selectedLocation, setSelectedLocation] = useState<{
+    containerId: string;
+    tankSlot: number;
+    moduleSlot: number;
+  }>();
   const topology = hardware.topology;
-  const selectedModule =
-    topology?.kind === "container"
-      ? [...topology.modules.values()].find((module) => module.id === selectedModuleId)
-      : undefined;
   const selectedTank =
-    selectedModule?.tankId && topology?.kind === "container" ? topology.tanks.get(selectedModule.tankId) : undefined;
+    topology?.kind === "container" && topology.containerId === selectedLocation?.containerId
+      ? [...topology.tanks.values()].find((tank) => tank.slot === selectedLocation.tankSlot)
+      : undefined;
+  const selectedModule =
+    topology?.kind === "container" && selectedTank
+      ? [...topology.modules.values()].find(
+          (module) => module.tankId === selectedTank.id && module.location?.moduleSlot === selectedLocation?.moduleSlot,
+        )
+      : undefined;
+  // Clear removed locations before rendering; a later map must not reopen them.
+  if (selectedLocation && !selectedModule) setSelectedLocation(undefined);
+  const selectModule = (module: ModuleNode | undefined) => {
+    const tank = topology?.kind === "container" && module?.tankId ? topology.tanks.get(module.tankId) : undefined;
+    setSelectedLocation(
+      topology?.kind === "container" && tank?.slot !== undefined && module?.location?.moduleSlot !== undefined
+        ? { containerId: topology.containerId, tankSlot: tank.slot, moduleSlot: module.location.moduleSlot }
+        : undefined,
+    );
+  };
   const live = useMemo(() => buildContainerLive(hardware, telemetry, unit), [hardware, telemetry, unit]);
   // PSU samples expire between polls, so module states follow the clock as on the Tanks page.
   const now = usePsuObservationTime(tab === "overview");
@@ -197,7 +215,13 @@ export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
           duration={duration}
           onDurationChange={setDuration}
           grid={grid}
-          onSelectModule={setSelectedModuleId}
+          onSelectModule={(id) =>
+            selectModule(
+              topology?.kind === "container"
+                ? [...topology.modules.values()].find((module) => module.id === id)
+                : undefined,
+            )
+          }
           issues={issues}
           onViewIssues={() => setIssuesOpen(true)}
         />
@@ -206,8 +230,9 @@ export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
             module={selectedModule}
             tank={selectedTank}
             topology={topology}
-            onClose={() => setSelectedModuleId(undefined)}
-            onSelectModule={(module) => setSelectedModuleId(module.id)}
+            onClose={() => setSelectedLocation(undefined)}
+            onSelectModule={selectModule}
+            keepHashboardsInModal
           />
         ) : null}
         <ProtoOSStatusModal open={issuesOpen} onClose={() => setIssuesOpen(false)} />
@@ -258,15 +283,6 @@ export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
           ...baseHistory,
           series,
         }}
-        categories={[
-          {
-            id: fanSeries.id,
-            label: fanSeries.label,
-            high: fanSeries.high ?? "—",
-            low: fanSeries.low ?? "—",
-            average: fanSeries.average ?? "—",
-          },
-        ]}
       />
     );
   }

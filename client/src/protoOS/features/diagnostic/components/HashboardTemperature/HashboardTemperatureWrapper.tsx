@@ -6,8 +6,17 @@ import useMinerStore from "@/protoOS/store/useMinerStore";
 import { findModuleInTankByRouteParam, findTankByRouteParam } from "@/protoOS/topologyRouteParams";
 import Button from "@/shared/components/Button";
 
-const HashboardTemperatureWrapper = () => {
-  const { serial, tankId, moduleId } = useParams();
+const HashboardTemperatureWrapper = ({
+  serial: selectedSerial,
+  onClose,
+  onSelectBoard,
+}: {
+  serial?: string;
+  onClose?: () => void;
+  onSelectBoard?: (serial: string) => void;
+}) => {
+  const { serial: routeSerial, tankId, moduleId } = useParams();
+  const serial = selectedSerial ?? routeSerial;
   const navigate = useNavigate();
   const { search } = useLocation();
   const topology = useMinerStore((state) => state.hardware.topology);
@@ -35,7 +44,12 @@ const HashboardTemperatureWrapper = () => {
       </div>
     );
   return serial !== undefined ? (
-    <HashboardTemperature serial={serial} readingsStale={container ? !!error : false} />
+    <HashboardTemperature
+      serial={serial}
+      readingsStale={container ? !!error : false}
+      onClose={onClose}
+      onSelectBoard={onSelectBoard}
+    />
   ) : null;
 };
 

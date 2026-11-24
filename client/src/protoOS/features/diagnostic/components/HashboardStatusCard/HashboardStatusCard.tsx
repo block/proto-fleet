@@ -30,11 +30,19 @@ interface HashboardStatusCardProps {
   actions?: RowAction[];
   selection?: { checked: boolean; disabled?: boolean; onChange: (checked: boolean) => void };
   viewTo?: string;
+  onView?: () => void;
   /** Keeps the View action from navigating away, for a host with work in flight. */
   viewDisabled?: boolean;
 }
 
-function HashboardStatusCard({ identifier, viewTo, viewDisabled, actions, selection }: HashboardStatusCardProps) {
+function HashboardStatusCard({
+  identifier,
+  viewTo,
+  onView,
+  viewDisabled,
+  actions,
+  selection,
+}: HashboardStatusCardProps) {
   // Fetch data directly from store
   const hashboardData = useMinerHashboard(identifier);
   const slot = useHashboardSlot(identifier);
@@ -47,7 +55,8 @@ function HashboardStatusCard({ identifier, viewTo, viewDisabled, actions, select
   const asicData = useAsicDataTransform(asics);
 
   const handleViewClick = () => {
-    navigate(viewTo ?? encodeURIComponent(identifier));
+    if (onView) onView();
+    else navigate(viewTo ?? encodeURIComponent(identifier));
   };
 
   // Compute display values from store data
