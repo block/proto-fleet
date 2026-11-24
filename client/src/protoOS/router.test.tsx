@@ -1,5 +1,5 @@
 import { type ComponentType, type ReactNode, Suspense } from "react";
-import { createMemoryRouter, Outlet, RouterProvider } from "react-router-dom";
+import { createMemoryRouter, matchRoutes, Outlet, RouterProvider } from "react-router-dom";
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -28,7 +28,6 @@ vi.mock("./routePrefetch", () => {
       }),
     importContainerHome: () => Promise.resolve({ default: ({ tab }: { tab: string }) => <div>container {tab}</div> }),
     importContainerPools: route("pool statistics"),
-    importContainerTanks: route("tanks"),
     importDiagnosticView: route("systems"),
     importEfficiency: route("efficiency"),
     importHashboardTemperature: route("hashboard temperature"),
@@ -249,50 +248,35 @@ describe("ProtoOS router", () => {
     await waitFor(() => expect(screen.getByText("hashrate")).toBeInTheDocument());
   });
 
-  test("allows containers to enter tank routes", async () => {
-    mocks.systemInfo = { identity: { deviceType: "container" } };
-    const router = createMemoryRouter(routerConfig, { initialEntries: ["/tanks/1"] });
-
-    render(<RouterProvider router={router} />);
-
-    await waitFor(() => expect(screen.getByText("tanks")).toBeInTheDocument());
-    expect(router.state.location.pathname).toBe("/tanks/1");
-  });
-
-  test("redirects rigs away from tank routes", async () => {
-    mocks.systemInfo = { identity: { deviceType: "rig" } };
-    const router = createMemoryRouter(routerConfig, { initialEntries: ["/tanks/1"] });
-
-    render(<RouterProvider router={router} />);
-
-    await waitFor(() => expect(screen.getByText("hashrate")).toBeInTheDocument());
-    expect(router.state.location.pathname).toBe("/hashrate");
-  });
+  test.each(["/tanks", "/tanks/1", "/tanks/1/modules/1", "/tanks/1/modules/1/board"])(
+    "does not register the removed Tanks route %s",
+    (path) => expect(matchRoutes(routerConfig, path)).toBeNull(),
+  );
 
   test("allows containers to enter module modal routes", async () => {
     mocks.systemInfo = { identity: { deviceType: "container" } };
-    const router = createMemoryRouter(routerConfig, { initialEntries: ["/tanks/1/modules/1"] });
+    const router = createMemoryRouter(routerConfig, { initialEntries: ["/modules/1/1"] });
 
     render(<RouterProvider router={router} />);
 
-    await waitFor(() => expect(screen.getByText("tanks")).toBeInTheDocument());
-    expect(router.state.location.pathname).toBe("/tanks/1/modules/1");
+    await waitFor(() => expect(screen.getByText("modules")).toBeInTheDocument());
+    expect(router.state.location.pathname).toBe("/modules/1/1");
   });
 
   test("preserves container module routes when retained system info has a transient error", async () => {
     mocks.systemInfo = { identity: { deviceType: "container" } };
     mocks.systemInfoError = "Couldn't reach this miner";
-    const router = createMemoryRouter(routerConfig, { initialEntries: ["/tanks/1/modules/1"] });
+    const router = createMemoryRouter(routerConfig, { initialEntries: ["/modules/1/1"] });
 
     render(<RouterProvider router={router} />);
 
-    await waitFor(() => expect(screen.getByText("tanks")).toBeInTheDocument());
-    expect(router.state.location.pathname).toBe("/tanks/1/modules/1");
+    await waitFor(() => expect(screen.getByText("modules")).toBeInTheDocument());
+    expect(router.state.location.pathname).toBe("/modules/1/1");
   });
 
   test("redirects rigs away from module modal routes", async () => {
     mocks.systemInfo = { identity: { deviceType: "rig" } };
-    const router = createMemoryRouter(routerConfig, { initialEntries: ["/tanks/1/modules/1"] });
+    const router = createMemoryRouter(routerConfig, { initialEntries: ["/modules/1/1"] });
 
     render(<RouterProvider router={router} />);
 

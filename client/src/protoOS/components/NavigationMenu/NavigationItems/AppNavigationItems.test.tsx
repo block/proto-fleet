@@ -60,13 +60,13 @@ describe("AppNavigationItems", () => {
     expect(screen.getByText("Cooling")).toBeInTheDocument();
   });
 
-  test("shows tank and module destinations only for containers", () => {
+  test("shows module and pool destinations without Tanks for containers", () => {
     (useMinerHosting as Mock).mockReturnValue({ mode: "direct", isFleetHosted: false });
     (useDeviceType as Mock).mockReturnValue("container");
 
     render(<AppNavigationItems onClick={vi.fn()} pageName="hashrate" />);
 
-    expect(screen.getByText("Tanks")).toBeInTheDocument();
+    expect(screen.queryByText("Tanks")).not.toBeInTheDocument();
     expect(screen.getByText("Modules")).toBeInTheDocument();
     expect(screen.getByText("Pools")).toBeInTheDocument();
   });

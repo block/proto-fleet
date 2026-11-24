@@ -9,7 +9,7 @@ const module = (column: number, state: ModuleGrid["tanks"][number]["modules"][nu
   label: String(column).padStart(2, "0"),
   position: { row: 2, column },
   name: `Tank 1 module ${column}`,
-  to: `/tanks/1/modules/${column}`,
+  to: `/modules/1/${column}`,
   state,
   boards: ["healthy", "healthy", "healthy"] as ModuleGrid["tanks"][number]["modules"][number]["boards"],
 });

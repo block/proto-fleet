@@ -112,10 +112,10 @@ const ModuleModal = ({
     ),
   );
   const { error, pending } = useHashboardStatus({ hashboardSerialNumbers: serials, poll: true });
-  const tankPath = `${minerRoot}/tanks/${tankRouteValue(tank)}`;
+  const listPath = `${minerRoot}/modules`;
   const pathForModule = (item: ModuleNode) =>
     getModulePath?.(item) ??
-    `${tankPath}/modules/${moduleRouteValue(item, modules.findIndex((candidate) => candidate.id === item.id) + 1)}`;
+    `${listPath}/${tankRouteValue(tank)}/${moduleRouteValue(item, modules.findIndex((candidate) => candidate.id === item.id) + 1)}`;
   const modulePath = pathForModule(module);
 
   return (
@@ -125,7 +125,7 @@ const ModuleModal = ({
         size="fullscreen"
         title="Modules"
         dialogLabel="Modules"
-        onDismiss={voltageWriting ? undefined : (onClose ?? (() => navigate(tankPath)))}
+        onDismiss={voltageWriting ? undefined : (onClose ?? (() => navigate(listPath)))}
         buttons={[{ text: "Done", variant: "primary", disabled: voltageWriting }]}
         bodyClassName="text-text-primary"
       >

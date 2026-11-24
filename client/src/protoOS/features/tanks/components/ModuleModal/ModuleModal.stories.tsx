@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { moduleFixture, type ModuleFixtureState } from "@/protoOS/api/adapters/mdkV2/moduleFixtures";
 import { toCanonicalSystemInfo } from "@/protoOS/api/adapters/mdkV2/normalize";
 import HashboardTemperatureWrapper from "@/protoOS/features/diagnostic/components/HashboardTemperature/HashboardTemperatureWrapper";
-import Tanks from "@/protoOS/features/tanks/Tanks";
+import Modules from "@/protoOS/features/modules/Modules";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
 const ModuleStory = ({
@@ -31,11 +31,11 @@ const ModuleStory = ({
   }, [state, tankLabel]);
   if (!ready) return null;
   return (
-    <MemoryRouter initialEntries={[`/tanks/1/modules/1${table ? "/T1-M1-HB1" : ""}`]}>
+    <MemoryRouter initialEntries={[`/modules/1/1${table ? "/T1-M1-HB1" : ""}`]}>
       <Routes>
-        <Route path="/tanks/:tankId" element={<Tanks />} />
-        <Route path="/tanks/:tankId/modules/:moduleId" element={<Tanks />} />
-        <Route path="/tanks/:tankId/modules/:moduleId/:serial" element={<HashboardTemperatureWrapper />} />
+        <Route path="/modules" element={<Modules />} />
+        <Route path="/modules/:tankId/:moduleId" element={<Modules />} />
+        <Route path="/modules/:tankId/:moduleId/:serial" element={<HashboardTemperatureWrapper />} />
       </Routes>
     </MemoryRouter>
   );

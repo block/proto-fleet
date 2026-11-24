@@ -25,21 +25,21 @@ test.describe("Container tank health", () => {
       }
     }
 
-    await page.goto("/tanks");
+    await page.goto("/");
     const tank4 = page.getByRole("region", { name: "Tank 4", exact: true });
-    await expect(tank4.getByRole("button", { name: "Module 04, Sleeping", exact: true })).toBeVisible();
-    await expect(tank4.getByRole("button", { name: "Module 09, Offline", exact: true })).toBeVisible();
+    await expect(tank4.getByRole("button", { name: "Tank 4 module 4, Sleeping", exact: true })).toBeVisible();
+    await expect(tank4.getByRole("button", { name: "Tank 4 module 9, Offline", exact: true })).toBeVisible();
     await expect(tank4.getByRole("button", { name: /Needs attention/ })).toHaveCount(0);
-    await expect(tank4.getByRole("button", { name: /Healthy$/ })).toHaveCount(14);
+    await expect(tank4.getByRole("button", { name: /Hashing$/ })).toHaveCount(14);
 
     const tank2 = page.getByRole("region", { name: "Tank 2", exact: true });
-    await expect(tank2.getByRole("button", { name: "Module 03, Sleeping", exact: true })).toBeVisible();
-    await expect(tank2.getByRole("button", { name: "Module 06, Offline", exact: true })).toBeVisible();
-    await expect(tank2.getByRole("button", { name: "Module 11, Needs attention", exact: true })).toBeVisible();
+    await expect(tank2.getByRole("button", { name: "Tank 2 module 3, Sleeping", exact: true })).toBeVisible();
+    await expect(tank2.getByRole("button", { name: "Tank 2 module 6, Offline", exact: true })).toBeVisible();
+    await expect(tank2.getByRole("button", { name: "Tank 2 module 11, Needs attention", exact: true })).toBeVisible();
     await expect(
       page
         .getByRole("region", { name: "Tank 3", exact: true })
-        .getByRole("button", { name: "Module 08, Needs attention", exact: true }),
+        .getByRole("button", { name: "Tank 3 module 8, Needs attention", exact: true }),
     ).toBeVisible();
   });
 });

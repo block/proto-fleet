@@ -871,7 +871,7 @@ shows them in this order, with groups sorted alphabetically within each root:
 | `Proto OS`    | Device-owned components and feature flows from `src/protoOS/`   |
 
 Group app stories by the relevant existing feature, such as
-`Proto Fleet/Containers/Overview` or `Proto OS/Containers/Tanks`. A feature using
+`Proto Fleet/Containers/Overview` or `Proto OS/Containers/Home/Overview`. A feature using
 shared primitives still belongs to its owning app. Avoid new catch-all roots
 such as `Components`, separate product roots for containers, or alternative app
 spellings. Keep stories beside their implementations; cross-app design guidance

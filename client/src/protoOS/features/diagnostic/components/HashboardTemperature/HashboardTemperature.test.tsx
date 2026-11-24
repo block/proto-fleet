@@ -40,11 +40,11 @@ function Location() {
 }
 function showPage(readingsStale = false) {
   return render(
-    <MemoryRouter initialEntries={["/tanks/1/modules/1", "/tanks/1/modules/1/T1-M1-HB1"]}>
+    <MemoryRouter initialEntries={["/modules/1/1", "/modules/1/1/T1-M1-HB1"]}>
       <Location />
       <Routes>
-        <Route path="/tanks/:tankId/modules/:moduleId/:serial" element={<BoardPage readingsStale={readingsStale} />} />
-        <Route path="/tanks/:tankId/modules/:moduleId" element={<p>Module modal</p>} />
+        <Route path="/modules/:tankId/:moduleId/:serial" element={<BoardPage readingsStale={readingsStale} />} />
+        <Route path="/modules/:tankId/:moduleId" element={<p>Module modal</p>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -81,7 +81,7 @@ test("switches boards within the module route using replace, and returns to the 
   expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Tank 1/Module 1");
   await user.click(screen.getByRole("button", { name: "Board 1" }));
   await user.click(screen.getByText("Board 2"));
-  expect(screen.getByTestId("location")).toHaveTextContent("/tanks/1/modules/1/T1-M1-HB2");
+  expect(screen.getByTestId("location")).toHaveTextContent("/modules/1/1/T1-M1-HB2");
   expect(screen.getByText("ASIC grid")).toBeInTheDocument();
   expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Tank 1/Module 1");
   await user.click(screen.getByRole("button", { name: "History back" }));
@@ -109,25 +109,22 @@ test("rig keeps its four stats and dismissal icon", () => {
   expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).not.toBeInTheDocument();
 });
 
-test.each([
-  "/tanks/1/modules/2",
-  "/modules/1/2",
-  "/miners/ct1/tanks/1/modules/2",
-  "/miners/ct1/modules/1/2",
-  "/systems",
-])("resolves board location on direct entry at %s and when topology arrives later", (root) => {
-  useMinerStore.getState().resetDeviceData();
-  render(
-    <MemoryRouter initialEntries={[`${root}/T1-M2-HB3`]}>
-      <Routes>
-        <Route path={`${root}/:serial`} element={<BoardPage />} />
-      </Routes>
-    </MemoryRouter>,
-  );
-  expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).not.toBeInTheDocument();
-  act(() => useMinerStore.getState().hardware.replaceHardware(moduleFixture().hardware));
-  expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Tank 1/Module 2");
-});
+test.each(["/modules/1/2", "/miners/ct1/modules/1/2", "/systems"])(
+  "resolves board location on direct entry at %s and when topology arrives later",
+  (root) => {
+    useMinerStore.getState().resetDeviceData();
+    render(
+      <MemoryRouter initialEntries={[`${root}/T1-M2-HB3`]}>
+        <Routes>
+          <Route path={`${root}/:serial`} element={<BoardPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).not.toBeInTheDocument();
+    act(() => useMinerStore.getState().hardware.replaceHardware(moduleFixture().hardware));
+    expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Tank 1/Module 2");
+  },
+);
 
 test("a failed refresh shows below the fixed page header and dims the last readings", () => {
   showPage(true);

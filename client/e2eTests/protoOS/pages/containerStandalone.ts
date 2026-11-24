@@ -133,7 +133,7 @@ export class ContainerStandalonePage {
   }
 
   async openTank(tank: number) {
-    await this.page.goto(`/tanks/${tank}`);
+    await this.page.goto("/systems");
     await expect(this.tank(tank)).toBeVisible();
     await expect(this.power(tank)).toBeEnabled();
   }
@@ -281,7 +281,7 @@ export class ContainerStandalonePage {
   }
 
   tank(tank: number) {
-    return this.page.getByRole("region", { name: `Tank ${tank}`, exact: true });
+    return this.page.getByRole("article", { name: `Tank ${tank}`, exact: true });
   }
 
   power(tank: number) {
@@ -323,7 +323,7 @@ export class ContainerStandalonePage {
       Promise.all(reads),
       (async () => {
         if (reload) await this.page.reload();
-        else await this.page.goto("/tanks/1/modules/1");
+        else await this.page.goto("/modules/1/1");
         await expect(dialog).toBeVisible();
         await expect(dialog.getByRole("heading", { name: "Hashboards", exact: true })).toBeVisible();
       })(),
