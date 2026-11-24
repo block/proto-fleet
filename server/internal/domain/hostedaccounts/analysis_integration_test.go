@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -19,6 +18,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts/reporting"
 	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/migrations"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -477,7 +477,7 @@ func TestAccountAnalysisPermanentDeletionRetainsOnlyReceiptAndBlocksReplay(t *te
 	}
 	_, err = f.db.ExecContext(t.Context(), `INSERT INTO hosted_account_analysis(analysis_id,organization_id,account_id,kind,snapshot,site_ids,ticket_ids,created_by,csv_data,sha256,request_key,request_digest) VALUES($1,$2,$3,'energy_usage','{}','{}','{}',$4,'csv','digest',$5,'digest')`, uuid.NewString(), f.org, a.ID, f.user, request.RequestId)
 	require.Error(t, err, "database guard prevents old request key resurrection")
-	rollback, err := os.ReadFile("../../../migrations/current/001090_internal_account_analysis_deletion.down.sql")
+	rollback, err := migrations.Current.ReadFile("current/001090_internal_account_analysis_deletion.down.sql")
 	require.NoError(t, err)
 	_, err = f.db.ExecContext(t.Context(), string(rollback))
 	require.ErrorContains(t, err, "deletion receipts prevent rollback")

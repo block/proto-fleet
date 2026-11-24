@@ -1,12 +1,12 @@
 package timescaledb
 
 import (
-	"os"
 	"testing"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/block/proto-fleet/server/internal/testutil"
+	"github.com/block/proto-fleet/server/migrations"
 	"github.com/stretchr/testify/require"
 )
 
@@ -57,7 +57,7 @@ func TestStoredContainerRollupsMigrationRollback(t *testing.T) {
 		"001050_internal_automatic_hashboard_allocation.up",
 		"001051_internal_hashboard_allocation_order.up",
 	} {
-		migration, err := os.ReadFile("../../../migrations/current/" + migrationName + ".sql")
+		migration, err := migrations.Current.ReadFile("current/" + migrationName + ".sql")
 		require.NoError(t, err)
 		_, err = r.db.ExecContext(t.Context(), string(migration))
 		require.NoError(t, err, migrationName)

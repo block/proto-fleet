@@ -1,11 +1,11 @@
 package timescaledb
 
 import (
-	"os"
 	"testing"
 	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/migrations"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/require"
 )
@@ -116,7 +116,7 @@ func TestContainerCompressionRollbackPreservesData(t *testing.T) {
 		require.NoError(t, err)
 	}
 	for _, direction := range []string{"down", "up"} {
-		migration, err := os.ReadFile("../../../migrations/current/001027_internal_container_telemetry_compression." + direction + ".sql")
+		migration, err := migrations.Current.ReadFile("current/001027_internal_container_telemetry_compression." + direction + ".sql")
 		require.NoError(t, err)
 		tx, err := r.db.BeginTx(t.Context(), nil)
 		require.NoError(t, err)

@@ -1,8 +1,9 @@
 package migrations_test
 
 import (
-	"os"
 	"testing"
+
+	"github.com/block/proto-fleet/server/migrations"
 
 	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/require"
@@ -10,7 +11,7 @@ import (
 
 func TestPrivateBaselineDownRefusesWithoutRemovingInventory(t *testing.T) {
 	db := testutil.GetTestDB(t)
-	script, err := os.ReadFile("current/001001_internal_baseline.down.sql")
+	script, err := migrations.Current.ReadFile("current/001001_internal_baseline.down.sql")
 	require.NoError(t, err)
 	tx, err := db.BeginTx(t.Context(), nil)
 	require.NoError(t, err)

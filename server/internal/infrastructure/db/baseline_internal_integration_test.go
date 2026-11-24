@@ -2,13 +2,17 @@ package db
 
 import (
 	"database/sql"
+	"io/fs"
 	"strconv"
 	"testing"
+	"testing/fstest"
+	"time"
 
 	"github.com/block/proto-fleet/server/migrations"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBaselineInternalReconciliation(t *testing.T) {
@@ -102,36 +106,123 @@ func TestBaselineInternalRefusesSkippedPrivateMigration(t *testing.T) {
 	}
 }
 
-func TestBaselineInternalConvertsCleanPublicBaseline(t *testing.T) {
+func TestConsolidationUpgradesPublicBaseline(t *testing.T) {
 	requireBaselineDB(t)
-	conn, _ := newMigrationBridgeTestDB(t)
-	// Apply the real shared baseline with the stock runner, stopping before the
-	// private baseline. The connection remains owned by the test cleanup.
-	source, err := iofs.New(migrations.Current, "current")
-	if err != nil {
-		t.Fatal(err)
+	fresh, _ := newMigrationBridgeTestDB(t)
+	require.NoError(t, runCurrentMigrations(t.Context(), fresh, migrations.Current))
+	// Reparse the final CHECK constraints on each database so equivalent casts compare equally.
+	roundTripBaselineConstraints(t, fresh)
+	freshCatalog, err := readBaselineCatalog(t.Context(), fresh)
+	require.NoError(t, err)
+
+	firstSample := time.Now().UTC().Truncate(time.Hour).Add(-2 * time.Hour)
+	secondSample := firstSample.Add(time.Hour)
+	for _, test := range []struct {
+		name      string
+		reconcile bool
+	}{
+		{name: "direct upgrade"},
+		{name: "offline reconciliation", reconcile: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			conn, config := newMigrationBridgeTestDB(t)
+			baseline := fstest.MapFS{}
+			for _, direction := range []string{"up", "down"} {
+				name := "001000_shared_baseline." + direction + ".sql"
+				body, err := fs.ReadFile(migrations.Active, "current/"+name)
+				require.NoError(t, err)
+				baseline[name] = &fstest.MapFile{Data: body}
+			}
+			require.NoError(t, migrateTestDBSourceTo(t.Context(), conn, config.Name, baseline, 1000))
+			seedBaselineIdentity(t, conn)
+			_, err := conn.ExecContext(t.Context(), `
+				INSERT INTO device_metrics (time, device_identifier, hash_rate_hs, power_w)
+				VALUES ($1, 'fixture-device', 100000000000000, 3000),
+				       ($2, 'fixture-device', 110000000000000, 3100)
+			`, firstSample, secondSample)
+			require.NoError(t, err)
+			roundTripBaselineConstraints(t, conn)
+
+			if test.reconcile {
+				require.NoError(t, ApplyBaseline(t.Context(), conn, "public", 1000))
+				status, err := readBaselineStatus(t.Context(), conn)
+				require.NoError(t, err)
+				require.Equal(t, 1001, status.Version)
+				require.False(t, status.Dirty)
+			}
+			for range 2 {
+				require.NoError(t, runCurrentMigrations(t.Context(), conn, migrations.Current))
+			}
+			status, err := CheckBaseline(t.Context(), conn, "target", "", 0)
+			require.NoError(t, err)
+			require.GreaterOrEqual(t, status.Version, migrations.ConsolidationVersion)
+			roundTripBaselineConstraints(t, conn)
+			catalog, err := readBaselineCatalog(t.Context(), conn)
+			require.NoError(t, err)
+			require.Equal(t, freshCatalog, catalog, "upgraded schema must match a fresh install")
+
+			var preserved bool
+			require.NoError(t, conn.QueryRowContext(t.Context(), `
+				SELECT (SELECT password_hash='preserve-this-password-hash' FROM "user" WHERE id=999999)
+				   AND (SELECT key_hash='preserve-fixture-hash' FROM api_key WHERE id=999999)
+				   AND (SELECT device_identifier='fixture-device' FROM device WHERE id=999999)
+				   AND has_column_privilege('public', 'device', 'id', 'SELECT')
+			`).Scan(&preserved))
+			require.True(t, preserved)
+
+			var paired bool
+			require.NoError(t, conn.QueryRowContext(t.Context(), `
+				SELECT EXISTS (
+				    SELECT 1 FROM device_pairing p JOIN fleet_node_device n USING (device_id)
+				    WHERE p.device_id=999999 AND p.pairing_status='PAIRED'
+				      AND n.fleet_node_id=999999 AND n.org_id=999999
+				)
+			`).Scan(&paired))
+			require.True(t, paired, "device pairing and Node assignment must survive upgrade")
+
+			var samples int
+			require.NoError(t, conn.QueryRowContext(t.Context(), `
+				SELECT count(*) FROM device_metrics WHERE device_identifier='fixture-device'
+				  AND ((time=$1 AND hash_rate_hs=100000000000000 AND power_w=3000)
+				    OR (time=$2 AND hash_rate_hs=110000000000000 AND power_w=3100))
+			`, firstSample, secondSample).Scan(&samples))
+			require.Equal(t, 2, samples, "both telemetry samples must survive upgrade")
+		})
 	}
-	driver, err := postgres.WithInstance(conn, &postgres.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	m, err := migrate.NewWithInstance("public-baseline", source, "", driver)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = m.Migrate(1000); err != nil {
-		t.Fatal(err)
-	}
-	seedBaselineIdentity(t, conn)
-	if err := runCurrentMigrations(t.Context(), conn, migrations.Current); err == nil {
-		t.Fatal("startup ran private baseline against existing shared data")
-	}
-	roundTripBaselineConstraints(t, conn)
-	if err := ApplyBaseline(t.Context(), conn, "public", 1000); err != nil {
-		t.Fatal(err)
-	}
-	if err := runCurrentMigrations(t.Context(), conn, migrations.Current); err != nil {
-		t.Fatal(err)
+}
+
+func TestConsolidationResumesInternalCheckpoint(t *testing.T) {
+	requireBaselineDB(t)
+	for _, checkpoint := range []int{1113, 1114} {
+		t.Run(strconv.Itoa(checkpoint), func(t *testing.T) {
+			previous := fstest.MapFS{}
+			paths, err := fs.Glob(migrations.Current, "current/*.sql")
+			require.NoError(t, err)
+			for _, path := range paths {
+				version, err := strconv.Atoi(path[len("current/") : len("current/")+6])
+				require.NoError(t, err)
+				if version <= checkpoint {
+					sql, err := fs.ReadFile(migrations.Current, path)
+					require.NoError(t, err)
+					previous[path] = &fstest.MapFile{Data: sql}
+				}
+			}
+			conn, _ := newMigrationBridgeTestDB(t)
+			require.NoError(t, runCurrentMigrations(t.Context(), conn, previous))
+			status, err := readBaselineStatus(t.Context(), conn)
+			require.NoError(t, err)
+			require.Equal(t, checkpoint, status.Version)
+			seedBaselineIdentity(t, conn)
+
+			require.NoError(t, runCurrentMigrations(t.Context(), conn, migrations.Current))
+			status, err = CheckBaseline(t.Context(), conn, "target", "", 0)
+			require.NoError(t, err)
+			require.GreaterOrEqual(t, status.Version, migrations.ConsolidationVersion)
+			var passwordHash string
+			require.NoError(t, conn.QueryRowContext(t.Context(),
+				`SELECT password_hash FROM "user" WHERE id=999999`).Scan(&passwordHash))
+			require.Equal(t, "preserve-this-password-hash", passwordHash)
+		})
 	}
 }
 

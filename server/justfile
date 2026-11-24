@@ -93,15 +93,14 @@ db-reset:
 db-shell:
   psql -h 127.0.0.1 -U fleet -d fleet
 
-# allocate a shared or private migration in the internal repository
+# allocate a migration after repository consolidation
 db-migration-new $name:
   #!/usr/bin/env bash
   set -euo pipefail
   case "$name" in
-    shared_*|internal_*) ;;
-    *) echo "Use shared_<name> or internal_<name>." >&2; exit 1 ;;
+    shared_*) ;;
+    *) echo "Use shared_<name>." >&2; exit 1 ;;
   esac
-  test -f migrations/current/001001_internal_baseline.up.sql || { echo "Allocate migration numbers in the internal repository, then promote shared files unchanged." >&2; exit 1; }
   migrate create -ext sql -dir migrations/current -seq "$name"
   latest="$(printf '%s\n' migrations/current/*.up.sql | LC_ALL=C sort | tail -n 1)"
   basename "$latest" .up.sql > migrations/LATEST

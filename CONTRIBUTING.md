@@ -175,12 +175,10 @@ Codex users can run the same shared skill with `$pr-describe`.
 
 ### Making Database Schema Changes
 
-1. In the internal repository, create a migration:
-   `cd server && just db-migration-new shared_<name>` or
-   `just db-migration-new internal_<name>`.
+1. Create a migration with `cd server && just db-migration-new shared_<name>`.
 2. Write both up and down migrations in `server/migrations/current/`.
-   Follow the [migration policy](docs/development/migrations.md) for shared
-   promotion, private prerequisites and existing-database upgrades. Name unique
+   Follow the [migration policy](docs/development/migrations.md) for
+   existing-database upgrades. Name unique
    constraints and indexes using the
    [naming convention](docs/development/migrations.md#constraint-and-index-names).
 3. Update queries in `server/sqlc/queries/` if needed

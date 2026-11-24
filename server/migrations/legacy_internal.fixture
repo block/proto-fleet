@@ -1,0 +1,389 @@
+-- Historical internal waypoints. Used only for legacy reconciliation and upgrade fixtures.
+
+-- fleet-migration: 000150_device_class.down.sql
+ALTER TABLE discovered_device DROP COLUMN device_class;
+
+-- fleet-migration: 000150_device_class.up.sql
+ALTER TABLE discovered_device
+ADD COLUMN device_class INTEGER NOT NULL DEFAULT 0 CHECK (device_class IN (0, 1, 2));
+
+-- fleet-migration: 000151_rollout_activity_labels.down.sql
+DROP FUNCTION IF EXISTS activity_display_label(TEXT, TEXT, TEXT, JSONB, TEXT);
+
+ALTER FUNCTION activity_display_label_v147(TEXT, TEXT, TEXT, JSONB, TEXT)
+    RENAME TO activity_display_label;
+
+-- fleet-migration: 000151_rollout_activity_labels.up.sql
+-- Display labels for firmware update (rollout) activity events. Keep in sync
+-- with the client label maps (client/src/protoFleet/features/activity/utils).
+-- Preserves the 000147 implementation as a helper so the down migration can
+-- restore it byte-for-byte.
+ALTER FUNCTION activity_display_label(TEXT, TEXT, TEXT, JSONB, TEXT)
+    RENAME TO activity_display_label_v147;
+
+CREATE OR REPLACE FUNCTION activity_display_label(
+    event_type TEXT,
+    scope_type TEXT,
+    scope_label TEXT,
+    metadata JSONB,
+    description TEXT
+) RETURNS TEXT
+LANGUAGE SQL
+IMMUTABLE
+PARALLEL SAFE
+AS $$
+SELECT CASE
+    WHEN event_type LIKE 'rollout_%'
+        THEN CONCAT(
+            CASE event_type
+                WHEN 'rollout_started'                 THEN 'Started firmware update'
+                WHEN 'rollout_review_ready'            THEN 'Firmware update ready for review'
+                WHEN 'rollout_continued'               THEN 'Continued firmware update'
+                WHEN 'rollout_paused'                  THEN 'Paused firmware update'
+                WHEN 'rollout_resumed'                 THEN 'Resumed firmware update'
+                WHEN 'rollout_canceled'                THEN 'Canceled remaining firmware updates'
+                WHEN 'rollout_completed'               THEN 'Completed firmware update'
+                WHEN 'rollout_completed_with_failures' THEN 'Completed firmware update with failures'
+                WHEN 'rollout_retried'                 THEN 'Retried failed firmware updates'
+                ELSE 'Firmware update'
+            END,
+            COALESCE(
+                ': ' || NULLIF(CONCAT_WS(' ',
+                    metadata->>'channel_name',
+                    metadata->>'manufacturer',
+                    metadata->>'model',
+                    CASE WHEN metadata->>'firmware_version' IS NOT NULL
+                         THEN '→ ' || (metadata->>'firmware_version') END
+                ), ''),
+                ''
+            )
+        )
+    ELSE activity_display_label_v147(event_type, scope_type, scope_label, metadata, description)
+END
+$$;
+
+-- fleet-migration: 000152_container_snapshots.down.sql
+DROP TABLE IF EXISTS container_plant_metrics;
+DROP TABLE container_snapshot;
+
+-- fleet-migration: 000152_container_snapshots.up.sql
+-- A controller remains a paired device for connection/credential management.
+-- Its container observation is separate from miner inventory and placement.
+CREATE TABLE container_snapshot (
+    device_id BIGINT PRIMARY KEY REFERENCES device(id) ON DELETE CASCADE,
+    observed_at TIMESTAMPTZ NOT NULL,
+    snapshot JSONB NOT NULL CHECK (jsonb_typeof(snapshot) = 'object')
+);
+
+-- Only aggregate plant history is retained. Module observations remain latest-only.
+CREATE TABLE container_plant_metrics (
+ device_id BIGINT NOT NULL REFERENCES device(id) ON DELETE CASCADE,
+ time TIMESTAMPTZ NOT NULL,
+ metrics JSONB NOT NULL CHECK (jsonb_typeof(metrics) = 'object'),
+ PRIMARY KEY (device_id, time)
+);
+SELECT create_hypertable('container_plant_metrics', 'time');
+SELECT add_retention_policy('container_plant_metrics', INTERVAL '30 days');
+
+-- fleet-migration: 000153_container_inventory.down.sql
+DROP VIEW fleet_mining_asset;
+DROP TABLE container_module_latest_metrics;
+DROP TABLE container_module_metrics;
+DROP TABLE container_module;
+DROP TABLE container_tank;
+DROP TABLE container_inventory;
+
+-- fleet-migration: 000153_container_inventory.up.sql
+-- The controller remains the only paired/polled device. Child IDs are Fleet
+-- identities, independent of firmware selectors and reported serial numbers.
+CREATE TABLE container_inventory (
+    device_id BIGINT PRIMARY KEY REFERENCES device(id),
+    observed_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE container_tank (
+    id BIGSERIAL PRIMARY KEY,
+    device_id BIGINT NOT NULL REFERENCES container_inventory(device_id),
+    position INT NOT NULL CHECK (position > 0),
+    present BOOLEAN NOT NULL DEFAULT TRUE,
+    first_seen_at TIMESTAMPTZ NOT NULL,
+    last_seen_at TIMESTAMPTZ NOT NULL,
+    UNIQUE (device_id, position)
+);
+
+CREATE TABLE container_module (
+    id BIGSERIAL PRIMARY KEY,
+    tank_id BIGINT NOT NULL REFERENCES container_tank(id),
+    position INT NOT NULL CHECK (position > 0),
+    reported_id TEXT NOT NULL DEFAULT '',
+    first_seen_at TIMESTAMPTZ NOT NULL,
+    last_seen_at TIMESTAMPTZ NOT NULL,
+    retired_at TIMESTAMPTZ,
+    state TEXT NOT NULL DEFAULT 'unknown',
+    state_observed_at TIMESTAMPTZ,
+    CHECK (state IN ('unknown', 'hashing', 'attention', 'offline', 'sleeping', 'isolated'))
+);
+CREATE UNIQUE INDEX container_module_current_position ON container_module(tank_id, position) WHERE retired_at IS NULL;
+
+CREATE TABLE container_module_metrics (
+    module_id BIGINT NOT NULL REFERENCES container_module(id),
+    time TIMESTAMPTZ NOT NULL,
+    collected_at TIMESTAMPTZ NOT NULL,
+    hashrate_hs DOUBLE PRECISION,
+    power_w DOUBLE PRECISION,
+    temperature_c DOUBLE PRECISION,
+    PRIMARY KEY (module_id, time, collected_at)
+);
+SELECT create_hypertable('container_module_metrics', 'time');
+SELECT add_retention_policy('container_module_metrics', INTERVAL '30 days');
+
+-- Latest values survive history retention and avoid a history scan per list row.
+CREATE TABLE container_module_latest_metrics (
+    module_id BIGINT PRIMARY KEY REFERENCES container_module(id),
+    time TIMESTAMPTZ NOT NULL,
+    collected_at TIMESTAMPTZ NOT NULL,
+    hashrate_hs DOUBLE PRECISION,
+    power_w DOUBLE PRECISION,
+    temperature_c DOUBLE PRECISION
+);
+
+-- Existing controllers reconcile from their next successful observation. No
+-- identities or historical samples are synthesized from the legacy snapshot.
+
+-- Shared read projection, not a shared physical-entity lifecycle. In particular,
+-- modules are never inserted into device and are never separately polled.
+CREATE VIEW fleet_mining_asset AS
+SELECT 5::int AS kind, d.id, d.org_id, d.site_id,
+       COALESCE(NULLIF(d.custom_name, ''), concat_ws(' ', dd.manufacturer, dd.model))::text AS name,
+       d.device_identifier::text AS device_identifier, 0::int AS position, COALESCE(d.serial_number, '')::text AS reported_id,
+       1::int AS facility_kind, COALESCE(d.building_id, rack.building_id) AS facility_id,
+       3::int AS group_kind, rack.device_set_id AS group_id,
+       CASE WHEN ds.status = 'OFFLINE' OR (ds.status IS NULL AND dp.pairing_status IN ('PAIRED','DEFAULT_PASSWORD')) OR (fn.last_seen_at < now() - INTERVAL '2 minutes' AND fn.enrollment_status = 'CONFIRMED' AND fn.deleted_at IS NULL) THEN 'offline'
+            WHEN ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status <> 'AUTHENTICATION_NEEDED' THEN 'sleeping'
+            WHEN ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED') OR dp.pairing_status='AUTHENTICATION_NEEDED' OR EXISTS (SELECT 1 FROM errors e WHERE e.device_id=d.id AND e.org_id=d.org_id AND e.closed_at IS NULL AND e.severity IN (1,2,3,4)) THEN 'attention'
+            WHEN ds.status = 'ACTIVE' THEN 'hashing' ELSE 'unknown' END::text AS state,
+       dm.time AS observed_at, dm.hash_rate_hs AS hashrate_hs, dm.power_w, dm.temp_c AS temperature_c, (dm.efficiency_jh * 1e12)::double precision AS miner_efficiency_jth
+FROM device d
+JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.org_id = d.org_id
+JOIN device_pairing dp ON dp.device_id = d.id
+LEFT JOIN device_status ds ON ds.device_id = d.id
+LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
+LEFT JOIN fleet_node fn ON fn.id = fnd.fleet_node_id
+LEFT JOIN LATERAL (
+  SELECT r.device_set_id, r.building_id
+  FROM device_set_membership ms JOIN device_set s ON s.id = ms.device_set_id AND s.deleted_at IS NULL
+  JOIN device_set_rack r ON r.device_set_id = s.id
+  WHERE ms.device_id = d.id AND ms.device_set_type = 'rack' AND ms.org_id = d.org_id
+) rack ON TRUE
+LEFT JOIN LATERAL (
+  SELECT time, hash_rate_hs, power_w, temp_c, efficiency_jh FROM device_metrics
+  WHERE device_identifier = d.device_identifier AND time > now() - INTERVAL '10 minutes'
+    AND time <= now() + INTERVAL '5 seconds'
+    AND ds.status IS DISTINCT FROM 'OFFLINE'
+    AND NOT COALESCE(fn.last_seen_at < now() - INTERVAL '2 minutes' AND fn.enrollment_status = 'CONFIRMED' AND fn.deleted_at IS NULL, FALSE)
+  ORDER BY time DESC LIMIT 1
+) dm ON TRUE
+WHERE d.deleted_at IS NULL AND dd.deleted_at IS NULL AND dd.is_active AND dd.device_class <> 2
+ AND dp.pairing_status IN ('PAIRED','AUTHENTICATION_NEEDED','DEFAULT_PASSWORD')
+UNION ALL
+SELECT 6::int, m.id, d.org_id, d.site_id,
+       (COALESCE(NULLIF(d.custom_name, ''), 'Container ' || COALESCE(NULLIF(d.serial_number, ''), d.device_identifier)) || ' T' || t.position || ' M' || m.position)::text,
+       d.device_identifier::text, m.position, m.reported_id,
+       2::int, d.id, 4::int, t.id,
+       CASE WHEN m.state_observed_at > now() - INTERVAL '2 minutes' AND m.state_observed_at <= now() + INTERVAL '5 seconds'
+              AND m.last_seen_at > now() - INTERVAL '2 minutes' THEN m.state ELSE 'unknown' END::text,
+       mm.time, mm.hashrate_hs, mm.power_w, mm.temperature_c, NULL::double precision
+FROM container_module m JOIN container_tank t ON t.id = m.tank_id
+JOIN device d ON d.id = t.device_id
+JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.org_id = d.org_id
+LEFT JOIN container_module_latest_metrics mm ON mm.module_id = m.id
+  AND mm.time > now() - INTERVAL '2 minutes' AND mm.time <= now() + INTERVAL '5 seconds'
+  AND m.last_seen_at > now() - INTERVAL '2 minutes' AND m.state <> 'offline'
+WHERE m.retired_at IS NULL AND t.present AND d.deleted_at IS NULL AND dd.deleted_at IS NULL;
+
+-- fleet-migration: 000154_remove_container_snapshot.down.sql
+-- Restores the former cache schema. The previous collector repopulates it on
+-- the next successful poll; discarded raw snapshots cannot be recovered.
+CREATE TABLE container_snapshot (
+    device_id BIGINT PRIMARY KEY REFERENCES device(id) ON DELETE CASCADE,
+    observed_at TIMESTAMPTZ NOT NULL,
+    snapshot JSONB NOT NULL CHECK (jsonb_typeof(snapshot) = 'object')
+);
+
+-- fleet-migration: 000154_remove_container_snapshot.up.sql
+-- Card summaries now derive from normalized inventory. Controller and plant
+-- telemetry remain in their dedicated tables; no module history is removed.
+DROP TABLE container_snapshot;
+
+-- fleet-migration: 000155_curtailment_rig_config_targets.down.sql
+-- Remaining pending generations are processed organization-wide by the old
+-- worker after downgrade, so dropping target scope does not discard work.
+DROP TABLE curtailment_rig_config_target;
+ALTER TABLE curtailment_rig_config_reconciliation
+    DROP COLUMN full_reconcile_generation;
+
+-- fleet-migration: 000155_curtailment_rig_config_targets.up.sql
+-- Pre-existing requests were created for organization-wide delivery. Preserve
+-- their scope when adding device-targeted requests to the outbox.
+ALTER TABLE curtailment_rig_config_reconciliation
+    ADD COLUMN full_reconcile_generation BIGINT NOT NULL DEFAULT 0;
+
+UPDATE curtailment_rig_config_reconciliation
+SET full_reconcile_generation = desired_generation;
+
+ALTER TABLE curtailment_rig_config_reconciliation
+    ADD CONSTRAINT ck_curtailment_rig_config_reconciliation_full_generation
+        CHECK (full_reconcile_generation >= 0
+            AND full_reconcile_generation <= desired_generation);
+
+CREATE TABLE curtailment_rig_config_target (
+    organization_id      BIGINT NOT NULL,
+    device_id            BIGINT NOT NULL,
+    requested_generation BIGINT NOT NULL CHECK (requested_generation > 0),
+    PRIMARY KEY (organization_id, device_id),
+    FOREIGN KEY (organization_id)
+        REFERENCES curtailment_rig_config_reconciliation (organization_id) ON DELETE CASCADE,
+    FOREIGN KEY (device_id) REFERENCES device (id) ON DELETE CASCADE
+);
+
+-- fleet-migration: 000156_queue_pending_created_index.down.sql
+-- Keep the concurrent drop outside a transaction and as the sole statement.
+DROP INDEX CONCURRENTLY IF EXISTS idx_queue_message_pending_created;
+
+-- fleet-migration: 000156_queue_pending_created_index.up.sql
+-- GetMessagesToProcess selects the oldest pending messages globally. The
+-- existing (device_id, status, created_at) index serves its per-device blocker
+-- lookup, but cannot provide the outer query's created_at ordering.
+--
+-- CONCURRENTLY keeps queue writes available during the build. It must remain
+-- the sole statement: the migration runner executes it outside a transaction.
+-- If a build fails, inspect and drop any INVALID index before retrying the
+-- dirty migration; IF NOT EXISTS would silently accept that unusable index.
+CREATE INDEX CONCURRENTLY idx_queue_message_pending_created
+    ON queue_message (created_at)
+    WHERE status = 'PENDING';
+
+-- fleet-migration: 000157_delegated_rollout_events.down.sql
+DROP TABLE firmware_rollout_event;
+ALTER TABLE firmware_rollout DROP COLUMN controller_waiting_since;
+
+DROP FUNCTION activity_display_label(TEXT, TEXT, TEXT, JSONB, TEXT);
+ALTER FUNCTION activity_display_label_v150(TEXT, TEXT, TEXT, JSONB, TEXT)
+    RENAME TO activity_display_label;
+
+-- fleet-migration: 000157_delegated_rollout_events.up.sql
+-- A delegated wait clock survives restarts and resets when controller work starts.
+ALTER TABLE firmware_rollout ADD COLUMN controller_waiting_since TIMESTAMPTZ;
+
+-- Writers acquire LockReleaseChannelScopes before any channel/rollout lock.
+-- This serializes event allocation and commit within an organization, so a
+-- cursor ordered by id cannot jump over an event still waiting to commit.
+CREATE TABLE firmware_rollout_event (
+    id BIGSERIAL PRIMARY KEY,
+    org_id BIGINT NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
+    rollout_id BIGINT NOT NULL REFERENCES firmware_rollout(id) ON DELETE CASCADE,
+    channel_id BIGINT NOT NULL REFERENCES release_channel(id) ON DELETE CASCADE,
+    type TEXT NOT NULL,
+    occurred_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    actor_type TEXT NOT NULL CHECK (actor_type IN ('user', 'api_key', 'system')),
+    actor_id BIGINT NOT NULL,
+    actor_name TEXT NOT NULL,
+    rollout_revision BIGINT NOT NULL CHECK (rollout_revision > 0),
+    note TEXT NOT NULL DEFAULT '',
+    device_identifiers TEXT[] NOT NULL DEFAULT '{}'
+);
+CREATE INDEX firmware_rollout_event_org_id ON firmware_rollout_event(org_id, id);
+CREATE INDEX firmware_rollout_event_rollout_id ON firmware_rollout_event(org_id, rollout_id, id);
+CREATE INDEX firmware_rollout_event_channel_id ON firmware_rollout_event(org_id, channel_id, id);
+
+-- Preserve prior labels exactly while naming the newly available lifecycle
+-- actions in activity search and display. The down migration restores v150.
+ALTER FUNCTION activity_display_label(TEXT, TEXT, TEXT, JSONB, TEXT)
+    RENAME TO activity_display_label_v150;
+
+CREATE OR REPLACE FUNCTION activity_display_label(
+    event_type TEXT,
+    scope_type TEXT,
+    scope_label TEXT,
+    metadata JSONB,
+    description TEXT
+) RETURNS TEXT
+LANGUAGE SQL
+IMMUTABLE
+PARALLEL SAFE
+AS $$
+SELECT CASE
+    WHEN event_type IN ('rollout_advanced', 'rollout_devices_skipped',
+                        'rollout_device_failed', 'rollout_controller_timed_out')
+        THEN CONCAT(
+            CASE event_type
+                WHEN 'rollout_advanced'             THEN 'Advanced firmware update'
+                WHEN 'rollout_devices_skipped'      THEN 'Skipped firmware update targets'
+                WHEN 'rollout_device_failed'        THEN 'Firmware update target failed'
+                WHEN 'rollout_controller_timed_out' THEN 'Firmware update controller timed out'
+            END,
+            COALESCE(
+                ': ' || NULLIF(CONCAT_WS(' ',
+                    metadata->>'channel_name',
+                    metadata->>'manufacturer',
+                    metadata->>'model',
+                    CASE WHEN metadata->>'firmware_version' IS NOT NULL
+                         THEN '→ ' || (metadata->>'firmware_version') END
+                ), ''),
+                ''
+            )
+        )
+    ELSE activity_display_label_v150(event_type, scope_type, scope_label, metadata, description)
+END
+$$;
+
+-- fleet-migration: 000158_container_equipment.down.sql
+DROP TABLE container_setpoint_observation;
+DROP TABLE container_control_observation;
+DROP TABLE container_controls_observation;
+DROP TABLE container_fan_observation;
+
+-- fleet-migration: 000158_container_equipment.up.sql
+-- Latest observations only; equipment belongs to its paired controller.
+CREATE TABLE container_fan_observation (
+ device_id bigint NOT NULL REFERENCES device(id) ON DELETE CASCADE,
+ component_id text NOT NULL,
+ observed_at timestamptz NOT NULL,
+ speed_percent double precision CHECK (speed_percent BETWEEN 0 AND 100),
+ power_w double precision CHECK (power_w >= 0 AND power_w < 'Infinity'::double precision),
+ direction text,
+ alarm_active boolean,
+ PRIMARY KEY (device_id, component_id)
+);
+CREATE TABLE container_controls_observation (
+ device_id bigint PRIMARY KEY REFERENCES device(id) ON DELETE CASCADE,
+ observed_at timestamptz NOT NULL,
+ supported boolean,
+ main_circuit_breaker_supported boolean,
+ main_circuit_breaker_closed boolean,
+ alarm_reset_supported boolean,
+ alarm_mute_supported boolean,
+ dry_cooler_fan_reverse_supported boolean
+);
+CREATE TABLE container_control_observation (
+ device_id bigint NOT NULL REFERENCES container_controls_observation(device_id) ON DELETE CASCADE,
+ name text NOT NULL,
+ enabled boolean,
+ PRIMARY KEY (device_id, name)
+);
+CREATE TABLE container_setpoint_observation (
+ device_id bigint NOT NULL REFERENCES container_controls_observation(device_id) ON DELETE CASCADE,
+ name text NOT NULL,
+ value double precision,
+ unit text NOT NULL,
+ PRIMARY KEY (device_id, name)
+);
+
+-- fleet-migration: 000159_container_module_issues.down.sql
+ALTER TABLE container_module DROP COLUMN issues, DROP COLUMN issues_observed_at, DROP COLUMN issues_source_times;
+
+-- fleet-migration: 000159_container_module_issues.up.sql
+-- Current evidence only. Retain the source watermark when evidence disappears.
+ALTER TABLE container_module ADD COLUMN issues jsonb,
+ ADD COLUMN issues_observed_at timestamptz,
+ ADD COLUMN issues_source_times jsonb NOT NULL DEFAULT '{}'::jsonb;

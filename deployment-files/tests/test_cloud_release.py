@@ -59,6 +59,11 @@ class CompatibilityTests(unittest.TestCase):
             self.assertEqual(with_legacy["schema_version"], 1)
             self.assertNotEqual(with_legacy, changed)
             legacy.unlink()
+            archive = migrations.parent / "legacy_internal.fixture"
+            archive.write_text("archived migration SQL\n")
+            self.assertEqual(cloud.metadata(root)["schema_version"], 1)
+            self.assertNotEqual(cloud.metadata(root), changed)
+            archive.unlink()
             assertion = (
                 root / "server/internal/infrastructure/db/baseline/assertions.json"
             )

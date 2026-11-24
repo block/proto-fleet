@@ -1,8 +1,9 @@
 # Database migrations
 
 Use golang-migrate and the existing `schema_migrations(version, dirty)` row.
-Shared and private SQL use one sequence: shared baseline 1000, private baseline
-1001, then ordinary migrations. Baselines run only on empty databases.
+New installations start at shared baseline 1000 and apply consolidation
+migration 1115. The consolidation contains the SQL from the former internal
+sequence. Migrations after 1115 use the shared sequence.
 
 The unmerged CT1 mining-group branch used versions 1076–1079 before it
 integrated the main migration sequence through 1081. Its guards, confirmed
@@ -18,6 +19,33 @@ used the former 1085–1086 fixup migrations. Do not force a version or replay
 the new sequence against it.
 
 ## Existing databases
+
+### Repository consolidation (1115)
+
+Stop application and scheduled database writers. Take a coordinated backup of
+the database and the current release. Run the target release's
+`fleet-db-transition migrate`. Check for the clean release checkpoint with
+`fleet-db-transition check --state=target` before you start the application.
+
+- Fresh databases apply baseline 1000 first. A database at public checkpoint
+  1000 must pass the public baseline catalog and grant checks.
+- A database at a clean internal checkpoint from 1001 through 1114 runs only
+  the later steps. Migration 1115 records completion after the last step.
+- Older databases still use the [baseline reconciliation](#baseline-reconciliation)
+  procedure before they run the current sequence.
+
+For an existing standalone installation, the installer runs
+`fleet-db-transition check --state=startup` before it replaces the services.
+If a public database is still at checkpoint 1000 when the new Fleet API starts,
+the API applies the archived steps through 1115 during startup. Use the backup
+and maintenance procedure above before you replace the release. The installer
+waits for the Fleet API to become ready. If a rehearsal requires a longer wait,
+set `FLEET_API_READY_ATTEMPTS` when you run `run-fleet.sh`.
+
+The consolidation stores the original SQL in order and keeps the original
+transaction boundaries. A failed step preserves the last clean checkpoint.
+Retry after you correct the failure. Restore the coordinated database and
+application backup if you must roll back.
 
 ### Reporting feature databases
 
@@ -299,8 +327,8 @@ lock. A failure before commit rolls back the transaction; repeating it against
 a validated completed target is a no-op.
 
 Reconciliation requires application and scheduled database writers to be stopped.
-Unknown or dirty schemas and internal-to-public switches are refused. Application
-rollback does not reverse committed database changes.
+Baseline reconciliation refuses unknown or dirty schemas. A switch to an
+earlier public release requires the matching application and database backup.
 
 ## Hosted write-fence upgrade
 
@@ -503,39 +531,42 @@ plan for collection-bound batch filtering.
 
 ## Author and promote
 
-1. Allocate numbers from internal main with
-   `cd server && just db-migration-new shared_<name>` or
-   `just db-migration-new internal_<name>`. Both create up/down files in
-   `server/migrations/current/`.
-   The command also updates `server/migrations/LATEST`, a single line containing
-   the highest migration's full name without `.up.sql` or `.down.sql`. Commit it
-   with the pair. Branches that add different migration names change the same line.
-   Git reports a merge conflict even if those branches chose the same number.
-   To resolve the conflict, give the unmerged, undeployed pair a number higher
-   than the highest on current main, then update `LATEST` to match.
-   Never renumber merged or deployed SQL.
-   Migration hygiene rejects missing or stale markers, duplicate versions and
-   mismatched up/down pairs. The marker is developer metadata; the database
-   runner does not read it.
-2. Each private up file declares its required earlier shared version:
-   `-- requires-shared: 1000`.
-3. Add new migrations only to the internal repository. Public migration history
-   is frozen until repository consolidation. Preserve the frozen public SQL unchanged.
-4. Never edit, delete or renumber merged/released SQL. Correct it with a new pair.
-   Retain legacy SQL and the migration-143 bridge as historical fixtures and
-   evidence for explicit upgrade waypoints. Current startup reads only
-   `server/migrations/current/`; it does not invoke the legacy bridge. See the
-   [migration-143 recovery procedure](../solutions/database-issues/dirty-migration-143-legacy-curtailment-upgrade-2026-08-25.md)
-   for the verified public-release waypoint and its lineage restrictions.
+1. Run `cd server && just db-migration-new shared_<name>`. This command adds
+   the up/down pair to `server/migrations/current/` and updates
+   `server/migrations/LATEST`. Commit the pair and marker.
+2. If two open PRs allocate the same number, resolve the conflict in the
+   marker. Give the unmerged, undeployed pair a number greater than the highest
+   version on main.
+3. Preserve the files from merged or released migrations. Use a new pair for
+   corrections. Keep the SQL and section markers in migration 1115 and the
+   legacy fixture intact. The migration runner uses the original sections to
+   resume upgrades.
+
+Consolidation 1115 restores the public filenames for the four legacy pairs
+that had different numbers in the two repositories.
+The internal fixture keeps the original internal filenames and SQL.
+
+| Migration | Internal number | Public number |
+| --- | --- | --- |
+| Rollout activity labels | `000151` | `000150` |
+| Curtailment rig configuration targets | `000155` | `000151` |
+| Queue pending created index | `000156` | `000152` |
+| Delegated rollout events | `000157` | `000153` |
+
+Current startup uses the ordered source under `server/migrations/current/`.
+The legacy SQL and the migration-143 bridge are available for explicit upgrade
+waypoints. See the [migration-143 recovery procedure](../solutions/database-issues/dirty-migration-143-legacy-curtailment-upgrade-2026-08-25.md)
+for the verified public-release waypoint and its lineage restrictions.
 
 ### Transactions and large-table indexes
 
 Every current migration file executes inside an explicit PostgreSQL transaction
 owned by `checkpointDriver` in
-`server/internal/infrastructure/db/database_connection.go`. Internal migrations
-commit at private checkpoints; an earlier shared file and its following private
-checkpoint can share that transaction. Locks acquired by a shared file remain
-held until that checkpoint commits. A failure rolls back the uncommitted SQL.
+`server/internal/infrastructure/db/database_connection.go`. Inside migration
+1115, the historical internal sequence retains its private checkpoints.
+A historical shared step and its following private checkpoint can use the
+same transaction. Locks remain held until that checkpoint commits. A failure
+rolls back the uncommitted SQL.
 
 `CREATE INDEX CONCURRENTLY` and `DROP INDEX CONCURRENTLY` cannot execute inside
 these transactions, so they are unavailable through the current migration runner,
@@ -650,38 +681,24 @@ migrations; any intentional rename of a deployed object needs a new migration.
 
 ## Release checkpoints
 
-Every internal release ends at a private number. After a shared-only change, add
-an ordinary private `SELECT 1;` migration with its shared prerequisite. Public
-releases contain only shared files.
-
-Migration SQL and its completed private checkpoint commit in one transaction.
-Interruption or failure rolls back to the previous checkpoint; retrying runs the
-uncommitted SQL again. A lost commit acknowledgement requires a fresh connection
-to establish which checkpoint committed. Previously dirty databases remain blocked.
-Migration files must not contain transaction-control statements such as `BEGIN`
-or `COMMIT`. Startup accepts only clean versions in the application's history:
-private for internal, shared for public. Unknown, dirty, future and wrong-application
-versions refuse. Never force a version or clear dirty state to switch repositories;
-updates and rollback never automatically run down migrations.
-
-Checkpoints identify completed migration history, not application compatibility
-or manual schema drift. Keep checksum, runtime, HA, health and restored-data
-checks. Exact catalog assertions cover baseline adoption only; subsequent
-releases need no catalog snapshots.
+Each release from 1115 onward ends at a shared checkpoint. The SQL and its
+completed checkpoint commit in the same transaction. If the connection drops
+during commit, reconnect and inspect the checkpoint before you retry. Startup
+refuses unknown, dirty, or future versions. Keep checksum, runtime, HA, health,
+and restored-data checks as part of release qualification.
 
 ## CI
 
-CI checks paired files, unique/increasing numbers, immutable history, private
-prerequisites and private release tips. Internal CI checks that public shared SQL
-is a byte-identical prefix; public CI needs no private credentials.
+CI checks paired files, unique numbers, immutable history, and the latest
+marker. For consolidation, it verifies that the archive preserves the original
+SQL bytes and that the public migration files match the public branch.
 
 ```sh
 python3 scripts/check-migration-history_test.py
 python3 scripts/check-migration-history.py --base-ref origin/main
 ```
 
-Use `--public-ref <fetched-public-commit>` to compare against the frozen public
-migration history.
+Use `--public-ref <fetched-public-commit>` to check against the public branch.
 
 ## Hosted reporting evidence (1055, 1077)
 

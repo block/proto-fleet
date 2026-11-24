@@ -1,1 +1,0 @@
-DROP INDEX idx_device_telemetry_site_lookup;

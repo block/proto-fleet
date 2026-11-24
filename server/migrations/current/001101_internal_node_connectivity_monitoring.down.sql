@@ -1,2 +1,0 @@
-DROP VIEW fleet_node_connectivity_summary;
-DROP TABLE fleet_node_monitoring_exclusion;
