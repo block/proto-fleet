@@ -1,2 +1,0 @@
-DROP FUNCTION release_channel_controller_software_key(text);
-DROP TABLE release_channel_controller_software;

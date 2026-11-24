@@ -149,16 +149,13 @@ func ConnectAndMigrateObserved(config *Config, observe func(context.Context, err
 	return connection, nil
 }
 
-// migrationCheckpoints derives provenance from the immutable migration filenames,
-// not a second schema-version history. Public releases end at a shared version;
-// internal releases must end at a private version (a no-op checkpoint is enough).
 func migrationCheckpoints(files fs.FS) (map[int]bool, int, error) {
 	paths, err := fs.Glob(files, "current/*.up.sql")
 	if err != nil || len(paths) == 0 {
 		return nil, 0, fmt.Errorf("current migration source is missing: %v", err)
 	}
 	checkpoints := make(map[int]bool, len(paths))
-	latest, internal := 0, false
+	latest, internal, consolidated := 0, false, false
 	for _, path := range paths {
 		parts := strings.SplitN(strings.TrimPrefix(path, "current/"), "_", 3)
 		version, err := strconv.Atoi(parts[0])
@@ -168,15 +165,16 @@ func migrationCheckpoints(files fs.FS) (map[int]bool, int, error) {
 		if _, duplicate := checkpoints[version]; duplicate {
 			return nil, 0, fmt.Errorf("duplicate current migration: %d", version)
 		}
+		consolidated = consolidated || path == migrations.ConsolidationUpPath
 		private := parts[1] == "internal"
 		checkpoints[version], internal = private, internal || private
 		latest = max(latest, version)
 	}
-	if internal && !checkpoints[latest] {
+	if internal && !consolidated && !checkpoints[latest] {
 		return nil, 0, fmt.Errorf("internal releases must end at a private checkpoint")
 	}
-	if !internal {
-		for version := range checkpoints {
+	for version := range checkpoints {
+		if !internal || (consolidated && (version == 1000 || version >= migrations.ConsolidationVersion)) {
 			checkpoints[version] = true
 		}
 	}

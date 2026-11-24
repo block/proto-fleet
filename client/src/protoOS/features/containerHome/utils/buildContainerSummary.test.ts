@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { buildContainerLive } from "./buildContainerHome";
-import { buildIssueSummary, buildModuleGrid, buildSummaryKpis } from "./buildContainerSummary";
+import { buildIssueSummary, buildModuleGrid } from "./buildContainerSummary";
+import { moduleFixture } from "@/protoOS/api/adapters/mdkV2/moduleFixtures";
 import { toCanonicalContainer } from "@/protoOS/api/adapters/mdkV2/normalize";
 import type {
   ComponentId,
@@ -48,19 +48,63 @@ describe("container summary", () => {
     });
   });
 
-  it("compares hashrate with ideal only when both are reported", () => {
-    const live = {
-      hashrate: 97,
-      idealHashrate: 100,
-      power: 2_000,
-      efficiency: 20.6,
-      moduleEfficiency: null,
-      rollup: { boardCount: 4, onlineBoardCount: 3 },
-    } as ReturnType<typeof buildContainerLive>;
-    const kpis = buildSummaryKpis(live);
-    expect(kpis[0]).toMatchObject({ text: "97.0% of 100.0 TH/s ideal", chartPercentage: 97 });
-    expect(kpis[3]).toMatchObject({ value: "3 / 4", text: "1 inactive" });
-    expect(buildSummaryKpis({ ...live, idealHashrate: null })[0].text).toBeUndefined();
+  it("uses reported tank and module positions without closing gaps", () => {
+    const { hardware, telemetry } = toCanonicalContainer(
+      {
+        containerMap: {
+          tanks: [1, 3, 6].map((id) => ({
+            id,
+            modules: [1, 2, 3, 9, 16].map((slot) => ({
+              id: slot,
+              slots: [{ hashboard: { serial: `HB-${id}-${slot}` } }],
+            })),
+          })),
+        },
+      },
+      {},
+      {},
+      "ct1",
+    );
+    const grid = buildModuleGrid(hardware, telemetry, [], "/miners/ct1");
+    expect(grid?.tanks.map((tank) => tank.slot)).toEqual([1, 3, 6]);
+    expect(grid?.tanks[0]).toMatchObject({ columns: 8, rows: 2 });
+    expect(grid?.tanks[0].modules.map((module) => ({ label: module.label, position: module.position }))).toEqual([
+      { label: "01", position: { row: 2, column: 1 } },
+      { label: "02", position: { row: 1, column: 1 } },
+      { label: "03", position: { row: 2, column: 2 } },
+      { label: "09", position: { row: 2, column: 5 } },
+      { label: "16", position: { row: 1, column: 8 } },
+    ]);
+    expect(grid?.tanks[0].modules[0].boards).toHaveLength(3);
+  });
+
+  it("does not expose isolation as an overview state", () => {
+    const { hardware, telemetry } = toCanonicalContainer(
+      {
+        containerMap: {
+          tanks: [
+            {
+              id: 1,
+              modules: [
+                {
+                  id: 1,
+                  slots: [1, 2, 3].map((slot) => ({
+                    hashboard: { serial: `HB-${slot}`, isolated: true },
+                  })),
+                },
+              ],
+            },
+          ],
+        },
+      },
+      {},
+      {},
+      "ct1",
+    );
+    const grid = buildModuleGrid(hardware, telemetry, [], "");
+    expect(grid?.tanks[0].modules[0].state).toBe("unknown");
+    expect(grid?.tanks[0].modules[0].boards).toEqual(["unknown", "unknown", "unknown"]);
+    expect(grid?.counts).not.toHaveProperty("isolated");
   });
 
   it("keeps a sleeping tank as sleeping when another tank is mining", () => {
@@ -91,5 +135,199 @@ describe("container summary", () => {
     // A PSU sample that is too old no longer supports a healthy module.
     const stale = buildModuleGrid(hardware, telemetry, [], "/miners/ct1", 121_000);
     expect(stale?.tanks[1].modules[0].state).toBe("unknown");
+  });
+});
+
+it("keeps unmapped positions blank but omitted positions unknown", () => {
+  const { hardware, telemetry } = toCanonicalContainer(
+    {
+      containerMap: {
+        tanks: [
+          {
+            id: 1,
+            modules: [
+              {
+                id: 1,
+                slots: [
+                  {
+                    occupied: true,
+                    hashboard: {
+                      serial: "HB1",
+                      location: { hashboardPosition: 1 },
+                    },
+                  },
+                  { occupied: false, configuredLocation: { hashboardPosition: 2 } },
+                ],
+              },
+              {
+                id: 2,
+                slots: [1, 2, 3].map((hashboardPosition) => ({
+                  occupied: false,
+                  configuredLocation: { hashboardPosition },
+                })),
+              },
+              { id: 3, slots: [] },
+            ],
+          },
+        ],
+      },
+    },
+    {},
+    {},
+    "ct1",
+  );
+  const grid = buildModuleGrid(hardware, telemetry, [], "");
+  expect(grid?.tanks[0].modules.map((module) => module.boards)).toEqual([
+    ["unknown", "empty", "unknown"],
+    ["empty", "empty", "empty"],
+    ["unknown", "unknown", "unknown"],
+  ]);
+  expect(Object.values(grid!.counts).reduce((sum, count) => sum + count, 0)).toBe(2);
+});
+
+it.each([
+  ["stopped", false, "sleeping", "attention"],
+  ["unknown", true, "offline", "offline"],
+  ["mining", false, "attention", "attention"],
+] as const)("uses pill priority for %s with board errors", (miningStatus, disconnected, state, boardState) => {
+  const { hardware, telemetry } = toCanonicalContainer(
+    {
+      containerMap: {
+        tanks: [
+          {
+            id: 1,
+            modules: [
+              {
+                id: 1,
+                slots: [1, 2, 3].map((position) => ({
+                  occupied: true,
+                  hashboard: {
+                    serial: `HB${position}`,
+                    location: { hashboardPosition: position },
+                  },
+                })),
+              },
+            ],
+          },
+        ],
+      },
+    },
+    {},
+    {},
+    "ct1",
+  );
+  [...telemetry.hashboards.values()].forEach((board, index) => {
+    board.miningStatus = miningStatus;
+    board.disconnected = disconnected;
+    board.faultSeverity = index === 2 ? "critical" : null;
+  });
+  const cell = buildModuleGrid(hardware, telemetry, [], "")?.tanks[0].modules[0];
+  expect(cell?.state).toBe(state);
+  expect(cell?.boards[2]).toBe(boardState);
+});
+
+it("uses board fault severity instead of overall health for board colors", () => {
+  const { hardware, telemetry } = toCanonicalContainer(
+    {
+      containerMap: {
+        tanks: [
+          {
+            id: 1,
+            modules: [
+              {
+                id: 1,
+                slots: [1, 2, 3].map((position) => ({
+                  occupied: true,
+                  hashboard: {
+                    serial: `HB${position}`,
+                    location: { hashboardPosition: position },
+                  },
+                })),
+              },
+            ],
+          },
+        ],
+      },
+    },
+    {},
+    {},
+    "ct1",
+  );
+  [...telemetry.hashboards.values()].forEach((board, index) => {
+    board.miningStatus = "mining";
+    board.health = index === 0 ? "fault" : "ok";
+    board.faultSeverity = index === 1 ? "warning" : null;
+  });
+  expect(buildModuleGrid(hardware, telemetry, [], "")?.tanks[0].modules[0]).toMatchObject({
+    state: "attention",
+    boards: ["healthy", "warning", "healthy"],
+    attentionSeverity: "warning",
+  });
+});
+
+it("does not mark a fully accounted-for partial module unknown", () => {
+  const { hardware, telemetry } = toCanonicalContainer(
+    {
+      containerMap: {
+        tanks: [
+          {
+            id: 1,
+            modules: [
+              {
+                id: 1,
+                slots: [
+                  { hashboard: { serial: "HB1", location: { hashboardPosition: 1 } } },
+                  { hashboard: { serial: "HB2", location: { hashboardPosition: 2 } } },
+                  { occupied: false, configuredLocation: { hashboardPosition: 3 } },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    },
+    {},
+    {},
+    "ct1",
+  );
+  if (hardware.topology?.kind !== "container") throw new Error("container topology expected");
+  const module = [...hardware.topology.modules.values()][0];
+  const psu = "psu" as ComponentId;
+  module.psuIds = [psu];
+  telemetry.psus.set(psu, { componentId: psu, health: "ok", observedAt: { thermalState: 0 } });
+  for (const board of telemetry.hashboards.values()) board.miningStatus = "mining";
+  expect(buildModuleGrid(hardware, telemetry, [], "", 1_000)?.tanks[0].modules[0]).toMatchObject({
+    state: "healthy",
+    boards: ["healthy", "healthy", "empty"],
+  });
+});
+
+it.each([
+  ["psu", "critical"],
+  ["psu", "warning"],
+  ["module", "critical"],
+  ["module", "warning"],
+] as const)("shows %s %s faults on the module without coloring healthy boards", (source, severity) => {
+  const { hardware, telemetry } = moduleFixture();
+  const topology = hardware.topology;
+  if (topology?.kind !== "container") throw new Error("expected container");
+  const module = [...topology.modules.values()][0];
+  const errors: MinerError[] = [];
+  if (source === "psu") {
+    telemetry.psus.get(module.psuIds[0])!.health = severity === "critical" ? "fault" : "degraded";
+  } else {
+    errors.push({
+      id: "module-fault",
+      code: "module-fault",
+      message: "Module fault",
+      owner: { kind: "module", id: module.id },
+      severity,
+    });
+  }
+  const grid = buildModuleGrid(hardware, telemetry, errors, "");
+  expect(grid?.tanks[0].modules.find((item) => item.id === module.id)).toMatchObject({
+    state: "attention",
+    attentionSeverity: severity,
+    boards: ["healthy", "healthy", "healthy"],
   });
 });

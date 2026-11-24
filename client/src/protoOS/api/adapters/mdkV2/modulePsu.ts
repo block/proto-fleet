@@ -7,12 +7,7 @@ import {
   type PsuHardware,
   type PsuTelemetry,
 } from "@/protoOS/store/contract";
-import { psuReadingStatus } from "@/protoOS/store/utils/psuFreshness";
-
-const sampleTime = (timestamp: string | undefined, age = 0) => {
-  const at = Date.parse(timestamp ?? "");
-  return Number.isFinite(at) && at <= Date.now() + 5_000 && Number.isFinite(age) && age >= 0 ? at - age : undefined;
-};
+import { observationTime, readingStatus } from "@/protoOS/store/utils/readingFreshness";
 
 const freshest = <T>(values: { value: T; at: number | undefined }[]) =>
   values.reduce<(typeof values)[number] | undefined>(
@@ -30,7 +25,7 @@ export const normalizeModulePsu = (moduleId: ModuleId, boards: V2Hashboard[]) =>
   const electrical = freshest(
     boards.flatMap(({ health }) =>
       health?.psuElectrical
-        ? [{ value: health.psuElectrical, at: sampleTime(health.timestamp, health.psuElectrical.sampleAgeMs) }]
+        ? [{ value: health.psuElectrical, at: observationTime(health.timestamp, health.psuElectrical.sampleAgeMs) }]
         : [],
     ),
   );
@@ -38,10 +33,10 @@ export const normalizeModulePsu = (moduleId: ModuleId, boards: V2Hashboard[]) =>
     health?.psuThermal ? [{ value: health.psuThermal, timestamp: health.timestamp }] : [],
   );
   const temperatures = freshest(
-    thermal.map(({ value, timestamp }) => ({ value, at: sampleTime(timestamp, value.temperaturesAgeMs) })),
+    thermal.map(({ value, timestamp }) => ({ value, at: observationTime(timestamp, value.temperaturesAgeMs) })),
   );
   const state = freshest(
-    thermal.map(({ value, timestamp }) => ({ value, at: sampleTime(timestamp, value.thermalStateAgeMs) })),
+    thermal.map(({ value, timestamp }) => ({ value, at: observationTime(timestamp, value.thermalStateAgeMs) })),
   );
   const hasReportedFault = boards.some(({ health }) =>
     [...(health?.errors ?? []), ...(health?.warnings ?? [])].some((issue) => isPsuFaultCause(issue.cause)),
@@ -63,7 +58,7 @@ export const normalizeModulePsu = (moduleId: ModuleId, boards: V2Hashboard[]) =>
     temperatures?.value.srHeatsinkTemperature,
     temperatures?.value.pfcHeatsinkTemperature,
   ].filter((value): value is number => value !== undefined && Number.isFinite(value));
-  const stateValid = state?.value.thermalStateValid === true && psuReadingStatus(state.at) === "current";
+  const stateValid = state?.value.thermalStateValid === true && readingStatus(state.at) === "current";
   const telemetry: PsuTelemetry = {
     componentId: id,
     observedAt: {

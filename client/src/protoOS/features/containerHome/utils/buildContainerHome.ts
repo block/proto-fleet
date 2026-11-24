@@ -1,4 +1,4 @@
-import type { CategorySummary, HomeReading, HomeSeries, LocationReading } from "../types";
+import type { HomeReading, HomeSeries, LocationReading } from "../types";
 import {
   asEntityKey,
   type HardwareState,
@@ -57,11 +57,8 @@ export function buildContainerLive(hardware: HardwareState, telemetry: Telemetry
     topology?.kind === "container"
       ? [...topology.modules.keys()].map((id) => telemetry.rollupsByEntity.get(asEntityKey(id)))
       : [];
-  // Match the Modules page: shared PSU input power and average board-sensor
-  // temperature, giving each module equal weight in the live summary.
+  // Match the Modules page: shared PSU input power, counted once per module.
   const modulePower = summarizeModules(modules.map((module) => latest(module?.power)));
-  const moduleTemperature = summarizeModules(modules.map((module) => latest(module?.temperature)));
-  const pdus = [...hardware.plant.values()].filter((component) => component.kind === "distribution");
   const reading = (id: string, label: string, value: number | null, units: string): HomeReading => ({
     id,
     label,
@@ -78,13 +75,12 @@ export function buildContainerLive(hardware: HardwareState, telemetry: Telemetry
   const temp = (id: string, label: string, value: number | null) =>
     reading(id, label, temperatureValue(value, unit), `°${unit}`);
   const temperatureReadings: HomeReading[] = [
-    temp("inside", "Ambient temp", latest(plant?.insideAmbientTemperature)),
-    temp("outside", "Outdoor temp", latest(plant?.outsideAmbientTemperature)),
-    temp("fluid", "Fluid temp", latest(plant?.inletTemperature)),
-    ...(["high", "low", "average"] as const).map((stat) =>
-      temp(`module-${stat}`, `Module ${stat}`, moduleTemperature[stat]),
-    ),
-    ...pdus.map((component) => temp(component.ref.id, component.name, null)),
+    temp("inside", "Ambient inside", latest(plant?.insideAmbientTemperature)),
+    temp("outside", "Ambient outside", latest(plant?.outsideAmbientTemperature)),
+    temp("fluid", "Fluid", latest(plant?.inletTemperature)),
+    temp("hashboard-high", "Hashboard high", latest(rollup?.maximumTemperature)),
+    temp("hashboard-low", "Hashboard low", latest(rollup?.minimumTemperature)),
+    temp("hashboard-average", "Hashboard avg", latest(rollup?.temperature)),
   ];
   const tanks =
     topology?.kind === "container"
@@ -229,12 +225,3 @@ export function sumHistory(series: (MetricTimeSeries | undefined)[]): MetricTime
   });
   return { units: "W", bucketSizeMs: sources[0].bucketSizeMs, points, aggregates: bucketAggregates(points, "W") };
 }
-
-export const categorySummaries = (fans?: HomeSeries): CategorySummary[] =>
-  ["Pumps", "Fans", "AC", "Aux"].map((label) => ({
-    id: label.toLowerCase(),
-    label,
-    high: label === "Fans" ? (fans?.high ?? "—") : "—",
-    low: label === "Fans" ? (fans?.low ?? "—") : "—",
-    average: label === "Fans" ? (fans?.average ?? "—") : "—",
-  }));

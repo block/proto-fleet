@@ -80,6 +80,7 @@ func (s *SQLDiscoveredDeviceStore) SaveDirect(ctx context.Context, doi discovery
 			FirstDiscovered: device.FirstDiscovered, LastSeen: device.LastSeen,
 			DiscoveredByFleetNodeID: device.DiscoveredByFleetNodeID,
 			DefaultPasswordActive:   device.DefaultPasswordActive,
+			TrustedIdentity:         device.TrustedIdentity,
 		}
 		proto.Merge(&candidate.Device, &device.Device)
 		candidate.Endpoints = endpoints
@@ -127,7 +128,7 @@ func (s *SQLDiscoveredDeviceStore) save(ctx context.Context, doi discoverymodels
 		DeviceIdentifier: doi.DeviceIdentifier,
 		Model:            sql.NullString{String: device.Model, Valid: len(device.Model) > 0},
 		Manufacturer:     sql.NullString{String: device.Manufacturer, Valid: len(device.Manufacturer) > 0},
-		FirmwareVersion:  sql.NullString{String: device.FirmwareVersion, Valid: len(device.FirmwareVersion) > 0},
+		FirmwareVersion:  emptyToNullString(sanitizeBoundedText(device.FirmwareVersion)),
 		IpAddress:        device.IpAddress,
 		Port:             device.Port,
 		UrlScheme:        device.UrlScheme,

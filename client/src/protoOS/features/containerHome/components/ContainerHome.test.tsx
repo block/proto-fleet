@@ -44,7 +44,7 @@ describe("container Home presentation", () => {
         mode="system"
         modes={[
           { id: "system", label: "System" },
-          { id: "hashboards", label: "Hashboards" },
+          { id: "fluid", label: "Fluid" },
         ]}
         onModeChange={onModeChange}
       />,
@@ -52,8 +52,8 @@ describe("container Home presentation", () => {
     expect(within(screen.getByRole("region", { name: "Live readings" })).getByText("0.0 kW")).toBeInTheDocument();
     expect(screen.getByText("—")).toBeInTheDocument();
     expect(screen.getByText("History unavailable for this selection.")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Hashboards" }));
-    expect(onModeChange).toHaveBeenCalledWith("hashboards");
+    fireEvent.click(screen.getByRole("button", { name: "Fluid" }));
+    expect(onModeChange).toHaveBeenCalledWith("fluid");
     expect(screen.getByRole("button", { name: "System" })).toHaveAttribute("aria-pressed", "true");
   });
 

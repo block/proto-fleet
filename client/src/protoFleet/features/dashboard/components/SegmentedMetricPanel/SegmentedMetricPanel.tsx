@@ -3,8 +3,8 @@ import { useMemo } from "react";
 import { DEFAULT_CHART_HEIGHT } from "./constants";
 import type { SegmentedMetricPanelProps } from "./types";
 import { durationToHours, getCurrentBreakdown, processMultiDayChartData } from "./utils";
-import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { StatusBreakdownPanel } from "@/protoFleet/features/dashboard/components/StatusBreakdownPanel";
+import ChartWidget from "@/shared/components/ChartWidget";
 import SegmentedBarChart from "@/shared/components/SegmentedBarChart";
 
 // Constants for bar chart display

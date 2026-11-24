@@ -1,9 +1,10 @@
 package timescaledb
 
 import (
-	"os"
 	"testing"
 	"time"
+
+	"github.com/block/proto-fleet/server/migrations"
 
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
@@ -45,7 +46,7 @@ func TestTopologyReferenceMigrationPreservesCompressedAndLatestPins(t *testing.T
 	require.Len(t, ids, 4)
 	for _, direction := range []string{"down", "up"} {
 		t.Run(direction, func(t *testing.T) {
-			migration, err := os.ReadFile("../../../migrations/current/001058_internal_bound_topology_reference_planning." + direction + ".sql")
+			migration, err := migrations.Current.ReadFile("current/001058_internal_bound_topology_reference_planning." + direction + ".sql")
 			require.NoError(t, err)
 			_, err = r.db.ExecContext(t.Context(), string(migration))
 			require.NoError(t, err)

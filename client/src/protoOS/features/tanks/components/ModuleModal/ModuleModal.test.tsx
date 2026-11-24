@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
@@ -16,14 +17,28 @@ vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({
 vi.mock("./ModulePowerFeed", () => ({
   default: ({ module }: { module: { id: string } }) => <div data-testid="module-power-feed">{module.id}</div>,
 }));
-// Stands in for the voltage section so the test controls when a write is in flight.
+// Keeps local state so navigating into a board must preserve the voltage result.
 vi.mock("./ModuleVoltageSection", () => ({
-  default: ({ onWritingChange }: { onWritingChange: (writing: boolean) => void }) => (
-    <>
-      <button onClick={() => onWritingChange(true)}>start write</button>
-      <button onClick={() => onWritingChange(false)}>finish write</button>
-    </>
-  ),
+  default: function VoltageSection({ onWritingChange }: { onWritingChange: (writing: boolean) => void }) {
+    const [outcome, setOutcome] = useState("");
+    return (
+      <>
+        <button onClick={() => onWritingChange(true)}>start write</button>
+        <button
+          onClick={() => {
+            onWritingChange(false);
+            setOutcome("Partial voltage apply");
+          }}
+        >
+          finish write
+        </button>
+        <p>{outcome}</p>
+      </>
+    );
+  },
+}));
+vi.mock("@/protoOS/features/diagnostic/components/HashboardTemperature/HashboardTemperatureWrapper", () => ({
+  default: ({ onClose }: { onClose: () => void }) => <button onClick={onClose}>Back to module</button>,
 }));
 
 beforeEach(() => {
@@ -122,7 +137,7 @@ test("uses the action bar to select the installed boards and open either pool ac
   poolAssignment.inspectWorkerNames.mockResolvedValue([]);
   render(
     <MemoryRouter>
-      <ModuleModal module={module} tank={tank} topology={topology} />
+      <ModuleModal module={module} tank={tank} topology={topology} keepHashboardsInModal />
     </MemoryRouter>,
   );
   expect(screen.queryByTestId("action-bar")).not.toBeInTheDocument();
@@ -156,8 +171,41 @@ test("uses the action bar to select the installed boards and open either pool ac
   await waitFor(() => expect(poolAssignment.inspectWorkerNames).toHaveBeenCalledWith(target, expect.anything()));
   const editor = await screen.findByRole("dialog", { name: "Update worker names" });
   fireEvent.click(within(editor).getByRole("button", { name: "Close update worker names" }));
+
+  const moduleDialog = screen.getByRole("dialog", { name: "Modules" });
+  fireEvent.click(within(moduleDialog).getAllByRole("button", { name: "View" })[0]);
+  const boardDialog = screen.getByRole("dialog", { name: "Hashboards" });
+  expect(moduleDialog).toHaveAttribute("inert");
+  expect(screen.queryByRole("button", { name: "Actions for selected hashboards" })).not.toBeInTheDocument();
+  fireEvent.click(within(boardDialog).getByRole("button", { name: "Back to module" }));
+  expect(bar.getByText("2 hashboards selected")).toBeInTheDocument();
+
   fireEvent.click(bar.getByRole("button", { name: "Select none" }));
   expect(screen.queryByTestId("action-bar")).not.toBeInTheDocument();
   expect(first).not.toBeChecked();
   expect(third).not.toBeChecked();
+});
+
+test("preserves the voltage outcome while a board dialog covers the module", () => {
+  const { hardware } = moduleFixture();
+  useMinerStore.getState().hardware.replaceHardware(hardware);
+  const topology = hardware.topology as ContainerTopology;
+  const tank = [...topology.tanks.values()][0];
+  const module = [...topology.modules.values()][0];
+  render(
+    <MemoryRouter>
+      <ModuleModal module={module} tank={tank} topology={topology} keepHashboardsInModal />
+    </MemoryRouter>,
+  );
+  const dialog = screen.getByRole("dialog", { name: "Modules" });
+  fireEvent.click(within(dialog).getByRole("button", { name: "finish write" }));
+  fireEvent.click(within(dialog).getAllByRole("button", { name: "View" })[0]);
+  expect(screen.getByRole("dialog", { name: "Hashboards" })).toBeInTheDocument();
+  expect(dialog).toBeInTheDocument();
+  expect(dialog).toHaveAttribute("inert");
+  expect(dialog).toHaveAttribute("aria-hidden", "true");
+  fireEvent.click(screen.getByRole("button", { name: "Back to module" }));
+  expect(screen.getByRole("dialog", { name: "Modules" })).toBe(dialog);
+  expect(dialog).not.toHaveAttribute("inert");
+  expect(within(dialog).getByText("Partial voltage apply")).toBeInTheDocument();
 });

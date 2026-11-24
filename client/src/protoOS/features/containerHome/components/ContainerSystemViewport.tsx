@@ -20,7 +20,7 @@ export default function ContainerSystemViewport({
   return (
     <section
       aria-label="Container cooling system schematic"
-      className={clsx("min-w-0 overflow-hidden rounded-3xl bg-surface-elevated-base shadow-100", className)}
+      className={clsx("min-w-0 overflow-hidden rounded-xl bg-surface-elevated-base shadow-100", className)}
     >
       <div className="flex flex-wrap items-center justify-end gap-3 px-4 pt-3">
         {actions ? <div className="mr-auto">{actions}</div> : null}

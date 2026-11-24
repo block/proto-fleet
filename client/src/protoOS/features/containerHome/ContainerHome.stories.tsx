@@ -2,16 +2,21 @@ import { useState } from "react";
 import ContainerHomeToolbar from "./components/ContainerHomeToolbar";
 import ContainerMetricView from "./components/ContainerMetricView";
 import ContainerOverviewView from "./components/ContainerOverviewView";
-import type { HomeChartMode, HomeHistory, HomeReading, HomeSeries, ModuleGrid } from "./types";
-import type { ModuleStatus } from "@/protoOS/features/tanks/tankView";
+import type { HomeChartMode, HomeHistory, HomeReading, HomeSeries, ModuleGrid, OverviewModuleStatus } from "./types";
 import type { Duration } from "@/shared/components/DurationSelector";
 
 const end = Date.parse("2026-09-15T12:00:00Z");
 const colors = ["#ff7626", "#783bf0", "#258fbf", "var(--color-core-primary-fill)", "#ff3344"];
-const series: HomeSeries[] = ["Hashboards", "Pumps", "Fans", "AC", "Aux"].map((label, index) => ({
+const series: HomeSeries[] = [
+  { label: "Hashboard avg", color: colors[0] },
+  { label: "Fluid inlet", color: colors[2] },
+  { label: "Fluid outlet", color: colors[4] },
+  { label: "Ambient outdoor", color: colors[3] },
+  { label: "Ambient indoor", color: colors[1] },
+].map(({ label, color }, index) => ({
   id: label.toLowerCase(),
   label,
-  color: colors[index],
+  color,
   latest: `${12 + index}.0 kW`,
   points: Array.from({ length: 145 }, (_, point) => ({
     datetime: end - (144 - point) * 300_000,
@@ -71,27 +76,16 @@ interface StoryDataOptions {
 }
 
 const temperatureReadings: HomeReading[] = [
-  "Ambient temp",
-  "Outdoor temp",
-  "Fluid temp",
-  "Module high",
-  "Module low",
-  "Module average",
+  "Ambient inside",
+  "Ambient outside",
+  "Fluid",
+  "Hashboard high",
+  "Hashboard low",
+  "Hashboard avg",
 ].map((label) => ({ id: label, label, value: "65.5 °C" }));
 const temperatureLocations = locations.map((item) => ({
   ...item,
   value: item.amount === null ? "—" : "65.5 °C",
-}));
-
-const bandSeries = Array.from({ length: 10 }, (_, index) => ({
-  ...series[0],
-  id: `band-${index}`,
-  label: `${91 - index * 10}–${100 - index * 10}%`,
-  color: colors[index % colors.length],
-  points: series[0].points.map((point) => ({
-    ...point,
-    value: point.value === null ? null : point.value + index * 3,
-  })),
 }));
 
 function buildStoryReadings({ empty, zero, temperature }: StoryDataOptions): HomeReading[] {
@@ -109,13 +103,11 @@ function buildStorySeries({
   empty,
   zero,
   temperature,
-  mode,
   partial,
-}: StoryDataOptions & { mode: HomeChartMode; partial: boolean }): HomeSeries[] {
+}: StoryDataOptions & { partial: boolean }): HomeSeries[] {
   if (empty) return [];
   let source = temperature ? series : powerSeries;
-  if (temperature && mode === "hashboards") source = bandSeries;
-  else if (partial)
+  if (partial)
     source = source.map((item) =>
       item.label === "Fans"
         ? { ...item, latest: "—", points: item.points.map((point) => ({ ...point, value: null })) }
@@ -130,13 +122,6 @@ function buildStorySeries({
     }));
   if (temperature) return source.map((item) => ({ ...item, latest: "65.5 °C" }));
   return source;
-}
-
-function storyStatistics(item: HomeSeries, { empty, zero, temperature }: StoryDataOptions) {
-  if (empty) return { high: "—", low: "—", average: "—" };
-  if (zero) return { high: "0.0 kW", low: "0.0 kW", average: "0.0 kW" };
-  if (temperature) return { high: "68.0 °C", low: "60.0 °C", average: "65.5 °C" };
-  return { high: item.high!, low: item.low!, average: item.average! };
 }
 
 function MetricStory({
@@ -160,7 +145,6 @@ function MetricStory({
   const [duration, setDuration] = useState<Duration>("12h");
   const modes = [
     { id: "system" as const, label: "System" },
-    { id: "hashboards" as const, label: "Hashboards" },
     ...(temperature ? [{ id: "fluid" as const, label: "Fluid" }] : []),
   ];
   const dataOptions = { empty, zero, temperature };
@@ -183,19 +167,12 @@ function MetricStory({
         locations={temperature ? temperatureLocations : locations}
         history={{
           ...history,
-          series: buildStorySeries({ ...dataOptions, mode, partial }),
+          series: buildStorySeries({ ...dataOptions, partial }),
           units: temperature ? "°C" : "kW",
           stacked: false,
           loading,
           error: error ? "Could not refresh history. Displayed history may be out of date." : undefined,
         }}
-        categories={(temperature ? series.slice(1) : powerSeries.filter((item) => item.label === "Fans")).map(
-          (item) => ({
-            id: item.id,
-            label: item.label,
-            ...storyStatistics(item, { ...dataOptions, empty: empty || partial }),
-          }),
-        )}
       />
     </div>
   );
@@ -205,33 +182,43 @@ export const Power = () => <MetricStory />;
 export const PartialTelemetry = () => <MetricStory partial />;
 export const UnavailableTelemetry = () => <MetricStory empty />;
 export const TemperatureModes = () => <MetricStory temperature />;
-// Illustrative band data only: live band membership/statistics require a definition.
-export const TemperatureHashboards = () => <MetricStory temperature initialMode="hashboards" />;
 export const TemperatureFluid = () => <MetricStory temperature initialMode="fluid" />;
 export const Loading = () => <MetricStory empty loading />;
 export const StaleHistory = () => <MetricStory error />;
 export const ZeroPower = () => <MetricStory zero />;
 
-const overviewChart = (id: string, label: string, units: string, source: HomeSeries) => ({
-  id,
-  label,
-  to: `/${id}`,
-  low: source.low ?? "—",
-  high: source.high ?? "—",
-  history: { ...history, stacked: false, units, series: [{ ...source, id, label }] },
-});
-const moduleStates = (tank: number, module: number): ModuleStatus =>
+const overviewChart = (id: string, label: string, units: string, value: number) => {
+  const source: HomeSeries = {
+    id,
+    label,
+    color: "var(--color-core-accent-fill)",
+    latest: `${value.toFixed(1)} ${units}`,
+    high: `${(value + 1).toFixed(1)} ${units}`,
+    low: `${(value - 1).toFixed(1)} ${units}`,
+    points: series[0].points.map((point, index) => ({ ...point, value: value + Math.sin(index / 10) })),
+  };
+  return {
+    id,
+    label,
+    stats: { label, value: source.latest, preformatted: true, valueSuffix: `Max ${source.high} · Min ${source.low}` },
+    history: { ...history, stacked: false, units, series: [source] },
+  };
+};
+const moduleStates = (tank: number, module: number): OverviewModuleStatus =>
   tank === 1 && module % 2 === 0 ? "sleeping" : tank === 2 && module === 3 ? "attention" : "healthy";
 const overviewGrid: ModuleGrid = {
-  columns: 16,
-  tanks: [1, 2, 3, 4].map((tank) => ({
+  tanks: [1, 2, 3, 4, 5, 6].map((tank) => ({
     id: `tank-${tank}`,
     label: `Tank ${tank}`,
+    slot: tank,
+    columns: 8,
+    rows: 2,
     modules: Array.from({ length: 16 }, (_, index) => {
       const state = moduleStates(tank, index + 1);
       return {
         id: `${tank}-${index}`,
-        column: index + 1,
+        label: String(index + 1).padStart(2, "0"),
+        position: { column: Math.floor(index / 2) + 1, row: 2 - (index % 2) },
         name: `Tank ${tank} module ${index + 1}`,
         to: "/tanks",
         state,
@@ -239,7 +226,7 @@ const overviewGrid: ModuleGrid = {
       };
     }),
   })),
-  counts: { attention: 1, offline: 0, isolated: 0, sleeping: 8, healthy: 55, unknown: 0 },
+  counts: { attention: 1, offline: 0, sleeping: 8, healthy: 87, unknown: 0 },
 };
 function OverviewStory({ quiet = false }: { quiet?: boolean }) {
   const [duration, setDuration] = useState<Duration>("12h");
@@ -248,32 +235,11 @@ function OverviewStory({ quiet = false }: { quiet?: boolean }) {
       <ContainerOverviewView
         duration={duration}
         onDurationChange={setDuration}
-        kpis={[
-          { label: "Hashrate", value: "28,050.0 TH/s", text: "97.4% of 28,800.0 TH/s ideal", chartPercentage: 97.4 },
-          { label: "Power", value: "437.8 kW" },
-          { label: "Efficiency", value: "17.0 J/TH", text: "Hashboards 15.6 J/TH" },
-          { label: "Hashboards active", value: "157 / 158", text: "1 inactive", chartPercentage: 99.4 },
-        ].map((stat) => ({ ...stat, preformatted: true }))}
         production={[
-          overviewChart("hashrate", "Hashrate", "TH/s", series[0]),
-          overviewChart("power", "Power", "kW", series[2]),
-          overviewChart("efficiency", "Efficiency", "J/TH", series[1]),
-          {
-            id: "temperature",
-            label: "Temperature",
-            to: "/temperature",
-            low: "41.2 °C",
-            high: "48.6 °C",
-            history: {
-              ...history,
-              stacked: false,
-              units: "°C",
-              series: [
-                { ...series[3], id: "left", label: "Left tanks" },
-                { ...series[4], id: "right", label: "Right tanks" },
-              ],
-            },
-          },
+          overviewChart("hashrate", "Hashrate", "PH/s", 48),
+          { ...overviewChart("temperature", "Average hashboard temp", "°C", 49), label: "Temperature" },
+          overviewChart("power", "Power", "kW", 820),
+          overviewChart("efficiency", "Efficiency", "J/TH", 17.1),
         ]}
         grid={overviewGrid}
         issues={
@@ -290,7 +256,6 @@ function OverviewStory({ quiet = false }: { quiet?: boolean }) {
                 ],
               }
         }
-        links={{ tanks: "/tanks" }}
         onViewIssues={() => {}}
       />
     </div>

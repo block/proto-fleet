@@ -1,1 +1,0 @@
-DROP INDEX idx_container_module_metrics_module_collected_at;

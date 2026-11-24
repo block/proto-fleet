@@ -1,1 +1,0 @@
-DROP TABLE hosted_invitation_rate_limit;

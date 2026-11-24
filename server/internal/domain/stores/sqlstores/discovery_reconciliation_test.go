@@ -3,6 +3,7 @@ package sqlstores_test
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -179,6 +180,62 @@ func TestNodeRediscoveryKeepsFirmwareVersionOnlyForTrustedIdentity(t *testing.T)
 			row, err := discoveryStore.GetDevice(t.Context(), doi)
 			require.NoError(t, err)
 			require.Equal(t, tc.want, row.FirmwareVersion)
+		})
+	}
+}
+
+// A driver can report a firmware version that the column cannot hold. The save
+// must not fail: a direct scan would lose the device, and a node report would
+// lose its full batch.
+func TestDiscoverySavesAFirmwareVersionThatTheColumnCannotHold(t *testing.T) {
+	for _, tc := range []struct{ name, reported, want string }{
+		{name: "longer than the column", reported: strings.Repeat("v", 300), want: strings.Repeat("v", 255)},
+		{name: "NUL character", reported: "1.0.0\x00", want: "1.0.0"},
+	} {
+		t.Run("direct scan, "+tc.name, func(t *testing.T) {
+			_, store, org := ct1HAStore(t)
+			rig := &discovery.DiscoveredDevice{OrgID: org, Device: pb.Device{DeviceIdentifier: "rig", DriverName: "proto", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_RIG,
+				IpAddress: "10.0.0.11", Port: "8080", UrlScheme: "http", FirmwareVersion: tc.reported}}
+			saved, err := store.SaveDirect(t.Context(), rig.GetDeviceOrgIdentifier(), rig)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, saved.FirmwareVersion)
+		})
+		t.Run("node report, "+tc.name, func(t *testing.T) {
+			db, discoveryStore, org := ct1HAStore(t)
+			var node int64
+			require.NoError(t, db.QueryRowContext(t.Context(), `INSERT INTO fleet_node (org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+        VALUES ($1,'node',decode(repeat('11',32),'hex'),decode(repeat('22',32),'hex'),'CONFIRMED') RETURNING id`, org).Scan(&node))
+			report := nodepairing.DiscoveredDeviceReport{DeviceIdentifier: "mac:AA:BB:CC:DD:EE:01", IPAddress: "10.0.0.11", Port: "8080", URLScheme: "http",
+				DriverName: "proto", Model: "Rig", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_RIG, FirmwareVersion: tc.reported}
+			_, stored, err := sqlstores.NewSQLFleetNodePairingStore(db).UpsertDiscoveredDeviceFromFleetNode(t.Context(), org, node, report)
+			require.NoError(t, err)
+			require.True(t, stored)
+			row, err := discoveryStore.GetDevice(t.Context(), discovery.DeviceOrgIdentifier{OrgID: org, DeviceIdentifier: report.DeviceIdentifier})
+			require.NoError(t, err)
+			require.Equal(t, tc.want, row.FirmwareVersion)
+		})
+	}
+}
+
+// SaveDirect saves a copy of a scan result that has an endpoint group. The
+// copy must keep the trust decision of the pairing service.
+func TestDirectEndpointGroupRediscoveryKeepsFirmwareVersionOnlyForTrustedIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		trusted bool
+		want    string
+	}{
+		{name: "trusted identity", trusted: true, want: "1.0.0"},
+		{name: "identity that is not trusted"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, store, org := ct1HAStore(t)
+			first := ct1HADiscovery(org, "a", "10.0.0.11")
+			first.FirmwareVersion = "1.0.0"
+			saveCT1HA(t, store, "container", first)
+			rescan := ct1HADiscovery(org, "a", "10.0.0.11")
+			rescan.TrustedIdentity = tc.trusted
+			require.Equal(t, tc.want, saveCT1HA(t, store, "rescan", rescan).FirmwareVersion)
 		})
 	}
 }

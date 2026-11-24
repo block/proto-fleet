@@ -2,9 +2,9 @@ import { useMemo } from "react";
 import { useModuleHistory } from "../hooks/useModuleHistory";
 import { emptyModulePoint, moduleHistoryChart } from "../moduleHistoryChart";
 import LineChart from "@/protoFleet/components/LineChart";
-import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { useDuration, useSetDuration, useTemperatureUnit } from "@/protoFleet/store";
 import Button from "@/shared/components/Button";
+import ChartWidget from "@/shared/components/ChartWidget";
 import DurationSelector, { fleetDurations, getFleetDurationMs } from "@/shared/components/DurationSelector";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 

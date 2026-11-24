@@ -136,11 +136,11 @@ function HistoryLegend({ series }: { series: HomeSeries[] }) {
   return (
     <ul
       aria-label="Latest series values"
-      className="flex flex-wrap gap-x-6 gap-y-3 tablet:w-40 tablet:shrink-0 tablet:flex-col tablet:pt-4"
+      className="flex flex-wrap gap-x-6 gap-y-3 tablet:min-w-40 tablet:shrink-0 tablet:flex-col tablet:pt-4"
     >
       {series.map((item) => (
-        <li key={item.id} className="flex items-center gap-2 text-200">
-          <span className="size-2 rounded-full" style={{ backgroundColor: item.color }} aria-hidden />
+        <li key={item.id} className="flex items-center gap-2 text-200 whitespace-nowrap">
+          <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: item.color }} aria-hidden />
           <span>{item.label}</span>
           <span className="ml-auto tabular-nums">{item.latest}</span>
         </li>

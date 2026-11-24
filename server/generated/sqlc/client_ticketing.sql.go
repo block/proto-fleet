@@ -17,10 +17,12 @@ import (
 const addRepairTicketBoard = `-- name: AddRepairTicketBoard :execrows
 INSERT INTO repair_ticket_target(org_id,ticket_id,kind,asset_id,module_id,hashboard_id,installation_id,container_id,site_id,label,model,position,client_id,subclient_id)
 SELECT p.org_id,p.ticket_id,4,$1::bigint,p.module_id,$1::bigint,i.id,p.container_id,p.site_id,
- 'Hashboard '||$1::bigint||' / Module '||p.module_id||' / slot '||i.position,p.model,i.position,p.client_id,p.subclient_id
+ 'Hashboard '||$1::bigint||' / Module '||p.module_id||' / slot '||i.position,p.model,i.position,
+ CASE WHEN o.hashboard_id IS NULL THEN p.client_id ELSE o.client_id END,CASE WHEN o.hashboard_id IS NULL THEN p.subclient_id ELSE o.subclient_id END
 FROM repair_ticket_target p JOIN repair_ticket r ON r.org_id=p.org_id AND r.id=p.ticket_id
 JOIN hashboard_installation i ON i.module_id=p.module_id AND i.hashboard_id=$1::bigint AND i.installed_at<=r.created_at AND (i.removed_at IS NULL OR i.removed_at>r.created_at)
 JOIN hashboard b ON b.id=i.hashboard_id AND b.org_id=p.org_id
+LEFT JOIN repair_ticket_board_owner o ON o.org_id=p.org_id AND o.ticket_id=p.ticket_id AND o.hashboard_id=b.id
 WHERE p.org_id=$2::bigint AND p.ticket_id=$3::bigint AND p.module_id=$4::bigint
 ORDER BY p.kind,p.asset_id LIMIT 1
 ON CONFLICT(org_id,ticket_id,kind,asset_id) DO UPDATE SET asset_id=EXCLUDED.asset_id
@@ -33,6 +35,10 @@ type AddRepairTicketBoardParams struct {
 	ParentModuleID int64
 }
 
+// The board keeps its own client from the ticket opening, which the opening
+// recorded under an ownership lock. The module target has no client when its
+// boards have different clients, so it is only the fallback for a ticket with
+// no such record.
 func (q *Queries) AddRepairTicketBoard(ctx context.Context, arg AddRepairTicketBoardParams) (int64, error) {
 	result, err := q.exec(ctx, q.addRepairTicketBoardStmt, addRepairTicketBoard,
 		arg.BoardID,

@@ -16,4 +16,5 @@ export type StatProps = {
   chartPercentage?: number;
   chartStatus?: ChartStatus;
   valueClassName?: string;
+  valueSuffix?: ReactNode;
 };

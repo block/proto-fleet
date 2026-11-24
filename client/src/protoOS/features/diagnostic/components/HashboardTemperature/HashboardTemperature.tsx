@@ -79,9 +79,11 @@ type HashboardTemperatureProps = {
   serial: string;
   /** The last refresh failed, so the readings shown are not current. */
   readingsStale?: boolean;
+  onClose?: () => void;
+  onSelectBoard?: (serial: string) => void;
 };
 
-const HashboardTemperature = ({ serial, readingsStale = false }: HashboardTemperatureProps) => {
+const HashboardTemperature = ({ serial, readingsStale = false, onClose, onSelectBoard }: HashboardTemperatureProps) => {
   const temperatureUnit = useTemperatureUnit();
   const layout = useHashboardLayout();
   const [showPopover, setShowPopover] = useState<string | undefined>(undefined);
@@ -98,9 +100,11 @@ const HashboardTemperature = ({ serial, readingsStale = false }: HashboardTemper
     level: ["asic"],
   });
 
-  const close = () => {
-    navigate({ pathname: "..", search }, { relative: "path" });
-  };
+  const close =
+    onClose ??
+    (() => {
+      navigate({ pathname: "..", search }, { relative: "path" });
+    });
 
   // Get hashboard data from store
   const hashboard = useMinerHashboard(serial);
@@ -194,6 +198,7 @@ const HashboardTemperature = ({ serial, readingsStale = false }: HashboardTemper
             <HashboardSelector
               hashboardList={hashboardList}
               currentHashboard={serial}
+              onSelect={onSelectBoard}
               headingSize={topology?.kind === "container" ? "compact" : "base"}
             />
           </PopoverProvider>

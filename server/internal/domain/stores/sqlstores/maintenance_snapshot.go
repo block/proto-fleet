@@ -64,6 +64,11 @@ func (s *SQLMaintenanceStore) snapshotRepairTicketOpening(ctx context.Context, p
 		if err := q.InsertRepairTicketOpeningTarget(ctx, row); err != nil {
 			return maintenanceWriteError("insert opening target", err)
 		}
+		if models.TicketCategory(target.Kind) == models.TicketCategoryModule {
+			if err := q.InsertRepairTicketBoardOwners(ctx, sqlc.InsertRepairTicketBoardOwnersParams{OrgID: params.OrgID, TicketID: ticketID, ModuleID: target.ID}); err != nil {
+				return maintenanceWriteError("insert opening board owners", err)
+			}
+		}
 	}
 	accountIDs := make([]int64, 0, len(audience))
 	for accountID := range audience {

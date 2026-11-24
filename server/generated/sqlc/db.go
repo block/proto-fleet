@@ -1974,6 +1974,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.insertReleaseChannelTargetsStmt, err = db.PrepareContext(ctx, insertReleaseChannelTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertReleaseChannelTargets: %w", err)
 	}
+	if q.insertRepairTicketBoardOwnersStmt, err = db.PrepareContext(ctx, insertRepairTicketBoardOwners); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertRepairTicketBoardOwners: %w", err)
+	}
 	if q.insertRepairTicketOpeningAudienceStmt, err = db.PrepareContext(ctx, insertRepairTicketOpeningAudience); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertRepairTicketOpeningAudience: %w", err)
 	}
@@ -2021,6 +2024,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.linkPoolLifecycleOperationStmt, err = db.PrepareContext(ctx, linkPoolLifecycleOperation); err != nil {
 		return nil, fmt.Errorf("error preparing query LinkPoolLifecycleOperation: %w", err)
+	}
+	if q.linkRepairTicketToHashboardObligationsStmt, err = db.PrepareContext(ctx, linkRepairTicketToHashboardObligations); err != nil {
+		return nil, fmt.Errorf("error preparing query LinkRepairTicketToHashboardObligations: %w", err)
 	}
 	if q.listAccountAnalysesStmt, err = db.PrepareContext(ctx, listAccountAnalyses); err != nil {
 		return nil, fmt.Errorf("error preparing query ListAccountAnalyses: %w", err)
@@ -3119,6 +3125,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.offlineDevicesForFleetNodeRevocationStmt, err = db.PrepareContext(ctx, offlineDevicesForFleetNodeRevocation); err != nil {
 		return nil, fmt.Errorf("error preparing query OfflineDevicesForFleetNodeRevocation: %w", err)
+	}
+	if q.openHashboardRepairObligationsForTicketStmt, err = db.PrepareContext(ctx, openHashboardRepairObligationsForTicket); err != nil {
+		return nil, fmt.Errorf("error preparing query OpenHashboardRepairObligationsForTicket: %w", err)
 	}
 	if q.organizationInvitationExistsStmt, err = db.PrepareContext(ctx, organizationInvitationExists); err != nil {
 		return nil, fmt.Errorf("error preparing query OrganizationInvitationExists: %w", err)
@@ -7308,6 +7317,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing insertReleaseChannelTargetsStmt: %w", cerr)
 		}
 	}
+	if q.insertRepairTicketBoardOwnersStmt != nil {
+		if cerr := q.insertRepairTicketBoardOwnersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertRepairTicketBoardOwnersStmt: %w", cerr)
+		}
+	}
 	if q.insertRepairTicketOpeningAudienceStmt != nil {
 		if cerr := q.insertRepairTicketOpeningAudienceStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing insertRepairTicketOpeningAudienceStmt: %w", cerr)
@@ -7386,6 +7400,11 @@ func (q *Queries) Close() error {
 	if q.linkPoolLifecycleOperationStmt != nil {
 		if cerr := q.linkPoolLifecycleOperationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing linkPoolLifecycleOperationStmt: %w", cerr)
+		}
+	}
+	if q.linkRepairTicketToHashboardObligationsStmt != nil {
+		if cerr := q.linkRepairTicketToHashboardObligationsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing linkRepairTicketToHashboardObligationsStmt: %w", cerr)
 		}
 	}
 	if q.listAccountAnalysesStmt != nil {
@@ -9216,6 +9235,11 @@ func (q *Queries) Close() error {
 	if q.offlineDevicesForFleetNodeRevocationStmt != nil {
 		if cerr := q.offlineDevicesForFleetNodeRevocationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing offlineDevicesForFleetNodeRevocationStmt: %w", cerr)
+		}
+	}
+	if q.openHashboardRepairObligationsForTicketStmt != nil {
+		if cerr := q.openHashboardRepairObligationsForTicketStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing openHashboardRepairObligationsForTicketStmt: %w", cerr)
 		}
 	}
 	if q.organizationInvitationExistsStmt != nil {
@@ -11462,6 +11486,7 @@ type Queries struct {
 	insertNotificationMetricSamplesStmt                         *sql.Stmt
 	insertReleaseChannelMinerTargetsStmt                        *sql.Stmt
 	insertReleaseChannelTargetsStmt                             *sql.Stmt
+	insertRepairTicketBoardOwnersStmt                           *sql.Stmt
 	insertRepairTicketOpeningAudienceStmt                       *sql.Stmt
 	insertRepairTicketOpeningTargetStmt                         *sql.Stmt
 	insertRepairTicketPartStmt                                  *sql.Stmt
@@ -11478,6 +11503,7 @@ type Queries struct {
 	linkPoolConfigurationAttemptStmt                            *sql.Stmt
 	linkPoolGroupSnapshotStmt                                   *sql.Stmt
 	linkPoolLifecycleOperationStmt                              *sql.Stmt
+	linkRepairTicketToHashboardObligationsStmt                  *sql.Stmt
 	listAccountAnalysesStmt                                     *sql.Stmt
 	listAccountAnalysisEnergyContextMetadataStmt                *sql.Stmt
 	listAccountRepairTicketCommentsStmt                         *sql.Stmt
@@ -11844,6 +11870,7 @@ type Queries struct {
 	nextRepairTicketNumberStmt                                  *sql.Stmt
 	observeFirmwareRolloutReservationsOfflineStmt               *sql.Stmt
 	offlineDevicesForFleetNodeRevocationStmt                    *sql.Stmt
+	openHashboardRepairObligationsForTicketStmt                 *sql.Stmt
 	organizationInvitationExistsStmt                            *sql.Stmt
 	pairDeviceToFleetNodeStmt                                   *sql.Stmt
 	passwordUpdatedAtStmt                                       *sql.Stmt
@@ -12811,6 +12838,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertNotificationMetricSamplesStmt:                         q.insertNotificationMetricSamplesStmt,
 		insertReleaseChannelMinerTargetsStmt:                        q.insertReleaseChannelMinerTargetsStmt,
 		insertReleaseChannelTargetsStmt:                             q.insertReleaseChannelTargetsStmt,
+		insertRepairTicketBoardOwnersStmt:                           q.insertRepairTicketBoardOwnersStmt,
 		insertRepairTicketOpeningAudienceStmt:                       q.insertRepairTicketOpeningAudienceStmt,
 		insertRepairTicketOpeningTargetStmt:                         q.insertRepairTicketOpeningTargetStmt,
 		insertRepairTicketPartStmt:                                  q.insertRepairTicketPartStmt,
@@ -12827,6 +12855,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		linkPoolConfigurationAttemptStmt:                            q.linkPoolConfigurationAttemptStmt,
 		linkPoolGroupSnapshotStmt:                                   q.linkPoolGroupSnapshotStmt,
 		linkPoolLifecycleOperationStmt:                              q.linkPoolLifecycleOperationStmt,
+		linkRepairTicketToHashboardObligationsStmt:                  q.linkRepairTicketToHashboardObligationsStmt,
 		listAccountAnalysesStmt:                                     q.listAccountAnalysesStmt,
 		listAccountAnalysisEnergyContextMetadataStmt:                q.listAccountAnalysisEnergyContextMetadataStmt,
 		listAccountRepairTicketCommentsStmt:                         q.listAccountRepairTicketCommentsStmt,
@@ -13193,6 +13222,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		nextRepairTicketNumberStmt:                                  q.nextRepairTicketNumberStmt,
 		observeFirmwareRolloutReservationsOfflineStmt:               q.observeFirmwareRolloutReservationsOfflineStmt,
 		offlineDevicesForFleetNodeRevocationStmt:                    q.offlineDevicesForFleetNodeRevocationStmt,
+		openHashboardRepairObligationsForTicketStmt:                 q.openHashboardRepairObligationsForTicketStmt,
 		organizationInvitationExistsStmt:                            q.organizationInvitationExistsStmt,
 		pairDeviceToFleetNodeStmt:                                   q.pairDeviceToFleetNodeStmt,
 		passwordUpdatedAtStmt:                                       q.passwordUpdatedAtStmt,

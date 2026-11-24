@@ -104,6 +104,19 @@ Ticket actions do not change device-reported maintenance status. Contractual
 offline classification, SLA clocks, S3 approval and remedy calculations are not
 implemented in this workflow.
 
+A ticket that names a client's hashboard joins the open repair obligation for
+that hashboard and client. If there is no open obligation, the ticket opens
+one. A hashboard ticket names its hashboard when it opens. A module ticket
+names no hashboard, and has no obligation, until an operator selects the
+affected hashboard. A subsequent transfer starts a different obligation for
+the new client. The obligation record holds only the hashboard, the client and
+the linked tickets. Its start is the opening time of the linked ticket that
+opened first, not the time of a later hashboard selection. Its subclient and
+placement are those that this ticket recorded for the hashboard. When a ticket
+closes, the obligation stays open. Evidenced restoration is not implemented,
+thus no obligation has a restoration time at this time. Reports do not read
+these records.
+
 The account ticket endpoints are `ListAccountTickets`, `GetAccountTicket`,
 `CreateAccountTicket`, `CommentAccountTicket`, `ChangeAccountTicketStatus`,
 `ListAccountTicketAssets` on `HostedAccountService`.

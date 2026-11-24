@@ -314,7 +314,7 @@ func (s *SQLFleetNodePairingStore) upsertDiscoveredDeviceFromFleetNode(ctx conte
 		EndpointKey: key, Endpoints: endpoints, OrgID: orgID, DeviceIdentifier: report.DeviceIdentifier,
 		IpAddress: report.IPAddress, Port: report.Port, UrlScheme: report.URLScheme, RpcPort: report.RPCPort, RpcTls: report.RPCTLS,
 		DriverName: report.DriverName, Model: emptyToNullString(report.Model), DeviceClass: int32(report.DeviceClass),
-		Manufacturer: emptyToNullString(report.Manufacturer), FirmwareVersion: emptyToNullString(report.FirmwareVersion),
+		Manufacturer: emptyToNullString(report.Manufacturer), FirmwareVersion: emptyToNullString(sanitizeBoundedText(report.FirmwareVersion)),
 		DiscoveredByFleetNodeID: sql.NullInt64{Int64: fleetNodeID, Valid: true},
 	})
 	if errors.Is(err, sql.ErrNoRows) {

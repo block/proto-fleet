@@ -49,6 +49,9 @@ def metadata(root):
     # Retained upgrades and the one-time reconciliation are part of compatibility
     # even though only the current source determines the application version.
     compatibility_files = sorted((root / "server/migrations").rglob("*.sql"))
+    legacy_fixture = root / "server/migrations/legacy_internal.fixture"
+    if legacy_fixture.exists() or legacy_fixture.is_symlink():
+        compatibility_files.append(legacy_fixture)
     compatibility_files += sorted(
         path
         for path in (root / "server/internal/infrastructure/db/baseline").rglob("*")

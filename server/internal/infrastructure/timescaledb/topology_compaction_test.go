@@ -3,11 +3,11 @@ package timescaledb
 import (
 	"context"
 	"database/sql"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/migrations"
 	"github.com/stretchr/testify/require"
 )
 
@@ -482,7 +482,7 @@ func TestTopologyCompactionSkipsActiveIngestionAndRecentReceipts(t *testing.T) {
 	var recent int
 	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT count(*) FROM container_topology_observation WHERE collected_at>now()-INTERVAL '10 days' AND last_confirmed_at IS NULL`).Scan(&recent))
 	require.Equal(t, 1, recent)
-	migration, err := os.ReadFile("../../../migrations/current/001022_internal_topology_compaction.down.sql")
+	migration, err := migrations.Current.ReadFile("current/001022_internal_topology_compaction.down.sql")
 	require.NoError(t, err)
 	_, err = r.db.ExecContext(t.Context(), string(migration))
 	require.ErrorContains(t, err, "topology has been compacted")

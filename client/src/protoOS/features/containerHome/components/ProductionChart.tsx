@@ -7,7 +7,10 @@ import SkeletonBar from "@/shared/components/SkeletonBar";
 // grid lines, four time labels, and no axis line.
 const VISIBLE_TICKS = [0, 2, 4];
 // The shared chart resolves colours from CSS variable names.
-const SERIES_COLORS = ["--color-core-primary-fill", "--color-core-accent-fill"];
+const SERIES_COLORS: Record<string, string> = {
+  inletTemperature: "--color-intent-info-fill",
+  outletTemperature: "--color-intent-critical-fill",
+};
 
 /** One compact history plot for the Overview; several series share its axis. */
 export default function ProductionChart({ history }: { history: HomeHistory }) {
@@ -33,7 +36,7 @@ export default function ProductionChart({ history }: { history: HomeHistory }) {
       </p>
     );
   const keys = series.map((item) => item.id);
-  const colorMap = Object.fromEntries(keys.map((key, index) => [key, SERIES_COLORS[index % SERIES_COLORS.length]]));
+  const colorMap = Object.fromEntries(keys.map((key) => [key, SERIES_COLORS[key] ?? "--color-core-primary-fill"]));
   return (
     <>
       <div className="flex h-60 w-full *:min-h-0! [&_.recharts-cartesian-axis-line]:hidden">
@@ -41,6 +44,9 @@ export default function ProductionChart({ history }: { history: HomeHistory }) {
           chartData={chartData}
           aggregateKey={keys[0]}
           activeKeys={keys}
+          tooltipAggregateKey={null}
+          tooltipSeriesLabels={Object.fromEntries(series.map((item) => [item.id, item.label]))}
+          segmentsLabel=""
           colorMap={colorMap}
           units={history.units}
           xAxisDomainOverride={history.window}
@@ -52,21 +58,6 @@ export default function ProductionChart({ history }: { history: HomeHistory }) {
           hideAggregateContextWhenSingleSeries
         />
       </div>
-      {series.length > 1 ? (
-        <ul aria-label="Latest series values" className="flex flex-wrap gap-x-6 gap-y-2 text-200">
-          {series.map((item) => (
-            <li key={item.id} className="flex items-center gap-2">
-              <span
-                className="size-2 rounded-full"
-                style={{ backgroundColor: `var(${colorMap[item.id]})` }}
-                aria-hidden
-              />
-              <span>{item.label}</span>
-              <span className="text-text-primary-50 tabular-nums">{item.latest}</span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
     </>
   );
 }

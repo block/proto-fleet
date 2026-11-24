@@ -2173,6 +2173,22 @@ type HashboardPoolIntent struct {
 	UpdatedAt      time.Time
 }
 
+type HashboardRepairObligation struct {
+	ID          int64
+	OrgID       int64
+	HashboardID int64
+	ClientID    int64
+	RestoredAt  sql.NullTime
+	CreatedAt   time.Time
+}
+
+type HashboardRepairObligationTicket struct {
+	OrgID        int64
+	ObligationID int64
+	TicketID     int64
+	LinkedAt     time.Time
+}
+
 type HashboardSlot struct {
 	ModuleID          int64
 	HashboardID       sql.NullInt64
@@ -3365,6 +3381,14 @@ type RepairTicketAudience struct {
 	OrgID     int64
 	TicketID  int64
 	AccountID int64
+}
+
+type RepairTicketBoardOwner struct {
+	OrgID       int64
+	TicketID    int64
+	HashboardID int64
+	ClientID    int64
+	SubclientID sql.NullInt64
 }
 
 type RepairTicketComment struct {

@@ -21,6 +21,22 @@ function expectAggregateOnlyTooltip(value: string): void {
 }
 
 describe("ChartTooltip", () => {
+  it("shows named temperature readings without aggregate or hashboard headings", () => {
+    render(
+      <ChartTooltip
+        activeKeys={["outside", "inlet", "outlet"]}
+        seriesLabels={{ outside: "Ambient outside", inlet: "Fluid inlet", outlet: "Fluid outlet" }}
+        units="°C"
+        payload={[{ name: "outside", payload: { datetime: 1_000, outside: 0, inlet: 32, outlet: 40 } }]}
+      />,
+    );
+    for (const label of ["Ambient outside", "Fluid inlet", "Fluid outlet"])
+      expect(screen.getByText(label)).toBeInTheDocument();
+    expect(screen.queryByText("Summary")).not.toBeInTheDocument();
+    expect(screen.queryByText("Hashboards")).not.toBeInTheDocument();
+    expect(screen.getByText("0.0")).toBeInTheDocument();
+  });
+
   it("shows coverage for the hovered bucket without borrowing another bucket's coverage", () => {
     renderAggregateTooltip({
       notes: { 1000: "3 of 4 modules reporting", 2000: "4 of 4 modules reporting" },

@@ -12,6 +12,7 @@ import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import ComponentSection from "@/protoOS/features/diagnostic/components/ComponentSection";
 import EmptySlotCard from "@/protoOS/features/diagnostic/components/EmptySlotCard";
 import HashboardStatusCard from "@/protoOS/features/diagnostic/components/HashboardStatusCard";
+import HashboardTemperatureWrapper from "@/protoOS/features/diagnostic/components/HashboardTemperature/HashboardTemperatureWrapper";
 import PsuStatusCard from "@/protoOS/features/diagnostic/components/PsuStatusCard";
 import { modulePoolTarget } from "@/protoOS/features/poolAssignment/targets";
 import { usePoolAssignmentActions } from "@/protoOS/features/poolAssignment/usePoolAssignmentActions";
@@ -33,15 +34,19 @@ const ModuleModal = ({
   tank,
   topology,
   onClose,
+  onSelectModule,
   modulePath: getModulePath,
   moduleLabel,
+  keepHashboardsInModal = false,
 }: {
   module: ModuleNode;
   tank: TankNode;
   topology: ContainerTopology;
   onClose?: () => void;
+  onSelectModule?: (module: ModuleNode) => void;
   modulePath?: (module: ModuleNode) => string;
   moduleLabel?: (module: ModuleNode) => string;
+  keepHashboardsInModal?: boolean;
 }) => {
   const poolActions = usePoolAssignmentActions();
   const boards = moduleHashboards(module, topology);
@@ -62,6 +67,8 @@ const ModuleModal = ({
   const selectedBoards =
     boardSelection.moduleId === module.id ? boardSelection.macs.filter((mac) => visibleMacs.has(mac)) : [];
   const selectBoards = (macs: string[]) => setBoardSelection({ moduleId: module.id, macs });
+  const [selectedBoard, setSelectedBoard] = useState<string>();
+  if (selectedBoard && !boards.some((board) => board.identity.value === selectedBoard)) setSelectedBoard(undefined);
   const bodyRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const dialog = bodyRef.current?.closest<HTMLElement>('[role="dialog"]');
@@ -117,121 +124,144 @@ const ModuleModal = ({
   const footerInert = poolActions.open || voltageWriting;
 
   return (
-    <Modal
-      size="fullscreen"
-      title="Modules"
-      dialogLabel="Modules"
-      onDismiss={voltageWriting ? undefined : (onClose ?? (() => navigate(tankPath)))}
-      buttons={[{ text: "Done", variant: "primary", disabled: voltageWriting }]}
-      bodyClassName="text-text-primary"
-      className="overflow-y-auto"
-      fixedFooter={
-        showActionBar ? (
-          <div inert={footerInert} className={footerInert ? "invisible" : undefined}>
-            <ActionBar
-              selectedItems={selectedBoards}
-              itemNoun={{ singular: "hashboard", plural: "hashboards" }}
-              onClose={() => selectBoards([])}
-              selectionControls={
-                <ActionBarSelectionControls
-                  onSelectAll={visibleMacs.size > 1 ? () => selectBoards([...visibleMacs]) : undefined}
-                  onSelectNone={() => selectBoards([])}
-                />
-              }
-              renderActions={() => (
-                <RowActionsMenu
-                  actions={poolActions.action({ macs: selectedBoards, modules: poolTarget?.modules })}
-                  ariaLabel="Actions for selected hashboards"
-                  triggerLabel="Actions"
-                  triggerVariant="secondary"
-                  triggerClassName="bg-grayscale-white-10! text-grayscale-white-90!"
-                  triggerSuffixIcon={<ChevronDown width={iconSizes.xSmall} />}
-                  testIdPrefix="selected-hashboard-actions"
-                />
-              )}
-            />
-          </div>
-        ) : undefined
-      }
-    >
-      {poolActions.dialog}
-      <div
-        inert={poolActions.open}
-        ref={bodyRef}
-        className="mx-auto flex max-w-[1600px] flex-col gap-7 px-0 py-6 tablet:px-4 laptop:px-10"
-      >
-        <div className="flex items-center gap-2">
-          <LocationBreadcrumb topology={topology} moduleId={module.id} />
-          <div className="shrink-0">
-            <PopoverProvider>
-              <InlineSelector
-                placement="right"
-                headingSize="compact"
-                currentId={module.id}
-                disabled={voltageWriting}
-                items={modules.map((item, index) => ({
-                  id: item.id,
-                  name: moduleLabel?.(item) ?? `Module ${item.location?.moduleSlot ?? index + 1}`,
-                }))}
-                onSelect={(id) => {
-                  const index = modules.findIndex((item) => item.id === id);
-                  if (index >= 0) navigate({ pathname: pathForModule(modules[index]), search }, { replace: true });
-                }}
+    <>
+      <Modal
+        inert={!!selectedBoard}
+        size="fullscreen"
+        title="Modules"
+        dialogLabel="Modules"
+        onDismiss={voltageWriting ? undefined : (onClose ?? (() => navigate(tankPath)))}
+        buttons={[{ text: "Done", variant: "primary", disabled: voltageWriting }]}
+        bodyClassName="text-text-primary"
+        className="overflow-y-auto"
+        fixedFooter={
+          showActionBar ? (
+            <div inert={footerInert} className={footerInert ? "invisible" : undefined}>
+              <ActionBar
+                selectedItems={selectedBoards}
+                itemNoun={{ singular: "hashboard", plural: "hashboards" }}
+                onClose={() => selectBoards([])}
+                selectionControls={
+                  <ActionBarSelectionControls
+                    onSelectAll={visibleMacs.size > 1 ? () => selectBoards([...visibleMacs]) : undefined}
+                    onSelectNone={() => selectBoards([])}
+                  />
+                }
+                renderActions={() => (
+                  <RowActionsMenu
+                    actions={poolActions.action({ macs: selectedBoards, modules: poolTarget?.modules })}
+                    ariaLabel="Actions for selected hashboards"
+                    triggerLabel="Actions"
+                    triggerVariant="secondary"
+                    triggerClassName="bg-grayscale-white-10! text-grayscale-white-90!"
+                    triggerSuffixIcon={<ChevronDown width={iconSizes.xSmall} />}
+                    testIdPrefix="selected-hashboard-actions"
+                  />
+                )}
               />
-            </PopoverProvider>
-          </div>
-        </div>
-        <div className="flex">
-          <HealthStatusButton key={module.id} scope={{ kind: "module", id: module.id }} />
-        </div>
-        {voltageWriting ? (
-          <p role="status" className="text-200 text-text-primary-70">
-            Changing the module voltage. You can leave this module once the controller answers.
-          </p>
-        ) : null}
-        {error ? <p role="alert">Could not refresh ASIC readings. Displayed values may be out of date.</p> : null}
-        <ComponentSection title="Hashboards">
-          <div className="grid grid-cols-1 gap-2 laptop:grid-cols-3" aria-busy={pending}>
-            {slots.map(({ slot, board, mac }) => {
-              return board ? (
-                <HashboardStatusCard
-                  key={board.id}
-                  identifier={board.identity.value}
-                  selection={
-                    poolActions.available && mac
-                      ? {
-                          checked: selectedBoards.includes(mac),
-                          disabled: voltageWriting,
-                          onChange: (checked) =>
-                            selectBoards(
-                              checked
-                                ? [...selectedBoards, mac]
-                                : selectedBoards.filter((selected) => selected !== mac),
-                            ),
-                        }
-                      : undefined
-                  }
-                  actions={voltageWriting || !mac ? undefined : poolActions.action({ macs: [mac] })}
-                  viewTo={`${modulePath}/${encodeURIComponent(board.identity.value)}${search}`}
-                  viewDisabled={voltageWriting}
+            </div>
+          ) : undefined
+        }
+      >
+        {poolActions.dialog}
+        <div
+          inert={poolActions.open}
+          ref={bodyRef}
+          className="mx-auto flex max-w-[1600px] flex-col gap-7 px-0 py-6 tablet:px-4 laptop:px-10"
+        >
+          <div className="flex items-center gap-2">
+            <LocationBreadcrumb topology={topology} moduleId={module.id} />
+            <div className="shrink-0">
+              <PopoverProvider>
+                <InlineSelector
+                  placement="right"
+                  headingSize="compact"
+                  currentId={module.id}
+                  disabled={voltageWriting}
+                  items={modules.map((item, index) => ({
+                    id: item.id,
+                    name: moduleLabel?.(item) ?? `Module ${item.location?.moduleSlot ?? index + 1}`,
+                  }))}
+                  onSelect={(id) => {
+                    const index = modules.findIndex((item) => item.id === id);
+                    if (index >= 0) {
+                      if (onSelectModule) onSelectModule(modules[index]);
+                      else navigate({ pathname: pathForModule(modules[index]), search }, { replace: true });
+                    }
+                  }}
                 />
-              ) : (
-                <EmptySlotCard key={slot} type="hashboard" position={slot} title={`Board ${slot}`} />
-              );
-            })}
+              </PopoverProvider>
+            </div>
           </div>
-        </ComponentSection>
-        <ModuleVoltageSection key={module.id} module={module} onWritingChange={setVoltageWriting} />
-        <ComponentSection title="Other hardware">
-          {module.psuIds.length ? (
-            module.psuIds.map((id) => <PsuStatusCard key={id} componentId={id} />)
-          ) : (
-            <p role="status">No PSU data available.</p>
-          )}
-          <ModulePowerFeed key={module.id} module={module} tank={tank} />
-        </ComponentSection>
-      </div>
-    </Modal>
+          <div className="flex">
+            <HealthStatusButton key={module.id} scope={{ kind: "module", id: module.id }} />
+          </div>
+          {voltageWriting ? (
+            <p role="status" className="text-200 text-text-primary-70">
+              Changing the module voltage. You can leave this module once the controller answers.
+            </p>
+          ) : null}
+          {error ? <p role="alert">Could not refresh ASIC readings. Displayed values may be out of date.</p> : null}
+          <ComponentSection title="Hashboards">
+            <div className="grid grid-cols-1 gap-2 laptop:grid-cols-3" aria-busy={pending}>
+              {slots.map(({ slot, board, mac }) => {
+                return board ? (
+                  <HashboardStatusCard
+                    key={board.id}
+                    identifier={board.identity.value}
+                    selection={
+                      poolActions.available && mac
+                        ? {
+                            checked: selectedBoards.includes(mac),
+                            disabled: voltageWriting,
+                            onChange: (checked) =>
+                              selectBoards(
+                                checked
+                                  ? [...selectedBoards, mac]
+                                  : selectedBoards.filter((selected) => selected !== mac),
+                              ),
+                          }
+                        : undefined
+                    }
+                    actions={voltageWriting || !mac ? undefined : poolActions.action({ macs: [mac] })}
+                    viewTo={`${modulePath}/${encodeURIComponent(board.identity.value)}${search}`}
+                    onView={keepHashboardsInModal ? () => setSelectedBoard(board.identity.value) : undefined}
+                    viewDisabled={voltageWriting}
+                  />
+                ) : (
+                  <EmptySlotCard key={slot} type="hashboard" position={slot} title={`Board ${slot}`} />
+                );
+              })}
+            </div>
+          </ComponentSection>
+          <ModuleVoltageSection key={module.id} module={module} onWritingChange={setVoltageWriting} />
+          <ComponentSection title="Other hardware">
+            {module.psuIds.length ? (
+              module.psuIds.map((id) => <PsuStatusCard key={id} componentId={id} />)
+            ) : (
+              <p role="status">No PSU data available.</p>
+            )}
+            <ModulePowerFeed key={module.id} module={module} tank={tank} />
+          </ComponentSection>
+        </div>
+      </Modal>
+      {selectedBoard ? (
+        <Modal
+          size="fullscreen"
+          showHeader={false}
+          dialogLabel="Hashboards"
+          manageFocus
+          onDismiss={() => setSelectedBoard(undefined)}
+          bodyClassName="p-0"
+        >
+          <HashboardTemperatureWrapper
+            serial={selectedBoard}
+            onClose={() => setSelectedBoard(undefined)}
+            onSelectBoard={setSelectedBoard}
+          />
+        </Modal>
+      ) : null}
+    </>
   );
 };
 

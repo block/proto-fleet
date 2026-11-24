@@ -2,7 +2,6 @@ package timescaledb
 
 import (
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/block/proto-fleet/server/internal/testutil/dbtest"
+	"github.com/block/proto-fleet/server/migrations"
 	"github.com/stretchr/testify/require"
 )
 
@@ -88,7 +88,7 @@ func TestContainerSummaryBootstrapAndPolicies(t *testing.T) {
 	_, err = r.db.ExecContext(t.Context(), `UPDATE device SET site_id=$2 WHERE id=$1`, r.databaseID, siteB)
 	require.NoError(t, err)
 	for _, direction := range []string{"down", "up"} {
-		migration, err := os.ReadFile("../../../migrations/current/001016_internal_ct1_metric_summaries." + direction + ".sql")
+		migration, err := migrations.Current.ReadFile("current/001016_internal_ct1_metric_summaries." + direction + ".sql")
 		require.NoError(t, err)
 		// The down migration restores retention. Pause newly registered jobs
 		// before committing so none can delete this backdated upgrade fixture.

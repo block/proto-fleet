@@ -533,8 +533,8 @@ the schematic does not infer individual tank fill percentages.
 The Power page shows facility total, mining power, each reported PDU, and combined
 fan history as separate lines over the selected period. These measurements overlap
 and are not stacked. PDU readings appear in the chart legend rather than the top
-summary. The top summary remains live; Fans High/Low/Average describe
-the selected period. Missing history remains unavailable rather than zero.
+summary. The top summary remains live. Missing history remains unavailable
+rather than zero.
 Pump, air-conditioning, and auxiliary power histories are not exposed by the
 current API, so their series and statistics cards are omitted. Power has no
 System/Hashboards selector because percentage-band history is unsupported.
@@ -563,8 +563,8 @@ history, so moving or replacing a board does not merge its telemetry with anothe
 board. See [CT1 hashboard inventory and telemetry](../docs/development/ct1-hashboards.md).
 
 `protoFleet/features/containers` owns the page and container presentation;
-Fleet's dashboard owns `ChartWidget`. App-neutral primitives and telemetry
-formatters remain in `shared`. ProtoOS owns its on-device Systems view, adapters,
+`shared/components` owns `ChartWidget`, which both apps use. App-neutral
+primitives and telemetry formatters remain in `shared`. ProtoOS owns its on-device Systems view, adapters,
 and controls. Fan readings and equipment-control states are not collected by
 Fleet yet, so this page identifies those gaps and offers no device commands.
 

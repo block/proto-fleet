@@ -9,6 +9,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/block/proto-fleet/server/internal/testutil/dbtest"
+	"github.com/block/proto-fleet/server/migrations"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
@@ -63,7 +64,7 @@ func TestTopologyThroughputMigrationPreservesJobAndProgress(t *testing.T) {
 				{"001072_internal_topology_cleanup_runtime_guard", "down", 1, false},
 				{"001072_internal_topology_cleanup_runtime_guard", "up", 1, false},
 			} {
-				migration, err := os.ReadFile("../../../migrations/current/" + step.migration + "." + step.direction + ".sql")
+				migration, err := migrations.Current.ReadFile("current/" + step.migration + "." + step.direction + ".sql")
 				require.NoError(t, err)
 				_, err = r.db.ExecContext(t.Context(), string(migration))
 				require.NoError(t, err)
