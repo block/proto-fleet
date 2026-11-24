@@ -130,8 +130,9 @@ const (
 )
 
 type logRecv struct {
-	entry *mdk.GetLogsResponse
-	err   error
+	entry      *mdk.GetLogsResponse
+	err        error
+	receivedAt time.Time
 }
 
 type logRecord struct {
@@ -190,8 +191,12 @@ func readLogStream(ctx context.Context, system mdk.SystemServiceClient, req *mdk
 	go func() {
 		for {
 			entry, err := stream.Recv()
+			result := logRecv{entry: entry, err: err}
+			if err != nil {
+				result.receivedAt = time.Now()
+			}
 			select {
-			case received <- logRecv{entry, err}:
+			case received <- result:
 			case <-streamCtx.Done():
 				return
 			}
@@ -231,8 +236,7 @@ func readLogStream(ctx context.Context, system mdk.SystemServiceClient, req *mdk
 				return logStreamClosed, nil
 			}
 			if r.err != nil {
-				if streamCtx.Err() != nil && ctx.Err() == nil {
-					// Our own deadline cancelled the stream mid-message.
+				if logStreamDeadlineReached(ctx, streamCtx, deadline, r) {
 					return logStreamDeadline, nil
 				}
 				return 0, r.err
@@ -243,6 +247,16 @@ func readLogStream(ctx context.Context, system mdk.SystemServiceClient, req *mdk
 		wait = logTailIdleGap
 	}
 	return logStreamLimit, nil
+}
+
+func logStreamDeadlineReached(ctx, streamCtx context.Context, deadline time.Time, result logRecv) bool {
+	reached := streamCtx.Err() != nil
+	// gRPC can report the deadline before the stream context reports cancellation.
+	if !reached && status.Code(result.err) == codes.DeadlineExceeded && !result.receivedAt.Before(deadline) {
+		callerDeadline, ok := ctx.Deadline()
+		reached = !ok || deadline.Before(callerDeadline)
+	}
+	return reached && ctx.Err() == nil
 }
 
 // sameLogEntry compares bounded entries: two entries that differ only past

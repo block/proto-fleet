@@ -285,6 +285,38 @@ func TestControllerLogsStillSendingAtDeadlineIsInterrupted(t *testing.T) {
 	require.NotEmpty(t, result.Logs.Entries)
 }
 
+type pendingDeadlineContext struct {
+	deadline time.Time
+}
+
+func (c pendingDeadlineContext) Deadline() (time.Time, bool) { return c.deadline, true }
+func (pendingDeadlineContext) Done() <-chan struct{}         { return nil }
+func (pendingDeadlineContext) Err() error                    { return nil }
+func (pendingDeadlineContext) Value(any) any                 { return nil }
+
+func TestLogStreamDeadlineReachedBeforeContextReportsIt(t *testing.T) {
+	ctx := t.Context()
+	streamCtx, cancelStream := context.WithCancel(ctx)
+	defer cancelStream()
+	rpcDeadline := status.Error(codes.DeadlineExceeded, "stream terminated by RST_STREAM with error code: CANCEL")
+	streamFailure := status.Error(codes.Unavailable, "log buffer reset")
+	deadline := time.Now().Add(-time.Second)
+	atDeadline := logRecv{err: rpcDeadline, receivedAt: deadline}
+	beforeDeadline := logRecv{err: rpcDeadline, receivedAt: deadline.Add(-time.Nanosecond)}
+	failureAtDeadline := logRecv{err: streamFailure, receivedAt: deadline}
+
+	require.True(t, logStreamDeadlineReached(ctx, streamCtx, deadline, atDeadline), "the RPC can report the deadline first")
+	require.False(t, logStreamDeadlineReached(ctx, streamCtx, deadline, beforeDeadline), "a queued error keeps its receive time")
+	require.False(t, logStreamDeadlineReached(ctx, streamCtx, deadline, failureAtDeadline), "a stream failure stays a stream error")
+
+	earlierCaller := pendingDeadlineContext{deadline: deadline.Add(-time.Second)}
+	require.False(t, logStreamDeadlineReached(earlierCaller, streamCtx, deadline, atDeadline), "the caller set the earlier deadline")
+
+	callerCtx, cancelCaller := context.WithCancel(ctx)
+	cancelCaller()
+	require.False(t, logStreamDeadlineReached(callerCtx, callerCtx, deadline, atDeadline), "caller cancellation takes precedence")
+}
+
 func TestControllerLogsStreamFailure(t *testing.T) {
 	shortenLogTiming(t)
 	failAfter := func(n int) func(*mdk.GetLogsRequest, mdk.SystemService_GetLogsServer) error {
