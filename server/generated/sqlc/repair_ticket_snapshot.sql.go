@@ -12,6 +12,36 @@ import (
 	"github.com/lib/pq"
 )
 
+const insertRepairTicketBoardOwners = `-- name: InsertRepairTicketBoardOwners :exec
+WITH owners AS MATERIALIZED (
+ SELECT a.asset_id,a.client_id,a.subclient_id
+ FROM repair_ticket r
+ JOIN hashboard_installation i ON i.module_id=$3::bigint AND i.installed_at<=r.created_at AND (i.removed_at IS NULL OR i.removed_at>r.created_at)
+ JOIN hosted_account_asset a ON a.organization_id=r.org_id AND a.kind=7 AND a.asset_id=i.hashboard_id
+ WHERE r.org_id=$1 AND r.id=$2
+ FOR SHARE OF a
+)
+INSERT INTO repair_ticket_board_owner(org_id,ticket_id,hashboard_id,client_id,subclient_id)
+SELECT $1,$2,asset_id,client_id,subclient_id FROM owners WHERE client_id IS NOT NULL
+ON CONFLICT DO NOTHING
+`
+
+type InsertRepairTicketBoardOwnersParams struct {
+	OrgID    int64
+	TicketID int64
+	ModuleID int64
+}
+
+// Records the client of each hashboard installed in the module when the
+// module ticket opened, for a hashboard that an operator selects later. The
+// installations are the source, because a module with a stale or incomplete
+// observation has no membership. The lock keeps each client stable until the
+// ticket commits.
+func (q *Queries) InsertRepairTicketBoardOwners(ctx context.Context, arg InsertRepairTicketBoardOwnersParams) error {
+	_, err := q.exec(ctx, q.insertRepairTicketBoardOwnersStmt, insertRepairTicketBoardOwners, arg.OrgID, arg.TicketID, arg.ModuleID)
+	return err
+}
+
 const insertRepairTicketOpeningAudience = `-- name: InsertRepairTicketOpeningAudience :exec
 INSERT INTO repair_ticket_audience(org_id,ticket_id,account_id)
 SELECT $1,$2,unnest($3::bigint[])

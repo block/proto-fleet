@@ -94,6 +94,9 @@ func (s *SQLMaintenanceStore) createRepairTicket(ctx context.Context, params mod
 	if err := s.snapshotRepairTicketOpening(ctx, params, id); err != nil {
 		return nil, err
 	}
+	if err := s.joinHashboardRepairObligations(ctx, params.OrgID, id); err != nil {
+		return nil, err
+	}
 	for _, accountID := range params.ClientAccountIDs {
 		rows, err := s.GetQueries(ctx).AssociateRepairTicketAccount(ctx, sqlc.AssociateRepairTicketAccountParams{OrgID: params.OrgID, TicketID: id, AccountID: accountID})
 		if err != nil {
@@ -579,7 +582,7 @@ func (s *SQLMaintenanceStore) AddRepairTicketBoard(ctx context.Context, orgID, t
 	if rows == 0 {
 		return fleeterror.NewInvalidArgumentError("board was not installed in the referenced module when this ticket opened")
 	}
-	return nil
+	return s.joinHashboardRepairObligations(ctx, orgID, ticketID)
 }
 func (s *SQLMaintenanceStore) UpdateTicketTarget(ctx context.Context, p models.UpdateTargetParams) error {
 	rows, err := s.GetQueries(ctx).UpdateRepairTicketTargetEvidence(ctx, sqlc.UpdateRepairTicketTargetEvidenceParams{

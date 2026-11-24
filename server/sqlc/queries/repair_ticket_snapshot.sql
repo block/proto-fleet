@@ -25,6 +25,24 @@ SELECT CASE WHEN min(client_id)=max(client_id) THEN min(client_id) ELSE 0 END::b
  CASE WHEN min(subclient_id)=max(subclient_id) THEN min(subclient_id) ELSE 0 END::bigint AS subclient_id
 FROM owners HAVING count(*)>0;
 
+-- Records the client of each hashboard installed in the module when the
+-- module ticket opened, for a hashboard that an operator selects later. The
+-- installations are the source, because a module with a stale or incomplete
+-- observation has no membership. The lock keeps each client stable until the
+-- ticket commits.
+-- name: InsertRepairTicketBoardOwners :exec
+WITH owners AS MATERIALIZED (
+ SELECT a.asset_id,a.client_id,a.subclient_id
+ FROM repair_ticket r
+ JOIN hashboard_installation i ON i.module_id=sqlc.arg(module_id)::bigint AND i.installed_at<=r.created_at AND (i.removed_at IS NULL OR i.removed_at>r.created_at)
+ JOIN hosted_account_asset a ON a.organization_id=r.org_id AND a.kind=7 AND a.asset_id=i.hashboard_id
+ WHERE r.org_id=sqlc.arg(org_id) AND r.id=sqlc.arg(ticket_id)
+ FOR SHARE OF a
+)
+INSERT INTO repair_ticket_board_owner(org_id,ticket_id,hashboard_id,client_id,subclient_id)
+SELECT sqlc.arg(org_id),sqlc.arg(ticket_id),asset_id,client_id,subclient_id FROM owners WHERE client_id IS NOT NULL
+ON CONFLICT DO NOTHING;
+
 -- name: InsertRepairTicketOpeningTarget :exec
 INSERT INTO repair_ticket_target (
  org_id,ticket_id,kind,asset_id,miner_id,miner_identifier,building_id,rack_id,

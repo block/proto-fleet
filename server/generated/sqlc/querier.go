@@ -40,6 +40,10 @@ type Querier interface {
 	AddHostedAccountSite(ctx context.Context, arg AddHostedAccountSiteParams) (int64, error)
 	AddHostedAccountUserAffiliation(ctx context.Context, arg AddHostedAccountUserAffiliationParams) error
 	AddHostedReportQueueEvent(ctx context.Context, arg AddHostedReportQueueEventParams) error
+	// The board keeps its own client from the ticket opening, which the opening
+	// recorded under an ownership lock. The module target has no client when its
+	// boards have different clients, so it is only the fallback for a ticket with
+	// no such record.
 	AddRepairTicketBoard(ctx context.Context, arg AddRepairTicketBoardParams) (int64, error)
 	AdjustReportingFactSite(ctx context.Context, arg AdjustReportingFactSiteParams) (int64, error)
 	AdminResetUserPassword(ctx context.Context, arg AdminResetUserPasswordParams) (int64, error)
@@ -1386,6 +1390,12 @@ type Querier interface {
 	// Site, building, rack and group selectors; target_types and target_ids are
 	// parallel arrays.
 	InsertReleaseChannelTargets(ctx context.Context, arg InsertReleaseChannelTargetsParams) error
+	// Records the client of each hashboard installed in the module when the
+	// module ticket opened, for a hashboard that an operator selects later. The
+	// installations are the source, because a module with a stale or incomplete
+	// observation has no membership. The lock keeps each client stable until the
+	// ticket commits.
+	InsertRepairTicketBoardOwners(ctx context.Context, arg InsertRepairTicketBoardOwnersParams) error
 	InsertRepairTicketOpeningAudience(ctx context.Context, arg InsertRepairTicketOpeningAudienceParams) error
 	InsertRepairTicketOpeningTarget(ctx context.Context, arg InsertRepairTicketOpeningTargetParams) error
 	InsertRepairTicketPart(ctx context.Context, arg InsertRepairTicketPartParams) error
@@ -1404,6 +1414,11 @@ type Querier interface {
 	LinkPoolConfigurationAttempt(ctx context.Context, arg LinkPoolConfigurationAttemptParams) (int64, error)
 	LinkPoolGroupSnapshot(ctx context.Context, arg LinkPoolGroupSnapshotParams) (int64, error)
 	LinkPoolLifecycleOperation(ctx context.Context, arg LinkPoolLifecycleOperationParams) error
+	// Runs as its own statement so that it sees an obligation a concurrent opener
+	// committed while OpenHashboardRepairObligationsForTicket waited. The start,
+	// subclient and placement of an obligation are those of the hashboard target
+	// of its linked ticket that opened first.
+	LinkRepairTicketToHashboardObligations(ctx context.Context, arg LinkRepairTicketToHashboardObligationsParams) error
 	ListAccountAnalyses(ctx context.Context, arg ListAccountAnalysesParams) ([]ListAccountAnalysesRow, error)
 	ListAccountAnalysisEnergyContextMetadata(ctx context.Context, arg ListAccountAnalysisEnergyContextMetadataParams) ([]ListAccountAnalysisEnergyContextMetadataRow, error)
 	ListAccountRepairTicketComments(ctx context.Context, arg ListAccountRepairTicketCommentsParams) ([]ListAccountRepairTicketCommentsRow, error)
@@ -2441,6 +2456,10 @@ type Querier interface {
 	// retries and completed rollout history.
 	ObserveFirmwareRolloutReservationsOffline(ctx context.Context, channelID sql.NullInt64) error
 	OfflineDevicesForFleetNodeRevocation(ctx context.Context, arg OfflineDevicesForFleetNodeRevocationParams) (int64, error)
+	// Opens an obligation for each client-held hashboard the ticket names, unless
+	// that client already has one open for the hashboard. A concurrent opener
+	// waits on the partial unique index and then inserts nothing.
+	OpenHashboardRepairObligationsForTicket(ctx context.Context, arg OpenHashboardRepairObligationsForTicketParams) error
 	OrganizationInvitationExists(ctx context.Context, tokenHash string) (bool, error)
 	// The parent lock also protects absence of a route during dispatch. A scalar
 	// lookup keeps a missing parent an insert error rather than a successful no-op.

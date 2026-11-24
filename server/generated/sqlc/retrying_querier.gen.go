@@ -7238,6 +7238,12 @@ func (q *retryingQuerier) InsertReleaseChannelTargets(ctx context.Context, arg I
 	})
 }
 
+func (q *retryingQuerier) InsertRepairTicketBoardOwners(ctx context.Context, arg InsertRepairTicketBoardOwnersParams) error {
+	return q.retrier.RetryQuery(ctx, "InsertRepairTicketBoardOwners", func() error {
+		return q.next.InsertRepairTicketBoardOwners(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) InsertRepairTicketOpeningAudience(ctx context.Context, arg InsertRepairTicketOpeningAudienceParams) error {
 	return q.retrier.RetryQuery(ctx, "InsertRepairTicketOpeningAudience", func() error {
 		return q.next.InsertRepairTicketOpeningAudience(ctx, arg)
@@ -7403,6 +7409,12 @@ func (q *retryingQuerier) LinkPoolGroupSnapshot(ctx context.Context, arg LinkPoo
 func (q *retryingQuerier) LinkPoolLifecycleOperation(ctx context.Context, arg LinkPoolLifecycleOperationParams) error {
 	return q.retrier.RetryQuery(ctx, "LinkPoolLifecycleOperation", func() error {
 		return q.next.LinkPoolLifecycleOperation(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) LinkRepairTicketToHashboardObligations(ctx context.Context, arg LinkRepairTicketToHashboardObligationsParams) error {
+	return q.retrier.RetryQuery(ctx, "LinkRepairTicketToHashboardObligations", func() error {
+		return q.next.LinkRepairTicketToHashboardObligations(ctx, arg)
 	})
 }
 
@@ -11574,6 +11586,12 @@ func (q *retryingQuerier) OfflineDevicesForFleetNodeRevocation(ctx context.Conte
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) OpenHashboardRepairObligationsForTicket(ctx context.Context, arg OpenHashboardRepairObligationsForTicketParams) error {
+	return q.retrier.RetryQuery(ctx, "OpenHashboardRepairObligationsForTicket", func() error {
+		return q.next.OpenHashboardRepairObligationsForTicket(ctx, arg)
+	})
 }
 
 func (q *retryingQuerier) OrganizationInvitationExists(ctx context.Context, tokenHash string) (bool, error) {
