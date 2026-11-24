@@ -278,6 +278,7 @@ func TestSampleDeviceMetrics_RetainedSampleClearedAndGenerationSurvivesRestart(t
 	require.NoError(t, first[0].Err)
 	assert.Equal(t, SampleSourceDirect, first[0].Source)
 	assert.Equal(t, firstMetrics, first[0].Metrics)
+	requireEventuallyReleased(t, service, deviceID)
 	_, retained := service.retainedSamples.Load(deviceID)
 	require.True(t, retained)
 	generationState := service.sampleGenerationState(deviceID)
@@ -465,6 +466,7 @@ func TestSampleDeviceMetrics_ExpiredRetainedSampleTriggersFreshDirectRead(t *tes
 	assert.Equal(t, SampleSourceDirect, results[0].Source)
 	assert.Equal(t, freshMetrics, results[0].Metrics)
 
+	requireEventuallyReleased(t, h.service, deviceID)
 	value, retained := h.service.retainedSamples.Load(deviceID)
 	require.True(t, retained)
 	assert.NotSame(t, expired, value, "the expired identity must not remain retained")
