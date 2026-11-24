@@ -80,7 +80,7 @@ describe("discovery pagination and selection", () => {
     expect(within(screen.getByRole("region", { name: "Miners" })).getAllByRole("checkbox")).toHaveLength(101);
   });
 
-  it("preserves selection between pages and applies bulk changes to every filtered result", async () => {
+  it("preserves selection between pages", async () => {
     const user = userEvent.setup();
     render(<Scan count={202} />);
     const minerRegion = () => screen.getByRole("region", { name: "Miners" });
@@ -91,6 +91,11 @@ describe("discovery pagination and selection", () => {
     expect(screen.getByText("200 devices selected")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Previous page" }));
     expect(checks()[1]).not.toBeChecked();
+  });
+
+  it("applies bulk changes to every filtered result", async () => {
+    const user = userEvent.setup();
+    render(<Scan count={202} />);
     await user.click(screen.getByTestId("filter-dropdown-Model"));
     await user.click(screen.getByTestId("filter-option-model:S21 Pro"));
     await user.click(screen.getByRole("button", { name: /^Select none$/ }));
@@ -100,6 +105,6 @@ describe("discovery pagination and selection", () => {
     expect(screen.getByText("202 devices selected")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Next page" }));
     expect(screen.getByText("Showing 101–101 of 101 devices")).toBeInTheDocument();
-    expect(checks()[1]).toBeChecked();
+    expect(within(screen.getByRole("region", { name: "Miners" })).getAllByRole("checkbox")[1]).toBeChecked();
   });
 });
