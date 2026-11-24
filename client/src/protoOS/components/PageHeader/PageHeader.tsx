@@ -54,7 +54,7 @@ const MobileHeader = ({ openMenu, title, customButtons }: PageHeaderProps) => {
 
 const DesktopHeader = ({ customButtons }: { customButtons: PageHeaderProps["customButtons"] }) => {
   return (
-    <div className="flex w-full items-center justify-end gap-4 pl-60">
+    <div className="flex w-full items-center justify-end gap-4 pl-50">
       <div className="flex grow [scrollbar-width:none] justify-between space-x-3 self-center px-4">
         <div className="flex space-x-3 phone:flex-shrink-0">
           {!customButtons ? (

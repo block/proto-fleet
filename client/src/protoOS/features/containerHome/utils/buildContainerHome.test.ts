@@ -46,8 +46,11 @@ const moduleSnapshot = (readings: { power?: number; temperatures?: number[] }[])
 const moduleReadings = (readings: ReturnType<typeof buildContainerLive>["powerReadings"]) =>
   ["high", "low", "average"].map((stat) => readings.find(({ id }) => id === `module-${stat}`)?.value);
 
+const hashboardReadings = (readings: ReturnType<typeof buildContainerLive>["temperatureReadings"]) =>
+  ["high", "low", "average"].map((stat) => readings.find(({ id }) => id === `hashboard-${stat}`)?.value);
+
 describe("Home live module summaries", () => {
-  it("summarizes module PSU input power once per module and averages module temperatures equally", () => {
+  it("summarizes module power and current hashboard sensor extrema and average", () => {
     const { hardware, telemetry } = moduleSnapshot([
       { power: 1000, temperatures: [10, 30] },
       { power: 3000, temperatures: [50] },
@@ -55,7 +58,7 @@ describe("Home live module summaries", () => {
     ]);
     const live = buildContainerLive(hardware, telemetry, "C");
     expect(moduleReadings(live.powerReadings)).toEqual(["8.0 kW", "1.0 kW", "4.0 kW"]);
-    expect(moduleReadings(live.temperatureReadings)).toEqual(["90.0 °C", "20.0 °C", "53.3 °C"]);
+    expect(hashboardReadings(live.temperatureReadings)).toEqual(["100.0 °C", "10.0 °C", "54.0 °C"]);
   });
 
   it("includes zero readings and converts temperature summaries to Fahrenheit", () => {
@@ -65,7 +68,7 @@ describe("Home live module summaries", () => {
     ]);
     const live = buildContainerLive(hardware, telemetry, "F");
     expect(moduleReadings(live.powerReadings)).toEqual(["2.0 kW", "0.0 kW", "1.0 kW"]);
-    expect(moduleReadings(live.temperatureReadings)).toEqual(["68.0 °F", "32.0 °F", "50.0 °F"]);
+    expect(hashboardReadings(live.temperatureReadings)).toEqual(["68.0 °F", "32.0 °F", "50.0 °F"]);
   });
 
   it.each(["empty module", "removed module"])("clears obsolete rollups after a full map reports: %s", (transition) => {
@@ -113,11 +116,11 @@ describe("Home live module summaries", () => {
     const live = () => buildContainerLive(initial.hardware, useMinerStore.getState().telemetry, "C");
     const expectPopulated = () => {
       expect(moduleReadings(live().powerReadings)).toEqual(["4.0 kW", "4.0 kW", "4.0 kW"]);
-      expect(moduleReadings(live().temperatureReadings)).toEqual(["20.0 °C", "20.0 °C", "20.0 °C"]);
+      expect(hashboardReadings(live().temperatureReadings)).toEqual(["20.0 °C", "20.0 °C", "20.0 °C"]);
     };
     const expectUnavailable = () => {
       expect(moduleReadings(live().powerReadings)).toEqual(["—", "—", "—"]);
-      expect(moduleReadings(live().temperatureReadings)).toEqual(["—", "—", "—"]);
+      expect(hashboardReadings(live().temperatureReadings)).toEqual(["—", "—", "—"]);
       expect(useMinerStore.getState().telemetry.rollupsByEntity.get(moduleId)?.power?.timeSeries).toEqual(history);
     };
     merge(initial.telemetry, 1);
@@ -154,9 +157,9 @@ describe("Home live module summaries", () => {
     expect(moduleReadings(live().powerReadings)).toEqual(["3.0 kW", "1.0 kW", "2.0 kW"]);
     merge(moduleSnapshot([{ power: 1000, temperatures: [20] }, { temperatures: [40] }]).telemetry, 2);
     expect(moduleReadings(live().powerReadings)).toEqual(["—", "—", "—"]);
-    expect(moduleReadings(live().temperatureReadings)).toEqual(["40.0 °C", "20.0 °C", "30.0 °C"]);
+    expect(hashboardReadings(live().temperatureReadings)).toEqual(["40.0 °C", "20.0 °C", "30.0 °C"]);
     merge(moduleSnapshot([{ power: 1000, temperatures: [20] }, { power: 3000 }]).telemetry, 3);
-    expect(moduleReadings(live().temperatureReadings)).toEqual(["—", "—", "—"]);
+    expect(hashboardReadings(live().temperatureReadings)).toEqual(["20.0 °C", "20.0 °C", "20.0 °C"]);
     expect(moduleReadings(live().powerReadings)).toEqual(["3.0 kW", "1.0 kW", "2.0 kW"]);
   });
 });
@@ -378,13 +381,17 @@ describe("container Home mapping", () => {
         [0, 1000],
         [60_000, 4000],
         [120_000, 8000],
+        [180_000, 4000],
       ]),
       series([
         [0, 100],
         [60_000, 0],
+        [180_000, 200],
       ]),
     );
-    expect(result?.points.map((point) => point.value)).toEqual([10, null, null]);
+    expect(result?.points.map((point) => point.value)).toEqual([10, null, null, 20]);
+    expect(result?.aggregates?.min?.value).toBe(10);
+    expect(result?.aggregates?.max?.value).toBe(20);
   });
 
   it("requires all fan readings at each bucket and summarizes total bucket averages", () => {

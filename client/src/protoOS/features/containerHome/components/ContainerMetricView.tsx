@@ -7,7 +7,7 @@ import Stat from "@/shared/components/Stat";
 
 export function HomeSummary({ readings, children }: { readings: HomeReading[]; children?: ReactNode }) {
   return (
-    <section aria-label="Live readings" className="rounded-3xl bg-surface-elevated-base p-6 shadow-100">
+    <section aria-label="Live readings" className="rounded-xl bg-surface-elevated-base p-6 shadow-100">
       <div className="grid grid-cols-2 gap-x-4 gap-y-6 tablet:grid-cols-3 desktop:grid-cols-6">
         {readings.map((reading) => (
           <Stat key={reading.id} label={reading.label} value={reading.value} size="small" />
@@ -43,7 +43,7 @@ export default function ContainerMetricView({
     <div className="flex flex-col gap-1">
       <h1 className="sr-only">{title}</h1>
       <HomeSummary readings={readings} />
-      <section aria-label={`${title} chart`} className="rounded-3xl bg-surface-elevated-base p-6 shadow-100">
+      <section aria-label={`${title} chart`} className="rounded-xl bg-surface-elevated-base p-6 shadow-100">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-200 text-text-primary-50">{title === "Power" ? "Power distribution" : title}</h2>
           <ChartModeSelector title={title} modes={modes} mode={mode} onModeChange={onModeChange} />

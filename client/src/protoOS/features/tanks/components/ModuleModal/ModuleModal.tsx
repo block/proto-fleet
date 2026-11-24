@@ -30,6 +30,7 @@ const ModuleModal = ({
   tank,
   topology,
   onClose,
+  onSelectModule,
   modulePath: getModulePath,
   moduleLabel,
 }: {
@@ -37,6 +38,7 @@ const ModuleModal = ({
   tank: TankNode;
   topology: ContainerTopology;
   onClose?: () => void;
+  onSelectModule?: (module: ModuleNode) => void;
   modulePath?: (module: ModuleNode) => string;
   moduleLabel?: (module: ModuleNode) => string;
 }) => {
@@ -141,7 +143,10 @@ const ModuleModal = ({
                 }))}
                 onSelect={(id) => {
                   const index = modules.findIndex((item) => item.id === id);
-                  if (index >= 0) navigate({ pathname: pathForModule(modules[index]), search }, { replace: true });
+                  if (index >= 0) {
+                    if (onSelectModule) onSelectModule(modules[index]);
+                    else navigate({ pathname: pathForModule(modules[index]), search }, { replace: true });
+                  }
                 }}
               />
             </PopoverProvider>

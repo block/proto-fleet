@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   type V2Hashboard,
+  V2HashboardErrorCause,
   V2MiningOperatingState,
   V2MiningState,
   V2ModuleNumberingOrder,
@@ -560,7 +561,8 @@ describe("MDK v2 CT1 normalization", () => {
     });
     expect(result.telemetry.rollupsByEntity.get("container:ct1-a" as never)).toMatchObject({
       hashrate: { latest: { value: 2.5, units: "TH/s" } },
-      temperature: { latest: { value: 65.5, units: "°C" } },
+      temperature: { latest: { value: 62, units: "°C" } },
+      averageAsicTemperature: { latest: { value: 66, units: "°C" } },
       boardCount: 1,
       onlineBoardCount: 1,
     });
@@ -937,5 +939,88 @@ describe("plant alarm telemetry", () => {
       expect(plant.alarmMuteSupported).toBeUndefined();
       expect(plant.alarms).toEqual([]);
     }
+  });
+});
+
+test("preserves disconnection separately from faults and excludes PSU reports from board severity", () => {
+  const { telemetry } = toCanonicalContainer(
+    {
+      containerMap: {
+        tanks: [
+          {
+            id: 1,
+            modules: [
+              {
+                id: 1,
+                slots: [
+                  {
+                    hashboard: {
+                      serial: "offline",
+                      miningState: V2MiningState.MINING_STATE_DISCONNECTED,
+                      health: { errors: [{ cause: V2HashboardErrorCause.HASHBOARD_ERROR_CAUSE_UNKNOWN_ERROR }] },
+                    },
+                  },
+                  {
+                    hashboard: {
+                      serial: "psu",
+                      miningState: V2MiningState.MINING_STATE_MINING,
+                      health: { errors: [{ cause: V2HashboardErrorCause.HASHBOARD_ERROR_CAUSE_BOARD_POWER_SUPPLY }] },
+                    },
+                  },
+                  {
+                    hashboard: {
+                      serial: "warning",
+                      miningState: V2MiningState.MINING_STATE_MINING,
+                      health: { warnings: [{ cause: V2HashboardErrorCause.HASHBOARD_ERROR_CAUSE_UNKNOWN_ERROR }] },
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    },
+    {},
+    {},
+    "ct1",
+  );
+  expect([...telemetry.hashboards.values()]).toEqual([
+    expect.objectContaining({ disconnected: true, faultSeverity: "critical" }),
+    expect.objectContaining({ disconnected: false, faultSeverity: null }),
+    expect.objectContaining({ disconnected: false, faultSeverity: "warning" }),
+  ]);
+});
+
+test("keeps an explicit unspecified operating state unknown rather than a warning", () => {
+  const { telemetry } = toCanonicalContainer(
+    {
+      containerMap: {
+        tanks: [
+          {
+            id: 1,
+            modules: [
+              {
+                id: 1,
+                slots: [
+                  {
+                    hashboard: { serial: "unknown", miningState: V2MiningState.MINING_STATE_UNSPECIFIED },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    },
+    {},
+    {},
+    "ct1",
+  );
+  expect([...telemetry.hashboards.values()][0]).toMatchObject({
+    health: "unknown",
+    miningStatus: "unknown",
+    faultSeverity: null,
+    disconnected: false,
   });
 });

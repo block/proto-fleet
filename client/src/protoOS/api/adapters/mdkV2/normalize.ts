@@ -167,7 +167,7 @@ const healthState = (board: V2Hashboard): HealthState => {
   )
     return "fault";
   if (board.health?.warnings?.length) return "degraded";
-  if (!board.miningState) return "unknown";
+  if (!board.miningState || board.miningState === V2MiningState.MINING_STATE_UNSPECIFIED) return "unknown";
   if (
     board.miningState === V2MiningState.MINING_STATE_MINING ||
     board.miningState === V2MiningState.MINING_STATE_IDLE ||
@@ -425,6 +425,16 @@ const groupBoards = <K>(boards: BoardEntry[], key: (entry: BoardEntry) => K) => 
 
 const toHashboardTelemetry = (entry: BoardEntry): HashboardTelemetry => ({
   isolated: entry.board.isolated ?? false,
+  disconnected: entry.board.miningState === V2MiningState.MINING_STATE_DISCONNECTED,
+  faultSeverity:
+    entry.board.health?.errors?.some((error) => !isPsuFaultCause(error.cause)) ||
+    entry.board.miningState === V2MiningState.MINING_STATE_ERROR ||
+    (entry.board.miningState === V2MiningState.MINING_STATE_MINING &&
+      (entry.board.health?.hashrailOk === false || entry.board.health?.refclksOk === false))
+      ? "critical"
+      : entry.board.health?.warnings?.some((warning) => !isPsuFaultCause(warning.cause))
+        ? "warning"
+        : null,
   hashboardId: entry.hashboardId,
   health: healthState(entry.board),
   miningStatus: boardMiningStatus(entry.board),
@@ -675,6 +685,12 @@ export const toCanonicalContainer = (
         capabilities: { commands: CT1_COMMANDS },
         tankId: id,
         hashboardIds: [],
+        unmappedHashboardSlots: (wireModule.slots ?? []).flatMap((slot) => {
+          const position = slot.configuredLocation?.hashboardPosition;
+          return slot.occupied === false && !slot.hashboard && position !== undefined && position >= 1 && position <= 3
+            ? [position]
+            : [];
+        }),
         controlBoardIds: [],
         psuIds: [],
         fanIds: [],
@@ -801,7 +817,8 @@ export const toCanonicalContainer = (
     // of the module PSU input totals.
     powerCoverage: { kind: "unknown", includesNonHashboardLoads: false, methods: ["firmwareAggregate"] },
     efficiency: efficiencyMetric(statusWire.power, statusWire.hashrate, statusWire.efficiency),
-    temperature: latest(statusWire.averageAsicTemperatureC ?? statusWire.averageHashboardTemperatureC, "°C"),
+    temperature: boardSummary?.temperature ?? latest(statusWire.averageHashboardTemperatureC, "°C"),
+    averageAsicTemperature: boardSummary?.averageAsicTemperature ?? latest(statusWire.averageAsicTemperatureC, "°C"),
     miningStatus: miningStatus(statusWire.operatingState, statusWire.mining),
     boardCount: statusWire.totalBoards ?? boardSummary?.boardCount,
     onlineBoardCount: statusWire.activeBoards ?? boardSummary?.onlineBoardCount,

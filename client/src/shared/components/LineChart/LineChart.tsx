@@ -135,6 +135,9 @@ export interface LineChartProps {
   aggregateKey: string;
   activeKeys?: string[];
   tooltipKeys?: string[];
+  /** Null displays peer series without a separate aggregate summary. */
+  tooltipAggregateKey?: string | null;
+  tooltipSeriesLabels?: Record<string, string>;
   tooltipNotes?: Record<number, string>;
   highestValue?: string | number;
   tickCount?: number;
@@ -159,6 +162,8 @@ const LineChart = ({
   colorMap,
   activeKeys,
   tooltipKeys,
+  tooltipAggregateKey,
+  tooltipSeriesLabels,
   tooltipNotes,
   highestValue,
   units,
@@ -547,7 +552,8 @@ const LineChart = ({
   const tooltipContent = useMemo(
     () => (
       <ChartTooltip
-        aggregateKey={aggregateKey}
+        aggregateKey={tooltipAggregateKey === null ? undefined : (tooltipAggregateKey ?? aggregateKey)}
+        seriesLabels={tooltipSeriesLabels}
         aggregateLabel="Summary"
         notes={tooltipNotes}
         activeKeys={tooltipKeysToShow}
@@ -566,6 +572,8 @@ const LineChart = ({
     ),
     [
       aggregateKey,
+      tooltipAggregateKey,
+      tooltipSeriesLabels,
       tooltipNotes,
       tooltipKeysToShow,
       tooltipChartData,

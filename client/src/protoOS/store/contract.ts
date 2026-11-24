@@ -184,6 +184,8 @@ export interface ModuleNode {
   capabilities: ModuleCapabilities;
   tankId?: TankId;
   hashboardIds: HashboardId[];
+  /** Configured positions explicitly reported without a mapped board; not physical presence detection. */
+  unmappedHashboardSlots?: number[];
   controlBoardIds: ComponentId[];
   psuIds: ComponentId[];
   fanIds: ComponentId[];
@@ -328,6 +330,10 @@ export interface HashboardTelemetry extends LevelTelemetry {
   hashboardId: HashboardId;
   /** Explicit isolation reported by firmware; offline alone does not imply isolation. */
   isolated?: boolean;
+  /** Explicit controller connection state, independent of faults and isolation. */
+  disconnected?: boolean;
+  /** Board-only faults, excluding module PSU reports. Null means no reported board fault. */
+  faultSeverity?: "critical" | "warning" | null;
   health?: HealthState;
   miningStatus?: MiningStatus;
   /** Active errors plus warnings reported for this hashboard; null means health data is unavailable. */

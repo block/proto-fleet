@@ -514,7 +514,7 @@ func TestTimeSeriesIdleAvailability(t *testing.T) {
 		count  int64str
 		zero   bool
 	}{
-		{timeSeriesMetricTemperature, 0, true}, {timeSeriesMetricHashrate, 5, true}, {timeSeriesMetricPower, 5, true},
+		{timeSeriesMetricTemperature, 5, false}, {timeSeriesMetricHashrate, 5, true}, {timeSeriesMetricPower, 5, true},
 		{"TIME_SERIES_METRIC_PLANT_POWER", 5, true}, {"TIME_SERIES_METRIC_PLANT_FACILITY_POWER", 5, false},
 	} {
 		var result timeSeriesResponse

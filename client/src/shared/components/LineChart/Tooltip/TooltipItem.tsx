@@ -5,13 +5,14 @@ import useCssVariable from "@/shared/hooks/useCssVariable";
 
 interface TooltipItemProps {
   itemKey: string;
+  label?: string;
   colorMap?: { [key: string]: string };
   value?: string | number;
   units?: string;
   icon?: ComponentType<{ itemKey: string }>;
 }
 
-const TooltipItem = ({ itemKey, value, units, icon: Icon, colorMap }: TooltipItemProps) => {
+const TooltipItem = ({ itemKey, label, value, units, icon: Icon, colorMap }: TooltipItemProps) => {
   const color = useCssVariable(colorMap?.[itemKey] || "--color-bg-core-primary-5");
 
   if (!value) return null;
@@ -26,6 +27,7 @@ const TooltipItem = ({ itemKey, value, units, icon: Icon, colorMap }: TooltipIte
           </div>
         </div>
 
+        {label ? <span className="text-200 text-text-primary">{label}</span> : null}
         {Icon ? <Icon itemKey={itemKey} /> : null}
       </div>
     </>

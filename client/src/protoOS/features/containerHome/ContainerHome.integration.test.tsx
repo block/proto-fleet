@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   pushToast: vi.fn(),
   adapter: {
     getCurrentTelemetry: vi.fn(),
+    getHashboardStatus: vi.fn().mockResolvedValue([]),
     getContainerHistory: vi.fn(),
     getTimeSeries: vi.fn(),
     getContainerSettings: vi.fn(),
@@ -89,7 +90,22 @@ describe("container Home integration", () => {
       {
         containerMap: {
           tanks: [
-            { id: 1, modules: [{ id: 1, slots: [{ hashboard: { serial: "HB-1", health: { hashrate: 100 } } }] }] },
+            {
+              id: 1,
+              modules: [
+                {
+                  id: 1,
+                  slots: [
+                    {
+                      hashboard: {
+                        serial: "HB-1",
+                        health: { hashrate: 100, temperatures: [60, 70], averageAsicTemperatureC: 75 },
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
           ],
         },
       },
@@ -141,6 +157,30 @@ describe("container Home integration", () => {
       ),
       unavailable: [],
     }));
+  });
+
+  it("shows distinct ambient readings without PDU temperatures or a Hashboards mode", async () => {
+    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/temperature?mode=hashboards"] });
+    render(<RouterProvider router={router} />);
+    const readings = within(screen.getByRole("region", { name: "Live readings" }));
+    expect(readings.getByRole("heading", { name: "Ambient inside" }).parentElement?.parentElement).toHaveTextContent(
+      "28.0 °C",
+    );
+    expect(readings.getByRole("heading", { name: "Ambient outside" }).parentElement?.parentElement).toHaveTextContent(
+      "24.0 °C",
+    );
+    expect(readings.queryByText("pdu-west")).not.toBeInTheDocument();
+    for (const label of ["Hashboard high", "Hashboard low", "Hashboard avg"])
+      expect(readings.getByRole("heading", { name: label })).toBeVisible();
+    for (const label of ["Pumps", "Fans", "AC", "Aux"])
+      expect(screen.queryByRole("region", { name: `${label} period statistics` })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Hashboards" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "System" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Fluid" })).toBeVisible();
+    await waitFor(() => expect(mocks.adapter.getContainerHistory).toHaveBeenCalled());
+    expect(mocks.adapter.getContainerHistory.mock.calls[0][0].selections).toEqual(
+      expect.arrayContaining([{ metric: "insideTemperature" }, { metric: "outsideTemperature" }]),
+    );
   });
 
   it("shows the schematic above API-backed stats without requesting or polling history", async () => {
@@ -751,6 +791,59 @@ describe("container Home integration", () => {
     expect(client.miningServiceGetMiningStatus).toHaveBeenCalledTimes(3);
   });
 
+  it.each(["Done", "Close dialog", "Escape"])(
+    "keeps Overview open after dismissing a module with %s",
+    async (dismiss) => {
+      const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/?keep=value"] });
+      render(<RouterProvider router={router} />);
+      const tile = within(screen.getByRole("region", { name: "Module state" })).getByRole("button", {
+        name: /^Tank 1 module 1,/,
+      });
+      fireEvent.click(tile);
+      expect(await screen.findByRole("dialog", { name: "Modules" })).toBeInTheDocument();
+      expect(router.state.location.pathname).toBe("/miners/ct1/");
+      if (dismiss === "Escape") fireEvent.keyDown(document, { key: "Escape" });
+      else fireEvent.click(screen.getAllByRole("button", { name: dismiss })[0]);
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Modules" })).not.toBeInTheDocument());
+      expect(router.state.location.pathname).toBe("/miners/ct1/");
+      expect(router.state.location.search).toBe("?keep=value");
+      expect(screen.getByRole("heading", { name: "Container overview" })).toBeInTheDocument();
+    },
+  );
+
+  it("switches modules without leaving Overview", async () => {
+    const fixture = toCanonicalContainer(
+      {
+        containerMap: {
+          tanks: [
+            {
+              id: 1,
+              modules: [
+                { id: 1, slots: [] },
+                { id: 2, slots: [] },
+              ],
+            },
+          ],
+        },
+      },
+      {},
+      {},
+      "ct1",
+    );
+    useMinerStore.getState().hardware.replaceHardware(fixture.hardware);
+    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+    render(<RouterProvider router={router} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Tank 1 module 1,/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Module 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Module 2" }));
+    expect(screen.getByRole("dialog", { name: "Modules" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Module 2" })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/miners/ct1/");
+    fireEvent.click(screen.getAllByRole("button", { name: "Done" })[0]);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Modules" })).not.toBeInTheDocument());
+    expect(router.state.location.pathname).toBe("/miners/ct1/");
+  });
+
   it("summarizes the container on Overview from one combined history request", async () => {
     const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
     render(<RouterProvider router={router} />);
@@ -758,14 +851,78 @@ describe("container Home integration", () => {
     expect(mocks.adapter.getContainerHistory.mock.calls[0][0].selections).toEqual([
       { metric: "hashrate" },
       { metric: "facilityPower" },
-      { metric: "outletATemperature" },
-      { metric: "outletBTemperature" },
+      { metric: "temperature" },
     ]);
     expect(screen.getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "View Efficiency" })).toHaveAttribute("href", "/miners/ct1/efficiency");
+    const performance = within(screen.getByRole("region", { name: "Performance history" }));
+    expect(performance.getByRole("region", { name: "Hashrate" })).toHaveTextContent("100.0 TH/s");
+    expect(performance.getByRole("region", { name: "Power" })).toHaveTextContent("2.0 kW");
+    expect(performance.getByRole("region", { name: "Efficiency" })).toHaveTextContent("20.0 J/TH");
+    const temperatures = within(performance.getByRole("region", { name: "Temperature" }));
+    expect(
+      temperatures.getByRole("heading", { name: "Average hashboard temp" }).closest('[data-testid="stats-item"]'),
+    ).toHaveTextContent("65.0 °C");
+    expect(temperatures.queryByRole("heading", { name: "Fluid inlet" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Hashboards active")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "View tanks" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Low .*High/)).not.toBeInTheDocument();
+
+    expect(performance.queryByRole("link", { name: /^View / })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Active issues" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Container cooling system schematic" })).not.toBeInTheDocument();
     expect(mocks.adapter.getTimeSeries).not.toHaveBeenCalled();
+  });
+
+  it("shows API extrema instead of deriving ranges from plotted averages", async () => {
+    mocks.adapter.getContainerHistory.mockImplementation(async (request: ContainerHistoryRequest) => ({
+      series: Object.fromEntries(
+        request.selections.map((selection) => {
+          const [min, max, units] =
+            selection.metric === "facilityPower"
+              ? ([1000, 3000, "W"] as const)
+              : selection.metric === "temperature"
+                ? ([30, 80, "°C"] as const)
+                : ([50, 900, "TH/s"] as const);
+          return [
+            containerHistoryKey(selection),
+            {
+              units,
+              bucketSizeMs: request.intervalMs,
+              points: [{ timestampMs: Date.parse(request.endTime) - request.intervalMs, value: 100 }],
+              aggregates: { min: { value: min, units }, max: { value: max, units } },
+            },
+          ];
+        }),
+      ),
+      unavailable: [],
+    }));
+    render(<RouterProvider router={createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] })} />);
+    const performance = within(screen.getByRole("region", { name: "Performance history" }));
+    await waitFor(() =>
+      expect(performance.getByRole("region", { name: "Hashrate" })).toHaveTextContent("Max 900.0 TH/s · Min 50.0 TH/s"),
+    );
+    expect(performance.getByRole("region", { name: "Temperature" })).toHaveTextContent("Max 80.0 °C · Min 30.0 °C");
+    expect(performance.getByRole("region", { name: "Power" })).toHaveTextContent("Max 3.0 kW · Min 1.0 kW");
+    expect(performance.getByRole("region", { name: "Efficiency" })).toHaveTextContent("Max 1.0 J/TH · Min 1.0 J/TH");
+  });
+
+  it.each([
+    [5_000, "5.0 PH/s"],
+    [2_500_000, "2.5 EH/s"],
+  ])("scales overview hashrate %s with the shared unit ladder", async (value, expected) => {
+    const store = useMinerStore.getState();
+    const rollupsByEntity = new Map(store.telemetry.rollupsByEntity);
+    for (const [key, rollup] of rollupsByEntity) {
+      rollupsByEntity.set(key, { ...rollup, hashrate: { latest: { value, units: "TH/s" } } });
+    }
+    const snapshot = { ...store.telemetry, rollupsByEntity };
+    store.telemetry.mergeTelemetry(snapshot);
+    mocks.adapter.getCurrentTelemetry.mockResolvedValue(snapshot);
+    render(<RouterProvider router={createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] })} />);
+    await waitFor(() => expect(mocks.adapter.getContainerHistory).toHaveBeenCalled());
+    const performance = within(screen.getByRole("region", { name: "Performance history" }));
+    expect(performance.getByRole("region", { name: "Hashrate" })).toHaveTextContent(expected);
+    expect(performance.getAllByText("Max — · Min —")).toHaveLength(3);
   });
 
   it("shows and polls supported power histories even with an obsolete Hashboards query", async () => {

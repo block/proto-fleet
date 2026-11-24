@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import ChartWidget from "./ChartWidget";
-import LineChart from "@/protoFleet/components/LineChart";
+import LineChart from "@/shared/components/LineChart";
 import { ChartData } from "@/shared/components/LineChart/types";
 
 // Generate sample chart data
@@ -24,7 +24,7 @@ const generateSampleData = (): ChartData[] => {
 };
 
 const meta: Meta<typeof ChartWidget> = {
-  title: "Proto Fleet/Dashboard/ChartWidget",
+  title: "Shared/ChartWidget",
   component: ChartWidget,
   parameters: {
     layout: "centered",

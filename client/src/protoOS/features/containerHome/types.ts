@@ -1,7 +1,10 @@
-import type { ModuleStatus } from "@/protoOS/features/tanks/tankView";
+import { moduleStatuses } from "@/protoOS/features/tanks/tankView";
+
+export const overviewModuleStatuses = moduleStatuses.filter((status) => status !== "isolated");
+export type OverviewModuleStatus = (typeof overviewModuleStatuses)[number];
 
 export type HomeTab = "overview" | "hashrate" | "efficiency" | "power" | "temperature" | "system";
-export type HomeChartMode = "system" | "hashboards" | "fluid";
+export type HomeChartMode = "system" | "fluid";
 
 export interface HomeReading {
   id: string;
@@ -45,19 +48,19 @@ export interface CategorySummary {
 
 export interface ModuleGridCell {
   id: string;
-  /** One-based column; cells without a reported slot follow in topology order. */
-  column: number;
+  label: string;
+  position?: { row: number; column: number };
   name: string;
   to: string;
-  state: ModuleStatus;
+  state: OverviewModuleStatus;
   /** Hashboard states in slot order. */
-  boards: ModuleStatus[];
+  boards: (OverviewModuleStatus | "warning" | "empty")[];
+  attentionSeverity?: "critical" | "warning";
 }
 
 export interface ModuleGrid {
-  columns: number;
-  tanks: { id: string; label: string; modules: ModuleGridCell[] }[];
-  counts: Record<ModuleStatus, number>;
+  tanks: { id: string; label: string; slot?: number; columns: number; rows: number; modules: ModuleGridCell[] }[];
+  counts: Record<OverviewModuleStatus, number>;
 }
 
 export interface IssueGroup {

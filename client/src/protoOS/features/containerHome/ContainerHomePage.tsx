@@ -7,28 +7,29 @@ import { useContainerHistory } from "./hooks/useContainerHistory";
 import type { HomeChartMode, HomeHistory, HomeTab } from "./types";
 import {
   buildContainerLive,
-  categorySummaries,
   efficiencyHistory,
   formatReading,
+  latest,
   sumHistory,
   temperatureValue,
   toHomeSeries,
 } from "./utils/buildContainerHome";
-import { buildIssueSummary, buildModuleGrid, buildSummaryKpis } from "./utils/buildContainerSummary";
+import { buildIssueSummary, buildModuleGrid } from "./utils/buildContainerSummary";
 import { containerHistoryKey, type ContainerHistorySelection } from "@/protoOS/api/adapters/containerHistory";
 import { ProtoOSStatusModal } from "@/protoOS/components/StatusModal";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import ModuleModal from "@/protoOS/features/tanks/components/ModuleModal/ModuleModal";
 import { usePsuObservationTime } from "@/protoOS/hooks/usePsuObservationTime";
 import { useDuration, useMinerStore, useSetDuration } from "@/protoOS/store";
 import type { MetricTimeSeries } from "@/protoOS/store/contract";
 import { useDetailedErrors } from "@/protoOS/store/hooks/useMinerStatus";
 import { useTemperatureUnit } from "@/protoOS/store/hooks/useUI";
+import { formatHashrateWithUnit } from "@/shared/utils/telemetryFormat";
 
 const ORANGE = "var(--color-core-accent-fill)";
 const COLORS = [ORANGE, "#783bf0", "#258fbf", "var(--color-core-primary-fill)", "#ff3344"];
 const temperatureModes = [
   { id: "system" as const, label: "System" },
-  { id: "hashboards" as const, label: "Hashboards" },
   { id: "fluid" as const, label: "Fluid" },
 ];
 
@@ -41,10 +42,17 @@ export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
   const telemetry = useMinerStore((state) => state.telemetry);
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedMode = searchParams.get("mode");
-  const mode: HomeChartMode =
-    tab === "temperature" && (requestedMode === "hashboards" || requestedMode === "fluid") ? requestedMode : "system";
+  const mode: HomeChartMode = tab === "temperature" && requestedMode === "fluid" ? "fluid" : "system";
   const errors = useDetailedErrors();
   const [issuesOpen, setIssuesOpen] = useState(false);
+  const [selectedModuleId, setSelectedModuleId] = useState<string>();
+  const topology = hardware.topology;
+  const selectedModule =
+    topology?.kind === "container"
+      ? [...topology.modules.values()].find((module) => module.id === selectedModuleId)
+      : undefined;
+  const selectedTank =
+    selectedModule?.tankId && topology?.kind === "container" ? topology.tanks.get(selectedModule.tankId) : undefined;
   const live = useMemo(() => buildContainerLive(hardware, telemetry, unit), [hardware, telemetry, unit]);
   // PSU samples expire between polls, so module states follow the clock as on the Tanks page.
   const now = usePsuObservationTime(tab === "overview");
@@ -65,13 +73,7 @@ export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
     if (tab === "system") return [];
     if (tab === "hashrate") return [{ metric: "hashrate" }];
     if (tab === "efficiency") return [{ metric: "hashrate" }, { metric: "facilityPower" }];
-    if (tab === "overview")
-      return [
-        { metric: "hashrate" },
-        { metric: "facilityPower" },
-        { metric: "outletATemperature" },
-        { metric: "outletBTemperature" },
-      ];
+    if (tab === "overview") return [{ metric: "hashrate" }, { metric: "facilityPower" }, { metric: "temperature" }];
     if (mode !== "system") return [];
     if (tab === "power")
       return [
@@ -126,69 +128,88 @@ export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
     const chart = (
       id: string,
       label: string,
-      to: string,
       units: string,
       source: MetricTimeSeries | undefined,
+      value: number | null,
       convert?: (value: number) => number,
     ) => {
       const series = toHomeSeries(id, label, ORANGE, source, window, units, convert);
-      return { id, label, to, low: series.low ?? "—", high: series.high ?? "—", history: history(units, [series]) };
-    };
-    // Fluid outlet temperature: the plant has one sensor per tank bank, not per tank.
-    const outlets = (
-      [
-        ["outletATemperature", "Left tanks"],
-        ["outletBTemperature", "Right tanks"],
-      ] as const
-    ).map(([metric, label]) => ({ metric, label, source: source({ metric }) }));
-    const outletRange = (key: "min" | "max") => {
-      const values = outlets.flatMap(({ source }) => {
-        const value = source?.aggregates?.[key]?.value;
-        return typeof value === "number" && Number.isFinite(value) ? [value] : [];
-      });
-      const extreme = values.length ? (key === "min" ? Math.min(...values) : Math.max(...values)) : null;
-      return formatReading(temperatureValue(extreme, unit), `°${unit}`);
+      return {
+        id,
+        label,
+        // Direct metrics retain API bucket extrema. Efficiency is derived from
+        // bucket averages; its extrema summarize those calculated ratios.
+        stats: {
+          label,
+          value: formatReading(value, units),
+          preformatted: true,
+          valueSuffix: `Max ${series.high} · Min ${series.low}`,
+        },
+        history: history(units, [series]),
+      };
     };
     const hashrateHistory = source({ metric: "hashrate" });
     const powerHistory = source({ metric: "facilityPower" });
+    const rateReference = Math.max(1, live.hashrate ?? hashrateHistory?.aggregates?.max?.value ?? 0);
+    const rateScale = formatHashrateWithUnit(rateReference);
+    const rateFactor = rateScale.value / rateReference;
+    const rateUnits = rateScale.unit.replace("/S", "/s");
     return (
       <>
         <ContainerOverviewView
-          kpis={buildSummaryKpis(live)}
           production={[
-            chart("hashrate", "Hashrate", `${minerRoot}/hashrate`, "TH/s", hashrateHistory),
-            chart("power", "Power", `${minerRoot}/power-usage`, "kW", powerHistory, (value) => value / 1000),
+            chart(
+              "hashrate",
+              "Hashrate",
+              rateUnits,
+              hashrateHistory,
+              live.hashrate === null ? null : live.hashrate * rateFactor,
+              (value) => value * rateFactor,
+            ),
+            {
+              ...chart(
+                "temperature",
+                "Average hashboard temp",
+                `°${unit}`,
+                source({ metric: "temperature" }),
+                temperatureValue(latest(live.rollup?.temperature), unit),
+                (value) => temperatureValue(value, unit)!,
+              ),
+              label: "Temperature",
+            },
+            chart(
+              "power",
+              "Power",
+              "kW",
+              powerHistory,
+              live.power === null ? null : live.power / 1000,
+              (value) => value / 1000,
+            ),
             chart(
               "efficiency",
               "Efficiency",
-              `${minerRoot}/efficiency`,
               "J/TH",
               efficiencyHistory(powerHistory, hashrateHistory),
+              live.efficiency,
             ),
-            {
-              id: "temperature",
-              label: "Temperature",
-              to: `${minerRoot}/temperature`,
-              low: outletRange("min"),
-              high: outletRange("max"),
-              history: history(
-                `°${unit}`,
-                outlets.map(({ metric, label, source }) =>
-                  toHomeSeries(metric, label, ORANGE, source, window, `°${unit}`, (value) =>
-                    temperatureValue(value, unit)!,
-                  ),
-                ),
-              ),
-            },
           ]}
           historyError={historyState.error}
           duration={duration}
           onDurationChange={setDuration}
           grid={grid}
+          onSelectModule={setSelectedModuleId}
           issues={issues}
-          links={{ tanks: `${minerRoot}/tanks` }}
           onViewIssues={() => setIssuesOpen(true)}
         />
+        {selectedModule && selectedTank && topology?.kind === "container" ? (
+          <ModuleModal
+            module={selectedModule}
+            tank={selectedTank}
+            topology={topology}
+            onClose={() => setSelectedModuleId(undefined)}
+            onSelectModule={(module) => setSelectedModuleId(module.id)}
+          />
+        ) : null}
         <ProtoOSStatusModal open={issuesOpen} onClose={() => setIssuesOpen(false)} />
       </>
     );
@@ -253,14 +274,14 @@ export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
   if (tab === "temperature") {
     const sensorSeries = (
       [
-        ["temperature", "Hashboards"],
-        ["insideTemperature", "Ambient"],
-        ["outsideTemperature", "Outdoor"],
-        ["inletTemperature", "Fluid inlet"],
-        ["outletTemperature", "Fluid outlet"],
+        ["temperature", "Hashboard avg", COLORS[0]],
+        ["inletTemperature", "Fluid inlet", COLORS[2]],
+        ["outletTemperature", "Fluid outlet", COLORS[4]],
+        ["outsideTemperature", "Ambient outdoor", COLORS[3]],
+        ["insideTemperature", "Ambient indoor", COLORS[1]],
       ] as const
-    ).map(([metric, label], index) =>
-      toHomeSeries(metric, label, COLORS[index], source({ metric }), window, `°${unit}`, (value) =>
+    ).map(([metric, label, color]) =>
+      toHomeSeries(metric, label, color, source({ metric }), window, `°${unit}`, (value) =>
         temperatureValue(value, unit)!,
       ),
     );
@@ -277,7 +298,6 @@ export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
           series: mode === "system" ? sensorSeries : [],
         }}
         locations={live.fluidLocations}
-        categories={categorySummaries()}
       />
     );
   }
