@@ -1,44 +1,33 @@
-import type { IssueSummary, ModuleGrid } from "../types";
-import type { buildContainerLive } from "./buildContainerHome";
-import { formatReading } from "./buildContainerHome";
+import { type IssueSummary, type ModuleGrid, type ModuleGridCell, overviewModuleStatuses } from "../types";
 import { getScopeHealth } from "@/protoOS/components/StatusModal/scopeHealth";
-import { boardStatus, moduleHashboards, moduleStatuses, tankModules } from "@/protoOS/features/tanks/tankView";
-import type { HardwareState, MinerError, TelemetryState } from "@/protoOS/store/contract";
+import { moduleHashboards, tankGrid, tankModules } from "@/protoOS/features/tanks/tankView";
+import type { HardwareState, HashboardTelemetry, MinerError, TelemetryState } from "@/protoOS/store/contract";
+import { psuHealth } from "@/protoOS/store/utils/psuFreshness";
 import { moduleRouteValue, tankRouteValue } from "@/protoOS/topologyRouteParams";
-import type { StatProps } from "@/shared/components/Stat/types";
-import { formatHashrateOrDash } from "@/shared/utils/telemetryFormat";
 
-type Live = ReturnType<typeof buildContainerLive>;
+const faultSeverity = (board: HashboardTelemetry | undefined) =>
+  board?.faultSeverity !== undefined
+    ? board.faultSeverity
+    : board?.health === "fault" || board?.miningStatus === "error"
+      ? "critical"
+      : board?.health === "degraded"
+        ? "warning"
+        : null;
 
-export function buildSummaryKpis(live: Live): Omit<StatProps, "size">[] {
-  const { hashrate, idealHashrate, rollup } = live;
-  const ofIdeal =
-    hashrate !== null && idealHashrate !== null && idealHashrate > 0 ? (hashrate / idealHashrate) * 100 : null;
-  const total = rollup?.boardCount;
-  const online = rollup?.onlineBoardCount;
-  const boardsKnown = total !== undefined && online !== undefined;
-  const inactive = boardsKnown ? total - online : 0;
-  return [
-    {
-      label: "Hashrate",
-      value: formatHashrateOrDash(hashrate),
-      text: ofIdeal === null ? undefined : `${ofIdeal.toFixed(1)}% of ${formatHashrateOrDash(idealHashrate)} ideal`,
-      chartPercentage: ofIdeal === null ? undefined : Math.min(100, ofIdeal),
-    },
-    { label: "Power", value: formatReading(live.power === null ? null : live.power / 1000, "kW") },
-    {
-      label: "Efficiency",
-      value: formatReading(live.efficiency, "J/TH"),
-      text: live.moduleEfficiency === null ? undefined : `Hashboards ${formatReading(live.moduleEfficiency, "J/TH")}`,
-    },
-    {
-      label: "Hashboards active",
-      value: boardsKnown ? `${online} / ${total}` : "—",
-      text: inactive > 0 ? `${inactive} inactive` : undefined,
-      chartPercentage: boardsKnown && total > 0 ? (online / total) * 100 : undefined,
-    },
-  ].map((stat) => ({ ...stat, preformatted: true }));
-}
+const disconnected = (board: HashboardTelemetry | undefined) =>
+  board?.disconnected ?? (board?.health === "offline" && !board.isolated);
+
+const sleeping = (board: HashboardTelemetry | undefined) =>
+  board?.miningStatus === "stopped" || board?.miningStatus === "poweringOff";
+
+const boardDisplayState = (board: HashboardTelemetry | undefined): ModuleGridCell["boards"][number] => {
+  if (disconnected(board)) return "offline";
+  const severity = faultSeverity(board);
+  if (severity) return severity === "critical" ? "attention" : "warning";
+  if (sleeping(board)) return "sleeping";
+  if (board?.miningStatus === "mining") return "healthy";
+  return "unknown";
+};
 
 export function buildModuleGrid(
   hardware: HardwareState,
@@ -49,36 +38,70 @@ export function buildModuleGrid(
 ): ModuleGrid | undefined {
   const topology = hardware.topology;
   if (topology?.kind !== "container") return undefined;
-  const counts = Object.fromEntries(moduleStatuses.map((status) => [status, 0])) as ModuleGrid["counts"];
-  let columns = 0;
+  const counts = Object.fromEntries(overviewModuleStatuses.map((status) => [status, 0])) as ModuleGrid["counts"];
   const tanks = [...topology.tanks.values()]
     .sort((a, b) => (a.slot ?? Infinity) - (b.slot ?? Infinity))
     .map((tank, tankIndex) => {
       const label = tank.label?.trim() || `Tank ${tank.slot ?? tankIndex + 1}`;
-      // Tank scope, as on the Tanks page, so a module never changes state between views.
+      // Retain scoped PSU/fault checks; the overview icon follows the miner status pill priority.
       const health = getScopeHealth({ kind: "tank", id: tank.id }, hardware, telemetry, errors, now);
-      let next = 0;
-      const modules = tankModules(tank, topology).map((module) => {
+      const members = tankModules(tank, topology);
+      // Container overview follows the physical pairs: even slots above odd slots.
+      const layout = tankGrid({ ...tank, moduleLayout: { columns: 8, rows: 2, numbering: "columnMajor" } }, members);
+      const modules = members.map((module, index) => {
         const slot = module.location?.moduleSlot;
-        const column = slot !== undefined && slot > next ? slot : next + 1;
-        next = column;
-        columns = Math.max(columns, column);
-        const state = health?.moduleStatuses.get(module.id) ?? "unknown";
-        counts[state] += 1;
+        const boardsBySlot = new Map(moduleHashboards(module, topology).map((board) => [board.location?.slot, board]));
+        const readings = [1, 2, 3].map((slot) => {
+          const board = boardsBySlot.get(slot);
+          return board ? telemetry.hashboards.get(board.id) : undefined;
+        });
+        const boards = readings.map((reading, index) =>
+          !boardsBySlot.has(index + 1) && module.unmappedHashboardSlots?.includes(index + 1)
+            ? ("empty" as const)
+            : boardDisplayState(reading),
+        );
+        const memberReadings = module.hashboardIds.map((id) => telemetry.hashboards.get(id));
+        const complete = module.hashboardIds.length + boards.filter((board) => board === "empty").length === 3;
+        const moduleErrors = errors.filter((error) => error.owner.kind === "module" && error.owner.id === module.id);
+        const critical =
+          memberReadings.some((board) => faultSeverity(board) === "critical") ||
+          moduleErrors.some((error) => error.severity === "critical") ||
+          module.psuIds.some((id) => psuHealth(telemetry.psus.get(id), now) === "fault");
+        const warning =
+          memberReadings.some((board) => faultSeverity(board) === "warning") ||
+          moduleErrors.some((error) => error.severity === "warning") ||
+          module.psuIds.some((id) => psuHealth(telemetry.psus.get(id), now) === "degraded");
+        const scopedState = health?.moduleStatuses.get(module.id);
+        const state = memberReadings.some(disconnected)
+          ? "offline"
+          : complete && memberReadings.length > 0 && memberReadings.every(sleeping)
+            ? "sleeping"
+            : critical || warning
+              ? "attention"
+              : complete &&
+                  memberReadings.length > 0 &&
+                  memberReadings.every((board) => board?.miningStatus === "mining") &&
+                  module.psuIds.length > 0 &&
+                  module.psuIds.every((id) => psuHealth(telemetry.psus.get(id), now) === "ok")
+                ? "healthy"
+                : scopedState === "isolated"
+                  ? "unknown"
+                  : (scopedState ?? "unknown");
+        if (!boards.every((board) => board === "empty")) counts[state] += 1;
         return {
           id: String(module.id),
-          column,
-          name: `${label} module ${slot ?? column}`,
+          label: slot === undefined ? String(module.id) : String(slot).padStart(2, "0"),
+          position: layout.positions[index],
+          name: `${label} module ${slot ?? module.id}`,
           to: `${minerRoot}/tanks/${tankRouteValue(tank)}/modules/${moduleRouteValue(module, tank.moduleIds.indexOf(module.id) + 1)}`,
           state,
-          boards: moduleHashboards(module, topology)
-            .sort((a, b) => (a.location?.slot ?? Infinity) - (b.location?.slot ?? Infinity))
-            .map((board) => boardStatus(telemetry.hashboards.get(board.id))),
+          boards,
+          attentionSeverity: warning && !critical ? ("warning" as const) : ("critical" as const),
         };
       });
-      return { id: String(tank.id), label, modules };
+      return { id: String(tank.id), label, slot: tank.slot, columns: layout.columns, rows: layout.rows, modules };
     });
-  return { columns, tanks, counts };
+  return { tanks, counts };
 }
 
 const issueLabel = (error: MinerError) => {

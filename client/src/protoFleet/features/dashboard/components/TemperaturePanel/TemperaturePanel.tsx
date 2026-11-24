@@ -1,12 +1,12 @@
 import { generateTemperatureHeadline } from "./utils";
 import { type TemperatureStatusCount } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { SegmentedMetricPanel } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel";
 import type {
   DashboardAudience,
   SegmentConfig,
 } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel/types";
 import { Triangle } from "@/shared/assets/icons";
+import ChartWidget from "@/shared/components/ChartWidget";
 import { FleetDuration } from "@/shared/components/DurationSelector";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 

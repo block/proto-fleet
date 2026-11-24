@@ -4,13 +4,13 @@ import { create } from "@bufbuild/protobuf";
 import { generateUptimeHeadline } from "./utils";
 import { MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus, type UptimeStatusCount } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { SegmentedMetricPanel } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel";
 import type {
   DashboardAudience,
   SegmentConfig,
 } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel/types";
 import { encodeFilterToURL } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
+import ChartWidget from "@/shared/components/ChartWidget";
 import { FleetDuration } from "@/shared/components/DurationSelector";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 

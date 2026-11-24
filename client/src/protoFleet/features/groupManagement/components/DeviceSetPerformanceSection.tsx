@@ -3,7 +3,6 @@ import clsx from "clsx";
 
 import { AggregationType, MeasurementType, type Metric } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import LineChart from "@/protoFleet/components/LineChart";
-import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { padChartDataWithNulls } from "@/protoFleet/features/dashboard/utils/chartDataPadding";
 import {
   normalizeEfficiencyToJTH,
@@ -11,6 +10,7 @@ import {
   normalizePowerToKW,
 } from "@/protoFleet/features/dashboard/utils/metricNormalization";
 import { useTemperatureUnit } from "@/protoFleet/store";
+import ChartWidget from "@/shared/components/ChartWidget";
 import { FleetDuration } from "@/shared/components/DurationSelector";
 import type { ChartData } from "@/shared/components/LineChart/types";
 import SkeletonBar from "@/shared/components/SkeletonBar";

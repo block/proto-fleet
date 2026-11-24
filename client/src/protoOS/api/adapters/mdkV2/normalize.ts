@@ -73,6 +73,7 @@ import {
 import type { HashboardHardwareData } from "@/protoOS/store/types";
 import { createEmptyTelemetryState } from "@/protoOS/store/utils/createEmptyTelemetryState";
 import { efficiencyValue } from "@/protoOS/store/utils/efficiency";
+import { observationTime, readingStatus } from "@/protoOS/store/utils/readingFreshness";
 import { containerAsicPlacement } from "@/shared/utils/containerAsicLayout";
 
 export const CT1_COMMANDS: CommandCapabilities = {
@@ -154,20 +155,19 @@ const miningStatus = (value: string | undefined, mining?: boolean): MiningStatus
   }
 };
 
+// Rails/clocks are only required while hashing. Idle boards can power them
+// down, and disconnected boards cannot report verified live indicators.
+const hasBoardOperatingFault = (board: V2Hashboard): boolean =>
+  board.miningState === V2MiningState.MINING_STATE_ERROR ||
+  (board.miningState === V2MiningState.MINING_STATE_MINING &&
+    (board.health?.hashrailOk === false || board.health?.refclksOk === false));
+
 const healthState = (board: V2Hashboard): HealthState => {
   if (board.isolated) return "offline";
-  // Rails/clocks are only required while hashing. Idle boards can power them
-  // down, and disconnected boards cannot report verified live indicators.
-  // Explicit errors and warnings still take precedence over inactive states.
-  if (
-    board.miningState === V2MiningState.MINING_STATE_ERROR ||
-    board.health?.errors?.length ||
-    (board.miningState === V2MiningState.MINING_STATE_MINING &&
-      (board.health?.hashrailOk === false || board.health?.refclksOk === false))
-  )
-    return "fault";
+  // Overall health includes PSU reports; board severity below excludes them.
+  if (hasBoardOperatingFault(board) || board.health?.errors?.length) return "fault";
   if (board.health?.warnings?.length) return "degraded";
-  if (!board.miningState) return "unknown";
+  if (!board.miningState || board.miningState === V2MiningState.MINING_STATE_UNSPECIFIED) return "unknown";
   if (
     board.miningState === V2MiningState.MINING_STATE_MINING ||
     board.miningState === V2MiningState.MINING_STATE_IDLE ||
@@ -366,7 +366,16 @@ const boardRollup = (boards: BoardEntry[], power?: number): LevelRollup => {
     }
     return total;
   };
-  const temps = boards.flatMap(({ board }) => board.health?.temperatures ?? []).filter(Number.isFinite);
+  // A map response can retain old board health; only timestamped, current
+  // readings contribute to live temperature summaries, as with PSU readings.
+  const now = Date.now();
+  const temps = boards
+    .flatMap(({ board }) => {
+      if (board.miningState === V2MiningState.MINING_STATE_DISCONNECTED) return [];
+      if (readingStatus(observationTime(board.health?.timestamp, 0, now), now) !== "current") return [];
+      return board.health?.temperatures ?? [];
+    })
+    .filter(Number.isFinite);
   const asicTemps = boards.flatMap(({ board }) => {
     const value = board.health?.averageAsicTemperatureC;
     return typeof value === "number" && Number.isFinite(value) ? [value] : [];
@@ -425,6 +434,13 @@ const groupBoards = <K>(boards: BoardEntry[], key: (entry: BoardEntry) => K) => 
 
 const toHashboardTelemetry = (entry: BoardEntry): HashboardTelemetry => ({
   isolated: entry.board.isolated ?? false,
+  disconnected: entry.board.miningState === V2MiningState.MINING_STATE_DISCONNECTED,
+  faultSeverity:
+    entry.board.health?.errors?.some((error) => !isPsuFaultCause(error.cause)) || hasBoardOperatingFault(entry.board)
+      ? "critical"
+      : entry.board.health?.warnings?.some((warning) => !isPsuFaultCause(warning.cause))
+        ? "warning"
+        : null,
   hashboardId: entry.hashboardId,
   health: healthState(entry.board),
   miningStatus: boardMiningStatus(entry.board),
@@ -675,6 +691,12 @@ export const toCanonicalContainer = (
         capabilities: { commands: CT1_COMMANDS },
         tankId: id,
         hashboardIds: [],
+        unmappedHashboardSlots: (wireModule.slots ?? []).flatMap((slot) => {
+          const position = slot.configuredLocation?.hashboardPosition;
+          return slot.occupied === false && !slot.hashboard && position !== undefined && position >= 1 && position <= 3
+            ? [position]
+            : [];
+        }),
         controlBoardIds: [],
         psuIds: [],
         fanIds: [],
@@ -801,7 +823,8 @@ export const toCanonicalContainer = (
     // of the module PSU input totals.
     powerCoverage: { kind: "unknown", includesNonHashboardLoads: false, methods: ["firmwareAggregate"] },
     efficiency: efficiencyMetric(statusWire.power, statusWire.hashrate, statusWire.efficiency),
-    temperature: latest(statusWire.averageAsicTemperatureC ?? statusWire.averageHashboardTemperatureC, "°C"),
+    temperature: boardSummary?.temperature ?? latest(statusWire.averageHashboardTemperatureC, "°C"),
+    averageAsicTemperature: boardSummary?.averageAsicTemperature ?? latest(statusWire.averageAsicTemperatureC, "°C"),
     miningStatus: miningStatus(statusWire.operatingState, statusWire.mining),
     boardCount: statusWire.totalBoards ?? boardSummary?.boardCount,
     onlineBoardCount: statusWire.activeBoards ?? boardSummary?.onlineBoardCount,

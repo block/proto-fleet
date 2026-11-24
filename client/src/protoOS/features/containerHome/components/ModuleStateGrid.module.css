@@ -1,0 +1,30 @@
+.grid {
+  --module-fill: var(--color-surface-overlay);
+  --board-fill: var(--color-surface-10);
+  --diagram-stroke: var(--color-border-10);
+}
+
+:global([data-theme="dark"]) .grid {
+  --board-fill: var(--color-surface-20);
+}
+
+.module {
+  background-color: var(--module-fill);
+  border-color: var(--diagram-stroke);
+}
+
+.board {
+  border-color: var(--diagram-stroke);
+}
+
+.board + .board {
+  border-left-width: 0;
+}
+
+.hashing {
+  background-color: var(--board-fill);
+}
+
+.inactive {
+  background-color: transparent;
+}

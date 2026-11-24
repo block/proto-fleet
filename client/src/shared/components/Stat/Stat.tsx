@@ -23,6 +23,7 @@ const Stat = ({
   chartPercentage,
   chartStatus = chartStatusConstants.neutral as ChartStatus,
   valueClassName,
+  valueSuffix,
 }: StatProps) => {
   // initially set scale to 0 for animation
   const [chartScale, setChartScale] = useState<number>(0);
@@ -78,12 +79,14 @@ const Stat = ({
           transition={{ duration: 0.5, ease: easeGentle }}
           className={clsx(
             "overflow-hidden overflow-ellipsis whitespace-nowrap text-text-primary",
+            valueSuffix && "flex flex-wrap items-baseline gap-x-3 gap-y-1",
             size === "large" && "text-heading-300",
             size === "medium" && "text-heading-200",
             size === "small" && "text-heading-100",
           )}
         >
           <span className={valueClassName}>{preformatted ? value : getDisplayValue(value)}</span> {units ? units : null}
+          {valueSuffix ? <span className="text-200 font-normal text-text-primary-50">{valueSuffix}</span> : null}
         </motion.div>
       )}
       {icon ? <div className="absolute top-0 right-0">{icon}</div> : null}

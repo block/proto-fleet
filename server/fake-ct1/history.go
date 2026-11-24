@@ -27,7 +27,7 @@ func (s *ContainerState) recordSample() recordedSample {
 	sample := recordedSample{At: s.sampleTime, Plant: s.containerTelemetry(), Boards: make([]recordedBoard, 0, s.BoardCount())}
 	for _, b := range s.eachBoard() {
 		v := s.boardSample(b)
-		sample.Boards = append(sample.Boards, recordedBoard{v.Hashrate, v.Power, v.AsicTemp, b.isMining()})
+		sample.Boards = append(sample.Boards, recordedBoard{v.Hashrate, v.Power, v.BoardTemp, b.isMining()})
 	}
 	return sample
 }
@@ -94,7 +94,7 @@ func (v recordedSample) metric(metric, identifier string, boardIndex int) (float
 			if boardIndex >= 0 && boardIndex != i {
 				continue
 			}
-			if !b.Mining {
+			if !b.Mining && metric != timeSeriesMetricTemperature {
 				continue
 			}
 			count++
