@@ -441,18 +441,32 @@ export function createPoolAssignment(
         total: attempt.configurationOnly ? 0 : attempt.macs.length,
         blockers,
       };
+      const pendingOperations = groups.pendingOperations?.filter(
+        (operation) => !["COMPLETE", "FAILED"].includes(operation.phase ?? ""),
+      );
+      const unusedConfiguration =
+        !attempt.configurationOnly &&
+        attempt.configurationConfirmed &&
+        destination?.name &&
+        destination.externalRef === LOCAL_REF + attempt.id &&
+        assigned.size === 0 &&
+        !pendingOperations?.some(
+          (operation) => operation.destinationGroupId === destination.id || operation.sourceGroupId === destination.id,
+        )
+          ? `The configuration “${destination.name}” is saved without assigned hashboards. You can delete it in Settings → Pools.`
+          : undefined;
       if (operations.some((operation) => operation?.phase === "FAILED"))
         return {
           ...common,
           state: "failed",
-          message: "A pool transfer failed. Review the board status before making another change.",
+          message: unusedConfiguration
+            ? `A pool transfer failed. ${unusedConfiguration}`
+            : "A pool transfer failed. Review the board status before making another change.",
         };
       if (
         operations.some((operation) => operation && !["COMPLETE", "FAILED"].includes(operation.phase ?? "")) ||
-        groups.pendingOperations?.some(
-          (operation) =>
-            operation.macAddresses?.some((mac) => attempt.macs.includes(macKey(mac))) &&
-            !["COMPLETE", "FAILED"].includes(operation.phase ?? ""),
+        pendingOperations?.some((operation) =>
+          operation.macAddresses?.some((mac) => attempt.macs.includes(macKey(mac))),
         )
       )
         return {
@@ -513,9 +527,10 @@ export function createPoolAssignment(
         state: confirmed ? "partial" : "unknown",
         ...(confirmed && destination && attempt.configurationConfirmed ? { remainingMacs } : {}),
         message:
-          !destination && attempt.restoreLegacyMining
+          unusedConfiguration ??
+          (!destination && attempt.restoreLegacyMining
             ? "Review the pool change again when you are ready to continue."
-            : "The final assignment is not confirmed. Some changes may be saved. Check status before making another change.",
+            : "The final assignment is not confirmed. Some changes may be saved. Check status before making another change."),
       };
     });
   };

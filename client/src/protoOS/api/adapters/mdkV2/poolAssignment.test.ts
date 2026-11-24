@@ -50,7 +50,7 @@ const fixture = () => {
     ]),
     boardSlots: [A, B, C],
     pools: new Map<string, V2MiningGroupPoolRecord[]>([["default", [publicPool]]]),
-    operations: new Map<string, { id: string; phase: string; macAddresses: string[] }>(),
+    operations: new Map<string, { id: string; phase: string; macAddresses: string[]; destinationGroupId?: string }>(),
     mining: true,
   };
   const group = (id: string) => state.groups.find((group) => group.id === id)!;
@@ -94,7 +94,13 @@ const fixture = () => {
     }),
     miningGroupServiceGetMiningGroupCapability: vi.fn(() => response({ capability: state.capability })),
     miningGroupServiceListMiningGroups: vi.fn(() =>
-      response({ groups: state.groups, inventoryIssues: state.inventoryIssues }),
+      response({
+        groups: state.groups,
+        inventoryIssues: state.inventoryIssues,
+        pendingOperations: [...state.operations.values()].filter(
+          ({ phase }) => !["COMPLETE", "FAILED"].includes(phase),
+        ),
+      }),
     ),
     systemServiceListAuditEvents: vi.fn((_query: { action?: string; target?: string }) =>
       response({ events: [] as V2AuditEvent[] }),
@@ -1003,6 +1009,35 @@ describe("CT1 worker names", () => {
     expect(await service.status(track.mock.lastCall![0])).toMatchObject({ state: "unknown" });
   });
 
+  test.each([
+    { defect: "an unchanged revision", group: { defaultPoolRevision: "1" } },
+    { defect: "a different group ID", group: { id: "other" } },
+    { defect: "a different username", username: "account.region.other" },
+  ])("keeps the Default update unconfirmed when the receipt has $defect", async ({ group, username }) => {
+    const { service, client } = fixture();
+    const result = await review(service, { macs: [A, B, C] }, { [A]: "night", [B]: "night", [C]: "night" });
+    const update = client.miningGroupServiceUpdateDefaultMiningGroupWorkerNames.getMockImplementation()!;
+    client.miningGroupServiceUpdateDefaultMiningGroupWorkerNames.mockImplementationOnce(async (request) => {
+      const { data } = await update(request);
+      return {
+        data: {
+          group: { ...data.group, ...group },
+          pools: username ? data.pools.map((pool) => ({ ...pool, username })) : data.pools,
+        },
+      };
+    });
+    const track = vi.fn<(attempt: PoolAssignmentAttempt) => void>();
+    const saved = vi.fn();
+
+    await expect(service.applyWorkerNames(result, { track, saved })).rejects.toThrow(
+      "The controller did not confirm the saved Default worker names.",
+    );
+    expect(saved).not.toHaveBeenCalled();
+    const attempt = track.mock.lastCall![0];
+    expect(attempt.configurationConfirmed).toBe(false);
+    expect(await service.status(attempt)).toMatchObject({ state: "unknown" });
+  });
+
   test("never overwrites an account changed after the last read for a Default rename", async () => {
     const { service, state, client } = fixture();
     const target = { macs: [A, B, C] };
@@ -1174,6 +1209,53 @@ describe("CT1 worker names", () => {
     expect(state.pools.get("saved")).toEqual([publicPool]);
   });
 
+  test.each([
+    { phase: "STOPPING", expectedState: "pending" },
+    { phase: "FAILED", expectedState: "failed" },
+  ])(
+    "does not start the next worker-name split when the first transfer is $phase",
+    async ({ phase, expectedState }) => {
+      const { service, client, state } = fixture();
+      state.capability.poolCopySupported = true;
+      const result = await review(service, { macs: [A, B] }, { [A]: "first", [B]: "second" });
+      expect(result.groups).toHaveLength(2);
+      client.miningGroupServiceRequestMiningGroupTransfer.mockImplementationOnce(
+        async ({ sourceGroupId, destinationGroupId, macAddresses }) => {
+          for (const group of state.groups) {
+            if (group.id === sourceGroupId || group.id === destinationGroupId)
+              group.revision = String(Number(group.revision) + 1);
+          }
+          const operation = { id: "first-transfer", phase, macAddresses, destinationGroupId };
+          state.operations.set(operation.id, operation);
+          return { data: { operation } };
+        },
+      );
+      const track = vi.fn<(attempt: PoolAssignmentAttempt) => void>();
+      const saved = vi.fn();
+
+      vi.useFakeTimers();
+      try {
+        const applied = service.applyWorkerNames(result, { track, saved });
+        const expected = expect(applied).resolves.toMatchObject({
+          state: expectedState,
+          message:
+            phase === "FAILED"
+              ? expect.stringContaining("The configuration “first” is saved without assigned hashboards.")
+              : "Waiting for the controller to finish moving the selected hashboards.",
+        });
+        await vi.runAllTimersAsync();
+        await expected;
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(client.miningGroupServiceCreateMiningGroup).toHaveBeenCalledOnce();
+      expect(client.miningGroupServiceCopyMiningGroupPools).toHaveBeenCalledOnce();
+      expect(client.miningGroupServiceRequestMiningGroupTransfer).toHaveBeenCalledOnce();
+      expect(saved).not.toHaveBeenCalled();
+      expect(track.mock.lastCall![0]).toMatchObject({ macs: [A], unsubmittedWorkerNameBoards: 1 });
+    },
+  );
+
   test("rejects the whole review when the new names require too many groups", async () => {
     const { service, client, state } = fixture();
     state.capability.poolCopySupported = true;
@@ -1200,6 +1282,55 @@ describe("CT1 worker names", () => {
     expect(client.miningGroupServiceRequestMiningGroupTransfer).not.toHaveBeenCalled();
     expect(client.miningGroupServiceDeleteMiningGroup).not.toHaveBeenCalled();
     expect([...state.members.values()]).toEqual(["default", "default", "default"]);
+  });
+
+  test("keeps the copy unconfirmed and submits no transfer after an incomplete copy receipt", async () => {
+    const { service, state, client } = fixture();
+    state.capability.poolCopySupported = true;
+    const result = await review(service, { macs: [A] }, { [A]: "night" });
+    const copy = client.miningGroupServiceCopyMiningGroupPools.getMockImplementation()!;
+    client.miningGroupServiceCopyMiningGroupPools.mockImplementationOnce(async (...args) => {
+      const { data } = await copy(...args);
+      return { data: { ...data, pools: [] } };
+    });
+    const track = vi.fn<(attempt: PoolAssignmentAttempt) => void>();
+    const saved = vi.fn();
+
+    await expect(service.applyWorkerNames(result, { track, saved })).rejects.toThrow("incomplete pool update receipt");
+    expect(track.mock.lastCall![0].configurationConfirmed).toBe(false);
+    expect(client.miningGroupServiceRequestMiningGroupTransfer).not.toHaveBeenCalled();
+    expect(client.miningGroupServiceDeleteMiningGroup).not.toHaveBeenCalled();
+    expect(saved).not.toHaveBeenCalled();
+  });
+
+  test("names the unused pool configuration in recovery if the controller refuses the transfer", async () => {
+    const { service, state, client } = fixture();
+    state.capability.poolCopySupported = true;
+    const result = await review(service, { macs: [A] }, { [A]: "night" });
+    client.miningGroupServiceRequestMiningGroupTransfer.mockRejectedValueOnce(
+      Object.assign(new Error("Source pools changed"), { error: { code: Code.Aborted } }),
+    );
+    const track = vi.fn<(attempt: PoolAssignmentAttempt) => void>();
+
+    await expect(service.applyWorkerNames(result, { track, saved: vi.fn() })).rejects.toThrow("Source pools changed");
+    const attempt = track.mock.lastCall![0];
+    expect(await service.status(attempt)).toMatchObject({
+      state: "unknown",
+      message: "The configuration “night” is saved without assigned hashboards. You can delete it in Settings → Pools.",
+    });
+    expect(client.miningGroupServiceDeleteMiningGroup).not.toHaveBeenCalled();
+    expect(state.pools.get("local")?.[0].username).toBe("account.region.night");
+
+    state.operations.set("another-transfer", {
+      id: "another-transfer",
+      phase: "STOPPING",
+      macAddresses: [B],
+      destinationGroupId: "local",
+    });
+    expect((await service.status(attempt)).message).not.toContain("You can delete it");
+    state.operations.clear();
+    state.members.set(B, "local");
+    expect((await service.status(attempt)).message).not.toContain("You can delete it");
   });
 
   test("removes only the new empty group after a confirmed copy rejection", async () => {
