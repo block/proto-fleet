@@ -54,6 +54,7 @@ const map = {
                   health: {
                     hashrate: 2.5,
                     power: 40,
+                    timestamp: new Date().toISOString(),
                     temperatures: [60, 64],
                     averageAsicTemperatureC: 66,
                     hashrailOk: true,
@@ -228,35 +229,41 @@ describe("MDK v2 CT1 normalization", () => {
     expect(useMinerStore.getState().telemetry.hashboards.get(first.hashboardId)?.reportedIssueCount).toBeNull();
   });
 
-  test.each(["disconnected", "expired"])("excludes %s temperatures from live rollups", (reason) => {
-    const wire: V2GetContainerMapResponse = structuredClone(map);
-    const slots = wire.containerMap!.tanks![0].modules![0].slots!;
-    const board = slots[0].hashboard!;
-    board.health!.temperatures = [78];
-    const health = board.health as NonNullable<V2Hashboard["health"]>;
-    health.timestamp = new Date(Date.now() - (reason === "expired" ? 120_000 : 0)).toISOString();
-    if (reason === "disconnected") board.miningState = V2MiningState.MINING_STATE_DISCONNECTED;
-    const check = (expected: number | null) => {
-      const { telemetry } = toCanonicalContainer(wire, { averageHashboardTemperatureC: 78 }, {}, "ct1");
-      for (const rollup of telemetry.rollupsByEntity.values()) {
-        if (rollup.boardCount === 0) continue;
-        expect(rollup.temperature?.latest?.value).toBe(expected);
-        expect(rollup.minimumTemperature?.latest?.value).toBe(expected);
-        expect(rollup.maximumTemperature?.latest?.value).toBe(expected);
-      }
-    };
-    check(null);
-    slots.push({
-      hashboard: {
-        ...board,
-        macAddress: "current",
-        miningState: V2MiningState.MINING_STATE_IDLE,
-        health: { ...board.health, timestamp: new Date().toISOString(), temperatures: [40] },
-      } as typeof board,
-      powerFeedId: "P1",
-    });
-    check(40);
-  });
+  test.each(["disconnected", "expired", "missing", "invalid", "future"])(
+    "excludes %s temperatures from live rollups",
+    (reason) => {
+      const wire: V2GetContainerMapResponse = structuredClone(map);
+      const slots = wire.containerMap!.tanks![0].modules![0].slots!;
+      const board = slots[0].hashboard!;
+      board.health!.temperatures = [78];
+      const health = board.health as NonNullable<V2Hashboard["health"]>;
+      health.timestamp = new Date(Date.now() - (reason === "expired" ? 120_000 : 0)).toISOString();
+      if (reason === "missing") delete health.timestamp;
+      if (reason === "invalid") health.timestamp = "invalid";
+      if (reason === "future") health.timestamp = new Date(Date.now() + 60_000).toISOString();
+      if (reason === "disconnected") board.miningState = V2MiningState.MINING_STATE_DISCONNECTED;
+      const check = (expected: number | null) => {
+        const { telemetry } = toCanonicalContainer(wire, { averageHashboardTemperatureC: 78 }, {}, "ct1");
+        for (const rollup of telemetry.rollupsByEntity.values()) {
+          if (rollup.boardCount === 0) continue;
+          expect(rollup.temperature?.latest?.value).toBe(expected);
+          expect(rollup.minimumTemperature?.latest?.value).toBe(expected);
+          expect(rollup.maximumTemperature?.latest?.value).toBe(expected);
+        }
+      };
+      check(null);
+      slots.push({
+        hashboard: {
+          ...board,
+          macAddress: "current",
+          miningState: V2MiningState.MINING_STATE_IDLE,
+          health: { ...board.health, timestamp: new Date().toISOString(), temperatures: [40] },
+        } as typeof board,
+        powerFeedId: "P1",
+      });
+      check(40);
+    },
+  );
 
   test("preserves tank layout and rolls up actual temperature extrema", () => {
     const result = toCanonicalContainer(
@@ -298,7 +305,11 @@ describe("MDK v2 CT1 normalization", () => {
   ])("rolls up only available ASIC averages within each tank: $readings", ({ readings, expected }) => {
     const board = (id: string, temperature: unknown) => ({
       macAddress: id,
-      health: { temperatures: [20, 30], averageAsicTemperatureC: temperature as number | undefined },
+      health: {
+        timestamp: new Date().toISOString(),
+        temperatures: [20, 30],
+        averageAsicTemperatureC: temperature as number | undefined,
+      },
     });
     const { telemetry } = toCanonicalContainer(
       {

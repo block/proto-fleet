@@ -11,7 +11,6 @@ import { getDisplayValue } from "@/shared/utils/stringUtils";
 
 const Stat = ({
   label,
-  labelClassName,
   value,
   preformatted = false,
   text,
@@ -44,8 +43,7 @@ const Stat = ({
           role="heading"
           aria-level={headingLevel}
           className={clsx(
-            "text-heading-50 transition-opacity duration-500",
-            labelClassName ?? "text-text-primary-50",
+            "text-heading-50 text-text-primary-50 transition-opacity duration-500",
             value === undefined ? "opacity-30" : "opacity-100",
           )}
         >

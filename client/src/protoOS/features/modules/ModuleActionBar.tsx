@@ -15,7 +15,7 @@ const ModuleActionBar = ({
 }) =>
   createPortal(
     <ActionBar
-      className={`fixed right-0 bottom-4 left-0 z-30 laptop:left-60 ${hidden ? "invisible" : ""}`}
+      className={`fixed right-0 bottom-4 left-0 z-30 laptop:left-50 ${hidden ? "invisible" : ""}`}
       selectedItems={selected}
       itemNoun={{ singular: "module", plural: "modules" }}
       onClose={clear}

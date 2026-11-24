@@ -30,7 +30,7 @@ const moduleSnapshot = (readings: { power?: number; temperatures?: number[] }[])
               slots: [1, 2, 3].map((slot) => ({
                 hashboard: {
                   serial: `module-${index + 1}-board-${slot}`,
-                  health: { temperatures, psuElectrical: { inputPower: power } },
+                  health: { timestamp: new Date().toISOString(), temperatures, psuElectrical: { inputPower: power } },
                 },
               })),
             })),
@@ -92,7 +92,11 @@ describe("Home live module summaries", () => {
                                   hashboard: {
                                     serial: "board-1",
                                     moduleId: "T1-M01",
-                                    health: { temperatures: [20], psuElectrical: { inputPower: 4000 } },
+                                    health: {
+                                      timestamp: new Date().toISOString(),
+                                      temperatures: [20],
+                                      psuElectrical: { inputPower: 4000 },
+                                    },
                                   },
                                 },
                               ]

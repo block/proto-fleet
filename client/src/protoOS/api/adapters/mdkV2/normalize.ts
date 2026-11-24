@@ -73,6 +73,7 @@ import {
 import type { HashboardHardwareData } from "@/protoOS/store/types";
 import { createEmptyTelemetryState } from "@/protoOS/store/utils/createEmptyTelemetryState";
 import { efficiencyValue } from "@/protoOS/store/utils/efficiency";
+import { observationTime, readingStatus } from "@/protoOS/store/utils/readingFreshness";
 import { containerAsicPlacement } from "@/shared/utils/containerAsicLayout";
 
 export const CT1_COMMANDS: CommandCapabilities = {
@@ -154,18 +155,17 @@ const miningStatus = (value: string | undefined, mining?: boolean): MiningStatus
   }
 };
 
+// Rails/clocks are only required while hashing. Idle boards can power them
+// down, and disconnected boards cannot report verified live indicators.
+const hasBoardOperatingFault = (board: V2Hashboard): boolean =>
+  board.miningState === V2MiningState.MINING_STATE_ERROR ||
+  (board.miningState === V2MiningState.MINING_STATE_MINING &&
+    (board.health?.hashrailOk === false || board.health?.refclksOk === false));
+
 const healthState = (board: V2Hashboard): HealthState => {
   if (board.isolated) return "offline";
-  // Rails/clocks are only required while hashing. Idle boards can power them
-  // down, and disconnected boards cannot report verified live indicators.
-  // Explicit errors and warnings still take precedence over inactive states.
-  if (
-    board.miningState === V2MiningState.MINING_STATE_ERROR ||
-    board.health?.errors?.length ||
-    (board.miningState === V2MiningState.MINING_STATE_MINING &&
-      (board.health?.hashrailOk === false || board.health?.refclksOk === false))
-  )
-    return "fault";
+  // Overall health includes PSU reports; board severity below excludes them.
+  if (hasBoardOperatingFault(board) || board.health?.errors?.length) return "fault";
   if (board.health?.warnings?.length) return "degraded";
   if (!board.miningState || board.miningState === V2MiningState.MINING_STATE_UNSPECIFIED) return "unknown";
   if (
@@ -366,18 +366,13 @@ const boardRollup = (boards: BoardEntry[], power?: number): LevelRollup => {
     }
     return total;
   };
-  // Frigate retains the last health payload after a disconnect. A successful
-  // map request must not make that payload current again. Use the same two-minute
-  // health window as CT1 PSU observations when a source timestamp is supplied.
+  // A map response can retain old board health; only timestamped, current
+  // readings contribute to live temperature summaries, as with PSU readings.
   const now = Date.now();
   const temps = boards
     .flatMap(({ board }) => {
       if (board.miningState === V2MiningState.MINING_STATE_DISCONNECTED) return [];
-      const timestamp = board.health?.timestamp;
-      if (timestamp !== undefined) {
-        const at = Date.parse(timestamp);
-        if (!Number.isFinite(at) || at > now + 5_000 || now - at >= 120_000) return [];
-      }
+      if (readingStatus(observationTime(board.health?.timestamp, 0, now), now) !== "current") return [];
       return board.health?.temperatures ?? [];
     })
     .filter(Number.isFinite);
@@ -441,10 +436,7 @@ const toHashboardTelemetry = (entry: BoardEntry): HashboardTelemetry => ({
   isolated: entry.board.isolated ?? false,
   disconnected: entry.board.miningState === V2MiningState.MINING_STATE_DISCONNECTED,
   faultSeverity:
-    entry.board.health?.errors?.some((error) => !isPsuFaultCause(error.cause)) ||
-    entry.board.miningState === V2MiningState.MINING_STATE_ERROR ||
-    (entry.board.miningState === V2MiningState.MINING_STATE_MINING &&
-      (entry.board.health?.hashrailOk === false || entry.board.health?.refclksOk === false))
+    entry.board.health?.errors?.some((error) => !isPsuFaultCause(error.cause)) || hasBoardOperatingFault(entry.board)
       ? "critical"
       : entry.board.health?.warnings?.some((warning) => !isPsuFaultCause(warning.cause))
         ? "warning"

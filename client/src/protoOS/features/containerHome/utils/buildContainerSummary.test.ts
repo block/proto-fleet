@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildIssueSummary, buildModuleGrid } from "./buildContainerSummary";
+import { moduleFixture } from "@/protoOS/api/adapters/mdkV2/moduleFixtures";
 import { toCanonicalContainer } from "@/protoOS/api/adapters/mdkV2/normalize";
 import type {
   ComponentId,
@@ -225,7 +226,7 @@ it.each([
   expect(cell?.boards[2]).toBe(boardState);
 });
 
-it("uses warning severity without treating a module PSU report as a board fault", () => {
+it("uses board fault severity instead of overall health for board colors", () => {
   const { hardware, telemetry } = toCanonicalContainer(
     {
       containerMap: {
@@ -298,5 +299,35 @@ it("does not mark a fully accounted-for partial module unknown", () => {
   expect(buildModuleGrid(hardware, telemetry, [], "", 1_000)?.tanks[0].modules[0]).toMatchObject({
     state: "healthy",
     boards: ["healthy", "healthy", "empty"],
+  });
+});
+
+it.each([
+  ["psu", "critical"],
+  ["psu", "warning"],
+  ["module", "critical"],
+  ["module", "warning"],
+] as const)("shows %s %s faults on the module without coloring healthy boards", (source, severity) => {
+  const { hardware, telemetry } = moduleFixture();
+  const topology = hardware.topology;
+  if (topology?.kind !== "container") throw new Error("expected container");
+  const module = [...topology.modules.values()][0];
+  const errors: MinerError[] = [];
+  if (source === "psu") {
+    telemetry.psus.get(module.psuIds[0])!.health = severity === "critical" ? "fault" : "degraded";
+  } else {
+    errors.push({
+      id: "module-fault",
+      code: "module-fault",
+      message: "Module fault",
+      owner: { kind: "module", id: module.id },
+      severity,
+    });
+  }
+  const grid = buildModuleGrid(hardware, telemetry, errors, "");
+  expect(grid?.tanks[0].modules.find((item) => item.id === module.id)).toMatchObject({
+    state: "attention",
+    attentionSeverity: severity,
+    boards: ["healthy", "healthy", "healthy"],
   });
 });

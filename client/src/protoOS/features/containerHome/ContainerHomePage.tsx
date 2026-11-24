@@ -61,8 +61,8 @@ export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
           (module) => module.tankId === selectedTank.id && module.location?.moduleSlot === selectedLocation?.moduleSlot,
         )
       : undefined;
-  // Clear removed locations before rendering; a later map must not reopen them.
-  if (selectedLocation && !selectedModule) setSelectedLocation(undefined);
+  // Clear selection on exit or removal so returning cannot reopen the dialog.
+  if (selectedLocation && (tab !== "overview" || !selectedModule)) setSelectedLocation(undefined);
   const selectModule = (module: ModuleNode | undefined) => {
     const tank = topology?.kind === "container" && module?.tankId ? topology.tanks.get(module.tankId) : undefined;
     setSelectedLocation(

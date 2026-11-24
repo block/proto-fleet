@@ -38,14 +38,6 @@ export interface LocationReading extends HomeReading {
   amount: number | null;
 }
 
-export interface CategorySummary {
-  id: string;
-  label: string;
-  high: string;
-  low: string;
-  average: string;
-}
-
 export interface ModuleGridCell {
   id: string;
   label: string;

@@ -52,6 +52,8 @@ interface ModalProps {
   testId?: string;
   forceTitleCollapsed?: boolean;
   manageFocus?: boolean;
+  /** Keep a covered dialog mounted without exposing its controls. */
+  inert?: boolean;
   initialFocus?: "firstControl" | "dialog";
   /** Preserve scroll separately for each step of an in-modal navigation flow. */
   navigationKey?: string;
@@ -84,6 +86,7 @@ const Modal = ({
   testId = "modal",
   forceTitleCollapsed = false,
   manageFocus = false,
+  inert = false,
   initialFocus = "firstControl",
   navigationKey,
   fixedFooter,
@@ -183,6 +186,8 @@ const Modal = ({
   return (
     <PageOverlay open={open} position="top" {...(zIndex && { zIndex })}>
       <div
+        inert={inert}
+        aria-hidden={inert || undefined}
         role={dialogLabel ? "dialog" : undefined}
         aria-modal={dialogLabel ? true : undefined}
         tabIndex={manageFocus ? -1 : undefined}

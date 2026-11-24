@@ -2,7 +2,6 @@
 export { default as Dashboard } from "./pages/Dashboard";
 
 // Dashboard components
-export { default as ChartWidget } from "@/shared/components/ChartWidget";
 export { default as SectionHeading } from "./components/SectionHeading";
 
 // Types

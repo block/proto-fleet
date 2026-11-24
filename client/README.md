@@ -527,8 +527,8 @@ history, so moving or replacing a board does not merge its telemetry with anothe
 board. See [CT1 hashboard inventory and telemetry](../docs/development/ct1-hashboards.md).
 
 `protoFleet/features/containers` owns the page and container presentation;
-Fleet's dashboard owns `ChartWidget`. App-neutral primitives and telemetry
-formatters remain in `shared`. ProtoOS owns its on-device Systems view, adapters,
+`shared/components` owns `ChartWidget`, which both apps use. App-neutral
+primitives and telemetry formatters remain in `shared`. ProtoOS owns its on-device Systems view, adapters,
 and controls. Fan readings and equipment-control states are not collected by
 Fleet yet, so this page identifies those gaps and offers no device commands.
 

@@ -3,7 +3,6 @@ import { ChartStatus } from "@/shared/components/Stat/constants";
 
 export type StatProps = {
   label: string;
-  labelClassName?: string;
   value?: number | string;
   /** Preserve an already-formatted value, including integer counts. */
   preformatted?: boolean;

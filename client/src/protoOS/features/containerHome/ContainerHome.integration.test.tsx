@@ -101,7 +101,12 @@ describe("container Home integration", () => {
                     {
                       hashboard: {
                         serial: "HB-1",
-                        health: { hashrate: 100, temperatures: [60, 70], averageAsicTemperatureC: 75 },
+                        health: {
+                          timestamp: new Date().toISOString(),
+                          hashrate: 100,
+                          temperatures: [60, 70],
+                          averageAsicTemperatureC: 75,
+                        },
                       },
                     },
                   ],
@@ -710,7 +715,11 @@ describe("container Home integration", () => {
                   {
                     hashboard: {
                       serial: "HB-1",
-                      health: { temperatures: [20], psuElectrical: { inputPower: 4000 } },
+                      health: {
+                        timestamp: new Date().toISOString(),
+                        temperatures: [20],
+                        psuElectrical: { inputPower: 4000 },
+                      },
                     },
                   },
                 ],
@@ -822,23 +831,41 @@ describe("container Home integration", () => {
     mocks.adapter.getCurrentTelemetry.mockResolvedValue(fixture.telemetry);
     const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/?keep=value"] });
     render(<RouterProvider router={router} />);
-    fireEvent.click(screen.getByRole("button", { name: /^Tank 1 module 1,/ }));
+    const tile = screen.getByRole("button", { name: /^Tank 1 module 1,/ });
+    tile.focus();
+    fireEvent.click(tile);
     const module = await screen.findByRole("dialog", { name: "Modules" });
-    fireEvent.click(within(module).getAllByRole("button", { name: "View" })[0]);
+    const view = within(module).getAllByRole("button", { name: "View" })[0];
+    view.focus();
+    fireEvent.click(view);
     const board = await screen.findByRole("dialog", { name: "Hashboards" });
     expect(router.state.location.pathname).toBe("/miners/ct1/");
     fireEvent.click(within(board).getByRole("button", { name: "Board 1" }));
     fireEvent.click(await screen.findByRole("button", { name: "Board 2" }));
     expect(within(board).getByRole("button", { name: "Board 2" })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/miners/ct1/");
+    within(board).getByRole("button", { name: "Back to module" }).focus();
     if (dismiss === "Escape") fireEvent.keyDown(document, { key: "Escape" });
     else fireEvent.click(within(board).getByRole("button", { name: dismiss }));
     const restored = await screen.findByRole("dialog", { name: "Modules" });
+    await waitFor(() => expect(view).toHaveFocus());
     fireEvent.click(within(restored).getByRole("button", { name: "Close dialog" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(router.state.location.pathname).toBe("/miners/ct1/");
+    expect(tile).toHaveFocus();
     expect(router.state.location.search).toBe("?keep=value");
     expect(screen.getByRole("heading", { name: "Container overview" })).toBeInTheDocument();
+  });
+
+  it("clears the selected module when leaving Overview for System", async () => {
+    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+    render(<RouterProvider router={router} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Tank 1 module 1,/ }));
+    expect(await screen.findByRole("dialog", { name: "Modules" })).toBeInTheDocument();
+    await act(() => router.navigate("/miners/ct1/?view=system"));
+    expect(screen.queryByRole("dialog", { name: "Modules" })).not.toBeInTheDocument();
+    await act(() => router.navigate("/miners/ct1/"));
+    expect(screen.queryByRole("dialog", { name: "Modules" })).not.toBeInTheDocument();
   });
 
   it("keeps the selected slot across module ID changes and clears removed locations", async () => {
