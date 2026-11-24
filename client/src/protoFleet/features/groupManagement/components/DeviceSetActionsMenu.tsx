@@ -221,12 +221,8 @@ const DeviceSetActionsMenuInner = ({
     popoverActions,
     handleConfirmation,
     handleCancel,
-    handleMiningPoolSuccess,
-    handleMiningPoolError,
-    handleMiningPoolWarning,
     showPoolSelectionPage,
     poolFilteredDeviceIds,
-    fleetCredentials,
     showManagePowerModal,
     handleManagePowerConfirm,
     handleManagePowerDismiss,
@@ -665,15 +661,10 @@ const DeviceSetActionsMenuInner = ({
 
       {/* Modal dialogs */}
       <PoolSelectionPageWrapper
-        open={showPoolSelectionPage ? !!fleetCredentials : false}
+        open={showPoolSelectionPage}
         selectedMiners={poolMiners}
         selectionMode={"subset" as SelectionMode}
         poolNeededCount={poolFilteredDeviceIds ? poolFilteredDeviceIds.length : actionMemberDeviceIds.length}
-        userUsername={fleetCredentials?.username}
-        userPassword={fleetCredentials?.password}
-        onSuccess={handleMiningPoolSuccess}
-        onError={handleMiningPoolError}
-        onWarning={handleMiningPoolWarning}
         onDismiss={handleCancel}
       />
       <ManagePowerModal

@@ -23,9 +23,9 @@ func TestSQLCurtailmentStore_BeginRecurtailTransition_OverlapRollsBack(t *testin
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	db := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	db := testContext.DB
 	ctx := t.Context()
 	store := sqlstores.NewSQLCurtailmentStore(db)
 
@@ -97,9 +97,9 @@ func TestSQLCurtailmentStore_ForceReleaseEvent_CancelsEventAndReleasesTargets(t 
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	db := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	db := testContext.DB
 	ctx := t.Context()
 	store := sqlstores.NewSQLCurtailmentStore(db)
 
@@ -168,11 +168,11 @@ func TestSQLCurtailmentStore_ForceReleaseEvent_UnblocksClosedLoopFullFleetPrefli
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	device := testContext.DatabaseService.CreateDevice(user.OrganizationID, "proto")
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	device := testContext.CreateDevice(user.OrganizationID, "proto")
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 
 	eventUUID := uuid.New()
 	_, err := store.InsertEventWithTargets(
@@ -205,10 +205,10 @@ func TestSQLCurtailmentStore_ForceReleaseEvent_NoopsTerminalEvents(t *testing.T)
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 
 	eventUUID := uuid.New()
 	_, err := store.InsertEventWithTargets(
@@ -240,9 +240,9 @@ func TestSQLCurtailmentStore_BeginRecurtailTransition_ReopensResolvedTarget(t *t
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	db := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	db := testContext.DB
 	ctx := t.Context()
 	store := sqlstores.NewSQLCurtailmentStore(db)
 
@@ -328,9 +328,9 @@ func TestSQLCurtailmentStore_ClosedLoopScopeHierarchyConflicts(t *testing.T) {
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	db := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	db := testContext.DB
 	ctx := t.Context()
 	store := sqlstores.NewSQLCurtailmentStore(db)
 	siteStore := sqlstores.NewSQLSiteStore(db)
@@ -391,9 +391,9 @@ func TestSQLCurtailmentStore_ClosedLoopMixedSiteScopeHierarchyConflicts(t *testi
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	db := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	db := testContext.DB
 	ctx := t.Context()
 	store := sqlstores.NewSQLCurtailmentStore(db)
 	siteStore := sqlstores.NewSQLSiteStore(db)
@@ -467,14 +467,14 @@ func TestSQLCurtailmentStore_ListActiveCurtailedDevicesIncludesTargetlessMixedSi
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	db := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	db := testContext.DB
 	ctx := t.Context()
 	store := sqlstores.NewSQLCurtailmentStore(db)
 	siteStore := sqlstores.NewSQLSiteStore(db)
 
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(user.OrganizationID, 3, "https://172.17.0.1:80")
+	deviceIDs := testContext.CreateTestMiners(user.OrganizationID, 3, "https://172.17.0.1:80")
 	siteA, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: user.OrganizationID, Name: "active-site-a"})
 	require.NoError(t, err)
 	siteB, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: user.OrganizationID, Name: "active-site-b"})
@@ -511,10 +511,10 @@ func TestSQLCurtailmentStore_FixedKwDoesNotBlockClosedLoopScope(t *testing.T) {
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 
 	fixedKw := curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, uuid.New(), models.EventStateActive, "fixed-kw")
 	fixedKw.ScopeType = models.ScopeTypeWholeOrg
@@ -537,10 +537,10 @@ func TestSQLCurtailmentStore_ClosedLoopScopeConflictPreservesIdempotentReplay(t 
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 
 	event := curtailmentStoreClosedLoopFullFleetEvent(user.OrganizationID, user.DatabaseID, uuid.New(), models.ScopeTypeWholeOrg, 0, "idempotent")
 	idempotencyKey := "closed-loop-idempotent"
@@ -559,10 +559,10 @@ func TestSQLCurtailmentStore_ClaimClosedLoopFullFleetTargets(t *testing.T) {
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 
 	source, err := store.InsertEventWithTargets(
 		ctx,
@@ -609,10 +609,10 @@ func TestSQLCurtailmentStore_BeginRestoreTransition_CompletesTargetlessClosedLoo
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 
 	eventUUID := uuid.New()
 	_, err := store.InsertEventWithTargets(

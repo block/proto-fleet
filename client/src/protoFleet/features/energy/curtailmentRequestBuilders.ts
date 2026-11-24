@@ -1,5 +1,4 @@
 import { create } from "@bufbuild/protobuf";
-
 import {
   buildCurtailmentScopes,
   curtailmentScopeSchemaVersion,
@@ -7,12 +6,14 @@ import {
   normalizeCurtailmentSelectionValues,
   parseCurtailmentTargetId,
 } from "@/protoFleet/api/curtailmentScopes";
+import type { CurtailmentSubmitValues } from "@/protoFleet/api/curtailmentTypes";
+import { toApiCurtailmentPriority } from "@/protoFleet/api/curtailmentUtils";
+
 import {
   type FixedKwParams,
   FixedKwParamsSchema,
   CurtailmentLevel as ProtoCurtailmentLevel,
   CurtailmentMode as ProtoCurtailmentMode,
-  CurtailmentPriority as ProtoCurtailmentPriority,
   CurtailmentStrategy as ProtoCurtailmentStrategy,
   type StartCurtailmentRequest,
   StartCurtailmentRequestSchema,
@@ -24,7 +25,6 @@ import {
   getOptionalUint32Setting,
   parseOptionalUint32Field,
 } from "@/protoFleet/features/energy/curtailmentNumericFields";
-import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
 type OptionalUint32FieldOptions = Parameters<typeof parseOptionalUint32Field>[1];
 
@@ -165,10 +165,6 @@ function getChangedUpdateUint32Setting(
   return getChangedParsedUpdateUint32Setting(nextValue, initialValue, options);
 }
 
-function getPriority(priority: CurtailmentSubmitValues["priority"]): ProtoCurtailmentPriority {
-  return priority === "emergency" ? ProtoCurtailmentPriority.EMERGENCY : ProtoCurtailmentPriority.NORMAL;
-}
-
 function buildFixedKwParams(values: CurtailmentSubmitValues): FixedKwParams {
   return create(FixedKwParamsSchema, {
     targetKw: Number(values.targetKw),
@@ -256,7 +252,7 @@ function buildCurtailmentRequestFields(values: CurtailmentSubmitValues): Curtail
     // Server defaults unspecified strategy to least-efficient-first.
     strategy: ProtoCurtailmentStrategy.UNSPECIFIED,
     level: ProtoCurtailmentLevel.FULL,
-    priority: getPriority(values.priority),
+    priority: toApiCurtailmentPriority(values.priority),
     postEventCooldownSec: getOptionalUint32Setting(values.postEventCooldownSec ?? "", postEventCooldownOptions),
     ...buildForceInclusionFields(values),
   };
@@ -276,6 +272,12 @@ export function buildStartCurtailmentRequest(values: CurtailmentSubmitValues): S
     throw new Error("Enter curtail batch size before adding a curtail batch interval.");
   }
 
+  const minCurtailedDurationSec = getOptionalUint32Setting(values.minDurationSec, minCurtailedDurationOptions);
+  const maxDurationSeconds = getOptionalUint32Setting(values.maxDurationSec, maxDurationOptions);
+  if (maxDurationSeconds > 0 && minCurtailedDurationSec > maxDurationSeconds) {
+    throw new Error("Minimum curtailed duration cannot exceed max duration.");
+  }
+
   const facilityFanDeviceIds = [
     ...new Set(
       normalizeCurtailmentSelectionValues(values.facilityFanDeviceIds ?? []).map((value) => {
@@ -291,12 +293,12 @@ export function buildStartCurtailmentRequest(values: CurtailmentSubmitValues): S
   return create(StartCurtailmentRequestSchema, {
     ...buildCurtailmentRequestFields(values),
     ...responseProfileExecutionFields,
-    maxDurationSeconds: getOptionalUint32Setting(values.maxDurationSec, maxDurationOptions),
+    maxDurationSeconds,
     curtailBatchSize,
     curtailBatchIntervalSec,
     restoreBatchSize: getOptionalUint32Setting(values.restoreBatchSize, restoreBatchSizeOptions),
     restoreBatchIntervalSec: getOptionalUint32Setting(values.restoreIntervalSec, restoreBatchIntervalOptions),
-    minCurtailedDurationSec: getOptionalUint32Setting(values.minDurationSec, minCurtailedDurationOptions),
+    minCurtailedDurationSec,
     facilityFanDeviceIds,
     fanOffDelaySec: getOptionalUint32Setting(values.fanOffDelaySec ?? "", fanOffDelayOptions),
     fanRestoreDelaySec: getOptionalUint32Setting(values.fanRestoreDelaySec ?? "", fanRestoreDelayOptions),

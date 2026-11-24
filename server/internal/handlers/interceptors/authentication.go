@@ -8,12 +8,18 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1/poolconfigurationsv1connect"
+
+	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/hosted/v1/hostedv1connect"
+
 	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
@@ -25,7 +31,12 @@ type EffectivePermissionResolver interface {
 	LoadEffective(ctx context.Context, userID, organizationID int64) (*authz.EffectivePermissions, error)
 }
 
+type AccountKeyAuthorizer interface {
+	Authorize(ctx context.Context, keyID, issuerID, orgID int64, targetID string) (hostedaccounts.Capabilities, error)
+}
+
 type AuthInterceptor struct {
+	accountKeys        AccountKeyAuthorizer
 	sessionService     *session.Service
 	userStore          interfaces.UserStore
 	userMgmtStore      interfaces.UserManagementStore
@@ -44,6 +55,7 @@ func NewAuthInterceptor(
 	userMgmtStore interfaces.UserManagementStore,
 	apiKeyService *apikey.Service,
 	permissionResolver EffectivePermissionResolver,
+	accountKeys AccountKeyAuthorizer,
 	allowedProcedures []string,
 	sessionOnlyProcedures []string,
 	agentAuthProcedures []string,
@@ -69,6 +81,7 @@ func NewAuthInterceptor(
 		userMgmtStore:      userMgmtStore,
 		apiKeyService:      apiKeyService,
 		permissionResolver: permissionResolver,
+		accountKeys:        accountKeys,
 		allowList:          allowList,
 		sessionOnlyList:    sessionOnlyList,
 		agentAuthList:      agentAuthList,
@@ -137,6 +150,32 @@ func (i *AuthInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc
 }
 
 func (i *AuthInterceptor) authenticate(ctx context.Context, procedure string, requestHeader http.Header) (context.Context, error) {
+	ctx, err := captureRequestAccount(ctx, requestHeader)
+	if err != nil {
+		return ctx, err
+	}
+	if _, selected := hostedaccounts.RequestAccountID(ctx); !selected && requiresSelectedAccount(procedure) {
+		return ctx, fleeterror.NewForbiddenError("account endpoints require an explicitly selected account workspace")
+	}
+	if _, selected := hostedaccounts.RequestAccountID(ctx); selected && !allowsSelectedAccount(procedure) {
+		return ctx, fleeterror.NewForbiddenError("this endpoint is not available in an account workspace")
+	}
+	// Only explicitly classified account operations accept bounded machine keys.
+	// Exemption lists cannot widen account or interactive credential access.
+	if strings.HasPrefix(procedure, hostedAccountProcedurePrefix) {
+		authed, err := i.authenticateRequest(ctx, requestHeader, !allowsAccountKey(procedure))
+		if err != nil {
+			return ctx, err
+		}
+		info, err := session.GetInfo(authed)
+		if err != nil {
+			return ctx, err
+		}
+		if info.AuthMethod == session.AuthMethodAPIKey && !info.AccountKey {
+			return ctx, fleeterror.NewForbiddenError("organization keys cannot access customer accounts")
+		}
+		return authed, nil
+	}
 	if _, ok := i.allowList[procedure]; ok {
 		return ctx, nil
 	}
@@ -150,7 +189,158 @@ func (i *AuthInterceptor) authenticate(ctx context.Context, procedure string, re
 // AuthenticateRequest authenticates raw HTTP requests using the same credentials,
 // identity and live permissions as Connect RPCs. Procedure exemptions never apply.
 func (i *AuthInterceptor) AuthenticateRequest(ctx context.Context, requestHeader http.Header) (context.Context, error) {
+	ctx, err := captureRequestAccount(ctx, requestHeader)
+	if err != nil {
+		return ctx, err
+	}
+	if _, selected := hostedaccounts.RequestAccountID(ctx); selected {
+		return ctx, fleeterror.NewForbiddenError("raw HTTP endpoints are not available in an account workspace")
+	}
 	return i.authenticateRequest(ctx, requestHeader, false)
+}
+
+const hostedAccountProcedurePrefix = "/hosted.v1.HostedAccountService/"
+
+// Account workspace operations belong to a selected customer workspace. Host
+// account administration deliberately continues to allow omitted selection.
+func requiresSelectedAccount(procedure string) bool {
+	switch procedure {
+	case hostedv1connect.HostedAccountServiceListAccountReportsProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountReportProcedure,
+		hostedv1connect.HostedAccountServiceGenerateAccountAnalysisProcedure,
+		hostedv1connect.HostedAccountServiceDeleteAccountAnalysisProcedure,
+		hostedv1connect.HostedAccountServiceListAccountAnalysesProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountAnalysisProcedure,
+		hostedv1connect.HostedAccountServiceExportAccountAnalysisProcedure,
+		hostedv1connect.HostedAccountServiceExportAccountReportProcedure,
+		hostedv1connect.HostedAccountServiceListAccountTicketsProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountTicketProcedure,
+		hostedv1connect.HostedAccountServiceCreateAccountTicketProcedure,
+		hostedv1connect.HostedAccountServiceCommentAccountTicketProcedure,
+		hostedv1connect.HostedAccountServiceChangeAccountTicketStatusProcedure,
+		hostedv1connect.HostedAccountServiceListAccountTicketAssetsProcedure,
+		hostedv1connect.HostedAccountServiceListAccountActivitiesProcedure,
+		hostedv1connect.HostedAccountServiceExportAccountActivitiesProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountDashboardProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountAssetDetailProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountMiningSummaryProcedure,
+		hostedv1connect.HostedAccountServiceListAccountAssetsProcedure,
+		hostedv1connect.HostedAccountServiceAssignAccountAssetsProcedure,
+		hostedv1connect.HostedAccountServiceReplaceAccountHashboardProcedure:
+		return true
+	default:
+		return false
+	}
+}
+
+func allowsAccountKey(procedure string) bool {
+	switch procedure {
+	case poolconfigurationsv1connect.PoolConfigurationServiceCreateConfigurationProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceGetConfigurationProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceListConfigurationsProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceDuplicateConfigurationProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceArchiveConfigurationProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceTestConnectionProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceConfirmReviewProcedure:
+		return true
+	case hostedv1connect.HostedAccountServiceGetAccountProcedure, hostedv1connect.HostedAccountServiceGetSitePolicyProcedure:
+		return true
+	default:
+		return false
+	}
+}
+
+func allowsSelectedAccount(procedure string) bool {
+	// This is intentionally an exact list: new services or methods need an
+	// explicit decision before they can be called from a customer workspace.
+	// Invitation redemption precedes selection and is excluded.
+	switch procedure {
+	case poolconfigurationsv1connect.PoolConfigurationServiceGetAssignmentsProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceCheckConfigurationProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceReadDevicePoolsProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceReviewAssignmentProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceGetOperationProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceReviewRetryProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceListOperationsProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceCreateConfigurationProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceGetConfigurationProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceListConfigurationsProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceDuplicateConfigurationProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceSetDefaultConfigurationProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceArchiveConfigurationProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceTestConnectionProcedure,
+		poolconfigurationsv1connect.PoolConfigurationServiceConfirmReviewProcedure:
+		return true
+	case hostedv1connect.HostedAccountServiceListAccountReportsProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountReportProcedure,
+		hostedv1connect.HostedAccountServiceGenerateAccountAnalysisProcedure,
+		hostedv1connect.HostedAccountServiceDeleteAccountAnalysisProcedure,
+		hostedv1connect.HostedAccountServiceListAccountAnalysesProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountAnalysisProcedure,
+		hostedv1connect.HostedAccountServiceExportAccountAnalysisProcedure,
+		hostedv1connect.HostedAccountServiceExportAccountReportProcedure,
+		hostedv1connect.HostedAccountServiceListAccountTicketsProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountTicketProcedure,
+		hostedv1connect.HostedAccountServiceCreateAccountTicketProcedure,
+		hostedv1connect.HostedAccountServiceCommentAccountTicketProcedure,
+		hostedv1connect.HostedAccountServiceChangeAccountTicketStatusProcedure,
+		hostedv1connect.HostedAccountServiceListAccountTicketAssetsProcedure,
+		hostedv1connect.HostedAccountServiceListAccountActivitiesProcedure,
+		hostedv1connect.HostedAccountServiceExportAccountActivitiesProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountDashboardProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountAssetDetailProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountMiningSummaryProcedure,
+		hostedv1connect.HostedAccountServiceListAccountAssetsProcedure,
+		hostedv1connect.HostedAccountServiceAssignAccountAssetsProcedure,
+		hostedv1connect.HostedAccountServiceReplaceAccountHashboardProcedure,
+		hostedv1connect.HostedAccountServiceCreateAccountKeyProcedure,
+		hostedv1connect.HostedAccountServiceListAccountKeysProcedure,
+		hostedv1connect.HostedAccountServiceRevokeAccountKeyProcedure,
+		hostedv1connect.HostedAccountServiceListAccountsProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountProcedure,
+		hostedv1connect.HostedAccountServiceListChildrenProcedure,
+		hostedv1connect.HostedAccountServiceCreateAccountProcedure,
+		hostedv1connect.HostedAccountServiceConfigureAccountProcedure,
+		hostedv1connect.HostedAccountServiceRenameAccountProcedure,
+		hostedv1connect.HostedAccountServiceListMembersProcedure,
+		hostedv1connect.HostedAccountServiceSetMemberRoleProcedure,
+		hostedv1connect.HostedAccountServiceRevokeMemberProcedure,
+		hostedv1connect.HostedAccountServiceListAncestorGrantsProcedure,
+		hostedv1connect.HostedAccountServiceSetAncestorGrantProcedure,
+		hostedv1connect.HostedAccountServiceRevokeAncestorGrantProcedure,
+		hostedv1connect.HostedAccountServiceSetSitePolicyProcedure,
+		hostedv1connect.HostedAccountServiceGetSitePolicyProcedure,
+		hostedv1connect.HostedAccountServiceListInvitationsProcedure,
+		hostedv1connect.HostedAccountServiceCreateInvitationProcedure,
+		hostedv1connect.HostedAccountServiceRevokeInvitationProcedure,
+		authv1connect.AuthServiceGetUserAuditInfoProcedure, authv1connect.AuthServiceUpdatePasswordProcedure,
+		authv1connect.AuthServiceLogoutProcedure, authv1connect.AuthServiceVerifyCredentialsProcedure:
+		return true
+	default:
+		return false
+	}
+}
+
+func captureRequestAccount(ctx context.Context, header http.Header) (context.Context, error) {
+	var values []string
+	for key, entries := range header {
+		if strings.EqualFold(key, hostedaccounts.RequestAccountHeader) {
+			// A present empty field is invalid too, rather than a host-mode fallback.
+			if len(entries) == 0 {
+				return ctx, fleeterror.NewInvalidArgumentError("account header must contain exactly one UUID")
+			}
+			values = append(values, entries...)
+		}
+	}
+	if len(values) == 0 {
+		return ctx, nil
+	}
+	if len(values) != 1 {
+		return ctx, fleeterror.NewInvalidArgumentError("account header must contain exactly one UUID")
+	}
+	return hostedaccounts.WithRequestAccountID(ctx, values[0])
 }
 
 func (i *AuthInterceptor) authenticateRequest(ctx context.Context, requestHeader http.Header, sessionOnly bool) (context.Context, error) {
@@ -186,8 +376,31 @@ func (i *AuthInterceptor) authenticateWithApiKey(ctx context.Context, authHeader
 	}
 
 	userID, ok := apiKeyRecord.AsUser()
-	if !ok {
-		return ctx, fleeterror.NewUnauthenticatedError("invalid api key")
+	accountIssuer, isAccount := apiKeyRecord.AsAccount()
+	if isAccount {
+		userID = accountIssuer
+		selected, present := hostedaccounts.RequestAccountID(ctx)
+		if !present {
+			return ctx, fleeterror.NewForbiddenError("account keys require an explicit selected account")
+		}
+		if i.accountKeys == nil {
+			return ctx, fleeterror.NewInternalError("account credential authorizer is not configured")
+		}
+		capabilities, err := i.accountKeys.Authorize(ctx, apiKeyRecord.ID, userID, apiKeyRecord.OrganizationID, selected)
+		if err != nil {
+			return ctx, err
+		}
+		ctx, err = hostedaccounts.WithMachineScope(ctx, selected, capabilities)
+		if err != nil {
+			return ctx, err
+		}
+	} else {
+		if !ok {
+			return ctx, fleeterror.NewUnauthenticatedError("invalid api key")
+		}
+		if _, selected := hostedaccounts.RequestAccountID(ctx); selected {
+			return ctx, fleeterror.NewForbiddenError("organization keys cannot access customer accounts")
+		}
 	}
 
 	user, err := i.userStore.GetUserByID(ctx, userID)
@@ -200,11 +413,15 @@ func (i *AuthInterceptor) authenticateWithApiKey(ctx context.Context, authHeader
 		return ctx, classifyLookupError(err, "api key auth: role lookup failed", userID)
 	}
 
+	if isAccount {
+		roleName = ""
+	}
 	info := &session.Info{
 		AuthMethod:       session.AuthMethodAPIKey,
 		APIKeyID:         apiKeyRecord.KeyID,
 		APIKeyDatabaseID: apiKeyRecord.ID,
 		APIKeyName:       apiKeyRecord.Name,
+		AccountKey:       isAccount,
 		UserID:           userID,
 		OrganizationID:   apiKeyRecord.OrganizationID,
 		ExternalUserID:   user.UserID,
@@ -212,9 +429,15 @@ func (i *AuthInterceptor) authenticateWithApiKey(ctx context.Context, authHeader
 		Role:             roleName,
 	}
 
-	authedCtx, err := i.loadEffectivePermissions(ctx, info)
-	if err != nil {
-		return ctx, err
+	var authedCtx context.Context
+	if isAccount {
+		// Host roles belonging to the issuer never enter a customer credential's context.
+		authedCtx = authn.SetInfo(ctx, info)
+	} else {
+		authedCtx, err = i.loadEffectivePermissions(ctx, info)
+		if err != nil {
+			return ctx, err
+		}
 	}
 
 	// Only credit the key with a successful use once authentication is

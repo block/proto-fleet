@@ -25,7 +25,7 @@ describe("usePassword", () => {
     vi.clearAllMocks();
 
     (useMinerHosting as Mock).mockReturnValue({
-      api: {
+      adapter: {
         changePassword: mockChangePassword,
         setPassword: mockSetPassword,
       },
@@ -118,22 +118,8 @@ describe("usePassword", () => {
       expect(authRetryCall.shouldRetry(pwError)).toBe(false);
     });
 
-    test("calls onError with extracted message and onFinally on API error", async () => {
-      const error = { status: 500, error: { message: "Server error" } };
-      mockChangePassword.mockRejectedValue(error);
-      const onError = vi.fn();
-      const onFinally = vi.fn();
-
-      const { result } = renderHook(() => usePassword());
-
-      await result.current.changePassword({ changePasswordRequest, onError, onFinally });
-
-      expect(onError).toHaveBeenCalledWith("Server error");
-      expect(onFinally).toHaveBeenCalledTimes(1);
-    });
-
-    test("does not call API if api is not available", () => {
-      (useMinerHosting as Mock).mockReturnValue({ api: null });
+    test("does not call API if adapter is not available", () => {
+      (useMinerHosting as Mock).mockReturnValue({ adapter: null });
 
       const { result } = renderHook(() => usePassword());
 
@@ -159,7 +145,7 @@ describe("usePassword", () => {
 
       await result.current.setPassword({ password, onSuccess, onFinally });
 
-      expect(mockSetPassword).toHaveBeenCalledWith({ password }, { secure: false });
+      expect(mockSetPassword).toHaveBeenCalledWith(password);
       expect(mockSetPasswordSet).toHaveBeenCalledWith(true);
       expect(mockSetDefaultPasswordActive).toHaveBeenCalledWith(false);
       expect(onSuccess).toHaveBeenCalledTimes(1);
@@ -180,8 +166,8 @@ describe("usePassword", () => {
       expect(onFinally).toHaveBeenCalledTimes(1);
     });
 
-    test("does not call API if api is not available", () => {
-      (useMinerHosting as Mock).mockReturnValue({ api: null });
+    test("does not call API if adapter is not available", () => {
+      (useMinerHosting as Mock).mockReturnValue({ adapter: null });
 
       const { result } = renderHook(() => usePassword());
 

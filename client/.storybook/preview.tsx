@@ -73,7 +73,8 @@ const preview: Preview = {
     },
     options: {
       storySort: {
-        order: ["Foundation", "Shared", "ProtoOS", "Proto Fleet", "*"],
+        method: "alphabetical",
+        order: ["Foundation", "Shared", "Proto Fleet", "Proto OS", "*"],
       },
     },
   },

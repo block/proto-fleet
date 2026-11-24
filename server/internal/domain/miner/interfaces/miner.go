@@ -2,9 +2,11 @@ package interfaces
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	diagnosticsModels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 
@@ -14,6 +16,10 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
+
+// MinerWriteGate lets server factories admit and track an actual SDK call or
+// node send. Invocation spans the operation and returns its result.
+type MinerWriteGate func(context.Context, commandtype.Type, func(context.Context) error) error
 
 //go:generate go run go.uber.org/mock/mockgen -source=miner.go -destination=mocks/mock_miner.go -package=mocks Miner
 type MinerInfo interface {
@@ -68,6 +74,19 @@ type Miner interface {
 	GetMiningPools(ctx context.Context) ([]MinerConfiguredPool, error)
 }
 
+// PoolClearVerifier proves stored and runtime emptiness at the device boundary.
+// Remote adapters use it to verify every slot without transporting credentials.
+// Missing/partial readback must return an error, never a successful empty result.
+type PoolClearVerifier interface {
+	VerifyPoolsCleared(ctx context.Context) (bool, error)
+}
+
+// StoredMiningPoolReader reads complete private firmware configuration. It is
+// deliberately separate from the runtime GetMiningPools view.
+type StoredMiningPoolReader interface {
+	GetStoredMiningPools(ctx context.Context) ([]MinerStoredPool, error)
+}
+
 // FirmwareUpdateStatusProvider is an optional interface that miners can implement
 // to report firmware installation progress. Used by the execution service to poll
 // install status after uploading firmware to a device.
@@ -92,3 +111,19 @@ type MinerConfiguredPool struct {
 	URL      string
 	Username string
 }
+
+// MinerStoredPool is a private observation of a stored firmware slot.
+// Password is nil when unavailable or masked; a pointer to "" proves empty.
+// Never infer this value from desired configuration or a write acknowledgement.
+type MinerStoredPool struct {
+	Priority int32
+	URL      string
+	Username string
+	Password *string `json:"-"`
+}
+
+func (p MinerStoredPool) String() string {
+	return fmt.Sprintf("MinerStoredPool{Priority:%d URL:%q Username:%q Password:[redacted]}", p.Priority, p.URL, p.Username)
+}
+
+func (p MinerStoredPool) GoString() string { return p.String() }

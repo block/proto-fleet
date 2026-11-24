@@ -30,7 +30,6 @@ type ConnBehavior int
 
 const (
 	BehaviorNormal    ConnBehavior = iota
-	BehaviorTimeout                // accept connection but never respond
 	BehaviorCloseConn              // close connection immediately after reading
 )
 

@@ -13,7 +13,12 @@ vi.mock("@/protoFleet/api/useMinerModelGroups", () => ({
   default: () => ({ getMinerModelGroups: mockGetMinerModelGroups }),
 }));
 
-vi.mock("@/protoFleet/components/FirmwareUpload", () => ({
+vi.mock("@/protoFleet/components/FirmwareUpload", async () => ({
+  HashboardBuildField: (
+    await vi.importActual<typeof import("@/protoFleet/components/FirmwareUpload/HashboardBuildField")>(
+      "@/protoFleet/components/FirmwareUpload/HashboardBuildField",
+    )
+  ).default,
   useFirmwareUpload: () => mockUseFirmwareUpload(),
   FileDropZone: ({ disabled, onFileSelect }: { disabled?: boolean; onFileSelect: (file: File) => void }) => (
     <button
@@ -63,11 +68,13 @@ vi.mock("@/shared/components/Select", () => ({
   default: ({
     id,
     value,
+    options,
     onChange,
     disabled,
   }: {
     id: string;
     value: string;
+    options: { value: string }[];
     onChange: (value: string) => void;
     disabled?: boolean;
   }) => (
@@ -76,7 +83,17 @@ vi.mock("@/shared/components/Select", () => ({
       data-testid={id}
       data-value={value}
       disabled={disabled}
-      onClick={() => onChange(id.includes("manufacturer") ? "Proto" : "Rig")}
+      onClick={() =>
+        onChange(
+          id.includes("manufacturer")
+            ? "Proto"
+            : id.includes("build")
+              ? "mfgtest"
+              : options.some((option) => option.value === "Rig")
+                ? "Rig"
+                : "CT1",
+        )
+      }
     >
       {id}
     </button>
@@ -164,20 +181,6 @@ describe("FirmwareUploadDialog", () => {
     expect(mockProcessFile).not.toHaveBeenCalled();
   });
 
-  it("explains why firmware targets are unavailable without paired miner models", async () => {
-    mockGetMinerModelGroups.mockResolvedValue([]);
-
-    render(<FirmwareUploadDialog open onSuccess={vi.fn()} onDismiss={vi.fn()} />);
-
-    const targetAvailabilityCallout = await screen.findByText(
-      "No paired miner models found. Pair at least one miner to populate firmware targets.",
-    );
-    const manufacturerField = screen.getByTestId("firmware-target-manufacturer");
-
-    expect(targetAvailabilityCallout).toBeInTheDocument();
-    expect(targetAvailabilityCallout.compareDocumentPosition(manufacturerField)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-  });
-
   it("keeps the loading error authoritative when miner models cannot be loaded", async () => {
     mockGetMinerModelGroups.mockRejectedValue(new Error("unavailable"));
 
@@ -209,5 +212,39 @@ describe("FirmwareUploadDialog", () => {
       expect(onSuccess).toHaveBeenCalledOnce();
     });
     expect(onDismiss).not.toHaveBeenCalled();
+  });
+  it("uploads CT1 release archives with the operator's selected build", async () => {
+    mockGetMinerModelGroups.mockResolvedValue([]);
+    render(<FirmwareUploadDialog open onSuccess={vi.fn()} onDismiss={vi.fn()} />);
+    await screen.findByTestId("file-drop-zone");
+    fireEvent.click(screen.getByTestId("firmware-target-manufacturer"));
+    fireEvent.click(screen.getByTestId("firmware-target-model"));
+    fireEvent.click(screen.getByTestId("hashboard-firmware-build"));
+    fireEvent.click(screen.getByTestId("file-drop-zone"));
+    fireEvent.click(screen.getByText("Upload"));
+    expect(mockProcessFile).toHaveBeenCalledWith(mockSelectedFile, {
+      targetManufacturer: "Proto",
+      targetModel: "CT1",
+      firmwareVersion: "2.0.0",
+      hashboardBuild: "mfgtest",
+    });
+  });
+  it("uploads a capsule as CT1 PSU firmware, which has no build to choose", async () => {
+    mockGetMinerModelGroups.mockResolvedValue([]);
+    mockSelectedFile = new File(["capsule"], "boco-1.4.0.psucap");
+    render(<FirmwareUploadDialog open onSuccess={vi.fn()} onDismiss={vi.fn()} />);
+    await screen.findByTestId("file-drop-zone");
+    fireEvent.click(screen.getByTestId("firmware-target-manufacturer"));
+    fireEvent.click(screen.getByTestId("firmware-target-model"));
+    expect(screen.getByTestId("hashboard-firmware-build")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("file-drop-zone"));
+    expect(screen.queryByTestId("hashboard-firmware-build")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Upload"));
+    expect(mockProcessFile).toHaveBeenCalledWith(mockSelectedFile, {
+      targetManufacturer: "Proto",
+      targetModel: "CT1",
+      firmwareVersion: "1.4.0",
+      component: "psu",
+    });
   });
 });

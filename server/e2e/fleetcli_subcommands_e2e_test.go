@@ -399,9 +399,9 @@ func TestFleetCLILeafCommandCoverage(t *testing.T) {
 		coverage[path] = status
 	}
 
-	require.Len(t, manifest.Commands, 115)
+	require.Len(t, manifest.Commands, 127)
 	require.Len(t, manualCoverage, 14)
-	require.Len(t, coverage, 129)
+	require.Len(t, coverage, 141)
 }
 
 func ensureFleetCLIAdmin(t *testing.T, ctx context.Context, env []string) {

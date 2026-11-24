@@ -1,0 +1,131 @@
+syntax = "proto3";
+
+package mdk.v2;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
+
+// TankTelemetryBatch contains only configured, read-only FH controllers.
+message TankTelemetryBatch {
+  repeated TankTelemetry controllers = 1;
+  // Desired membership is sourced solely from validated Frigate configuration.
+  repeated ConfiguredTank tanks = 2;
+  string configuration_generation = 3;
+}
+
+message ConfiguredTank {
+  string tank_key = 1;
+  string name = 2;
+  string model = 3;
+  string controller_id = 4;
+  string module_id = 5;
+  // Optional verified probe roles: "inlet", "outlet", or "ambient". Empty
+  // means unlabeled. Readers must treat any other value as a display label.
+  string probe_1_role = 6;
+  string probe_2_role = 7;
+}
+
+// TankTelemetry preserves controller identity and acquisition validity. Missing
+// scalar values are unavailable, never zero. It grants no actuator authority.
+message TankTelemetry {
+  string device_id = 1;
+  string mac_address = 2;
+  string ip_address = 3;
+  string firmware_version = 4;
+  string boot_id = 5;
+  uint64 message_seq = 6;
+  uint32 uptime_ms = 7;
+  optional double wifi_rssi_dbm = 8;
+  google.protobuf.Timestamp received_at = 9;
+  google.protobuf.Timestamp sent_at = 10;
+  optional uint32 sample_age_ms = 11;
+  bool sensor_sample_ok = 12;
+  string flow_status = 13;
+  optional double indicated_flow_lpm = 14;
+  bool calibration_validated = 15;
+  optional double calibrated_flow_lpm = 16;
+  optional double inlet_temperature_c = 17;
+  optional double outlet_temperature_c = 18;
+  optional double ambient_temperature_c = 19;
+  optional double ambient_humidity_percent = 20;
+  optional double fan_rpm = 21;
+  optional double fan_command_percent = 22;
+  // Online is local MQTT availability; freshness is still checked separately.
+  bool online = 23;
+  // Independently acquired measurements retain their own identity and quality.
+  repeated TankSensorSample sensors = 24;
+  string equipment_model = 25;
+  repeated string telemetry_capabilities = 26;
+  string fan_control_status = 27;
+  optional double fan_last_command_hz = 28;
+  optional uint32 fan_run_status = 29;
+  optional uint32 fan_fault_code = 30;
+  optional bool fan_armed = 31;
+  optional uint32 fan_requests = 32;
+  optional uint32 fan_replies = 33;
+  optional uint32 fan_timeouts = 34;
+  optional uint32 fan_invalid_frames = 35;
+  optional uint32 fan_writes = 36;
+}
+
+message TankSensorSample {
+  string sensor_id = 1;
+  uint64 sample_seq = 2;
+  optional uint32 sample_age_ms = 3;
+  google.protobuf.Timestamp acquired_at = 4;
+  optional double value = 5;
+  string unit = 6;
+  string status = 7;
+  bool valid = 8;
+  bool calibration_validated = 9;
+}
+
+message QueryTankSensorHistoryRequest {
+  string tank_key = 1;
+  google.protobuf.Timestamp from = 2;
+  google.protobuf.Timestamp to = 3;
+  uint32 limit = 4;
+}
+
+message TankSensorHistoryPoint {
+  google.protobuf.Timestamp time = 1;
+  string tank_key = 2;
+  string configuration_generation = 3;
+  string controller_id = 4;
+  string boot_id = 5;
+  string sensor_id = 6;
+  uint64 sample_seq = 7;
+  google.protobuf.Timestamp received_at = 8;
+  google.protobuf.Timestamp acquired_at = 9;
+  optional uint32 sample_age_ms = 10;
+  optional double value = 11;
+  string unit = 12;
+  string status = 13;
+  bool valid = 14;
+  bool calibration_validated = 15;
+}
+
+message QueryTankSensorHistoryResponse {
+  repeated TankSensorHistoryPoint points = 1;
+}
+
+// Production is attributed using the CU1 assignment and observed board
+// identity that were effective when each board sample was recorded.
+message QueryTankProductionHistoryRequest {
+  string tank_key = 1;
+  google.protobuf.Timestamp from = 2;
+  google.protobuf.Timestamp to = 3;
+  uint32 bucket_minutes = 4;
+}
+
+message TankProductionBucket {
+  google.protobuf.Timestamp start = 1;
+  double hashrate_th = 2;
+  double power_w = 3;
+  uint32 reporting_boards = 4;
+}
+
+message QueryTankProductionHistoryResponse {
+  repeated TankProductionBucket buckets = 1;
+}

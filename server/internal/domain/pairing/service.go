@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"connectrpc.com/connect"
 	capabilitiespb "github.com/block/proto-fleet/server/generated/grpc/capabilities/v1"
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	commandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -25,7 +27,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	tokenDomain "github.com/block/proto-fleet/server/internal/domain/token"
-	"github.com/block/proto-fleet/server/internal/domain/workername"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
@@ -33,6 +34,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 
 	"github.com/grandcat/zeroconf"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -188,6 +190,48 @@ func (s *Service) WithOptionsCache(cache *fleetoptions.Cache) {
 // the successfully persisted device identifiers.
 func (s *Service) WithRigConfigReapplier(reapply func(context.Context, int64, int64, []string)) {
 	s.rigConfigReapplier = reapply
+}
+
+// AnnotateAlreadyPaired marks discovered devices that already have a live Fleet
+// pairing record.
+func (s *Service) AnnotateAlreadyPaired(ctx context.Context, orgID int64, devices []*pb.Device) error {
+	if len(devices) == 0 {
+		return nil
+	}
+
+	identifiers := make([]string, 0, len(devices))
+	devicesByIdentifier := make(map[string][]*pb.Device, len(devices))
+	for _, device := range devices {
+		if device == nil {
+			continue
+		}
+		device.AlreadyPaired = false
+		identifier := device.GetDeviceIdentifier()
+		if identifier == "" {
+			continue
+		}
+		if _, exists := devicesByIdentifier[identifier]; !exists {
+			identifiers = append(identifiers, identifier)
+		}
+		devicesByIdentifier[identifier] = append(devicesByIdentifier[identifier], device)
+	}
+	if len(identifiers) == 0 {
+		return nil
+	}
+	if s == nil || s.deviceStore == nil {
+		return fleeterror.NewInternalError("pairing state store is not configured")
+	}
+
+	pairedIdentifiers, err := s.deviceStore.GetAlreadyPairedDeviceIdentifiers(ctx, orgID, identifiers)
+	if err != nil {
+		return err
+	}
+	for _, identifier := range pairedIdentifiers {
+		for _, device := range devicesByIdentifier[identifier] {
+			device.AlreadyPaired = true
+		}
+	}
+	return nil
 }
 
 type NetworkInfo struct {
@@ -523,7 +567,41 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 
 	// Use existing device identifier if available
 	deviceIdentifier := discoveredDevice.DeviceIdentifier
-	preserveMissingFirmware := deviceIdentifier != ""
+	trustedIdentity := deviceIdentifier != ""
+	if deviceIdentifier == "" && len(discoveredDevice.Endpoints) > 0 {
+		// The store reconciles the plugin-defined identity across scanned addresses.
+		deviceIdentifier = id.GenerateID()
+	}
+	if deviceIdentifier == "" && discoveredDevice.DeviceClass == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
+		// Containers keep one shared IP even when their HTTP/RPC ports differ.
+		// Resolve them before the generic scanned-port path, which may refer to
+		// an unrelated service and cannot find custom HTTP ports.
+		existing, err := s.discoveredDeviceStore.GetDirectContainerByIP(ctx, info.OrganizationID, scannedIP, discoveredDevice.DriverName, discoveredDevice.Model, discoveredDevice.Manufacturer)
+		switch {
+		case fleeterror.IsNotFoundError(err):
+			deviceIdentifier = id.GenerateID()
+		case err != nil:
+			return false, err
+		default:
+			deviceIdentifier = existing.DeviceIdentifier
+			if discoveredDevice.SerialNumber == "" {
+				// A controller that requires a token is rediscovered without its
+				// identity. Keep the identity that pairing verified. A row with
+				// no device was never verified, so let it go blank: a replaced
+				// controller at this address can then pair under its own ID.
+				_, linkedErr := s.deviceStore.GetDeviceByDeviceIdentifier(ctx, existing.DeviceIdentifier, info.OrganizationID)
+				switch {
+				case linkedErr == nil:
+					trustedIdentity = true
+					discoveredDevice.SerialNumber = existing.SerialNumber
+					discoveredDevice.MacAddress = existing.MacAddress
+					discoveredDevice.FirmwareVersion = existing.FirmwareVersion
+				case !fleeterror.IsNotFoundError(linkedErr):
+					return false, fleeterror.NewInternalErrorf("failed to check whether the container is paired: %v", linkedErr)
+				}
+			}
+		}
+	}
 	if deviceIdentifier == "" {
 		reconciledIdentifier, err := s.reconcileByMAC(ctx, discoveredDevice, info.OrganizationID, scannedIP, scannedPort)
 		if err != nil {
@@ -549,7 +627,7 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 		switch {
 		case reconciledIdentifier != "":
 			deviceIdentifier = reconciledIdentifier
-			preserveMissingFirmware = reconciledByMAC
+			trustedIdentity = reconciledByMAC
 			// Device moved to a new IP/port; evict stale cached handle.
 			if reconciledByMAC && s.invalidateMiner != nil {
 				s.invalidateMiner(models.DeviceIdentifier(reconciledIdentifier))
@@ -557,7 +635,7 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 		case existingDevice != nil:
 			// Reuse the existing device_identifier to update the same row
 			deviceIdentifier = existingDevice.DeviceIdentifier
-			preserveMissingFirmware = false
+			trustedIdentity = false
 			slog.Debug("reusing existing device identifier for rescan",
 				"scanned_ip", scannedIP,
 				"scanned_port", scannedPort,
@@ -607,19 +685,15 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 		OrgID:            info.OrganizationID,
 	}
 
-	// Override the IP/port with the scanned values to ensure consistency
-	// The discovered device may report a different IP if it has multiple interfaces
-	// or if its configuration has changed, but we want to store it at the IP:port we scanned
+	// The scanned host is authoritative. A verified container RPC probe carries
+	// a separate HTTP endpoint for the ProtoOS proxy; do not replace it with RPC.
 	discoveredDevice.IpAddress = scannedIP
-	discoveredDevice.Port = scannedPort
-	if err := s.hydrateMissingFirmwareVersion(ctx, discoverymodels.DeviceOrgIdentifier{
-		DeviceIdentifier: deviceIdentifier,
-		OrgID:            info.OrganizationID,
-	}, discoveredDevice, preserveMissingFirmware); err != nil {
-		return false, err
+	if discoveredDevice.DeviceClass != commonpb.DeviceClass_DEVICE_CLASS_CONTAINER || discoveredDevice.RpcPort <= 0 || strconv.Itoa(int(discoveredDevice.RpcPort)) != scannedPort {
+		discoveredDevice.Port = scannedPort
 	}
+	discoveredDevice.TrustedIdentity = trustedIdentity
 
-	result, err := s.discoveredDeviceStore.Save(ctx, orgDeviceID, discoveredDevice)
+	result, err := s.discoveredDeviceStore.SaveDirect(ctx, orgDeviceID, discoveredDevice)
 	if err != nil {
 		return false, err
 	}
@@ -637,33 +711,14 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 	return true, nil
 }
 
-func (s *Service) hydrateMissingFirmwareVersion(
-	ctx context.Context,
-	doi discoverymodels.DeviceOrgIdentifier,
-	discoveredDevice *discoverymodels.DiscoveredDevice,
-	preserveMissingFirmware bool,
-) error {
-	if !preserveMissingFirmware || discoveredDevice.FirmwareVersion != "" {
-		return nil
-	}
-
-	existingDevice, err := s.discoveredDeviceStore.GetDevice(ctx, doi)
-	switch {
-	case fleeterror.IsNotFoundError(err):
-		return nil
-	case err != nil:
-		return fleeterror.NewInternalErrorf("failed to load existing discovered device firmware: %v", err)
-	}
-
-	discoveredDevice.FirmwareVersion = existingDevice.FirmwareVersion
-	return nil
-}
-
 // reconcileByMAC checks if a newly discovered device matches an existing paired device
 // by MAC address. This handles the case where a device moved to a new IP/subnet.
 // If a match is found, it returns the existing discovered_device_identifier so the
 // upsert updates the old record's IP instead of creating a duplicate.
 func (s *Service) reconcileByMAC(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, orgID int64, newIP string, newPort string) (string, error) {
+	if discoveredDevice.DeviceClass == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER || len(discoveredDevice.Endpoints) > 0 {
+		return "", nil // A controller MAC does not identify the whole device.
+	}
 	mac := networking.NormalizeMAC(discoveredDevice.MacAddress)
 
 	pairedDevice, err := s.deviceStore.GetPairedDeviceByMACAddress(ctx, mac, orgID, "")
@@ -723,7 +778,7 @@ func (s *Service) reconcileByIPAcrossDiscoveryPorts(ctx context.Context, discove
 			return "", fleeterror.NewInternalErrorf("failed to query discovered device during same-IP reconciliation: %v", err)
 		}
 
-		if existingDevice.DriverName != discoveredDevice.DriverName {
+		if existingDevice.DeviceClass != discoveredDevice.DeviceClass || existingDevice.DriverName != discoveredDevice.DriverName {
 			continue
 		}
 		if !strings.EqualFold(existingDevice.Model, discoveredDevice.Model) {
@@ -753,6 +808,14 @@ func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discove
 	if err != nil {
 		slog.Error("failed to get paired device", "error", err)
 		return false
+	}
+	if pairedDevice.DeviceClass == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
+		// One stable IP represents the container; system IDs identify replaceable
+		// controllers. Do not use those IDs for subnet relocation matching.
+		return newDiscoveredDevice.DeviceClass == pairedDevice.DeviceClass &&
+			newDiscoveredDevice.IpAddress != "" && newDiscoveredDevice.IpAddress == pairedDevice.IpAddress &&
+			newDiscoveredDevice.DriverName == pairedDevice.DriverName &&
+			strings.EqualFold(newDiscoveredDevice.Model, pairedDevice.Model)
 	}
 	candidateIdentity := stableidentity.New(newDiscoveredDevice.GetSerialNumber(), newDiscoveredDevice.GetMacAddress())
 	pairedIdentity := stableidentity.New(pairedDevice.GetSerialNumber(), pairedDevice.GetMacAddress())
@@ -869,7 +932,7 @@ func (s *Service) resolveDeviceIdentifiers(ctx context.Context, selector *comman
 }
 
 func minerFilterFromPairDeviceFilter(filter *commandpb.DeviceFilter) *interfaces.MinerFilter {
-	minerFilter := &interfaces.MinerFilter{}
+	minerFilter := &interfaces.MinerFilter{IncludeContainers: true}
 	if filter == nil {
 		return minerFilter
 	}
@@ -1159,9 +1222,14 @@ func isAlreadyPairedKeyRotationError(err error) bool {
 // handleAuthenticationRequiredPairing inserts a device and creates a pairing record with AUTHENTICATION_NEEDED status
 func (s *Service) handleAuthenticationRequiredPairing(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice) error {
 	originalIdentifier := discoveredDevice.DeviceIdentifier
+	expected := proto.CloneOf(&discoveredDevice.Device)
+	expectedFleetNodeID := discoveredDevice.DiscoveredByFleetNodeID
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		// Restore original identifier so retries after serialization failures start with clean state.
 		discoveredDevice.DeviceIdentifier = originalIdentifier
+		if err := s.discoveredDeviceStore.LockPairingSnapshot(ctx, discoverymodels.DeviceOrgIdentifier{OrgID: discoveredDevice.OrgID, DeviceIdentifier: originalIdentifier}, expected, expectedFleetNodeID); err != nil {
+			return err
+		}
 
 		reconciledIdentifier, err := s.reconcileByMAC(ctx, discoveredDevice, discoveredDevice.OrgID, discoveredDevice.IpAddress, discoveredDevice.Port)
 		if err != nil {
@@ -1182,31 +1250,22 @@ func (s *Service) handleAuthenticationRequiredPairing(ctx context.Context, disco
 			if err := s.deviceStore.InsertDevice(ctx, &discoveredDevice.Device, discoveredDevice.OrgID, discoveredDevice.DeviceIdentifier); err != nil {
 				return fleeterror.NewInternalErrorf("failed to insert device: %v", err)
 			}
-		} else {
-			// Device already exists, update MAC address and serial number
-			if err := s.deviceStore.UpdateDeviceInfo(ctx, &discoveredDevice.Device, discoveredDevice.OrgID); err != nil {
-				return fleeterror.NewInternalErrorf("failed to update device info: %v", err)
-			}
+		}
+		// A failed login cannot establish replacement identity for an existing
+		// miner. The conditional write also protects a concurrent successful pair
+		// and holds the device lock through the remaining worker-name update.
+		applied, err := s.deviceStore.SetDevicePairingAuthNeededIfNotPaired(ctx, &discoveredDevice.Device, discoveredDevice.OrgID)
+		if err != nil {
+			return fleeterror.NewInternalErrorf("failed to set auth-needed pairing: %v", err)
+		}
+		if !applied {
+			return nil
 		}
 
-		workerName := networking.NormalizeMAC(discoveredDevice.MacAddress)
-		shouldUpdateWorkerName := workerName != ""
-		if shouldUpdateWorkerName && existingDevice != nil {
-			keepExistingWorkerName, err := workername.HasStored(ctx, s.deviceStore, discoveredDevice.OrgID, discoveredDevice.DeviceIdentifier)
-			if err != nil {
+		if workerName := networking.NormalizeMAC(discoveredDevice.MacAddress); workerName != "" {
+			if _, err := s.deviceStore.InitializeWorkerName(ctx, discoveredDevice.OrgID, models.DeviceIdentifier(discoveredDevice.DeviceIdentifier), workerName); err != nil {
 				return err
 			}
-			shouldUpdateWorkerName = !keepExistingWorkerName
-		}
-		if shouldUpdateWorkerName {
-			if err := s.deviceStore.UpdateWorkerName(ctx, models.DeviceIdentifier(discoveredDevice.DeviceIdentifier), workerName); err != nil {
-				return fleeterror.NewInternalErrorf("failed to update worker name: %v", err)
-			}
-		}
-
-		// Create pairing record with AUTHENTICATION_NEEDED status
-		if err := s.deviceStore.UpsertDevicePairing(ctx, &discoveredDevice.Device, discoveredDevice.OrgID, StatusAuthenticationNeeded); err != nil {
-			return fleeterror.NewInternalErrorf("failed to upsert device pairing: %v", err)
 		}
 
 		return nil
@@ -1252,7 +1311,7 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 	pairer := s.pairer
 
 	discoveredDevice.IsActive = true
-	_, err = s.discoveredDeviceStore.Save(ctx, orgDeviceID, discoveredDevice)
+	err = s.discoveredDeviceStore.ActivateDirect(ctx, orgDeviceID)
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("error activating discovered device: %v", err)
 	}
@@ -1301,7 +1360,7 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 		}
 
 		// Preserve authentication errors - don't wrap them
-		if fleeterror.IsAuthenticationError(err) || fleeterror.IsForbiddenError(err) {
+		if fleeterror.IsAuthenticationError(err) || fleeterror.IsForbiddenError(err) || fleeterror.IsFailedPreconditionError(err) {
 			return "", err
 		}
 		return "", fleeterror.NewInternalErrorf("pairing device %s: %v", discoveredDevice.DeviceIdentifier, err)

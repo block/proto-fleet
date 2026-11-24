@@ -162,7 +162,89 @@ func TestWithTransactionCommitFailoverResetsPoolWithoutRetry(t *testing.T) {
 	}
 }
 
+func TestWithTransactionNoRetryResetsPoolWithoutReplayingAction(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		phase     string
+		err       error
+		wantCalls int
+		wantReset int
+	}{
+		{"begin failover", "begin", &pgconn.PgError{Code: PGConnectionFailure}, 0, 1},
+		{"action failover", "action", &pgconn.PgError{Code: PGConnectionFailure}, 1, 1},
+		{"query failover", "query", &pgconn.PgError{Code: PGConnectionFailure}, 1, 1},
+		{"commit failover", "commit", &pgconn.PgError{Code: PGConnectionFailure}, 1, 1},
+		{"retryable action error", "action", &pgconn.PgError{Code: PGSerializationFailure}, 1, 0},
+		{"retryable commit error", "commit", &pgconn.PgError{Code: PGSerializationFailure}, 1, 0},
+		{"ordinary action error", "action", errors.New("action failed"), 1, 0},
+		{"success", "", nil, 1, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rolledBack := false
+			connector := &haResetConnector{rollback: func() { rolledBack = true }}
+			switch tc.phase {
+			case "begin":
+				connector.beginErr = tc.err
+			case "query":
+				connector.queryErr = tc.err
+			case "commit":
+				connector.commitErr = tc.err
+			}
+			sqlDB := sql.OpenDB(connector)
+			defer sqlDB.Close()
+			resets := 0
+			registerPoolResetForTest(t, sqlDB, func() {
+				resets++
+				if (tc.phase == "action" || tc.phase == "query") && !rolledBack {
+					t.Error("pool reset happened before rollback")
+				}
+			})
+			calls := 0
+			result, err := WithTransactionNoRetry(t.Context(), sqlDB, func(q sqlc.Querier) (int, error) {
+				calls++
+				switch tc.phase {
+				case "action":
+					return 0, tc.err
+				case "query":
+					_, queryErr := q.GetSessionByID(t.Context(), "session")
+					return 0, fmt.Errorf("store wrapped: %w", queryErr)
+				default:
+					return 42, nil
+				}
+			})
+			if !errors.Is(err, tc.err) {
+				t.Errorf("WithTransactionNoRetry error = %v, want %v", err, tc.err)
+			}
+			if tc.err == nil && result != 42 {
+				t.Errorf("result = %d, want 42", result)
+			}
+			if calls != tc.wantCalls || resets != tc.wantReset {
+				t.Errorf("action calls = %d, resets = %d; want %d, %d", calls, resets, tc.wantCalls, tc.wantReset)
+			}
+		})
+	}
+}
+
+func TestPreparedQuerierRetriesDeadlockAndStopsOnPermanentError(t *testing.T) {
+	permanent := errors.New("invalid query")
+	attempts := 0
+	conn := sql.OpenDB(&haResetConnector{prepare: func(string) (driver.Stmt, error) {
+		attempts++
+		if attempts == 1 {
+			return nil, &pgconn.PgError{Code: PGDeadlockDetected}
+		}
+		return nil, permanent
+	}})
+	t.Cleanup(func() { _ = conn.Close() })
+
+	queries, err := NewPreparedQuerier(t.Context(), conn)
+	if queries != nil || !errors.Is(err, permanent) || attempts != 2 {
+		t.Fatalf("queries = %v, error = %v, attempts = %d; want permanent error after two attempts", queries, err, attempts)
+	}
+}
+
 type haResetConnector struct {
+	prepare   func(string) (driver.Stmt, error)
 	beginErr  error
 	commitErr error
 	execErr   error
@@ -190,7 +272,10 @@ type haResetConn struct {
 	connector *haResetConnector
 }
 
-func (c *haResetConn) Prepare(string) (driver.Stmt, error) {
+func (c *haResetConn) Prepare(query string) (driver.Stmt, error) {
+	if c.connector.prepare != nil {
+		return c.connector.prepare(query)
+	}
 	return nil, errors.New("prepare not implemented")
 }
 

@@ -3,6 +3,7 @@ package interfaces
 import (
 	"context"
 	"net/netip"
+	"time"
 
 	mm "github.com/block/proto-fleet/server/internal/domain/miner/models"
 
@@ -56,6 +57,9 @@ type ZoneKey struct {
 }
 
 type MinerFilter struct {
+	// IncludeContainers opts generic identifier resolution into controller devices.
+	// Miner list and state-count APIs always exclude containers.
+	IncludeContainers bool
 	// SearchQuery is a case-insensitive substring matched against miner
 	// identifying fields (name, device identifier, serial, MAC, IP, worker).
 	// Name reuses the display-name sort expression, so an unnamed miner matches
@@ -134,6 +138,7 @@ type MinerModelGroupResult struct {
 type DeviceStatusUpdate struct {
 	DeviceIdentifier models.DeviceIdentifier
 	Status           mm.MinerStatus
+	OfflineConfirmed bool // True when a status probe could not connect to the miner.
 }
 
 // OfflineDeviceInfo contains information about an offline device needed for IP scanning
@@ -152,6 +157,9 @@ type OfflineDeviceInfo struct {
 // FleetNodeRecoveryTarget is an offline, paired-like miner whose owning Fleet
 // Node can scan the miner's private LAN for a changed endpoint.
 type FleetNodeRecoveryTarget struct {
+	RPCPort            int32
+	RPCTLS             bool
+	DeviceClass        int32
 	FleetNodeID        int64
 	DeviceIdentifier   string
 	OrgID              int64
@@ -203,6 +211,7 @@ type DeviceStore interface {
 	LockDeviceForCloudRecoveryByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (locked bool, err error)
 	ReconcileCloudAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (eligible bool, updated bool, err error)
 	GetDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (string, error)
+	GetAlreadyPairedDeviceIdentifiers(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error)
 	GetMinerCredentials(ctx context.Context, device *pb.Device, orgID int64) (*pb.Credentials, error)
 	GetDeviceByDeviceIdentifier(ctx context.Context, identifier string, orgID int64) (*pb.Device, error)
 	GetDeviceSiteID(ctx context.Context, identifier string, orgID int64) (*int64, error)
@@ -215,15 +224,19 @@ type DeviceStore interface {
 	UpdateDeviceInfo(ctx context.Context, device *pb.Device, orgID int64) error
 	GetDeviceWithIPAssignment(ctx context.Context, deviceIdentifier string, orgID int64) (*discoverymodels.DiscoveredDevice, error)
 	GetTotalPairedDevices(ctx context.Context, orgID int64, filter *MinerFilter) (int64, error)
+	GetTotalPairedMiners(ctx context.Context, orgID int64, filter *MinerFilter) (int64, error)
 	GetTotalDevicesPendingAuth(ctx context.Context, orgID int64) (int64, error)
 	GetAllPairedDeviceIdentifiers(ctx context.Context) ([]models.DeviceIdentifier, error)
+	GetTelemetryEligibleDeviceIdentifiers(ctx context.Context, deviceIDs []models.DeviceIdentifier) ([]models.DeviceIdentifier, error)
 	GetDeviceOrgDriverAndSite(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (int64, string, int64, error)
 	GetMinerStateCounts(ctx context.Context, orgID int64, filter *MinerFilter) (*tm.MinerStateCounts, error)
 	GetAvailableModels(ctx context.Context, orgID int64) ([]string, error)
 	GetAvailableFirmwareVersions(ctx context.Context, orgID int64) ([]string, error)
 	GetMinerModelGroups(ctx context.Context, orgID int64, filter *MinerFilter) ([]MinerModelGroupResult, error)
 	UpsertDeviceStatus(ctx context.Context, deviceIdentifier models.DeviceIdentifier, status mm.MinerStatus, details string) error
+	MarkFirmwareRebootRequiredStatus(ctx context.Context, deviceIdentifier models.DeviceIdentifier, rebootRequiredAfter time.Time) error
 	UpsertDeviceStatuses(ctx context.Context, updates []DeviceStatusUpdate) error
+	ReconcileRebootRequiredStatus(ctx context.Context, deviceIdentifier models.DeviceIdentifier, bootedAfter time.Time, status mm.MinerStatus) (bool, error)
 	GetDeviceStatusForDeviceIdentifiers(ctx context.Context, deviceIdentifiers []models.DeviceIdentifier) (map[models.DeviceIdentifier]mm.MinerStatus, error)
 	GetOfflineDevices(ctx context.Context, limit int) ([]OfflineDeviceInfo, error)
 	GetOfflineFleetNodeDevices(ctx context.Context) ([]FleetNodeRecoveryTarget, error)
@@ -232,6 +245,7 @@ type DeviceStore interface {
 	GetKnownSubnets(ctx context.Context, orgID int64, maskBits int, isIPv4 bool) ([]string, error)
 	ListMinerStateSnapshots(ctx context.Context, orgID int64, cursor string, pageSize int32, filter *MinerFilter, sortConfig *SortConfig) ([]sqlc.ListMinerStateSnapshotsRow, string, int64, error)
 	AllDevicesBelongToOrg(ctx context.Context, deviceIdentifiers []string, orgID int64) (bool, error)
+	FilterDeviceIdentifiersByOrg(ctx context.Context, deviceIdentifiers []string, orgID int64) ([]string, error)
 	SoftDeleteDevices(ctx context.Context, deviceIdentifiers []string, orgID int64) (int64, error)
 	GetDeviceIdentifiersByOrgWithFilter(ctx context.Context, orgID int64, filter *MinerFilter) ([]string, error)
 	GetMinerStateCountsByCollections(ctx context.Context, orgID int64, collectionIDs []int64) (map[int64]MinerStateCounts, error)
@@ -243,6 +257,8 @@ type DeviceStore interface {
 	GetMinerStateCountsByDeviceIDs(ctx context.Context, orgID int64, deviceIdentifiers []string) (MinerStateCounts, error)
 	GetComponentErrorCounts(ctx context.Context, orgID int64, scope ComponentErrorScope) ([]ComponentErrorCount, error)
 	UpdateFirmwareVersion(ctx context.Context, deviceIdentifier models.DeviceIdentifier, firmwareVersion string) error
+	// InitializeWorkerName sets a missing name atomically and reports whether it changed.
+	InitializeWorkerName(ctx context.Context, orgID int64, deviceIdentifier models.DeviceIdentifier, workerName string) (bool, error)
 	UpdateWorkerName(ctx context.Context, deviceIdentifier models.DeviceIdentifier, workerName string) error
 	GetDevicePropertiesForRename(ctx context.Context, orgID int64, deviceIdentifiers []string, includeTelemetry bool) ([]DeviceRenameProperties, error)
 	UpdateDeviceCustomNames(ctx context.Context, orgID int64, names map[string]string) error

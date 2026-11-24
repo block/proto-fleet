@@ -202,24 +202,6 @@ func TestListDeviceSets_SiteAndTelemetryFilters(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestListDeviceSets_SiteFilterCrossOrgRejected(t *testing.T) {
-	h := newTestHandler(t)
-
-	h.siteStore.EXPECT().
-		SitesByIDs(gomock.Any(), testOrgID, []int64{99}).
-		Return([]int64{}, nil)
-
-	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
-		Type:    dspb.DeviceSetType_DEVICE_SET_TYPE_RACK,
-		SiteIds: []int64{99},
-	})
-
-	_, err := h.handler.ListDeviceSets(testCtx(t), req)
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-	assert.NotContains(t, err.Error(), "99")
-}
-
 func TestListDeviceSets_SiteFilterAllowedForGroups(t *testing.T) {
 	h := newTestHandler(t)
 
@@ -541,50 +523,36 @@ func TestListDeviceSets_SiteIDs(t *testing.T) {
 // enforcement from #265: a site_id outside the caller's org is rejected
 // without echoing the rejected ID, mirroring the building_ids path.
 func TestListDeviceSets_SiteIDsCrossOrgRejected(t *testing.T) {
-	h := newTestHandler(t)
+	// 99 is cross-org in each case; the ownership lookup never returns it.
+	tests := []struct {
+		name    string
+		siteIDs []int64
+		owned   []int64
+	}{
+		{name: "no requested site is owned", siteIDs: []int64{99}, owned: []int64{}},
+		{name: "one of two requested sites is owned", siteIDs: []int64{3, 99}, owned: []int64{3}},
+	}
 
-	// 99 is cross-org; ownership lookup returns only 3.
-	h.siteStore.EXPECT().
-		SitesByIDs(gomock.Any(), testOrgID, gomock.Any()).
-		Return([]int64{3}, nil)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newTestHandler(t)
 
-	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
-		Type:    dspb.DeviceSetType_DEVICE_SET_TYPE_RACK,
-		SiteIds: []int64{3, 99},
-	})
+			// The validator collects the IDs from a map, so their order is not fixed.
+			h.siteStore.EXPECT().
+				SitesByIDs(gomock.Any(), testOrgID, gomock.InAnyOrder(tc.siteIDs)).
+				Return(tc.owned, nil)
 
-	_, err := h.handler.ListDeviceSets(testCtx(t), req)
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-	assert.NotContains(t, err.Error(), "99")
-}
+			req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
+				Type:    dspb.DeviceSetType_DEVICE_SET_TYPE_RACK,
+				SiteIds: tc.siteIDs,
+			})
 
-func TestListDeviceSets_SiteIDsAllowedForGroupType(t *testing.T) {
-	h := newTestHandler(t)
-
-	h.siteStore.EXPECT().
-		SitesByIDs(gomock.Any(), testOrgID, []int64{3}).
-		Return([]int64{3}, nil)
-
-	h.collectionStore.EXPECT().
-		ListCollections(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_GROUP,
-			int32(50), "", gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ int64, _ collectionpb.CollectionType,
-			_ int32, _ string, _ *interfaces.SortConfig, filter *interfaces.DeviceSetFilter,
-		) ([]*collectionpb.DeviceCollection, string, int32, error) {
-			require.NotNil(t, filter)
-			assert.Equal(t, []int64{3}, filter.SiteIDs)
-			return nil, "", 0, nil
+			_, err := h.handler.ListDeviceSets(testCtx(t), req)
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+			assert.NotContains(t, err.Error(), "99")
 		})
-
-	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
-		Type:     dspb.DeviceSetType_DEVICE_SET_TYPE_GROUP,
-		PageSize: 50,
-		SiteIds:  []int64{3},
-	})
-
-	_, err := h.handler.ListDeviceSets(testCtx(t), req)
-	require.NoError(t, err)
+	}
 }
 
 // TestListDeviceSets_NonPositiveSiteID parallels the miner-list

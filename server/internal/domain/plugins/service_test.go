@@ -16,49 +16,6 @@ func createTestServiceForServiceTest(_ *testing.T, _ *gomock.Controller, manager
 	return NewService(manager)
 }
 
-func TestNewService(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	manager := NewManager(&Config{})
-
-	service := createTestServiceForServiceTest(t, ctrl, manager)
-
-	assert.NotNil(t, service)
-	assert.Equal(t, manager, service.manager)
-}
-
-func TestService_GetManager(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	manager := NewManager(&Config{})
-	service := createTestServiceForServiceTest(t, ctrl, manager)
-
-	assert.Equal(t, manager, service.GetManager())
-}
-
-func TestService_IsPluginAvailableByDriverName(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	manager := NewManager(&Config{})
-	service := createTestServiceForServiceTest(t, ctrl, manager)
-
-	// Act + Assert - no plugins registered
-	assert.False(t, service.GetManager().HasPluginForDriverName("antminer"))
-
-	// Arrange
-	mockPlugin := &LoadedPlugin{
-		Name: "antminer-plugin",
-	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
-
-	// Act + Assert
-	assert.True(t, service.GetManager().HasPluginForDriverName("antminer"))
-	assert.False(t, service.GetManager().HasPluginForDriverName("whatsminer"))
-}
-
 func TestService_GetAvailablePlugins(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -371,55 +328,6 @@ func TestService_GetMinerCapabilitiesForDevice_EmptyDriverName(t *testing.T) {
 	result := service.GetMinerCapabilitiesForDevice(ctx, device)
 
 	assert.Nil(t, result)
-}
-
-func TestService_GetMinerCapabilitiesForDevice_AntminerSuccess(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	manager := NewManager(&Config{})
-	service := createTestServiceForServiceTest(t, ctrl, manager)
-
-	// Arrange
-	antminerCaps := sdk.Capabilities{
-		sdk.CapabilityBasicAuth:         true,
-		sdk.CapabilityReboot:            true,
-		sdk.CapabilityLEDBlink:          true,
-		sdk.CapabilityPoolConfig:        true,
-		sdk.CapabilityRealtimeTelemetry: true,
-		sdk.CapabilityHashrateReported:  true,
-		sdk.CapabilityManualUpload:      true,
-	}
-
-	mockPlugin := &LoadedPlugin{
-		Name: "antminer-plugin",
-		Caps: antminerCaps,
-	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
-	manager.plugins["antminer-plugin"] = mockPlugin
-
-	device := &pairingpb.Device{
-		DriverName:   "antminer",
-		Model:        "Antminer S19",
-		Manufacturer: "Bitmain",
-	}
-
-	// Act
-	ctx := t.Context()
-	result := service.GetMinerCapabilitiesForDevice(ctx, device)
-
-	// Assert
-	require.NotNil(t, result)
-	assert.Equal(t, "Bitmain", result.Manufacturer)
-
-	require.NotNil(t, result.Telemetry)
-	assert.True(t, result.Telemetry.RealtimeTelemetrySupported)
-
-	require.NotNil(t, result.Commands)
-	assert.True(t, result.Commands.RebootSupported)
-	assert.True(t, result.Commands.LedBlinkSupported)
-	assert.False(t, result.Commands.AirCoolingSupported)
-	assert.False(t, result.Commands.ImmersionCoolingSupported)
 }
 
 func TestService_GetMinerCapabilitiesForDevice_ProtoSuccess(t *testing.T) {

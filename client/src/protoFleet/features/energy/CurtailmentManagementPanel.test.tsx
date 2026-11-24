@@ -1,18 +1,19 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Code, ConnectError } from "@connectrpc/connect";
 import userEvent from "@testing-library/user-event";
 
+import {
+  type ActiveCurtailmentEvent,
+  type CurtailmentHistoryEvent,
+  type CurtailmentPlanPreview,
+  type CurtailmentResponseProfileOption,
+  type CurtailmentSiteOption,
+  type CurtailmentSubmitValues,
+} from "@/protoFleet/api/curtailmentTypes";
+
 import type { UseCurtailmentApiResult } from "@/protoFleet/api/useCurtailmentApi";
-import type { ActiveCurtailmentEvent } from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
-import type { CurtailmentHistoryEvent } from "@/protoFleet/features/energy/CurtailmentHistory";
 import CurtailmentManagementPanel from "@/protoFleet/features/energy/CurtailmentManagementPanel";
-import type {
-  CurtailmentPlanPreview,
-  CurtailmentResponseProfileOption,
-  CurtailmentSiteOption,
-  CurtailmentSubmitValues,
-} from "@/protoFleet/features/energy/CurtailmentStartModal";
 
 const mocks = vi.hoisted(() => ({
   activeSite: { current: { kind: "all" } as { kind: string; id?: string; slug?: string } },
@@ -218,6 +219,8 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
     );
   },
   default: ({
+    actionError,
+    onDismiss,
     initialValues,
     mode,
     onStopCurtailment,
@@ -233,6 +236,8 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
     buildingScopeEnabled,
     rackAndGroupScopeEnabled,
   }: {
+    actionError?: string | null;
+    onDismiss: () => void;
     initialValues?: Partial<CurtailmentSubmitValues>;
     mode?: string;
     onStopCurtailment?: () => void;
@@ -249,6 +254,10 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
     rackAndGroupScopeEnabled?: boolean;
   }) => (
     <div role="dialog" aria-label={mode === "edit" ? "Manage curtailment" : "New curtailment"}>
+      {actionError ? <div data-testid="modal-action-error">{actionError}</div> : null}
+      <button type="button" onClick={onDismiss}>
+        Dismiss editor
+      </button>
       <div data-testid="modal-initial-reason">{initialValues?.reason ?? ""}</div>
       <div data-testid="modal-response-profiles">{responseProfiles?.map((profile) => profile.label).join(",")}</div>
       <div data-testid="modal-response-profile-values">{JSON.stringify(responseProfiles?.[0]?.values ?? {})}</div>
@@ -308,7 +317,6 @@ const activeEventFormValues = {
   reason: "Grid peak",
   scopeType: "wholeOrg",
   scopeId: "whole-org",
-  deviceSetIds: [],
   deviceIdentifiers: [],
   responseProfileId: "customPlan",
   curtailmentMode: "fixedKwReduction",
@@ -348,6 +356,7 @@ function createApiResult(overrides: Partial<UseCurtailmentApiResult> = {}): UseC
     stoppingEventId: null,
     adminTerminatingEventId: null,
     loadError: null,
+    clearActionErrors: vi.fn(),
     startError: null,
     updateError: null,
     stopError: null,
@@ -404,7 +413,7 @@ describe("CurtailmentManagementPanel", () => {
       updatingProfileIds: new Set(),
       loadError: null,
       createError: null,
-      listResponseProfiles: vi.fn(),
+      listResponseProfiles: vi.fn().mockResolvedValue([]),
       createResponseProfile: vi.fn(),
       updateResponseProfile: vi.fn(),
       deleteResponseProfile: vi.fn(),
@@ -568,7 +577,6 @@ describe("CurtailmentManagementPanel", () => {
           scope: "Whole fleet",
           selectionStrategy: "Least efficient first",
           restoreBehavior: "Restore in batches",
-          deadlineSummary: "Within 15 min",
           formValues: {
             name: "Standard shed",
             actionType: "fixedKwReduction",
@@ -598,7 +606,6 @@ describe("CurtailmentManagementPanel", () => {
           scope: "2 buildings",
           selectionStrategy: "Least efficient first",
           restoreBehavior: "Restore in batches",
-          deadlineSummary: "Within 15 min",
           formValues: {
             name: "Building shed",
             actionType: "fixedKwReduction",
@@ -632,7 +639,7 @@ describe("CurtailmentManagementPanel", () => {
       updatingProfileIds: new Set(),
       loadError: null,
       createError: null,
-      listResponseProfiles: vi.fn(),
+      listResponseProfiles: vi.fn().mockResolvedValue([]),
       createResponseProfile: vi.fn(),
       updateResponseProfile: vi.fn(),
       deleteResponseProfile: vi.fn(),
@@ -671,7 +678,6 @@ describe("CurtailmentManagementPanel", () => {
           scope: "3 miners",
           selectionStrategy: "Least efficient first",
           restoreBehavior: "Restore in batches",
-          deadlineSummary: "Within 15 min",
           formValues: {
             name: "Targeted shed",
             actionType: "fixedKwReduction",
@@ -699,7 +705,7 @@ describe("CurtailmentManagementPanel", () => {
       updatingProfileIds: new Set(),
       loadError: null,
       createError: null,
-      listResponseProfiles: vi.fn(),
+      listResponseProfiles: vi.fn().mockResolvedValue([]),
       createResponseProfile: vi.fn(),
       updateResponseProfile: vi.fn(),
       deleteResponseProfile: vi.fn(),
@@ -778,6 +784,22 @@ describe("CurtailmentManagementPanel", () => {
 
     expect(screen.getByRole("button", { name: "Request restore" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Request restore now" })).not.toBeInTheDocument();
+  });
+
+  it("lets operators stop schedule-owned events early", async () => {
+    const user = userEvent.setup();
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({
+        activeEvent: { ...activeEvent, isAutomationOwned: true, isScheduleOwned: true },
+        activeEvents: [{ ...historyEvent, state: "active" }],
+        activeEventId: "curt-1",
+      }),
+    );
+
+    render(<CurtailmentManagementPanel enableRecover />);
+
+    await user.click(screen.getByRole("button", { name: "Request restore now" }));
+    expect(screen.getByRole("dialog", { name: "restore confirmation" })).toBeInTheDocument();
   });
 
   it("aborts restoring curtailment ownership for admin recovery users", async () => {
@@ -1791,5 +1813,51 @@ describe("CurtailmentManagementPanel", () => {
     expect(mocks.setHistoryStatusFilters).toHaveBeenCalledWith(["completed", "failed"], {
       signal: expect.any(AbortSignal),
     });
+  });
+  it.each(["create", "edit"] as const)(
+    "shows %s errors inside the modal and clears them on dismissal",
+    async (mode) => {
+      const user = userEvent.setup();
+      const clearActionErrors = vi.fn();
+      mocks.useCurtailmentApi.mockReturnValue(
+        createApiResult({
+          activeEvent,
+          activeEventId: "curt-1",
+          activeEventFormValues,
+          startError: "Start rejected",
+          updateError: "Update rejected",
+          clearActionErrors,
+        }),
+      );
+      render(<CurtailmentManagementPanel />);
+      await user.click(screen.getByRole("button", { name: mode === "edit" ? "Request edit" : "Run curtailment" }));
+      const modal = screen.getByRole("dialog", { name: mode === "edit" ? "Manage curtailment" : "New curtailment" });
+      expect(within(modal).getByTestId("modal-action-error")).toHaveTextContent(
+        mode === "edit" ? "Update rejected" : "Start rejected",
+      );
+      expect(screen.getAllByText(mode === "edit" ? "Update rejected" : "Start rejected")).toHaveLength(1);
+      expect(screen.queryByText(mode === "edit" ? "Start rejected" : "Update rejected")).not.toBeInTheDocument();
+      await user.click(within(modal).getByRole("button", { name: "Dismiss editor" }));
+      expect(clearActionErrors).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("keeps an earlier stop error out of the Manage modal", async () => {
+    const user = userEvent.setup();
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({ activeEvent, activeEventId: "curt-1", activeEventFormValues, stopError: "Stop rejected" }),
+    );
+    render(<CurtailmentManagementPanel />);
+    await user.click(screen.getByRole("button", { name: "Request edit" }));
+    const modal = screen.getByRole("dialog", { name: "Manage curtailment" });
+    expect(within(modal).queryByTestId("modal-action-error")).not.toBeInTheDocument();
+  });
+
+  it("withholds the active Manage action when the event has no supported edit form", () => {
+    mocks.useCurtailmentApi.mockReturnValue(
+      createApiResult({ activeEvent, activeEventId: "curt-1", activeEventFormValues: null }),
+    );
+    render(<CurtailmentManagementPanel />);
+    expect(screen.queryByRole("button", { name: "Request edit" })).not.toBeInTheDocument();
   });
 });

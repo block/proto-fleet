@@ -86,6 +86,38 @@ func isTransientFixtureCause(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == pgInternalError && pgErr.Message == timescaleTupleConcurrentlyDeleted
 }
 
+func TestIsRetryableLegacyFixtureError(t *testing.T) {
+	t.Parallel()
+	deadlock := &pgconn.PgError{Code: PGDeadlockDetected}
+	catalogRace := &pgconn.PgError{Code: pgInternalError, Message: timescaleTupleConcurrentlyDeleted}
+	for _, test := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil, want: false},
+		{name: "unwrapped postgres error", err: fmt.Errorf("prepare active schema: %w", deadlock), want: true},
+		{name: "migration body value error", err: fmt.Errorf("migrate: %w", migratedatabase.Error{OrigErr: deadlock, Err: "migration failed"}), want: true},
+		{name: "driver bookkeeping pointer error", err: fmt.Errorf("create test migration driver: %w", &migratedatabase.Error{OrigErr: catalogRace}), want: true},
+		{name: "migration error joined with unlock failure", err: errors.Join(
+			migratedatabase.Error{OrigErr: catalogRace, Err: "migration failed"},
+			&migratedatabase.Error{OrigErr: errors.New("conn closed")},
+		), want: true},
+		{name: "permanent error mentioning transient text in query", err: migratedatabase.Error{
+			OrigErr: &pgconn.PgError{Code: "23514"},
+			Query:   []byte("-- SQLSTATE 40P01 tuple concurrently deleted"),
+		}, want: false},
+		{name: "other internal error", err: &migratedatabase.Error{
+			OrigErr: &pgconn.PgError{Code: pgInternalError, Message: "cache lookup failed"},
+		}, want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, test.want, isRetryableLegacyFixtureError(test.err))
+		})
+	}
+}
+
 func TestLegacyFixtureDiscardDetachesAttachedSessions(t *testing.T) {
 	if os.Getenv("DB_PASSWORD") == "" {
 		t.Skip("DB_PASSWORD is required for migration integration tests")
@@ -104,6 +136,32 @@ func TestLegacyFixtureDiscardDetachesAttachedSessions(t *testing.T) {
 		"SELECT EXISTS (SELECT FROM pg_database WHERE datname = $1)", config.Name).Scan(&exists))
 	assert.False(t, exists, "discard must drop a database that still has attached sessions")
 	assert.Error(t, attached.PingContext(t.Context()))
+}
+
+func TestLegacyMigrationFixtureKeepsBackgroundPoliciesIdle(t *testing.T) {
+	if os.Getenv("DB_PASSWORD") == "" {
+		t.Skip("DB_PASSWORD is required for migration integration tests")
+	}
+	conn, config := newMigrationBridgeTestDB(t)
+	var template, installed bool
+	assert.NoError(t, conn.QueryRowContext(t.Context(),
+		"SELECT datistemplate FROM pg_database WHERE datname = current_database()").Scan(&template))
+	assert.True(t, template, "TimescaleDB must exclude the fixture from automatic scheduling")
+	assert.NoError(t, conn.QueryRowContext(t.Context(),
+		"SELECT EXISTS (SELECT FROM pg_extension WHERE extname = 'timescaledb')").Scan(&installed))
+	assert.False(t, installed, "the migration must still install its own extension")
+
+	migrateTestDBTo(t, conn, config.Name, 142)
+	var restoring string
+	assert.NoError(t, conn.QueryRowContext(t.Context(), "SHOW timescaledb.restoring").Scan(&restoring))
+	assert.Equal(t, "off", restoring, "migration sessions must keep normal TimescaleDB hooks")
+	var scheduled, runs int
+	assert.NoError(t, conn.QueryRowContext(t.Context(),
+		"SELECT count(*) FROM timescaledb_information.jobs WHERE scheduled").Scan(&scheduled))
+	assert.True(t, scheduled > 0, "fixture isolation must preserve scheduled policy metadata")
+	assert.NoError(t, conn.QueryRowContext(t.Context(),
+		"SELECT COALESCE(sum(total_runs), 0) FROM timescaledb_information.job_stats").Scan(&runs))
+	assert.Equal(t, 0, runs)
 }
 
 func TestLegacyMigrationFixtureRetries(t *testing.T) {

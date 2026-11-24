@@ -46,6 +46,7 @@ type Coordinator struct {
 	activeCtx     context.Context //nolint:containedctx // The coordinator owns this explicit active-lifetime context.
 	cancelActive  context.CancelCauseFunc
 	leaseTimer    *time.Timer
+	leaseDeadline time.Time
 	leaseVersion  uint64
 	stateChanged  chan struct{}
 	acquireAfter  time.Time
@@ -171,7 +172,7 @@ func (c *Coordinator) Run(ctx context.Context) error {
 	for {
 		activated, _ := c.tryAcquire(ctx)
 		if ctx.Err() != nil {
-			c.deactivate(ctx.Err())
+			c.deactivate(context.Cause(ctx))
 			return fmt.Errorf("HA coordinator stopped: %w", ctx.Err())
 		}
 		if activated {
@@ -185,7 +186,7 @@ func (c *Coordinator) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			c.deactivate(ctx.Err())
+			c.deactivate(context.Cause(ctx))
 			return fmt.Errorf("HA coordinator stopped: %w", ctx.Err())
 		case <-timer.C:
 		}
@@ -198,7 +199,7 @@ func (c *Coordinator) renewUntilStopped(ctx, activeCtx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			c.deactivate(ctx.Err())
+			c.deactivate(context.Cause(ctx))
 			return fmt.Errorf("HA coordinator stopped: %w", ctx.Err())
 		case <-activeCtx.Done():
 			cause := context.Cause(activeCtx)
@@ -373,6 +374,11 @@ func (c *Coordinator) activate(
 	requestStarted time.Time,
 	dcsProofDeadline time.Time,
 ) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := parent.Err(); err != nil {
+		return fmt.Errorf("activate HA coordinator: %w", err)
+	}
 	deadline, err := localOwnershipDeadline(
 		ownership,
 		requestStarted,
@@ -382,11 +388,6 @@ func (c *Coordinator) activate(
 		return err
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if err := parent.Err(); err != nil {
-		return fmt.Errorf("activate HA coordinator: %w", err)
-	}
 	if c.cancelActive != nil {
 		c.cancelActive(ErrOwnershipLost)
 	}
@@ -406,15 +407,6 @@ func (c *Coordinator) updateActive(
 	requestStarted time.Time,
 	dcsProofDeadline time.Time,
 ) error {
-	deadline, err := localOwnershipDeadline(
-		renewed,
-		requestStarted,
-		dcsProofDeadline,
-	)
-	if err != nil {
-		return err
-	}
-
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.activeCtx == nil ||
@@ -422,6 +414,16 @@ func (c *Coordinator) updateActive(
 		c.ownership.Token != expected.Token ||
 		c.ownership.HolderID != expected.HolderID {
 		return ErrOwnershipLost
+	}
+	if err := context.Cause(c.activeCtx); err != nil {
+		return fmt.Errorf("HA renewal lifetime ended: %w", err)
+	}
+	if !c.leaseDeadline.After(time.Now()) {
+		return fmt.Errorf("HA renewal completed after prior local deadline: %w", ErrOwnershipExpired)
+	}
+	deadline, err := localOwnershipDeadline(renewed, requestStarted, dcsProofDeadline)
+	if err != nil {
+		return err
 	}
 	c.ownership = renewed
 	c.updatedAt = time.Now()
@@ -455,6 +457,7 @@ func localOwnershipDeadline(
 
 func (c *Coordinator) resetLeaseTimerLocked(deadline time.Time) {
 	c.stopLeaseTimerLocked()
+	c.leaseDeadline = deadline
 	version := c.leaseVersion
 	c.leaseTimer = time.AfterFunc(
 		time.Until(deadline),
@@ -471,6 +474,7 @@ func (c *Coordinator) resetLeaseTimerLocked(deadline time.Time) {
 
 func (c *Coordinator) stopLeaseTimerLocked() {
 	c.leaseVersion++
+	c.leaseDeadline = time.Time{}
 	if c.leaseTimer != nil {
 		c.leaseTimer.Stop()
 		c.leaseTimer = nil
@@ -519,4 +523,16 @@ func (c *Coordinator) deactivateLocked(cause error) {
 func (c *Coordinator) signalStateChangedLocked() {
 	close(c.stateChanged)
 	c.stateChanged = make(chan struct{})
+}
+
+// Release is called only after Run has stopped renewing and the owned runtime
+// and admitted requests have drained. The store still requires the exact term.
+func (c *Coordinator) Release(ctx context.Context, active Ownership) error {
+	if active.HolderID != c.HolderID() {
+		return ErrOwnershipLost
+	}
+	if err := c.store.Release(ctx, active); err != nil {
+		return fmt.Errorf("release Fleet ownership term: %w", err)
+	}
+	return nil
 }

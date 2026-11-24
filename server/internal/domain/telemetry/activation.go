@@ -208,7 +208,7 @@ func (s *TelemetryService) requeueTelemetryTasks(devices []models.Device) {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownFlushTimeout)
 	defer cancel()
 	for _, device := range devices {
-		if err := s.updateScheduler.AddDevices(ctx, device); err != nil {
+		if err := s.updateScheduler.RestoreDevices(ctx, device); err != nil {
 			slog.Warn("failed to requeue telemetry task during shutdown", "deviceID", device.ID, "error", err)
 		}
 	}

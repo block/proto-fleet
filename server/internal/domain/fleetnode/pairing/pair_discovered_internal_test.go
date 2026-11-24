@@ -14,6 +14,7 @@ import (
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	storemocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
@@ -45,8 +46,17 @@ func (s *orderedPersistStore) DeviceHasActivePairing(context.Context, int64, int
 	return s.activePairing, nil
 }
 
+func (*orderedPersistStore) IsFleetNodeHAStandby(context.Context, int64, int64) (bool, error) {
+	return false, nil
+}
+
 func (s *orderedPersistStore) PairDeviceToFleetNode(context.Context, int64, int64, int64, *int64) (int64, error) {
 	return 1, nil
+}
+
+func (s *orderedPersistStore) ClearFleetNodeRevokedStatus(context.Context, int64, int64, int64) (int64, error) {
+	*s.events = append(*s.events, "clear_revoked_status")
+	return 0, nil
 }
 
 func (s *orderedPersistStore) DeleteMinerCredentialsByDeviceIDAndOrgID(context.Context, int64, int64) (int64, error) {
@@ -67,6 +77,11 @@ func (s orderedPersistEnrollmentStore) LockFleetNodeByID(context.Context, int64,
 	return &enrollment.FleetNode{EnrollmentStatus: enrollment.FleetNodeStatusConfirmed}, nil
 }
 
+func (s orderedPersistEnrollmentStore) LockFleetNodeIdentityByID(context.Context, int64, int64) (*enrollment.FleetNode, error) {
+	*s.events = append(*s.events, "lock_node_identity")
+	return &enrollment.FleetNode{EnrollmentStatus: enrollment.FleetNodeStatusConfirmed}, nil
+}
+
 type errorEnrollmentStore struct {
 	enrollment.AgentStore
 	err error
@@ -76,7 +91,11 @@ func (s errorEnrollmentStore) LockFleetNodeByID(context.Context, int64, int64) (
 	return nil, s.err
 }
 
-func TestPersistPairResultLocksNodeThenDeviceBeforeWrites(t *testing.T) {
+func (s errorEnrollmentStore) LockFleetNodeIdentityByID(context.Context, int64, int64) (*enrollment.FleetNode, error) {
+	return nil, s.err
+}
+
+func TestPersistPairResultLocksIdentityThenDeviceThenEnrollmentBeforeWrites(t *testing.T) {
 	for _, tc := range []struct {
 		name           string
 		outcome        gatewaypb.PairOutcome
@@ -103,8 +122,14 @@ func TestPersistPairResultLocksNodeThenDeviceBeforeWrites(t *testing.T) {
 			}
 			existing := &pairingpb.Device{DeviceIdentifier: identifier}
 			discoveredStore.EXPECT().GetDevice(gomock.Any(), gomock.Any()).Return(dd, nil)
+			discoveredStore.EXPECT().LockPairingSnapshot(gomock.Any(), gomock.Any(), gomock.Any(), &fleetNodeID).DoAndReturn(
+				func(context.Context, discoverymodels.DeviceOrgIdentifier, *pairingpb.Device, *int64) error {
+					events = append(events, "lock_snapshot")
+					return nil
+				},
+			)
 			deviceStore.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), identifier, orgID).Return(existing, nil)
-			wantEvents := []string{"lock_node", "resolve_device", "lock_device"}
+			wantEvents := []string{"lock_node_identity", "lock_snapshot", "resolve_device", "lock_device", "lock_node"}
 			wantStatus := StatusPaired
 			if tc.outcome != gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED {
 				wantEvents = append(wantEvents, "check_active_pairing")
@@ -128,6 +153,7 @@ func TestPersistPairResultLocksNodeThenDeviceBeforeWrites(t *testing.T) {
 					},
 				)
 				if tc.outcome == gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED {
+					wantEvents = append(wantEvents, "clear_revoked_status")
 					deviceStore.EXPECT().UpsertDevicePairing(gomock.Any(), gomock.Any(), orgID, StatusPaired).Return(nil)
 					deviceStore.EXPECT().UpsertDeviceStatus(gomock.Any(), gomock.Any(), gomock.Any(), "").Return(nil)
 				} else {
@@ -141,11 +167,17 @@ func TestPersistPairResultLocksNodeThenDeviceBeforeWrites(t *testing.T) {
 				passThroughTransactor{},
 			).WithProvisioning(deviceStore, discoveredStore, nil)
 			defaultPasswordActive := false
-			status, err := service.PersistFleetNodePairResult(t.Context(), fleetNodeID, orgID, &gatewaypb.FleetNodePairResult{
+			status, err := service.PersistFleetNodePairResult(t.Context(), control.PairPersistMeta{
+				FleetNodeID: fleetNodeID,
+				OrgID:       orgID,
+				Snapshots: map[string]*pairingpb.FleetNodePairTarget{
+					identifier: {DeviceIdentifier: identifier},
+				},
+			}, &gatewaypb.FleetNodePairResult{
 				DeviceIdentifier:      identifier,
 				Outcome:               tc.outcome,
 				DefaultPasswordActive: &defaultPasswordActive,
-			}, nil)
+			})
 
 			require.NoError(t, err)
 			require.Equal(t, wantStatus, status)

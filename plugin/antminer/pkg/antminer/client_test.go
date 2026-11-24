@@ -1,6 +1,7 @@
 package antminer
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -93,6 +94,7 @@ func TestClient_UpdatePools(t *testing.T) {
 	err := client.UpdatePools(t.Context(), pools)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "credentials required")
+	require.Equal(t, sdk.WriteNotDispatched, sdk.WriteEvidence(err).GetReason())
 
 	// Test with credentials - should succeed
 	err = client.SetCredentials(sdk.UsernamePassword{Username: "admin", Password: "password"})
@@ -121,6 +123,17 @@ func TestClient_UpdatePools(t *testing.T) {
 	err = client.UpdatePools(t.Context(), pools)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to get current config")
+	require.Equal(t, sdk.WriteNotDispatched, sdk.WriteEvidence(err).GetReason())
+	require.Equal(t, string(sdk.WriteStageConfigurationRead), sdk.WriteEvidence(err).Metadata["stage"])
+	mockWebClient.EXPECT().GetMinerConfig(gomock.Any(), gomock.Any()).Return(nil, sdk.NewErrorAuthenticationFailed("miner"))
+	err = client.UpdatePools(t.Context(), pools)
+	require.Equal(t, sdk.WriteNotDispatched, sdk.WriteEvidence(err).GetReason())
+	require.Equal(t, string(sdk.WriteReasonAuthenticationFailed), sdk.WriteEvidence(err).Metadata["reason"])
+	mockWebClient.EXPECT().GetMinerConfig(gomock.Any(), gomock.Any()).Return(mockConfig, nil)
+	mockWebClient.EXPECT().SetMinerConfig(gomock.Any(), gomock.Any(), gomock.Any()).Return(context.DeadlineExceeded)
+	err = client.UpdatePools(t.Context(), pools)
+	require.Error(t, err)
+	require.Nil(t, sdk.WriteEvidence(err), "a lost POST reply must remain uncertain")
 }
 
 func TestClient_BlinkLED(t *testing.T) {

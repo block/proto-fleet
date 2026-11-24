@@ -1,7 +1,12 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
-import { mapCurtailmentEventToFormValues } from "@/protoFleet/api/curtailmentMappers";
+import {
+  hasCurtailmentEstimatedReductionKw,
+  hasCurtailmentTargetMetrics,
+  mapCurtailmentEventToFormValues,
+} from "@/protoFleet/api/curtailmentMappers";
 import {
   CurtailmentEventSchema,
   CurtailmentScopeSchema,
@@ -9,8 +14,23 @@ import {
   ScopeRackSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 
+describe("curtailment snapshot availability", () => {
+  it.each(["estimated_reduction_kw", "estimatedReductionKw"])(
+    "keeps zero %s available while an absent estimate remains unavailable",
+    (key) => {
+      const event = create(CurtailmentEventSchema, { decisionSnapshot: { [key]: 0 } });
+      expect(hasCurtailmentTargetMetrics(event)).toBe(true);
+      expect(hasCurtailmentEstimatedReductionKw(event)).toBe(true);
+
+      const summary = create(CurtailmentEventSchema);
+      expect(hasCurtailmentTargetMetrics(summary)).toBe(false);
+      expect(hasCurtailmentEstimatedReductionKw(summary)).toBe(false);
+    },
+  );
+});
+
 describe("mapCurtailmentEventToFormValues", () => {
-  it("keeps topology-scoped events read-only until the modal can render them", () => {
+  it("keeps topology-scoped events read-only for editing", () => {
     const scopes = [7n, 8n].map((buildingId) =>
       create(CurtailmentScopeSchema, {
         scope: { case: "building", value: create(ScopeBuildingSchema, { buildingId }) },

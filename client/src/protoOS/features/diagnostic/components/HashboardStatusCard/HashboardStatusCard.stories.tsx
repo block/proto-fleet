@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { MemoryRouter } from "react-router-dom";
 import type { Meta, StoryObj } from "@storybook/react";
 import HashboardStatusCard from "./HashboardStatusCard";
+import { asAsicId } from "@/protoOS/store/contract";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
 // Configuration for different stories
@@ -15,13 +16,13 @@ const storyConfigs: Record<string, { slot: number; avg: number; max: number }> =
 
 // Store decorator that provides mock data
 const StoreDecorator = (Story: any, context: any) => {
-  const serialNumber = context.args.serialNumber;
+  const identifier = context.args.identifier;
 
   useEffect(() => {
     const store = useMinerStore.getState();
 
-    // Get config for this serial number
-    const config = storyConfigs[serialNumber] || {
+    // Get config for this identifier
+    const config = storyConfigs[identifier] || {
       slot: 1,
       avg: 65.0,
       max: 70.0,
@@ -37,7 +38,7 @@ const StoreDecorator = (Story: any, context: any) => {
     const tempRange = config.max - config.avg;
 
     for (let i = 0; i < 126; i++) {
-      const asicId = `${serialNumber}-asic-${i}`;
+      const asicId = `${identifier}-asic-${i}`;
       const row = Math.floor(i / 21); // 21 ASICs per row
       const column = i % 21;
 
@@ -46,7 +47,7 @@ const StoreDecorator = (Story: any, context: any) => {
       // Create ASIC with proper structure
       asics.push({
         id: asicId,
-        hashboardSerial: serialNumber,
+        hashboardSerial: identifier,
         row,
         column,
       });
@@ -72,17 +73,16 @@ const StoreDecorator = (Story: any, context: any) => {
 
       // Store telemetry data
       asicTelemetry.set(asicId, {
+        asicId: asAsicId(asicId),
         temperature: {
-          unit: "C",
-          latest: { value: asicTemp, timestamp: Date.now() },
-          timeSeries: [],
+          latest: { value: asicTemp, units: "°C" },
         },
       });
     }
 
     // Mock hashboard hardware data - just add this hashboard
     store.hardware.addHashboard({
-      serial: serialNumber,
+      serial: identifier,
       slot: config.slot,
       bay: 0,
       asicIds,
@@ -94,8 +94,9 @@ const StoreDecorator = (Story: any, context: any) => {
     // Add ASIC telemetry data to the store using setState to trigger Immer properly
     useMinerStore.setState((state) => {
       asicTelemetry.forEach((telemetry, asicId) => {
-        const existingAsicTelemetry = state.telemetry.asics.get(asicId) || {};
-        state.telemetry.asics.set(asicId, {
+        const id = asAsicId(asicId);
+        const existingAsicTelemetry = state.telemetry.asics.get(id);
+        state.telemetry.asics.set(id, {
           ...existingAsicTelemetry,
           ...telemetry,
         });
@@ -104,13 +105,13 @@ const StoreDecorator = (Story: any, context: any) => {
 
     // Mock hashboard telemetry data with temperature
     store.telemetry.updateHashboardTemperatures(
-      serialNumber,
+      identifier,
       undefined, // inletTemp
       undefined, // outletTemp
-      { value: config.avg, units: "C" }, // avgAsicTemp
-      { value: config.max, units: "C" }, // maxAsicTemp
+      { value: config.avg, units: "°C" }, // avgAsicTemp
+      { value: config.max, units: "°C" }, // maxAsicTemp
     );
-  }, [serialNumber]);
+  }, [identifier]);
 
   return <Story />;
 };
@@ -132,9 +133,9 @@ const meta: Meta<typeof HashboardStatusCard> = {
   },
   tags: ["autodocs"],
   argTypes: {
-    serialNumber: {
+    identifier: {
       control: "text",
-      description: "Hashboard serial number",
+      description: "Hashboard identifier (CT1 MAC address or R2 serial number)",
     },
   },
 };
@@ -144,30 +145,30 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
   args: {
-    serialNumber: "HB123454",
+    identifier: "HB123454",
   },
 };
 
 export const WithWarning: Story = {
   args: {
-    serialNumber: "HB123455",
+    identifier: "HB123455",
   },
 };
 
 export const HighPerformance: Story = {
   args: {
-    serialNumber: "HB123456",
+    identifier: "HB123456",
   },
 };
 
 export const LowPerformance: Story = {
   args: {
-    serialNumber: "HB123457",
+    identifier: "HB123457",
   },
 };
 
 export const Offline: Story = {
   args: {
-    serialNumber: "HB123458",
+    identifier: "HB123458",
   },
 };

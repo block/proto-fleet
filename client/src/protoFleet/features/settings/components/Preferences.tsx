@@ -30,6 +30,7 @@ const Preferences = () => {
                 <div className="text-300">Theme</div>
                 <Button
                   variant="textOnly"
+                  testId="theme-button"
                   onClick={() => setShowThemeSwitcher(true)}
                   textColor="text-intent-warning-fill"
                   text={convertToSentenceCase(theme)}

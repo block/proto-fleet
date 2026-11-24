@@ -51,8 +51,11 @@ clean:
 setup:
   #!/usr/bin/env bash
   set -euo pipefail
-  if [ ! -d ".venv" ]; then
-    python3 -m venv .venv
+  # Rebuild venvs left without pip or with a removed interpreter.
+  if ! .venv/bin/python -m pip --version >/dev/null 2>&1; then
+    # Hermit's link farm is outside the interpreter's standard-library directory.
+    python_executable="$(python3 -c 'import os, sys; print(os.path.realpath(sys.executable))')"
+    "${python_executable}" -m venv --clear .venv
     echo "✅ Created virtual environment at .venv"
   fi
   source "{{repo_root}}/scripts/pip-config.sh"

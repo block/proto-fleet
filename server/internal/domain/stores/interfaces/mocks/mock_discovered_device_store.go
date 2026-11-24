@@ -13,6 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
+	pairingv1 "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	models "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -41,6 +42,20 @@ func (m *MockDiscoveredDeviceStore) EXPECT() *MockDiscoveredDeviceStoreMockRecor
 	return m.recorder
 }
 
+// ActivateDirect mocks base method.
+func (m *MockDiscoveredDeviceStore) ActivateDirect(ctx context.Context, doi models.DeviceOrgIdentifier) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ActivateDirect", ctx, doi)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ActivateDirect indicates an expected call of ActivateDirect.
+func (mr *MockDiscoveredDeviceStoreMockRecorder) ActivateDirect(ctx, doi any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActivateDirect", reflect.TypeOf((*MockDiscoveredDeviceStore)(nil).ActivateDirect), ctx, doi)
+}
+
 // CountActiveUnpairedDevices mocks base method.
 func (m *MockDiscoveredDeviceStore) CountActiveUnpairedDevices(ctx context.Context, orgID int64) (int64, error) {
 	m.ctrl.T.Helper()
@@ -54,22 +69,6 @@ func (m *MockDiscoveredDeviceStore) CountActiveUnpairedDevices(ctx context.Conte
 func (mr *MockDiscoveredDeviceStoreMockRecorder) CountActiveUnpairedDevices(ctx, orgID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountActiveUnpairedDevices", reflect.TypeOf((*MockDiscoveredDeviceStore)(nil).CountActiveUnpairedDevices), ctx, orgID)
-}
-
-// GetActiveUnpairedDevices mocks base method.
-func (m *MockDiscoveredDeviceStore) GetActiveUnpairedDevices(ctx context.Context, orgID int64, cursor string, limit int32) ([]*models.DiscoveredDevice, string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetActiveUnpairedDevices", ctx, orgID, cursor, limit)
-	ret0, _ := ret[0].([]*models.DiscoveredDevice)
-	ret1, _ := ret[1].(string)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
-}
-
-// GetActiveUnpairedDevices indicates an expected call of GetActiveUnpairedDevices.
-func (mr *MockDiscoveredDeviceStoreMockRecorder) GetActiveUnpairedDevices(ctx, orgID, cursor, limit any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveUnpairedDevices", reflect.TypeOf((*MockDiscoveredDeviceStore)(nil).GetActiveUnpairedDevices), ctx, orgID, cursor, limit)
 }
 
 // GetByIPAndPort mocks base method.
@@ -117,6 +116,35 @@ func (mr *MockDiscoveredDeviceStoreMockRecorder) GetDevice(ctx, doi any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevice", reflect.TypeOf((*MockDiscoveredDeviceStore)(nil).GetDevice), ctx, doi)
 }
 
+// GetDirectContainerByIP mocks base method.
+func (m *MockDiscoveredDeviceStore) GetDirectContainerByIP(ctx context.Context, orgID int64, ipAddress, driverName, model, manufacturer string) (*models.DiscoveredDevice, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDirectContainerByIP", ctx, orgID, ipAddress, driverName, model, manufacturer)
+	ret0, _ := ret[0].(*models.DiscoveredDevice)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDirectContainerByIP indicates an expected call of GetDirectContainerByIP.
+func (mr *MockDiscoveredDeviceStoreMockRecorder) GetDirectContainerByIP(ctx, orgID, ipAddress, driverName, model, manufacturer any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDirectContainerByIP", reflect.TypeOf((*MockDiscoveredDeviceStore)(nil).GetDirectContainerByIP), ctx, orgID, ipAddress, driverName, model, manufacturer)
+}
+
+// LockPairingSnapshot mocks base method.
+func (m *MockDiscoveredDeviceStore) LockPairingSnapshot(ctx context.Context, doi models.DeviceOrgIdentifier, expected *pairingv1.Device, expectedFleetNodeID *int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockPairingSnapshot", ctx, doi, expected, expectedFleetNodeID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// LockPairingSnapshot indicates an expected call of LockPairingSnapshot.
+func (mr *MockDiscoveredDeviceStoreMockRecorder) LockPairingSnapshot(ctx, doi, expected, expectedFleetNodeID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockPairingSnapshot", reflect.TypeOf((*MockDiscoveredDeviceStore)(nil).LockPairingSnapshot), ctx, doi, expected, expectedFleetNodeID)
+}
+
 // Save mocks base method.
 func (m *MockDiscoveredDeviceStore) Save(ctx context.Context, doi models.DeviceOrgIdentifier, device *models.DiscoveredDevice) (*models.DiscoveredDevice, error) {
 	m.ctrl.T.Helper()
@@ -130,6 +158,21 @@ func (m *MockDiscoveredDeviceStore) Save(ctx context.Context, doi models.DeviceO
 func (mr *MockDiscoveredDeviceStoreMockRecorder) Save(ctx, doi, device any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Save", reflect.TypeOf((*MockDiscoveredDeviceStore)(nil).Save), ctx, doi, device)
+}
+
+// SaveDirect mocks base method.
+func (m *MockDiscoveredDeviceStore) SaveDirect(ctx context.Context, doi models.DeviceOrgIdentifier, device *models.DiscoveredDevice) (*models.DiscoveredDevice, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveDirect", ctx, doi, device)
+	ret0, _ := ret[0].(*models.DiscoveredDevice)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SaveDirect indicates an expected call of SaveDirect.
+func (mr *MockDiscoveredDeviceStoreMockRecorder) SaveDirect(ctx, doi, device any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveDirect", reflect.TypeOf((*MockDiscoveredDeviceStore)(nil).SaveDirect), ctx, doi, device)
 }
 
 // SoftDelete mocks base method.

@@ -14,10 +14,10 @@ export interface FleetHealthMetricsProps {
   className?: string;
   /** Grid override so callers can tune the column layout per surface. */
   grid?: string;
+  assetLabel?: "miner" | "asset";
 }
 
 const EMDASH = "—";
-const minersLabel = (count: number) => (count === 1 ? "miner" : "miners");
 
 // The flat fleet-health metric tiles shared by both dashboard modes:
 // All Sites renders them bare; a single site wraps them in the Fleet
@@ -31,7 +31,9 @@ const FleetHealthMetrics = ({
   sleepingMiners,
   className,
   grid = "grid-cols-5 phone:grid-cols-2 phone:gap-y-6",
+  assetLabel = "miner",
 }: FleetHealthMetricsProps) => {
+  const minersLabel = (count: number) => (count === 1 ? assetLabel : `${assetLabel}s`);
   const counts = [fleetSize, healthyMiners, needsAttentionMiners, offlineMiners, sleepingMiners];
   const isLoading = counts.some((c) => c === undefined);
 

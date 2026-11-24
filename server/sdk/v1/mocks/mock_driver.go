@@ -18,6 +18,45 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
+// MockDeviceStoredPoolReader is a mock of DeviceStoredPoolReader interface.
+type MockDeviceStoredPoolReader struct {
+	ctrl     *gomock.Controller
+	recorder *MockDeviceStoredPoolReaderMockRecorder
+	isgomock struct{}
+}
+
+// MockDeviceStoredPoolReaderMockRecorder is the mock recorder for MockDeviceStoredPoolReader.
+type MockDeviceStoredPoolReaderMockRecorder struct {
+	mock *MockDeviceStoredPoolReader
+}
+
+// NewMockDeviceStoredPoolReader creates a new mock instance.
+func NewMockDeviceStoredPoolReader(ctrl *gomock.Controller) *MockDeviceStoredPoolReader {
+	mock := &MockDeviceStoredPoolReader{ctrl: ctrl}
+	mock.recorder = &MockDeviceStoredPoolReaderMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockDeviceStoredPoolReader) EXPECT() *MockDeviceStoredPoolReaderMockRecorder {
+	return m.recorder
+}
+
+// GetStoredMiningPools mocks base method.
+func (m *MockDeviceStoredPoolReader) GetStoredMiningPools(ctx context.Context) ([]sdk.StoredMiningPool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetStoredMiningPools", ctx)
+	ret0, _ := ret[0].([]sdk.StoredMiningPool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetStoredMiningPools indicates an expected call of GetStoredMiningPools.
+func (mr *MockDeviceStoredPoolReaderMockRecorder) GetStoredMiningPools(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetStoredMiningPools", reflect.TypeOf((*MockDeviceStoredPoolReader)(nil).GetStoredMiningPools), ctx)
+}
+
 // MockDeviceCore is a mock of DeviceCore interface.
 type MockDeviceCore struct {
 	ctrl     *gomock.Controller
@@ -552,9 +591,9 @@ func (m *MockDeviceOptional) EXPECT() *MockDeviceOptionalMockRecorder {
 }
 
 // TryBatchStatus mocks base method.
-func (m *MockDeviceOptional) TryBatchStatus(ctx context.Context, ids []string) (map[string]sdk.DeviceMetrics, bool, error) {
+func (m *MockDeviceOptional) TryBatchStatus(ctx context.Context, devices []sdk.Device) (map[string]sdk.DeviceMetrics, bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "TryBatchStatus", ctx, ids)
+	ret := m.ctrl.Call(m, "TryBatchStatus", ctx, devices)
 	ret0, _ := ret[0].(map[string]sdk.DeviceMetrics)
 	ret1, _ := ret[1].(bool)
 	ret2, _ := ret[2].(error)
@@ -562,9 +601,9 @@ func (m *MockDeviceOptional) TryBatchStatus(ctx context.Context, ids []string) (
 }
 
 // TryBatchStatus indicates an expected call of TryBatchStatus.
-func (mr *MockDeviceOptionalMockRecorder) TryBatchStatus(ctx, ids any) *gomock.Call {
+func (mr *MockDeviceOptionalMockRecorder) TryBatchStatus(ctx, devices any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TryBatchStatus", reflect.TypeOf((*MockDeviceOptional)(nil).TryBatchStatus), ctx, ids)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TryBatchStatus", reflect.TypeOf((*MockDeviceOptional)(nil).TryBatchStatus), ctx, devices)
 }
 
 // TryGetTimeSeriesData mocks base method.
@@ -859,9 +898,9 @@ func (mr *MockDeviceMockRecorder) StopMining(ctx any) *gomock.Call {
 }
 
 // TryBatchStatus mocks base method.
-func (m *MockDevice) TryBatchStatus(ctx context.Context, ids []string) (map[string]sdk.DeviceMetrics, bool, error) {
+func (m *MockDevice) TryBatchStatus(ctx context.Context, devices []sdk.Device) (map[string]sdk.DeviceMetrics, bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "TryBatchStatus", ctx, ids)
+	ret := m.ctrl.Call(m, "TryBatchStatus", ctx, devices)
 	ret0, _ := ret[0].(map[string]sdk.DeviceMetrics)
 	ret1, _ := ret[1].(bool)
 	ret2, _ := ret[2].(error)
@@ -869,9 +908,9 @@ func (m *MockDevice) TryBatchStatus(ctx context.Context, ids []string) (map[stri
 }
 
 // TryBatchStatus indicates an expected call of TryBatchStatus.
-func (mr *MockDeviceMockRecorder) TryBatchStatus(ctx, ids any) *gomock.Call {
+func (mr *MockDeviceMockRecorder) TryBatchStatus(ctx, devices any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TryBatchStatus", reflect.TypeOf((*MockDevice)(nil).TryBatchStatus), ctx, ids)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TryBatchStatus", reflect.TypeOf((*MockDevice)(nil).TryBatchStatus), ctx, devices)
 }
 
 // TryGetTimeSeriesData mocks base method.
@@ -1063,6 +1102,45 @@ func (m *MockDriver) PairDevice(ctx context.Context, device sdk.DeviceInfo, acce
 func (mr *MockDriverMockRecorder) PairDevice(ctx, device, access any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PairDevice", reflect.TypeOf((*MockDriver)(nil).PairDevice), ctx, device, access)
+}
+
+// MockScopedDeviceResolver is a mock of ScopedDeviceResolver interface.
+type MockScopedDeviceResolver struct {
+	ctrl     *gomock.Controller
+	recorder *MockScopedDeviceResolverMockRecorder
+	isgomock struct{}
+}
+
+// MockScopedDeviceResolverMockRecorder is the mock recorder for MockScopedDeviceResolver.
+type MockScopedDeviceResolverMockRecorder struct {
+	mock *MockScopedDeviceResolver
+}
+
+// NewMockScopedDeviceResolver creates a new mock instance.
+func NewMockScopedDeviceResolver(ctrl *gomock.Controller) *MockScopedDeviceResolver {
+	mock := &MockScopedDeviceResolver{ctrl: ctrl}
+	mock.recorder = &MockScopedDeviceResolverMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockScopedDeviceResolver) EXPECT() *MockScopedDeviceResolverMockRecorder {
+	return m.recorder
+}
+
+// GetOrCreateDevice mocks base method.
+func (m *MockScopedDeviceResolver) GetOrCreateDevice(ctx context.Context, id string, info sdk.DeviceInfo, secret sdk.SecretBundle, scope string) (sdk.NewDeviceResult, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOrCreateDevice", ctx, id, info, secret, scope)
+	ret0, _ := ret[0].(sdk.NewDeviceResult)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOrCreateDevice indicates an expected call of GetOrCreateDevice.
+func (mr *MockScopedDeviceResolverMockRecorder) GetOrCreateDevice(ctx, id, info, secret, scope any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrCreateDevice", reflect.TypeOf((*MockScopedDeviceResolver)(nil).GetOrCreateDevice), ctx, id, info, secret, scope)
 }
 
 // MockDefaultCredentialsProvider is a mock of DefaultCredentialsProvider interface.

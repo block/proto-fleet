@@ -1,11 +1,25 @@
-import type { SegmentedBarChartData } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel/types";
+import type {
+  DashboardAudience,
+  SegmentedBarChartData,
+} from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel/types";
 
 /**
  * Generate uptime-specific headline based on processed data
  * @param processedData - Array of arrays of processed chart data (multi-day format)
  * @returns Formatted headline string
  */
-export const generateUptimeHeadline = (processedData: SegmentedBarChartData[][]): string => {
+export const generateUptimeHeadline = (
+  processedData: SegmentedBarChartData[][],
+  {
+    assetLabel = "miner",
+    audience = "fleet",
+    expectedAssetCount,
+  }: {
+    assetLabel?: string;
+    audience?: DashboardAudience;
+    expectedAssetCount?: number;
+  } = {},
+): string => {
   const allDataPoints = processedData.flat();
 
   if (allDataPoints.length === 0) {
@@ -19,8 +33,12 @@ export const generateUptimeHeadline = (processedData: SegmentedBarChartData[][])
   const notHashingCount = latestPoint.notHashing || 0;
   const totalMiners = hashingCount + brokenCount + notHashingCount;
 
+  if (audience === "account" && expectedAssetCount !== undefined && totalMiners < expectedAssetCount) {
+    return `${totalMiners.toLocaleString()} of ${expectedAssetCount.toLocaleString()} ${assetLabel}${expectedAssetCount === 1 ? "" : "s"} reporting`;
+  }
+
   if (totalMiners === 0) {
-    return "No miners";
+    return audience === "account" ? "No hashing-state readings" : "No miners";
   }
 
   // Surface the most severe non-healthy bucket first.
@@ -34,5 +52,5 @@ export const generateUptimeHeadline = (processedData: SegmentedBarChartData[][])
     return `${percentage}% need attention`;
   }
 
-  return "All miners hashing";
+  return `All ${assetLabel}s hashing`;
 };

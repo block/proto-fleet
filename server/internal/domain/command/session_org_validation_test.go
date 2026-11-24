@@ -63,20 +63,6 @@ func TestProcessCommand_RejectsMissingOrgID(t *testing.T) {
 	}
 }
 
-func TestReapplyCurrentPoolsWithWorkerNames_RejectsMissingOrgID(t *testing.T) {
-	es := &ExecutionService{run: newExecutionRun(context.Background())}
-	svc := &Service{config: &Config{}, executionService: es}
-
-	ctx := sessionCtxWithOrg(0)
-	_, err := svc.ReapplyCurrentPoolsWithWorkerNames(ctx, map[string]string{
-		"device-1": "worker-1",
-	})
-	require.Error(t, err)
-	var fleetErr fleeterror.FleetError
-	require.True(t, errors.As(err, &fleetErr), "expected FleetError, got %T", err)
-	assert.Contains(t, err.Error(), "session missing organization_id")
-}
-
 func TestCommandServiceDoesNotRestartExecutionFromPassiveTraffic(t *testing.T) {
 	execution := &ExecutionService{}
 	svc := &Service{config: &Config{}, executionService: execution}

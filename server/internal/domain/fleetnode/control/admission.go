@@ -1,6 +1,9 @@
 package control
 
-import gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+import (
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
+)
 
 // Fixed optimistic ceilings for one Fleet Node. At the default 15-second
 // telemetry cadence, 504 deferrable slots leave substantial latency headroom
@@ -30,6 +33,9 @@ const (
 // GetCoolingMode only prefills the settings UI. GetMiningPools remains general
 // because it is also a prerequisite for operator pool changes, while
 // GetFirmwareUpdateStatus advances an operator-initiated firmware workflow.
+// Container power-feed inspection is an operator-opened observation that never
+// changes equipment, so it must not take the slots reserved for operator writes;
+// any other or undecodable power-feed request stays general.
 func AdmissionForCommand(command *gatewaypb.AgentCommand) (CommandAdmissionClass, string) {
 	if command == nil {
 		return CommandAdmissionGeneral, "malformed"
@@ -43,6 +49,12 @@ func AdmissionForCommand(command *gatewaypb.AgentCommand) (CommandAdmissionClass
 		return CommandAdmissionExclusive, "endpoint_recovery"
 	case *gatewaypb.AgentCommand_Telemetry:
 		return CommandAdmissionDeferrableRead, "telemetry"
+	case *gatewaypb.AgentCommand_ExportCredentialKey:
+		return CommandAdmissionGeneral, "credential_key_export"
+	case *gatewaypb.AgentCommand_InstallCredentialKey:
+		return CommandAdmissionGeneral, "credential_key_install"
+	case *gatewaypb.AgentCommand_MinerWeb:
+		return CommandAdmissionGeneral, "miner_web"
 	case *gatewaypb.AgentCommand_MinerCommand:
 		return AdmissionForMinerCommand(typedCommand.MinerCommand)
 	default:
@@ -65,6 +77,32 @@ func AdmissionForMinerCommand(command *gatewaypb.MinerCommand) (CommandAdmission
 		return CommandAdmissionDeferrableRead, "get_cooling_mode"
 	case *gatewaypb.MinerCommand_GetErrors:
 		return CommandAdmissionDeferrableRead, "get_errors"
+	case *gatewaypb.MinerCommand_ContainerMining:
+		return CommandAdmissionGeneral, "container_mining"
+	case *gatewaypb.MinerCommand_ContainerPowerFeed:
+		if r, err := sdk.DecodeContainerPowerFeedRequest(command.GetContainerPowerFeed().GetRequest()); err == nil && r.ReadOnly() {
+			return CommandAdmissionDeferrableRead, "container_power_feed_inspect"
+		}
+		return CommandAdmissionGeneral, "container_power_feed"
+	case *gatewaypb.MinerCommand_MiningGroups:
+		return CommandAdmissionGeneral, "mining_groups"
+	case *gatewaypb.MinerCommand_SetModuleMining:
+		return CommandAdmissionGeneral, "set_module_mining"
+	case *gatewaypb.MinerCommand_StreamBoardAsicReadings:
+		// A viewer-opened observation, bounded per node by
+		// MaxConcurrentCommandStreamsPerNode, so it stays out of the slots
+		// reserved for operator writes.
+		return CommandAdmissionDeferrableRead, "stream_board_asic_readings"
+	case *gatewaypb.MinerCommand_ControllerRecords:
+		return CommandAdmissionGeneral, "controller_records"
+	case *gatewaypb.MinerCommand_SetBoardIdentify:
+		return CommandAdmissionGeneral, "set_board_identify"
+	case *gatewaypb.MinerCommand_SetTankMining:
+		return CommandAdmissionGeneral, "set_tank_mining"
+	case *gatewaypb.MinerCommand_SetContainerControl:
+		return CommandAdmissionGeneral, "set_container_control"
+	case *gatewaypb.MinerCommand_RunContainerAlarmAction:
+		return CommandAdmissionGeneral, "run_container_alarm_action"
 	case *gatewaypb.MinerCommand_Reboot:
 		return CommandAdmissionGeneral, "reboot"
 	case *gatewaypb.MinerCommand_StartMining:
@@ -83,6 +121,8 @@ func AdmissionForMinerCommand(command *gatewaypb.MinerCommand) (CommandAdmission
 		return CommandAdmissionGeneral, "set_power_target"
 	case *gatewaypb.MinerCommand_UpdateMiningPools:
 		return CommandAdmissionGeneral, "update_mining_pools"
+	case *gatewaypb.MinerCommand_VerifyPoolsCleared:
+		return CommandAdmissionGeneral, "verify_pools_cleared"
 	case *gatewaypb.MinerCommand_GetMiningPools:
 		return CommandAdmissionGeneral, "get_mining_pools"
 	case *gatewaypb.MinerCommand_UpdateMinerPassword:
@@ -95,6 +135,8 @@ func AdmissionForMinerCommand(command *gatewaypb.MinerCommand) (CommandAdmission
 		return CommandAdmissionGeneral, "get_firmware_update_status"
 	case *gatewaypb.MinerCommand_ApplyCurtailmentConfig:
 		return CommandAdmissionGeneral, "apply_curtailment_config"
+	case *gatewaypb.MinerCommand_FrigateUpdate:
+		return CommandAdmissionGeneral, "frigate_update"
 	default:
 		return CommandAdmissionGeneral, "miner_command_unknown"
 	}

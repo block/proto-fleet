@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
 
-import { fleetManagementClient, rolloutClient } from "@/protoFleet/api/clients";
+import { containersClient, fleetManagementClient, rolloutClient } from "@/protoFleet/api/clients";
 import {
   type FirmwareAssignment,
   type PreviewReleaseChannelScopeResponse,
   type ReleaseChannel,
+  type ReleaseChannelContainer,
+  type ReleaseChannelControllerSoftware,
   type ReleaseChannelMiner,
   type ReleaseChannelModelGroup,
   type ReleaseChannelScope,
@@ -33,7 +35,10 @@ export type ChannelView = ReleaseChannel & { modelGroups: ChannelModelGroupView[
 
 // An assignment as the UI stages it: the observed pair the file is for and
 // the file (empty to clear).
-export type AssignmentDraft = Pick<FirmwareAssignment, "manufacturer" | "model" | "firmwareFileId">;
+export type AssignmentDraft = Pick<FirmwareAssignment, "manufacturer" | "model" | "firmwareFileId"> & {
+  // The firmware component assigned; omitted for the model's main firmware.
+  component?: string;
+};
 
 const POLL_INTERVAL_MS = 5000;
 const MINER_NAMES_REFRESH_INTERVAL_MS = 5 * 60_000;
@@ -69,11 +74,30 @@ async function drainPages<T>(
   return all;
 }
 
-interface MinerNamesCache {
+interface NamesRead {
+  // Names from the last complete read. A failed read leaves them in place.
   value: Record<string, string> | null;
   expiresAt: number;
+}
+
+// Miners and containers are named by separate reads behind one lock. Each
+// keeps its own result, so a failure in one costs neither the other's names
+// nor a repeat of the other's read.
+interface MinerNamesCache {
+  miners: NamesRead;
+  containers: NamesRead;
   inFlight: Promise<Record<string, string>> | null;
 }
+
+const emptyMinerNamesCache = (): MinerNamesCache => ({
+  miners: { value: null, expiresAt: 0 },
+  containers: { value: null, expiresAt: 0 },
+  inFlight: null,
+});
+
+const isCurrentRead = (read: NamesRead): boolean => read.value !== null && Date.now() < read.expiresAt;
+const areNamesCurrent = (cache: MinerNamesCache): boolean =>
+  isCurrentRead(cache.miners) && isCurrentRead(cache.containers);
 
 function loadMinerNames(
   cache: MinerNamesCache,
@@ -81,29 +105,53 @@ function loadMinerNames(
   checkCurrent: () => void,
 ): Promise<Record<string, string>> {
   checkCurrent();
-  if (cache.value !== null && Date.now() < cache.expiresAt) return Promise.resolve(cache.value);
+  const names = () => ({ ...cache.miners.value, ...cache.containers.value });
+  if (areNamesCurrent(cache)) return Promise.resolve(names());
   if (cache.inFlight) return cache.inFlight;
-  const request = drainPages(
-    (cursor) =>
-      fleetManagementClient
-        .listMinerStateSnapshots({ pageSize: DETAIL_PAGE_SIZE, cursor }, { timeoutMs: POLL_RPC_TIMEOUT_MS, signal })
-        .then((resp) => ({ items: resp.miners, cursor: resp.cursor })),
-    signal,
-    checkCurrent,
-  )
-    .catch((error: unknown) => {
+  const refresh = async (read: NamesRead, load: () => Promise<{ deviceIdentifier: string; name: string }[]>) => {
+    if (isCurrentRead(read)) return;
+    // Firmware managers need not have miner:read or site:read. Clear names when
+    // a permission is denied, and avoid retrying the denied read every poll.
+    const devices = await load().catch((error: unknown) => {
       checkCurrent();
-      // Firmware managers need not have miner:read. Clear names when that
-      // permission is denied, and avoid retrying the denied scan every poll.
       if (error instanceof ConnectError && error.code === Code.PermissionDenied) return [];
       throw error;
-    })
-    .then((miners) => {
+    });
+    checkCurrent();
+    read.value = Object.fromEntries(devices.map((device) => [device.deviceIdentifier, device.name]));
+    read.expiresAt = Date.now() + MINER_NAMES_REFRESH_INTERVAL_MS;
+  };
+  // Hold the lock until both reads settle, so a failure in one never leaves
+  // the other running beside the next poll's read.
+  const request = Promise.allSettled([
+    refresh(cache.miners, () =>
+      drainPages(
+        (cursor) =>
+          fleetManagementClient
+            .listMinerStateSnapshots({ pageSize: DETAIL_PAGE_SIZE, cursor }, { timeoutMs: POLL_RPC_TIMEOUT_MS, signal })
+            .then((resp) => ({ items: resp.miners, cursor: resp.cursor })),
+        signal,
+        checkCurrent,
+      ),
+    ),
+    // Miner snapshots exclude containers, which channels and rollouts also target.
+    refresh(cache.containers, () =>
+      containersClient.listContainers({}, { timeoutMs: POLL_RPC_TIMEOUT_MS, signal }).then((resp) => resp.containers),
+    ),
+  ])
+    .then(([miners, containers]) => {
       checkCurrent();
-      const names = Object.fromEntries(miners.map((miner) => [miner.deviceIdentifier, miner.name]));
-      cache.value = names;
-      cache.expiresAt = Date.now() + MINER_NAMES_REFRESH_INTERVAL_MS;
-      return names;
+      if (miners.status === "rejected") throw miners.reason;
+      // Container names only label rows. Unless the session ended, a failed
+      // read keeps the names from the last one and is retried by the next poll.
+      if (
+        containers.status === "rejected" &&
+        containers.reason instanceof ConnectError &&
+        containers.reason.code === Code.Unauthenticated
+      ) {
+        throw containers.reason;
+      }
+      return names();
     })
     .finally(() => {
       cache.inFlight = null;
@@ -164,7 +212,7 @@ export interface ReleaseChannelsApi {
   rollouts: Rollout[];
   // Committed rollback sources whose assignment changes are not fully polled yet.
   acknowledgedRollbacks: readonly Rollout[];
-  // deviceIdentifier -> display name, from fleet snapshots.
+  // deviceIdentifier -> display name, from fleet snapshots and the container list.
   minerNames: Record<string, string>;
   isLoading: boolean;
   // Distinguish a successfully loaded empty fleet from a failed initial read.
@@ -184,14 +232,29 @@ export interface ReleaseChannelsApi {
   // Read-only detail lists. The server pages both; these walk every page so
   // a modal can show the whole set. Filters match observed identities
   // verbatim.
+  // Each miner's reported version and deployment record are those of the
+  // named firmware component; the main firmware when omitted.
   listChannelMiners: (
     channelId: bigint,
     manufacturer?: string,
     model?: string,
+    component?: string,
     signal?: AbortSignal,
   ) => Promise<ReleaseChannelMiner[]>;
   listRolloutDevices: (rolloutId: bigint, signal?: AbortSignal) => Promise<RolloutDevice[]>;
   listChannelRollouts: (channelId: bigint, signal?: AbortSignal) => Promise<Rollout[]>;
+  // A channel's container models with the controller software version each
+  // should run and counts. Read-only.
+  listControllerSoftware: (channelId: bigint, signal?: AbortSignal) => Promise<ReleaseChannelControllerSoftware[]>;
+  // Sets a container model's controller software version; empty clears it.
+  // Starts no update.
+  setControllerSoftware: (channelId: bigint, manufacturer: string, model: string, version: string) => Promise<void>;
+  listControllerSoftwareContainers: (
+    channelId: bigint,
+    manufacturer: string,
+    model: string,
+    signal?: AbortSignal,
+  ) => Promise<ReleaseChannelContainer[]>;
   applyFirmware: (channelId: bigint, assignments: AssignmentDraft[]) => Promise<Rollout[]>;
   rollbackFirmware: (source: Rollout) => Promise<Rollout[]>;
   continueRollout: (rolloutId: bigint, expectedRevision: bigint) => Promise<void>;
@@ -318,7 +381,7 @@ export function useReleaseChannels(): ReleaseChannelsApi {
     pollCursor: "",
     acknowledgedRollbacks: [] as Rollout[],
   });
-  const minerNamesCacheRef = useRef<MinerNamesCache>({ value: null, expiresAt: 0, inFlight: null });
+  const minerNamesCacheRef = useRef<MinerNamesCache>(emptyMinerNamesCache());
 
   const isCurrentSession = useCallback(() => {
     const auth = useFleetStore.getState().auth;
@@ -336,7 +399,7 @@ export function useReleaseChannels(): ReleaseChannelsApi {
       const controller = namesControllerRef.current;
       const isCurrentRequest = () => sessionRef.current === session && isCurrentSession();
       if (!controller || !isCurrentRequest() || cache.inFlight) return;
-      if (cache.value !== null && Date.now() < cache.expiresAt) return;
+      if (areNamesCurrent(cache)) return;
       const checkCurrent = () => {
         if (!isCurrentRequest()) controller.abort();
         controller.signal.throwIfAborted();
@@ -500,7 +563,7 @@ export function useReleaseChannels(): ReleaseChannelsApi {
     inFlightRef.current = null;
     rolloutSnapshotRef.current = { rollouts: [], pollCursor: "", acknowledgedRollbacks: [] };
     // Keep each login's completed and pending name scans isolated.
-    minerNamesCacheRef.current = { value: null, expiresAt: 0, inFlight: null };
+    minerNamesCacheRef.current = emptyMinerNamesCache();
     namesControllerRef.current = new AbortController();
     const poll = () => {
       void refreshMinerNames(session);
@@ -615,7 +678,7 @@ export function useReleaseChannels(): ReleaseChannelsApi {
   );
 
   const listChannelMiners = useCallback(
-    (channelId: bigint, manufacturer?: string, model?: string, signal?: AbortSignal) =>
+    (channelId: bigint, manufacturer?: string, model?: string, component?: string, signal?: AbortSignal) =>
       drainPages(
         (cursor) =>
           withAuthErrors(
@@ -625,6 +688,7 @@ export function useReleaseChannels(): ReleaseChannelsApi {
                   channelId,
                   manufacturer: manufacturer ?? "",
                   model: model ?? "",
+                  ...(component ? { component } : {}),
                   pageSize: DETAIL_PAGE_SIZE,
                   cursor,
                 },
@@ -680,15 +744,55 @@ export function useReleaseChannels(): ReleaseChannelsApi {
     [withAuthErrors],
   );
 
+  const listControllerSoftware = useCallback(
+    (channelId: bigint, signal?: AbortSignal) =>
+      withAuthErrors(
+        () =>
+          rolloutClient.listReleaseChannelControllerSoftware(
+            { channelId },
+            { timeoutMs: DETAIL_RPC_TIMEOUT_MS, signal },
+          ),
+        signal,
+      ).then((response) => response.models),
+    [withAuthErrors],
+  );
+
+  const listControllerSoftwareContainers = useCallback(
+    (channelId: bigint, manufacturer: string, model: string, signal?: AbortSignal) =>
+      drainPages(
+        (cursor) =>
+          withAuthErrors(
+            () =>
+              rolloutClient.listReleaseChannelContainers(
+                { channelId, manufacturer, model, pageSize: DETAIL_PAGE_SIZE, cursor },
+                { timeoutMs: DETAIL_RPC_TIMEOUT_MS, signal },
+              ),
+            signal,
+          ).then((response) => ({ items: response.containers, cursor: response.cursor })),
+        signal,
+      ),
+    [withAuthErrors],
+  );
+
+  const setControllerSoftware = useCallback(
+    (channelId: bigint, manufacturer: string, model: string, version: string) =>
+      // Refresh afterwards: the version decides which containers an update waits for.
+      mutate(() => rolloutClient.setReleaseChannelControllerSoftware({ channelId, manufacturer, model, version })).then(
+        () => undefined,
+      ),
+    [mutate],
+  );
+
   const applyFirmware = useCallback(
     (channelId: bigint, assignments: AssignmentDraft[]) =>
       mutate(
         () =>
           rolloutClient.applyReleaseChannelFirmware({
             channelId,
-            assignments: assignments.map(({ manufacturer, model, firmwareFileId }) => ({
+            assignments: assignments.map(({ manufacturer, model, component, firmwareFileId }) => ({
               manufacturer,
               model,
+              ...(component ? { component } : {}),
               firmwareFileId,
             })),
           }),
@@ -779,6 +883,9 @@ export function useReleaseChannels(): ReleaseChannelsApi {
     listChannelMiners,
     listChannelRollouts,
     listRolloutDevices,
+    listControllerSoftware,
+    listControllerSoftwareContainers,
+    setControllerSoftware,
     applyFirmware,
     rollbackFirmware,
     ...controls,

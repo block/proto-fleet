@@ -53,7 +53,7 @@ func seedSuperAdmin(t *testing.T, db *sql.DB, suffix string) seededSuperAdmin {
 	roleID := roles[authz.BuiltinKeySuperAdmin]
 	require.NotZero(t, roleID)
 	require.NoError(t, queries.CreateUserOrganization(ctx, sqlc.CreateUserOrganizationParams{
-		UserID: userID, OrganizationID: orgID, RoleID: roleID,
+		UserID: userID, OrganizationID: orgID, RoleID: sql.NullInt64{Int64: roleID, Valid: true},
 	}))
 	_, err = queries.AssignRole(ctx, sqlc.AssignRoleParams{
 		UserID: userID, OrganizationID: orgID, RoleID: roleID,

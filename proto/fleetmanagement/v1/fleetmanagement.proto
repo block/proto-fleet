@@ -43,11 +43,6 @@ service FleetManagementService {
   // More efficient than ListMinerStateSnapshots when only counts are needed
   rpc GetMinerStateCounts(GetMinerStateCountsRequest) returns (GetMinerStateCountsResponse);
 
-  // Get the current pool assignments for a specific miner
-  // Returns the fleet pool IDs that match the miner's currently configured pools
-  // Used to pre-populate the pool selection UI when editing a miner's pools
-  rpc GetMinerPoolAssignments(GetMinerPoolAssignmentsRequest) returns (GetMinerPoolAssignmentsResponse);
-
   // Get the current cooling mode for a specific miner
   // Returns the cooling mode configuration from the miner
   // Used to pre-populate the cooling mode selection UI when editing a miner's settings
@@ -67,10 +62,10 @@ service FleetManagementService {
   // Persists all names atomically in a single transaction.
   rpc RenameMiners(RenameMinersRequest) returns (RenameMinersResponse);
 
-  // Update worker names by applying a name config to all selected devices.
-  // Reapplies the miners' current pool settings first, then persists worker names
-  // only for miners whose pool updates succeed so Fleet stays aligned with device state.
-  rpc UpdateWorkerNames(UpdateWorkerNamesRequest) returns (UpdateWorkerNamesResponse);
+  // Review generated worker names against each miner's current configuration.
+  // ConfirmReview atomically saves names and schedules canonical pool execution;
+  // device verification is reported separately through the resulting operation.
+  rpc ReviewWorkerNames(ReviewWorkerNamesRequest) returns (ReviewWorkerNamesResponse);
 }
 
 enum FleetManagementServiceErrorCode {
@@ -135,7 +130,8 @@ message MinerStateSnapshot {
   // Manufacturer name (populated for unpaired devices)
   string manufacturer = 15;
 
-  reserved 16;
+  // Hardware class reported by the device driver, independent of model name.
+  common.v1.DeviceClass device_class = 16;
   reserved "type";
 
   // Device capabilities indicating supported features (populated for unpaired devices)
@@ -548,35 +544,6 @@ message GetMinerStateCountsResponse {
   telemetry.v1.MinerStateCounts state_counts = 2;
 }
 
-// Request to get the current pool assignments for a specific miner
-message GetMinerPoolAssignmentsRequest {
-  // Device identifier of the miner to get pool assignments for
-  string device_identifier = 1 [(buf.validate.field).required = true];
-}
-
-// A single pool assignment from a miner's configuration
-// Groups the pool ID (if matched to a fleet pool) with the raw URL and username
-message PoolAssignment {
-  // Fleet pool ID if this pool matches a fleet pool definition
-  // Absent if the pool doesn't match any fleet pool
-  optional int64 pool_id = 1;
-
-  // Raw pool URL as configured on the miner
-  string url = 2;
-
-  // Username as configured on the miner
-  string username = 3;
-}
-
-// Response containing the miner's current pool assignments
-// Pools are returned in priority order: index 0 = default (priority 0), index 1 = backup1 (priority 1), etc.
-// If a pool is configured on the miner but doesn't match any fleet pool, the pool_id will be absent
-message GetMinerPoolAssignmentsResponse {
-  // Pool assignments in priority order (max 3: default, backup1, backup2)
-  // Empty if no pools are configured on the miner
-  repeated PoolAssignment pools = 1;
-}
-
 // A single model group result with count
 message MinerModelGroup {
   string model = 1;
@@ -651,32 +618,43 @@ message RenameMinersResponse {
   int32 failed_count = 3;
 }
 
-// Request to update worker names using a configurable name pattern.
-message UpdateWorkerNamesRequest {
-  // Selects which miners to update (specific IDs or all devices).
-  DeviceSelector device_selector = 1 [(buf.validate.field).required = true];
-
-  // Naming pattern applied to the worker name that will be pushed to each selected miner
-  // and persisted back to Fleet after the device update succeeds.
-  MinerNameConfig name_config = 2 [(buf.validate.field).required = true];
-
-  // Current fleet table sort used to assign counter order during generation.
-  // If omitted, the backend falls back to the default name ascending order.
+// Review worker suffixes against each target's current pool configuration.
+message ReviewWorkerNamesRequest {
+  option (buf.validate.message).cel = {id: "worker_names.selection", message: "select miners or hashboards", expression: "has(this.device_selector) != (this.module_ids.size() + this.hashboard_ids.size() > 0)"};
+  option (buf.validate.message).cel = {id: "worker_names.options", message: "choose a worker option or a miner name pattern", expression: "has(this.name_config) != has(this.worker_name)"};
+  option (buf.validate.message).cel = {id: "worker_names.pattern", message: "name patterns and sort apply only to miners", expression: "(!has(this.name_config) || has(this.device_selector)) && (this.sort.size() == 0 || has(this.name_config))"};
+  DeviceSelector device_selector = 1;
+  // Existing configurable patterns remain available for ordinary miners.
+  MinerNameConfig name_config = 2;
   repeated common.v1.SortConfig sort = 3;
-
-  // Fleet user's username for authorization.
-  string user_username = 4 [(buf.validate.field).string.min_len = 1];
-
-  // Fleet user's password for authorization.
-  string user_password = 5 [(buf.validate.field).string.min_len = 1];
+  WorkerNameOptions worker_name = 4;
+  // Modules expand once to their current physical hashboards during review.
+  repeated int64 module_ids = 5 [(buf.validate.field).repeated = {max_items: 1000, unique: true, items: {int64: {gt: 0}}}];
+  repeated int64 hashboard_ids = 6 [(buf.validate.field).repeated = {max_items: 3000, unique: true, items: {int64: {gt: 0}}}];
 }
 
-// Response from updating worker names.
-message UpdateWorkerNamesResponse {
-  int32 updated_count = 1;
-  int32 unchanged_count = 2;
-  int32 failed_count = 3;
-  string batch_identifier = 4;
+// Expiring reviews; no worker names have been saved yet.
+message ReviewWorkerNamesResponse {
+  int32 unchanged_count = 1;
+  int32 failed_count = 2;
+  repeated WorkerNameReview reviews = 3;
+}
+
+message WorkerNameReview {
+  string review_id = 1;
+  string configuration_id = 2;
+  string configuration_name = 3;
+  repeated WorkerNameChange changes = 4;
+}
+
+message WorkerNameChange {
+  string device_identifier = 1;
+  string before = 2;
+  string after = 3;
+  // Present for a hashboard; device_identifier then identifies its controller.
+  int64 hashboard_id = 4;
+  // Human-readable equipment label captured with the review.
+  string display_name = 5;
 }
 
 // Configures how names are generated for a batch of miners.
@@ -785,4 +763,23 @@ enum QualifierType {
   QUALIFIER_TYPE_RACK           = 2;
   // Resolves to the assigned rack slot number.
   QUALIFIER_TYPE_RACK_POSITION  = 3;
+}
+
+enum WorkerNameMode {
+  WORKER_NAME_MODE_UNSPECIFIED = 0;
+  WORKER_NAME_MODE_NONE = 1;
+  // Full MAC address, lowercase and colon-separated.
+  WORKER_NAME_MODE_MAC_ADDRESS = 2;
+  WORKER_NAME_MODE_CUSTOM = 3;
+}
+
+message WorkerNameOptions {
+  option (buf.validate.message).cel = {
+    id: "worker_name.custom_name"
+    message: "name is required for CUSTOM and must be omitted for other modes"
+    expression: "this.mode == 3 ? has(this.name) : !has(this.name)"
+  };
+  WorkerNameMode mode = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  // Worker suffix appended to the pool's payout username, not the payout account.
+  optional string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 100, pattern: "^[^\\s\\p{C}]+$"}];
 }

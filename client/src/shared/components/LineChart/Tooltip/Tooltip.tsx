@@ -68,7 +68,9 @@ function findNearestDisplayablePoint(
 }
 
 interface ChartTooltipProps {
+  notes?: Record<number, string>;
   aggregateLabel?: string;
+  seriesLabels?: Record<string, string>;
   aggregateKey?: string;
   colorMap?: { [key: string]: string };
   activeKeys?: string[];
@@ -89,7 +91,9 @@ interface ChartTooltipProps {
 }
 
 const ChartTooltip = ({
+  notes,
   aggregateLabel,
+  seriesLabels,
   aggregateKey,
   colorMap,
   activeKeys = [],
@@ -174,6 +178,9 @@ const ChartTooltip = ({
       style={tooltipStyle}
     >
       <div className="px-6" style={{ width: tooltipWidth + "px" }}>
+        {notes?.[payload.datetime] ? (
+          <p className="mb-2 text-200 text-text-primary-70">{notes[payload.datetime]}</p>
+        ) : null}
         {shouldShowAggregate && aggregateKey ? (
           <div
             className={clsx("flex space-x-2", {
@@ -201,12 +208,13 @@ const ChartTooltip = ({
 
         {hasSegmentEntries ? (
           <div>
-            <div className="mb-1 text-200 text-text-primary-70">{segmentsLabel}</div>
+            {segmentsLabel ? <div className="mb-1 text-200 text-text-primary-70">{segmentsLabel}</div> : null}
             {segmentEntries.map(([key, value], idx) => {
               return (
                 <TooltipItem
                   key={"tooltip-item-" + idx}
                   itemKey={key}
+                  label={seriesLabels?.[key]}
                   colorMap={colorMap}
                   units={units}
                   value={getDisplayValue(value)}

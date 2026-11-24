@@ -1,258 +1,69 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { TOTAL_FAN_SLOTS, TOTAL_HASHBOARD_SLOTS, TOTAL_PSU_SLOTS } from "../constants";
-import {
-  ControlBoardInfo,
-  FanInfo,
-  HardwareInfoHardwareinfo,
-  HashboardInfo,
-  PsuInfo,
-} from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useMinerStore } from "@/protoOS/store";
 import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
+import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
+
+const fillSlots = <T extends { slot?: number }>(items: T[], count: number) => {
+  const bySlot = new Map(items.map((item) => [item.slot, item]));
+  return Array.from({ length: count }, (_, index) => bySlot.get(index + 1) ?? null);
+};
 
 const useHardware = () => {
-  const { api } = useMinerHosting();
+  const { adapter } = useMinerHosting();
   const authRetry = useAuthRetry();
-  const [data, setData] = useState<HardwareInfoHardwareinfo>();
   const [error, setError] = useState<string>();
-  const [pending, setPending] = useState<boolean>(false);
-  const [controlBoardInfo, setControlBoardInfo] = useState<ControlBoardInfo | undefined>();
-  const [hashboardsInfo, setHashboardsInfo] = useState<(HashboardInfo | null)[] | undefined>();
-  const [psusInfo, setPsusInfo] = useState<(PsuInfo | null)[] | undefined>();
-  const [fansInfo, setFansInfo] = useState<(FanInfo | null)[] | undefined>();
+  const [pending, setPending] = useState(false);
+  const hardware = useMinerStore((state) => state.hardware);
+  const systemInfo = useMinerStore((state) => state.systemInfo.data);
 
   const fetchHardware = useCallback(() => {
-    if (!api) return;
+    if (!adapter) return;
 
     setPending(true);
-    authRetry({
-      // New firmware exposes /hardware publicly, but old firmware still requires
-      // auth. Keep auth retry until the minimum supported firmware no longer
-      // needs authenticated hardware loading after pairing/login.
-      request: (params) => api.getHardware(params),
-      onSuccess: (res) => {
-        const responseData = res?.data["hardware-info"];
-        setData(responseData);
-        setControlBoardInfo(responseData?.["cb-info"]);
-
-        // Fill out hashboards array with all slots
-        const hashboards = responseData?.["hashboards-info"];
-        const hashboardsBySlot = new Map<number, HashboardInfo>();
-        hashboards?.forEach((hb) => {
-          if (hb.slot !== undefined) {
-            hashboardsBySlot.set(hb.slot, hb);
-          }
-        });
-        const allHashboards = Array.from({ length: TOTAL_HASHBOARD_SLOTS }, (_, i) => {
-          const slot = i + 1;
-          return hashboardsBySlot.get(slot) || null;
-        });
-        setHashboardsInfo(allHashboards);
-
-        // Fill out PSUs array with all slots
-        const psus = responseData?.["psus-info"];
-        const psusBySlot = new Map<number, PsuInfo>();
-        psus?.forEach((psu) => {
-          if (psu.slot !== undefined) {
-            psusBySlot.set(psu.slot, psu);
-          }
-        });
-        const allPsus = Array.from({ length: TOTAL_PSU_SLOTS }, (_, i) => {
-          const slot = i + 1;
-          return psusBySlot.get(slot) || null;
-        });
-        setPsusInfo(allPsus);
-
-        // Fill out fans array with all slots
-        const fans = responseData?.["fans-info"];
-        const fansBySlot = new Map<number, FanInfo>();
-        fans?.forEach((fan) => {
-          if (fan.slot !== undefined) {
-            fansBySlot.set(fan.slot, fan);
-          }
-        });
-        const allFans = Array.from({ length: TOTAL_FAN_SLOTS }, (_, i) => {
-          const slot = i + 1;
-          return fansBySlot.get(slot) || null;
-        });
-        setFansInfo(allFans);
+    const accept = beginStoreWrite("hardware");
+    setError(undefined);
+    return authRetry({
+      request: (params) =>
+        adapter.getHardware(
+          {
+            deviceId: String(systemInfo?.identity.deviceId ?? "device:unknown"),
+            profile: systemInfo?.moduleModel ?? "unknown",
+          },
+          params,
+        ),
+      onSuccess: ({ hardware: normalized, telemetry }) => {
+        if (!accept()) return;
+        useMinerStore.getState().hardware.replaceHardware(normalized);
+        useMinerStore.getState().telemetry.mergeTelemetry(telemetry);
       },
       onError: (err) => setError(err?.error?.message ?? "An error occurred"),
-    }).finally(() => {
-      setPending(false);
-    });
-  }, [api, authRetry]);
+    }).finally(() => setPending(false));
+  }, [adapter, authRetry, systemInfo?.identity.deviceId, systemInfo?.moduleModel]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch on mount; setState inside async fetch is the external-sync pattern
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate from the external miner API when the active adapter changes
     fetchHardware();
   }, [fetchHardware]);
 
-  // Update hardware store with hashboard data
-  useEffect(() => {
-    if (!hashboardsInfo) return;
-
-    // Populate MinerInfoStore with basic hashboard info
-    const hashboardSerials: string[] = [];
-    hashboardsInfo?.forEach((hb) => {
-      if (hb?.hb_sn && hb?.slot) {
-        const existingHashboard = useMinerStore.getState().hardware.getHashboard(hb.hb_sn);
-
-        const hashboardData = {
-          ...existingHashboard, // Preserve all existing data
-          serial: hb.hb_sn,
-          slot: hb.slot,
-          board: hb.board,
-          bay: Math.floor((hb.slot - 1) / 3) + 1, // TODO: this should come from API
-          apiVersion: hb.api_version,
-          chipId: hb.chip_id,
-          port: hb.port,
-          miningAsic: hb.mining_asic,
-          miningAsicCount: hb.mining_asic_count,
-          temperatureSensorCount: hb.temp_sensor_count,
-          ecLogsPath: hb.ec_logs_path,
-          firmware: hb.firmware
-            ? {
-                version: hb.firmware.version,
-                build: hb.firmware.build,
-                gitHash: hb.firmware.git_hash,
-                imageHash: hb.firmware.image_hash,
-              }
-            : undefined,
-          bootloader: hb.bootloader
-            ? {
-                version: hb.bootloader.version,
-                build: hb.bootloader.build,
-                gitHash: hb.bootloader.git_hash,
-                imageHash: hb.bootloader.image_hash,
-              }
-            : undefined,
-        };
-
-        useMinerStore.getState().hardware.addHashboard(hashboardData);
-        hashboardSerials.push(hb.hb_sn);
-      }
+  const view = useMemo(() => {
+    const controlBoardInfo = [...hardware.controlBoards.values()][0];
+    const hashboards = [...hardware.hashboards.values()].map((board) => {
+      const node = hardware.topology?.hashboards.get(board.ref.id);
+      return { ...board, slot: node?.location?.slot, bay: node?.location?.bay, port: node?.location?.port };
     });
-
-    // Create or update the miner record with hashboard serials
-    const existingMiner = useMinerStore.getState().hardware.getMiner();
-    if (!existingMiner && hashboardSerials.length > 0) {
-      useMinerStore.getState().hardware.setMiner({
-        hashboardSerials,
-      });
-    }
-  }, [hashboardsInfo]);
-
-  // Update hardware store with PSU data
-  useEffect(() => {
-    if (!psusInfo) return;
-
-    psusInfo.forEach((psu) => {
-      if (psu?.slot !== undefined) {
-        // Update hardware store only - telemetry now comes from useTelemetry
-        useMinerStore.getState().hardware.addPsu({
-          id: psu.slot,
-          serial: psu.psu_sn,
-          slot: psu.slot,
-          manufacturer: psu.manufacturer,
-          model: psu.model,
-          hwRevision: psu.hw_revision,
-          firmware: psu.firmware
-            ? {
-                appVersion: psu.firmware.app_version,
-                bootloaderVersion: psu.firmware.bootloader_version,
-              }
-            : undefined,
-        });
-      }
-    });
-  }, [psusInfo]);
-
-  // Update hardware and telemetry stores with Fan data
-  useEffect(() => {
-    if (!fansInfo) return;
-
-    fansInfo.forEach((fan) => {
-      if (fan?.slot !== undefined) {
-        // Update hardware store
-        useMinerStore.getState().hardware.addFan({
-          slot: fan.slot,
-          name: fan.name,
-        });
-
-        // Update telemetry store with fan min/max RPM
-        useMinerStore.getState().telemetry.updateFanTelemetry(fan.slot, {
-          slot: fan.slot,
-          minRpm:
-            fan.min_rpm !== undefined
-              ? {
-                  latest: {
-                    value: fan.min_rpm,
-                    units: "RPM",
-                  },
-                }
-              : undefined,
-          maxRpm:
-            fan.max_rpm !== undefined
-              ? {
-                  latest: {
-                    value: fan.max_rpm,
-                    units: "RPM",
-                  },
-                }
-              : undefined,
-        });
-      }
-    });
-  }, [fansInfo]);
-
-  // Update hardware store with control board data
-  useEffect(() => {
-    if (!controlBoardInfo) return;
-
-    useMinerStore.getState().hardware.setControlBoard({
-      serial: controlBoardInfo.serial_number,
-      boardId: controlBoardInfo.board_id,
-      machineName: controlBoardInfo.machine_name,
-      firmware: controlBoardInfo.firmware
-        ? {
-            name: controlBoardInfo.firmware.name,
-            version: controlBoardInfo.firmware.version,
-            variant: controlBoardInfo.firmware.variant,
-            gitHash: controlBoardInfo.firmware.git_hash,
-            imageHash: controlBoardInfo.firmware.image_hash,
-          }
-        : undefined,
-      mpu: controlBoardInfo.mpu
-        ? {
-            cpuArchitecture: controlBoardInfo.mpu.cpu_architecture,
-            cpuImplementer: controlBoardInfo.mpu.cpu_implementer,
-            cpuPart: controlBoardInfo.mpu.cpu_part,
-            cpuRevision: controlBoardInfo.mpu.cpu_revision,
-            cpuVariant: controlBoardInfo.mpu.cpu_variant,
-            hardware: controlBoardInfo.mpu.hardware,
-            modelName: controlBoardInfo.mpu.model_name,
-            processor: controlBoardInfo.mpu.processor,
-            revision: controlBoardInfo.mpu.revision,
-          }
-        : undefined,
-    });
-  }, [controlBoardInfo]);
-
-  return useMemo(
-    () => ({
-      pending,
-      error,
-      data,
+    return {
+      data: hardware,
       controlBoardInfo,
-      hashboardsInfo,
-      psusInfo,
-      fansInfo,
-    }),
-    [pending, error, data, controlBoardInfo, hashboardsInfo, psusInfo, fansInfo],
-  );
+      hashboardsInfo: fillSlots(hashboards, TOTAL_HASHBOARD_SLOTS),
+      psusInfo: fillSlots([...hardware.psus.values()], TOTAL_PSU_SLOTS),
+      fansInfo: fillSlots([...hardware.fans.values()], TOTAL_FAN_SLOTS),
+    };
+  }, [hardware]);
+
+  return useMemo(() => ({ pending, error, ...view }), [pending, error, view]);
 };
 
 export { useHardware };

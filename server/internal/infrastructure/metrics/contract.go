@@ -107,6 +107,19 @@ const (
 	// error, 0 after a later re-assertion succeeds. Labelled with kind carrying
 	// the curtailment event UUID so each unsafe restore alerts independently.
 	MetricCurtailmentFanRestoreFailed = "fleet_curtailment_fan_restore_failed"
+	// Curtailment operational metrics are host-scoped; kind carries the exclusion
+	// reason or audit activity type for the two labelled counters.
+	MetricCurtailmentTickDurationSeconds             = "fleet_curtailment_tick_duration_seconds"
+	MetricCurtailmentTickFailureTotal                = "fleet_curtailment_tick_failure_total"
+	MetricCurtailmentConfirmationPassFailureTotal    = "fleet_curtailment_confirmation_pass_failure_total"
+	MetricCurtailmentCandidateExcludedTotal          = "fleet_curtailment_candidate_excluded_total"
+	MetricCurtailmentMaintenanceOverrideTotal        = "fleet_curtailment_maintenance_override_total"
+	MetricCurtailmentEventStateRaceLossTotal         = "fleet_curtailment_event_state_race_loss_total"
+	MetricCurtailmentTargetWriteFailureTotal         = "fleet_curtailment_target_write_failure_total"
+	MetricCurtailmentAuditWriteFailureTotal          = "fleet_curtailment_audit_write_failure_total"
+	MetricCurtailmentAllPairedPendingStallTotal      = "fleet_curtailment_all_paired_pending_stall_total"
+	MetricCurtailmentOldestPendingEventAgeSeconds    = "fleet_curtailment_oldest_pending_event_age_seconds"
+	MetricCurtailmentOldestPendingMQTTEdgeAgeSeconds = "fleet_curtailment_oldest_pending_mqtt_edge_age_seconds"
 )
 
 // Label keys. User-authored PromQL may aggregate by any of these.
@@ -178,6 +191,17 @@ var AllMetricNames = []string{
 	MetricMQTTSourceConnected,
 	MetricMQTTCurtailmentActive,
 	MetricCurtailmentFanRestoreFailed,
+	MetricCurtailmentTickDurationSeconds,
+	MetricCurtailmentTickFailureTotal,
+	MetricCurtailmentConfirmationPassFailureTotal,
+	MetricCurtailmentCandidateExcludedTotal,
+	MetricCurtailmentMaintenanceOverrideTotal,
+	MetricCurtailmentEventStateRaceLossTotal,
+	MetricCurtailmentTargetWriteFailureTotal,
+	MetricCurtailmentAuditWriteFailureTotal,
+	MetricCurtailmentAllPairedPendingStallTotal,
+	MetricCurtailmentOldestPendingEventAgeSeconds,
+	MetricCurtailmentOldestPendingMQTTEdgeAgeSeconds,
 }
 
 // AllLabelKeys is the canonical list of label keys Proto Fleet attaches to its metrics.
@@ -203,17 +227,6 @@ var AllSensorKinds = []string{
 	SensorKindOutlet,
 	SensorKindAmbient,
 	SensorKindHotspot,
-}
-
-// IsKnownMetric reports whether name appears in AllMetricNames.
-// Used by the rule compiler and by tests.
-func IsKnownMetric(name string) bool {
-	return slices.Contains(AllMetricNames, name)
-}
-
-// IsKnownLabel reports whether key is one of the allowlisted label keys.
-func IsKnownLabel(key string) bool {
-	return slices.Contains(AllLabelKeys, key)
 }
 
 // IsKnownResult reports whether v is a permitted value for the result label.

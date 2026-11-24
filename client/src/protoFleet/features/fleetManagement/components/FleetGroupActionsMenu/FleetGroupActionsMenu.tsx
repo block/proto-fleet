@@ -3,7 +3,6 @@ import { create } from "@bufbuild/protobuf";
 
 import BulkActionConfirmDialog from "../BulkActions/BulkActionConfirmDialog";
 import UnsupportedMinersModal from "../BulkActions/UnsupportedMinersModal";
-import RowActionsMenu, { type RowAction } from "../RowActionsMenu";
 import { fleetManagementClient } from "@/protoFleet/api/clients";
 import {
   MinerListFilterSchema,
@@ -38,6 +37,7 @@ import {
 } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import RowActionsMenu, { type RowAction } from "@/shared/components/RowActionsMenu";
 import { pushToast, removeToast, STATUSES, updateToast } from "@/shared/features/toaster";
 
 export type GroupScope = {
@@ -318,14 +318,6 @@ const FleetGroupActionsMenu = ({
     minerActions.handleCancel();
   }, [clearPendingAction, minerActions]);
 
-  const handlePoolFlowComplete = useCallback(
-    (batchIdentifier: string, dispatched: string[]) => {
-      clearPendingAction();
-      minerActions.handleMiningPoolSuccess(batchIdentifier, dispatched);
-    },
-    [clearPendingAction, minerActions],
-  );
-
   // Pre-fetch: render all wired entries from local label/icon tables.
   // Post-fetch: honor the hook's selection-derived filter (e.g. wakeUp
   // drops when no selected miners are INACTIVE).
@@ -466,7 +458,7 @@ const FleetGroupActionsMenu = ({
           );
         })}
       <PoolSelectionPageWrapper
-        open={minerActions.showPoolSelectionPage ? !!minerActions.fleetCredentials : false}
+        open={minerActions.showPoolSelectionPage}
         // Use the capability-filtered subset when the unsupported-miners
         // gate narrowed the selection; otherwise dispatch against the
         // full scoped set. Mirrors the pattern in MinerActionsMenu.
@@ -476,11 +468,6 @@ const FleetGroupActionsMenu = ({
             : selectedMiners
         }
         selectionMode="subset"
-        userUsername={minerActions.fleetCredentials?.username}
-        userPassword={minerActions.fleetCredentials?.password}
-        onSuccess={handlePoolFlowComplete}
-        onError={minerActions.handleMiningPoolError}
-        onWarning={minerActions.handleMiningPoolWarning}
         onDismiss={handlePoolFlowDismiss}
       />
       <MinerActionModalStack

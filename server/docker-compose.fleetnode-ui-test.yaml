@@ -21,6 +21,7 @@ services:
       - fleet-api
       - ui-test-proto-rig
       - ui-test-antminer
+      - ui-test-ct1
     networks:
       - fleet-network
       - fleetnode-miner-network
@@ -76,6 +77,37 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
+
+  # The node scans only PROTO_MINER_PORT, so the primary controller serves
+  # native gRPC on 8080. The HA peer listens on ports the node does not scan.
+  # Keep the full 6-tank layout: the plugin refuses firmware updates for an
+  # incomplete container map. Fleet starts one PSU module per 10 s status poll,
+  # so only the first two modules hold boards.
+  ui-test-ct1:
+    build:
+      context: ..
+      dockerfile: server/fake-ct1/Dockerfile
+    environment:
+      GRPC_PORT: "8080"
+      HTTP_PORT: "8081"
+      SERVER_ID: "ui-test-ct1-a"
+      CT1_HA_PAIR: "1"
+      CT1_HA_PEER_SERVER_ID: "ui-test-ct1-b"
+      CT1_HA_PEER_GRPC_PORT: "8082"
+      CT1_HA_PEER_HTTP_PORT: "8083"
+      CT1_DEMO_MODULE_STATES: "false"
+      CT1_OCCUPIED_BOARDS: "6"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    expose:
+      - 8080
+      - 8081
+    networks:
+      fleetnode-miner-network:
+        ipv4_address: 10.90.0.30
 
 volumes:
   fleetnode-ui-test-state:

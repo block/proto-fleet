@@ -5,11 +5,13 @@ import (
 	"errors"
 	"log/slog"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/credentialblob"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
@@ -19,10 +21,9 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
 )
 
-// MaxPairBatch caps targets per pair command, matching FleetNodePairRequest.targets
-// max_items so a pair_all on a huge fleet can't balloon one ControlCommand; the
-// pair-all dispatches successive batches rather than enlarging ControlCommand.
-const MaxPairBatch = 1024
+// MaxPairBatch bounds each dispatched command. The public request still accepts
+// up to 1,024 explicit selections; callers split those into sequential commands.
+const MaxPairBatch = 128
 
 // ResolvePairTargets returns the pairable targets for a batch request. It draws
 // from devices the node discovered that are either not yet paired or are bound
@@ -130,9 +131,13 @@ func pairTargetsFromDiscoveredDevices(devices []FleetNodeDiscoveredDevice) []*pa
 			IpAddress:        d.IPAddress,
 			Port:             d.Port,
 			UrlScheme:        d.URLScheme,
+			RpcPort:          d.RPCPort,
+			RpcTls:           d.RPCTLS,
+			Endpoints:        d.Endpoints,
 			DriverName:       d.DriverName,
 			Manufacturer:     d.Manufacturer,
 			FirmwareVersion:  d.FirmwareVersion,
+			DeviceClass:      d.DeviceClass,
 		})
 	}
 	return targets
@@ -170,11 +175,14 @@ func pairingStatusFilterValues(statuses []fleetmanagementv1.PairingStatus) ([]st
 // single transaction and returns the resulting status. PAIRED binds the device to
 // the node and stores node-encrypted credentials when reported; AUTH_NEEDED/AUTH_FAILED
 // record AUTHENTICATION_NEEDED for retry; ERROR/UNSPECIFIED persist nothing.
-func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, orgID int64, result *gatewaypb.FleetNodePairResult, assignedBy *int64) (string, error) {
+// expected is the immutable target captured before dispatch, not a fresh lookup.
+func (s *Service) PersistFleetNodePairResult(ctx context.Context, meta control.PairPersistMeta, result *gatewaypb.FleetNodePairResult) (string, error) {
+	fleetNodeID, orgID, assignedBy := meta.FleetNodeID, meta.OrgID, meta.AssignedBy
 	if s.deviceStore == nil || s.discoveredDeviceStore == nil {
 		return "", fleeterror.NewInternalError("fleet node pairing provisioning is not configured")
 	}
 	identifier := result.GetDeviceIdentifier()
+	expected := meta.Snapshots[identifier]
 	outcome := result.GetOutcome()
 	if outcome == gatewaypb.PairOutcome_PAIR_OUTCOME_ERROR || outcome == gatewaypb.PairOutcome_PAIR_OUTCOME_UNSPECIFIED {
 		return StatusFailed, nil
@@ -196,6 +204,17 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 		persisted = defaultPersisted
 		conflict = false
 		boundDeviceID = 0
+		// Keep node identity before device/discovery locks. Discovery may finish
+		// while we wait; validate and then load the locked current inventory.
+		if err := s.lockFleetNodeIdentityForPairing(ctx, fleetNodeID, orgID); err != nil {
+			return err
+		}
+		if expected != nil && expected.GetDeviceIdentifier() != identifier {
+			return fleeterror.NewFailedPreconditionError("pairing snapshot does not match the reported device")
+		}
+		if err := s.discoveredDeviceStore.LockPairingSnapshot(ctx, doi, pairTargetDevice(expected), &fleetNodeID); err != nil {
+			return err
+		}
 
 		dd, err := s.discoveredDeviceStore.GetDevice(ctx, doi)
 		if err != nil {
@@ -214,11 +233,6 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 			return logInternal("lookup device", clientErrLookupDeviceForPairing, err)
 		}
 
-		// Every persisted outcome uses Fleet Node -> device -> discovered_device,
-		// matching direct pairing even when an authentication failure is reported.
-		if err := s.lockFleetNodeForPairing(ctx, fleetNodeID, orgID); err != nil {
-			return err
-		}
 		var deviceID int64
 		if existing != nil {
 			deviceID, err = s.store.GetDeviceIDByDeviceIdentifier(ctx, identifier)
@@ -228,6 +242,10 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 			if err := s.lockDeviceForPairing(ctx, deviceID, orgID); err != nil {
 				return err
 			}
+		}
+
+		if err := s.lockFleetNodeForPairing(ctx, fleetNodeID, orgID); err != nil {
+			return err
 		}
 
 		// default_password_active is tri-state: absent means the node/plugin could
@@ -327,6 +345,9 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 		if err := s.deviceStore.UpsertDevicePairing(ctx, &dd.Device, orgID, persisted); err != nil {
 			return logInternal("set pairing status", clientErrPair, err)
 		}
+		if _, err := s.store.ClearFleetNodeRevokedStatus(ctx, fleetNodeID, deviceID, orgID); err != nil {
+			return logInternal("clear revoked status", clientErrPair, err)
+		}
 		// Reachable during pairing, so seed an ACTIVE status.
 		if err := s.deviceStore.UpsertDeviceStatus(ctx, minermodels.DeviceIdentifier(identifier), minermodels.MinerStatusActive, ""); err != nil {
 			return logInternal("set device status", clientErrPair, err)
@@ -357,6 +378,18 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 	return persisted, nil
 }
 
+func pairTargetDevice(target *pairingpb.FleetNodePairTarget) *pairingpb.Device {
+	if target == nil {
+		return nil
+	}
+	return &pairingpb.Device{
+		DeviceIdentifier: target.GetDeviceIdentifier(), DriverName: target.GetDriverName(),
+		IpAddress: target.GetIpAddress(), Port: target.GetPort(), UrlScheme: target.GetUrlScheme(),
+		RpcPort: target.GetRpcPort(), RpcTls: target.GetRpcTls(), Endpoints: target.GetEndpoints(),
+		DeviceClass: target.GetDeviceClass(), Manufacturer: target.GetManufacturer(),
+	}
+}
+
 func (s *Service) saveFleetNodeEncryptedCredentials(ctx context.Context, device *pairingpb.Device, orgID int64, encrypted *gatewaypb.EncryptedCredentials) error {
 	encodedUsername, encodedPassword, err := credentialblob.Encode(encrypted)
 	if errors.Is(err, credentialblob.ErrMissingCredentials) {
@@ -378,6 +411,9 @@ func (s *Service) upsertMinerCredentialStrings(ctx context.Context, device *pair
 // applyReportedIdentity folds the identity the node learned during pairing into
 // the discovered device so the device row and discovery row reflect post-pair truth.
 func applyReportedIdentity(dd *discoverymodels.DiscoveredDevice, result *gatewaypb.FleetNodePairResult) {
+	if class := result.GetDeviceClass(); class != commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED {
+		dd.DeviceClass = class
+	}
 	if v := result.GetSerialNumber(); v != "" {
 		dd.SerialNumber = v
 	}

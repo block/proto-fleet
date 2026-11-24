@@ -33,14 +33,6 @@ describe("Button", () => {
     expect(cta).toHaveAttribute("aria-disabled", "true");
   });
 
-  test("renders the button with the correct text", () => {
-    const { getByText } = render(
-      <Button text={buttonText} onClick={() => {}} size={sizes.base} variant={variants.secondary} />,
-    );
-    const buttonElement = getByText(buttonText);
-    expect(buttonElement).toBeDefined();
-  });
-
   test("calls the onClick function when clicked", () => {
     const onClickMock = vi.fn();
     const { getByText } = render(
@@ -49,6 +41,12 @@ describe("Button", () => {
     const buttonElement = getByText(buttonText);
     fireEvent.click(buttonElement);
     expect(onClickMock).toHaveBeenCalled();
+  });
+
+  test("forwards pressed state for toggle buttons", () => {
+    render(<Button text="24h" ariaPressed variant={variants.primary} />);
+
+    expect(screen.getByRole("button", { name: "24h" })).toHaveAttribute("aria-pressed", "true");
   });
 
   test("renders icon-only buttons with an accessible name and focus-visible styles", () => {

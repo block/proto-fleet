@@ -1084,34 +1084,98 @@ fi
 # owns the deployment tree, and restored only after that manual run returns.
 # Arming the EXIT cleanup before the installer function returns covers signals
 # and other failures during run-fleet as well as its ordinary nonzero result.
-validation_restart_line=$(awk '/^  if ! restart_updater_service_with/ { print NR; exit }' "$INSTALL_SCRIPT")
-quiesce_line=$(awk '/^  if ! quiesce_updater_service_for_manual_run_with/ { print NR; exit }' "$INSTALL_SCRIPT")
-validation_cleanup_line=$(awk '
-  /^install_updater_service\(\)/ { in_install = 1 }
-  in_install && /^  if ! cleanup_updater_validation_runtime_with/ {
-    count++
-    if (count == 2) { print NR; exit }
+# Run the installer from the updater installation to its last statement. The
+# host-facing helpers are stubs that record each lifecycle step in call order.
+sed -n '/^install_updater_service() {$/,$p' "$INSTALL_SCRIPT" \
+  > "$TEST_TMP/install-updater-and-run.sh"
+if (
+  lifecycle_root="$TEST_TMP/updater-manual-run"
+  export LIFECYCLE_LOG="$lifecycle_root/calls"
+  export RUN_FLEET_TEST_STATUS
+  INSTALL_DIR="$lifecycle_root/install"
+  UPDATER_SYSTEMD_RUNTIME_DIR="$lifecycle_root/systemd"
+  UPDATER_BOOTSTRAP_DIR="$lifecycle_root/bootstrap"
+  mkdir -p "$INSTALL_DIR/$DEPLOYMENT_DIR" "$UPDATER_SYSTEMD_RUNTIME_DIR" \
+    "$UPDATER_BOOTSTRAP_DIR" || exit 1
+  printf 'verified updater\n' > "$UPDATER_BOOTSTRAP_DIR/proto-fleet-updater"
+  chmod +x "$UPDATER_BOOTSTRAP_DIR/proto-fleet-updater"
+  printf 'verified unit\n' > "$UPDATER_BOOTSTRAP_DIR/proto-fleet-updater.service"
+  # The fake deployment run records the updater state that it sees. It enables
+  # one-click updates in .env only when it succeeds, as run-fleet does.
+  cat > "$INSTALL_DIR/$DEPLOYMENT_DIR/run-fleet.sh" <<'EOF'
+#!/usr/bin/env bash
+printf 'run-fleet armed=%s committed=%s %s\n' \
+  "$UPDATER_START_AFTER_RUN" "$UPDATER_DEPLOYMENT_COMMITTED" "$*" >> "$LIFECYCLE_LOG"
+[ "$RUN_FLEET_TEST_STATUS" != 0 ] || printf 'ENABLE_ONE_CLICK_UPDATES=true\n' > .env
+exit "$RUN_FLEET_TEST_STATUS"
+EOF
+  chmod +x "$INSTALL_DIR/$DEPLOYMENT_DIR/run-fleet.sh"
+
+  uname() {
+    if [ "${1:-}" = "-s" ]; then printf 'Linux\n'; else command uname "$@"; fi
   }
-' "$INSTALL_SCRIPT")
-production_socket_line=$(awk '/^      "\$GITHUB_RELEASES_URL" "\$UPDATER_SOCKET_PATH"/ { print NR; exit }' "$INSTALL_SCRIPT")
-start_after_run_arm_line=$(awk '/^  UPDATER_START_AFTER_RUN=1$/ { print NR; exit }' "$INSTALL_SCRIPT")
-run_fleet_line=$(awk '/^  \.\/run-fleet\.sh / { print NR; exit }' "$INSTALL_SCRIPT")
-deployment_commit_line=$(awk -v start="$run_fleet_line" 'NR > start && /^    UPDATER_DEPLOYMENT_COMMITTED=1$/ { print NR; exit }' "$INSTALL_SCRIPT")
-run_status_check_line=$(awk -v start="$run_fleet_line" 'NR > start && /^if \[ "\$RUN_FLEET_STATUS" -ne 0 \]; then$/ { print NR; exit }' "$INSTALL_SCRIPT")
-post_run_reconcile_line=$(awk -v start="$run_status_check_line" 'NR > start && /^  && ! reconcile_committed_updater_enablement/ { print NR; exit }' "$INSTALL_SCRIPT")
-if [ -n "$validation_restart_line" ] \
-  && [ "$validation_restart_line" -lt "$quiesce_line" ] \
-  && [ "$quiesce_line" -lt "$validation_cleanup_line" ] \
-  && [ "$validation_cleanup_line" -lt "$production_socket_line" ] \
-  && [ "$quiesce_line" -lt "$production_socket_line" ] \
-  && [ "$production_socket_line" -lt "$start_after_run_arm_line" ] \
-  && [ "$quiesce_line" -lt "$start_after_run_arm_line" ] \
-  && [ "$start_after_run_arm_line" -lt "$run_fleet_line" ] \
-  && [ "$run_fleet_line" -lt "$deployment_commit_line" ] \
-  && [ "$deployment_commit_line" -lt "$run_status_check_line" ] \
-  && [ "$run_fleet_line" -lt "$run_status_check_line" ] \
-  && [ "$run_status_check_line" -lt "$post_run_reconcile_line" ] \
-  && [ "$run_fleet_line" -lt "$post_run_reconcile_line" ]; then
+  systemctl() { return 0; }
+  install() { return 0; }
+  install_updater_bootstrap_files_with() { return 0; }
+  write_updater_environment_file() {
+    printf 'write-env %s\n' "$4" >> "$LIFECYCLE_LOG"
+  }
+  cleanup_updater_validation_runtime_with() {
+    printf 'cleanup-validation-runtime\n' >> "$LIFECYCLE_LOG"
+  }
+  restart_updater_service_with() {
+    printf 'restart %s\n' "$1" >> "$LIFECYCLE_LOG"
+  }
+  quiesce_updater_service_for_manual_run_with() {
+    printf 'quiesce\n' >> "$LIFECYCLE_LOG"
+  }
+  disable_updater_service_with() {
+    printf 'disable\n' >> "$LIFECYCLE_LOG"
+  }
+
+  for RUN_FLEET_TEST_STATUS in 0 7; do
+    : > "$LIFECYCLE_LOG"
+    printf 'ENABLE_ONE_CLICK_UPDATES=false\n' > "$INSTALL_DIR/$DEPLOYMENT_DIR/.env"
+    status=0
+    (
+      cd "$INSTALL_DIR/$DEPLOYMENT_DIR" || exit 99
+      FAKE_SERVICE_DOCKER_ID="$FAKE_SELECTED_DOCKER_ID"
+      RELEASE_REPOSITORY="$PACKAGED_RELEASE_REPOSITORY"
+      GITHUB_RELEASES_URL="https://github.com/$RELEASE_REPOSITORY/releases"
+      NON_INTERACTIVE=0
+      PREVIOUS_BETA_ALERTS=0
+      PREVIOUS_SYSTEM_MONITORING=0
+      PREVIOUS_TRACING=0
+      PREVIOUS_ONE_CLICK_UPDATES=false
+      UPDATER_PRIVILEGE=()
+      UPDATER_PRIVILEGE_AVAILABLE=1
+      UPDATER_CLEANUP_FAILED=0
+      UPDATER_FALLBACK_PENDING=0
+      UPDATER_REENABLE_AFTER_FAILED_RUN=disabled
+      UPDATER_RESTART_AFTER_FAILED_RUN=0
+      export UPDATER_START_AFTER_RUN=0
+      export UPDATER_DEPLOYMENT_COMMITTED=0
+      # shellcheck source=/dev/null
+      source "$TEST_TMP/install-updater-and-run.sh"
+    ) > "$lifecycle_root/run-$RUN_FLEET_TEST_STATUS.log" 2>&1 || status=$?
+    [ "$status" = "$RUN_FLEET_TEST_STATUS" ] || exit 1
+    {
+      printf 'write-env %s\n' "$UPDATER_VALIDATION_SOCKET_PATH"
+      printf 'cleanup-validation-runtime\n'
+      printf 'restart %s\n' "$UPDATER_VALIDATION_SOCKET_PATH"
+      printf 'quiesce\n'
+      printf 'cleanup-validation-runtime\n'
+      printf 'write-env %s\n' "$UPDATER_SOCKET_PATH"
+      printf 'run-fleet armed=1 committed=0 --enable-one-click-updates\n'
+      if [ "$RUN_FLEET_TEST_STATUS" = 0 ]; then
+        printf 'restart %s\n' "$UPDATER_SOCKET_PATH"
+      else
+        printf 'disable\n'
+      fi
+    } > "$lifecycle_root/expected-calls"
+    cmp "$lifecycle_root/expected-calls" "$LIFECYCLE_LOG" || exit 1
+  done
+); then
   pass "host updater stays quiesced for the complete manual deployment run"
 else
   fail "host updater lifecycle does not serialize the manual deployment run"

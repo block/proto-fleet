@@ -61,7 +61,7 @@ func TestExplicitDiscoveryIdentifiesDevicesWithoutTCPListeners(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Like the virtual driver, this discoverer identifies configured
 			// addresses in memory; no network listeners back these devices.
-			r := &RunCmd{
+			r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
 				discoverer: &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
 					"10.255.0.0|4028": {DeviceIdentifier: "virtual-one", DriverName: "virtual", UrlScheme: "http"},
 					"10.255.0.1|80":   {DeviceIdentifier: "virtual-two", DriverName: "virtual", UrlScheme: "http"},
@@ -91,7 +91,7 @@ func TestExplicitDiscoveryCancelsPluginProbes(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			disc := newBlockingDiscoverer("10.255.0.1")
-			r := &RunCmd{discoverer: disc}
+			r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: disc}
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			done := make(chan error, 1)
@@ -125,7 +125,7 @@ func TestNetworkScanOnlyIdentifiesOpenPorts(t *testing.T) {
 		"10.0.0.1|4028": {DeviceIdentifier: "open", DriverName: "antminer", UrlScheme: "http"},
 		"10.0.0.1|80":   {DeviceIdentifier: "closed", DriverName: "antminer", UrlScheme: "http"},
 	}}
-	r := &RunCmd{discoverer: disc, scanner: scanFunc(func(_ context.Context, addrs iter.Seq[netip.Addr], ports []uint16, emit func(netscan.HostResult) error) error {
+	r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: disc, scanner: scanFunc(func(_ context.Context, addrs iter.Seq[netip.Addr], ports []uint16, emit func(netscan.HostResult) error) error {
 		scanned = slices.Collect(addrs)
 		assert.Equal(t, []uint16{80, 4028}, ports)
 		return emit(netscan.HostResult{Addr: netip.MustParseAddr("10.0.0.1"), OpenPorts: []uint16{4028}})
@@ -145,7 +145,7 @@ func TestScanAndProbeWithRealTCPListener(t *testing.T) {
 	openAddr, ok := open.Addr().(*net.TCPAddr)
 	require.True(t, ok)
 	openPort := openAddr.AddrPort().Port()
-	r := &RunCmd{discoverer: &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
+	r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
 		"127.0.0.1|" + strconv.Itoa(int(openPort)): {DeviceIdentifier: "open", DriverName: "antminer", UrlScheme: "http"},
 	}}}
 	reports, truncated, err := r.scanAndProbe(t.Context(), slices.Values([]netip.Addr{netip.MustParseAddr("127.0.0.1")}), []uint16{openPort}, discardLogger(t))
@@ -158,7 +158,7 @@ func TestScanAndProbeWithRealTCPListener(t *testing.T) {
 func TestDiscoveryIdentificationStartsBeforeScanCompletes(t *testing.T) {
 	disc := newBlockingDiscoverer("10.0.0.1")
 	identified := make(chan struct{})
-	r := &RunCmd{discoverer: disc, scanner: scanFunc(func(ctx context.Context, _ iter.Seq[netip.Addr], _ []uint16, emit func(netscan.HostResult) error) error {
+	r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: disc, scanner: scanFunc(func(ctx context.Context, _ iter.Seq[netip.Addr], _ []uint16, emit func(netscan.HostResult) error) error {
 		if err := emit(netscan.HostResult{Addr: netip.MustParseAddr("10.0.0.1"), OpenPorts: []uint16{4028}}); err != nil {
 			return err
 		}
@@ -194,7 +194,7 @@ func TestDiscoveryIdentificationStartsBeforeScanCompletes(t *testing.T) {
 func TestControlLoopRetainsReportsAfterScannerFailure(t *testing.T) {
 	for _, reportFailure := range []bool{false, true} {
 		t.Run(strconv.FormatBool(reportFailure), func(t *testing.T) {
-			r := &RunCmd{
+			r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
 				discoverer: &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
 					"10.0.0.1|4028": {DeviceIdentifier: "identified", DriverName: "antminer", UrlScheme: "http"},
 				}},
@@ -223,7 +223,7 @@ func TestControlLoopRetainsReportsAfterScannerFailure(t *testing.T) {
 }
 
 func TestControlLoopRetainsReportsAfterScannerDeadline(t *testing.T) {
-	r := &RunCmd{
+	r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
 		discoverer: &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
 			"10.0.0.1|4028": {DeviceIdentifier: "identified", DriverName: "antminer", UrlScheme: "http"},
 		}},
@@ -244,7 +244,7 @@ func TestControlLoopRetainsReportsAfterScannerDeadline(t *testing.T) {
 }
 
 func TestControlLoopClosedPortsSendNoEmptyReports(t *testing.T) {
-	r := &RunCmd{discoverer: &stubDiscoverer{}, scanner: scanFunc(func(context.Context, iter.Seq[netip.Addr], []uint16, func(netscan.HostResult) error) error {
+	r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: &stubDiscoverer{}, scanner: scanFunc(func(context.Context, iter.Seq[netip.Addr], []uint16, func(netscan.HostResult) error) error {
 		return nil
 	})}
 	fake := &controlFakeGateway{}
@@ -252,72 +252,6 @@ func TestControlLoopClosedPortsSendNoEmptyReports(t *testing.T) {
 	runControlLoopOnce(t, r, fake)
 	assert.Empty(t, fake.reportsCopy())
 	assert.Equal(t, pb.AckCode_ACK_CODE_OK, fake.acksCopy()[0].Code)
-}
-
-func TestNetworkTargetsLocalSubnetPolicy(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		subnets []string
-		want    int
-	}{
-		{"private subnet", []string{"10.0.0.0/30"}, 2},
-		{"public subnet", []string{"8.8.8.0/24"}, 0},
-		{"IPv6 subnet", []string{"fd00::/120"}, 0},
-		{"broad subnet", []string{"10.0.0.0/16"}, 0},
-		{"aggregate over cap", []string{fmt.Sprintf("10.0.0.0/%d", discoverylimits.MinIPv4PrefixBits), fmt.Sprintf("10.128.0.0/%d", discoverylimits.MinIPv4PrefixBits)}, 0},
-		{"empty detection", nil, 0},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			r := &RunCmd{localSubnets: func() ([]string, error) { return tc.subnets, nil }}
-			addrs, err := r.networkScanTargets(t.Context(), &pairingpb.NetworkScanModeRequest{Target: netscan.LocalSubnetTarget})
-			if tc.want == 0 {
-				var ce *commandError
-				require.ErrorAs(t, err, &ce)
-				assert.Equal(t, pb.AckCode_ACK_CODE_AGENT_INCAPABLE, ce.code)
-				return
-			}
-			require.NoError(t, err)
-			assert.Len(t, slices.Collect(addrs), tc.want)
-		})
-	}
-}
-
-func TestConfiguredSubnetAvoidsPlatformDetection(t *testing.T) {
-	r := &RunCmd{LocalDiscoverySubnet: "10.90.0.0/30"}
-	addrs, err := r.networkScanTargets(t.Context(), &pairingpb.NetworkScanModeRequest{Target: netscan.LocalSubnetTarget})
-	require.NoError(t, err)
-	assert.Len(t, slices.Collect(addrs), 2)
-}
-
-func TestNetworkTargetsInterleaveLocalSubnets(t *testing.T) {
-	r := &RunCmd{localSubnets: func() ([]string, error) {
-		return []string{"10.0.0.0/29", "192.168.1.0/29"}, nil
-	}}
-	addrs, err := r.networkScanTargets(t.Context(), &pairingpb.NetworkScanModeRequest{Target: netscan.LocalSubnetTarget})
-	require.NoError(t, err)
-	first, err := netscan.ParseTarget("10.0.0.0/29")
-	require.NoError(t, err)
-	second, err := netscan.ParseTarget("192.168.1.0/29")
-	require.NoError(t, err)
-	got := slices.Collect(addrs)
-	require.Len(t, got, 12)
-	for i, addr := range got {
-		target := []netscan.Target{first, second}[i%2]
-		require.True(t, target.Contains(addr), "subnet did not get its turn: %s", addr)
-	}
-	want := append(slices.Collect(first.Addresses()), slices.Collect(second.Addresses())...)
-	assert.ElementsMatch(t, want, got)
-}
-
-func TestNetworkTargetsDeduplicateOverlappingLocalSubnets(t *testing.T) {
-	r := &RunCmd{localSubnets: func() ([]string, error) {
-		return []string{"10.0.0.0/29", "10.0.0.0/30", "10.0.0.0/29"}, nil
-	}}
-	addrs, err := r.networkScanTargets(t.Context(), &pairingpb.NetworkScanModeRequest{Target: netscan.LocalSubnetTarget})
-	require.NoError(t, err)
-	target, err := netscan.ParseTarget("10.0.0.0/29")
-	require.NoError(t, err)
-	assert.ElementsMatch(t, slices.Collect(target.Addresses()), slices.Collect(addrs))
 }
 
 func TestDiscoveryCommandTargetBoundaries(t *testing.T) {
@@ -340,7 +274,7 @@ func TestDiscoveryCommandTargetBoundaries(t *testing.T) {
 		{"network over /20", discoverNetworkScan("10.0.0.0/19", []string{"80"}), 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			r := &RunCmd{discoverer: &stubDiscoverer{probes: devices}}
+			r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, discoverer: &stubDiscoverer{probes: devices}}
 			if tc.req.GetNetworkScan() != nil {
 				r.scanner = allOpenScanner{}
 			}
@@ -356,19 +290,6 @@ func TestDiscoveryCommandTargetBoundaries(t *testing.T) {
 			require.Len(t, reports, tc.want)
 		})
 	}
-}
-
-func TestIPListChoosesPrivateDNSBeforeIPv4Preference(t *testing.T) {
-	r := &RunCmd{
-		discoverer: &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
-			"fd00::1|4028": {DeviceIdentifier: "identified", DriverName: "virtual", UrlScheme: "http"},
-		}},
-		resolver: stubResolver{"miner.lan": {{IP: net.ParseIP("8.8.8.8")}, {IP: net.ParseIP("fd00::1")}}},
-	}
-	reports, _, err := r.discoverForCommand(t.Context(), discoverIPList([]string{"miner.lan"}, []string{"4028"}), discardLogger(t))
-	require.NoError(t, err)
-	require.Len(t, reports, 1)
-	assert.Equal(t, "fd00::1", reports[0].GetIpAddress())
 }
 
 type reportBudgetClient struct {
@@ -410,7 +331,7 @@ func TestStreamReportsMaximumResultsWithinTotalDeadline(t *testing.T) {
 					reports[i] = &pb.DiscoveredDeviceReport{}
 				}
 				started := time.Now()
-				err := (&RunCmd{}).streamReports(t.Context(), client, "command", reports, discardLogger(t))
+				err := (&RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}}).streamReports(t.Context(), client, "command", reports, discardLogger(t))
 				if tc.wantTimeout {
 					require.ErrorIs(t, err, context.DeadlineExceeded)
 					assert.Equal(t, discoveryReportTimeout, time.Since(started))

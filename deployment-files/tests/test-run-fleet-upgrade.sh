@@ -222,9 +222,6 @@ if [ "${1:-}" = "container" ] && [ "${2:-}" = "ls" ]; then
             exit 0
             ;;
     esac
-    if [ "${FAKE_CONTAINER_LIST_FAILURE:-false}" = "true" ]; then
-        exit 1
-    fi
     ancestor=''
     for argument in "$@"; do
         case "$argument" in
@@ -262,7 +259,7 @@ case " $* " in
         ;;
     *" compose "*" fleet-api check --state startup "*)
         # Compose creates host bind paths even when the command does not use them.
-        for name in firmware command-artifacts logs; do
+        for name in firmware command-artifacts logs frigate-release-keys; do
             case " $* " in
                 *" -v /app/$name "*) ;;
                 *) mkdir -p "$STAGE_ROOT/../artifacts/$name" ;;
@@ -314,6 +311,8 @@ case " $* " in
             previous="$argument"
         done
         printf 'name: %s\n' "${project_name:-${STAGE_ROOT##*/}}"
+        # Compose canonicalizes sibling binds outside the deployment prefix.
+        printf 'source: %s/firmware\n' "${FAKE_ARTIFACT_ROOT:-$(dirname "$STAGE_ROOT")/artifacts}"
         ;;
     *" compose "*" pull --ignore-buildable "*)
         if [ "${FAKE_TSDB_IMAGE_COLD_CACHE:-false}" = "true" ]; then
@@ -343,9 +342,6 @@ case " $* " in
         ;;
     *" image inspect --format "*)
         image="${!#}"
-        if [ "${FAKE_IMAGE_INSPECT_FAILURE:-}" = "$image" ]; then
-            exit 1
-        fi
         if [ "${FAKE_PREPARED_IMAGE_MISSING:-false}" = "true" ] && [ "$image" = "proto-fleet-api:v1.2.3" ]; then
             exit 1
         fi
@@ -1899,7 +1895,7 @@ assert_contains "relocated activation keeps the persisted project" "$HARNESS_CAL
 # Every input that defines the prepared release is bound into the marker. A
 # changed or forged marker fails before the active deployment is stopped and
 # is invalidated so recovery cannot keep retrying stale preparation.
-for mutation in env compose version nginx runner runtime tls timescaledb; do
+for mutation in env compose version nginx runner runtime tls timescaledb artifact-mount; do
     make_stage "changed-$mutation"
     if [ "$mutation" = "tls" ]; then
         printf 'SESSION_COOKIE_SECURE=true\n' >> "$STAGE/.env"
@@ -1920,6 +1916,7 @@ for mutation in env compose version nginx runner runtime tls timescaledb; do
         runtime) printf '\n# changed after preflight\n' >> "$STAGE/server/otel-collector-config.datadog.yaml" ;;
         tls) printf '\nchanged after preflight\n' >> "$STAGE/ssl/cert.pem" ;;
         timescaledb) printf 'changed-after-preflight' >> "$STAGE/images/timescaledb.tar.gz" ;;
+        artifact-mount) export FAKE_ARTIFACT_ROOT="$(dirname "$STAGE")/artifacts-other" ;;
     esac
     : > "$HARNESS_CALL_LOG"
     if run_stage "$STAGE" --non-interactive --skip-build; then
@@ -1927,6 +1924,7 @@ for mutation in env compose version nginx runner runtime tls timescaledb; do
     else
         pass "$mutation changes invalidate preflight"
     fi
+    unset FAKE_ARTIFACT_ROOT
     assert_contains "$mutation mismatch is diagnosed" "$HARNESS_OUTPUT_LOG" "changed after preflight"
     assert_not_contains "$mutation mismatch prevents teardown" "$HARNESS_CALL_LOG" " down --remove-orphans"
     assert_not_contains "$mutation mismatch prevents startup" "$HARNESS_CALL_LOG" " up --remove-orphans"

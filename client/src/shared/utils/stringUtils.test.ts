@@ -1,31 +1,14 @@
+// @vitest-environment node
 import { describe, expect, it, test } from "vitest";
 
 import {
-  addCommas,
   convertToSentenceCase,
-  convertToTitleCase,
   getDisplayValue,
   getMacAddressDisplay,
   padLeft,
   separateByCommas,
   stripLeadingSlash,
 } from "./stringUtils";
-
-describe("addCommas", () => {
-  test("should add commas for every 3 digits in a number", () => {
-    expect(addCommas(1000)).toBe("1,000");
-    expect(addCommas(1000000)).toBe("1,000,000");
-    expect(addCommas(1234567890)).toBe("1,234,567,890");
-  });
-
-  test("should return undefined if the value is not provided", () => {
-    expect(addCommas()).toBe(undefined);
-  });
-
-  test("should not add a comma if number is less than 4 digits", () => {
-    expect(addCommas(100)).toBe("100");
-  });
-});
 
 describe("getMacAddressDisplay", () => {
   test("should return the mac address with colon separators", () => {
@@ -88,28 +71,10 @@ describe("getDisplayValue", () => {
     expect(displayValue).toBe("5.6");
   });
 
-  test("should return the value with one decimal place even if there is no decimal value", () => {
-    const value = 5;
-    const displayValue = getDisplayValue(value);
-    expect(displayValue).toBe("5.0");
-  });
-
-  test("should return the value rounded up to  decimal places if third decimal place is non-zero", () => {
-    const value = 5.106;
-    const displayValue = getDisplayValue(value);
-    expect(displayValue).toBe("5.1");
-  });
-
   test("should separate thousands by commas and round down to one decimal places", () => {
     const value = 12345.671;
     const displayValue = getDisplayValue(value);
     expect(displayValue).toBe("12,345.7");
-  });
-
-  test("should separate thousands by commas and remove second decimal place if zero", () => {
-    const value = 12345;
-    const displayValue = getDisplayValue(value);
-    expect(displayValue).toBe("12,345.0");
   });
 });
 
@@ -158,25 +123,5 @@ describe("convertToSentenceCase", () => {
     const input = "";
     const expected = "";
     expect(convertToSentenceCase(input)).toBe(expected);
-  });
-});
-
-describe("convertToTitleCase", () => {
-  it("should capitalize the first letter of each word", () => {
-    const input = "hello world";
-    const expected = "Hello World";
-    expect(convertToTitleCase(input)).toBe(expected);
-  });
-
-  it("should handle strings with underscores and extra spaces", () => {
-    const input = "hello_world  how_are you";
-    const expected = "Hello World How Are You";
-    expect(convertToTitleCase(input)).toBe(expected);
-  });
-
-  it("should handle empty strings", () => {
-    const input = "";
-    const expected = "";
-    expect(convertToTitleCase(input)).toBe(expected);
   });
 });

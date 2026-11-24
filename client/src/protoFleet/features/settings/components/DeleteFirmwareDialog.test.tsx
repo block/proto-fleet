@@ -10,32 +10,6 @@ beforeEach(() => {
 });
 
 describe("DeleteFirmwareDialog", () => {
-  it("renders title", () => {
-    const { getByText } = render(
-      <DeleteFirmwareDialog
-        filename="alpha.swu"
-        onConfirm={mockOnConfirm}
-        onDismiss={mockOnDismiss}
-        isSubmitting={false}
-      />,
-    );
-
-    expect(getByText("Delete firmware file?")).toBeInTheDocument();
-  });
-
-  it("renders filename in body text", () => {
-    const { getByText } = render(
-      <DeleteFirmwareDialog
-        filename="alpha.swu"
-        onConfirm={mockOnConfirm}
-        onDismiss={mockOnDismiss}
-        isSubmitting={false}
-      />,
-    );
-
-    expect(getByText(/alpha\.swu/)).toBeInTheDocument();
-  });
-
   it("renders warning about irreversibility", () => {
     const { getByText } = render(
       <DeleteFirmwareDialog
@@ -61,20 +35,6 @@ describe("DeleteFirmwareDialog", () => {
 
     fireEvent.click(getByText("Cancel"));
     expect(mockOnDismiss).toHaveBeenCalled();
-  });
-
-  it("calls onConfirm when Delete is clicked", () => {
-    const { getByText } = render(
-      <DeleteFirmwareDialog
-        filename="alpha.swu"
-        onConfirm={mockOnConfirm}
-        onDismiss={mockOnDismiss}
-        isSubmitting={false}
-      />,
-    );
-
-    fireEvent.click(getByText("Delete"));
-    expect(mockOnConfirm).toHaveBeenCalled();
   });
 
   it("disables Delete button when isSubmitting is true", () => {

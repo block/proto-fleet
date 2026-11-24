@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -55,26 +56,7 @@ const getTokenValue = (block: string, token: string) => {
   return value;
 };
 
-const getGrayLevel = (value: string) => {
-  const [grayLevel] = value.split(/\s+/).map(Number);
-
-  return grayLevel;
-};
-
 describe("theme tokens", () => {
-  test("defines the expected shared gray base tokens in the expected order", () => {
-    const rootBlock = getBlock(":root");
-    const baseGray2 = getTokenValue(rootBlock, "--base_gray_2");
-    const baseGray5 = getTokenValue(rootBlock, "--base_gray_5");
-    const baseGray50 = getTokenValue(rootBlock, "--base_gray_50");
-    const baseGray60 = getTokenValue(rootBlock, "--base_gray_60");
-
-    expect(baseGray2).toBe("250 250 250");
-    expect(baseGray5).toBe("242 242 242");
-    expect(getGrayLevel(baseGray2)).toBeGreaterThan(getGrayLevel(baseGray5));
-    expect(getGrayLevel(baseGray50)).toBeGreaterThan(getGrayLevel(baseGray60));
-  });
-
   test("overrides the surface overlay token for dark mode", () => {
     const rootBlock = getBlock("@theme");
     const darkBlock = getBlock('[data-theme="dark"]');

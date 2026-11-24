@@ -1,6 +1,7 @@
 package sqlstores_test
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -29,11 +30,11 @@ func TestSQLCurtailmentStore_PairingInsertWaitsForTopologyRestoreLock(t *testing
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	database := testContext.DatabaseService.DB
-	device := testContext.DatabaseService.CreateDevice(user.OrganizationID, "proto")
+	database := testContext.DB
+	device := testContext.CreateDevice(user.OrganizationID, "proto")
 	_, err := database.ExecContext(ctx, `DELETE FROM device_pairing WHERE device_id = $1`, device.DatabaseID)
 	require.NoError(t, err)
 
@@ -96,10 +97,18 @@ func TestSQLCurtailmentStore_FrozenTopologyStartPersistsEnvelopeAndRejectsMember
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	database := testContext.DatabaseService.DB
+	database := testContext.DB
+	// Retention jobs can queue a table lock between the outer fence and its
+	// command insert, leaving both transactions waiting on each other.
+	_, err := database.ExecContext(ctx, `
+		SELECT alter_job(job_id, scheduled => false)
+		FROM timescaledb_information.jobs
+		WHERE proc_name = 'policy_retention'
+	`)
+	require.NoError(t, err)
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	buildingStore := sqlstores.NewSQLBuildingStore(database)
 	orgID := user.OrganizationID
@@ -115,7 +124,7 @@ func TestSQLCurtailmentStore_FrozenTopologyStartPersistsEnvelopeAndRejectsMember
 		Name:   "Frozen topology start building",
 	})
 	require.NoError(t, err)
-	device := testContext.DatabaseService.CreateDevice(orgID, "proto")
+	device := testContext.CreateDevice(orgID, "proto")
 	deviceIdentifiers := []string{device.ID}
 	_, err = buildingStore.AssignDevicesToBuilding(ctx, orgID, &building.ID, deviceIdentifiers)
 	require.NoError(t, err)
@@ -271,10 +280,19 @@ func TestSQLCurtailmentStore_BeginTopologyRestoreLocksCandidatesAndMembersInDevi
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	ctx := t.Context()
-	database := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	database := testContext.DB
+	// Retention jobs can queue a table lock between the two row-lock probes.
+	// Keep automatic maintenance out of this test's disposable database.
+	_, err := database.ExecContext(ctx, `
+		SELECT alter_job(job_id, scheduled => false)
+		FROM timescaledb_information.jobs
+		WHERE proc_name = 'policy_retention'
+	`)
+	require.NoError(t, err)
+	user := testContext.CreateSuperAdminUser()
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	buildingStore := sqlstores.NewSQLBuildingStore(database)
 	orgID := user.OrganizationID
@@ -284,7 +302,7 @@ func TestSQLCurtailmentStore_BeginTopologyRestoreLocksCandidatesAndMembersInDevi
 		Name:  "Restore device lock order building",
 	})
 	require.NoError(t, err)
-	devices := testContext.DatabaseService.CreateTestMiners(orgID, 2, "https://172.17.0.1:80")
+	devices := testContext.CreateTestMiners(orgID, 2, "https://172.17.0.1:80")
 	_, err = buildingStore.AssignDevicesToBuilding(ctx, orgID, &building.ID, devices)
 	require.NoError(t, err)
 
@@ -349,10 +367,10 @@ func TestSQLCurtailmentStore_BeginTopologyRestoreReleasesUnsentAndQueuesAttempte
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	database := testContext.DatabaseService.DB
+	database := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	buildingStore := sqlstores.NewSQLBuildingStore(database)
 	orgID := user.OrganizationID
@@ -362,7 +380,7 @@ func TestSQLCurtailmentStore_BeginTopologyRestoreReleasesUnsentAndQueuesAttempte
 		Name:  "Topology departure branches",
 	})
 	require.NoError(t, err)
-	devices := testContext.DatabaseService.CreateTestMiners(orgID, 3, "https://172.17.0.1:80")
+	devices := testContext.CreateTestMiners(orgID, 3, "https://172.17.0.1:80")
 	_, err = buildingStore.AssignDevicesToBuilding(ctx, orgID, &building.ID, devices)
 	require.NoError(t, err)
 
@@ -413,17 +431,20 @@ func TestSQLCurtailmentStore_BeginTopologyRestoreReleasesUnsentAndQueuesAttempte
 	assert.Equal(t, models.TargetStateReleased, unsent.State)
 	assert.Equal(t, models.DesiredStateCurtailed, unsent.DesiredState)
 	assert.Nil(t, unsent.RestorePhase)
+	assert.NotNil(t, unsent.ReleasedAt, "a topology-departure release stamps released_at")
 
 	unsentDispatching := byDevice[devices[1]]
 	require.NotNil(t, unsentDispatching)
 	assert.Equal(t, models.TargetStateReleased, unsentDispatching.State)
 	assert.Equal(t, models.DesiredStateCurtailed, unsentDispatching.DesiredState)
 	assert.Nil(t, unsentDispatching.RestorePhase)
+	assert.NotNil(t, unsentDispatching.ReleasedAt, "a topology-departure release stamps released_at")
 
 	attempted := byDevice[devices[2]]
 	require.NotNil(t, attempted)
 	assert.Equal(t, models.TargetStatePending, attempted.State)
 	assert.Equal(t, models.DesiredStateActive, attempted.DesiredState)
+	assert.Nil(t, attempted.ReleasedAt, "a target queued for restore is not released")
 	require.NotNil(t, attempted.RestorePhase)
 	assert.Equal(t, models.TargetStatePending, attempted.RestorePhase.State)
 	require.NotNil(t, attempted.RestorePhase.StartedAt)
@@ -434,10 +455,10 @@ func TestSQLCurtailmentStore_TargetlessTopologyWatchersReserveEmptyScopesAndFoll
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	database := testContext.DatabaseService.DB
+	database := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	buildingStore := sqlstores.NewSQLBuildingStore(database)
 	collectionStore := sqlstores.NewSQLCollectionStore(database)
@@ -481,7 +502,7 @@ func TestSQLCurtailmentStore_TargetlessTopologyWatchersReserveEmptyScopesAndFoll
 	)
 	require.NoError(t, err)
 
-	devices := testContext.DatabaseService.CreateTestMiners(orgID, 7, "https://172.17.0.1:80")
+	devices := testContext.CreateTestMiners(orgID, 7, "https://172.17.0.1:80")
 	_, err = siteStore.AssignDevicesToSite(ctx, orgID, &site.ID, devices)
 	require.NoError(t, err)
 
@@ -665,10 +686,10 @@ func TestSQLCurtailmentStore_ClaimWaitsForTopologyMoveBeforeCheckingEarlierReser
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	database := testContext.DatabaseService.DB
+	database := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	buildingStore := sqlstores.NewSQLBuildingStore(database)
 	collectionStore := sqlstores.NewSQLCollectionStore(database)
@@ -687,8 +708,8 @@ func TestSQLCurtailmentStore_ClaimWaitsForTopologyMoveBeforeCheckingEarlierReser
 		"",
 	)
 	require.NoError(t, err)
-	reservedDevice := testContext.DatabaseService.CreateDevice(orgID, "proto")
-	eligibleDevice := testContext.DatabaseService.CreateDevice(orgID, "proto")
+	reservedDevice := testContext.CreateDevice(orgID, "proto")
+	eligibleDevice := testContext.CreateDevice(orgID, "proto")
 	_, err = collectionStore.AddDevicesToCollection(
 		ctx,
 		orgID,
@@ -765,10 +786,10 @@ func TestSQLCurtailmentStore_ClaimWaitsForCurrentTopologyMembershipRemoval(t *te
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	database := testContext.DatabaseService.DB
+	database := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	collectionStore := sqlstores.NewSQLCollectionStore(database)
 	orgID := user.OrganizationID
@@ -781,7 +802,7 @@ func TestSQLCurtailmentStore_ClaimWaitsForCurrentTopologyMembershipRemoval(t *te
 		"",
 	)
 	require.NoError(t, err)
-	device := testContext.DatabaseService.CreateDevice(orgID, "proto")
+	device := testContext.CreateDevice(orgID, "proto")
 	_, err = collectionStore.AddDevicesToCollection(ctx, orgID, group.Id, []string{device.ID})
 	require.NoError(t, err)
 
@@ -841,10 +862,10 @@ func TestSQLCurtailmentStore_AllPairedClaimRefillsAfterFinalTopologyRecheck(t *t
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	database := testContext.DatabaseService.DB
+	database := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	buildingStore := sqlstores.NewSQLBuildingStore(database)
 	orgID := user.OrganizationID
@@ -854,7 +875,7 @@ func TestSQLCurtailmentStore_AllPairedClaimRefillsAfterFinalTopologyRecheck(t *t
 		Name:  "All-paired admission building",
 	})
 	require.NoError(t, err)
-	devices := testContext.DatabaseService.CreateTestMiners(orgID, 2, "https://172.17.0.1:80")
+	devices := testContext.CreateTestMiners(orgID, 2, "https://172.17.0.1:80")
 	_, err = buildingStore.AssignDevicesToBuilding(ctx, orgID, &building.ID, devices)
 	require.NoError(t, err)
 
@@ -925,10 +946,10 @@ func TestSQLCurtailmentStore_BulkReadinessWaitsForTargetlessTopologyReservation(
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	database := testContext.DatabaseService.DB
+	database := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	buildingStore := sqlstores.NewSQLBuildingStore(database)
 	collectionStore := sqlstores.NewSQLCollectionStore(database)
@@ -947,7 +968,7 @@ func TestSQLCurtailmentStore_BulkReadinessWaitsForTargetlessTopologyReservation(
 		"",
 	)
 	require.NoError(t, err)
-	device := testContext.DatabaseService.CreateDevice(orgID, "proto")
+	device := testContext.CreateDevice(orgID, "proto")
 	_, err = collectionStore.AddDevicesToCollection(ctx, orgID, group.Id, []string{device.ID})
 	require.NoError(t, err)
 
@@ -1025,10 +1046,10 @@ func TestSQLCurtailmentStore_BulkReadinessDoesNotRequeueRestoreReenteringCurrent
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	database := testContext.DatabaseService.DB
+	database := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	collectionStore := sqlstores.NewSQLCollectionStore(database)
 	orgID := user.OrganizationID
@@ -1041,7 +1062,7 @@ func TestSQLCurtailmentStore_BulkReadinessDoesNotRequeueRestoreReenteringCurrent
 		"",
 	)
 	require.NoError(t, err)
-	device := testContext.DatabaseService.CreateDevice(orgID, "proto")
+	device := testContext.CreateDevice(orgID, "proto")
 	_, err = collectionStore.AddDevicesToCollection(ctx, orgID, group.Id, []string{device.ID})
 	require.NoError(t, err)
 
@@ -1114,10 +1135,10 @@ func TestSQLCurtailmentStore_TopologyRestoreDispatchAllowsDeletedSelector(t *tes
 
 	for _, eventState := range []models.EventState{models.EventStateActive, models.EventStateRestoring} {
 		t.Run(string(eventState), func(t *testing.T) {
-			testContext := testutil.InitializeDBServiceInfrastructure(t)
-			user := testContext.DatabaseService.CreateSuperAdminUser()
+			testContext := testutil.NewDatabaseService(t, nil)
+			user := testContext.CreateSuperAdminUser()
 			ctx := t.Context()
-			database := testContext.DatabaseService.DB
+			database := testContext.DB
 			store := sqlstores.NewSQLCurtailmentStore(database)
 			collectionStore := sqlstores.NewSQLCollectionStore(database)
 			orgID := user.OrganizationID
@@ -1130,7 +1151,7 @@ func TestSQLCurtailmentStore_TopologyRestoreDispatchAllowsDeletedSelector(t *tes
 				"",
 			)
 			require.NoError(t, err)
-			device := testContext.DatabaseService.CreateDevice(orgID, "proto")
+			device := testContext.CreateDevice(orgID, "proto")
 			_, err = collectionStore.AddDevicesToCollection(ctx, orgID, group.Id, []string{device.ID})
 			require.NoError(t, err)
 
@@ -1202,10 +1223,10 @@ func TestSQLCurtailmentStore_BulkReadinessDoesNotRequeueTopologyRestoreOwnedElse
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	database := testContext.DatabaseService.DB
+	database := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	buildingStore := sqlstores.NewSQLBuildingStore(database)
 	siteStore := sqlstores.NewSQLSiteStore(database)
@@ -1222,7 +1243,7 @@ func TestSQLCurtailmentStore_BulkReadinessDoesNotRequeueTopologyRestoreOwnedElse
 		Name:   "Topology restore owner building",
 	})
 	require.NoError(t, err)
-	device := testContext.DatabaseService.CreateDevice(orgID, "proto")
+	device := testContext.CreateDevice(orgID, "proto")
 	deviceIDs := []string{device.ID}
 	_, err = siteStore.AssignDevicesToSite(ctx, orgID, &site.ID, deviceIDs)
 	require.NoError(t, err)

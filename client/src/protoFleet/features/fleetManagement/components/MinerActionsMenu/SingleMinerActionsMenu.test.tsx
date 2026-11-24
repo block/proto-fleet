@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { deviceActions, settingsActions } from "./constants";
 import SingleMinerActionsMenu from "./SingleMinerActionsMenu";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { useFleetStore } from "@/protoFleet/store";
 
 const {
   mockAuthenticateFleetModal,
@@ -303,23 +304,6 @@ describe("SingleMinerActionsMenu", () => {
     expect(screen.getByTestId("update-worker-names-popover-button")).toBeInTheDocument();
   });
 
-  it("renders 'View miner' menu item without requiring minerUrl", () => {
-    render(<SingleMinerActionsMenu deviceIdentifier="test-device-123" />);
-
-    fireEvent.click(screen.getByTestId("single-miner-actions-menu-button"));
-
-    expect(screen.getByText("View miner")).toBeInTheDocument();
-  });
-
-  it("renders 'View miner' menu item when minerUrl is provided", () => {
-    render(<SingleMinerActionsMenu deviceIdentifier="test-device-123" minerUrl="http://192.168.1.1" />);
-
-    fireEvent.click(screen.getByTestId("single-miner-actions-menu-button"));
-
-    expect(screen.getByText("View miner")).toBeInTheDocument();
-    expect(screen.getByTestId("viewMiner-popover-button")).toBeInTheDocument();
-  });
-
   it("opens the row's miner via the shared opener when 'View miner' is clicked", () => {
     const miner = {
       deviceIdentifier: "my-device-abc",
@@ -327,13 +311,7 @@ describe("SingleMinerActionsMenu", () => {
       embeddedWebViewAvailable: true,
     } as MinerStateSnapshot;
 
-    render(
-      <SingleMinerActionsMenu
-        deviceIdentifier="my-device-abc"
-        minerUrl="http://192.168.1.42"
-        miners={{ "my-device-abc": miner }}
-      />,
-    );
+    render(<SingleMinerActionsMenu deviceIdentifier="my-device-abc" miners={{ "my-device-abc": miner }} />);
 
     fireEvent.click(screen.getByTestId("single-miner-actions-menu-button"));
     fireEvent.click(screen.getByTestId("viewMiner-popover-button"));
@@ -380,24 +358,18 @@ describe("SingleMinerActionsMenu", () => {
     expect(onActionComplete).toHaveBeenCalledTimes(1);
   });
 
-  it("authenticates before updating a single worker name", async () => {
-    mockUpdateSingleWorkerName.mockResolvedValue({
-      updatedCount: 1,
-      unchangedCount: 0,
-      failedCount: 0,
-      batchIdentifier: "batch-1",
-    });
-    mockStreamCommandBatchUpdates.mockImplementation(async ({ onStreamData }) => {
-      onStreamData({
-        status: {
-          commandBatchDeviceCount: {
-            total: 1,
-            success: 1,
-            failure: 0,
-          },
-        },
-      });
-    });
+  it.each(["accepted", "unknown", "session changed"])("handles single worker-name outcome: %s", async (outcome) => {
+    let accept!: (result: {
+      updatedCount: number;
+      unchangedCount: number;
+      failedCount: number;
+      unknownCount?: number;
+    }) => void;
+    mockUpdateSingleWorkerName.mockReturnValue(
+      new Promise((resolve) => {
+        accept = resolve;
+      }),
+    );
 
     const onActionComplete = vi.fn();
     const onRefetchMiners = vi.fn();
@@ -507,7 +479,28 @@ describe("SingleMinerActionsMenu", () => {
     await waitFor(() => {
       expect(mockUpdateSingleWorkerName).toHaveBeenCalledWith("test-device-123", "worker-new", "testuser", "testpass");
     });
-    expect(mockStreamCommandBatchUpdates).toHaveBeenCalled();
+    expect(onWorkerNameUpdated).not.toHaveBeenCalled();
+    expect(onRefetchMiners).not.toHaveBeenCalled();
+    expect(onActionComplete).not.toHaveBeenCalled();
+    if (outcome === "session changed") act(() => useFleetStore.getState().auth.logout());
+    await act(async () => {
+      accept(
+        outcome === "unknown"
+          ? { updatedCount: 0, unchangedCount: 0, failedCount: 0, unknownCount: 1 }
+          : { updatedCount: 1, unchangedCount: 0, failedCount: 0 },
+      );
+    });
+    if (outcome !== "accepted") {
+      expect(onWorkerNameUpdated).not.toHaveBeenCalled();
+      expect(mockUpdateToast).not.toHaveBeenCalled();
+      expect(mockRemoveToast).toHaveBeenCalledWith(1);
+      if (outcome === "session changed") {
+        expect(onRefetchMiners).not.toHaveBeenCalled();
+        expect(onActionComplete).not.toHaveBeenCalled();
+      }
+      return;
+    }
+    expect(mockStreamCommandBatchUpdates).not.toHaveBeenCalled();
 
     expect(mockPushToast).toHaveBeenCalledWith({
       message: "Updating worker name",
@@ -523,12 +516,11 @@ describe("SingleMinerActionsMenu", () => {
     expect(onActionComplete).toHaveBeenCalledTimes(1);
   });
 
-  it("shows an unchanged toast when an async worker-name update makes no changes", async () => {
+  it("shows an unchanged toast when review finds no saved-name changes", async () => {
     mockUpdateSingleWorkerName.mockResolvedValue({
       updatedCount: 0,
       unchangedCount: 1,
       failedCount: 0,
-      batchIdentifier: "batch-1",
     });
 
     const onActionComplete = vi.fn();
@@ -751,19 +743,6 @@ describe("SingleMinerActionsMenu", () => {
       expect(screen.queryByTestId("refreshStatus-popover-button")).not.toBeInTheDocument();
     });
 
-    it("shows Unpair and View miner when needsAuthentication is true and minerUrl is set", () => {
-      renderWithActions({ needsAuthentication: true, minerUrl: "http://192.168.1.1" });
-
-      fireEvent.click(screen.getByTestId("single-miner-actions-menu-button"));
-
-      expect(screen.getByText("View miner")).toBeInTheDocument();
-      expect(screen.getByText("Unpair")).toBeInTheDocument();
-      expect(screen.queryByText("Reboot")).not.toBeInTheDocument();
-      expect(screen.queryByText("Blink LEDs")).not.toBeInTheDocument();
-      expect(screen.queryByText("Edit pool")).not.toBeInTheDocument();
-      expect(screen.queryByTestId("refreshStatus-popover-button")).not.toBeInTheDocument();
-    });
-
     it("does not disable the menu button when needsAuthentication is true", () => {
       renderWithActions({ needsAuthentication: true });
 
@@ -807,13 +786,9 @@ describe("SingleMinerActionsMenu", () => {
     });
   });
 
-  it("shows an error toast when a streamed worker-name update reports an immediate failure", async () => {
-    mockUpdateSingleWorkerName.mockResolvedValue({
-      updatedCount: 0,
-      unchangedCount: 0,
-      failedCount: 1,
-      batchIdentifier: "batch-1",
-    });
+  it.each(["rejected", "canceled"])("leaves the visible name alone when canonical review is %s", async (outcome) => {
+    if (outcome === "canceled") mockUpdateSingleWorkerName.mockRejectedValue(new Error("Worker name update canceled."));
+    else mockUpdateSingleWorkerName.mockResolvedValue({ updatedCount: 0, unchangedCount: 0, failedCount: 1 });
 
     const onActionComplete = vi.fn();
     const onRefetchMiners = vi.fn();

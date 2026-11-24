@@ -5,15 +5,19 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/authz/v1/authzv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/containers/v1/containersv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/hosted/v1/hostedv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/invitation/v1/invitationv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1/poolconfigurationsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
@@ -23,6 +27,15 @@ import (
 // (passwords, pool credentials, provider attestations) and must not be
 // logged at debug level.
 var RedactedRequestProcedures = []string{
+	poolconfigurationsv1connect.PoolConfigurationServiceAuthorizeWorkerNameReviewsProcedure,
+	poolconfigurationsv1connect.PoolConfigurationServiceConfirmReviewProcedure,
+	poolconfigurationsv1connect.PoolConfigurationServiceCreateConfigurationProcedure,
+	poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure,
+	poolconfigurationsv1connect.PoolConfigurationServiceTestConnectionProcedure,
+
+	invitationv1connect.InvitationServicePreviewInvitationProcedure,
+	invitationv1connect.InvitationServiceRegisterInvitedUserProcedure,
+	invitationv1connect.InvitationServiceAcceptInvitationProcedure,
 	authv1connect.AuthServiceAuthenticateProcedure,
 	authv1connect.AuthServiceUpdatePasswordProcedure,
 	authv1connect.AuthServiceVerifyCredentialsProcedure,
@@ -30,9 +43,8 @@ var RedactedRequestProcedures = []string{
 	curtailmentv1connect.CurtailmentServiceUpdateMqttCurtailmentSourceProcedure,
 	curtailmentv1connect.CurtailmentServiceTestMqttCurtailmentSourceConnectionProcedure,
 	curtailmentv1connect.CurtailmentServiceIngestCurtailmentSignalProcedure,
-	fleetmanagementv1connect.FleetManagementServiceUpdateWorkerNamesProcedure,
+	fleetmanagementv1connect.FleetManagementServiceReviewWorkerNamesProcedure,
 	onboardingv1connect.OnboardingServiceCreateAdminLoginProcedure,
-	minercommandv1connect.MinerCommandServiceUpdateMiningPoolsProcedure,
 	minercommandv1connect.MinerCommandServiceUpdateMinerPasswordProcedure,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceRegisterProcedure,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceBeginAuthHandshakeProcedure,
@@ -54,6 +66,9 @@ var RedactedRequestProcedures = []string{
 // RedactedResponseProcedures lists procedures whose responses contain secrets
 // (API keys, temporary passwords) and must not be logged at debug level.
 var RedactedResponseProcedures = []string{
+	hostedv1connect.HostedAccountServiceCreateAccountKeyProcedure,
+	hostedv1connect.HostedAccountServiceCreateInvitationProcedure,
+	invitationv1connect.InvitationServiceCreateTeamInvitationProcedure,
 	apikeyv1connect.ApiKeyServiceCreateApiKeyProcedure,
 	authv1connect.AuthServiceCreateUserProcedure,
 	authv1connect.AuthServiceResetUserPasswordProcedure,
@@ -61,6 +76,7 @@ var RedactedResponseProcedures = []string{
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceCompleteAuthHandshakeProcedure,
 	fleetnodeadminv1connect.FleetNodeAdminServiceCreateEnrollmentCodeProcedure,
 	fleetnodeadminv1connect.FleetNodeAdminServiceConfirmFleetNodeProcedure,
+	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodesProcedure,
 	serverlogv1connect.ServerLogServiceListServerLogsProcedure,
 	// Update status exposes the instance patch level and a copy-paste host
 	// command. Upgrade operations can additionally expose raw host errors,
@@ -77,6 +93,65 @@ var RedactedResponseProcedures = []string{
 // endpoints to prevent a leaked API key from escalating to interactive
 // credentials or modifying user accounts.
 var SessionOnlyProcedures = []string{
+	hostedv1connect.HostedAccountServiceListAccountReportsProcedure,
+	hostedv1connect.HostedAccountServiceGetAccountReportProcedure,
+	hostedv1connect.HostedAccountServiceGenerateAccountAnalysisProcedure,
+	hostedv1connect.HostedAccountServiceDeleteAccountAnalysisProcedure,
+	hostedv1connect.HostedAccountServiceListAccountAnalysesProcedure,
+	hostedv1connect.HostedAccountServiceGetAccountAnalysisProcedure,
+	hostedv1connect.HostedAccountServiceExportAccountAnalysisProcedure,
+	hostedv1connect.HostedAccountServiceExportAccountReportProcedure,
+	hostedv1connect.HostedAccountServiceListHostReportingAccountsProcedure,
+	hostedv1connect.HostedAccountServiceGetHostReportingSetupProcedure,
+	hostedv1connect.HostedAccountServiceSetHostReportingAuthorityProcedure,
+	hostedv1connect.HostedAccountServiceMutateHostReportingInputsProcedure,
+	hostedv1connect.HostedAccountServiceListHostReportingFactsProcedure,
+	hostedv1connect.HostedAccountServicePrepareHostReportProcedure,
+	hostedv1connect.HostedAccountServicePublishHostReportProcedure,
+	hostedv1connect.HostedAccountServiceListHostReportsProcedure,
+	hostedv1connect.HostedAccountServiceGetHostReportProcedure,
+	hostedv1connect.HostedAccountServiceRecordHostReportDeliveryProcedure,
+	hostedv1connect.HostedAccountServiceExportHostReportProcedure,
+	hostedv1connect.HostedAccountServiceCreateHostReportRequestProcedure,
+	hostedv1connect.HostedAccountServiceRecordHostReportRequestFulfillmentProcedure,
+	hostedv1connect.HostedAccountServiceListHostReportRequestsProcedure,
+	hostedv1connect.HostedAccountServiceListHostReportQueueProcedure,
+	hostedv1connect.HostedAccountServiceAcknowledgeHostReportQueueProcedure,
+	hostedv1connect.HostedAccountServiceRetryHostReportQueueNotificationProcedure,
+	poolconfigurationsv1connect.PoolConfigurationServiceAuthorizeWorkerNameReviewsProcedure,
+	hostedv1connect.HostedAccountServiceListAccountActivitiesProcedure,
+	hostedv1connect.HostedAccountServiceExportAccountActivitiesProcedure,
+	hostedv1connect.HostedAccountServiceGetAccountDashboardProcedure,
+	hostedv1connect.HostedAccountServiceGetAccountAssetDetailProcedure,
+	hostedv1connect.HostedAccountServiceGetAccountMiningSummaryProcedure,
+	hostedv1connect.HostedAccountServiceListAccountAssetsProcedure,
+	hostedv1connect.HostedAccountServiceAssignAccountAssetsProcedure,
+	hostedv1connect.HostedAccountServiceReplaceAccountHashboardProcedure,
+	hostedv1connect.HostedAccountServiceCreateAccountKeyProcedure,
+	hostedv1connect.HostedAccountServiceListAccountKeysProcedure,
+	hostedv1connect.HostedAccountServiceRevokeAccountKeyProcedure,
+	// Account administration and key lifecycle require an interactive session.
+	hostedv1connect.HostedAccountServiceListAccountsProcedure,
+	hostedv1connect.HostedAccountServiceListChildrenProcedure,
+	hostedv1connect.HostedAccountServiceCreateAccountProcedure,
+	hostedv1connect.HostedAccountServiceConfigureAccountProcedure,
+	hostedv1connect.HostedAccountServiceRenameAccountProcedure,
+	hostedv1connect.HostedAccountServiceListMembersProcedure,
+	hostedv1connect.HostedAccountServiceSetMemberRoleProcedure,
+	hostedv1connect.HostedAccountServiceRevokeMemberProcedure,
+	hostedv1connect.HostedAccountServiceListAncestorGrantsProcedure,
+	hostedv1connect.HostedAccountServiceSetAncestorGrantProcedure,
+	hostedv1connect.HostedAccountServiceRevokeAncestorGrantProcedure,
+	hostedv1connect.HostedAccountServiceSetSitePolicyProcedure,
+	hostedv1connect.HostedAccountServiceListInvitationsProcedure,
+	hostedv1connect.HostedAccountServiceCreateInvitationProcedure,
+	hostedv1connect.HostedAccountServiceRevokeInvitationProcedure,
+	// Team invitations mint login access; acceptance binds the signed-in login.
+	invitationv1connect.InvitationServiceCreateTeamInvitationProcedure,
+	invitationv1connect.InvitationServiceListTeamInvitationsProcedure,
+	invitationv1connect.InvitationServiceRevokeTeamInvitationProcedure,
+	invitationv1connect.InvitationServiceDeleteTeamInvitationProcedure,
+	invitationv1connect.InvitationServiceAcceptInvitationProcedure,
 	// API key lifecycle — prevents self-replication from a leaked key
 	apikeyv1connect.ApiKeyServiceCreateApiKeyProcedure,
 	apikeyv1connect.ApiKeyServiceListApiKeysProcedure,
@@ -178,6 +253,9 @@ var SessionOnlyProcedures = []string{
 }
 
 var UnauthenticatedProcedures = []string{
+	// The bearer invitation token is validated by the dedicated handler.
+	invitationv1connect.InvitationServicePreviewInvitationProcedure,
+	invitationv1connect.InvitationServiceRegisterInvitedUserProcedure,
 	"/health",
 	"/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo",
 	authv1connect.AuthServiceAuthenticateProcedure,
@@ -211,6 +289,51 @@ var FleetNodeAuthenticatedProcedures = []string{
 // For streaming RPCs, this also suppresses individual message bodies in
 // loggingStreamingHandlerConn.
 var SensitiveBodyProcedures = map[string]bool{
+	hostedv1connect.HostedAccountServiceListAccountReportsProcedure:                         true,
+	hostedv1connect.HostedAccountServiceGetAccountReportProcedure:                           true,
+	hostedv1connect.HostedAccountServiceGenerateAccountAnalysisProcedure:                    true,
+	hostedv1connect.HostedAccountServiceDeleteAccountAnalysisProcedure:                      true,
+	hostedv1connect.HostedAccountServiceListAccountAnalysesProcedure:                        true,
+	hostedv1connect.HostedAccountServiceGetAccountAnalysisProcedure:                         true,
+	hostedv1connect.HostedAccountServiceExportAccountAnalysisProcedure:                      true,
+	hostedv1connect.HostedAccountServiceExportAccountReportProcedure:                        true,
+	hostedv1connect.HostedAccountServiceListHostReportingAccountsProcedure:                  true,
+	hostedv1connect.HostedAccountServiceGetHostReportingSetupProcedure:                      true,
+	hostedv1connect.HostedAccountServiceSetHostReportingAuthorityProcedure:                  true,
+	hostedv1connect.HostedAccountServiceMutateHostReportingInputsProcedure:                  true,
+	hostedv1connect.HostedAccountServiceListHostReportingFactsProcedure:                     true,
+	hostedv1connect.HostedAccountServicePrepareHostReportProcedure:                          true,
+	hostedv1connect.HostedAccountServicePublishHostReportProcedure:                          true,
+	hostedv1connect.HostedAccountServiceListHostReportsProcedure:                            true,
+	hostedv1connect.HostedAccountServiceGetHostReportProcedure:                              true,
+	hostedv1connect.HostedAccountServiceRecordHostReportDeliveryProcedure:                   true,
+	hostedv1connect.HostedAccountServiceExportHostReportProcedure:                           true,
+	hostedv1connect.HostedAccountServiceCreateHostReportRequestProcedure:                    true,
+	hostedv1connect.HostedAccountServiceRecordHostReportRequestFulfillmentProcedure:         true,
+	hostedv1connect.HostedAccountServiceListHostReportRequestsProcedure:                     true,
+	hostedv1connect.HostedAccountServiceListHostReportQueueProcedure:                        true,
+	hostedv1connect.HostedAccountServiceAcknowledgeHostReportQueueProcedure:                 true,
+	hostedv1connect.HostedAccountServiceRetryHostReportQueueNotificationProcedure:           true,
+	poolconfigurationsv1connect.PoolConfigurationServiceConfirmReviewProcedure:              true,
+	poolconfigurationsv1connect.PoolConfigurationServiceCreateConfigurationProcedure:        true,
+	poolconfigurationsv1connect.PoolConfigurationServiceReviewEditProcedure:                 true,
+	poolconfigurationsv1connect.PoolConfigurationServiceTestConnectionProcedure:             true,
+	poolconfigurationsv1connect.PoolConfigurationServiceAuthorizeWorkerNameReviewsProcedure: true,
+
+	hostedv1connect.HostedAccountServiceListAccountActivitiesProcedure:   true,
+	hostedv1connect.HostedAccountServiceExportAccountActivitiesProcedure: true,
+	hostedv1connect.HostedAccountServiceGetAccountDashboardProcedure:     true,
+	hostedv1connect.HostedAccountServiceGetAccountAssetDetailProcedure:   true,
+	hostedv1connect.HostedAccountServiceGetAccountMiningSummaryProcedure: true,
+	hostedv1connect.HostedAccountServiceListAccountAssetsProcedure:       true,
+	hostedv1connect.HostedAccountServiceAssignAccountAssetsProcedure:     true,
+	hostedv1connect.HostedAccountServiceReplaceAccountHashboardProcedure: true,
+	hostedv1connect.HostedAccountServiceCreateAccountKeyProcedure:        true,
+	hostedv1connect.HostedAccountServiceCreateInvitationProcedure:        true,
+	invitationv1connect.InvitationServicePreviewInvitationProcedure:      true,
+	invitationv1connect.InvitationServiceRegisterInvitedUserProcedure:    true,
+	invitationv1connect.InvitationServiceAcceptInvitationProcedure:       true,
+	invitationv1connect.InvitationServiceCreateTeamInvitationProcedure:   true,
 	// Fleet topology (device IPs, site/rack placement) must not land in
 	// debug logs on every bridge poll.
 	fleetmanagementv1connect.FleetManagementServiceListMinerStateSnapshotsProcedure:   true,
@@ -218,7 +341,7 @@ var SensitiveBodyProcedures = map[string]bool{
 	foremanimportv1connect.ForemanImportServiceCompleteImportProcedure:                true,
 	authv1connect.AuthServiceAuthenticateProcedure:                                    true,
 	authv1connect.AuthServiceVerifyCredentialsProcedure:                               true,
-	fleetmanagementv1connect.FleetManagementServiceUpdateWorkerNamesProcedure:         true,
+	fleetmanagementv1connect.FleetManagementServiceReviewWorkerNamesProcedure:         true,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceControlStreamProcedure:           true,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadTelemetryProcedure:         true,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadEventsProcedure:            true,
@@ -246,4 +369,9 @@ var SensitiveBodyProcedures = map[string]bool{
 	infrastructurev1connect.InfrastructureServiceDeleteInfrastructureDeviceProcedure: true,
 	sitesv1connect.SiteServiceGetInfrastructureControlSubnetsProcedure:               true,
 	sitesv1connect.SiteServiceSetInfrastructureControlSubnetsProcedure:               true,
+	// Controller logs and audit events carry operator identities, client
+	// addresses and free-form controller text; Fleet relays them without
+	// keeping a copy, including in debug logs.
+	containersv1connect.ContainerServiceGetControllerLogsProcedure:         true,
+	containersv1connect.ContainerServiceListControllerAuditEventsProcedure: true,
 }

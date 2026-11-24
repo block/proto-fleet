@@ -133,6 +133,63 @@ func TestHandler_GetCurtailmentAutomationRuleChecksFacilityFanSites(t *testing.T
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
 
+// A profile's persisted envelope can still cover a site its miners have left
+// (site 7 here, which this caller cannot manage). Binding copies that envelope
+// into the rule's execution grant, so the caller must manage every site in it,
+// not only the profile's current sites.
+func TestHandler_AutomationRuleBindingRequiresPersistedEnvelopeSites(t *testing.T) {
+	t.Parallel()
+
+	revision := uuid.New()
+	newHandler := func() *Handler {
+		rule := handlerAutomationRule(101, "Moved miners", []byte(`{"site_ids":[8]}`))
+		rule.Enabled = false
+		profileStore := newHandlerResponseProfileStore()
+		profileStore.profiles = []*models.ResponseProfile{{
+			ID:                        601,
+			OrgID:                     42,
+			ScopeJSON:                 []byte(`{"site_ids":[8]}`),
+			Revision:                  revision,
+			AuthorizationEnvelopeJSON: []byte(`{"schema_version":1,"selected_resource_site_ids":[8],"current_member_site_ids":[7,8],"miner_scope_unbounded":false,"facility_fan_site_ids":[],"facility_fan_scope_unbounded":false}`),
+		}}
+		return newHandlerAutomationHandler(t, newHandlerAutomationStore(rule), profileStore)
+	}
+	ctx := testSessionCtxWithAssignments(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: 42,
+		Role:           "OPERATOR",
+		SessionID:      "sess-automation-bind",
+	}, testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(7))
+
+	requireDenied := func(t *testing.T, err error) {
+		t.Helper()
+		require.Error(t, err)
+		var fleetErr fleeterror.FleetError
+		require.ErrorAs(t, err, &fleetErr)
+		assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	}
+
+	t.Run("create", func(t *testing.T) {
+		t.Parallel()
+		_, err := newHandler().CreateCurtailmentAutomationRule(ctx, connect.NewRequest(&pb.CreateCurtailmentAutomationRuleRequest{
+			RuleName:                        "Moved miners",
+			MqttSourceId:                    501,
+			ResponseProfileId:               601,
+			ExpectedResponseProfileRevision: revision.String(),
+		}))
+		requireDenied(t, err)
+	})
+	t.Run("enable", func(t *testing.T) {
+		t.Parallel()
+		_, err := newHandler().SetCurtailmentAutomationRuleEnabled(ctx, connect.NewRequest(&pb.SetCurtailmentAutomationRuleEnabledRequest{
+			RuleId:                          101,
+			Enabled:                         true,
+			ExpectedResponseProfileRevision: revision.String(),
+		}))
+		requireDenied(t, err)
+	})
+}
+
 func newHandlerAutomationHandler(
 	t *testing.T,
 	store *handlerAutomationStore,
@@ -155,7 +212,7 @@ func newHandlerAutomationHandler(
 		}
 	}
 	profiles := domainCurtailment.NewResponseProfileService(profileStore)
-	return NewHandlerWithAutomation(nil, profiles, newHandlerAutomationService(t, store, profiles), nil)
+	return NewHandler(nil, profiles, newHandlerAutomationService(t, store, profiles), nil)
 }
 
 func newHandlerAutomationService(
@@ -232,7 +289,7 @@ func (*handlerAutomationStore) UpdateAutomationRule(context.Context, models.Auto
 	panic("not used")
 }
 
-func (*handlerAutomationStore) SetAutomationRuleEnabled(context.Context, int64, int64, bool, uuid.UUID, models.ResponseProfileFanSettings) (*models.AutomationRule, error) {
+func (*handlerAutomationStore) SetAutomationRuleEnabled(context.Context, int64, int64, bool, uuid.UUID, models.ResponseProfileFanSettings, bool) (*models.AutomationRule, error) {
 	panic("not used")
 }
 
@@ -261,5 +318,17 @@ func (*handlerAutomationStore) RecordAutomationRestoreStarted(context.Context, i
 }
 
 func (*handlerAutomationStore) RecordAutomationExecutionError(context.Context, int64, string, time.Time) error {
+	panic("not used")
+}
+
+func (*handlerAutomationStore) ListEnabledScheduleAutomationRules(context.Context) ([]models.ScheduledAutomationRule, error) {
+	panic("not used")
+}
+
+func (*handlerAutomationStore) QueueScheduleAutomationExecution(context.Context, models.AutomationExecution) error {
+	panic("not used")
+}
+
+func (*handlerAutomationStore) ScheduleWindowEventState(context.Context, int64, int64, time.Time, uuid.UUID) (models.EventState, bool, error) {
 	panic("not used")
 }

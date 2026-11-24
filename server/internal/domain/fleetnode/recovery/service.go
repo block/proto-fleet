@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+
 	"buf.build/go/protovalidate"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
@@ -155,22 +157,22 @@ func selectTargets(targets []stores.FleetNodeRecoveryTarget) ([]stores.FleetNode
 		if len(selected) == maxTargetsPerCommand {
 			break
 		}
-		_, seenPort := seenPorts[target.LastKnownPort]
+		_, seenPort := seenPorts[recoveryScanPort(target)]
 		if !seenPort && len(scanPorts) == discoverylimits.MaxPortsPerIP {
 			continue
 		}
 		descriptor := descriptorFromTarget(target)
 		descriptors = append(descriptors, descriptor)
 		if !seenPort {
-			seenPorts[target.LastKnownPort] = struct{}{}
-			scanPorts = append(scanPorts, target.LastKnownPort)
+			seenPorts[recoveryScanPort(target)] = struct{}{}
+			scanPorts = append(scanPorts, recoveryScanPort(target))
 		}
 		command.GetRecoverMinerEndpoints().Targets = descriptors
 		command.GetRecoverMinerEndpoints().ScanPorts = scanPorts
 		if proto.Size(command) > maxEncodedRequest {
 			descriptors = descriptors[:len(descriptors)-1]
 			if !seenPort {
-				delete(seenPorts, target.LastKnownPort)
+				delete(seenPorts, recoveryScanPort(target))
 				scanPorts = scanPorts[:len(scanPorts)-1]
 			}
 			command.GetRecoverMinerEndpoints().Targets = descriptors
@@ -191,7 +193,8 @@ func selectTargets(targets []stores.FleetNodeRecoveryTarget) ([]stores.FleetNode
 
 func descriptorFromTarget(target stores.FleetNodeRecoveryTarget) *gatewaypb.MinerConnectionDescriptor {
 	return &gatewaypb.MinerConnectionDescriptor{
-		DeviceIdentifier:   target.DeviceIdentifier,
+		DeviceIdentifier: target.DeviceIdentifier,
+		DeviceClass:      commonpb.DeviceClass(target.DeviceClass), RpcPort: target.RPCPort, RpcTls: target.RPCTLS,
 		DriverName:         target.DriverName,
 		IpAddress:          target.LastKnownIP,
 		Port:               target.LastKnownPort,
@@ -344,4 +347,15 @@ func (s *Service) emitResult(ctx context.Context, target stores.FleetNodeRecover
 
 func recoveryOutcomeLabel(outcome gatewaypb.MinerEndpointRecoveryOutcome) string {
 	return strings.ToLower(strings.TrimPrefix(outcome.String(), recoveryOutcomePrefix))
+}
+
+func recoveryScanPort(target stores.FleetNodeRecoveryTarget) string {
+	if commonpb.DeviceClass(target.DeviceClass) == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
+		port := target.RPCPort
+		if port == 0 {
+			port = 9095
+		}
+		return strconv.Itoa(int(port))
+	}
+	return target.LastKnownPort
 }

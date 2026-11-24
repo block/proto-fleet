@@ -1,0 +1,610 @@
+syntax = "proto3";
+package containers.v1;
+
+import "buf/validate/validate.proto";
+import "common/v1/common.proto";
+import "common/v1/equipment_coverage.proto";
+import "minercommand/v1/command.proto";
+import "google/protobuf/timestamp.proto";
+
+// Containers are paired controllers with observed internal topology. Their
+// modules are not Fleet miners, and tanks are not user-managed racks.
+service ContainerService {
+  rpc GetMiningStatus(GetMiningStatusRequest) returns (GetMiningStatusResponse);
+  rpc GetPowerTarget(GetPowerTargetRequest) returns (GetPowerTargetResponse);
+  rpc SetMining(SetMiningRequest) returns (SetMiningResponse);
+  rpc SetPowerTarget(SetPowerTargetRequest) returns (SetPowerTargetResponse);
+  rpc GetModuleMiningOptions(GetModuleMiningOptionsRequest) returns (GetModuleMiningOptionsResponse);
+  rpc SetModuleMining(SetModuleMiningRequest) returns (SetModuleMiningResponse);
+  rpc GetBoardIdentifyOptions(GetBoardIdentifyOptionsRequest) returns (GetBoardIdentifyOptionsResponse);
+  rpc SetBoardIdentify(SetBoardIdentifyRequest) returns (SetBoardIdentifyResponse);
+  rpc GetModulePowerFeed(GetModulePowerFeedRequest) returns (GetModulePowerFeedResponse);
+  // Queues one power feed write. Track it with GetEquipmentCommandResult.
+  rpc ControlModulePowerFeed(ControlModulePowerFeedRequest) returns (ControlModulePowerFeedResponse);
+  // Live ASIC readings for one installed board while the caller keeps the
+  // stream open. The server ends each stream after a few minutes so access and
+  // placement are re-checked; callers reopen it.
+  rpc StreamBoardASICReadings(StreamBoardASICReadingsRequest) returns (stream StreamBoardASICReadingsResponse);
+  rpc GetTankMiningOptions(GetTankMiningOptionsRequest) returns (GetTankMiningOptionsResponse);
+  rpc SetTankMining(SetTankMiningRequest) returns (SetTankMiningResponse);
+  rpc GetEquipmentCommandResult(GetEquipmentCommandResultRequest) returns (GetEquipmentCommandResultResponse);
+  rpc SetEquipmentControl(SetEquipmentControlRequest) returns (SetEquipmentControlResponse);
+  rpc RunPlantAlarmAction(RunPlantAlarmActionRequest) returns (RunPlantAlarmActionResponse);
+  rpc GetContainer(GetContainerRequest) returns (GetContainerResponse);
+  rpc ListContainers(ListContainersRequest) returns (ListContainersResponse);
+  // Site management metadata only; does not grant access to container telemetry.
+  rpc ListContainerPlacements(ListContainerPlacementsRequest) returns (ListContainerPlacementsResponse);
+  // On-demand reads of one controller's own records, through the container's
+  // assigned Fleet Node when it has one. Fleet does not store either result.
+  // Requires miner:download_logs at the container's site.
+  rpc GetControllerLogs(GetControllerLogsRequest) returns (GetControllerLogsResponse);
+  rpc ListControllerAuditEvents(ListControllerAuditEventsRequest) returns (ListControllerAuditEventsResponse);
+}
+message ListContainerPlacementsRequest {}
+message ListContainerPlacementsResponse {
+  repeated ContainerPlacement containers = 1;
+}
+message ContainerPlacement {
+  string device_identifier = 1;
+  string name = 2;
+  common.v1.ResourceRef site = 3;
+  int64 tank_count = 4;
+}
+message GetContainerRequest {
+  string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+}
+message GetContainerResponse {
+  Container container = 1;
+}
+message ListContainersRequest {
+  repeated int64 site_ids = 1 [(buf.validate.field).repeated = {
+    max_items: 1024
+    items: { int64: {gt: 0} }
+  }];
+  bool include_unassigned = 2;
+}
+message ListContainersResponse {
+  repeated Container containers = 1;
+}
+// Latest controller redundancy observation. Stale evidence is unavailable,
+// even when the last observation was healthy.
+message ContainerHA {
+ google.protobuf.Timestamp observed_at = 1;
+ bool degraded = 2;
+ bool stale = 3;
+}
+message Container {
+ // Missing or stale HA evidence must be shown as degraded redundancy.
+ ContainerHA ha = 22;
+ // Current caller can manage placement at this controller's current site.
+ // Assignment rechecks both current and destination site permissions.
+ bool can_assign_site = 21;
+ // Present only with fresh inventory coverage; zero means none reported.
+ optional uint32 unlocated_hashboards = 20;
+ optional double efficiency_jh = 16;
+ common.v1.EquipmentCoverage coverage = 17;
+ optional double min_temperature_c = 18;
+ optional double max_temperature_c = 19;
+ ContainerPlant plant = 15;
+ // Current caller has plant-write permissions at this controller's current site.
+ // Dispatch rechecks authorization. Firmware support is independently observed.
+ bool can_control_equipment = 14;
+ repeated ContainerFan fans = 12;
+ ContainerControls controls = 13;
+  // Stable Fleet device ID used by typed inventory ancestor filters.
+  int64 id = 11;
+  string device_identifier = 1;
+  string name = 2;
+  common.v1.ResourceRef site = 3;
+  google.protobuf.Timestamp observed_at = 4;
+  repeated TankHealth tanks = 5;
+  google.protobuf.Timestamp metrics_at = 6;
+  optional double hashrate_hs = 7;
+  optional double power_w = 8;
+  optional double temperature_c = 9;
+  // False means a recent observation exists. Stale retained observations must
+  // not be presented as current health, even if their counts were all healthy.
+  bool stale = 10;
+
+}
+message TankHealth {
+  int32 position = 1;
+  int32 hashing_count = 2;
+  int32 attention_count = 3;
+  int32 offline_count = 4;
+  int32 sleeping_count = 5;
+  int32 isolated_count = 6;
+  int32 unknown_count = 7;
+}
+
+// Latest component observations. Missing scalar values are unavailable, not zero.
+message ContainerFan {
+ string component_id = 1;
+ google.protobuf.Timestamp observed_at = 2;
+ optional double speed_percent = 3;
+ optional double power_w = 4;
+ optional string direction = 5;
+ optional bool alarm_active = 6;
+ bool stale = 7;
+}
+// A successful independent read; absent capability flags mean unknown.
+message ContainerControls {
+ google.protobuf.Timestamp observed_at = 1;
+ optional bool supported = 2;
+ repeated ContainerControl controls = 3;
+ repeated ContainerSetpoint setpoints = 4;
+ optional bool main_circuit_breaker_supported = 5;
+ optional bool main_circuit_breaker_closed = 6;
+ optional bool alarm_reset_supported = 7;
+ optional bool alarm_mute_supported = 8;
+ optional bool dry_cooler_fan_reverse_supported = 9;
+ bool stale = 10;
+}
+message ContainerControl {
+ string name = 1;
+ optional bool enabled = 2;
+}
+message ContainerSetpoint {
+ string name = 1;
+ optional double value = 2;
+ string unit = 3;
+}
+
+// A single named desired state, never a toggle or an arbitrary HTTP request.
+message SetEquipmentControlRequest {
+  string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  string name = 2 [(buf.validate.field).string = {in: ["dry_cooler", "dry_cooler_auto", "tank_led_light", "coolant_pump", "air_conditioner_1", "air_conditioner_2", "main_circuit_breaker"]}];
+  // For main_circuit_breaker true means closed, false means open.
+  optional bool enabled = 3 [(buf.validate.field).required = true];
+}
+message SetEquipmentControlResponse {
+  // Completion acknowledges the write, not refreshed physical state.
+  string batch_identifier = 1;
+}
+
+enum PlantAlarmAction {
+  PLANT_ALARM_ACTION_UNSPECIFIED = 0;
+  // Silences the alarm buzzer. Alarms stay active until their cause clears.
+  PLANT_ALARM_ACTION_MUTE = 1;
+  // Asks the controller to clear latched alarms. An alarm whose cause is still
+  // present stays active, and no hardware fault is cleared.
+  PLANT_ALARM_ACTION_RESET = 2;
+}
+// One pulse to the container's current controller; never replayed by Fleet.
+message RunPlantAlarmActionRequest {
+  string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  PlantAlarmAction action = 2 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+}
+message RunPlantAlarmActionResponse {
+  // Completion acknowledges the pulse, not its effect. Use
+  // GetEquipmentCommandResult, then a newer plant observation, to confirm it.
+  string batch_identifier = 1;
+}
+
+message GetEquipmentCommandResultRequest {
+ string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+ string batch_identifier = 2 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+}
+
+message GetEquipmentCommandResultResponse {
+ minercommand.v1.GetCommandBatchDeviceResultsResponse result = 1;
+}
+
+// Plant telemetry has its own source timestamp, independent of control reads.
+message ContainerPlant {
+ google.protobuf.Timestamp observed_at = 1;
+ optional double dry_cooler_inlet_temperature_c = 2;
+ bool stale = 3;
+ // Controller alarm flags from the same observation. Absent means not
+ // reported, never clear. Individual alarms are reported as device errors.
+ optional bool alarm_active = 4;
+ optional bool critical_alarm_active = 5;
+ // Absent when the controller does not expose buzzer state.
+ optional bool buzzer_active = 6;
+}
+
+// Stable Fleet tank IDs; positions and controllers are resolved by the server.
+message GetTankMiningOptionsRequest {
+  repeated int64 tank_ids = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 100, items: {int64: {gt: 0}}}];
+}
+message GetTankMiningOptionsResponse {
+  bool can_start = 1;
+  bool can_stop = 2;
+  string unavailable_reason = 3;
+}
+message SetTankMiningRequest {
+  repeated int64 tank_ids = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 100, items: {int64: {gt: 0}}}];
+  optional bool mining = 2 [(buf.validate.field).required = true];
+}
+message TankMiningCommand {
+  string device_identifier = 1;
+  string container_name = 2;
+  repeated int64 tank_ids = 3;
+  string batch_identifier = 4;
+}
+message SetTankMiningResponse {
+  // One existing command batch per controller, with exact selected tank scope.
+  repeated TankMiningCommand commands = 1;
+}
+
+message GetModuleMiningOptionsRequest {
+  repeated int64 module_ids = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 100, items: {int64: {gt: 0}}}];
+}
+message GetModuleMiningOptionsResponse {
+  bool can_start = 1;
+  bool can_stop = 2;
+  string unavailable_reason = 3;
+}
+message SetModuleMiningRequest {
+  repeated int64 module_ids = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 100, items: {int64: {gt: 0}}}];
+  optional bool mining = 2 [(buf.validate.field).required = true];
+}
+message ModuleMiningCommand {
+  string device_identifier = 1;
+  string container_name = 2;
+  repeated int64 module_ids = 3;
+  string batch_identifier = 4;
+}
+message SetModuleMiningResponse {
+  // One batch per controller; the server resolves exact module scope and identity.
+  repeated ModuleMiningCommand commands = 1;
+}
+
+// Stable Fleet module and hashboard IDs. The server expands modules into the
+// boards currently installed in them; the caller confirms that exact list.
+message GetBoardIdentifyOptionsRequest {
+  repeated int64 module_ids = 1 [(buf.validate.field).repeated = {max_items: 10, items: {int64: {gt: 0}}}];
+  repeated int64 hashboard_ids = 2 [(buf.validate.field).repeated = {max_items: 30, items: {int64: {gt: 0}}}];
+}
+// One currently installed board. installation_id changes whenever the board
+// moves or is replaced, so it pins the confirmed identity to its placement.
+message IdentifyBoard {
+  int64 hashboard_id = 1;
+  int64 installation_id = 2;
+  int64 module_id = 3;
+  string device_identifier = 4;
+  string container_name = 5;
+  int32 tank = 6;
+  int32 module = 7;
+  int32 slot = 8;
+  string serial_number = 9;
+}
+message GetBoardIdentifyOptionsResponse {
+  repeated IdentifyBoard boards = 1;
+  bool can_identify = 2;
+  string unavailable_reason = 3;
+}
+enum BoardIdentifyMode {
+  BOARD_IDENTIFY_MODE_UNSPECIFIED = 0;
+  BOARD_IDENTIFY_MODE_BLINK = 1;
+  BOARD_IDENTIFY_MODE_OFF = 2;
+}
+message BoardIdentifyTarget {
+  int64 hashboard_id = 1 [(buf.validate.field).int64.gt = 0];
+  int64 installation_id = 2 [(buf.validate.field).int64.gt = 0];
+}
+message SetBoardIdentifyRequest {
+  // The exact boards the operator confirmed; a moved or replaced board is rejected.
+  repeated BoardIdentifyTarget boards = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 30}];
+  BoardIdentifyMode mode = 2 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+}
+message BoardIdentifyCommand {
+  int64 hashboard_id = 1;
+  string device_identifier = 2;
+  string batch_identifier = 3;
+}
+message SetBoardIdentifyResponse {
+  // One batch per board so each board reports its own controller outcome.
+  repeated BoardIdentifyCommand commands = 1;
+}
+
+// Live read of the power feed (PDU outlet) that supplies one CT1 module.
+message GetModulePowerFeedRequest {
+  int64 module_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+// How the controller associates the module with its feed. The server derives
+// it from the controller map; it never infers an outlet from positions.
+enum PowerFeedMappingConfidence {
+  POWER_FEED_MAPPING_CONFIDENCE_UNSPECIFIED = 0;
+  // Every occupied board's switch-port wiring check verified the feed.
+  POWER_FEED_MAPPING_CONFIDENCE_WIRING_VERIFIED = 1;
+  // One configured feed, consistent across the module and claimed by no other
+  // module, without wiring verification or reported wiring problems.
+  POWER_FEED_MAPPING_CONFIDENCE_CONFIGURED = 2;
+  // Feed evidence disagrees, is shared, or reports a wiring problem.
+  POWER_FEED_MAPPING_CONFIDENCE_AMBIGUOUS = 3;
+  // The controller reports no feed for this module.
+  POWER_FEED_MAPPING_CONFIDENCE_UNAVAILABLE = 4;
+}
+// Authoritative controller target state; unspecified means unknown.
+enum PowerFeedState {
+  POWER_FEED_STATE_UNSPECIFIED = 0;
+  POWER_FEED_STATE_ENABLED = 1;
+  POWER_FEED_STATE_DISABLED = 2;
+}
+message PowerFeedModuleRef {
+  int32 tank = 1;
+  int32 module = 2;
+}
+// One slot's feed evidence from the controller map.
+message PowerFeedBoardEvidence {
+  int32 position = 1;
+  bool occupied = 2;
+  string serial_number = 3;
+  string slot_feed_id = 4;
+  string observed_feed_id = 5;
+  string expected_feed_id = 6;
+  string wiring_status = 7;
+  repeated string wiring_reasons = 8;
+}
+message PowerFeedMapping {
+  PowerFeedMappingConfidence confidence = 1 [(buf.validate.field).enum.defined_only = true];
+  // The single feed the evidence names; empty when there is none.
+  string feed_id = 2;
+  // Machine-readable reasons, for example "multiple_feeds" or "feed_shared".
+  repeated string reasons = 3;
+  repeated PowerFeedModuleRef shared_with = 4;
+  repeated PowerFeedBoardEvidence boards = 5;
+}
+// The controller's current snapshot of one feed. Absent measurements are unset;
+// a measured zero is kept.
+message PowerFeedReading {
+  string id = 1;
+  PowerFeedState state = 2 [(buf.validate.field).enum.defined_only = true];
+  optional bool active = 3;
+  optional bool faulted = 4;
+  // A process-local operator override marker on the controller.
+  bool overridden = 5;
+  // "A", "B", "C", or empty when the feed is not single-phase.
+  string phase = 6;
+  optional double voltage_v = 7;
+  optional double current_a = 8;
+  optional double power_w = 9;
+  optional double voltage_ab_v = 10;
+  optional double voltage_bc_v = 11;
+  optional double voltage_ca_v = 12;
+  optional double current_a_a = 13;
+  optional double current_b_a = 14;
+  optional double current_c_a = 15;
+}
+// The controller's singleton durable restore obligation. While it exists the
+// controller refuses every other feed operation.
+message PowerRecoveryCycle {
+  string id = 1;
+  string scope = 2;
+  string phase = 3;
+  repeated string outlet_ids = 4;
+  google.protobuf.Timestamp restore_after = 5;
+  google.protobuf.Timestamp created_at = 6;
+  string last_error = 7;
+}
+message GetModulePowerFeedResponse {
+  int64 module_id = 1;
+  string device_identifier = 2;
+  string container_name = 3;
+  int32 tank = 4;
+  int32 module = 5;
+  google.protobuf.Timestamp observed_at = 6;
+  PowerFeedMapping mapping = 7;
+  // Unset when no unique feed is mapped or feed_unavailable_reason is set.
+  PowerFeedReading feed = 8;
+  // "snapshot_not_ready", "not_in_snapshot", "duplicate_records" or "read_failed".
+  string feed_unavailable_reason = 9;
+  // The answering controller's write authority; unset when unknown.
+  optional bool controller_write_primary = 10;
+  // False when the durable recovery cycle could not be read.
+  bool recovery_cycle_known = 11;
+  PowerRecoveryCycle recovery_cycle = 12;
+  // Unset when the caller may not control power feeds at the module's site.
+  PowerFeedControl control = 13;
+}
+
+enum PowerFeedAction {
+  POWER_FEED_ACTION_UNSPECIFIED = 0;
+  POWER_FEED_ACTION_TURN_ON = 1;
+  POWER_FEED_ACTION_TURN_OFF = 2;
+  POWER_FEED_ACTION_CYCLE = 3;
+  POWER_FEED_ACTION_CLEAR_OVERRIDE = 4;
+}
+
+// The writes that would change the feed's current state, and why none can run.
+message PowerFeedControl {
+  // In display order. Empty when the feed has no current reading.
+  repeated PowerFeedAction actions = 1;
+  // Operator-facing reason the actions cannot run now; empty when they can.
+  string unavailable_reason = 2;
+  // How long a cycle holds the feed off before the controller restores it.
+  uint32 cycle_hold_seconds = 3;
+}
+
+message ControlModulePowerFeedRequest {
+  int64 module_id = 1 [(buf.validate.field).int64.gt = 0];
+  PowerFeedAction action = 2 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  // The feed the operator confirmed; rejected unless it is still the module's unique feed.
+  string feed_id = 3 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+  // The controller the operator inspected; rejected if the module has since moved to another.
+  string device_identifier = 4 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+}
+message ControlModulePowerFeedResponse {
+  string device_identifier = 1;
+  string batch_identifier = 2;
+}
+message StreamBoardASICReadingsRequest {
+  // A moved or replaced board ends the stream rather than showing another board.
+  BoardIdentifyTarget board = 1 [(buf.validate.field).required = true];
+}
+// Physical ASIC position from the board's latest controller layout.
+message BoardASICPosition {
+  int32 stack_id = 1;
+  int32 stack_index = 2;
+  int32 x = 3;
+  int32 y = 4;
+}
+message BoardASICReading {
+  int32 index = 1;
+  double temperature_c = 2;
+  double hashrate_ghs = 3;
+  double voltage_v = 4;
+  double frequency_mhz = 5;
+  double pass_rate_percent = 6;
+  // Absent when the controller did not report thermal quarantine.
+  optional bool thermal_quarantined = 7;
+  // Absent when the controller's layout does not map this ASIC.
+  BoardASICPosition position = 8;
+}
+// One sample of a board's ASIC readings. Every frame is complete: positions
+// from the latest layout are joined onto each reading.
+message StreamBoardASICReadingsResponse {
+  int64 hashboard_id = 1;
+  // The controller's sample time.
+  google.protobuf.Timestamp observed_at = 2;
+  int32 asics_per_stack = 3;
+  repeated BoardASICReading asics = 4;
+}
+
+message GetMiningStatusResponse {
+  bool mining = 1;
+  string operating_state = 2;
+}
+message GetPowerTargetResponse {
+  double watts = 1;
+  optional double minimum_watts = 2;
+  optional double maximum_watts = 3;
+  string performance_mode = 4;
+  optional bool balance_bays = 5;
+  optional bool hash_on_disconnect = 6;
+}
+message SetMiningRequest {
+  string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  optional bool mining = 2 [(buf.validate.field).required = true];
+}
+message SetPowerTargetRequest {
+  string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  double watts = 2 [(buf.validate.field).double = {gt: 0, finite: true}];
+  string performance_mode = 3 [(buf.validate.field).string = {in: ["", "PERFORMANCE_MODE_UNSPECIFIED", "PERFORMANCE_MODE_MAXIMUM_HASHRATE", "PERFORMANCE_MODE_EFFICIENCY"]}];
+  optional bool balance_bays = 4;
+  optional bool hash_on_disconnect = 5;
+}
+message SetMiningResponse {
+  // Use GetEquipmentCommandResult to observe this controller's command completion.
+  string batch_identifier = 1;
+}
+
+message GetMiningStatusRequest {
+  string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+}
+message GetPowerTargetRequest {
+  string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+}
+message SetPowerTargetResponse {
+  string batch_identifier = 1;
+}
+
+// Lowest severity to include; the controller's levels in ascending order.
+enum ControllerLogSeverity {
+  CONTROLLER_LOG_SEVERITY_UNSPECIFIED = 0;
+  CONTROLLER_LOG_SEVERITY_DEBUG = 1;
+  CONTROLLER_LOG_SEVERITY_INFO = 2;
+  CONTROLLER_LOG_SEVERITY_WARN = 3;
+  CONTROLLER_LOG_SEVERITY_ERROR = 4;
+}
+
+// How much of the controller's retained log a read covers. A controller keeps
+// only a bounded in-memory tail, so no read is ever a complete history.
+enum ControllerLogCoverage {
+  CONTROLLER_LOG_COVERAGE_UNSPECIFIED = 0;
+  // Fewer than limit entries came back: everything the controller still holds
+  // for the filters. Older entries were evicted or lost at its last restart.
+  CONTROLLER_LOG_COVERAGE_RETAINED = 1;
+  // Older retained entries were not returned: either limit entries came back,
+  // or the oldest were dropped to fit one response, so fewer than limit can
+  // come back with this coverage.
+  CONTROLLER_LOG_COVERAGE_LIMIT_REACHED = 2;
+  // The read stopped before the tail was known to be finished. interruption says why.
+  CONTROLLER_LOG_COVERAGE_INTERRUPTED = 3;
+  // The controller sent nothing, so "no matching entries" and a slow
+  // controller cannot be told apart.
+  CONTROLLER_LOG_COVERAGE_NO_RESPONSE = 4;
+}
+
+message GetControllerLogsRequest {
+  string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  // Server ID of one of the container's controllers; empty reads the
+  // controller Fleet currently prefers for reads.
+  string controller_id = 2 [(buf.validate.field).string.max_len = 255];
+  ControllerLogSeverity min_severity = 3 [(buf.validate.field).enum.defined_only = true];
+  // Exact component name; empty means every component.
+  string component = 4 [(buf.validate.field).string.max_len = 128];
+  int32 limit = 5 [(buf.validate.field).int32 = {gte: 1, lte: 1000}];
+}
+
+message ControllerLogEntry {
+  // Controller-recorded time; absent when the controller sent none.
+  google.protobuf.Timestamp time = 1;
+  ControllerLogSeverity severity = 2;
+  string component = 3;
+  string message = 4;
+  // The message was longer than Fleet relays and was cut short.
+  bool message_truncated = 5;
+}
+
+message GetControllerLogsResponse {
+  // Oldest first, as the controller sent them.
+  repeated ControllerLogEntry entries = 1;
+  int32 limit = 2;
+  ControllerLogCoverage coverage = 3;
+  // Set with CONTROLLER_LOG_COVERAGE_INTERRUPTED.
+  string interruption = 4;
+  // Server ID of the controller that produced the entries, when it reported one.
+  string controller_id = 5;
+  // Server IDs of the container's controllers, for choosing another one.
+  repeated string controller_ids = 6;
+  // When the read finished.
+  google.protobuf.Timestamp read_at = 7;
+}
+
+message ListControllerAuditEventsRequest {
+  string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  string controller_id = 2 [(buf.validate.field).string.max_len = 255];
+  // The controller rejects windows longer than seven days.
+  google.protobuf.Timestamp start = 3 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp end = 4 [(buf.validate.field).required = true];
+  int32 limit = 5 [(buf.validate.field).int32 = {gte: 1, lte: 1000}];
+  // "ok" or "error"; empty means every result.
+  string result = 6 [(buf.validate.field).string = {in: ["", "ok", "error"]}];
+}
+
+// One record from the controller's own audit log. These are controller
+// evidence, separate from Fleet's command and activity records.
+message ControllerAuditEvent {
+  string id = 1;
+  google.protobuf.Timestamp time = 2;
+  // Client-supplied identity ("user@host") or subsystem name.
+  string actor = 3;
+  // "grpc:<addr>", "rest:<addr>", or "system".
+  string source = 4;
+  // Server ID of the controller that performed the action.
+  string node = 5;
+  string action = 6;
+  string target = 7;
+  string result = 8;
+  string error = 9;
+  // Structured JSON payload as recorded; empty when there was none.
+  string details_json = 10;
+  // A field was longer than Fleet relays and was cut short. Truncated
+  // details_json is no longer valid JSON.
+  bool truncated = 11;
+}
+
+message ListControllerAuditEventsResponse {
+  // Newest first, as the controller sent them.
+  repeated ControllerAuditEvent events = 1;
+  int32 limit = 2;
+  // Older events in the window were not returned: either the page is full, or
+  // the oldest were dropped to fit one response, so fewer than limit events can
+  // come back with this set.
+  bool limit_reached = 3;
+  string controller_id = 4;
+  repeated string controller_ids = 5;
+  google.protobuf.Timestamp read_at = 6;
+}

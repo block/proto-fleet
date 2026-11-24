@@ -43,18 +43,18 @@ func (m *MockErrorStore) EXPECT() *MockErrorStoreMockRecorder {
 }
 
 // CloseStaleErrors mocks base method.
-func (m *MockErrorStore) CloseStaleErrors(ctx context.Context, threshold time.Duration) (int64, error) {
+func (m *MockErrorStore) CloseStaleErrors(ctx context.Context, threshold, refreshHeartbeat time.Duration) (int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CloseStaleErrors", ctx, threshold)
+	ret := m.ctrl.Call(m, "CloseStaleErrors", ctx, threshold, refreshHeartbeat)
 	ret0, _ := ret[0].(int64)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CloseStaleErrors indicates an expected call of CloseStaleErrors.
-func (mr *MockErrorStoreMockRecorder) CloseStaleErrors(ctx, threshold any) *gomock.Call {
+func (mr *MockErrorStoreMockRecorder) CloseStaleErrors(ctx, threshold, refreshHeartbeat any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CloseStaleErrors", reflect.TypeOf((*MockErrorStore)(nil).CloseStaleErrors), ctx, threshold)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CloseStaleErrors", reflect.TypeOf((*MockErrorStore)(nil).CloseStaleErrors), ctx, threshold, refreshHeartbeat)
 }
 
 // CountComponents mocks base method.
@@ -177,17 +177,16 @@ func (mr *MockErrorStoreMockRecorder) RefreshOpenErrorsLastSeen(ctx, orgID, devi
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RefreshOpenErrorsLastSeen", reflect.TypeOf((*MockErrorStore)(nil).RefreshOpenErrorsLastSeen), ctx, orgID, deviceIdentifier, observedAt)
 }
 
-// UpsertError mocks base method.
-func (m *MockErrorStore) UpsertError(ctx context.Context, orgID int64, deviceIdentifier string, errMsg *models.ErrorMessage) (*models.ErrorMessage, error) {
+// UpsertErrors mocks base method.
+func (m *MockErrorStore) UpsertErrors(ctx context.Context, orgID int64, deviceIdentifier string, errors []models.ErrorMessage, observedAt time.Time, refreshHeartbeat time.Duration) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpsertError", ctx, orgID, deviceIdentifier, errMsg)
-	ret0, _ := ret[0].(*models.ErrorMessage)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	ret := m.ctrl.Call(m, "UpsertErrors", ctx, orgID, deviceIdentifier, errors, observedAt, refreshHeartbeat)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
-// UpsertError indicates an expected call of UpsertError.
-func (mr *MockErrorStoreMockRecorder) UpsertError(ctx, orgID, deviceIdentifier, errMsg any) *gomock.Call {
+// UpsertErrors indicates an expected call of UpsertErrors.
+func (mr *MockErrorStoreMockRecorder) UpsertErrors(ctx, orgID, deviceIdentifier, errors, observedAt, refreshHeartbeat any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertError", reflect.TypeOf((*MockErrorStore)(nil).UpsertError), ctx, orgID, deviceIdentifier, errMsg)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertErrors", reflect.TypeOf((*MockErrorStore)(nil).UpsertErrors), ctx, orgID, deviceIdentifier, errors, observedAt, refreshHeartbeat)
 }

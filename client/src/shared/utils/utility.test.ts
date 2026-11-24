@@ -2,50 +2,31 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { copyToClipboard, debounce, deepClone, getRowLabel } from "./utility";
 
 describe("deepClone", () => {
-  test("should create a deep copy of an object", () => {
-    const obj = { a: 1, b: { c: 2 } };
-    const clonedObj = deepClone(obj);
+  test("copies each level, so a change to the copy does not change the source", () => {
+    const source = { a: 1, b: { c: 2 }, list: [1, [2, 3]] };
+    const clone = deepClone(source);
 
-    expect(clonedObj).toEqual(obj);
-    expect(clonedObj.b).toEqual(obj.b);
-    expect(clonedObj.b.c).toEqual(obj.b.c);
+    expect(clone).toEqual(source);
+    expect(clone).not.toBe(source);
+    expect(clone.b).not.toBe(source.b);
+    expect(clone.list).not.toBe(source.list);
+    expect(clone.list[1]).not.toBe(source.list[1]);
+
+    clone.b.c = 99;
+    clone.list[1][0] = 99;
+    expect(source).toEqual({ a: 1, b: { c: 2 }, list: [1, [2, 3]] });
   });
-  test("should create a deep copy of an array", () => {
-    const arr: (number | number[])[] = [1, 2, [3, 4]];
-    const clonedArr = deepClone(arr);
 
-    expect(clonedArr).toEqual(arr);
-    expect(Array.isArray(clonedArr[2]) && clonedArr[2][1]).toEqual(Array.isArray(arr[2]) && arr[2][1]);
+  test.each([
+    ["a string", "hello"],
+    ["null", null],
+    ["undefined", undefined],
+  ])("returns %s unchanged", (_name, value) => {
+    expect(deepClone(value)).toBe(value);
   });
-  test("should create a deep copy of a string", () => {
-    const str = "hello";
-    const clonedStr = deepClone(str);
 
-    expect(clonedStr).toEqual(str);
-  });
-  test("should create a deep copy of a number", () => {
-    const num = 42;
-    const clonedNum = deepClone(num);
-
-    expect(clonedNum).toEqual(num);
-  });
-  test("should create a deep copy of a boolean", () => {
-    const bool = true;
-    const clonedBool = deepClone(bool);
-
-    expect(clonedBool).toEqual(bool);
-  });
-  test("should create a deep copy of a null value", () => {
-    const nullVal = null;
-    const clonedNull = deepClone(nullVal);
-
-    expect(clonedNull).toEqual(nullVal);
-  });
-  test("should create a deep copy of an undefined value", () => {
-    const undefinedVal = undefined;
-    const clonedUndefined = deepClone(undefinedVal);
-
-    expect(clonedUndefined).toEqual(undefinedVal);
+  test("converts a bigint to a number", () => {
+    expect(deepClone({ total: 10n, nested: [2n] })).toEqual({ total: 10, nested: [2] });
   });
 });
 

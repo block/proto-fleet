@@ -150,26 +150,6 @@ func generatedMinersCommand() *cli.Command {
 				func() proto.Message { return &fleetmanagementv1.GetMinerModelGroupsResponse{} },
 			),
 			generatedRequestCommand(
-				"pool-assignments",
-				"Get current pool assignments for a miner",
-				"/fleetmanagement.v1.FleetManagementService/GetMinerPoolAssignments",
-				generatedAuthAuthenticated,
-				[]cli.Flag{
-					&cli.StringFlag{Name: "device-identifier", Usage: "(required) device identifier", Required: true},
-				},
-				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
-					req := &fleetmanagementv1.GetMinerPoolAssignmentsRequest{}
-					if cmd.IsSet("device-identifier") {
-						req.DeviceIdentifier = cmd.String("device-identifier")
-					}
-					if err := generatedValidateRequest(req); err != nil {
-						return nil, err
-					}
-					return req, nil
-				},
-				func() proto.Message { return &fleetmanagementv1.GetMinerPoolAssignmentsResponse{} },
-			),
-			generatedRequestCommand(
 				"rename",
 				"Rename miners",
 				"/fleetmanagement.v1.FleetManagementService/RenameMiners",

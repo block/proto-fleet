@@ -2,7 +2,10 @@ package miner_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,9 +14,15 @@ import (
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/poolconfig"
 	"github.com/block/proto-fleet/server/internal/domain/miner"
+	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 type fakeCommandSender struct {
@@ -245,6 +254,67 @@ func TestMinerService_DoesNotRouteUnpairedFleetNodeBoundDevice(t *testing.T) {
 	require.Error(t, err)
 }
 
+type fakeBoardASICStreamSender struct {
+	fakeCommandSender
+	fleetNodeID int64
+	stream      *gatewaypb.ControlCommand
+}
+
+func (f *fakeBoardASICStreamSender) StreamCommand(_ context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand, stream control.CommandStream) (*gatewaypb.ControlAck, error) {
+	f.fleetNodeID, f.stream = fleetNodeID, cmd
+	// Marshaling these fixed messages cannot fail.
+	frame, _ := proto.Marshal(&gatewaypb.BoardASICStreamFrame{MacAddress: "02:00:00:00:00:0a"})
+	if err := stream.OnFrame(frame); err != nil {
+		return nil, err
+	}
+	payload, _ := proto.Marshal(&gatewaypb.StreamBoardASICReadingsResult{End: gatewaypb.BoardASICStreamEnd_BOARD_ASIC_STREAM_END_CONTROLLER_ENDED})
+	return &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK, Payload: payload}, nil
+}
+
+// The board ASIC stream reaches a Fleet Node only if the miner the command
+// service resolves is itself a streamer.
+func TestMinerService_FleetNodeCommandMinerStreamsBoardASICReadings(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	db, encryptService, filesService := setupTestDB(t)
+	userStore := sqlstores.NewSQLUserStore(db)
+	deviceIdentifier := "fleetnode-board-stream-device"
+	deviceID := createTestDevice(t, db, deviceIdentifier)
+	fleetNodeID := createTestFleetNode(t, db, "board-stream-fleet-node", []byte("identity-pubkey"))
+	_, err := db.Exec(
+		`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)`,
+		fleetNodeID, deviceID)
+	require.NoError(t, err)
+
+	sender := &fakeBoardASICStreamSender{}
+	svc := miner.NewMinerService(db, userStore, encryptService, filesService, &fakePluginManager{driverName: "antminer"}).
+		WithCommandSender(sender)
+
+	m, err := svc.GetMinerForCommand(t.Context(), deviceID)
+	require.NoError(t, err)
+	streamer, ok := m.(sdk.DeviceBoardASICStreamer)
+	require.True(t, ok, "fleet-node command miner should stream board ASIC readings")
+
+	board := sdk.BoardIdentifyTarget{Tank: 1, Module: 2, Slot: 3, ModuleReportedID: "module-a", MACAddress: "02:00:00:00:00:0a"}
+	var frames []sdk.BoardASICFrame
+	require.NoError(t, streamer.StreamBoardASICReadings(t.Context(), board, func(frame sdk.BoardASICFrame) error {
+		frames = append(frames, frame)
+		return nil
+	}))
+
+	require.Len(t, frames, 1)
+	assert.Equal(t, board.MACAddress, frames[0].MACAddress)
+	assert.Equal(t, fleetNodeID, sender.fleetNodeID)
+	var env gatewaypb.AgentCommand
+	require.NoError(t, proto.Unmarshal(sender.stream.GetPayload(), &env))
+	action := env.GetMinerCommand().GetStreamBoardAsicReadings()
+	require.NotNil(t, action)
+	assert.Equal(t, board.MACAddress, action.GetMacAddress())
+	assert.Equal(t, int32(3), action.GetSlot())
+}
+
 func TestMinerService_RoutesDefaultPasswordFleetNodeDeviceForCommands(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -301,4 +371,165 @@ func TestGetDeviceWithCredentialsAndIP_ResolvesDeviceWithSoftDeletedDiscoveryRow
 	// Assert: still resolves; the soft-deleted linked discovery row does not drop it.
 	require.NoError(t, err)
 	assert.Equal(t, deviceID, row.ID)
+}
+
+func TestMinerService_PoolWritesUseFreshNodeKeyAndRejectChangedRoute(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test")
+	}
+	db, encryptService, filesService := setupTestDB(t)
+	identifier := "pool-write-fresh-key"
+	deviceID := createTestDevice(t, db, identifier)
+	nodeID := createTestFleetNode(t, db, "pool-write-node", []byte("pool-write-node-identity"))
+	_, err := db.Exec("INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)", nodeID, deviceID)
+	require.NoError(t, err)
+	sender := &fakeCommandSender{}
+	svc := miner.NewMinerService(db, sqlstores.NewSQLUserStore(db), encryptService, filesService, &fakePluginManager{driverName: "antminer"}).WithCommandSender(sender)
+	m, err := svc.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier(identifier))
+	require.NoError(t, err)
+	pools := dto.UpdateMiningPoolsPayload{DefaultPool: dto.MiningPool{Priority: 0, URL: "stratum+tcp://pool.example.com:3333", Username: "worker", Password: "exact-password"}}
+	for range 2 {
+		public, private, err := passwordupdate.GenerateKeypair()
+		require.NoError(t, err)
+		_, err = db.Exec("UPDATE fleet_node SET encryption_pubkey = $1 WHERE id = $2", public, nodeID)
+		require.NoError(t, err)
+		require.NoError(t, m.UpdateMiningPools(t.Context(), pools))
+		config, err := poolconfig.Decrypt(private, sentMinerCommand(t, sender).GetUpdateMiningPools().GetEncryptedConfig(), identifier)
+		require.NoError(t, err)
+		require.Len(t, config.GetPools(), 1)
+		assert.Equal(t, "exact-password", config.GetPools()[0].GetPassword())
+	}
+	otherNode := createTestFleetNode(t, db, "pool-write-new-node", []byte("pool-write-new-node-identity"))
+	_, err = db.Exec("UPDATE fleet_node_device SET fleet_node_id = $1 WHERE device_id = $2", otherNode, deviceID)
+	require.NoError(t, err)
+	sender.called = false
+	require.ErrorContains(t, m.UpdateMiningPools(t.Context(), pools), "node route changed")
+	assert.False(t, sender.called)
+}
+
+// A prepared execution strategy must still resolve the current binding on every
+// call, including after a lost connection and identifier reuse in another org.
+func TestFleetNodeRoutePreparedPlanReadsCurrentBinding(t *testing.T) {
+	conn, _, _ := setupTestDB(t)
+	identifier := "prepared-route-binding"
+	deviceID := createTestDevice(t, conn, identifier)
+	nodeID := createTestFleetNode(t, conn, "prepared-route-node", []byte("prepared-route-node"))
+	_, err := conn.ExecContext(t.Context(), "INSERT INTO fleet_node_device(fleet_node_id,device_id,org_id) VALUES($1,$2,1)", nodeID, deviceID)
+	require.NoError(t, err)
+	writer := sqlc.New(conn)
+	require.NoError(t, writer.UpsertMinerCredentials(t.Context(), sqlc.UpsertMinerCredentialsParams{DeviceID: deviceID, UsernameEnc: "first", PasswordEnc: "first"}))
+	reader, err := conn.Conn(t.Context())
+	require.NoError(t, err)
+	defer reader.Close()
+	_, err = reader.ExecContext(t.Context(), "SET plan_cache_mode=force_generic_plan")
+	require.NoError(t, err)
+	queries := sqlc.New(reader)
+	before, err := queries.GetFleetNodeTelemetryRouteByDeviceIdentifier(t.Context(), identifier)
+	require.NoError(t, err)
+	assertFleetNodeRoutePreparedPlan(t, reader)
+	require.Equal(t, nodeID, before.FleetNodeID)
+	require.Zero(t, before.WriteEpoch)
+
+	require.NoError(t, writer.UpsertMinerCredentials(t.Context(), sqlc.UpsertMinerCredentialsParams{DeviceID: deviceID, UsernameEnc: "rotated", PasswordEnc: "rotated"}))
+	epoch, err := devicewrite.NewService(conn).Reserve(t.Context(), 1, deviceID)
+	require.NoError(t, err)
+	replacementNode := createTestFleetNode(t, conn, "replacement-route-node", []byte("replacement-route-node"))
+	_, err = conn.ExecContext(t.Context(), "UPDATE fleet_node_device SET fleet_node_id=$1 WHERE device_id=$2", replacementNode, deviceID)
+	require.NoError(t, err)
+	after, err := queries.GetFleetNodeTelemetryRouteByDeviceIdentifier(t.Context(), identifier)
+	require.NoError(t, err)
+	require.Equal(t, sql.NullString{String: "rotated", Valid: true}, after.PasswordEnc)
+	require.NotEqual(t, before.CredentialVersion, after.CredentialVersion)
+	require.Equal(t, epoch, after.WriteEpoch)
+	require.Equal(t, replacementNode, after.FleetNodeID)
+
+	// The live identifier is unique; a deleted incarnation in another organization
+	// must contribute neither ownership, credentials nor its nonzero fence epoch.
+	_, err = conn.ExecContext(t.Context(), "UPDATE device SET deleted_at=statement_timestamp() WHERE id=$1", deviceID)
+	require.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), "INSERT INTO organization(id,org_id,name) VALUES(2,'route-org-2','Route org 2')")
+	require.NoError(t, err)
+	discoveredID, err := writer.UpsertDiscoveredDevice(t.Context(), sqlc.UpsertDiscoveredDeviceParams{OrgID: 2, DeviceIdentifier: identifier, IpAddress: "192.0.2.99", Port: "80", UrlScheme: "http", DriverName: "proto", IsActive: true})
+	require.NoError(t, err)
+	otherID, err := writer.InsertDevice(t.Context(), sqlc.InsertDeviceParams{OrgID: 2, DiscoveredDeviceID: discoveredID, DeviceIdentifier: identifier, MacAddress: "02:00:00:00:00:99"})
+	require.NoError(t, err)
+	_, err = writer.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{DeviceID: otherID, PairingStatus: sqlc.PairingStatusEnumDEFAULTPASSWORD})
+	require.NoError(t, err)
+	var otherNode int64
+	require.NoError(t, conn.QueryRowContext(t.Context(), `INSERT INTO fleet_node(org_id,name,identity_pubkey,encryption_pubkey,enrollment_status)
+  VALUES(2,'other-org-node','other-org-key','01234567890123456789012345678901','CONFIRMED') RETURNING id`).Scan(&otherNode))
+	_, err = conn.ExecContext(t.Context(), "INSERT INTO fleet_node_device(fleet_node_id,device_id,org_id) VALUES($1,$2,2)", otherNode, otherID)
+	require.NoError(t, err)
+	checkOtherOrg := func(q *sqlc.Queries) {
+		t.Helper()
+		row, err := q.GetFleetNodeTelemetryRouteByDeviceIdentifier(t.Context(), identifier)
+		require.NoError(t, err)
+		require.Equal(t, otherID, row.ID)
+		require.Equal(t, int64(2), row.OrgID)
+		require.Equal(t, otherNode, row.FleetNodeID)
+		require.False(t, row.CredentialVersion.Valid)
+		require.False(t, row.PasswordEnc.Valid)
+		require.Zero(t, row.WriteEpoch)
+	}
+	checkOtherOrg(queries)
+
+	// Connection loss discards the prepared plan; a replacement session must
+	// prepare a new generic plan and read the same binding.
+	var pid int
+	require.NoError(t, reader.QueryRowContext(t.Context(), "SELECT pg_backend_pid()").Scan(&pid))
+	var terminated bool
+	require.NoError(t, conn.QueryRowContext(t.Context(), "SELECT pg_terminate_backend($1)", pid).Scan(&terminated))
+	require.True(t, terminated)
+	_, err = queries.GetFleetNodeTelemetryRouteByDeviceIdentifier(t.Context(), identifier)
+	require.Error(t, err)
+	require.NoError(t, reader.Close())
+	replacement, err := conn.Conn(t.Context())
+	require.NoError(t, err)
+	defer replacement.Close()
+	_, err = replacement.ExecContext(t.Context(), "SET plan_cache_mode=force_generic_plan")
+	require.NoError(t, err)
+	var prepared int
+	require.NoError(t, replacement.QueryRowContext(t.Context(), `SELECT count(*) FROM pg_prepared_statements
+  WHERE statement LIKE '-- name: GetFleetNodeTelemetryRouteByDeviceIdentifier%'`).Scan(&prepared))
+	require.Zero(t, prepared, "the replacement session has not prepared the route query")
+	replacementQueries := sqlc.New(replacement)
+	checkOtherOrg(replacementQueries)
+	assertFleetNodeRoutePreparedPlan(t, replacement)
+	_, err = conn.ExecContext(t.Context(), "UPDATE fleet_node SET enrollment_status='REVOKED' WHERE id=$1", otherNode)
+	require.NoError(t, err)
+	_, err = replacementQueries.GetFleetNodeTelemetryRouteByDeviceIdentifier(t.Context(), identifier)
+	require.ErrorIs(t, err, sql.ErrNoRows)
+}
+
+func assertFleetNodeRoutePreparedPlan(t *testing.T, reader *sql.Conn) {
+	t.Helper()
+	var name string
+	var generic int
+	require.NoError(t, reader.QueryRowContext(t.Context(), `SELECT name, generic_plans FROM pg_prepared_statements
+  WHERE statement LIKE '-- name: GetFleetNodeTelemetryRouteByDeviceIdentifier%'`).Scan(&name, &generic))
+	require.Positive(t, generic, "the route query must have used a generic plan")
+	var encoded []byte
+	// Prepared statement names are server-generated identifiers, not SQL values.
+	quotedName := `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+	require.NoError(t, reader.QueryRowContext(t.Context(), `EXPLAIN (FORMAT JSON) EXECUTE `+quotedName+`('prepared-route-binding')`).Scan(&encoded))
+	type planNode struct {
+		SubplanName string `json:"Subplan Name"`
+		Plans       []planNode
+	}
+	var plans []struct{ Plan planNode }
+	require.NoError(t, json.Unmarshal(encoded, &plans))
+	require.Len(t, plans, 1)
+	var hasRouteCTE func(planNode) bool
+	hasRouteCTE = func(node planNode) bool {
+		if node.SubplanName == "CTE route" {
+			return true
+		}
+		for _, child := range node.Plans {
+			if hasRouteCTE(child) {
+				return true
+			}
+		}
+		return false
+	}
+	require.True(t, hasRouteCTE(plans[0].Plan), "the route CTE must remain materialized to bound planning cost")
 }

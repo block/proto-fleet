@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -25,13 +26,6 @@ const (
 func createMockClientFactory() types.ClientFactory {
 	return types.ClientFactory(func(_ string, _, _ int32, _ string) (antminer.AntminerClient, error) {
 		return nil, nil // Not used in basic tests
-	})
-}
-
-// createRealClientFactory creates a real client factory that will attempt actual connections
-func createRealClientFactory() types.ClientFactory {
-	return types.ClientFactory(func(host string, rpcPort, webPort int32, urlScheme string) (antminer.AntminerClient, error) {
-		return antminer.NewClient(host, rpcPort, webPort, urlScheme)
 	})
 }
 
@@ -193,6 +187,12 @@ func TestGetCapabilitiesForModel(t *testing.T) {
 			model:                     "Antminer T21",
 			expectedEfficiencySupport: false,
 		},
+		{
+			name: "S15 unsupported model", model: "Antminer S15", expectedEfficiencySupport: false,
+		},
+		{
+			name: "Unknown", model: "Unknown", expectedEfficiencySupport: false,
+		},
 		// Unknown models - default to not supported (safe default)
 		{
 			name:                      "Unknown model",
@@ -217,41 +217,6 @@ func TestGetCapabilitiesForModel(t *testing.T) {
 			require.NotNil(t, caps)
 			assert.Equal(t, tt.expectedEfficiencySupport, caps[sdk.CapabilityPowerModeEfficiency],
 				"model %q should have efficiency support = %v", tt.model, tt.expectedEfficiencySupport)
-		})
-	}
-}
-
-func TestModelSupportsEfficiencyMode(t *testing.T) {
-	d, err := New(createMockClientFactory())
-	require.NoError(t, err)
-
-	tests := []struct {
-		model    string
-		expected bool
-	}{
-		// Supported models
-		{"Antminer S17", true},
-		{"Antminer S17 Pro", true},
-		{"Antminer S19", true},
-		{"Antminer S19j Pro", true},
-		{"Antminer T17", true},
-		{"Antminer T19", true},
-
-		// Unsupported models (S21/T21 series)
-		{"Antminer S21", false},
-		{"Antminer S21 Pro", false},
-		{"Antminer T21", false},
-
-		// Unknown models default to false
-		{"Antminer S15", false},
-		{"Unknown", false},
-		{"", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.model, func(t *testing.T) {
-			result := d.modelSupportsEfficiencyMode(tt.model)
-			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -442,27 +407,29 @@ func TestDiscoverDevice_RejectsNonStockFirmware(t *testing.T) {
 	}
 }
 
-func TestDiscoverDevice_UnknownModel(t *testing.T) {
-	d, err := New(createRealClientFactory())
-	require.NoError(t, err)
-
-	ctx := t.Context()
-	// This will fail at port validation, which is expected
-	_, err = d.DiscoverDevice(ctx, testIPAddress, correctPort)
-	require.Error(t, err)
-	// Will fail due to no real connection
-	assert.Contains(t, err.Error(), "failed to")
-}
-
-func TestDiscoverDevice_ConnectionFailure(t *testing.T) {
-	d, err := New(createRealClientFactory())
-	require.NoError(t, err)
-
-	ctx := t.Context()
-	// Try to connect to non-existent host
-	_, err = d.DiscoverDevice(ctx, "192.168.255.255", correctPort)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to")
+func TestDiscoverDevice_Failures(t *testing.T) {
+	for _, stage := range []string{"create_client", "get_version"} {
+		t.Run(stage, func(t *testing.T) {
+			failure := errors.New("controlled discovery failure")
+			client := mocks.NewMockAntminerClient(gomock.NewController(t))
+			d, err := New(func(_ string, _, _ int32, _ string) (antminer.AntminerClient, error) {
+				if stage == "create_client" {
+					return nil, failure
+				}
+				return client, nil
+			})
+			require.NoError(t, err)
+			wantMessage := "failed to create client"
+			if stage == "get_version" {
+				client.EXPECT().GetVersion(gomock.Any()).Return(nil, failure)
+				client.EXPECT().Close()
+				wantMessage = "failed to get version info"
+			}
+			_, err = d.DiscoverDevice(t.Context(), testIPAddress, correctPort)
+			require.ErrorIs(t, err, failure)
+			assert.Contains(t, err.Error(), wantMessage)
+		})
+	}
 }
 
 func TestPairDevice_Success(t *testing.T) {
@@ -585,30 +552,25 @@ func TestNewDevice_InvalidCredentials(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to extract credentials")
 }
 
-func TestNewDevice_ValidCredentials(t *testing.T) {
-	d, err := New(createRealClientFactory())
+func TestNewDevice_ValidCredentialsConnectionFailure(t *testing.T) {
+	client := mocks.NewMockAntminerClient(gomock.NewController(t))
+	d, err := New(func(host string, rpcPort, webPort int32, scheme string) (antminer.AntminerClient, error) {
+		assert.Equal(t, testIPAddress, host)
+		assert.Equal(t, int32(4028), rpcPort)
+		assert.Equal(t, int32(80), webPort)
+		assert.Equal(t, "http", scheme)
+		return client, nil
+	})
 	require.NoError(t, err)
+	credentials := sdk.UsernamePassword{Username: "admin", Password: "password"}
+	client.EXPECT().SetCredentials(credentials).Return(nil)
+	failure := errors.New("controlled connection failure")
+	client.EXPECT().GetStatus(gomock.Any()).Return(nil, failure)
+	client.EXPECT().Close()
 
-	ctx := t.Context()
-	deviceInfo := sdk.DeviceInfo{
-		Host:         testIPAddress,
-		Port:         80,
-		URLScheme:    "http",
-		Model:        "S19j Pro",
-		Manufacturer: "Bitmain",
-	}
-
-	validSecret := sdk.SecretBundle{
-		Kind: sdk.UsernamePassword{
-			Username: "admin",
-			Password: "password",
-		},
-	}
-
-	// This will fail due to network connection, but we can test credential extraction
-	_, err = d.NewDevice(ctx, "test-device", deviceInfo, validSecret)
-	require.Error(t, err)
-	// Should fail at device creation, not credential extraction
-	assert.NotContains(t, err.Error(), "failed to extract credentials")
+	_, err = d.NewDevice(t.Context(), "test-device", sdk.DeviceInfo{
+		Host: testIPAddress, Port: 80, URLScheme: "http", Model: "S19j Pro", Manufacturer: "Bitmain",
+	}, sdk.SecretBundle{Kind: credentials})
+	require.ErrorIs(t, err, failure)
 	assert.Contains(t, err.Error(), "failed to connect device")
 }

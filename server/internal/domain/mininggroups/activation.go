@@ -1,0 +1,184 @@
+package mininggroups
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"strings"
+	"time"
+
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
+)
+
+func defaultReadBlockedMessage(err error) string {
+	if errors.Is(err, control.ErrCommandProtocolUpgradeRequired) {
+		return "Upgrade the Fleet Node and reconnect it before changing Default mining settings."
+	}
+	return "Fleet cannot confirm Default mining settings. Reconnect the controller and try again."
+}
+
+// MDK currently supplies activation prerequisites as text, including through
+// Fleet Node's wrapped errors. Recognize its known reasons, but never publish
+// arbitrary controller error text (which may contain private data).
+func activationWaitingMessage(err error) string {
+	message := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(message, "stop self mining before activating groups"),
+		strings.Contains(message, "active boards to stop before activating groups"):
+		return "Waiting for mining to stop. Activation will retry automatically."
+	case strings.Contains(message, "factory run-in reservations to be released before activating groups"):
+		return "Finish or cancel factory tests and release their board reservations. Activation will retry automatically."
+	case strings.Contains(message, "has no fresh hosted-capable session"):
+		return "A controller is offline or does not support mining groups. Reconnect it or update its firmware; activation will retry automatically."
+	case strings.Contains(message, "ha owner ids are unavailable"),
+		strings.Contains(message, "include every eligible owner"):
+		return "Check which controllers are configured to manage this container. Activation will retry automatically."
+	case strings.Contains(message, "the container power controller must be enabled before activating mining groups"):
+		return "Enable the container's power controller. Activation will retry automatically."
+	case strings.Contains(message, "release isolated boards before activation"):
+		return "End isolated board maintenance on this container. Activation will retry automatically."
+	default:
+		return "The controller has not confirmed activation. Fleet will retry automatically."
+	}
+}
+
+// Capture the original mining intent before stopping. Activation uses the
+// durable journal. Starting Default after activation requires an operator.
+func (s *Service) reconcileActivation(ctx context.Context, q sqlc.Querier, row sqlc.ContainerMiningGroupState) error {
+	beforeObservation := row
+	capture, done, err := s.activationPoolCapture(ctx, q, row)
+	if err == nil && (capture.Inventory != nil || capture.SnapshotID != "") {
+		err = s.validateActivationPools(ctx, q, row, capture, done)
+	}
+	if err != nil {
+		if isInventoryStale(err) {
+			return s.block(ctx, q, row, "Controller inventory is unavailable. Waiting for a fresh identity inventory before continuing activation.")
+		}
+		if fleeterror.IsFailedPreconditionError(err) || fleeterror.IsForbiddenError(err) {
+			var refusal fleeterror.FleetError
+			if errors.As(err, &refusal) {
+				return s.interrupt(ctx, q, row, refusal.DebugMessage)
+			}
+			return s.interrupt(ctx, q, row, activationPoolRecovery)
+		}
+		return err
+	}
+	observed, err := s.call(ctx, row.DeviceID, sdk.MiningGroupRequest{Action: "observe"})
+	if done && capture.SnapshotID != "" {
+		readback := observed
+		if err != nil {
+			readback = sdk.MiningGroupResult{}
+		} else {
+			readback = sdk.WithDefaultMiningPools(readback, func() (sdk.MiningGroup, error) {
+				return s.readDefault(ctx, row.DeviceID)
+			})
+		}
+		if saveErr := s.observeActivationPools(ctx, q, row, readback, capture); saveErr != nil {
+			return saveErr
+		}
+	}
+	if err != nil {
+		return s.block(ctx, q, row, "Controller unavailable; waiting to refresh mining groups")
+	}
+	row.Observed, err = encode(observed)
+	if err != nil {
+		return err
+	}
+	row.ObservedAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
+	if !observed.Supported {
+		return s.block(ctx, q, row, "Controller firmware does not support mining groups")
+	}
+	if capture.Inventory != nil && observed.Enabled {
+		known := make(map[string]bool, len(capture.Inventory))
+		for _, board := range capture.Inventory {
+			known[board.MAC] = true
+		}
+		for _, group := range observed.Groups {
+			for _, mac := range group.MACs {
+				if !known[mac] {
+					return s.interrupt(ctx, q, row, "Mining-group membership does not match the verified hashboard inventory. Refresh the container inventory before resuming mining.")
+				}
+			}
+		}
+	}
+	if observed.Enabled {
+		// A cached disabled observation at admission is not proof these boards
+		// were present before an external activation. The original mining state
+		// is captured only after this workflow freshly observes disabled mode.
+		if !done && !row.ActivationResumeMining.Valid {
+			return s.interrupt(ctx, q, row, activationPoolRecovery)
+		}
+		if row.Step.Valid {
+			return s.apply(ctx, q, row, nil)
+		}
+		if observed.Pending || observed.Suspended {
+			return s.block(ctx, q, row, "Waiting for mining-group activation to settle")
+		}
+		if !done {
+			foundDefault := false
+			for _, group := range observed.Groups {
+				foundDefault = foundDefault || group.ID == "default"
+			}
+			if !foundDefault {
+				return s.block(ctx, q, row, "Waiting for the default mining group before transferring pool assignments")
+			}
+			return &activationPoolHandoffReady{row: beforeObservation, observed: observed, observedAt: row.ObservedAt.Time}
+		}
+		if !row.ActivationResumeMining.Valid || !row.ActivationResumeMining.Bool {
+			return s.completeWithMessage(ctx, q, row, "Mining groups enabled.")
+		}
+		group, found := defaultGroup(observed)
+		if !found {
+			return s.block(ctx, q, row, "Waiting for the Default mining group")
+		}
+		if !group.Mining {
+			return s.completeWithMessage(ctx, q, row, "Mining groups enabled. Choose Wake default mining group from the Fleet container menu.")
+		}
+		return s.completeWithMessage(ctx, q, row, "Mining groups enabled.")
+	}
+	if !row.ActivationResumeMining.Valid {
+		defaultGroup, err := s.readDefault(ctx, row.DeviceID)
+		if err != nil {
+			return s.block(ctx, q, row, defaultReadBlockedMessage(err))
+		}
+		row.ActivationResumeMining = sql.NullBool{Bool: defaultGroup.Mining, Valid: true}
+		row.Status = statusApplying
+		row.Message = "Preparing to pause mining"
+		return save(ctx, q, row)
+	}
+	if !row.ActivationStopRequested {
+		var stopped sdk.MiningGroupResult
+		err := devicewrite.Dispatch(ctx, func(ctx context.Context) error {
+			var callErr error
+			stopped, callErr = s.call(ctx, row.DeviceID, sdk.MiningGroupRequest{Action: "stop_legacy", Key: row.OperationID.UUID.String() + ":stop"})
+			return callErr
+		})
+		if err != nil || !stopped.StopRequested {
+			if errors.Is(err, control.ErrCommandProtocolUpgradeRequired) {
+				return s.block(ctx, q, row, defaultReadBlockedMessage(err))
+			}
+			return s.block(ctx, q, row, "Waiting for the controller to accept the mining stop; retrying automatically")
+		}
+		row.ActivationStopRequested = true
+		row.Status = statusApplying
+		row.Message = "Waiting for mining to stop"
+		return save(ctx, q, row)
+	}
+	result, err := s.call(ctx, row.DeviceID, sdk.MiningGroupRequest{Action: "mining_status"})
+	if err != nil || result.MiningStatus == nil {
+		return s.block(ctx, q, row, "Waiting for the controller to confirm mining has stopped")
+	}
+	if result.MiningStatus.Mining || result.MiningStatus.ActiveBoards > 0 {
+		row.Status = statusApplying
+		row.Message = "Waiting for mining to stop"
+		return save(ctx, q, row)
+	}
+	if row.Step.Valid {
+		return s.apply(ctx, q, row, nil)
+	}
+	return s.prepareStep(ctx, q, row, sdk.MiningGroupRequest{Action: "activate", Revision: observed.Revision}, "", "Enabling mining groups")
+}

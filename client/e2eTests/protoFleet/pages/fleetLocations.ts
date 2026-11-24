@@ -267,11 +267,6 @@ export class FleetLocationsPage extends BasePage {
     return await this.getScopeIdFromRowName(name, "site");
   }
 
-  async getBuildingIdByName(name: string): Promise<bigint> {
-    await this.navigateToBuildingsPage();
-    return await this.getScopeIdFromRowName(name, "building");
-  }
-
   async applySiteFilter(siteNames: string[]) {
     await this.setNestedCheckboxFilterSelection("site", siteNames);
   }

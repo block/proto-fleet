@@ -31,6 +31,8 @@ jobs:
     outputs:
       specs: ${{ steps.detect.outputs.specs }}
       target_tag: ${{ steps.detect.outputs.target_tag }}
+      shard_total: ${{ steps.detect.outputs.shard_total }}
+      shards: ${{ steps.detect.outputs.shards }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -50,8 +52,11 @@ jobs:
 
           # Setup specs (NN-*.spec.ts) run automatically as Playwright project
           # dependencies in every shard. onboardingVisual.spec.ts runs in its
-          # own fresh-env job, so only the remaining target specs are sharded.
-          ALL_TARGET_SPECS=$(find . -name "*.spec.ts" | sed 's|^\./||' | sort | grep -Ev '(^[0-9]{2}-.*\.spec\.ts$|^onboardingVisual\.spec\.ts$)' || true)
+          # own fresh-env job. DOM-only helper specs and mocked-RPC specs have
+          # their own unprovisioned jobs, so only the remaining target specs are
+          # sharded. Keep the two lists in sync with HELPER_SPEC_GLOBS and
+          # MOCKED_SPEC_GLOBS in client/e2eTests/protoFleet/playwright.config.ts.
+          ALL_TARGET_SPECS=$(find . -name "*.spec.ts" | sed 's|^\./||' | sort | grep -Ev '(^[0-9]{2}-.*\.spec\.ts$|^onboardingVisual\.spec\.ts$|^(toastHelpers|rackToastHelpers|firmwareRolloutHelpers|editPoolHelpers)\.spec\.ts$|^(activationPoolRecovery|clientWorkspace|hostedReporting|poolConfigurations|remoteNetworkSetup)\.spec\.ts$)' || true)
 
           if [ "$RUN_SCOPE" = "smoke" ]; then
             SPEC_FILES=$(printf '%s\n' "$ALL_TARGET_SPECS" | while IFS= read -r spec; do
@@ -60,9 +65,13 @@ jobs:
               fi
             done | jq -R . | jq -cs .)
             TARGET_TAG="@smoke"
+            # Each shard starts a full stack and runs the setup specs. The
+            # smoke slice is small, so fewer shards cost less runner time.
+            SHARD_TOTAL=6
           else
             SPEC_FILES=$(printf '%s\n' "$ALL_TARGET_SPECS" | jq -R . | jq -cs .)
             TARGET_TAG=""
+            SHARD_TOTAL=16
           fi
 
           if [ "$RUN_SCOPE" = "smoke" ] && [ "$SPEC_FILES" = "[]" ]; then
@@ -70,11 +79,17 @@ jobs:
             exit 1
           fi
 
+          # 0-indexed shard list for the e2e-tests matrix, for example [0,1,2,3,4,5].
+          SHARDS=$(jq -cn --argjson total "$SHARD_TOTAL" '[range(0; $total)]')
+
           echo "specs=${SPEC_FILES}" >> "$GITHUB_OUTPUT"
           echo "target_tag=${TARGET_TAG}" >> "$GITHUB_OUTPUT"
+          echo "shard_total=${SHARD_TOTAL}" >> "$GITHUB_OUTPUT"
+          echo "shards=${SHARDS}" >> "$GITHUB_OUTPUT"
           echo "Run scope: ${RUN_SCOPE}"
           echo "Detected specs: ${SPEC_FILES}"
           echo "Target tag: ${TARGET_TAG:-<none>}"
+          echo "Shards for each project: ${SHARD_TOTAL}"
 
   build-client:
     name: Build client
@@ -113,7 +128,7 @@ jobs:
           npm run build:protoFleet
 
       - name: Upload client build
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: protofleet-client-dist
           path: client/dist
@@ -175,14 +190,32 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/docker-images/e2e-images.tar.gz
-          # `server/**` because the Dockerfile does `COPY server/ ./`
-          # (e.g. go:embed migrations), plus root build-context exclusions.
-          key: ${{ runner.os }}-protofleet-e2e-app-${{ hashFiles('server/**', '.dockerignore') }}
+          # Include both local modules copied into the image (including embedded
+          # migrations), plus root build-context exclusions.
+          key: ${{ runner.os }}-protofleet-e2e-app-${{ hashFiles('server/**', 'sdk/mdk/**', '.dockerignore') }}
+
+      # Reclaim ~20-25 GB of preinstalled toolchains this Hermit-based build
+      # never uses (Go/Node/etc. come from Hermit, not the hosted tool cache).
+      # The default runner has only ~2 GB free after building every compose
+      # image, and `docker save` needs roughly that much again to stage its
+      # export -- without this it hits "no space left on device".
+      - name: Free disk space for Docker image export
+        if: steps.docker-image-cache.outputs.cache-hit != 'true'
+        run: |
+          echo "before:"; df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL \
+            /usr/local/share/powershell /usr/share/swift || true
+          echo "after:"; df -h /
 
       - name: Build E2E application images
         if: steps.docker-image-cache.outputs.cache-hit != 'true'
         working-directory: server
         run: |
+          # pipefail so a failed `docker save` (e.g. ENOSPC) fails the step
+          # instead of silently piping nothing into gzip and uploading an empty
+          # tarball that only blows up downstream at `docker load`.
+          set -o pipefail
           mkdir -p /tmp/docker-images
           # Select every non-database service so future application services
           # remain in the bundle without rebuilding or saving TimescaleDB.
@@ -197,6 +230,15 @@ jobs:
           # cache miss key doesn't serve stale FROM layers.
           echo "::group::docker compose build"
           docker compose build --pull "${services[@]}"
+          echo "::endgroup::"
+          # Reclaim the buildx build cache before saving: `docker save` streams
+          # every image into a tmp export dir under /var/lib/docker, roughly
+          # doubling image disk use. As the built image set grows this tips the
+          # runner into "no space left on device"; the build cache is no longer
+          # needed once the final images are loaded, so drop it first.
+          echo "::group::Prune build cache to free export headroom"
+          docker builder prune -af
+          df -h /var/lib/docker / 2>/dev/null || df -h
           echo "::endgroup::"
           echo "::group::Save images to compressed tarball"
           # `config --images` includes dependencies even for selected services.
@@ -213,10 +255,10 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/docker-images/e2e-images.tar.gz
-          key: ${{ runner.os }}-protofleet-e2e-app-${{ hashFiles('server/**', '.dockerignore') }}
+          key: ${{ runner.os }}-protofleet-e2e-app-${{ hashFiles('server/**', 'sdk/mdk/**', '.dockerignore') }}
 
       - name: Upload Docker images
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: protofleet-e2e-docker-images
           path: /tmp/docker-images/*.tar.gz
@@ -254,12 +296,135 @@ jobs:
           echo "Plugins built successfully"
 
       - name: Upload plugins
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: protofleet-plugins
           path: server/plugins
           if-no-files-found: error
           retention-days: 1
+
+  helper-tests:
+    name: Page-object helpers
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+        with:
+          preinstall: "false"
+
+      - name: Cache npm dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('client/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      - name: Install client dependencies
+        working-directory: client
+        run: npm ci --include=optional
+
+      - name: Install Playwright browser
+        working-directory: client
+        run: npx playwright install chromium
+
+      - name: Test page-object helpers without Fleet provisioning
+        working-directory: client/e2eTests/protoFleet
+        env:
+          E2E_TARGET: fake
+        run: |
+          PLAYWRIGHT_BLOB_OUTPUT_FILE="blob-report/desktop-helpers.zip" \
+          npx playwright test --project=helpers-desktop --reporter=blob
+
+      - name: Upload helper blob report
+        if: ${{ always() && !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: blob-report-desktop-helpers
+          path: client/e2eTests/protoFleet/blob-report/
+          if-no-files-found: warn
+          retention-days: 30
+
+  mocked-tests:
+    name: Mocked-RPC specs (${{ matrix.project }})
+    needs: [build-client]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [desktop, mobile]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+        with:
+          preinstall: "false"
+
+      - name: Cache npm dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('client/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      - name: Install client dependencies
+        working-directory: client
+        run: npm ci --include=optional
+
+      - name: Install Playwright browser
+        working-directory: client
+        run: npx playwright install chromium
+
+      - name: Download prebuilt client
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: protofleet-client-dist
+          path: client/dist
+
+      - name: Start frontend
+        working-directory: client
+        run: |
+          npx vite preview --mode protoFleet --port 5173 --strictPort --host &
+
+          echo "Waiting for frontend..."
+          timeout 60 bash -c 'until curl -f http://localhost:5173 2>/dev/null; do sleep 2; done'
+          echo "Frontend is ready!"
+
+      # These specs mock all Fleet RPCs, so the job starts no backend and no miners.
+      - name: Test mocked-RPC specs without Fleet provisioning
+        working-directory: client/e2eTests/protoFleet
+        env:
+          CI: true
+          E2E_TARGET: fake
+          PROJECT: ${{ matrix.project }}
+        run: |
+          PLAYWRIGHT_BLOB_OUTPUT_FILE="blob-report/${PROJECT}-mocked.zip" \
+          npx playwright test --project="mocked-${PROJECT}" --reporter=blob
+
+      - name: Upload mocked-spec blob report
+        if: ${{ always() && !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: blob-report-${{ matrix.project }}-mocked
+          path: client/e2eTests/protoFleet/blob-report/
+          if-no-files-found: warn
+          retention-days: 30
 
   e2e-tests:
     needs: [detect-specs, build-client, build-docker-images, build-plugins]
@@ -268,13 +433,13 @@ jobs:
     permissions:
       contents: read
     env:
-      # Total shard count. Keep in sync with the length of matrix.shard below.
-      SHARD_TOTAL: "16"
+      # Total shard count. detect-specs sets it and the shard list from the run scope.
+      SHARD_TOTAL: ${{ needs.detect-specs.outputs.shard_total }}
     strategy:
       fail-fast: false
       matrix:
         # 0-indexed to match the round-robin modulo in the run step below.
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        shard: ${{ fromJSON(needs.detect-specs.outputs.shards) }}
         project: [desktop, mobile]
 
     steps:
@@ -322,13 +487,13 @@ jobs:
           npx playwright install chromium
 
       - name: Download prebuilt client
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: protofleet-client-dist
           path: client/dist
 
       - name: Download prebuilt plugins
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: protofleet-plugins
           path: server/plugins
@@ -337,7 +502,7 @@ jobs:
         run: chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
 
       - name: Download prebuilt Docker images
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: protofleet-e2e-docker-images
           path: /tmp/docker-images
@@ -352,6 +517,16 @@ jobs:
         # --no-build: fail loudly on a missing image rather than falling back
         # to a per-shard rebuild (the cost this change is eliminating).
         run: docker compose up -d --no-build
+
+      - name: Wait for backend readiness
+        working-directory: server
+        run: |
+          # A started container can still be compiling or applying migrations.
+          if ! timeout 120 bash -c 'until curl --fail --silent --show-error --max-time 5 http://127.0.0.1:4000/health/ready; do sleep 2; done'; then
+            echo "Backend did not become ready within 120 seconds" >&2
+            docker compose logs --tail=100 fleet-api timescaledb
+            exit 1
+          fi
 
       - name: Start frontend
         working-directory: client
@@ -419,7 +594,7 @@ jobs:
           find blob-report -maxdepth 2 -type f -print | sort || true
 
       - name: Upload blob report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ always() && !cancelled() }}
         with:
           name: blob-report-${{ matrix.project }}-shard-${{ matrix.shard }}
@@ -428,7 +603,7 @@ jobs:
           retention-days: 30
 
       - name: Upload test screenshots
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ failure() && !cancelled() }}
         with:
           name: screenshots-${{ matrix.project }}-shard-${{ matrix.shard }}
@@ -500,13 +675,13 @@ jobs:
         run: npx playwright install chromium
 
       - name: Download prebuilt client
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: protofleet-client-dist
           path: client/dist
 
       - name: Download prebuilt plugins
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: protofleet-plugins
           path: server/plugins
@@ -515,7 +690,7 @@ jobs:
         run: chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
 
       - name: Download prebuilt Docker images
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: protofleet-e2e-docker-images
           path: /tmp/docker-images
@@ -528,6 +703,16 @@ jobs:
       - name: Start services (TimeScaleDB + Backend + Simulators)
         working-directory: server
         run: docker compose up -d --no-build
+
+      - name: Wait for backend readiness
+        working-directory: server
+        run: |
+          # A started container can still be compiling or applying migrations.
+          if ! timeout 120 bash -c 'until curl --fail --silent --show-error --max-time 5 http://127.0.0.1:4000/health/ready; do sleep 2; done'; then
+            echo "Backend did not become ready within 120 seconds" >&2
+            docker compose logs --tail=100 fleet-api timescaledb
+            exit 1
+          fi
 
       - name: Start frontend
         working-directory: client
@@ -561,7 +746,7 @@ jobs:
           find blob-report -maxdepth 2 -type f -print | sort || true
 
       - name: Upload blob report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ always() && !cancelled() }}
         with:
           name: blob-report-${{ matrix.project }}-visual
@@ -570,7 +755,7 @@ jobs:
           retention-days: 30
 
       - name: Upload test screenshots
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ failure() && !cancelled() }}
         with:
           name: screenshots-${{ matrix.project }}-visual
@@ -595,15 +780,21 @@ jobs:
   merge-reports:
     name: Merge Test Reports
     runs-on: ubuntu-latest
-    needs: [e2e-tests, visual-tests]
+    needs: [e2e-tests, visual-tests, helper-tests, mocked-tests]
     if: >-
       ${{ always() && !cancelled() &&
           (github.event_name == 'schedule' ||
            github.event_name == 'workflow_dispatch' ||
            needs.e2e-tests.result == 'failure' ||
-           needs.visual-tests.result == 'failure') }}
+           needs.visual-tests.result == 'failure' ||
+           needs.helper-tests.result == 'failure' ||
+           needs.mocked-tests.result == 'failure') }}
     permissions:
       contents: read
+    env:
+      # A step `if:` cannot read secrets. This flag lets the Testmo steps skip
+      # when the repository has no TESTMO_TOKEN secret.
+      HAS_TESTMO_TOKEN: ${{ secrets.TESTMO_TOKEN != '' }}
     outputs:
       desktop-report-path: ${{ steps.merge.outputs.desktop-report-path }}
       mobile-report-path: ${{ steps.merge.outputs.mobile-report-path }}
@@ -620,7 +811,7 @@ jobs:
           preinstall: "false"
 
       - name: Download all blob reports
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: blob-report-*
           path: /tmp/blob-reports
@@ -688,7 +879,7 @@ jobs:
 
       - name: Upload merged Playwright reports
         id: merged-report-artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:
           name: playwright-report-protofleet-merged
@@ -697,12 +888,12 @@ jobs:
           retention-days: 30
 
       - name: Install Testmo CLI
-        if: ${{ !cancelled() && github.event_name == 'schedule' }}
+        if: ${{ !cancelled() && github.event_name == 'schedule' && env.HAS_TESTMO_TOKEN == 'true' }}
         run: |
           npm install -g @testmo/testmo-cli@1.0.0
 
       - name: Submit test results to Testmo (Desktop)
-        if: ${{ !cancelled() && github.event_name == 'schedule' && steps.merge.outputs.desktop-report-path }}
+        if: ${{ !cancelled() && github.event_name == 'schedule' && env.HAS_TESTMO_TOKEN == 'true' && steps.merge.outputs.desktop-report-path }}
         working-directory: client/e2eTests/protoFleet/merged-reports/desktop
         env:
           TESTMO_TOKEN: ${{ secrets.TESTMO_TOKEN }}
@@ -730,7 +921,7 @@ jobs:
           fi
 
       - name: Submit test results to Testmo (Mobile)
-        if: ${{ !cancelled() && github.event_name == 'schedule' && steps.merge.outputs.mobile-report-path }}
+        if: ${{ !cancelled() && github.event_name == 'schedule' && env.HAS_TESTMO_TOKEN == 'true' && steps.merge.outputs.mobile-report-path }}
         working-directory: client/e2eTests/protoFleet/merged-reports/mobile
         env:
           TESTMO_TOKEN: ${{ secrets.TESTMO_TOKEN }}

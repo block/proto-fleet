@@ -30,6 +30,12 @@ export interface ProtoFleetStatusModalProps {
   /** Callback when modal should be closed */
   onClose: () => void;
 
+  /** Opens pool assignment for this miner when the caller has permission. */
+  onAssignPoolConfiguration?: () => void;
+
+  /** Opens the existing bulk miner authentication flow. */
+  onAuthenticateMiner?: () => void;
+
   /** The device identifier (miner ID) to show status for */
   deviceId: string;
 

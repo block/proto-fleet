@@ -1,26 +1,29 @@
+import type { ReactNode } from "react";
+import ConnectedPoolsCard from "./ConnectedPoolsCard";
 import PoolInfoRow from "./PoolInfoRow";
-import { PoolInfo } from "./types";
+import type { PoolStatusEntry } from "./types";
 import { getTexts } from "./utility";
-import { Pool } from "@/protoOS/api/generatedApi";
-import { Alert, Success } from "@/shared/assets/icons";
+import { isActivePool } from "@/protoOS/api/adapters/poolStatistics";
+import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Card, { cardType } from "@/shared/components/Card";
 import Popover from "@/shared/components/Popover";
 import { positions } from "@/shared/constants";
 
 interface PoolInfoPopoverProps {
-  isConnected: boolean;
+  details?: ReactNode;
   onClickViewPools: () => void;
-  poolInfo?: PoolInfo;
-  poolsInfo?: Pool[];
+  poolsInfo?: PoolStatusEntry[];
+  showPoolStatusLink: boolean;
 }
 
-const PoolInfoPopover = ({ isConnected, onClickViewPools, poolInfo, poolsInfo }: PoolInfoPopoverProps) => {
-  const { title, subtitle, button, cardTitle } = getTexts({
-    isConnected,
-    index: poolInfo?.index,
-    url: poolInfo?.url,
-  });
+const PoolInfoPopover = ({ details, onClickViewPools, poolsInfo, showPoolStatusLink }: PoolInfoPopoverProps) => {
+  const legacyPools = showPoolStatusLink ? undefined : poolsInfo;
+  const connectedIndex = legacyPools?.findIndex(isActivePool) ?? -1;
+  const isConnected = connectedIndex >= 0;
+  const selectedIndex = isConnected ? connectedIndex : 0;
+  const url = legacyPools?.[selectedIndex]?.url;
+  const { title, subtitle, button } = getTexts({ isConnected, index: selectedIndex, url, showPoolStatusLink });
 
   return (
     <Popover
@@ -36,28 +39,19 @@ const PoolInfoPopover = ({ isConnected, onClickViewPools, poolInfo, poolsInfo }:
       position={positions["bottom left"]}
       testId="pool-info-popover"
     >
-      {poolInfo?.url && cardTitle ? (
-        <Card title={cardTitle} type={isConnected ? cardType.success : cardType.warning}>
-          {isConnected ? (
+      {details}
+      {url && isConnected ? <ConnectedPoolsCard pools={[{ id: selectedIndex, index: selectedIndex, url }]} /> : null}
+      {url && !isConnected ? (
+        <Card title="Not connected" type={cardType.warning}>
+          {legacyPools?.map((pool, index) => (
             <PoolInfoRow
-              index={poolInfo.index}
-              url={poolInfo.url}
-              suffixIcon={<Success className="text-intent-success-fill" />}
-              hasDivider={!poolsInfo?.length}
+              key={pool.priority}
+              index={index}
+              url={pool.url}
+              suffixIcon={<Alert className="text-intent-critical-fill" />}
+              hasDivider={index < legacyPools.length - 1}
             />
-          ) : (
-            <>
-              {poolsInfo?.map((pool, index) => (
-                <PoolInfoRow
-                  key={pool.priority}
-                  index={index}
-                  url={pool.url}
-                  suffixIcon={<Alert className="text-intent-critical-fill" />}
-                  hasDivider={index < poolsInfo.length - 1}
-                />
-              ))}
-            </>
-          )}
+          ))}
         </Card>
       ) : null}
     </Popover>

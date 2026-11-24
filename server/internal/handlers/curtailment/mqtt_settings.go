@@ -20,8 +20,8 @@ func (h *Handler) ListMqttCurtailmentSources(ctx context.Context, _ *connect.Req
 	if err != nil {
 		return nil, err
 	}
-	if h.mqttSettings == nil {
-		return nil, errCurtailmentNotImplemented("ListMqttCurtailmentSources")
+	if err := requireService(h.mqttSettings, "ListMqttCurtailmentSources"); err != nil {
+		return nil, err
 	}
 	views, err := h.mqttSettings.List(ctx, info.OrganizationID)
 	if err != nil {
@@ -39,8 +39,8 @@ func (h *Handler) GetMqttCurtailmentSource(ctx context.Context, req *connect.Req
 	if err != nil {
 		return nil, err
 	}
-	if h.mqttSettings == nil {
-		return nil, errCurtailmentNotImplemented("GetMqttCurtailmentSource")
+	if err := requireService(h.mqttSettings, "GetMqttCurtailmentSource"); err != nil {
+		return nil, err
 	}
 	view, err := h.mqttSettings.Get(ctx, info.OrganizationID, req.Msg.GetSourceId())
 	if err != nil {
@@ -57,8 +57,8 @@ func (h *Handler) CreateMqttCurtailmentSource(ctx context.Context, req *connect.
 	if err := requireAdminFromContext(ctx, actionManageMqttSources); err != nil {
 		return nil, err
 	}
-	if h.mqttSettings == nil {
-		return nil, errCurtailmentNotImplemented("CreateMqttCurtailmentSource")
+	if err := requireService(h.mqttSettings, "CreateMqttCurtailmentSource"); err != nil {
+		return nil, err
 	}
 	source := mqttingest.SourceConfig{
 		OrganizationID:      info.OrganizationID,
@@ -91,8 +91,8 @@ func (h *Handler) UpdateMqttCurtailmentSource(ctx context.Context, req *connect.
 	if err := requireAdminFromContext(ctx, actionManageMqttSources); err != nil {
 		return nil, err
 	}
-	if h.mqttSettings == nil {
-		return nil, errCurtailmentNotImplemented("UpdateMqttCurtailmentSource")
+	if err := requireService(h.mqttSettings, "UpdateMqttCurtailmentSource"); err != nil {
+		return nil, err
 	}
 	if err := validateMqttUpdateClears(req.Msg); err != nil {
 		return nil, err
@@ -130,8 +130,8 @@ func (h *Handler) TestMqttCurtailmentSourceConnection(ctx context.Context, req *
 	if err := requireAdminFromContext(ctx, actionManageMqttSources); err != nil {
 		return nil, err
 	}
-	if h.mqttSettings == nil {
-		return nil, errCurtailmentNotImplemented("TestMqttCurtailmentSourceConnection")
+	if err := requireService(h.mqttSettings, "TestMqttCurtailmentSourceConnection"); err != nil {
+		return nil, err
 	}
 	source := mqttingest.SourceConfig{
 		OrganizationID:      info.OrganizationID,
@@ -165,8 +165,8 @@ func (h *Handler) SetMqttCurtailmentSourceEnabled(ctx context.Context, req *conn
 	if err := requireAdminFromContext(ctx, actionManageMqttSources); err != nil {
 		return nil, err
 	}
-	if h.mqttSettings == nil {
-		return nil, errCurtailmentNotImplemented("SetMqttCurtailmentSourceEnabled")
+	if err := requireService(h.mqttSettings, "SetMqttCurtailmentSourceEnabled"); err != nil {
+		return nil, err
 	}
 	view, err := h.mqttSettings.SetEnabled(ctx, info.OrganizationID, req.Msg.GetSourceId(), req.Msg.GetEnabled())
 	if err != nil {
@@ -180,8 +180,11 @@ func (h *Handler) DeleteMqttCurtailmentSource(ctx context.Context, req *connect.
 	if err != nil {
 		return nil, err
 	}
-	if h.mqttSettings == nil {
-		return nil, errCurtailmentNotImplemented("DeleteMqttCurtailmentSource")
+	if err := requireAdminFromContext(ctx, actionManageMqttSources); err != nil {
+		return nil, err
+	}
+	if err := requireService(h.mqttSettings, "DeleteMqttCurtailmentSource"); err != nil {
+		return nil, err
 	}
 	if err := h.mqttSettings.Delete(ctx, info.OrganizationID, req.Msg.GetSourceId()); err != nil {
 		return nil, err
@@ -229,8 +232,8 @@ func toMqttSourceProto(view mqttingest.SourceView) *pb.MqttCurtailmentSource {
 		PayloadFormat:         cfg.PayloadFormat,
 		StalenessThresholdSec: durationSecondsToUint32(cfg.StalenessThreshold),
 		Enabled:               cfg.Enabled,
-		CreatedAt:             mqttTimeProto(cfg.CreatedAt),
-		UpdatedAt:             mqttTimeProto(cfg.UpdatedAt),
+		CreatedAt:             timeProto(cfg.CreatedAt),
+		UpdatedAt:             timeProto(cfg.UpdatedAt),
 		Status:                toMqttStatusProto(view),
 	}
 	return out
@@ -259,8 +262,8 @@ func toMqttStatusProto(view mqttingest.SourceView) *pb.MqttCurtailmentSourceStat
 		receivedBroker = pending.ReceivedBroker
 	}
 	out.LastTarget = target.String()
-	out.LastTargetAt = mqttTimeProto(targetAt)
-	out.LastReceivedAt = mqttTimeProto(receivedAt)
+	out.LastTargetAt = timeProto(targetAt)
+	out.LastReceivedAt = timeProto(receivedAt)
 	out.LastReceivedBroker = receivedBroker
 	return out
 }
@@ -306,7 +309,7 @@ func intToInt32Saturating(n int) int32 {
 	return int32(n) // #nosec G115 -- bounds-checked above
 }
 
-func mqttTimeProto(t time.Time) *timestamppb.Timestamp {
+func timeProto(t time.Time) *timestamppb.Timestamp {
 	if t.IsZero() {
 		return nil
 	}

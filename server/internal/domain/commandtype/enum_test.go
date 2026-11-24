@@ -24,6 +24,14 @@ func TestStringFromStringRoundtrip(t *testing.T) {
 		Curtail,
 		Uncurtail,
 		ApplyCurtailmentConfig,
+		SetContainerControl,
+		SetTankMining,
+		SetModuleMining,
+		SetBoardIdentify,
+		ContainerMining,
+		FrigateServerUpdate,
+		ContainerAlarmAction,
+		ControlPowerFeed,
 	}
 	for _, want := range all {
 		name := want.String()
@@ -46,4 +54,26 @@ func TestFromStringRejectsUnknown(t *testing.T) {
 	t.Parallel()
 	_, err := FromString("NotAValidType")
 	require.Error(t, err)
+}
+
+func TestMayAffectPools(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		kind      Type
+		conflicts bool
+	}{
+		{BlinkLED, false}, {SetBoardIdentify, false}, {DownloadLogs, false},
+		{SetCoolingMode, false}, {SetPowerTarget, false}, {FrigateServerUpdate, false},
+		{StartMining, true}, {StopMining, true}, {UpdateMiningPools, true},
+		{Reboot, true}, {FirmwareUpdate, true}, {Unpair, true},
+		{UpdateMinerPassword, true}, {Curtail, true}, {Uncurtail, true},
+		{ApplyCurtailmentConfig, true}, {SetContainerControl, true},
+		{ContainerAlarmAction, true}, {SetTankMining, true}, {SetModuleMining, true},
+		{ContainerMining, true}, {Type(-1), true},
+	} {
+		t.Run(tc.kind.String(), func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.conflicts, tc.kind.MayAffectPools())
+		})
+	}
 }

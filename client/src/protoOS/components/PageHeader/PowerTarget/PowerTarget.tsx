@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import PowerTargetPopover from "./PowerTargetPopover";
-import { MiningTarget } from "@/protoOS/api/generatedApi";
 import { useMiningTarget } from "@/protoOS/api/hooks/useMiningTarget";
 import WidgetWrapper from "@/protoOS/components/PageHeader/WidgetWrapper";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { useAccessToken } from "@/protoOS/store";
+import { useAccessToken, useDeviceType } from "@/protoOS/store";
 import {
   AUTH_ACTIONS,
   useDismissedLoginModal,
@@ -13,6 +12,7 @@ import {
   useSetDismissedLoginModal,
   useSetPausedAuthAction,
 } from "@/protoOS/store";
+import type { MiningTargetUpdate } from "@/protoOS/store/contract";
 import { useResponsivePopover } from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
@@ -25,10 +25,13 @@ const PowerTarget = () => {
   const setDismissedLoginModal = useSetDismissedLoginModal();
   const pausedAuthAction = usePausedAuthAction();
   const setPausedAuthAction = useSetPausedAuthAction();
-  const [lastMiningTarget, setLastMiningTarget] = useState<MiningTarget | null>(null);
+  const [lastMiningTarget, setLastMiningTarget] = useState<MiningTargetUpdate | null>(null);
   const { isFleetHosted } = useMinerHosting();
+  const isContainer = useDeviceType() === "container";
 
-  const { hasAccess, checkAccess } = useAccessToken(!isFleetHosted && !!pausedAuthAction && !dismissedLoginModal);
+  const { hasAccess, checkAccess } = useAccessToken(
+    !isFleetHosted && !isContainer && !!pausedAuthAction && !dismissedLoginModal,
+  );
 
   const isMax = useMemo(() => {
     return bounds?.max && miningTarget === bounds?.max;
@@ -59,19 +62,25 @@ const PowerTarget = () => {
   }, [isMax, isMin, miningTarget, pending, defaultTarget]);
 
   const handleUpdateStart = useCallback(
-    (miningTarget: MiningTarget) => {
+    (miningTarget: MiningTargetUpdate) => {
       // Fleet-hosted: the server proxy authenticates to the miner, so skip the
       // direct-token gate (no client miner JWT, login modal suppressed) and
       // send the update straight through.
-      if (isFleetHosted) {
+      if (isFleetHosted || isContainer) {
         updateMiningTarget(miningTarget);
         return;
       }
+      // Reflect the in-flight command immediately so the Apply button disables and
+      // shows its spinner while we resolve the direct-token gate. Without this the
+      // button stays idle until the resume effect finally calls updateMiningTarget
+      // (which sets pending itself), so the click appears to do nothing. Cleared by
+      // updateMiningTarget's success/error path, or by the login-dismiss effect below.
+      setPending(true);
       setLastMiningTarget(miningTarget);
       setPausedAuthAction(AUTH_ACTIONS.miningTarget);
       checkAccess();
     },
-    [isFleetHosted, updateMiningTarget, setPausedAuthAction, checkAccess],
+    [isFleetHosted, isContainer, updateMiningTarget, setPending, setPausedAuthAction, checkAccess],
   );
 
   useEffect(() => {

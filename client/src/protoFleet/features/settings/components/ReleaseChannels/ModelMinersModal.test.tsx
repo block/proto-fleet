@@ -6,6 +6,7 @@ import { deferred } from "./__tests__/helpers";
 import ModelMinersModal from "./ModelMinersModal";
 import { activeRigRollout, canaryChannel } from "./ReleaseChannels.fixtures";
 import {
+  FirmwareVersionState,
   type ReleaseChannelMiner,
   ReleaseChannelMinerSchema,
   type RolloutDevice,
@@ -119,7 +120,7 @@ describe("ModelMinersModal detail loading", () => {
     props.listChannelMiners.mockReturnValueOnce(members.promise);
     const { rerender, unmount } = render(<ModelMinersModal {...props} />);
     rerender(<ModelMinersModal {...props} group={{ ...props.group }} />);
-    const signal = props.listChannelMiners.mock.calls[0][3]!;
+    const signal = props.listChannelMiners.mock.calls[0][4]!;
     expect(props.listRolloutDevices.mock.calls[0][1]).toBe(signal);
     expect(signal.aborted).toBe(false);
     unmount();
@@ -137,7 +138,7 @@ describe("ModelMinersModal detail loading", () => {
     props.listRolloutDevices.mockReturnValueOnce(progress.promise);
     const { rerender } = render(<ModelMinersModal {...props} />);
     rerender(<ModelMinersModal {...props} group={{ ...props.group }} />);
-    const signal = props.listChannelMiners.mock.calls[0][3]!;
+    const signal = props.listChannelMiners.mock.calls[0][4]!;
     expect(props.listRolloutDevices.mock.calls[0][1]).toBe(signal);
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     expect(signal.aborted).toBe(true);
@@ -161,14 +162,14 @@ describe("ModelMinersModal detail loading", () => {
       const current = deferred<ReleaseChannelMiner[]>();
       props.listChannelMiners.mockReturnValueOnce(obsolete.promise).mockReturnValueOnce(current.promise);
       rerender(<ModelMinersModal {...props} group={{ ...props.group }} />);
-      const obsoleteSignal = props.listChannelMiners.mock.calls[1][3]!;
+      const obsoleteSignal = props.listChannelMiners.mock.calls[1][4]!;
       act(() => {
         useFleetStore.setState({
           auth: { ...initialAuth, username: "new-operator", sessionGeneration: initialAuth.sessionGeneration + 1 },
         });
       });
       expect(obsoleteSignal.aborted).toBe(true);
-      expect(props.listChannelMiners.mock.calls[2][3]?.aborted).toBe(false);
+      expect(props.listChannelMiners.mock.calls[2][4]?.aborted).toBe(false);
       expect(screen.queryByTestId("channel-miner-rig-1")).not.toBeInTheDocument();
       expect(screen.getByTestId("channel-miners-loading")).toBeInTheDocument();
       await act(async () => {
@@ -216,6 +217,7 @@ describe("ModelMinersModal detail loading", () => {
         canaryChannel.id,
         props.group.manufacturer,
         props.group.model,
+        props.group.component,
         expect.any(AbortSignal),
       );
       expect(props.listRolloutDevices).toHaveBeenLastCalledWith(activeRigRollout.id, expect.any(AbortSignal));
@@ -271,7 +273,7 @@ describe("ModelMinersModal detail loading", () => {
       props.listChannelMiners.mockReturnValueOnce(obsolete.promise);
       rerender(<ModelMinersModal {...props} group={{ ...props.group }} />);
       await waitFor(() => expect(props.listChannelMiners).toHaveBeenCalledTimes(2));
-      const obsoleteSignal = props.listChannelMiners.mock.calls[1][3]!;
+      const obsoleteSignal = props.listChannelMiners.mock.calls[1][4]!;
 
       const next = deferred<ReleaseChannelMiner[]>();
       props.listChannelMiners.mockReturnValueOnce(next.promise);
@@ -284,7 +286,7 @@ describe("ModelMinersModal detail loading", () => {
       };
       rerender(<ModelMinersModal {...nextProps} />);
       expect(obsoleteSignal.aborted).toBe(true);
-      expect(props.listChannelMiners.mock.calls[2][3]?.aborted).toBe(false);
+      expect(props.listChannelMiners.mock.calls[2][4]?.aborted).toBe(false);
       expect(screen.queryByTestId("channel-miner-rig-1")).not.toBeInTheDocument();
       expect(screen.getByTestId("channel-miners-loading")).toBeInTheDocument();
       await act(async () => next.resolve([create(ReleaseChannelMinerSchema, { deviceIdentifier: "new-context" })]));
@@ -302,6 +304,26 @@ describe("ModelMinersModal detail loading", () => {
 
 describe("ModelMinersModal assigned firmware status", () => {
   const assignedChecksum = "a".repeat(64);
+
+  it.each([
+    { state: FirmwareVersionState.MIXED, version: "Mixed versions", status: "Not on assigned version" },
+    { state: FirmwareVersionState.UNKNOWN, version: "Not observed", status: "Version not observed" },
+  ])("labels container version state $state", async ({ state, version, status }) => {
+    const props = propsFor();
+    props.listChannelMiners.mockResolvedValue([
+      create(ReleaseChannelMinerSchema, { ...miner, firmwareVersion: "", firmwareVersionState: state }),
+    ]);
+    render(
+      <ModelMinersModal
+        {...props}
+        activeRollout={undefined}
+        group={{ ...props.group, firmwareVersion: "2.0.0", firmwareChecksum: assignedChecksum }}
+      />,
+    );
+    const row = await screen.findByTestId("channel-miner-rig-1");
+    expect(within(row).getAllByRole("cell")[1]).toHaveTextContent(version);
+    expect(within(row).getAllByRole("cell")[2]).toHaveTextContent(status);
+  });
 
   it.each(["constructor", "toString", "__proto__"])(
     "uses only stored phases and names for identifier %s",
@@ -464,6 +486,7 @@ describe("ModelMinersModal unknown observed identities", () => {
         props.channelId,
         manufacturer,
         model,
+        "",
         expect.any(AbortSignal),
       );
     },

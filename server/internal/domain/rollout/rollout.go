@@ -71,6 +71,11 @@ const (
 	PhaseExcluded   = "excluded"
 	PhaseSkipped    = "skipped"
 
+	// Reported-version states, as the channel and rollout queries derive them.
+	VersionStateKnown   = "known"
+	VersionStateMixed   = "mixed"
+	VersionStateUnknown = "unknown"
+
 	// HaltReasonFailed: attempts exhausted without the miner verifying.
 	HaltReasonFailed = "failed"
 	// HaltReasonCanceled: the rollout was canceled before the miner updated.
@@ -218,6 +223,9 @@ type RolloutDevice struct {
 	LastError          string
 	// SkipNote is the caller's note when the miner was SKIPPED.
 	SkipNote string
+	// FirmwareVersionState is VersionStateKnown, VersionStateMixed or
+	// VersionStateUnknown.
+	FirmwareVersionState string
 	// LastDeployedFirmwareChecksum is the miner's managed-deployment
 	// provenance; empty when none is recorded.
 	LastDeployedFirmwareChecksum string
@@ -259,6 +267,9 @@ type Rollout struct {
 	ChannelName  string
 	Manufacturer string
 	Model        string
+	// Component is the firmware component the rollout updates: ComponentMain
+	// or ComponentPSU.
+	Component string
 	// FirmwareChecksum identifies the artifact; FirmwareFileID is the
 	// uploaded file that currently carries it, empty while none does.
 	FirmwareChecksum string
@@ -351,7 +362,7 @@ type rolloutSpec struct {
 // artifacts directly; uploaded file IDs resolve legacy commands without one.
 func (s *Service) mismatchedParams(spec rolloutSpec, rolloutID int64) sqlc.ListReleaseChannelMismatchedMembersParams {
 	return sqlc.ListReleaseChannelMismatchedMembersParams{
-		OrgID: spec.OrgID, ChannelID: spec.ChannelID, Manufacturer: spec.Pair.Manufacturer, Model: spec.Pair.Model,
+		OrgID: spec.OrgID, ChannelID: spec.ChannelID, Manufacturer: spec.Pair.Manufacturer, Model: spec.Pair.Model, Component: spec.Pair.Component,
 		FirmwareVersion: spec.FirmwareVersion, FirmwareChecksum: spec.FirmwareChecksum,
 		AssignedFileIds:      s.files.FirmwareFileIDsByChecksum(spec.FirmwareChecksum),
 		AssignmentGeneration: spec.AssignmentGeneration, RolloutID: rolloutID,
@@ -410,6 +421,7 @@ func (s *Service) startRollout(ctx context.Context, spec rolloutSpec) (*sqlc.Fir
 		ChannelID:                spec.ChannelID,
 		Manufacturer:             spec.Pair.Manufacturer,
 		Model:                    spec.Pair.Model,
+		Component:                spec.Pair.Component,
 		FirmwareChecksum:         spec.FirmwareChecksum,
 		FirmwareVersion:          spec.FirmwareVersion,
 		PreviousFirmwareChecksum: spec.PreviousFirmwareChecksum,
@@ -759,11 +771,11 @@ func (s *Service) RetryFailedDevices(ctx context.Context, orgID, rolloutID int64
 		if err != nil {
 			return err
 		}
-		pair := PairKey{Manufacturer: row.Manufacturer, Model: row.Model}
+		pair := PairKey{Manufacturer: row.Manufacturer, Model: row.Model, Component: row.Component}
 
 		if row.Status == StatusActive {
 			suppressed, err := q.ListReleaseChannelSuppressedMembers(ctx, sqlc.ListReleaseChannelSuppressedMembersParams{
-				OrgID: orgID, ChannelID: row.ChannelID, Manufacturer: pair.Manufacturer, Model: pair.Model, AssignmentGeneration: row.AssignmentGeneration,
+				OrgID: orgID, ChannelID: row.ChannelID, Manufacturer: pair.Manufacturer, Model: pair.Model, Component: pair.Component, AssignmentGeneration: row.AssignmentGeneration,
 			})
 			if err != nil {
 				return fleeterror.NewInternalErrorf("list suppressed members: %w", err)
@@ -804,20 +816,20 @@ func (s *Service) RetryFailedDevices(ctx context.Context, orgID, rolloutID int64
 		}
 
 		assignment, err := q.GetReleaseChannelFirmware(ctx, sqlc.GetReleaseChannelFirmwareParams{
-			ChannelID: row.ChannelID, Manufacturer: pair.Manufacturer, Model: pair.Model,
+			ChannelID: row.ChannelID, Manufacturer: pair.Manufacturer, Model: pair.Model, Component: pair.Component,
 		})
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return fleeterror.NewInternalErrorf("get firmware assignment: %w", err)
 		}
 		if err != nil || assignment.AssignmentGeneration != row.AssignmentGeneration || assignment.FirmwareChecksum != row.FirmwareChecksum {
 			return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonStaleGeneration},
-				"rollout %d is not the current assignment of %s %s in %s", rolloutID, pair.Manufacturer, pair.Model, channelName)
+				"rollout %d is not the current assignment of %s in %s", rolloutID, pair.label(), channelName)
 		}
 		if _, err := q.GetActiveFirmwareRolloutForPair(ctx, sqlc.GetActiveFirmwareRolloutForPairParams{
-			ChannelID: row.ChannelID, Manufacturer: pair.Manufacturer, Model: pair.Model,
+			ChannelID: row.ChannelID, Manufacturer: pair.Manufacturer, Model: pair.Model, Component: pair.Component,
 		}); err == nil {
 			return reason(fleeterror.NewFailedPreconditionErrorf, ErrorInfo{Reason: ReasonRolloutActive},
-				"%s %s in %s already has an active rollout", pair.Manufacturer, pair.Model, channelName)
+				"%s in %s already has an active rollout", pair.label(), channelName)
 		} else if !errors.Is(err, sql.ErrNoRows) {
 			return fleeterror.NewInternalErrorf("get active firmware rollout: %w", err)
 		}
@@ -825,7 +837,7 @@ func (s *Service) RetryFailedDevices(ctx context.Context, orgID, rolloutID int64
 			return err
 		}
 		suppressed, err := q.ListReleaseChannelSuppressedMembers(ctx, sqlc.ListReleaseChannelSuppressedMembersParams{
-			OrgID: orgID, ChannelID: row.ChannelID, Manufacturer: pair.Manufacturer, Model: pair.Model, AssignmentGeneration: row.AssignmentGeneration,
+			OrgID: orgID, ChannelID: row.ChannelID, Manufacturer: pair.Manufacturer, Model: pair.Model, Component: pair.Component, AssignmentGeneration: row.AssignmentGeneration,
 		})
 		if err != nil {
 			return fleeterror.NewInternalErrorf("list suppressed members: %w", err)
@@ -1042,6 +1054,29 @@ type target struct {
 	foreignCommand bool
 }
 
+// commandPending reports a FirmwareUpdate pending or processing on the
+// miner's queue, for any firmware component. A device takes one firmware
+// command at a time, so nothing is dispatched to it until the queue drains,
+// even though an update of another component leaves what this rollout
+// verifies unchanged.
+func (t target) commandPending() bool {
+	return len(t.PendingFirmwareChecksums) > 0 || len(t.PendingLegacyFirmwareFileIds) > 0 || t.OtherComponentCommandPending
+}
+
+// waitingSince is when the device began the wait to verify its latest send:
+// the send, or the end of a later firmware command of another component. A
+// firmware command keeps the device at UPDATING, so the device cannot verify
+// this rollout's update while that command runs. The resend interval is
+// measured from here, so a device that waited behind another component gets a
+// full interval to report before it is sent the firmware again or failed.
+// It is meaningful only for a target that was sent.
+func (t target) waitingSince() time.Time {
+	if t.OtherComponentCommandFinishedAt.After(t.LastSentAt.Time) {
+		return t.OtherComponentCommandFinishedAt
+	}
+	return t.LastSentAt.Time
+}
+
 // deviceStatusActive is the device_status value of a hashing miner.
 const deviceStatusActive = "ACTIVE"
 
@@ -1075,7 +1110,11 @@ func (t target) skipped() bool { return t.halted() && t.HaltReason == HaltReason
 
 // reportsTarget: the miner reports the rollout's version.
 func (t target) reportsTarget(r sqlc.FirmwareRollout) bool {
-	return t.FirmwareVersion == r.FirmwareVersion
+	return t.FirmwareVersionKnown && t.FirmwareVersion == r.FirmwareVersion
+}
+
+func (t target) reportsOtherVersion(r sqlc.FirmwareRollout) bool {
+	return t.FirmwareVersionKnown && t.FirmwareVersion != r.FirmwareVersion
 }
 
 // meetsConvergence checks the live evidence needed to enter DONE: target version with
@@ -1160,6 +1199,7 @@ func (t target) view(r sqlc.FirmwareRollout) RolloutDevice {
 		LastError:          t.LastError,
 		SkipNote:           t.SkipNote,
 
+		FirmwareVersionState:         t.FirmwareVersionState,
 		LastDeployedFirmwareChecksum: t.LastDeployedFirmwareChecksum,
 	}
 	if t.BatchIndex.Valid {
@@ -1245,6 +1285,7 @@ func (s *Service) rolloutView(ctx context.Context, r sqlc.FirmwareRollout, chann
 		ChannelID:                r.ChannelID,
 		ChannelName:              channelName,
 		Manufacturer:             r.Manufacturer,
+		Component:                r.Component,
 		Model:                    r.Model,
 		FirmwareChecksum:         r.FirmwareChecksum,
 		FirmwareVersion:          r.FirmwareVersion,
@@ -1350,6 +1391,9 @@ func (s *Service) logRolloutEvent(ctx context.Context, r sqlc.FirmwareRollout, c
 		"firmware_version": r.FirmwareVersion,
 		"method":           r.BehaviorSnapshot.Method,
 		"stage":            r.Stage,
+	}
+	if r.Component != ComponentMain {
+		metadata["component"] = r.Component
 	}
 	for k, v := range extra {
 		if k != "_actor" {

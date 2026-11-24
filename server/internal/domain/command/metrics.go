@@ -2,9 +2,14 @@ package command
 
 import (
 	"context"
+	"errors"
 	"strings"
+	"time"
+
+	"connectrpc.com/connect"
 
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/infrastructure/metrics"
 )
 
@@ -46,8 +51,24 @@ func commandKindLabel(t commandtype.Type) string {
 		return "curtail"
 	case commandtype.Uncurtail:
 		return "uncurtail"
+	case commandtype.SetModuleMining:
+		return "set_module_mining"
+	case commandtype.SetBoardIdentify:
+		return "set_board_identify"
+	case commandtype.SetTankMining:
+		return "set_tank_mining"
+	case commandtype.ContainerMining:
+		return "container_mining"
+	case commandtype.SetContainerControl:
+		return "set_container_control"
+	case commandtype.ContainerAlarmAction:
+		return "container_alarm_action"
 	case commandtype.ApplyCurtailmentConfig:
 		return "apply_curtailment_config"
+	case commandtype.FrigateServerUpdate:
+		return "frigate_server_update"
+	case commandtype.ControlPowerFeed:
+		return "control_power_feed"
 	default:
 		return strings.ToLower((&t).String())
 	}
@@ -67,4 +88,36 @@ func emitTerminalCommand(ctx context.Context, emitter MetricsEmitter, orgID, sit
 		Kind:           commandKindLabel(kind),
 		Result:         result,
 	})
+}
+
+// OperationalMetrics is independent of customer alert persistence and tracing.
+type OperationalMetrics interface {
+	CommandStarted(ctx context.Context, kind, class string, queuedAt time.Time)
+	CommandAttemptFinished(ctx context.Context, kind, class, result string, duration time.Duration)
+	CommandCommitted(ctx context.Context, kind, class, result string, queuedAt time.Time)
+	CommandPersistenceFailed(ctx context.Context, class string)
+}
+
+func commandClass(kind commandtype.Type) string {
+	if kind == commandtype.FirmwareUpdate {
+		return "firmware"
+	}
+	return "control"
+}
+func commandOutcome(ctx context.Context, err error) string {
+	if err == nil {
+		return "success"
+	}
+	code := connect.CodeOf(err)
+	var fe fleeterror.FleetError
+	if errors.As(err, &fe) {
+		code = fe.GRPCCode
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) || code == connect.CodeDeadlineExceeded {
+		return "timeout"
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) || code == connect.CodeCanceled {
+		return "canceled"
+	}
+	return "failure"
 }

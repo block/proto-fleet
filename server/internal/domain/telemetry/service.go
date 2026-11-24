@@ -39,11 +39,6 @@ The telemetry system uses a producer-consumer pattern with three main components
 
 # Component Details
 
-gatherMetricsRoutine: Periodically queries the scheduler for stale devices
-(those needing telemetry refresh) and dispatches them to workers via the
-tasks channel. Also handles new device polling to discover recently paired
-devices.
-
 workers: A pool of goroutines (sized by ConcurrencyLimit) that fetch
 telemetry and status from individual miners. Each worker pulls a device
 from the tasks channel, makes network calls to the miner, stores telemetry
@@ -94,6 +89,7 @@ import (
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
@@ -102,6 +98,7 @@ const (
 	// Default intervals
 	defaultStatusUpdateInterval  = 1 * time.Second
 	defaultFetchInterval         = 5 * time.Second
+	pollDispatchInterval         = 250 * time.Millisecond
 	defaultDevicePollInterval    = 10 * time.Minute
 	defaultHeartbeatInterval     = 30 * time.Second
 	defaultStatusPollingInterval = 10 * time.Second
@@ -123,7 +120,9 @@ const (
 
 	// Batch limits
 	maxStatusBatchSize  = 500
-	maxMetricsBatchSize = 500
+	maxMetricsBatchSize = 2000
+	// Bound overdue work while leaving headroom for 50,000 devices polled every 20 seconds.
+	maxPollCheckoutSize = 1500
 
 	// Default status flush interval if not configured.
 	defaultStatusFlushInterval = 1 * time.Second
@@ -177,8 +176,10 @@ type UpdateScheduler interface {
 	AddNewDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error
 	AddDevices(ctx context.Context, devices ...models.Device) error
 	RequeueDevices(ctx context.Context, devices ...models.Device) error
+	RestoreDevices(ctx context.Context, devices ...models.Device) error
+	DeferDevices(ctx context.Context, devices ...models.Device) error
 	AddFailedDevices(ctx context.Context, devices ...models.Device) error
-	FetchDevices(ctx context.Context, after time.Time) ([]models.Device, error)
+	FetchDue(ctx context.Context, now time.Time, limit int) ([]models.Device, error)
 	RemoveDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error
 	IsFailedDevice(ctx context.Context, deviceID models.DeviceIdentifier) (bool, time.Time, error)
 }
@@ -225,6 +226,7 @@ type deviceResult struct {
 type statusResult struct {
 	deviceIdentifier models.DeviceIdentifier
 	status           mm.MinerStatus
+	offlineConfirmed bool
 	orgID            int64
 	siteID           int64
 	driverName       string
@@ -276,6 +278,80 @@ func (r metricsFlushResult) errorForDevice(deviceID *models.DeviceIdentifier) er
 	return r.deviceErrors[*deviceID]
 }
 
+func recordMetricsFailure(r *metricsFlushResult, batch []modelsV2.DeviceMetrics, err error) {
+	r.err = errors.Join(r.err, err)
+	for _, m := range batch {
+		deviceID := models.DeviceIdentifier(m.DeviceIdentifier)
+		r.deviceErrors[deviceID] = errors.Join(r.deviceErrors[deviceID], err)
+	}
+}
+
+// storeDeviceMetricsIsolatingFailures writes batch in one transaction. Failed
+// ordinary batches are bisected to isolate bad samples. If both halves fail,
+// each row is tried once. Batches containing containers retry in input order so
+// newer inventory watermarks cannot suppress older samples during recovery.
+// Timeouts, cancellation, and connection failures stop retries.
+func (s *TelemetryService) storeDeviceMetricsIsolatingFailures(ctx context.Context, batch []modelsV2.DeviceMetrics, result *metricsFlushResult) {
+	err := s.telemetryDataStore.StoreDeviceMetrics(ctx, batch...)
+	s.isolateMetricsFailure(ctx, batch, err, result)
+}
+
+func stopMetricsRetries(ctx context.Context, err error) bool {
+	return ctx.Err() != nil || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || db.IsFailoverPostgresError(err)
+}
+
+func (s *TelemetryService) isolateMetricsFailure(ctx context.Context, batch []modelsV2.DeviceMetrics, err error, result *metricsFlushResult) {
+	if err == nil {
+		return
+	}
+	if len(batch) == 1 || stopMetricsRetries(ctx, err) {
+		slog.Error("metrics batch write failed, not retrying", "count", len(batch), "error", err)
+		recordMetricsFailure(result, batch, err)
+		return
+	}
+
+	if slices.ContainsFunc(batch, func(m modelsV2.DeviceMetrics) bool { return m.Container != nil }) {
+		slog.Warn("metrics batch write failed, retrying in order", "count", len(batch), "error", err)
+		s.storeFailedMetricsIndividually(ctx, batch, err, result)
+		return
+	}
+
+	slog.Warn("metrics batch write failed, retrying in halves", "count", len(batch), "error", err)
+	mid := len(batch) / 2
+	left, right := batch[:mid], batch[mid:]
+	leftErr := s.telemetryDataStore.StoreDeviceMetrics(ctx, left...)
+	rightErr := ctx.Err()
+	if rightErr == nil {
+		rightErr = s.telemetryDataStore.StoreDeviceMetrics(ctx, right...)
+	}
+	if leftErr != nil && rightErr != nil {
+		s.storeFailedMetricsIndividually(ctx, left, leftErr, result)
+		s.storeFailedMetricsIndividually(ctx, right, rightErr, result)
+		return
+	}
+	s.isolateMetricsFailure(ctx, left, leftErr, result)
+	s.isolateMetricsFailure(ctx, right, rightErr, result)
+}
+
+func (s *TelemetryService) storeFailedMetricsIndividually(ctx context.Context, batch []modelsV2.DeviceMetrics, err error, result *metricsFlushResult) {
+	if len(batch) == 1 || stopMetricsRetries(ctx, err) {
+		s.isolateMetricsFailure(ctx, batch, err, result)
+		return
+	}
+	for i := range batch {
+		if err := ctx.Err(); err != nil {
+			recordMetricsFailure(result, batch[i:], err)
+			return
+		}
+		err := s.telemetryDataStore.StoreDeviceMetrics(ctx, batch[i])
+		if err != nil && stopMetricsRetries(ctx, err) {
+			recordMetricsFailure(result, batch[i:], err)
+			return
+		}
+		s.isolateMetricsFailure(ctx, batch[i:i+1], err, result)
+	}
+}
+
 func mergeMetricsFlushResults(results ...metricsFlushResult) metricsFlushResult {
 	merged := metricsFlushResult{deviceErrors: make(map[models.DeviceIdentifier]error)}
 	for _, result := range results {
@@ -325,9 +401,11 @@ type TelemetryService struct {
 	deviceStore        stores.DeviceStore
 	errorPoller        ErrorPoller
 	metricsObserver    *metricsObserver
-	lookBackDuration   time.Duration
-	lifecycleMu        sync.Mutex
-	activation         *telemetryActivation
+	// Keep paired-device reloads and scheduler changes in one order. A reload
+	// started before revocation must finish admitting devices before cleanup.
+	membershipMu sync.Mutex
+	lifecycleMu  sync.Mutex
+	activation   *telemetryActivation
 	// devicesForStatusPolling tracks all paired devices that need periodic status checks.
 	// This ensures failed devices (removed from scheduler after MaxConsecutiveFailures)
 	// continue to be polled for status so they can recover when they come back online.
@@ -343,6 +421,13 @@ type TelemetryService struct {
 	// lastDefaultPwActive caches the last-seen default-password flag per device so
 	// the poll only checks for a pairing-status change on transitions, not every poll.
 	lastDefaultPwActive sync.Map // map[DeviceIdentifier]bool
+	// lastReconciledBoot records successfully cleared reboot requirements.
+	// That boot cannot satisfy a later firmware upload's reboot boundary.
+	lastReconciledBoot sync.Map // map[DeviceIdentifier]time.Time
+	// firmwareStatusPending records whether the status writer last read each
+	// device's stored status as UPDATING or REBOOT_REQUIRED. Reboot
+	// reconciliation skips the database for devices last read in any other status.
+	firmwareStatusPending sync.Map // map[DeviceIdentifier]bool
 	// inFlight tracks devices currently claimed for processing (scheduled
 	// full telemetry, status-only recovery, RefreshDevice, or a direct
 	// sample). Values are *inFlightEntry carrying the fleetd-owned flight
@@ -377,7 +462,6 @@ func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, m
 		updateScheduler:        scheduler,
 		deviceStore:            deviceStore,
 		errorPoller:            errorPoller,
-		lookBackDuration:       -1 * (config.StalenessThreshold - config.FetchInterval),
 		metricsObserver:        newMetricsObserver(NoMetrics()),
 		combinedMetricsFlights: make(map[string]*combinedMetricsFlight),
 	}
@@ -390,6 +474,38 @@ func (s *TelemetryService) WithMetricsEmitter(emitter MetricsEmitter) *Telemetry
 }
 
 func (s *TelemetryService) AddDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error {
+	s.membershipMu.Lock()
+	defer s.membershipMu.Unlock()
+	return s.addDevicesLocked(ctx, deviceID...)
+}
+
+// AddPairedDevices admits a completed Fleet Node pairing only while the
+// database still considers it paired. Revocation cleanup uses membershipMu too,
+// so a delayed pairing callback cannot re-admit a revoked miner afterward.
+func (s *TelemetryService) AddPairedDevices(ctx context.Context, deviceIDs ...models.DeviceIdentifier) error {
+	if len(deviceIDs) == 0 {
+		return nil
+	}
+	s.membershipMu.Lock()
+	defer s.membershipMu.Unlock()
+	pairedIDs, err := s.deviceStore.GetTelemetryEligibleDeviceIdentifiers(ctx, deviceIDs)
+	if err != nil {
+		return fmt.Errorf("load paired devices before telemetry admission: %w", err)
+	}
+	paired := make(map[models.DeviceIdentifier]struct{}, len(pairedIDs))
+	for _, id := range pairedIDs {
+		paired[id] = struct{}{}
+	}
+	var eligible []models.DeviceIdentifier
+	for _, id := range deviceIDs {
+		if _, exists := paired[id]; exists {
+			eligible = append(eligible, id)
+		}
+	}
+	return s.addDevicesLocked(ctx, eligible...)
+}
+
+func (s *TelemetryService) addDevicesLocked(ctx context.Context, deviceID ...models.DeviceIdentifier) error {
 	if len(deviceID) == 0 {
 		return nil
 	}
@@ -400,6 +516,8 @@ func (s *TelemetryService) AddDevices(ctx context.Context, deviceID ...models.De
 			newlyTracked = append(newlyTracked, id)
 		}
 		s.lastDefaultPwActive.Delete(id)
+		s.lastReconciledBoot.Delete(id)
+		s.firmwareStatusPending.Delete(id)
 	}
 	// The scheduler is the single admission path. It makes one new device
 	// immediately eligible and spreads bulk startup discovery across the poll
@@ -417,6 +535,40 @@ func (s *TelemetryService) AddDevices(ctx context.Context, deviceID ...models.De
 }
 
 func (s *TelemetryService) RemoveDevices(ctx context.Context, deviceIDs ...models.DeviceIdentifier) error {
+	s.membershipMu.Lock()
+	defer s.membershipMu.Unlock()
+	return s.removeDevicesLocked(ctx, deviceIDs...)
+}
+
+// RemoveUnpairedDevices preserves a replacement Node's registration if it
+// paired the miner after the revoked Node's transaction committed. Pairing's
+// AddDevices waits on the same lock if it commits during this fresh DB read.
+func (s *TelemetryService) RemoveUnpairedDevices(ctx context.Context, deviceIDs ...models.DeviceIdentifier) error {
+	if len(deviceIDs) == 0 {
+		return nil
+	}
+	s.membershipMu.Lock()
+	defer s.membershipMu.Unlock()
+	pairedIDs, err := s.deviceStore.GetTelemetryEligibleDeviceIdentifiers(ctx, deviceIDs)
+	if err != nil {
+		return fmt.Errorf("load paired devices before telemetry removal: %w", err)
+	}
+	paired := make(map[models.DeviceIdentifier]struct{}, len(pairedIDs))
+	for _, id := range pairedIDs {
+		paired[id] = struct{}{}
+	}
+	var removeErr error
+	for _, id := range deviceIDs {
+		if _, exists := paired[id]; !exists {
+			if err := s.removeDevicesLocked(ctx, id); err != nil {
+				removeErr = errors.Join(removeErr, fmt.Errorf("remove %s: %w", id, err))
+			}
+		}
+	}
+	return removeErr
+}
+
+func (s *TelemetryService) removeDevicesLocked(ctx context.Context, deviceIDs ...models.DeviceIdentifier) error {
 	if len(deviceIDs) == 0 {
 		return nil
 	}
@@ -427,6 +579,8 @@ func (s *TelemetryService) RemoveDevices(ctx context.Context, deviceIDs ...model
 		s.lastKnownStatuses.Delete(id)
 		s.lastKnownFirmware.Delete(id)
 		s.lastDefaultPwActive.Delete(id)
+		s.lastReconciledBoot.Delete(id)
+		s.firmwareStatusPending.Delete(id)
 		s.metricsObserver.onDeviceRemoved(ctx, id)
 	}
 	return s.updateScheduler.RemoveDevices(ctx, deviceIDs...)
@@ -596,28 +750,61 @@ func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context, tasks chan<
 		fetchInterval = defaultFetchInterval
 	}
 	reportProgress := runtimejobs.TrackProgress(ctx, fetchInterval)
-	ticker := time.NewTicker(fetchInterval)
+	ticker := time.NewTicker(min(fetchInterval, pollDispatchInterval))
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			lookback := time.Now().Add(s.lookBackDuration)
-			devices, err := s.updateScheduler.FetchDevices(ctx, lookback)
+			if ctx.Err() != nil {
+				return
+			}
+			cycleStartedAt := time.Now()
+			devices, err := s.updateScheduler.FetchDue(ctx, cycleStartedAt, maxPollCheckoutSize)
+			schedulerFetchDuration := time.Since(cycleStartedAt)
+			logSlowCycle := func(dispatched int) {
+				cycleDuration := time.Since(cycleStartedAt)
+				if cycleDuration <= fetchInterval {
+					return
+				}
+				slog.Warn("telemetry gather cycle slow",
+					"cycle_duration", cycleDuration,
+					"scheduler_fetch_duration", schedulerFetchDuration,
+					"enqueue_duration", cycleDuration-schedulerFetchDuration,
+					"devices_fetched", len(devices),
+					"tasks_dispatched", dispatched,
+				)
+			}
 			if err != nil {
+				logSlowCycle(0)
 				slog.Error("failed to fetch devices for telemetry", "error", err)
 				reportProgress()
 				continue
 			}
+			slowDrainLogged := false
 			for index, device := range devices {
 				select {
 				case tasks <- device:
+					// A completed handoff is gather progress, not a successful miner poll.
+					reportProgress()
+					// Handoffs keep the job fresh, so warn here when a slow drain outlasts the stale window.
+					if cycleDuration := time.Since(cycleStartedAt); !slowDrainLogged && cycleDuration > 3*fetchInterval {
+						slowDrainLogged = true
+						slog.Warn("telemetry gather cycle still draining",
+							"cycle_duration", cycleDuration,
+							"scheduler_fetch_duration", schedulerFetchDuration,
+							"devices_fetched", len(devices),
+							"tasks_dispatched", index+1,
+						)
+					}
 				case <-ctx.Done():
+					logSlowCycle(index)
 					s.requeueTelemetryTasks(devices[index:])
 					return
 				}
 			}
+			logSlowCycle(len(devices))
 			reportProgress()
 		}
 	}
@@ -648,6 +835,8 @@ func (s *TelemetryService) devicePollingRoutine(ctx context.Context) {
 }
 
 func (s *TelemetryService) loadPairedDevices(ctx context.Context) error {
+	s.membershipMu.Lock()
+	defer s.membershipMu.Unlock()
 	deviceIDs, err := s.deviceStore.GetAllPairedDeviceIdentifiers(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get paired device identifiers: %w", err)
@@ -659,7 +848,7 @@ func (s *TelemetryService) loadPairedDevices(ctx context.Context) error {
 
 	// AddDevices errors are expected to happen from time to time and are not critical.
 	// We intentionally ignore them to allow the service to continue.
-	_ = s.AddDevices(ctx, deviceIDs...)
+	_ = s.addDevicesLocked(ctx, deviceIDs...)
 
 	return nil
 }
@@ -830,7 +1019,7 @@ func (s *TelemetryService) worker(ctx context.Context, activation *telemetryActi
 			}
 			entry := s.newDeviceInFlightEntry(device.ID, inFlightKindFullTelemetry)
 			if _, alreadyClaimed := s.inFlight.LoadOrStore(device.ID, entry); alreadyClaimed {
-				if err := s.updateScheduler.AddDevices(ctx, device); err != nil {
+				if err := s.updateScheduler.DeferDevices(ctx, device); err != nil {
 					slog.Warn("failed to requeue skipped in-flight telemetry task", "deviceID", device.ID, "error", err)
 				}
 				continue
@@ -881,12 +1070,12 @@ func (s *TelemetryService) worker(ctx context.Context, activation *telemetryActi
 func (s *TelemetryService) processDevice(ctx context.Context, device models.Device, results telemetryResults) error {
 	// Telemetry failure doesn't block status/error polling - we still want to track online state.
 	// When metrics succeed, status is derived from the health field — no second RPC needed.
-	metricsStatus, hasMetricsStatus, orgID, driverName, siteID, pollSuccess, telemetryErr := s.getTelemetryFromDevice(ctx, device, results.metrics)
+	firstPoll, pollSuccess, telemetryErr := s.getTelemetryFromDevice(ctx, device, results.metrics)
 	var collectionErr error
 	s.metricsObserver.onPollResult(
 		ctx,
-		orgID,
-		siteID,
+		firstPoll.orgID,
+		firstPoll.siteID,
 		device.ID,
 		pollSuccess,
 	)
@@ -919,21 +1108,25 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 		}
 	}
 
-	// When metrics were fetched successfully, derive status from them to avoid a second RPC.
-	// When metrics failed (device unreachable or auth error), fetch status explicitly so we can
-	// detect offline state and handle auth failures in the status path.
-	var status mm.MinerStatus
-	if hasMetricsStatus {
-		status = metricsStatus
-	} else {
-		var (
-			statusErr        error
-			statusOrg        int64
-			statusSite       int64
-			statusDriverName string
-		)
-		status, statusOrg, statusDriverName, statusSite, statusErr = s.fetchStatusFromMiner(ctx, device.ID)
+	// A confirmed miner connection failure already establishes offline status.
+	// Fetch status separately when the first poll does not establish the state.
+	result := statusResult{
+		deviceIdentifier: device.ID,
+		status:           firstPoll.status,
+		orgID:            firstPoll.orgID,
+		siteID:           firstPoll.siteID,
+		driverName:       firstPoll.driverName,
+	}
+	var connectionErr fleeterror.ConnectionError
+	if errors.As(firstPoll.metricsErr, &connectionErr) && connectionErr.DeviceProbeFailed {
+		result.status = mm.MinerStatusOffline
+		result.offlineConfirmed = true
+	} else if telemetryErr != nil || !firstPoll.hasStatus {
+		polled, statusErr := s.fetchStatusFromMiner(ctx, device.ID)
 		if statusErr != nil {
+			// No status result will reach the writer to refresh its firmware hint.
+			// Let the next uptime sample check the current reboot requirement.
+			s.firmwareStatusPending.Delete(device.ID)
 			slog.Warn("failed to get status for device", "deviceID", device.ID, "error", statusErr)
 
 			if requiresCredentialRemediation(statusErr) {
@@ -946,26 +1139,22 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 		}
 		// The telemetry path may have failed before resolving org/driver/site; if
 		// so, fill them in from the status fetch which already has the miner handle.
-		if orgID == 0 {
-			orgID = statusOrg
+		result.status = polled.status
+		result.offlineConfirmed = polled.offlineConfirmed
+		if result.orgID == 0 {
+			result.orgID = polled.orgID
 		}
-		if driverName == "" {
-			driverName = statusDriverName
+		if result.driverName == "" {
+			result.driverName = polled.driverName
 		}
-		if siteID == 0 {
-			siteID = statusSite
+		if result.siteID == 0 {
+			result.siteID = polled.siteID
 		}
 	}
 
 	// Send status result to writer (non-blocking to prevent worker stalls)
 	select {
-	case results.status <- statusResult{
-		deviceIdentifier: device.ID,
-		status:           status,
-		orgID:            orgID,
-		siteID:           siteID,
-		driverName:       driverName,
-	}:
+	case results.status <- result:
 	case <-ctx.Done():
 		return fmt.Errorf("context cancelled enqueueing status for device %s: %w", device.ID, ctx.Err())
 	default:
@@ -976,7 +1165,7 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 	}
 
 	s.pollErrorsForDevice(ctx, device)
-	if status == mm.MinerStatusOffline && fleeterror.IsConnectionError(collectionErr) {
+	if result.status == mm.MinerStatusOffline && fleeterror.IsConnectionError(collectionErr) {
 		return nil
 	}
 	return collectionErr
@@ -992,18 +1181,17 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 // Recovery logic:
 //   - A device is considered "recovered" when it returns a healthy status (not offline/error).
 //   - If the device was marked as failed in the scheduler and now reports healthy, we re-add
-//     it to the scheduler with its original failedAt timestamp. This ensures the scheduler
-//     prioritizes it for immediate telemetry collection.
+//     it to the scheduler with its original failedAt timestamp.
 //   - Devices that remain offline/error stay in the failed state. They continue to be polled
 //     here but aren't re-added to the scheduler until they report a healthy status.
 //
 // This design ensures devices can automatically rejoin telemetry collection when they
 // come back online, without manual intervention.
 func (s *TelemetryService) processStatusOnly(ctx context.Context, device models.Device, results chan<- statusResult) {
-	status, orgID, driverName, siteID, statusErr := s.fetchStatusFromMiner(ctx, device.ID)
+	result, statusErr := s.fetchStatusFromMiner(ctx, device.ID)
 	if statusErr != nil {
 		// Non-connection errors (e.g., auth failures) - device stays in failed state.
-		// Connection errors don't reach here; they return (MinerStatusOffline, nil).
+		// Connection errors produce an offline status result.
 		slog.Debug("status polling failed for device", "deviceID", device.ID, "error", statusErr)
 
 		if requiresCredentialRemediation(statusErr) {
@@ -1017,13 +1205,11 @@ func (s *TelemetryService) processStatusOnly(ctx context.Context, device models.
 
 	// Only attempt recovery if device reports a healthy status.
 	// Offline/error devices should not be re-added to the scheduler - they'll just fail again.
-	if status != mm.MinerStatusOffline && status != mm.MinerStatusError {
+	if result.status != mm.MinerStatusOffline && result.status != mm.MinerStatusError {
 		failed, failedAt, err := s.updateScheduler.IsFailedDevice(ctx, device.ID)
 		if err != nil {
 			slog.Warn("failed to check if device is failed", "deviceID", device.ID, "error", err)
 		} else if failed {
-			// Re-add with original failedAt timestamp so scheduler prioritizes it
-			// for immediate telemetry collection (stale devices are fetched first).
 			err := s.updateScheduler.AddDevices(ctx, models.Device{
 				ID:            device.ID,
 				LastUpdatedAt: failedAt,
@@ -1038,13 +1224,7 @@ func (s *TelemetryService) processStatusOnly(ctx context.Context, device models.
 
 	// Always send status to DB for UI visibility (even for offline devices)
 	select {
-	case results <- statusResult{
-		deviceIdentifier: device.ID,
-		status:           status,
-		orgID:            orgID,
-		siteID:           siteID,
-		driverName:       driverName,
-	}:
+	case results <- result:
 	case <-ctx.Done():
 		return
 	default:
@@ -1060,24 +1240,9 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context, activation *
 		flushInterval = defaultStatusFlushInterval
 	}
 
-	type pendingStatusUpdate struct {
-		status     mm.MinerStatus
-		orgID      int64
-		siteID     int64
-		driverName string
-	}
-	pendingUpdates := make(map[models.DeviceIdentifier]pendingStatusUpdate)
+	pendingUpdates := make(map[models.DeviceIdentifier]statusResult)
 	ticker := time.NewTicker(flushInterval)
 	defer ticker.Stop()
-
-	addPendingUpdate := func(result statusResult) {
-		pendingUpdates[result.deviceIdentifier] = pendingStatusUpdate{
-			status:     result.status,
-			orgID:      result.orgID,
-			siteID:     result.siteID,
-			driverName: result.driverName,
-		}
-	}
 
 	var flush func(flushCtx context.Context) statusFlushResult
 	drainReadyStatusResults := func(flushCtx context.Context) statusFlushResult {
@@ -1088,7 +1253,7 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context, activation *
 				if !ok {
 					return drainResult
 				}
-				addPendingUpdate(result)
+				pendingUpdates[result.deviceIdentifier] = result
 				if len(pendingUpdates) >= maxStatusBatchSize {
 					drainResult = mergeStatusFlushResults(drainResult, flush(flushCtx))
 				}
@@ -1106,7 +1271,8 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context, activation *
 
 		// Check current DB statuses to avoid overwriting firmware update states
 		// (UPDATING, REBOOT_REQUIRED) that are managed by the command execution service.
-		// REBOOT_REQUIRED persists until the user triggers a reboot command from Fleet.
+		// Reboot commands and telemetry with evidence of a later boot clear
+		// REBOOT_REQUIRED separately; ordinary health samples must not clear it.
 		deviceIDs := make([]models.DeviceIdentifier, 0, len(pendingUpdates))
 		for deviceID := range pendingUpdates {
 			deviceIDs = append(deviceIDs, deviceID)
@@ -1122,16 +1288,17 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context, activation *
 		statusUpdates := make([]stores.DeviceStatusUpdate, 0, len(pendingUpdates))
 		result.devices = make(map[models.DeviceIdentifier]bool)
 		for deviceID, pending := range pendingUpdates {
-			if currentStatuses != nil {
-				if currentStatus, ok := currentStatuses[deviceID]; ok {
-					if currentStatus == mm.MinerStatusUpdating || currentStatus == mm.MinerStatusRebootRequired {
-						continue
-					}
-				}
+			currentStatus, hasStatus := currentStatuses[deviceID]
+			firmwareStatusPending := hasStatus &&
+				(currentStatus == mm.MinerStatusUpdating || currentStatus == mm.MinerStatusRebootRequired)
+			s.firmwareStatusPending.Store(deviceID, firmwareStatusPending)
+			if firmwareStatusPending {
+				continue
 			}
 			statusUpdates = append(statusUpdates, stores.DeviceStatusUpdate{
 				DeviceIdentifier: deviceID,
 				Status:           pending.status,
+				OfflineConfirmed: pending.offlineConfirmed,
 			})
 			result.devices[deviceID] = true
 		}
@@ -1183,7 +1350,7 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context, activation *
 			if !ok {
 				return
 			}
-			addPendingUpdate(result)
+			pendingUpdates[result.deviceIdentifier] = result
 			if len(pendingUpdates) >= maxStatusBatchSize {
 				_ = flush(ctx)
 			}
@@ -1422,34 +1589,41 @@ func healthStatusToMinerStatus(health modelsV2.HealthStatus) (mm.MinerStatus, bo
 	return mm.MinerStatusOffline, true
 }
 
-// fetchStatusFromMiner gets the status from a miner device.
-// Connection errors are treated as a valid "offline" state and return (MinerStatusOffline, orgID, driver, nil).
-// Only non-connection errors (e.g., authentication failures) return an error.
-func (s *TelemetryService) fetchStatusFromMiner(ctx context.Context, deviceID models.DeviceIdentifier) (mm.MinerStatus, int64, string, int64, error) {
+// fetchStatusFromMiner gets the status from a miner device. Only a confirmed
+// device connection failure establishes unreachability. A successful status
+// call can return OFFLINE when the plugin translates unknown health.
+func (s *TelemetryService) fetchStatusFromMiner(ctx context.Context, deviceID models.DeviceIdentifier) (statusResult, error) {
+	result := statusResult{deviceIdentifier: deviceID, status: mm.MinerStatusUnknown}
+	var connectionErr fleeterror.ConnectionError
 	miner, err := s.minerManager.GetMinerFromDeviceIdentifier(ctx, deviceID)
 	if err != nil {
-		if fleeterror.IsConnectionError(err) {
-			orgID, driverName, siteID := s.resolveTrustedDeviceMetadata(ctx, deviceID)
-			return mm.MinerStatusOffline, orgID, driverName, siteID, nil
+		if errors.As(err, &connectionErr) {
+			result.orgID, result.driverName, result.siteID = s.resolveTrustedDeviceMetadata(ctx, deviceID)
+			result.status = mm.MinerStatusOffline
+			result.offlineConfirmed = connectionErr.DeviceProbeFailed
+			return result, nil
 		}
 		if fleeterror.IsAuthenticationError(err) {
 			s.minerManager.InvalidateMiner(deviceID)
 		}
-		return mm.MinerStatusUnknown, 0, "", 0, err
+		return result, err
 	}
-	orgID, driverName, siteID := miner.GetOrgID(), miner.GetDriverName(), miner.GetSiteID()
+	result.orgID, result.driverName, result.siteID = miner.GetOrgID(), miner.GetDriverName(), miner.GetSiteID()
 	status, err := miner.GetDeviceStatus(ctx)
 	err = withAuthenticationEndpoint(err, miner)
 	if err != nil {
-		if fleeterror.IsConnectionError(err) {
-			return mm.MinerStatusOffline, orgID, driverName, siteID, nil
+		if errors.As(err, &connectionErr) {
+			result.status = mm.MinerStatusOffline
+			result.offlineConfirmed = connectionErr.DeviceProbeFailed
+			return result, nil
 		}
 		if fleeterror.IsAuthenticationError(err) {
 			s.minerManager.InvalidateMiner(deviceID)
 		}
-		return mm.MinerStatusUnknown, orgID, driverName, siteID, err
+		return result, err
 	}
-	return status, orgID, driverName, siteID, nil
+	result.status = status
+	return result, nil
 }
 
 // resolveTrustedDeviceMetadata reads (org_id, driver_name, site_id) from the device store.
@@ -1479,10 +1653,14 @@ func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device mo
 
 	// This compatibility wrapper owns no in-flight claim, so it must not
 	// publish its fetch into another producer's flight.
-	return s.collectTelemetryFromDevice(ctx, device, activation.results.metrics, nil)
+	result, pollSuccess, err := s.collectTelemetryFromDevice(ctx, device, activation.results.metrics, nil)
+	if err != nil {
+		return mm.MinerStatusUnknown, false, result.orgID, result.driverName, result.siteID, pollSuccess, err
+	}
+	return result.status, result.hasStatus, result.orgID, result.driverName, result.siteID, pollSuccess, nil
 }
 
-func (s *TelemetryService) getTelemetryFromDevice(ctx context.Context, device models.Device, results chan<- metricsResult) (mm.MinerStatus, bool, int64, string, int64, bool, error) {
+func (s *TelemetryService) getTelemetryFromDevice(ctx context.Context, device models.Device, results chan<- metricsResult) (*deviceResult, bool, error) {
 	var expectedEntry *inFlightEntry
 	if current, ok := s.inFlight.Load(device.ID); ok {
 		expectedEntry, _ = current.(*inFlightEntry)
@@ -1490,7 +1668,7 @@ func (s *TelemetryService) getTelemetryFromDevice(ctx context.Context, device mo
 	return s.collectTelemetryFromDevice(ctx, device, results, expectedEntry)
 }
 
-func (s *TelemetryService) collectTelemetryFromDevice(ctx context.Context, device models.Device, results chan<- metricsResult, expectedEntry *inFlightEntry) (mm.MinerStatus, bool, int64, string, int64, bool, error) {
+func (s *TelemetryService) collectTelemetryFromDevice(ctx context.Context, device models.Device, results chan<- metricsResult, expectedEntry *inFlightEntry) (*deviceResult, bool, error) {
 	fetchCtx, cancel := context.WithTimeout(ctx, s.config.MetricTimeout)
 	defer cancel()
 
@@ -1499,14 +1677,11 @@ func (s *TelemetryService) collectTelemetryFromDevice(ctx context.Context, devic
 	// running persistence side effects (see sampling.go).
 	s.publishFlightSample(device.ID, expectedEntry, result, err)
 	if err != nil {
-		var orgID, siteID int64
-		var driverName string
-		if result != nil {
-			orgID, driverName, siteID = result.orgID, result.driverName, result.siteID
-		} else {
-			orgID, driverName, siteID = s.resolveTrustedDeviceMetadata(ctx, device.ID)
+		if result == nil {
+			orgID, driverName, siteID := s.resolveTrustedDeviceMetadata(ctx, device.ID)
+			result = &deviceResult{device: device, orgID: orgID, driverName: driverName, siteID: siteID}
 		}
-		return mm.MinerStatusUnknown, false, orgID, driverName, siteID, false, fmt.Errorf("failed to fetch telemetry from device ID %s: %w", device.ID, err)
+		return result, false, fmt.Errorf("failed to fetch telemetry from device ID %s: %w", device.ID, err)
 	}
 
 	pollSuccess := result.metricsErr == nil
@@ -1524,20 +1699,24 @@ func (s *TelemetryService) collectTelemetryFromDevice(ctx context.Context, devic
 			metrics:    result.metrics,
 		}:
 		case <-ctx.Done():
-			return mm.MinerStatusUnknown, false, result.orgID, result.driverName, result.siteID, pollSuccess, fmt.Errorf("context cancelled enqueueing metrics for device %s: %w", device.ID, ctx.Err())
+			return result, pollSuccess, fmt.Errorf("context cancelled enqueueing metrics for device %s: %w", device.ID, ctx.Err())
 		}
 
 		s.persistFirmwareVersionIfChanged(ctx, device.ID, result.metrics.FirmwareVersion)
 		s.reconcileDefaultPasswordState(ctx, device.ID, result.metrics.DefaultPasswordActive)
+		// A confirmed boot completes the reboot requirement independently of
+		// mining health. Ambiguous inactive health clears to UNKNOWN until
+		// processDevice's explicit status poll distinguishes idle from no pool.
+		s.reconcileRebootRequiredState(ctx, device.ID, result.metrics, result.status)
 	}
 
 	if err := s.updateScheduler.AddDevices(ctx, models.Device{
 		ID:            device.ID,
 		LastUpdatedAt: time.Now(),
 	}); err != nil {
-		return mm.MinerStatusUnknown, false, result.orgID, result.driverName, result.siteID, pollSuccess, fmt.Errorf("failed to update device last updated time for device %s: %w", device.ID, err)
+		return result, pollSuccess, fmt.Errorf("failed to update device last updated time for device %s: %w", device.ID, err)
 	}
-	return result.status, result.hasStatus, result.orgID, result.driverName, result.siteID, pollSuccess, nil
+	return result, pollSuccess, nil
 }
 func (s *TelemetryService) metricsWriterRoutine(ctx context.Context, activation *telemetryActivation) {
 	flushInterval := s.config.StatusFlushInterval
@@ -1554,19 +1733,7 @@ func (s *TelemetryService) metricsWriterRoutine(ctx context.Context, activation 
 			return metricsFlushResult{}
 		}
 		result := metricsFlushResult{deviceErrors: make(map[models.DeviceIdentifier]error)}
-		if err := s.telemetryDataStore.StoreDeviceMetrics(flushCtx, pending...); err != nil {
-			// The store wraps the batch in a single transaction, so one bad row fails
-			// the whole batch. Retry individually so only the offending sample is dropped.
-			slog.Warn("batch metrics write failed, retrying individually", "count", len(pending), "error", err)
-			for _, m := range pending {
-				if err := s.telemetryDataStore.StoreDeviceMetrics(flushCtx, m); err != nil {
-					slog.Error("failed to store device metrics", "device_id", m.DeviceIdentifier, "error", err)
-					deviceID := models.DeviceIdentifier(m.DeviceIdentifier)
-					result.err = errors.Join(result.err, err)
-					result.deviceErrors[deviceID] = errors.Join(result.deviceErrors[deviceID], err)
-				}
-			}
-		}
+		s.storeDeviceMetricsIsolatingFailures(flushCtx, pending, &result)
 		pending = pending[:0]
 		return result
 	}
@@ -1779,6 +1946,7 @@ func (s *TelemetryService) fetchCombinedMetrics(ctx context.Context, query model
 	hadExplicitDevices := len(query.DeviceIDs) > 0
 	if len(query.SiteIDs) > 0 || query.IncludeUnassigned {
 		identifiers, err := s.deviceStore.GetDeviceIdentifiersByOrgWithFilter(ctx, query.OrganizationID, &stores.MinerFilter{
+			IncludeContainers: true,
 			SiteIDs:           query.SiteIDs,
 			IncludeUnassigned: query.IncludeUnassigned,
 			// Resolve the same paired-like set the dashboard counts (PAIRED +

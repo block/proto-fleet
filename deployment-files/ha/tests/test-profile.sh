@@ -26,6 +26,14 @@ assert_not_contains() {
     fi
 }
 
+pinned_compose_image() {
+    local file="$1"
+    local image
+    image="$(awk '$1 == "image:" { print $2; exit }' "$file")"
+    [[ "$image" == *@sha256:* ]] || fail "${file} must pin its image by digest, found: ${image:-none}"
+    printf '%s\n' "$image"
+}
+
 render_fleet_profile() {
     local release_dir="$1"
     local profile="$2"
@@ -34,7 +42,7 @@ render_fleet_profile() {
         AUTH_CLIENT_SECRET_KEY=test-auth-secret
         DB_USERNAME=fleet
         DB_PASSWORD=test-db-password
-        DB_DSN=postgresql://fleet:test@10.40.0.11:5432/fleet
+        DB_DSN=postgresql://fleet@10.40.0.11:5432/fleet
         ENCRYPT_SERVICE_MASTER_KEY=test-master-key
         GRAFANA_ADMIN_PASSWORD=test-grafana-admin-password
         GRAFANA_DB_PASSWORD=test-grafana-db-password
@@ -104,6 +112,7 @@ test_compose_uses_one_host_identity() {
     assert_not_contains "$rendered" "127.0.0.1"
     assert_contains "$rendered" "https://10.40.0.11:2379"
     assert_contains "$rendered" "https://10.40.0.11:2380"
+    assert_contains "$rendered" 'com.datadoghq.ad.logs: '\''[{"source":"postgresql","service":"proto-fleet-timescaledb-ha"}]'\'''
     assert_contains "$rendered" "auth-token=jwt"
     assert_contains "$rendered" "--peer-client-cert-auth=true"
     assert_contains "$rendered" "--auto-compaction-mode=periodic"
@@ -124,8 +133,12 @@ test_patroni_contract() {
     assert_contains "$template" "sslmode: verify-full"
     assert_contains "$template" 'post_bootstrap: /usr/local/bin/patroni-post-bootstrap'
     assert_contains "$template" 'hostssl fleet grafana_ha_ro ${HA_DB_A_IP}/32 scram-sha-256'
+    assert_contains "$template" 'hostssl fleet fleet_metrics_ro ${HA_DB_A_IP}/32 scram-sha-256'
+    assert_contains "$template" 'hostssl fleet fleet_metrics_ro ${HA_DB_B_IP}/32 scram-sha-256'
     assert_not_contains "$template" "0.0.0.0/0"
     assert_contains "$entrypoint" "render-patroni-config"
+    assert_contains "$entrypoint" 'exec gosu postgres start-patroni "${run_dir}/patroni.yml"'
+    assert_contains "$dockerfile" 'COPY scripts/start-patroni.py /usr/local/bin/start-patroni'
     assert_contains "$bootstrap" 'psql --dbname="$connection_url" --set=ON_ERROR_STOP=1'
     assert_contains "$bootstrap" 'CREATE ROLE grafana_ha_ro LOGIN PASSWORD'
     assert_not_contains "$bootstrap" 'GRANT SELECT ON ALL TABLES'
@@ -144,7 +157,7 @@ test_patroni_contract() {
 }
 
 test_fleet_ha_contract() {
-    local rendered release_dir secret_mount_count
+    local rendered release_dir secret_mount_count grafana_image collector_image
     local ha_rules="${HA_DIR}/../../server/monitoring/grafana/ha/proto-fleet-ha-rules.yaml"
     local notification_policies="${HA_DIR}/../../server/monitoring/grafana/provisioning/alerting/notification-policies.yaml"
     rendered="$(mktemp)"
@@ -165,20 +178,35 @@ test_fleet_ha_contract() {
     cp "${HA_DIR}/../server/otel-collector-config.datadog.yaml" "${release_dir}/server/otel-collector-config.datadog.yaml"
     cp -r "${HA_DIR}/../../server/monitoring" "${release_dir}/server/monitoring"
 
-    UPDATES_ENABLED=true render_fleet_profile "$release_dir" base >"$rendered"
+    TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS= UPDATES_ENABLED=true render_fleet_profile "$release_dir" base >"$rendered"
 
     if grep -q '^  timescaledb:$' "$rendered"; then
         fail "HA Fleet targets must not include the standalone database service"
     fi
     assert_contains "$rendered" "HTTP_LISTEN_ADDRESS: 127.0.0.1:4000"
+    assert_contains "$rendered" 'DB_MAX_OPEN_CONNS: "500"'
+    assert_contains "$rendered" 'DB_MAX_IDLE_CONNS: "500"'
+    assert_contains "$rendered" 'DB_CONN_MAX_LIFETIME: 15m'
+    assert_contains "$rendered" "LOG_JSON: \"true\""
     assert_contains "$rendered" "UPDATES_ENABLED: \"false\""
+    assert_contains "$rendered" 'TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS: "false"'
     assert_contains "$rendered" "FLEET_HA_ENABLED: \"true\""
     assert_contains "$rendered" "https://10.40.0.11:2379,https://10.40.0.12:2379,https://10.40.0.13:2379"
     assert_contains "$rendered" "FLEET_HA_ENDPOINT_IP: 10.40.0.100"
     assert_contains "$rendered" "FLEET_HA_ENDPOINT_INTERFACE: eth0"
     assert_contains "$rendered" "FLEET_ALERTS_ENABLED: \"true\""
     assert_contains "$rendered" "FLEET_PUBLIC_URL: https://10.40.0.100"
-    assert_contains "$rendered" "sleep 15; exec /app/fleetd"
+    assert_contains "${HA_DIR}/fleet-compose.yaml" "else sleep 15; fi; exec /app/fleetd"
+    assert_contains "$rendered" "sleep 15"
+    assert_contains "$rendered" "source: /run/proto-fleet-ha/controlled-start"
+    assert_contains "$rendered" "target: /run/proto-fleet-controlled-start"
+    assert_contains "$rendered" "rm /run/proto-fleet-controlled-start/passive"
+    awk '
+        /source: \/run\/proto-fleet-ha\/controlled-start$/ { in_mount = 1; next }
+        in_mount && /read_only: true/ { exit 1 }
+        in_mount && /bind:/ { found = 1; exit }
+        END { exit !found }
+    ' "$rendered" || fail "Fleet services must mount the controlled-start directory writable"
     [[ "$(grep -c 'restart: on-failure' "$rendered")" -eq 3 ]] ||
         fail "Fleet services must restart process failures without bypassing the systemd start gate"
     assert_contains "$rendered" "cap_drop:"
@@ -200,7 +228,8 @@ test_fleet_ha_contract() {
     assert_contains "$rendered" "GF_SERVER_HTTP_PORT: \"3030\""
     assert_contains "$rendered" "HA_DB_A_IP: 10.40.0.11"
     assert_contains "$rendered" "HA_DB_B_IP: 10.40.0.12"
-    assert_contains "$rendered" "image: grafana/grafana:13.0@sha256:e78917cdd3336d0d679d345b2e6d0f60a0fe85ed7ac3882b68f089fdb6ff2ace"
+    grafana_image="$(pinned_compose_image "${HA_DIR}/fleet-compose.alerts.yaml")"
+    assert_contains "$rendered" "image: ${grafana_image}"
     assert_contains "$rendered" "GRAFANA_DB_USERNAME: grafana_ha_ro"
     assert_contains "$rendered" "FLEET_ALERTS_GRAFANA_PASSWORD: test-grafana-admin-password"
     assert_contains "$rendered" "target: /etc/grafana/provisioning/alerting/proto-fleet-ha-rules.yaml"
@@ -222,7 +251,8 @@ test_fleet_ha_contract() {
     secret_mount_count="$(grep -c 'source: /etc/proto-fleet/ha/' "$rendered")"
     [[ "$secret_mount_count" -eq 7 ]] || fail "Fleet services must mount only their required HA secret files"
 
-    render_fleet_profile "$release_dir" disabled >"$rendered"
+    TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS=true render_fleet_profile "$release_dir" disabled >"$rendered"
+    assert_contains "$rendered" 'TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS: "true"'
     assert_not_contains "$rendered" "grafana:"
     assert_not_contains "$rendered" "grafana-data"
     assert_not_contains "$rendered" "FLEET_ALERTS_GRAFANA_PASSWORD"
@@ -240,7 +270,8 @@ test_fleet_ha_contract() {
         f && /^      otel-collector:$/ { exit 1 }
     ' "$rendered" || fail "HA tracing collector must not gate Fleet startup"
     assert_contains "$rendered" 'published: "13133"'
-    assert_contains "$rendered" "image: otel/opentelemetry-collector-contrib:0.150.1@sha256:a516c26968aa1feb5e5fc0562e3338ea13755cb4f373603226bcc4e276374ad0"
+    collector_image="$(pinned_compose_image "${HA_DIR}/fleet-compose.tracing.yaml")"
+    assert_contains "$rendered" "image: ${collector_image}"
     assert_contains "${release_dir}/server/otel-collector-config.datadog.yaml" "fail_on_invalid_key: true"
     assert_contains "$rendered" "target: /etc/grafana/provisioning/alerting/proto-fleet-system-rules.yaml"
     awk '
@@ -252,7 +283,8 @@ test_fleet_ha_contract() {
     assert_not_contains "$rendered" "source: ${release_dir}/ssl"
     assert_not_contains "$rendered" "/run/proto-fleet-updater"
 
-    render_fleet_profile "$release_dir" external >"$rendered"
+    TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS=false render_fleet_profile "$release_dir" external >"$rendered"
+    assert_contains "$rendered" 'TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS: "false"'
     assert_contains "$rendered" "FLEET_HA_ENDPOINT_MODE: external"
     assert_contains "$rendered" "FLEET_HA_ENDPOINT_NODE_IP: 10.40.0.11"
     assert_contains "$rendered" 'FLEET_HA_ENDPOINT_IP: ""'

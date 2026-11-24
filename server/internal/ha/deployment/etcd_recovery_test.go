@@ -19,6 +19,7 @@ import (
 )
 
 // Opt-in: a disposable, loopback-only instance of the exact shipped etcd image.
+// The server checks workflow sets the variable for the shard that holds this package.
 // No host runtime or credentials are used.
 func TestEtcdRootRecoverySmoke(t *testing.T) {
 	if os.Getenv("PROTO_FLEET_ETCD_RECOVERY_SMOKE") != "1" {
@@ -31,11 +32,16 @@ func TestEtcdRootRecoverySmoke(t *testing.T) {
 	require.NoError(t, err)
 	image := regexp.MustCompile(`image: (gcr.io/etcd-development/etcd:\S+)`).FindSubmatch(compose)
 	require.Len(t, image, 2)
-	output, err := exec.Command("docker", "run", "--rm", "-d", "-p", "127.0.0.1::2379", "-v", secrets+":/secrets:ro", string(image[1]),
+	run := exec.Command("docker", "run", "--rm", "-d", "-p", "127.0.0.1::2379", "-v", secrets+":/secrets:ro", string(image[1]),
 		"/usr/local/bin/etcd", "--data-dir=/tmp/etcd", "--listen-client-urls=https://0.0.0.0:2379", "--advertise-client-urls=https://127.0.0.1:2379",
 		"--cert-file=/secrets/etcd-server.crt", "--key-file=/secrets/etcd-server.key",
-		"--auth-token=jwt,pub-key=/secrets/etcd-jwt.pub,priv-key=/secrets/etcd-jwt.key,sign-method=RS256,ttl=10m").CombinedOutput()
-	require.NoError(t, err, string(output))
+		"--auth-token=jwt,pub-key=/secrets/etcd-jwt.pub,priv-key=/secrets/etcd-jwt.key,sign-method=RS256,ttl=10m")
+	// Standard output holds only the container ID. A first run also pulls the
+	// image and writes the pull progress to standard error.
+	var runErrors strings.Builder
+	run.Stderr = &runErrors
+	output, err := run.Output()
+	require.NoError(t, err, runErrors.String())
 	container := strings.TrimSpace(string(output))
 	t.Cleanup(func() { require.NoError(t, exec.Command("docker", "rm", "-f", container).Run()) })
 	port, err := exec.Command("docker", "port", container, "2379").Output()

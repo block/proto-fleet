@@ -1,7 +1,7 @@
 import { Fragment, type ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
 import {
@@ -9,8 +9,22 @@ import {
   type BuildingWithCounts,
   BuildingWithCountsSchema,
 } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import {
+  type Container,
+  ContainerHASchema,
+  ContainerSchema,
+  TankHealthSchema,
+} from "@/protoFleet/api/generated/containers/v1/containers_pb";
+import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { SiteSchema, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import type { ActiveSite } from "@/protoFleet/store/types/activeSite";
+
+beforeAll(() => {
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
+});
+afterAll(() => {
+  Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+});
 
 vi.mock("@/shared/components/Popover", () => ({
   PopoverProvider: ({ children }: { children: ReactNode }) => <Fragment>{children}</Fragment>,
@@ -29,7 +43,14 @@ vi.mock("@/shared/hooks/useClickOutside", () => ({
 }));
 
 vi.mock("@/protoFleet/api/clients", () => ({
-  fleetManagementClient: { listMinerStateSnapshots: vi.fn() },
+  containersClient: { getMiningStatus: vi.fn().mockResolvedValue({ mining: true }) },
+  miningGroupsClient: {
+    getState: vi.fn().mockResolvedValue({ supported: false, enabled: false }),
+  },
+  fleetManagementClient: {
+    listMinerStateSnapshots: vi.fn(),
+    deleteMiners: vi.fn().mockResolvedValue({ deletedCount: 1 }),
+  },
 }));
 
 vi.mock("@/protoFleet/api/useMinerCommand", () => ({
@@ -100,6 +121,8 @@ type EditBuildingCallback = (building: BuildingWithCounts) => void;
 
 const renderList = ({
   onEditBuilding,
+  onContainerUnpaired,
+  containers,
   selectedIds,
   onSelectedIdsChange,
   activeSite,
@@ -107,6 +130,8 @@ const renderList = ({
   routePath = "/fleet/buildings",
 }: {
   onEditBuilding?: EditBuildingCallback;
+  onContainerUnpaired?: (deviceIdentifier: string) => void;
+  containers?: Container[];
   selectedIds?: string[];
   onSelectedIdsChange?: (ids: string[]) => void;
   activeSite?: ActiveSite;
@@ -122,6 +147,8 @@ const renderList = ({
             <>
               <BuildingList
                 buildings={[makeBuilding(42, "Alpha", 7)]}
+                containers={containers}
+                onContainerUnpaired={onContainerUnpaired}
                 sites={[makeSite(7, "North")]}
                 onEditBuilding={onEditBuilding}
                 selectedIds={selectedIds}
@@ -132,6 +159,7 @@ const renderList = ({
             </>
           }
         />
+        <Route path="/containers/:id" element={<PathProbe />} />
         <Route path="/buildings/:id" element={<PathProbe />} />
         <Route path="/fleet/racks" element={<PathProbe />} />
         <Route path="/fleet/miners" element={<PathProbe />} />
@@ -220,4 +248,132 @@ describe("BuildingList row actions menu", () => {
 
     expect(onSelectedIdsChange).toHaveBeenCalledWith(["42"]);
   });
+});
+
+const container = create(ContainerSchema, {
+  deviceIdentifier: "42",
+  name: "A container",
+  site: { id: 7n, label: "North" },
+  hashrateHs: 100e12,
+  powerW: 1000000,
+  tanks: [create(TankHealthSchema, { position: 1, hashingCount: 14, attentionCount: 2 })],
+});
+
+describe("combined building and container rows", () => {
+  it("shows HA degraded before an HA report is available", () => {
+    renderList({ containers: [container] });
+    expect(screen.getByText("HA degraded")).toBeInTheDocument();
+  });
+  it.each([
+    { degraded: true, stale: false, warning: true },
+    { degraded: false, stale: true, warning: true },
+    { degraded: false, stale: false, warning: false },
+  ])("shows HA warning for $degraded / stale=$stale", ({ degraded, stale, warning }) => {
+    renderList({
+      containers: [create(ContainerSchema, { ...container, ha: create(ContainerHASchema, { degraded, stale }) })],
+    });
+    expect(screen.queryByText("HA degraded") !== null).toBe(warning);
+  });
+  it("opens container actions without navigating or offering miner-only commands", async () => {
+    const onContainerUnpaired = vi.fn();
+    renderList({ containers: [container], onContainerUnpaired });
+    fireEvent.click(screen.getByRole("button", { name: "Actions for A container" }));
+    expect(await screen.findByRole("button", { name: "Sleep container" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Wake container" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reboot miners" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Unpair" }));
+    expect(screen.getByTestId("container-unpair-dialog")).toHaveTextContent("Unpair A container?");
+    fireEvent.click(within(screen.getByTestId("container-unpair-dialog")).getByRole("button", { name: "Unpair" }));
+    await waitFor(() => expect(onContainerUnpaired).toHaveBeenCalledExactlyOnceWith(container.deviceIdentifier));
+    expect(screen.getByTestId("probe-path")).toHaveTextContent("/fleet/buildings");
+  });
+  it("sorts both types together and shares columns and a count", () => {
+    renderList({ containers: [container] });
+    const rows = screen.getAllByTestId("list-row");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("A container");
+    expect(rows[1]).toHaveTextContent("Alpha");
+    expect(screen.getByText("2 buildings")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("North")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("16")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("1")).toBeInTheDocument();
+    expect(within(rows[0]).getByRole("img", { name: /14 healthy, 2 need attention/ })).toBeInTheDocument();
+    fireEvent.click(within(rows[0]).getByText("A container"));
+    expect(screen.getByTestId("probe-path")).toHaveTextContent("/containers/42");
+  });
+
+  it("keeps containers out of building bulk actions even when IDs overlap", () => {
+    const onSelectedIdsChange = vi.fn();
+    renderList({ containers: [container], selectedIds: [], onSelectedIdsChange });
+    const rows = screen.getAllByTestId("list-row");
+    const containerCheckbox = rows[0].querySelector("input[type=checkbox]");
+    if (containerCheckbox) expect(containerCheckbox).toBeDisabled();
+    fireEvent.click(rows[1].querySelector("input[type=checkbox]")!);
+    expect(onSelectedIdsChange).toHaveBeenCalledWith(["42"]);
+  });
+
+  it("does not display stale container readings as current health or metrics", () => {
+    renderList({ containers: [{ ...container, stale: true }] });
+    const row = screen.getAllByTestId("list-row")[0];
+    expect(within(row).getByText("Readings unavailable or stale")).toBeInTheDocument();
+    expect(within(row).queryByRole("img", { name: /healthy/ })).not.toBeInTheDocument();
+    expect(within(row).queryByText(/TH\/S|MW/)).not.toBeInTheDocument();
+  });
+});
+
+it("opens native details without a controller web view", () => {
+  const open = vi.spyOn(window, "open").mockImplementation(() => null);
+  renderList({ containers: [{ ...container }] });
+  fireEvent.click(screen.getByText("A container"));
+  expect(open).not.toHaveBeenCalled();
+  expect(screen.getByTestId("probe-path")).toHaveTextContent("/containers/42");
+  open.mockRestore();
+});
+
+it.each([false, true])("pages mixed facilities beyond 100 rows (selection enabled: %s)", (selectable) => {
+  const onNextPage = vi.fn();
+  const onPrevPage = vi.fn();
+  const buildings = Array.from({ length: 99 }, (_, i) => makeBuilding(i + 1, `Building ${i + 1}`, 7));
+  const lastBuilding = makeBuilding(100, "Last building", 7);
+  const firstItems = [
+    create(InventoryItemSchema, {
+      ref: { kind: EntityKind.CONTAINER, id: 42n },
+      deviceIdentifier: container.deviceIdentifier,
+    }),
+    ...buildings.map((row) =>
+      create(InventoryItemSchema, { ref: { kind: EntityKind.BUILDING, id: row.building!.id } }),
+    ),
+  ];
+  const page = (currentPage: number) => (
+    <MemoryRouter>
+      <BuildingList
+        buildings={currentPage ? [lastBuilding] : buildings}
+        containers={currentPage ? [] : [container]}
+        inventoryItems={
+          currentPage ? [create(InventoryItemSchema, { ref: { kind: EntityKind.BUILDING, id: 100n } })] : firstItems
+        }
+        sites={[]}
+        total={101}
+        currentPage={currentPage}
+        hasNextPage={currentPage === 0}
+        hasPreviousPage={currentPage > 0}
+        onNextPage={onNextPage}
+        onPrevPage={onPrevPage}
+        selectedIds={selectable ? [] : undefined}
+        onSelectedIdsChange={selectable ? () => undefined : undefined}
+      />
+    </MemoryRouter>
+  );
+  const { rerender } = render(page(0));
+  expect(screen.getAllByTestId("list-row")).toHaveLength(100);
+  expect(screen.getByText("Showing 1–100 of 101 facilities")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Previous page" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+  expect(onNextPage).toHaveBeenCalledOnce();
+  rerender(page(1));
+  expect(screen.getByText("Last building")).toBeVisible();
+  expect(screen.getByText("Showing 101–101 of 101 facilities")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Previous page" }));
+  expect(onPrevPage).toHaveBeenCalledOnce();
 });

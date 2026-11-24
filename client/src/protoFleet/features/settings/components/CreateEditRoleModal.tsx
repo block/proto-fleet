@@ -25,6 +25,16 @@ interface CreateEditRoleModalProps {
 
 const DESCRIPTION_MAX_LENGTH = 1024;
 
+const showSaveError = (message: string) => {
+  const grantDenied = /^cannot grant \S+: caller does not hold this permission at org scope$/.test(message);
+  pushToast({
+    message: grantDenied
+      ? "You don't have permission to save these changes."
+      : message || "Couldn't save this role. Please try again.",
+    status: STATUSES.error,
+  });
+};
+
 // Groups start collapsed so the catalog reads as a compact list. When editing,
 // groups that already grant something open by default so current access is
 // visible at a glance.
@@ -135,7 +145,6 @@ const CreateEditRoleModalForm = ({
     () => new Set((role?.permissions ?? []).filter((key) => visibleKeys.has(key))),
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errorMsg, setErrorMsg] = useState("");
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(() =>
     collapsedFor(role?.permissions ?? [], permissionGroups),
@@ -146,7 +155,6 @@ const CreateEditRoleModalForm = ({
   const allResources = useMemo(() => permissionGroups.map((group) => group.resource), [permissionGroups]);
 
   const toggleKey = useCallback((key: string, checked: boolean) => {
-    setErrorMsg("");
     setExplicit((prev) => {
       const next = new Set(prev);
       if (checked) next.add(key);
@@ -156,7 +164,6 @@ const CreateEditRoleModalForm = ({
   }, []);
 
   const toggleGroup = useCallback((keys: string[], checked: boolean) => {
-    setErrorMsg("");
     setExplicit((prev) => {
       const next = new Set(prev);
       if (checked) keys.forEach((key) => next.add(key));
@@ -179,16 +186,15 @@ const CreateEditRoleModalForm = ({
 
   const handleSave = useCallback(() => {
     if (!name.trim()) {
-      setErrorMsg("Role name is required");
+      showSaveError("Role name is required");
       return;
     }
     if (selected.size === 0) {
-      setErrorMsg("Select at least one permission");
+      showSaveError("Select at least one permission");
       return;
     }
 
     setIsSubmitting(true);
-    setErrorMsg("");
     const permissions = [...selected];
     const trimmedName = name.trim();
     const trimmedDescription = description.trim();
@@ -202,7 +208,7 @@ const CreateEditRoleModalForm = ({
         onSuccess();
         onDismiss();
       },
-      onError: (message: string) => setErrorMsg(message || "Failed to save role. Please try again."),
+      onError: showSaveError,
       onFinally: () => setIsSubmitting(false),
     };
 
@@ -249,7 +255,6 @@ const CreateEditRoleModalForm = ({
   const gaps = useMemo(() => dependencyGaps(Array.from(selected)), [selected, dependencyGaps]);
   const hasGaps = gaps.required.length > 0 || gaps.chooseOneOf.length > 0;
   const addRequiredDeps = useCallback(() => {
-    setErrorMsg("");
     setExplicit((prev) => new Set([...prev, ...gaps.required]));
   }, [gaps.required]);
 
@@ -274,8 +279,6 @@ const CreateEditRoleModalForm = ({
         },
       ]}
     >
-      {errorMsg ? <Callout className="mb-6" intent="danger" prefixIcon={<Alert />} title={errorMsg} /> : null}
-
       <div className="mb-4">
         <Input
           id="role-name"

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { action } from "storybook/actions";
 import { emptyPoolInfo } from "./constants";
 import PoolModal from "./PoolModal";
-import type { PoolInfo } from "./types";
+import type { PoolInfo } from "@/shared/types/pool";
 
 export default {
   title: "Shared/MiningPools/PoolModal",

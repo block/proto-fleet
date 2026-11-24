@@ -218,7 +218,7 @@ describe("Firmware", () => {
     const { queryByText } = render(<Firmware />);
 
     await waitFor(() => {
-      expect(queryByText("Delete all")).not.toBeInTheDocument();
+      expect(queryByText("Delete all firmware files")).not.toBeInTheDocument();
     });
   });
 
@@ -228,7 +228,7 @@ describe("Firmware", () => {
     const { getByText } = render(<Firmware />);
 
     await waitFor(() => {
-      const deleteAllButton = getByText("Delete all").closest("button");
+      const deleteAllButton = getByText("Delete all firmware files").closest("button");
       expect(deleteAllButton).not.toBeDisabled();
     });
   });
@@ -311,20 +311,6 @@ describe("Firmware", () => {
     expect(mockListFirmwareFiles).not.toHaveBeenCalled();
   });
 
-  it("opens delete-all dialog when Delete all button is clicked", async () => {
-    mockListFirmwareFiles.mockResolvedValue(sampleFiles);
-
-    const { getByText } = render(<Firmware />);
-
-    await waitFor(() => {
-      expect(getByText("alpha.swu")).toBeInTheDocument();
-    });
-
-    fireEvent.click(getByText("Delete all"));
-
-    expect(getByText("Delete all firmware files?")).toBeInTheDocument();
-  });
-
   it("calls deleteAllFirmwareFiles on dialog confirm", async () => {
     mockListFirmwareFiles.mockResolvedValue(sampleFiles);
     mockDeleteAllFirmwareFiles.mockResolvedValue({ deleted_count: 2 });
@@ -335,7 +321,7 @@ describe("Firmware", () => {
       expect(getByText("alpha.swu")).toBeInTheDocument();
     });
 
-    fireEvent.click(getByText("Delete all"));
+    fireEvent.click(getByText("Delete all firmware files"));
 
     await waitFor(() => {
       expect(getByText("Delete all firmware files?")).toBeInTheDocument();

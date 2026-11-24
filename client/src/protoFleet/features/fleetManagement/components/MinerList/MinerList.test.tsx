@@ -3,11 +3,18 @@ import { BrowserRouter, MemoryRouter, useLocation, useNavigate } from "react-rou
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import userEvent from "@testing-library/user-event";
 
 import MinerList from "./MinerList";
 import { getMinerTableColumnPreferencesStorageKey } from "./minerTableColumnPreferences";
 import useMinerTableColumnPreferences from "./useMinerTableColumnPreferences";
+import { fleetInventoryClient } from "@/protoFleet/api/clients";
+import {
+  EntityKind,
+  GetModuleHashboardsResponseSchema,
+  InventoryItemSchema,
+} from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import {
   type MinerStateSnapshot,
   MinerStateSnapshotSchema,
@@ -20,7 +27,7 @@ import { useFleetStore } from "@/protoFleet/store";
 const { mockMinerListActionBar } = vi.hoisted(() => ({
   mockMinerListActionBar: vi.fn(
     ({
-      selectedMiners,
+      selectedKeys,
       selectionMode,
       totalCount,
       filtersActive,
@@ -28,14 +35,16 @@ const { mockMinerListActionBar } = vi.hoisted(() => ({
       onSelectAll,
       onSelectNone,
     }: {
-      selectedMiners: string[];
+      selectedKeys: string[];
       selectionMode: string;
       totalCount?: number;
       filtersActive?: boolean;
       selectionIncludesUnauthenticatedMiner?: boolean;
       onSelectAll?: () => void;
       onSelectNone?: () => void;
+      onRefetchMiners?: () => void;
     }) => {
+      const selectedMiners = selectedKeys.map((key) => (key.startsWith("miner:") ? key.slice("miner:".length) : key));
       if (selectionMode === "none" && selectedMiners.length === 0) {
         return null;
       }
@@ -235,6 +244,569 @@ describe("MinerList", () => {
         permissions: [],
       },
     }));
+  });
+
+  it("opens the native module route from the Miners list", () => {
+    renderMinerList(
+      {
+        onAddMiners: vi.fn(),
+        minerIds: [],
+        totalMiners: 1,
+        inventoryItems: [
+          create(InventoryItemSchema, {
+            ref: { kind: EntityKind.MODULE, id: 91n },
+            name: "CT1 module",
+            deviceIdentifier: "ct1",
+            ancestors: [{ kind: EntityKind.TANK, id: 81n }],
+          }),
+        ],
+      },
+      ["/fleet/miners"],
+    );
+    fireEvent.click(screen.getByText("CT1 module"));
+    expect(screen.getByTestId("path-display")).toHaveTextContent("/containers/ct1/tanks/81/modules/91");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("keeps modules in server order and selects exact module and miner identities", () => {
+    const miner = createMinerSnapshot("A miner");
+    renderMinerList({
+      onAddMiners: vi.fn(),
+      minerIds: ["A miner"],
+      miners: { "A miner": miner },
+      totalMiners: 2,
+      inventoryMinerCount: 1,
+      inventoryItems: [
+        create(InventoryItemSchema, { ref: { kind: EntityKind.MODULE, id: 1n }, name: "Z module", hashrateThs: 300 }),
+        create(InventoryItemSchema, {
+          ref: { kind: EntityKind.MINER, id: 1n },
+          deviceIdentifier: "A miner",
+          details: { case: "miner", value: miner },
+        }),
+      ],
+    });
+    const body = screen.getByTestId("list-body");
+    expect(body.textContent!.indexOf("Z module")).toBeLessThan(body.textContent!.indexOf("A miner"));
+    expect(body.querySelectorAll('input[type="checkbox"]:not(:disabled)')).toHaveLength(2);
+    expect(body.querySelectorAll('input[type="checkbox"]:disabled')).toHaveLength(0);
+    fireEvent.click(body.querySelector('input[type="checkbox"]:not(:disabled)')!);
+    expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent("module:1");
+    expect(screen.getByTestId("mock-miner-list-selected-miners")).not.toHaveTextContent("A miner");
+    expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("1");
+    expect(screen.getByRole("button", { name: "Export miners CSV" })).toBeInTheDocument();
+  });
+
+  it.each([false, true])("removes vanished modules from the selection after refresh (mixed: %s)", (mixed) => {
+    const miner = createMinerSnapshot("miner-a");
+    const module = create(InventoryItemSchema, { ref: { kind: EntityKind.MODULE, id: 1n }, name: "Module" });
+    const minerItem = create(InventoryItemSchema, {
+      ref: { kind: EntityKind.MINER, id: 2n },
+      deviceIdentifier: miner.deviceIdentifier,
+      details: { case: "miner", value: miner },
+    });
+    const props = {
+      onAddMiners: vi.fn(),
+      minerIds: mixed ? [miner.deviceIdentifier] : [],
+      miners: mixed ? { [miner.deviceIdentifier]: miner } : {},
+      errorsByDevice: {},
+      errorsLoaded: true,
+      getActiveBatches: mockGetActiveBatches,
+    };
+    const view = (includeModule: boolean) => (
+      <BrowserRouter>
+        <MinerList {...props} inventoryItems={[...(includeModule ? [module] : []), ...(mixed ? [minerItem] : [])]} />
+      </BrowserRouter>
+    );
+    const { rerender } = render(view(true));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select module:1" }));
+    fireEvent.click(screen.getByTestId("mock-action-bar-select-all"));
+    expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent(mixed ? "2" : "1");
+
+    rerender(view(false));
+    if (mixed) {
+      expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("1");
+      expect(mockMinerListActionBar).toHaveBeenLastCalledWith(
+        expect.objectContaining({ selectedKeys: ["miner:miner-a"], modules: [], selectionMode: "subset" }),
+        undefined,
+      );
+    } else {
+      expect(screen.queryByTestId("mock-miner-list-action-bar")).not.toBeInTheDocument();
+    }
+
+    rerender(view(true));
+    expect(screen.getByRole("checkbox", { name: "Select module:1" })).not.toBeChecked();
+  });
+
+  it("keeps a module and a miner with a module-like identifier independently selectable", () => {
+    const miner = createMinerSnapshot("module:1", PairingStatus.AUTHENTICATION_NEEDED);
+    const module = create(InventoryItemSchema, { ref: { kind: EntityKind.MODULE, id: 1n }, name: "Module" });
+    const itemRef = vi.fn();
+    renderMinerList({
+      onAddMiners: vi.fn(),
+      minerIds: [miner.deviceIdentifier],
+      miners: { [miner.deviceIdentifier]: miner },
+      itemRef,
+      inventoryItems: [
+        module,
+        create(InventoryItemSchema, {
+          ref: { kind: EntityKind.MINER, id: 2n },
+          deviceIdentifier: miner.deviceIdentifier,
+          details: { case: "miner", value: miner },
+        }),
+      ],
+    });
+    const moduleCheckbox = screen.getByRole("checkbox", { name: "Select module:1" });
+    const minerCheckbox = screen.getByRole("checkbox", { name: "Select miner:module:1" });
+    expect(itemRef).toHaveBeenCalledWith("module:1", expect.any(HTMLTableRowElement));
+    expect(itemRef).not.toHaveBeenCalledWith("miner:module:1", expect.anything());
+
+    fireEvent.click(moduleCheckbox);
+    expect(moduleCheckbox).toBeChecked();
+    expect(minerCheckbox).not.toBeChecked();
+    expect(mockMinerListActionBar).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        selectedKeys: ["module:1"],
+        modules: [module],
+        selectionIncludesUnauthenticatedMiner: false,
+      }),
+      undefined,
+    );
+
+    fireEvent.click(minerCheckbox);
+    expect(moduleCheckbox).toBeChecked();
+    expect(minerCheckbox).toBeChecked();
+    expect(mockMinerListActionBar).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        selectedKeys: ["module:1", "miner:module:1"],
+        modules: [module],
+        selectionIncludesUnauthenticatedMiner: true,
+      }),
+      undefined,
+    );
+
+    fireEvent.click(moduleCheckbox);
+    expect(moduleCheckbox).not.toBeChecked();
+    expect(minerCheckbox).toBeChecked();
+    expect(mockMinerListActionBar).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        selectedKeys: ["miner:module:1"],
+        modules: [],
+        selectionIncludesUnauthenticatedMiner: true,
+      }),
+      undefined,
+    );
+
+    fireEvent.click(screen.getByTestId("mock-action-bar-select-all"));
+    expect(moduleCheckbox).toBeChecked();
+    expect(minerCheckbox).toBeChecked();
+    expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("2");
+  });
+
+  it.each([false, true])("keeps Select all page scoped when modules are present (mixed: %s)", (mixed) => {
+    const miner = createMinerSnapshot("miner-a");
+    const module = create(InventoryItemSchema, { ref: { kind: EntityKind.MODULE, id: 1n }, name: "Module" });
+    renderMinerList({
+      onAddMiners: vi.fn(),
+      minerIds: mixed ? ["miner-a"] : [],
+      miners: mixed ? { "miner-a": miner } : {},
+      totalMiners: 200,
+      inventoryMinerCount: mixed ? 100 : 0,
+      inventoryItems: mixed
+        ? [
+            module,
+            create(InventoryItemSchema, {
+              ref: { kind: EntityKind.MINER, id: 2n },
+              deviceIdentifier: "miner-a",
+              details: { case: "miner", value: miner },
+            }),
+          ]
+        : [module],
+    });
+    fireEvent.click(screen.getByTestId("list-body").querySelector('input[type="checkbox"]')!);
+    fireEvent.click(screen.getByTestId("mock-action-bar-select-all"));
+
+    expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("subset");
+    expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent(mixed ? "2" : "1");
+    expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent(
+      mixed ? "module:1,miner-a" : "module:1",
+    );
+    expect(mockMinerListActionBar).toHaveBeenLastCalledWith(
+      expect.objectContaining({ selectAllOnPage: true, selectionMode: "subset", modules: [module] }),
+      undefined,
+    );
+  });
+
+  it("preserves all-miner scope when polling introduces module rows", () => {
+    const miner = createMinerSnapshot("miner-a");
+    const minerItem = create(InventoryItemSchema, {
+      ref: { kind: EntityKind.MINER, id: 1n },
+      deviceIdentifier: "miner-a",
+      details: { case: "miner", value: miner },
+    });
+    const module = create(InventoryItemSchema, { ref: { kind: EntityKind.MODULE, id: 2n }, name: "Module" });
+    const view = (withModule: boolean) => (
+      <BrowserRouter>
+        <MinerList
+          miners={{ "miner-a": miner }}
+          minerIds={["miner-a"]}
+          errorsByDevice={{}}
+          errorsLoaded
+          getActiveBatches={mockGetActiveBatches}
+          onAddMiners={vi.fn()}
+          totalMiners={withModule ? 101 : 100}
+          inventoryMinerCount={100}
+          inventoryItems={withModule ? [minerItem, module] : [minerItem]}
+        />
+      </BrowserRouter>
+    );
+    const { rerender } = render(view(false));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select miner:miner-a" }));
+    fireEvent.click(screen.getByTestId("mock-action-bar-select-all"));
+    expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("all");
+    rerender(view(true));
+    expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("all");
+    fireEvent.click(screen.getByTestId("mock-action-bar-select-all"));
+    expect(screen.getByRole("checkbox", { name: "Select module:2" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Select module:2" })).toBeDisabled();
+    expect(mockMinerListActionBar).toHaveBeenLastCalledWith(
+      expect.objectContaining({ selectionMode: "all", selectAllOnPage: false, modules: [], totalCount: 100 }),
+      undefined,
+    );
+  });
+
+  it("keeps an action's refresh callback alive while the list body is loading", () => {
+    const refresh = vi.fn();
+    const miner = createMinerSnapshot("miner-a");
+    const view = (loading: boolean) => (
+      <BrowserRouter>
+        <MinerList
+          miners={{ "miner-a": miner }}
+          minerIds={["miner-a"]}
+          onAddMiners={vi.fn()}
+          totalMiners={1}
+          onRefetchMiners={refresh}
+          loading={loading}
+          errorsByDevice={{}}
+          errorsLoaded
+          getActiveBatches={mockGetActiveBatches}
+        />
+      </BrowserRouter>
+    );
+    const { rerender } = render(view(false));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select miner:miner-a" }));
+    const complete = mockMinerListActionBar.mock.lastCall![0].onRefetchMiners;
+    rerender(view(true));
+    complete?.();
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it("keeps Select all page scoped when modules are only on other pages", () => {
+    const miner = createMinerSnapshot("miner-a");
+    renderMinerList({
+      onAddMiners: vi.fn(),
+      minerIds: ["miner-a"],
+      miners: { "miner-a": miner },
+      totalMiners: 200,
+      inventoryMinerCount: 100,
+      inventoryItems: [
+        create(InventoryItemSchema, {
+          ref: { kind: EntityKind.MINER, id: 1n },
+          deviceIdentifier: "miner-a",
+          details: { case: "miner", value: miner },
+        }),
+      ],
+    });
+    fireEvent.click(screen.getByTestId("list-body").querySelector('input[type="checkbox"]')!);
+    fireEvent.click(screen.getByTestId("mock-action-bar-select-all"));
+
+    expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("subset");
+    expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("1");
+    expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent("miner-a");
+    expect(mockMinerListActionBar).toHaveBeenLastCalledWith(
+      expect.objectContaining({ selectAllOnPage: true, selectionMode: "subset", modules: [] }),
+      undefined,
+    );
+  });
+
+  it("expands a module by keyboard into three read-only slots and preserves expansion through refresh", async () => {
+    const user = userEvent.setup();
+    const fetch = vi.spyOn(fleetInventoryClient, "getModuleHashboards").mockResolvedValue(
+      create(GetModuleHashboardsResponseSchema, {
+        modules: [
+          {
+            moduleId: 7n,
+            slots: [
+              {
+                position: 1,
+                occupancy: "occupied",
+                board: { hashboardId: 20n, state: "hashing", serial: "board-A", hashrateHs: 100e12 },
+              },
+              { position: 2, occupancy: "empty" },
+              { position: 3, occupancy: "unknown" },
+            ],
+          },
+        ],
+      }),
+    );
+    const inventoryItems = [
+      create(InventoryItemSchema, { ref: { kind: EntityKind.MODULE, id: 7n }, name: "Module 7" }),
+    ];
+    const props = {
+      minerIds: [],
+      miners: {},
+      errorsByDevice: {},
+      errorsLoaded: true,
+      getActiveBatches: mockGetActiveBatches,
+      onAddMiners: vi.fn(),
+      totalMiners: 1,
+      inventoryMinerCount: 0,
+      inventoryItems,
+    };
+    const NavigationControls = () => {
+      const navigate = useNavigate();
+      return (
+        <>
+          <button onClick={() => navigate("?page=2")}>Next test page</button>
+          <button onClick={() => navigate(-1)}>Back test page</button>
+        </>
+      );
+    };
+    const { rerender } = render(
+      <MemoryRouter>
+        <MinerList {...props} />
+        <NavigationControls />
+      </MemoryRouter>,
+    );
+    const button = screen.getByRole("button", { name: "Expand hashboards for Module 7" });
+    button.focus();
+    await user.keyboard("{Enter}");
+    await screen.findByText("Hashboard 1 - board-A");
+    expect(screen.getAllByTestId("list-child-row")).toHaveLength(3);
+    expect(screen.getByText("Empty slot")).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("row", { name: "Hashboard 3 in Module 7" })).getByText("Unavailable"),
+    ).toBeInTheDocument();
+    for (const row of screen.getAllByTestId("list-child-row")) expect(within(row).queryByRole("checkbox")).toBeNull();
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    expect(fetch.mock.calls[0][0]).toEqual({ moduleIds: [7n] });
+    rerender(
+      <MemoryRouter>
+        <MinerList {...props} inventoryItems={[...inventoryItems]} />
+        <NavigationControls />
+      </MemoryRouter>,
+    );
+    expect(screen.getAllByTestId("list-child-row")).toHaveLength(3);
+    await user.click(screen.getByRole("button", { name: "Collapse hashboards for Module 7" }));
+    expect(screen.queryAllByTestId("list-child-row")).toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "Expand hashboards for Module 7" }));
+    await screen.findByText("Hashboard 1 - board-A");
+    await user.click(screen.getByRole("button", { name: "Next test page" }));
+    expect(screen.queryAllByTestId("list-child-row")).toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "Back test page" }));
+    expect(screen.queryAllByTestId("list-child-row")).toHaveLength(0);
+    fetch.mockRestore();
+  });
+
+  it("renders loading, a single error and retry, while retaining other expanded boards", async () => {
+    const user = userEvent.setup();
+    let rejectLoad!: (reason: Error) => void;
+    let finishBatch!: (value: ReturnType<typeof create<typeof GetModuleHashboardsResponseSchema>>) => void;
+    const response = (serial: string) =>
+      create(GetModuleHashboardsResponseSchema, {
+        modules: [
+          {
+            moduleId: 7n,
+            slots: [
+              {
+                position: 1,
+                occupancy: "occupied",
+                board: {
+                  hashboardId: serial === "board-A" ? 20n : 21n,
+                  serial,
+                  state: "hashing",
+                  health: { errors: [{ cause: "BOARD_FAULT" }] },
+                  issues: [
+                    {
+                      component: "hashboard",
+                      cause: "BOARD_FAULT",
+                      severity: "fault",
+                      observedAt: timestampFromDate(new Date()),
+                    },
+                  ],
+                  observedAt: timestampFromDate(new Date()),
+                },
+              },
+              { position: 2, occupancy: "unknown", unavailableReason: "identity_conflict" },
+              { position: 3, occupancy: "empty" },
+            ],
+          },
+        ],
+      });
+    const fetch = vi
+      .spyOn(fleetInventoryClient, "getModuleHashboards")
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectLoad = reject;
+          }),
+      )
+      .mockResolvedValueOnce(response("board-A"))
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishBatch = resolve;
+          }),
+      )
+      .mockResolvedValue(response("replacement-board"));
+    render(
+      <MemoryRouter>
+        <MinerList
+          minerIds={[]}
+          miners={{}}
+          errorsByDevice={{}}
+          errorsLoaded
+          getActiveBatches={mockGetActiveBatches}
+          onAddMiners={vi.fn()}
+          totalMiners={2}
+          inventoryMinerCount={0}
+          inventoryItems={[
+            create(InventoryItemSchema, { ref: { kind: EntityKind.MODULE, id: 7n }, name: "Module 7" }),
+            create(InventoryItemSchema, { ref: { kind: EntityKind.MODULE, id: 8n }, name: "Module 8" }),
+          ]}
+        />
+      </MemoryRouter>,
+    );
+    await user.click(screen.getByRole("button", { name: "Expand hashboards for Module 7" }));
+    const rows = screen.getAllByTestId("list-child-row");
+    expect(rows).toHaveLength(3);
+    for (const row of rows) expect(within(row).getByRole("status")).toHaveTextContent("Loading");
+    await act(async () => rejectLoad(new Error("offline")));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Hashboards unavailable");
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(within(rows[0]).getByRole("button", { name: "Retry hashboards" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Retry hashboards" }));
+    await screen.findByText("Hashboard 1 - board-A");
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByText("Board identity conflict")).toBeInTheDocument();
+    await user.click(screen.getByText("Hashboard 1 failure"));
+    const details = screen.getByTestId("module-issues");
+    expect(details).toHaveTextContent("Hashboard · Fault");
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    await user.click(screen.getByRole("button", { name: "Expand hashboards for Module 8" }));
+    expect(screen.getByText("Hashboard 1 - board-A")).toBeInTheDocument();
+    expect(screen.getByText("Hashboard 1 failure")).toBeInTheDocument();
+    expect(screen.getAllByTestId("list-child-row")).toHaveLength(6);
+    await act(async () => finishBatch(response("board-A")));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Hashboards unavailable");
+    expect(screen.getByText("Hashboard 1 - board-A")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Retry hashboards" }));
+    await screen.findByText("Hashboard 1 - replacement-board");
+    expect(screen.queryByText("Hashboard 1 - board-A")).not.toBeInTheDocument();
+    fetch.mockRestore();
+  });
+
+  it.each(["tank=7", "container=9", "container=9&container=10&tank=7"])(
+    "preserves ancestor scope when applying filters (%s)",
+    async (ancestor) => {
+      const user = userEvent.setup();
+      renderMinerList({ minerIds: ["miner"], totalMiners: 1, onAddMiners: vi.fn() }, [`/?${ancestor}`]);
+      await user.click(screen.getByRole("button", { name: "Add Filter" }));
+      await user.click(screen.getByText("Status", { exact: true, selector: "button *" }));
+      await user.click(screen.getByText("Offline", { exact: true }));
+      await waitFor(() => expect(screen.getByTestId("path-display")).toHaveTextContent("status=offline"));
+      ancestor.split("&").forEach((param) => expect(screen.getByTestId("path-display")).toHaveTextContent(param));
+    },
+  );
+
+  it("selects and clears containers while preserving tank, search, sort, and view state", async () => {
+    const user = userEvent.setup();
+    renderMinerList(
+      {
+        minerIds: ["miner"],
+        totalMiners: 1,
+        onAddMiners: vi.fn(),
+        availableContainers: [
+          { id: "9", label: "CT1 North" },
+          { id: "10", label: "CT1 South" },
+        ],
+      },
+      ["/?building=9&tank=7&search=module&sort=name&dir=asc&view=my-view"],
+    );
+    await user.click(screen.getByRole("button", { name: "Add Filter" }));
+    await user.click(screen.getByText("Buildings", { exact: true, selector: "button *" }));
+    await user.click(screen.getByText("CT1 North (Container)", { exact: true }));
+    await waitFor(() => expect(screen.getByTestId("path-display")).toHaveTextContent("container=9"));
+    expect(screen.getByTestId("path-display")).toHaveTextContent("tank=7");
+    expect(screen.getByTestId("path-display")).toHaveTextContent("search=module");
+    expect(screen.getByTestId("path-display")).toHaveTextContent("sort=name");
+    expect(screen.getByTestId("path-display")).toHaveTextContent("view=my-view");
+    await user.click(screen.getByRole("button", { name: "Clear Buildings filter" }));
+    await waitFor(() => expect(screen.getByTestId("path-display")).not.toHaveTextContent("container="));
+    expect(screen.getByTestId("path-display")).not.toHaveTextContent("building=");
+    expect(screen.getByTestId("path-display")).toHaveTextContent("tank=7");
+    expect(screen.getByTestId("path-display")).toHaveTextContent("search=module");
+  });
+
+  it("selects colliding tanks and racks in one selector and clears the whole category", async () => {
+    const user = userEvent.setup();
+    renderMinerList(
+      {
+        minerIds: ["miner"],
+        totalMiners: 1,
+        onAddMiners: vi.fn(),
+        availableTanks: [
+          { id: "7", label: "CT1 North T1 · North" },
+          { id: "8", label: "CT1 South T1 · South" },
+        ],
+      },
+      ["/?container=9&site=1&rack=7&search=module&sort=name&dir=asc&view=my-view"],
+    );
+    await user.click(screen.getByRole("button", { name: "Add Filter" }));
+    await user.click(screen.getByText("Racks", { exact: true, selector: "button *" }));
+    await user.click(screen.getByText("CT1 North T1 · North (Tank)", { exact: true }));
+    await waitFor(() => expect(screen.getByTestId("path-display")).toHaveTextContent("tank=7"));
+    await user.click(screen.getByText("CT1 South T1 · South (Tank)", { exact: true }));
+    await waitFor(() => expect(screen.getByTestId("path-display")).toHaveTextContent("tank=8"));
+    for (const param of [
+      "tank=7",
+      "container=9",
+      "site=1",
+      "rack=7",
+      "search=module",
+      "sort=name",
+      "dir=asc",
+      "view=my-view",
+    ]) {
+      expect(screen.getByTestId("path-display")).toHaveTextContent(param);
+    }
+    await user.click(screen.getByRole("button", { name: "Clear Racks filter" }));
+    await waitFor(() => expect(screen.getByTestId("path-display")).not.toHaveTextContent("tank="));
+    expect(screen.getByTestId("path-display")).not.toHaveTextContent("rack=");
+    for (const param of ["container=9", "site=1", "search=module", "sort=name", "dir=asc", "view=my-view"]) {
+      expect(screen.getByTestId("path-display")).toHaveTextContent(param);
+    }
+  });
+
+  it("restores tanks from the URL and keeps unavailable selections through unrelated filter changes", async () => {
+    const user = userEvent.setup();
+    renderMinerList(
+      {
+        minerIds: ["miner"],
+        totalMiners: 1,
+        onAddMiners: vi.fn(),
+        availableTanks: [{ id: "7", label: "CT1 North T1 · North" }],
+      },
+      ["/?tank=7&tank=999&container=9"],
+    );
+    expect(screen.getByRole("button", { name: "Clear Racks filter" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Add Filter" }));
+    await user.click(screen.getByText("Status", { exact: true, selector: "button *" }));
+    await user.click(screen.getByText("Offline", { exact: true }));
+    await waitFor(() => expect(screen.getByTestId("path-display")).toHaveTextContent("status=offline"));
+    for (const param of ["tank=7", "tank=999", "container=9"]) {
+      expect(screen.getByTestId("path-display")).toHaveTextContent(param);
+    }
   });
 
   const getColumnHeaders = () =>
@@ -442,6 +1014,42 @@ describe("MinerList", () => {
       expect(screen.getByTestId("manage-columns-reset-button").closest(".sticky")).toBeTruthy();
       expect(screen.getByTestId("manage-columns-save-button").closest(".sticky")).toBeTruthy();
       expect(screen.getByTestId("manage-columns-reorder-model").firstChild).toHaveClass("w-4", "h-4", "shrink-0");
+    });
+
+    it("omits the Allocated to toggle outside hosted roots and keeps its stored preference", async () => {
+      const user = userEvent.setup();
+      const key = getMinerTableColumnPreferencesStorageKey("alice");
+      localStorage.setItem(
+        key,
+        JSON.stringify({
+          columns: [
+            { id: "model", visible: true },
+            { id: "assignedAccount", visible: false },
+            { id: "groups", visible: true },
+          ],
+        }),
+      );
+      useFleetStore.setState((state) => ({ auth: { ...state.auth, username: "alice" } }));
+
+      renderMinerList({
+        title: "Miners",
+        minerIds: ["m1"],
+        totalMiners: 1,
+        onAddMiners: vi.fn(),
+        loading: false,
+      });
+
+      await user.click(screen.getByRole("button", { name: "Manage columns" }));
+      expect(screen.queryByRole("checkbox", { name: "Toggle Allocated to column" })).not.toBeInTheDocument();
+      await user.click(screen.getByRole("checkbox", { name: "Toggle Model column" }));
+      await user.click(screen.getByTestId("manage-columns-save-button"));
+
+      const saved = JSON.parse(localStorage.getItem(key) ?? "null").columns as { id: string; visible: boolean }[];
+      expect(saved.slice(0, 3)).toEqual([
+        { id: "model", visible: false },
+        { id: "assignedAccount", visible: false },
+        { id: "groups", visible: true },
+      ]);
     });
 
     it("saves hidden columns for the current user and reapplies them on rerender", async () => {
@@ -1118,6 +1726,68 @@ describe("MinerList", () => {
       await user.click(screen.getByTestId("mock-action-bar-select-none"));
       expect(screen.queryByTestId("mock-miner-list-action-bar")).not.toBeInTheDocument();
     });
+
+    it("resets full-result selection when a container is added through Buildings", async () => {
+      const user = userEvent.setup();
+      renderMinerList(
+        {
+          minerIds: ["m1", "m2"],
+          totalMiners: 37,
+          onAddMiners: vi.fn(),
+          availableContainers: [{ id: "9", label: "CT1 North" }],
+        },
+        ["/?building=7"],
+      );
+      await user.click(screen.getByTestId("list-header").querySelector('input[type="checkbox"]')!);
+      await user.click(screen.getByTestId("mock-action-bar-select-all"));
+      expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("all");
+      expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("37");
+
+      await user.click(screen.getByRole("button", { name: "Add Filter" }));
+      await user.click(screen.getByText("Buildings", { exact: true, selector: "button *" }));
+      await user.click(screen.getByText("CT1 North (Container)", { exact: true }));
+      await waitFor(() => expect(screen.getByTestId("path-display")).toHaveTextContent("container=9"));
+      expect(screen.getByTestId("path-display")).toHaveTextContent("building=7");
+      expect(screen.queryByTestId("mock-miner-list-action-bar")).not.toBeInTheDocument();
+
+      await user.click(screen.getByTestId("list-header").querySelector('input[type="checkbox"]')!);
+      expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("subset");
+      expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("2");
+      expect(screen.queryByTestId("mock-action-bar-select-all")).not.toBeInTheDocument();
+    });
+
+    it.each(["container=9", "tank=9"])(
+      "keeps bulk selection limited to displayed miner IDs for a mixed %s scope",
+      async (ct1Scope) => {
+        const user = userEvent.setup();
+        const visible = createMinerSnapshot("in-building");
+        const unplaced = createMinerSnapshot("fully-unplaced");
+        renderMinerList(
+          {
+            onAddMiners: vi.fn(),
+            minerIds: ["in-building"],
+            miners: { "in-building": visible, "fully-unplaced": unplaced },
+            totalMiners: 1,
+            inventoryMinerCount: 1,
+            inventoryItems: [
+              create(InventoryItemSchema, {
+                ref: { kind: EntityKind.MINER, id: 1n },
+                deviceIdentifier: "in-building",
+                details: { case: "miner", value: visible },
+              }),
+            ],
+            loading: false,
+          },
+          [`/?building=7&${ct1Scope}&rack=null`],
+        );
+        await user.click(screen.getByTestId("list-header").querySelector('input[type="checkbox"]')!);
+        expect(screen.queryByTestId("mock-action-bar-select-all")).not.toBeInTheDocument();
+        expect(screen.getByTestId("mock-action-bar-select-none")).toBeInTheDocument();
+        expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("subset");
+        expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent(/^in-building$/);
+        expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("1");
+      },
+    );
 
     it("disarms an all-mode selection on the first search keystroke, before the debounced filter applies", async () => {
       const user = userEvent.setup();

@@ -1,0 +1,729 @@
+syntax = "proto3";
+
+package hosted.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+// Reporting decimals are base-ten strings; exact values are lossless rational strings.
+// Business validation, authorization and result derivation belong to the server.
+
+message ReportingPeriod {
+  google.protobuf.Timestamp request_received_at = 1;
+  string request_ref = 2 [(buf.validate.field).string.max_len = 2000];
+  string kind = 3 [(buf.validate.field).string = {in: ["monthly", "quarterly", "annual", "ad_hoc"]}];
+  google.protobuf.Timestamp start = 4 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp end = 5 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp as_of = 6 [(buf.validate.field).required = true];
+  string timezone = 7 [(buf.validate.field).string.max_len = 2000];
+}
+
+message ReportingPrerequisite {
+  string key = 1 [(buf.validate.field).string = {in: ["G1", "G2", "G3", "G4", "G5"]}];
+  string owner = 2 [(buf.validate.field).string.max_len = 2000];
+  bool ready = 3;
+  string source_ref = 4 [(buf.validate.field).string.max_len = 2000];
+}
+
+message ReportingSource {
+  string id = 1 [(buf.validate.field).string.max_len = 2000];
+  string metric = 2 [(buf.validate.field).string = {in: ["meter", "pool", "hashrate", "host"]}];
+  bool certified = 3;
+  string source_ref = 4 [(buf.validate.field).string.max_len = 2000];
+}
+
+message ReportingRegisterCompleteness {
+  string kind = 1 [(buf.validate.field).string = {in: ["incidents", "obligations", "fees", "pool", "hashrate", "coverage"]}];
+  google.protobuf.Timestamp start = 2 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp end = 3 [(buf.validate.field).required = true];
+  string source_ref = 4 [(buf.validate.field).string.max_len = 2000];
+}
+
+message ReportingSchedule {
+ string owner_user_id = 1 [(buf.validate.field).string.uuid = true];
+ string source_ref = 2 [(buf.validate.field).string = {min_len: 1, max_len: 2000}];
+ google.protobuf.Timestamp monthly_start = 3;
+ google.protobuf.Timestamp quarterly_start = 4;
+ google.protobuf.Timestamp annual_start = 5;
+}
+
+message ReportingConfiguration {
+ ReportingSchedule schedule = 12;
+  repeated ReportingRegisterCompleteness registers = 1 [(buf.validate.field).repeated.max_items = 1000];
+  string contract_ref = 2 [(buf.validate.field).string.max_len = 2000];
+  string timezone = 3 [(buf.validate.field).string.max_len = 2000];
+  int32 reporting_year_month = 4 [(buf.validate.field).int32 = {gte: 1, lte: 12}];
+  int32 reporting_year_day = 5 [(buf.validate.field).int32 = {gte: 1, lte: 31}];
+  repeated string holidays = 6 [(buf.validate.field).repeated.max_items = 2000, (buf.validate.field).repeated.items.string.max_len = 2000];
+  repeated ReportingPrerequisite prerequisites = 7 [(buf.validate.field).repeated.max_items = 5];
+  repeated ReportingSource sources = 8 [(buf.validate.field).repeated.max_items = 100];
+  string delivery_channel = 9 [(buf.validate.field).string.max_len = 2000];
+  string shared_allocation_ref = 10 [(buf.validate.field).string.max_len = 2000];
+  repeated ReportingRepresentative representatives = 11 [(buf.validate.field).repeated.max_items = 200];
+}
+
+message ReportingRepresentative {
+  string user_id = 1 [(buf.validate.field).string.uuid = true];
+  bool can_submit = 2;
+  string source_ref = 3 [(buf.validate.field).string.max_len = 2000];
+}
+
+message ReportingOrder {
+  string id = 1 [(buf.validate.field).string.max_len = 2000];
+  string name = 2 [(buf.validate.field).string.max_len = 2000];
+  google.protobuf.Timestamp start = 3 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp end = 4;
+  string source_ref = 5 [(buf.validate.field).string.max_len = 2000];
+}
+
+message ReportingCoverageSegment {
+  string id = 1 [(buf.validate.field).string.max_len = 2000];
+  int64 allocation_interval_id = 2 [(buf.validate.field).int64.gte = 0];
+  int32 kind = 3 [(buf.validate.field).int32 = {in: [5, 6, 7]}];
+  int64 asset_id = 4 [(buf.validate.field).int64.gte = 0];
+  int64 site_id = 5 [(buf.validate.field).int64.gte = 0];
+  int64 container_id = 6 [(buf.validate.field).int64.gte = 0];
+  string order_id = 7 [(buf.validate.field).string.max_len = 2000];
+  google.protobuf.Timestamp start = 8 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp end = 9;
+  google.protobuf.Timestamp commissioned_at = 10;
+  string capacity_ths = 11 [(buf.validate.field).string.max_len = 2000];
+  string replacement_of = 12 [(buf.validate.field).string.max_len = 2000];
+  string source_ref = 13 [(buf.validate.field).string.max_len = 2000];
+}
+
+// Reviewed repair attribution, separate from performance/capacity coverage.
+message ReportingModuleCoverageSegment {
+  string id = 1 [(buf.validate.field).string.max_len = 2000];
+  int64 module_id = 2 [(buf.validate.field).int64.gt = 0];
+  int64 site_id = 3 [(buf.validate.field).int64.gt = 0];
+  int64 container_id = 4 [(buf.validate.field).int64.gt = 0];
+  string order_id = 5 [(buf.validate.field).string.max_len = 2000];
+  google.protobuf.Timestamp start = 6 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp end = 7 [(buf.validate.field).required = true];
+  repeated string board_coverage_ids = 8 [(buf.validate.field).repeated = {
+    min_items: 1, max_items: 3, unique: true,
+    items: {string: {min_len: 1, max_len: 2000}}
+  }];
+  bool whole_module = 9;
+  string source_ref = 10 [(buf.validate.field).string.max_len = 2000];
+}
+
+message ReportingMeterInterval {
+  string id = 1 [(buf.validate.field).string.max_len = 2000];
+  string meter_id = 2 [(buf.validate.field).string.max_len = 2000];
+  string source_id = 3 [(buf.validate.field).string.max_len = 2000];
+  int64 site_id = 4 [(buf.validate.field).int64.gte = 0];
+  int64 container_id = 5 [(buf.validate.field).int64.gte = 0];
+  string order_id = 6 [(buf.validate.field).string.max_len = 2000];
+  google.protobuf.Timestamp start = 7 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp end = 8 [(buf.validate.field).required = true];
+  string kwh = 9 [(buf.validate.field).string.max_len = 2000];
+  string quality = 10 [(buf.validate.field).string = {in: ["measured", "estimated", "missing", "reset"]}];
+  string source_ref = 11 [(buf.validate.field).string.max_len = 2000];
+  string allocation_fraction = 12 [(buf.validate.field).string.max_len = 2000];
+}
+
+message ReportingFeeLine {
+  string id = 1 [(buf.validate.field).string.max_len = 2000];
+  int64 site_id = 2 [(buf.validate.field).int64.gte = 0];
+  int64 container_id = 3 [(buf.validate.field).int64.gte = 0];
+  string order_id = 4 [(buf.validate.field).string.max_len = 2000];
+  google.protobuf.Timestamp start = 5 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp end = 6 [(buf.validate.field).required = true];
+  string amount = 7 [(buf.validate.field).string.max_len = 2000];
+  string currency = 8 [(buf.validate.field).string.max_len = 2000];
+  string source_ref = 9 [(buf.validate.field).string.max_len = 2000];
+}
+
+message ReportingIncident {
+  string id = 1 [(buf.validate.field).string.max_len = 2000];
+  int64 site_id = 2 [(buf.validate.field).int64.gte = 0];
+  int64 container_id = 3 [(buf.validate.field).int64.gte = 0];
+  string order_id = 4 [(buf.validate.field).string.max_len = 2000];
+  google.protobuf.Timestamp start = 5 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp end = 6;
+  google.protobuf.Timestamp as_of = 7 [(buf.validate.field).required = true];
+  string category = 8 [(buf.validate.field).string.max_len = 2000];
+  string summary = 9 [(buf.validate.field).string.max_len = 2000];
+  string root_cause = 10 [(buf.validate.field).string.max_len = 4000];
+  string exclusion_clause = 11 [(buf.validate.field).string.max_len = 2000];
+  string source_ref = 12 [(buf.validate.field).string.max_len = 2000];
+}
+
+message ReportingHashrateInterval {
+  string id = 1 [(buf.validate.field).string.max_len = 2000];
+  int64 asset_id = 2 [(buf.validate.field).int64.gte = 0];
+  int32 kind = 3 [(buf.validate.field).int32 = {in: [5, 6, 7]}];
+  int64 site_id = 4 [(buf.validate.field).int64.gte = 0];
+  int64 container_id = 5 [(buf.validate.field).int64.gte = 0];
+  string order_id = 6 [(buf.validate.field).string.max_len = 2000];
+  string source_id = 7 [(buf.validate.field).string.max_len = 2000];
+  google.protobuf.Timestamp start = 8 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp end = 9 [(buf.validate.field).required = true];
+  string hashrate_hs = 10 [(buf.validate.field).string.max_len = 2000];
+  bool complete = 11;
+  string source_ref = 12 [(buf.validate.field).string.max_len = 2000];
+}
+
+message ReportingPoolObservation {
+  string id = 1 [(buf.validate.field).string.max_len = 2000];
+  int64 asset_id = 2 [(buf.validate.field).int64.gte = 0];
+  int32 kind = 3 [(buf.validate.field).int32 = {in: [5, 6, 7]}];
+  string source_id = 4 [(buf.validate.field).string.max_len = 2000];
+  google.protobuf.Timestamp source_at = 5 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp received_at = 6 [(buf.validate.field).required = true];
+  string state = 7 [(buf.validate.field).string = {in: ["reporting", "failed", "unavailable", "unknown"]}];
+  string reason = 8 [(buf.validate.field).string.max_len = 2000];
+  string source_ref = 9 [(buf.validate.field).string.max_len = 2000];
+}
+
+message ReportingObligationInterval {
+  string id = 1 [(buf.validate.field).string.max_len = 2000];
+  string episode_id = 2 [(buf.validate.field).string.max_len = 2000];
+  int64 asset_id = 3 [(buf.validate.field).int64.gte = 0];
+  int32 kind = 4 [(buf.validate.field).int32 = {in: [6]}];
+  int64 site_id = 5 [(buf.validate.field).int64.gte = 0];
+  int64 container_id = 6 [(buf.validate.field).int64.gte = 0];
+  string order_id = 7 [(buf.validate.field).string.max_len = 2000];
+  google.protobuf.Timestamp start = 8 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp end = 9;
+  google.protobuf.Timestamp as_of = 10 [(buf.validate.field).required = true];
+  string severity = 11 [(buf.validate.field).string = {in: ["", "S1", "S2", "S3"]}];
+  string ticket_ref = 12 [(buf.validate.field).string.max_len = 2000];
+  google.protobuf.Timestamp ticket_at = 13;
+  google.protobuf.Timestamp submitted_at = 14;
+  google.protobuf.Timestamp received_at = 15 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp diagnosed_at = 16;
+  google.protobuf.Timestamp responded_at = 17;
+  google.protobuf.Timestamp approved_at = 18;
+  google.protobuf.Timestamp deadline = 19;
+  google.protobuf.Timestamp restored_at = 20;
+  google.protobuf.Timestamp closed_at = 21;
+  bool qualified = 22;
+  string source_ref = 23 [(buf.validate.field).string.max_len = 2000];
+}
+
+message ReportingContractResult {
+  string id = 1 [(buf.validate.field).string.max_len = 2000];
+  string metric = 2 [(buf.validate.field).string.max_len = 2000];
+  int64 site_id = 3 [(buf.validate.field).int64.gte = 0];
+  int64 container_id = 4 [(buf.validate.field).int64.gte = 0];
+  string order_id = 5 [(buf.validate.field).string.max_len = 2000];
+  google.protobuf.Timestamp start = 6 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp end = 7 [(buf.validate.field).required = true];
+  string value = 8 [(buf.validate.field).string.max_len = 2000];
+  string unit = 9 [(buf.validate.field).string.max_len = 2000];
+  string source_ref = 10 [(buf.validate.field).string.max_len = 2000];
+  string calculation_ref = 11 [(buf.validate.field).string.max_len = 2000];
+}
+
+enum ReportingFactKind {
+  REPORTING_FACT_KIND_UNSPECIFIED = 0;
+  REPORTING_FACT_KIND_ORDER = 1;
+  REPORTING_FACT_KIND_COVERAGE = 2;
+  REPORTING_FACT_KIND_MODULE_COVERAGE = 3;
+  REPORTING_FACT_KIND_METER = 4;
+  REPORTING_FACT_KIND_FEE = 5;
+  REPORTING_FACT_KIND_INCIDENT = 6;
+  REPORTING_FACT_KIND_HASHRATE = 7;
+  REPORTING_FACT_KIND_POOL_OBSERVATION = 8;
+  REPORTING_FACT_KIND_OBLIGATION = 9;
+  REPORTING_FACT_KIND_EXTERNAL_RESULT = 10;
+}
+
+// A typed fact value. The server derives identity, scope and indexed projections.
+message ReportingFact {
+  oneof value {
+    option (buf.validate.oneof).required = true;
+    ReportingOrder order = 1;
+    ReportingCoverageSegment coverage = 2;
+    ReportingModuleCoverageSegment module_coverage = 3;
+    ReportingMeterInterval meter = 4;
+    ReportingFeeLine fee = 5;
+    ReportingIncident incident = 6;
+    ReportingHashrateInterval hashrate = 7;
+    ReportingPoolObservation pool_observation = 8;
+    ReportingObligationInterval obligation = 9;
+    ReportingContractResult external_result = 10;
+  }
+}
+
+message ReportingFactMutation {
+  ReportingFactKind kind = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  string id = 2 [(buf.validate.field).string = {min_len: 1, max_bytes: 2000}];
+  oneof change {
+    option (buf.validate.oneof).required = true;
+    ReportingFact upsert = 3;
+    bool delete = 4 [(buf.validate.field).bool.const = true];
+  }
+}
+
+message ReportingMetric {
+  string status = 1;
+  string value = 2;
+  string exact = 3;
+  string unit = 4;
+  repeated ReportingAmount amounts = 5;
+  repeated string causes = 6;
+  repeated string sources = 7;
+  string method = 8;
+}
+
+message ReportingAmount {
+  string currency = 1;
+  string value = 2;
+  string exact = 3;
+}
+
+message ReportingBreakdown {
+  int64 site_id = 1;
+  int64 container_id = 2;
+  string order_id = 3;
+  map<string, ReportingMetric> metrics = 4;
+}
+
+message ReportingReconciliation {
+  string metric = 1;
+  string view = 2;
+  string exact_total = 3;
+  string exact_parts = 4;
+  bool matches = 5;
+  string status = 6;
+}
+
+message ReportingInterruption {
+  string id = 1;
+  int64 site_id = 2;
+  int64 container_id = 3;
+  string order_id = 4;
+  google.protobuf.Timestamp start = 5;
+  google.protobuf.Timestamp end = 6;
+  google.protobuf.Timestamp observed_through = 7;
+  bool open = 8;
+  string category = 9;
+  string summary = 10;
+  string root_cause = 11;
+  string claimed_exclusion = 12;
+  string exclusion_status = 13;
+  string source_ref = 14;
+}
+
+message ReportingObligationDetail {
+  string id = 1;
+  string episode_id = 2;
+  int64 asset_id = 3;
+  int64 site_id = 4;
+  int64 container_id = 5;
+  string order_id = 6;
+  google.protobuf.Timestamp episode_start = 7;
+  google.protobuf.Timestamp interval_start = 8;
+  google.protobuf.Timestamp interval_end = 9;
+  google.protobuf.Timestamp observed_through = 10;
+  string severity = 11;
+  string ticket_ref = 12;
+  google.protobuf.Timestamp ticket_at = 13;
+  google.protobuf.Timestamp submitted_at = 14;
+  google.protobuf.Timestamp received_at = 15;
+  google.protobuf.Timestamp diagnosed_at = 16;
+  google.protobuf.Timestamp responded_at = 17;
+  google.protobuf.Timestamp approved_at = 18;
+  google.protobuf.Timestamp deadline = 19;
+  google.protobuf.Timestamp restored_at = 20;
+  google.protobuf.Timestamp closed_at = 21;
+  bool qualified = 22;
+  string source_ref = 23;
+}
+
+message ReportingTarget {
+  string date = 1;
+  string status = 2;
+  repeated string causes = 3;
+  repeated string sources = 4;
+  string basis = 5;
+  bool reasonable_efforts = 6;
+}
+
+message ReportingDeadlines {
+  ReportingTarget contract = 1;
+  ReportingTarget internal = 2;
+}
+
+message ReportingResult {
+  string version = 1;
+  ReportingPeriod period = 2;
+  bool complete = 3;
+  map<string, ReportingMetric> metrics = 4;
+  repeated ReportingBreakdown containers = 5;
+  repeated ReportingBreakdown orders = 6;
+  repeated ReportingReconciliation reconciliations = 7;
+  repeated ReportingInterruption interruptions = 8;
+  repeated ReportingObligationDetail obligations = 9;
+  ReportingDeadlines deadlines = 10;
+  repeated string sources = 11;
+}
+
+message HostReportingAccount {
+  string account_id = 1;
+  string name = 2;
+  bool can_create = 3;
+  bool can_administer = 4;
+}
+message HostReportingAuthority {
+  string user_id = 1 [(buf.validate.field).string.uuid = true];
+  string username = 2 [(buf.validate.field).string.max_len = 255];
+  bool can_create = 3;
+  bool all_sites = 4;
+  repeated int64 site_ids = 5 [(buf.validate.field).repeated = {max_items: 1000, unique: true, items: {int64: {gt: 0}}}];
+  int64 revision = 6 [(buf.validate.field).int64.gte = 0];
+}
+message ReportingRegisterCount {
+  ReportingFactKind kind = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  int64 count = 2 [(buf.validate.field).int64.gte = 0];
+}
+message HostReportingInputsMetadata {
+  // Zero marks assumed defaults that have not been saved.
+  int64 revision = 1;
+  ReportingConfiguration configuration = 2;
+  string source_ref = 3;
+  int64 updated_by = 4;
+  google.protobuf.Timestamp updated_at = 5;
+  repeated int64 site_ids = 6;
+  repeated ReportingRegisterCount register_counts = 7 [(buf.validate.field).repeated.max_items = 10];
+}
+message HostReportingCaptureStream {
+  int32 source_id = 1;
+  int32 metric = 2;
+  int32 expected = 3;
+  int32 missing = 4;
+  google.protobuf.Timestamp oldest_capture = 5;
+  google.protobuf.Timestamp oldest_source = 6;
+}
+message HostReportingOwner {
+ string user_id = 1;
+ string username = 2;
+}
+message HostReportingSetup {
+  string account_id = 1;
+  string name = 2;
+  bool can_administer = 3;
+  bool can_create = 4;
+  repeated HostReportingAuthority authorities = 5;
+  HostReportingInputsMetadata input = 6;
+  repeated HostReportingCaptureStream capture = 7;
+  repeated HostReportingOwner owners = 8;
+  bool can_read_requests = 9;
+  bool can_create_requests = 10;
+  bool can_manage_representatives = 11;
+}
+// Only issued client-safe report content. No host identities, setup or draft facts.
+message AccountReport {
+  string report_id = 1;
+  string series_id = 2;
+  string account_id = 3;
+  string account_name = 4;
+  int64 number = 5;
+  int64 revision = 6;
+  ReportingPeriod period = 7;
+  ReportingResult result = 8;
+  string status = 9;
+  google.protobuf.Timestamp issued_at = 10;
+  string correction_of = 11;
+  string correction_reason = 12;
+  string exception = 13;
+}
+message HostReport {
+  AccountReport report = 1;
+  int64 created_by = 2;
+  int64 owner_id = 3;
+  int64 input_revision = 4;
+  bool can_publish = 5;
+  repeated HostReportDelivery deliveries = 6;
+  int64 issued_by = 7;
+}
+message ListHostReportingAccountsRequest {}
+message ListHostReportingAccountsResponse { repeated HostReportingAccount accounts = 1; }
+
+message GetHostReportingSetupRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+}
+message GetHostReportingSetupResponse {
+  HostReportingSetup setup = 1;
+}
+message SetHostReportingAuthorityRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  HostReportingAuthorityGrant authority = 2 [(buf.validate.field).required = true];
+  int64 expected_revision = 3 [(buf.validate.field).int64.gte = 0];
+}
+message SetHostReportingAuthorityResponse {
+}
+message MutateHostReportingInputsRequest {
+  option (buf.validate.message).cel = {id: "reporting_operations", message: "configuration or fact changes are required", expression: "has(this.configuration) || size(this.mutations) > 0"};
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  int64 expected_revision = 2 [(buf.validate.field).int64.gte = 0];
+  // Required for fact changes and contract evidence; the server derives a reference for other settings.
+  string source_ref = 3 [(buf.validate.field).string.max_bytes = 2000];
+  ReportingConfiguration configuration = 4;
+  repeated ReportingFactMutation mutations = 5 [(buf.validate.field).repeated.max_items = 200];
+}
+message MutateHostReportingInputsResponse {
+  HostReportingInputsMetadata input = 1;
+}
+message ListHostReportingFactsRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  ReportingFactKind kind = 2 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  int64 expected_revision = 3 [(buf.validate.field).int64.gt = 0];
+  string cursor = 4 [(buf.validate.field).string.max_bytes = 20000];
+  int32 page_size = 5 [(buf.validate.field).int32 = {gte: 1, lte: 200}];
+}
+message ListHostReportingFactsResponse {
+  int64 revision = 1;
+  repeated ReportingFact facts = 2 [(buf.validate.field).repeated.max_items = 200];
+  string next_cursor = 3 [(buf.validate.field).string.max_bytes = 20000];
+}
+message PrepareHostReportRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  ReportingPeriod period = 2 [(buf.validate.field).required = true];
+  // Zero accepts the assumed defaults of an account without saved reporting inputs.
+  int64 input_revision = 3 [(buf.validate.field).int64.gte = 0];
+  optional string report_id = 4 [(buf.validate.field).string.uuid = true];
+  int64 expected_revision = 5 [(buf.validate.field).int64.gte = 0];
+  optional string correction_of = 6 [(buf.validate.field).string.uuid = true];
+  string correction_reason = 7 [(buf.validate.field).string.max_len = 2000];
+  string owner_user_id = 8 [(buf.validate.field).string.uuid = true];
+}
+message PrepareHostReportResponse {
+  HostReport report = 1;
+}
+message PublishHostReportRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string report_id = 2 [(buf.validate.field).string.uuid = true];
+  int64 expected_revision = 3 [(buf.validate.field).int64.gt = 0];
+  string exception = 4 [(buf.validate.field).string.max_len = 2000];
+}
+message PublishHostReportResponse {
+  HostReport report = 1;
+}
+message ListHostReportsRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+  string page_token = 3 [(buf.validate.field).string.max_len = 2048];
+  string kind = 4 [(buf.validate.field).string = {in: ["", "monthly", "quarterly", "annual", "ad_hoc"]}];
+  string search = 5 [(buf.validate.field).string.max_len = 200];
+  string series_id = 6 [(buf.validate.field).string.max_len = 100];
+}
+message ListHostReportsResponse {
+  repeated HostReportSummary reports = 1;
+  string next_page_token = 2;
+}
+message GetHostReportRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string report_id = 2 [(buf.validate.field).string.uuid = true];
+}
+message GetHostReportResponse {
+  HostReport report = 1;
+}
+message ExportHostReportRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string report_id = 2 [(buf.validate.field).string.uuid = true];
+  string name = 3 [(buf.validate.field).string = {in: ["report.html", "evidence.zip", "source-inputs.json"]}];
+}
+message ExportHostReportResponse {
+  bytes chunk = 1;
+  string filename = 2;
+  string media_type = 3;
+  string sha256 = 4;
+}
+message ListAccountReportsRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+  string page_token = 3 [(buf.validate.field).string.max_len = 2048];
+  string kind = 4 [(buf.validate.field).string = {in: ["", "monthly", "quarterly", "annual", "ad_hoc"]}];
+  string search = 5 [(buf.validate.field).string.max_len = 200];
+  string series_id = 6 [(buf.validate.field).string.max_len = 100];
+}
+message ListAccountReportsResponse {
+  repeated ReportSummary reports = 1;
+  string next_page_token = 2;
+}
+message GetAccountReportRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string report_id = 2 [(buf.validate.field).string.uuid = true];
+}
+message GetAccountReportResponse {
+  AccountReport report = 1;
+}
+message ExportAccountReportRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string report_id = 2 [(buf.validate.field).string.uuid = true];
+  string name = 3 [(buf.validate.field).string = {in: ["report.html", "evidence.zip"]}];
+}
+message ExportAccountReportResponse {
+  bytes chunk = 1;
+  string filename = 2;
+  string media_type = 3;
+  string sha256 = 4;
+}
+message RecordHostReportDeliveryRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string report_id = 2 [(buf.validate.field).string.uuid = true];
+  string request_id = 3 [(buf.validate.field).string.uuid = true];
+  string channel = 4 [(buf.validate.field).string = {min_len: 1, max_len: 200}];
+  string status = 5 [(buf.validate.field).string = {in: ["attempted", "failed", "confirmed"]}];
+  google.protobuf.Timestamp sent_at = 6;
+  google.protobuf.Timestamp received_at = 7;
+  string source_ref = 8 [(buf.validate.field).string = {min_len: 1, max_len: 2000}];
+  string failure_category = 9 [(buf.validate.field).string = {in: ["", "unavailable", "rejected", "unconfirmed", "other"]}];
+  string evidence = 10 [(buf.validate.field).string.max_len = 8000];
+}
+message RecordHostReportDeliveryResponse {
+}
+
+// Mutation accepts only grant fields; display labels and stored revision are response metadata.
+message HostReportingAuthorityGrant {
+  string user_id = 1 [(buf.validate.field).string.uuid = true];
+  bool can_create = 2;
+  bool all_sites = 3;
+  repeated int64 site_ids = 4 [(buf.validate.field).repeated = {max_items: 1000, unique: true, items: {int64: {gt: 0}}}];
+}
+// Lists omit the frozen metric/evidence payload returned by Get.
+message ReportSummary {
+  string report_id = 1;
+  string series_id = 2;
+  string account_id = 3;
+  string account_name = 4;
+  int64 number = 5;
+  int64 revision = 6;
+  ReportingPeriod period = 7;
+  string status = 8;
+  bool complete = 9;
+  google.protobuf.Timestamp issued_at = 10;
+  string correction_of = 11;
+  string correction_reason = 12;
+  string exception = 13;
+  ReportingDeadlines deadlines = 14;
+  string delivery_status = 15;
+}
+message HostReportSummary {
+  ReportSummary report = 1;
+  int64 created_by = 2;
+  int64 owner_id = 3;
+  int64 input_revision = 4;
+  bool can_publish = 5;
+}
+
+message HostReportDelivery {
+  string request_id = 1;
+  string channel = 2;
+  string status = 3;
+  google.protobuf.Timestamp sent_at = 4;
+  google.protobuf.Timestamp received_at = 5;
+  string source_ref = 6;
+  string evidence = 7;
+  string failure_category = 8;
+  int64 actor_id = 9;
+  google.protobuf.Timestamp created_at = 10;
+}
+message RecordHostReportRequestFulfillmentRequest {
+ string account_id = 1 [(buf.validate.field).string.uuid = true];
+ string request_id = 2 [(buf.validate.field).string.uuid = true];
+ string entry_key = 3 [(buf.validate.field).string.uuid = true];
+ google.protobuf.Timestamp delivered_at = 4 [(buf.validate.field).required = true];
+ string delivery_ref = 5 [(buf.validate.field).string = {min_len: 1, max_len: 2000}];
+ string communication_ref = 6 [(buf.validate.field).string.max_len = 2000];
+ string evidence = 7 [(buf.validate.field).string = {min_len: 1, max_len: 8000}];
+}
+message RecordHostReportRequestFulfillmentResponse {}
+
+message HostReportRequest {
+  string request_id = 1 [(buf.validate.field).string.uuid = true];
+  google.protobuf.Timestamp received_at = 2 [(buf.validate.field).required = true];
+  string source_ref = 3 [(buf.validate.field).string = {min_len: 1, max_len: 2000}];
+  string requester = 4 [(buf.validate.field).string = {min_len: 1, max_len: 2000}];
+  string scope = 5 [(buf.validate.field).string = {min_len: 1, max_len: 4000}];
+  string owner_user_id = 6 [(buf.validate.field).string.uuid = true];
+  google.protobuf.Timestamp target_at = 7;
+  string limitations = 8 [(buf.validate.field).string.max_len = 4000];
+  string communication_ref = 9 [(buf.validate.field).string.max_len = 2000];
+  string delivery_ref = 10 [(buf.validate.field).string.max_len = 2000];
+  google.protobuf.Timestamp fulfilled_at = 11;
+  string fulfillment_ref = 12 [(buf.validate.field).string.max_len = 2000];
+}
+message HostReportRequestInput {
+  google.protobuf.Timestamp received_at = 1 [(buf.validate.field).required = true];
+  string source_ref = 2 [(buf.validate.field).string = {min_len: 1, max_len: 2000}];
+  string requester = 3 [(buf.validate.field).string = {min_len: 1, max_len: 2000}];
+  string scope = 4 [(buf.validate.field).string = {min_len: 1, max_len: 4000}];
+  string owner_user_id = 5 [(buf.validate.field).string.uuid = true];
+  google.protobuf.Timestamp target_at = 6;
+  string limitations = 7 [(buf.validate.field).string.max_len = 4000];
+  string communication_ref = 8 [(buf.validate.field).string.max_len = 2000];
+  string delivery_ref = 9 [(buf.validate.field).string.max_len = 2000];
+}
+message CreateHostReportRequestRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  HostReportRequestInput request = 2 [(buf.validate.field).required = true];
+}
+message CreateHostReportRequestResponse { HostReportRequest request = 1; }
+message ListHostReportRequestsRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+  string page_token = 3 [(buf.validate.field).string.max_len = 2048];
+}
+message ListHostReportRequestsResponse {
+  repeated HostReportRequest requests = 1;
+  string next_page_token = 2;
+}
+
+// State changes create a new generation; acknowledgements apply to that exact state.
+message HostReportQueueEvent {
+ int64 generation = 1;
+ string kind = 2;
+ string actor_user_id = 3;
+ string reason = 4;
+ google.protobuf.Timestamp created_at = 5;
+}
+message HostReportQueueItem {
+ string queue_id = 1;
+ string account_id = 2;
+ string account_name = 3;
+ string kind = 4;
+ ReportingPeriod period = 5;
+ string owner_user_id = 6;
+ HostReportSummary report = 7;
+ HostReportRequest request = 8;
+ ReportingDeadlines deadlines = 9;
+ repeated string reasons = 10;
+ string delivery_status = 11;
+ string notification_status = 12;
+ repeated HostReportQueueEvent events = 13;
+ int64 generation = 14;
+ bool can_acknowledge = 15;
+ bool can_retry = 16;
+ int64 attempts = 17;
+ string owner_username = 18;
+}
+// Lists active work in descending creation order. Quiet and superseded rows remain retained as history.
+message ListHostReportQueueRequest {
+ int32 page_size = 1 [(buf.validate.field).int32 = {gte: 0, lte: 100}]; // Defaults to 50.
+ string page_token = 2 [(buf.validate.field).string.max_len = 512];
+}
+message ListHostReportQueueResponse {
+ repeated HostReportQueueItem items = 1;
+ // Continue even when this page has no items: current site admission can filter a raw page.
+ string next_page_token = 2;
+}
+message AcknowledgeHostReportQueueRequest {
+ string account_id = 1 [(buf.validate.field).string.uuid = true];
+ string queue_id = 2 [(buf.validate.field).string.uuid = true];
+ int64 expected_generation = 3 [(buf.validate.field).int64.gt = 0];
+ string reason = 4 [(buf.validate.field).string = {min_len: 1, max_len: 2000}];
+}
+message AcknowledgeHostReportQueueResponse {}
+message RetryHostReportQueueNotificationRequest {
+ string account_id = 1 [(buf.validate.field).string.uuid = true];
+ string queue_id = 2 [(buf.validate.field).string.uuid = true];
+ int64 expected_generation = 3 [(buf.validate.field).int64.gt = 0];
+ string reason = 4 [(buf.validate.field).string = {min_len: 1, max_len: 2000}];
+}
+message RetryHostReportQueueNotificationResponse {}

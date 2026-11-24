@@ -1,0 +1,66 @@
+-- name: FreezePoolConfigurationWriters :exec
+WITH barrier AS MATERIALIZED (
+ SELECT pg_advisory_xact_lock(hashtextextended('pool-cutover:'||(sqlc.arg(organization_id)::bigint)::text,0))
+)
+INSERT INTO pool_configuration_cutover(organization_id) SELECT sqlc.arg(organization_id) FROM barrier
+ON CONFLICT(organization_id) DO NOTHING;
+
+-- name: PoolConfigurationWritersFrozen :one
+SELECT EXISTS(SELECT 1 FROM pool_configuration_cutover WHERE organization_id=$1 AND completed_at IS NULL);
+
+-- name: ListPoolCutoverGaps :many
+-- A completeness check, not a hardware-state inference. Return identifiers only.
+SELECT 'legacy_board_intent'::text AS kind,i.hashboard_id::text AS source_id,i.device_id,
+ 'Legacy board intent has no canonical effective state.'::text AS reason
+FROM hashboard_pool_intent i
+WHERE i.organization_id=$1 AND NOT EXISTS(
+ SELECT 1 FROM pool_configuration_board_intent p WHERE p.organization_id=i.organization_id AND p.installation_id=i.installation_id
+)
+UNION ALL
+SELECT 'controller_binding',s.device_id::text||':'||binding.key,s.device_id,
+ 'Controller binding still requires legacy execution material.'
+FROM container_mining_group_state s,LATERAL jsonb_each(s.bindings) binding
+WHERE s.organization_id=$1 AND NOT EXISTS(
+ SELECT 1 FROM pool_configuration_group_snapshot snapshot WHERE snapshot.organization_id=s.organization_id
+ AND snapshot.device_id=s.device_id AND snapshot.snapshot_id=binding.value->>'config_id'
+)
+UNION ALL
+SELECT 'pending_configuration',t.operation_id||':'||t.target_id::text,a.device_id,
+ 'Configuration work must finish or be explicitly recovered before cutover.'
+FROM pool_configuration_operation_target t JOIN pool_configuration_assignment a
+ ON a.organization_id=t.organization_id AND a.target_kind=t.target_kind AND a.target_id=t.target_id
+WHERE t.organization_id=$1 AND t.state IN ('pending','applying')
+UNION ALL
+-- Pre-upgrade failures can contain partial hardware effects. A snapshot alone
+-- cannot establish them, even when an older verified intent was backfilled.
+SELECT 'unresolved_board_execution',a.target_id::text,a.device_id,
+ 'Attempted board settings differ from retained effective state; explicitly verify or retire the assignment before maintenance.'
+FROM pool_configuration_assignment a
+JOIN LATERAL (
+ SELECT t.group_snapshot_id FROM pool_configuration_operation_target t
+ WHERE t.organization_id=a.organization_id AND t.target_kind=a.target_kind AND t.target_id=a.target_id
+  AND t.group_snapshot_id IS NOT NULL AND t.physical_attempt_id IS NOT NULL
+ ORDER BY t.assignment_version DESC LIMIT 1
+) attempted ON true
+LEFT JOIN pool_configuration_board_intent p ON p.organization_id=a.organization_id AND p.installation_id=a.target_id
+WHERE a.organization_id=$1 AND a.target_kind='hashboard_installation' AND a.retired_at IS NULL
+ AND p.group_snapshot_id IS DISTINCT FROM attempted.group_snapshot_id
+UNION ALL
+SELECT 'legacy_library',p.id::text,0::bigint,'Operator library source has not been imported at its current version.'
+FROM pool p WHERE p.org_id=$1 AND p.deleted_at IS NULL AND NOT EXISTS(
+ SELECT 1 FROM pool_configuration_import m WHERE m.organization_id=p.org_id AND m.source_kind='operator_pool'
+ AND m.source_id=p.id::text AND m.source_version::timestamptz=p.updated_at
+)
+ORDER BY kind,source_id;
+
+-- name: GetPoolCutoverInventory :one
+SELECT
+ (SELECT count(*) FROM hashboard_pool_intent i WHERE i.organization_id=$1)::bigint AS legacy_board_intents,
+ (SELECT count(*) FROM container_mining_group_state s,LATERAL jsonb_each(s.bindings) b WHERE s.organization_id=$1)::bigint AS controller_bindings,
+ (SELECT count(*) FROM pool_configuration_board_intent i WHERE i.organization_id=$1)::bigint AS effective_board_intents,
+ (SELECT count(*) FROM pool_configuration_group_snapshot i WHERE i.organization_id=$1)::bigint AS execution_snapshots,
+ (SELECT count(*) FROM queue_message q JOIN device d ON d.id=q.device_id WHERE d.org_id=$1 AND q.status IN ('PENDING','PROCESSING'))::bigint AS queued_commands,
+ (SELECT count(*) FROM device_write_attempt i WHERE i.organization_id=$1 AND i.status IN ('running','unknown'))::bigint AS unresolved_attempts;
+
+-- name: BoundPoolConfigurationImportLocks :exec
+SET LOCAL lock_timeout='5s';

@@ -1,8 +1,22 @@
 import "@testing-library/jest-dom/vitest";
-import { expect, vi } from "vitest";
-import * as matchers from "@testing-library/jest-dom/matchers";
+import { afterAll, vi } from "vitest";
 
-expect.extend(matchers);
+// Recharts batches chart store updates with requestAnimationFrame and a 100 ms fallback timer. If a file ends
+// right after a chart update, the timer can fire after jsdom teardown and call the removed cancelAnimationFrame.
+// Let pending frames run while jsdom still exists. The cap covers a requestAnimationFrame stub that never calls back.
+afterAll(async () => {
+  if (typeof window === "undefined" || typeof requestAnimationFrame !== "function") return;
+  vi.useRealTimers();
+  await new Promise<void>((resolve) => {
+    const cap = setTimeout(resolve, 150);
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        clearTimeout(cap);
+        resolve();
+      }),
+    );
+  });
+});
 
 // Datadog RUM SDK — mocked globally so tests never load the real SDK or hit the
 // network. Provider tests assert against these spies.

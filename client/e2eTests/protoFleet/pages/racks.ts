@@ -372,11 +372,20 @@ export class RacksPage extends BasePage {
   }
 
   async validateRackToast(label: string, action: "created" | "saved" = "created") {
-    await this.validateTextInToast(`Rack "${label}" ${action}`);
+    await this.validateRackNotification(`Rack "${label}" ${action}`);
   }
 
   async validateMinerPositionsToast(label: string) {
-    await this.validateTextInToast(`Miner positions saved for "${label}"`);
+    await this.validateRackNotification(`Miner positions saved for "${label}"`);
+  }
+
+  private async validateRackNotification(message: string) {
+    // A single grouped notification is shown in its header until expanded.
+    // Match text and visibility together so a hidden/stale toast cannot pass.
+    const notification = this.page
+      .getByTestId(/^(toast|grouped-toaster-header)$/)
+      .filter({ hasText: message, visible: true });
+    await expect(notification).not.toHaveCount(0, { timeout: DEFAULT_TIMEOUT });
   }
 
   async validateRackCardVisible(label: string, zone: string) {
@@ -622,10 +631,6 @@ export class RacksPage extends BasePage {
 
   async clickDeleteConfirm() {
     await this.clickButton("Delete");
-  }
-
-  async validateRackDeletedToast(timeout: number = DEFAULT_TIMEOUT) {
-    await this.validateTextInToast("Rack deleted", timeout);
   }
 
   async validateRackOverviewAssignedSlots(slotNumbers: readonly number[]) {

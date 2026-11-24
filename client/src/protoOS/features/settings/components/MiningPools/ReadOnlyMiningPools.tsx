@@ -2,23 +2,30 @@ import { useMemo } from "react";
 
 import ContentHeader from "@/shared/components/ContentHeader";
 import PoolRow from "@/shared/components/MiningPools/PoolRow";
-import { PoolIndex, PoolInfo } from "@/shared/components/MiningPools/types";
 import { isValidPool } from "@/shared/components/MiningPools/utility";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Row from "@/shared/components/Row";
+import { PoolIndex, PoolInfo } from "@/shared/types/pool";
 
 interface ReadOnlyMiningPoolsProps {
   pools: PoolInfo[];
   loading?: boolean;
+  description?: string;
+  showHeader?: boolean;
 }
 
 /**
  * Read-only pool list for the embedded (fleet-hosted) miner view. Pool edits are
- * blocked at the proxy and go through Fleet's audited UpdateMiningPools flow, but
+ * blocked at the proxy and go through Fleet's reviewed pool configuration flow, but
  * operators still need to see which pools the miner is currently running — so
  * this shows the configuration without any edit/add/delete/reorder affordances.
  */
-const ReadOnlyMiningPools = ({ pools, loading = false }: ReadOnlyMiningPoolsProps) => {
+const ReadOnlyMiningPools = ({
+  pools,
+  loading = false,
+  description = "Pools are managed from Fleet. This is a read-only view of the miner's current configuration.",
+  showHeader = true,
+}: ReadOnlyMiningPoolsProps) => {
   const configuredPools = useMemo(
     () => pools.map((pool, index) => ({ pool, index: index as PoolIndex })).filter(({ pool }) => isValidPool(pool)),
     [pools],
@@ -30,11 +37,7 @@ const ReadOnlyMiningPools = ({ pools, loading = false }: ReadOnlyMiningPoolsProp
 
   return (
     <>
-      <ContentHeader
-        title="Pools"
-        subtitle="Pools are managed from Fleet. This is a read-only view of the miner's current configuration."
-        testId="mining-pool-title"
-      />
+      {showHeader ? <ContentHeader title="Pools" subtitle={description} testId="mining-pool-title" /> : null}
       {configuredPools.length === 0 ? (
         <Row className="text-text-primary-70" testId="read-only-pools-empty">
           No pools configured.

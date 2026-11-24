@@ -37,12 +37,15 @@ const RESOURCE_TO_GROUP: Record<string, string> = {
   alert: "alerts",
   maintenance: "maintenance",
   instance: "instance",
+  controller: "controller",
+  container: "container",
   fleetnode: "admin",
   serverlog: "admin",
   activity: "admin",
   apikey: "admin",
   user: "admin",
   role: "admin",
+  account: "admin",
 };
 
 const GROUP_LABELS: Record<string, string> = {
@@ -55,6 +58,8 @@ const GROUP_LABELS: Record<string, string> = {
   alerts: "Alerts",
   maintenance: "Maintenance",
   instance: "Instance",
+  controller: "Controllers",
+  container: "Containers",
   admin: "Administration",
 };
 
@@ -68,6 +73,8 @@ const GROUP_ORDER = [
   "alerts",
   "maintenance",
   "instance",
+  "controller",
+  "container",
   "admin",
 ];
 

@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { create } from "@bufbuild/protobuf";
-import { Code, ConnectError } from "@connectrpc/connect";
+import { ConnectError } from "@connectrpc/connect";
 import { fleetManagementClient, minerCommandClient } from "@/protoFleet/api/clients";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
 import {
@@ -21,10 +21,6 @@ import {
   GetCommandBatchLogBundleRequest,
   GetCommandBatchLogBundleResponse,
   PerformanceMode,
-  type PoolAssignmentSkips,
-  type PoolSlotConfig,
-  PoolSlotConfigSchema,
-  RawPoolInfoSchema,
   RebootRequest,
   RebootResponse,
   SetCoolingModeRequestSchema,
@@ -39,28 +35,9 @@ import {
   StreamCommandBatchUpdatesResponse,
   UpdateMinerPasswordRequestSchema,
   UpdateMinerPasswordResponse,
-  UpdateMiningPoolsRequestSchema,
-  UpdateMiningPoolsResponse,
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAuthErrors } from "@/protoFleet/store";
-
-// Only surface user-fixable codes; mask server-internal detail.
-function updateMiningPoolsErrorMessage(err: unknown): string {
-  const code = ConnectError.from(err).code;
-  if (code === Code.InvalidArgument || code === Code.FailedPrecondition) {
-    return getErrorMessage(err, "Failed to assign pools");
-  }
-  return "Failed to assign pools";
-}
-
-function formatPoolAssignmentSkips(skips: PoolAssignmentSkips | undefined): string {
-  if (!skips || skips.skippedCount <= 0) return "";
-  const total = skips.selectedCount > 0 ? skips.selectedCount : skips.skippedCount;
-  const plural = skips.skippedCount === 1 ? "" : "s";
-  const types = skips.incompatibleTypes.join(", ");
-  return `${skips.skippedCount} of ${total} miner${plural} couldn't use this Stratum V2 pool. Incompatible types: ${types}`;
-}
 
 interface BlinkLEDProps {
   blinkLEDRequest: BlinkLEDRequest;
@@ -97,25 +74,6 @@ interface StreamCommandBatchUpdatesProps {
   streamAbortController?: AbortController;
   onStreamData: (response: StreamCommandBatchUpdatesResponse) => void;
   onError?: (error: string) => void;
-}
-
-// Configuration for a single pool slot - either a known pool ID or raw pool info
-export type PoolSlotSource = { type: "poolId"; poolId: string } | { type: "rawPool"; url: string; username: string };
-
-export interface PoolConfig {
-  defaultPool: PoolSlotSource;
-  backup1Pool?: PoolSlotSource;
-  backup2Pool?: PoolSlotSource;
-}
-
-interface UpdateMiningPoolsProps {
-  deviceSelector: DeviceSelector;
-  poolConfig: PoolConfig;
-  userUsername: string;
-  userPassword: string;
-  onSuccess: (value: UpdateMiningPoolsResponse) => void;
-  onError?: (error: string) => void;
-  onPartialSuccess?: (warning: string) => void;
 }
 
 interface SetPowerTargetProps {
@@ -287,61 +245,6 @@ const useMinerCommand = () => {
     [handleAuthErrors],
   );
 
-  const updateMiningPools = useCallback(
-    async ({
-      deviceSelector,
-      poolConfig,
-      userUsername,
-      userPassword,
-      onSuccess,
-      onError,
-      onPartialSuccess,
-    }: UpdateMiningPoolsProps) => {
-      const createPoolSlotConfig = (source: PoolSlotSource): PoolSlotConfig => {
-        if (source.type === "poolId") {
-          return create(PoolSlotConfigSchema, {
-            poolSource: { case: "poolId", value: BigInt(source.poolId) },
-          });
-        }
-        return create(PoolSlotConfigSchema, {
-          poolSource: {
-            case: "rawPool",
-            value: create(RawPoolInfoSchema, {
-              url: source.url,
-              username: source.username,
-            }),
-          },
-        });
-      };
-
-      const updateMiningPoolsRequest = create(UpdateMiningPoolsRequestSchema, {
-        deviceSelector,
-        defaultPool: createPoolSlotConfig(poolConfig.defaultPool),
-        backup1Pool: poolConfig.backup1Pool ? createPoolSlotConfig(poolConfig.backup1Pool) : undefined,
-        backup2Pool: poolConfig.backup2Pool ? createPoolSlotConfig(poolConfig.backup2Pool) : undefined,
-        userUsername,
-        userPassword,
-      });
-
-      await minerCommandClient
-        .updateMiningPools(updateMiningPoolsRequest)
-        .then((response) => {
-          onSuccess(response);
-          const warning = formatPoolAssignmentSkips(response.skips);
-          if (warning) onPartialSuccess?.(warning);
-        })
-        .catch((err) => {
-          handleAuthErrors({
-            error: err,
-            onError: () => {
-              onError?.(updateMiningPoolsErrorMessage(err));
-            },
-          });
-        });
-    },
-    [handleAuthErrors],
-  );
-
   const setPowerTarget = useCallback(
     async ({ deviceSelector, performanceMode, onSuccess, onError }: SetPowerTargetProps) => {
       const setPowerTargetRequest = create(SetPowerTargetRequestSchema, {
@@ -500,7 +403,6 @@ const useMinerCommand = () => {
       deleteMiners,
       reboot,
       streamCommandBatchUpdates,
-      updateMiningPools,
       setPowerTarget,
       setCoolingMode,
       checkCommandCapabilities,
@@ -516,7 +418,6 @@ const useMinerCommand = () => {
       deleteMiners,
       reboot,
       streamCommandBatchUpdates,
-      updateMiningPools,
       setPowerTarget,
       setCoolingMode,
       checkCommandCapabilities,

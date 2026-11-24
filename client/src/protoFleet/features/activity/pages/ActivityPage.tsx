@@ -28,13 +28,11 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
 import ProgressCircular from "@/shared/components/ProgressCircular";
-import { debounce } from "@/shared/utils/utility";
 
 const PAGE_SIZE = 50;
 
 const ActivityPageContent = () => {
   const [searchText, setSearchText] = useState("");
-  const [debouncedSearchText, setDebouncedSearchText] = useState("");
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
@@ -50,22 +48,6 @@ const ActivityPageContent = () => {
   // empty → org-wide feed, unchanged from before.
   const { activeSite } = useActiveSite({});
   const scopeFilter = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
-
-  const debouncedSetSearch = useMemo(() => debounce((text: string) => setDebouncedSearchText(text), 300), []);
-  useEffect(() => () => debouncedSetSearch.cancel(), [debouncedSetSearch]);
-
-  const handleSearchChange = useCallback(
-    (value: string) => {
-      setSearchText(value);
-      if (value === "") {
-        debouncedSetSearch.cancel();
-        setDebouncedSearchText("");
-      } else {
-        debouncedSetSearch(value);
-      }
-    },
-    [debouncedSetSearch],
-  );
 
   // Each feed is fetched only under its own read permission, mirroring the server's per-RPC gates,
   // so an alert:read-only viewer still gets the history feed without firing denied activity RPCs.
@@ -100,19 +82,11 @@ const ActivityPageContent = () => {
       eventTypes: canReadActivity ? types : types.filter((t) => t === ALERT_EVENT_TYPE),
       scopeTypes: selectedScopes,
       userIds: canReadActivity ? selectedUsers : [],
-      searchText: canReadActivity ? debouncedSearchText : "",
+      searchText: canReadActivity ? searchText : "",
       siteIds: scopeFilter.siteIds,
       includeUnassigned: scopeFilter.includeUnassigned,
     });
-  }, [
-    alertsSelectable,
-    canReadActivity,
-    selectedTypes,
-    selectedScopes,
-    selectedUsers,
-    debouncedSearchText,
-    scopeFilter,
-  ]);
+  }, [alertsSelectable, canReadActivity, selectedTypes, selectedScopes, selectedUsers, searchText, scopeFilter]);
 
   const {
     activities,
@@ -202,16 +176,14 @@ const ActivityPageContent = () => {
   const isLoadingMore = feedLoading && entries.length > 0;
 
   const hasActiveFilters =
-    selectedTypes.length > 0 || selectedScopes.length > 0 || selectedUsers.length > 0 || debouncedSearchText !== "";
+    selectedTypes.length > 0 || selectedScopes.length > 0 || selectedUsers.length > 0 || searchText !== "";
 
   const handleClearFilters = useCallback(() => {
     setSearchText("");
-    setDebouncedSearchText("");
-    debouncedSetSearch.cancel();
     setSelectedTypes([]);
     setSelectedScopes([]);
     setSelectedUsers([]);
-  }, [debouncedSetSearch]);
+  }, []);
 
   // An alert-only viewer on a deployment without the alerts feature has no feed at all; say so rather
   // than presenting a permanently empty table — but until the probe answers, "not enabled" only means
@@ -252,7 +224,7 @@ const ActivityPageContent = () => {
         <div className="pb-6">
           <ActivityFilters
             searchValue={searchText}
-            onSearchChange={handleSearchChange}
+            onSearchChange={setSearchText}
             hideSearch={!activityUsable}
             eventTypes={typeOptions}
             scopeTypes={scopeTypes}

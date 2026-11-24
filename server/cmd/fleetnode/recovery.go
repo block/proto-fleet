@@ -4,12 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"log/slog"
+	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 
 	"buf.build/go/protovalidate"
 	"github.com/google/uuid"
@@ -18,12 +22,12 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
-	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
 	"github.com/block/proto-fleet/server/internal/domain/netscan"
 	"github.com/block/proto-fleet/server/internal/domain/plugins"
 	"github.com/block/proto-fleet/server/internal/domain/stableidentity"
 	"github.com/block/proto-fleet/server/internal/infrastructure/cryptohash"
+	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
@@ -60,7 +64,7 @@ func (r *RunCmd) handleRecoverMinerEndpoints(ctx context.Context, stream acker, 
 		return
 	}
 	// Keep a bounded prefix instead of letting the transport discard all results.
-	for proto.Size(response) > maxAckPayloadBytes {
+	for proto.Size(response) > maxCommandResultPayloadBytes {
 		response.Results = response.Results[:len(response.Results)-1]
 		partial = true
 	}
@@ -117,11 +121,23 @@ func (r *RunCmd) recoverMinerEndpoints(ctx context.Context, targets []*pb.MinerC
 		}
 
 		credentialKey := recoveryCredentialKey(target.GetDriverName(), bundle)
+		if target.GetDeviceClass() == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
+			credentialKey += fmt.Sprintf("\x00%s\x00%d\x00%t", target.GetSerialNumber(), target.GetRpcPort(), target.GetRpcTls())
+		}
 		cacheKey := func(candidate recoveryEndpoint) string {
 			return recoveryEndpointKey(candidate) + "\x00" + credentialKey
 		}
 		var candidates, pending []recoveryEndpoint
 		for _, candidate := range endpoints {
+			if target.GetDeviceClass() == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
+				rpcPort := target.GetRpcPort()
+				if rpcPort == 0 {
+					rpcPort = 9095
+				}
+				if candidate.port != strconv.Itoa(int(rpcPort)) {
+					continue
+				}
+			}
 			if candidate.driverName != target.GetDriverName() {
 				continue
 			}
@@ -227,7 +243,7 @@ func (r *RunCmd) scanRecoveryEndpoints(ctx context.Context, scanPorts []string, 
 	if err != nil {
 		return nil, false, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "invalid recovery scan port: %s", err)
 	}
-	addrs, err := r.networkScanTargets(ctx, &pairingpb.NetworkScanModeRequest{Target: netscan.LocalSubnetTarget})
+	addrs, err := r.recoveryScanTargets()
 	if err != nil {
 		return nil, false, err
 	}
@@ -313,9 +329,16 @@ func (r *RunCmd) inspectRecoveryEndpoint(ctx context.Context, target *pb.MinerCo
 	// Automatic recovery deliberately assumes a trusted LAN for this rollout.
 	// Discovery MAC/serial values do not authenticate endpoints: a spoofed LAN
 	// service can receive these saved credentials before identity is checked.
-	result, err := driver.NewDevice(ctx, deviceID, sdk.DeviceInfo{
-		Host: endpoint.ip, Port: port, URLScheme: scheme,
-	}, bundle)
+	info := sdk.DeviceInfo{Host: endpoint.ip, Port: port, URLScheme: scheme, DeviceClass: sdk.DeviceClass(target.GetDeviceClass()), RPCPort: target.GetRpcPort(), RPCTLS: target.GetRpcTls()}
+	if info.DeviceClass == sdk.DeviceClassContainer {
+		info.Port, err = sdk.ParsePort(target.GetPort())
+		if err != nil {
+			return stableidentity.Identity{}, err
+		}
+		info.URLScheme = target.GetUrlScheme()
+		info.SerialNumber = target.GetSerialNumber()
+	}
+	result, err := driver.NewDevice(ctx, deviceID, info, bundle)
 	if err != nil {
 		// Recovery cleans up inline during its endpoint scan and holds no handle
 		// capacity, so it waits only for creations that may still be registering.
@@ -332,7 +355,7 @@ func (r *RunCmd) inspectRecoveryEndpoint(ctx context.Context, target *pb.MinerCo
 		defer cancel()
 		_ = result.Device.Close(closeCtx)
 	}()
-	info, _, err := result.Device.DescribeDevice(ctx)
+	info, _, err = result.Device.DescribeDevice(ctx)
 	if err != nil {
 		return stableidentity.Identity{}, err
 	}
@@ -361,6 +384,10 @@ func isAuthenticationError(err error) bool {
 }
 
 func recoveryResult(target *pb.MinerConnectionDescriptor, outcome pb.MinerEndpointRecoveryOutcome, endpoint recoveryEndpoint, message string) *pb.MinerEndpointRecoveryResult {
+	if target.GetDeviceClass() == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER && endpoint.ip != "" {
+		endpoint.port = target.GetPort()
+		endpoint.urlScheme = target.GetUrlScheme()
+	}
 	result := &pb.MinerEndpointRecoveryResult{
 		DeviceIdentifier: target.GetDeviceIdentifier(),
 		Outcome:          outcome,
@@ -379,4 +406,65 @@ func recoveryResult(target *pb.MinerConnectionDescriptor, outcome pb.MinerEndpoi
 		Outcome:          pb.MinerEndpointRecoveryOutcome_MINER_ENDPOINT_RECOVERY_OUTCOME_ERROR,
 		ErrorMessage:     "plugin returned invalid recovery evidence",
 	}
+}
+
+var errNoLocalSubnet = errors.New("no local IPv4 subnet found")
+
+func (r *RunCmd) detectLocalSubnets() ([]string, error) {
+	if r.localSubnets != nil {
+		return r.localSubnets()
+	}
+	if configured := strings.TrimSpace(r.LocalDiscoverySubnet); configured != "" {
+		return []string{configured}, nil
+	}
+	info, err := networking.GetLocalNetworkInfo()
+	if err != nil {
+		return nil, fmt.Errorf("get local network info: %w", err)
+	}
+	if info.Subnet == "" {
+		return nil, errNoLocalSubnet
+	}
+	return []string{info.Subnet}, nil
+}
+
+func (r *RunCmd) recoveryScanTargets() (iter.Seq[netip.Addr], error) {
+	subnets, err := r.detectLocalSubnets()
+	if err != nil {
+		return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "no connected private IPv4 subnet for local-subnet scan: %s", err)
+	}
+	if len(subnets) == 0 {
+		return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "%s", errNoLocalSubnet)
+	}
+	targets := make([]netscan.Target, 0, len(subnets))
+	var count uint64
+	for _, raw := range subnets {
+		prefix, err := netip.ParsePrefix(raw)
+		if err != nil || !prefix.Addr().Is4() {
+			return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "local-subnet scan target %q must be an IPv4 CIDR", raw)
+		}
+		target, err := netscan.ParseBoundedTarget(raw)
+		if err != nil {
+			return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "local-subnet scan target %q is not scannable: %s", raw, err)
+		}
+		if !target.IsPrivate() {
+			return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "local-subnet scan target %q must be private", raw)
+		}
+		count += target.Count()
+		if count > maxIPsPerCommand {
+			return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "local subnets contain %d addresses, exceeds the limit of %d", count, maxIPsPerCommand)
+		}
+		targets = append(targets, target)
+	}
+	return func(yield func(netip.Addr) bool) {
+		seen := make(map[netip.Addr]struct{})
+		for addr := range netscan.InterleavedAddresses(targets) {
+			if _, duplicate := seen[addr]; duplicate {
+				continue
+			}
+			seen[addr] = struct{}{}
+			if !yield(addr) {
+				return
+			}
+		}
+	}, nil
 }

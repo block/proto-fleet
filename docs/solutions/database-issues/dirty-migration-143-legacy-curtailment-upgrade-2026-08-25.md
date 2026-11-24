@@ -59,9 +59,56 @@ This affects both supported starting points:
 RC.1 additionally leaves those installations at `143/dirty` after the first
 attempt.
 
-## Resolution
+## Current upgrade path
 
-Migration 143 has shipped and remains immutable. The migration runner now has a
+Current startup calls `runCurrentMigrations` with `migrations.Current` from
+`server/migrations/current/`. It does **not** call
+`runMigrationsWithCompatibilityBridges`. The legacy bridge remains embedded and
+covered by legacy integration tests; its presence in the source tree does not
+make current binaries capable of recovering `143/dirty` or directly upgrading a
+version-130/142 database. Current startup rejects dirty and pre-baseline versions.
+
+For a database from the **public `block/proto-fleet` lineage**, the explicit
+intermediate release is
+[`block/proto-fleet v0.3.2-beta.1`](https://github.com/block/proto-fleet/releases/tag/v0.3.2-beta.1).
+This published prerelease ends at clean public schema 152 and its
+[`ConnectAndMigrate`](https://github.com/block/proto-fleet/blob/71f14c2c7c82dc38a9c1435f014f978393141880/server/internal/infrastructure/db/database_connection.go)
+invokes the migration-143 bridge before continuing the legacy migration sequence.
+Its published release metadata and tag were verified on 2026-10-27; the annotated
+tag resolves to `71f14c2c7c82dc38a9c1435f014f978393141880`. This is a specific
+historical upgrade waypoint, not a recommendation to operate that prerelease
+indefinitely.
+
+With every application and scheduled database writer stopped, take and rehearse
+a coordinated backup, then use that public release to cross the legacy boundary.
+Require `152/clean`, both envelope columns and preserved row counts. Stop the
+waypoint application again before using the target internal release's offline
+transition commands (with the usual database connection flags/environment):
+
+```sh
+fleet-db-transition check --state=source --source=public --source-version=152
+fleet-db-transition apply --source=public --source-version=152
+fleet-db-transition migrate
+fleet-db-transition check --state=startup
+```
+
+The current internal baseline's `public-152` recipe checks the exact supported
+catalog and grants before adoption. A matching version alone is insufficient;
+if that check rejects the schema, preserve the database and investigate the
+reported mismatch. See [database migrations](../../development/migrations.md)
+for the target release's maintenance and checkpoint requirements.
+
+Do not run this public waypoint against an internal database. Public and internal
+version numbers can describe different schemas. Current internal reconciliation
+recognizes internal sources 153 and 158, not arbitrary earlier internal versions;
+no published internal release that both runs the bridge and ends at one of those
+qualified catalogs was verified for this procedure. An earlier internal database
+needs a separately qualified internal waypoint/reconciliation decision. Retaining
+the bridge does not establish that path.
+
+## Historical bridge resolution
+
+Migration 143 shipped and remains immutable. The legacy migration runner added a
 narrow compatibility bridge around its version boundary:
 
 1. Recover an RC.1 database already at `143/dirty` if neither envelope column
@@ -84,15 +131,15 @@ be reused. Saving a profile through the new API replaces it with a precise
 current envelope. Facility-fan events keep their persisted fan-site snapshot;
 legacy profiles containing fans require organization-wide site-read permission.
 
-The advisory lock serializes the bridge with old and new migration runners during
-rolling startup, preventing another binary from overwriting the bridge's clean
+The advisory lock serializes the legacy bridge with other legacy migration runners,
+preventing another binary from overwriting the bridge's clean
 version marker. Schema inspection resolves `schema_migrations` through the
 connection's active search path rather than assuming `public`. The bridge also
 refuses to guess if either envelope column
 already exists, because that indicates a partial/manual schema state requiring
 operator inspection.
 
-## Verification
+## Legacy bridge verification
 
 Database integration tests construct and upgrade all relevant states with one
 legacy response profile and nine legacy events (matching the incident):
@@ -107,9 +154,11 @@ legacy response profile and nine legacy events (matching the incident):
 | database already advanced beyond 142 | capped up-only source does not downgrade it |
 | non-public active schema | bridge resolves and upgrades that schema |
 
-For every row-preserving case, tests assert that row counts survive, both columns
-contain conservative envelopes, version 143 is clean, and golang-migrate accepts
-the resulting schema. Full server tests and server lint pass.
+For every row-preserving case, the legacy tests assert that row counts survive,
+both columns contain conservative envelopes, version 143 is clean, and
+golang-migrate accepts the resulting schema. These tests exercise the retained
+legacy runner explicitly; they do not exercise the current startup path. The
+original bridge change passed full server tests and server lint.
 
 ## Operational recovery for RC.1
 
@@ -130,10 +179,13 @@ WHERE table_schema = 'public'
 -- zero rows
 ```
 
-A server restored to `v0.2.9` or `v0.2.10-rc.15` should reset only the dirty
-marker to `142/clean` after proving the columns are absent. The next release with
-the bridge then performs the data-preserving upgrade. Never force version 143
-clean while the columns are absent: the new binary requires them.
+For the public lineage, use the verified waypoint above: its bridge handles the
+recognized `143/dirty` state directly after proving both columns are absent.
+Do not manually clear the dirty marker as a prerequisite for current startup.
+If either column exists, the bridge refuses the partial/manual state; preserve
+the database for inspection. Never force version 143 clean while the columns are
+absent: the runtime requires them. Restoring a backup is a coordinated application
+and database rollback, not a version-row edit.
 
 ## Prevention
 

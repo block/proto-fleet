@@ -15,8 +15,8 @@ it's a feedback delay.
 
 1. After plugin or fixture edits, run `just test-contract` from the repo
    root. It builds the Go plugins, compiles the test binary once, and runs
-   `TestAntminerStock`, `TestAntminerVNish`, and `TestWhatsMinerStock` in
-   isolated containers.
+   `TestAntminerStock`, `TestAntminerVNish`, `TestAntminerLuxOS`, and
+   `TestWhatsMinerStock` in isolated containers.
    For ASIC-rs platform prerequisites, including the current macOS recipe
    blocker, read [build guidance](../asicrs-build/SKILL.md).
 2. Surface the failing test name and the plugin under test (the test names

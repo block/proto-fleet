@@ -2,104 +2,88 @@ import { expect } from "@playwright/test";
 import { BasePage } from "./base";
 
 export class EditPoolPage extends BasePage {
-  private getPoolRowByName(name: string) {
-    return this.page
-      .getByTestId(/^pool-row-\d+$/)
-      .filter({ has: this.page.getByTestId("pool-name").getByText(name, { exact: true }) })
-      .first();
+  private picker() {
+    return this.page.getByRole("dialog", { name: "Edit pool", exact: true });
   }
 
-  async clickAddAnotherPoolButton() {
-    await this.page.getByTestId("add-another-pool-button").click();
-  }
-
-  async clickAddPoolButton() {
-    const addPoolButton = this.page.getByTestId("add-pool-button");
-    if (await addPoolButton.isVisible().catch(() => false)) {
-      await addPoolButton.click();
-      return;
+  async openAccountSelection(accountId: string, count: number) {
+    if (count === 1) await this.page.goto(`/accounts/${accountId}/assets/miner/42`);
+    else {
+      await this.page.goto(`/accounts/${accountId}/assets`);
+      await this.page.getByRole("checkbox", { name: "Select Miner 42", exact: true }).check();
+      await this.page.getByRole("checkbox", { name: "Select Miner 43", exact: true }).check();
     }
-
-    await this.clickAddAnotherPoolButton();
+    await this.page.getByRole("button", { name: "Edit pool", exact: true }).click();
+    await this.page.getByLabel("Username", { exact: true }).fill("customer-admin");
+    await this.page.getByLabel("Password", { exact: true }).fill("first-password");
+    await this.page.getByRole("button", { name: "Continue", exact: true }).click();
   }
 
-  async clickPoolAddButton() {
-    await this.clickAddPoolButton();
+  async assignExpectingUnknown(count: number) {
+    if (count > 1) {
+      await this.reviewAssignment(count);
+      await this.page
+        .getByRole("dialog", { name: /Assign pool configuration to/ })
+        .getByRole("button", { name: "Assign", exact: true })
+        .click();
+    } else await this.picker().getByRole("button", { name: "Assign", exact: true }).click();
+    const unknown = this.page.getByRole("dialog", { name: /Assign pool configuration to/ });
+    await expect(unknown).toContainText("It may still be running.");
+    await unknown.getByRole("button", { name: "Close", exact: true }).click();
   }
 
-  async clickAddDefaultMiningPool() {
-    await this.clickIn("Add pool", "default-pool");
+  async createConfiguration() {
+    await this.picker().getByRole("button", { name: "New pool configuration", exact: true }).click();
   }
 
-  async clickAddBackupPoolOne() {
-    await this.clickIn("Add pool", "backup-pool-1");
+  async selectConfiguration(name: string) {
+    await this.picker().getByRole("radio", { name, exact: true }).check();
   }
 
-  async clickPoolRowByName(name: string) {
-    await this.page.getByText(name).click();
+  async validateSelectedConfiguration(name: string) {
+    await expect(this.picker().getByRole("radio", { name, exact: true })).toBeChecked();
   }
 
-  async clickSavePoolChoice() {
-    await this.clickSaveInModal();
-  }
-
-  async clickAddNewPool() {
-    await this.clickIn("Add new pool", "modal");
-  }
-
-  async clickAssignToXMiners(count: number | Promise<number>) {
-    const minerCount = await Promise.resolve(count);
-    const buttonText = `Assign to ${minerCount} miner${minerCount === 1 ? "" : "s"}`;
-    const assignButton = this.page.getByRole("button", { name: buttonText, exact: true });
-
-    await expect(assignButton).toBeVisible();
-    await expect(assignButton).toBeEnabled();
-    await assignButton.click();
+  async selectedConfigurationName() {
+    const label = this.picker()
+      .locator("label")
+      .filter({ has: this.page.getByRole("radio", { checked: true }) });
+    await expect(label).toHaveCount(1);
+    return (await label.innerText()).trim();
   }
 
   async validatePoolVisible(name: string, url: string) {
-    const row = this.getPoolRowByName(name);
-    await expect(row).toBeVisible();
-    await expect(row.getByTestId("pool-url")).toHaveText(url);
+    const row = this.picker()
+      .getByRole("row")
+      .filter({ has: this.page.getByRole("radio", { name, exact: true }) });
+    await expect(row).toContainText(url);
   }
 
-  async getPoolNameByIndex(index: number): Promise<string> {
-    const poolRow = this.page.getByTestId(`pool-row-${index}`);
-    return await poolRow.getByTestId("pool-name").innerText();
+  async assignSingle() {
+    await this.picker().getByRole("button", { name: "Assign", exact: true }).click();
+    await expect(this.picker()).toBeHidden();
+    await expect(this.page.getByRole("dialog", { name: /Assign pool configuration to/ })).toHaveCount(0);
   }
 
-  async getPoolUrlByIndex(index: number): Promise<string> {
-    const poolRow = this.page.getByTestId(`pool-row-${index}`);
-    return await poolRow.getByTestId("pool-url").innerText();
+  async reviewAssignment(count: number) {
+    await this.picker().getByRole("button", { name: "Assign", exact: true }).click();
+    const review = this.page.getByRole("dialog", { name: /Assign pool configuration to/ });
+    await expect(review).toHaveAccessibleName(`Assign pool configuration to ${count} miner${count === 1 ? "" : "s"}?`);
+    await expect(review.getByRole("region", { name: "Affected equipment" })).toHaveCount(0);
   }
 
-  async validatePoolCount(count: number) {
-    const poolRows = this.page.getByTestId(/^pool-row-\d+$/);
-    await expect(poolRows).toHaveCount(count);
+  async restoreConfiguration(name: string, overviewUrl: string, count: number, openPicker: () => Promise<void>) {
+    if (!name || this.page.isClosed()) return;
+    await this.page.goto(overviewUrl);
+    await openPicker();
+    await this.selectConfiguration(name);
+    await this.reviewAssignment(count);
+    await this.confirmAssignment();
   }
 
-  async validatePoolByIndex(index: number, name: string, url: string) {
-    const poolRow = this.page.getByTestId(`pool-row-${index}`);
-    await expect(poolRow.getByTestId("pool-name")).toHaveText(name);
-    await expect(poolRow.getByTestId("pool-url")).toHaveText(url);
-  }
-
-  async reorderPoolByDragging(fromIndex: number, toIndex: number) {
-    const sourceHandle = this.page.getByTestId(`pool-row-${fromIndex}`).getByTestId("reorder-handle");
-    const targetHandle = this.page.getByTestId(`pool-row-${toIndex}`).getByTestId("reorder-handle");
-    await sourceHandle.dragTo(targetHandle, { steps: 20 });
-  }
-
-  async removeAllPools() {
-    const poolRows = this.page.getByTestId(/^pool-row-\d+$/);
-    const poolCount = await poolRows.count();
-
-    for (let i = 0; i < poolCount; i++) {
-      const firstRow = poolRows.first();
-      await firstRow.getByRole("button", { name: "Pool actions", exact: true }).click();
-      await this.clickButton("Remove");
-      await expect(poolRows).toHaveCount(poolCount - 1 - i);
-    }
-    await expect(poolRows).toHaveCount(0);
+  async confirmAssignment() {
+    const review = this.page.getByRole("dialog", { name: /Assign pool configuration to/ });
+    await review.getByRole("button", { name: "Assign", exact: true }).click();
+    await expect(review).toBeHidden();
   }
 }

@@ -71,7 +71,7 @@ func (r *Resolver) Resolve(ctx context.Context, selector *commonpb.DeviceSelecto
 		return r.resolveExplicitDevices(ctx, sel.DeviceList, orgID)
 
 	case *commonpb.DeviceSelector_AllDevices:
-		return r.store.GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, &interfaces.MinerFilter{})
+		return r.store.GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, &interfaces.MinerFilter{IncludeContainers: true})
 
 	default:
 		return nil, fleeterror.NewInvalidArgumentError("device_selector must specify a selection_type")

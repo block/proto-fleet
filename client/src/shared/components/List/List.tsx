@@ -2,6 +2,7 @@ import {
   ChangeEvent,
   cloneElement,
   type CSSProperties,
+  Fragment,
   isValidElement,
   type MouseEvent,
   type MutableRefObject,
@@ -116,6 +117,14 @@ const getOverflowMeasurementWidth = (
 
 type SelectionMode = "none" | "all" | "subset";
 
+export type ListChildRow<ColKey extends string> = {
+  key: string;
+  label: string;
+  cells: Partial<Record<ColKey, ReactNode>>;
+  /** Optional parent-managed selection control. Children do not join bulk selection. */
+  selection?: ReactNode;
+};
+
 type ControlledSelectionModeProps<ItemKeyValueType> = {
   customSelectedItems: ItemKeyValueType[];
   customSetSelectedItems: (selected: ItemKeyValueType[]) => void;
@@ -165,6 +174,8 @@ type RowReorderEnabledProps<ColKey extends string, ItemKeyValueType> = {
 };
 
 type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem & string> = {
+  /** Children stay outside filtering, counts, bulk selection and sorting. */
+  getChildRows?: (item: ListItem) => ListChildRow<ColKey>[];
   activeCols: ColKey[];
   colTitles: ColTitles<ColKey>;
   colConfig: ColConfig<ListItem, ItemKeyValueType, ColKey>;
@@ -181,6 +192,8 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
   items: ListItem[];
   itemKey: keyof ListItem;
   itemSelectable?: boolean;
+  rowSelectionLabel?: (item: ListItem) => string;
+  isRowPartiallySelected?: (item: ListItem) => boolean;
   /**
    * Controls whether selectable rows use checkboxes (multi-select) or radio buttons (single-select).
    * Defaults to "checkbox". When "radio", the header select-all is hidden and only one item can be selected.
@@ -200,6 +213,8 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
   ) => ReactNode;
   containerClassName?: string;
   tableClassName?: string;
+  /** Draw a separator after this row; defaults to every row. */
+  showRowDivider?: (item: ListItem) => boolean;
   /**
    * Overrides the filter row's default `py-6` vertical padding. The `gap-4`
    * spacing and the horizontal list padding are always applied; only the
@@ -210,7 +225,12 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
   filtersClassName?: string;
   paddingLeft?: Partial<Record<Breakpoint, string>>;
   paddingRight?: Partial<Record<Breakpoint, string>>;
-  overflowContainer?: boolean;
+  /**
+   * true: contain table scrolling; false: page scrolling on laptop/desktop,
+   * with a bounded table on smaller screens; "page": page scrolling at every
+   * breakpoint. Page mode requires an ancestor that owns both scroll axes.
+   */
+  overflowContainer?: boolean | "page";
   stickyChromePaddingLeft?: Partial<Record<Breakpoint, string>>;
   /**
    * Extra classes for the sticky-left chrome (filter row, count, action bar).
@@ -309,6 +329,8 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
    */
   onSort?: (field: ColKey, direction: SortDirection) => void;
   stickyFirstColumn?: boolean;
+  /** Scroll away the leading gutter, keeping 8px between pinned content and the edge. */
+  scrollLeadingPadding?: boolean;
   /**
    * Optional callback to determine the default sort direction for a column.
    * Called when clicking on a column that isn't currently sorted.
@@ -366,10 +388,13 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
 type SortableDragHandleProps = Pick<ReturnType<typeof useSortable>, "attributes" | "listeners">;
 
 type ListRowRenderProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem & string> = {
+  childRow?: ListChildRow<ColKey>;
   item: ListItem;
   index: number;
   itemKey: keyof ListItem;
   itemSelectable: boolean;
+  rowSelectionLabel?: (item: ListItem) => string;
+  isRowPartiallySelected?: (item: ListItem) => boolean;
   selectionType: "checkbox" | "radio";
   radioGroupName: string;
   pageScopedSelection: boolean;
@@ -386,6 +411,7 @@ type ListRowRenderProps<ListItem, ItemKeyValueType, ColKey extends string = keyo
   firstStickyClasses: string;
   secondStickyClasses: string;
   stickyFirstColumn: boolean;
+  flushFirstColumn: boolean;
   columnShadowBaseClassList: string;
   columnShadowVisibleClassList: string;
   stickyStateHorizontalIsStuck: boolean;
@@ -404,6 +430,7 @@ type ListRowRenderProps<ListItem, ItemKeyValueType, ColKey extends string = keyo
   itemRef?: (itemKey: ItemKeyValueType, element: HTMLTableRowElement | null) => void;
   rowDragHandleColumn?: ColKey;
   dragHandleProps?: SortableDragHandleProps;
+  showDivider: boolean;
   rowClassName?: string;
   rowStyle?: CSSProperties;
   rowRef?: (element: HTMLTableRowElement | null) => void;
@@ -411,10 +438,13 @@ type ListRowRenderProps<ListItem, ItemKeyValueType, ColKey extends string = keyo
 };
 
 const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem & string>({
+  childRow,
   item,
   index,
   itemKey,
   itemSelectable,
+  rowSelectionLabel,
+  isRowPartiallySelected,
   selectionType,
   radioGroupName,
   pageScopedSelection,
@@ -431,6 +461,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
   firstStickyClasses,
   secondStickyClasses,
   stickyFirstColumn,
+  flushFirstColumn,
   columnShadowBaseClassList,
   columnShadowVisibleClassList,
   stickyStateHorizontalIsStuck,
@@ -444,13 +475,14 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
   itemRef,
   rowDragHandleColumn,
   dragHandleProps,
-  rowClassName = rowClassList,
+  showDivider,
+  rowClassName = showDivider ? rowClassList : undefined,
   rowStyle,
   rowRef,
   onRowClick,
 }: ListRowRenderProps<ListItem, ItemKeyValueType, ColKey>) => {
-  const visibleActions = actions.filter((action) => !resolveListActionValue(action.hidden, item));
-  const placeholderContent = actionPlaceholder?.(item);
+  const visibleActions = childRow ? [] : actions.filter((action) => !resolveListActionValue(action.hidden, item));
+  const placeholderContent = childRow ? undefined : actionPlaceholder?.(item);
   const singleVisibleAction = visibleActions.length === 1 ? visibleActions[0] : null;
   const singleVisibleActionTitle = singleVisibleAction
     ? resolveListActionValue(singleVisibleAction.title, item)
@@ -469,13 +501,15 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
 
   return (
     <tr
+      id={childRow?.key}
+      aria-label={childRow?.label}
       key={rowKey as string | number}
       className={clsx(rowClassName, onRowClick && "group cursor-pointer")}
       ref={(element) => {
         itemRef?.(rowKey, element);
         rowRef?.(element);
       }}
-      data-testid="list-row"
+      data-testid={childRow ? "list-child-row" : "list-row"}
       style={rowStyle}
       onClick={
         onRowClick
@@ -516,7 +550,9 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
               "opacity-50": rowDisabled,
             })}
           >
-            {selectionType === "radio" ? (
+            {childRow ? (
+              (childRow.selection ?? null)
+            ) : selectionType === "radio" ? (
               <Radio
                 name={radioGroupName}
                 value={String(rowKey)}
@@ -526,6 +562,8 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
               />
             ) : (
               <Checkbox
+                ariaLabel={rowSelectionLabel?.(item) ?? `Select ${String(rowKey)}`}
+                partiallyChecked={isRowPartiallySelected?.(item)}
                 checked={
                   pageScopedSelection && currentSelectionMode === "all"
                     ? rowSelectable
@@ -549,11 +587,13 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
           : allowWrap
             ? "overflow-hidden"
             : "truncate overflow-hidden";
-        const content = colConfig[row]?.component
-          ? colConfig[row].component(item, currentSelectedItems)
-          : typeof item === "object" && item !== null && row in item
-            ? ((item as Record<string, unknown>)[row as string] as ReactNode)
-            : null;
+        const content = childRow
+          ? (childRow.cells[row] ?? INACTIVE_PLACEHOLDER)
+          : colConfig[row]?.component
+            ? colConfig[row].component(item, currentSelectedItems)
+            : typeof item === "object" && item !== null && row in item
+              ? ((item as Record<string, unknown>)[row as string] as ReactNode)
+              : null;
         const isInactivePlaceholder = isStandaloneInactivePlaceholder(content);
         const cellContent = renderTableCellContent(content);
         const isDragHandleColumn = rowDragHandleColumn === row && dragHandleProps !== undefined;
@@ -578,7 +618,12 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
             <div
               className={clsx(
                 overflowClass,
-                columnIndex === 1 && stickyFirstColumn ? "py-3 pr-2 pl-4 phone:pl-2" : tdPaddingClassList,
+                colConfig[row]?.align === "right" && "text-right",
+                columnIndex === 0 && flushFirstColumn
+                  ? "py-3 pr-2"
+                  : columnIndex === 1 && stickyFirstColumn
+                    ? "py-3 pr-2 pl-4 phone:pl-2"
+                    : tdPaddingClassList,
                 applyColumnWidthsToCells ? "box-border w-full" : columnWidthClass,
                 {
                   "opacity-50": rowDisabled && !isExempt,
@@ -733,6 +778,7 @@ const columnShadowBaseClassList =
 const columnShadowVisibleClassList = "before:opacity-100 after:opacity-100";
 
 const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem & string>({
+  getChildRows,
   activeCols,
   colTitles,
   colConfig,
@@ -748,6 +794,8 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   items,
   itemKey,
   itemSelectable = false,
+  rowSelectionLabel,
+  isRowPartiallySelected,
   selectionType = "checkbox",
   disabled = false,
   actions = [],
@@ -759,6 +807,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   renderActionBar,
   containerClassName = "",
   tableClassName,
+  showRowDivider,
   filtersClassName,
   paddingLeft,
   paddingRight,
@@ -787,6 +836,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   onRowReorder,
   rowDragHandleColumn,
   stickyFirstColumn = true,
+  scrollLeadingPadding = false,
   getDefaultSortDirection,
   footerContent,
   applyColumnWidthsToCells = false,
@@ -796,6 +846,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   columnHeaderAriaLabels,
   onRowClick,
 }: ListProps<ListItem, ItemKeyValueType, ColKey>) => {
+  const containsOverflow = overflowContainer === true;
   const { refs, stickyState } = useStickyState();
   const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
   const internalScrollRef = useRef<HTMLDivElement>(null);
@@ -1179,7 +1230,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   );
 
   const rightPaddingClasses = clsx(
-    (!overflowContainer || hasHorizontalOverflow) && paddingRight
+    (!containsOverflow || hasHorizontalOverflow) && paddingRight
       ? [
           "phone:pr-(--list-padding-right-phone)",
           "tablet:pr-(--list-padding-right-tablet)",
@@ -1208,7 +1259,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   /* eslint-enable react-hooks/immutability */
 
   useEffect(() => {
-    if (!overflowContainer) {
+    if (!containsOverflow) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- clear overflow flag when overflowContainer mode is disabled
       setHasHorizontalOverflow(false);
       return;
@@ -1241,19 +1292,26 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     itemSelectable,
     actions.length,
     hasHorizontalOverflow,
-    overflowContainer,
+    containsOverflow,
     paddingRight,
     tableClassName,
   ]);
 
-  const firstStickyClasses = clsx(baseStickyClassList, "tablet:left-0", stickyBgColor, paddingClasses);
+  const firstStickyClasses = clsx(
+    baseStickyClassList,
+    scrollLeadingPadding
+      ? "tablet:left-[calc(theme(spacing.2)-var(--list-padding-tablet))] laptop:left-[calc(theme(spacing.2)-var(--list-padding-laptop))] desktop:left-[calc(theme(spacing.2)-var(--list-padding-desktop))]"
+      : "tablet:left-0",
+    stickyBgColor,
+    paddingClasses,
+  );
 
   const secondStickyClasses = clsx(
     baseStickyClassList,
     stickyBgColor,
-    "desktop:left-[calc(var(--list-padding-desktop)+theme(spacing.9))]",
-    "laptop:left-[calc(var(--list-padding-laptop)+theme(spacing.9))]",
-    "tablet:left-[calc(var(--list-padding-tablet)+theme(spacing.9))]",
+    scrollLeadingPadding
+      ? "tablet:left-11"
+      : "desktop:left-[calc(var(--list-padding-desktop)+theme(spacing.9))] laptop:left-[calc(var(--list-padding-laptop)+theme(spacing.9))] tablet:left-[calc(var(--list-padding-tablet)+theme(spacing.9))]",
   );
 
   const hasVisibleRows = filteredItems.length > 0;
@@ -1302,12 +1360,15 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   const shouldShowTotal = !hideTotal && total !== undefined && !shouldRenderNoDataElement;
 
   const renderRow = (item: ListItem, index: number) => {
+    const showDivider = showRowDivider?.(item) ?? true;
     const rowKey = item[itemKey] as ItemKeyValueType;
     const sharedRowProps: StaticListRowProps<ListItem, ItemKeyValueType, ColKey> = {
       item,
       index,
       itemKey,
       itemSelectable,
+      rowSelectionLabel,
+      isRowPartiallySelected,
       selectionType,
       radioGroupName,
       pageScopedSelection,
@@ -1324,11 +1385,14 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       firstStickyClasses,
       secondStickyClasses,
       stickyFirstColumn,
+      // The cell already supplies the gutter; do not add another 8px inside it.
+      flushFirstColumn: stickyFirstColumn && scrollLeadingPadding && !!paddingLeft && !itemSelectable,
       columnShadowBaseClassList,
       columnShadowVisibleClassList,
       stickyStateHorizontalIsStuck: stickyState.horizontal.isStuck,
       applyColumnWidthsToCells,
-      extendRowDividerToContainerEdge: overflowContainer && !hasHorizontalOverflow,
+      showDivider,
+      extendRowDividerToContainerEdge: showDivider && containsOverflow && !hasHorizontalOverflow,
       rightPaddingClasses,
       paddingCssVariables,
       tdPaddingClassList,
@@ -1338,26 +1402,38 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       onRowClick,
     };
 
-    if (rowDragEnabled) {
-      return (
-        <SortableListRow<ListItem, ItemKeyValueType, ColKey>
-          key={rowKey as string | number}
-          dragId={rowKey as UniqueIdentifier}
-          {...sharedRowProps}
-          rowDragHandleColumn={rowDragHandleColumn}
-        />
-      );
-    }
-
-    return <StaticListRow<ListItem, ItemKeyValueType, ColKey> key={rowKey as string | number} {...sharedRowProps} />;
+    return (
+      <Fragment key={rowKey as string | number}>
+        {rowDragEnabled ? (
+          <SortableListRow<ListItem, ItemKeyValueType, ColKey>
+            dragId={rowKey as UniqueIdentifier}
+            {...sharedRowProps}
+            rowDragHandleColumn={rowDragHandleColumn}
+          />
+        ) : (
+          <StaticListRow<ListItem, ItemKeyValueType, ColKey> {...sharedRowProps} />
+        )}
+        {getChildRows?.(item).map((childRow) => (
+          <StaticListRow<ListItem, ItemKeyValueType, ColKey>
+            {...sharedRowProps}
+            key={childRow.key}
+            childRow={childRow}
+            itemRef={undefined}
+            onRowClick={undefined}
+            rowSelectable={false}
+            rowDisabled={false}
+          />
+        ))}
+      </Fragment>
+    );
   };
 
   const listContent = (
     <>
       <div ref={refs.vertical.start} />
-      <div className="sticky top-0 flex justify-between">
+      <div className={clsx("sticky top-0 flex justify-between", scrollLeadingPadding && paddingClasses)}>
         {/* eslint-disable-next-line react-hooks/refs -- ref object from useStickyState is passed to <div ref>; React writes .current during commit, not read during render */}
-        <div ref={refs.horizontal.start} />
+        <div ref={refs.horizontal.start} className={scrollLeadingPadding ? "-translate-x-2" : undefined} />
         {/* eslint-disable-next-line react-hooks/refs -- ref object from useStickyState is passed to <div ref>; React writes .current during commit, not read during render */}
         <div ref={refs.horizontal.end} />
       </div>
@@ -1377,6 +1453,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                 {selectionType !== "radio" ? (
                   <div className="w-9 truncate overflow-hidden" data-testid="select-all-checkbox">
                     <Checkbox
+                      ariaLabel={`Select all ${itemName.plural}`}
                       checked={allSelected}
                       partiallyChecked={visibleSelectedCount > 0 ? !allSelected : false}
                       onChange={(e) => handleSelectAll(e.target.checked)}
@@ -1428,6 +1505,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                       type="button"
                       className={clsx(
                         "inline-flex w-full cursor-pointer items-center truncate overflow-hidden text-left select-none",
+                        colConfig[row]?.align === "right" && "justify-end",
                         applyColumnWidthsToCells ? "box-border" : columnWidthClass,
                       )}
                       onClick={handleHeaderClick}
@@ -1445,6 +1523,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                     <div
                       className={clsx(
                         "inline-flex w-full items-center truncate overflow-hidden",
+                        colConfig[row]?.align === "right" && "justify-end",
                         applyColumnWidthsToCells ? "box-border" : columnWidthClass,
                       )}
                     >
@@ -1519,18 +1598,18 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
         <div
           className={clsx(
             "flex flex-col",
-            overflowContainer ? "min-w-0" : "phone:min-w-0 tablet-only:min-w-0",
+            containsOverflow ? "min-w-0" : "phone:min-w-0 tablet-only:min-w-0",
             containerClassName,
           )}
         >
           <div
             ref={setCombinedScrollRef}
             className={clsx({
-              "max-w-full min-w-0": overflowContainer,
-              "overflow-x-auto": overflowContainer && hasHorizontalOverflow,
-              "overflow-x-hidden": overflowContainer && !hasHorizontalOverflow,
+              "max-w-full min-w-0": containsOverflow,
+              "overflow-x-auto": containsOverflow && hasHorizontalOverflow,
+              "overflow-x-hidden": containsOverflow && !hasHorizontalOverflow,
               "phone:max-w-full phone:min-w-0 phone:overflow-x-auto phone:overscroll-x-contain tablet-only:max-w-full tablet-only:min-w-0 tablet-only:overflow-x-auto tablet-only:overscroll-x-contain":
-                !overflowContainer,
+                overflowContainer === false,
             })}
           >
             {!shouldRenderNoDataElement ? (

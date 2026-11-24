@@ -155,11 +155,6 @@ describe("computePresetDates", () => {
 // ── Component tests ──
 
 describe("DatePicker", () => {
-  test("renders trigger button", () => {
-    render(<DatePicker testId="dp" />);
-    expect(screen.getByTestId("dp-trigger")).toBeDefined();
-  });
-
   test("shows placeholder text when no date selected", () => {
     render(<DatePicker testId="dp" />);
     expect(screen.getByText("Select date")).toBeDefined();
@@ -255,6 +250,10 @@ describe("DatePicker", () => {
 
   test("moves focus into portal-scrolling panels when opened from the trigger", async () => {
     render(<DatePicker popoverRenderMode="portal-scrolling" testId="dp" />);
+
+    vi.spyOn(screen.getByTestId("dp-trigger").parentElement!, "getBoundingClientRect").mockReturnValue(
+      new DOMRect(40, 100, 200, 56),
+    );
 
     fireEvent.click(screen.getByTestId("dp-trigger"));
 
@@ -499,6 +498,25 @@ describe("DatePicker", () => {
     fireEvent.blur(screen.getByTestId("dp-inputs-date-input"));
 
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  test("applies a typed date on Enter and marks the key handled", () => {
+    const onChange = vi.fn();
+    const onEnclosingKeyDown = vi.fn();
+    render(
+      <div onKeyDown={(event) => onEnclosingKeyDown(event.defaultPrevented)}>
+        <DatePicker selectionMode="single" withInputs="date" onSelectedDateChange={onChange} testId="dp" />
+      </div>,
+    );
+
+    fireEvent.click(screen.getByTestId("dp-trigger"));
+    const input = screen.getByLabelText("Date");
+    fireEvent.change(input, { target: { value: "2026-01-20" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(formatDate(onChange.mock.calls[0][0])).toBe("2026-01-20");
+    expect(onEnclosingKeyDown).toHaveBeenCalledWith(true);
   });
 
   test("clears the displayed value when a controlled date is reset", () => {

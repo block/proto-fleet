@@ -86,7 +86,7 @@ export const BulkActionsWidget = ({ numberOfActions, numberOfMiners }: BulkActio
   }, [numberOfActions, numberOfMiners]);
 
   return (
-    <div className="fixed top-40 left-40 rounded-3xl bg-grayscale-gray-87">
+    <div className="fixed bottom-12 left-6 rounded-3xl bg-grayscale-gray-87 tablet:left-40">
       <PopoverProvider>
         <BulkActionsWidgetComponent<DeviceAction | PerformanceAction>
           buttonIcon={<Rectangle width={iconSizes.xSmall} />}
@@ -110,6 +110,11 @@ export const BulkActionsWidget = ({ numberOfActions, numberOfMiners }: BulkActio
   );
 };
 
+export const Empty = {
+  render: BulkActionsWidget,
+  args: { numberOfActions: 0, numberOfMiners: 1 },
+};
+
 export default {
   title: "Proto Fleet/Action Bar/Bulk Actions Widget",
   parameters: {
@@ -127,7 +132,7 @@ export default {
   },
   argTypes: {
     numberOfActions: {
-      control: { type: "range", min: 1, max: 3, step: 1 },
+      control: { type: "range", min: 0, max: 3, step: 1 },
     },
     numberOfMiners: {
       control: { type: "range", min: 1, max: 25, step: 1 },

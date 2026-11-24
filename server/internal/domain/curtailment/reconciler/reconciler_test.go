@@ -34,6 +34,10 @@ var _ curtailment.Metrics = (*recordingMetrics)(nil)
 // fakeStore is an in-memory CurtailmentStore for reconciler tests. Methods
 // the reconciler does not exercise panic so an unintended call is loud.
 type fakeStore struct {
+	dispatchRejections        map[int64]string
+	dispatchRejectionReadErr  error
+	dispatchRejectionWriteErr error
+
 	events           []*models.Event
 	targetsByEventID map[int64][]*models.Target
 	candidates       []*models.Candidate
@@ -47,7 +51,6 @@ type fakeStore struct {
 	listTargetsHook    func(context.Context, uuid.UUID)
 	listTargetsCtxErr  map[uuid.UUID]error
 
-	updateEventCalls         int
 	updateEventLast          map[int64]models.EventState
 	updateTargetCalls        int
 	updateTargetParams       map[string]interfaces.UpdateCurtailmentTargetStateParams
@@ -85,7 +88,6 @@ type fakeStore struct {
 
 	heartbeatCalls               int
 	lastHeartbeatActive          int32
-	lastHeartbeatTickUUID        uuid.UUID
 	lastListCandidatesParams     interfaces.ListCandidatesParams
 	listCandidatesFilters        [][]string
 	topologyCoverage             interfaces.CurtailmentTopologyScopeCoverage
@@ -106,7 +108,6 @@ type fakeStore struct {
 	beginRestoreLastEventID uuid.UUID
 	beginRestoreErr         error
 	updateFanCalls          int
-	lastFanUpdate           interfaces.UpdateCurtailmentFanStateParams
 	rejectExpiredFanUpdate  bool
 	failFanUpdateCall       int
 }
@@ -169,7 +170,7 @@ func (f *fakeStore) GetEventByUUID(_ context.Context, orgID int64, eventUUID uui
 			return ev, nil
 		}
 	}
-	return nil, nil
+	return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
 }
 func (f *fakeStore) GetEventDetailByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
 	return f.GetEventByUUID(ctx, orgID, eventUUID)
@@ -238,7 +239,7 @@ func (f *fakeStore) BeginCurtailmentTopologyTargetRestore(
 ) (int64, error) {
 	f.topologyRestoreCalls++
 	f.topologyRestoreDevices = append([]string(nil), deviceIdentifiers...)
-	wanted := toStringSet(deviceIdentifiers)
+	wanted := curtailment.ToStringSet(deviceIdentifiers)
 	var transitioned int64
 	for _, target := range f.targetsByEventID[event.ID] {
 		if _, ok := wanted[target.DeviceIdentifier]; !ok || target.DesiredState == models.DesiredStateActive {
@@ -426,6 +427,13 @@ func (f *fakeStore) GetTargetRollupByEvent(context.Context, int64, uuid.UUID) (*
 }
 
 func (f *fakeStore) ListCandidates(_ context.Context, params interfaces.ListCandidatesParams) ([]*models.Candidate, error) {
+	// Production ListCandidates always supplies a pairing status; default the
+	// older telemetry-only fixtures to paired for their unrelated assertions.
+	for _, candidate := range f.candidates {
+		if candidate.PairingStatus == "" {
+			candidate.PairingStatus = "PAIRED"
+		}
+	}
 	f.listCandidatesCalls++
 	f.lastListCandidatesParams = params
 	f.listCandidatesFilters = append(f.listCandidatesFilters, append([]string(nil), params.DeviceIdentifiers...))
@@ -469,7 +477,7 @@ func (f *fakeStore) ResolveCurtailmentTopologyDispatch(
 	}
 	members := make(map[string]struct{}, len(f.candidates))
 	if f.topologyDispatchMembers != nil {
-		members = toStringSet(f.topologyDispatchMembers)
+		members = curtailment.ToStringSet(f.topologyDispatchMembers)
 	} else {
 		for _, candidate := range f.candidates {
 			if candidate != nil {
@@ -500,10 +508,13 @@ func (f *fakeStore) WithCurtailmentTopologyDispatchFence(
 		return f.topologyFenceErr
 	}
 	latest, err := f.GetEventByUUID(ctx, event.OrgID, event.EventUUID)
+	if fleeterror.IsNotFoundError(err) {
+		return interfaces.ErrCurtailmentEventStateRaceLoss
+	}
 	if err != nil {
 		return err
 	}
-	if latest == nil || latest.ID != event.ID || latest.State != event.State || latest.State.IsTerminal() {
+	if latest.ID != event.ID || latest.State != event.State || latest.State.IsTerminal() {
 		return interfaces.ErrCurtailmentEventStateRaceLoss
 	}
 	latestCopy := *latest
@@ -539,10 +550,13 @@ func (f *fakeStore) WithCurtailmentTopologyRestoreDispatchFence(
 		return f.topologyFenceErr
 	}
 	latest, err := f.GetEventByUUID(ctx, event.OrgID, event.EventUUID)
+	if fleeterror.IsNotFoundError(err) {
+		return interfaces.ErrCurtailmentEventStateRaceLoss
+	}
 	if err != nil {
 		return err
 	}
-	if latest == nil || latest.ID != event.ID || latest.State != event.State || latest.State.IsTerminal() {
+	if latest.ID != event.ID || latest.State != event.State || latest.State.IsTerminal() {
 		return interfaces.ErrCurtailmentEventStateRaceLoss
 	}
 	latestCopy := *latest
@@ -632,8 +646,7 @@ func (f *fakeStore) ListNonTerminalEvents(ctx context.Context) ([]*models.Event,
 	return out, nil
 }
 
-func (f *fakeStore) UpdateEventState(_ context.Context, eventID int64, expectedState models.EventState, state models.EventState, _ *time.Time, _ *time.Time) error {
-	f.updateEventCalls++
+func (f *fakeStore) UpdateEventState(_ context.Context, eventID int64, expectedState models.EventState, state models.EventState, startedAt *time.Time, endedAt *time.Time) error {
 	f.updateEventLast[eventID] = state
 	for _, ev := range f.events {
 		if ev.ID == eventID {
@@ -641,6 +654,12 @@ func (f *fakeStore) UpdateEventState(_ context.Context, eventID int64, expectedS
 				return interfaces.ErrCurtailmentEventStateRaceLoss
 			}
 			ev.State = state
+			if startedAt != nil {
+				ev.StartedAt = startedAt
+			}
+			if endedAt != nil {
+				ev.EndedAt = endedAt
+			}
 		}
 	}
 	return nil
@@ -666,7 +685,6 @@ func (f *fakeStore) RecordCurtailPendingDispatch(_ context.Context, eventID int6
 
 func (f *fakeStore) UpdateFanState(ctx context.Context, eventID int64, params interfaces.UpdateCurtailmentFanStateParams) error {
 	f.updateFanCalls++
-	f.lastFanUpdate = params
 	if f.failFanUpdateCall == f.updateFanCalls {
 		return errors.New("injected fan state update failure")
 	}
@@ -716,7 +734,7 @@ func (f *fakeStore) UpdateTargetState(_ context.Context, eventID int64, deviceId
 	f.updateTargetCalls++
 	f.updateTargetParams[deviceIdentifier] = params
 	// updateTargetStateHook lets a test reject specific writes (e.g.
-	// simulate the EXISTS guard's race-loss sentinel firing on the Nth
+	// simulate the locked parent-state guard's race-loss sentinel on the Nth
 	// call) without globally poisoning the fake.
 	if f.updateTargetStateHook != nil {
 		if err := f.updateTargetStateHook(deviceIdentifier, params, f.updateTargetCalls); err != nil {
@@ -774,6 +792,9 @@ func (f *fakeStore) UpdateTargetState(_ context.Context, eventID int64, deviceId
 			if params.RetryCount != nil {
 				t.RetryCount = *params.RetryCount
 			}
+			if params.CurtailPossiblySent && (t.DesiredState == "" || t.DesiredState == models.DesiredStateCurtailed) {
+				t.CurtailPossiblySent = true
+			}
 			if params.LastError != nil {
 				// Empty-string maps to "clear the error" so callers can
 				// signal a successful redispatch without resorting to NULL
@@ -799,6 +820,9 @@ func (f *fakeStore) BumpTargetRetry(_ context.Context, eventID int64, deviceIden
 	for _, t := range f.targetsByEventID[eventID] {
 		if t.DeviceIdentifier == deviceIdentifier {
 			t.RetryCount++
+			if t.DesiredState == "" || t.DesiredState == models.DesiredStateCurtailed {
+				t.CurtailPossiblySent = true
+			}
 			bumpTargetPhaseRetry(t)
 			return nil
 		}
@@ -809,7 +833,6 @@ func (f *fakeStore) BumpTargetRetry(_ context.Context, eventID int64, deviceIden
 func (f *fakeStore) UpsertHeartbeat(_ context.Context, params interfaces.UpsertCurtailmentHeartbeatParams) error {
 	f.heartbeatCalls++
 	f.lastHeartbeatActive = params.ActiveEventCount
-	f.lastHeartbeatTickUUID = params.LastTickUUID
 	return nil
 }
 
@@ -832,8 +855,11 @@ func (f *fakeStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID
 				knownUnsent[deviceIdentifier] = struct{}{}
 			}
 			for _, t := range f.targetsByEventID[ev.ID] {
+				if t.DesiredState == "" {
+					t.DesiredState = models.DesiredStateCurtailed
+				}
 				if t.State == models.TargetStateResolved ||
-					t.State == models.TargetStateRestoreFailed ||
+					(t.State == models.TargetStateRestoreFailed && !(t.DesiredState == models.DesiredStateCurtailed && (t.CurtailPhase.DispatchedAt != nil || t.CurtailPossiblySent || t.RestorePhase != nil))) ||
 					t.State == models.TargetStateReleased {
 					continue
 				}
@@ -842,7 +868,7 @@ func (f *fakeStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID
 					(t.State == models.TargetStatePending || t.State == models.TargetStateUnavailable ||
 						(t.State == models.TargetStateDispatching && explicitlyUnsent)) &&
 					t.LastDispatchedAt == nil && t.CurtailPhase.DispatchedAt == nil &&
-					t.RetryCount == 0 && t.RestorePhase == nil {
+					!t.CurtailPossiblySent && t.RestorePhase == nil {
 					t.State = models.TargetStateReleased
 					continue
 				}
@@ -887,6 +913,7 @@ func (f *fakeStore) BeginRecurtailTransition(
 				t.LastBatchUUID = nil
 				t.ConfirmedAt = nil
 				t.LastError = nil
+				t.CurtailPossiblySent = false
 				t.CurtailPhase = models.TargetPhaseSummary{
 					Phase: models.TargetPhaseCurtail,
 					State: models.TargetStatePending,
@@ -1071,6 +1098,7 @@ func identifiersFromSelector(selector *pb.DeviceSelector) []string {
 // --- helpers ---
 
 func newReconcilerForTest(store *fakeStore, disp *fakeDispatcher, options ...Option) *Reconciler {
+	options = append([]Option{WithDispatchPermissionResolver(allowDispatchForTest())}, options...)
 	r := New(Config{
 		TickInterval:         time.Hour, // tests drive runTick directly
 		MaxRetries:           3,
@@ -1087,7 +1115,7 @@ func newReconcilerWithFansForTest(
 	fans *fakeFanController,
 	options ...Option,
 ) *Reconciler {
-	options = append([]Option{WithFacilityFanController(fans)}, options...)
+	options = append([]Option{WithFacilityFanController(fans), WithDispatchPermissionResolver(allowDispatchForTest())}, options...)
 	r := New(Config{
 		TickInterval:         time.Hour,
 		MaxRetries:           3,
@@ -1109,7 +1137,7 @@ func newReconcilerWithFanAlertForTest(
 		MaxRetries:           3,
 		CurtailMaxRetries:    3,
 		DriftThresholdFactor: 0.5,
-	}, store, disp, WithFacilityFanController(fans), WithFacilityFanAlertEmitter(alert))
+	}, store, disp, WithDispatchPermissionResolver(allowDispatchForTest()), WithFacilityFanController(fans), WithFacilityFanAlertEmitter(alert))
 	r.now = func() time.Time { return time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC) }
 	return r
 }
@@ -1343,6 +1371,12 @@ func TestReconciler_TopologyDispatchAuthorizationErrorsFailClosed(t *testing.T) 
 			assert.True(t, handled)
 			assert.False(t, allowed)
 			assert.Equal(t, 0, dispatcher.curtailCalls)
+			if tt.name == "event reload error" || tt.name == "topology snapshot error" || tt.name == "permission reload error" {
+				assert.Zero(t, store.beginRestoreCalls)
+				assert.Equal(t, models.EventStatePending, event.State)
+				assert.Empty(t, store.dispatchRejections)
+				return
+			}
 			assert.Equal(t, 1, store.beginRestoreCalls)
 			assert.Equal(t, models.EventStateRestoring, store.events[0].State)
 			assert.Equal(t, models.TargetStateReleased, target.State)
@@ -1410,7 +1444,7 @@ func TestReconciler_TopologyDispatchRechecksEventAtCommandBoundary(t *testing.T)
 	)
 
 	assert.False(t, dispatched)
-	assert.Equal(t, 3, store.getEventCalls)
+	assert.Equal(t, 1, store.getEventCalls)
 	assert.Equal(t, 0, dispatcher.curtailCalls)
 }
 
@@ -1526,7 +1560,7 @@ func TestReconciler_TopologyRestoreDispatchesCurrentMemberWhenEventIsRestoring(t
 	assert.Equal(t, models.TargetStateDispatched, target.State)
 }
 
-func TestReconciler_TopologyDispatchFenceFailurePreservesRestoreOwnership(t *testing.T) {
+func TestReconciler_TopologyDispatchFenceFailureRetainsOwnershipForRetry(t *testing.T) {
 	t.Parallel()
 
 	store, event, target := topologyDispatchFixture()
@@ -1554,6 +1588,7 @@ func TestReconciler_TopologyDispatchFenceFailurePreservesRestoreOwnership(t *tes
 	assert.Equal(t, models.TargetStateDispatching, target.State)
 
 	store.beginRestoreErr = nil
+	store.topologyFenceAfterCommandErr = nil
 	commandCalls := 0
 	handled, allowed := reconciler.authorizeTopologyCurtailDispatch(
 		t.Context(),
@@ -1563,13 +1598,12 @@ func TestReconciler_TopologyDispatchFenceFailurePreservesRestoreOwnership(t *tes
 		func() { commandCalls++ },
 	)
 	assert.True(t, handled)
-	assert.False(t, allowed)
-	assert.Zero(t, commandCalls)
-	assert.Equal(t, 2, store.beginRestoreCalls)
-	assert.Equal(t, models.DesiredStateActive, target.DesiredState)
-	assert.Equal(t, models.TargetStatePending, target.State)
-	assert.NotNil(t, target.RestorePhase,
-		"a command-attempted target must remain owned by restore after a fence commit error")
+	assert.True(t, allowed)
+	assert.Equal(t, 1, commandCalls)
+	assert.Zero(t, store.beginRestoreCalls)
+	assert.Equal(t, models.DesiredStateCurtailed, target.DesiredState)
+	assert.Equal(t, models.TargetStateDispatching, target.State)
+	assert.Nil(t, target.RestorePhase, "infrastructure failure retains curtail ownership for a safe retry")
 }
 
 func topologyDispatchFixture() (*fakeStore, *models.Event, *models.Target) {
@@ -2497,11 +2531,8 @@ func TestReconciler_PendingAllPairedPolicyUnavailableTargetsDoNotBlockActive(t *
 	assert.Equal(t, 0, disp.curtailCalls)
 }
 
-// A bounded all-paired event whose entire scope is non-commandable must hold
-// in pending: transitioning to Active would stamp StartedAt and start
-// enforceMaxDuration's clock while nothing is curtailed, letting the event
-// burn its bounded window — then force-restore, releasing every
-// never-dispatched row — without a single dispatch having happened.
+// An all-paired event with no commandable members stays pending until readiness
+// changes or its finite safety cap expires.
 func TestReconciler_PendingAllPairedPolicyAllUnavailableStaysPending(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -3207,7 +3238,7 @@ func TestClaimClosedLoopFullFleetTargetsUsesPersistedTopologyScope(t *testing.T)
 					effective: topologyDispatchManagePermission(),
 				}),
 			)
-			claimed, _ := r.claimClosedLoopFullFleetTargets(t.Context(), event, nil)
+			claimed, _ := r.claimClosedLoopFullFleetTargetsFromSnapshot(t.Context(), event, nil, nil)
 
 			require.Len(t, claimed, 1)
 			tt.wantParams.OrgID = event.OrgID
@@ -3232,7 +3263,7 @@ func TestClaimClosedLoopFullFleetTargetsRejectsOversizedExpansion(t *testing.T) 
 			effective: topologyDispatchManagePermission(),
 		}),
 	)
-	claimed, _ := r.claimClosedLoopFullFleetTargets(t.Context(), event, nil)
+	claimed, _ := r.claimClosedLoopFullFleetTargetsFromSnapshot(t.Context(), event, nil, nil)
 
 	assert.Empty(t, claimed)
 	assert.Equal(t, int32(curtailment.ScopeResolvedMinerMax+1), store.lastListCandidatesParams.ResultLimit)
@@ -3268,7 +3299,7 @@ func TestClaimClosedLoopFullFleetTargetsRestoresTopologyDeparturesBeforeAdmissio
 		}),
 	)
 
-	claimed, _ := r.claimClosedLoopFullFleetTargets(t.Context(), event, store.targetsByEventID[event.ID])
+	claimed, _ := r.claimClosedLoopFullFleetTargetsFromSnapshot(t.Context(), event, store.targetsByEventID[event.ID], nil)
 
 	assert.Empty(t, claimed)
 	assert.Equal(t, 1, store.topologyRestoreCalls)
@@ -3788,7 +3819,7 @@ func TestClaimClosedLoopFullFleetTargetsReadmitsRestoredTopologyMember(t *testin
 		}),
 	)
 
-	claimed, _ := r.claimClosedLoopFullFleetTargets(t.Context(), event, store.targetsByEventID[event.ID])
+	claimed, _ := r.claimClosedLoopFullFleetTargetsFromSnapshot(t.Context(), event, store.targetsByEventID[event.ID], nil)
 
 	require.Len(t, claimed, 1)
 	assert.Equal(t, "returning-miner", claimed[0].DeviceIdentifier)
@@ -3834,7 +3865,7 @@ func TestClaimClosedLoopFullFleetTargetsReadmitsRestoreFailedTopologyMember(t *t
 				}),
 			)
 
-			claimed, _ := r.claimClosedLoopFullFleetTargets(t.Context(), event, store.targetsByEventID[event.ID])
+			claimed, _ := r.claimClosedLoopFullFleetTargetsFromSnapshot(t.Context(), event, store.targetsByEventID[event.ID], nil)
 
 			target := store.targetsByEventID[event.ID][0]
 			assert.Equal(t, models.DesiredStateCurtailed, target.DesiredState)
@@ -3904,16 +3935,6 @@ func TestClaimClosedLoopFullFleetTargetsHandlesTopologyAdmissionFailure(t *testi
 			wantRestoreCalls: 1,
 		},
 		{
-			name:        "restores after update raises max duration and creator is demoted",
-			permissions: staticDispatchPermissionResolver{effective: topologyDispatchManagePermission(), roleName: "CUSTOM"},
-			configure: func(store *fakeStore, event *models.Event) {
-				store.orgConfig = &models.OrgConfig{OrgID: event.OrgID, MaxDurationDefaultSec: 100}
-				maxDurationSeconds := int32(101)
-				event.MaxDurationSeconds = &maxDurationSeconds
-			},
-			wantRestoreCalls: 1,
-		},
-		{
 			name:                  "defers transient role failure",
 			permissions:           staticDispatchPermissionResolver{effective: topologyDispatchManagePermission(), roleErr: errors.New("role database unavailable")},
 			requiresAdminControls: true,
@@ -3947,7 +3968,7 @@ func TestClaimClosedLoopFullFleetTargetsHandlesTopologyAdmissionFailure(t *testi
 				&fakeDispatcher{},
 				WithDispatchPermissionResolver(permissions),
 			)
-			claimed, _ := r.claimClosedLoopFullFleetTargets(t.Context(), event, nil)
+			claimed, _ := r.claimClosedLoopFullFleetTargetsFromSnapshot(t.Context(), event, nil, nil)
 
 			assert.Empty(t, claimed)
 			assert.Equal(t, 0, store.listCandidatesCalls)
@@ -4174,12 +4195,12 @@ func TestReconciler_SkipsCurtailDispatchWhenEventTerminatesBeforeCommand(t *test
 	r.runTick(context.Background())
 
 	assert.Equal(t, 0, disp.curtailCalls)
-	assert.Equal(t, 0, store.updateTargetCalls)
-	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][0].State)
+	assert.Equal(t, 1, store.updateTargetCalls)
+	assert.Equal(t, models.TargetStateDispatching, store.targetsByEventID[eventID][0].State)
 }
 
 // A concurrent AdminTerminate that lands between target N and N+1 must
-// stop further Curtail commands — the EXISTS guard on the DISPATCHING
+// stop further Curtail commands — the locked parent-state guard on the DISPATCHING
 // pre-write catches the race.
 func TestReconciler_SkipsRemainingCurtailDispatchesWhenEventTerminatesMidLoop(t *testing.T) {
 	store := newFakeStore()
@@ -4318,9 +4339,8 @@ func TestReconciler_DispatchingPreWrite_CommitsBeforeCommand(t *testing.T) {
 }
 
 // A row-specific persistent write failure on the DISPATCHING pre-write
-// (non-race-loss) must burn a retry slot via recordDispatchFailure so a
-// stuck target eventually escalates to terminal — otherwise the event
-// stalls indefinitely. Mirrors the analogous restore-path coverage.
+// (non-race-loss) must increment retry_count via recordDispatchFailure
+// so persistent curtail failures remain observable while retries continue.
 func TestReconciler_CurtailPreWriteFailureBurnsRetryBudget(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -4542,17 +4562,9 @@ func TestReconciler_RecoversOrphanedDispatchingTargetOnActiveEvent(t *testing.T)
 	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][0].State)
 }
 
-// TestReconciler_ObserveActive_DispatchingOrphanRespectsRetryBudget: a
-// DISPATCHING orphan whose RetryCount has already hit MaxRetries must NOT
-// be redispatched. Matches the symmetric Drifted-arm backstop and prevents
-// budget-exhausted orphans from cycling indefinitely.
-// A DISPATCHING orphan whose retry_count is already at MaxRetries must
-// terminalize on the next tick rather than loop forever in DISPATCHING.
-// The recordDispatchFailure fallback (BumpTargetRetry on writeTargetState
-// failure) can leave a target in DISPATCHING with a bumped retry count,
-// so observeActive must keep curtailed targets retryable even after the alert
-// threshold is reached.
-func TestReconciler_ObserveActive_ExhaustedCurtailDispatchingOrphanKeepsRetrying(t *testing.T) {
+// An interrupted DISPATCHING target at its retry ceiling terminalizes without
+// issuing another physical command.
+func TestReconciler_ObserveActive_ExhaustedCurtailDispatchingOrphanTerminalizes(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
 
@@ -4578,16 +4590,16 @@ func TestReconciler_ObserveActive_ExhaustedCurtailDispatchingOrphanKeepsRetrying
 	r := newReconcilerForTest(store, disp)
 	r.runTick(context.Background())
 
-	assert.Equal(t, 1, disp.curtailCalls,
-		"curtailment retry threshold surfaces an alert but does not abandon an asserted OFF policy")
+	assert.Equal(t, 0, disp.curtailCalls,
+		"exhausted curtail targets no longer dispatch")
 	final := store.targetsByEventID[eventID][0]
-	assert.Equal(t, models.TargetStateDispatched, final.State)
+	assert.Equal(t, models.TargetStateRestoreFailed, final.State)
 	assert.Equal(t, int32(3), final.RetryCount)
-	assert.Nil(t, final.LastError, "successful redispatch clears the alert error")
+	assert.NotNil(t, final.LastError, "the terminal failure remains visible")
 }
 
 // A race-loss on the orphan-redispatch pre-write must not fire Curtail
-// — pins the EXISTS-guard race-closure on the observeActive path.
+// — pins the locked_event CTE race closure on the observeActive path.
 func TestReconciler_ObserveActive_DispatchingOrphanRaceLossDoesNotIssueCommand(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -4688,8 +4700,8 @@ func TestReconciler_SkipsRestoreDispatchWhenEventTerminatesBeforeCommand(t *test
 	r.runTick(context.Background())
 
 	assert.Equal(t, 0, disp.uncurtailCalls)
-	assert.Equal(t, 0, store.updateTargetCalls)
-	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][0].State)
+	assert.Equal(t, 1, store.updateTargetCalls)
+	assert.Equal(t, models.TargetStateDispatching, store.targetsByEventID[eventID][0].State)
 }
 
 func TestReconciler_DispatchedConfirmedViaTelemetry_TransitionsEventActive(t *testing.T) {
@@ -4750,12 +4762,8 @@ func TestReconciler_DriftDetectionRetriesDispatch(t *testing.T) {
 	assert.Equal(t, int32(0), final.RetryCount)
 }
 
-// A Drifted target whose retry_count already sits at MaxRetries must
-// escalate to the terminal state rather than loop in Drifted. Mirrors
-// the DISPATCHING arm: BumpTargetRetry's fallback can bump retry_count
-// past the alert threshold without a state transition, so observeActive keeps
-// curtailed Drifted targets retryable while OFF is asserted.
-func TestReconciler_RetryExhaustedCurtailDriftedKeepsRetrying(t *testing.T) {
+// A drifted curtail target at its retry ceiling terminalizes.
+func TestReconciler_RetryExhaustedCurtailDriftedTerminalizes(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
 
@@ -4771,12 +4779,12 @@ func TestReconciler_RetryExhaustedCurtailDriftedKeepsRetrying(t *testing.T) {
 	r := newReconcilerForTest(store, disp)
 	r.runTick(context.Background())
 
-	assert.Equal(t, 1, disp.curtailCalls,
-		"curtailment retry threshold surfaces an alert but does not abandon an asserted OFF policy")
+	assert.Equal(t, 0, disp.curtailCalls,
+		"exhausted curtail targets no longer dispatch")
 	final := store.targetsByEventID[eventID][0]
-	assert.Equal(t, models.TargetStateDispatched, final.State)
+	assert.Equal(t, models.TargetStateRestoreFailed, final.State)
 	assert.Equal(t, int32(3), final.RetryCount)
-	assert.Nil(t, final.LastError, "successful redispatch clears the alert error")
+	assert.NotNil(t, final.LastError, "the terminal failure remains visible")
 }
 
 func TestReconciler_PerEventErrorIsolation(t *testing.T) {
@@ -5203,7 +5211,7 @@ func TestReconciler_ActiveCurtailConfirmationTimeoutRespectsBatchLimit(t *testin
 }
 
 // Mirror of MissingCandidateDuringConfirm for the drift path: a
-// vanished candidate burns retry budget toward RestoreFailed.
+// vanished candidate increments retry_count while curtail retries continue.
 func TestReconciler_MissingCandidateDuringDriftConsumesRetryBudget(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -5258,10 +5266,10 @@ func TestReconciler_DispatchEmptyBatchKeepsTargetPending(t *testing.T) {
 	assert.Equal(t, int32(1), final.RetryCount, "empty batch counts toward retry budget")
 }
 
-// TestReconciler_DispatchFailureExhaustionKeepsCurtailRetrying:
-// after CurtailMaxRetries dispatch failures the target remains retryable while
-// the curtailment demand is asserted; retry_count is the operator alert.
-func TestReconciler_DispatchFailureExhaustionKeepsCurtailRetrying(t *testing.T) {
+// TestReconciler_DispatchFailureExhaustionTerminalizes:
+// after CurtailMaxRetries failures, a never-enqueued target and event complete
+// with failures instead of holding pending ownership indefinitely.
+func TestReconciler_DispatchFailureExhaustionTerminalizes(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{curtailErr: errors.New("queue down")}
 
@@ -5285,11 +5293,16 @@ func TestReconciler_DispatchFailureExhaustionKeepsCurtailRetrying(t *testing.T) 
 	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][0].State)
 	assert.Equal(t, int32(2), store.targetsByEventID[eventID][0].RetryCount)
 
-	// Tick 3 hits CurtailMaxRetries=3 but stays pending for the next retry.
+	// Tick 3 exhausts the configured curtail retry budget.
 	r.runTick(context.Background())
 	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][0].State)
-	assert.Equal(t, int32(3), store.targetsByEventID[eventID][0].RetryCount)
-	assert.Empty(t, store.updateEventLast[eventID])
+	assert.Equal(t, int32(3), store.targetsByEventID[eventID][0].CurtailPhase.RetryCount)
+	assert.Equal(t, models.EventStateRestoring, store.events[0].State)
+	for range 6 {
+		r.runTick(context.Background())
+	}
+	assert.Equal(t, 3, disp.curtailCalls)
+	assert.Equal(t, models.EventStateCompletedWithFailures, store.events[0].State)
 }
 
 // TestReconciler_PendingPromotesActiveWithMixedTerminalTargets: a confirmed
@@ -5687,8 +5700,8 @@ func TestReconciler_PendingDispatchClockReservedBeforeCommand(t *testing.T) {
 }
 
 // TestReconciler_RetryBudgetResetsOnReConfirm: drift → confirm → drift →
-// confirm cycles must each get a fresh retry budget so a flapping miner is
-// not artificially terminated by carry-over attempts.
+// confirm cycles reset retry_count so alerts describe the current failure
+// sequence rather than carrying attempts across successful confirmations.
 func TestReconciler_RetryBudgetResetsOnReConfirm(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -5763,11 +5776,10 @@ func TestReconciler_DriftFailedRedispatchConsumesOneBudgetPerAttempt(t *testing.
 	assert.Equal(t, models.TargetStateDrifted, final.State)
 	assert.Equal(t, int32(2), final.RetryCount)
 
-	// Tick 3: drifted → redispatch fails → RetryCount=3 reaches the alert
-	// threshold but stays retryable while OFF is asserted.
+	// Tick 3 exhausts the retry budget and terminalizes the target.
 	r.runTick(context.Background())
 	final = store.targetsByEventID[eventID][0]
-	assert.Equal(t, models.TargetStateDrifted, final.State)
+	assert.Equal(t, models.TargetStateRestoreFailed, final.State)
 	assert.Equal(t, int32(3), final.RetryCount)
 
 	// Exactly 3 dispatch attempts — not 6. Each cycle consumes one alert slot,
@@ -5944,7 +5956,7 @@ func TestReconciler_TickFailureFiresOnPerEventPanic(t *testing.T) {
 		TickInterval:         time.Hour,
 		MaxRetries:           3,
 		DriftThresholdFactor: 0.5,
-	}, store, disp, WithMetrics(metrics))
+	}, store, disp, WithMetrics(metrics), WithDispatchPermissionResolver(allowDispatchForTest()))
 	r.now = func() time.Time { return time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC) }
 	originalCmd := r.cmd
 	r.cmd = &panickyDispatcher{wrapped: originalCmd, panicOn: func() bool {
@@ -6388,10 +6400,10 @@ func (m *recordingMetrics) IncConfirmationPassFailure() {
 	m.confirmationPassFailures++
 }
 
-func (m *recordingMetrics) IncCandidateExcluded(reason string) {
+func (m *recordingMetrics) IncCandidateExcluded(reason string, count int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.candidateExcluded[reason]++
+	m.candidateExcluded[reason] += count
 }
 
 func (m *recordingMetrics) IncMaintenanceOverride() {
@@ -6461,4 +6473,59 @@ func (m *recordingMetrics) ConfirmationPassFailureCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.confirmationPassFailures
+}
+
+const defaultTestAuthorizationEnvelope = `{"schema_version":1,"selected_resource_site_ids":[],"current_member_site_ids":[],"miner_scope_unbounded":true,"facility_fan_site_ids":[],"facility_fan_scope_unbounded":false}`
+
+func allowDispatchForTest() staticDispatchPermissionResolver {
+	return staticDispatchPermissionResolver{effective: authz.NewEffectivePermissions([]authz.Assignment{{AssignmentID: 1, ScopeType: authz.ScopeOrg, Permissions: []string{authz.PermCurtailmentManage, authz.PermSiteRead}}})}
+}
+func (f *fakeStore) GetDispatchRejection(_ context.Context, _ int64, eventID int64) (*string, error) {
+	for _, event := range f.events {
+		if event.ID == eventID && len(event.AuthorizationEnvelopeJSON) == 0 {
+			event.AuthorizationEnvelopeJSON = []byte(defaultTestAuthorizationEnvelope)
+		}
+	}
+	if f.dispatchRejectionReadErr != nil {
+		return nil, f.dispatchRejectionReadErr
+	}
+	if reason, ok := f.dispatchRejections[eventID]; ok {
+		return &reason, nil
+	}
+	return nil, nil
+}
+func (f *fakeStore) RejectDispatch(_ context.Context, _ int64, eventID int64, reason string) error {
+	if f.dispatchRejectionWriteErr != nil {
+		return f.dispatchRejectionWriteErr
+	}
+	if f.dispatchRejections == nil {
+		f.dispatchRejections = map[int64]string{}
+	}
+	f.dispatchRejections[eventID] = reason
+	return nil
+}
+
+func (f *fakeStore) FailPendingCurtailTargets(_ context.Context, event *models.Event, reason string, includeInFlight bool) error {
+	for _, target := range f.targetsByEventID[event.ID] {
+		if !isCurtailRetryTarget(target) {
+			continue
+		}
+		switch target.State {
+		case models.TargetStateConfirmed, models.TargetStateResolved, models.TargetStateReleased, models.TargetStateRestoreFailed:
+			continue
+		case models.TargetStateDispatching, models.TargetStateDispatched:
+			if !includeInFlight {
+				continue
+			}
+			target.CurtailPhase.State = models.TargetStateRestoreFailed
+			target.CurtailPhase.LastError = &reason
+			target.LastError = &reason
+		case models.TargetStatePending, models.TargetStateUnavailable, models.TargetStateDrifted:
+			target.CurtailPhase.State = models.TargetStateRestoreFailed
+			target.CurtailPhase.LastError = &reason
+			target.LastError = &reason
+			target.State = models.TargetStateRestoreFailed
+		}
+	}
+	return nil
 }

@@ -20,8 +20,10 @@ import (
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/block/proto-fleet/server/internal/domain/workername"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/credentialblob"
 	tokenDomain "github.com/block/proto-fleet/server/internal/domain/token"
@@ -42,7 +44,7 @@ const (
 
 //go:generate go run go.uber.org/mock/mockgen -source=execution_service.go -destination=mocks/mock_miner_getter.go -package=mocks MinerGetter,CachedMinerGetter
 type MinerGetter interface {
-	GetMiner(ctx context.Context, deviceID int64) (interfaces.Miner, error)
+	GetMinerForCommand(ctx context.Context, deviceID int64) (interfaces.Miner, error)
 	GetMinerForPasswordUpdate(ctx context.Context, deviceID int64, currentPassword string) (interfaces.Miner, error)
 }
 
@@ -59,15 +61,16 @@ type CachedMinerGetter interface {
 type ExecutionService struct {
 	config *Config
 
-	conn              *sql.DB
-	messageQueue      queue.MessageQueue
-	encryptService    *encrypt.Service
-	tokenService      *tokenDomain.Service
-	minerService      CachedMinerGetter
-	deviceStore       stores.DeviceStore
-	telemetryListener TelemetryListener
-	filesService      *files.Service
-	metricsEmitter    MetricsEmitter
+	conn               *sql.DB
+	messageQueue       queue.MessageQueue
+	encryptService     *encrypt.Service
+	tokenService       *tokenDomain.Service
+	minerService       CachedMinerGetter
+	deviceStore        stores.DeviceStore
+	telemetryListener  TelemetryListener
+	filesService       *files.Service
+	metricsEmitter     MetricsEmitter
+	operationalMetrics OperationalMetrics
 
 	workerSemaphore chan struct{}
 
@@ -128,6 +131,12 @@ func NewExecutionService(config *Config, conn *sql.DB, messageQueue queue.Messag
 		metricsEmitter:    NoCommandMetrics(),
 		workerSemaphore:   make(chan struct{}, config.MaxWorkers),
 	}
+}
+
+// WithOperationalMetrics installs vendor-neutral runtime measurements before Start.
+func (es *ExecutionService) WithOperationalMetrics(m OperationalMetrics) *ExecutionService {
+	es.operationalMetrics = m
+	return es
 }
 
 func (es *ExecutionService) WithMetricsEmitter(emitter MetricsEmitter) *ExecutionService {
@@ -395,9 +404,17 @@ func (es *ExecutionService) reapMessages(ctx context.Context, mode reapMode) ([]
 		}
 
 		reapedCmds = make([]reapedCommand, 0, len(reaped))
+		if len(reaped) == 0 {
+			return nil
+		}
+		configMessages := make([]queue.Message, 0, len(reaped))
+		configKind := commandtype.ApplyCurtailmentConfig
+		for _, msg := range reaped {
+			if msg.CommandType == configKind.String() {
+				configMessages = append(configMessages, queue.Message{ID: msg.ID, RetryCount: msg.RetryCount, DeviceID: msg.DeviceID, OrgID: msg.OrgID})
+			}
+		}
 		firmwareDeviceIDs := make([]int64, 0)
-		type configTarget struct{ orgID, deviceID int64 }
-		requeueTargets := make(map[configTarget]struct{})
 		for _, msg := range reaped {
 			if err := q.UpsertCommandOnDeviceLog(ctx, sqlc.UpsertCommandOnDeviceLogParams{
 				Uuid:      msg.CommandBatchLogUuid,
@@ -409,9 +426,6 @@ func (es *ExecutionService) reapMessages(ctx context.Context, mode reapMode) ([]
 				return err
 			}
 			kind, kindErr := commandtype.FromString(msg.CommandType)
-			if kindErr == nil && kind == commandtype.ApplyCurtailmentConfig {
-				requeueTargets[configTarget{orgID: msg.OrgID, deviceID: msg.DeviceID}] = struct{}{}
-			}
 			if kindErr == nil && kind == commandtype.FirmwareUpdate {
 				firmwareDeviceIDs = append(firmwareDeviceIDs, msg.DeviceID)
 			}
@@ -425,24 +439,8 @@ func (es *ExecutionService) reapMessages(ctx context.Context, mode reapMode) ([]
 				commandType: msg.CommandType,
 			})
 		}
-		// Match organization-then-device lock order across concurrent reapers.
-		targets := make([]configTarget, 0, len(requeueTargets))
-		for target := range requeueTargets {
-			targets = append(targets, target)
-		}
-		sort.Slice(targets, func(i, j int) bool {
-			if targets[i].orgID != targets[j].orgID {
-				return targets[i].orgID < targets[j].orgID
-			}
-			return targets[i].deviceID < targets[j].deviceID
-		})
-		for _, target := range targets {
-			if err := q.RequeueRigConfigReconciliationAfterTerminalFailure(ctx, sqlc.RequeueRigConfigReconciliationAfterTerminalFailureParams{
-				OrganizationID: target.orgID,
-				DeviceID:       target.deviceID,
-			}); err != nil {
-				return fmt.Errorf("requeue reaped rig config reconciliation: %w", err)
-			}
+		if err := requeueSettledRigConfigMessages(ctx, q, configMessages); err != nil {
+			return err
 		}
 		if len(firmwareDeviceIDs) > 0 {
 			if err := q.ResetReapedFirmwareStatuses(ctx, firmwareDeviceIDs); err != nil {
@@ -452,6 +450,61 @@ func (es *ExecutionService) reapMessages(ctx context.Context, mode reapMode) ([]
 		return nil
 	})
 	return reapedCmds, err
+}
+
+func requeueSettledRigConfigMessages(ctx context.Context, q sqlc.Querier, messages []queue.Message) error {
+	if len(messages) == 0 {
+		return nil
+	}
+	ids := make([]int64, len(messages))
+	for i, message := range messages {
+		ids[i] = message.ID
+	}
+	// Failed entries cannot admit new attempts. This fresh statement sees any
+	// admission committed before the reaper acquired its queue row locks.
+	retryableIDs, err := q.ListRetryableReapedRigConfigMessages(ctx, ids)
+	if err != nil {
+		return fmt.Errorf("check reaped rig config write outcomes: %w", err)
+	}
+	retryable := make(map[int64]bool, len(retryableIDs))
+	for _, id := range retryableIDs {
+		retryable[id] = true
+	}
+	type configTarget struct{ orgID, deviceID int64 }
+	requeueTargets := make(map[configTarget]struct{})
+	for _, message := range messages {
+		if !retryable[message.ID] {
+			continue
+		}
+		claimed, err := q.ClaimReapedRigConfigRetry(ctx, sqlc.ClaimReapedRigConfigRetryParams{MessageID: message.ID, RetryCount: message.RetryCount})
+		if err != nil {
+			return fmt.Errorf("claim reaped rig config retry: %w", err)
+		}
+		if claimed == 1 {
+			requeueTargets[configTarget{orgID: message.OrgID, deviceID: message.DeviceID}] = struct{}{}
+		}
+	}
+	// Match organization-then-device lock order across concurrent recoveries.
+	targets := make([]configTarget, 0, len(requeueTargets))
+	for target := range requeueTargets {
+		targets = append(targets, target)
+	}
+	sort.Slice(targets, func(i, j int) bool {
+		if targets[i].orgID != targets[j].orgID {
+			return targets[i].orgID < targets[j].orgID
+		}
+		return targets[i].deviceID < targets[j].deviceID
+	})
+	for _, target := range targets {
+		if err := q.RequeueRigConfigReconciliationAfterTerminalFailure(ctx, sqlc.RequeueRigConfigReconciliationAfterTerminalFailureParams{
+			ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER),
+			OrganizationID:       target.orgID,
+			DeviceID:             target.deviceID,
+		}); err != nil {
+			return fmt.Errorf("requeue reaped rig config reconciliation: %w", err)
+		}
+	}
+	return nil
 }
 
 var errReapedCommand = errors.New("reaped command")
@@ -469,6 +522,9 @@ func (es *ExecutionService) emitReapedCommandMetrics(ctx context.Context, reaped
 			continue
 		}
 		emitTerminalCommand(ctx, es.metricsEmitter, r.orgID, r.siteID, kind, errReapedCommand)
+		if es.operationalMetrics != nil {
+			es.operationalMetrics.CommandCommitted(ctx, commandKindLabel(kind), commandClass(kind), "reaped", time.Time{})
+		}
 	}
 }
 
@@ -553,18 +609,30 @@ func (es *ExecutionService) startQueueProcessorThread(run *executionRun) error {
 			// cannot finish before all worker registrations are complete.
 			run.wg.Go(func() {
 				defer func() { <-es.workerSemaphore }()
-
-				timeout := es.config.WorkerExecutionTimeout
-				if message.CommandType == commandtype.FirmwareUpdate {
-					timeout = es.config.FirmwareUpdateTimeout
-				}
-				workerCtx, cancel := context.WithTimeout(run.workCtx, timeout)
-				defer cancel()
-
-				es.workerProcessCommand(workerCtx, message)
+				es.processWithinTimeout(run.workCtx, message)
 			})
 		}
 	}
+}
+
+// processWithinTimeout runs one dequeued command under its worker timeout. A
+// firmware update also gets a progress window, so its install polling can
+// outlast that timeout while the device keeps reporting progress.
+func (es *ExecutionService) processWithinTimeout(workCtx context.Context, message queue.Message) {
+	timeout := es.config.WorkerExecutionTimeout
+	parent := workCtx
+	if message.CommandType == commandtype.FirmwareUpdate {
+		timeout = es.config.FirmwareUpdateTimeout
+		window := newFirmwareProgressWindow(workCtx, timeout, func() {
+			es.touchProcessingMessage(workCtx, message.ID)
+		})
+		defer window.stop()
+		parent = withFirmwareProgressWindow(parent, window)
+	}
+	workerCtx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+
+	es.workerProcessCommand(workerCtx, message)
 }
 
 func (es *ExecutionService) reserveWorkerSlots(ctx context.Context) (int32, error) {
@@ -599,13 +667,54 @@ func upsertCommandOnDeviceStatus(workerError error) sqlc.DeviceCommandStatusEnum
 	return sqlc.DeviceCommandStatusEnumSUCCESS
 }
 
+// executeQueuedCommand owns a durable attempt across the entire command,
+// including upload, install polling, and any follow-on reboot. Queue reaping
+// cannot release this attempt while firmware execution is still outstanding.
+func (es *ExecutionService) executeQueuedCommand(ctx context.Context, message queue.Message) (orgID, siteID int64, resultErr error) {
+	if message.CommandType == commandtype.DownloadLogs || message.CommandType == commandtype.BlinkLED || message.CommandType == commandtype.SetBoardIdentify {
+		return es.executeCommandOnDevice(ctx, message.CommandType, message)
+	}
+	attempt, err := devicewrite.NewService(es.conn).BeginQueuedHost(ctx, message)
+	if err != nil {
+		return message.OrgID, 0, err
+	}
+	orgID, siteID, resultErr = es.executeCommandOnDevice(attempt.Context(ctx), message.CommandType, message)
+	if resultErr == nil {
+		// Preserve dispatch evidence for adapters that do not participate in Dispatch.
+		// Finish distinguishes ordered writes from asynchronous operations.
+		attempt.Accepted()
+	}
+	// A panic has no known physical outcome. Only complete the attempt after
+	// execution returns normally; stack unwinding must leave it running.
+	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
+	defer cancel()
+	if err := attempt.Finish(finishCtx, resultErr); err != nil {
+		// Completion bookkeeping cannot change the physical execution outcome:
+		// retrying a successful command would repeat its device side effects.
+		// Finish leaves the unresolved attempt persisted for drain checks.
+		slog.Error("failed to persist device write attempt completion",
+			"message_id", message.ID, "device_id", message.DeviceID,
+			"batch_uuid", message.BatchLogUUID, "error", err)
+	}
+	return orgID, siteID, resultErr
+}
+
 func (es *ExecutionService) workerProcessCommand(ctx context.Context, message queue.Message) {
+	started := time.Now()
+	if es.operationalMetrics != nil {
+		es.operationalMetrics.CommandStarted(ctx, commandKindLabel(message.CommandType), commandClass(message.CommandType), message.CreatedAt)
+	}
 	// Step 1: Execute the command (pure execution, no queue status side-effects).
-	orgID, siteID, workerError := es.executeCommandOnDevice(ctx, message.CommandType, message)
+	orgID, siteID, workerError := es.executeQueuedCommand(ctx, message)
+
+	if es.operationalMetrics != nil {
+		es.operationalMetrics.CommandAttemptFinished(ctx, commandKindLabel(message.CommandType), commandClass(message.CommandType), commandOutcome(ctx, workerError), time.Since(started))
+	}
 
 	// Step 2: Atomically update queue status AND write device log in a single transaction.
 	// If the queue row is no longer PROCESSING (reaped), the transaction commits
-	// as a no-op and neither the queue status nor the device log is modified.
+	// without changing queue status or the device log. A settled late failure
+	// can still claim its one reconciliation retry by counting the reaped failure.
 	dbCtx, dbCancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
 	defer dbCancel()
 
@@ -624,6 +733,9 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 		if !updated {
 			slog.Warn("skipping audit log for stale message",
 				"message_id", message.ID, "device_id", message.DeviceID)
+			if shouldRequeueRigConfig(message.CommandType, true, workerError) {
+				return requeueSettledRigConfigMessages(dbCtx, q, []queue.Message{message})
+			}
 			return nil
 		}
 		if !terminal {
@@ -645,8 +757,9 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 		}
 		if shouldRequeueRigConfig(message.CommandType, queueTerminal, workerError) {
 			if err := q.RequeueRigConfigReconciliationAfterTerminalFailure(dbCtx, sqlc.RequeueRigConfigReconciliationAfterTerminalFailureParams{
-				OrganizationID: orgID,
-				DeviceID:       message.DeviceID,
+				ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER),
+				OrganizationID:       orgID,
+				DeviceID:             message.DeviceID,
 			}); err != nil {
 				return fmt.Errorf("requeue rig config reconciliation after terminal command failure: %w", err)
 			}
@@ -655,6 +768,9 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 		return nil
 	})
 	if txErr != nil {
+		if es.operationalMetrics != nil {
+			es.operationalMetrics.CommandPersistenceFailed(ctx, commandClass(message.CommandType))
+		}
 		slog.Error("error in post-execution transaction",
 			"message_id", message.ID, "error", txErr)
 		return
@@ -665,11 +781,17 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 	// are not terminal command results.
 	if queueUpdated && queueTerminal {
 		emitTerminalCommand(ctx, es.metricsEmitter, orgID, siteID, message.CommandType, workerError)
+		if es.operationalMetrics != nil {
+			es.operationalMetrics.CommandCommitted(ctx, commandKindLabel(message.CommandType), commandClass(message.CommandType), commandOutcome(ctx, workerError), message.CreatedAt)
+		}
 	}
 }
 
 func shouldRequeueRigConfig(commandType commandtype.Type, terminal bool, commandErr error) bool {
-	return commandType == commandtype.ApplyCurtailmentConfig && terminal && commandErr != nil
+	return commandType == commandtype.ApplyCurtailmentConfig && terminal && commandErr != nil &&
+		!devicewrite.IsUncertainDelivery(commandErr) &&
+		!fleeterror.IsUnimplementedError(commandErr) &&
+		(!fleeterror.IsFailedPreconditionError(commandErr) || errors.Is(commandErr, devicewrite.ErrStaleBinding))
 }
 
 // markQueueMessageStatus transitions the queue_message to its next state within an
@@ -692,7 +814,8 @@ func (es *ExecutionService) markQueueMessageStatus(ctx context.Context, q sqlc.Q
 			Status: sqlc.QueueStatusEnumSUCCESS,
 		})
 		terminal = true
-	case fleeterror.IsUnimplementedError(workerError),
+	case devicewrite.IsUncertainDelivery(workerError),
+		fleeterror.IsUnimplementedError(workerError),
 		fleeterror.IsFailedPreconditionError(workerError):
 		result, err = q.UpdateMessagePermanentlyFailed(ctx, sqlc.UpdateMessagePermanentlyFailedParams{
 			ID:        message.ID,
@@ -742,10 +865,22 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		if commandType == commandtype.UpdateMinerPassword && fleeterror.IsAuthenticationError(err) {
 			return message.OrgID, 0, fleeterror.NewFailedPreconditionErrorf("error getting miner connection info for deviceID: %d, %v", message.DeviceID, err)
 		}
+		if commandType == commandtype.ControlPowerFeed {
+			// A feed write is never retried: a later attempt could cut power
+			// long after the operator confirmed it.
+			slog.WarnContext(ctx, "power feed command not sent", "device_id", message.DeviceID, "error", err)
+			return message.OrgID, 0, powerFeedNotSent()
+		}
 		return message.OrgID, 0, fleeterror.NewInternalErrorf("error getting miner connection info for deviceID: %d, %v", message.DeviceID, err)
 	}
 	orgID := minerInfo.GetOrgID()
 	siteID := minerInfo.GetSiteID()
+	if message.OrgID != 0 && orgID != message.OrgID {
+		return message.OrgID, 0, fleeterror.NewFailedPreconditionError("device organization changed before command execution")
+	}
+	if err := devicewrite.RecheckContext(ctx); err != nil {
+		return orgID, siteID, err
+	}
 
 	switch commandType {
 	case commandtype.Reboot:
@@ -813,39 +948,49 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 			err = fleeterror.NewInternalErrorf("error unmarshalling firmware update payload: %v", fwErr)
 			break
 		}
-		// Keep the resolved path available while plugins reopen it or a Fleet
-		// Node downloads the exact ID. A saved checksum remains authoritative
-		// if the enqueue-time upload was replaced while this command waited.
-		reader, info, openErr := es.filesService.OpenFirmwareFileForExecution(p.FirmwareFileID, p.FirmwareChecksum)
-		if openErr != nil {
-			err = fleeterror.NewInternalErrorf("error opening firmware file: %v", openErr)
-			break
-		}
-		err = func() error {
+		// send delivers the firmware. It keeps the resolved path available
+		// while plugins reopen it or a Fleet Node downloads the exact ID. A
+		// saved checksum remains authoritative if the enqueue-time upload was
+		// replaced while this command waited. A device that updates in steps
+		// is sent the same file and request ID once per step, so each step
+		// passes write admission like the first.
+		send := func(ctx context.Context) error {
+			reader, info, openErr := es.filesService.OpenFirmwareFileForExecution(p.FirmwareFileID, p.FirmwareChecksum)
+			if openErr != nil {
+				return fleeterror.NewInternalErrorf("error opening firmware file: %v", openErr)
+			}
 			defer reader.Close()
 			return minerInfo.FirmwareUpdate(ctx, sdk.FirmwareFile{
-				Reader:   reader,
-				ID:       info.ID,
-				Filename: info.Filename,
-				Size:     info.Size,
-				SHA256:   info.SHA256,
-				FilePath: info.FilePath,
+				Reader:    reader,
+				ID:        info.ID,
+				Filename:  info.Filename,
+				Size:      info.Size,
+				SHA256:    info.SHA256,
+				FilePath:  info.FilePath,
+				RequestID: fmt.Sprintf("%s/%d", message.BatchLogUUID, message.ID),
 			})
-		}()
-		if err != nil {
+		}
+		if err = send(ctx); err != nil {
 			break
 		}
-		shouldReboot, pollErr := es.pollFirmwareInstallStatus(ctx, minerInfo, message.DeviceID)
+		// Capture this before the first status probe: the miner may reboot while
+		// that probe is in flight or between later install-status polls.
+		uploadCompletedAt := time.Now()
+		// The upload above keeps the worker's fixed timeout. Polling and the
+		// reboot last as long as the device keeps reporting install progress.
+		installCtx, stopInstall := firmwareProgressWindowFrom(ctx).context(ctx)
+		defer stopInstall()
+		shouldReboot, pollErr := es.pollFirmwareInstallStatus(installCtx, minerInfo, message.DeviceID, uploadCompletedAt, send)
 		if pollErr != nil {
 			err = pollErr
 			break
 		}
 		if shouldReboot {
-			if ctx.Err() != nil {
-				err = ctx.Err()
+			if installCtx.Err() != nil {
+				err = context.Cause(installCtx)
 				break
 			}
-			err = es.rebootAfterFirmwareInstall(ctx, minerInfo, message.DeviceID)
+			err = es.rebootAfterFirmwareInstall(installCtx, minerInfo, message.DeviceID)
 		}
 	case commandtype.Unpair:
 		err = minerInfo.Unpair(ctx)
@@ -868,6 +1013,88 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		err = minerInfo.Curtail(ctx, sdk.CurtailRequest{Level: sdk.CurtailLevel(p.Level)})
 	case commandtype.Uncurtail:
 		err = minerInfo.Uncurtail(ctx, sdk.UncurtailRequest{})
+	case commandtype.SetTankMining:
+		var payload scopedMiningPayload
+		if decodeErr := json.Unmarshal(message.Payload, &payload); decodeErr != nil {
+			return orgID, siteID, fleeterror.NewFailedPreconditionError("invalid tank mining payload")
+		}
+		controller, ok := minerInfo.(sdk.DeviceTankMiner)
+		if !ok {
+			return orgID, siteID, fleeterror.NewUnimplementedError("tank mining unsupported")
+		}
+		siteID = payload.SiteID
+		err = es.executeTankMining(ctx, message.DeviceID, orgID, payload, controller)
+	case commandtype.SetModuleMining:
+		var payload scopedMiningPayload
+		if decodeErr := json.Unmarshal(message.Payload, &payload); decodeErr != nil {
+			return orgID, siteID, fleeterror.NewFailedPreconditionError("invalid module mining payload")
+		}
+		controller, ok := minerInfo.(sdk.DeviceModuleMiner)
+		if !ok {
+			return orgID, siteID, fleeterror.NewUnimplementedError("module mining unsupported")
+		}
+		siteID = payload.SiteID
+		err = es.executeModuleMining(ctx, message.DeviceID, orgID, payload, controller)
+	case commandtype.SetBoardIdentify:
+		var payload boardIdentifyPayload
+		if decodeErr := json.Unmarshal(message.Payload, &payload); decodeErr != nil {
+			return orgID, siteID, fleeterror.NewFailedPreconditionError("invalid board identify payload")
+		}
+		controller, ok := minerInfo.(sdk.DeviceBoardIdentifier)
+		if !ok {
+			return orgID, siteID, fleeterror.NewUnimplementedError("board identify unsupported")
+		}
+		siteID = payload.SiteID
+		err = es.executeBoardIdentify(ctx, message.DeviceID, orgID, payload, controller)
+	case commandtype.ControlPowerFeed:
+		var payload modulePowerFeedPayload
+		if decodeErr := json.Unmarshal(message.Payload, &payload); decodeErr != nil {
+			return orgID, siteID, fleeterror.NewFailedPreconditionError("invalid power feed write")
+		}
+		controller, ok := minerInfo.(sdk.DeviceContainerPowerFeed)
+		if !ok {
+			return orgID, siteID, fleeterror.NewUnimplementedError("power feed control unsupported")
+		}
+		siteID = payload.SiteID
+		err = es.executeModulePowerFeed(ctx, message.DeviceID, orgID, payload, controller)
+	case commandtype.ContainerMining:
+		var payload containerMiningPayload
+		if decodeErr := json.Unmarshal(message.Payload, &payload); decodeErr != nil {
+			return orgID, siteID, fleeterror.NewFailedPreconditionError("invalid container mining write")
+		}
+		controller, ok := minerInfo.(sdk.DeviceContainerMining)
+		if !ok {
+			return orgID, siteID, fleeterror.NewUnimplementedError("container mining unsupported")
+		}
+		siteID = payload.SiteID
+		err = es.executeContainerMining(ctx, message.DeviceID, orgID, payload, controller)
+	case commandtype.ContainerAlarmAction:
+		var payload containerAlarmPayload
+		if decodeErr := json.Unmarshal(message.Payload, &payload); decodeErr != nil {
+			return orgID, siteID, fleeterror.NewFailedPreconditionError("invalid container alarm payload")
+		}
+		controller, ok := minerInfo.(sdk.DeviceContainerAlarmController)
+		if !ok {
+			return orgID, siteID, fleeterror.NewUnimplementedError("container alarm actions unsupported")
+		}
+		siteID = payload.SiteID
+		err = es.executeContainerAlarm(ctx, message.DeviceID, orgID, payload, controller)
+	case commandtype.SetContainerControl:
+		var payload sdk.ContainerControlRequest
+		if decodeErr := json.Unmarshal(message.Payload, &payload); decodeErr != nil {
+			return orgID, siteID, fleeterror.NewFailedPreconditionError("invalid equipment payload")
+		}
+		if validationErr := payload.Validate(); validationErr != nil {
+			return orgID, siteID, fleeterror.NewFailedPreconditionError(validationErr.Error())
+		}
+		controller, ok := minerInfo.(sdk.DeviceContainerController)
+		if !ok {
+			return orgID, siteID, fleeterror.NewUnimplementedError("equipment commands unsupported")
+		}
+		if writeErr := controller.SetContainerControl(ctx, payload); writeErr != nil {
+			// An ambiguous timeout/disconnect must not enqueue a second physical write.
+			return orgID, siteID, fleeterror.NewFailedPreconditionErrorf("equipment state unconfirmed: %v", writeErr)
+		}
 	case commandtype.ApplyCurtailmentConfig:
 		var queuePayload curtailmentConfigQueuePayload
 		if configExtractErr := json.Unmarshal(message.Payload, &queuePayload); configExtractErr != nil {
@@ -919,6 +1146,9 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 
 		// Evict so the next lookup re-reads updated credentials from DB.
 		es.minerService.InvalidateMiner(minerInfo.GetID())
+	case commandtype.FrigateServerUpdate:
+		// Frigate server updates are admitted directly and never queued.
+		return orgID, siteID, fleeterror.NewInternalErrorf("command type %v is not a queued command", commandType)
 	default:
 		return orgID, siteID, fleeterror.NewInternalErrorf("unsupported command type: %v", commandType)
 	}
@@ -965,7 +1195,7 @@ func (es *ExecutionService) resolveMinerForCommand(ctx context.Context, commandT
 	if commandType == commandtype.UpdateMinerPassword && passwordPayload != nil && passwordPayload.EncryptedPasswordUpdate == nil {
 		miner, err = es.minerService.GetMinerForPasswordUpdate(ctx, deviceID, passwordPayload.CurrentPassword)
 	} else {
-		miner, err = es.minerService.GetMiner(ctx, deviceID)
+		miner, err = es.minerService.GetMinerForCommand(ctx, deviceID)
 	}
 	if err != nil {
 		return nil, err
@@ -1014,7 +1244,11 @@ func (es *ExecutionService) reapplyCurrentPoolsWithDesiredWorkerName(
 		return dto.UpdateMiningPoolsPayload{}, "", false, nil
 	}
 
-	currentPools, err := minerInfo.GetMiningPools(ctx)
+	reader, ok := minerInfo.(interfaces.StoredMiningPoolReader)
+	if !ok {
+		return dto.UpdateMiningPoolsPayload{}, "", false, fleeterror.NewFailedPreconditionError("cannot update worker name without verified stored pool credentials")
+	}
+	currentPools, err := reader.GetStoredMiningPools(ctx)
 	if err != nil {
 		return dto.UpdateMiningPoolsPayload{}, "", false, err
 	}
@@ -1022,7 +1256,11 @@ func (es *ExecutionService) reapplyCurrentPoolsWithDesiredWorkerName(
 		return dto.UpdateMiningPoolsPayload{}, desiredWorkerName, false, nil
 	}
 
-	return buildCurrentPoolsPayloadWithWorkerName(currentPools, desiredWorkerName), desiredWorkerName, true, nil
+	rebuilt, err := buildCurrentPoolsPayloadWithWorkerName(currentPools, desiredWorkerName)
+	if err != nil {
+		return dto.UpdateMiningPoolsPayload{}, "", false, err
+	}
+	return rebuilt, desiredWorkerName, true, nil
 }
 
 func payloadRequiresMinerName(payload dto.UpdateMiningPoolsPayload) bool {
@@ -1187,38 +1425,60 @@ func (es *ExecutionService) persistWorkerNameAfterPoolUpdate(
 }
 
 func buildCurrentPoolsPayloadWithWorkerName(
-	currentPools []interfaces.MinerConfiguredPool,
+	currentPools []interfaces.MinerStoredPool,
 	desiredWorkerName string,
-) dto.UpdateMiningPoolsPayload {
-	sortedPools := sortedConfiguredPoolsByPriority(currentPools)
+) (dto.UpdateMiningPoolsPayload, error) {
+	if len(currentPools) == 0 || len(currentPools) > 3 {
+		return dto.UpdateMiningPoolsPayload{}, fleeterror.NewFailedPreconditionError("cannot update worker name with invalid stored pool slots")
+	}
+	sortedPools := sortedStoredPoolsByPriority(currentPools)
+	for i, pool := range sortedPools {
+		if int(pool.Priority) != i {
+			return dto.UpdateMiningPoolsPayload{}, fleeterror.NewFailedPreconditionError("cannot update worker name with invalid stored pool slots")
+		}
+	}
+	defaultPool, err := storedPoolToPayload(sortedPools[0], desiredWorkerName)
+	if err != nil {
+		return dto.UpdateMiningPoolsPayload{}, err
+	}
 	payload := dto.UpdateMiningPoolsPayload{
-		DefaultPool: configuredPoolToPayload(sortedPools[0], desiredWorkerName),
+		DefaultPool: defaultPool,
 	}
 
 	if len(sortedPools) > 1 {
-		backup := configuredPoolToPayload(sortedPools[1], desiredWorkerName)
+		backup, err := storedPoolToPayload(sortedPools[1], desiredWorkerName)
+		if err != nil {
+			return dto.UpdateMiningPoolsPayload{}, err
+		}
 		payload.Backup1Pool = &backup
 	}
 	if len(sortedPools) > 2 {
-		backup := configuredPoolToPayload(sortedPools[2], desiredWorkerName)
+		backup, err := storedPoolToPayload(sortedPools[2], desiredWorkerName)
+		if err != nil {
+			return dto.UpdateMiningPoolsPayload{}, err
+		}
 		payload.Backup2Pool = &backup
 	}
 
-	return payload
+	return payload, nil
 }
 
-func sortedConfiguredPoolsByPriority(currentPools []interfaces.MinerConfiguredPool) []interfaces.MinerConfiguredPool {
-	sortedPools := append([]interfaces.MinerConfiguredPool(nil), currentPools...)
+func sortedStoredPoolsByPriority(currentPools []interfaces.MinerStoredPool) []interfaces.MinerStoredPool {
+	sortedPools := append([]interfaces.MinerStoredPool(nil), currentPools...)
 	sort.SliceStable(sortedPools, func(i, j int) bool {
 		return sortedPools[i].Priority < sortedPools[j].Priority
 	})
 	return sortedPools
 }
 
-func configuredPoolToPayload(
-	pool interfaces.MinerConfiguredPool,
+func storedPoolToPayload(
+	pool interfaces.MinerStoredPool,
 	desiredWorkerName string,
-) dto.MiningPool {
+) (dto.MiningPool, error) {
+	// Unknown readback is not evidence of an empty password.
+	if pool.Password == nil {
+		return dto.MiningPool{}, fleeterror.NewFailedPreconditionError("cannot update worker name without verified stored pool credentials")
+	}
 	priority := uint32(0)
 	if pool.Priority > 0 {
 		priority = uint32(pool.Priority)
@@ -1228,7 +1488,8 @@ func configuredPoolToPayload(
 		Priority: priority,
 		URL:      pool.URL,
 		Username: rewritePoolUsernameWithStoredWorkerName(pool.Username, desiredWorkerName),
-	}
+		Password: *pool.Password,
+	}, nil
 }
 
 func rewritePoolUsernameWithStoredWorkerName(username string, desiredWorkerName string) string {
@@ -1315,14 +1576,105 @@ func (es *ExecutionService) handleUnpairPostProcessing(ctx context.Context, devi
 	return nil
 }
 
-const (
-	firmwareInstallPollInterval = 10 * time.Second
-	firmwareInstallGraceWindow  = 60 * time.Second
-)
+const firmwareInstallGraceWindow = 60 * time.Second
+
+// firmwareInstallPollInterval is a var so tests can shorten it.
+var firmwareInstallPollInterval = 10 * time.Second
+
+// firmwareProgressWindow is the time a firmware command has left. It starts
+// as the firmware update timeout and restarts whenever the device reports a
+// higher install percentage than before. An update that keeps advancing, such
+// as a container that updates one module at a time, is therefore not timed
+// out, and one that stops advancing is timed out as before. Progress is a
+// whole percentage from 0 to 100, which bounds how often the window restarts.
+type firmwareProgressWindow struct {
+	ctx       context.Context //nolint:containedctx // The window is the lifetime of one command's install polling.
+	cancel    context.CancelCauseFunc
+	timer     *time.Timer
+	timeout   time.Duration
+	best      int
+	onAdvance func()
+}
+
+type firmwareProgressWindowKey struct{}
+
+func newFirmwareProgressWindow(parent context.Context, timeout time.Duration, onAdvance func()) *firmwareProgressWindow {
+	ctx, cancel := context.WithCancelCause(parent)
+	return &firmwareProgressWindow{
+		ctx: ctx, cancel: cancel, timeout: timeout, best: -1, onAdvance: onAdvance,
+		timer: time.AfterFunc(timeout, func() { cancel(context.DeadlineExceeded) }),
+	}
+}
+
+func withFirmwareProgressWindow(ctx context.Context, window *firmwareProgressWindow) context.Context {
+	return context.WithValue(ctx, firmwareProgressWindowKey{}, window)
+}
+
+// firmwareProgressWindowFrom returns nil when the command has no window, in
+// which case its context alone bounds it.
+func firmwareProgressWindowFrom(ctx context.Context) *firmwareProgressWindow {
+	window, _ := ctx.Value(firmwareProgressWindowKey{}).(*firmwareProgressWindow)
+	return window
+}
+
+func (w *firmwareProgressWindow) stop() {
+	w.timer.Stop()
+	w.cancel(context.Canceled)
+}
+
+// advance restarts the window when progress is a percentage higher than any
+// reported before.
+func (w *firmwareProgressWindow) advance(progress *int) {
+	if w == nil || progress == nil || *progress <= w.best || *progress > 100 || w.ctx.Err() != nil {
+		return
+	}
+	w.best = *progress
+	w.timer.Reset(w.timeout)
+	if w.onAdvance != nil {
+		w.onAdvance()
+	}
+}
+
+// context returns a context that keeps ctx's values and ends with the window
+// instead of with ctx. Without a window it returns ctx.
+func (w *firmwareProgressWindow) context(ctx context.Context) (context.Context, context.CancelFunc) {
+	if w == nil {
+		return ctx, func() {}
+	}
+	windowed, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
+	stop := context.AfterFunc(w.ctx, func() { cancel(context.Cause(w.ctx)) })
+	return windowed, func() {
+		stop()
+		cancel(context.Canceled)
+	}
+}
+
+// touchProcessingMessage keeps the periodic reaper from failing a command
+// whose device still reports progress.
+func (es *ExecutionService) touchProcessingMessage(ctx context.Context, messageID int64) {
+	if es.conn == nil {
+		return
+	}
+	dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
+	defer cancel()
+	err := db.WithTransactionNoResult(dbCtx, es.conn, func(q sqlc.Querier) error {
+		return q.TouchProcessingMessage(dbCtx, messageID)
+	})
+	if err != nil {
+		slog.Warn("failed to record firmware update progress on its queue message", "message_id", messageID, "error", err)
+	}
+}
 
 // clearFirmwareUpdateStatus resets stale firmware statuses back to ACTIVE after
 // a reboot command or firmware cleanup path, allowing telemetry to take over
 // status management.
+func firmwareStatusErrorMessage(status *sdk.FirmwareUpdateStatus) string {
+	if status.Error != nil && *status.Error != "" {
+		return *status.Error
+	}
+	return "unknown error"
+}
+
 func (es *ExecutionService) clearFirmwareUpdateStatus(ctx context.Context, deviceID int64) {
 	if es.conn == nil {
 		return
@@ -1357,10 +1709,10 @@ func (es *ExecutionService) clearFirmwareUpdateStatusForDevice(ctx context.Conte
 	for attempt := range 3 {
 		upsertErr = es.deviceStore.UpsertDeviceStatus(ctx, devID, models.MinerStatusActive, "")
 		if upsertErr == nil {
-			slog.Info("cleared firmware update status after reboot", "device_id", deviceID, "previous_status", currentStatus)
+			slog.Info("cleared firmware update status", "device_id", deviceID, "previous_status", currentStatus)
 			return
 		}
-		slog.Warn("failed to clear firmware update status after reboot, retrying",
+		slog.Warn("failed to clear firmware update status, retrying",
 			"device_id", deviceID, "attempt", attempt+1, "error", upsertErr)
 		select {
 		case <-ctx.Done():
@@ -1368,7 +1720,7 @@ func (es *ExecutionService) clearFirmwareUpdateStatusForDevice(ctx context.Conte
 		case <-time.After(1 * time.Second):
 		}
 	}
-	slog.Error("permanently failed to clear firmware update status after reboot",
+	slog.Error("permanently failed to clear firmware update status",
 		"device_id", deviceID, "error", upsertErr)
 }
 
@@ -1377,11 +1729,19 @@ func (es *ExecutionService) clearFirmwareUpdateStatusForDevice(ctx context.Conte
 // reporting are still reboot-ready after upload success; capability dispatch has
 // already verified reboot support for firmware updates. For polling-capable
 // devices, status transitions to UPDATING while installation runs, then
-// REBOOT_REQUIRED on success.
+// REBOOT_REQUIRED on installation. Post-boot states also check uptime before
+// requesting another reboot; confirmation state alone is insufficient because
+// older firmware can reconstruct it after only an API-service restart.
+//
+// Status polls are not admitted as device writes. A device whose update has a
+// further step that changes it reports sdk.FirmwareStateContinue, and resend
+// delivers the firmware command again so that step passes write admission.
 func (es *ExecutionService) pollFirmwareInstallStatus(
 	ctx context.Context,
 	minerInfo interfaces.Miner,
 	deviceID int64,
+	uploadCompletedAt time.Time,
+	resend func(context.Context) error,
 ) (bool, error) {
 	provider, canPoll := minerInfo.(interfaces.FirmwareUpdateStatusProvider)
 	if !canPoll {
@@ -1406,7 +1766,7 @@ func (es *ExecutionService) pollFirmwareInstallStatus(
 
 	devID := tmodels.DeviceIdentifier(deviceIdentifier)
 
-	installVerified, pollResult := es.doPollFirmwareInstall(ctx, provider, devID, deviceID, probeStatus, probeErr)
+	shouldReboot, pollResult := es.doPollFirmwareInstall(ctx, minerInfo, provider, devID, deviceID, uploadCompletedAt, probeStatus, probeErr, resend)
 
 	if pollResult != nil {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
@@ -1415,7 +1775,7 @@ func (es *ExecutionService) pollFirmwareInstallStatus(
 			slog.Warn("failed to clear firmware update status after polling failure", "device_id", deviceID, "error", upsertErr)
 		}
 	}
-	return installVerified, pollResult
+	return shouldReboot, pollResult
 }
 
 func (es *ExecutionService) markFirmwareRebootRequired(ctx context.Context, deviceID int64) {
@@ -1436,58 +1796,87 @@ func (es *ExecutionService) markFirmwareRebootRequired(ctx context.Context, devi
 	}
 }
 
-func (es *ExecutionService) doPollFirmwareInstall(ctx context.Context, provider interfaces.FirmwareUpdateStatusProvider, devID tmodels.DeviceIdentifier, deviceID int64, probeStatus *sdk.FirmwareUpdateStatus, probeErr error) (bool, error) {
+func (es *ExecutionService) doPollFirmwareInstall(ctx context.Context, minerInfo interfaces.Miner, provider interfaces.FirmwareUpdateStatusProvider, devID tmodels.DeviceIdentifier, deviceID int64, uploadCompletedAt time.Time, probeStatus *sdk.FirmwareUpdateStatus, probeErr error, resend func(context.Context) error) (bool, error) {
 	if upsertErr := es.deviceStore.UpsertDeviceStatus(ctx, devID, models.MinerStatusUpdating, ""); upsertErr != nil {
 		slog.Warn("failed to set device status to UPDATING", "device_id", deviceID, "error", upsertErr)
 	}
 
 	ticker := time.NewTicker(firmwareInstallPollInterval)
 	defer ticker.Stop()
-	uploadCompletedAt := time.Now()
 
-	handleStatus := func(status *sdk.FirmwareUpdateStatus, pollErr error) (bool, error) {
+	handleStatus := func(status *sdk.FirmwareUpdateStatus, pollErr error) (finished bool, shouldReboot bool, result error) {
 		if pollErr != nil {
 			slog.Warn("firmware install status poll failed", "device_id", deviceID, "error", pollErr)
-			return false, nil
+			return false, false, nil
 		}
 		if status == nil {
-			return false, nil
+			return false, false, nil
 		}
 
 		switch status.State {
-		case "installed", "success", "confirming":
+		case "completed":
+			es.clearFirmwareUpdateStatus(ctx, deviceID)
+			return true, false, nil
+
+		case "success", "confirming":
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
+			defer cancel()
+			// These states can arrive after an external reboot. Retain the upload
+			// boundary independently of when Fleet happened to observe the state,
+			// so later telemetry can recover even if this metrics probe fails.
+			if err := es.deviceStore.MarkFirmwareRebootRequiredStatus(cleanupCtx, devID, uploadCompletedAt); err != nil {
+				slog.Error("failed to persist firmware reboot boundary, falling back to automatic reboot", "device_id", deviceID, "error", err)
+				return true, true, nil
+			}
+			if es.reconcileRebootAfterFirmwareUpload(ctx, minerInfo, devID, uploadCompletedAt) {
+				return true, false, nil
+			}
+			return true, true, nil
+
+		case "installed":
 			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
 			defer cancel()
 			if upsertErr := es.deviceStore.UpsertDeviceStatus(cleanupCtx, devID, models.MinerStatusRebootRequired, ""); upsertErr != nil {
 				slog.Error("firmware install completed but failed to persist REBOOT_REQUIRED, treating as success to avoid re-upload", "device_id", deviceID, "error", upsertErr)
 			}
 			slog.Info("firmware install completed, rebooting device", "device_id", deviceID)
-			return true, nil
+			return true, true, nil
 
 		case "installing", "downloaded":
 			slog.Debug("firmware install in progress", "device_id", deviceID, "state", status.State, "progress", status.Progress)
+			firmwareProgressWindowFrom(ctx).advance(status.Progress)
+
+		case sdk.FirmwareStateContinue:
+			// The next step changes the device, and a status poll is not
+			// admitted as a device write. Sending the command again rechecks
+			// admission; a command that lost it ends here, so the device
+			// starts nothing further. At most one send follows each poll.
+			slog.Debug("firmware update ready for its next step", "device_id", deviceID, "progress", status.Progress)
+			firmwareProgressWindowFrom(ctx).advance(status.Progress)
+			if err := resend(ctx); err != nil {
+				return true, false, err
+			}
 
 		case "current", "available":
 			if revertErr := firmwareInstallRevertedError(deviceID, status, time.Since(uploadCompletedAt)); revertErr != nil {
-				return false, revertErr
+				return true, false, revertErr
 			}
 			slog.Debug("firmware install not started yet (grace window)", "device_id", deviceID, "state", status.State)
 
 		case "error":
-			errMsg := "unknown error"
-			if status.Error != nil && *status.Error != "" {
-				errMsg = *status.Error
-			}
-			return false, fleeterror.NewInternalErrorf("firmware install failed on device %d: %s", deviceID, errMsg)
+			return true, false, fleeterror.NewInternalErrorf("firmware install failed on device %d: %s", deviceID, firmwareStatusErrorMessage(status))
+
+		case "failed":
+			return true, false, fleeterror.NewFailedPreconditionErrorf("firmware update failed on device %d: %s", deviceID, firmwareStatusErrorMessage(status))
 
 		default:
 			slog.Debug("unexpected firmware install state", "device_id", deviceID, "state", status.State)
 		}
-		return false, nil
+		return false, false, nil
 	}
 
-	if installVerified, result := handleStatus(probeStatus, probeErr); installVerified || result != nil {
-		return installVerified, result
+	if finished, shouldReboot, result := handleStatus(probeStatus, probeErr); finished {
+		return shouldReboot, result
 	}
 
 	for {
@@ -1496,8 +1885,8 @@ func (es *ExecutionService) doPollFirmwareInstall(ctx context.Context, provider 
 			return false, fleeterror.NewInternalErrorf("firmware install polling timed out for device %d", deviceID)
 		case <-ticker.C:
 			status, pollErr := provider.GetFirmwareUpdateStatus(ctx)
-			if installVerified, result := handleStatus(status, pollErr); installVerified || result != nil {
-				return installVerified, result
+			if finished, shouldReboot, result := handleStatus(status, pollErr); finished {
+				return shouldReboot, result
 			}
 		}
 	}
@@ -1517,8 +1906,32 @@ func firmwareInstallRevertedError(deviceID int64, status *sdk.FirmwareUpdateStat
 	return fleeterror.NewInternalErrorf("firmware install reverted to '%s' on device %d (install may have failed silently)", status.State, deviceID)
 }
 
+func (es *ExecutionService) reconcileRebootAfterFirmwareUpload(ctx context.Context, minerInfo interfaces.Miner, devID tmodels.DeviceIdentifier, uploadCompletedAt time.Time) bool {
+	probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	metrics, err := minerInfo.GetDeviceMetrics(probeCtx)
+	if err != nil {
+		slog.Debug("unable to verify reboot after firmware upload", "device_id", devID, "error", err)
+		return false
+	}
+	bootedAfter, valid := metrics.BootTimeLowerBound(time.Now())
+	if !valid || uploadCompletedAt.IsZero() || !bootedAfter.After(uploadCompletedAt) {
+		return false
+	}
+	cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
+	defer cleanupCancel()
+	// Boot completion is independent of mining health or OTA activation. Normal
+	// telemetry will determine ACTIVE/INACTIVE/error once this requirement clears.
+	if _, err := es.deviceStore.ReconcileRebootRequiredStatus(cleanupCtx, devID, bootedAfter, models.MinerStatusUnknown); err != nil {
+		slog.Warn("confirmed reboot but failed to clear pending status; telemetry will retry", "device_id", devID, "error", err)
+	}
+	slog.Info("observed reboot after firmware upload, skipping redundant reboot", "device_id", devID)
+	return true
+}
+
 func (es *ExecutionService) rebootAfterFirmwareInstall(ctx context.Context, minerInfo interfaces.Miner, deviceID int64) error {
-	if err := minerInfo.Reboot(ctx); err != nil {
+	// Dispatch rechecks the fence; every failure after installation is non-retryable.
+	if err := devicewrite.Dispatch(ctx, func(ctx context.Context) error { return minerInfo.Reboot(ctx) }); err != nil {
 		slog.Error("firmware install completed but automatic reboot failed",
 			"device_id", deviceID, "error", err)
 		return fleeterror.NewFailedPreconditionErrorf(

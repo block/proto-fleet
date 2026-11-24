@@ -74,6 +74,11 @@ var (
 		rollout.PhaseExcluded:   pb.RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_EXCLUDED,
 		rollout.PhaseSkipped:    pb.RolloutDevicePhase_ROLLOUT_DEVICE_PHASE_SKIPPED,
 	}
+	versionStateToProto = map[string]pb.FirmwareVersionState{
+		rollout.VersionStateKnown:   pb.FirmwareVersionState_FIRMWARE_VERSION_STATE_KNOWN,
+		rollout.VersionStateMixed:   pb.FirmwareVersionState_FIRMWARE_VERSION_STATE_MIXED,
+		rollout.VersionStateUnknown: pb.FirmwareVersionState_FIRMWARE_VERSION_STATE_UNKNOWN,
+	}
 	actorTypeToProto = map[string]pb.RolloutActorType{
 		rollout.ActorTypeUser:   pb.RolloutActorType_ROLLOUT_ACTOR_TYPE_USER,
 		rollout.ActorTypeAPIKey: pb.RolloutActorType_ROLLOUT_ACTOR_TYPE_API_KEY,
@@ -189,7 +194,7 @@ func overrideFromProto(b *pb.RolloutBehavior) *rollout.Behavior {
 func assignmentsFromProto(in []*pb.FirmwareAssignment) []rollout.Assignment {
 	out := make([]rollout.Assignment, 0, len(in))
 	for _, a := range in {
-		out = append(out, rollout.Assignment{Manufacturer: a.Manufacturer, Model: a.Model, FirmwareFileID: a.FirmwareFileId})
+		out = append(out, rollout.Assignment{Manufacturer: a.Manufacturer, Model: a.Model, Component: a.Component, FirmwareFileID: a.FirmwareFileId})
 	}
 	return out
 }
@@ -251,6 +256,7 @@ func channelSummaryToProto(c *rollout.Channel) *pb.ReleaseChannelSummary {
 func modelGroupToProto(g *rollout.ModelGroup) *pb.ReleaseChannelModelGroup {
 	return &pb.ReleaseChannelModelGroup{
 		Manufacturer:               g.Manufacturer,
+		Component:                  g.Component,
 		Model:                      g.Model,
 		FirmwareFileId:             g.FirmwareFileID,
 		FirmwareVersion:            g.FirmwareVersion,
@@ -274,6 +280,7 @@ func minerToProto(m *rollout.ChannelMiner) *pb.ReleaseChannelMiner {
 		Manufacturer:                 m.Manufacturer,
 		Model:                        m.Model,
 		FirmwareVersion:              m.FirmwareVersion,
+		FirmwareVersionState:         versionStateToProto[m.FirmwareVersionState],
 		Conflicted:                   m.Conflicted,
 		LastDeployedFirmwareChecksum: m.LastDeployedFirmwareChecksum,
 	}
@@ -295,6 +302,7 @@ func conflictToProto(c *rollout.MembershipConflict) *pb.ReleaseChannelMembership
 func planToProto(p *rollout.FirmwarePlan) *pb.ReleaseChannelFirmwarePlan {
 	return &pb.ReleaseChannelFirmwarePlan{
 		Manufacturer:     p.Pair.Manufacturer,
+		Component:        p.Pair.Component,
 		Model:            p.Pair.Model,
 		FirmwareFileId:   p.FirmwareFileID,
 		FirmwareVersion:  p.FirmwareVersion,
@@ -369,6 +377,7 @@ func deviceToProto(d *rollout.RolloutDevice) *pb.RolloutDevice {
 		LastError:          d.LastError,
 		SkipNote:           d.SkipNote,
 
+		FirmwareVersionState:         versionStateToProto[d.FirmwareVersionState],
 		LastDeployedFirmwareChecksum: d.LastDeployedFirmwareChecksum,
 	}
 }
@@ -376,7 +385,7 @@ func deviceToProto(d *rollout.RolloutDevice) *pb.RolloutDevice {
 func minerFirmwareHistoryToProto(entry *rollout.MinerFirmwareHistoryEntry) *pb.MinerFirmwareHistoryEntry {
 	return &pb.MinerFirmwareHistoryEntry{
 		RolloutId: entry.RolloutID, ChannelId: entry.ChannelID, ChannelName: entry.ChannelName,
-		Manufacturer: entry.Manufacturer, Model: entry.Model,
+		Manufacturer: entry.Manufacturer, Model: entry.Model, Component: entry.Component,
 		FirmwareVersion: entry.FirmwareVersion, FirmwareChecksum: entry.FirmwareChecksum,
 		RolloutStatus: statusToProto[entry.RolloutStatus], CancelReason: cancelReasonToProto[entry.CancelReason],
 		Paused: entry.Paused, Phase: phaseToProto[entry.Phase], Attempts: entry.Attempts,
@@ -407,6 +416,7 @@ func rolloutToProto(r *rollout.Rollout) *pb.Rollout {
 		ChannelId:                r.ChannelID,
 		ChannelName:              r.ChannelName,
 		Manufacturer:             r.Manufacturer,
+		Component:                r.Component,
 		Model:                    r.Model,
 		FirmwareFileId:           r.FirmwareFileID,
 		FirmwareChecksum:         r.FirmwareChecksum,
@@ -457,6 +467,14 @@ func rolloutToProto(r *rollout.Rollout) *pb.Rollout {
 			EfficiencyJh:                  aggregateToProto(ev.EfficiencyJh),
 			TempC:                         aggregateToProto(ev.TempC),
 		}
+	}
+	return out
+}
+
+func controllerSoftwareToProto(m *rollout.ControllerSoftware) *pb.ReleaseChannelControllerSoftware {
+	out := &pb.ReleaseChannelControllerSoftware{
+		Manufacturer: m.Manufacturer, Model: m.Model, TargetVersion: m.TargetVersion,
+		ContainerCount: m.ContainerCount, OnTargetCount: m.OnTargetCount,
 	}
 	return out
 }

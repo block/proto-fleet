@@ -1,15 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
-import { Pool } from "@/protoOS/api/generatedApi";
+import { isActivePool } from "@/protoOS/api/adapters/poolStatistics";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { useSetPoolsInfo } from "@/protoOS/store";
+import { useSetPoolsInfo, usePoolsInfo as useStoredPoolsInfo } from "@/protoOS/store";
+import type { PoolInfo } from "@/protoOS/store/contract";
 import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
+import { useSetPoolsInfoError, useSetPoolsInfoPending } from "@/protoOS/store/hooks/usePools";
+import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 export interface FetchPoolsInfoProps {
   onError?: (response?: string) => void;
-  onSuccess?: (response?: Pool[]) => void;
+  onSuccess?: (response?: PoolInfo[]) => void;
   retryOnMinerDown?: boolean;
+  signal?: AbortSignal;
 }
 
 type UsePoolsInfoProps = {
@@ -18,31 +22,37 @@ type UsePoolsInfoProps = {
 };
 
 const usePoolsInfo = ({ poll = false, pollIntervalMs }: UsePoolsInfoProps = {}) => {
-  const { api } = useMinerHosting();
+  const { adapter } = useMinerHosting();
   const authRetry = useAuthRetry();
-  const [data, setData] = useState<Pool[]>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
+  const latestRequest = useRef(0);
+  const data = useStoredPoolsInfo();
   const setPoolsInfo = useSetPoolsInfo();
+  const setPoolsInfoPending = useSetPoolsInfoPending();
+  const setPoolsInfoError = useSetPoolsInfoError();
 
   const fetchData = useCallback(
-    ({ onSuccess, onError, retryOnMinerDown }: FetchPoolsInfoProps = {}) => {
-      if (!api) return;
+    ({ onSuccess, onError, retryOnMinerDown, signal }: FetchPoolsInfoProps = {}) => {
+      if (!adapter) return;
 
       const performFetch = () => {
+        if (signal?.aborted) return;
+        const requestId = ++latestRequest.current;
+        const accept = beginStoreWrite("pools:module:root");
+        accept();
         setPending(true);
         setError(undefined);
-        authRetry({
-          request: (params) => api.listPools(params),
-          onSuccess: (res) => {
-            // find the highest priority pool
-            // highest priority is the lowest number
-            const sortedPools = res?.data["pools"]?.sort((a, b) => (a.priority || 0) - (b.priority || 0));
-            setData(sortedPools);
+        setPoolsInfoPending(true);
+        return authRetry({
+          request: (params) => adapter.getPools(params),
+          signal,
+          onSuccess: (sortedPools) => {
+            if (signal?.aborted || !accept()) return;
+            setPoolsInfo(sortedPools);
             onSuccess?.(sortedPools);
             if (retryOnMinerDown) {
-              // TODO: remove alive when cgminer is removed
-              const noLivePools = !sortedPools?.find((pool) => /alive|active/i.test(pool?.status ?? ""));
+              const noLivePools = !sortedPools?.some(isActivePool);
               // if all pools are dead, refetch pools
               if (noLivePools) {
                 setTimeout(() => performFetch(), 5000);
@@ -50,33 +60,35 @@ const usePoolsInfo = ({ poll = false, pollIntervalMs }: UsePoolsInfoProps = {}) 
             }
           },
           onError: (e) => {
+            if (signal?.aborted || !accept()) return;
             const newError = e?.error?.message ?? "An error occurred";
             if (retryOnMinerDown) {
               setTimeout(() => performFetch(), 5000);
             }
             setError(newError);
+            setPoolsInfoError(newError);
             onError?.(newError);
           },
         }).finally(() => {
-          setPending(false);
+          // Another hook can supersede this request's shared store write, but
+          // this caller must still leave its loading state when its work ends.
+          if (requestId === latestRequest.current) setPending(false);
+          if (!accept()) return;
+          setPoolsInfoPending(false);
         });
       };
 
-      performFetch();
+      return performFetch();
     },
-    [api, authRetry],
+    [adapter, authRetry, setPoolsInfo, setPoolsInfoError, setPoolsInfoPending],
   );
 
   usePoll({
-    fetchData,
+    fetchData: (signal) => fetchData({ signal }),
+    params: adapter,
     poll,
     pollIntervalMs,
   });
-
-  // Update store whenever pools info changes
-  useEffect(() => {
-    setPoolsInfo(data);
-  }, [data, setPoolsInfo]);
 
   return useMemo(() => ({ fetchData, pending, error, data }), [fetchData, pending, error, data]);
 };

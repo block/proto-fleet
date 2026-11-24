@@ -61,7 +61,7 @@ func TestReconciler_ClosedLoopFanOffDelayStartsAtFirstTargetConfirmation(t *test
 	require.NotNil(t, event.FanOffSentAt)
 
 	r.runTick(context.Background())
-	assert.Equal(t, []driver.PowerMode{driver.PowerOff, driver.PowerOff}, fans.powers)
+	assert.Equal(t, []driver.PowerMode{driver.PowerOff}, fans.powers)
 }
 
 func TestReconciler_LostFanOffResultStillRequiresAirflowRecovery(t *testing.T) {
@@ -715,7 +715,7 @@ func TestReconciler_ActiveFanOffWaitsWhenUnavailableMinerMayStillBeHashing(t *te
 	assert.Nil(t, event.FanOffSentAt)
 }
 
-func TestReconciler_RestoreTurnsFansOnBeforeMinerDelayAndReasserts(t *testing.T) {
+func TestReconciler_RestoreTurnsFansOnBeforeMinerDelayAndRetainsSuccess(t *testing.T) {
 	store := newFakeStore()
 	dispatcher := &fakeDispatcher{}
 	fans := &fakeFanController{}
@@ -747,7 +747,7 @@ func TestReconciler_RestoreTurnsFansOnBeforeMinerDelayAndReasserts(t *testing.T)
 	r.now = func() time.Time { return firstFanOn.Add(60 * time.Second) }
 	r.runTick(context.Background())
 
-	assert.Equal(t, []driver.PowerMode{driver.PowerOn, driver.PowerOn}, fans.powers)
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
 	assert.Equal(t, 1, dispatcher.uncurtailCalls)
 }
 
@@ -892,6 +892,31 @@ func TestReconciler_RestoreAlertDelayStartsAtFirstSuccessfulFanOn(t *testing.T) 
 
 	r.now = func() time.Time { return successAt.Add(60 * time.Second) }
 	r.runTick(context.Background())
-	assert.Equal(t, []bool{false, true}, alert.values)
+	assert.Equal(t, []bool{false}, alert.values)
 	assert.Equal(t, 1, dispatcher.uncurtailCalls)
+}
+
+func TestReconciler_LostSecondFanOffResultRequiresAirflowRecovery(t *testing.T) {
+	store := newFakeStore()
+	dispatcher := &fakeDispatcher{}
+	fans := &fakeFanController{}
+	reconciler := newReconcilerWithFansForTest(store, dispatcher, fans)
+	firstOff := reconciler.now().Add(-time.Hour)
+	reopened := reconciler.now().Add(-time.Minute)
+	confirmed := reconciler.now().Add(-time.Second)
+	event := &models.Event{ID: 97, EventUUID: uuid.New(), OrgID: 1, State: models.EventStateActive, FacilityFanDeviceIDs: []int64{31}, FanOffSentAt: &firstOff, FanAirflowReopenedAt: &reopened}
+	store.events = []*models.Event{event}
+	targets := []*models.Target{{DeviceIdentifier: "miner-1", State: models.TargetStateConfirmed, DesiredState: models.DesiredStateCurtailed, ConfirmedAt: &confirmed}}
+	// The second OFF reaches hardware, but its result write is lost. The
+	// preceding intent must invalidate the old successful ON evidence.
+	store.failFanUpdateCall = 2
+	assert.False(t, reconciler.reconcileActiveFans(context.Background(), event, targets))
+	require.NotNil(t, event.FanLastError)
+	assert.Equal(t, &firstOff, event.FanOffSentAt, "repeated OFF preserves the first safety timestamp")
+	assert.Equal(t, &reopened, event.FanAirflowReopenedAt)
+	assert.Equal(t, []driver.PowerMode{driver.PowerOff}, fans.powers)
+	store.failFanUpdateCall = 0
+	require.True(t, reconciler.reopenEventFans(context.Background(), event))
+	assert.Equal(t, []driver.PowerMode{driver.PowerOff, driver.PowerOn}, fans.powers, "a stale ON marker must not bypass physical recovery")
+	assert.Nil(t, event.FanLastError)
 }

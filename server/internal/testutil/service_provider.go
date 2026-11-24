@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 
 	"github.com/block/proto-fleet/server/internal/domain/activity"
@@ -81,7 +82,6 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	transactor := sqlstores.NewSQLTransactor(db)
 	userStore := sqlstores.NewSQLUserStore(db)
 	deviceStore := sqlstores.NewSQLDeviceStore(db)
-	poolStore := sqlstores.NewSQLPoolStore(db, encryptService)
 	sessionStore := sqlstores.NewSQLSessionStore(db)
 
 	sessionConfig := session.Config{
@@ -162,12 +162,12 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	statusService := command.NewStatusService(db, dbMessageQueue)
 	commandService := command.NewService(commandConfig, db, executionService, dbMessageQueue, statusService, encryptService, filesService, deviceStore, userStore, authService, nil, pluginService, activitySvc)
 
-	onboardingService := onboarding.NewService(deviceStore, poolStore, userStore)
+	onboardingService := onboarding.NewService(deviceStore, sqlc.New(db), userStore)
 
 	errorStore := sqlstores.NewSQLErrorStore(db, transactor)
 	collectionStore := sqlstores.NewSQLCollectionStore(db)
 	buildingStore := sqlstores.NewSQLBuildingStore(db)
-	fleetManagementService := fleetmanagement.NewService(deviceStore, discoveredDeviceStore, fleetmanagement.NewMockTelemetryCollector(), minerService, pluginService, poolStore, errorStore, collectionStore, buildingStore, commandService, activitySvc)
+	fleetManagementService := fleetmanagement.NewService(deviceStore, discoveredDeviceStore, NewMockTelemetryCollector(), minerService, pluginService, errorStore, collectionStore, buildingStore, nil, activitySvc)
 	// Mirror main.go: wire the rich-filter resolver so command dispatch and
 	// capability checks can resolve the all_matching_filter selector case.
 	commandService.SetDeviceIdentifierResolver(fleetManagementService)

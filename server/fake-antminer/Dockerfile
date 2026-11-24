@@ -1,4 +1,4 @@
-FROM golang:1.26.6-alpine AS builder
+FROM golang:1.26.11-alpine AS builder
 
 WORKDIR /app
 
@@ -14,7 +14,7 @@ COPY . .
 # Build with optimizations for smaller binary
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags '-extldflags "-static"' -o /app/fake-antminer
 
-FROM alpine:latest
+FROM alpine:3.22
 
 # Add security updates and create non-root user
 RUN apk --no-cache add ca-certificates wget && \

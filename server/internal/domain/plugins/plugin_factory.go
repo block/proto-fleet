@@ -24,7 +24,14 @@ type PluginDriverGetter interface {
 
 // PluginMinerConfig contains all parameters needed to create a plugin-based miner
 type PluginMinerConfig struct {
+	Endpoints []sdk.DeviceEndpoint
+	RPCPort   int32
+	RPCTLS    bool
+	// Required binding scope for Fleet resolution; never plaintext credentials.
+	SDKReuseScopeKey string
+	WriteGate        interfaces.MinerWriteGate
 	// Device information
+	DeviceClass      sdk.DeviceClass
 	DeviceIdentifier string
 	DriverName       string // Plugin routing key (from discovered_device.driver_name)
 	// Effective current driver/model caps for auth, log formatting, and command gates;
@@ -75,9 +82,13 @@ func NewPluginMinerWithCredentials(
 
 	// Build SDK DeviceInfo from database fields
 	sdkDeviceInfo := sdk.DeviceInfo{
+		DeviceClass:  config.DeviceClass,
 		Host:         config.DeviceIPAddress,
 		Port:         portInt32,
 		URLScheme:    config.DeviceScheme,
+		RPCPort:      config.RPCPort,
+		RPCTLS:       config.RPCTLS,
+		Endpoints:    config.Endpoints,
 		SerialNumber: config.DeviceSerialNumber,
 		MacAddress:   config.MacAddress,
 	}
@@ -111,24 +122,33 @@ func NewPluginMinerWithCredentials(
 		return nil, fmt.Errorf("FilesService is required but was nil")
 	}
 
+	if config.SDKReuseScopeKey == "" {
+		return nil, fmt.Errorf("miner resolution requires a binding scope")
+	}
+
 	// Get the plugin driver for this device's driver name
 	driver, err := config.DriverGetter.GetDriverByDriverName(config.DriverName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get plugin driver: %w", err)
 	}
 
-	// Create the SDK device via the plugin driver, which establishes the connection
-	result, err := driver.NewDevice(ctx, config.DeviceIdentifier, sdkDeviceInfo, secretBundle)
+	resolver, ok := driver.(sdk.ScopedDeviceResolver)
+	if !ok {
+		return nil, fmt.Errorf("driver does not support scoped device resolution")
+	}
+	result, err := resolver.GetOrCreateDevice(ctx, config.DeviceIdentifier, sdkDeviceInfo, secretBundle, config.SDKReuseScopeKey)
 	if err != nil {
-		// Check if this is a network error and wrap it as ConnectionError
-		if isNetworkError(err) {
-			return nil, fleeterror.NewConnectionError(config.DeviceIdentifier, fmt.Errorf("failed to create SDK device: %w", err))
+		deviceProbeFailed := sdk.DeviceProbeFailed(err)
+		if deviceProbeFailed || isNetworkError(err) {
+			connectionErr := fleeterror.NewConnectionError(config.DeviceIdentifier, fmt.Errorf("failed to create SDK device: %w", err))
+			connectionErr.DeviceProbeFailed = deviceProbeFailed
+			return nil, connectionErr
 		}
 
 		return nil, classifyNewDeviceError(err, config.DeviceIdentifier)
 	}
 
-	return NewPluginMiner(
+	miner := NewPluginMiner(
 		config.OrgID,
 		config.SiteID,
 		models.DeviceIdentifier(config.DeviceIdentifier),
@@ -139,7 +159,9 @@ func NewPluginMinerWithCredentials(
 		result.Device,
 		sdkDeviceInfo,
 		config.FilesService,
-	), nil
+	)
+	miner.writeGate = config.WriteGate
+	return miner, nil
 }
 
 // classifyNewDeviceError maps an error returned by Driver.NewDevice into the

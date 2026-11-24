@@ -1,6 +1,11 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
+import {
+  isResponseProfileExecutionConflict,
+  notifyCurtailmentProfilesStale,
+  responseProfileExecutionConflictMessage,
+} from "./curtailmentProfileErrors";
 
 import {
   type ActiveCurtailmentSnapshot,
@@ -15,6 +20,7 @@ import {
   useActiveCurtailmentEvents,
 } from "@/protoFleet/api/activeCurtailmentData";
 import { curtailmentClient } from "@/protoFleet/api/clients";
+import { curtailmentEventStates, mapCurtailmentEventState } from "@/protoFleet/api/curtailmentDisplayUtils";
 import { emitCurtailmentChanged } from "@/protoFleet/api/curtailmentEvents";
 import {
   mapActiveCurtailmentEvent,
@@ -22,6 +28,13 @@ import {
   mapCurtailmentEventToFormValues,
   mapCurtailmentHistoryEvent,
 } from "@/protoFleet/api/curtailmentMappers";
+import {
+  type ActiveCurtailmentEvent,
+  type CurtailmentEventState,
+  type CurtailmentHistoryEvent,
+  type CurtailmentSubmitValues,
+} from "@/protoFleet/api/curtailmentTypes";
+
 import {
   AdminTerminateEventRequestSchema,
   CurtailmentEventSchema,
@@ -34,18 +47,10 @@ import {
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { assertNotAborted, isAbortError, isAuthOrPermissionError, toError } from "@/protoFleet/api/requestErrors";
 import type { SiteNameById } from "@/protoFleet/api/siteNames";
-import type { ActiveCurtailmentEvent } from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
-import {
-  type CurtailmentEventState,
-  curtailmentEventStates,
-  mapCurtailmentEventState,
-} from "@/protoFleet/features/energy/curtailmentDisplayUtils";
-import type { CurtailmentHistoryEvent } from "@/protoFleet/features/energy/CurtailmentHistory";
 import {
   buildStartCurtailmentRequest,
   buildUpdateCurtailmentEventRequest,
 } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
-import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import { useAuthErrors } from "@/protoFleet/store";
 
 export interface RefreshCurtailmentOptions {
@@ -115,6 +120,7 @@ export interface UseCurtailmentApiResult extends CurtailmentSnapshot {
   stoppingEventId: string | null;
   adminTerminatingEventId: string | null;
   loadError: string | null;
+  clearActionErrors: () => void;
   startError: string | null;
   updateError: string | null;
   stopError: string | null;
@@ -640,6 +646,8 @@ function getSafeNextPageToken(
 
 export function useCurtailmentApi(options: UseCurtailmentApiOptions = {}): UseCurtailmentApiResult {
   const { siteNameById } = options;
+  const siteNameByIdRef = useRef(siteNameById);
+  siteNameByIdRef.current = siteNameById;
   const { handleAuthErrors } = useAuthErrors();
   const activeCurtailmentEvent = useActiveCurtailmentEvent();
   const activeCurtailmentEvents = useActiveCurtailmentEvents();
@@ -969,7 +977,7 @@ export function useCurtailmentApi(options: UseCurtailmentApiOptions = {}): UseCu
             historyPageResponse.events,
             stateFilters,
             historyPage === 0,
-            siteNameById,
+            siteNameByIdRef.current,
           );
           if (requestId !== latestRefreshRequestIdRef.current) {
             return previewSnapshot;
@@ -1021,7 +1029,7 @@ export function useCurtailmentApi(options: UseCurtailmentApiOptions = {}): UseCu
                   historyPageResponse.events,
                   stateFilters,
                   historyPage === 0,
-                  siteNameById,
+                  siteNameByIdRef.current,
                 );
 
           const nextPageTokens = currentPagination.pageTokens.slice(0, historyPage + 1);
@@ -1060,7 +1068,6 @@ export function useCurtailmentApi(options: UseCurtailmentApiOptions = {}): UseCu
       getHistoryEventsForActiveReconciliation,
       handleFailure,
       listCurtailmentEventsPage,
-      siteNameById,
       updateHistoryPagination,
       updateSnapshot,
     ],
@@ -1163,6 +1170,12 @@ export function useCurtailmentApi(options: UseCurtailmentApiOptions = {}): UseCu
     [handleFailure, siteNameById, updateSnapshot],
   );
 
+  const clearActionErrors = useCallback(() => {
+    setStartError(null);
+    setUpdateError(null);
+    setStopError(null);
+  }, []);
+
   const startCurtailment = useCallback(
     async (values: CurtailmentSubmitValues) => {
       setIsStarting(true);
@@ -1178,7 +1191,11 @@ export function useCurtailmentApi(options: UseCurtailmentApiOptions = {}): UseCu
         await refreshAfterMutation();
         return response.event;
       } catch (error) {
-        const resolvedError = handleFailure(error, "Failed to start curtailment.");
+        const conflict = isResponseProfileExecutionConflict(error);
+        if (conflict) notifyCurtailmentProfilesStale();
+        const resolvedError = conflict
+          ? new Error(responseProfileExecutionConflictMessage)
+          : handleFailure(error, "Failed to start curtailment.");
         setStartError(resolvedError.message);
         throw resolvedError;
       } finally {
@@ -1304,11 +1321,7 @@ export function useCurtailmentApi(options: UseCurtailmentApiOptions = {}): UseCu
         }
 
         applyEvent(response.event);
-        try {
-          await refreshAfterMutation();
-        } catch (refreshError) {
-          handleFailure(refreshError, "Failed to refresh curtailment state after force release.");
-        }
+        await refreshAfterMutation();
         return {
           event: response.event,
           releasedTargetCount: response.releasedTargetCount,
@@ -1389,6 +1402,7 @@ export function useCurtailmentApi(options: UseCurtailmentApiOptions = {}): UseCu
       setHistoryStatusFilters,
       selectActiveCurtailment,
       startCurtailment,
+      clearActionErrors,
       dismissTerminalCurtailment,
       updateCurtailment,
       stopCurtailment,
@@ -1418,6 +1432,7 @@ export function useCurtailmentApi(options: UseCurtailmentApiOptions = {}): UseCu
       selectActiveCurtailment,
       snapshot,
       startCurtailment,
+      clearActionErrors,
       dismissTerminalCurtailment,
       updateCurtailment,
       stopCurtailment,

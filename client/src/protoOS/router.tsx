@@ -1,13 +1,17 @@
 /* eslint-disable react-refresh/only-export-components -- lazy() route components colocated with route config; not HMR-relevant */
 import { ComponentType, lazy, ReactNode } from "react";
-import { createBrowserRouter, Outlet, redirect, RouteObject } from "react-router-dom";
+import { createBrowserRouter, Navigate, Outlet, redirect, RouteObject, useSearchParams } from "react-router-dom";
 
 import {
+  importContainerHome,
+  importContainerModules,
+  importContainerPools,
   importDiagnosticView,
   importEfficiency,
   importHashboardTemperature,
   importHashrate,
   importLogs,
+  importModuleHashboardOverlay,
   importOnboarding,
   importOnboardingAuthentication,
   importOnboardingMiningPool,
@@ -24,10 +28,16 @@ import {
 } from "./routePrefetch";
 import App from "@/protoOS/components/App";
 import FullScreenContentLayout from "@/protoOS/components/ContentLayout/FullScreenContentLayout";
+import ListContentLayout from "@/protoOS/components/ContentLayout/ListContentLayout";
 import SettingsContentLayout from "@/protoOS/components/ContentLayout/SettingsContentLayout";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
+import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import ContainerHomeLayout from "@/protoOS/features/containerHome/ContainerHomeLayout";
+import type { HomeTab } from "@/protoOS/features/containerHome/types";
 import KpiLayout from "@/protoOS/features/kpis/components/KpiLayout";
 import { settingsRouteMetadata } from "@/protoOS/routeAuth";
+import { useSystemInfo, useSystemInfoError } from "@/protoOS/store";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 
 // Custom route type with requiresAuth property
 export type CustomRouteObject = RouteObject & {
@@ -39,12 +49,16 @@ export type CustomRouteObject = RouteObject & {
 // import the tier arrays from there without a cycle through this file.
 
 const Hashrate = lazy(importHashrate);
+const ContainerHome = lazy(importContainerHome);
 const Efficiency = lazy(importEfficiency);
 const PowerUsage = lazy(importPowerUsage);
 const Temperature = lazy(importTemperature);
 const HashboardTemperature = lazy(importHashboardTemperature);
 const DiagnosticView = lazy(importDiagnosticView);
 const Logs = lazy(importLogs);
+const ContainerModules = lazy(importContainerModules);
+const ModuleHashboardOverlay = lazy(importModuleHashboardOverlay);
+const ContainerPools = lazy(importContainerPools);
 const Onboarding = lazy(importOnboarding);
 const OnboardingWelcome = lazy(importOnboardingWelcome);
 const OnboardingVerify = lazy(importOnboardingVerify);
@@ -56,6 +70,91 @@ const SettingsGeneral = lazy(importSettingsGeneral);
 const SettingsMiningPools = lazy(importSettingsMiningPools);
 const SettingsHardware = lazy(importSettingsHardware);
 const SettingsCooling = lazy(importSettingsCooling);
+
+const RigSettingsRoute = ({
+  children,
+  allowUnknownDevice = false,
+}: {
+  children: ReactNode;
+  allowUnknownDevice?: boolean;
+}) => {
+  const systemInfo = useSystemInfo();
+  const systemInfoError = useSystemInfoError();
+  const { minerRoot } = useMinerHosting();
+  // Password recovery must remain reachable before a rig can return authenticated system info.
+  if (!systemInfo && allowUnknownDevice) return children;
+  if (!systemInfo && !systemInfoError) return <ProgressCircular indeterminate />;
+  if (!systemInfo || systemInfo.identity.deviceType === "container") {
+    return <Navigate to={`${minerRoot}/settings/general`} replace />;
+  }
+  return children;
+};
+
+const ContainerRoute = ({ children }: { children: ReactNode }) => {
+  const systemInfo = useSystemInfo();
+  const systemInfoError = useSystemInfoError();
+  const { minerRoot } = useMinerHosting();
+
+  if (systemInfo) {
+    return systemInfo.identity.deviceType === "container" ? (
+      children
+    ) : (
+      <Navigate to={`${minerRoot}/hashrate`} replace />
+    );
+  }
+
+  if (systemInfoError) return <Navigate to={`${minerRoot}/hashrate`} replace />;
+
+  return (
+    <div className="flex h-full min-h-64 items-center justify-center">
+      <ProgressCircular indeterminate />
+    </div>
+  );
+};
+
+const useSupportsContainerHome = () => {
+  const systemInfo = useSystemInfo();
+  const { adapter } = useMinerHosting();
+  return systemInfo?.identity.deviceType === "container" && typeof adapter?.getContainerHistory === "function";
+};
+
+const HomeIndexRoute = () => {
+  const systemInfo = useSystemInfo();
+  const systemInfoError = useSystemInfoError();
+  const supportsContainerHome = useSupportsContainerHome();
+  // The System tab stays on the root path: the device serves only a fixed set of route prefixes.
+  const tab = useSearchParams()[0].get("view") === "system" ? "system" : "overview";
+
+  if (systemInfo) {
+    return supportsContainerHome ? <ContainerHome tab={tab} /> : <Navigate to="hashrate" replace />;
+  }
+
+  if (systemInfoError) return <Navigate to="hashrate" replace />;
+
+  return (
+    <div className="flex h-full min-h-64 items-center justify-center">
+      <ProgressCircular indeterminate />
+    </div>
+  );
+};
+
+const HomeContentLayout = () => {
+  const systemInfo = useSystemInfo();
+  const error = useSystemInfoError();
+  const supportsContainerHome = useSupportsContainerHome();
+  if (!systemInfo && !error)
+    return (
+      <div className="flex min-h-64 items-center justify-center">
+        <ProgressCircular indeterminate />
+      </div>
+    );
+  return supportsContainerHome ? <ContainerHomeLayout /> : <KpiLayout />;
+};
+
+const HomeMetricRoute = ({ tab, children }: { tab: HomeTab; children: ReactNode }) => {
+  const supportsContainerHome = useSupportsContainerHome();
+  return supportsContainerHome ? <ContainerHome tab={tab} /> : children;
+};
 
 // Helper to create route objects with App wrapper
 interface CreateRouteOptions {
@@ -81,34 +180,54 @@ const createRoute = (path: string, children: ReactNode, options: CreateRouteOpti
   ),
 });
 
+const kpiRoutes: CustomRouteObject[] = [
+  {
+    path: "hashrate",
+    element: (
+      <HomeMetricRoute tab="hashrate">
+        <Hashrate />
+      </HomeMetricRoute>
+    ),
+  },
+  {
+    path: "efficiency",
+    element: (
+      <HomeMetricRoute tab="efficiency">
+        <Efficiency />
+      </HomeMetricRoute>
+    ),
+  },
+  {
+    path: "power-usage",
+    element: (
+      <HomeMetricRoute tab="power">
+        <PowerUsage />
+      </HomeMetricRoute>
+    ),
+  },
+  {
+    path: "temperature",
+    element: (
+      <HomeMetricRoute tab="temperature">
+        <Temperature />
+      </HomeMetricRoute>
+    ),
+  },
+];
+
 export const routerConfig: CustomRouteObject[] = [
   {
     ...createRoute("", <Outlet />, {
       title: "Home",
-      ContentLayout: KpiLayout,
+      ContentLayout: HomeContentLayout,
     }),
     requiresAuth: false,
     children: [
       {
         index: true,
-        loader: () => redirect("hashrate"),
+        element: <HomeIndexRoute />,
       },
-      {
-        path: "hashrate",
-        element: <Hashrate />,
-      },
-      {
-        path: "efficiency",
-        element: <Efficiency />,
-      },
-      {
-        path: "power-usage",
-        element: <PowerUsage />,
-      },
-      {
-        path: "temperature",
-        element: <Temperature />,
-      },
+      ...kpiRoutes,
     ],
   },
   createRoute("temperature/:serial", <HashboardTemperature />, {
@@ -121,14 +240,41 @@ export const routerConfig: CustomRouteObject[] = [
     calloutTopSpacing: true,
     ContentLayout: FullScreenContentLayout,
   }),
-  createRoute("diagnostics", <DiagnosticView />, {
-    title: "Diagnostics",
+  createRoute(
+    "pools",
+    <ContainerRoute>
+      <ContainerPools />
+    </ContainerRoute>,
+    {
+      title: "Pools",
+      hideErrors: true,
+      ContentLayout: FullScreenContentLayout,
+    },
+  ),
+  createRoute("systems", <DiagnosticView />, {
+    title: "Systems",
     hideErrors: true,
   }),
-  createRoute("diagnostics/:serial", <HashboardTemperature />, {
-    title: "Diagnostics",
+  createRoute("systems/:serial", <HashboardTemperature />, {
+    title: "Systems",
     fullscreen: true,
   }),
+  {
+    ...createRoute(
+      "modules",
+      <ContainerRoute>
+        <ContainerModules />
+      </ContainerRoute>,
+      { title: "Modules", hideErrors: true, ContentLayout: ListContentLayout },
+    ),
+    children: [
+      {
+        path: ":tankId/:moduleId",
+        element: <Outlet />,
+        children: [{ path: ":serial", element: <ModuleHashboardOverlay /> }],
+      },
+    ],
+  },
   // Note: Onboarding renders AppLayout directly in fullscreen mode
   createRoute("onboarding", <Onboarding />, {
     title: "Onboarding",
@@ -166,7 +312,11 @@ export const routerConfig: CustomRouteObject[] = [
       },
       {
         path: settingsRouteMetadata.authentication.path,
-        element: <SettingsAuthentication />,
+        element: (
+          <RigSettingsRoute allowUnknownDevice>
+            <SettingsAuthentication />
+          </RigSettingsRoute>
+        ),
       },
       {
         path: settingsRouteMetadata.general.path,
@@ -183,7 +333,11 @@ export const routerConfig: CustomRouteObject[] = [
       },
       {
         path: settingsRouteMetadata.cooling.path,
-        element: <SettingsCooling />,
+        element: (
+          <RigSettingsRoute>
+            <SettingsCooling />
+          </RigSettingsRoute>
+        ),
         requiresAuth: settingsRouteMetadata.cooling.requiresAuth,
       },
     ],

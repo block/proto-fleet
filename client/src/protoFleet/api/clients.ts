@@ -1,4 +1,6 @@
 import { createClient } from "@connectrpc/connect";
+import { ContainerService } from "./generated/containers/v1/containers_pb";
+import { MiningGroupService } from "./generated/mininggroups/v1/mininggroups_pb";
 import { transport } from "./transport";
 import { ActivityService } from "@/protoFleet/api/generated/activity/v1/activity_pb";
 import {
@@ -14,19 +16,21 @@ import { BuildingService } from "@/protoFleet/api/generated/buildings/v1/buildin
 import { CurtailmentService } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { DeviceSetService } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { ErrorQueryService } from "@/protoFleet/api/generated/errors/v1/errors_pb";
+import { FleetInventoryService } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { FleetManagementService } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { FleetNodeAdminService } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import { ForemanImportService } from "@/protoFleet/api/generated/foremanimport/v1/foremanimport_pb";
+import { FrigateUpdateService } from "@/protoFleet/api/generated/frigateupdate/v1/frigateupdate_pb";
 import { InfrastructureService } from "@/protoFleet/api/generated/infrastructure/v1/infrastructure_pb";
 import { InstanceUpdateService } from "@/protoFleet/api/generated/instance/v1/updates_pb";
 import { InventoryService } from "@/protoFleet/api/generated/inventory/v1/inventory_pb";
+import { InvitationService } from "@/protoFleet/api/generated/invitation/v1/invitation_pb";
 import { MaintenanceService } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import { MarketDataService } from "@/protoFleet/api/generated/marketdata/v1/marketdata_pb";
 import { MinerCommandService } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { NetworkInfoService } from "@/protoFleet/api/generated/networkinfo/v1/networkinfo_pb";
 import { OnboardingService } from "@/protoFleet/api/generated/onboarding/v1/onboarding_pb";
 import { PairingService } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
-import { PoolsService } from "@/protoFleet/api/generated/pools/v1/pools_pb";
 import { RolloutService } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { ScheduleService } from "@/protoFleet/api/generated/schedule/v1/schedule_pb";
 import { ServerLogService } from "@/protoFleet/api/generated/serverlog/v1/serverlog_pb";
@@ -42,17 +46,18 @@ const curtailmentClient = createClient(CurtailmentService, transport);
 const errorQueryClient = createClient(ErrorQueryService, transport);
 const networkInfoClient = createClient(NetworkInfoService, transport);
 const pairingClient = createClient(PairingService, transport);
+const fleetInventoryClient = createClient(FleetInventoryService, transport);
 const fleetManagementClient = createClient(FleetManagementService, transport);
 const fleetNodeAdminClient = createClient(FleetNodeAdminService, transport);
 const onboardingClient = createClient(OnboardingService, transport);
 const minerCommandClient = createClient(MinerCommandService, transport);
-const poolsClient = createClient(PoolsService, transport);
 const scheduleClient = createClient(ScheduleService, transport);
 const serverLogClient = createClient(ServerLogService, transport);
 const siteMapClient = createClient(SiteMapService, transport);
 const deviceSetClient = createClient(DeviceSetService, transport);
 const telemetryClient = createClient(TelemetryService, transport);
 const foremanImportClient = createClient(ForemanImportService, transport);
+const frigateUpdateClient = createClient(FrigateUpdateService, transport);
 const infrastructureClient = createClient(InfrastructureService, transport);
 const sitesClient = createClient(SiteService, transport);
 const buildingsClient = createClient(BuildingService, transport);
@@ -62,6 +67,7 @@ const alertMaintenanceWindowClient = createClient(AlertMaintenanceWindowService,
 const alertHistoryClient = createClient(AlertHistoryService, transport);
 const instanceUpdateClient = createClient(InstanceUpdateService, transport);
 const inventoryClient = createClient(InventoryService, transport);
+const invitationClient = createClient(InvitationService, transport);
 const maintenanceClient = createClient(MaintenanceService, transport);
 const marketDataClient = createClient(MarketDataService, transport);
 const rolloutClient = createClient(RolloutService, transport);
@@ -81,15 +87,16 @@ export {
   errorQueryClient,
   networkInfoClient,
   pairingClient,
+  fleetInventoryClient,
   fleetManagementClient,
   fleetNodeAdminClient,
   infrastructureClient,
   inventoryClient,
+  invitationClient,
   maintenanceClient,
   marketDataClient,
   onboardingClient,
   minerCommandClient,
-  poolsClient,
   scheduleClient,
   serverLogClient,
   siteMapClient,
@@ -98,4 +105,9 @@ export {
   instanceUpdateClient,
   rolloutClient,
   foremanImportClient,
+  frigateUpdateClient,
 };
+
+export const containersClient = createClient(ContainerService, transport);
+
+export const miningGroupsClient = createClient(MiningGroupService, transport);

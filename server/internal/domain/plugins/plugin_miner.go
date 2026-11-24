@@ -11,8 +11,11 @@ import (
 	"strings"
 	"syscall"
 
+	"connectrpc.com/connect"
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
+	"github.com/block/proto-fleet/server/internal/domain/commandtype"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	diagnosticsModels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
@@ -30,6 +33,7 @@ import (
 var _ interfaces.Miner = &PluginMiner{}
 var _ interfaces.MinerInfo = &PluginMiner{}
 var _ interfaces.MinerCurtailmentConfigurator = &PluginMiner{}
+var _ interfaces.StoredMiningPoolReader = &PluginMiner{}
 
 // PluginMiner wraps an SDK Device to implement the interfaces.Miner interface.
 //
@@ -49,6 +53,7 @@ type logSaver interface {
 }
 
 type PluginMiner struct {
+	writeGate      interfaces.MinerWriteGate
 	orgID          int64
 	siteID         int64
 	deviceID       models.DeviceIdentifier
@@ -156,8 +161,11 @@ func (p *PluginMiner) GetDeviceMetrics(ctx context.Context) (modelsV2.DeviceMetr
 func (p *PluginMiner) GetDeviceStatus(ctx context.Context) (models.MinerStatus, error) {
 	metrics, err := p.sdkDevice.Status(ctx)
 	if err != nil {
-		if isNetworkError(err) {
-			return models.MinerStatusOffline, fleeterror.NewConnectionError(string(p.deviceID), err)
+		deviceProbeFailed := sdk.DeviceProbeFailed(err)
+		if deviceProbeFailed || isNetworkError(err) {
+			connectionErr := fleeterror.NewConnectionError(string(p.deviceID), err)
+			connectionErr.DeviceProbeFailed = deviceProbeFailed
+			return models.MinerStatusOffline, connectionErr
 		}
 		if isDefaultPasswordActiveError(err) {
 			return models.MinerStatusUnknown, fleeterror.NewForbiddenErrorf(
@@ -197,26 +205,32 @@ func (p *PluginMiner) GetDeviceStatus(ctx context.Context) (models.MinerStatus, 
 
 // Reboot implements interfaces.Miner
 func (p *PluginMiner) Reboot(ctx context.Context) error {
-	if err := p.sdkDevice.Reboot(ctx); err != nil {
-		return wrapPluginError(err, "failed to reboot device")
-	}
-	return nil
+	return p.dispatchWrite(ctx, commandtype.Reboot, func(ctx context.Context) error {
+		if err := p.sdkDevice.Reboot(ctx); err != nil {
+			return wrapPluginError(err, "failed to reboot device")
+		}
+		return nil
+	})
 }
 
 // StartMining implements interfaces.Miner
 func (p *PluginMiner) StartMining(ctx context.Context) error {
-	if err := p.sdkDevice.StartMining(ctx); err != nil {
-		return wrapPluginError(err, "failed to start mining")
-	}
-	return nil
+	return p.dispatchWrite(ctx, commandtype.StartMining, func(ctx context.Context) error {
+		if err := p.sdkDevice.StartMining(ctx); err != nil {
+			return wrapPluginError(err, "failed to start mining")
+		}
+		return nil
+	})
 }
 
 // StopMining implements interfaces.Miner
 func (p *PluginMiner) StopMining(ctx context.Context) error {
-	if err := p.sdkDevice.StopMining(ctx); err != nil {
-		return wrapPluginError(err, "failed to stop mining")
-	}
-	return nil
+	return p.dispatchWrite(ctx, commandtype.StopMining, func(ctx context.Context) error {
+		if err := p.sdkDevice.StopMining(ctx); err != nil {
+			return wrapPluginError(err, "failed to stop mining")
+		}
+		return nil
+	})
 }
 
 // Curtail dispatches through optional SDK curtailment support.
@@ -228,10 +242,12 @@ func (p *PluginMiner) Curtail(ctx context.Context, req sdk.CurtailRequest) error
 	if !ok {
 		return fleeterror.NewUnimplementedError("device does not support curtailment")
 	}
-	if err := curtailer.Curtail(ctx, req); err != nil {
-		return wrapCurtailmentPluginError(err, "failed to curtail device")
-	}
-	return nil
+	return p.dispatchWrite(ctx, commandtype.Curtail, func(ctx context.Context) error {
+		if err := curtailer.Curtail(ctx, req); err != nil {
+			return wrapCurtailmentPluginError(err, "failed to curtail device")
+		}
+		return nil
+	})
 }
 
 // Uncurtail dispatches through optional SDK curtailment support.
@@ -243,10 +259,12 @@ func (p *PluginMiner) Uncurtail(ctx context.Context, req sdk.UncurtailRequest) e
 	if !ok {
 		return fleeterror.NewUnimplementedError("device does not support curtailment")
 	}
-	if err := curtailer.Uncurtail(ctx, req); err != nil {
-		return wrapCurtailmentPluginError(err, "failed to uncurtail device")
-	}
-	return nil
+	return p.dispatchWrite(ctx, commandtype.Uncurtail, func(ctx context.Context) error {
+		if err := curtailer.Uncurtail(ctx, req); err != nil {
+			return wrapCurtailmentPluginError(err, "failed to uncurtail device")
+		}
+		return nil
+	})
 }
 
 // ApplyCurtailmentConfig dispatches through optional SDK support.
@@ -258,10 +276,12 @@ func (p *PluginMiner) ApplyCurtailmentConfig(ctx context.Context, payload dto.Ap
 	if !ok {
 		return fleeterror.NewUnimplementedError("device does not support curtailment configuration")
 	}
-	if err := configurator.ApplyCurtailmentConfig(ctx, *payload.Config); err != nil {
-		return wrapPluginError(err, "failed to apply curtailment config")
-	}
-	return nil
+	return p.dispatchWrite(ctx, commandtype.ApplyCurtailmentConfig, func(ctx context.Context) error {
+		if err := configurator.ApplyCurtailmentConfig(ctx, *payload.Config); err != nil {
+			return wrapPluginError(err, "failed to apply curtailment config")
+		}
+		return nil
+	})
 }
 
 func supportsCurtailLevel(caps sdk.Capabilities, level sdk.CurtailLevel) bool {
@@ -298,10 +318,12 @@ func (p *PluginMiner) SetCoolingMode(ctx context.Context, payload dto.CoolingMod
 		sdkMode = sdk.CoolingModeUnspecified
 	}
 
-	if err := p.sdkDevice.SetCoolingMode(ctx, sdkMode); err != nil {
-		return wrapPluginError(err, "failed to set cooling mode")
-	}
-	return nil
+	return p.dispatchWrite(ctx, commandtype.SetCoolingMode, func(ctx context.Context) error {
+		if err := p.sdkDevice.SetCoolingMode(ctx, sdkMode); err != nil {
+			return wrapPluginError(err, "failed to set cooling mode")
+		}
+		return nil
+	})
 }
 
 // GetCoolingMode implements interfaces.Miner
@@ -339,14 +361,27 @@ func (p *PluginMiner) SetPowerTarget(ctx context.Context, payload dto.PowerTarge
 		sdkMode = sdk.PerformanceModeUnspecified
 	}
 
-	if err := p.sdkDevice.SetPowerTarget(ctx, sdkMode); err != nil {
-		return wrapPluginError(err, "failed to set power target")
-	}
-	return nil
+	return p.dispatchWrite(ctx, commandtype.SetPowerTarget, func(ctx context.Context) error {
+		if err := p.sdkDevice.SetPowerTarget(ctx, sdkMode); err != nil {
+			return wrapPluginError(err, "failed to set power target")
+		}
+		return nil
+	})
 }
 
 // UpdateMiningPools implements interfaces.Miner
 func (p *PluginMiner) UpdateMiningPools(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error {
+	if payload.ClearAll {
+		if payload.DefaultPool != (dto.MiningPool{}) || payload.Backup1Pool != nil || payload.Backup2Pool != nil || payload.ReapplyCurrentPoolsWithStoredWorkerName || payload.DesiredWorkerName != "" {
+			return fleeterror.NewInvalidArgumentError("clearing pools cannot include pool settings")
+		}
+		if !p.caps[sdk.CapabilityPoolClear] {
+			return fleeterror.NewFailedPreconditionError("this firmware does not support clearing all pools")
+		}
+		return p.dispatchWrite(ctx, commandtype.UpdateMiningPools, func(ctx context.Context) error {
+			return wrapPluginError(p.sdkDevice.UpdateMiningPools(ctx, nil), "failed to clear pools")
+		})
+	}
 	sdkPools := []sdk.MiningPoolConfig{}
 
 	poolConfig, err := validateAndConvertPoolConfig(payload.DefaultPool, "default")
@@ -370,10 +405,12 @@ func (p *PluginMiner) UpdateMiningPools(ctx context.Context, payload dto.UpdateM
 		sdkPools = append(sdkPools, poolConfig)
 	}
 
-	if err := p.sdkDevice.UpdateMiningPools(ctx, sdkPools); err != nil {
-		return wrapPluginError(err, "failed to update mining pools")
-	}
-	return nil
+	return p.dispatchWrite(ctx, commandtype.UpdateMiningPools, func(ctx context.Context) error {
+		if err := p.sdkDevice.UpdateMiningPools(ctx, sdkPools); err != nil {
+			return wrapPluginError(err, "failed to update mining pools")
+		}
+		return nil
+	})
 }
 
 // BlinkLED implements interfaces.Miner
@@ -400,10 +437,12 @@ func (p *PluginMiner) DownloadLogs(ctx context.Context, batchLogUUID string) err
 
 // FirmwareUpdate implements interfaces.Miner
 func (p *PluginMiner) FirmwareUpdate(ctx context.Context, firmware sdk.FirmwareFile) error {
-	if err := p.sdkDevice.FirmwareUpdate(ctx, firmware); err != nil {
-		return wrapPluginError(err, "failed to update firmware")
-	}
-	return nil
+	return p.dispatchWrite(ctx, commandtype.FirmwareUpdate, func(ctx context.Context) error {
+		if err := p.sdkDevice.FirmwareUpdate(ctx, firmware); err != nil {
+			return wrapPluginError(err, "failed to update firmware")
+		}
+		return nil
+	})
 }
 
 // GetFirmwareUpdateStatus implements the optional FirmwareUpdateStatusProvider interface.
@@ -421,18 +460,22 @@ func (p *PluginMiner) GetFirmwareUpdateStatus(ctx context.Context) (*sdk.Firmwar
 
 // Unpair implements interfaces.Miner
 func (p *PluginMiner) Unpair(ctx context.Context) error {
-	if err := p.sdkDevice.Unpair(ctx); err != nil {
-		return wrapPluginError(err, "failed to unpair device")
-	}
-	return nil
+	return p.dispatchWrite(ctx, commandtype.Unpair, func(ctx context.Context) error {
+		if err := p.sdkDevice.Unpair(ctx); err != nil {
+			return wrapPluginError(err, "failed to unpair device")
+		}
+		return nil
+	})
 }
 
 // UpdateMinerPassword implements interfaces.Miner
 func (p *PluginMiner) UpdateMinerPassword(ctx context.Context, payload dto.UpdateMinerPasswordPayload) error {
-	if err := p.sdkDevice.UpdateMinerPassword(ctx, payload.CurrentPassword, payload.NewPassword); err != nil {
-		return wrapPluginError(err, "failed to update miner password")
-	}
-	return nil
+	return p.dispatchWrite(ctx, commandtype.UpdateMinerPassword, func(ctx context.Context) error {
+		if err := p.sdkDevice.UpdateMinerPassword(ctx, payload.CurrentPassword, payload.NewPassword); err != nil {
+			return wrapPluginError(err, "failed to update miner password")
+		}
+		return nil
+	})
 }
 
 // GetErrors implements interfaces.Miner
@@ -451,6 +494,53 @@ func (p *PluginMiner) GetMiningPools(ctx context.Context) ([]interfaces.MinerCon
 		return nil, wrapPluginError(err, "failed to get mining pools")
 	}
 
+	return mapConfiguredPools(sdkPools), nil
+}
+
+func (p *PluginMiner) GetStoredMiningPools(ctx context.Context) ([]interfaces.MinerStoredPool, error) {
+	reader, ok := p.sdkDevice.(sdk.DeviceStoredPoolReader)
+	if !ok {
+		return nil, fleeterror.NewUnimplementedError("complete stored pool configuration is unavailable")
+	}
+	pools, err := reader.GetStoredMiningPools(ctx)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("stored pool configuration read canceled: %w", ctx.Err())
+		}
+		// Keep only classification: driver error text and causes can contain
+		// private stored credentials and must not reach command error records.
+		code := connect.CodeInternal
+		var sdkErr sdk.SDKError
+		var fleetErr fleeterror.FleetError
+		switch {
+		case errors.As(err, &sdkErr):
+			switch sdkErr.Code {
+			case sdk.ErrCodeUnsupportedCapability, sdk.ErrCodeCurtailCapabilityNotSupported:
+				code = connect.CodeUnimplemented
+			case sdk.ErrCodeInvalidConfig:
+				code = connect.CodeFailedPrecondition
+			case sdk.ErrCodeDeviceUnavailable, sdk.ErrCodeCurtailTransient:
+				code = connect.CodeUnavailable
+			case sdk.ErrCodeDeviceNotFound:
+				code = connect.CodeNotFound
+			case sdk.ErrCodeDriverShutdown:
+				code = connect.CodeAborted
+			case sdk.ErrCodeAuthenticationFailed:
+				code = connect.CodeUnauthenticated
+			}
+		case errors.As(err, &fleetErr):
+			code = fleetErr.GRPCCode
+		default:
+			if st, ok := grpcstatus.FromError(err); ok {
+				code = connect.Code(st.Code())
+			}
+		}
+		return nil, fleeterror.NewPlainError("complete stored pool configuration could not be read", code)
+	}
+	return mapStoredPools(pools), nil
+}
+
+func mapConfiguredPools(sdkPools []sdk.ConfiguredPool) []interfaces.MinerConfiguredPool {
 	pools := make([]interfaces.MinerConfiguredPool, len(sdkPools))
 	for i, pool := range sdkPools {
 		pools[i] = interfaces.MinerConfiguredPool{
@@ -459,7 +549,20 @@ func (p *PluginMiner) GetMiningPools(ctx context.Context) ([]interfaces.MinerCon
 			Username: pool.Username,
 		}
 	}
-	return pools, nil
+	return pools
+}
+
+func mapStoredPools(sdkPools []sdk.StoredMiningPool) []interfaces.MinerStoredPool {
+	pools := make([]interfaces.MinerStoredPool, len(sdkPools))
+	for i, pool := range sdkPools {
+		pools[i] = interfaces.MinerStoredPool{
+			Priority: pool.Priority,
+			URL:      pool.URL,
+			Username: pool.Username,
+			Password: pool.Password,
+		}
+	}
+	return pools
 }
 
 // validateAndConvertPoolConfig validates and converts a mining pool config from Fleet format to SDK format.
@@ -474,6 +577,7 @@ func validateAndConvertPoolConfig(pool dto.MiningPool, poolName string) (sdk.Min
 		Priority:   int32(pool.Priority), //nolint:gosec // G115: Priority validated above to fit in int32
 		URL:        pool.URL,
 		WorkerName: pool.Username,
+		Password:   pool.Password,
 	}, nil
 }
 
@@ -497,11 +601,15 @@ func isAuthError(err error) bool {
 // PermissionDenied statuses so the command system can skip retries for permanent
 // failures, cache eviction can fire on auth errors, device-rejected operations
 // (e.g. 413) fail immediately, and default-password lockouts surface as forbidden.
-func wrapPluginError(err error, format string, a ...any) error {
+func wrapPluginError(err error, format string, a ...any) (resultErr error) {
+	defer func() { resultErr = sdk.WithWriteEvidence(resultErr, sdk.WriteEvidence(err)) }()
 	if err == nil {
 		return nil
 	}
 	msg := fmt.Sprintf(format, a...)
+	if sdk.IsBackendGenerationRejected(err) {
+		return devicewrite.NotDispatched(fleeterror.NewFailedPreconditionErrorf("%s: SDK backend registration changed: %w", msg, devicewrite.ErrStaleBinding))
+	}
 	if st, ok := grpcstatus.FromError(err); ok {
 		switch st.Code() {
 		case codes.Unimplemented:
@@ -534,7 +642,8 @@ func wrapPluginError(err error, format string, a ...any) error {
 
 // wrapCurtailmentPluginError preserves Unavailable for retryable dispatches.
 // wrapPluginError maps Unavailable to Internal for legacy control RPCs.
-func wrapCurtailmentPluginError(err error, format string, a ...any) error {
+func wrapCurtailmentPluginError(err error, format string, a ...any) (resultErr error) {
+	defer func() { resultErr = sdk.WithWriteEvidence(resultErr, sdk.WriteEvidence(err)) }()
 	if err == nil {
 		return nil
 	}
@@ -646,4 +755,28 @@ func IsNetworkError(err error) bool {
 
 func isNetworkError(err error) bool {
 	return IsNetworkError(err)
+}
+
+func (p *PluginMiner) dispatchWrite(ctx context.Context, kind commandtype.Type, call func(context.Context) error) error {
+	invoke := func(ctx context.Context) error {
+		err := call(ctx)
+		// A failed plugin RPC can return before its backend handler has stopped.
+		// Error mapping does not supply terminal execution evidence.
+		if _, rpc := p.sdkDevice.(*sdk.DeviceGRPCClient); rpc && err != nil && sdk.WriteEvidence(err) == nil && !devicewrite.IsNotDispatched(err) {
+			return devicewrite.UncertainDelivery(err)
+		}
+		return err
+	}
+	if p.writeGate != nil {
+		invoked := false
+		err := p.writeGate(ctx, kind, func(ctx context.Context) error {
+			invoked = true
+			return invoke(ctx)
+		})
+		if err != nil && !invoked {
+			return devicewrite.NotDispatched(err)
+		}
+		return err
+	}
+	return invoke(ctx)
 }

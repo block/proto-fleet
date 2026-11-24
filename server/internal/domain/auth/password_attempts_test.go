@@ -10,6 +10,7 @@ import (
 
 	"connectrpc.com/connect"
 	authv1 "github.com/block/proto-fleet/server/generated/grpc/auth/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
@@ -115,18 +116,14 @@ func TestPasswordBudgetsSurviveRenameAcrossVerificationPaths(t *testing.T) {
 		}
 	}
 	for range 10 {
-		if err := service.VerifyCredentials(context.Background(), "admin", "password"); err != nil {
-			t.Fatalf("step-up exhaustion blocked the public budget: %v", err)
-		}
+		requireLoginNotThrottled(t, service, "admin", "step-up exhaustion blocked the public budget")
 	}
 	if err := service.UpdateUsername(ctx, "renamed"); err != nil {
 		t.Fatal(err)
 	}
 	ctx = ctxWithSession("user-1", "renamed", 1)
 	_, _, loginErr := service.AuthenticateUser(context.Background(), &authv1.AuthenticateRequest{Username: "renamed", Password: "password"}, "", "")
-	verifyErr := service.VerifyCredentials(ctx, "renamed", "password")
 	require.Equal(t, newAuthenticationFailedError(), loginErr, "rename reset the public login budget")
-	require.Error(t, verifyErr, "rename reset the public verification budget")
 	// A different submitted username must not bypass the session user's limit.
 	stepUpErr := service.VerifySessionCredentials(ctx, "someone-else", "password")
 	_, _, updateErr := service.UpdatePassword(ctx, &authv1.UpdatePasswordRequest{CurrentPassword: "old", NewPassword: "NewPassword123!"}, "", "")
@@ -151,13 +148,20 @@ func TestUnknownUserFloodCannotConsumeAccountBudget(t *testing.T) {
 		if err == nil || connect.CodeOf(err) == connect.CodeResourceExhausted {
 			t.Fatalf("unexpected unknown-user response: %v", err)
 		}
-		if err := service.VerifyCredentials(context.Background(), username, "password"); err == nil || connect.CodeOf(err) == connect.CodeResourceExhausted {
-			t.Fatalf("unexpected unknown-user verification: %v", err)
-		}
 	}
-	if err := service.VerifyCredentials(context.Background(), "known", "password"); err != nil {
-		t.Fatalf("unknown-user flood blocked known account: %v", err)
-	}
+	requireLoginNotThrottled(t, service, "known", "unknown-user flood blocked known account")
+}
+
+// requireLoginNotThrottled does a login with the correct password for a stub
+// user that has no organization. A login that passes the login budget stops at
+// the organization lookup with an internal error. A throttled login returns
+// the generic authentication failure.
+func requireLoginNotThrottled(t *testing.T, service *Service, username, message string) {
+	t.Helper()
+	_, _, err := service.AuthenticateUser(context.Background(), &authv1.AuthenticateRequest{Username: username, Password: "password"}, "", "")
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr, message)
+	require.Equal(t, connect.CodeInternal, fleetErr.GRPCCode, "%s: %v", message, err)
 }
 
 func TestPasswordAttemptsCapacity(t *testing.T) {

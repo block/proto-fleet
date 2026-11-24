@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"buf.build/go/protovalidate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -263,6 +264,37 @@ func TestControlLoop_TelemetryFetcherCommandError(t *testing.T) {
 	assert.Contains(t, acks[0].GetErrorMessage(), "auth failed")
 }
 
+func TestControlLoop_TelemetryAckCarriesOnlyConfirmedProbeFailure(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		probe bool
+	}{
+		{name: "miner connection refused", probe: true},
+		{name: "plugin transport unavailable"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var err error = grpcstatus.Error(codes.Unavailable, "connection refused")
+			if test.probe {
+				err = sdk.WithDeviceProbeFailure(err)
+			}
+			cmd := &RunCmd{telemetry: &stubTelemetryFetcher{err: telemetryCommandError("fetch telemetry", err)}}
+			fake := &controlFakeGateway{}
+			fake.queue(telemetryCmd(t, validTelemetryRequest()))
+			runControlLoopOnce(t, cmd, fake)
+
+			acks := fake.acksCopy()
+			require.Len(t, acks, 1)
+			wire, err := proto.Marshal(acks[0])
+			require.NoError(t, err)
+			var ack pb.ControlAck
+			require.NoError(t, proto.Unmarshal(wire, &ack))
+			require.False(t, ack.GetSucceeded())
+			require.Equal(t, pb.AckCode_ACK_CODE_SCAN_FAILED, ack.GetCode())
+			require.Equal(t, test.probe, ack.GetMinerProbeFailed())
+		})
+	}
+}
+
 func TestControlLoop_TelemetryFetcherAuthError(t *testing.T) {
 	cmd := &RunCmd{telemetry: &stubTelemetryFetcher{err: cmdErr(pb.AckCode_ACK_CODE_UNAUTHENTICATED, "auth failed")}}
 	fake := &controlFakeGateway{}
@@ -365,6 +397,42 @@ func TestTelemetryResultFromV2CarriesComponentMetricsPayload(t *testing.T) {
 	require.Len(t, decoded.HashBoards, 1)
 	require.Len(t, decoded.HashBoards[0].ASICs, 1)
 	assert.Equal(t, 80.0, decoded.HashBoards[0].ASICs[0].TempC.Value)
+}
+
+func TestTelemetryDeviceMetricsPayloadLimit(t *testing.T) {
+	const limit = 8*1024*1024 - 64*1024
+	for _, size := range []int{limit, limit + 1} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			reason := ""
+			metrics := modelsV2.DeviceMetrics{Timestamp: time.Now().UTC(), HealthReason: &reason, Container: &sdk.ContainerSnapshot{}}
+			emptyJSON, err := json.Marshal(metrics)
+			require.NoError(t, err)
+			reason = strings.Repeat("x", size-len(emptyJSON))
+			metricsJSON, err := json.Marshal(metrics)
+			require.NoError(t, err)
+			require.Len(t, metricsJSON, size)
+			result, err := telemetryResultFromV2("node-device", metrics, telemetrypb.DeviceStatus_DEVICE_STATUS_ONLINE)
+			if size > limit {
+				require.ErrorContains(t, err, "device metrics payload is")
+			} else {
+				require.NoError(t, err)
+				require.NoError(t, protovalidate.Validate(result))
+				require.LessOrEqual(t, proto.Size(result), maxAckPayloadBytes)
+			}
+			// Exercise the receiver's generated validation independently of the encoder.
+			wireResult := &telemetrypb.FleetNodeTelemetryResult{
+				DeviceIdentifier: strings.Repeat("n", 255), Timestamp: timestamppb.New(metrics.Timestamp),
+				FirmwareVersion: strings.Repeat("v", 255), HealthReason: strings.Repeat("h", 4096),
+				ErrorMessage: strings.Repeat("e", 4096), DeviceMetricsJson: metricsJSON,
+			}
+			if size > limit {
+				require.Error(t, protovalidate.Validate(wireResult))
+			} else {
+				require.NoError(t, protovalidate.Validate(wireResult))
+				require.LessOrEqual(t, proto.Size(wireResult), maxAckPayloadBytes)
+			}
+		})
+	}
 }
 
 func TestPluginTelemetryFetcherAcquireTelemetrySlotRejectsDuplicate(t *testing.T) {

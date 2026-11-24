@@ -2,11 +2,10 @@ package curtailment
 
 import "time"
 
-// Metrics records curtailment operational signals. Default is no-op; the
-// real recorder is wired at cmd/fleetd/main.go. Heartbeat staleness is a
-// separate SQL check against curtailment_reconciler_heartbeat —
-// IncTargetWriteFailure pairs with it to catch "heartbeat fresh but
-// events stalled" outages.
+// Metrics records curtailment operational signals through the platform metrics
+// provider in production. The heartbeat table independently records reconciler
+// liveness; target-write and tick failures distinguish stalled work from a dead
+// reconciler.
 type Metrics interface {
 	ObserveTickDuration(d time.Duration)
 	IncTickFailure()
@@ -16,9 +15,9 @@ type Metrics interface {
 	// IncTickFailure for the pulse so a stuck fast path is visible on
 	// dashboards even while the full tick stays healthy.
 	IncConfirmationPassFailure()
-	// IncCandidateExcluded counts selector exclusions by reason
-	// (e.g. "phantom_load_no_hash", "stale_telemetry").
-	IncCandidateExcluded(reason string)
+	// IncCandidateExcluded adds count selector exclusions for a reason
+	// (e.g. "phantom_load_no_hash", "stale_telemetry") in one sample.
+	IncCandidateExcluded(reason string, count int)
 	IncMaintenanceOverride()
 	// IncEventStateRaceLoss counts UpdateEventState or UpdateTargetState
 	// writes that matched zero rows because a concurrent Stop/AdminTerminate
@@ -33,20 +32,20 @@ type Metrics interface {
 	IncAuditWriteFailure(activityType string)
 	// IncAllPairedPendingStall counts reconciler ticks that observed an
 	// all-paired policy event held in pending past the stall threshold with
-	// nothing confirmed. The hold is deliberate and open-ended — the event
-	// owns its scope and blocks other curtailment starts until something
-	// confirms or an operator stops it — so a sustained stall must be
-	// visible on dashboards. Operator-actionable.
+	// nothing confirmed. The event owns its scope and blocks other starts
+	// until confirmation, Stop, or finite-cap expiry. Only explicitly unbounded
+	// events may hold indefinitely. Sustained stalls must be visible on
+	// dashboards. Operator-actionable.
 	IncAllPairedPendingStall()
 }
 
-// NoOpMetrics is the default until the platform observability path lands.
+// NoOpMetrics supports tests and assemblies without operational metrics.
 type NoOpMetrics struct{}
 
 func (NoOpMetrics) ObserveTickDuration(time.Duration) {}
 func (NoOpMetrics) IncTickFailure()                   {}
 func (NoOpMetrics) IncConfirmationPassFailure()       {}
-func (NoOpMetrics) IncCandidateExcluded(string)       {}
+func (NoOpMetrics) IncCandidateExcluded(string, int)  {}
 func (NoOpMetrics) IncMaintenanceOverride()           {}
 func (NoOpMetrics) IncEventStateRaceLoss()            {}
 func (NoOpMetrics) IncTargetWriteFailure()            {}

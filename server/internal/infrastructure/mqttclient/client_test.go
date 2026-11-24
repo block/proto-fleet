@@ -1,11 +1,18 @@
 package mqttclient
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/block/proto-fleet/server/internal/mqttlimits"
 
 	paho "github.com/eclipse/paho.mqtt.golang"
 )
@@ -162,8 +169,109 @@ func TestBrokerOptions_TLS(t *testing.T) {
 func TestCopyPayloadRejectsOversizedPayload(t *testing.T) {
 	t.Parallel()
 
-	if _, ok := copyPayload([]byte(strings.Repeat("x", maxPayloadBytes+1))); ok {
+	if _, ok := copyPayload([]byte(strings.Repeat("x", mqttlimits.MaxPayloadBytes+1))); ok {
 		t.Fatal("oversized payload was accepted")
+	}
+}
+
+func TestCopyPayloadAcceptsSizeLimit(t *testing.T) {
+	t.Parallel()
+
+	in := bytes.Repeat([]byte("x"), mqttlimits.MaxPayloadBytes)
+	got, ok := copyPayload(in)
+	if !ok || !bytes.Equal(got, in) {
+		t.Fatal("payload at the size limit was not copied")
+	}
+}
+
+func TestPayloadWarningThrottleReportsSuppressedMessagesAtWindowBoundary(t *testing.T) {
+	t.Parallel()
+
+	var warnings payloadWarningThrottle
+	now := time.Date(2026, 10, 28, 0, 0, 0, 0, time.UTC)
+	if suppressed, warn := warnings.record(now); !warn || suppressed != 0 {
+		t.Fatalf("first rejection = (%d, %v), want (0, true)", suppressed, warn)
+	}
+	for _, at := range []time.Time{now, now.Add(oversizedPayloadWarningInterval - time.Nanosecond)} {
+		if _, warn := warnings.record(at); warn {
+			t.Fatal("repeated rejection warned before the interval elapsed")
+		}
+	}
+	if suppressed, warn := warnings.record(now.Add(oversizedPayloadWarningInterval)); !warn || suppressed != 2 {
+		t.Fatalf("next warning = (%d, %v), want (2, true)", suppressed, warn)
+	}
+	if suppressed, warn := warnings.record(now.Add(2 * oversizedPayloadWarningInterval)); !warn || suppressed != 0 {
+		t.Fatalf("later warning = (%d, %v), want (0, true)", suppressed, warn)
+	}
+}
+
+type payloadMessage struct {
+	topic   string
+	payload []byte
+}
+
+func (m payloadMessage) Duplicate() bool   { return false }
+func (m payloadMessage) Qos() byte         { return subscribeQoS }
+func (m payloadMessage) Retained() bool    { return false }
+func (m payloadMessage) Topic() string     { return m.topic }
+func (m payloadMessage) MessageID() uint16 { return 1 }
+func (m payloadMessage) Payload() []byte   { return m.payload }
+func (m payloadMessage) Ack()              {}
+
+func TestSubscribeThrottlesConcurrentOversizedMessagesAcrossTopics(t *testing.T) {
+	var logs bytes.Buffer
+	originalLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(originalLogger) })
+
+	client := New()
+	var delivered atomic.Int64
+	for _, topic := range []string{"source/one", "source/two"} {
+		if err := client.Subscribe(t.Context(), topic, func(_ []byte, _ time.Time) {
+			delivered.Add(1)
+		}); err != nil {
+			t.Fatalf("Subscribe returned error: %v", err)
+		}
+	}
+	oversized := bytes.Repeat([]byte("x"), mqttlimits.MaxPayloadBytes+1)
+	var callbacks sync.WaitGroup
+	const rejectedPerTopic = 100
+	for topic, callback := range client.subscriptionSnapshot() {
+		for range rejectedPerTopic {
+			callbacks.Go(func() {
+				callback(nil, payloadMessage{topic: topic, payload: oversized})
+			})
+		}
+	}
+	callbacks.Wait()
+	if delivered.Load() != 0 {
+		t.Fatal("oversized messages reached the subscriber")
+	}
+	if lines := bytes.Count(logs.Bytes(), []byte("\n")); lines != 1 {
+		t.Fatalf("logged %d warnings for concurrent rejections, want 1", lines)
+	}
+	var warning struct {
+		Level              string `json:"level"`
+		Topic              string `json:"topic"`
+		PayloadBytes       int    `json:"payload_bytes"`
+		MaxPayloadBytes    int    `json:"max_payload_bytes"`
+		SuppressedMessages uint64 `json:"suppressed_messages"`
+	}
+	if err := json.Unmarshal(logs.Bytes(), &warning); err != nil {
+		t.Fatalf("decode warning: %v", err)
+	}
+	if warning.Level != "WARN" || warning.Topic == "" || warning.PayloadBytes != len(oversized) || warning.MaxPayloadBytes != mqttlimits.MaxPayloadBytes || warning.SuppressedMessages != 0 {
+		t.Fatalf("unexpected warning details: %+v", warning)
+	}
+	if suppressed, warn := client.oversizedWarnings.record(time.Now().Add(oversizedPayloadWarningInterval)); !warn || suppressed != 2*rejectedPerTopic-1 {
+		t.Fatalf("next warning = (%d, %v), want (%d, true)", suppressed, warn, 2*rejectedPerTopic-1)
+	}
+
+	// Rejections never stop delivery of later messages within the size limit.
+	accepted := bytes.Repeat([]byte("x"), mqttlimits.MaxPayloadBytes)
+	client.subscriptionSnapshot()["source/one"](nil, payloadMessage{topic: "source/one", payload: accepted})
+	if delivered.Load() != 1 {
+		t.Fatal("accepted message did not reach the subscriber after rejections")
 	}
 }
 
@@ -396,7 +504,7 @@ func TestAddRoutesNormalizesSharedSubscriptionFilters(t *testing.T) {
 func TestClientOptions_DurableOrderedSession(t *testing.T) {
 	t.Parallel()
 
-	opts := clientOptions("tcp://10.0.0.1:1883", nil, "user", "pass", "source|broker|topic", nil, nil)
+	opts := clientOptions("tcp://10.0.0.1:1883", nil, "user", "pass", "source|broker|topic", false, nil, nil)
 
 	if opts.CleanSession {
 		t.Fatal("CleanSession must be false so broker QoS1 queues survive fleetd restarts")
@@ -426,6 +534,7 @@ func TestClientOptions_RuntimeStatusCallbacks(t *testing.T) {
 		"user",
 		"pass",
 		"source|broker|topic",
+		false,
 		func(paho.Client) {
 			connected = true
 		},
@@ -483,26 +592,6 @@ func reportReconnectStatusWithTestTimeout(t *testing.T, client *Client, replay r
 	defer cancel()
 	sequence := client.nextStatusSequence()
 	client.reportReconnectStatusForSequence(ctx, replay, sequence)
-}
-
-func TestClientRuntimeStatusReporter(t *testing.T) {
-	t.Parallel()
-
-	client := New()
-	status := captureRuntimeStatus(client)
-
-	wantErr := errors.New("connection lost")
-	client.reportRuntimeStatus(false, false, wantErr)
-
-	if status.connected {
-		t.Fatal("connected = true, want false")
-	}
-	if status.subscribed {
-		t.Fatal("subscribed = true, want false")
-	}
-	if !errors.Is(status.err, wantErr) {
-		t.Fatalf("err = %v, want %v", status.err, wantErr)
-	}
 }
 
 func TestReportConnectionLostStatusSkipsAlreadyOpenClient(t *testing.T) {

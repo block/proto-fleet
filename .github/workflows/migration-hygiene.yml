@@ -40,10 +40,7 @@ jobs:
           if [[ "$GITHUB_REPOSITORY" == "btc-mining/proto-fleet-internal" ]]; then
             git fetch --no-tags https://github.com/block/proto-fleet.git refs/heads/main
             public_commit="$(git rev-parse FETCH_HEAD)"
-            echo "Checking shared promotion against public commit ${public_commit}"
+            echo "Checking shared history against frozen public commit ${public_commit}"
             args+=(--public-ref "$public_commit")
-          else
-            # Public CI reads only its own history and needs no private credentials.
-            args+=(--public-only)
           fi
           python3 scripts/check-migration-history.py "${args[@]}"

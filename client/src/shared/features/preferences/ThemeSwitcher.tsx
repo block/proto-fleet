@@ -29,6 +29,8 @@ const ThemeSwitcher = ({ onClickDone, theme, setTheme }: ThemeSwitcherProps) => 
   return (
     <Modal
       title="Theme"
+      dialogLabel="Theme"
+      manageFocus
       onDismiss={onClickDone}
       buttons={[
         {

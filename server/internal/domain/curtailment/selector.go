@@ -27,11 +27,7 @@ const (
 	SkipMaintenance              SkipReason = "maintenance"
 	SkipNonActionableStatus      SkipReason = "non_actionable_status"
 	SkipPairing                  SkipReason = "pairing"
-	// Reserved for full capability gating: candidates whose loaded plugin
-	// or model does not advertise curtail_full are skipped with this reason.
-	// Kept in the SkipReason vocabulary so downstream consumers (UI, audit)
-	// can treat the value as stable contract before the registry-driven
-	// producer is wired in.
+	// Candidates missing driver metadata are skipped with this reason.
 	SkipCurtailFullUnsupported SkipReason = "curtail_full_unsupported"
 	SkipCooldown               SkipReason = "cooldown"
 	SkipActiveEvent            SkipReason = "active_event"
@@ -71,6 +67,8 @@ type Plan struct {
 	InsufficientLoadDetail *modes.InsufficientLoadDetail
 	// EventUUID is set by Service.Start after persisting; nil for Preview.
 	EventUUID *uuid.UUID
+	// StartState is the persisted lifecycle state. Unset for Preview.
+	StartState models.EventState
 	// StartedAt is set by Service.Start for events inserted already active;
 	// echoed in the Start response so it matches the stamped row.
 	StartedAt *time.Time
@@ -78,23 +76,23 @@ type Plan struct {
 	// terminal (an empty FULL_FLEET start); echoed in the Start response so it
 	// matches the stamped row. nil otherwise.
 	EndedAt *time.Time
-	// EffectiveMaxDurationSeconds is the persisted cap after Service.Start
-	// resolves the "use org default" sentinel. nil when AllowUnbounded=true
-	// or for Preview.
+	// EffectiveMaxDurationSeconds is the persisted cap. nil when the event has
+	// no cap or for Preview.
 	EffectiveMaxDurationSeconds *int32
 	// EffectiveRestoreBatchIntervalSec is the persisted inter-batch delay.
 	// Zero means no delay.
 	EffectiveRestoreBatchIntervalSec int32
 	// EffectiveCurtailBatchSize is the persisted curtail batch size. nil means
-	// all selected targets in scope. Zero for Preview.
+	// all selected targets in scope. Unset for Preview.
 	EffectiveCurtailBatchSize *int32
 	// EffectiveCurtailBatchIntervalSec is the persisted curtail inter-batch
 	// delay. Zero means no delay.
 	EffectiveCurtailBatchIntervalSec int32
 	// EffectiveBatchSize is the restore batch size stamped on the event row at
-	// Start time. Zero for Preview or starts with no selected targets. Echoed
-	// in the Start response; Stop and the reconciler read it from the
-	// persisted event row, not from Plan.
+	// Start time. Zero for Preview or immediate-restore starts with no selected
+	// targets. Start responses and replay rendering expose it. The reconciler
+	// uses it for paced restores; restore_batch_size=0 instead claims up to
+	// RestoreBatchSizeMax, including targets admitted after Start.
 	EffectiveBatchSize int32
 	// ReplayEvent is set only for idempotent Start replays. The handler uses
 	// the persisted row instead of rebuilding a response from the retry body.
@@ -336,7 +334,7 @@ func BuildAllPairedPolicyPlan(
 			estimatedReductionW += powerW
 		}
 		avgEff := c.AvgEfficiencyJH
-		if !isFiniteFloat(avgEff) {
+		if avgEff != nil && !IsFinite(*avgEff) {
 			avgEff = nil
 		}
 		if state == models.TargetStateUnavailable {

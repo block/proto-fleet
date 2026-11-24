@@ -52,6 +52,9 @@ var ErrCurtailmentEventStateRaceLoss = errors.New("curtailment event state advan
 // maps to ErrCurtailmentEventStateRaceLoss. Nil leaves the guard off, so the
 // existing full-tick writes are unaffected.
 type UpdateCurtailmentTargetStateParams struct {
+	// Telemetry time (or live sampling start) used only to admit historical evidence.
+	ConfirmationSampleAt      *time.Time
+	ExpectedDeviceDatabaseID  *int64
 	State                     models.TargetState
 	LastDispatchedAt          *time.Time
 	LastBatchUUID             *string
@@ -64,6 +67,9 @@ type UpdateCurtailmentTargetStateParams struct {
 	ExpectedDesiredState      *string
 	ExpectedState             *models.TargetState
 	ExpectedDispatchBatchUUID *string
+	// CurtailPossiblySent durably records that a Curtail may have reached the
+	// miner without an enqueue timestamp. It is never cleared by this write.
+	CurtailPossiblySent bool
 }
 
 // AllPairedReadinessUpdate is one pending/unavailable readiness flip in the
@@ -99,6 +105,8 @@ type ConfirmationPageCursor struct {
 // guarded bulk confirmation write. The store revalidates event phase, target
 // state/direction/batch, and the exact live device row before applying it.
 type ConfirmationUpdate struct {
+	// Live sampling start; reporting must not attribute assets acquired later.
+	SampleAt         time.Time
 	DeviceDatabaseID int64
 	DeviceIdentifier string
 	Phase            models.TargetPhase
@@ -147,6 +155,9 @@ type UpsertCurtailmentHeartbeatParams struct {
 
 type BeginRestoreTransitionParams struct {
 	AutomationDemandGuard *AutomationDemandGuard
+	// EnforceMinDuration applies to voluntary Stop. Safety restoration and
+	// administrator force-stop intentionally bypass this gate.
+	EnforceMinDuration bool
 	// KnownUnsentDeviceIdentifiers identifies DISPATCHING rows for which the
 	// caller knows the physical command boundary was never crossed.
 	KnownUnsentDeviceIdentifiers []string
@@ -201,6 +212,12 @@ type ResponseProfileStore interface {
 	SiteBelongsToOrg(ctx context.Context, orgID, siteID int64) (bool, error)
 }
 
+// ResponseProfileAutomationBindingReader exposes enabled automation bindings
+// independently from profile CRUD and selector reads.
+type ResponseProfileAutomationBindingReader interface {
+	CountEnabledAutomationRulesByResponseProfile(ctx context.Context, orgID, profileID int64) (int64, error)
+}
+
 // AutomationStore is the persistence boundary for curtailment automation rule
 // CRUD and executor state.
 //
@@ -211,7 +228,7 @@ type AutomationStore interface {
 	ListEnabledAutomationRulesByMQTTSource(ctx context.Context, mqttSourceID int64) ([]*models.AutomationRule, error)
 	CreateAutomationRule(ctx context.Context, rule models.AutomationRule, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error)
 	UpdateAutomationRule(ctx context.Context, rule models.AutomationRule, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error)
-	SetAutomationRuleEnabled(ctx context.Context, orgID, ruleID int64, enabled bool, responseProfileRevision uuid.UUID, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error)
+	SetAutomationRuleEnabled(ctx context.Context, orgID, ruleID int64, enabled bool, responseProfileRevision uuid.UUID, expectedFanSettings models.ResponseProfileFanSettings, adminControlsGranted bool) (*models.AutomationRule, error)
 	DeleteAutomationRule(ctx context.Context, orgID, ruleID int64) error
 	CountAutomationRulesByMQTTSource(ctx context.Context, orgID, sourceID int64) (int64, error)
 	RecordAutomationSignal(ctx context.Context, ruleID int64, signal models.AutomationSignal, at time.Time) error
@@ -222,6 +239,15 @@ type AutomationStore interface {
 	ClearAutomationActiveEvent(ctx context.Context, ruleID int64, at time.Time) error
 	RecordAutomationRestoreStarted(ctx context.Context, ruleID int64, at time.Time) error
 	RecordAutomationExecutionError(ctx context.Context, ruleID int64, message string, at time.Time) error
+	// ListEnabledScheduleAutomationRules returns every organization's enabled
+	// schedule rules, for the window producer.
+	ListEnabledScheduleAutomationRules(ctx context.Context) ([]models.ScheduledAutomationRule, error)
+	// QueueScheduleAutomationExecution asserts a schedule window boundary into
+	// the rule's mailbox; work.ReceivedAt is the boundary time.
+	QueueScheduleAutomationExecution(ctx context.Context, work models.AutomationExecution) error
+	// ScheduleWindowEventState reports the state of the latest event a schedule
+	// rule started for a window under a schedule revision, in any state.
+	ScheduleWindowEventState(ctx context.Context, orgID, ruleID int64, windowStart time.Time, scheduleRevision uuid.UUID) (models.EventState, bool, error)
 }
 
 const CurtailmentResolvedMinerMax = 10000
@@ -350,9 +376,11 @@ type CurtailmentTopologyRestoreDispatchFenceStore interface {
 // would race an in-flight restore claim.
 type UpdateOperatorFieldsParams struct {
 	Reason                  *string
-	RestoreBatchSize        *int32
 	RestoreBatchIntervalSec *int32
 	MaxDurationSeconds      *int32
+	// CanShortenMaxDuration permits an admin to shorten the cap against the
+	// current row, including when a concurrent update extended it after pre-read.
+	CanShortenMaxDuration bool
 }
 
 // UpdateCurtailmentFanStateParams persists one reconciler or operator-recovery
@@ -398,8 +426,9 @@ type CurtailmentTerminalFanRecoveryStore interface {
 
 // CurtailmentAdminTerminateFanRecoveryStore serializes an operator admin
 // termination against fan recovery and concurrent lifecycle transitions. The
-// implementation holds the event lock while deciding whether recovery is
-// required, commanding fans ON, persisting the fan result, and terminalizing.
+// implementation serializes fan commands and lifecycle changes with advisory
+// locks. It persists terminal recovery evidence before I/O, then records the
+// result without holding an event row lock during the physical command.
 type CurtailmentAdminTerminateFanRecoveryStore interface {
 	AdminTerminateEventWithFanRecovery(
 		ctx context.Context,
@@ -452,6 +481,7 @@ type CurtailmentStore interface {
 	ListRecentlyResolvedCurtailedDevices(ctx context.Context, params ListRecentlyResolvedCurtailedDevicesParams) ([]string, error)
 	SiteBelongsToOrg(ctx context.Context, orgID, siteID int64) (bool, error)
 
+	// GetEventByUUID returns NotFound when no matching event exists.
 	GetEventByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error)
 	GetEventDetailByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error)
 
@@ -483,7 +513,7 @@ type CurtailmentStore interface {
 	// A reservation may consume the interval even if the later enqueue fails.
 	RecordCurtailPendingDispatch(ctx context.Context, eventID int64, expectedState models.EventState, dispatchedAt time.Time) error
 
-	// AdminTerminateEvent forces a non-terminal event to CANCELLED or
+	// AdminTerminateEvent forces a pending or restoring event to CANCELLED or
 	// FAILED and sweeps non-terminal targets to RESTORE_FAILED in one
 	// transaction. Idempotent: an already-terminal event in the same
 	// target state returns transitioned=false (caller suppresses side
@@ -559,11 +589,10 @@ type CurtailmentStore interface {
 	// Heartbeat singleton row used by liveness alerts.
 	GetHeartbeat(ctx context.Context) (*models.Heartbeat, error)
 
-	// ListCandidates returns per-device state for the selector. Nil
-	// deviceIdentifiers returns the whole org (callers normalize empty
-	// slice → nil). SiteID restricts candidates to one live site in the
-	// org. Devices without recent telemetry return nil power / hash; the
-	// service treats those as stale.
+	// ListCandidates returns per-device state for the selector. Empty selector
+	// slices return the whole org; otherwise device identifiers or one topology
+	// selector (SiteIDs, BuildingIDs, RackIDs, GroupIDs) restricts membership.
+	// Devices without recent telemetry return nil power / hash.
 	ListCandidates(ctx context.Context, params ListCandidatesParams) ([]*models.Candidate, error)
 
 	// ListNonTerminalEvents returns pending/active/restoring events across
@@ -609,4 +638,44 @@ type CurtailmentStore interface {
 		eventUUID uuid.UUID,
 		params BeginRecurtailTransitionParams,
 	) (*models.Event, error)
+}
+
+// CurtailmentDispatchRejectionStore persists dispatch denial before restoration.
+// Read errors defer dispatch; a stored denial is never cleared by a retry.
+type CurtailmentDispatchRejectionStore interface {
+	GetDispatchRejection(ctx context.Context, orgID, eventID int64) (*string, error)
+	RejectDispatch(ctx context.Context, orgID, eventID int64, reason string) error
+}
+
+// CurtailmentTargetObservation batches guarded drift/telemetry refresh writes.
+type CurtailmentTargetObservation struct {
+	ExpectedBatchUUID *string            `json:"expected_batch_uuid"`
+	DeviceIdentifier  string             `json:"device_identifier"`
+	State             models.TargetState `json:"state"`
+	ObservedPowerW    *float64           `json:"observed_power_w"`
+	ObservedAt        time.Time          `json:"observed_at"`
+	ConfirmedAt       *time.Time         `json:"confirmed_at"`
+}
+
+type CurtailmentTargetObservationStore interface {
+	ObserveTargets(ctx context.Context, event *models.Event, observations []CurtailmentTargetObservation) ([]string, error)
+}
+
+// CurtailmentAutomationDispatchAuthorizationStore validates the durable rule
+// execution grant and its current source/profile binding at each dispatch.
+type CurtailmentAutomationDispatchAuthorizationStore interface {
+	AuthorizeAutomationCurtailDispatch(ctx context.Context, ev *models.Event, coverage CurtailmentTopologyScopeCoverage) (bool, error)
+}
+
+// CurtailmentDispatchFenceStore also protects ordinary site/device scopes
+// against device moves and permission revocations through enqueueing.
+type CurtailmentDispatchFenceStore interface {
+	WithCurtailmentDispatchFence(ctx context.Context, event *models.Event, params ListCandidatesParams, deviceIdentifiers []string, command func(CurtailmentTopologyDispatchFenceSnapshot) error) error
+}
+
+// CurtailmentPendingDeadlineStore records failed curtail phase evidence. With
+// includeInFlight, in-flight intents keep their state for the compensating
+// restore transition; without it, they are left untouched.
+type CurtailmentPendingDeadlineStore interface {
+	FailPendingCurtailTargets(ctx context.Context, event *models.Event, reason string, includeInFlight bool) error
 }

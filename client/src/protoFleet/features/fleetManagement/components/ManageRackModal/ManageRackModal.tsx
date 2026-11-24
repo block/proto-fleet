@@ -23,7 +23,6 @@ import {
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useFleet from "@/protoFleet/api/useFleet";
-import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
 import type { MinerEligibility } from "@/protoFleet/components/MinerSelectionList";
 import RackSettingsModal from "@/protoFleet/features/fleetManagement/components/RackSettingsModal";
 import { slotNumberToRowCol } from "@/protoFleet/features/fleetManagement/utils/slotNumbering";
@@ -33,6 +32,7 @@ import { DismissCircle } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Dialog from "@/shared/components/Dialog";
+import FullScreenTwoPaneModal from "@/shared/components/FullScreenTwoPaneModal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 

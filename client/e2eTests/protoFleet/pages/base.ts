@@ -464,41 +464,19 @@ export class BasePage {
   async validateTextInToast(text: string, timeout: number = DEFAULT_TIMEOUT) {
     await expect
       .poll(
-        async () => {
-          const normalize = (value: string | null | undefined) => (value ?? "").replace(/\s+/g, " ").trim();
-
-          const groupedHeader = this.page.getByTestId("grouped-toaster-header");
-          if (await groupedHeader.isVisible().catch(() => false)) {
-            const headerText = normalize(await groupedHeader.textContent().catch(() => ""));
-            if (headerText.includes(text)) {
-              return true;
-            }
-          }
-
-          const toastContainer = this.page.getByTestId("toaster-container");
-          if (await toastContainer.isVisible().catch(() => false)) {
-            const containerText = normalize(await toastContainer.textContent().catch(() => ""));
-            if (containerText.includes(text)) {
-              return true;
-            }
-          }
-
-          const toasts = this.page.getByTestId("toast");
-          const count = await toasts.count();
-          for (let i = count - 1; i >= 0; i -= 1) {
-            const toast = toasts.nth(i);
-            if (!(await toast.isVisible().catch(() => false))) {
-              continue;
-            }
-
-            const toastText = normalize(await toast.textContent().catch(() => ""));
-            if (toastText.includes(text)) {
-              return true;
-            }
-          }
-
-          return false;
-        },
+        () =>
+          this.page
+            .getByTestId("toast")
+            .or(this.page.getByTestId("grouped-toaster-header"))
+            .or(this.page.getByTestId("toaster-container"))
+            .filter({ visible: true })
+            .evaluateAll(
+              (elements, expectedText) =>
+                elements.some((element) =>
+                  (element.textContent ?? "").replace(/\s+/g, " ").trim().includes(expectedText),
+                ),
+              text,
+            ),
         {
           timeout,
           message: `Expected a visible toast containing "${text}".`,
@@ -754,13 +732,6 @@ export class BasePage {
     await expect(this.page.getByTestId("navigation-menu-button")).toBeVisible();
   }
 
-  async navigateToHomePage() {
-    await this.clickNavigationMenuIfMobile();
-    await this.page.getByTestId("navigation-menu").locator('a[href="/dashboard"]').click();
-    await expect(this.page).toHaveURL(/.*\/dashboard$/);
-    await this.waitForMobileNavigationMenuToClose();
-  }
-
   async navigateToFleetPage() {
     if (
       FLEET_TAB_ROUTE.test(this.page.url()) &&
@@ -943,19 +914,6 @@ export class BasePage {
     }
 
     await this.page.getByRole("button", { name: text, disabled: false, exact: true }).click();
-  }
-
-  async clickUntilNotVisible(text: string) {
-    const button = this.page.getByRole("button", { name: text, disabled: false, exact: true });
-
-    await expect(button).toBeVisible();
-    await expect(async () => {
-      const isVisible = await button.isVisible();
-      if (isVisible) {
-        await button.click();
-        throw new Error("Button still visible, looping until it is not or the time runs out");
-      }
-    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [100] });
   }
 
   async clickIn(text: string, testId: string) {

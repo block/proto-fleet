@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"slices"
 	"time"
 
 	"connectrpc.com/authn"
@@ -196,7 +197,7 @@ func (s *Service) startNeededRollouts(ctx context.Context) {
 				return channelLookupError(n.ChannelID, err)
 			}
 			assignment, err := q.GetReleaseChannelFirmware(ctx, sqlc.GetReleaseChannelFirmwareParams{
-				ChannelID: n.ChannelID, Manufacturer: n.Manufacturer, Model: n.Model,
+				ChannelID: n.ChannelID, Manufacturer: n.Manufacturer, Model: n.Model, Component: n.Component,
 			})
 			if errors.Is(err, sql.ErrNoRows) || (err == nil && assignment.FirmwareChecksum == "") {
 				return nil
@@ -205,7 +206,7 @@ func (s *Service) startNeededRollouts(ctx context.Context) {
 				return fleeterror.NewInternalErrorf("get firmware assignment: %w", err)
 			}
 			if _, err := q.GetActiveFirmwareRolloutForPair(ctx, sqlc.GetActiveFirmwareRolloutForPairParams{
-				ChannelID: n.ChannelID, Manufacturer: n.Manufacturer, Model: n.Model,
+				ChannelID: n.ChannelID, Manufacturer: n.Manufacturer, Model: n.Model, Component: n.Component,
 			}); err == nil {
 				return nil
 			} else if !errors.Is(err, sql.ErrNoRows) {
@@ -213,7 +214,7 @@ func (s *Service) startNeededRollouts(ctx context.Context) {
 			}
 			spec := rolloutSpec{
 				OrgID: n.OrgID, ChannelID: n.ChannelID, ChannelName: channel.Name,
-				Pair:             PairKey{Manufacturer: assignment.Manufacturer, Model: assignment.Model},
+				Pair:             PairKey{Manufacturer: assignment.Manufacturer, Model: assignment.Model, Component: assignment.Component},
 				FirmwareChecksum: assignment.FirmwareChecksum, FirmwareVersion: assignment.FirmwareVersion,
 				AssignmentGeneration: assignment.AssignmentGeneration, Actor: SystemActor, Behavior: behaviorFromChannel(channel),
 				PreviousFirmwareChecksum: assignment.PreviousFirmwareChecksum,
@@ -438,7 +439,7 @@ func (s *Service) syncMembership(ctx context.Context, r sqlc.FirmwareRollout) ([
 		changed = true
 	}
 	joiners, err := q.ListReleaseChannelMismatchedMembers(ctx, s.mismatchedParams(rolloutSpec{
-		OrgID: r.OrgID, ChannelID: r.ChannelID, Pair: PairKey{Manufacturer: r.Manufacturer, Model: r.Model},
+		OrgID: r.OrgID, ChannelID: r.ChannelID, Pair: PairKey{Manufacturer: r.Manufacturer, Model: r.Model, Component: r.Component},
 		FirmwareVersion: r.FirmwareVersion, FirmwareChecksum: r.FirmwareChecksum,
 		AssignmentGeneration: r.AssignmentGeneration,
 	}, r.ID))
@@ -528,7 +529,7 @@ func (s *Service) recordDeploymentProvenance(ctx context.Context, r sqlc.Firmwar
 		return targets, nil
 	}
 	if err := s.store.GetQueries(ctx).RecordFirmwareDeployment(ctx, sqlc.RecordFirmwareDeploymentParams{
-		DeviceIds: deployed, FirmwareChecksum: r.FirmwareChecksum, FirmwareVersion: r.FirmwareVersion,
+		DeviceIds: deployed, Component: r.Component, FirmwareChecksum: r.FirmwareChecksum, FirmwareVersion: r.FirmwareVersion,
 		RolloutID:                 sql.NullInt64{Int64: r.ID, Valid: true},
 		ExpectedDeploymentPresent: expectedPresent,
 		ExpectedDeployedAts:       expectedDeployedAt,
@@ -548,7 +549,7 @@ func (s *Service) recordConvergence(ctx context.Context, r sqlc.FirmwareRollout,
 			continue
 		}
 		if t.VerifiedAt.Valid {
-			if !t.reportsTarget(r) || t.LastDeployedFirmwareChecksum != r.FirmwareChecksum || t.foreignCommand {
+			if t.reportsOtherVersion(r) || t.LastDeployedFirmwareChecksum != r.FirmwareChecksum || t.foreignCommand {
 				drifted = append(drifted, t.DeviceID)
 			}
 		} else if t.meetsConvergence(r) {
@@ -601,21 +602,30 @@ func (s *Service) dispatchHoldReason(ctx context.Context, r sqlc.FirmwareRollout
 		return "", nil
 	}
 	cutoff := s.now().Add(-resendInterval)
-	due := false
+	var due []int64
 	for _, t := range reviewScope(r, targets) {
-		if t.settled(r) || len(t.PendingFirmwareChecksums) > 0 || len(t.PendingLegacyFirmwareFileIds) > 0 ||
-			(t.LastSentAt.Valid && !t.LastSentAt.Time.Before(cutoff)) ||
+		if t.settled(r) || t.commandPending() ||
+			(t.LastSentAt.Valid && !t.waitingSince().Before(cutoff)) ||
 			!t.InScope.Valid || !t.InScope.Bool || t.Attempts >= MaxAttempts {
 			continue
 		}
-		due = true
-		break
+		due = append(due, t.DeviceID)
 	}
-	if !due {
+	if len(due) == 0 {
 		return "", nil
 	}
 	if !firmwareAvailable {
 		return holdArtifactMissing, nil
+	}
+	// Containers behind the channel's controller software target wait for an
+	// operator. Report it when no other target is due, as the rollout then
+	// sends nothing more until one is updated.
+	held, err := s.controllerSoftwareHold(ctx, r.ChannelID, due)
+	if err != nil {
+		return "", err
+	}
+	if len(held) == len(due) {
+		return holdControllerSoftware(held), nil
 	}
 	q := s.store.GetQueries(ctx)
 	channel, err := q.GetReleaseChannel(ctx, sqlc.GetReleaseChannelParams{ChannelID: r.ChannelID, OrgID: r.OrgID})
@@ -630,7 +640,9 @@ func (s *Service) dispatchHoldReason(ctx context.Context, r sqlc.FirmwareRollout
 		return "", fleeterror.NewInternalErrorf("load rollout offline slots: %w", err)
 	}
 	if len(slots) >= int(channel.MaxConcurrentOffline) {
-		return fmt.Sprintf("Waiting for offline capacity: %d of %d slots are in use. Wait for miners to recover or change the channel's offline limit.", len(slots), channel.MaxConcurrentOffline), nil
+		// Other models in the channel can hold these slots.
+		return fmt.Sprintf("Waiting for offline capacity: %d of %d slots are in use. Wait for devices to recover or change the channel's offline limit.",
+			len(slots), channel.MaxConcurrentOffline), nil
 	}
 	return "", nil
 }
@@ -705,9 +717,9 @@ func (s *Service) dispatchLockedBatch(ctx context.Context, r sqlc.FirmwareRollou
 		if t.settled(r) {
 			continue
 		}
-		sentRecently := t.LastSentAt.Valid && !t.LastSentAt.Time.Before(cutoff)
+		sentRecently := t.LastSentAt.Valid && !t.waitingSince().Before(cutoff)
 		switch {
-		case len(t.PendingFirmwareChecksums) > 0 || len(t.PendingLegacyFirmwareFileIds) > 0:
+		case t.commandPending():
 			// Queue state, not retry age, determines when another command may
 			// be sent or the prior attempt declared exhausted.
 		case sentRecently:
@@ -719,10 +731,25 @@ func (s *Service) dispatchLockedBatch(ctx context.Context, r sqlc.FirmwareRollou
 			due = append(due, t.DeviceID)
 		}
 	}
+	// The controller installs this firmware, so a container behind the
+	// channel's controller software target stays queued until an operator
+	// updates it. Holding is not an attempt: it neither counts toward
+	// MaxAttempts nor restarts the resend clock.
+	held, err := s.controllerSoftwareHold(ctx, r.ChannelID, due)
+	if err != nil {
+		return 0, nil, err
+	}
+	if len(held) > 0 {
+		due = slices.DeleteFunc(due, func(id int64) bool {
+			_, waiting := held[id]
+			return waiting
+		})
+	}
 	if len(incompatible) > 0 {
 		if err := q.HaltFirmwareRolloutDevices(ctx, sqlc.HaltFirmwareRolloutDevicesParams{
 			RolloutID: r.ID, DeviceIds: incompatible, HaltReason: HaltReasonFailed,
-			LastError: "Reported manufacturer or model changed before the update verified; no further update was sent. Review this miner's identity and firmware compatibility before retrying.",
+			LastError: fmt.Sprintf("Reported manufacturer or model changed before the update verified; no further update was sent. Review this %s's identity and firmware compatibility before retrying.",
+				nounFor(r.Manufacturer, r.Model).singular),
 		}); err != nil {
 			return 0, nil, fleeterror.NewInternalErrorf("fail incompatible rollout devices: %w", err)
 		}
@@ -774,7 +801,7 @@ func (s *Service) dispatchLockedBatch(ctx context.Context, r sqlc.FirmwareRollou
 		return halted, nil, nil
 	}
 	assignment, err := q.GetReleaseChannelFirmware(ctx, sqlc.GetReleaseChannelFirmwareParams{
-		ChannelID: r.ChannelID, Manufacturer: r.Manufacturer, Model: r.Model,
+		ChannelID: r.ChannelID, Manufacturer: r.Manufacturer, Model: r.Model, Component: r.Component,
 	})
 	if err != nil {
 		return halted, nil, fleeterror.NewInternalErrorf("load firmware assignment: %w", err)
@@ -800,6 +827,7 @@ func (s *Service) dispatchLockedBatch(ctx context.Context, r sqlc.FirmwareRollou
 		TargetManufacturer: assignment.FirmwareTargetManufacturer,
 		TargetModel:        assignment.FirmwareTargetModel,
 		FirmwareVersion:    assignment.FirmwareVersion,
+		Component:          assignment.Component,
 	})
 	if err != nil {
 		return halted, nil, fleeterror.NewInternalErrorf("dispatch firmware update: %w", err)
@@ -908,6 +936,7 @@ func (s *Service) evaluate(r sqlc.FirmwareRollout, scope []target) Evidence {
 	}
 
 	th := behaviorFromRollout(r).Thresholds
+	noun := nounFor(r.Manufacturer, r.Model)
 	// covered reports whether an aggregate samples enough verified miners
 	// for its limit to be judged; the gate fails closed otherwise.
 	covered := func(a Aggregate) bool {
@@ -927,27 +956,27 @@ func (s *Service) evaluate(r sqlc.FirmwareRollout, scope []target) Evidence {
 	case !r.BehaviorSnapshot.AutoContinue:
 		ev.HoldReason = "Manual review"
 	case ev.Failed > 0:
-		ev.HoldReason = fmt.Sprintf("%d miners failed to update", ev.Failed)
+		ev.HoldReason = noun.count(int(ev.Failed)) + " failed to update"
 	case ev.Verified+ev.Excluded+ev.Skipped < ev.DevicesTotal:
-		ev.HoldReason = fmt.Sprintf("%d of %d miners not yet verified", ev.DevicesTotal-ev.Verified-ev.Excluded-ev.Skipped, ev.DevicesTotal)
+		ev.HoldReason = fmt.Sprintf("%d of %s not yet verified", ev.DevicesTotal-ev.Verified-ev.Excluded-ev.Skipped, noun.count(int(ev.DevicesTotal)))
 	case offline > 0:
-		ev.HoldReason = fmt.Sprintf("Waiting for %d updated miners to come back online", offline)
+		ev.HoldReason = fmt.Sprintf("Waiting for %d updated %s to come back online", offline, noun.of(offline))
 	case notHashing > 0:
-		ev.HoldReason = fmt.Sprintf("Waiting for %d updated miners to resume hashing", notHashing)
+		ev.HoldReason = fmt.Sprintf("Waiting for %d updated %s to resume hashing", notHashing, noun.of(notHashing))
 	case th.MaxHashrateDropPercent != nil && !covered(ev.HashRateHs):
-		ev.HoldReason = coverageHold("hashrate", ev.HashRateHs, ev.Verified)
+		ev.HoldReason = coverageHold("hashrate", ev.HashRateHs, ev.Verified, noun)
 	case th.MaxHashrateDropPercent != nil && ev.HashrateChangePercent == nil:
 		ev.HoldReason = "Hashrate change undefined: baseline hashrate was zero"
 	case th.MaxHashrateDropPercent != nil && *ev.HashrateChangePercent < -*th.MaxHashrateDropPercent:
 		ev.HoldReason = fmt.Sprintf("Hashrate down %.1f%% (limit %.0f%%)", -*ev.HashrateChangePercent, *th.MaxHashrateDropPercent)
 	case th.MaxEfficiencyIncreasePercent != nil && !covered(ev.EfficiencyJh):
-		ev.HoldReason = coverageHold("efficiency", ev.EfficiencyJh, ev.Verified)
+		ev.HoldReason = coverageHold("efficiency", ev.EfficiencyJh, ev.Verified, noun)
 	case th.MaxEfficiencyIncreasePercent != nil && ev.EfficiencyChangePercent == nil:
 		ev.HoldReason = "Efficiency change undefined: baseline efficiency was zero"
 	case th.MaxEfficiencyIncreasePercent != nil && *ev.EfficiencyChangePercent > *th.MaxEfficiencyIncreasePercent:
 		ev.HoldReason = fmt.Sprintf("Efficiency worse by %.1f%% (limit %.0f%%)", *ev.EfficiencyChangePercent, *th.MaxEfficiencyIncreasePercent)
 	case th.MaxTempIncreaseC != nil && !covered(ev.TempC):
-		ev.HoldReason = coverageHold("temperature", ev.TempC, ev.Verified)
+		ev.HoldReason = coverageHold("temperature", ev.TempC, ev.Verified, noun)
 	case th.MaxTempIncreaseC != nil && *ev.TemperatureChangeC > *th.MaxTempIncreaseC:
 		ev.HoldReason = fmt.Sprintf("Temperature up %.1f°C (limit %.0f°C)", *ev.TemperatureChangeC, *th.MaxTempIncreaseC)
 	case th.MaxNewErrors != nil && ev.NewErrors > *th.MaxNewErrors:
@@ -964,8 +993,8 @@ func (s *Service) evaluate(r sqlc.FirmwareRollout, scope []target) Evidence {
 	return ev
 }
 
-func coverageHold(metric string, a Aggregate, verified int32) string {
-	return fmt.Sprintf("Recent %s sample covers %d of %d verified miners", metric, a.SampledDevices, verified)
+func coverageHold(metric string, a Aggregate, verified int32, noun deviceNoun) string {
+	return fmt.Sprintf("Recent %s sample covers %d of %d verified %s", metric, a.SampledDevices, verified, noun.of(int(verified)))
 }
 
 // percentChange is nil when either half is missing or the baseline is zero,

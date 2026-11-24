@@ -1,24 +1,26 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import {
-  bulkRenameModes,
-  type BulkRenamePreviewMiner,
-  bulkRenamePropertyIds,
-  bulkRenameSeparatorIds,
-  createDefaultBulkRenamePreferences,
-} from "./bulkRenameDefinitions";
-import {
   buildBulkRenameConfig,
-  evaluateBulkRenamePreviewName,
-  findBulkRenamePropertyPreviewMinerIndex,
   hasEmptyBulkRenameConfig,
   hasNoBulkRenameChanges,
   mapSnapshotsToBulkRenamePreviewMiners,
   shouldShowBulkRenameNoChangesWarning,
   takePreviewMiners,
 } from "./bulkRenamePreview";
-import { customPropertyTypes, fixedStringSections } from "./RenameOptionsModals/types";
 import { PlacementRefsSchema } from "@/protoFleet/api/generated/common/v1/common_pb";
+import {
+  bulkRenameModes,
+  type BulkRenamePreviewMiner,
+  bulkRenamePropertyIds,
+  bulkRenameSeparatorIds,
+  createDefaultBulkRenamePreferences,
+} from "@/shared/components/BulkRename/bulkRenameDefinitions";
+import {
+  evaluateBulkRenamePreviewName,
+  findBulkRenamePropertyPreviewMinerIndex,
+} from "@/shared/components/BulkRename/bulkRenamePreview";
+import { customPropertyTypes, fixedStringSections } from "@/shared/components/BulkRename/RenameOptionsModals/types";
 
 const basePreviewMiner: BulkRenamePreviewMiner = {
   counterIndex: 0,
@@ -95,9 +97,8 @@ describe("bulkRenamePreview", () => {
       return property;
     });
 
-    const config = buildBulkRenameConfig(preferences);
-    expect(evaluateBulkRenamePreviewName(config, basePreviewMiner, 0)).toBe("Bitmain-M01");
-    expect(evaluateBulkRenamePreviewName(config, basePreviewMiner, 1)).toBe("Bitmain-M02");
+    expect(evaluateBulkRenamePreviewName(preferences, basePreviewMiner, 0)).toBe("Bitmain-M01");
+    expect(evaluateBulkRenamePreviewName(preferences, basePreviewMiner, 1)).toBe("Bitmain-M02");
   });
 
   it("evaluates worker-name previews with miner name and rack qualifiers", () => {
@@ -132,9 +133,7 @@ describe("bulkRenamePreview", () => {
       return property;
     });
 
-    const config = buildBulkRenameConfig(preferences);
-
-    expect(evaluateBulkRenamePreviewName(config, basePreviewMiner, 0)).toBe("Proto Rig-Rack-A1-12");
+    expect(evaluateBulkRenamePreviewName(preferences, basePreviewMiner, 0)).toBe("Proto Rig-Rack-A1-12");
   });
 
   it("treats empty or unchanged bulk rename results as no-op changes", () => {

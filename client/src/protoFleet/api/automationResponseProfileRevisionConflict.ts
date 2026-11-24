@@ -1,4 +1,4 @@
-import type { ResponseProfile } from "@/protoFleet/features/settings/components/Curtailment/types";
+import type { ResponseProfile } from "@/protoFleet/api/curtailmentTypes";
 
 export class AutomationResponseProfileRevisionConflictError extends Error {
   readonly latestResponseProfileRevisionById: ReadonlyMap<string, string>;

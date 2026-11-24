@@ -28,13 +28,14 @@ const locationOptions = [
 const BulkCloseModal = ({ ticketIds, includesMiner = false, onDismiss, onSubmit, onSuccess }: BulkCloseModalProps) => {
   const [resolution, setResolution] = useState<TicketResolution>();
   const [repairLocation, setRepairLocation] = useState<RepairLocation>();
-  const [notes, setNotes] = useState("");
+  const [resolutionNote, setResolutionNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const requiresLocation =
     includesMiner && (resolution === TicketResolution.REPAIRED || resolution === TicketResolution.REPLACED);
   const handleSubmit = useCallback(async () => {
-    if (resolution === undefined || (requiresLocation && repairLocation === undefined)) return;
+    if (!resolutionNote.trim() || resolution === undefined || (requiresLocation && repairLocation === undefined))
+      return;
     setSubmitting(true);
     setError(null);
     const ok =
@@ -45,13 +46,13 @@ const BulkCloseModal = ({ ticketIds, includesMiner = false, onDismiss, onSubmit,
           repairLocation: requiresLocation
             ? (repairLocation ?? RepairLocation.UNSPECIFIED)
             : RepairLocation.UNSPECIFIED,
-          notes,
+          resolutionNote: resolutionNote.trim(),
         },
       })) ?? true;
     setSubmitting(false);
     if (ok) onSuccess();
     else setError("Unable to close tickets");
-  }, [notes, onSubmit, onSuccess, repairLocation, requiresLocation, resolution]);
+  }, [resolutionNote, onSubmit, onSuccess, repairLocation, requiresLocation, resolution]);
   return (
     <Modal
       open
@@ -73,7 +74,8 @@ const BulkCloseModal = ({ ticketIds, includesMiner = false, onDismiss, onSubmit,
           text: "Close tickets",
           variant: variants.primary,
           onClick: () => void handleSubmit(),
-          disabled: resolution === undefined || (requiresLocation && repairLocation === undefined),
+          disabled:
+            !resolutionNote.trim() || resolution === undefined || (requiresLocation && repairLocation === undefined),
           loading: submitting,
           dismissModalOnClick: false,
         },
@@ -120,7 +122,14 @@ const BulkCloseModal = ({ ticketIds, includesMiner = false, onDismiss, onSubmit,
           />
         ) : null}
         {resolution !== undefined ? (
-          <Textarea id="bulk-close-notes" label="Notes (optional)" onChange={setNotes} rows={2} />
+          <Textarea
+            id="bulk-close-notes"
+            label="Resolution note (visible to clients)"
+            required
+            maxLength={4096}
+            onChange={setResolutionNote}
+            rows={2}
+          />
         ) : null}
         {error ? <div role="alert">{error}</div> : null}
       </div>

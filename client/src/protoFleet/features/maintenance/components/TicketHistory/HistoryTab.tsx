@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { COMPONENT_FILTER_OPTIONS } from "../../componentOptions";
-import ListPagination from "../ListPagination";
+import { ticketAssetLabel } from "../../ticketAssets";
 import TicketDetailModal from "../TicketDetail/TicketDetailModal";
 import type { Assignee } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import {
   SortDirection,
+  TicketCategory,
   TicketResolution,
   TicketSortField,
 } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import { useMaintenanceApi } from "@/protoFleet/api/maintenance";
+import ListPagination from "@/protoFleet/components/ListPagination";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
@@ -84,8 +86,15 @@ const HistoryTab = () => {
                     id: summary.ticket.id.toString(),
                     ticketNumber: summary.ticket.ticketNumber,
                     component: summary.ticket.component,
-                    diagnosis: summary.ticket.diagnosis,
-                    minerIdentifier: summary.ticket.minerIdentifier ?? null,
+                    diagnosis: summary.ticket.description || summary.ticket.diagnosis,
+                    minerIdentifier: summary.ticket.targets.length
+                      ? summary.ticket.targets.map(ticketAssetLabel).join(", ")
+                      : summary.ticket.audiences.map((item) => item.name).join(", ") ||
+                        summary.ticket.minerIdentifier ||
+                        (summary.ticket.category === TicketCategory.ACCOUNT ||
+                        summary.ticket.category === TicketCategory.OTHER
+                          ? "Other"
+                          : null),
                     resolution: resolutionLabels[summary.ticket.resolution] ?? "Unknown",
                     assigneeName: summary.ticket.assigneeName || null,
                     completedAt: summary.ticket.completedAt
@@ -224,9 +233,9 @@ const HistoryTab = () => {
         />
       )}
       <ListPagination
-        currentPage={currentPage}
-        pageSize={50}
-        visibleCount={items.length}
+        firstItemIndex={currentPage * 50 + 1}
+        lastItemIndex={currentPage * 50 + items.length}
+        hasPreviousPage={currentPage > 0}
         total={total}
         itemName="completed tickets"
         hasNextPage={!!next}

@@ -238,7 +238,7 @@ func TestHandler_StopCurtailment_HappyPath(t *testing.T) {
 	t.Parallel()
 
 	store := newStopStubStore()
-	h := NewHandler(curtailment.NewService(store))
+	h := newTestHandler(curtailment.NewService(store))
 
 	ctx := stopSessionCtxWithPerms(t, 42, "OPERATOR", authz.PermCurtailmentManage)
 
@@ -263,7 +263,7 @@ func TestHandler_StopCurtailment_DoesNotHydrateDisplayCoverageBeforeControl(t *t
 	store := newStopStubStore()
 	store.event.ScopeType = models.ScopeTypeDeviceList
 	store.targetSiteCoverageErr = assert.AnError
-	h := NewHandler(curtailment.NewService(store))
+	h := newTestHandler(curtailment.NewService(store))
 
 	_, err := h.StopCurtailment(
 		stopSessionCtxWithPerms(t, 42, "OPERATOR", authz.PermCurtailmentManage),
@@ -278,7 +278,7 @@ func TestHandler_StopCurtailment_DoesNotHydrateDisplayCoverageBeforeControl(t *t
 func TestHandler_StopCurtailment_RequiresCurtailmentManage(t *testing.T) {
 	t.Parallel()
 	store := newStopStubStore()
-	h := NewHandler(curtailment.NewService(store))
+	h := newTestHandler(curtailment.NewService(store))
 
 	for _, tc := range []struct {
 		name        string
@@ -327,7 +327,7 @@ func TestHandler_StopCurtailment_UsesSiteScopedEventPermission(t *testing.T) {
 			store := newStopStubStore()
 			store.event.ScopeType = models.ScopeTypeSite
 			store.event.ScopeJSON = siteScopeJSON(t, allowedSite)
-			h := NewHandler(curtailment.NewService(store))
+			h := newTestHandler(curtailment.NewService(store))
 
 			ctx := testSessionCtxWithAssignments(t, &session.Info{
 				AuthMethod:     session.AuthMethodSession,
@@ -375,7 +375,7 @@ func TestHandler_StopCurtailment_AllowsIncompleteTargetSitesForOrgWideManage(t *
 			store.event.ScopeType = models.ScopeTypeDeviceList
 			store.targetSiteIDs = nil
 			store.targetSiteIDsComplete = false
-			h := NewHandler(curtailment.NewService(store))
+			h := newTestHandler(curtailment.NewService(store))
 
 			ctx := testSessionCtxWithAssignments(t, &session.Info{
 				AuthMethod:     session.AuthMethodSession,
@@ -404,7 +404,7 @@ func TestHandler_StopCurtailment_AllowsIncompleteTargetSitesForOrgWideManage(t *
 func TestHandler_StopCurtailment_RejectsMissingSession(t *testing.T) {
 	t.Parallel()
 	store := newStopStubStore()
-	h := NewHandler(curtailment.NewService(store))
+	h := newTestHandler(curtailment.NewService(store))
 
 	_, err := h.StopCurtailment(t.Context(), connect.NewRequest(&pb.StopCurtailmentRequest{
 		EventUuid: store.event.EventUUID.String(),
@@ -419,7 +419,7 @@ func TestHandler_StopCurtailment_RejectsMissingSession(t *testing.T) {
 func TestHandler_StopCurtailment_RejectsMalformedUUID(t *testing.T) {
 	t.Parallel()
 	store := newStopStubStore()
-	h := NewHandler(curtailment.NewService(store))
+	h := newTestHandler(curtailment.NewService(store))
 
 	ctx := stopSessionCtxWithPerms(t, 42, "OPERATOR", authz.PermCurtailmentManage)
 
@@ -435,7 +435,7 @@ func TestHandler_StopCurtailment_RejectsMalformedUUID(t *testing.T) {
 func TestHandler_StopCurtailment_ForceRequiresAdmin(t *testing.T) {
 	t.Parallel()
 	store := newStopStubStore()
-	h := NewHandler(curtailment.NewService(store))
+	h := newTestHandler(curtailment.NewService(store))
 
 	ctx := stopSessionCtxWithPerms(t, 42, "OPERATOR" /* non-Admin */, authz.PermCurtailmentManage)
 
@@ -457,7 +457,7 @@ func TestHandler_StopCurtailment_AdminForcePassesThrough(t *testing.T) {
 	store := newStopStubStore()
 	store.event.MinCurtailedDurationSec = 600 // gate would block without force
 	store.event.StartedAt = &startedAt
-	h := NewHandler(curtailment.NewService(store))
+	h := newTestHandler(curtailment.NewService(store))
 
 	ctx := stopSessionCtxWithPerms(t, 42, "ADMIN", authz.PermCurtailmentManage)
 
@@ -478,7 +478,7 @@ func TestHandler_StopCurtailment_ListTargetsErrorPropagates(t *testing.T) {
 	t.Parallel()
 	store := newStopStubStore()
 	store.listTargetsErr = errors.New("simulated targets read failure")
-	h := NewHandler(curtailment.NewService(store))
+	h := newTestHandler(curtailment.NewService(store))
 
 	ctx := stopSessionCtxWithPerms(t, 42, "OPERATOR", authz.PermCurtailmentManage)
 

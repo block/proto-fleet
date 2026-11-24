@@ -88,8 +88,4 @@ export class ModalMinerSelectionList {
 
     throw new Error(`Could not find a list row with ${cellTestId}="${text}"`);
   }
-
-  async validateCellTextByIndex(index: number, cellTestId: string, expectedText: string) {
-    await expect(this.rows.nth(index).getByTestId(cellTestId)).toHaveText(expectedText);
-  }
 }

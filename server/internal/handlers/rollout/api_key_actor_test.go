@@ -27,7 +27,7 @@ func TestAuthenticatedAPIKeysKeepDistinctRolloutActors(t *testing.T) {
 	svc := newFakeService()
 	auth := interceptors.NewAuthInterceptor(
 		provider.SessionService, provider.UserStore, provider.UserStore,
-		provider.ApiKeyService, provider.PermissionResolver, nil, nil, nil,
+		provider.ApiKeyService, provider.PermissionResolver, nil, nil, nil, nil,
 	)
 	mux := http.NewServeMux()
 	mux.Handle(rolloutv1connect.NewRolloutServiceHandler(NewHandler(svc), connect.WithInterceptors(auth)))

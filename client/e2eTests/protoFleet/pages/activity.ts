@@ -23,13 +23,11 @@ export class ActivityPage extends BasePage {
 
   async searchActivity(searchText: string) {
     const input = this.page.locator("#activity-search");
+    // An empty search collapses behind its toggle.
+    const toggle = this.page.getByTestId("activity-search-toggle");
+    await expect(input.or(toggle)).toBeVisible();
+    if (await toggle.isVisible()) await toggle.click();
     await input.fill(searchText);
-    await this.waitForActivityListToLoad();
-  }
-
-  async clearSearchWithEscape() {
-    const input = this.page.locator("#activity-search");
-    await input.press("Escape");
     await this.waitForActivityListToLoad();
   }
 
@@ -69,7 +67,14 @@ export class ActivityPage extends BasePage {
   }
 
   async validateSearchInputValue(expectedValue: string) {
-    await expect(this.page.locator("#activity-search")).toHaveValue(expectedValue);
+    const input = this.page.locator("#activity-search");
+    if (expectedValue === "") {
+      // A cleared search may stay open or collapse to its toggle; either is empty.
+      const toggle = this.page.getByTestId("activity-search-toggle");
+      await expect(input.or(toggle)).toBeVisible();
+      if (await toggle.isVisible()) return;
+    }
+    await expect(input).toHaveValue(expectedValue);
   }
 
   async validateLatestActivityDescription(description: string) {
@@ -96,12 +101,6 @@ export class ActivityPage extends BasePage {
     await expect(this.activityRowByDescription(description)).toBeVisible();
   }
 
-  async validateActivityDescriptionMarkedFailed(description: string) {
-    await expect(
-      this.activityRowByDescription(description).getByText("Couldn't complete", { exact: true }),
-    ).toHaveCount(1);
-  }
-
   async openLatestActivityDetails() {
     await this.latestActivityRow().click();
   }
@@ -112,10 +111,6 @@ export class ActivityPage extends BasePage {
 
   async validateActivityDetailContainsText(text: string) {
     await expect(this.activityDetailModal()).toContainText(text);
-  }
-
-  async validateActivityDetailDeviceResultsRowCount(expectedCount: number) {
-    await expect(this.activityDetailModal().locator("tbody tr")).toHaveCount(expectedCount);
   }
 
   async dismissActivityDetailModal() {

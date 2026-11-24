@@ -96,6 +96,58 @@ func TestFleetApplicationProfileRejectsInvalidFeatureCombinations(t *testing.T) 
 	}
 }
 
+func TestFleetApplicationProfileTelemetryFreshness(t *testing.T) {
+	const key = "TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS"
+	for _, test := range []struct {
+		name, value, want string
+		present, valid    bool
+	}{
+		{name: "default off", valid: true},
+		{name: "enabled", value: "true", want: "true", present: true, valid: true},
+		{name: "disabled", value: "false", want: "false", present: true, valid: true},
+		{name: "normalized", value: "TRUE", want: "true", present: true, valid: true},
+		{name: "invalid", value: "maybe", present: true},
+		{name: "numeric", value: "1", present: true},
+		{name: "empty", present: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var contents string
+			if test.present {
+				contents = key + "=" + test.value + "\n"
+			}
+			for name, load := range map[string]func() (fleetApplicationProfile, error){
+				"install capture": func() (fleetApplicationProfile, error) {
+					return fleetApplicationEnvironment(func(name string) (string, bool) {
+						return test.value, name == key && test.present
+					})
+				},
+				"persisted configuration": func() (fleetApplicationProfile, error) {
+					return parseFleetDeploymentEnvironment([]byte(contents))
+				},
+			} {
+				t.Run(name, func(t *testing.T) {
+					profile, err := load()
+					if !test.valid {
+						require.Error(t, err)
+						if test.value != "" {
+							require.ErrorContains(t, err, key+" must be true or false")
+						}
+						return
+					}
+					require.NoError(t, err)
+					require.Equal(t, test.want, profile[key])
+					require.Equal(t, test.want == "true", profile.enabled(key))
+					path := filepath.Join(t.TempDir(), fleetEnvironmentFile)
+					require.NoError(t, os.WriteFile(path, renderFleetDeploymentEnvironment(profile), 0o600))
+					reloaded, err := loadFleetApplicationProfileFile(path, true)
+					require.NoError(t, err)
+					require.Equal(t, profile, reloaded)
+				})
+			}
+		})
+	}
+}
+
 func TestRenderedFleetDeploymentEnvironmentNormalizesFeatureFlags(t *testing.T) {
 	values, err := fleetApplicationEnvironment(func(key string) (string, bool) {
 		value, ok := map[string]string{

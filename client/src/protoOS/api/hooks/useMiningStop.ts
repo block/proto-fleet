@@ -11,22 +11,22 @@ interface StopMiningProps {
 }
 
 const useMiningStop = () => {
-  const { api } = useMinerHosting();
+  const { adapter } = useMinerHosting();
   const [pending, setPending] = useState<boolean>(false);
   const authRetry = useAuthRetry();
 
   const stopMining = useCallback(
     ({ onError, onSuccess }: StopMiningProps = {}) => {
-      if (!api) return;
+      if (!adapter) return;
 
       setPending(true);
       authRetry({
-        request: (header) => api.stopMining(header),
+        request: (header) => adapter.stopMining(header),
         onSuccess,
         onError,
       }).finally(() => setPending(false));
     },
-    [api, authRetry],
+    [adapter, authRetry],
   );
 
   return useMemo(() => ({ pending, stopMining }), [pending, stopMining]);

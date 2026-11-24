@@ -357,7 +357,7 @@ func TestSetState_FailsClosedWithoutIdentityOrCommissioning(t *testing.T) {
 }
 
 func TestSetState_FailsClosedWithoutDeploymentAllowlist(t *testing.T) {
-	controller := New()
+	controller := NewConfigured(nil)
 	err := controller.SetState(
 		t.Context(),
 		commissionedDevice(t, nil),

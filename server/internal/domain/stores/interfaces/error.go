@@ -11,12 +11,9 @@ import (
 
 // ErrorStore defines the interface for error-related operations in the store layer.
 type ErrorStore interface {
-	// UpsertError inserts a new error or updates an existing open error with the same dedup key.
-	// If an open error (closed_at IS NULL) exists with matching (org_id, device_id, miner_error,
-	// component_id, component_type), it updates the mutable fields.
-	// If no open error exists (or only closed), it inserts a new error with a new ULID.
-	// Returns the full error record after the operation.
-	UpsertError(ctx context.Context, orgID int64, deviceIdentifier string, errMsg *models.ErrorMessage) (*models.ErrorMessage, error)
+	// UpsertErrors persists one device's reported errors as a batch. Unchanged errors
+	// refresh on a bounded heartbeat.
+	UpsertErrors(ctx context.Context, orgID int64, deviceIdentifier string, errors []models.ErrorMessage, observedAt time.Time, refreshHeartbeat time.Duration) error
 
 	// RefreshOpenErrorsLastSeen updates all open errors for a device after an incomplete poll.
 	// This prevents the stale closer from resolving errors that were omitted from a partial snapshot.
@@ -64,8 +61,9 @@ type ErrorStore interface {
 	// Error Lifecycle Management
 	// ============================================================================
 
-	// CloseStaleErrors closes all open errors where last_seen_at is older than the threshold.
+	// CloseStaleErrors allows for coalesced error observations using refreshHeartbeat.
+	// Error age must exceed threshold plus refreshHeartbeat; device status must be within threshold.
 	// This is a bulk operation that operates globally across all organizations.
 	// Returns the number of errors closed.
-	CloseStaleErrors(ctx context.Context, threshold time.Duration) (int64, error)
+	CloseStaleErrors(ctx context.Context, threshold, refreshHeartbeat time.Duration) (int64, error)
 }

@@ -43,4 +43,4 @@ JOIN release_channel c ON c.id = f.channel_id
 WHERE c.org_id = sqlc.arg('org_id')
   AND c.id = ANY(sqlc.arg('channel_ids')::bigint[])
   AND f.firmware_checksum <> ''
-ORDER BY f.channel_id, f.manufacturer, f.model;
+ORDER BY f.channel_id, f.manufacturer, f.model, f.component;

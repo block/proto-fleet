@@ -71,11 +71,40 @@ func (d DatabaseMessageQueue) enqueueEncoded(ctx context.Context, commandBatchLo
 			return fleeterror.NewInternalErrorf("cannot enqueue messages for command batch in %s status", batchStatus)
 		}
 
+		if err := q.EnsureDeviceWriteFences(ctx, deviceIDs); err != nil {
+			return fleeterror.NewInternalErrorf("ensure device command epochs: %w", err)
+		}
+		fences, err := q.LockDeviceWriteFences(ctx, deviceIDs)
+		if err != nil {
+			return fleeterror.NewInternalErrorf("lock device command epochs: %w", err)
+		}
+		byDevice := make(map[int64]sqlc.DeviceWriteFence, len(fences))
+		for _, fence := range fences {
+			byDevice[fence.DeviceID] = fence
+		}
+		epochs := make([]int64, len(deviceIDs))
+		for i, deviceID := range deviceIDs {
+			fence, exists := byDevice[deviceID]
+			if !exists || (!commandType.IsCurtailmentControl() && fence.State != "host") {
+				return fleeterror.NewFailedPreconditionErrorf("batch rejected: device %d is unavailable or blocked by configuration ownership; no selected commands were enqueued", deviceID)
+			}
+			epochs[i] = fence.Epoch
+		}
+		if commandType.MayAffectPools() && !commandType.IsCurtailmentControl() {
+			changing, err := q.ListActiveMiningGroupDeactivations(ctx, deviceIDs)
+			if err != nil {
+				return err
+			}
+			if len(changing) > 0 {
+				return fleeterror.NewFailedPreconditionError("Mining groups are being disabled. Wait for this change or recovery to finish before submitting device commands.")
+			}
+		}
 		err = q.CreateQueueMessages(ctx, sqlc.CreateQueueMessagesParams{
 			CommandBatchLogUuid: commandBatchLogUUID,
 			CommandType:         commandType.String(),
 			DeviceIds:           deviceIDs,
 			Payloads:            payloads,
+			WriteEpochs:         epochs,
 		})
 		if err != nil {
 			return fleeterror.NewInternalErrorf("failed to enqueue messages: %v", err)
@@ -124,12 +153,14 @@ func (d DatabaseMessageQueue) Dequeue(ctx context.Context, limit int32) ([]Messa
 
 			messages = append(messages, Message{
 				ID:           dbMsg.ID,
+				CreatedAt:    dbMsg.CreatedAt,
 				BatchLogUUID: dbMsg.CommandBatchLogUuid,
 				CommandType:  cmdType,
 				DeviceID:     dbMsg.DeviceID,
 				Payload:      dbMsg.Payload.RawMessage,
 				RetryCount:   dbMsg.RetryCount,
 				OrgID:        dbMsg.OrgID,
+				WriteEpoch:   dbMsg.WriteEpoch,
 			})
 		}
 

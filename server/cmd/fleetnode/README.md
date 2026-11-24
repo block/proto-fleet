@@ -45,30 +45,134 @@ server/.fleetnode/
 
 Network discovery uses the in-process TCP scanner in `internal/domain/netscan`. The scanner connects to the requested ports, closes each connection immediately, and hands open endpoints to the existing miner plugins for identification. IP-list and IP-range discovery send every requested endpoint directly to bounded plugin identification, including virtual miners that have no TCP listeners. No mode needs a scanner executable or raw-socket capability.
 
-TCP connection attempts share a 512-socket process budget, with a three-second timeout each. Plugin identification uses 32 concurrent probes with ten seconds per probe. Target parsing, private DNS selection, and port validation use the same shared helpers as Fleet Server. IPv4 CIDRs omit their actual network and broadcast addresses through /30; /31, /32, and explicit ranges include every address. Eligible IPv6 literals are supported, while IPv6 CIDRs are rejected.
+TCP connection attempts share a 512-socket process budget, with a three-second timeout each. Plugin identification uses 32 concurrent probes with ten seconds per probe. Target parsing, private DNS selection, and port validation use the same shared helpers as Fleet Server. Manual network-scan IPv4 CIDRs omit their actual network and broadcast addresses through /30; /31, /32, configured address intervals, and explicit ranges include every address. Assigned node discovery ranges support private IPv4 only; existing owned IPv6 miner routes are unaffected.
 
-For automatic "local subnet" discovery commands, the server sends the reserved `fleet-node-local-subnet` target and the agent chooses what to scan. By default it detects the host's local private IPv4 subnet. On multi-NIC, NAT, or containerized hosts, set the subnet explicitly:
+## Assigned discovery ranges
 
-```bash
-fleetnode run --local-discovery-subnet=10.90.0.0/24
-FLEETNODE_LOCAL_DISCOVERY_SUBNET=10.90.0.0/24 fleetnode run
+Configure each active node with disjoint private IPv4 ranges in `/etc/fleetnode/config.yaml`:
+
+```yaml
+run:
+  discovery-ranges:
+    - 10.40.0.1-10.40.15.254
+    - 10.41.0.0/24
 ```
 
-The configured subnet is validated the same way as an auto-detected local subnet: it must be a private IPv4 CIDR, /20 or narrower. Each command accepts at most 4,096 target addresses and ten raw port entries. A /20 enumerates 4,094 usable addresses; an explicit 4,096-address range includes every address. Fleet Server keeps its broader address policy and can scan the aggregate of its known subnets without a Fleet Node command cap.
+The `--discovery-ranges` flag accepts the same values. When `discovery-ranges` is
+absent, the existing `--local-discovery-subnet` override configures a single range.
+An explicit empty YAML list disables discovery.
+Restart the node after editing its configuration. Invalid ranges fail local
+validation. Missing ranges disable discovery and pairing while existing
+miner telemetry and commands continue.
 
-The public discovery API names this mode `network_scan` (`NetworkScanModeRequest`). Nodes retain the ten-minute command budget, so a /20 with responsive ports and slow plugin identification can finish partially. Identified devices remain available, and incomplete discovery produces a source-specific warning. Update Fleet Server, Fleet Nodes, and clients together for this API change; the existing command-version and capability checks continue to support maintenance.
+Fleet Server reads each node's effective ranges from its live control connection.
+It does not store an authoritative configuration in the database. Node management
+shows the reported ranges while connected and marks them unavailable when
+disconnected.
+Operators prevent overlap between active nodes, including nodes on separate
+networks. Separate networks reusing the same private addresses are not supported
+by this partitioning workflow.
 
-A full command can report up to 40,960 endpoints in forty 1,024-report uploads. Those batches and the terminal ACK fit the existing 64-event command queue without requiring the consumer to drain during upload. The complete upload has a 90-second budget, leaving 30 seconds for dispatch and ACK delivery within the server’s 12-minute wait after a ten-minute scan. This capacity does not guarantee completion within the command deadline.
+The regular Add Miners flow sends one existing discovery command to each active
+node, without requiring a Fleet Server miner subnet. Nodes run in parallel.
+Automatic discovery scans the node's configured ranges. For manual discovery,
+each node skips targets outside its ranges before scanning or probing them.
+The server does not expand or split scan targets. Existing command limits apply:
+at most 4,096 target addresses and ten ports per address. An automatic scan whose
+configured ranges exceed that address limit is rejected; configure smaller
+partitions. IP lists and ranges retain direct plugin identification, while
+network scans retain TCP probing. Source warnings identify incomplete discovery;
+completed results remain available.
+
+Each discovery request has a 12-minute overall deadline and admits at most
+262,144 accepted node reports across all participating nodes. Add Miners
+keeps at most 65,536 distinct devices in its result list. Reaching a limit retains
+completed results and shows an incomplete-discovery warning. Narrow the targets
+and run discovery again to continue; discovery does not resume automatically.
+
+Pairing requires every address in a grouped endpoint to be within the discovering
+node's current ranges. Pairing runs across nodes in parallel, in sequential
+batches of at most 128 miners per node.
+
+Configure partitions before discovering and pairing miners. Changing ranges does
+not migrate existing records.
+
+If interrupted, reopen Add Miners and continue the remaining work. Accepted
+batches finish server-side. Inspect unknown results before retrying. There is no
+durable background operation or automatic restart recovery.
+
+### Standby configuration
+
+Configure the same discovery ranges separately on the active and standby nodes.
+Restart each node after changing its configuration, and update both peers when
+ranges change. Fleet does not copy or synchronize ranges.
+
+Node management warns when both connected peers report different effective ranges.
+The warning does not block credential-key setup or HA failover. Only the active
+peer scans. After promotion, a standby without configured ranges can still operate
+existing miners, but cannot discover or pair new miners until configured.
+
+Deploy Fleet Server support first, then upgrade and configure nodes before new
+discovery or pairing. Node-local discovery ranges support IPv4. Existing owned-miner
+operations and separate direct-server discovery keep their existing routing
+behavior.
+
+### Scale qualification
+
+Run the opt-in gateway/Postgres integration with an isolated local test database:
+
+```bash
+cd server
+DB_PASSWORD=fleet FLEETNODE_SCALE_TEST=1 go test ./internal/handlers/fleetnode/gateway \
+  -run '^TestFleetNodeScaleDiscoveryAndPairing$' -count=1 -v -timeout 5m
+```
+
+The test discovers and pairs 50,000 simulated miners across 13 nodes using the
+production gateway's persistence code. It verifies unique ownership and reports
+discovery/pairing time. It does not qualify physical drivers, node hardware,
+sustained telemetry cadence, or deployment-specific database sizing. Qualify those
+with representative hardware and steady telemetry/control load before claiming
+production capacity.
+
+Discovery results use the existing upload batches of at most 1,024 devices and
+the existing command timeout. A large scan may return partial results; inspect
+the warning and narrow manual targets before retrying.
 
 ## Control stream
 
 `run` opens a bidirectional `ControlStream` over the gateway:
 
 1. Agent dials gateway, sends `ControlHello`.
-2. Server replies `ControlAccepted`; stream stays open.
+2. Server replies `ControlAccepted`; stream stays open. For nodes that speak command protocol V7 or later, `ControlAccepted.keepalive_interval` is set (five seconds): the node sends `ControlPing` at that interval, and either side closes the stream after three intervals without receiving anything, so a half-open connection reconnects within seconds.
 3. Server pushes `ControlCommand{command_id, payload}`. Payload is a serialized `AgentCommand` envelope containing discovery, pairing, telemetry, or a per-miner command.
 4. Agent executes the command locally and sends any command-specific reports or acknowledgement payload. For discovery, it scans the requested TCP endpoints and identifies open ports using plugins, then sends results via `ReportDiscoveredDevices` in batches of 1,024 under one 90-second upload budget. Each batch carries `command_id`; identified results survive a late scan failure or deadline. Fleet Nodes do not support mDNS discovery.
 5. Agent sends `ControlAck{command_id, succeeded}` on completion.
+
+Command protocol V8 adds embedded ProtoOS views for paired Proto rigs. Fleet keeps
+session authentication, permissions, same-origin write checks, and device-write
+admission at the existing miner proxy. It sends the assigned node a restricted
+HTTP request with an absolute deadline and encrypted miner credentials. The node
+checks the paired identity, decrypts credentials locally, and returns HTTP status,
+allowlisted headers, and body chunks on the control stream. Pool and password
+mutations remain on their existing Fleet workflows.
+
+Embedded requests accept up to 512 KiB of body data. Responses use 64 KiB chunks,
+with a 64 MiB total limit. Fleet reserves capacity for four buffered responses
+across all nodes, retaining each reservation through browser response closure;
+the node separately allows four web requests at a time. Requests waiting for
+capacity share the request deadline. Browser cancellation discards buffered bytes
+but retains capacity until the node acknowledges completion or the original
+execution deadline expires (at most 30 seconds). Stream loss also retains that
+reservation until the deadline. A BUSY rejection before any response frames is
+not dispatched and does not quarantine the device's write fence. A response
+requires its end frame and a successful terminal acknowledgement before Fleet
+delivers it. A disconnect,
+timeout, or incomplete response after enqueue leaves a mutation's delivery
+uncertain, with no automatic replay. Nodes use the handshake server time and a
+local monotonic deadline to reject expired work despite clock differences.
+
+Only a live V8 connection advertises an embedded view. Upgrade both Fleet and its
+Fleet Nodes to use this path; older nodes retain their existing Fleet controls.
 
 Discovery and pairing share one exclusive process-wide slot. All other commands share 512 process-wide slots. Fleet and Fleet Node use the same fixed admission policy:
 
@@ -95,12 +199,53 @@ just build-fleetnode               # produces server/.fleetnode/{fleetnode, plug
 go build -o fleetnode ./server/cmd/fleetnode   # fast iteration
 ```
 
+Release builds embed the release tag and publishing repository with `-ldflags`. `fleetnode --version` and `fleetnode --print-release-repository` print them, and the daemon logs both in its `daemon started` line. Source builds report `dev` and `block/proto-fleet`.
+
 ## Run
 
 ```bash
 fleetnode enroll --server-url=https://fleet.example.com
-fleetnode run     # long-running daemon; logs to stdout
+fleetnode run     # long-running daemon; logs to stdout, or the journal under systemd
 ```
+
+### Command tracing
+
+Fleet Node command tracing is disabled by default. To export command spans,
+point Fleet Node at an OTLP HTTP receiver running on the node, such as a local
+OpenTelemetry Collector or a Datadog Agent with OTLP ingest enabled:
+
+```bash
+FLEETNODE_TRACING_ENABLED=true \
+FLEETNODE_TRACING_ENDPOINT=http://127.0.0.1:4318 \
+FLEETNODE_TRACING_SAMPLE_RATE=1.0 \
+fleetnode run
+```
+
+The exported service name is `fleetnode`. Server-issued commands continue the
+`fleetd` dispatch trace when both processes have tracing enabled; missing or
+invalid incoming trace context starts a new Fleet Node trace. The Fleet Node
+installer loads these variables from `/etc/fleetnode/fleetnode.env` when set.
+
+### Logs
+
+The daemon logs at `info` and above; lower it with `--log-level` /
+`FLEETNODE_LOG_LEVEL` (`debug`, `info`, `warn`, `error`). `--log-output` /
+`FLEETNODE_LOG_OUTPUT` picks the sink:
+
+| Value | Behavior |
+|-------|----------|
+| `auto` (default) | `journal` when systemd connected stdout to the journal (`JOURNAL_STREAM`), otherwise `stdout`. |
+| `stdout` | logfmt text lines with `time=` and `level=`, as in a terminal or the dev containers. |
+| `journal` | Native journald entries over `/run/systemd/journal/socket`; falls back to `stdout` with a warning if the socket is unavailable. |
+
+Journal entries carry the level as `PRIORITY` (so `journalctl -p warning -u
+fleet-node.service` and journal-tailing shippers such as the Datadog Agent see
+the real severity instead of the stdout default of `info`), each attribute as
+an uppercase field (`fleet_node_id` → `FLEET_NODE_ID`, groups joined with `_`;
+see `journalctl -o verbose`), and the message with its logfmt attributes in
+`MESSAGE`, so `journalctl -u fleet-node.service` reads as before. The handler
+lives in [`internal/infrastructure/logging`](../../internal/infrastructure/logging/journal.go)
+so the other systemd-run binaries can adopt it.
 
 Stop with `SIGINT`, `SIGTERM`, or `SIGHUP` (terminal close). On shutdown the agent closes the control stream, drains in-flight probes, and reaps plugin subprocesses. At startup it also reaps any orphan plugin processes left under `<exe-dir>/plugins/` by a previous crash — see [orphan_reaper.go](orphan_reaper.go).
 
@@ -113,6 +258,16 @@ Stop with `SIGINT`, `SIGTERM`, or `SIGHUP` (terminal close). On shutdown the age
 5. `fleetnode run` keeps the session refreshed and the control stream open.
 
 If anything is interrupted between Register and Complete, `fleetnode refresh` resumes from the persisted state.
+
+## High availability
+
+A node can have one standby. In **Settings → Nodes → Set up a node**, select **Enroll as a standby**, choose a confirmed node that is not already in a pair, and complete normal enrollment on a second machine that can reach Fleet and the same miners. Each node keeps its own identity and API key.
+
+You can enroll a standby before upgrading the nodes; the pair stays **Preparing** until both support HA (V7). Once both nodes are connected and run an HA-capable version, Fleet asks the active node to seal its miner-credential key to the standby's enrollment encryption key, relays the sealed key, and has the standby install it in `state.yaml`. Fleet persists the sealed payload before dispatch and retries that same payload after a timeout or server restart, even if the active node is no longer available. Fleet relays only the sealed key and compares key fingerprints from both nodes before marking it **Standby**. The active node seals the key to whichever recipient Fleet names, so pairing trusts the Fleet server with the credential key: a compromised Fleet server could request it. A standby does not discover or pair miners.
+
+When the active node's control stream has been down, and a ready standby connected, for 30 seconds, Fleet moves the active node's device assignments and discovery attribution to the standby and swaps the roles. Fleet waits 90 seconds after it starts, or becomes the active Fleet instance, so nodes can reconnect first. There is no automatic failback: the old active node returns as the ready standby. Commands in flight on the failed node are not replayed, so check device state before repeating an uncertain write. Password updates and curtailment configs are encrypted to a device's node when they are queued, so any still queued at failover fail on the new node and must be run again. Plugin-local state is not copied between nodes.
+
+Revoking either node dissolves the pair once any pending credential-key installation is reconciled. Access is revoked immediately. If installation on a surviving standby is still unresolved, that node remains reserved and cannot discover, pair miners, or receive another standby; reconnect it and retry revocation after installation finishes. Revoking the standby itself can dissolve the pair immediately because that revoked identity cannot pair miners. Revoking an active node with a ready standby denies the node access, then moves its devices to the standby. If the standby is disconnected before or during hand-off, the pair, device assignments, and stored credentials remain intact across retries; reconnect the standby and retry revocation. An active node whose standby is not ready and has no pending installation is unpaired as usual. Revocation cannot erase the credential key from a machine: for a compromised node, revoke both nodes and rotate the affected miner credentials. Deploy the Fleet server before upgrading nodes. Before rolling back the HA migration, remove all HA pairs and cancel unexpired standby enrollments; the down migration refuses to discard that state. Rollback does not reverse completed device ownership moves or erase keys already installed on nodes.
 
 ## Security model
 

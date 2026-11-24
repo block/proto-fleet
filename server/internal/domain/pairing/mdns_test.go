@@ -18,7 +18,7 @@ func TestMDNSProcessingFailureWarnsAndRetainsHealthyDevices(t *testing.T) {
 		return testIdentifiedDevice(), nil
 	})
 	store := storemocks.NewMockDiscoveredDeviceStore(gomock.NewController(t))
-	store.EXPECT().Save(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+	store.EXPECT().SaveDirect(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ discoverymodels.DeviceOrgIdentifier, d *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error) {
 			if d.IpAddress == "192.168.1.1" {
 				return nil, errors.New("private schema detail: SQLSTATE 23505")
@@ -60,7 +60,7 @@ func TestMDNSProcessingWarningHonorsCancellation(t *testing.T) {
 			return testIdentifiedDevice(), nil
 		})
 		store := storemocks.NewMockDiscoveredDeviceStore(gomock.NewController(t))
-		store.EXPECT().Save(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, errors.New("save failed"))
+		store.EXPECT().SaveDirect(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, errors.New("save failed"))
 		s.discoveredDeviceStore = store
 		ctx, cancel := context.WithCancel(mockSessionContext(t.Context(), 1, 1))
 		defer cancel()

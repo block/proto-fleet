@@ -57,6 +57,7 @@ func TestReconcile_FreshInstall_AdminExcludesRoleManagement(t *testing.T) {
 	got := orgRolePermissionKeys(t, db, orgID, "ADMIN")
 	require.NotContains(t, got, authz.PermRoleManage, "ADMIN must not seed with role:manage")
 	require.NotContains(t, got, authz.PermInstanceUpdate, "ADMIN must not seed with instance:update; instance administration is reserved for SUPER_ADMIN")
+	require.NotContains(t, got, authz.PermControllerSoftwareUpdate, "ADMIN must not seed with controller:software_update; it stops mining controllers")
 	require.Contains(t, got, authz.PermUserRead, "ADMIN holds user:read so org admins can view the team roster")
 	require.Contains(t, got, authz.PermUserManage, "ADMIN holds user:manage; hierarchy check blocks elevated targets at the domain layer")
 	require.Contains(t, got, authz.PermMinerReboot, "ADMIN should still hold miner action permissions")

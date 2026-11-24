@@ -1,10 +1,11 @@
 import { useCallback } from "react";
 
+import { RefreshRequest } from "@/protoOS/api/adapters/mdkV1";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
-import { RefreshRequest } from "@/protoOS/api/generatedApi";
 
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useMinerStore, useSetAuthTokens } from "@/protoOS/store";
+import { authTokensFromSlice } from "@/protoOS/store/slices/authSlice";
 
 import { accessTokenExpiryTime } from "@/shared/utils/utility";
 
@@ -15,17 +16,16 @@ interface RefreshProps {
 }
 
 const useRefresh = () => {
-  const { api } = useMinerHosting();
+  const { adapter } = useMinerHosting();
   const setAuthTokens = useSetAuthTokens();
 
   const refresh = useCallback(
     async ({ refreshToken, onSuccess, onError }: RefreshProps) => {
-      if (!api) return;
-      await api
-        .refreshToken({ refresh_token: refreshToken }, { secure: false })
-        .then((res: any) => {
-          const accessTokenValue = res?.data["access_token"];
-          const authTokens = useMinerStore.getState().auth.authTokens;
+      if (!adapter) return;
+      await adapter
+        .refreshAccessToken(refreshToken)
+        .then(({ accessToken: accessTokenValue }) => {
+          const authTokens = authTokensFromSlice(useMinerStore.getState().auth);
           // Drop stale responses: if the store's refresh token changed while
           // this request was in flight (logout, password rotation, login as a
           // different user), writing A's access token on top of B's refresh
@@ -56,7 +56,7 @@ const useRefresh = () => {
           onError?.(err);
         });
     },
-    [setAuthTokens, api],
+    [setAuthTokens, adapter],
   );
 
   return refresh;

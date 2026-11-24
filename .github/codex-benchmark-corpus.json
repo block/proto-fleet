@@ -1,5 +1,72 @@
 {
+  "repository": "block/proto-fleet",
   "cases": [
+    {
+      "id": "pr-1076",
+      "corpus": "validation",
+      "pr": 1076,
+      "base": "1b6a93b830d29fe2adcd44d1aef7b8a839fb6d7e",
+      "head": "985b1bc06ae6a0970e6cb86bf169e6c51075963f",
+      "expected": "One MEDIUM finding",
+      "purpose": "Firmware history and operator selection boundary",
+      "source-run": "",
+      "source-comment": ""
+    },
+    {
+      "id": "pr-1077",
+      "corpus": "validation",
+      "pr": 1077,
+      "base": "a1c7fd71a45ec9d8f017f1614f20fe5d377d055a",
+      "head": "f150a6fef3d0833fe113db6989071a5045e03f3c",
+      "expected": "One MEDIUM finding",
+      "purpose": "Delegated rollout REST mutation boundary",
+      "source-run": "",
+      "source-comment": ""
+    },
+    {
+      "id": "pr-1080",
+      "corpus": "validation",
+      "pr": 1080,
+      "base": "d6d3e97b24c27e4fe9cee942992dabb851973a13",
+      "head": "9721566c08519ebe48b88d11905826139839d019",
+      "expected": "One MEDIUM finding",
+      "purpose": "Staged HA update lifecycle admission",
+      "source-run": "",
+      "source-comment": "https://github.com/block/proto-fleet/pull/1080#discussion_r4160781465"
+    },
+    {
+      "id": "pr-1090",
+      "corpus": "validation",
+      "pr": 1090,
+      "base": "2df8683700866d53c635374a330951d7a7c343dd",
+      "head": "b70f21e89887252ac566e4463395ed4058c99196",
+      "expected": "Two HIGH findings",
+      "purpose": "Migration checkpoint recovery and public upgrade admission",
+      "source-run": "",
+      "source-comment": "https://github.com/block/proto-fleet/pull/1090#discussion_r4198025330"
+    },
+    {
+      "id": "pr-1095",
+      "corpus": "validation",
+      "pr": 1095,
+      "base": "473e33e96af5abbf0980719a40b81be4b752c1ed",
+      "head": "6ac6f3129e66507d8b7b1e857fdcf9bc7778ff10",
+      "expected": "NONE",
+      "purpose": "Dependency and toolchain clean control",
+      "source-run": "https://github.com/block/proto-fleet/actions/runs/37591377044",
+      "source-comment": "https://github.com/block/proto-fleet/pull/1095#issuecomment-6033732987"
+    },
+    {
+      "id": "pr-1102",
+      "corpus": "validation",
+      "pr": 1102,
+      "base": "15c16f4ef79def2767082e5dda09c5ce0fc6e44b",
+      "head": "dfb5f1dfbfcc1a0fd8a1ba60705fe97ca9c542fe",
+      "expected": "NONE",
+      "purpose": "Client display preference clean control",
+      "source-run": "https://github.com/block/proto-fleet/actions/runs/38477086240",
+      "source-comment": "https://github.com/block/proto-fleet/pull/1102#issuecomment-6155719650"
+    },
     {
       "id": "pr-944",
       "corpus": "adjudicated",
@@ -17,8 +84,8 @@
       "pr": 948,
       "base": "0227f3e2e23c736af8738dbd620ec3457ad92ef9",
       "head": "362381378a4d888077c813caf068977652c88c25",
-      "expected": "One MEDIUM finding",
-      "purpose": "Large client/domain cross-boundary finding",
+      "expected": "Two HIGH and two MEDIUM findings",
+      "purpose": "Client topology scope and persistence boundaries",
       "source-run": "https://github.com/block/proto-fleet/actions/runs/32376653048",
       "source-comment": "https://github.com/block/proto-fleet/pull/948#issuecomment-5356572949"
     },
@@ -28,7 +95,7 @@
       "pr": 953,
       "base": "333bad9ec56524262fae19979ef6241762b9428e",
       "head": "586901c2c4b2ca21057202bac398718204ea6435",
-      "expected": "One HIGH and one MEDIUM finding",
+      "expected": "One HIGH and two MEDIUM findings",
       "purpose": "Migration and lock-order recall",
       "source-run": "https://github.com/block/proto-fleet/actions/runs/32416657072",
       "source-comment": "https://github.com/block/proto-fleet/pull/953#issuecomment-5359420763"
@@ -61,7 +128,7 @@
       "pr": 961,
       "base": "2215589b1cc1318b5093543e6a6f1d6abcd8a749",
       "head": "0e27f8631c98a934dc1a9c0ddb537d367dc273ba",
-      "expected": "One HIGH and one MEDIUM finding",
+      "expected": "One HIGH finding",
       "purpose": "Small diff where unchanged deployment context matters",
       "source-run": "https://github.com/block/proto-fleet/actions/runs/32523475722",
       "source-comment": "https://github.com/block/proto-fleet/pull/961#issuecomment-5375074092"
@@ -87,23 +154,6 @@
       "purpose": "Historical production timeout",
       "source-run": "https://github.com/block/proto-fleet/actions/runs/32757955649",
       "source-comment": ""
-    }
-  ],
-  "variants": [
-    {
-      "id": "unified-40",
-      "unified": 40,
-      "inter-hunk": 0
-    },
-    {
-      "id": "unified-10",
-      "unified": 10,
-      "inter-hunk": 0
-    },
-    {
-      "id": "compact",
-      "unified": 3,
-      "inter-hunk": 10
     }
   ]
 }

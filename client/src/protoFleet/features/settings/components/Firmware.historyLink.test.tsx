@@ -23,7 +23,8 @@ const { getRollout, useChannels, listFirmwareFiles } = vi.hoisted(() => ({
 }));
 vi.mock("@/protoFleet/api/clients", () => ({ rolloutClient: { getRollout } }));
 vi.mock("@/protoFleet/api/useReleaseChannels", () => ({ useReleaseChannels: useChannels }));
-vi.mock("@/protoFleet/api/useFirmwareApi", () => ({
+vi.mock("@/protoFleet/api/useFirmwareApi", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/protoFleet/api/useFirmwareApi")>()),
   useFirmwareApi: () => ({ listFirmwareFiles }),
 }));
 vi.mock("./ReleaseChannels/ReleaseChannelsTab", () => ({

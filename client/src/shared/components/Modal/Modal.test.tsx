@@ -12,6 +12,61 @@ vi.mock("motion/react", () => ({
 }));
 
 describe("Modal", () => {
+  it("can focus the dialog without focusing the close button", () => {
+    const rects = vi
+      .spyOn(HTMLElement.prototype, "getClientRects")
+      .mockReturnValue(Object.assign([new DOMRect()], { item: () => null }));
+    try {
+      render(
+        <Modal open manageFocus initialFocus="dialog" dialogLabel="Edit pool" title="Edit pool">
+          <input aria-label="Configuration" />
+        </Modal>,
+      );
+      const dialog = screen.getByRole("dialog", { name: "Edit pool" });
+      const close = screen.getByRole("button", { name: "Close dialog" });
+      expect(dialog).toHaveFocus();
+      expect(close).not.toHaveFocus();
+      fireEvent.keyDown(dialog, { key: "Tab" });
+      expect(close).toHaveFocus();
+      fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
+      expect(screen.getByLabelText("Configuration")).toHaveFocus();
+    } finally {
+      rects.mockRestore();
+    }
+  });
+  it("includes editable fields in the optional focus trap", () => {
+    const rects = vi
+      .spyOn(HTMLElement.prototype, "getClientRects")
+      .mockReturnValue(Object.assign([new DOMRect()], { item: () => null }));
+    try {
+      const { unmount } = render(
+        <Modal
+          open
+          manageFocus
+          title="Settings"
+          dialogLabel="Settings"
+          buttons={[{ text: "Apply", variant: "primary" }]}
+        >
+          <input aria-label="Setpoint" />
+        </Modal>,
+      );
+      const close = screen.getByRole("button", { name: "Close dialog" });
+      const apply = screen.getByRole("button", { name: "Apply" });
+      expect(close).toHaveFocus();
+      apply.focus();
+      expect(fireEvent.keyDown(apply, { key: "Tab" })).toBe(true);
+      const input = screen.getByLabelText("Setpoint");
+      input.focus();
+      fireEvent.keyDown(input, { key: "Tab" });
+      expect(close).toHaveFocus();
+      fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
+      expect(input).toHaveFocus();
+      unmount();
+    } finally {
+      rects.mockRestore();
+    }
+  });
+
   it("keeps the title expanded at the top and collapsed consistently while scrolling", () => {
     render(
       <Modal title="Channel settings">

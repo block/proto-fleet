@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { ReactNode, useCallback, useState } from "react";
+import { ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
 import { sizes } from "./constants";
@@ -44,12 +44,19 @@ interface ModalProps {
   open?: boolean;
   showHeader?: boolean;
   title?: string;
+  dialogLabel?: string;
   description?: string;
   divider?: boolean;
   size?: keyof typeof sizes;
   zIndex?: string;
   testId?: string;
   forceTitleCollapsed?: boolean;
+  manageFocus?: boolean;
+  /** Keep a covered dialog mounted without exposing its controls. */
+  inert?: boolean;
+  initialFocus?: "firstControl" | "dialog";
+  /** Preserve scroll separately for each step of an in-modal navigation flow. */
+  navigationKey?: string;
   fixedFooter?: ReactNode;
 }
 
@@ -70,6 +77,7 @@ const Modal = ({
   open,
   showHeader = true,
   title,
+  dialogLabel,
   description,
   divider = true,
   size = sizes.standard,
@@ -77,9 +85,24 @@ const Modal = ({
   iconAriaLabel = "Close dialog",
   testId = "modal",
   forceTitleCollapsed = false,
+  manageFocus = false,
+  inert = false,
+  initialFocus = "firstControl",
+  navigationKey,
   fixedFooter,
 }: ModalProps) => {
   const [isTitleCollapsed, setIsTitleCollapsed] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollPositions = useRef(new Map<string, number>());
+  const previousNavigationKey = useRef(navigationKey);
+  useLayoutEffect(() => {
+    if (navigationKey === undefined || !scrollRef.current) return;
+    scrollRef.current.scrollTop = scrollPositions.current.get(navigationKey) ?? 0;
+    setIsTitleCollapsed(scrollRef.current.scrollTop > 0);
+    if (manageFocus && previousNavigationKey.current !== navigationKey)
+      scrollRef.current.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
+    previousNavigationKey.current = navigationKey;
+  }, [navigationKey, manageFocus]);
   const isFullscreen = size === sizes.fullscreen;
   const showTitleInHeader = isFullscreen || isTitleCollapsed || forceTitleCollapsed;
   const slideUpAnimation = useSlideUpAnimation();
@@ -90,8 +113,46 @@ const Modal = ({
   // collapse/expand feedback loop. Only the scroll position controls the title.
   // Sync on attachment too: PageOverlay remounts this element when reopened.
   const syncTitleOnMount = useCallback((element: HTMLDivElement | null) => {
+    scrollRef.current = element;
     if (element) setIsTitleCollapsed(element.scrollTop > 0);
   }, []);
+
+  useEffect(() => {
+    if (!manageFocus || open === false) return;
+    const dialog = scrollRef.current?.closest<HTMLElement>('[role="dialog"]');
+    if (!dialog) return;
+    const previous = document.activeElement;
+    const focusableElements = () =>
+      [...dialog.querySelectorAll<HTMLElement>("button, input, select, textarea, a[href], [tabindex]")].filter(
+        (element) => !element.matches(':disabled, [tabindex="-1"]') && element.getClientRects().length > 0,
+      );
+    (initialFocus === "dialog" ? dialog : focusableElements()[0])?.focus({ preventScroll: true });
+    const trapFocus = (event: KeyboardEvent) => {
+      if (event.key !== "Tab" || [...document.querySelectorAll('[role="dialog"]')].slice(-1)[0] !== dialog) return;
+      const targets = focusableElements();
+      const index = targets.findIndex((element) => element === document.activeElement);
+      if (
+        targets.length &&
+        (index < 0 || (event.shiftKey && index === 0) || (!event.shiftKey && index === targets.length - 1))
+      ) {
+        event.preventDefault();
+        targets[event.shiftKey ? targets.length - 1 : 0].focus();
+      }
+    };
+    document.addEventListener("keydown", trapFocus);
+    return () => {
+      document.removeEventListener("keydown", trapFocus);
+      // A replacement dialog may already have focused its first input. Preserve
+      // that focus when handing off instead of returning to the original opener.
+      if (
+        previous instanceof HTMLElement &&
+        previous.isConnected &&
+        (document.activeElement === document.body || dialog.contains(document.activeElement))
+      ) {
+        previous.focus({ preventScroll: true });
+      }
+    };
+  }, [manageFocus, open, initialFocus]);
 
   const dismissModal = useCallback(() => {
     onDismiss?.();
@@ -125,8 +186,15 @@ const Modal = ({
   return (
     <PageOverlay open={open} position="top" {...(zIndex && { zIndex })}>
       <div
+        inert={inert}
+        aria-hidden={inert || undefined}
+        role={dialogLabel ? "dialog" : undefined}
+        aria-modal={dialogLabel ? true : undefined}
+        tabIndex={manageFocus ? -1 : undefined}
+        aria-label={dialogLabel}
         className={clsx(
           "h-fit overflow-hidden rounded-3xl bg-surface-elevated-base shadow-300",
+          manageFocus && "outline-none",
           sizeClasses[size],
           {
             "flex flex-col": fixedFooter,
@@ -155,7 +223,11 @@ const Modal = ({
             className,
           )}
           ref={syncTitleOnMount}
-          onScroll={(event) => setIsTitleCollapsed(event.currentTarget.scrollTop > 0)}
+          onScroll={(event) => {
+            const scrollTop = event.currentTarget.scrollTop;
+            if (navigationKey !== undefined) scrollPositions.current.set(navigationKey, scrollTop);
+            setIsTitleCollapsed(scrollTop > 0);
+          }}
           data-testid={testId}
         >
           {showHeader ? (

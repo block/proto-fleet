@@ -24,7 +24,7 @@ export type CurtailmentTerminalScope =
   | { type: "deviceIdentifiers"; deviceIdentifiers: string[] };
 
 export type CurtailmentScopeSelection = {
-  scopeType?: CurtailmentTerminalScopeType | "deviceSet";
+  scopeType?: CurtailmentTerminalScopeType;
   minerSelectionMode?: "all" | "subset";
   siteSelection?: "none" | "site" | "allSites";
   siteId?: string;
@@ -99,20 +99,17 @@ export function getCurtailmentTerminalScope(
       const deviceIdentifiers = normalizeCurtailmentSelectionValues(selection.deviceIdentifiers ?? []);
       return deviceIdentifiers.length > 0 ? { type: "deviceIdentifiers", deviceIdentifiers } : undefined;
     }
-    case "deviceSet":
     case undefined:
       return undefined;
   }
 }
 
-export function isCurtailmentTopologyScopeType(
-  scopeType: CurtailmentTerminalScopeType | CurtailmentTerminalScope["type"] | undefined,
-): boolean {
-  return scopeType === "building" || scopeType === "rack" || scopeType === "group";
+export function getCurtailmentScopeCountLabel(count: number, singular: string): string {
+  return count === 1 ? singular : `${singular}s`;
 }
 
-function formatScopeCount(count: number, singular: string): string {
-  return `${count} ${count === 1 ? singular : `${singular}s`}`;
+export function formatScopeCount(count: number, singular: string): string {
+  return `${count} ${getCurtailmentScopeCountLabel(count, singular)}`;
 }
 
 export function getCurtailmentScopeSummary(
@@ -351,3 +348,13 @@ export function parseCurtailmentTerminalScopes(scopes: readonly CurtailmentScope
   }
   return { type: "deviceIdentifiers", deviceIdentifiers: [...deviceIdentifiers] };
 }
+
+export const getValidSiteScopeId = (siteId?: string): string | undefined => {
+  const normalizedSiteId = siteId?.trim();
+  if (!normalizedSiteId) {
+    return undefined;
+  }
+
+  const parsedSiteId = parseCurtailmentTargetId(normalizedSiteId);
+  return parsedSiteId?.toString() === normalizedSiteId ? normalizedSiteId : undefined;
+};

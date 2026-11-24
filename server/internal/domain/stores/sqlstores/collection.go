@@ -629,6 +629,18 @@ func (s *SQLCollectionStore) AddDevicesToCollection(ctx context.Context, orgID i
 // AddDevicesToCollection; the activity layer uses this to scope the event to
 // the devices that actually changed (#538).
 func (s *SQLCollectionStore) AddDevicesToCollectionReturningAdded(ctx context.Context, orgID int64, collectionID int64, deviceIdentifiers []string) ([]string, error) {
+	kind, err := s.GetCollectionType(ctx, orgID, collectionID)
+	if fleeterror.IsNotFoundError(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if kind == pb.CollectionType_COLLECTION_TYPE_RACK {
+		if err := rejectContainerPlacement(ctx, s.GetQueries(ctx), orgID, deviceIdentifiers); err != nil {
+			return nil, err
+		}
+	}
 	added, err := s.GetQueries(ctx).AddDevicesToDeviceSet(ctx, sqlc.AddDevicesToDeviceSetParams{
 		OrgID:             orgID,
 		DeviceSetID:       collectionID,
@@ -1018,7 +1030,7 @@ slot_devices AS (
     LEFT JOIN device_status ON d.id = device_status.device_id
     LEFT JOIN fleet_node_device fleet_node_assignment ON fleet_node_assignment.device_id = d.id
         AND fleet_node_assignment.org_id = d.org_id
-    LEFT JOIN fleet_node assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
+    LEFT JOIN fleet_node_live assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
         AND assigned_fleet_node.org_id = fleet_node_assignment.org_id
     LEFT JOIN (
         SELECT DISTINCT device_id

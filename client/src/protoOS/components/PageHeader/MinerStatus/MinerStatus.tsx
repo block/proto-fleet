@@ -1,7 +1,7 @@
 import { useState } from "react";
-import MinerStatusWidget from "./MinerStatusWidget";
 import { ProtoOSStatusModal } from "@/protoOS/components/StatusModal";
 import { useMinerStatusCircle, useMinerStatusSummary } from "@/protoOS/hooks/status";
+import StatusPill from "@/shared/components/StatusPill";
 
 const MinerStatus = () => {
   // Get widget display data
@@ -13,7 +13,7 @@ const MinerStatus = () => {
 
   return (
     <div className="relative">
-      <MinerStatusWidget onClick={() => setModalOpen(true)} summary={summary} circle={circle} />
+      <StatusPill onClick={() => setModalOpen(true)} summary={summary} circle={circle} />
 
       {/* ProtoOS StatusModal handles both WakingDialog and StatusModal internally */}
 

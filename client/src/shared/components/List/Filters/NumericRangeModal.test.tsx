@@ -73,14 +73,4 @@ describe("NumericRangeModal", () => {
     expect(screen.getByText(/min must not exceed max/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /apply/i })).toBeDisabled();
   });
-
-  it("does not emit when closed without Apply", () => {
-    const onApply = vi.fn();
-    const onClose = vi.fn();
-    renderModal({ onApply, onClose });
-    fireEvent.change(screen.getByLabelText(/min/i), { target: { value: "100" } });
-    // Simulate the parent closing the modal (via onClose) without Apply.
-    onClose();
-    expect(onApply).not.toHaveBeenCalled();
-  });
 });

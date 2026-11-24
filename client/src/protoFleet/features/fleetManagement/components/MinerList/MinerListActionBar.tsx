@@ -1,20 +1,29 @@
-import { useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
+import { useRef } from "react";
+
+import { type MiningSelectionKey, selectedMinerIdentifiers } from "./miningSelection";
 import type { SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
+import type { InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import type {
   MinerListFilter,
   MinerStateSnapshot,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import ActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar";
+import MiningActionsMenu from "@/protoFleet/features/containers/MiningActionsMenu";
+import FleetListActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar/FleetListActionBar";
+import useActionBarLifecycle from "@/protoFleet/features/fleetManagement/components/ActionBar/useActionBarLifecycle";
 import MinerActionsMenu from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu";
-import { useSetActionBarVisible } from "@/protoFleet/store";
-import Button, { sizes, variants } from "@/shared/components/Button";
+import { FleetAccountAssignment } from "@/protoFleet/features/hostedAccounts/components/FleetAccountAssignment";
+import type { AssetReference } from "@/protoFleet/features/hostedAccounts/useFleetAccountInventory";
+import { ActionBarSelectionControls } from "@/shared/components/ActionBar";
 import { type SelectionMode } from "@/shared/components/List";
 
 interface MinerListActionBarProps {
-  selectedMiners: string[];
+  selectedKeys: MiningSelectionKey[];
+  modules?: InventoryItem[];
+  assetReferences?: AssetReference[];
+  onAssigned?: () => void;
   onClearSelection?: () => void;
   onSelectAll?: () => void;
+  selectAllOnPage?: boolean;
   onSelectNone?: () => void;
   selectionMode: SelectionMode;
   totalCount?: number;
@@ -30,104 +39,110 @@ interface MinerListActionBarProps {
 }
 
 const MinerListActionBar = ({
-  selectedMiners,
   onClearSelection,
   onSelectAll,
   onSelectNone,
-  selectionMode,
-  totalCount,
-  filtersActive,
-  currentFilter,
-  currentSort,
-  miners,
-  minerIds,
-  selectionIncludesUnauthenticatedMiner,
   onRefetchMiners,
   onWorkerNameUpdated,
+  onAssigned,
+  ...selection
 }: MinerListActionBarProps) => {
-  const setActionBarVisible = useSetActionBarVisible();
-  const selectedMinersCountRef = useRef(selectedMiners.length);
-
-  useEffect(() => {
-    selectedMinersCountRef.current = selectedMiners.length;
-    setActionBarVisible(selectedMiners.length > 0);
-  }, [selectedMiners.length, setActionBarVisible]);
-
-  useEffect(() => {
-    return () => setActionBarVisible(false);
-  }, [setActionBarVisible]);
+  const { isActionBusy, onActionStart, onActionComplete } = useActionBarLifecycle(selection.selectedKeys.length);
+  // Keep an open confirmation's targets and dispatch scope together through polling and filter changes.
+  const selectionRef = useRef(selection);
+  if (!isActionBusy) {
+    selectionRef.current = selection;
+  }
+  const {
+    selectedKeys,
+    assetReferences = [],
+    modules = [],
+    selectAllOnPage = false,
+    selectionMode,
+    totalCount,
+    filtersActive,
+    currentFilter,
+    currentSort,
+    miners,
+    minerIds,
+    selectionIncludesUnauthenticatedMiner,
+  } = selectionRef.current;
+  const minerIdentifiers = selectedMinerIdentifiers(selectedKeys);
+  let itemNoun = { singular: "miner", plural: "miners" };
+  if (modules.length > 0) {
+    itemNoun =
+      minerIdentifiers.length > 0
+        ? { singular: "mining asset", plural: "mining assets" }
+        : { singular: "module", plural: "modules" };
+  }
+  const effectiveSelectionMode =
+    selectionMode === "all" && (selectAllOnPage || modules.length > 0) ? "subset" : selectionMode;
 
   const selectionControls =
     onSelectAll || onSelectNone ? (
-      <>
-        {onSelectAll ? (
-          <Button
-            className="py-1"
-            size={sizes.textOnly}
-            variant={variants.textOnly}
-            textColor="text-core-accent-fill"
-            textOnlyUnderlineOnHover={false}
-            testId="select-all-miners-button"
-            onClick={onSelectAll}
-          >
-            Select all
-          </Button>
-        ) : null}
-        {onSelectNone ? (
-          <Button
-            className="py-1"
-            size={sizes.textOnly}
-            variant={variants.textOnly}
-            textColor="text-core-accent-fill"
-            textOnlyUnderlineOnHover={false}
-            testId="select-none-miners-button"
-            onClick={onSelectNone}
-          >
-            Select none
-          </Button>
-        ) : null}
-      </>
+      <ActionBarSelectionControls
+        onSelectAll={onSelectAll}
+        onSelectNone={onSelectNone}
+        visibleOnly={selectAllOnPage || modules.length > 0}
+        selectAllTestId="select-all-miners-button"
+        selectNoneTestId="select-none-miners-button"
+      />
     ) : undefined;
 
-  // Portal to the body so the bar escapes the app shell's fixed `z-20` scroll
-  // container (a stacking context). Otherwise the bulk-actions menu — which opens
-  // upward into the header band — is trapped below the `z-40` shell header no
-  // matter how high we set the bar's own z-index (#727). z-[45] sits above the
-  // header but below the phone/tablet nav drawer (`z-50`) so the drawer still
-  // covers the bar when open.
-  return createPortal(
-    <ActionBar
-      className="fixed right-0 bottom-4 left-0 z-[45] tablet:left-16 desktop:left-50"
-      selectedItems={selectedMiners}
-      selectionMode={selectionMode}
+  return (
+    <FleetListActionBar
+      isActionBusy={isActionBusy}
+      selectedItems={selectedKeys}
+      itemNoun={itemNoun}
+      selectionMode={effectiveSelectionMode}
       totalCount={totalCount}
       filtersActive={filtersActive}
       onClose={onClearSelection}
       selectionControls={selectionControls}
-      renderActions={(setHidden) => (
-        <MinerActionsMenu
-          selectedMiners={selectedMiners}
-          selectionMode={selectionMode}
-          totalCount={totalCount}
-          currentFilter={currentFilter}
-          currentSort={currentSort}
-          miners={miners}
-          minerIds={minerIds}
-          selectionIncludesUnauthenticatedMiner={selectionIncludesUnauthenticatedMiner}
-          onRefetchMiners={onRefetchMiners}
-          onWorkerNameUpdated={onWorkerNameUpdated}
-          onActionStart={() => {
-            setHidden(true);
-            setActionBarVisible(false);
+    >
+      <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+        <FleetAccountAssignment
+          assets={assetReferences}
+          exactSelection={effectiveSelectionMode !== "all" ? assetReferences.length === selectedKeys.length : false}
+          onActionStart={onActionStart}
+          onActionComplete={onActionComplete}
+          onAssigned={() => {
+            onAssigned?.();
           }}
-          onActionComplete={() => {
-            setHidden(false);
-            setActionBarVisible(selectedMinersCountRef.current > 0);
-          }}
+          renderMenu={
+            minerIdentifiers.length > 0
+              ? (allocationAction) => (
+                  <MinerActionsMenu
+                    additionalActions={allocationAction ? [allocationAction] : []}
+                    selectedMiners={minerIdentifiers}
+                    selectionMode={effectiveSelectionMode}
+                    totalCount={effectiveSelectionMode === "subset" ? minerIdentifiers.length : totalCount}
+                    currentFilter={currentFilter}
+                    currentSort={currentSort}
+                    miners={miners}
+                    minerIds={minerIds}
+                    selectionIncludesUnauthenticatedMiner={selectionIncludesUnauthenticatedMiner}
+                    onRefetchMiners={onRefetchMiners}
+                    onWorkerNameUpdated={onWorkerNameUpdated}
+                    onActionStart={onActionStart}
+                    onActionComplete={onActionComplete}
+                  />
+                )
+              : undefined
+          }
         />
-      )}
-    />,
-    document.body,
+        {modules.length > 0 ? (
+          <MiningActionsMenu
+            kind="module"
+            items={modules}
+            presentation="bulk"
+            onRefresh={onRefetchMiners}
+            onActionStart={onActionStart}
+            onActionComplete={onActionComplete}
+          />
+        ) : null}
+      </div>
+    </FleetListActionBar>
   );
 };
 

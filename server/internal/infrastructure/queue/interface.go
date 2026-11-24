@@ -2,11 +2,13 @@ package queue
 
 import (
 	"context"
+	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 )
 
 type Message struct {
+	CreatedAt    time.Time
 	ID           int64
 	BatchLogUUID string
 	CommandType  commandtype.Type
@@ -14,6 +16,7 @@ type Message struct {
 	Payload      []byte
 	RetryCount   int32
 	OrgID        int64
+	WriteEpoch   int64
 }
 
 type EnqueueMessage struct {

@@ -119,11 +119,6 @@ export class GroupsPage extends BasePage {
     await this.modalMinerList.selectRowsByIndex(indexes);
   }
 
-  async validateMinerGroupsByIndex(index: number, expectedGroups: string) {
-    const groupCell = this.page.getByTestId("modal").getByTestId("list-row").nth(index).getByTestId("group");
-    await expect(groupCell).toHaveText(expectedGroups);
-  }
-
   async getModalRowGroupByIndex(index: number): Promise<string> {
     const groupText = await this.modalMinerList.getCellTextByIndex(index, "group");
     return groupText === EMPTY_GROUP_PLACEHOLDER ? "" : groupText;
@@ -267,11 +262,6 @@ export class GroupsPage extends BasePage {
     await expect(this.getGroupRow(groupName).getByTestId("miners")).toHaveText(`${minerCount}`);
   }
 
-  async getSavedGroupCount(): Promise<number> {
-    const rows = this.page.getByTestId("list-row");
-    return await rows.count();
-  }
-
   async listSavedGroupNames(): Promise<string[]> {
     await this.waitForSavedGroupsListToLoad();
 
@@ -321,10 +311,6 @@ export class GroupsPage extends BasePage {
 
   async clickGroupOverviewAssignPools() {
     await this.page.getByTestId("mining-pool-popover-button").click();
-  }
-
-  async clickGroupOverviewManageSecurity() {
-    await this.page.getByTestId("security-popover-button").click();
   }
 
   async clickRebootGroupButton() {

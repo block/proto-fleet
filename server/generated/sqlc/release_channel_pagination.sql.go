@@ -12,13 +12,13 @@ import (
 )
 
 const listReleaseChannelPageFirmware = `-- name: ListReleaseChannelPageFirmware :many
-SELECT f.channel_id, f.manufacturer, f.model, f.firmware_checksum, f.firmware_version, f.firmware_target_manufacturer, f.firmware_target_model, f.assignment_generation, f.assigned_by, f.updated_at, f.previous_firmware_checksum, f.previous_firmware_version
+SELECT f.channel_id, f.manufacturer, f.model, f.firmware_checksum, f.firmware_version, f.firmware_target_manufacturer, f.firmware_target_model, f.assignment_generation, f.assigned_by, f.updated_at, f.previous_firmware_checksum, f.previous_firmware_version, f.component
 FROM release_channel_firmware f
 JOIN release_channel c ON c.id = f.channel_id
 WHERE c.org_id = $1
   AND c.id = ANY($2::bigint[])
   AND f.firmware_checksum <> ''
-ORDER BY f.channel_id, f.manufacturer, f.model
+ORDER BY f.channel_id, f.manufacturer, f.model, f.component
 `
 
 type ListReleaseChannelPageFirmwareParams struct {
@@ -50,6 +50,7 @@ func (q *Queries) ListReleaseChannelPageFirmware(ctx context.Context, arg ListRe
 			&i.UpdatedAt,
 			&i.PreviousFirmwareChecksum,
 			&i.PreviousFirmwareVersion,
+			&i.Component,
 		); err != nil {
 			return nil, err
 		}

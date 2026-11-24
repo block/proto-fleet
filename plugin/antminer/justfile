@@ -6,7 +6,7 @@ default:
 
 # run all tests
 test:
-  go test ./...
+  go test --count=1 ./...
 
 # run unit tests only
 test-unit:

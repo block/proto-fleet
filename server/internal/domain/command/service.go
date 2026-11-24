@@ -24,11 +24,9 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/curtailmentconfig"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
-	"github.com/block/proto-fleet/server/internal/domain/pools/preflight"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
-	"github.com/block/proto-fleet/server/internal/domain/sv2"
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
@@ -53,6 +51,11 @@ type PluginCapabilitiesProvider interface {
 	GetRawCapabilitiesForDevice(ctx context.Context, driverName, manufacturer, model string) sdk.Capabilities
 }
 
+type CommandProtocolChecker interface {
+	CommandProtocolUpgradeRequiredForVersion(fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion) bool
+	CommandProtocolUpgradeRequiredForDispatch(fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion) bool
+}
+
 // UserCredentialsVerifier provides interface for verifying user credentials
 type UserCredentialsVerifier interface {
 	VerifySessionCredentials(ctx context.Context, username, password string) error
@@ -73,7 +76,8 @@ type Service struct {
 	credentialsVerifier UserCredentialsVerifier
 	telemetryListener   TelemetryListener
 	pluginCaps          PluginCapabilitiesProvider
-	capabilityChecker   *CapabilityChecker
+	protocolChecker     CommandProtocolChecker
+	capabilityChecker   commandCapabilityChecker
 	activitySvc         *activity.Service
 	deviceResolver      DeviceIdentifierResolver
 
@@ -83,6 +87,9 @@ type Service struct {
 	// uses them instead of the real DB batch insert / status-update goroutine.
 	saveCommandBatchLogOverride      func(ctx context.Context, userID, organizationID int64, command *Command, payloadBytes []byte, devicesCount int) (string, error)
 	startStatusUpdateRoutineOverride func(batchUUID string, finalizer onFinishedCallbackFunc)
+	// Test hook: runs after a controller records read's unlocked target
+	// lookup, before the locked re-read.
+	controllerRecordsTargetLookedUp func()
 
 	// filters run in registration order. Registered at startup only;
 	// the slice is not mutex-protected.
@@ -105,6 +112,22 @@ type curtailmentConfigQueuePayload struct {
 // SetPluginCapabilitiesProvider — nil disables the SV2 gate (test default).
 func (s *Service) SetPluginCapabilitiesProvider(p PluginCapabilitiesProvider) {
 	s.pluginCaps = p
+}
+
+// SetCommandProtocolChecker supplies the active Fleet Node protocol versions
+// used to check command availability before admission.
+func (s *Service) SetCommandProtocolChecker(checker CommandProtocolChecker) {
+	s.protocolChecker = checker
+}
+
+func (s *Service) protocolUpgradeCheck(forDispatch bool) func(int64, gatewaypb.CommandProtocolVersion) bool {
+	if s.protocolChecker == nil {
+		return nil
+	}
+	if forDispatch {
+		return s.protocolChecker.CommandProtocolUpgradeRequiredForDispatch
+	}
+	return s.protocolChecker.CommandProtocolUpgradeRequiredForVersion
 }
 
 // SetDeviceIdentifierResolver injects the rich-filter resolver used by the
@@ -240,8 +263,24 @@ func activityEventType(t commandtype.Type) string {
 		return "curtail"
 	case commandtype.Uncurtail:
 		return "uncurtail"
+	case commandtype.SetModuleMining:
+		return "set_module_mining"
+	case commandtype.SetBoardIdentify:
+		return "set_board_identify"
+	case commandtype.SetTankMining:
+		return "set_tank_mining"
+	case commandtype.ContainerMining:
+		return "container_mining"
+	case commandtype.SetContainerControl:
+		return "set_container_control"
+	case commandtype.ContainerAlarmAction:
+		return "container_alarm_action"
 	case commandtype.ApplyCurtailmentConfig:
 		return "apply_curtailment_config"
+	case commandtype.FrigateServerUpdate:
+		return "frigate_server_update"
+	case commandtype.ControlPowerFeed:
+		return "control_power_feed"
 	default:
 		return t.String()
 	}
@@ -792,7 +831,7 @@ func pairingStatusValuesForSelector(filter *pb.DeviceFilter) []string {
 }
 
 // resolveIdentifiersToDeviceIDs converts post-filter identifiers for the queue.
-func (s *Service) resolveIdentifiersToDeviceIDs(ctx context.Context, identifiers []string) ([]int64, error) {
+func (s *Service) resolveIdentifiersToDeviceIDs(ctx context.Context, orgID int64, identifiers []string) ([]int64, error) {
 	if len(identifiers) == 0 {
 		return []int64{}, nil
 	}
@@ -800,7 +839,18 @@ func (s *Service) resolveIdentifiersToDeviceIDs(ctx context.Context, identifiers
 		return s.resolveDeviceIDsOverride(ctx, identifiers)
 	}
 	resolve := func(q sqlc.Querier) ([]int64, error) {
-		return q.GetDeviceIDsByDeviceIdentifiers(ctx, identifiers)
+		rows, err := q.GetOrgDeviceIDsWithIdentifiers(ctx, sqlc.GetOrgDeviceIDsWithIdentifiersParams{
+			DeviceIdentifiers: identifiers,
+			OrgID:             orgID,
+		})
+		if err != nil {
+			return nil, err
+		}
+		ids := make([]int64, 0, len(rows))
+		for _, row := range rows {
+			ids = append(ids, row.ID)
+		}
+		return ids, nil
 	}
 	if q := db.GetTxQueries(ctx); q != nil {
 		return resolve(q)
@@ -808,7 +858,10 @@ func (s *Service) resolveIdentifiersToDeviceIDs(ctx context.Context, identifiers
 	return db.WithTransaction(ctx, s.conn, resolve)
 }
 
-func (s *Service) resolveIdentifiersToDevices(ctx context.Context, identifiers []string) ([]resolvedDevice, error) {
+// resolveIdentifiersToDevices resolves selector identifiers within orgID only.
+// Selectors carry caller-supplied identifiers, so another organization's
+// devices must resolve exactly like unknown identifiers.
+func (s *Service) resolveIdentifiersToDevices(ctx context.Context, orgID int64, identifiers []string) ([]resolvedDevice, error) {
 	if len(identifiers) == 0 {
 		return []resolvedDevice{}, nil
 	}
@@ -830,7 +883,10 @@ func (s *Service) resolveIdentifiersToDevices(ctx context.Context, identifiers [
 		return devices, nil
 	}
 	resolve := func(q sqlc.Querier) ([]resolvedDevice, error) {
-		rows, err := q.GetDeviceIDsWithIdentifiers(ctx, identifiers)
+		rows, err := q.GetOrgDeviceIDsWithIdentifiers(ctx, sqlc.GetOrgDeviceIDsWithIdentifiersParams{
+			DeviceIdentifiers: identifiers,
+			OrgID:             orgID,
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -1059,22 +1115,50 @@ func (s *Service) admitCommand(ctx context.Context, command *Command) (*CommandR
 		return nil, fleeterror.NewInternalErrorf("error resolving device identifiers: %v", err)
 	}
 
-	kept, skipped, err := applyFilters(ctx, s.filters, CommandFilterInput{
+	filterInput := CommandFilterInput{
 		CommandType:       command.commandType,
 		OrganizationID:    info.OrganizationID,
 		Actor:             info.Actor,
 		Source:            info.Source,
 		DeviceIdentifiers: identifiers,
-	})
+	}
+	if firmware, ok := command.payload.(dto.FirmwareUpdatePayload); ok {
+		filterInput.FirmwareComponent = firmware.FirmwareComponent
+	}
+	kept, skipped, err := applyFilters(ctx, s.filters, filterInput)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("preflight filter failed: %v", err)
+	}
+
+	if command.commandType == commandtype.Curtail && len(kept) > 0 {
+		payload, ok := command.payload.(dto.CurtailPayload)
+		if !ok {
+			return nil, fleeterror.NewInternalError("invalid curtail payload")
+		}
+		supported, err := s.capabilityChecker.CheckCurtailCapabilities(ctx, &pb.DeviceSelector{SelectionType: &pb.DeviceSelector_IncludeDevices{IncludeDevices: &commonpb.DeviceIdentifierList{DeviceIdentifiers: kept}}}, sdk.CurtailLevel(payload.Level), info.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
+		allowed := make(map[string]bool, len(supported.SupportedDeviceIdentifiers))
+		for _, id := range supported.SupportedDeviceIdentifiers {
+			allowed[id] = true
+		}
+		filtered := make([]string, 0, len(kept))
+		for _, id := range kept {
+			if allowed[id] {
+				filtered = append(filtered, id)
+			} else {
+				skipped = append(skipped, SkippedDevice{DeviceIdentifier: id, FilterName: "capability", Reason: "curtail capability unsupported or live device missing"})
+			}
+		}
+		kept = filtered
 	}
 
 	// External callers fail-closed on any skip. Resolve original identifiers
 	// first so a stale selector with zero live devices returns InvalidArgument
 	// regardless of how the kept/skipped partition fell.
 	if isExternalCommand(info) && len(skipped) > 0 {
-		deviceIDs, err := s.resolveIdentifiersToDeviceIDs(ctx, identifiers)
+		deviceIDs, err := s.resolveIdentifiersToDeviceIDs(ctx, info.OrganizationID, identifiers)
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("error resolving identifiers to device IDs: %v", err)
 		}
@@ -1091,7 +1175,7 @@ func (s *Service) admitCommand(ctx context.Context, command *Command) (*CommandR
 		return nil, fleeterror.NewInvalidArgumentError("no devices matched selector")
 	}
 
-	resolvedDevices, err := s.resolveIdentifiersToDevices(ctx, kept)
+	resolvedDevices, err := s.resolveIdentifiersToDevices(ctx, info.OrganizationID, kept)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error resolving identifiers to device IDs: %v", err)
 	}
@@ -1173,6 +1257,10 @@ func (s *Service) admitCommand(ctx context.Context, command *Command) (*CommandR
 		switch {
 		case errors.Is(err, errExecutionStoppedBeforeEnqueue):
 			enqueueErr = fleeterror.NewInternalError("command execution service stopped before enqueue")
+		case fleeterror.IsFailedPreconditionError(err):
+			// Ownership admission rejects the whole selected batch. Preserve the
+			// actionable caller error rather than describing it as a server fault.
+			enqueueErr = err
 		case len(queuePayloads) == 0:
 			enqueueErr = fleeterror.NewInternalErrorf("error enqueuing a batch of commands: %v", err)
 		default:
@@ -1283,453 +1371,6 @@ func (s *Service) SetPowerTarget(ctx context.Context, deviceSelector *pb.DeviceS
 	return result, nil
 }
 
-func (s *Service) createMiningPoolDTO(ctx context.Context, poolID int64, priorityIncrement uint32) (*dto.MiningPool, error) {
-	info, err := session.GetInfo(ctx)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error getting session info: %v", err)
-	}
-
-	pool, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (sqlc.Pool, error) {
-		p, err := q.GetPool(ctx, sqlc.GetPoolParams{ID: poolID, OrgID: info.OrganizationID})
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return p, fleeterror.NewNotFoundErrorf("pool not found: %d", poolID)
-			}
-			return p, err
-		}
-		return p, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	var password string
-	if pool.PasswordEnc != "" {
-		decryptedPassBytes, err := s.encryptService.Decrypt(pool.PasswordEnc)
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("error decrypting pass: %v", err)
-		}
-		password = string(decryptedPassBytes)
-	}
-
-	return &dto.MiningPool{
-		Priority:        defaultPoolPriority + priorityIncrement,
-		URL:             pool.Url,
-		Username:        pool.Username,
-		Password:        password,
-		AppendMinerName: shouldAppendMinerNameToUsername(pool.Username),
-	}, nil
-}
-
-// createMiningPoolDTOFromSlotConfig creates a MiningPool DTO from a PoolSlotConfig.
-// It handles both known pools (by ID lookup) and unknown pools (raw URL/username).
-func (s *Service) createMiningPoolDTOFromSlotConfig(ctx context.Context, config *pb.PoolSlotConfig, priorityIncrement uint32) (*dto.MiningPool, error) {
-	if config == nil {
-		return nil, nil
-	}
-
-	switch source := config.PoolSource.(type) {
-	case *pb.PoolSlotConfig_PoolId:
-		return s.createMiningPoolDTO(ctx, source.PoolId, priorityIncrement)
-	case *pb.PoolSlotConfig_RawPool:
-		if err := sv2.ValidatePoolURL(source.RawPool.Url); err != nil {
-			return nil, err
-		}
-		var password string
-		if source.RawPool.Password != nil {
-			password = *source.RawPool.Password
-		}
-		return &dto.MiningPool{
-			Priority:        defaultPoolPriority + priorityIncrement,
-			URL:             source.RawPool.Url,
-			Username:        source.RawPool.Username,
-			Password:        password,
-			AppendMinerName: shouldAppendMinerNameToUsername(source.RawPool.Username),
-		}, nil
-	default:
-		return nil, fleeterror.NewInternalErrorf("invalid pool source type")
-	}
-}
-
-func (s *Service) createUpdateMiningPoolsPayload(ctx context.Context, defaultPool, backup1Pool, backup2Pool *pb.PoolSlotConfig) (*dto.UpdateMiningPoolsPayload, error) {
-	defaultPoolDTO, err := s.createMiningPoolDTOFromSlotConfig(ctx, defaultPool, 0)
-	if err != nil {
-		return nil, err
-	}
-	if defaultPoolDTO == nil {
-		return nil, fleeterror.NewInvalidArgumentError("default pool is required")
-	}
-
-	pld := &dto.UpdateMiningPoolsPayload{
-		DefaultPool: *defaultPoolDTO,
-	}
-
-	if backup1Pool != nil {
-		pool, err := s.createMiningPoolDTOFromSlotConfig(ctx, backup1Pool, 1)
-		if err != nil {
-			return nil, err
-		}
-		pld.Backup1Pool = pool
-	}
-
-	if backup2Pool != nil {
-		pool, err := s.createMiningPoolDTOFromSlotConfig(ctx, backup2Pool, 2)
-		if err != nil {
-			return nil, err
-		}
-		pld.Backup2Pool = pool
-	}
-
-	return pld, nil
-}
-
-// SV2FilterName tags Skipped entries produced by the SV2 capability gate.
-// Handlers filter by this to derive the per-command response (toast).
-const SV2FilterName = "sv2"
-
-// SV2UnavailableReason is the Reason value for selected miners absent
-// from the capability lookup (unpaired, deleted, or out-of-org).
-const SV2UnavailableReason = "unavailable miners"
-
-// preflightSV2Capabilities runs the gate and returns the dispatched set
-// plus per-device skips. Both are nil when the gate didn't run; both are
-// populated otherwise (dispatched freezes the set against a selector race).
-// Returns FAILED_PRECONDITION when every selected miner is skipped.
-func (s *Service) preflightSV2Capabilities(ctx context.Context, selector *pb.DeviceSelector, pld *dto.UpdateMiningPoolsPayload) (dispatched []string, skipped []SkippedDevice, err error) {
-	if s.pluginCaps == nil {
-		slog.Warn("SV2 preflight skipped: plugin caps provider not wired", "default_pool_url", pld.DefaultPool.URL)
-		return nil, nil, nil
-	}
-	slots := preflightSlotsFromPayload(pld)
-	if !anySV2(slots) {
-		return nil, nil, nil
-	}
-	// CEL validates URL shape; this rejects undecodable authority pubkeys.
-	for _, s := range slots {
-		if !sv2.IsSV2URL(s.URL) {
-			continue
-		}
-		if _, err := sv2.PoolNoiseKeyFromURL(s.URL); err != nil {
-			return nil, nil, fleeterror.NewInvalidArgumentErrorf("invalid Stratum V2 pool URL %q: %v", s.URL, err)
-		}
-	}
-
-	info, err := session.GetInfo(ctx)
-	if err != nil {
-		return nil, nil, fleeterror.NewInternalErrorf("error getting session info for SV2 preflight: %v", err)
-	}
-
-	identifiers, err := s.resolveSelectorIdentifiers(ctx, selector, commandtype.UpdateMiningPools)
-	if err != nil {
-		return nil, nil, fleeterror.NewInternalErrorf("error resolving devices for SV2 preflight: %v", err)
-	}
-	if len(identifiers) == 0 {
-		slog.Info("SV2 preflight: selector resolved to zero devices", "default_pool_url", pld.DefaultPool.URL)
-		return nil, nil, nil
-	}
-
-	rows, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]sqlc.GetDeviceInfoForCapabilityCheckRow, error) {
-		return q.GetDeviceInfoForCapabilityCheck(ctx, sqlc.GetDeviceInfoForCapabilityCheckParams{
-			DeviceIdentifiers: identifiers,
-			OrgID:             info.OrganizationID,
-		})
-	})
-	if err != nil {
-		return nil, nil, fleeterror.NewInternalErrorf("error resolving device identifiers for SV2 preflight: %v", err)
-	}
-
-	type capsKey struct{ driver, manufacturer, model string }
-	nativeSV2 := map[capsKey]bool{}
-	devices := make([]preflight.Device, 0, len(rows))
-	rowSeen := make(map[string]struct{}, len(rows))
-	for _, r := range rows {
-		key := capsKey{r.DriverName, r.Manufacturer.String, r.Model.String}
-		native, cached := nativeSV2[key]
-		if !cached {
-			caps := s.pluginCaps.GetRawCapabilitiesForDevice(ctx, key.driver, key.manufacturer, key.model)
-			native = caps[sdk.CapabilityNativeStratumV2]
-			nativeSV2[key] = native
-		}
-		devices = append(devices, preflight.Device{
-			Identifier:      r.DeviceIdentifier,
-			Make:            r.Manufacturer.String,
-			Model:           r.Model.String,
-			NativeStratumV2: native,
-		})
-		rowSeen[r.DeviceIdentifier] = struct{}{}
-	}
-
-	// Identifiers absent from rows (unpaired, deleted, or out-of-org)
-	// surface as explicit skips rather than silent drops.
-	skippedSet := make(map[string]SkippedDevice, len(identifiers))
-	for _, id := range identifiers {
-		if _, ok := rowSeen[id]; !ok {
-			skippedSet[id] = SkippedDevice{
-				DeviceIdentifier: id,
-				FilterName:       SV2FilterName,
-				Reason:           SV2UnavailableReason,
-			}
-		}
-	}
-
-	mismatches := preflight.Run(devices, slots)
-	slog.Info("SV2 preflight evaluated",
-		"selected_count", len(identifiers),
-		"resolved_count", len(devices),
-		"slot_count", len(slots),
-		"mismatches", len(mismatches),
-		"unavailable", len(skippedSet),
-	)
-	for _, m := range mismatches {
-		skippedSet[m.DeviceIdentifier] = SkippedDevice{
-			DeviceIdentifier: m.DeviceIdentifier,
-			FilterName:       SV2FilterName,
-			Reason:           formatMinerType(m.Make, m.Model),
-		}
-	}
-
-	if len(skippedSet) == 0 {
-		kept := make([]string, len(devices))
-		for i, d := range devices {
-			kept[i] = d.Identifier
-		}
-		return kept, nil, nil
-	}
-
-	if len(skippedSet) >= len(identifiers) {
-		return nil, nil, sv2AllIncompatibleError(skippedSet)
-	}
-
-	kept := make([]string, 0, len(devices))
-	for _, d := range devices {
-		if _, skip := skippedSet[d.Identifier]; !skip {
-			kept = append(kept, d.Identifier)
-		}
-	}
-	skipped = make([]SkippedDevice, 0, len(skippedSet))
-	for _, sd := range skippedSet {
-		skipped = append(skipped, sd)
-	}
-	return kept, skipped, nil
-}
-
-func sv2AllIncompatibleError(skippedSet map[string]SkippedDevice) error {
-	plural := "s"
-	if len(skippedSet) == 1 {
-		plural = ""
-	}
-	typeSet := make(map[string]struct{}, len(skippedSet))
-	for _, sd := range skippedSet {
-		typeSet[sd.Reason] = struct{}{}
-	}
-	sortedTypes := make([]string, 0, len(typeSet))
-	for t := range typeSet {
-		sortedTypes = append(sortedTypes, t)
-	}
-	sort.Strings(sortedTypes)
-	return fleeterror.NewFailedPreconditionErrorf(
-		"%d miner%s can't use this Stratum V2 pool. Incompatible types: %s",
-		len(skippedSet), plural, strings.Join(sortedTypes, ", "),
-	)
-}
-
-func preflightSlotsFromPayload(pld *dto.UpdateMiningPoolsPayload) []preflight.SlotAssignment {
-	slots := []preflight.SlotAssignment{{Slot: preflight.SlotDefault, URL: pld.DefaultPool.URL}}
-	if pld.Backup1Pool != nil {
-		slots = append(slots, preflight.SlotAssignment{Slot: preflight.SlotBackup1, URL: pld.Backup1Pool.URL})
-	}
-	if pld.Backup2Pool != nil {
-		slots = append(slots, preflight.SlotAssignment{Slot: preflight.SlotBackup2, URL: pld.Backup2Pool.URL})
-	}
-	return slots
-}
-
-func anySV2(slots []preflight.SlotAssignment) bool {
-	for _, s := range slots {
-		if sv2.IsSV2URL(s.URL) {
-			return true
-		}
-	}
-	return false
-}
-
-func formatMinerType(manufacturer, model string) string {
-	manufacturer = strings.TrimSpace(manufacturer)
-	model = strings.TrimSpace(model)
-	switch {
-	case manufacturer != "" && model != "":
-		return manufacturer + " " + model
-	case manufacturer != "":
-		return manufacturer
-	case model != "":
-		return model
-	default:
-		return "unknown type"
-	}
-}
-
-func (s *Service) UpdateMiningPools(
-	ctx context.Context,
-	deviceSelector *pb.DeviceSelector,
-	defaultPool, backup1Pool, backup2Pool *pb.PoolSlotConfig,
-	userUsername string,
-	userPassword string,
-) (*CommandResult, error) {
-	if err := s.verifyUserCredentials(ctx, userUsername, userPassword); err != nil {
-		return nil, err
-	}
-
-	pld, err := s.createUpdateMiningPoolsPayload(ctx, defaultPool, backup1Pool, backup2Pool)
-	if err != nil {
-		return nil, err
-	}
-
-	dispatched, sv2Skipped, err := s.preflightSV2Capabilities(ctx, deviceSelector, pld)
-	if err != nil {
-		return nil, err
-	}
-	if dispatched != nil {
-		deviceSelector = &pb.DeviceSelector{
-			SelectionType: &pb.DeviceSelector_IncludeDevices{
-				IncludeDevices: &commonpb.DeviceIdentifierList{DeviceIdentifiers: dispatched},
-			},
-		}
-	}
-
-	result, err := s.processCommand(
-		ctx,
-		&Command{commandType: commandtype.UpdateMiningPools, deviceSelector: deviceSelector, payload: pld},
-	)
-	if err != nil {
-		return nil, err
-	}
-	if dispatched != nil {
-		result.Skipped = append(result.Skipped, sv2Skipped...)
-	}
-	s.finalizeDispatch(ctx, result, "update_mining_pools", "Edit pool")
-	return result, nil
-}
-
-func (s *Service) VerifyCredentials(ctx context.Context, username string, password string) error {
-	return s.verifyUserCredentials(ctx, username, password)
-}
-
-func (s *Service) ReapplyCurrentPoolsWithWorkerNames(
-	ctx context.Context,
-	desiredWorkerNamesByDeviceIdentifier map[string]string,
-) (string, error) {
-	if len(desiredWorkerNamesByDeviceIdentifier) == 0 {
-		return "", nil
-	}
-
-	if !s.executionService.IsRunning() {
-		return "", fleeterror.NewNotActiveError()
-	}
-
-	info, err := session.GetInfo(ctx)
-	if err != nil {
-		return "", fleeterror.NewInternalErrorf("error getting session info from ctx: %v", err)
-	}
-
-	deviceIdentifiers := make([]string, 0, len(desiredWorkerNamesByDeviceIdentifier))
-	for deviceIdentifier := range desiredWorkerNamesByDeviceIdentifier {
-		deviceIdentifiers = append(deviceIdentifiers, deviceIdentifier)
-	}
-	sort.Strings(deviceIdentifiers)
-
-	command := &Command{
-		commandType: commandtype.UpdateMiningPools,
-		deviceSelector: &pb.DeviceSelector{
-			SelectionType: &pb.DeviceSelector_IncludeDevices{
-				IncludeDevices: &commonpb.DeviceIdentifierList{
-					DeviceIdentifiers: deviceIdentifiers,
-				},
-			},
-		},
-		payload: dto.UpdateMiningPoolsPayload{
-			ReapplyCurrentPoolsWithStoredWorkerName: true,
-		},
-	}
-
-	payloadBytes, err := json.Marshal(command.payload)
-	if err != nil {
-		return "", fleeterror.NewInternalErrorf("error marshalling payload: %v", err)
-	}
-
-	commandBatchLogUUID, err := s.saveCommandBatchLogToDB(ctx, info.UserID, info.OrganizationID, command, payloadBytes, len(deviceIdentifiers))
-	if err != nil {
-		return "", fleeterror.NewInternalErrorf("error saving command batch log to db: %v", err)
-	}
-
-	deviceIDsByIdentifier, err := s.getDeviceIDsWithIdentifiers(ctx, deviceIdentifiers)
-	if err != nil {
-		return "", err
-	}
-
-	err = s.executionService.withAdmission(ctx, func(workCtx context.Context) error {
-		return s.enqueueWorkerNameReapplyMessages(workCtx, commandBatchLogUUID, deviceIdentifiers, deviceIDsByIdentifier, desiredWorkerNamesByDeviceIdentifier)
-	})
-	if err != nil {
-		if errors.Is(err, errExecutionStoppedBeforeEnqueue) {
-			err = fleeterror.NewInternalError("command execution service stopped before enqueue")
-		}
-		if db.GetTxQueries(ctx) != nil {
-			return "", err
-		}
-		if err := s.reconcileFailedEnqueue(ctx, commandBatchLogUUID, len(deviceIdentifiers), err); err != nil {
-			return "", err
-		}
-	}
-
-	if !db.AfterCommit(ctx, func() { s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil) }) {
-		s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
-	}
-	return commandBatchLogUUID, nil
-}
-
-func (s *Service) getDeviceIDsWithIdentifiers(ctx context.Context, deviceIdentifiers []string) (map[string]int64, error) {
-	rows, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]sqlc.GetDeviceIDsWithIdentifiersRow, error) {
-		return q.GetDeviceIDsWithIdentifiers(ctx, deviceIdentifiers)
-	})
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error getting device IDs from device identifiers: %v", err)
-	}
-	if len(rows) != len(deviceIdentifiers) {
-		return nil, fleeterror.NewNotFoundErrorf("one or more devices not found for worker-name reapply")
-	}
-
-	deviceIDsByIdentifier := make(map[string]int64, len(rows))
-	for _, row := range rows {
-		deviceIDsByIdentifier[row.DeviceIdentifier] = row.ID
-	}
-	return deviceIDsByIdentifier, nil
-}
-
-func (s *Service) enqueueWorkerNameReapplyMessages(
-	ctx context.Context,
-	commandBatchLogUUID string,
-	deviceIdentifiers []string,
-	deviceIDsByIdentifier map[string]int64,
-	desiredWorkerNamesByDeviceIdentifier map[string]string,
-) error {
-	messages := make([]queue.EnqueueMessage, 0, len(deviceIdentifiers))
-	for _, deviceIdentifier := range deviceIdentifiers {
-		messages = append(messages, queue.EnqueueMessage{
-			DeviceID: deviceIDsByIdentifier[deviceIdentifier],
-			Payload: dto.UpdateMiningPoolsPayload{
-				ReapplyCurrentPoolsWithStoredWorkerName: true,
-				DesiredWorkerName:                       desiredWorkerNamesByDeviceIdentifier[deviceIdentifier],
-			},
-		})
-	}
-	return s.messageQueue.EnqueueMany(
-		ctx,
-		commandBatchLogUUID,
-		commandtype.UpdateMiningPools,
-		messages,
-	)
-}
-
 func (s *Service) DownloadLogs(ctx context.Context, deviceSelector *pb.DeviceSelector) (*CommandResult, error) {
 	result, err := s.processCommand(
 		ctx,
@@ -1778,6 +1419,16 @@ func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceS
 	if err != nil {
 		return nil, fleeterror.NewInvalidArgumentError(fmt.Sprintf("invalid firmware_file_id: %v", err))
 	}
+	// The component a file updates cannot change after upload. It decides
+	// which release-channel assignment this command would compete with and
+	// whose deployment provenance its completion invalidates. Metadata that
+	// cannot be read names no component, so the command is refused: sent as
+	// main firmware, a PSU capsule would pass a channel's PSU assignment.
+	metadata, err := s.filesService.GetFirmwareMetadata(canonicalFileID)
+	if err != nil {
+		return nil, err
+	}
+	component := metadata.ComponentKey()
 
 	info, err := session.GetInfo(ctx)
 	if err != nil {
@@ -1815,7 +1466,7 @@ func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceS
 			deviceSelector: &pb.DeviceSelector{SelectionType: &pb.DeviceSelector_IncludeDevices{
 				IncludeDevices: &commonpb.DeviceIdentifierList{DeviceIdentifiers: identifiers},
 			}},
-			payload: dto.FirmwareUpdatePayload{FirmwareFileID: canonicalFileID},
+			payload: dto.FirmwareUpdatePayload{FirmwareFileID: canonicalFileID, FirmwareComponent: component},
 		})
 		return err
 	})
@@ -1830,7 +1481,7 @@ func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceS
 // persisted checksum and metadata snapshot. Callers must supply that saved
 // snapshot, never metadata from a current file sidecar or an RPC request.
 func (s *Service) FirmwareUpdateArtifact(ctx context.Context, deviceSelector *pb.DeviceSelector, checksum string, metadata files.FirmwareMetadata) (*CommandResult, error) {
-	if err := files.ValidateFirmwareUploadMetadata(metadata); err != nil {
+	if err := files.ValidateFirmwareAssignmentMetadata(metadata); err != nil {
 		return nil, fleeterror.NewFailedPreconditionErrorf("invalid firmware assignment metadata: %v", err)
 	}
 	fileID, release, err := s.filesService.LeaseFirmwareArtifact(checksum)
@@ -1842,7 +1493,7 @@ func (s *Service) FirmwareUpdateArtifact(ctx context.Context, deviceSelector *pb
 	result, err := s.processCommand(ctx, &Command{
 		commandType:      commandtype.FirmwareUpdate,
 		deviceSelector:   deviceSelector,
-		payload:          dto.FirmwareUpdatePayload{FirmwareFileID: fileID, FirmwareChecksum: checksum},
+		payload:          dto.FirmwareUpdatePayload{FirmwareFileID: fileID, FirmwareChecksum: checksum, FirmwareComponent: metadata.ComponentKey()},
 		firmwareMetadata: &metadata,
 	})
 	if err != nil {
@@ -1941,7 +1592,7 @@ func (s *Service) ApplyCurtailmentConfigToProtoRigs(ctx context.Context, config 
 	if err != nil {
 		return err
 	}
-	return s.applyCurtailmentConfigToIdentifiers(ctx, config, identifiers)
+	return s.ApplyCurtailmentConfigToDevices(ctx, config, identifiers)
 }
 
 // ApplyCurtailmentConfigToDevices replaces fallback config only on the requested
@@ -1959,8 +1610,9 @@ func (s *Service) ApplyCurtailmentConfigToDevices(ctx context.Context, config sd
 	// or manufacturer change cannot invalidate a selected target mid-dispatch.
 	return sqlstores.NewSQLTransactor(s.conn).RunInTxNoRetry(ctx, func(txCtx context.Context) error {
 		eligible, err := db.GetTxQueries(txCtx).GetPairedProtoDeviceIdentifiersByIdentifiers(txCtx, sqlc.GetPairedProtoDeviceIdentifiersByIdentifiersParams{
-			OrgID:             info.OrganizationID,
-			DeviceIdentifiers: identifiers,
+			ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER),
+			OrgID:                info.OrganizationID,
+			DeviceIdentifiers:    identifiers,
 		})
 		if err != nil {
 			return err

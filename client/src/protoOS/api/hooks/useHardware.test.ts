@@ -5,28 +5,9 @@ import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 
 const mockGetHardware = vi.fn();
 
-const {
-  mockAddFan,
-  mockAddHashboard,
-  mockAddPsu,
-  mockAuthRetry,
-  mockGetHashboard,
-  mockGetMiner,
-  mockSetControlBoard,
-  mockSetMiner,
-  mockUseAuthRetry,
-  mockUpdateFanTelemetry,
-} = vi.hoisted(() => ({
-  mockAddFan: vi.fn(),
-  mockAddHashboard: vi.fn(),
-  mockAddPsu: vi.fn(),
+const { mockAuthRetry, mockUseAuthRetry } = vi.hoisted(() => ({
   mockAuthRetry: vi.fn(),
-  mockGetHashboard: vi.fn(),
-  mockGetMiner: vi.fn(),
-  mockSetControlBoard: vi.fn(),
-  mockSetMiner: vi.fn(),
   mockUseAuthRetry: vi.fn(),
-  mockUpdateFanTelemetry: vi.fn(),
 }));
 
 const mockAuthParams = {
@@ -44,44 +25,33 @@ vi.mock("@/protoOS/store/hooks/useAuthRetry", () => ({
   useAuthRetry: mockUseAuthRetry,
 }));
 
-vi.mock("@/protoOS/store", () => ({
-  useMinerStore: {
-    getState: () => ({
-      hardware: {
-        addFan: mockAddFan,
-        addHashboard: mockAddHashboard,
-        addPsu: mockAddPsu,
-        getHashboard: mockGetHashboard,
-        getMiner: mockGetMiner,
-        setControlBoard: mockSetControlBoard,
-        setMiner: mockSetMiner,
-      },
-      telemetry: {
-        updateFanTelemetry: mockUpdateFanTelemetry,
-      },
-    }),
-  },
-}));
-
 describe("useHardware", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetHardware.mockResolvedValue({
-      data: {
-        "hardware-info": {
-          "cb-info": {
-            machine_name: "Rig",
-            board_id: "CB-001",
-            serial_number: "SN12345678",
-          },
-          "hashboards-info": [],
-          "psus-info": [],
-          "fans-info": [],
-        },
+      hardware: {
+        resource: { status: "ready", updatedAtMs: Date.now() },
+        controlBoards: new Map(),
+        hashboards: new Map(),
+        asics: new Map(),
+        psus: new Map(),
+        fans: new Map(),
+        plant: new Map(),
+      },
+      telemetry: {
+        resourceByScope: new Map(),
+        rollupsByEntity: new Map(),
+        hashboards: new Map(),
+        asics: new Map(),
+        psus: new Map(),
+        fans: new Map(),
+        plant: new Map(),
+        coolingModeByOwner: new Map(),
+        asicLoadByHashboard: new Map(),
       },
     });
     (useMinerHosting as Mock).mockReturnValue({
-      api: {
+      adapter: {
         getHardware: mockGetHardware,
       },
     });
@@ -97,7 +67,7 @@ describe("useHardware", () => {
     await waitFor(() => {
       expect(mockGetHardware).toHaveBeenCalledTimes(1);
     });
-    expect(mockGetHardware).toHaveBeenCalledWith(mockAuthParams);
+    expect(mockGetHardware).toHaveBeenCalledWith({ deviceId: "device:unknown", profile: "unknown" }, mockAuthParams);
   });
 
   test("surfaces hardware API error message", async () => {

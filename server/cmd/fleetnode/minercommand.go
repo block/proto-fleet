@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
 
 	"buf.build/go/protovalidate"
 	"connectrpc.com/connect"
@@ -29,8 +32,10 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	minercommandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/commandresult"
+	fleetnodecontrol "github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/curtailmentconfig"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/poolconfig"
 	"github.com/block/proto-fleet/server/internal/domain/miner/logformat"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/sv2"
@@ -92,89 +97,146 @@ func (nodeSecretProvider) Seal(_ sdk.SecretBundle) (*pb.EncryptedCredentials, er
 }
 
 func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, stream acker, commandID string, mc *pb.MinerCommand, logger *slog.Logger) {
+	reject := func(code pb.AckCode, message string, stage sdk.WriteStage, reason sdk.WriteReason) {
+		r.sendAckWithWriteEvidence(stream, commandID, code, message, nil, sdk.NewWriteEvidence(sdk.WriteNotDispatched, stage, reason), logger)
+	}
 	if r.driverGetter == nil || r.minerSecrets == nil {
-		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "fleet node has no plugins loaded", logger)
+		reject(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "fleet node has no plugins loaded", sdk.WriteStageCapability, sdk.WriteReasonUnsupported)
 		return
 	}
 	// handleCommand validated only the outer ControlCommand; validate the inner one here.
 	if vErr := protovalidate.Validate(mc); vErr != nil {
-		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, fmt.Sprintf("invalid miner command: %v", vErr), logger)
+		reject(pb.AckCode_ACK_CODE_BAD_REQUEST, fmt.Sprintf("invalid miner command: %v", vErr), sdk.WriteStageValidation, sdk.WriteReasonInvalidRequest)
 		return
 	}
 	target := mc.GetTarget()
 	if err := validateDialTarget(target); err != nil {
-		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, err.Error(), logger)
+		reject(pb.AckCode_ACK_CODE_BAD_REQUEST, err.Error(), sdk.WriteStageValidation, sdk.WriteReasonInvalidRequest)
 		return
 	}
 	port, err := sdk.ParsePort(target.GetPort())
 	if err != nil {
-		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_BAD_REQUEST, fmt.Sprintf("invalid port: %v", err), logger)
+		reject(pb.AckCode_ACK_CODE_BAD_REQUEST, fmt.Sprintf("invalid port: %v", err), sdk.WriteStageValidation, sdk.WriteReasonInvalidRequest)
 		return
 	}
 	driver, err := r.driverGetter.GetDriverByDriverName(target.GetDriverName())
 	if err != nil {
-		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_AGENT_INCAPABLE, fmt.Sprintf("no plugin for driver %q: %v", target.GetDriverName(), err), logger)
+		reject(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, fmt.Sprintf("no plugin for driver %q: %v", target.GetDriverName(), err), sdk.WriteStageCapability, sdk.WriteReasonUnsupported)
 		return
 	}
 	bundle, err := r.minerSecrets.SecretBundle(target)
 	if err != nil {
 		code, msg := classifyMinerCommandError("build secret bundle", err)
-		r.sendAck(stream, commandID, code, msg, logger)
+		reject(code, msg, sdk.WriteStageCredentials, sdk.WriteReasonMissingCredentials)
 		return
 	}
 	passwordUpdate, err := newPasswordUpdateCommand(r.passwordUpdatePrivateKey, target, mc)
 	if err != nil {
 		code, msg := classifyMinerCommandError("decrypt password update", err)
-		r.sendAck(stream, commandID, code, msg, logger)
+		reject(code, msg, sdk.WriteStageCredentials, sdk.WriteReasonInvalidRequest)
 		return
 	}
 	bundle = passwordUpdate.secretBundle(target, bundle)
 	curtailmentConfig, err := newCurtailmentConfigCommand(r.passwordUpdatePrivateKey, target, mc)
 	if err != nil {
 		code, msg := classifyMinerCommandError("decrypt curtailment config", err)
-		r.sendAck(stream, commandID, code, msg, logger)
+		reject(code, msg, sdk.WriteStageCredentials, sdk.WriteReasonInvalidRequest)
 		return
 	}
 
+	poolConfig, err := newPoolConfigCommand(r.passwordUpdatePrivateKey, target, mc)
+	if err != nil {
+		code, msg := classifyMinerCommandError("decrypt pool config", err)
+		reject(code, msg, sdk.WriteStageCredentials, sdk.WriteReasonInvalidRequest)
+		return
+	}
+
+	groups, err := newMiningGroupsCommand(r.passwordUpdatePrivateKey, target, mc)
+	if err != nil {
+		code, msg := classifyMinerCommandError("prepare mining groups", err)
+		reject(code, msg, sdk.WriteStageValidation, sdk.WriteReasonInvalidRequest)
+		return
+	}
 	cmdCtx, cancel := context.WithTimeout(ctx, minerCommandActionTimeout(mc))
 	defer cancel()
+	if mc.GetStreamBoardAsicReadings() != nil {
+		end, ok := r.boardASICStreams.start()
+		if !ok {
+			r.sendAckWithPayload(stream, commandID, pb.AckCode_ACK_CODE_BUSY, "live ASIC reading capacity reached", boardASICStreamAtCapacity(), logger)
+			return
+		}
+		defer end()
+	}
 
-	lease, err := r.getDeviceHandlePool().acquire()
+	pool := r.getDeviceHandlePool()
+	class, _ := fleetnodecontrol.AdmissionForMinerCommand(mc)
+	isRead := class == fleetnodecontrol.CommandAdmissionDeferrableRead
+	acquire := pool.acquire
+	if isRead {
+		acquire = pool.acquireRead
+	}
+	lease, err := acquire()
 	if err != nil {
 		code, msg := classifyMinerCommandError("reserve device handle", err)
-		r.sendAck(stream, commandID, code, msg, logger)
+		reject(code, msg, sdk.WriteStageDispatch, sdk.WriteReasonRejected)
 		return
 	}
 
 	// SDK IDs own a registration, not a physical miner. Concurrent commands and
 	// telemetry must not replace or close each other's device handles.
 	handleID := "command-" + uuid.NewString()
-	result, err := driver.NewDevice(cmdCtx, handleID, sdk.DeviceInfo{
+	deviceInfo := sdk.DeviceInfo{
+		DeviceClass:  sdk.DeviceClass(target.GetDeviceClass()),
 		Host:         target.GetIpAddress(),
 		Port:         port,
 		URLScheme:    target.GetUrlScheme(),
+		RPCPort:      target.GetRpcPort(),
+		RPCTLS:       target.GetRpcTls(),
+		Endpoints:    deviceendpoints.ToSDK(target.GetEndpoints()),
 		SerialNumber: target.GetSerialNumber(),
 		MacAddress:   target.GetMacAddress(),
-	}, bundle)
+	}
+	// This action addresses the controller, never a derived module or a rig.
+	if mc.GetContainerMining() != nil || mc.GetSetContainerControl() != nil || mc.GetSetTankMining() != nil || mc.GetSetModuleMining() != nil || mc.GetSetBoardIdentify() != nil || mc.GetRunContainerAlarmAction() != nil || mc.GetControllerRecords() != nil || mc.GetContainerPowerFeed() != nil || mc.GetMiningGroups() != nil || mc.GetStreamBoardAsicReadings() != nil || mc.GetFrigateUpdate() != nil {
+		deviceInfo.DeviceClass = sdk.DeviceClassContainer
+	}
+	result, err := driver.NewDevice(cmdCtx, handleID, deviceInfo, bundle)
 	if err != nil {
 		lease.releaseAfterFailedCreation(cmdCtx, driver, handleID, err)
 		code, msg := classifyMinerCommandError("connect to miner", err)
-		r.sendAck(stream, commandID, code, msg, logger)
+		reject(code, msg, sdk.WriteStageBackendSelection, sdk.WriteReasonTransportFailed)
 		return
 	}
 	dev := result.Device
-	defer lease.closeAndWait(dev)
+	if isRead {
+		// The bounded handle pool owns cleanup. A completed read must not keep
+		// its control slot waiting for Close after Fleet has received its ACK.
+		// Shutdown may therefore cancel an in-flight read Close; built-in
+		// drivers only release local state there.
+		defer lease.close(dev)
+	} else {
+		defer lease.closeAndWait(dev)
+	}
 
 	caps, err := commandCapabilities(cmdCtx, driver, mc)
 	if err != nil {
 		code, msg := classifyMinerCommandError("load driver capabilities", err)
-		r.sendAck(stream, commandID, code, msg, logger)
+		reject(code, msg, sdk.WriteStageCapability, sdk.WriteReasonReadFailed)
 		return
 	}
 
+	if action := mc.GetStreamBoardAsicReadings(); action != nil {
+		code, message, payload := runBoardASICStream(cmdCtx, stream, commandID, dev, action, logger)
+		r.sendAckWithPayload(stream, commandID, code, message, payload, logger)
+		return
+	}
 	var payload []byte
 	if passwordUpdate != nil {
 		payload, err = passwordUpdate.run(cmdCtx, dev, bundle, r.minerSecrets)
+	} else if groups != nil {
+		payload, err = groups.run(cmdCtx, dev)
+	} else if poolConfig != nil {
+		payload, err = poolConfig.run(cmdCtx, dev)
 	} else if curtailmentConfig != nil {
 		payload, err = curtailmentConfig.run(cmdCtx, dev)
 	} else {
@@ -182,10 +244,43 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 	}
 	if err != nil {
 		code, msg := classifyMinerActionError("execute command", mc, err)
-		r.sendAck(stream, commandID, code, msg, logger)
+		r.sendAckWithWriteEvidence(stream, commandID, code, msg, nil, sdk.WriteEvidence(err), logger)
 		return
 	}
 	r.sendAckWithPayload(stream, commandID, pb.AckCode_ACK_CODE_OK, "", payload, logger)
+}
+
+type poolConfigCommand struct {
+	pools    []sdk.MiningPoolConfig
+	clearAll bool
+}
+
+func newPoolConfigCommand(privateKey []byte, target *pb.MinerConnectionDescriptor, mc *pb.MinerCommand) (*poolConfigCommand, error) {
+	action := mc.GetUpdateMiningPools()
+	if action == nil {
+		return nil, nil
+	}
+	if len(privateKey) == 0 {
+		return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "fleet node has no pool config decryption key configured")
+	}
+	config, err := poolconfig.Decrypt(privateKey, action.GetEncryptedConfig(), target.GetDeviceIdentifier())
+	if err != nil {
+		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "%s", err.Error())
+	}
+	return &poolConfigCommand{pools: toSDKMiningPoolConfigs(config.GetPools()), clearAll: config.GetClearAll()}, nil
+}
+
+func (c *poolConfigCommand) run(ctx context.Context, dev sdk.Device) ([]byte, error) {
+	if c.clearAll {
+		_, caps, err := dev.DescribeDevice(ctx)
+		if err != nil {
+			return nil, sdk.WriteRefused(err, sdk.WriteStageConfigurationRead, sdk.WriteReasonReadFailed)
+		}
+		if !caps[sdk.CapabilityPoolClear] {
+			return nil, sdk.InvalidWriteRequest(fmt.Errorf("this firmware does not support clearing all pools"))
+		}
+	}
+	return nil, dev.UpdateMiningPools(ctx, c.pools)
 }
 
 type curtailmentConfigCommand struct {
@@ -210,7 +305,7 @@ func newCurtailmentConfigCommand(privateKey []byte, target *pb.MinerConnectionDe
 func (c *curtailmentConfigCommand) run(ctx context.Context, dev sdk.Device) ([]byte, error) {
 	configurator, ok := dev.(sdk.DeviceCurtailmentConfigurator)
 	if !ok {
-		return nil, sdk.NewErrUnsupportedCapability("curtailment configuration")
+		return nil, sdk.UnsupportedWrite("curtailment configuration")
 	}
 	return nil, configurator.ApplyCurtailmentConfig(ctx, c.config)
 }
@@ -261,11 +356,11 @@ func (u *passwordUpdateCommand) secretBundle(target *pb.MinerConnectionDescripto
 
 func (u *passwordUpdateCommand) run(ctx context.Context, dev sdk.Device, bundle sdk.SecretBundle, sealer secretProvider) ([]byte, error) {
 	if u == nil {
-		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "encrypted password update is required")
+		return nil, sdk.InvalidWriteRequest(cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "encrypted password update is required"))
 	}
 	payload, err := updateMinerPasswordResultPayload(bundle, u.secret.NewPassword, sealer)
 	if err != nil {
-		return nil, err
+		return nil, sdk.WriteRefused(err, sdk.WriteStageCredentials, sdk.WriteReasonInvalidRequest)
 	}
 	if err := dev.UpdateMinerPassword(ctx, u.secret.CurrentPassword, u.secret.NewPassword); err != nil {
 		return nil, err
@@ -277,6 +372,14 @@ func minerCommandActionTimeout(mc *pb.MinerCommand) time.Duration {
 	if mc.GetFirmwareUpdate() != nil {
 		return firmwareMinerCommandTimeout
 	}
+	// A package copy downloads and uploads like a firmware update. Fleet waits
+	// for this budget plus a margin before it sends the stage again.
+	if mc.GetFrigateUpdate().GetStage() != nil {
+		return firmwareMinerCommandTimeout
+	}
+	if mc.GetStreamBoardAsicReadings() != nil {
+		return boardASICStreamNodeLifetime
+	}
 	return minerCommandTimeout
 }
 
@@ -284,16 +387,34 @@ func minerCommandActionTimeout(mc *pb.MinerCommand) time.Duration {
 // or link-local address, or a scheme the drivers can't dial. Loopback is allowed for the
 // dev virtual driver; mirrors the discovery path's private-address policy.
 func validateDialTarget(t *pb.MinerConnectionDescriptor) error {
-	addr, err := netip.ParseAddr(t.GetIpAddress())
-	if err != nil {
-		return fmt.Errorf("ip_address %q is not a valid IP", t.GetIpAddress())
-	}
-	if a := addr.Unmap(); !a.IsPrivate() && !a.IsLoopback() {
-		return fmt.Errorf("ip_address %q is not a private or loopback address", t.GetIpAddress())
+	if err := validateTargetAddresses(t.GetIpAddress(), t.GetEndpoints()); err != nil {
+		return err
 	}
 	// Restrict to schemes the dial path accepts (networking.ProtocolFromString); rejects empty/unknown.
 	if _, err := networking.ProtocolFromString(t.GetUrlScheme()); err != nil {
 		return fmt.Errorf("unsupported url_scheme %q", t.GetUrlScheme())
+	}
+	return nil
+}
+
+// Pairing and command targets share the same endpoint and private-address checks.
+func validateTargetAddresses(ipAddress string, endpoints []*commonpb.DeviceEndpoint) error {
+	if _, err := deviceendpoints.Key(endpoints); err != nil {
+		return err
+	}
+	for _, controller := range endpoints {
+		addr, err := netip.ParseAddr(controller.GetHost())
+		if err != nil || (!addr.Unmap().IsPrivate() && !addr.Unmap().IsLoopback()) {
+			return fmt.Errorf("device endpoint must use a private or loopback IP")
+		}
+	}
+
+	addr, err := netip.ParseAddr(ipAddress)
+	if err != nil {
+		return fmt.Errorf("ip_address %q is not a valid IP", ipAddress)
+	}
+	if a := addr.Unmap(); !a.IsPrivate() && !a.IsLoopback() {
+		return fmt.Errorf("ip_address %q is not a private or loopback address", ipAddress)
 	}
 	return nil
 }
@@ -315,6 +436,126 @@ func (r *RunCmd) firmwareTempRootForDownloads() string {
 
 func runMinerAction(ctx context.Context, client gatewayClient, commandID, firmwareTempRoot string, caps sdk.Capabilities, dev sdk.Device, mc *pb.MinerCommand) ([]byte, error) {
 	switch a := mc.GetAction().(type) {
+	case *pb.MinerCommand_ContainerMining:
+		controller, ok := dev.(sdk.DeviceContainerMining)
+		if !ok {
+			return nil, sdk.UnsupportedWrite(sdk.CapabilityContainerMining)
+		}
+		req, err := sdk.DecodeContainerMiningRequest(a.ContainerMining.Request)
+		if err != nil {
+			return nil, sdk.InvalidWriteRequest(err)
+		}
+		result, err := controller.ContainerMining(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		if err := result.Validate(req); err != nil {
+			return nil, err
+		}
+		data, err := json.Marshal(result)
+		if err != nil {
+			return nil, fmt.Errorf("encode container mining result: %w", err)
+		}
+		return data, nil
+	case *pb.MinerCommand_ContainerPowerFeed:
+		controller, ok := dev.(sdk.DeviceContainerPowerFeed)
+		if !ok {
+			return nil, sdk.UnsupportedWrite(sdk.CapabilityContainerPowerFeed)
+		}
+		req, err := sdk.DecodeContainerPowerFeedRequest(a.ContainerPowerFeed.Request)
+		if err != nil {
+			return nil, sdk.InvalidWriteRequest(err)
+		}
+		result, err := controller.ContainerPowerFeed(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		if err := result.Validate(req); err != nil {
+			return nil, err
+		}
+		data, err := json.Marshal(result)
+		if err != nil {
+			return nil, fmt.Errorf("encode container power feed result: %w", err)
+		}
+		return data, nil
+	case *pb.MinerCommand_ControllerRecords:
+		reader, ok := dev.(sdk.DeviceControllerRecords)
+		if !ok {
+			return nil, sdk.UnsupportedWrite(sdk.CapabilityControllerRecords)
+		}
+		req, err := sdk.DecodeControllerRecordsRequest(a.ControllerRecords.Request)
+		if err != nil {
+			return nil, sdk.InvalidWriteRequest(err)
+		}
+		result, err := reader.ControllerRecords(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		result = sdk.BoundControllerRecords(result)
+		if err := result.Validate(req); err != nil {
+			return nil, err
+		}
+		data, err := sdk.EncodeControllerRecords(result)
+		if err != nil {
+			return nil, fmt.Errorf("encode controller records result: %w", err)
+		}
+		return data, nil
+	case *pb.MinerCommand_SetTankMining:
+		controller, ok := dev.(sdk.DeviceTankMiner)
+		if !ok {
+			return nil, sdk.UnsupportedWrite(sdk.CapabilityTankMining)
+		}
+		req := sdk.TankMiningRequest{Positions: a.SetTankMining.Positions, Mining: a.SetTankMining.Mining}
+		if err := req.Validate(); err != nil {
+			return nil, sdk.InvalidWriteRequest(err)
+		}
+		return nil, controller.SetTankMining(ctx, req)
+	case *pb.MinerCommand_SetModuleMining:
+		controller, ok := dev.(sdk.DeviceModuleMiner)
+		if !ok {
+			return nil, sdk.UnsupportedWrite(sdk.CapabilityModuleMining)
+		}
+		req := sdk.ModuleMiningRequest{Mining: a.SetModuleMining.Mining}
+		for _, m := range a.SetModuleMining.Modules {
+			if m == nil {
+				return nil, sdk.InvalidWriteRequest(fmt.Errorf("missing module"))
+			}
+			req.Modules = append(req.Modules, sdk.ModuleMiningTarget{Tank: m.Tank, Module: m.Module, ReportedID: m.ReportedId})
+		}
+		if err := req.Validate(); err != nil {
+			return nil, sdk.InvalidWriteRequest(err)
+		}
+		return nil, controller.SetModuleMining(ctx, req)
+	case *pb.MinerCommand_SetBoardIdentify:
+		controller, ok := dev.(sdk.DeviceBoardIdentifier)
+		if !ok {
+			return nil, sdk.UnsupportedWrite(sdk.CapabilityBoardIdentify)
+		}
+		req := sdkBoardIdentifyRequest(a.SetBoardIdentify)
+		if err := req.Validate(); err != nil {
+			return nil, sdk.InvalidWriteRequest(err)
+		}
+		return nil, controller.SetBoardIdentify(ctx, req)
+	case *pb.MinerCommand_RunContainerAlarmAction:
+		controller, ok := dev.(sdk.DeviceContainerAlarmController)
+		if !ok {
+			return nil, sdk.UnsupportedWrite(sdk.CapabilityContainerAlarm)
+		}
+		req := sdk.ContainerAlarmRequest{Action: a.RunContainerAlarmAction.GetAction()}
+		if err := req.Validate(); err != nil {
+			return nil, sdk.InvalidWriteRequest(err)
+		}
+		return nil, controller.RunContainerAlarmAction(ctx, req)
+	case *pb.MinerCommand_SetContainerControl:
+		controller, ok := dev.(sdk.DeviceContainerController)
+		if !ok {
+			return nil, sdk.UnsupportedWrite(sdk.CapabilityContainerControl)
+		}
+		req := sdk.ContainerControlRequest{Name: a.SetContainerControl.GetName(), Enabled: a.SetContainerControl.Enabled}
+		if err := req.Validate(); err != nil {
+			return nil, sdk.InvalidWriteRequest(err)
+		}
+		return nil, controller.SetContainerControl(ctx, req)
 	case *pb.MinerCommand_Reboot:
 		return nil, dev.Reboot(ctx)
 	case *pb.MinerCommand_StartMining:
@@ -326,23 +567,23 @@ func runMinerAction(ctx context.Context, client gatewayClient, commandID, firmwa
 	case *pb.MinerCommand_Curtail:
 		level, err := toSDKCurtailLevel(a.Curtail.GetLevel())
 		if err != nil {
-			return nil, err
+			return nil, sdk.InvalidWriteRequest(err)
 		}
 		curtailer, ok := dev.(sdk.DeviceCurtailment)
 		if !ok {
-			return nil, sdk.NewErrUnsupportedCapability("curtailment")
+			return nil, sdk.UnsupportedWrite("curtailment")
 		}
 		return nil, curtailer.Curtail(ctx, sdk.CurtailRequest{Level: level})
 	case *pb.MinerCommand_Uncurtail:
 		curtailer, ok := dev.(sdk.DeviceCurtailment)
 		if !ok {
-			return nil, sdk.NewErrUnsupportedCapability("curtailment")
+			return nil, sdk.UnsupportedWrite("curtailment")
 		}
 		return nil, curtailer.Uncurtail(ctx, sdk.UncurtailRequest{})
 	case *pb.MinerCommand_SetCoolingMode:
 		mode, err := toSDKCoolingMode(a.SetCoolingMode.GetMode())
 		if err != nil {
-			return nil, err
+			return nil, sdk.InvalidWriteRequest(err)
 		}
 		return nil, dev.SetCoolingMode(ctx, mode)
 	case *pb.MinerCommand_GetCoolingMode:
@@ -354,11 +595,13 @@ func runMinerAction(ctx context.Context, client gatewayClient, commandID, firmwa
 	case *pb.MinerCommand_SetPowerTarget:
 		mode, err := toSDKPerformanceMode(a.SetPowerTarget.GetPerformanceMode())
 		if err != nil {
-			return nil, err
+			return nil, sdk.InvalidWriteRequest(err)
 		}
 		return nil, dev.SetPowerTarget(ctx, mode)
 	case *pb.MinerCommand_UpdateMiningPools:
-		return nil, dev.UpdateMiningPools(ctx, toSDKMiningPoolConfigs(a.UpdateMiningPools.GetPools()))
+		return nil, sdk.InvalidWriteRequest(cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "pool config must be decrypted before device execution"))
+	case *pb.MinerCommand_VerifyPoolsCleared:
+		return verifyPoolsClearedPayload(ctx, dev)
 	case *pb.MinerCommand_GetMiningPools:
 		pools, err := dev.GetMiningPools(ctx)
 		if err != nil {
@@ -392,11 +635,13 @@ func runMinerAction(ctx context.Context, client gatewayClient, commandID, firmwa
 		}
 		return nil, nil
 	case *pb.MinerCommand_FirmwareUpdate:
-		return nil, runFirmwareUpdateAction(ctx, client, commandID, mc.GetTarget().GetDeviceIdentifier(), firmwareTempRoot, dev, a.FirmwareUpdate.GetArtifact())
+		return nil, runFirmwareUpdateAction(ctx, client, commandID, mc.GetTarget().GetDeviceIdentifier(), firmwareTempRoot, dev, a.FirmwareUpdate)
 	case *pb.MinerCommand_GetFirmwareUpdateStatus:
 		return getFirmwareUpdateStatusResultPayload(ctx, dev)
+	case *pb.MinerCommand_FrigateUpdate:
+		return runFrigateUpdateAction(ctx, client, commandID, mc.GetTarget().GetDeviceIdentifier(), firmwareTempRoot, dev, a.FrigateUpdate)
 	default:
-		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "unrecognized miner command action")
+		return nil, sdk.InvalidWriteRequest(cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "unrecognized miner command action"))
 	}
 }
 
@@ -529,48 +774,73 @@ func updateMinerPasswordResultPayload(bundle sdk.SecretBundle, newPassword strin
 	return payload, nil
 }
 
-func runFirmwareUpdateAction(ctx context.Context, client gatewayClient, commandID, deviceIdentifier, firmwareTempRoot string, dev sdk.Device, ref *pb.CommandArtifactRef) error {
+func runFirmwareUpdateAction(ctx context.Context, client gatewayClient, commandID, deviceIdentifier, firmwareTempRoot string, dev sdk.Device, action *pb.FirmwareUpdateAction) error {
+	ref := action.GetArtifact()
 	if ref == nil {
 		return cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "firmware artifact is required")
 	}
-	if ref.GetPurpose() != pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD {
-		return cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "firmware artifact has wrong purpose: %s", ref.GetPurpose())
+	if err := checkCommandArtifact(ref, pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD, "firmware artifact"); err != nil {
+		return err
 	}
-	if ref.GetSizeBytes() <= 0 {
-		return cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "firmware artifact size is required")
-	}
-	if ref.GetSizeBytes() > maxFleetNodeFirmwareArtifactSizeBytes {
-		return cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "firmware artifact size %d exceeds fleet node limit %d", ref.GetSizeBytes(), maxFleetNodeFirmwareArtifactSizeBytes)
-	}
-	if client == nil {
-		return cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "fleet node gateway client is unavailable")
-	}
-	releaseDownload, ok := firmwareDownloadCapacity.acquire(ref.GetSizeBytes())
-	if !ok {
-		return cmdErr(pb.AckCode_ACK_CODE_BUSY, "firmware download capacity exhausted; retry shortly")
-	}
-	defer releaseDownload()
-
-	tmpPath, cleanup, err := downloadFirmwareArtifact(ctx, client, commandID, deviceIdentifier, firmwareTempRoot, ref)
+	file, done, err := openCommandArtifact(ctx, client, commandID, deviceIdentifier, firmwareTempRoot, ref)
 	if err != nil {
 		return err
 	}
-	defer cleanup()
-
-	file, err := os.Open(tmpPath)
-	if err != nil {
-		return fmt.Errorf("open downloaded firmware: %w", err)
-	}
-	defer file.Close()
+	defer done()
 
 	return dev.FirmwareUpdate(ctx, sdk.FirmwareFile{
-		Reader:   file,
-		ID:       ref.GetArtifactId(),
-		Filename: ref.GetFilename(),
-		Size:     ref.GetSizeBytes(),
-		SHA256:   ref.GetSha256(),
-		FilePath: tmpPath,
+		Reader:    file,
+		ID:        ref.GetArtifactId(),
+		Filename:  ref.GetFilename(),
+		Size:      ref.GetSizeBytes(),
+		SHA256:    ref.GetSha256(),
+		FilePath:  file.Name(),
+		RequestID: action.GetRequestId(),
 	})
+}
+
+// checkCommandArtifact applies the fleet node download limits to the artifact
+// of a command. name names the artifact in the error messages.
+func checkCommandArtifact(ref *pb.CommandArtifactRef, purpose pb.CommandArtifactPurpose, name string) error {
+	if ref.GetPurpose() != purpose {
+		return cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "%s has wrong purpose: %s", name, ref.GetPurpose())
+	}
+	if ref.GetSizeBytes() <= 0 {
+		return cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "%s size is required", name)
+	}
+	if ref.GetSizeBytes() > maxFleetNodeFirmwareArtifactSizeBytes {
+		return cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "%s size %d exceeds fleet node limit %d", name, ref.GetSizeBytes(), maxFleetNodeFirmwareArtifactSizeBytes)
+	}
+	return nil
+}
+
+// openCommandArtifact downloads a checked artifact into the firmware temporary
+// space and opens it. It holds download capacity until the caller calls done,
+// which also closes and removes the file.
+func openCommandArtifact(ctx context.Context, client gatewayClient, commandID, deviceIdentifier, firmwareTempRoot string, ref *pb.CommandArtifactRef) (*os.File, func(), error) {
+	if client == nil {
+		return nil, nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "fleet node gateway client is unavailable")
+	}
+	releaseDownload, ok := firmwareDownloadCapacity.acquire(ref.GetSizeBytes())
+	if !ok {
+		return nil, nil, cmdErr(pb.AckCode_ACK_CODE_BUSY, "firmware download capacity exhausted; retry shortly")
+	}
+	tmpPath, cleanup, err := downloadFirmwareArtifact(ctx, client, commandID, deviceIdentifier, firmwareTempRoot, ref)
+	if err != nil {
+		releaseDownload()
+		return nil, nil, err
+	}
+	file, err := os.Open(tmpPath)
+	if err != nil {
+		cleanup()
+		releaseDownload()
+		return nil, nil, fmt.Errorf("open downloaded firmware: %w", err)
+	}
+	return file, func() {
+		_ = file.Close()
+		cleanup()
+		releaseDownload()
+	}, nil
 }
 
 type firmwareDownloadLimiter struct {
@@ -743,13 +1013,14 @@ func commandArtifactRefsEqual(a, b *pb.CommandArtifactRef) bool {
 		a.GetSha256() == b.GetSha256()
 }
 
-func toSDKMiningPoolConfigs(pools []*pb.MiningPoolConfig) []sdk.MiningPoolConfig {
+func toSDKMiningPoolConfigs(pools []*pb.MiningPoolWriteConfig) []sdk.MiningPoolConfig {
 	sdkPools := make([]sdk.MiningPoolConfig, 0, len(pools))
 	for _, pool := range pools {
 		sdkPools = append(sdkPools, sdk.MiningPoolConfig{
 			Priority:   pool.GetPriority(),
 			URL:        pool.GetUrl(),
 			WorkerName: pool.GetUsername(),
+			Password:   pool.GetPassword(),
 		})
 	}
 	return sdkPools
@@ -886,7 +1157,7 @@ func getErrorsResultPayload(targetDeviceID string, deviceErrors sdk.DeviceErrors
 	if err != nil {
 		return nil, fmt.Errorf("marshal get errors result: %w", err)
 	}
-	if len(payload) <= maxAckPayloadBytes {
+	if len(payload) <= maxCommandResultPayloadBytes {
 		return payload, nil
 	}
 	return truncateGetErrorsResultPayload(result)
@@ -948,7 +1219,7 @@ func truncateGetErrorsResultPayload(result *pb.GetErrorsResult) ([]byte, error) 
 		if err != nil {
 			return nil, fmt.Errorf("marshal truncated get errors result: %w", err)
 		}
-		if len(payload) <= maxAckPayloadBytes {
+		if len(payload) <= maxCommandResultPayloadBytes {
 			best = payload
 			low = mid + 1
 			continue
@@ -965,7 +1236,7 @@ func truncateGetErrorsResultPayload(result *pb.GetErrorsResult) ([]byte, error) 
 		if err != nil {
 			return nil, fmt.Errorf("marshal empty get errors result: %w", err)
 		}
-		if len(payload) > maxAckPayloadBytes {
+		if len(payload) > maxCommandResultPayloadBytes {
 			return nil, cmdErr(pb.AckCode_ACK_CODE_PARTIAL, "get errors result metadata exceeds ack payload limit")
 		}
 		return payload, nil
@@ -1054,6 +1325,12 @@ func classifyMinerCommandError(stage string, err error) (pb.AckCode, string) {
 
 func classifyMinerActionError(stage string, mc *pb.MinerCommand, err error) (pb.AckCode, string) {
 	code, msg := classifyMinerCommandError(stage, err)
+	// A controller's refusal of a feed write keeps its reason, worded as the
+	// server words a refusal from a directly connected controller.
+	if st, ok := grpcstatus.FromError(err); ok && code == pb.AckCode_ACK_CODE_INTERNAL && mc.GetContainerPowerFeed() != nil &&
+		st.Code() == codes.FailedPrecondition && sdk.WriteEvidence(err).GetReason() == sdk.WriteNotDispatched {
+		return pb.AckCode_ACK_CODE_FAILED_PRECONDITION, "container power feed: " + st.Message()
+	}
 	if code != pb.AckCode_ACK_CODE_INTERNAL || mc.GetUpdateMinerPassword() == nil {
 		return code, msg
 	}
@@ -1061,4 +1338,47 @@ func classifyMinerActionError(stage string, mc *pb.MinerCommand, err error) (pb.
 		return pb.AckCode_ACK_CODE_UNAUTHENTICATED, msg
 	}
 	return code, msg
+}
+
+// This observation must never use the ordinary gateway pool projection: that
+// projection truncates slots and intentionally omits private stored credentials.
+func verifyPoolsClearedPayload(ctx context.Context, dev sdk.Device) ([]byte, error) {
+	reader, ok := dev.(sdk.DeviceStoredPoolReader)
+	if !ok {
+		return nil, sdk.NewErrUnsupportedCapability("complete stored pool readback")
+	}
+	stored, err := reader.GetStoredMiningPools(ctx)
+	if err != nil {
+		return nil, poolClearingObservationError(err)
+	}
+	runtime, err := dev.GetMiningPools(ctx)
+	if err != nil {
+		return nil, poolClearingObservationError(err)
+	}
+	cleared := true
+	for _, pool := range stored {
+		if pool.URL != "" || pool.Username != "" || pool.Password != nil && *pool.Password != "" {
+			cleared = false
+			continue
+		}
+		if pool.Password == nil {
+			return nil, cmdErr(pb.AckCode_ACK_CODE_INTERNAL, "stored pool credentials could not be verified")
+		}
+	}
+	for _, pool := range runtime {
+		if pool.URL != "" || pool.Username != "" {
+			cleared = false
+		}
+	}
+	payload, err := proto.Marshal(&pb.VerifyPoolsClearedResult{Cleared: &cleared})
+	if err != nil {
+		return nil, fmt.Errorf("marshal pool clearing observation: %w", err)
+	}
+	return payload, nil
+}
+
+func poolClearingObservationError(err error) error {
+	// Driver errors can echo credentials. Preserve classification, never text.
+	code, _ := classifyMinerCommandError("pool clearing observation", err)
+	return cmdErr(code, "complete pool clearing observation is unavailable")
 }

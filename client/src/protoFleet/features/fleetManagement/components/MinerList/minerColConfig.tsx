@@ -1,5 +1,5 @@
 import type { MutableRefObject } from "react";
-import { minerCols, type MinerColumn } from "./constants";
+import { minerCols, type MinerColumn, miningColumnWidths } from "./constants";
 import MinerEfficiency from "./MinerEfficiency";
 import MinerFirmware from "./MinerFirmware";
 import MinerGroups from "./MinerGroups";
@@ -22,6 +22,7 @@ import {
   getMinerRackLabel,
   getMinerSiteLabel,
 } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
+import { PoolConfigurationCell } from "@/protoFleet/features/poolConfigurations/PoolConfigurationCell";
 import { type ColConfig } from "@/shared/components/List/types";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 
@@ -83,7 +84,12 @@ const createMinerColConfig = ({
         />
       );
     },
-    width: "w-[208px]",
+    width: miningColumnWidths.name,
+  },
+  [minerCols.poolConfiguration]: {
+    component: (device: DeviceListItem) => <PoolConfigurationCell deviceIdentifier={device.miner.deviceIdentifier} />,
+    width: miningColumnWidths.poolConfiguration,
+    allowWrap: true,
   },
   [minerCols.workerName]: {
     component: (device: DeviceListItem) => <MinerWorkerName miner={device.miner} />,
@@ -92,7 +98,7 @@ const createMinerColConfig = ({
   },
   [minerCols.model]: {
     component: (device: DeviceListItem) => <MinerModel miner={device.miner} />,
-    width: "w-[176px]",
+    width: miningColumnWidths.model,
   },
   [minerCols.macAddress]: {
     component: (device: DeviceListItem) => <MinerMacAddress miner={device.miner} />,
@@ -111,7 +117,7 @@ const createMinerColConfig = ({
         isRefreshing={device.isRefreshing}
       />
     ),
-    width: "w-[200px]",
+    width: miningColumnWidths.status,
   },
   [minerCols.issues]: {
     component: (device: DeviceListItem) => (
@@ -122,22 +128,22 @@ const createMinerColConfig = ({
   [minerCols.hashrate]: {
     component: (device: DeviceListItem) =>
       device.isRefreshing ? <SkeletonBar className="w-full pr-10" /> : <MinerHashrate miner={device.miner} />,
-    width: "w-[80px]",
+    width: miningColumnWidths.hashrate,
   },
   [minerCols.efficiency]: {
     component: (device: DeviceListItem) =>
       device.isRefreshing ? <SkeletonBar className="w-full pr-10" /> : <MinerEfficiency miner={device.miner} />,
-    width: "w-[80px]",
+    width: miningColumnWidths.efficiency,
   },
   [minerCols.powerUsage]: {
     component: (device: DeviceListItem) =>
       device.isRefreshing ? <SkeletonBar className="w-full pr-10" /> : <MinerPowerUsage miner={device.miner} />,
-    width: "w-[80px]",
+    width: miningColumnWidths.powerUsage,
   },
   [minerCols.temperature]: {
     component: (device: DeviceListItem) =>
       device.isRefreshing ? <SkeletonBar className="w-full pr-10" /> : <MinerTemperature miner={device.miner} />,
-    width: "w-[80px]",
+    width: miningColumnWidths.temperature,
   },
   [minerCols.firmware]: {
     component: (device: DeviceListItem) => (
@@ -154,7 +160,7 @@ const createMinerColConfig = ({
   },
   [minerCols.site]: {
     component: (device: DeviceListItem) => renderPlacementLabel(getMinerSiteLabel(device.miner)),
-    width: "w-[160px]",
+    width: miningColumnWidths.site,
   },
   [minerCols.building]: {
     component: (device: DeviceListItem) => renderPlacementLabel(getMinerBuildingLabel(device.miner)),

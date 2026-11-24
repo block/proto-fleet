@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1/poolconfigurationsv1connect"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/generated/grpc/activity/v1/activityv1connect"
@@ -20,23 +22,28 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/authz/v1/authzv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/buildings/v1/buildingsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/collection/v1/collectionv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/containers/v1/containersv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/device_set/v1/device_setv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/errors/v1/errorsv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/fleetinventory/v1/fleetinventoryv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/frigateupdate/v1/frigateupdatev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/hosted/v1/hostedv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/inventory/v1/inventoryv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/invitation/v1/invitationv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/maintenance/v1/maintenancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/marketdata/v1/marketdatav1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/mininggroups/v1/mininggroupsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
-	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/rollout/v1/rolloutv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
@@ -73,9 +80,14 @@ var registeredServices = []struct {
 	{activityv1connect.ActivityServiceName, reflect.TypeOf((*activityv1connect.ActivityServiceHandler)(nil)).Elem()},
 	{apikeyv1connect.ApiKeyServiceName, reflect.TypeOf((*apikeyv1connect.ApiKeyServiceHandler)(nil)).Elem()},
 	{authv1connect.AuthServiceName, reflect.TypeOf((*authv1connect.AuthServiceHandler)(nil)).Elem()},
+	{hostedv1connect.HostedAccountServiceName, reflect.TypeOf((*hostedv1connect.HostedAccountServiceHandler)(nil)).Elem()},
 	{authzv1connect.AuthzServiceName, reflect.TypeOf((*authzv1connect.AuthzServiceHandler)(nil)).Elem()},
 	{buildingsv1connect.BuildingServiceName, reflect.TypeOf((*buildingsv1connect.BuildingServiceHandler)(nil)).Elem()},
 	{collectionv1connect.DeviceCollectionServiceName, reflect.TypeOf((*collectionv1connect.DeviceCollectionServiceHandler)(nil)).Elem()},
+	{containersv1connect.ContainerServiceName, reflect.TypeOf((*containersv1connect.ContainerServiceHandler)(nil)).Elem()},
+	{mininggroupsv1connect.MiningGroupServiceName, reflect.TypeOf((*mininggroupsv1connect.MiningGroupServiceHandler)(nil)).Elem()},
+	{frigateupdatev1connect.FrigateUpdateServiceName, reflect.TypeOf((*frigateupdatev1connect.FrigateUpdateServiceHandler)(nil)).Elem()},
+	{fleetinventoryv1connect.FleetInventoryServiceName, reflect.TypeOf((*fleetinventoryv1connect.FleetInventoryServiceHandler)(nil)).Elem()},
 	{curtailmentv1connect.CurtailmentServiceName, reflect.TypeOf((*curtailmentv1connect.CurtailmentServiceHandler)(nil)).Elem()},
 	{device_setv1connect.DeviceSetServiceName, reflect.TypeOf((*device_setv1connect.DeviceSetServiceHandler)(nil)).Elem()},
 	{errorsv1connect.ErrorQueryServiceName, reflect.TypeOf((*errorsv1connect.ErrorQueryServiceHandler)(nil)).Elem()},
@@ -93,7 +105,7 @@ var registeredServices = []struct {
 	{alertsv1connect.HistoryServiceName, reflect.TypeOf((*alertsv1connect.HistoryServiceHandler)(nil)).Elem()},
 	{onboardingv1connect.OnboardingServiceName, reflect.TypeOf((*onboardingv1connect.OnboardingServiceHandler)(nil)).Elem()},
 	{pairingv1connect.PairingServiceName, reflect.TypeOf((*pairingv1connect.PairingServiceHandler)(nil)).Elem()},
-	{poolsv1connect.PoolsServiceName, reflect.TypeOf((*poolsv1connect.PoolsServiceHandler)(nil)).Elem()},
+	{poolconfigurationsv1connect.PoolConfigurationServiceName, reflect.TypeOf((*poolconfigurationsv1connect.PoolConfigurationServiceHandler)(nil)).Elem()},
 	{rolloutv1connect.RolloutServiceName, reflect.TypeOf((*rolloutv1connect.RolloutServiceHandler)(nil)).Elem()},
 	{schedulev1connect.ScheduleServiceName, reflect.TypeOf((*schedulev1connect.ScheduleServiceHandler)(nil)).Elem()},
 	{serverlogv1connect.ServerLogServiceName, reflect.TypeOf((*serverlogv1connect.ServerLogServiceHandler)(nil)).Elem()},
@@ -103,6 +115,7 @@ var registeredServices = []struct {
 	{instancev1connect.InstanceUpdateServiceName, reflect.TypeOf((*instancev1connect.InstanceUpdateServiceHandler)(nil)).Elem()},
 	{maintenancev1connect.MaintenanceServiceName, reflect.TypeOf((*maintenancev1connect.MaintenanceServiceHandler)(nil)).Elem()},
 	{inventoryv1connect.InventoryServiceName, reflect.TypeOf((*inventoryv1connect.InventoryServiceHandler)(nil)).Elem()},
+	{invitationv1connect.InvitationServiceName, reflect.TypeOf((*invitationv1connect.InvitationServiceHandler)(nil)).Elem()},
 }
 
 func allRegisteredProcedures() []string {
@@ -150,6 +163,11 @@ func TestRPCContract_EveryRegisteredProcedureIsClassified(t *testing.T) {
 	add("FleetNodeAuthenticatedProcedures", interceptors.FleetNodeAuthenticatedProcedures)
 	addMap("ProcedurePermissions", middleware.ProcedurePermissions)
 	addMap("ProceduresPendingMigration", middleware.ProceduresPendingMigration)
+	accountProcedures := make([]string, 0, len(middleware.AccountProcedureCapabilities))
+	for procedure := range middleware.AccountProcedureCapabilities {
+		accountProcedures = append(accountProcedures, procedure)
+	}
+	add("AccountProcedureCapabilities", accountProcedures)
 
 	procedures := allRegisteredProcedures()
 	// Guard against silent pass when reflection finds nothing — e.g.
@@ -276,4 +294,9 @@ func locateMainGo(t *testing.T) string {
 	_, err := os.Stat(mainPath)
 	require.NoError(t, err, "expected main.go at %s", mainPath)
 	return mainPath
+}
+
+func TestRPCContract_ConfigurationReviewRequiresReadPermission(t *testing.T) {
+	// Equipment authority is checked against the resolved targets by the domain service.
+	require.Equal(t, authz.PermPoolRead, middleware.ProcedurePermissions[poolconfigurationsv1connect.PoolConfigurationServiceReviewAssignmentProcedure])
 }

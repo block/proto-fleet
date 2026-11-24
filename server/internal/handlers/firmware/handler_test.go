@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/block/proto-fleet/sdk/mdk/firmware/firmwaretest"
+	"github.com/block/proto-fleet/sdk/mdk/psucap/psucaptest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -107,7 +109,7 @@ func newTestEnv(t *testing.T) *testEnv {
 }
 
 func (e *testEnv) authenticator() RequestAuthenticator {
-	return interceptors.NewAuthInterceptor(e.sessionSvc, e.userStoreMock, e.userMgmtStoreMock, nil, e.permissionResolver, nil, nil, nil)
+	return interceptors.NewAuthInterceptor(e.sessionSvc, e.userStoreMock, e.userMgmtStoreMock, nil, e.permissionResolver, nil, nil, nil, nil)
 }
 
 // expectAuth sets up expectations for a successful authentication flow.
@@ -342,18 +344,6 @@ func TestUploadHandler_RejectsInvalidSession(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, rr.Code)
 }
 
-func TestUploadHandler_RejectsInvalidExtension(t *testing.T) {
-	env := newTestEnv(t)
-	env.expectAuth()
-	req := createMultipartRequest(t, "firmware.bin", []byte("data"), validSessionCookie(env.sessionID))
-	rr := httptest.NewRecorder()
-
-	env.uploadHandler().ServeHTTP(rr, req)
-
-	assert.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "unsupported firmware file type")
-}
-
 func TestUploadHandler_RejectsInvalidExtensionBeforeOversizedFile(t *testing.T) {
 	env := newTestEnv(t)
 	env.expectAuth()
@@ -371,7 +361,7 @@ func TestUploadHandler_RejectsInvalidExtensionBeforeOversizedFile(t *testing.T) 
 	env.uploadHandler().ServeHTTP(rr, req)
 
 	assertJSONErrorResponse(t, rr, http.StatusBadRequest,
-		`FleetError: invalid_argument (Common: 0) unsupported firmware file type "firmware.bin" (allowed: .swu, .tar.gz, .zip)`)
+		`FleetError: invalid_argument (Common: 0) unsupported firmware file type "firmware.bin" (allowed: .psucap, .swu, .tar.gz, .zip)`)
 }
 
 func TestUploadHandler_RejectsCompleteInvalidMetadataBeforeStaging(t *testing.T) {
@@ -517,17 +507,75 @@ func TestUploadHandler_LogsNewFirmwareActivity(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rr.Code)
 }
 
-func TestUploadHandler_SuccessfulUploadTarGz(t *testing.T) {
+func TestUploadHandler_LogsCT1HashboardBuildActivity(t *testing.T) {
 	env := newTestEnv(t)
 	env.expectAuth()
-	content := []byte("fake tar.gz firmware")
-	req := createMultipartRequest(t, "upgrade.tar.gz", content, validSessionCookie(env.sessionID))
+	archivePath := firmwaretest.Archive(t, map[string][]byte{"dev.bin": firmwaretest.Image(t, "dev", "f1", 2)})
+	archive, err := os.ReadFile(archivePath)
+	require.NoError(t, err)
+	activityStore := storeMocks.NewMockActivityStore(env.ctrl)
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, event *activityModels.Event) error {
+			assert.Equal(t, "hashboard-firmware-2.0.0.zip", event.Metadata["filename"])
+			assert.Equal(t, "hashboard-firmware-2.0.0-dev.zip", event.Metadata["stored_filename"])
+			assert.Equal(t, "dev", event.Metadata["hashboard_build"])
+			assert.Equal(t, "2.0.0", event.Metadata["firmware_version"])
+			return nil
+		},
+	)
+	h := env.uploadHandler()
+	h.activitySvc = activityDomain.NewService(activityStore)
+	req := createMultipartRequestWithFields(t, "hashboard-firmware-2.0.0.zip", archive, validSessionCookie(env.sessionID), map[string]string{
+		"target_manufacturer": "Proto", "target_model": "CT1", "firmware_version": "v2.0.0", "hashboard_build": "dev",
+	})
 	rr := httptest.NewRecorder()
 
-	env.uploadHandler().ServeHTTP(rr, req)
+	h.ServeHTTP(rr, req)
 
-	assert.Equal(t, http.StatusOK, rr.Code)
-	assert.Contains(t, rr.Body.String(), "firmware_file_id")
+	assert.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+}
+
+func TestUploadHandler_StoresCT1PSUCapsule(t *testing.T) {
+	capsule, err := psucaptest.Build(psucaptest.Options{})
+	require.NoError(t, err)
+	fields := map[string]string{"target_manufacturer": "Proto", "target_model": "CT1", "firmware_version": "app=1410;bl=1110", "component": "psu"}
+	for name, fileFirst := range map[string]bool{"fields first": false, "file first": true} {
+		t.Run(name, func(t *testing.T) {
+			env := newTestEnv(t)
+			env.expectAuth()
+			activityStore := storeMocks.NewMockActivityStore(env.ctrl)
+			activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, event *activityModels.Event) error {
+					assert.Equal(t, "psu", event.Metadata["component"])
+					assert.Equal(t, "boco.psucap", event.Metadata["filename"])
+					assert.Regexp(t, `^psu-firmware-boco-HA1200000-[0-9a-f]{12}\.psucap$`, event.Metadata["stored_filename"])
+					assert.Equal(t, "app=1410;bl=1110", event.Metadata["firmware_version"])
+					assert.NotContains(t, event.Metadata, "hashboard_build")
+					return nil
+				},
+			)
+			h := env.uploadHandler()
+			h.activitySvc = activityDomain.NewService(activityStore)
+			rr := httptest.NewRecorder()
+
+			h.ServeHTTP(rr, buildMultipartRequest(t, "boco.psucap", capsule, validSessionCookie(env.sessionID), fields, fileFirst))
+
+			assert.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+		})
+	}
+
+	t.Run("a capsule is not hashboard firmware", func(t *testing.T) {
+		env := newTestEnv(t)
+		env.expectAuth()
+		rr := httptest.NewRecorder()
+
+		env.uploadHandler().ServeHTTP(rr, createMultipartRequestWithFields(t, "boco.psucap", capsule, validSessionCookie(env.sessionID), map[string]string{
+			"target_manufacturer": "Proto", "target_model": "CT1", "firmware_version": "2.0.0", "hashboard_build": "prod",
+		}))
+
+		assert.Equal(t, http.StatusBadRequest, rr.Code)
+		assert.Contains(t, rr.Body.String(), "must be uploaded for Proto CT1 with component psu")
+	})
 }
 
 func TestUploadHandler_RejectsOversizedBody(t *testing.T) {
@@ -543,7 +591,8 @@ func TestUploadHandler_RejectsOversizedBody(t *testing.T) {
 
 	h.ServeHTTP(rr, req)
 
-	assert.NotEqual(t, http.StatusOK, rr.Code)
+	assertJSONErrorResponse(t, rr, http.StatusBadRequest,
+		"FleetError: invalid_argument (Common: 0) firmware file too large: exceeded 50 byte limit during upload")
 }
 
 // --- Check handler tests ---
@@ -732,7 +781,7 @@ func TestConfigHandler_ReturnsConfigOnSuccess(t *testing.T) {
 	err := json.Unmarshal(rr.Body.Bytes(), &resp)
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{".swu", ".tar.gz", ".zip"}, resp.AllowedExtensions)
+	assert.Equal(t, []string{".swu", ".tar.gz", ".zip", ".psucap"}, resp.AllowedExtensions)
 	assert.Equal(t, int64(500*1024*1024), resp.MaxFileSizeBytes)
 	assert.Equal(t, int64(32*1024*1024), resp.ChunkSizeBytes)
 }

@@ -109,23 +109,11 @@ func checkControlPath(ctx context.Context, envPath string, report StatusReport, 
 	if !config.isDatabaseNode() {
 		return StatusReport{}, errors.New("HA control check must run on ha-a or ha-b")
 	}
-	tlsConfig, err := ha.LoadServiceTLS(filepath.Join(config.SecretsDir, "service-ca.crt"))
+	etcdConfig, err := fleetObserverEtcdConfig(config)
 	if err != nil {
 		return StatusReport{}, err
 	}
-	password, err := readPassword(filepath.Join(config.SecretsDir, fleetEtcdPasswordFile))
-	if err != nil {
-		return StatusReport{}, fmt.Errorf("read Fleet etcd password: %w", err)
-	}
-	endpoints := []string{
-		"https://" + config.DatabaseAIP + ":2379",
-		"https://" + config.DatabaseBIP + ":2379",
-		"https://" + config.WitnessIP + ":2379",
-	}
-	etcdConfig := clientv3.Config{
-		Endpoints: endpoints, Username: "fleet-observer", Password: password,
-		TLS: tlsConfig.Clone(), DialTimeout: 2 * time.Second,
-	}
+	tlsConfig := etcdConfig.TLS
 
 	var (
 		etcdStatus         etcdReadiness
@@ -382,23 +370,31 @@ func matchingFleetVersions(statuses []fleetHostStatus) bool {
 	return len(statuses) == 2 && statuses[0].version != "" && statuses[0].version == statuses[1].version
 }
 
+func fleetObserverEtcdConfig(config NodeConfig) (clientv3.Config, error) {
+	tlsConfig, err := ha.LoadServiceTLS(filepath.Join(config.SecretsDir, "service-ca.crt"))
+	if err != nil {
+		return clientv3.Config{}, err
+	}
+	password, err := readPassword(filepath.Join(config.SecretsDir, fleetEtcdPasswordFile))
+	if err != nil {
+		return clientv3.Config{}, fmt.Errorf("read Fleet etcd password: %w", err)
+	}
+	endpoints := []string{
+		"https://" + config.DatabaseAIP + ":2379",
+		"https://" + config.DatabaseBIP + ":2379",
+		"https://" + config.WitnessIP + ":2379",
+	}
+	return clientv3.Config{
+		Endpoints: endpoints, Username: "fleet-observer", Password: password,
+		TLS: tlsConfig, DialTimeout: 2 * time.Second,
+	}, nil
+}
+
 func writerObservationReady(ctx context.Context, etcdConfig clientv3.Config, config NodeConfig, conn *sql.DB) bool {
 	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if conn == nil {
-		values, err := loadFleetEnvironment(filepath.Join(config.SecretsDir, fleetEnvironmentFile))
-		if err != nil {
-			return false
-		}
-		dsn, err := hostProbeDSN(values["DB_DSN"], config.SecretsDir)
-		if err != nil {
-			return false
-		}
-		opened, err := db.ConnectToDatabase(&db.Config{
-			ExplicitDSN:  dsn,
-			MaxOpenConns: 1,
-			MaxIdleConns: 1,
-		})
+		opened, err := openWriterProbeDatabase(config)
 		if err != nil {
 			return false
 		}
@@ -410,23 +406,48 @@ func writerObservationReady(ctx context.Context, etcdConfig clientv3.Config, con
 		return false
 	}
 	defer pinned.Close()
-	queries := sqlc.New(pinned)
+	observer, closeObserver, err := newDeploymentWriterObserver(etcdConfig, sqlc.New(pinned))
+	if err != nil {
+		return false
+	}
+	defer closeObserver()
+	_, err = observer.Observe(probeCtx)
+	return err == nil
+}
+
+func openWriterProbeDatabase(config NodeConfig) (*sql.DB, error) {
+	values, err := loadFleetEnvironment(filepath.Join(config.SecretsDir, fleetEnvironmentFile))
+	if err != nil {
+		return nil, err
+	}
+	dsn, err := hostProbeDSN(values["DB_DSN"], config.SecretsDir)
+	if err != nil {
+		return nil, err
+	}
+	return db.ConnectToDatabase(&db.Config{
+		ExplicitDSN: dsn, MaxOpenConns: 1, MaxIdleConns: 1,
+	})
+}
+
+func newDeploymentWriterObserver(etcdConfig clientv3.Config, queries sqlc.Querier) (*ha.Observer, func(), error) {
 	if etcdConfig.TLS != nil {
 		etcdConfig.TLS = etcdConfig.TLS.Clone()
 	}
 	etcd, err := ha.NewEtcdClient(etcdConfig)
 	if err != nil {
-		return false
+		return nil, nil, err
 	}
-	defer etcd.Close()
 	client, cleanup := newProbeHTTPClient(etcdConfig.TLS, nil)
-	defer cleanup()
-	observer, err := ha.NewObserver("/service/proto-fleet", etcd, queries, ha.NewPatroniHTTPClient(client))
-	if err != nil {
-		return false
+	closeObserver := func() {
+		cleanup()
+		_ = etcd.Close()
 	}
-	_, err = observer.Observe(probeCtx)
-	return err == nil
+	observer, err := ha.NewObserver(patroniDCSPath, etcd, queries, ha.NewPatroniHTTPClient(client))
+	if err != nil {
+		closeObserver()
+		return nil, nil, err
+	}
+	return observer, closeObserver, nil
 }
 
 func hostProbeDSN(raw, secretsDir string) (string, error) {

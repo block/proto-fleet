@@ -2,6 +2,9 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useFirmwareUpload } from "./useFirmwareUpload";
 
+// The default poll interval is 50 ms. That interval is most of the run time of this file.
+const waitFor = (callback: () => void) => vi.waitFor(callback, { interval: 1 });
+
 const mockGetConfig = vi.fn();
 const mockCheckFirmwareFile = vi.fn();
 const mockUploadFirmwareFile = vi.fn();
@@ -56,7 +59,7 @@ describe("useFirmwareUpload", () => {
     it("fetches config when active", async () => {
       const { result } = renderHook(() => useFirmwareUpload(true));
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(result.current.serverConfig).toEqual(defaultConfig);
       });
       expect(result.current.state).toBe("idle");
@@ -67,7 +70,7 @@ describe("useFirmwareUpload", () => {
 
       const { result } = renderHook(() => useFirmwareUpload(true));
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(result.current.state).toBe("error");
       });
       expect(result.current.errorMessage).toBe("Network error");
@@ -79,7 +82,7 @@ describe("useFirmwareUpload", () => {
 
       const { result } = renderHook(() => useFirmwareUpload(true));
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(result.current.state).toBe("error");
       });
 
@@ -89,7 +92,7 @@ describe("useFirmwareUpload", () => {
         result.current.retry();
       });
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(result.current.serverConfig).toEqual(defaultConfig);
       });
       expect(result.current.state).toBe("idle");
@@ -102,7 +105,7 @@ describe("useFirmwareUpload", () => {
     it("completes upload when file does not exist on server", async () => {
       const { result } = renderHook(() => useFirmwareUpload(true));
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(result.current.serverConfig).not.toBeNull();
       });
 
@@ -112,7 +115,7 @@ describe("useFirmwareUpload", () => {
         result.current.processFile(file, firmwareTarget);
       });
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(result.current.state).toBe("ready");
       });
       expect(result.current.firmwareFileId).toBe("fw-new-id");
@@ -125,7 +128,7 @@ describe("useFirmwareUpload", () => {
 
       const { result } = renderHook(() => useFirmwareUpload(true));
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(result.current.serverConfig).not.toBeNull();
       });
 
@@ -135,7 +138,7 @@ describe("useFirmwareUpload", () => {
         result.current.processFile(file, firmwareTarget);
       });
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(result.current.state).toBe("ready");
       });
       expect(result.current.firmwareFileId).toBe("fw-existing");
@@ -145,7 +148,7 @@ describe("useFirmwareUpload", () => {
     it("sets error state when target metadata is incomplete", async () => {
       const { result } = renderHook(() => useFirmwareUpload(true));
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(result.current.serverConfig).not.toBeNull();
       });
 
@@ -155,7 +158,7 @@ describe("useFirmwareUpload", () => {
         result.current.processFile(file, { targetManufacturer: "", targetModel: "", firmwareVersion: "" });
       });
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(result.current.state).toBe("error");
       });
       expect(result.current.errorMessage).toBe("Manufacturer, model, and firmware version are required.");
@@ -175,7 +178,7 @@ describe("useFirmwareUpload", () => {
         result.current.processFile(new File(["data"], "firmware.swu"), firmwareTarget);
       });
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(result.current.state).toBe("ready");
       });
       expect(result.current.firmwareFileId).toBe("fw-new-id");
@@ -187,7 +190,7 @@ describe("useFirmwareUpload", () => {
 
       const { result } = renderHook(() => useFirmwareUpload(true));
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(result.current.serverConfig).not.toBeNull();
       });
 
@@ -195,7 +198,7 @@ describe("useFirmwareUpload", () => {
         result.current.processFile(new File(["data"], "firmware.swu"), firmwareTarget);
       });
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(result.current.state).toBe("error");
       });
       expect(result.current.errorMessage).toBe("Check failed");
@@ -210,7 +213,7 @@ describe("useFirmwareUpload", () => {
 
       const { result } = renderHook(() => useFirmwareUpload(true));
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(result.current.serverConfig).not.toBeNull();
       });
 
@@ -218,7 +221,7 @@ describe("useFirmwareUpload", () => {
         result.current.processFile(new File(["data"], "first.swu"), firmwareTarget);
       });
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(result.current.state).toBe("uploading");
       });
 
@@ -226,7 +229,7 @@ describe("useFirmwareUpload", () => {
         result.current.processFile(new File(["data"], "second.swu"), firmwareTarget);
       });
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(result.current.state).toBe("ready");
       });
 
@@ -243,7 +246,7 @@ describe("useFirmwareUpload", () => {
 
       const { result } = renderHook(() => useFirmwareUpload(true));
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(result.current.serverConfig).not.toBeNull();
       });
 
@@ -251,7 +254,7 @@ describe("useFirmwareUpload", () => {
         result.current.processFile(new File(["data"], "firmware.swu"), firmwareTarget);
       });
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(result.current.state).toBe("error");
       });
       expect(result.current.errorMessage).toBe("Upload failed");
@@ -263,7 +266,7 @@ describe("useFirmwareUpload", () => {
 
       const { result } = renderHook(() => useFirmwareUpload(true));
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(result.current.serverConfig).not.toBeNull();
       });
 
@@ -271,7 +274,7 @@ describe("useFirmwareUpload", () => {
         result.current.processFile(new File(["data"], "firmware.bin"), firmwareTarget);
       });
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(result.current.state).toBe("error");
       });
       expect(result.current.errorMessage).toBe("Unsupported file type");
@@ -284,7 +287,7 @@ describe("useFirmwareUpload", () => {
 
       const { result } = renderHook(() => useFirmwareUpload(true));
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(result.current.serverConfig).not.toBeNull();
       });
 
@@ -292,7 +295,7 @@ describe("useFirmwareUpload", () => {
         result.current.processFile(new File(["data"], "firmware.swu"), firmwareTarget);
       });
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(result.current.state).toBe("error");
       });
 
@@ -317,7 +320,7 @@ describe("useFirmwareUpload", () => {
         initialProps: { active: true },
       });
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(result.current.serverConfig).not.toBeNull();
       });
 
@@ -325,7 +328,7 @@ describe("useFirmwareUpload", () => {
         result.current.processFile(new File(["data"], "firmware.swu"), firmwareTarget);
       });
 
-      await vi.waitFor(() => {
+      await waitFor(() => {
         expect(result.current.state).toBe("uploading");
       });
 

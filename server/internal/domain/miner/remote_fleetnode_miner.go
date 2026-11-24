@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
+
 	"buf.build/go/protovalidate"
 	"connectrpc.com/connect"
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
@@ -39,11 +41,21 @@ const (
 
 var remoteTelemetryDefaultCommandTimeout = 5 * time.Second
 
+// A retry must leave the node most of its usual 4s fetch budget plus ack slack.
+// With less, a slow but healthy device would fail the retry where a requeue
+// gets the full budget next cycle.
+var remoteTelemetryBusyRetryMinRemaining = 3*time.Second + remoteTelemetryAckSlack
+
 var _ interfaces.Miner = (*RemoteFleetNodeMiner)(nil)
+var _ interfaces.PoolClearVerifier = (*RemoteFleetNodeMiner)(nil)
 var _ interfaces.FirmwareUpdateStatusProvider = (*RemoteFleetNodeMiner)(nil)
 var _ interfaces.MinerCurtailmentConfigurator = (*RemoteFleetNodeMiner)(nil)
 
 type remoteTelemetryRoute struct {
+	endpoints          []*commonpb.DeviceEndpoint
+	rpcPort            int32
+	rpcTLS             bool
+	deviceClass        commonpb.DeviceClass
 	fleetNodeID        int64
 	orgID              int64
 	siteID             int64
@@ -79,7 +91,13 @@ type RemoteFleetNodeMiner struct {
 }
 
 func (s *Service) remoteRouteFromRow(row sqlc.GetFleetNodeTelemetryRouteByDeviceIdentifierRow) (remoteTelemetryRoute, error) {
+	controllers, err := deviceendpoints.Decode([]byte(row.Endpoints))
+	if err != nil {
+		return remoteTelemetryRoute{}, err
+	}
 	return remoteTelemetryRoute{
+		endpoints:          controllers,
+		deviceClass:        commonpb.DeviceClass(row.DeviceClass),
 		fleetNodeID:        row.FleetNodeID,
 		orgID:              row.OrgID,
 		siteID:             row.SiteID.Int64,
@@ -93,6 +111,8 @@ func (s *Service) remoteRouteFromRow(row sqlc.GetFleetNodeTelemetryRouteByDevice
 		ipAddress:          row.IpAddress,
 		port:               row.Port,
 		urlScheme:          row.UrlScheme,
+		rpcPort:            row.RpcPort,
+		rpcTLS:             row.RpcTls,
 		credentialUsername: fleetNodeCredentialBytes(row.UsernameEnc),
 		credentialPassword: fleetNodeCredentialBytes(row.PasswordEnc),
 	}, nil
@@ -146,17 +166,13 @@ func (m *RemoteFleetNodeMiner) GetWebViewURL() *url.URL {
 }
 
 func (m *RemoteFleetNodeMiner) GetDeviceMetrics(ctx context.Context) (modelsV2.DeviceMetrics, error) {
-	result, err := m.fetchTelemetry(ctx)
+	requestStartedAt := m.now()
+	result, decodedMetrics, err := m.fetchTelemetry(ctx)
 	if err != nil {
 		return modelsV2.DeviceMetrics{}, err
 	}
-	metrics, err := telemetryResultToDeviceMetrics(result)
-	if err != nil {
-		return modelsV2.DeviceMetrics{}, err
-	}
-	if err := m.validateTelemetryDeviceIdentifier("result", metrics.DeviceIdentifier); err != nil {
-		return modelsV2.DeviceMetrics{}, err
-	}
+	metrics := telemetryResultToDeviceMetrics(result, decodedMetrics, requestStartedAt)
+	metrics.FreshnessSourceNodeID = m.route.fleetNodeID
 	m.rememberStatus(result.GetDeviceStatus())
 	return metrics, nil
 }
@@ -170,11 +186,8 @@ func (m *RemoteFleetNodeMiner) GetDeviceStatus(ctx context.Context) (models.Mine
 	}
 	m.mu.Unlock()
 
-	result, err := m.fetchTelemetry(ctx)
+	result, _, err := m.fetchTelemetry(ctx)
 	if err != nil {
-		return models.MinerStatusOffline, err
-	}
-	if err := m.validateTelemetryDeviceIdentifier("status", result.GetDeviceIdentifier()); err != nil {
 		return models.MinerStatusOffline, err
 	}
 	status := deviceStatusToMinerStatus(result.GetDeviceStatus())
@@ -182,90 +195,100 @@ func (m *RemoteFleetNodeMiner) GetDeviceStatus(ctx context.Context) (models.Mine
 	return status, nil
 }
 
-func (m *RemoteFleetNodeMiner) validateTelemetryDeviceIdentifier(kind string, got string) error {
-	if got == m.route.deviceIdentifier {
-		return nil
-	}
-	return fleeterror.NewInternalErrorf(
-		"fleet node telemetry %s device_identifier mismatch: got %q, want %q",
-		kind,
-		got,
-		m.route.deviceIdentifier,
-	)
-}
-
-func (m *RemoteFleetNodeMiner) fetchTelemetry(ctx context.Context) (*telemetrypb.FleetNodeTelemetryResult, error) {
+func (m *RemoteFleetNodeMiner) fetchTelemetry(ctx context.Context) (*telemetrypb.FleetNodeTelemetryResult, *modelsV2.DeviceMetrics, error) {
 	if m.sender == nil {
-		return nil, fleeterror.NewConnectionError(m.route.deviceIdentifier, errors.New("fleet node control registry is not configured"))
+		return nil, nil, fleeterror.NewConnectionError(m.route.deviceIdentifier, errors.New("fleet node control registry is not configured"))
 	}
 	commandTimeout := remoteTelemetryCommandTimeoutFromContext(ctx)
-	if m.gate != nil {
-		gateCtx, cancel := remoteTelemetryGateContext(ctx)
-		release, err := m.gate.Acquire(gateCtx, m.route.fleetNodeID)
-		cancel()
-		if err != nil {
-			return nil, fleeterror.NewPlainError(
-				fmt.Sprintf("timed out waiting for a fleet node telemetry command slot: %v", err),
-				connect.CodeResourceExhausted,
-			)
-		}
-		defer release()
+	release, err := m.acquireTelemetryGate(ctx)
+	if err != nil {
+		return nil, nil, err
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, fleeterror.NewPlainError(
+		release()
+		return nil, nil, fleeterror.NewPlainError(
 			fmt.Sprintf("fleet node telemetry context ended before command send: %v", err),
 			connect.CodeDeadlineExceeded,
 		)
 	}
 	commandCtx, cancel := remoteTelemetryCommandContext(ctx, commandTimeout)
 	defer cancel()
-	payload, err := proto.Marshal(&gatewaypb.AgentCommand{
-		Command: &gatewaypb.AgentCommand_Telemetry{
-			Telemetry: m.telemetryRequest(commandCtx),
-		},
-	})
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("marshal fleet node telemetry command: %v", err)
-	}
-	ack, err := m.sender.SendCommand(commandCtx, m.route.fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{
-		CommandId: id.GenerateID(),
-		Payload:   payload,
-	})
+	ack, err := remotenode.RetryRejectedBusy(commandCtx, release, remoteTelemetryBusyRetryMinRemaining, m.acquireTelemetryGate, m.sendTelemetry,
+		"fleet_node_id", m.route.fleetNodeID, "device_identifier", m.route.deviceIdentifier, "command", "telemetry")
 	if err != nil {
 		if errors.Is(err, control.ErrNoActiveStream) || errors.Is(err, context.DeadlineExceeded) {
-			return nil, fleeterror.NewConnectionError(m.route.deviceIdentifier, err)
+			return nil, nil, fleeterror.NewConnectionError(m.route.deviceIdentifier, err)
 		}
-		return nil, err
+		return nil, nil, err
 	}
 	if ack.GetCode() != gatewaypb.AckCode_ACK_CODE_OK || !ack.GetSucceeded() {
-		return nil, m.errorFromAck(ack)
+		return nil, nil, m.errorFromAck(ack)
 	}
 	if len(ack.GetPayload()) == 0 {
-		return nil, fleeterror.NewInternalError("fleet node telemetry ack missing payload")
+		return nil, nil, fleeterror.NewInternalError("fleet node telemetry ack missing payload")
 	}
 	result := &telemetrypb.FleetNodeTelemetryResult{}
 	if err := proto.Unmarshal(ack.GetPayload(), result); err != nil {
-		return nil, fleeterror.NewInternalErrorf("unmarshal fleet node telemetry payload: %v", err)
+		return nil, nil, fleeterror.NewInternalErrorf("unmarshal fleet node telemetry payload: %v", err)
 	}
 	if err := validateTelemetryResult(result); err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	metrics, err := decodeTelemetryDeviceMetrics(result.GetDeviceMetricsJson())
+	if err != nil {
+		return nil, nil, err
 	}
 	if result.GetDeviceIdentifier() != m.route.deviceIdentifier {
-		return nil, fleeterror.NewInternalErrorf(
+		return nil, nil, fleeterror.NewInternalErrorf(
 			"fleet node telemetry result device_identifier mismatch: got %q, want %q",
 			result.GetDeviceIdentifier(),
 			m.route.deviceIdentifier,
 		)
 	}
-	return result, nil
+	return result, metrics, nil
+}
+
+func (m *RemoteFleetNodeMiner) acquireTelemetryGate(ctx context.Context) (func(), error) {
+	if m.gate == nil {
+		return func() {}, nil
+	}
+	gateCtx, cancel := remoteTelemetryGateContext(ctx)
+	defer cancel()
+	release, err := m.gate.Acquire(gateCtx, m.route.fleetNodeID)
+	if err != nil {
+		return nil, fleeterror.NewPlainError(
+			fmt.Sprintf("timed out waiting for a fleet node telemetry command slot: %v", err),
+			connect.CodeResourceExhausted,
+		)
+	}
+	return release, nil
+}
+
+func (m *RemoteFleetNodeMiner) sendTelemetry(ctx context.Context) (*gatewaypb.ControlAck, error) {
+	payload, err := proto.Marshal(&gatewaypb.AgentCommand{
+		Command: &gatewaypb.AgentCommand_Telemetry{
+			Telemetry: m.telemetryRequest(ctx),
+		},
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("marshal fleet node telemetry command: %v", err)
+	}
+	return m.sender.SendCommand(ctx, m.route.fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{
+		CommandId: id.GenerateID(),
+		Payload:   payload,
+	})
 }
 
 func (m *RemoteFleetNodeMiner) telemetryRequest(ctx context.Context) *telemetrypb.FleetNodeTelemetryRequest {
 	req := &telemetrypb.FleetNodeTelemetryRequest{
+		DeviceClass:        m.route.deviceClass,
 		DeviceIdentifier:   m.route.deviceIdentifier,
 		IpAddress:          m.route.ipAddress,
 		Port:               m.route.port,
 		UrlScheme:          m.route.urlScheme,
+		RpcPort:            m.route.rpcPort,
+		RpcTls:             m.route.rpcTLS,
+		Endpoints:          m.route.endpoints,
 		DriverName:         m.route.driverName,
 		Manufacturer:       m.route.manufacturer,
 		Model:              m.route.model,
@@ -342,9 +365,12 @@ func (m *RemoteFleetNodeMiner) errorFromAck(ack *gatewaypb.ControlAck) error {
 	case gatewaypb.AckCode_ACK_CODE_OK:
 		return fleeterror.NewInternalError(msg)
 	case gatewaypb.AckCode_ACK_CODE_SCAN_FAILED:
-		return fleeterror.NewConnectionError(m.route.deviceIdentifier, errors.New(msg))
+		connectionErr := fleeterror.NewConnectionError(m.route.deviceIdentifier, errors.New(msg))
+		connectionErr.DeviceProbeFailed = ack.GetMinerProbeFailed() && !ack.GetSucceeded()
+		return connectionErr
 	case gatewaypb.AckCode_ACK_CODE_REPORT_FAILED,
 		gatewaypb.AckCode_ACK_CODE_PARTIAL,
+		gatewaypb.AckCode_ACK_CODE_FAILED_PRECONDITION, // only device writes send it
 		gatewaypb.AckCode_ACK_CODE_INTERNAL,
 		gatewaypb.AckCode_ACK_CODE_UNSPECIFIED:
 		return fleeterror.NewInternalError(msg)
@@ -371,13 +397,18 @@ func validateTelemetryResult(result *telemetrypb.FleetNodeTelemetryResult) error
 			return fleeterror.NewInternalErrorf("invalid fleet node telemetry %s: non-finite value", name)
 		}
 	}
-	if len(result.GetDeviceMetricsJson()) > 0 {
-		var metrics modelsV2.DeviceMetrics
-		if err := json.Unmarshal(result.GetDeviceMetricsJson(), &metrics); err != nil {
-			return fleeterror.NewInternalErrorf("invalid fleet node telemetry device metrics payload: %v", err)
-		}
-	}
 	return nil
+}
+
+func decodeTelemetryDeviceMetrics(payload []byte) (*modelsV2.DeviceMetrics, error) {
+	if len(payload) == 0 {
+		return nil, nil
+	}
+	var metrics modelsV2.DeviceMetrics
+	if err := json.Unmarshal(payload, &metrics); err != nil {
+		return nil, fleeterror.NewInternalErrorf("invalid fleet node telemetry device metrics payload: %v", err)
+	}
+	return &metrics, nil
 }
 
 func (m *RemoteFleetNodeMiner) rememberStatus(status telemetrypb.DeviceStatus) {
@@ -389,35 +420,43 @@ func (m *RemoteFleetNodeMiner) rememberStatus(status telemetrypb.DeviceStatus) {
 	}
 }
 
-func telemetryResultToDeviceMetrics(result *telemetrypb.FleetNodeTelemetryResult) (modelsV2.DeviceMetrics, error) {
-	if len(result.GetDeviceMetricsJson()) > 0 {
-		var metrics modelsV2.DeviceMetrics
-		if err := json.Unmarshal(result.GetDeviceMetricsJson(), &metrics); err != nil {
-			return modelsV2.DeviceMetrics{}, fleeterror.NewInternalErrorf("unmarshal fleet node telemetry device metrics: %v", err)
+func telemetryResultToDeviceMetrics(result *telemetrypb.FleetNodeTelemetryResult, metrics *modelsV2.DeviceMetrics, requestStartedAt time.Time) modelsV2.DeviceMetrics {
+	var freshnessObservedAt time.Time
+	if age := result.TelemetryObservationAge; age != nil && age.CheckValid() == nil && age.AsDuration() >= 0 && !requestStartedAt.IsZero() {
+		freshnessObservedAt = requestStartedAt.Add(-age.AsDuration())
+	}
+	var uptimeSeconds *uint64
+	var uptimeObservedAt time.Time
+	if age := result.UptimeObservationAge; result.UptimeSeconds != nil && age != nil && age.CheckValid() == nil && age.AsDuration() >= 0 && !requestStartedAt.IsZero() {
+		uptimeSeconds = result.UptimeSeconds
+		// Subtracting the age at response assembly from our earlier request start
+		// gives a conservative bound without comparing node and server wall clocks.
+		uptimeObservedAt = requestStartedAt.Add(-age.AsDuration())
+	}
+	if metrics == nil {
+		var healthReason *string
+		if result.GetHealthReason() != "" {
+			reason := result.GetHealthReason()
+			healthReason = &reason
 		}
-		metrics.DeviceIdentifier = result.GetDeviceIdentifier()
-		metrics.Timestamp = result.GetTimestamp().AsTime()
-		metrics.FirmwareVersion = result.GetFirmwareVersion()
-		return metrics, nil
+		metrics = &modelsV2.DeviceMetrics{
+			Health:                telemetryHealthToV2(result.GetHealthStatus(), result.GetDeviceStatus()),
+			HealthReason:          healthReason,
+			DefaultPasswordActive: result.DefaultPasswordActive,
+			HashrateHS:            scalarMetricToV2(result.HashrateHs, modelsV2.MetricKindRate),
+			TempC:                 scalarMetricToV2(result.TempC, modelsV2.MetricKindGauge),
+			FanRPM:                scalarMetricToV2(result.FanRpm, modelsV2.MetricKindGauge),
+			PowerW:                scalarMetricToV2(result.PowerW, modelsV2.MetricKindGauge),
+			EfficiencyJH:          scalarMetricToV2(result.EfficiencyJh, modelsV2.MetricKindGauge),
+		}
 	}
-	var healthReason *string
-	if result.GetHealthReason() != "" {
-		reason := result.GetHealthReason()
-		healthReason = &reason
-	}
-	return modelsV2.DeviceMetrics{
-		DeviceIdentifier:      result.GetDeviceIdentifier(),
-		Timestamp:             result.GetTimestamp().AsTime(),
-		FirmwareVersion:       result.GetFirmwareVersion(),
-		Health:                telemetryHealthToV2(result.GetHealthStatus(), result.GetDeviceStatus()),
-		HealthReason:          healthReason,
-		DefaultPasswordActive: result.DefaultPasswordActive,
-		HashrateHS:            scalarMetricToV2(result.HashrateHs, modelsV2.MetricKindRate),
-		TempC:                 scalarMetricToV2(result.TempC, modelsV2.MetricKindGauge),
-		FanRPM:                scalarMetricToV2(result.FanRpm, modelsV2.MetricKindGauge),
-		PowerW:                scalarMetricToV2(result.PowerW, modelsV2.MetricKindGauge),
-		EfficiencyJH:          scalarMetricToV2(result.EfficiencyJh, modelsV2.MetricKindGauge),
-	}, nil
+	metrics.DeviceIdentifier = result.GetDeviceIdentifier()
+	metrics.Timestamp = result.GetTimestamp().AsTime()
+	metrics.FreshnessObservedAt = freshnessObservedAt
+	metrics.FirmwareVersion = result.GetFirmwareVersion()
+	metrics.UptimeSeconds = uptimeSeconds
+	metrics.UptimeObservedAt = uptimeObservedAt
+	return *metrics
 }
 
 func scalarMetricToV2(value *float64, kind modelsV2.MetricKind) *modelsV2.MetricValue {
@@ -630,4 +669,11 @@ func (m *RemoteFleetNodeMiner) GetMiningPools(ctx context.Context) ([]interfaces
 		return m.delegate.GetMiningPools(ctx)
 	}
 	return nil, m.unsupported("get mining pools")
+}
+
+func (m *RemoteFleetNodeMiner) VerifyPoolsCleared(ctx context.Context) (bool, error) {
+	if verifier, ok := m.delegate.(interfaces.PoolClearVerifier); ok {
+		return verifier.VerifyPoolsCleared(ctx)
+	}
+	return false, m.unsupported("verify pool clearing")
 }

@@ -106,7 +106,7 @@ const MiningPoolPage = () => {
 
   const handleConfirmImmersionCooling = useCallback(() => {
     setCooling({
-      mode: "Off",
+      mode: "off",
       onSuccess: () => {
         setShowNoFansDialog(false);
         if (dialogTriggeredBySkip) {

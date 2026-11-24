@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
@@ -19,6 +20,7 @@ type pairServiceStore struct {
 	identifier    string
 	identifierErr error
 	devices       []FleetNodeDevice
+	haStandby     bool
 }
 
 func (s *pairServiceStore) ListFleetNodeDevices(context.Context, int64, *int64) ([]FleetNodeDevice, error) {
@@ -30,6 +32,14 @@ func (s *pairServiceStore) DeviceExistsInOrg(context.Context, int64, int64) (boo
 }
 
 func (s *pairServiceStore) DeviceHasActiveCloudPairing(context.Context, int64, int64) (bool, error) {
+	return false, nil
+}
+
+func (s *pairServiceStore) IsFleetNodeHAStandby(context.Context, int64, int64) (bool, error) {
+	return s.haStandby, nil
+}
+
+func (s *pairServiceStore) DeviceHasRevokedFleetNodeStatus(context.Context, int64, int64) (bool, error) {
 	return false, nil
 }
 
@@ -61,6 +71,10 @@ func (s pairServiceEnrollmentStore) LockFleetNodeByID(context.Context, int64, in
 	return &enrollment.FleetNode{EnrollmentStatus: enrollment.FleetNodeStatusConfirmed}, nil
 }
 
+func (s pairServiceEnrollmentStore) LockFleetNodeIdentityByID(context.Context, int64, int64) (*enrollment.FleetNode, error) {
+	return &enrollment.FleetNode{EnrollmentStatus: enrollment.FleetNodeStatusConfirmed}, nil
+}
+
 type passThroughTransactor struct{}
 
 func (passThroughTransactor) RunInTx(ctx context.Context, fn func(context.Context) error) error {
@@ -73,9 +87,12 @@ func (passThroughTransactor) RunInTxWithResult(ctx context.Context, fn func(cont
 
 var _ stores.Transactor = passThroughTransactor{}
 
-type failingTelemetryScheduler struct{}
+type failingTelemetryScheduler struct {
+	called chan struct{}
+}
 
-func (failingTelemetryScheduler) AddDevices(context.Context, ...telemetrymodels.DeviceIdentifier) error {
+func (s failingTelemetryScheduler) AddPairedDevices(context.Context, ...telemetrymodels.DeviceIdentifier) error {
+	defer close(s.called)
 	return errors.New("scheduler down")
 }
 
@@ -84,7 +101,7 @@ type blockingTelemetryScheduler struct {
 	release chan struct{}
 }
 
-func (s blockingTelemetryScheduler) AddDevices(ctx context.Context, _ ...telemetrymodels.DeviceIdentifier) error {
+func (s blockingTelemetryScheduler) AddPairedDevices(ctx context.Context, _ ...telemetrymodels.DeviceIdentifier) error {
 	close(s.started)
 	select {
 	case <-s.release:
@@ -95,19 +112,22 @@ func (s blockingTelemetryScheduler) AddDevices(ctx context.Context, _ ...telemet
 }
 
 func TestPairDeviceIgnoresPostCommitTelemetrySchedulingFailure(t *testing.T) {
-	oldTimeout := telemetryScheduleTimeout
-	telemetryScheduleTimeout = time.Second
-	t.Cleanup(func() { telemetryScheduleTimeout = oldTimeout })
+	called := make(chan struct{})
 
 	svc := NewService(
 		&pairServiceStore{identifier: "node-device"},
 		pairServiceEnrollmentStore{},
 		passThroughTransactor{},
-	).WithTelemetryScheduler(failingTelemetryScheduler{})
+	).WithTelemetryScheduler(failingTelemetryScheduler{called: called})
 
 	err := svc.PairDevice(t.Context(), 12, 34, 56, nil)
 
 	require.NoError(t, err)
+	select {
+	case <-called:
+	case <-time.After(time.Second):
+		t.Fatal("failing telemetry scheduler was not called")
+	}
 }
 
 func TestPairDeviceDoesNotBlockOnPostCommitTelemetryScheduling(t *testing.T) {
@@ -197,4 +217,28 @@ func TestFleetNodeRigConfigReapplyDetachesFromRequestCancellation(t *testing.T) 
 	called = false
 	svc.reapplyRigConfigBestEffort(ctx, 56, &assignedBy, nil)
 	require.False(t, called, "empty targets must not become an organization-wide request")
+}
+
+func TestPairingLockRejectsHAStandby(t *testing.T) {
+	tests := []struct {
+		name      string
+		haStandby bool
+		wantErr   bool
+	}{
+		{name: "active or unpaired node", haStandby: false},
+		{name: "standby node", haStandby: true, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			service := NewService(&pairServiceStore{haStandby: tc.haStandby}, pairServiceEnrollmentStore{}, passThroughTransactor{})
+
+			err := service.lockFleetNodeForPairing(t.Context(), 12, 34)
+
+			if !tc.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			require.True(t, fleeterror.IsFailedPreconditionError(err), "got %v", err)
+		})
+	}
 }

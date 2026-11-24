@@ -1,0 +1,99 @@
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { buildTankOverview, tankPath } from "../buildTankOverview";
+import SubtankDetail from "../components/SubtankDetail";
+import TankPerformance from "../components/TankPerformance";
+import { useContainerOverview } from "../hooks/useContainerOverview";
+import MiningActionsMenu from "../MiningActionsMenu";
+import { useSitesContext } from "@/protoFleet/api/SitesContext";
+import { entityScopeTarget, useSyncScopeToEntity } from "@/protoFleet/hooks/useSyncScopeToEntity";
+import { scopedPath } from "@/protoFleet/routing/siteScope";
+import { useTemperatureUnit } from "@/protoFleet/store";
+import { Alert } from "@/shared/assets/icons";
+import Button, { variants } from "@/shared/components/Button";
+import Callout from "@/shared/components/Callout";
+import Header from "@/shared/components/Header";
+
+export default function TankPage() {
+  const { identifier = "", tankId = "" } = useParams();
+  const navigate = useNavigate();
+  const { data, loading, error, notFound, retry } = useContainerOverview(identifier);
+  const { sites } = useSitesContext();
+  const unit = useTemperatureUnit();
+  const target = data ? entityScopeTarget(data.container.site?.id, sites) : undefined;
+  useSyncScopeToEntity(target);
+  const view = data ? buildTankOverview(data, tankId, unit, !!error) : undefined;
+
+  if (loading)
+    return (
+      <p role="status" className="p-8">
+        Loading tank…
+      </p>
+    );
+  if (!data || !view)
+    return (
+      <div className="flex flex-col gap-4 p-8">
+        <Header
+          title={<h1>{notFound || data ? "Tank not found" : "Couldn't load tank"}</h1>}
+          titleSize="text-heading-300"
+        />
+        <p role="alert">{error || "This tank may have been removed or you may no longer have access."}</p>
+        <Button variant={variants.secondary} className="w-fit" text="Retry" onClick={retry} />
+        <Link to={`/containers/${encodeURIComponent(identifier)}`}>Back to container</Link>
+      </div>
+    );
+
+  const { container } = data;
+  const path = tankPath(identifier, tankId);
+  const containerPath = `/containers/${encodeURIComponent(identifier)}`;
+  return (
+    <>
+      <SubtankDetail
+        title={view.title}
+        actions={
+          <MiningActionsMenu kind="tank" key={`${identifier}:${tankId}`} items={[view.tank]} onRefresh={retry} />
+        }
+        breadcrumb={[
+          { label: "Buildings", to: scopedPath("/fleet/buildings", target ?? { kind: "all" }) },
+          ...(container.site ? [{ label: container.site.label, to: `/sites/${container.site.id}` }] : []),
+          { label: container.name, to: containerPath },
+          { label: view.title, to: path },
+        ]}
+        kpis={view.kpis}
+        rows={view.card.rows}
+        cols={view.card.cols}
+        modules={view.card.modules}
+        slots={view.card.slots}
+        on={undefined}
+        onSelectModule={(id) => navigate(`${path}/modules/${id}`)}
+        onViewMiners={() => navigate(scopedPath(`/fleet/miners?tank=${tankId}`, target ?? { kind: "all" }))}
+        notice={
+          view.stale || error ? (
+            <div className="flex flex-col gap-2 text-200 text-text-primary-70">
+              {view.stale ? <p role="status">Readings unavailable or stale.</p> : null}
+              {error ? (
+                <div role="alert">
+                  <Callout
+                    intent="danger"
+                    prefixIcon={<Alert />}
+                    title="Could not refresh tank"
+                    subtitle={error}
+                    buttonText="Retry"
+                    buttonOnClick={retry}
+                  />
+                </div>
+              ) : null}
+            </div>
+          ) : undefined
+        }
+        performance={
+          <TankPerformance
+            key={`${identifier}:${tankId}:${container.site?.id}`}
+            containerIdentifier={identifier}
+            tankId={view.tank.ref!.id}
+            enabled={!error}
+          />
+        }
+      />
+    </>
+  );
+}

@@ -1,6 +1,6 @@
 export const performanceModes = {
-  MaximumHashrate: "MaximumHashrate",
-  Efficiency: "Efficiency",
+  MaximumHashrate: "maximumHashrate",
+  Efficiency: "efficiency",
 } as const;
 
 export type PerformanceMode = (typeof performanceModes)[keyof typeof performanceModes];

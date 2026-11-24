@@ -28,6 +28,7 @@ export function StatusModal<TComponentAddress = any>({
   open,
   showBackButton = true,
   forceScrolledHeader = false,
+  manageFocus = false,
 }: StatusModalProps<TComponentAddress>) {
   // Try to get component data if componentAddress is provided
   const componentData = componentAddress !== undefined ? getComponentStatus(componentAddress) : undefined;
@@ -39,6 +40,8 @@ export function StatusModal<TComponentAddress = any>({
     return (
       <Modal
         title={componentData.title}
+        dialogLabel={manageFocus ? componentData.title : undefined}
+        manageFocus={manageFocus}
         buttons={componentData.buttons}
         icon={showBack ? <ArrowRight className="rotate-180" /> : undefined}
         iconAriaLabel={showBack ? "Go back" : undefined}
@@ -57,6 +60,8 @@ export function StatusModal<TComponentAddress = any>({
   return (
     <Modal
       title={minerData.title}
+      dialogLabel={manageFocus ? minerData.title : undefined}
+      manageFocus={manageFocus}
       buttons={minerData.buttons}
       onDismiss={minerData.onDismiss}
       open={open}

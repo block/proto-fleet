@@ -4,6 +4,7 @@
 package netutil
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -38,6 +39,15 @@ func ParseCIDROrIP(raw string) (netip.Prefix, error) {
 		return netip.Prefix{}, errors.New("invalid CIDR")
 	}
 	return prefix.Masked(), nil
+}
+
+// IPv4PrefixBounds returns the inclusive network and broadcast addresses.
+// prefix must be a valid IPv4 prefix. A /32 returns the same address twice.
+func IPv4PrefixBounds(prefix netip.Prefix) (netip.Addr, netip.Addr) {
+	first := prefix.Masked().Addr()
+	last := first.As4()
+	binary.BigEndian.PutUint32(last[:], binary.BigEndian.Uint32(last[:])|(^uint32(0)>>prefix.Bits()))
+	return first, netip.AddrFrom4(last)
 }
 
 // ParseIPRange parses an inclusive IP range from start/end address strings.

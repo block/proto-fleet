@@ -5,6 +5,7 @@ import Button from "@/shared/components/Button";
 import { durations as defaultDurations } from "@/shared/components/DurationSelector/constants";
 
 interface DurationSelectorProps<T extends string> {
+  ariaLabel?: string;
   className?: string;
   duration?: T;
   durations?: readonly T[];
@@ -12,6 +13,7 @@ interface DurationSelectorProps<T extends string> {
 }
 
 function DurationSelector<T extends string>({
+  ariaLabel = "Time range",
   className,
   duration,
   // Type assertion is safe here: when T is not provided explicitly, it defaults to Duration
@@ -20,25 +22,26 @@ function DurationSelector<T extends string>({
   durations = defaultDurations as unknown as readonly T[],
   onSelect,
 }: DurationSelectorProps<T>) {
-  // Initialize with the provided duration or default to the first option
-  const [selectedDuration, setSelectedDuration] = useState<T>(duration || durations[0]);
+  const [uncontrolledDuration, setUncontrolledDuration] = useState<T>(duration ?? durations[0]);
+  const selectedDuration = duration ?? uncontrolledDuration;
 
-  const handleSelect = (d: T) => {
-    setSelectedDuration(d);
-    onSelect && onSelect(d);
+  const handleSelect = (nextDuration: T) => {
+    if (duration === undefined) setUncontrolledDuration(nextDuration);
+    onSelect?.(nextDuration);
   };
 
   return (
-    <div className={clsx("flex gap-1", className)}>
-      {durations.map((d) => {
-        const isSelected = d === selectedDuration;
+    <div className={clsx("flex gap-1", className)} role="group" aria-label={ariaLabel}>
+      {durations.map((option) => {
+        const isSelected = option === selectedDuration;
         return (
           <Button
-            key={d}
+            key={option}
             variant={isSelected ? "primary" : "secondary"}
             size="compact"
-            text={d}
-            onClick={() => handleSelect(d)}
+            text={option}
+            ariaPressed={isSelected}
+            onClick={() => handleSelect(option)}
             className={clsx({ "hover:opacity-100!": isSelected })}
           />
         );

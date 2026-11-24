@@ -323,6 +323,18 @@ func (ns NullWorkerNamePoolSyncStatusEnum) Value() (driver.Value, error) {
 	return string(ns.WorkerNamePoolSyncStatusEnum), nil
 }
 
+type ActivationPoolBoardIntent struct {
+	OrganizationID    int64
+	DeviceID          int64
+	HashboardID       int64
+	OperationID       uuid.UUID
+	SnapshotID        string
+	MacAddress        string
+	Serial            string
+	AccountID         int64
+	OwnershipRevision int64
+}
+
 type ActivityLog struct {
 	ID             int64
 	EventID        uuid.UUID
@@ -400,6 +412,10 @@ type AlertRuleConfig struct {
 	UpdatedAt time.Time
 }
 
+type AllocationTransition struct {
+	At interface{}
+}
+
 type ApiKey struct {
 	ID             int64
 	KeyID          string
@@ -433,6 +449,18 @@ type Building struct {
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
 	DeletedAt             sql.NullTime
+}
+
+type CommandBacklogSummary struct {
+	OrgID                       int64
+	CommandClass                string
+	QueuedCount                 int64
+	RunningCount                int64
+	OutstandingCount            int64
+	OldestQueuedAgeSeconds      float64
+	OldestRunningAgeSeconds     float64
+	OldestOutstandingAgeSeconds float64
+	InvalidClockCount           int64
 }
 
 type CommandBatchLog struct {
@@ -472,16 +500,559 @@ type ConnectedPostgresIdentity struct {
 	Timeline      int64
 }
 
+type ContainerControlObservation struct {
+	DeviceID int64
+	Name     string
+	Enabled  sql.NullBool
+}
+
+type ContainerControlsObservation struct {
+	DeviceID                     int64
+	ObservedAt                   time.Time
+	Supported                    sql.NullBool
+	MainCircuitBreakerSupported  sql.NullBool
+	MainCircuitBreakerClosed     sql.NullBool
+	AlarmResetSupported          sql.NullBool
+	AlarmMuteSupported           sql.NullBool
+	DryCoolerFanReverseSupported sql.NullBool
+}
+
+type ContainerEquipmentCurrentMetric struct {
+	Kind            int32
+	ID              int64
+	Time            time.Time
+	HashrateHs      float64
+	PowerW          float64
+	EfficiencyJh    float64
+	TemperatureC    float64
+	MinTemperatureC float64
+	MaxTemperatureC float64
+	Coverage        json.RawMessage
+}
+
+type ContainerEquipmentHistory struct {
+	EquipmentKind       int32
+	ContainerIdentifier string
+	TankID              sql.NullInt64
+	ModuleID            sql.NullInt64
+	SiteID              sql.NullInt64
+	TopologyVersionID   sql.NullInt64
+	Bucket              time.Time
+	CollectedAt         time.Time
+	ResolutionSeconds   int32
+	MeasurementType     int32
+	Total               float64
+	Samples             int64
+	Minimum             float64
+	Maximum             float64
+	ReportingCount      interface{}
+	ExpectedCount       interface{}
+	CoverageComplete    sql.NullBool
+}
+
+type ContainerFanObservation struct {
+	DeviceID     int64
+	ComponentID  string
+	ObservedAt   time.Time
+	SpeedPercent sql.NullFloat64
+	PowerW       sql.NullFloat64
+	Direction    sql.NullString
+	AlarmActive  sql.NullBool
+}
+
+type ContainerHaObservation struct {
+	DeviceID   int64
+	ObservedAt time.Time
+	Degraded   bool
+}
+
+type ContainerInventory struct {
+	DeviceID                   int64
+	ObservedAt                 time.Time
+	OrgID                      int64
+	HashboardInventoryOrder    sql.NullInt64
+	HashboardInventoryComplete bool
+	HashboardFirmwareVersion   string
+	HashboardFirmwareMixed     bool
+	PsuFirmwareVersion         string
+	PsuFirmwareMixed           bool
+}
+
+type ContainerLatestMetric struct {
+	DeviceID              int64
+	Time                  time.Time
+	TopologyObservationID int64
+	HashrateHs            sql.NullFloat64
+	PowerW                sql.NullFloat64
+	EfficiencyJh          sql.NullFloat64
+	TemperatureC          sql.NullFloat64
+	MinTemperatureC       sql.NullFloat64
+	MaxTemperatureC       sql.NullFloat64
+	Coverage              json.RawMessage
+	SourceTimes           json.RawMessage
+}
+
+type ContainerMetricsDaily struct {
+	Bucket               interface{}
+	DeviceIdentifier     string
+	SiteID               sql.NullInt64
+	TopologyVersionID    sql.NullInt64
+	TemperatureSum       int64
+	TemperatureCount     int64
+	TemperatureMin       interface{}
+	TemperatureMax       interface{}
+	TemperatureReporting interface{}
+	TemperatureExpected  interface{}
+	TemperatureComplete  bool
+	HashrateSum          int64
+	HashrateCount        int64
+	HashrateMin          interface{}
+	HashrateMax          interface{}
+	HashrateReporting    interface{}
+	HashrateExpected     interface{}
+	HashrateComplete     bool
+	PowerSum             int64
+	PowerCount           int64
+	PowerMin             interface{}
+	PowerMax             interface{}
+	PowerReporting       interface{}
+	PowerExpected        interface{}
+	PowerComplete        bool
+	EfficiencySum        int64
+	EfficiencyCount      int64
+	EfficiencyMin        interface{}
+	EfficiencyMax        interface{}
+	EfficiencyReporting  interface{}
+	EfficiencyExpected   interface{}
+	EfficiencyComplete   bool
+}
+
+type ContainerMetricsHourly struct {
+	Bucket               interface{}
+	DeviceIdentifier     string
+	SiteID               sql.NullInt64
+	TopologyVersionID    sql.NullInt64
+	TemperatureSum       int64
+	TemperatureCount     int64
+	TemperatureMin       interface{}
+	TemperatureMax       interface{}
+	TemperatureReporting interface{}
+	TemperatureExpected  interface{}
+	TemperatureComplete  bool
+	HashrateSum          int64
+	HashrateCount        int64
+	HashrateMin          interface{}
+	HashrateMax          interface{}
+	HashrateReporting    interface{}
+	HashrateExpected     interface{}
+	HashrateComplete     bool
+	PowerSum             int64
+	PowerCount           int64
+	PowerMin             interface{}
+	PowerMax             interface{}
+	PowerReporting       interface{}
+	PowerExpected        interface{}
+	PowerComplete        bool
+	EfficiencySum        int64
+	EfficiencyCount      int64
+	EfficiencyMin        interface{}
+	EfficiencyMax        interface{}
+	EfficiencyReporting  interface{}
+	EfficiencyExpected   interface{}
+	EfficiencyComplete   bool
+}
+
+type ContainerMiningGroupState struct {
+	DeviceID                int64
+	OrganizationID          int64
+	Observed                json.RawMessage
+	ObservedAt              sql.NullTime
+	Bindings                json.RawMessage
+	OperationID             uuid.NullUUID
+	AttemptID               uuid.NullUUID
+	ActorID                 sql.NullInt64
+	OperationKind           string
+	Status                  string
+	Message                 string
+	Step                    pqtype.NullRawMessage
+	StepKey                 uuid.NullUUID
+	ControllerOperationID   string
+	WriteEpoch              int64
+	Revision                int64
+	UpdatedAt               time.Time
+	RetryCount              int32
+	NextReconcileAt         time.Time
+	ActivationResumeMining  sql.NullBool
+	ActivationStopRequested bool
+	TransferFailureCount    int32
+	DefaultReturn           pqtype.NullRawMessage
+}
+
+type ContainerModule struct {
+	ID                int64
+	TankID            int64
+	Position          int32
+	ReportedID        string
+	FirstSeenAt       time.Time
+	LastSeenAt        time.Time
+	RetiredAt         sql.NullTime
+	State             string
+	StateObservedAt   sql.NullTime
+	Issues            pqtype.NullRawMessage
+	IssuesObservedAt  sql.NullTime
+	IssuesSourceTimes json.RawMessage
+	IdentityConfirmed bool
+	ObservationSiteID sql.NullInt64
+	AttributionSince  sql.NullTime
+	Model             string
+}
+
+type ContainerModuleDiagnosticObservation struct {
+	ModuleID         int64
+	CollectedAt      time.Time
+	SiteID           sql.NullInt64
+	AttributionSince sql.NullTime
+	State            string
+	StateObservedAt  sql.NullTime
+	Issues           pqtype.NullRawMessage
+}
+
+type ContainerModuleIdentity struct {
+	OrgID            int64
+	ReportedModuleID string
+	ModuleID         sql.NullInt64
+	LegacyModuleIds  []int64
+}
+
+type ContainerModuleLatestMetric struct {
+	ModuleID     int64
+	Time         time.Time
+	CollectedAt  time.Time
+	HashrateHs   sql.NullFloat64
+	PowerW       sql.NullFloat64
+	TemperatureC sql.NullFloat64
+	EfficiencyJh sql.NullFloat64
+	Coverage     pqtype.NullRawMessage
+	SourceTimes  json.RawMessage
+}
+
+type ContainerModuleMetric struct {
+	ModuleID          int64
+	Time              time.Time
+	CollectedAt       time.Time
+	HashrateHs        sql.NullFloat64
+	PowerW            sql.NullFloat64
+	TemperatureC      sql.NullFloat64
+	EfficiencyJh      sql.NullFloat64
+	Coverage          pqtype.NullRawMessage
+	TopologyVersionID sql.NullInt64
+	SiteID            sql.NullInt64
+}
+
+type ContainerModuleMetricsDaily struct {
+	Bucket               interface{}
+	ModuleID             int64
+	SiteID               sql.NullInt64
+	TopologyVersionID    sql.NullInt64
+	TemperatureSum       int64
+	TemperatureCount     int64
+	TemperatureMin       interface{}
+	TemperatureMax       interface{}
+	TemperatureReporting interface{}
+	TemperatureExpected  interface{}
+	TemperatureComplete  bool
+	HashrateSum          int64
+	HashrateCount        int64
+	HashrateMin          interface{}
+	HashrateMax          interface{}
+	HashrateReporting    interface{}
+	HashrateExpected     interface{}
+	HashrateComplete     bool
+	PowerSum             int64
+	PowerCount           int64
+	PowerMin             interface{}
+	PowerMax             interface{}
+	PowerReporting       interface{}
+	PowerExpected        interface{}
+	PowerComplete        bool
+	EfficiencySum        int64
+	EfficiencyCount      int64
+	EfficiencyMin        interface{}
+	EfficiencyMax        interface{}
+	EfficiencyReporting  interface{}
+	EfficiencyExpected   interface{}
+	EfficiencyComplete   bool
+}
+
+type ContainerModuleMetricsHourly struct {
+	Bucket               interface{}
+	ModuleID             int64
+	SiteID               sql.NullInt64
+	TopologyVersionID    sql.NullInt64
+	TemperatureSum       int64
+	TemperatureCount     int64
+	TemperatureMin       interface{}
+	TemperatureMax       interface{}
+	TemperatureReporting interface{}
+	TemperatureExpected  interface{}
+	TemperatureComplete  bool
+	HashrateSum          int64
+	HashrateCount        int64
+	HashrateMin          interface{}
+	HashrateMax          interface{}
+	HashrateReporting    interface{}
+	HashrateExpected     interface{}
+	HashrateComplete     bool
+	PowerSum             int64
+	PowerCount           int64
+	PowerMin             interface{}
+	PowerMax             interface{}
+	PowerReporting       interface{}
+	PowerExpected        interface{}
+	PowerComplete        bool
+	EfficiencySum        int64
+	EfficiencyCount      int64
+	EfficiencyMin        interface{}
+	EfficiencyMax        interface{}
+	EfficiencyReporting  interface{}
+	EfficiencyExpected   interface{}
+	EfficiencyComplete   bool
+}
+
+type ContainerModulePlacement struct {
+	ID        int64
+	ModuleID  int64
+	TankID    int64
+	Position  int32
+	SiteID    sql.NullInt64
+	StartedAt time.Time
+	EndedAt   sql.NullTime
+}
+
+type ContainerPlantMetric struct {
+	DeviceID int64
+	Time     time.Time
+	Metrics  json.RawMessage
+}
+
+type ContainerScope struct {
+	ID                 int64
+	OrgID              int64
+	SiteID             sql.NullInt64
+	DeviceIdentifier   string
+	DiscoveredDeviceID int64
+	DeletedAt          sql.NullTime
+}
+
+type ContainerSetpointObservation struct {
+	DeviceID int64
+	Name     string
+	Value    sql.NullFloat64
+	Unit     string
+}
+
+type ContainerTank struct {
+	ID          int64
+	DeviceID    int64
+	Position    int32
+	Present     bool
+	FirstSeenAt time.Time
+	LastSeenAt  time.Time
+}
+
+type ContainerTankLatestMetric struct {
+	TankID                int64
+	Time                  time.Time
+	TopologyObservationID int64
+	HashrateHs            sql.NullFloat64
+	PowerW                sql.NullFloat64
+	EfficiencyJh          sql.NullFloat64
+	TemperatureC          sql.NullFloat64
+	MinTemperatureC       sql.NullFloat64
+	MaxTemperatureC       sql.NullFloat64
+	Coverage              json.RawMessage
+	SourceTimes           json.RawMessage
+}
+
+type ContainerTankMetric struct {
+	TankID                int64
+	Time                  time.Time
+	TopologyObservationID int64
+	SiteID                sql.NullInt64
+	HashrateHs            sql.NullFloat64
+	PowerW                sql.NullFloat64
+	EfficiencyJh          sql.NullFloat64
+	TemperatureC          sql.NullFloat64
+	MinTemperatureC       sql.NullFloat64
+	MaxTemperatureC       sql.NullFloat64
+	Coverage              json.RawMessage
+	TopologyVersionID     sql.NullInt64
+}
+
+type ContainerTankMetricsDaily struct {
+	Bucket               interface{}
+	TankID               int64
+	SiteID               sql.NullInt64
+	TopologyVersionID    sql.NullInt64
+	TemperatureSum       int64
+	TemperatureCount     int64
+	TemperatureMin       interface{}
+	TemperatureMax       interface{}
+	TemperatureReporting interface{}
+	TemperatureExpected  interface{}
+	TemperatureComplete  bool
+	HashrateSum          int64
+	HashrateCount        int64
+	HashrateMin          interface{}
+	HashrateMax          interface{}
+	HashrateReporting    interface{}
+	HashrateExpected     interface{}
+	HashrateComplete     bool
+	PowerSum             int64
+	PowerCount           int64
+	PowerMin             interface{}
+	PowerMax             interface{}
+	PowerReporting       interface{}
+	PowerExpected        interface{}
+	PowerComplete        bool
+	EfficiencySum        int64
+	EfficiencyCount      int64
+	EfficiencyMin        interface{}
+	EfficiencyMax        interface{}
+	EfficiencyReporting  interface{}
+	EfficiencyExpected   interface{}
+	EfficiencyComplete   bool
+}
+
+type ContainerTankMetricsHourly struct {
+	Bucket               interface{}
+	TankID               int64
+	SiteID               sql.NullInt64
+	TopologyVersionID    sql.NullInt64
+	TemperatureSum       int64
+	TemperatureCount     int64
+	TemperatureMin       interface{}
+	TemperatureMax       interface{}
+	TemperatureReporting interface{}
+	TemperatureExpected  interface{}
+	TemperatureComplete  bool
+	HashrateSum          int64
+	HashrateCount        int64
+	HashrateMin          interface{}
+	HashrateMax          interface{}
+	HashrateReporting    interface{}
+	HashrateExpected     interface{}
+	HashrateComplete     bool
+	PowerSum             int64
+	PowerCount           int64
+	PowerMin             interface{}
+	PowerMax             interface{}
+	PowerReporting       interface{}
+	PowerExpected        interface{}
+	PowerComplete        bool
+	EfficiencySum        int64
+	EfficiencyCount      int64
+	EfficiencyMin        interface{}
+	EfficiencyMax        interface{}
+	EfficiencyReporting  interface{}
+	EfficiencyExpected   interface{}
+	EfficiencyComplete   bool
+}
+
+type ContainerTopologyCompactionPending struct {
+	ObservationID int64
+	DeviceID      int64
+	NextCheckAt   time.Time
+}
+
+type ContainerTopologyCompactionState struct {
+	DeviceID           int64
+	ScannedThrough     sql.NullTime
+	AnchorID           sql.NullInt64
+	NextRunAt          time.Time
+	LastRunAt          sql.NullTime
+	LastDurationMs     sql.NullFloat64
+	Examined           int64
+	Deleted            int64
+	Failures           int64
+	LastError          sql.NullString
+	Deferrals          int64
+	LastDeferredAt     sql.NullTime
+	RuntimeYields      int64
+	LastRuntimeYieldAt sql.NullTime
+}
+
+type ContainerTopologyObservation struct {
+	ID              int64
+	DeviceID        int64
+	VersionID       int64
+	CollectedAt     time.Time
+	Complete        bool
+	LastConfirmedAt sql.NullTime
+}
+
+type ContainerTopologyVersion struct {
+	ID          int64
+	DeviceID    int64
+	Fingerprint string
+	Topology    json.RawMessage
+}
+
+type CurtailmentAutomationExecution struct {
+	RuleID           int64
+	MqttSourceID     sql.NullInt64
+	Generation       int64
+	Direction        string
+	Target           string
+	TargetAt         sql.NullTime
+	ReceivedAt       time.Time
+	ReceivedBroker   string
+	PriorEdgeAt      sql.NullTime
+	Status           string
+	Attempts         int32
+	RetryAt          time.Time
+	LeaseExpiresAt   sql.NullTime
+	LastError        sql.NullString
+	ScheduleRevision uuid.NullUUID
+}
+
+type CurtailmentAutomationExecutionGrant struct {
+	RuleID                    int64
+	OrgID                     int64
+	ResponseProfileID         int64
+	ResponseProfileRevision   uuid.UUID
+	AuthorizationEnvelopeJson json.RawMessage
+	AdminControlsGranted      bool
+	CreatedAt                 time.Time
+}
+
 type CurtailmentAutomationRule struct {
 	ID                int64
 	OrgID             int64
 	RuleName          string
 	TriggerType       string
-	MqttSourceID      int64
+	MqttSourceID      sql.NullInt64
 	ResponseProfileID int64
 	Enabled           bool
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
+}
+
+type CurtailmentAutomationRuleBinding struct {
+	ID                       int64
+	OrgID                    int64
+	RuleName                 string
+	TriggerType              string
+	MqttSourceID             sql.NullInt64
+	ResponseProfileID        int64
+	Enabled                  bool
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+	ResponseProfileRevision  uuid.UUID
+	MqttSourceName           string
+	ResponseProfileName      string
+	ResponseProfileSiteID    sql.NullInt64
+	ResponseProfileScopeJson json.RawMessage
 }
 
 type CurtailmentAutomationRuleProfileRevision struct {
@@ -499,6 +1070,24 @@ type CurtailmentAutomationRuleState struct {
 	LastError       sql.NullString
 	LastErrorAt     sql.NullTime
 	UpdatedAt       time.Time
+}
+
+type CurtailmentAutomationSchedule struct {
+	RuleID        int64
+	ScheduleType  string
+	Timezone      string
+	StartDate     time.Time
+	StartTime     string
+	EndTime       string
+	EndDate       sql.NullTime
+	Frequency     sql.NullString
+	DaysOfWeek    []int32
+	DayOfMonth    sql.NullInt16
+	UntilDate     sql.NullTime
+	ServiceUserID int64
+	Revision      uuid.UUID
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 type CurtailmentEvent struct {
@@ -549,6 +1138,8 @@ type CurtailmentEvent struct {
 	FanLastError                 sql.NullString
 	LastCurtailPendingDispatchAt sql.NullTime
 	AuthorizationEnvelopeJsonb   json.RawMessage
+	DispatchRejectionReason      sql.NullString
+	ScheduleRevision             uuid.NullUUID
 }
 
 type CurtailmentMqttSourceConfig struct {
@@ -668,6 +1259,12 @@ type CurtailmentResponseProfileWithRevision struct {
 	Revision                    uuid.UUID
 }
 
+type CurtailmentRigConfigDeliveryAttempt struct {
+	OrganizationID int64
+	DeviceID       int64
+	Attempts       int32
+}
+
 type CurtailmentRigConfigReconciliation struct {
 	OrganizationID          int64
 	RequestedBy             int64
@@ -679,6 +1276,7 @@ type CurtailmentRigConfigReconciliation struct {
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
 	FullReconcileGeneration int64
+	DeliveryAttempts        int32
 }
 
 type CurtailmentRigConfigTarget struct {
@@ -719,6 +1317,7 @@ type CurtailmentTarget struct {
 	RestoreRetryCount      int32
 	RestoreFailureCount    int32
 	RestoreLastError       sql.NullString
+	CurtailPossiblySent    bool
 }
 
 type Device struct {
@@ -738,6 +1337,16 @@ type Device struct {
 	BuildingID               sql.NullInt64
 }
 
+type DeviceDeletionUnpairPermit struct {
+	DeviceID       int64
+	OrganizationID int64
+	Epoch          int64
+	BindingHash    string
+	IdentityKeys   []string
+	AttemptID      uuid.NullUUID
+	CreatedAt      time.Time
+}
+
 type DeviceFirmwareDeployment struct {
 	DeviceID             int64
 	FirmwareChecksum     string
@@ -745,33 +1354,38 @@ type DeviceFirmwareDeployment struct {
 	RolloutID            sql.NullInt64
 	DeployedAt           time.Time
 	LastCommandBatchUuid sql.NullString
+	Component            string
 }
 
 type DeviceMetric struct {
-	Time             time.Time
-	DeviceIdentifier string
-	HashRateHs       sql.NullFloat64
-	HashRateHsKind   sql.NullString
-	TempC            sql.NullFloat64
-	TempCKind        sql.NullString
-	FanRpm           sql.NullFloat64
-	FanRpmKind       sql.NullString
-	PowerW           sql.NullFloat64
-	PowerWKind       sql.NullString
-	EfficiencyJh     sql.NullFloat64
-	EfficiencyJhKind sql.NullString
-	VoltageV         sql.NullFloat64
-	VoltageVKind     sql.NullString
-	CurrentA         sql.NullFloat64
-	CurrentAKind     sql.NullString
-	InletTempC       sql.NullFloat64
-	OutletTempC      sql.NullFloat64
-	AmbientTempC     sql.NullFloat64
-	ChipCount        sql.NullInt32
-	ChipCountKind    sql.NullString
-	ChipFrequencyMhz sql.NullFloat64
-	Health           sql.NullString
-	SiteID           sql.NullInt64
+	Time                  time.Time
+	DeviceIdentifier      string
+	HashRateHs            sql.NullFloat64
+	HashRateHsKind        sql.NullString
+	TempC                 sql.NullFloat64
+	TempCKind             sql.NullString
+	FanRpm                sql.NullFloat64
+	FanRpmKind            sql.NullString
+	PowerW                sql.NullFloat64
+	PowerWKind            sql.NullString
+	EfficiencyJh          sql.NullFloat64
+	EfficiencyJhKind      sql.NullString
+	VoltageV              sql.NullFloat64
+	VoltageVKind          sql.NullString
+	CurrentA              sql.NullFloat64
+	CurrentAKind          sql.NullString
+	InletTempC            sql.NullFloat64
+	OutletTempC           sql.NullFloat64
+	AmbientTempC          sql.NullFloat64
+	ChipCount             sql.NullInt32
+	ChipCountKind         sql.NullString
+	ChipFrequencyMhz      sql.NullFloat64
+	Health                sql.NullString
+	SiteID                sql.NullInt64
+	MetricSemantics       int16
+	Coverage              pqtype.NullRawMessage
+	TopologyObservationID sql.NullInt64
+	TopologyVersionID     sql.NullInt64
 }
 
 type DeviceMetricsDaily struct {
@@ -813,6 +1427,26 @@ type DevicePairing struct {
 	UnpairedAt    sql.NullTime
 	CreatedAt     sql.NullTime
 	UpdatedAt     sql.NullTime
+}
+
+type DeviceReachabilityExclusion struct {
+	DeviceID  int64
+	Reason    string
+	CreatedAt time.Time
+	ExpiresAt time.Time
+}
+
+type DeviceReachabilitySummary struct {
+	OrgID            int64
+	SiteID           int64
+	SourceNodeID     int64
+	DeviceClass      int32
+	ExpectedCount    int64
+	ReachableCount   int64
+	UnreachableCount int64
+	UnknownCount     int64
+	ExcludedCount    int64
+	GraceCount       int64
 }
 
 type DeviceSet struct {
@@ -857,6 +1491,9 @@ type DeviceStatus struct {
 	StatusTimestamp sql.NullTime
 	StatusDetails   sql.NullString
 	CreatedAt       sql.NullTime
+	// Earliest time a boot must follow to satisfy the pending firmware installation; NULL falls back to status_timestamp.
+	RebootRequiredAfter sql.NullTime
+	TelemetryStatusAt   sql.NullTime
 }
 
 type DeviceStatusDaily struct {
@@ -899,6 +1536,45 @@ type DeviceStatusHourly struct {
 	DataPoints       int32
 }
 
+type DeviceWriteAttempt struct {
+	AttemptID          uuid.UUID
+	DeviceID           int64
+	OrganizationID     int64
+	Epoch              int64
+	QueueMessageID     sql.NullInt64
+	OwnerInstanceID    uuid.UUID
+	OperationKind      string
+	IdentitySnapshot   json.RawMessage
+	Status             string
+	CreatedAt          time.Time
+	FinishedAt         sql.NullTime
+	IdentityKeys       []string
+	CurtailmentCommand sql.NullString
+	CommandType        string
+	WriteOutcome       json.RawMessage
+}
+
+type DeviceWriteFence struct {
+	DeviceID         int64
+	OrganizationID   int64
+	Epoch            int64
+	State            string
+	QuarantineOrigin sql.NullString
+	UpdatedAt        time.Time
+}
+
+type DeviceWriteRecovery struct {
+	RecoveryID     uuid.UUID
+	AttemptID      uuid.UUID
+	FenceEpoch     int64
+	PriorStatus    string
+	OperatorName   string
+	DatabaseActor  string
+	Evidence       json.RawMessage
+	EvidenceSha256 string
+	CreatedAt      time.Time
+}
+
 type DiscoveredDevice struct {
 	ID                      int64
 	OrgID                   int64
@@ -919,6 +1595,13 @@ type DiscoveredDevice struct {
 	DriverName              string
 	IpAddressInet           pqtype.Inet
 	DiscoveredByFleetNodeID sql.NullInt64
+	DeviceClass             int32
+	RpcPort                 int32
+	RpcTls                  bool
+	SerialNumber            string
+	MacAddress              string
+	EndpointKey             string
+	Endpoints               json.RawMessage
 }
 
 type Error struct {
@@ -977,6 +1660,7 @@ type FirmwareRollout struct {
 	CreatedAt                time.Time
 	FinishedAt               sql.NullTime
 	ControllerWaitingSince   sql.NullTime
+	Component                string
 }
 
 type FirmwareRolloutDevice struct {
@@ -1033,6 +1717,7 @@ type FirmwareRolloutSuppressedDevice struct {
 	ModelKey             string
 	AssignmentGeneration int64
 	DeviceID             int64
+	Component            string
 }
 
 type FleetActiveOrganization struct {
@@ -1090,6 +1775,27 @@ type FleetMetricRollupProgress struct {
 	UpdatedAt      time.Time
 }
 
+type FleetMiningAsset struct {
+	Kind               int32
+	ID                 int64
+	OrgID              int64
+	SiteID             sql.NullInt64
+	Name               string
+	DeviceIdentifier   string
+	Position           int32
+	ReportedID         string
+	FacilityKind       int32
+	FacilityID         sql.NullInt64
+	GroupKind          int32
+	GroupID            int64
+	State              string
+	ObservedAt         time.Time
+	HashrateHs         sql.NullFloat64
+	PowerW             sql.NullFloat64
+	TemperatureC       sql.NullFloat64
+	MinerEfficiencyJth float64
+}
+
 type FleetNode struct {
 	ID               int64
 	OrgID            int64
@@ -1110,12 +1816,63 @@ type FleetNodeAuthChallenge struct {
 	CreatedAt   time.Time
 }
 
+type FleetNodeConnectivitySummary struct {
+	OrgID                     int64
+	ExpectedCount             int64
+	RecentCount               int64
+	OverdueCount              int64
+	UnknownCount              int64
+	ExcludedCount             int64
+	GraceCount                int64
+	OldestHeartbeatAgeSeconds float64
+}
+
 type FleetNodeDevice struct {
 	FleetNodeID int64
 	DeviceID    int64
 	OrgID       int64
 	AssignedAt  time.Time
 	AssignedBy  sql.NullInt64
+}
+
+type FleetNodeHaPair struct {
+	ID                   int64
+	OrgID                int64
+	ActiveNodeID         int64
+	StandbyNodeID        int64
+	StandbyReady         bool
+	PendingCredentialKey []byte
+	StatusReason         string
+	CreatedAt            time.Time
+	FailedOverAt         sql.NullTime
+}
+
+type FleetNodeHeartbeat struct {
+	FleetNodeID int64
+	OrgID       int64
+	LastSeenAt  time.Time
+	IpAddresses []string
+	Version     string
+}
+
+type FleetNodeLive struct {
+	ID               int64
+	OrgID            int64
+	Name             string
+	IdentityPubkey   []byte
+	EncryptionPubkey []byte
+	EnrollmentStatus string
+	LastSeenAt       sql.NullTime
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	DeletedAt        sql.NullTime
+}
+
+type FleetNodeMonitoringExclusion struct {
+	FleetNodeID int64
+	Reason      string
+	CreatedAt   time.Time
+	ExpiresAt   time.Time
 }
 
 type FleetNodeSession struct {
@@ -1142,6 +1899,902 @@ type FleetTelemetryPollHeartbeat struct {
 	Bucket         interface{}
 	OrganizationID string
 	SampleCount    int64
+}
+
+type FrigateUpdateAction struct {
+	JobID      uuid.UUID
+	Kind       string
+	RequestKey string
+	Counter    int32
+	Local      bool
+	CreatedAt  time.Time
+}
+
+type FrigateUpdateInstance struct {
+	JobID             uuid.UUID
+	InstanceID        string
+	StageState        string
+	ManifestSha256    string
+	StagedBytes       int64
+	SizeBytes         int64
+	AgentPhase        string
+	LastContact       sql.NullTime
+	ContactStale      bool
+	RunningVersion    string
+	MigrationExecuted bool
+	ErrorCode         string
+	ErrorMessage      string
+	UpdatedAt         time.Time
+}
+
+type FrigateUpdateJob struct {
+	ID                  uuid.UUID
+	OrgID               int64
+	DeviceID            int64
+	PackageID           uuid.UUID
+	State               string
+	StageOnly           bool
+	RolloutPhase        string
+	FromVersion         string
+	TargetVersion       string
+	ExpectedInstanceIds []string
+	DriverInstanceID    string
+	ErrorCode           string
+	ErrorMessage        string
+	NextStep            string
+	Retryable           bool
+	Cancellable         bool
+	DisruptionStarted   bool
+	ServedByMaintenance bool
+	RequestKey          string
+	StartAttempted      bool
+	StartAttemptedAt    sql.NullTime
+	StartLeaseUntil     sql.NullTime
+	CancelRequestedAt   sql.NullTime
+	CancelRequestKey    string
+	CancelRequestActor  string
+	ActionCounter       int32
+	CleanupPending      bool
+	CleanupAttemptedAt  sql.NullTime
+	ActorUserID         int64
+	ActorExternalID     string
+	ActorUsername       string
+	RolloutUpdatedAt    sql.NullTime
+	LastPolledAt        sql.NullTime
+	LastContactAt       sql.NullTime
+	UnreachableSince    sql.NullTime
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	CompletedAt         sql.NullTime
+}
+
+type FrigateUpdatePackage struct {
+	ID                  uuid.UUID
+	OrgID               int64
+	Filename            string
+	Version             string
+	Architecture        string
+	Sha256              string
+	SizeBytes           int64
+	Repository          string
+	ReleaseKeyID        string
+	MinInstalledVersion string
+	IssuedAt            time.Time
+	Statement           []byte
+	Signature           []byte
+	UploadedBy          sql.NullInt64
+	UploadedAt          time.Time
+	DeletedAt           sql.NullTime
+}
+
+type Hashboard struct {
+	ID             int64
+	OrgID          int64
+	FirstSeenAt    time.Time
+	LastSeenAt     time.Time
+	WorkerName     sql.NullString
+	WorkerNameMode string
+}
+
+type HashboardDiagnosticObservation struct {
+	HashboardID     int64
+	InstallationID  int64
+	CollectedAt     time.Time
+	ObservedAt      sql.NullTime
+	State           string
+	StateObservedAt sql.NullTime
+	MiningState     string
+	Isolated        sql.NullBool
+	HashrailOk      sql.NullBool
+	RefclksOk       sql.NullBool
+	Health          pqtype.NullRawMessage
+	Issues          json.RawMessage
+}
+
+type HashboardIdentity struct {
+	OrgID       int64
+	Kind        string
+	Value       string
+	HashboardID int64
+}
+
+type HashboardInstallation struct {
+	ID             int64
+	HashboardID    int64
+	ModuleID       int64
+	Position       int32
+	SiteID         sql.NullInt64
+	InstalledAt    time.Time
+	LastSeenAt     time.Time
+	RemovedAt      sql.NullTime
+	Metadata       json.RawMessage
+	DeviceID       int64
+	TankID         int64
+	ModulePosition int32
+	InstalledOrder sql.NullInt64
+	RemovedOrder   sql.NullInt64
+}
+
+type HashboardLatestMetric struct {
+	HashboardID     int64
+	InstallationID  int64
+	Time            time.Time
+	CollectedAt     time.Time
+	State           string
+	StateObservedAt sql.NullTime
+	MiningState     string
+	Isolated        sql.NullBool
+	HashrateHs      sql.NullFloat64
+	TemperatureC    sql.NullFloat64
+	HashrailOk      sql.NullBool
+	RefclksOk       sql.NullBool
+	Health          pqtype.NullRawMessage
+	PowerW          sql.NullFloat64
+	EfficiencyJh    sql.NullFloat64
+}
+
+type HashboardMetric struct {
+	HashboardID       int64
+	InstallationID    int64
+	Time              time.Time
+	CollectedAt       time.Time
+	State             string
+	StateObservedAt   sql.NullTime
+	MiningState       string
+	Isolated          sql.NullBool
+	HashrateHs        sql.NullFloat64
+	TemperatureC      sql.NullFloat64
+	HashrailOk        sql.NullBool
+	RefclksOk         sql.NullBool
+	Health            pqtype.NullRawMessage
+	PowerW            sql.NullFloat64
+	EfficiencyJh      sql.NullFloat64
+	TopologyVersionID sql.NullInt64
+}
+
+type HashboardMetricSummary struct {
+	Bucket            time.Time
+	HashboardID       int64
+	InstallationID    int64
+	TopologyVersionID sql.NullInt64
+	FirstCollectedAt  time.Time
+	LastCollectedAt   time.Time
+	Observations      int64
+	ResolutionSeconds int32
+	HashrateSum       float64
+	HashrateCount     int64
+	HashrateMin       float64
+	HashrateMax       float64
+	TemperatureSum    float64
+	TemperatureCount  int64
+	TemperatureMin    float64
+	TemperatureMax    float64
+	PowerSum          float64
+	PowerCount        int64
+	PowerMin          float64
+	PowerMax          float64
+	EfficiencySum     float64
+	EfficiencyCount   int64
+	EfficiencyMin     float64
+	EfficiencyMax     float64
+}
+
+type HashboardMetricsDaily struct {
+	Bucket            interface{}
+	HashboardID       int64
+	InstallationID    int64
+	TopologyVersionID sql.NullInt64
+	FirstCollectedAt  interface{}
+	LastCollectedAt   interface{}
+	Observations      int64
+	HashrateSum       int64
+	HashrateCount     int64
+	HashrateMin       interface{}
+	HashrateMax       interface{}
+	TemperatureSum    int64
+	TemperatureCount  int64
+	TemperatureMin    interface{}
+	TemperatureMax    interface{}
+	PowerSum          int64
+	PowerCount        int64
+	PowerMin          interface{}
+	PowerMax          interface{}
+	EfficiencySum     int64
+	EfficiencyCount   int64
+	EfficiencyMin     interface{}
+	EfficiencyMax     interface{}
+}
+
+type HashboardMetricsHourly struct {
+	Bucket            interface{}
+	HashboardID       int64
+	InstallationID    int64
+	TopologyVersionID sql.NullInt64
+	FirstCollectedAt  interface{}
+	LastCollectedAt   interface{}
+	Observations      int64
+	HashrateSum       int64
+	HashrateCount     int64
+	HashrateMin       interface{}
+	HashrateMax       interface{}
+	TemperatureSum    int64
+	TemperatureCount  int64
+	TemperatureMin    interface{}
+	TemperatureMax    interface{}
+	PowerSum          int64
+	PowerCount        int64
+	PowerMin          interface{}
+	PowerMax          interface{}
+	EfficiencySum     int64
+	EfficiencyCount   int64
+	EfficiencyMin     interface{}
+	EfficiencyMax     interface{}
+}
+
+type HashboardObservation struct {
+	HashboardID      int64
+	DeviceID         int64
+	SiteID           sql.NullInt64
+	LastSeenAt       time.Time
+	SourceAt         sql.NullTime
+	AttributionSince sql.NullTime
+	ReleasedAt       sql.NullTime
+}
+
+type HashboardPoolIntent struct {
+	OrganizationID int64
+	HashboardID    int64
+	DeviceID       int64
+	InstallationID int64
+	MacAddress     string
+	AccountID      int64
+	PoolRevisionID string
+	OperationID    uuid.UUID
+	UpdatedAt      time.Time
+}
+
+type HashboardRepairObligation struct {
+	ID          int64
+	OrgID       int64
+	HashboardID int64
+	ClientID    int64
+	RestoredAt  sql.NullTime
+	CreatedAt   time.Time
+}
+
+type HashboardRepairObligationTicket struct {
+	OrgID        int64
+	ObligationID int64
+	TicketID     int64
+	LinkedAt     time.Time
+}
+
+type HashboardSlot struct {
+	ModuleID          int64
+	HashboardID       sql.NullInt64
+	Position          int32
+	UnavailableReason string
+	Occupancy         string
+	ObservedAt        time.Time
+	HealthObservedAt  sql.NullTime
+	State             string
+	StateObservedAt   sql.NullTime
+	MiningState       string
+	Isolated          sql.NullBool
+}
+
+type HostedAccount struct {
+	ID                    int64
+	AccountID             string
+	OrganizationID        int64
+	ParentID              sql.NullInt64
+	Depth                 int32
+	Name                  string
+	Capabilities          int64
+	Suspended             bool
+	Revision              int64
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	SitesRestricted       bool
+	SiteCeilingRestricted bool
+	AuthorityRevision     int64
+	TicketingEnabled      bool
+}
+
+type HostedAccountAnalysis struct {
+	ID             int64
+	AnalysisID     string
+	OrganizationID int64
+	AccountID      int64
+	Kind           string
+	Snapshot       json.RawMessage
+	SiteIds        []int64
+	TicketIds      []int64
+	CreatedBy      int64
+	CreatedAt      time.Time
+	CsvData        []byte
+	Sha256         string
+	RequestKey     string
+	RequestDigest  string
+}
+
+type HostedAccountAnalysisDeletion struct {
+	AnalysisID     string
+	OrganizationID int64
+	AccountID      int64
+	CreatedBy      int64
+	DeletedBy      int64
+	DeletedAt      time.Time
+	RequestKey     string
+	RequestDigest  string
+}
+
+type HostedAccountAncestorGrant struct {
+	OrganizationID int64
+	AccountID      int64
+	AncestorID     int64
+	Capabilities   int64
+	Revision       int64
+	RevokedAt      sql.NullTime
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type HostedAccountAsset struct {
+	OrganizationID          int64
+	Kind                    int32
+	AssetID                 int64
+	DeviceID                int64
+	MinerID                 sql.NullInt64
+	ModuleID                sql.NullInt64
+	ClientID                sql.NullInt64
+	SubclientID             sql.NullInt64
+	Revision                int64
+	UpdatedAt               time.Time
+	HashboardID             sql.NullInt64
+	AllocationDecisionOrder int64
+}
+
+type HostedAccountAssetInterval struct {
+	ID               int64
+	OrganizationID   int64
+	Kind             int32
+	AssetID          int64
+	DeviceID         int64
+	SiteID           sql.NullInt64
+	DeviceIdentifier string
+	ClientID         int64
+	SubclientID      sql.NullInt64
+	StartedAt        time.Time
+	EndedAt          sql.NullTime
+}
+
+type HostedAccountAssetProjection struct {
+	OrganizationID int64
+	Kind           int32
+	AssetID        int64
+	DeviceID       int64
+	ClientID       sql.NullInt64
+	SubclientID    sql.NullInt64
+	Revision       int64
+	Boards         json.RawMessage
+}
+
+type HostedAccountHistoryDaily struct {
+	Bucket                    interface{}
+	IntervalID                int64
+	HashrateSum               int64
+	HashrateCount             int64
+	HashratePositiveCount     int64
+	HashrateComplete          bool
+	HashrateSourceOldestAt    interface{}
+	HashrateSourceNewestAt    interface{}
+	PowerSum                  int64
+	PowerCount                int64
+	PowerComplete             bool
+	PowerSourceOldestAt       interface{}
+	PowerSourceNewestAt       interface{}
+	TemperatureSum            int64
+	TemperatureCount          int64
+	TemperatureLatestValue    interface{}
+	TemperatureLatestAt       interface{}
+	TemperatureSourceOldestAt interface{}
+	TemperatureSourceNewestAt interface{}
+	StateCount                int64
+	StateLatestValue          interface{}
+	StateLatestAt             interface{}
+	StateSourceOldestAt       interface{}
+	StateSourceNewestAt       interface{}
+}
+
+type HostedAccountHistoryEpoch struct {
+	Singleton bool
+	StartedAt time.Time
+}
+
+type HostedAccountHistoryHourly struct {
+	Bucket                    interface{}
+	IntervalID                int64
+	HashrateSum               int64
+	HashrateCount             int64
+	HashratePositiveCount     int64
+	HashrateComplete          bool
+	HashrateSourceOldestAt    interface{}
+	HashrateSourceNewestAt    interface{}
+	PowerSum                  int64
+	PowerCount                int64
+	PowerComplete             bool
+	PowerSourceOldestAt       interface{}
+	PowerSourceNewestAt       interface{}
+	TemperatureSum            int64
+	TemperatureCount          int64
+	TemperatureLatestValue    interface{}
+	TemperatureLatestAt       interface{}
+	TemperatureSourceOldestAt interface{}
+	TemperatureSourceNewestAt interface{}
+	StateCount                int64
+	StateLatestValue          interface{}
+	StateLatestAt             interface{}
+	StateSourceOldestAt       interface{}
+	StateSourceNewestAt       interface{}
+}
+
+type HostedAccountHistorySample struct {
+	Time              time.Time
+	IntervalID        int64
+	Metric            int16
+	Value             sql.NullFloat64
+	Complete          sql.NullBool
+	SourceOldestAt    time.Time
+	SourceNewestAt    time.Time
+	SourceID          int16
+	OriginKey         string
+	OriginTime        time.Time
+	OriginCollectedAt time.Time
+}
+
+type HostedAccountHistorySummaryEpoch struct {
+	Singleton bool
+	StartedAt time.Time
+}
+
+type HostedAccountInvitation struct {
+	InvitationID         string
+	OrganizationID       int64
+	AccountID            int64
+	InviterID            int64
+	AuthorityFingerprint string
+	TokenHash            string
+	Role                 string
+	ExpiresAt            time.Time
+	RevokedAt            sql.NullTime
+	AcceptedAt           sql.NullTime
+	AcceptedUserID       sql.NullInt64
+	CreatedAt            time.Time
+}
+
+type HostedAccountKey struct {
+	ApiKeyID                 int64
+	OrganizationID           int64
+	AccountID                int64
+	Capabilities             int64
+	IncludeFutureDescendants bool
+}
+
+type HostedAccountKeyDescendant struct {
+	OrganizationID int64
+	ApiKeyID       int64
+	AccountID      int64
+}
+
+type HostedAccountMembership struct {
+	OrganizationID int64
+	AccountID      int64
+	UserID         int64
+	Role           string
+	Revision       int64
+	RevokedAt      sql.NullTime
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type HostedAccountPool struct {
+	PoolID         string
+	OrganizationID int64
+	AccountID      int64
+	Archived       bool
+	CreatedAt      time.Time
+}
+
+type HostedAccountPoolProfile struct {
+	OrganizationID int64
+	AccountID      int64
+	RevisionID     sql.NullString
+	Revision       int64
+	UpdatedAt      time.Time
+}
+
+type HostedAccountPoolRevision struct {
+	RevisionID     string
+	OrganizationID int64
+	AccountID      int64
+	PoolID         string
+	Number         int64
+	Name           string
+	Slots          json.RawMessage
+	CreatedAt      time.Time
+}
+
+type HostedAccountReportingAllocationSnapshot struct {
+	IntervalID       int64
+	OrganizationID   int64
+	ClientID         int64
+	SubclientID      sql.NullInt64
+	SiteID           sql.NullInt64
+	Kind             int32
+	AssetID          int64
+	DeviceID         int64
+	DeviceIdentifier string
+	StartedAt        time.Time
+	CapturedAt       time.Time
+}
+
+type HostedAccountReportingCaptureStatus struct {
+	IntervalID                    int64
+	OrganizationID                int64
+	ClientID                      int64
+	SubclientID                   sql.NullInt64
+	SiteID                        sql.NullInt64
+	Kind                          int32
+	AssetID                       int64
+	DeviceID                      int64
+	DeviceIdentifier              string
+	AllocationStartedAt           time.Time
+	AllocationEndedAt             sql.NullTime
+	HoldStartedAt                 time.Time
+	ClosingThrough                time.Time
+	ClosedThrough                 time.Time
+	CloserLastSuccessAt           sql.NullTime
+	CloserLagSeconds              float64
+	SourceID                      int16
+	Metric                        int16
+	HasObservation                bool
+	LastObservationBucket         sql.NullTime
+	LastObservationRevision       sql.NullInt32
+	LastObservationCapturedAt     sql.NullTime
+	LastObservationSourceNewestAt sql.NullTime
+	LastClosedBucket              sql.NullTime
+	LastClosedRevision            sql.NullInt32
+	LastClosedNoSourceData        sql.NullBool
+	MissingHours                  int32
+	GapHours                      int32
+	LastGapFromBucket             sql.NullTime
+	LastGapToBucket               sql.NullTime
+	LastGapReason                 sql.NullString
+	LastGapRecordedAt             sql.NullTime
+}
+
+type HostedAccountReportingHour struct {
+	IntervalID                int64
+	Bucket                    time.Time
+	Revision                  int32
+	CapturedAt                time.Time
+	CaptureReason             string
+	NoSourceData              bool
+	WindowStart               sql.NullTime
+	WindowEnd                 sql.NullTime
+	HashrateReportCount       int32
+	HashrateCount             int32
+	HashratePositiveCount     int32
+	HashrateSum               sql.NullFloat64
+	HashrateComplete          sql.NullBool
+	HashrateSourceOldestAt    sql.NullTime
+	HashrateSourceNewestAt    sql.NullTime
+	PowerReportCount          int32
+	PowerCount                int32
+	PowerSum                  sql.NullFloat64
+	PowerComplete             sql.NullBool
+	PowerSourceOldestAt       sql.NullTime
+	PowerSourceNewestAt       sql.NullTime
+	TemperatureReportCount    int32
+	TemperatureCount          int32
+	TemperatureSum            sql.NullFloat64
+	TemperatureLatestValue    sql.NullFloat64
+	TemperatureLatestAt       sql.NullTime
+	TemperatureSourceOldestAt sql.NullTime
+	TemperatureSourceNewestAt sql.NullTime
+	StateReportCount          int32
+	StateCount                int32
+	StateLatestValue          sql.NullFloat64
+	StateLatestAt             sql.NullTime
+	StateSourceOldestAt       sql.NullTime
+	StateSourceNewestAt       sql.NullTime
+}
+
+type HostedAccountReportingHourControl struct {
+	Singleton      bool
+	HoldStartedAt  time.Time
+	ClosingThrough time.Time
+	ClosedThrough  time.Time
+	LastSuccessAt  sql.NullTime
+}
+
+type HostedAccountReportingHourGap struct {
+	GapID      int64
+	FromBucket time.Time
+	ToBucket   time.Time
+	Reason     string
+	RecordedAt time.Time
+}
+
+type HostedAccountReportingHourMarker struct {
+	MarkerID   int64
+	IntervalID int64
+	Bucket     time.Time
+	EnqueuedAt time.Time
+}
+
+type HostedAccountSite struct {
+	OrganizationID   int64
+	AccountID        int64
+	SiteID           int64
+	ParentControlled bool
+}
+
+type HostedCurtailmentAsset struct {
+	ConfirmationID int64
+	IntervalID     int64
+	InstallationID sql.NullInt64
+	OrganizationID int64
+	ClientID       int64
+	SubclientID    sql.NullInt64
+	SiteID         sql.NullInt64
+	Kind           int32
+	AssetID        int64
+}
+
+type HostedCurtailmentConfirmation struct {
+	ID             int64
+	EvidenceID     uuid.UUID
+	OrganizationID int64
+	EventID        int64
+	DeviceID       int64
+	CurtailBatch   string
+	Phase          string
+	PhaseBatch     string
+	SampleAt       time.Time
+	ConfirmedAt    time.Time
+	CapturedAt     time.Time
+}
+
+type HostedInvitationRateLimit struct {
+	ClientHash      string
+	WindowStartedAt time.Time
+	Attempts        int32
+}
+
+type HostedMiningAsset struct {
+	Kind               int32
+	ID                 int64
+	OrgID              int64
+	SiteID             sql.NullInt64
+	Name               string
+	DeviceIdentifier   string
+	Position           int32
+	ReportedID         string
+	FacilityKind       int32
+	FacilityID         sql.NullInt64
+	GroupKind          int32
+	GroupID            int64
+	State              string
+	ObservedAt         time.Time
+	HashrateHs         sql.NullFloat64
+	PowerW             sql.NullFloat64
+	TemperatureC       sql.NullFloat64
+	MinerEfficiencyJth float64
+}
+
+type HostedModuleMembership struct {
+	ModuleID        int64
+	DeviceID        int64
+	OrgID           int64
+	MembershipSince interface{}
+	BoardIds        interface{}
+}
+
+type HostedReport struct {
+	ID                  int64
+	ReportID            string
+	OrganizationID      int64
+	AccountID           int64
+	SeriesID            string
+	Number              int64
+	CorrectionOf        sql.NullInt64
+	CorrectionReason    string
+	Kind                string
+	PeriodStart         time.Time
+	PeriodEnd           time.Time
+	AsOf                time.Time
+	Timezone            string
+	Period              json.RawMessage
+	InputRevision       int64
+	Result              json.RawMessage
+	SiteIds             []int64
+	CreatedBy           int64
+	OwnerID             int64
+	Status              string
+	Revision            int64
+	IssuedAt            sql.NullTime
+	IssuedBy            sql.NullInt64
+	IncompleteException string
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	EvidenceCutoff      sql.NullTime
+}
+
+type HostedReportArtifact struct {
+	ID               int64
+	ReportInternalID int64
+	Name             string
+	MediaType        string
+	Sha256           string
+	ByteCount        int64
+	ChunkCount       int64
+}
+
+type HostedReportArtifactChunk struct {
+	ArtifactID int64
+	Sequence   int64
+	Data       []byte
+}
+
+type HostedReportDelivery struct {
+	ID               int64
+	ReportInternalID int64
+	RequestKey       string
+	Channel          string
+	Status           string
+	SentAt           sql.NullTime
+	ReceivedAt       sql.NullTime
+	SourceRef        string
+	Evidence         string
+	FailureCategory  string
+	ActorID          int64
+	CreatedAt        time.Time
+}
+
+type HostedReportQueue struct {
+	ID                  int64
+	QueueID             string
+	OrganizationID      int64
+	AccountID           int64
+	WorkKey             string
+	OwnerID             int64
+	SiteIds             []int64
+	Projection          json.RawMessage
+	Fingerprint         string
+	Generation          int64
+	NotificationStatus  string
+	Attempts            int64
+	RetryAt             time.Time
+	ClaimToken          sql.NullString
+	LeaseUntil          sql.NullTime
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	DeliveredChannelIds []int64
+}
+
+type HostedReportQueueEvent struct {
+	ID              int64
+	QueueInternalID int64
+	Generation      int64
+	Kind            string
+	ActorID         sql.NullInt64
+	Reason          string
+	CreatedAt       time.Time
+}
+
+type HostedReportRequest struct {
+	ID               int64
+	RequestID        string
+	OrganizationID   int64
+	AccountID        int64
+	ReceivedAt       time.Time
+	SourceRef        string
+	Requester        string
+	Scope            string
+	OwnerID          int64
+	TargetAt         time.Time
+	Limitations      string
+	CommunicationRef string
+	DeliveryRef      string
+	ActorID          int64
+	CreatedAt        time.Time
+}
+
+type HostedReportRequestFulfillment struct {
+	ID                int64
+	RequestInternalID int64
+	EntryKey          string
+	DeliveredAt       time.Time
+	DeliveryRef       string
+	CommunicationRef  string
+	Evidence          string
+	ActorID           int64
+	CreatedAt         time.Time
+}
+
+type HostedReportingAuthority struct {
+	OrganizationID int64
+	AccountID      int64
+	UserID         int64
+	CanCreate      bool
+	AllSites       bool
+	SiteIds        []int64
+	Revision       int64
+	UpdatedAt      time.Time
+}
+
+type HostedReportingFact struct {
+	OrganizationID       int64
+	AccountID            int64
+	Kind                 string
+	FactID               string
+	RowID                sql.NullInt64
+	StartAt              time.Time
+	EndAt                sql.NullTime
+	StartSeconds         int64
+	StartNanos           int32
+	ReceivedAt           sql.NullTime
+	SiteID               sql.NullInt64
+	ContainerID          sql.NullInt64
+	AssetKind            sql.NullInt32
+	AssetID              sql.NullInt64
+	OrderID              sql.NullString
+	MeterID              sql.NullString
+	AllocationIntervalID sql.NullInt64
+	EpisodeID            sql.NullString
+	BoardCoverageIds     []string
+	Payload              json.RawMessage
+	PayloadBytes         sql.NullInt64
+}
+
+type HostedReportingFactSite struct {
+	OrganizationID int64
+	AccountID      int64
+	SiteID         int64
+	FactCount      int64
+}
+
+type HostedReportingInput struct {
+	OrganizationID int64
+	AccountID      int64
+	Revision       int64
+	UpdatedBy      int64
+	SourceRef      string
+	Configuration  json.RawMessage
+	SiteIds        []int64
+	UpdatedAt      time.Time
 }
 
 type InfrastructureDevice struct {
@@ -1217,6 +2870,30 @@ type MinerStateSnapshotDeviceHourly struct {
 	State            int16
 }
 
+type MiningGroupPoolHandoff struct {
+	OrganizationID   int64
+	OperationID      uuid.UUID
+	DeviceID         int64
+	Captured         json.RawMessage
+	CompletedAt      sql.NullTime
+	PlacementPending bool
+}
+
+type MiningGroupRequest struct {
+	OrganizationID int64
+	RequestID      uuid.UUID
+	DeviceID       int64
+	Fingerprint    string
+	CreatedAt      time.Time
+}
+
+type MiningGroupStepDispatch struct {
+	StepKey         uuid.UUID
+	AttemptID       uuid.UUID
+	DispatchStarted bool
+	DispatchToken   uuid.UUID
+}
+
 type NotificationActive struct {
 	OrganizationID int64
 	AlertKey       string
@@ -1276,16 +2953,32 @@ type Organization struct {
 	DeletedAt sql.NullTime
 }
 
+type OrganizationInvitation struct {
+	InvitationID         string
+	OrganizationID       int64
+	InviterID            int64
+	RoleID               int64
+	AuthorityFingerprint string
+	TokenHash            string
+	ExpiresAt            time.Time
+	RevokedAt            sql.NullTime
+	AcceptedAt           sql.NullTime
+	AcceptedUserID       sql.NullInt64
+	CreatedAt            time.Time
+}
+
 type PendingEnrollment struct {
-	ID          int64
-	CodeHash    string
-	OrgID       int64
-	CreatedBy   int64
-	FleetNodeID sql.NullInt64
-	Status      string
-	ExpiresAt   time.Time
-	ConsumedAt  sql.NullTime
-	CreatedAt   time.Time
+	ID               int64
+	CodeHash         string
+	OrgID            int64
+	CreatedBy        int64
+	FleetNodeID      sql.NullInt64
+	Status           string
+	ExpiresAt        time.Time
+	ConsumedAt       sql.NullTime
+	CreatedAt        time.Time
+	ConfirmedBy      sql.NullInt64
+	StandbyForNodeID sql.NullInt64
 }
 
 type Permission struct {
@@ -1307,6 +3000,199 @@ type Pool struct {
 	DeletedAt   sql.NullTime
 }
 
+type PoolConfiguration struct {
+	ConfigurationID   string
+	OrganizationID    int64
+	AccountID         sql.NullInt64
+	Name              string
+	Archived          bool
+	Version           int64
+	AssignmentVersion int64
+	CurrentRevisionID sql.NullString
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	IsDefault         bool
+}
+
+type PoolConfigurationAssignment struct {
+	OrganizationID      int64
+	TargetKind          string
+	TargetID            int64
+	DeviceID            int64
+	ConfigurationID     string
+	RevisionID          string
+	Version             int64
+	OperationID         sql.NullString
+	RetiredAt           sql.NullTime
+	UpdatedAt           time.Time
+	AdoptedAt           sql.NullTime
+	InheritedWorkerName sql.NullString
+}
+
+type PoolConfigurationBoardIntent struct {
+	OrganizationID    int64
+	InstallationID    int64
+	DeviceID          int64
+	HashboardID       int64
+	MacAddress        string
+	GroupSnapshotID   string
+	OperationID       sql.NullString
+	PhysicalAttemptID uuid.NullUUID
+	AdoptedAt         sql.NullTime
+	UpdatedAt         time.Time
+}
+
+type PoolConfigurationCutover struct {
+	OrganizationID int64
+	FrozenAt       time.Time
+	CompletedAt    sql.NullTime
+	Report         json.RawMessage
+}
+
+type PoolConfigurationGroupSnapshot struct {
+	SnapshotID      string
+	OrganizationID  int64
+	DeviceID        int64
+	ConfigurationID string
+	RevisionID      string
+	Slots           json.RawMessage
+}
+
+type PoolConfigurationImport struct {
+	OrganizationID  int64
+	SourceKind      string
+	SourceID        string
+	SourceVersion   string
+	ConfigurationID string
+	RevisionID      string
+	CreatedAt       time.Time
+}
+
+type PoolConfigurationObservation struct {
+	OrganizationID    int64
+	TargetKind        string
+	TargetID          int64
+	AssignmentVersion int64
+	State             string
+	ResultCode        string
+	ObservedAt        time.Time
+	LastVerifiedAt    sql.NullTime
+}
+
+type PoolConfigurationOperation struct {
+	OperationID     string
+	OrganizationID  int64
+	ConfigurationID string
+	RevisionID      string
+	ActorID         int64
+	CreatedAt       time.Time
+	Kind            string
+	LifecycleID     uuid.NullUUID
+}
+
+type PoolConfigurationOperationTarget struct {
+	OrganizationID    int64
+	OperationID       string
+	TargetKind        string
+	TargetID          int64
+	AssignmentVersion int64
+	State             string
+	Attempts          int32
+	ResultCode        string
+	UpdatedAt         time.Time
+	ReviewedBinding   string
+	PhysicalAttemptID uuid.NullUUID
+	GroupSnapshotID   sql.NullString
+}
+
+type PoolConfigurationReview struct {
+	ReviewID             string
+	Kind                 string
+	OrganizationID       int64
+	ConfigurationID      string
+	ActorID              int64
+	ConfigurationVersion int64
+	AssignmentVersion    int64
+	Name                 string
+	Slots                json.RawMessage
+	SettingsChanged      bool
+	Targets              json.RawMessage
+	CreatedAt            time.Time
+	ExpiresAt            time.Time
+	SavedVersion         sql.NullInt64
+	SavedRevisionID      sql.NullString
+	OperationID          sql.NullString
+}
+
+type PoolConfigurationReviewAuthorization struct {
+	ReviewID              string
+	SessionHash           string
+	CredentialFingerprint string
+	AuthorizedAt          time.Time
+}
+
+type PoolConfigurationRevision struct {
+	RevisionID      string
+	OrganizationID  int64
+	ConfigurationID string
+	Number          int64
+	Slots           json.RawMessage
+	CreatedAt       time.Time
+}
+
+type PoolLifecycleRemoval struct {
+	RemovalID          uuid.UUID
+	OrganizationID     int64
+	AccountID          int64
+	ActorID            int64
+	TargetKind         string
+	TargetID           int64
+	DeviceID           int64
+	ConfigurationID    string
+	RevisionID         string
+	AssignmentVersion  int64
+	ReviewedBinding    string
+	VerificationState  string
+	ClearSupported     bool
+	KeepDeviceSettings bool
+	State              string
+	ResultCode         string
+	PhysicalAttemptID  uuid.NullUUID
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	AttemptStatus      string
+}
+
+type PoolLifecycleTransition struct {
+	TransitionID       uuid.UUID
+	OrganizationID     int64
+	DeviceID           int64
+	AssetKind          int32
+	AssetID            int64
+	OwnerAccountID     int64
+	AllocationRevision int64
+	PairingDefaults    json.RawMessage
+	Reason             string
+	PairingCycleID     uuid.NullUUID
+	ConfigurationID    sql.NullString
+	RevisionID         sql.NullString
+	TargetKind         string
+	TargetID           int64
+	ReviewedBinding    string
+	State              string
+	ResultCode         string
+	OperationID        sql.NullString
+	PhysicalAttemptID  uuid.NullUUID
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	NextAttemptAt      time.Time
+}
+
+type PoolPairingCycle struct {
+	DeviceID int64
+	CycleID  uuid.UUID
+}
+
 type QueueMessage struct {
 	ID                  int64
 	CommandBatchLogUuid string
@@ -1318,6 +3204,8 @@ type QueueMessage struct {
 	Payload             pqtype.NullRawMessage
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
+	WriteEpoch          int64
+	ProcessingStartedAt sql.NullTime
 }
 
 type RackSlot struct {
@@ -1361,6 +3249,15 @@ type ReleaseChannelConflict struct {
 	Resolution  string
 }
 
+type ReleaseChannelControllerSoftware struct {
+	ChannelID    int64
+	Manufacturer string
+	Model        string
+	Version      string
+	AssignedBy   int64
+	UpdatedAt    time.Time
+}
+
 type ReleaseChannelFirmware struct {
 	ChannelID                  int64
 	Manufacturer               string
@@ -1374,6 +3271,7 @@ type ReleaseChannelFirmware struct {
 	UpdatedAt                  time.Time
 	PreviousFirmwareChecksum   string
 	PreviousFirmwareVersion    string
+	Component                  string
 }
 
 type ReleaseChannelMatch struct {
@@ -1423,37 +3321,74 @@ type ReleaseChannelTarget struct {
 }
 
 type RepairTicket struct {
-	ID                int64
-	OrgID             int64
-	TicketNumber      string
-	Category          int16
-	Status            int16
-	Urgent            bool
-	Component         string
-	Diagnosis         sql.NullString
-	MinerIdentifier   sql.NullString
-	AlertID           sql.NullString
-	AssigneeUserID    sql.NullInt64
-	WarrantyStatus    int16
-	SiteID            sql.NullInt64
-	BuildingID        sql.NullInt64
-	Zone              sql.NullString
-	RackID            sql.NullInt64
-	RackLabel         sql.NullString
-	GroupLabel        sql.NullString
-	Resolution        int16
-	RepairLocation    int16
-	Notes             sql.NullString
-	DailyImpactUsd    sql.NullString
-	RmaVendor         sql.NullString
-	RmaTracking       sql.NullString
-	RmaEta            sql.NullTime
-	CompletedAt       sql.NullTime
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-	DeletedAt         sql.NullTime
-	IdempotencyKey    sql.NullString
-	CreateRequestHash sql.NullString
+	ID                      int64
+	OrgID                   int64
+	TicketNumber            string
+	Category                int16
+	Status                  int16
+	Urgent                  bool
+	Component               string
+	Diagnosis               sql.NullString
+	MinerIdentifier         sql.NullString
+	AlertID                 sql.NullString
+	AssigneeUserID          sql.NullInt64
+	WarrantyStatus          int16
+	SiteID                  sql.NullInt64
+	BuildingID              sql.NullInt64
+	Zone                    sql.NullString
+	RackID                  sql.NullInt64
+	RackLabel               sql.NullString
+	GroupLabel              sql.NullString
+	Resolution              int16
+	RepairLocation          int16
+	Notes                   sql.NullString
+	DailyImpactUsd          sql.NullString
+	RmaVendor               sql.NullString
+	RmaTracking             sql.NullString
+	RmaEta                  sql.NullTime
+	CompletedAt             sql.NullTime
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+	DeletedAt               sql.NullTime
+	IdempotencyKey          sql.NullString
+	CreateRequestHash       sql.NullString
+	Description             string
+	CreatedByAccountID      sql.NullInt64
+	SharedWithClients       bool
+	ResolutionNote          string
+	ResolutionNoteAccountID sql.NullInt64
+}
+
+type RepairTicketAssetOption struct {
+	Kind            int16
+	ID              int64
+	OrgID           int64
+	SiteID          sql.NullInt64
+	ParentAssetID   int64
+	AllocationKind  int32
+	ModuleID        sql.NullInt64
+	InstallationID  sql.NullInt64
+	ContainerID     sql.NullInt64
+	Position        sql.NullInt32
+	Label           string
+	Model           string
+	MinerIdentifier string
+	BuildingID      sql.NullInt64
+	RackID          sql.NullInt64
+}
+
+type RepairTicketAudience struct {
+	OrgID     int64
+	TicketID  int64
+	AccountID int64
+}
+
+type RepairTicketBoardOwner struct {
+	OrgID       int64
+	TicketID    int64
+	HashboardID int64
+	ClientID    int64
+	SubclientID sql.NullInt64
 }
 
 type RepairTicketComment struct {
@@ -1467,6 +3402,8 @@ type RepairTicketComment struct {
 	DeletedAt         sql.NullTime
 	IdempotencyKey    sql.NullString
 	CreateRequestHash sql.NullString
+	Internal          bool
+	AccountID         sql.NullInt64
 }
 
 type RepairTicketCounter struct {
@@ -1484,16 +3421,44 @@ type RepairTicketPart struct {
 	ConsumedAt      sql.NullTime
 }
 
+type RepairTicketTarget struct {
+	OrgID                  int64
+	TicketID               int64
+	Kind                   int16
+	AssetID                int64
+	MinerID                sql.NullInt64
+	MinerIdentifier        sql.NullString
+	BuildingID             sql.NullInt64
+	RackID                 sql.NullInt64
+	ModuleID               sql.NullInt64
+	HashboardID            sql.NullInt64
+	InstallationID         sql.NullInt64
+	ContainerID            sql.NullInt64
+	SiteID                 sql.NullInt64
+	Label                  string
+	Model                  string
+	Position               sql.NullInt32
+	ClientID               sql.NullInt64
+	SubclientID            sql.NullInt64
+	Diagnosis              string
+	WarrantyEvidence       string
+	RepairOutcome          string
+	RmaOutcome             string
+	ReplacementModuleID    sql.NullInt64
+	ReplacementHashboardID sql.NullInt64
+}
+
 type Role struct {
-	ID             int64
-	Name           string
-	Description    sql.NullString
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	DeletedAt      sql.NullTime
-	IsBuiltin      bool
-	BuiltinKey     sql.NullString
-	OrganizationID sql.NullInt64
+	ID                 int64
+	Name               string
+	Description        sql.NullString
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	DeletedAt          sql.NullTime
+	IsBuiltin          bool
+	BuiltinKey         sql.NullString
+	OrganizationID     sql.NullInt64
+	PermissionRevision int64
 }
 
 type RolePermission struct {
@@ -1564,6 +3529,83 @@ type Site struct {
 	InfrastructureControlSubnets string
 }
 
+type TelemetryFreshness struct {
+	DeviceID         int64
+	ObservedAt       sql.NullTime
+	SourceNodeID     int64
+	IngestedAt       time.Time
+	ObservationKnown bool
+}
+
+type TelemetryFreshnessExclusion struct {
+	DeviceID  int64
+	Reason    string
+	CreatedAt time.Time
+	ExpiresAt time.Time
+}
+
+type TelemetryFreshnessSummary struct {
+	OrgID            int64
+	SiteID           int64
+	SourceNodeID     int64
+	DeviceClass      int32
+	ExpectedCount    int64
+	FreshCount       int64
+	StaleCount       int64
+	UnknownCount     int64
+	ExcludedCount    int64
+	GraceCount       int64
+	OldestAgeSeconds float64
+}
+
+type TelemetrySummaryProgress struct {
+	AggregateName    string
+	SourceName       string
+	BucketWidth      int64
+	Lateness         int64
+	EndOffset        int64
+	CoverageStart    sql.NullTime
+	CompletedThrough sql.NullTime
+	LastSuccessAt    sql.NullTime
+	Attempts         int64
+	RecoveredBatches int64
+}
+
+type TelemetrySummarySource struct {
+	SourceName         string
+	RawFloor           sql.NullTime
+	DroppedThrough     sql.NullTime
+	RawRetention       int64
+	JobID              sql.NullInt32
+	NextRetentionAt    time.Time
+	LastAttemptAt      sql.NullTime
+	LastRetentionAt    sql.NullTime
+	RetentionError     sql.NullString
+	RetentionDeferrals int64
+}
+
+type TelemetrySummaryWork struct {
+	AggregateName        string
+	WorkKind             string
+	NextRunAt            time.Time
+	BatchBuckets         int32
+	ReplayUntil          sql.NullTime
+	Pending              bool
+	Failures             int64
+	MinimumBatchFailures int32
+	SuccessfulBatches    int32
+	Blocked              bool
+	LastStart            sql.NullTime
+	LastEnd              sql.NullTime
+	LastError            sql.NullString
+	LastSuccessAt        sql.NullTime
+}
+
+type TelemetrySummaryWriteGate struct {
+	SourceName    string
+	FrozenThrough sql.NullTime
+}
+
 type User struct {
 	ID                     int64
 	UserID                 string
@@ -1581,7 +3623,7 @@ type UserOrganization struct {
 	ID             int64
 	UserID         int64
 	OrganizationID int64
-	RoleID         int64
+	RoleID         sql.NullInt64
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 	DeletedAt      sql.NullTime

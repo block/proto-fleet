@@ -20,7 +20,7 @@ describe("useLogin", () => {
     vi.clearAllMocks();
 
     (useMinerHosting as Mock).mockReturnValue({
-      api: {
+      adapter: {
         login: mockLogin,
       },
     });
@@ -29,10 +29,8 @@ describe("useLogin", () => {
 
   test("calls the public login endpoint with secure false and stores tokens", async () => {
     mockLogin.mockResolvedValue({
-      data: {
-        access_token: "new-access-token",
-        refresh_token: "new-refresh-token",
-      },
+      accessToken: "new-access-token",
+      refreshToken: "new-refresh-token",
     });
 
     const { result } = renderHook(() => useLogin());
@@ -41,7 +39,7 @@ describe("useLogin", () => {
       password: "admin-password",
     });
 
-    expect(mockLogin).toHaveBeenCalledWith({ password: "admin-password" }, { secure: false });
+    expect(mockLogin).toHaveBeenCalledWith("admin-password");
     expect(mockSetAuthTokens).toHaveBeenCalledWith({
       accessToken: {
         value: "new-access-token",

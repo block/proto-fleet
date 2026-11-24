@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -96,6 +97,80 @@ func TestRegistry_CommandProtocolUpgradeRequiredNeedsActiveConnection(t *testing
 
 	stream.Unregister()
 	assert.False(t, r.CommandProtocolUpgradeRequired(7))
+}
+
+func TestRegistry_CommandProtocolUpgradeRequiredForVersion(t *testing.T) {
+	for _, installed := range []gatewaypb.CommandProtocolVersion{
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V4,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V5,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7 + 1,
+	} {
+		t.Run(installed.String(), func(t *testing.T) {
+			r := NewRegistry()
+			stream, err := r.RegisterAuthenticated(7, "session", installed)
+			require.NoError(t, err)
+			defer stream.Unregister()
+			for _, minimum := range []gatewaypb.CommandProtocolVersion{
+				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2,
+				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3,
+				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V4,
+				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V5,
+				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6,
+				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7,
+			} {
+				require.Equal(t, installed < minimum, r.CommandProtocolUpgradeRequiredForVersion(7, minimum))
+			}
+			require.Equal(t, installed < gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, r.CommandProtocolUpgradeRequired(7), "the global upgrade threshold must remain V1")
+			stream.Unregister()
+			require.False(t, r.CommandProtocolUpgradeRequiredForVersion(7, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V4), "an inactive connection is not an upgrade diagnosis")
+		})
+	}
+}
+
+func TestRegistry_CommandProtocolUpgradeRecommended(t *testing.T) {
+	r := NewRegistry()
+	assert.False(t, r.CommandProtocolUpgradeRecommended(7))
+	for _, tc := range []struct {
+		version     gatewaypb.CommandProtocolVersion
+		recommended bool
+	}{
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V4, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V5, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V8, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V9, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V10, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V11, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V13, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V14, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V15, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V16, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V17, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V18, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V19, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V20, false},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V20 + 1, false},
+	} {
+		t.Run(tc.version.String(), func(t *testing.T) {
+			stream, err := r.RegisterAuthenticated(7, "session", tc.version)
+			require.NoError(t, err)
+			assert.Equal(t, tc.recommended, r.CommandProtocolUpgradeRecommended(7))
+			stream.Unregister()
+			assert.False(t, r.CommandProtocolUpgradeRecommended(7))
+		})
+	}
 }
 
 func TestRegistry_RejectsUnsupportedCommandProtocolBeforeDispatch(t *testing.T) {
@@ -417,6 +492,7 @@ func TestRegistry_SendCommandUnblocksOnCtxCancel(t *testing.T) {
 	// Assert: it returns an error and frees the slot for a re-send of the same id.
 	res := recvResult(t, results)
 	require.Error(t, res.err)
+	require.False(t, IsCommandNotEnqueued(res.err), "cancellation after enqueue remains uncertain")
 	assert.Nil(t, res.ack)
 	_, err := r.SendCommand(canceledCtx(), 1, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "m1"})
 	require.Error(t, err) // not errDuplicateCommandID; the slot was freed
@@ -570,6 +646,7 @@ func TestRegistry_SendCommandWithArtifactResultsRejectsOKAckWithoutCompletedUplo
 
 	res := recvArtifactResult(t, results)
 	require.Error(t, res.err)
+	require.False(t, IsCommandNotEnqueued(res.err), "post-send artifact validation is not admission evidence")
 	assert.Contains(t, res.err.Error(), "expected artifact upload")
 	require.NotNil(t, res.ack)
 	assert.Empty(t, res.refs)
@@ -742,6 +819,34 @@ func TestRegistry_ReinstatePairTargets_AllowsRetryAfterPersistFailure(t *testing
 	require.NoError(t, err)
 	require.Len(t, retried, 1)
 	assert.Equal(t, "a", retried[0].GetDeviceIdentifier())
+}
+
+func TestRegistryPairSnapshotsRemainFixedAcrossDispatchAndRetry(t *testing.T) {
+	r := NewRegistry()
+	operator := int64(7)
+	target := &pairingpb.FleetNodePairTarget{DeviceIdentifier: "a", IpAddress: "10.0.0.1", Port: "8080", Endpoints: []*commonpb.DeviceEndpoint{{Id: "a", Host: "10.0.0.1"}}}
+	pair := &PairMeta{OrgID: 1, AssignedBy: &operator, Targets: map[string]struct{}{"a": {}}, Snapshots: map[string]*pairingpb.FleetNodePairTarget{"a": target}}
+	session, stream := sendPair(t, r, 6, "snapshot", pair)
+	defer stream.Unregister()
+	defer session.Close()
+	target.IpAddress = "10.0.0.99"
+	target.Endpoints[0].Host = "10.0.0.99"
+	operator = 9
+	delete(pair.Snapshots, "a")
+	delete(pair.Targets, "a")
+
+	_, meta, err := r.AdmitAndScopePairResults(6, "snapshot", []*gatewaypb.FleetNodePairResult{{DeviceIdentifier: "a"}})
+	require.NoError(t, err)
+	require.EqualValues(t, 7, *meta.AssignedBy)
+	require.Equal(t, "10.0.0.1", meta.Snapshots["a"].GetIpAddress())
+	require.Equal(t, "10.0.0.1", meta.Snapshots["a"].GetEndpoints()[0].GetHost())
+	meta.Snapshots["a"].IpAddress = "10.0.0.88"
+	meta.Snapshots["a"].Endpoints[0].Host = "10.0.0.88"
+	r.ReinstatePairTargets(6, "snapshot", []string{"a"})
+	_, retried, err := r.AdmitAndScopePairResults(6, "snapshot", []*gatewaypb.FleetNodePairResult{{DeviceIdentifier: "a"}})
+	require.NoError(t, err)
+	require.Equal(t, "10.0.0.1", retried.Snapshots["a"].GetIpAddress())
+	require.Equal(t, "10.0.0.1", retried.Snapshots["a"].GetEndpoints()[0].GetHost())
 }
 
 func TestRegistry_UnregisterSignalsInFlightCommandDone(t *testing.T) {
@@ -1424,4 +1529,256 @@ func TestAdmitCommandArtifactRequiresDownloadArtifactID(t *testing.T) {
 		ArtifactID: "artifact-1",
 	})
 	require.ErrorIs(t, err, ErrArtifactNotExpected)
+}
+
+func TestRegistryEquipmentRejectsV1BeforeEnqueue(t *testing.T) {
+	r := NewRegistry()
+	stream, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1)
+	require.NoError(t, err)
+	defer stream.Unregister()
+	_, err = r.SendCommand(t.Context(), 7, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2, &gatewaypb.ControlCommand{CommandId: "equipment"})
+	require.True(t, fleeterror.IsFailedPreconditionError(err))
+	require.ErrorContains(t, err, "requires version 2")
+	select {
+	case <-stream.Outgoing:
+		t.Fatal("unsupported command enqueued")
+	default:
+	}
+}
+
+func TestRegistryTankMiningRejectsLegacyProtocolBeforeEnqueue(t *testing.T) {
+	for _, version := range []gatewaypb.CommandProtocolVersion{
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3,
+	} {
+		t.Run(version.String(), func(t *testing.T) {
+			r := NewRegistry()
+			stream, err := r.RegisterAuthenticated(7, "session", version)
+			require.NoError(t, err)
+			defer stream.Unregister()
+			_, err = r.SendCommand(t.Context(), 7, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V4, &gatewaypb.ControlCommand{CommandId: "tanks"})
+			require.True(t, fleeterror.IsFailedPreconditionError(err))
+			require.ErrorIs(t, err, ErrCommandProtocolUpgradeRequired)
+			require.ErrorContains(t, err, "requires version 4")
+			require.ErrorContains(t, err, "upgrade Fleet Node")
+			select {
+			case <-stream.Outgoing:
+				t.Fatal("unsupported tank command enqueued")
+			default:
+			}
+		})
+	}
+}
+
+func TestRegistryPoolWritesRejectLegacyProtocolBeforeEnqueue(t *testing.T) {
+	for _, version := range []gatewaypb.CommandProtocolVersion{
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2,
+	} {
+		t.Run(version.String(), func(t *testing.T) {
+			registry := NewRegistry()
+			stream, err := registry.RegisterAuthenticated(7, "session", version)
+			require.NoError(t, err)
+			defer stream.Unregister()
+			_, err = registry.SendCommand(t.Context(), 7, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3, &gatewaypb.ControlCommand{CommandId: "sealed-pools"})
+			require.True(t, fleeterror.IsFailedPreconditionError(err))
+			require.ErrorContains(t, err, "requires version 3")
+			select {
+			case <-stream.Outgoing:
+				t.Fatal("pool write enqueued for legacy node")
+			default:
+			}
+		})
+	}
+}
+
+func TestRegistry_DisconnectedSince_NeverConnectedReportsRegistryStart(t *testing.T) {
+	before := time.Now()
+	r := NewRegistry()
+	after := time.Now()
+
+	since, ok := r.DisconnectedSince(7)
+
+	assert.True(t, ok)
+	assert.False(t, since.Before(before))
+	assert.False(t, since.After(after))
+	assert.False(t, r.Connected(7))
+}
+
+func TestRegistry_DisconnectedSince_ConnectedNodeReportsNotDisconnected(t *testing.T) {
+	r := NewRegistry()
+	stream, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+	defer stream.Unregister()
+
+	since, ok := r.DisconnectedSince(7)
+
+	assert.True(t, r.Connected(7))
+	assert.False(t, ok)
+	assert.True(t, since.IsZero())
+}
+
+func TestRegistry_DisconnectedSince_UnregisterRecordsTime(t *testing.T) {
+	r := NewRegistry()
+	stream, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+	beforeUnregister := time.Now()
+
+	stream.Unregister()
+
+	since, ok := r.DisconnectedSince(7)
+	assert.False(t, r.Connected(7))
+	assert.True(t, ok)
+	assert.False(t, since.Before(beforeUnregister))
+	assert.False(t, since.After(time.Now()))
+}
+
+func TestRegistry_DisconnectedSince_ServerDisconnectRecordsTime(t *testing.T) {
+	r := NewRegistry()
+	_, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+	beforeDisconnect := time.Now()
+
+	r.Disconnect(7)
+
+	since, ok := r.DisconnectedSince(7)
+	assert.False(t, r.Connected(7))
+	assert.True(t, ok)
+	assert.False(t, since.Before(beforeDisconnect))
+}
+
+func TestRegistry_DisconnectedSince_ReconnectClearsDisconnectTime(t *testing.T) {
+	r := NewRegistry()
+	first, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+	first.Unregister()
+	_, disconnected := r.DisconnectedSince(7)
+	require.True(t, disconnected)
+
+	second, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+	defer second.Unregister()
+
+	since, ok := r.DisconnectedSince(7)
+	assert.True(t, r.Connected(7))
+	assert.False(t, ok)
+	assert.True(t, since.IsZero())
+}
+
+func TestRegistry_DisconnectedSince_EvictedStreamDoesNotMarkNodeDisconnected(t *testing.T) {
+	r := NewRegistry()
+	first, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+	second, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+	defer second.Unregister()
+
+	first.Unregister()
+
+	since, ok := r.DisconnectedSince(7)
+	assert.True(t, r.Connected(7))
+	assert.False(t, ok)
+	assert.True(t, since.IsZero())
+}
+
+func TestRegistry_DisconnectedSince_TracksNodesIndependently(t *testing.T) {
+	r := NewRegistry()
+	one, err := r.RegisterAuthenticated(1, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+	two, err := r.RegisterAuthenticated(2, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+	defer two.Unregister()
+
+	one.Unregister()
+
+	assert.False(t, r.Connected(1))
+	assert.True(t, r.Connected(2))
+	_, ok := r.DisconnectedSince(2)
+	assert.False(t, ok)
+}
+
+func TestRegistry_ConnectedSince_ReportsLatestRegistration(t *testing.T) {
+	r := NewRegistry()
+	first, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+	first.Unregister()
+	beforeReconnect := time.Now()
+
+	second, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+	defer second.Unregister()
+
+	since, ok := r.ConnectedSince(7)
+	assert.True(t, ok)
+	assert.False(t, since.Before(beforeReconnect))
+}
+
+func TestRegistry_ConnectedSince_DisconnectedNodeReportsNotConnected(t *testing.T) {
+	r := NewRegistry()
+	stream, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+
+	stream.Unregister()
+
+	_, ok := r.ConnectedSince(7)
+	assert.False(t, ok)
+}
+
+func TestConnectionCountTracksReplacement(t *testing.T) {
+	registry := NewRegistry()
+	first := registry.Register(10)
+	require.Equal(t, int64(1), registry.ConnectionCount())
+	second := registry.Register(10)
+	first.Unregister()
+	require.Equal(t, int64(1), registry.ConnectionCount())
+	second.Unregister()
+	require.Zero(t, registry.ConnectionCount())
+}
+
+func TestProtocolMetricsExcludeDisconnectedNodes(t *testing.T) {
+	var results []bool
+	r := NewRegistry().WithProtocolObserver(func(compatible bool) { results = append(results, compatible) })
+	_, _, err := r.addCmd(7, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6, &inflightCommand{id: "missing"})
+	require.ErrorIs(t, err, ErrNoActiveStream)
+	require.Empty(t, results)
+	_, err = r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1)
+	require.NoError(t, err)
+	_, _, err = r.addCmd(7, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6, &inflightCommand{id: "incompatible"})
+	require.ErrorIs(t, err, ErrCommandProtocolUpgradeRequired)
+	_, _, err = r.addCmd(7, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &inflightCommand{id: "compatible"})
+	require.NoError(t, err)
+	require.Equal(t, []bool{false, true}, results)
+}
+
+func TestProtocolMetricsForDispatchPrechecks(t *testing.T) {
+	const nodeID = 7
+	const installed = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1
+	const required = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V8
+	var results []bool
+	r := NewRegistry().WithProtocolObserver(func(compatible bool) { results = append(results, compatible) })
+
+	require.False(t, r.CommandProtocolUpgradeRequiredForDispatch(nodeID, required))
+	require.False(t, r.SupportsCommandProtocolVersion(nodeID, required))
+	require.False(t, r.SupportsMinerWebForDispatch(nodeID))
+	require.Empty(t, results)
+
+	stream, err := r.RegisterAuthenticated(nodeID, "session", installed)
+	require.NoError(t, err)
+	defer stream.Unregister()
+
+	require.True(t, r.CommandProtocolUpgradeRequiredForVersion(nodeID, required))
+	require.False(t, r.SupportsMinerWeb(nodeID))
+	require.False(t, r.CommandProtocolUpgradeRequiredForDispatch(nodeID, installed))
+	require.True(t, r.SupportsCommandProtocolVersion(nodeID, installed))
+	require.Empty(t, results)
+
+	require.True(t, r.CommandProtocolUpgradeRequiredForDispatch(nodeID, required))
+	require.False(t, r.SupportsCommandProtocolVersion(nodeID, required))
+	require.False(t, r.SupportsMinerWebForDispatch(nodeID))
+	require.Equal(t, []bool{false, false, false}, results)
+	_, _, err = r.addCmd(nodeID, installed, &inflightCommand{id: "compatible", done: make(chan struct{})})
+	require.NoError(t, err)
+	require.Equal(t, []bool{false, false, false, true}, results)
 }

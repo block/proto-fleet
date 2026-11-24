@@ -23,10 +23,11 @@ func TestService_Update_HappyPath(t *testing.T) {
 	const orgID = int64(1)
 	eventUUID := uuid.New()
 	persisted := &models.Event{
-		ID:        99,
-		EventUUID: eventUUID,
-		OrgID:     orgID,
-		State:     models.EventStateActive,
+		ID:                 99,
+		MaxDurationSeconds: int32Ptr(900),
+		EventUUID:          eventUUID,
+		OrgID:              orgID,
+		State:              models.EventStateActive,
 	}
 	updated := *persisted
 	updated.Reason = "operator changed mind"
@@ -162,7 +163,7 @@ func TestService_Update_RejectsAbsoluteCapViolations(t *testing.T) {
 			req: UpdateRequest{
 				OrgID:                   orgID,
 				EventUUID:               eventUUID,
-				RestoreBatchIntervalSec: int32Ptr(restoreBatchIntervalUpperBoundSec + 1),
+				RestoreBatchIntervalSec: int32Ptr(batchIntervalUpperBoundSec + 1),
 				CanUseAdminControls:     true,
 			},
 			msg: "restore_batch_interval_sec must be <=",
@@ -204,7 +205,7 @@ func TestService_Update_RejectsNonAdminLargeInterval(t *testing.T) {
 	_, err := svc.Update(t.Context(), UpdateRequest{
 		OrgID:                   orgID,
 		EventUUID:               eventUUID,
-		RestoreBatchIntervalSec: int32Ptr(nonAdminRestoreBatchIntervalMax + 1),
+		RestoreBatchIntervalSec: int32Ptr(nonAdminBatchIntervalMax + 1),
 		CanUseAdminControls:     false,
 	})
 	require.Error(t, err)
@@ -238,22 +239,19 @@ func TestService_Update_RejectsRestoreBatchSizeChange(t *testing.T) {
 	assert.Equal(t, 0, store.updateOperatorFieldsCalls)
 }
 
-// TestService_Update_RejectsNonAdminMaxDurationAboveOrgDefault mirrors
-// Start's admin gate on max_duration_seconds. Without this check a
-// non-admin could Start at the org default then Update the same event
-// far above it, bypassing the privilege boundary Start enforces.
-func TestService_Update_RejectsNonAdminMaxDurationAboveOrgDefault(t *testing.T) {
+// TestService_Update_RejectsNonAdminCapOnUncappedEvent: adding a cap to an
+// event without one shortens its lifetime, so it is admin-only like any
+// other shortening.
+func TestService_Update_RejectsNonAdminCapOnUncappedEvent(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)
 	eventUUID := uuid.New()
 	store := newFakeStore()
-	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID) // MaxDurationDefaultSec = 14400
 	store.eventsByUUID[eventUUID] = &models.Event{
 		ID: 1, EventUUID: eventUUID, OrgID: orgID, State: models.EventStateActive,
 	}
 	svc := NewService(store)
 
-	// Non-admin requesting 1 day (86400s) > org default 14400s → Forbidden.
 	_, err := svc.Update(t.Context(), UpdateRequest{
 		OrgID:               orgID,
 		EventUUID:           eventUUID,
@@ -262,18 +260,15 @@ func TestService_Update_RejectsNonAdminMaxDurationAboveOrgDefault(t *testing.T) 
 	})
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsForbiddenError(err))
-	assert.Contains(t, err.Error(), "max_duration_seconds")
+	assert.Contains(t, err.Error(), "only admins can shorten max_duration_seconds")
+	assert.Zero(t, store.updateOperatorFieldsCalls)
 }
 
-// TestService_Update_AllowsAdminMaxDurationAboveOrgDefault: admins can
-// bypass the org-default gate as long as the value stays under the
-// absolute ceiling.
-func TestService_Update_AllowsAdminMaxDurationAboveOrgDefault(t *testing.T) {
+func TestService_Update_AllowsAdminCapOnUncappedEvent(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)
 	eventUUID := uuid.New()
 	store := newFakeStore()
-	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
 	store.eventsByUUID[eventUUID] = &models.Event{
 		ID: 1, EventUUID: eventUUID, OrgID: orgID, State: models.EventStateActive,
 	}
@@ -332,7 +327,7 @@ func TestService_Update_RaceLossSurfacesFailedPrecondition(t *testing.T) {
 	_, err := svc.Update(t.Context(), UpdateRequest{OrgID: orgID, EventUUID: eventUUID, Reason: &newReason})
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
-	assert.Contains(t, err.Error(), "state advanced")
+	assert.Contains(t, err.Error(), "state or duration policy changed")
 }
 
 // TestService_Update_PropagatesStoreError: unrelated store errors
@@ -502,7 +497,7 @@ func TestService_Update_AllowsNonAdminEchoOfAdminElevatedRestoreInterval(t *test
 	t.Parallel()
 	const orgID = int64(1)
 	eventUUID := uuid.New()
-	elevatedInterval := int32(600) // above nonAdminRestoreBatchIntervalMax (300)
+	elevatedInterval := int32(600) // above nonAdminBatchIntervalMax (300)
 	persisted := &models.Event{
 		ID:                      99,
 		EventUUID:               eventUUID,
@@ -561,4 +556,39 @@ func TestService_Update_RejectsMultiByteReasonAbove256Runes(t *testing.T) {
 	require.Error(t, err, "257 runes must reject")
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 	assert.Contains(t, err.Error(), "characters", "error message uses character vocabulary, not byte vocabulary")
+}
+
+func TestServiceUpdate_DurationPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name                    string
+		oldCap, newCap, minimum int32
+		admin, unbounded        bool
+		wantError               string
+	}{
+		{"operator cannot shorten cap", 1200, 900, 0, false, false, "only admins can shorten"},
+		{"admin can shorten cap", 1200, 900, 600, true, false, ""},
+		{"operator can extend cap", 900, 1200, 0, false, false, ""},
+		{"operator can extend cap past old org default", 900, 86400, 0, false, false, ""},
+		{"cap cannot undercut minimum", 1200, 500, 600, true, false, "must be >= min_curtailed"},
+		{"unbounded rejects cap", 0, 900, 0, true, true, "allow_unbounded"},
+		{"zero is not an update default", 1200, 0, 0, true, false, "must be > 0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newFakeStore()
+			store.orgConfigByOrg[1] = defaultOrgConfig(1)
+			event := &models.Event{ID: 1, OrgID: 1, EventUUID: uuid.New(), State: models.EventStateActive,
+				MaxDurationSeconds: &tc.oldCap, MinCurtailedDurationSec: tc.minimum, AllowUnbounded: tc.unbounded}
+			store.eventsByUUID[event.EventUUID] = event
+			store.updateOperatorFieldsResult = event
+			_, err := NewService(store).Update(t.Context(), UpdateRequest{OrgID: 1, EventUUID: event.EventUUID,
+				MaxDurationSeconds: &tc.newCap, CanUseAdminControls: tc.admin})
+			if tc.wantError != "" {
+				require.ErrorContains(t, err, tc.wantError)
+				assert.Zero(t, store.updateOperatorFieldsCalls)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.admin, store.lastUpdateOperatorFieldsArgs.CanShortenMaxDuration)
+			}
+		})
+	}
 }

@@ -128,7 +128,6 @@
       "proto/**",
       "proto-rig-api/**",
       "sdk/**",
-      "client/src/protoOS/api/generatedApi.ts",
       "**/generated/**",
       "**/*.pb.go",
       "**/*.pb.ts",

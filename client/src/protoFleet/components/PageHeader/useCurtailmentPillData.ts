@@ -10,6 +10,7 @@ import {
 } from "@/protoFleet/api/activeCurtailmentData";
 import { CURTAILMENT_CHANGED_EVENT } from "@/protoFleet/api/curtailmentEvents";
 import { isAbortError, isAuthOrPermissionError } from "@/protoFleet/api/requestErrors";
+import { useCurtailmentPolling } from "@/protoFleet/api/useCurtailmentPolling";
 import { useAuthErrors, useHasPermission } from "@/protoFleet/store";
 
 export interface UseCurtailmentPillDataResult {
@@ -107,21 +108,12 @@ export function useCurtailmentPillData(): UseCurtailmentPillDataResult {
     };
   }, [canReadCurtailment, refreshActiveCurtailment]);
 
-  useEffect(() => {
-    if (!canReadCurtailment) {
-      return undefined;
-    }
-
-    const abortController = new AbortController();
-    const intervalId = window.setInterval(() => {
-      void refreshActiveCurtailment(abortController.signal);
-    }, pollIntervalMs);
-
-    return () => {
-      window.clearInterval(intervalId);
-      abortController.abort();
-    };
-  }, [canReadCurtailment, pollIntervalMs, refreshActiveCurtailment]);
+  useCurtailmentPolling({
+    enabled: canReadCurtailment,
+    priority: 0,
+    intervalMs: pollIntervalMs,
+    refresh: refreshActiveCurtailment,
+  });
 
   return { activeEvent };
 }

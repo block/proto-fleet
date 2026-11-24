@@ -39,7 +39,9 @@ func newTestHandler(t *testing.T) *testHarness {
 			return fn(ctx)
 		},
 	)
-	svc := infrastructure.NewService(store, siteStore, infrastructure.NewDefaultDriverRegistry(), tx, nil)
+	registry, err := infrastructure.NewConfiguredDriverRegistry(infrastructure.Config{})
+	require.NoError(t, err)
+	svc := infrastructure.NewService(store, siteStore, registry, tx, nil)
 	return &testHarness{handler: NewHandler(svc), store: store, siteStore: siteStore}
 }
 

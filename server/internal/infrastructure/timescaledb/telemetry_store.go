@@ -3,9 +3,11 @@ package timescaledb
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
+	"slices"
 	"sort"
 	"time"
 
@@ -33,6 +35,9 @@ const (
 	dailyBucketDuration  = 24 * time.Hour
 	maxRawMetricBuckets  = 10000
 
+	// Stay inside three calendar months, including daylight-saving changes.
+	deviceStatusHourlyReadWindow = 88 * dailyBucketDuration
+
 	// Wide selectors scan one raw row per device per poll interval, so an
 	// org-wide 24h request at a 5k fleet reads ~43M rows; past these exact
 	// limits (no estimates) such requests serve from the hourly aggregates.
@@ -57,30 +62,12 @@ const (
 	maxRawUptimeFallbackRange = 2 * time.Hour
 	maxRawUptimeFallbackRows  = 600_000
 
+	minuteUptimeRetention = 7 * 24 * time.Hour
+
 	// fleetMetricRollupReadMaxDuration keeps the new 90s dashboard rollup on
 	// the raw-window paths. Longer ranges already use hourly/daily aggregates.
 	fleetMetricRollupReadMaxDuration = rawDataMaxDuration
-
-	// Energy estimation constants.
-	// Each telemetry data point represents one polling interval of device uptime.
-	pollingIntervalSeconds = 10.0
-	secondsPerHour         = 3600.0
-	wattsPerKilowatt       = 1000.0
 )
-
-// estimateEnergyKWh computes estimated energy consumption in kilowatt-hours
-// from average power and data point count. Unlike the old CAGG formula
-// (SUM(power_w) / COUNT(*) * 24) which assumed 24h of uniform sampling,
-// this scales by actual device uptime: each data point represents one polling
-// interval (~10s), so devices offline for part of the day get proportionally
-// less energy attributed.
-//
-// Intended for per-device daily energy rollups in handlers or domain logic
-// once energy reporting is surfaced to the UI.
-func estimateEnergyKWh(avgPowerW float64, dataPoints int64) float64 {
-	activeHours := float64(dataPoints) * pollingIntervalSeconds / secondsPerHour
-	return avgPowerW * activeHours / wattsPerKilowatt
-}
 
 // dataSource represents which table to query from based on time range
 type dataSource int
@@ -362,7 +349,8 @@ func NewTelemetryStore(db *sql.DB, config Config) (*TimescaleTelemetryStore, err
 }
 
 // StoreDeviceMetrics stores device metrics in TimescaleDB.
-// The operation is atomic - if any insert fails, the entire transaction is rolled back.
+// Measurement inserts are atomic. Recoverable errors in optional freshness
+// tracking are isolated by a savepoint; final commit failures roll back both.
 func (s *TimescaleTelemetryStore) StoreDeviceMetrics(ctx context.Context, data ...modelsV2.DeviceMetrics) error {
 	if len(data) == 0 {
 		return nil
@@ -371,7 +359,7 @@ func (s *TimescaleTelemetryStore) StoreDeviceMetrics(ctx context.Context, data .
 	ctx, cancel := context.WithTimeout(ctx, s.config.WriteTimeout)
 	defer cancel()
 
-	//nolint:forbidigo // The caller falls back per row; helper retries would amplify transient failures across the batch.
+	//nolint:forbidigo // The caller isolates failed batches; helper retries would amplify transient failures.
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -384,42 +372,37 @@ func (s *TimescaleTelemetryStore) StoreDeviceMetrics(ctx context.Context, data .
 
 	qtx := s.queries.WithTx(tx)
 
+	// Leave time for the writer to isolate lock contention before WriteTimeout.
+	lockTimeout := max(time.Millisecond, min(time.Second, s.config.WriteTimeout/4))
+	if err := qtx.SetLocalTelemetryLockTimeout(ctx, lockTimeout.Milliseconds()); err != nil {
+		return fmt.Errorf("failed to set telemetry lock timeout: %w", err)
+	}
+
 	if s.config.AsyncMetricCommit {
 		if err := qtx.DisableSyncCommit(ctx); err != nil {
 			return fmt.Errorf("failed to set async commit: %w", err)
 		}
 	}
 
+	params := newDeviceMetricsBatchParams(len(data))
 	for _, metrics := range data {
-		params := sqlc.InsertDeviceMetricsParams{
-			Time:             metrics.Timestamp,
-			DeviceIdentifier: metrics.DeviceIdentifier,
-			Health:           toNullString(metrics.Health.String()),
+		if metrics.Container != nil {
+			if err := storeContainerDeviceMetrics(ctx, qtx, metrics); err != nil {
+				return err
+			}
+			continue
 		}
+		appendDeviceMetricsRow(&params, metrics)
+	}
 
-		if metrics.HashrateHS != nil {
-			params.HashRateHs = sql.NullFloat64{Float64: metrics.HashrateHS.Value, Valid: true}
-			params.HashRateHsKind = toNullString(metrics.HashrateHS.Kind.String())
+	if len(params.Times) > 0 {
+		if err := qtx.InsertDeviceMetricsBatch(ctx, params); err != nil {
+			return fmt.Errorf("failed to insert %d device metrics: %w", len(params.Times), err)
 		}
-		if metrics.TempC != nil {
-			params.TempC = sql.NullFloat64{Float64: metrics.TempC.Value, Valid: true}
-			params.TempCKind = toNullString(metrics.TempC.Kind.String())
-		}
-		if metrics.FanRPM != nil {
-			params.FanRpm = sql.NullFloat64{Float64: metrics.FanRPM.Value, Valid: true}
-			params.FanRpmKind = toNullString(metrics.FanRPM.Kind.String())
-		}
-		if metrics.PowerW != nil {
-			params.PowerW = sql.NullFloat64{Float64: metrics.PowerW.Value, Valid: true}
-			params.PowerWKind = toNullString(metrics.PowerW.Kind.String())
-		}
-		if metrics.EfficiencyJH != nil {
-			params.EfficiencyJh = sql.NullFloat64{Float64: metrics.EfficiencyJH.Value, Valid: true}
-			params.EfficiencyJhKind = toNullString(metrics.EfficiencyJH.Kind.String())
-		}
-
-		if err := qtx.InsertDeviceMetrics(ctx, params); err != nil {
-			return fmt.Errorf("failed to insert metrics for device %s: %w", metrics.DeviceIdentifier, err)
+	}
+	if s.config.TrackTelemetryFreshness {
+		if err := s.recoverableFreshnessWrite(ctx, qtx, data); err != nil {
+			return err
 		}
 	}
 
@@ -428,6 +411,31 @@ func (s *TimescaleTelemetryStore) StoreDeviceMetrics(ctx context.Context, data .
 	}
 
 	return nil
+}
+
+func storeContainerDeviceMetrics(ctx context.Context, q *sqlc.Queries, metrics modelsV2.DeviceMetrics) error {
+	if err := storeContainerInventory(ctx, q, metrics.DeviceIdentifier, metrics.Container); err != nil {
+		return fmt.Errorf("store container inventory: %w", err)
+	}
+	if !metrics.Container.InventoryAccepted {
+		return nil
+	}
+	if plant := metrics.Container.Plant; plant != nil {
+		encoded, err := json.Marshal(plant)
+		if err != nil {
+			return fmt.Errorf("encode container plant: %w", err)
+		}
+		if err := q.InsertContainerPlantMetrics(ctx, sqlc.InsertContainerPlantMetricsParams{DeviceIdentifier: metrics.DeviceIdentifier, Time: plant.ObservedAt, Metrics: encoded}); err != nil {
+			return fmt.Errorf("store container plant: %w", err)
+		}
+	}
+
+	params := newDeviceMetricsBatchParams(1)
+	appendDeviceMetricsRow(&params, metrics)
+	if err := q.InsertDeviceMetricsBatch(ctx, params); err != nil {
+		return fmt.Errorf("failed to insert metrics for device %s: %w", metrics.DeviceIdentifier, err)
+	}
+	return q.StampContainerSample(ctx, sqlc.StampContainerSampleParams{DeviceIdentifier: metrics.DeviceIdentifier, Time: metrics.Timestamp})
 }
 
 // GetLatestDeviceMetricsBatch retrieves the latest metrics for multiple devices.
@@ -621,6 +629,15 @@ func (s *TimescaleTelemetryStore) StreamTelemetryUpdates(ctx context.Context, qu
 // - Daily aggregates (device_metrics_daily) for queries > 10d
 func (s *TimescaleTelemetryStore) GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
 	startTime, endTime := s.getTimeRange(query.TimeRange)
+	if len(query.DeviceIDs) == 1 {
+		container, err := s.queries.IsContainerMetricSelector(ctx, string(query.DeviceIDs[0]))
+		if err != nil {
+			return models.CombinedMetric{}, err
+		}
+		if container {
+			return s.containerHistory(ctx, query, startTime, endTime)
+		}
+	}
 	ds := selectDataSource(startTime, endTime, len(query.DeviceIDs))
 
 	s.logger.Debug("selected data source for combined metrics",
@@ -629,19 +646,20 @@ func (s *TimescaleTelemetryStore) GetCombinedMetrics(ctx context.Context, query 
 		slog.Time("end_time", endTime),
 		slog.Int("device_count", len(query.DeviceIDs)))
 
+	useDailyTemperature := time.Since(startTime) > deviceStatusHourlyReadWindow
 	switch ds {
 	case dataSourceRaw:
-		return s.getCombinedMetricsFromRaw(ctx, query, startTime, endTime)
+		return s.getCombinedMetricsFromRaw(ctx, query, startTime, endTime, useDailyTemperature)
 	case dataSourceHourly:
-		return s.getCombinedMetricsFromHourly(ctx, query, startTime, endTime)
+		return s.getCombinedMetricsFromHourly(ctx, query, startTime, endTime, useDailyTemperature)
 	case dataSourceDaily:
 		return s.getCombinedMetricsFromDaily(ctx, query, startTime, endTime)
 	}
-	return s.getCombinedMetricsFromRaw(ctx, query, startTime, endTime)
+	return s.getCombinedMetricsFromRaw(ctx, query, startTime, endTime, useDailyTemperature)
 }
 
 // getCombinedMetricsFromRaw queries raw device_metrics table (for short time ranges).
-func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time) (models.CombinedMetric, error) {
+func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time, useDailyTemperature bool) (models.CombinedMetric, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
 	defer cancel()
 
@@ -656,19 +674,20 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context,
 	if rawMetricBucketCount(startTime, endTime, bucketDuration) > maxRawMetricBuckets {
 		return models.CombinedMetric{}, fmt.Errorf("raw combined metrics bucket count exceeds %d", maxRawMetricBuckets)
 	}
-	startTime, endTime, hasCompleteBucket := completeRawBucketWindow(startTime, endTime, bucketDuration)
-	if !hasCompleteBucket {
-		return models.CombinedMetric{}, nil
+	var result models.CombinedMetric
+	rawStart, rawEnd, hasCompleteBucket := completeRawBucketWindow(startTime, endTime, bucketDuration)
+	if hasCompleteBucket {
+		buckets, err := s.bucketAggregatesPreferRollup(ctx, query, rawStart, rawEnd, bucketDuration)
+		if err != nil {
+			return models.CombinedMetric{}, err
+		}
+		result = aggregateRawMetricBuckets(buckets, query.MeasurementTypes, query.AggregationTypes)
+		if models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes) {
+			result.UptimeStatusCounts = s.uptimeCountsForQuery(ctx, query, rawStart, rawEnd, bucketDuration, dataSourceRaw)
+		}
 	}
-	buckets, err := s.bucketAggregatesPreferRollup(ctx, query, startTime, endTime, bucketDuration)
-	if err != nil {
-		return models.CombinedMetric{}, err
-	}
-
-	includeUptimeCounts := models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes)
-	result := aggregateRawMetricBuckets(buckets, query.MeasurementTypes, query.AggregationTypes)
-	if includeUptimeCounts {
-		result.UptimeStatusCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, bucketDuration, dataSourceRaw)
+	if useDailyTemperature {
+		result.TemperatureStatusCounts = s.getCompleteDailyTemperatureCounts(ctx, query, startTime, endTime)
 	}
 
 	return result, nil
@@ -727,10 +746,10 @@ func (s *TimescaleTelemetryStore) rawBucketAggregates(ctx context.Context, query
 	return buckets, nil
 }
 
-// bucketAggregatesPreferRollup serves dashboard-shaped org-wide fleet requests
-// from the app-maintained 90s rollup, plus the two newest complete buckets
-// from raw telemetry. Device-list and site-scoped queries keep the raw path
-// because the rollup cannot enforce the service-resolved device predicate.
+// bucketAggregatesPreferRollup serves org-wide fleet requests from the 90s
+// rollup where coverage exists and from raw telemetry elsewhere, including the
+// newest buckets. Device-list and site-scoped queries stay raw because the
+// rollup cannot enforce the service-resolved device predicate.
 func (s *TimescaleTelemetryStore) bucketAggregatesPreferRollup(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time, bucketDuration time.Duration) ([]rawMetricBucket, error) {
 	if !fleetMetricRollupEligible(query, startTime, endTime, bucketDuration) {
 		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
@@ -750,35 +769,50 @@ func (s *TimescaleTelemetryStore) bucketAggregatesPreferRollup(ctx context.Conte
 			slog.String("error", err.Error()))
 		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
 	}
-	requiredLatest := bodyEndExclusive.Add(-models.FleetMetricRollupBucketDuration)
-	if coverage.EarliestBucket.After(bodyStart) || coverage.LatestBucket.Before(requiredLatest) {
-		s.logger.Warn("fleet metric rollup coverage incomplete, falling back to raw",
+	rollupStart, rollupEnd, ok := fleetMetricRollupCoveredWindow(bodyStart, bodyEndExclusive, coverage.EarliestBucket, coverage.LatestBucket)
+	if !ok {
+		s.logger.Warn("fleet metric rollup coverage does not overlap request, falling back to raw",
 			slog.Int64("org_id", query.OrganizationID),
 			slog.Bool("site_scoped", query.DeviceListFromSiteScope),
 			slog.Time("start_time", bodyStart),
 			slog.Time("end_time", bodyEndExclusive),
 			slog.Time("coverage_earliest_bucket", coverage.EarliestBucket),
-			slog.Time("coverage_latest_bucket", coverage.LatestBucket),
-			slog.Time("required_latest_bucket", requiredLatest))
+			slog.Time("coverage_latest_bucket", coverage.LatestBucket))
 		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
 	}
 
-	body, err := s.readFleetMetricRollupBuckets(ctx, query, bodyStart, bodyEndExclusive)
+	s.logger.Debug("selected fleet metric rollup coverage",
+		slog.Int64("org_id", query.OrganizationID),
+		slog.Time("start_time", startTime),
+		slog.Time("end_time", endTime),
+		slog.Time("rollup_start", rollupStart),
+		slog.Time("rollup_end", rollupEnd))
+
+	body, err := s.readFleetMetricRollupBuckets(ctx, query, rollupStart, rollupEnd)
 	if err != nil {
 		s.logger.Warn("fleet metric rollup read failed, falling back to raw",
 			slog.Int64("org_id", query.OrganizationID),
 			slog.Bool("site_scoped", query.DeviceListFromSiteScope),
-			slog.Time("start_time", bodyStart),
-			slog.Time("end_time", bodyEndExclusive),
+			slog.Time("start_time", rollupStart),
+			slog.Time("end_time", rollupEnd),
 			slog.String("error", err.Error()))
 		return s.rawBucketAggregates(ctx, query, startTime, endTime, bucketDuration)
 	}
 
-	tail, err := s.rawBucketAggregates(ctx, query, bodyEndExclusive, endTime, bucketDuration)
+	var head []rawMetricBucket
+	if rollupStart.After(startTime) {
+		// Raw reads include their end; pgx truncates this to the preceding
+		// microsecond so a sample at rollupStart belongs only to the rollup.
+		head, err = s.rawBucketAggregates(ctx, query, startTime, rollupStart.Add(-time.Nanosecond), bucketDuration)
+		if err != nil {
+			return nil, err
+		}
+	}
+	tail, err := s.rawBucketAggregates(ctx, query, rollupEnd, endTime, bucketDuration)
 	if err != nil {
 		return nil, err
 	}
-	return append(body, tail...), nil
+	return slices.Concat(head, body, tail), nil
 }
 
 func fleetMetricRollupEligible(query models.CombinedMetricsQuery, startTime, endTime time.Time, bucketDuration time.Duration) bool {
@@ -806,11 +840,15 @@ func fleetMetricRollupWindows(startTime, endTime time.Time) (bodyStart, bodyEndE
 	return startTime, bodyEndExclusive, true
 }
 
-func fleetRollupBucketCountExclusive(startTime, endTime time.Time) int64 {
-	if !endTime.After(startTime) {
-		return 0
+func fleetMetricRollupCoveredWindow(bodyStart, bodyEndExclusive, earliestBucket, latestBucket time.Time) (start, endExclusive time.Time, ok bool) {
+	start, endExclusive = bodyStart, bodyEndExclusive
+	if earliestBucket.After(start) {
+		start = earliestBucket
 	}
-	return rawMetricBucketCount(startTime, endTime.Add(-time.Nanosecond), models.FleetMetricRollupBucketDuration)
+	if coverageEnd := latestBucket.Add(models.FleetMetricRollupBucketDuration); coverageEnd.Before(endExclusive) {
+		endExclusive = coverageEnd
+	}
+	return start, endExclusive, endExclusive.After(start)
 }
 
 func (s *TimescaleTelemetryStore) readFleetMetricRollupBuckets(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time) ([]rawMetricBucket, error) {
@@ -830,7 +868,7 @@ func (s *TimescaleTelemetryStore) readFleetMetricRollupBuckets(ctx context.Conte
 }
 
 // getCombinedMetricsFromHourly queries device_metrics_hourly continuous aggregate.
-func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time) (models.CombinedMetric, error) {
+func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time, useDailyTemperature bool) (models.CombinedMetric, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
 	defer cancel()
 
@@ -885,13 +923,19 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Conte
 		if len(rows) > 0 {
 			result.Metrics = s.aggregateHourlyRows(rows, query.MeasurementTypes, query.AggregationTypes)
 		}
-		result.TemperatureStatusCounts = s.getTemperatureCountsFromHourlyAggregates(ctx, query.OrganizationID, query.DeviceIDs, bodyStart, bodyEnd)
+		if !useDailyTemperature {
+			result.TemperatureStatusCounts = s.getTemperatureCountsFromHourlyAggregates(ctx, query.OrganizationID, query.DeviceIDs, bodyStart, bodyEnd)
+		}
 	}
 
 	if hasTail {
 		if err := s.appendHourlyRawTail(ctx, query, &result, tailStart, endTime); err != nil {
 			return models.CombinedMetric{}, err
 		}
+	}
+
+	if useDailyTemperature {
+		result.TemperatureStatusCounts = s.getCompleteDailyTemperatureCounts(ctx, query, startTime, endTime)
 	}
 
 	// Uptime is computed independently of the metric body: a lagging CAGG can
@@ -961,10 +1005,18 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Contex
 	var err error
 
 	if len(query.DeviceIDs) == 0 {
-		rows, err = s.queries.GetAllDeviceMetricsDailyAggregates(ctx, sqlc.GetAllDeviceMetricsDailyAggregatesParams{
-			Bucket:   startTime,
-			Bucket_2: endTime,
-		})
+		if query.OrganizationID != 0 {
+			rows, err = s.queries.GetOrgDeviceMetricsDailyAggregates(ctx, sqlc.GetOrgDeviceMetricsDailyAggregatesParams{
+				OrgID:     query.OrganizationID,
+				StartTime: startTime,
+				EndTime:   endTime,
+			})
+		} else {
+			rows, err = s.queries.GetAllDeviceMetricsDailyAggregates(ctx, sqlc.GetAllDeviceMetricsDailyAggregatesParams{
+				Bucket:   startTime,
+				Bucket_2: endTime,
+			})
+		}
 	} else {
 		identifiers := deviceIDsToStrings(query.DeviceIDs)
 		rows, err = s.queries.GetDeviceMetricsDailyAggregates(ctx, sqlc.GetDeviceMetricsDailyAggregatesParams{
@@ -984,7 +1036,7 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Contex
 
 	metrics := s.aggregateDailyRows(rows, query.MeasurementTypes, query.AggregationTypes)
 
-	tempCounts := s.getTemperatureCountsFromDailyAggregates(ctx, query.DeviceIDs, startTime, endTime)
+	tempCounts := s.getTemperatureCountsFromDailyAggregates(ctx, query.OrganizationID, query.DeviceIDs, startTime, endTime)
 	var uptimeCounts []models.UptimeStatusCount
 	if models.ShouldIncludeUptimeStatusCounts(query.MeasurementTypes) {
 		uptimeCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, dailyBucketDuration, dataSourceDaily)
@@ -1006,9 +1058,24 @@ func (s *TimescaleTelemetryStore) uptimeCountsForQuery(ctx context.Context, quer
 	if query.OrganizationID == 0 {
 		return nil
 	}
-	bucketDuration = normalizedUptimeBucketDuration(bucketDuration)
 
-	rollupCounts := s.getUptimeStatusCountsFromDeviceRollups(ctx, query.OrganizationID, query.DeviceIDs, startTime, endTime, bucketDuration, ds)
+	bucketDuration = normalizedUptimeBucketDuration(bucketDuration)
+	var rollupCounts []models.UptimeStatusCount
+
+	// Use one resolution across the range when minute rollups may have expired.
+	if ds == dataSourceRaw && startTime.Before(time.Now().Add(-minuteUptimeRetention)) {
+		hourlyStart, hourlyEnd, ok := completeRawBucketWindow(startTime, endTime, hourlyBucketDuration)
+		if ok {
+			rollupCounts = s.getUptimeStatusCountsFromDeviceRollups(ctx, query.OrganizationID, query.DeviceIDs, hourlyStart, hourlyEnd, hourlyBucketDuration, dataSourceHourly)
+			if len(rollupCounts) > 0 {
+				startTime, endTime = hourlyStart, hourlyEnd
+				bucketDuration = hourlyBucketDuration
+			}
+		}
+	}
+	if len(rollupCounts) == 0 {
+		rollupCounts = s.getUptimeStatusCountsFromDeviceRollups(ctx, query.OrganizationID, query.DeviceIDs, startTime, endTime, bucketDuration, ds)
+	}
 	complete, rawTailStart, canMergeTail := uptimeRollupCoverage(rollupCounts, startTime, endTime, bucketDuration)
 	if complete {
 		return rollupCounts
@@ -1059,6 +1126,19 @@ func deviceIDsToStrings(ids []models.DeviceIdentifier) []string {
 	return result
 }
 
+// Use complete UTC days across the range when hourly status may have expired.
+func (s *TimescaleTelemetryStore) getCompleteDailyTemperatureCounts(
+	ctx context.Context,
+	query models.CombinedMetricsQuery,
+	startTime, endTime time.Time,
+) []models.TemperatureStatusCount {
+	startTime, endTime, ok := normalizeCompleteBucketRange(startTime, endTime, dailyBucketDuration)
+	if !ok {
+		return nil
+	}
+	return s.getTemperatureCountsFromDailyAggregates(ctx, query.OrganizationID, query.DeviceIDs, startTime, endTime)
+}
+
 func (s *TimescaleTelemetryStore) getTemperatureCountsFromHourlyAggregates(
 	ctx context.Context,
 	orgID int64,
@@ -1104,6 +1184,7 @@ func (s *TimescaleTelemetryStore) getTemperatureCountsFromHourlyAggregates(
 
 func (s *TimescaleTelemetryStore) getTemperatureCountsFromDailyAggregates(
 	ctx context.Context,
+	orgID int64,
 	deviceIDs []models.DeviceIdentifier,
 	startTime, endTime time.Time,
 ) []models.TemperatureStatusCount {
@@ -1111,10 +1192,18 @@ func (s *TimescaleTelemetryStore) getTemperatureCountsFromDailyAggregates(
 	var err error
 
 	if len(deviceIDs) == 0 {
-		rows, err = s.queries.GetAllDeviceStatusDailyAggregates(ctx, sqlc.GetAllDeviceStatusDailyAggregatesParams{
-			Bucket:   startTime,
-			Bucket_2: endTime,
-		})
+		if orgID != 0 {
+			rows, err = s.queries.GetOrgDeviceStatusDailyAggregates(ctx, sqlc.GetOrgDeviceStatusDailyAggregatesParams{
+				OrgID:     orgID,
+				StartTime: startTime,
+				EndTime:   endTime,
+			})
+		} else {
+			rows, err = s.queries.GetAllDeviceStatusDailyAggregates(ctx, sqlc.GetAllDeviceStatusDailyAggregatesParams{
+				Bucket:   startTime,
+				Bucket_2: endTime,
+			})
+		}
 	} else {
 		identifiers := deviceIDsToStrings(deviceIDs)
 		rows, err = s.queries.GetDeviceStatusDailyAggregates(ctx, sqlc.GetDeviceStatusDailyAggregatesParams{
@@ -1832,10 +1921,12 @@ func (s *TimescaleTelemetryStore) InsertMinerStateSnapshot(ctx context.Context, 
 	ctx, cancel := context.WithTimeout(ctx, s.config.WriteTimeout)
 	defer cancel()
 
-	if err := s.queries.InsertMinerStateSnapshot(ctx, at); err != nil {
-		return fmt.Errorf("insert miner state snapshot: %w", err)
-	}
-	return nil
+	return db.WithTransactionNoResult(ctx, s.db, func(q sqlc.Querier) error {
+		if err := q.InsertMinerStateSnapshot(ctx, at); err != nil {
+			return fmt.Errorf("insert miner state snapshot: %w", err)
+		}
+		return nil
+	})
 }
 
 func (s *TimescaleTelemetryStore) UpsertFleetMetricRollups(ctx context.Context, startTime, endTime time.Time) error {
@@ -2141,11 +2232,56 @@ func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromSnapshots(
 	return result
 }
 
-func toNullString(s string) sql.NullString {
-	if s == "" {
-		return sql.NullString{}
+func metricColumns(metric *modelsV2.MetricValue) (value float64, kind string) {
+	if metric == nil {
+		return 0, ""
 	}
-	return sql.NullString{String: s, Valid: true}
+	return metric.Value, metric.Kind.String()
+}
+
+func appendDeviceMetricsRow(params *sqlc.InsertDeviceMetricsBatchParams, metrics modelsV2.DeviceMetrics) {
+	// Match pgx's scalar timestamp encoding used by container stamps and rollups.
+	params.Times = append(params.Times, metrics.Timestamp.Truncate(time.Microsecond))
+	params.DeviceIdentifiers = append(params.DeviceIdentifiers, metrics.DeviceIdentifier)
+	params.Health = append(params.Health, metrics.Health.String())
+
+	value, kind := metricColumns(metrics.HashrateHS)
+	params.HashRateHs = append(params.HashRateHs, value)
+	params.HashRateHsKinds = append(params.HashRateHsKinds, kind)
+
+	value, kind = metricColumns(metrics.TempC)
+	params.TempC = append(params.TempC, value)
+	params.TempCKinds = append(params.TempCKinds, kind)
+
+	value, kind = metricColumns(metrics.FanRPM)
+	params.FanRpm = append(params.FanRpm, value)
+	params.FanRpmKinds = append(params.FanRpmKinds, kind)
+
+	value, kind = metricColumns(metrics.PowerW)
+	params.PowerW = append(params.PowerW, value)
+	params.PowerWKinds = append(params.PowerWKinds, kind)
+
+	value, kind = metricColumns(metrics.EfficiencyJH)
+	params.EfficiencyJh = append(params.EfficiencyJh, value)
+	params.EfficiencyJhKinds = append(params.EfficiencyJhKinds, kind)
+}
+
+func newDeviceMetricsBatchParams(capacity int) sqlc.InsertDeviceMetricsBatchParams {
+	return sqlc.InsertDeviceMetricsBatchParams{
+		Times:             make([]time.Time, 0, capacity),
+		DeviceIdentifiers: make([]string, 0, capacity),
+		HashRateHs:        make([]float64, 0, capacity),
+		HashRateHsKinds:   make([]string, 0, capacity),
+		TempC:             make([]float64, 0, capacity),
+		TempCKinds:        make([]string, 0, capacity),
+		FanRpm:            make([]float64, 0, capacity),
+		FanRpmKinds:       make([]string, 0, capacity),
+		PowerW:            make([]float64, 0, capacity),
+		PowerWKinds:       make([]string, 0, capacity),
+		EfficiencyJh:      make([]float64, 0, capacity),
+		EfficiencyJhKinds: make([]string, 0, capacity),
+		Health:            make([]string, 0, capacity),
+	}
 }
 
 func sqlcMetricsToDeviceMetrics(row sqlc.DeviceMetric) modelsV2.DeviceMetrics {

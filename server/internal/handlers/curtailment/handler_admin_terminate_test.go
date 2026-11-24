@@ -28,8 +28,6 @@ import (
 type adminTerminateStubStore struct {
 	authEvent                      *models.Event
 	result                         *models.Event
-	transitioned                   bool
-	idempotentReplay               bool
 	err                            error
 	calls                          int
 	lastOrgID                      int64
@@ -63,9 +61,7 @@ func (s *adminTerminateStubStore) AdminTerminateEvent(_ context.Context, orgID i
 	if s.err != nil {
 		return nil, false, s.err
 	}
-	transitioned := !s.idempotentReplay
-	s.transitioned = transitioned
-	return s.result, transitioned, nil
+	return s.result, true, nil
 }
 
 func (s *adminTerminateStubStore) ForceReleaseEvent(_ context.Context, orgID int64, eventUUID uuid.UUID, reason string) (interfaces.ForceReleaseEventResult, error) {
@@ -261,7 +257,7 @@ func TestHandler_AdminTerminateEvent_HappyPath(t *testing.T) {
 			State:     models.EventStateCancelled,
 		},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	resp, err := h.AdminTerminateEvent(
 		adminTerminateSessionCtx(42, "ADMIN"),
@@ -303,7 +299,7 @@ func TestHandler_AdminTerminateEvent_DoesNotHydrateDisplayCoverageBeforeControl(
 		},
 		targetSiteCoverageErr: assert.AnError,
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	_, err := h.AdminTerminateEvent(
 		adminTerminateSessionCtx(42, "ADMIN"),
@@ -335,7 +331,7 @@ func TestHandler_ForceReleaseCurtailmentOwnership_HappyPath(t *testing.T) {
 		},
 		forceReleaseAutomationDisabled: true,
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	resp, err := h.ForceReleaseCurtailmentOwnership(
 		adminTerminateSessionCtx(42, "ADMIN"),
@@ -374,7 +370,7 @@ func TestHandler_ForceReleaseCurtailmentOwnership_TargetReadFailureDoesNotMaskRe
 		},
 		targetsErr: assert.AnError,
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	resp, err := h.ForceReleaseCurtailmentOwnership(
 		adminTerminateSessionCtx(42, "ADMIN"),
@@ -411,7 +407,7 @@ func TestHandler_ForceReleaseCurtailmentOwnership_BypassesIncompleteTargetSiteCo
 		},
 		targetSitesComplete: false,
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	_, err := h.ForceReleaseCurtailmentOwnership(
 		adminTerminateSessionCtx(42, "ADMIN"),
@@ -445,7 +441,7 @@ func TestHandler_ForceReleaseCurtailmentOwnership_DoesNotHydrateDisplayCoverageB
 		},
 		targetSiteCoverageErr: assert.AnError,
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	_, err := h.ForceReleaseCurtailmentOwnership(
 		adminTerminateSessionCtx(42, "ADMIN"),
@@ -478,7 +474,7 @@ func TestHandler_ForceReleaseCurtailmentOwnership_FailsClosedForMalformedPersist
 			State:     models.EventStateCancelled,
 		},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	_, err := h.ForceReleaseCurtailmentOwnership(
 		adminTerminateSessionCtx(42, "ADMIN"),
@@ -512,7 +508,7 @@ func TestHandler_ForceReleaseCurtailmentOwnership_RejectsSiteNarrowedKnownSite(t
 			ScopeJSON: siteScopeJSON(t, narrowedSite),
 		},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 	ctx := testSessionCtxWithAssignments(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: orgID,
@@ -549,7 +545,7 @@ func TestHandler_ForceReleaseCurtailmentOwnership_AllowsMatchingSiteNarrowingFor
 			ScopeJSON: siteScopeJSON(t, siteID),
 		},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 	ctx := testSessionCtxWithAssignments(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: orgID,
@@ -590,7 +586,7 @@ func TestHandler_ForceReleaseCurtailmentOwnership_RejectsIncompleteCoverageWhenO
 		},
 		targetSitesComplete: false,
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 	ctx := testSessionCtxWithAssignments(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: orgID,
@@ -633,7 +629,7 @@ func TestHandler_ForceReleaseCurtailmentOwnership_RejectsWholeOrgWhenOrgGrantIsN
 			ScopeType: models.ScopeTypeWholeOrg,
 		},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 	ctx := testSessionCtxWithAssignments(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: orgID,
@@ -683,7 +679,7 @@ func TestHandler_ForceReleaseCurtailmentOwnership_RejectsWholeOrgWithFanWhenOrgG
 			FacilityFanSiteIDs:   []int64{fanSiteID},
 		},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 	ctx := testSessionCtxWithAssignments(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: orgID,
@@ -722,7 +718,7 @@ func TestHandler_ForceReleaseCurtailmentOwnership_AllowsMatchingSiteOnlyManage(t
 		ScopeType: models.ScopeTypeSite,
 		ScopeJSON: siteScopeJSON(t, siteID),
 	}}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 	ctx := testSessionCtxWithAssignments(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: orgID,
@@ -743,7 +739,7 @@ func TestHandler_ForceReleaseCurtailmentOwnership_RejectsNonAdmin(t *testing.T) 
 	t.Parallel()
 	eventUUID := uuid.New()
 	store := &adminTerminateStubStore{}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	_, err := h.ForceReleaseCurtailmentOwnership(
 		adminTerminateSessionCtx(42, "OPERATOR"),
@@ -774,7 +770,7 @@ func TestHandler_AdminTerminateEvent_RejectsCallerWithoutCurtailmentManage(t *te
 			State:     models.EventStatePending,
 		},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	_, err := h.AdminTerminateEvent(
 		adminTerminateSessionCtxWithPerms(42, domainAuth.AdminRoleName /* no curtailment:manage */),
@@ -802,7 +798,7 @@ func TestHandler_AdminTerminateEvent_RejectsNonAdminWithCurtailmentManage(t *tes
 			State:     models.EventStateRestoring,
 		},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	_, err := h.AdminTerminateEvent(
 		adminTerminateSessionCtx(42, "OPERATOR"),
@@ -824,7 +820,7 @@ func TestHandler_AdminTerminateEvent_RejectsNonAdminWithCurtailmentManage(t *tes
 func TestHandler_AdminTerminateEvent_RejectsMissingSession(t *testing.T) {
 	t.Parallel()
 	store := &adminTerminateStubStore{}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	_, err := h.AdminTerminateEvent(
 		t.Context(),
@@ -846,7 +842,7 @@ func TestHandler_AdminTerminateEvent_RejectsMissingSession(t *testing.T) {
 func TestHandler_AdminTerminateEvent_RejectsMalformedUUID(t *testing.T) {
 	t.Parallel()
 	store := &adminTerminateStubStore{}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	_, err := h.AdminTerminateEvent(
 		adminTerminateSessionCtx(42, "ADMIN"),
@@ -878,7 +874,7 @@ func TestHandler_AdminTerminateEvent_StateConflictMapsFailedPrecondition(t *test
 		},
 		err: interfaces.ErrCurtailmentAdminTerminateStateConflict,
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	_, err := h.AdminTerminateEvent(
 		adminTerminateSessionCtx(42, "ADMIN"),
@@ -911,7 +907,7 @@ func TestHandler_AdminTerminateEvent_ActiveEventMapsFailedPrecondition(t *testin
 		},
 		err: interfaces.ErrCurtailmentAdminTerminateActiveEvent,
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	_, err := h.AdminTerminateEvent(
 		adminTerminateSessionCtx(42, "ADMIN"),
@@ -940,7 +936,7 @@ func TestHandler_AdminTerminateEvent_SuperAdminAllowed(t *testing.T) {
 			State:     models.EventStateFailed,
 		},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	_, err := h.AdminTerminateEvent(
 		adminTerminateSessionCtx(42, "SUPER_ADMIN"),
@@ -987,7 +983,7 @@ func TestHandler_AdminTerminateEvent_UsesSiteScopedEventPermission(t *testing.T)
 				authEvent: event,
 				result:    event,
 			}
-			h := NewHandler(domainCurtailment.NewService(store))
+			h := newTestHandler(domainCurtailment.NewService(store))
 			ctx := testSessionCtxWithAssignments(t, &session.Info{
 				AuthMethod:     session.AuthMethodSession,
 				OrganizationID: orgID,
@@ -1039,7 +1035,7 @@ func TestHandler_AdminTerminateEvent_ResponseCarriesScopeAndTargets(t *testing.T
 			},
 		},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	resp, err := h.AdminTerminateEvent(
 		adminTerminateSessionCtx(42, "ADMIN"),

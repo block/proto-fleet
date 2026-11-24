@@ -114,8 +114,24 @@ func newDeliveryHTTPClient(policy DestinationPolicy) *http.Client {
 	}
 }
 
-// Deliver groups the batch by org (dropping operator-only internal and org-less alerts) and sends each org's alerts to its channels; errors are logged, never returned.
-func (d *Deliverer) Deliver(ctx context.Context, alerts []Alert) {
+// DeliveryResult records destination acceptance, not receipt or acknowledgement.
+// A zero-delivery result also covers routes or maintenance windows that suppress sending.
+type DeliveryResult struct {
+	Delivered           int
+	Failed              int
+	DeliveredChannelIDs []int64
+}
+
+// Deliver preserves the webhook receiver's fire-and-forget interface.
+func (d *Deliverer) Deliver(ctx context.Context, batch []Alert) { d.DeliverTracked(ctx, batch) }
+
+// DeliverTracked groups the batch by org (dropping operator-only internal and org-less alerts) and sends each org's alerts to its channels; errors are logged, never returned.
+func (d *Deliverer) DeliverTracked(ctx context.Context, alerts []Alert) DeliveryResult {
+	return d.DeliverTrackedSkipping(ctx, alerts, nil)
+}
+
+// DeliverTrackedSkipping preserves destination acceptance across reporting retries.
+func (d *Deliverer) DeliverTrackedSkipping(ctx context.Context, alerts []Alert, deliveredChannels []int64) DeliveryResult {
 	byOrg := map[int64][]Alert{}
 	for _, a := range alerts {
 		// Operator-only self-monitoring alerts reach history only, never an org's channel.
@@ -135,23 +151,31 @@ func (d *Deliverer) Deliver(ctx context.Context, alerts []Alert) {
 		}
 		byOrg[orgID] = append(byOrg[orgID], a)
 	}
+	result := DeliveryResult{}
 	for orgID, orgAlerts := range byOrg {
-		d.deliverOrg(ctx, orgID, orgAlerts)
+		orgResult := d.deliverOrg(ctx, orgID, orgAlerts, deliveredChannels)
+		result.Delivered += orgResult.Delivered
+		result.Failed += orgResult.Failed
+		result.DeliveredChannelIDs = append(result.DeliveredChannelIDs, orgResult.DeliveredChannelIDs...)
 	}
+	return result
 }
 
-func (d *Deliverer) deliverOrg(ctx context.Context, orgID int64, orgAlerts []Alert) {
+func (d *Deliverer) deliverOrg(ctx context.Context, orgID int64, orgAlerts []Alert, deliveredChannels []int64) DeliveryResult {
 	recs, err := d.channels.List(ctx, orgID)
 	if err != nil {
 		slog.Error("alerts.deliver_list_channels_failed", "org", orgID, "err", err)
-		return
+		return DeliveryResult{Failed: 1}
 	}
 	if len(recs) == 0 {
-		return
+		return DeliveryResult{}
 	}
-	defaultAlerts, extraIdx, routedUnique := d.routeAlerts(ctx, orgID, orgAlerts)
+	defaultAlerts, extraIdx, routedUnique, err := d.routeAlerts(ctx, orgID, orgAlerts)
+	if err != nil {
+		return DeliveryResult{Failed: 1}
+	}
 	if len(defaultAlerts) == 0 && len(extraIdx) == 0 {
-		return
+		return DeliveryResult{}
 	}
 	windows := d.activeMaintenanceWindows(ctx, orgID)
 	// Resolve identities for routing survivors only (each surviving alert exactly once).
@@ -161,7 +185,12 @@ func (d *Deliverer) deliverOrg(ctx context.Context, orgID int64, orgAlerts []Ale
 	// Deliver channels concurrently (bounded) so one slow destination can't delay the others.
 	sem := make(chan struct{}, maxDeliveryConcurrency)
 	var wg sync.WaitGroup
+	var resultMu sync.Mutex
+	result := DeliveryResult{}
 	for _, rec := range recs {
+		if slices.Contains(deliveredChannels, rec.ID) {
+			continue
+		}
 		idxs := extraIdx[rec.ID]
 		if len(defaultAlerts) == 0 && len(idxs) == 0 {
 			continue
@@ -188,10 +217,19 @@ func (d *Deliverer) deliverOrg(ctx context.Context, orgID int64, orgAlerts []Ale
 			if len(alerts) == 0 {
 				return
 			}
-			d.deliverChannel(ctx, orgID, rec, alerts, identities)
+			delivered := d.deliverChannel(ctx, orgID, rec, alerts, identities)
+			resultMu.Lock()
+			if delivered {
+				result.Delivered++
+				result.DeliveredChannelIDs = append(result.DeliveredChannelIDs, rec.ID)
+			} else {
+				result.Failed++
+			}
+			resultMu.Unlock()
 		}(rec, idxs, muted, muteAll)
 	}
 	wg.Wait()
+	return result
 }
 
 // activeMaintenanceWindows loads the org's currently-active windows for delivery muting. Unlike
@@ -264,9 +302,9 @@ func dropMutedAlerts(alerts []Alert, muted map[string]bool, muteAll bool) []Aler
 // routeAlerts splits the org batch per its route policies: no policy or no rule UID → every channel (fail open),
 // custom → only its channels (as indices into orgAlerts), none → nowhere. routedUnique lists each custom-routed
 // alert exactly once, for identity resolution.
-func (d *Deliverer) routeAlerts(ctx context.Context, orgID int64, orgAlerts []Alert) (defaultAlerts []Alert, extraIdx map[int64][]int, routedUnique []Alert) {
+func (d *Deliverer) routeAlerts(ctx context.Context, orgID int64, orgAlerts []Alert) (defaultAlerts []Alert, extraIdx map[int64][]int, routedUnique []Alert, err error) {
 	if d.routes == nil {
-		return orgAlerts, nil, nil
+		return orgAlerts, nil, nil, nil
 	}
 	d.policyCacheMu.Lock()
 	gen := d.policyCacheGen[orgID]
@@ -279,10 +317,9 @@ func (d *Deliverer) routeAlerts(ctx context.Context, orgID int64, orgAlerts []Al
 		cached, ok := d.policyCache[orgID]
 		d.policyCacheMu.Unlock()
 		if !ok {
-			// Cold cache: fail closed for channel delivery (history is already stored) rather than leak restricted
-			// alerts to every channel; Alertmanager re-notifies firing alerts each repeat_interval, so pages are delayed, not lost.
+			// With no policy snapshot, send nothing and retain a retryable failure.
 			slog.Error("alerts.deliver_dropped_unroutable", "org", orgID, "alerts", len(orgAlerts))
-			return nil, nil, nil
+			return nil, nil, nil, err
 		}
 		slog.Warn("alerts.deliver_routes_from_cache", "org", orgID, "policies", len(cached))
 		policies = cached
@@ -296,7 +333,7 @@ func (d *Deliverer) routeAlerts(ctx context.Context, orgID int64, orgAlerts []Al
 		d.policyCacheMu.Unlock()
 	}
 	if len(policies) == 0 {
-		return orgAlerts, nil, nil
+		return orgAlerts, nil, nil, nil
 	}
 	byRule := policiesByRule(policies)
 	extraIdx = map[int64][]int{}
@@ -337,23 +374,25 @@ func (d *Deliverer) routeAlerts(ctx context.Context, orgID int64, orgAlerts []Al
 	for uid := range orphaned {
 		slog.Warn("alerts.deliver_route_no_live_channels", "org", orgID, "rule_uid", uid)
 	}
-	return defaultAlerts, extraIdx, routedUnique
+	return defaultAlerts, extraIdx, routedUnique, nil
 }
 
-func (d *Deliverer) deliverChannel(ctx context.Context, orgID int64, rec ChannelRecord, orgAlerts []Alert, identities map[string]DeviceIdentity) {
+func (d *Deliverer) deliverChannel(ctx context.Context, orgID int64, rec ChannelRecord, orgAlerts []Alert, identities map[string]DeviceIdentity) bool {
 	cfg, err := decodeChannelConfig(d.crypto, rec.EncryptedConfig)
 	if err != nil {
 		slog.Error("alerts.deliver_decode_failed", "org", orgID, "channel", rec.ID, "err", err)
-		return
+		return false
 	}
 	body, err := d.render(rec.Kind, orgID, orgAlerts, identities)
 	if err != nil {
 		slog.Error("alerts.deliver_render_failed", "org", orgID, "channel", rec.ID, "err", err)
-		return
+		return false
 	}
 	if err := d.send(ctx, rec.Kind, cfg, body); err != nil {
 		slog.Error("alerts.deliver_send_failed", "org", orgID, "channel", rec.ID, "kind", rec.Kind, "err", err)
+		return false
 	}
+	return true
 }
 
 // resolveDevices looks up friendly name+MAC for the batch's device_ids in one query; a failure degrades to raw ids.

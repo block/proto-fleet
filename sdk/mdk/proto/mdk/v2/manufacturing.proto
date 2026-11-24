@@ -1,0 +1,173 @@
+syntax = "proto3";
+
+package mdk.v2;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "mdk/v2/common.proto";
+import "mdk/v2/options.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
+
+// ManufacturingService owns operator adoption and firmware self-tests.
+service ManufacturingService {
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_tag) = {
+    name: "Manufacturing"
+    description: "Operator-only hashboard adoption and firmware self-tests."
+  };
+
+  rpc ListManufacturingBoards(ListManufacturingBoardsRequest) returns (ListManufacturingBoardsResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/manufacturing/boards"};
+  }
+  rpc StartManufacturingSelfTest(StartManufacturingSelfTestRequest) returns (StartManufacturingSelfTestResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {post: "/api/v2/manufacturing/self-tests" body: "*"};
+  }
+  rpc GetManufacturingSelfTest(GetManufacturingSelfTestRequest) returns (GetManufacturingSelfTestResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/manufacturing/self-tests/{test_id}"};
+  }
+  rpc ListManufacturingSelfTests(ListManufacturingSelfTestsRequest) returns (ListManufacturingSelfTestsResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/manufacturing/self-tests"};
+  }
+  rpc AdoptManufacturingBoard(AdoptManufacturingBoardRequest) returns (AdoptManufacturingBoardResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (mdk.v2.tunnel_mutation_route) = TUNNEL_MUTATION_ROUTE_SHARED_STATE;
+    option (google.api.http) = {post: "/api/v2/manufacturing/boards/{identifier}/adopt" body: "*"};
+  }
+}
+
+enum ManufacturingSelfTestState {
+  MANUFACTURING_SELF_TEST_STATE_UNSPECIFIED = 0;
+  MANUFACTURING_SELF_TEST_STATE_QUEUED = 1;
+  MANUFACTURING_SELF_TEST_STATE_RUNNING = 2;
+  MANUFACTURING_SELF_TEST_STATE_COMPLETED = 3;
+  MANUFACTURING_SELF_TEST_STATE_ERROR = 4;
+}
+
+enum ManufacturingSelfTestVerdict {
+  MANUFACTURING_SELF_TEST_VERDICT_UNSPECIFIED = 0;
+  MANUFACTURING_SELF_TEST_VERDICT_PASS = 1;
+  MANUFACTURING_SELF_TEST_VERDICT_FAIL = 2;
+  MANUFACTURING_SELF_TEST_VERDICT_UNSUPPORTED = 3;
+}
+
+message ManufacturingSelfTestLogEntry {
+  google.protobuf.Timestamp at = 1;
+  string message = 2;
+}
+
+message ManufacturingBISTReading {
+  uint32 domain = 1;
+  float asic_vdd = 2;
+  float vddio = 3;
+  float vddh = 4;
+}
+
+message ManufacturingStackResult {
+  uint32 stack = 1;
+  uint32 expected_asic_count = 2;
+  uint32 enumerated_asic_count = 3;
+  bool matched = 4;
+}
+
+message ManufacturingASICResult {
+  uint32 index = 1;
+  uint32 stack = 2;
+  uint32 stack_index = 3;
+  uint32 x = 4;
+  uint32 y = 5;
+  bool enumerated = 6;
+}
+
+message ManufacturingSelfTest {
+  string test_id = 1;
+  string mac_address = 2;
+  ManufacturingSelfTestState state = 3;
+  ManufacturingSelfTestVerdict verdict = 4;
+  string actor = 5;
+  google.protobuf.Timestamp started_at = 6;
+  google.protobuf.Timestamp completed_at = 7;
+  uint32 profile_version = 8;
+  repeated string failure_reasons = 9;
+  repeated ManufacturingBISTReading bist = 10;
+  float current_before_balance = 11;
+  float current_after_balance = 12;
+  float current_delta = 13;
+  float minimum_current_delta = 14;
+  string topology = 15;
+  repeated ManufacturingStackResult stacks = 16;
+  repeated ManufacturingASICResult asics = 17;
+  bool reached_running = 18;
+  bool pvt_ready = 19;
+  bool shutdown_complete = 20;
+  string error = 21;
+  repeated ManufacturingSelfTestLogEntry log = 22;
+}
+
+// ManufacturingSelfTestSummary keeps inventory polling bounded; complete
+// evidence is returned by GetManufacturingSelfTest.
+message ManufacturingSelfTestSummary {
+  string test_id = 1;
+  string mac_address = 2;
+  ManufacturingSelfTestState state = 3;
+  ManufacturingSelfTestVerdict verdict = 4;
+  string actor = 5;
+  google.protobuf.Timestamp started_at = 6;
+  google.protobuf.Timestamp completed_at = 7;
+  uint32 profile_version = 8;
+  string error = 9;
+}
+
+message ManufacturingBoard {
+  string mac_address = 1;
+  MiningState mining_state = 2;
+  bool adopted = 3;
+  google.protobuf.Timestamp adopted_at = 4;
+  string adopted_by = 5;
+  bool reserved = 6;
+  bool flashing = 7;
+  bool isolated = 8;
+  bool self_testing = 9;
+  string active_test_id = 10;
+  ManufacturingSelfTestSummary latest_test = 11;
+  // serial is the persisted hashboard PCBA identity for this MAC when known.
+  string serial = 12;
+}
+
+message ListManufacturingBoardsRequest {}
+message ListManufacturingBoardsResponse {
+  bool require_adoption = 1;
+  repeated ManufacturingBoard boards = 2;
+}
+
+message StartManufacturingSelfTestRequest {
+  string identifier = 1;
+  // local_only is reserved for trusted HA peer delegation.
+  bool local_only = 2;
+}
+message StartManufacturingSelfTestResponse { ManufacturingSelfTest test = 1; }
+
+message GetManufacturingSelfTestRequest { string test_id = 1; }
+message GetManufacturingSelfTestResponse { ManufacturingSelfTest test = 1; }
+
+message ListManufacturingSelfTestsRequest {
+  string identifier = 1;
+  int32 limit = 2;
+}
+message ListManufacturingSelfTestsResponse { repeated ManufacturingSelfTest tests = 1; }
+
+message AdoptManufacturingBoardRequest { string identifier = 1; }
+message AdoptManufacturingBoardResponse {
+  string mac_address = 1;
+  google.protobuf.Timestamp adopted_at = 2;
+  string adopted_by = 3;
+}

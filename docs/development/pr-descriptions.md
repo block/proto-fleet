@@ -1,5 +1,9 @@
 # PR descriptions
 
+Write PR titles and descriptions in ASD-STE100 (Simplified Technical English).
+Follow the [technical writing rules](../../CONTRIBUTING.md#technical-writing).
+Check the text against those rules before you submit or update the PR.
+
 When opening a PR, write the description so a reviewer can judge the
 architecture and technical decisions **without reading the low-level code**.
 Inspect the actual diff, commits, and changed files first; describe what the

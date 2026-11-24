@@ -19,16 +19,25 @@ func NewAuthenticatedGatewayClient(serverURL string, tokenSource func() string) 
 	if err != nil {
 		return nil, err
 	}
-	authOption := connect.WithInterceptors(bearerInterceptor(tokenSource))
+	controlHTTPClient, err := newGatewayHTTPClient(serverURL)
+	if err != nil {
+		return nil, err
+	}
+	controlHTTPClient.Transport = closeAfterStreamTransport{next: controlHTTPClient.Transport}
+	clientOptions := connect.WithClientOptions(
+		connect.WithInterceptors(bearerInterceptor(tokenSource)),
+		connect.WithSendGzip(),
+		connect.WithCompressMinBytes(1024),
+	)
 	connectClient := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(
 		httpClient,
 		serverURL,
-		authOption,
+		clientOptions,
 	)
 	grpcClient := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(
-		httpClient,
+		controlHTTPClient,
 		serverURL,
-		authOption,
+		clientOptions,
 		connect.WithGRPC(),
 	)
 	return &controlStreamGRPCClient{
@@ -47,6 +56,19 @@ type controlStreamGRPCClient struct {
 
 func (c *controlStreamGRPCClient) ControlStream(ctx context.Context) *connect.BidiStreamForClient[pb.ControlStreamRequest, pb.ControlStreamResponse] {
 	return c.controlStreamClient.ControlStream(ctx)
+}
+
+// closeAfterStreamTransport retires each ControlStream connection when its
+// stream ends, so a reconnect after a stalled handshake dials fresh instead of
+// reusing a connection an intermediary may be stalling.
+type closeAfterStreamTransport struct {
+	next http.RoundTripper
+}
+
+func (t closeAfterStreamTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
+	req.Close = true
+	return t.next.RoundTrip(req) //nolint:wrapcheck // transparent RoundTripper; connect classifies the transport error
 }
 
 func bearerInterceptor(tokenSource func() string) connect.Interceptor {

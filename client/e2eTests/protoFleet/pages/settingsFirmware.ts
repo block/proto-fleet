@@ -216,15 +216,19 @@ export class SettingsFirmwarePage extends BasePage {
     const miners = details.getByRole("table", { name: "Miner changes", exact: true });
     await expect(miners.getByRole("columnheader")).toHaveText(["Miner", "Original", "Target"]);
     // Check membership on each named row, independent of table order and
-    // similar miner names elsewhere in the preview.
+    // similar miner names elsewhere in the preview. Two miners can have the
+    // same name, so the Target value is part of the row match.
+    const notIncluded = this.page.getByRole("cell", { name: "Not included", exact: true });
     for (const [name, target] of [
       [removedMiner, "Not included"],
       [remainingMiner, "Included"],
     ]) {
-      const row = miners.getByRole("row").filter({ has: this.page.getByText(name, { exact: true }) });
-      await expect(row.getByRole("rowheader").getByText(name, { exact: true })).toBeVisible();
-      const membership = row.getByRole("cell");
-      await expect(membership).toHaveText(["Included", target]);
+      const named = miners
+        .getByRole("row")
+        .filter({ has: this.page.getByRole("rowheader").getByText(name, { exact: true }) });
+      const row = target === "Included" ? named.filter({ hasNot: notIncluded }) : named.filter({ has: notIncluded });
+      await expect(row).toHaveCount(1);
+      await expect(row.getByRole("cell")).toHaveText(["Included", target]);
     }
     await details.getByRole("button", { name: "Done", exact: true }).click();
     await expect(details).toBeHidden();
@@ -745,7 +749,9 @@ export class SettingsFirmwarePage extends BasePage {
     await settings.getByTestId("delete-channel").click();
     const dialog = this.page.getByTestId("delete-channel-dialog");
     await expect(dialog).toBeVisible();
-    await expect(dialog).toContainText(`Miners in ${channelName} keep their current firmware`);
+    await expect(dialog).toContainText(
+      `Deleting ${channelName} stops firmware enforcement and removes its update history.`,
+    );
     await dialog.getByRole("button", { name: "Delete channel", exact: true }).click();
     await expect(dialog).toBeHidden();
     await expect(settings).toBeHidden();
@@ -845,7 +851,7 @@ export class SettingsFirmwarePage extends BasePage {
     const emptyState = this.page.getByText("No firmware files uploaded", { exact: true });
     const firmwareRows = this.page.getByTestId("list-body").locator("tr");
     const loadingState = this.page.getByText("Loading firmware files...", { exact: true });
-    const deleteAllButton = this.page.getByRole("button", { name: "Delete all", exact: true }).first();
+    const deleteAllButton = this.page.getByRole("button", { name: "Delete all firmware files", exact: true }).first();
 
     if (await loadingState.isVisible().catch(() => false)) {
       await expect(loadingState).toBeHidden();

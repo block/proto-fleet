@@ -55,10 +55,9 @@ const (
 	descBatchNone  = "command batch with no completed devices yet"
 )
 
-func buildActivitySiteFixture(t *testing.T, ctx context.Context, tc *testutil.TestContext) activitySiteFixture {
+func buildActivitySiteFixture(t *testing.T, ctx context.Context, dbSvc *testutil.DatabaseService) activitySiteFixture {
 	t.Helper()
-	dbSvc := tc.DatabaseService
-	db := tc.ServiceProvider.DB
+	db := dbSvc.DB
 	siteStore := sqlstores.NewSQLSiteStore(db)
 	activityStore := sqlstores.NewSQLActivityStore(db)
 
@@ -224,10 +223,10 @@ func TestActivityLogs_SiteScopeFilter(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
+	tc := testutil.NewDatabaseService(t, nil)
 	ctx := t.Context()
 	fx := buildActivitySiteFixture(t, ctx, tc)
-	store := sqlstores.NewSQLActivityStore(tc.ServiceProvider.DB)
+	store := sqlstores.NewSQLActivityStore(tc.DB)
 
 	cases := []struct {
 		name              string
@@ -304,13 +303,13 @@ func TestActivityLogs_SiteDeleteCascadesMembership(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
+	tc := testutil.NewDatabaseService(t, nil)
 	ctx := t.Context()
-	db := tc.ServiceProvider.DB
+	db := tc.DB
 	siteStore := sqlstores.NewSQLSiteStore(db)
 	store := sqlstores.NewSQLActivityStore(db)
 
-	user := tc.DatabaseService.CreateSuperAdminUser()
+	user := tc.CreateSuperAdminUser()
 	orgID := user.OrganizationID
 	siteA, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Site A"})
 	require.NoError(t, err)

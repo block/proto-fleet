@@ -211,10 +211,10 @@ func TestSQLCurtailmentStore_AutomationFanProfilesAreEnabledAfterSequencingLands
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	ctx := t.Context()
-	db := testContext.DatabaseService.DB
+	db := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(db)
 	orgID := user.OrganizationID
 	fanSiteID, fanID := seedCurtailmentFacilityFan(t, db, orgID, "automation-profile-fan")
@@ -241,6 +241,7 @@ func TestSQLCurtailmentStore_AutomationFanProfilesAreEnabledAfterSequencingLands
 	fanProfileRevision := mustResponseProfileRevision(t, store, orgID, fanProfileID)
 
 	_, err := store.CreateAutomationRule(ctx, models.AutomationRule{
+		AdminControlsGranted:    true,
 		OrgID:                   orgID,
 		RuleName:                "create-fan-rule",
 		TriggerType:             models.AutomationTriggerTypeMQTT,
@@ -253,6 +254,7 @@ func TestSQLCurtailmentStore_AutomationFanProfilesAreEnabledAfterSequencingLands
 
 	cleanRuleID := seedAutomationRule(t, db, orgID, sourceID, cleanProfileID, "update-to-fan-rule", false)
 	_, err = store.UpdateAutomationRule(ctx, models.AutomationRule{
+		AdminControlsGranted:    true,
 		ID:                      cleanRuleID,
 		OrgID:                   orgID,
 		RuleName:                "update-to-fan-rule",
@@ -263,10 +265,11 @@ func TestSQLCurtailmentStore_AutomationFanProfilesAreEnabledAfterSequencingLands
 	require.NoError(t, err)
 
 	disabledFanRuleID := seedAutomationRule(t, db, orgID, sourceID, fanProfileID, "enable-fan-rule", false)
-	_, err = store.SetAutomationRuleEnabled(ctx, orgID, disabledFanRuleID, true, fanProfileRevision, fanProfileSettings)
+	_, err = store.SetAutomationRuleEnabled(ctx, orgID, disabledFanRuleID, true, fanProfileRevision, fanProfileSettings, true)
 	require.NoError(t, err)
 
 	_, err = store.CreateAutomationRule(ctx, models.AutomationRule{
+		AdminControlsGranted:    true,
 		OrgID:                   orgID,
 		RuleName:                "stale-create-fan-rule",
 		TriggerType:             models.AutomationTriggerTypeMQTT,
@@ -279,6 +282,7 @@ func TestSQLCurtailmentStore_AutomationFanProfilesAreEnabledAfterSequencingLands
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 
 	_, err = store.UpdateAutomationRule(ctx, models.AutomationRule{
+		AdminControlsGranted:    true,
 		ID:                      cleanRuleID,
 		OrgID:                   orgID,
 		RuleName:                "stale-update-to-fan-rule",
@@ -290,7 +294,7 @@ func TestSQLCurtailmentStore_AutomationFanProfilesAreEnabledAfterSequencingLands
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 
 	staleEnableRuleID := seedAutomationRule(t, db, orgID, sourceID, fanProfileID, "stale-enable-fan-rule", false)
-	_, err = store.SetAutomationRuleEnabled(ctx, orgID, staleEnableRuleID, true, fanProfileRevision, models.ResponseProfileFanSettings{})
+	_, err = store.SetAutomationRuleEnabled(ctx, orgID, staleEnableRuleID, true, fanProfileRevision, models.ResponseProfileFanSettings{}, true)
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 

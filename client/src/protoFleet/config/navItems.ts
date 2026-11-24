@@ -20,6 +20,9 @@ export interface NavItem {
   // permission; a nested string[] is an AND-group (all its keys required).
   requiredAnyPermission?: (string | string[])[];
   scopable?: boolean;
+  // Directory entries need exact matching when their child workspaces have their own nav.
+  exact?: boolean;
+  children?: SecondaryNavItem[];
 }
 
 export interface SecondaryNavItem {
@@ -31,6 +34,10 @@ export interface SecondaryNavItem {
   requiredAnyPermission?: (string | string[])[];
   // When set, the entry is shown only if the server reports this feature enabled.
   requiredFeature?: NavFeature;
+  // Available only to hosts with an accessible account directory.
+  requiresHostedAccounts?: boolean;
+  // Reporting authority is discovered independently of client-management access.
+  requiresReportingAccess?: boolean;
   // Whether the page honors the topbar SitePicker selection as a soft default
   // filter (schedules today). Org-wide pages (the default) deliberately ignore
   // the picker; SettingsLayout surfaces an OrgWideNotice on those so the
@@ -54,6 +61,12 @@ export const isNavItemAllowedByPermissions = (
 
   return hasRequiredPermission && hasAnyPermission;
 };
+
+export const getActiveSecondaryNavPath = (items: readonly SecondaryNavItem[], pathname: string) =>
+  items.reduce<string | undefined>((active, item) => {
+    if (pathname !== item.path && !pathname.startsWith(`${item.path}/`)) return active;
+    return !active || item.path.length > active.length ? item.path : active;
+  }, undefined);
 
 // Primary navigation items (shown in main nav menu)
 export const primaryNavItems: NavItem[] = [
@@ -141,7 +154,9 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     label: "Firmware",
     parent: "/settings",
     section: "Fleet",
-    requiredPermission: "miner:firmware_update",
+    // Miner firmware views need miner:firmware_update; controller software
+    // needs controller:software_update. Each view checks its own permission.
+    requiredAnyPermission: ["miner:firmware_update", "controller:software_update"],
   },
   {
     path: "/settings/nodes",
@@ -197,6 +212,20 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     // Team now owns member and role management. Show the entry when either
     // surface is usable so role-only admins are not stranded after the merge.
     requiredAnyPermission: ["user:read", "role:manage"],
+  },
+  {
+    path: "/accounts",
+    label: "Clients",
+    parent: "/settings",
+    section: "Admin",
+    requiresHostedAccounts: true,
+  },
+  {
+    path: "/accounts/reports",
+    label: "Reports",
+    parent: "/settings",
+    section: "Admin",
+    requiresReportingAccess: true,
   },
   {
     path: "/settings/integrations",

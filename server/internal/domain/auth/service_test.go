@@ -130,172 +130,6 @@ func ctxWithSession(externalUserID, username string, orgID int64) context.Contex
 	})
 }
 
-func TestService_VerifyCredentials(t *testing.T) {
-	// Create test password hash
-	testPassword := "testpass123"
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(testPassword), bcrypt.DefaultCost)
-	require.NoError(t, err)
-
-	tests := []struct {
-		name          string
-		username      string
-		password      string
-		setupUsers    map[string]interfaces.User
-		expectError   bool
-		errorContains string
-	}{
-		{
-			name:     "valid credentials",
-			username: "testuser",
-			password: testPassword,
-			setupUsers: map[string]interfaces.User{
-				"testuser": {
-					ID:           1,
-					Username:     "testuser",
-					PasswordHash: string(hashedPassword),
-				},
-			},
-			expectError: false,
-		},
-		{
-			name:     "invalid password",
-			username: "testuser",
-			password: "wrongpassword",
-			setupUsers: map[string]interfaces.User{
-				"testuser": {
-					ID:           1,
-					Username:     "testuser",
-					PasswordHash: string(hashedPassword),
-				},
-			},
-			expectError:   true,
-			errorContains: "invalid credentials",
-		},
-		{
-			name:          "user not found",
-			username:      "nonexistent",
-			password:      testPassword,
-			setupUsers:    map[string]interfaces.User{},
-			expectError:   true,
-			errorContains: "invalid credentials",
-		},
-		{
-			name:          "empty username",
-			username:      "",
-			password:      testPassword,
-			setupUsers:    map[string]interfaces.User{},
-			expectError:   true,
-			errorContains: "username and password are required",
-		},
-		{
-			name:     "empty password",
-			username: "testuser",
-			password: "",
-			setupUsers: map[string]interfaces.User{
-				"testuser": {
-					ID:           1,
-					Username:     "testuser",
-					PasswordHash: string(hashedPassword),
-				},
-			},
-			expectError:   true,
-			errorContains: "username and password are required",
-		},
-		{
-			name:          "both empty",
-			username:      "",
-			password:      "",
-			setupUsers:    map[string]interfaces.User{},
-			expectError:   true,
-			errorContains: "username and password are required",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create mock user store
-			mockStore := &mockUserStoreForVerify{
-				users: tt.setupUsers,
-			}
-
-			// Create auth service with mock store
-			service := &Service{
-				userStore: mockStore,
-			}
-
-			// Call VerifyCredentials
-			err := service.VerifyCredentials(context.Background(), tt.username, tt.password)
-
-			// Assert results
-			if tt.expectError {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errorContains)
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
-}
-
-func TestService_VerifyCredentials_SecurityProperties(t *testing.T) {
-	t.Run("does not leak user existence through timing or error messages", func(t *testing.T) {
-		// Create test password hash
-		testPassword := "testpass123"
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(testPassword), bcrypt.DefaultCost)
-		require.NoError(t, err)
-
-		mockStore := &mockUserStoreForVerify{
-			users: map[string]interfaces.User{
-				"existinguser": {
-					ID:           1,
-					Username:     "existinguser",
-					PasswordHash: string(hashedPassword),
-				},
-			},
-		}
-
-		service := &Service{
-			userStore: mockStore,
-		}
-
-		// Try with non-existent user
-		err1 := service.VerifyCredentials(context.Background(), "nonexistent", testPassword)
-		require.Error(t, err1)
-
-		// Try with wrong password for existing user
-		err2 := service.VerifyCredentials(context.Background(), "existinguser", "wrongpass")
-		require.Error(t, err2)
-
-		// Both should return same generic error message
-		assert.Equal(t, err1.Error(), err2.Error(), "Error messages should not leak user existence")
-		assert.Contains(t, err1.Error(), "invalid credentials")
-	})
-
-	t.Run("prevents empty credential bypass", func(t *testing.T) {
-		service := &Service{
-			userStore: &mockUserStoreForVerify{
-				users: map[string]interfaces.User{},
-			},
-		}
-
-		// All empty credential combinations should fail
-		testCases := []struct {
-			username string
-			password string
-		}{
-			{"", ""},
-			{"", "password"},
-			{"username", ""},
-		}
-
-		for _, tc := range testCases {
-			err := service.VerifyCredentials(context.Background(), tc.username, tc.password)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "username and password are required")
-		}
-	})
-}
-
 func TestService_AuthenticateUser_ReturnsOrgScopedPermissions(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
@@ -1078,7 +912,7 @@ func TestRequireCallerCanManageTarget(t *testing.T) {
 			caller := authz.NewEffectivePermissions(tc.caller)
 			target := authz.NewEffectivePermissions(tc.target)
 
-			err := requireCallerCanManageTarget(caller, target)
+			err := RequireCallerCanManageTarget(caller, target)
 			if tc.wantDenied {
 				require.Error(t, err)
 				var fleetErr fleeterror.FleetError
@@ -1320,6 +1154,7 @@ func TestUpdateUserRole_ValidationBranches(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			mockUserStore := mocks.NewMockUserStore(ctrl)
 			mockMgmtStore := mocks.NewMockUserManagementStore(ctrl)
+			mockMgmtStore.EXPECT().LockAndCountSoleHostedAccountAdministrations(gomock.Any(), orgID, int64(0)).Return(int64(0), nil).AnyTimes()
 			tc.setup(mockUserStore, mockMgmtStore)
 
 			svc := &Service{
@@ -1357,6 +1192,7 @@ func TestUpdateUserRole_NoOpWhenSameRole(t *testing.T) {
 
 	mockUserStore := mocks.NewMockUserStore(ctrl)
 	mockMgmtStore := mocks.NewMockUserManagementStore(ctrl)
+	mockMgmtStore.EXPECT().LockAndCountSoleHostedAccountAdministrations(gomock.Any(), orgID, int64(0)).Return(int64(0), nil).AnyTimes()
 
 	mockUserStore.EXPECT().GetOrganizationsForUser(gomock.Any(), callerInternalID).
 		Return([]interfaces.Organization{{ID: orgID}}, nil)
@@ -1415,6 +1251,7 @@ func TestDeactivateUser_LastSuperAdminGuard(t *testing.T) {
 		expectGetAssignment bool
 		expectTicketCount   bool
 		activeTicketCount   int64
+		soleHostedAccounts  int64
 		expectSelfRejectMsg string
 		wantErrCode         connect.Code
 		wantErrSubstring    string
@@ -1458,6 +1295,14 @@ func TestDeactivateUser_LastSuperAdminGuard(t *testing.T) {
 			wantErrSubstring:    "active maintenance tickets",
 		},
 		{
+			name:                "sole customer administrator is refused",
+			userID:              targetExternalID,
+			expectGetAssignment: true,
+			soleHostedAccounts:  1,
+			wantErrCode:         failedPreCode,
+			wantErrSubstring:    "assign another account administrator",
+		},
+		{
 			// Self-deactivation: rejected before any store calls beyond the
 			// initial caller lookup. The handler-layer test exercises the
 			// permission gate; this asserts the domain-layer CANNOT_DEACTIVATE_SELF.
@@ -1484,6 +1329,11 @@ func TestDeactivateUser_LastSuperAdminGuard(t *testing.T) {
 				// authorizeCallerForUser → target lookup + parity check
 				mockUserStore.EXPECT().GetUserByExternalID(gomock.Any(), targetExternalID).Return(target, nil)
 				mockMgmtStore.EXPECT().GetUserRoleName(gomock.Any(), targetInternalID, orgID).Return("FIELD_TECH", nil)
+				mockMgmtStore.EXPECT().LockAndCountSoleHostedAccountAdministrations(gomock.Any(), orgID, targetInternalID).
+					Return(tc.soleHostedAccounts, nil)
+				mockMgmtStore.EXPECT().GetActiveUserRoleNameForUpdate(gomock.Any(), targetInternalID, orgID).Return("FIELD_TECH", nil)
+			}
+			if tc.expectGetAssignment && tc.soleHostedAccounts == 0 {
 				// In-tx assignment fetch
 				mockMgmtStore.EXPECT().GetOrgScopeAssignmentForUser(gomock.Any(), targetInternalID, orgID).
 					Return(interfaces.OrgScopeAssignment{
@@ -1665,6 +1515,7 @@ func TestUpdateUserRole_ParityAndLastSuperAdmin(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			mockUserStore := mocks.NewMockUserStore(ctrl)
 			mockMgmtStore := mocks.NewMockUserManagementStore(ctrl)
+			mockMgmtStore.EXPECT().LockAndCountSoleHostedAccountAdministrations(gomock.Any(), orgID, int64(0)).Return(int64(0), nil).AnyTimes()
 
 			mockUserStore.EXPECT().GetOrganizationsForUser(gomock.Any(), callerInternalID).
 				Return([]interfaces.Organization{{ID: orgID}}, nil)

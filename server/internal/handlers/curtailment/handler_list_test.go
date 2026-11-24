@@ -327,7 +327,7 @@ func TestHandler_ListCurtailmentEvents_HappyPath(t *testing.T) {
 		},
 		nextPageToken: listHandlerTestCursorFixture,
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	resp, err := h.ListCurtailmentEvents(sessionCtx(42), connect.NewRequest(&pb.ListCurtailmentEventsRequest{
 		PageSize: 1,
@@ -398,7 +398,7 @@ func TestHandler_ListActiveCurtailments_ReturnsActiveEvents(t *testing.T) {
 			},
 		},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	resp, err := h.ListActiveCurtailments(sessionCtx(42), connect.NewRequest(&pb.ListActiveCurtailmentsRequest{}))
 	require.NoError(t, err)
@@ -475,7 +475,7 @@ func TestHandler_ListActiveCurtailments_FiltersWholeOrgEventsForNarrowedRead(t *
 			},
 		},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 	narrowedCtx := testSessionCtxWithAssignments(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: orgID,
@@ -566,7 +566,7 @@ func TestHandler_ListActiveCurtailments_FiltersSiteScopedEvents(t *testing.T) {
 			},
 		},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 	ctx := testSessionCtxWithAssignments(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: orgID,
@@ -617,7 +617,7 @@ func TestHandler_ListCurtailmentEvents_FiltersSiteScopedEventsAcrossPages(t *tes
 		},
 		nextByPageToken: map[string]string{"": "next"},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 	ctx := testSessionCtxWithAssignments(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: orgID,
@@ -660,7 +660,7 @@ func TestHandler_ListCurtailmentEvents_CapsPermissionFilteringScan(t *testing.T)
 		},
 		nextByPageToken: map[string]string{"": "page-2", "page-2": "page-3", "page-3": "page-4"},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 	ctx := testSessionCtxWithAssignments(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: orgID,
@@ -724,7 +724,7 @@ func TestHandler_ListCurtailmentEvents_FiltersEventsByPersistedFacilityFanSite(t
 		SiteID:  deniedSite,
 		Enabled: true,
 	}
-	h := NewHandlerWithResponseProfiles(
+	h := newTestHandlerWithProfiles(
 		domainCurtailment.NewService(store),
 		domainCurtailment.NewResponseProfileService(profileStore),
 	)
@@ -753,7 +753,7 @@ func TestHandler_ListCurtailmentEvents_FailsClosedForMalformedPersistedEnvelope(
 		ScopeType:                 models.ScopeTypeSite,
 		AuthorizationEnvelopeJSON: []byte(`{"schema_version":`),
 	}}}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	_, err := h.ListCurtailmentEvents(
 		sessionCtx(orgID),
@@ -825,7 +825,7 @@ func TestHandler_ListCurtailmentEvents_RequiresIndependentFacilityFanSiteRead(t 
 				),
 			}
 			store := &listStubStore{events: []*models.Event{event}}
-			h := NewHandler(domainCurtailment.NewService(store))
+			h := newTestHandler(domainCurtailment.NewService(store))
 			ctx := testSessionCtxWithAssignments(t, &session.Info{
 				AuthMethod:     session.AuthMethodSession,
 				OrganizationID: orgID,
@@ -858,7 +858,7 @@ func TestHandler_ListCurtailmentEvents_UsesPersistedFacilityFanSiteSnapshot(t *t
 		FacilityFanDeviceIDs: []int64{fanID},
 		FacilityFanSiteIDs:   []int64{allowedSite},
 	}}}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 	ctx := testSessionCtxWithAssignments(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: orgID,
@@ -912,7 +912,7 @@ func TestHandler_ListCurtailmentEvents_MissingFacilityFanRequiresOrgWideRead(t *
 				FacilityFanDeviceIDs: []int64{missingFanID},
 			}}}
 			profileStore := newHandlerResponseProfileStore()
-			h := NewHandlerWithResponseProfiles(
+			h := newTestHandlerWithProfiles(
 				domainCurtailment.NewService(store),
 				domainCurtailment.NewResponseProfileService(profileStore),
 			)
@@ -958,7 +958,7 @@ func TestHandler_ListActiveCurtailments_FiltersDeviceListEventsByTargetSite(t *t
 			deniedUUID:  {deniedSite},
 		},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 	ctx := testSessionCtxWithAssignments(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: orgID,
@@ -1008,7 +1008,7 @@ func TestHandler_ListActiveCurtailments_BatchesDeviceListTargetSiteCoverage(t *t
 			secondUUID: true,
 		},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	resp, err := h.ListActiveCurtailments(sessionCtx(orgID), connect.NewRequest(&pb.ListActiveCurtailmentsRequest{}))
 	require.NoError(t, err)
@@ -1040,7 +1040,7 @@ func TestHandler_ListActiveCurtailments_AllowsDeviceListEventsWithIncompleteTarg
 			eventUUID: true,
 		},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 	ctx := sessionCtx(orgID)
 
 	resp, err := h.ListActiveCurtailments(ctx, connect.NewRequest(&pb.ListActiveCurtailmentsRequest{}))
@@ -1078,7 +1078,7 @@ func TestHandler_ListActiveCurtailments_FiltersDeviceListEventsWithIncompleteTar
 			eventUUID: true,
 		},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 	ctx := testSessionCtxWithAssignments(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: orgID,
@@ -1112,7 +1112,7 @@ func TestHandler_ListActiveCurtailments_UsesMixedSiteOnlyScopeJSON(t *testing.T)
 			},
 		},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	allowedCtx := testSessionCtxWithAssignments(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
@@ -1183,7 +1183,7 @@ func TestHandler_ListCurtailmentEvents_UsesTargetlessDeviceScopeJSON(t *testing.
 		"allowed-miner": ptrHandlerInt64(allowedSite),
 		"denied-miner":  ptrHandlerInt64(deniedSite),
 	}
-	h := NewHandlerWithResponseProfiles(
+	h := newTestHandlerWithProfiles(
 		domainCurtailment.NewService(store),
 		domainCurtailment.NewResponseProfileService(profileStore),
 	)
@@ -1229,7 +1229,7 @@ func TestHandler_GetCurtailmentEvent_AllowsTargetlessDeviceListScope(t *testing.
 		targetRollupByUUID:   map[uuid.UUID]*models.TargetRollup{eventUUID: {}},
 		incompleteTargetSite: map[uuid.UUID]bool{},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	resp, err := h.GetCurtailmentEvent(sessionCtx(orgID), connect.NewRequest(&pb.GetCurtailmentEventRequest{
 		EventUuid: eventUUID.String(),
@@ -1265,7 +1265,7 @@ func TestHandler_GetCurtailmentEvent_DeniesTargetlessDeviceListScopeWhenOrgReadI
 		targetRollupByUUID:   map[uuid.UUID]*models.TargetRollup{eventUUID: {}},
 		incompleteTargetSite: map[uuid.UUID]bool{},
 	}
-	h := NewHandlerWithResponseProfiles(
+	h := newTestHandlerWithProfiles(
 		domainCurtailment.NewService(store),
 		domainCurtailment.NewResponseProfileService(newHandlerResponseProfileStore()),
 	)
@@ -1310,7 +1310,7 @@ func TestHandler_GetCurtailmentEvent_UsesTargetSitesForDeviceListEvents(t *testi
 			eventUUID: {deniedSite},
 		},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 	ctx := testSessionCtxWithAssignments(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: orgID,
@@ -1348,7 +1348,7 @@ func TestHandler_GetCurtailmentEvent_DeniesIncompleteTargetSiteCoverageWhenOrgRe
 		targetSiteIDsByUUID:  map[uuid.UUID][]int64{eventUUID: {}},
 		incompleteTargetSite: map[uuid.UUID]bool{eventUUID: true},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 	ctx := testSessionCtxWithAssignments(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: orgID,
@@ -1425,7 +1425,7 @@ func TestHandler_GetCurtailmentEvent_ReturnsTargetsWithPhaseSummaries(t *testing
 			},
 		},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	resp, err := h.GetCurtailmentEvent(sessionCtx(42), connect.NewRequest(&pb.GetCurtailmentEventRequest{
 		EventUuid:       eventUUID.String(),
@@ -1491,7 +1491,7 @@ func TestHandler_GetCurtailmentEvent_UsesSiteScopedEventPermission(t *testing.T)
 					eventUUID: {},
 				},
 			}
-			h := NewHandler(domainCurtailment.NewService(store))
+			h := newTestHandler(domainCurtailment.NewService(store))
 			ctx := testSessionCtxWithAssignments(t, &session.Info{
 				AuthMethod:     session.AuthMethodSession,
 				OrganizationID: orgID,
@@ -1537,7 +1537,7 @@ func TestHandler_GetCurtailmentEvent_AllowsIncompleteTargetSitesForOrgWideRead(t
 			eventUUID: true,
 		},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	resp, err := h.GetCurtailmentEvent(sessionCtx(orgID), connect.NewRequest(&pb.GetCurtailmentEventRequest{
 		EventUuid: eventUUID.String(),
@@ -1616,7 +1616,7 @@ func TestHandler_GetCurtailmentEvent_UsesBoundedSnapshotAndFullTargetRollup(t *t
 		},
 		targetNextPageToken: "next-target-page",
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	resp, err := h.GetCurtailmentEvent(sessionCtx(42), connect.NewRequest(&pb.GetCurtailmentEventRequest{
 		EventUuid:      eventUUID.String(),
@@ -1663,7 +1663,7 @@ func TestHandler_ListCurtailmentEvents_HidesReplayHandles(t *testing.T) {
 			IdempotencyKey:          &key,
 		}},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	resp, err := h.ListCurtailmentEvents(sessionCtx(42), connect.NewRequest(&pb.ListCurtailmentEventsRequest{}))
 	require.NoError(t, err)
@@ -1680,7 +1680,7 @@ func TestHandler_ListCurtailmentEvents_HidesReplayHandles(t *testing.T) {
 func TestHandler_ListCurtailmentEvents_StateFiltersForward(t *testing.T) {
 	t.Parallel()
 	store := &listStubStore{}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	_, err := h.ListCurtailmentEvents(sessionCtx(42), connect.NewRequest(&pb.ListCurtailmentEventsRequest{
 		StateFilters: []pb.CurtailmentEventState{
@@ -1697,7 +1697,7 @@ func TestHandler_ListCurtailmentEvents_StateFiltersForward(t *testing.T) {
 func TestHandler_ListCurtailmentEvents_LegacyStateFilterForwards(t *testing.T) {
 	t.Parallel()
 	store := &listStubStore{}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	_, err := h.ListCurtailmentEvents(sessionCtx(42), connect.NewRequest(&pb.ListCurtailmentEventsRequest{
 		StateFilter: pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_RESTORING,
@@ -1712,7 +1712,7 @@ func TestHandler_ListCurtailmentEvents_LegacyStateFilterForwards(t *testing.T) {
 func TestHandler_ListCurtailmentEvents_UnspecifiedFilterMeansAll(t *testing.T) {
 	t.Parallel()
 	store := &listStubStore{}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	_, err := h.ListCurtailmentEvents(sessionCtx(42), connect.NewRequest(&pb.ListCurtailmentEventsRequest{
 		StateFilter: pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_UNSPECIFIED,
@@ -1726,7 +1726,7 @@ func TestHandler_ListCurtailmentEvents_UnspecifiedFilterMeansAll(t *testing.T) {
 func TestHandler_ListCurtailmentEvents_RejectsMissingSession(t *testing.T) {
 	t.Parallel()
 	store := &listStubStore{}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	_, err := h.ListCurtailmentEvents(t.Context(), connect.NewRequest(&pb.ListCurtailmentEventsRequest{}))
 	require.Error(t, err)
@@ -1741,7 +1741,7 @@ func TestHandler_ListCurtailmentEvents_RejectsMissingSession(t *testing.T) {
 func TestHandler_ListCurtailmentEvents_RejectsWithoutCurtailmentRead(t *testing.T) {
 	t.Parallel()
 	store := &listStubStore{}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	// Effective permissions present but lack curtailment:read; the gate
 	// must deny rather than fall through to the store.
@@ -1760,7 +1760,7 @@ func TestHandler_ListCurtailmentEvents_RejectsWithoutCurtailmentRead(t *testing.
 func TestHandler_ListCurtailmentEvents_PropagatesStoreError(t *testing.T) {
 	t.Parallel()
 	store := &listStubStore{err: errors.New("db down")}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	_, err := h.ListCurtailmentEvents(sessionCtx(42), connect.NewRequest(&pb.ListCurtailmentEventsRequest{}))
 	require.Error(t, err)
@@ -1799,7 +1799,7 @@ func TestHandler_ListCurtailmentEvents_HydratesTrimmedDecisionSnapshot(t *testin
 			DecisionSnapshotJSON: snapshotJSON,
 		}},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	resp, err := h.ListCurtailmentEvents(sessionCtx(42), connect.NewRequest(&pb.ListCurtailmentEventsRequest{}))
 	require.NoError(t, err)

@@ -24,15 +24,17 @@ describe("useRefresh", () => {
     vi.clearAllMocks();
 
     (useMinerHosting as Mock).mockReturnValue({
-      api: {
-        refreshToken: mockRefreshToken,
+      adapter: {
+        refreshAccessToken: mockRefreshToken,
       },
     });
     (useMinerStore.getState as Mock).mockReturnValue({
       auth: {
-        authTokens: {
-          accessToken: { value: "stale-access", expiry: new Date("2026-01-01T00:00:00Z") },
-          refreshToken: { value: "latest-refresh", expiry: new Date("2026-01-02T00:00:00Z") },
+        session: {
+          mode: "bearer",
+          status: "authenticated",
+          accessToken: { value: "stale-access", expiresAtMs: new Date("2026-01-01T00:00:00Z").getTime() },
+          refreshToken: { value: "latest-refresh", expiresAtMs: new Date("2026-01-02T00:00:00Z").getTime() },
         },
       },
     });
@@ -41,9 +43,7 @@ describe("useRefresh", () => {
 
   test("merges the refreshed access token with the latest store auth tokens", async () => {
     mockRefreshToken.mockResolvedValue({
-      data: {
-        access_token: "new-access-token",
-      },
+      accessToken: "new-access-token",
     });
 
     const { result } = renderHook(() => useRefresh());
@@ -52,7 +52,7 @@ describe("useRefresh", () => {
       refreshToken: "latest-refresh",
     });
 
-    expect(mockRefreshToken).toHaveBeenCalledWith({ refresh_token: "latest-refresh" }, { secure: false });
+    expect(mockRefreshToken).toHaveBeenCalledWith("latest-refresh");
     expect(mockSetAuthTokens).toHaveBeenCalledWith({
       accessToken: {
         value: "new-access-token",
@@ -72,7 +72,7 @@ describe("useRefresh", () => {
     // access token — otherwise the session ends up with B's refresh token
     // and A's access token.
     mockRefreshToken.mockResolvedValue({
-      data: { access_token: "session-a-access-token" },
+      accessToken: "session-a-access-token",
     });
     const onSuccess = vi.fn();
     const onError = vi.fn();

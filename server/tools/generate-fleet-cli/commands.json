@@ -19,13 +19,6 @@
       "required_fields": ["identifier"]
     },
     {
-      "method": "/fleetmanagement.v1.FleetManagementService/GetMinerPoolAssignments",
-      "group": "miners",
-      "command": "pool-assignments",
-      "usage": "Get current pool assignments for a miner",
-      "required_fields": ["device_identifier"]
-    },
-    {
       "method": "/fleetmanagement.v1.FleetManagementService/GetMinerCoolingMode",
       "group": "miners",
       "command": "cooling-mode",
@@ -61,73 +54,6 @@
       "group": "onboarding",
       "command": "status",
       "usage": "Get Fleet onboarding status"
-    },
-    {
-      "method": "/pools.v1.PoolsService/CreatePool",
-      "group": "pools",
-      "command": "create",
-      "required_fields": ["pool_config.pool_name", "pool_config.url", "pool_config.username"],
-      "field_flags": [
-        {
-          "path": "pool_config.pool_name",
-          "flag": "pool-name",
-          "usage": "pool name"
-        },
-        {
-          "path": "pool_config.url",
-          "flag": "url",
-          "usage": "url"
-        },
-        {
-          "path": "pool_config.username",
-          "flag": "username",
-          "usage": "username"
-        },
-        {
-          "path": "pool_config.password",
-          "flag": "pool-password-stdin",
-          "usage": "Read pool authentication password from stdin",
-          "kind": "secret"
-        }
-      ]
-    },
-    {
-      "method": "/pools.v1.PoolsService/DeletePool",
-      "group": "pools",
-      "command": "delete",
-      "required_fields": ["pool_id"]
-    },
-    {
-      "method": "/pools.v1.PoolsService/ListPools",
-      "group": "pools",
-      "command": "list"
-    },
-    {
-      "method": "/pools.v1.PoolsService/UpdatePool",
-      "group": "pools",
-      "command": "update",
-      "field_flags": [
-        {
-          "path": "password",
-          "flag": "pool-password-stdin",
-          "usage": "Read pool authentication password from stdin",
-          "kind": "secret"
-        }
-      ]
-    },
-    {
-      "method": "/pools.v1.PoolsService/ValidatePool",
-      "group": "pools",
-      "command": "validate",
-      "required_fields": ["url", "username"],
-      "field_flags": [
-        {
-          "path": "password",
-          "flag": "pool-password-stdin",
-          "usage": "Read pool authentication password from stdin",
-          "kind": "secret"
-        }
-      ]
     },
     {
       "method": "/device_set.v1.DeviceSetService/ListDeviceSets",
@@ -422,6 +348,13 @@
       "group": "sites",
       "command": "assign-buildings",
       "required_fields": ["target_site_id", "building_ids"]
+    },
+    {
+      "method": "/sites.v1.SiteService/AssignContainersToSite",
+      "group": "sites",
+      "command": "assign-containers",
+      "usage": "Assign whole containers to a site; omit target-site-id to unassign",
+      "required_fields": ["container_identifiers"]
     },
     {
       "method": "/sites.v1.SiteService/AssignRacksToSite",
@@ -894,25 +827,31 @@
       "group": "curtailment",
       "subgroup": "automation-rules",
       "command": "create",
+      "usage": "Create curtailment automation rule; an MQTT rule sets --mqtt-source-id, a SCHEDULE rule passes trigger_type and schedule through --json",
       "required_fields": [
         "rule_name",
-        "mqtt_source_id",
         "response_profile_id",
         "expected_response_profile_revision"
-      ]
+      ],
+      "validation_exceptions": {
+        "$message": "trigger fields are conditional: MQTT rules require mqtt_source_id while SCHEDULE rules require schedule; generated request validation enforces the selected trigger"
+      }
     },
     {
       "method": "/curtailment.v1.CurtailmentService/UpdateCurtailmentAutomationRule",
       "group": "curtailment",
       "subgroup": "automation-rules",
       "command": "update",
+      "usage": "Update curtailment automation rule; an MQTT rule sets --mqtt-source-id, a SCHEDULE rule passes trigger_type and schedule through --json",
       "required_fields": [
         "rule_id",
         "rule_name",
-        "mqtt_source_id",
         "response_profile_id",
         "expected_response_profile_revision"
-      ]
+      ],
+      "validation_exceptions": {
+        "$message": "trigger fields are conditional: MQTT rules require mqtt_source_id while SCHEDULE rules require schedule; generated request validation enforces the selected trigger"
+      }
     },
     {
       "method": "/curtailment.v1.CurtailmentService/SetCurtailmentAutomationRuleEnabled",
@@ -927,6 +866,136 @@
       "subgroup": "automation-rules",
       "command": "delete",
       "required_fields": ["rule_id"]
+    },
+    {
+      "method": "/poolconfigurations.v1.PoolConfigurationService/CreateConfiguration",
+      "group": "pools",
+      "command": "create",
+      "validation_exceptions": {
+        "configuration": "Required structured input is supplied through --json; generated protobuf validation rejects missing or invalid input."
+      }
+    },
+    {
+      "method": "/poolconfigurations.v1.PoolConfigurationService/GetConfiguration",
+      "group": "pools",
+      "command": "get",
+      "required_fields": [
+        "configuration_id"
+      ]
+    },
+    {
+      "method": "/poolconfigurations.v1.PoolConfigurationService/ListConfigurations",
+      "group": "pools",
+      "command": "list"
+    },
+    {
+      "method": "/poolconfigurations.v1.PoolConfigurationService/DuplicateConfiguration",
+      "group": "pools",
+      "command": "duplicate",
+      "required_fields": [
+        "configuration_id",
+        "name"
+      ]
+    },
+    {
+      "method": "/poolconfigurations.v1.PoolConfigurationService/ArchiveConfiguration",
+      "group": "pools",
+      "command": "archive",
+      "required_fields": [
+        "configuration_id",
+        "expected_version"
+      ]
+    },
+    {
+      "method": "/poolconfigurations.v1.PoolConfigurationService/ReviewEdit",
+      "group": "pools",
+      "command": "review-edit",
+      "required_fields": [
+        "configuration_id",
+        "expected_version"
+      ],
+      "validation_exceptions": {
+        "configuration": "Required structured input is supplied through --json; generated protobuf validation rejects missing or invalid input."
+      }
+    },
+    {
+      "method": "/poolconfigurations.v1.PoolConfigurationService/ReviewAssignment",
+      "group": "pools",
+      "command": "review-assignment",
+      "required_fields": [
+        "configuration_id",
+        "expected_version"
+      ],
+      "validation_exceptions": {
+        "$message": "Exactly one equipment selection is required; choose device identifiers, device IDs/boards, or a filter in the request JSON. Generated request validation enforces the selection."
+      }
+    },
+    {
+      "method": "/poolconfigurations.v1.PoolConfigurationService/ConfirmReview",
+      "group": "pools",
+      "command": "confirm",
+      "field_flags": [
+        {
+          "path": "password",
+          "flag": "password-stdin",
+          "usage": "Read confirmation password from stdin",
+          "kind": "secret"
+        }
+      ],
+      "required_fields": [
+        "review_id"
+      ]
+    },
+    {
+      "method": "/poolconfigurations.v1.PoolConfigurationService/GetOperation",
+      "group": "pools",
+      "command": "operation",
+      "required_fields": [
+        "operation_id"
+      ]
+    },
+    {
+      "method": "/poolconfigurations.v1.PoolConfigurationService/ReviewRetry",
+      "group": "pools",
+      "command": "review-retry",
+      "required_fields": [
+        "operation_id"
+      ],
+      "validation_exceptions": {
+        "targets": "Required structured input is supplied through --json; generated protobuf validation rejects missing or invalid input."
+      }
+    },
+    {
+      "method": "/poolconfigurations.v1.PoolConfigurationService/ListOperations",
+      "group": "pools",
+      "command": "operations",
+      "required_fields": [
+        "configuration_id"
+      ]
+    },
+    {
+      "method": "/poolconfigurations.v1.PoolConfigurationService/GetAssignments",
+      "group": "pools",
+      "command": "assignments",
+      "validation_exceptions": {
+        "$message": "Exactly one equipment selection is required; choose device identifiers, device IDs/boards, or a filter in the request JSON. Generated request validation enforces the selection."
+      }
+    },
+    {
+      "method": "/poolconfigurations.v1.PoolConfigurationService/CheckConfiguration",
+      "group": "pools",
+      "command": "check",
+      "validation_exceptions": {
+        "target": "Required structured input is supplied through --json; generated protobuf validation rejects missing or invalid input."
+      }
+    },
+    {
+      "method": "/poolconfigurations.v1.PoolConfigurationService/TestConnection",
+      "group": "pools",
+      "command": "test-connection",
+      "validation_exceptions": {
+        "pool": "Required structured input is supplied through --json; generated protobuf validation rejects missing or invalid input."
+      }
     }
   ]
 }

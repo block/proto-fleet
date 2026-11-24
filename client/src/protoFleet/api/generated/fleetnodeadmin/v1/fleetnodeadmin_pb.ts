@@ -9,6 +9,8 @@
 import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import { file_buf_validate_validate } from "../../buf/validate/validate_pb";
+import type { DeviceClass, DeviceEndpoint } from "../../common/v1/common_pb";
+import { file_common_v1_common } from "../../common/v1/common_pb";
 import type { PairingStatus } from "../../fleetmanagement/v1/fleetmanagement_pb";
 import { file_fleetmanagement_v1_fleetmanagement } from "../../fleetmanagement/v1/fleetmanagement_pb";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
@@ -23,9 +25,10 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_fleetnodeadmin_v1_fleetnodeadmin: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "CiZmbGVldG5vZGVhZG1pbi92MS9mbGVldG5vZGVhZG1pbi5wcm90bxIRZmxlZXRub2RlYWRtaW4udjEiHQobQ3JlYXRlRW5yb2xsbWVudENvZGVSZXF1ZXN0IoQBChxDcmVhdGVFbnJvbGxtZW50Q29kZVJlc3BvbnNlEgwKBGNvZGUYASABKAkSLgoKZXhwaXJlc19hdBgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJgoVcGVuZGluZ19lbnJvbGxtZW50X2lkGAMgASgDQge6SAQiAiAAIhcKFUxpc3RGbGVldE5vZGVzUmVxdWVzdCJSChZMaXN0RmxlZXROb2Rlc1Jlc3BvbnNlEjgKC2ZsZWV0X25vZGVzGAEgAygLMiMuZmxlZXRub2RlYWRtaW4udjEuRmxlZXROb2RlU3VtbWFyeSKqAwoQRmxlZXROb2RlU3VtbWFyeRIVCg1mbGVldF9ub2RlX2lkGAEgASgDEgwKBG5hbWUYAiABKAkSRwoRZW5yb2xsbWVudF9zdGF0dXMYAyABKA4yLC5mbGVldG5vZGVhZG1pbi52MS5GbGVldE5vZGVFbnJvbGxtZW50U3RhdHVzEhwKFGlkZW50aXR5X2ZpbmdlcnByaW50GAQgASgJEi4KCmNyZWF0ZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjUKDGxhc3Rfc2Vlbl9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBIAIgBARIrChVwZW5kaW5nX2Vucm9sbG1lbnRfaWQYByABKANCB7pIBCICIABIAYgBARIpCiFjb21tYW5kX3Byb3RvY29sX3VwZ3JhZGVfcmVxdWlyZWQYCCABKAgSIAoYY29udHJvbF9zdHJlYW1fY29ubmVjdGVkGAkgASgIQg8KDV9sYXN0X3NlZW5fYXRCGAoWX3BlbmRpbmdfZW5yb2xsbWVudF9pZCJhChdDb25maXJtRmxlZXROb2RlUmVxdWVzdBIeCg1mbGVldF9ub2RlX2lkGAEgASgDQge6SAQiAiAAEiYKFXBlbmRpbmdfZW5yb2xsbWVudF9pZBgCIAEoA0IHukgEIgIgACJvChhDb25maXJtRmxlZXROb2RlUmVzcG9uc2USDwoHYXBpX2tleRgBIAEoCRIzCgpleHBpcmVzX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcEgAiAEBQg0KC19leHBpcmVzX2F0In8KFlJldm9rZUZsZWV0Tm9kZVJlcXVlc3QSHgoNZmxlZXRfbm9kZV9pZBgBIAEoA0IHukgEIgIgABIrChVwZW5kaW5nX2Vucm9sbG1lbnRfaWQYAiABKANCB7pIBCICIABIAIgBAUIYChZfcGVuZGluZ19lbnJvbGxtZW50X2lkIhkKF1Jldm9rZUZsZWV0Tm9kZVJlc3BvbnNlIloKHFBhaXJEZXZpY2VUb0ZsZWV0Tm9kZVJlcXVlc3QSHgoNZmxlZXRfbm9kZV9pZBgBIAEoA0IHukgEIgIgABIaCglkZXZpY2VfaWQYAiABKANCB7pIBCICIAAiHwodUGFpckRldmljZVRvRmxlZXROb2RlUmVzcG9uc2UiMQoTVW5wYWlyRGV2aWNlUmVxdWVzdBIaCglkZXZpY2VfaWQYASABKANCB7pIBCICIAAiFgoUVW5wYWlyRGV2aWNlUmVzcG9uc2UiPQobTGlzdEZsZWV0Tm9kZURldmljZXNSZXF1ZXN0Eh4KDWZsZWV0X25vZGVfaWQYASABKANCB7pIBCICKAAiWAocTGlzdEZsZWV0Tm9kZURldmljZXNSZXNwb25zZRI4CgVwYWlycxgBIAMoCzIpLmZsZWV0bm9kZWFkbWluLnYxLkZsZWV0Tm9kZURldmljZVN1bW1hcnkizQEKFkZsZWV0Tm9kZURldmljZVN1bW1hcnkSFQoNZmxlZXRfbm9kZV9pZBgBIAEoAxIRCglkZXZpY2VfaWQYAiABKAMSGQoRZGV2aWNlX2lkZW50aWZpZXIYAyABKAkSEwoLZGV2aWNlX3R5cGUYBCABKAkSLwoLYXNzaWduZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhgKC2Fzc2lnbmVkX2J5GAYgASgDSACIAQFCDgoMX2Fzc2lnbmVkX2J5InIKGkRpc2NvdmVyT25GbGVldE5vZGVSZXF1ZXN0Eh4KDWZsZWV0X25vZGVfaWQYASABKANCB7pIBCICIAASNAoHcmVxdWVzdBgCIAEoCzIbLnBhaXJpbmcudjEuRGlzY292ZXJSZXF1ZXN0Qga6SAPIAQEiTQobRGlzY292ZXJPbkZsZWV0Tm9kZVJlc3BvbnNlEi4KCHJlc3BvbnNlGAEgASgLMhwucGFpcmluZy52MS5EaXNjb3ZlclJlc3BvbnNlInsKJUxpc3RGbGVldE5vZGVEaXNjb3ZlcmVkRGV2aWNlc1JlcXVlc3QSHgoNZmxlZXRfbm9kZV9pZBgBIAEoA0IHukgEIgIoABIZCgVsaW1pdBgCIAEoBUIKukgHGgUYgAgoABIXCgZjdXJzb3IYAyABKANCB7pIBCICKAAifAomTGlzdEZsZWV0Tm9kZURpc2NvdmVyZWREZXZpY2VzUmVzcG9uc2USPQoHZGV2aWNlcxgBIAMoCzIsLmZsZWV0bm9kZWFkbWluLnYxLkZsZWV0Tm9kZURpc2NvdmVyZWREZXZpY2USEwoLbmV4dF9jdXJzb3IYAiABKAMipwIKGUZsZWV0Tm9kZURpc2NvdmVyZWREZXZpY2USFQoNZmxlZXRfbm9kZV9pZBgBIAEoAxIZChFkZXZpY2VfaWRlbnRpZmllchgCIAEoCRISCgppcF9hZGRyZXNzGAMgASgJEgwKBHBvcnQYBCABKAkSEgoKdXJsX3NjaGVtZRgFIAEoCRITCgtkcml2ZXJfbmFtZRgGIAEoCRINCgVtb2RlbBgHIAEoCRIUCgxtYW51ZmFjdHVyZXIYCCABKAkSGAoQZmlybXdhcmVfdmVyc2lvbhgJIAEoCRItCglsYXN0X3NlZW4YCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEh8KDnBhaXJpbmdfc3RhdHVzGAsgASgJQge6SARyAhhAIsIBCidQYWlyRGlzY292ZXJlZERldmljZXNPbkZsZWV0Tm9kZVJlcXVlc3QSHgoNZmxlZXRfbm9kZV9pZBgBIAEoA0IHukgEIgIgABIuChJkZXZpY2VfaWRlbnRpZmllcnMYAiADKAlCErpID5IBDBCACCIHcgUQARj/ARIZChFwYWlyX2FsbF91bnBhaXJlZBgDIAEoCBIsCgtjcmVkZW50aWFscxgEIAEoCzIXLnBhaXJpbmcudjEuQ3JlZGVudGlhbHMiYwooUGFpckRpc2NvdmVyZWREZXZpY2VzT25GbGVldE5vZGVSZXNwb25zZRI3CgdyZXN1bHRzGAEgAygLMiYuZmxlZXRub2RlYWRtaW4udjEuRGV2aWNlUGFpcmluZ1Jlc3VsdCKEAQoTRGV2aWNlUGFpcmluZ1Jlc3VsdBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRI5Cg5wYWlyaW5nX3N0YXR1cxgCIAEoDjIhLmZsZWV0bWFuYWdlbWVudC52MS5QYWlyaW5nU3RhdHVzEhcKBWVycm9yGAMgASgJQgi6SAVyAxiAICqBAgoZRmxlZXROb2RlRW5yb2xsbWVudFN0YXR1cxIsCihGTEVFVF9OT0RFX0VOUk9MTE1FTlRfU1RBVFVTX1VOU1BFQ0lGSUVEEAASKAokRkxFRVRfTk9ERV9FTlJPTExNRU5UX1NUQVRVU19QRU5ESU5HEAESNgoyRkxFRVRfTk9ERV9FTlJPTExNRU5UX1NUQVRVU19BV0FJVElOR19DT05GSVJNQVRJT04QAhIqCiZGTEVFVF9OT0RFX0VOUk9MTE1FTlRfU1RBVFVTX0NPTkZJUk1FRBADEigKJEZMRUVUX05PREVfRU5ST0xMTUVOVF9TVEFUVVNfUkVWT0tFRBAEMtQJChVGbGVldE5vZGVBZG1pblNlcnZpY2USdwoUQ3JlYXRlRW5yb2xsbWVudENvZGUSLi5mbGVldG5vZGVhZG1pbi52MS5DcmVhdGVFbnJvbGxtZW50Q29kZVJlcXVlc3QaLy5mbGVldG5vZGVhZG1pbi52MS5DcmVhdGVFbnJvbGxtZW50Q29kZVJlc3BvbnNlEmUKDkxpc3RGbGVldE5vZGVzEiguZmxlZXRub2RlYWRtaW4udjEuTGlzdEZsZWV0Tm9kZXNSZXF1ZXN0GikuZmxlZXRub2RlYWRtaW4udjEuTGlzdEZsZWV0Tm9kZXNSZXNwb25zZRJrChBDb25maXJtRmxlZXROb2RlEiouZmxlZXRub2RlYWRtaW4udjEuQ29uZmlybUZsZWV0Tm9kZVJlcXVlc3QaKy5mbGVldG5vZGVhZG1pbi52MS5Db25maXJtRmxlZXROb2RlUmVzcG9uc2USaAoPUmV2b2tlRmxlZXROb2RlEikuZmxlZXRub2RlYWRtaW4udjEuUmV2b2tlRmxlZXROb2RlUmVxdWVzdBoqLmZsZWV0bm9kZWFkbWluLnYxLlJldm9rZUZsZWV0Tm9kZVJlc3BvbnNlEnoKFVBhaXJEZXZpY2VUb0ZsZWV0Tm9kZRIvLmZsZWV0bm9kZWFkbWluLnYxLlBhaXJEZXZpY2VUb0ZsZWV0Tm9kZVJlcXVlc3QaMC5mbGVldG5vZGVhZG1pbi52MS5QYWlyRGV2aWNlVG9GbGVldE5vZGVSZXNwb25zZRJfCgxVbnBhaXJEZXZpY2USJi5mbGVldG5vZGVhZG1pbi52MS5VbnBhaXJEZXZpY2VSZXF1ZXN0GicuZmxlZXRub2RlYWRtaW4udjEuVW5wYWlyRGV2aWNlUmVzcG9uc2USdwoUTGlzdEZsZWV0Tm9kZURldmljZXMSLi5mbGVldG5vZGVhZG1pbi52MS5MaXN0RmxlZXROb2RlRGV2aWNlc1JlcXVlc3QaLy5mbGVldG5vZGVhZG1pbi52MS5MaXN0RmxlZXROb2RlRGV2aWNlc1Jlc3BvbnNlEnYKE0Rpc2NvdmVyT25GbGVldE5vZGUSLS5mbGVldG5vZGVhZG1pbi52MS5EaXNjb3Zlck9uRmxlZXROb2RlUmVxdWVzdBouLmZsZWV0bm9kZWFkbWluLnYxLkRpc2NvdmVyT25GbGVldE5vZGVSZXNwb25zZTABEpUBCh5MaXN0RmxlZXROb2RlRGlzY292ZXJlZERldmljZXMSOC5mbGVldG5vZGVhZG1pbi52MS5MaXN0RmxlZXROb2RlRGlzY292ZXJlZERldmljZXNSZXF1ZXN0GjkuZmxlZXRub2RlYWRtaW4udjEuTGlzdEZsZWV0Tm9kZURpc2NvdmVyZWREZXZpY2VzUmVzcG9uc2USnQEKIFBhaXJEaXNjb3ZlcmVkRGV2aWNlc09uRmxlZXROb2RlEjouZmxlZXRub2RlYWRtaW4udjEuUGFpckRpc2NvdmVyZWREZXZpY2VzT25GbGVldE5vZGVSZXF1ZXN0GjsuZmxlZXRub2RlYWRtaW4udjEuUGFpckRpc2NvdmVyZWREZXZpY2VzT25GbGVldE5vZGVSZXNwb25zZTABQugBChVjb20uZmxlZXRub2RlYWRtaW4udjFCE0ZsZWV0bm9kZWFkbWluUHJvdG9QAVpVZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvZmxlZXRub2RlYWRtaW4vdjE7ZmxlZXRub2RlYWRtaW52MaICA0ZYWKoCEUZsZWV0bm9kZWFkbWluLlYxygIRRmxlZXRub2RlYWRtaW5cVjHiAh1GbGVldG5vZGVhZG1pblxWMVxHUEJNZXRhZGF0YeoCEkZsZWV0bm9kZWFkbWluOjpWMWIGcHJvdG8z",
+    "CiZmbGVldG5vZGVhZG1pbi92MS9mbGVldG5vZGVhZG1pbi5wcm90bxIRZmxlZXRub2RlYWRtaW4udjEiYAobQ3JlYXRlRW5yb2xsbWVudENvZGVSZXF1ZXN0EikKE3N0YW5kYnlfZm9yX25vZGVfaWQYASABKANCB7pIBCICIABIAIgBAUIWChRfc3RhbmRieV9mb3Jfbm9kZV9pZCKEAQocQ3JlYXRlRW5yb2xsbWVudENvZGVSZXNwb25zZRIMCgRjb2RlGAEgASgJEi4KCmV4cGlyZXNfYXQYAiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEiYKFXBlbmRpbmdfZW5yb2xsbWVudF9pZBgDIAEoA0IHukgEIgIgACIXChVMaXN0RmxlZXROb2Rlc1JlcXVlc3QiUgoWTGlzdEZsZWV0Tm9kZXNSZXNwb25zZRI4CgtmbGVldF9ub2RlcxgBIAMoCzIjLmZsZWV0bm9kZWFkbWluLnYxLkZsZWV0Tm9kZVN1bW1hcnki7AYKEEZsZWV0Tm9kZVN1bW1hcnkSFQoNZmxlZXRfbm9kZV9pZBgBIAEoAxIMCgRuYW1lGAIgASgJEkcKEWVucm9sbG1lbnRfc3RhdHVzGAMgASgOMiwuZmxlZXRub2RlYWRtaW4udjEuRmxlZXROb2RlRW5yb2xsbWVudFN0YXR1cxIcChRpZGVudGl0eV9maW5nZXJwcmludBgEIAEoCRIuCgpjcmVhdGVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBI1CgxsYXN0X3NlZW5fYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wSACIAQESKwoVcGVuZGluZ19lbnJvbGxtZW50X2lkGAcgASgDQge6SAQiAiAASAGIAQESKQohY29tbWFuZF9wcm90b2NvbF91cGdyYWRlX3JlcXVpcmVkGAggASgIEiAKGGNvbnRyb2xfc3RyZWFtX2Nvbm5lY3RlZBgJIAEoCBIbChNwYWlyZWRfZGV2aWNlX2NvdW50GAogASgDEiwKJGNvbW1hbmRfcHJvdG9jb2xfdXBncmFkZV9yZWNvbW1lbmRlZBgMIAEoCBIUCgxpcF9hZGRyZXNzZXMYDSADKAkSDwoHdmVyc2lvbhgOIAEoCRITCgtlbnJvbGxlZF9ieRgPIAEoCRIzCgdoYV9yb2xlGBAgASgOMiIuZmxlZXRub2RlYWRtaW4udjEuRmxlZXROb2RlSEFSb2xlEhwKD2hhX3BlZXJfbm9kZV9pZBgRIAEoA0gCiAEBEhkKEWhhX3BlZXJfbm9kZV9uYW1lGBIgASgJEhgKEGhhX3N0YW5kYnlfcmVhZHkYEyABKAgSGAoQaGFfc3RhdHVzX3JlYXNvbhgUIAEoCRIjChtkaXNjb3ZlcnlfY292ZXJhZ2VfZGVncmFkZWQYFSABKAgSGAoQZGlzY292ZXJ5X3JhbmdlcxgWIAMoCRIhChlkaXNjb3ZlcnlfY29uZmlnX3JlcG9ydGVkGBcgASgIEiEKGWRpc2NvdmVyeV9jb25maWdfbWlzbWF0Y2gYGCABKAhCDwoNX2xhc3Rfc2Vlbl9hdEIYChZfcGVuZGluZ19lbnJvbGxtZW50X2lkQhIKEF9oYV9wZWVyX25vZGVfaWQiYQoXQ29uZmlybUZsZWV0Tm9kZVJlcXVlc3QSHgoNZmxlZXRfbm9kZV9pZBgBIAEoA0IHukgEIgIgABImChVwZW5kaW5nX2Vucm9sbG1lbnRfaWQYAiABKANCB7pIBCICIAAibwoYQ29uZmlybUZsZWV0Tm9kZVJlc3BvbnNlEg8KB2FwaV9rZXkYASABKAkSMwoKZXhwaXJlc19hdBgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBIAIgBAUINCgtfZXhwaXJlc19hdCJ/ChZSZXZva2VGbGVldE5vZGVSZXF1ZXN0Eh4KDWZsZWV0X25vZGVfaWQYASABKANCB7pIBCICIAASKwoVcGVuZGluZ19lbnJvbGxtZW50X2lkGAIgASgDQge6SAQiAiAASACIAQFCGAoWX3BlbmRpbmdfZW5yb2xsbWVudF9pZCIZChdSZXZva2VGbGVldE5vZGVSZXNwb25zZSJaChxQYWlyRGV2aWNlVG9GbGVldE5vZGVSZXF1ZXN0Eh4KDWZsZWV0X25vZGVfaWQYASABKANCB7pIBCICIAASGgoJZGV2aWNlX2lkGAIgASgDQge6SAQiAiAAIh8KHVBhaXJEZXZpY2VUb0ZsZWV0Tm9kZVJlc3BvbnNlIjEKE1VucGFpckRldmljZVJlcXVlc3QSGgoJZGV2aWNlX2lkGAEgASgDQge6SAQiAiAAIhYKFFVucGFpckRldmljZVJlc3BvbnNlIj0KG0xpc3RGbGVldE5vZGVEZXZpY2VzUmVxdWVzdBIeCg1mbGVldF9ub2RlX2lkGAEgASgDQge6SAQiAigAIlgKHExpc3RGbGVldE5vZGVEZXZpY2VzUmVzcG9uc2USOAoFcGFpcnMYASADKAsyKS5mbGVldG5vZGVhZG1pbi52MS5GbGVldE5vZGVEZXZpY2VTdW1tYXJ5IvIBChZGbGVldE5vZGVEZXZpY2VTdW1tYXJ5EhUKDWZsZWV0X25vZGVfaWQYASABKAMSEQoJZGV2aWNlX2lkGAIgASgDEhkKEWRldmljZV9pZGVudGlmaWVyGAMgASgJEhMKC2RldmljZV90eXBlGAQgASgJEi8KC2Fzc2lnbmVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIYCgthc3NpZ25lZF9ieRgGIAEoA0gAiAEBEhQKDG1hbnVmYWN0dXJlchgHIAEoCRINCgVtb2RlbBgIIAEoCUIOCgxfYXNzaWduZWRfYnkicgoaRGlzY292ZXJPbkZsZWV0Tm9kZVJlcXVlc3QSHgoNZmxlZXRfbm9kZV9pZBgBIAEoA0IHukgEIgIgABI0CgdyZXF1ZXN0GAIgASgLMhsucGFpcmluZy52MS5EaXNjb3ZlclJlcXVlc3RCBrpIA8gBASJNChtEaXNjb3Zlck9uRmxlZXROb2RlUmVzcG9uc2USLgoIcmVzcG9uc2UYASABKAsyHC5wYWlyaW5nLnYxLkRpc2NvdmVyUmVzcG9uc2UiewolTGlzdEZsZWV0Tm9kZURpc2NvdmVyZWREZXZpY2VzUmVxdWVzdBIeCg1mbGVldF9ub2RlX2lkGAEgASgDQge6SAQiAigAEhkKBWxpbWl0GAIgASgFQgq6SAcaBRiACCgAEhcKBmN1cnNvchgDIAEoA0IHukgEIgIoACJ8CiZMaXN0RmxlZXROb2RlRGlzY292ZXJlZERldmljZXNSZXNwb25zZRI9CgdkZXZpY2VzGAEgAygLMiwuZmxlZXRub2RlYWRtaW4udjEuRmxlZXROb2RlRGlzY292ZXJlZERldmljZRITCgtuZXh0X2N1cnNvchgCIAEoAyK9AwoZRmxlZXROb2RlRGlzY292ZXJlZERldmljZRIVCg1mbGVldF9ub2RlX2lkGAEgASgDEhkKEWRldmljZV9pZGVudGlmaWVyGAIgASgJEhIKCmlwX2FkZHJlc3MYAyABKAkSDAoEcG9ydBgEIAEoCRISCgp1cmxfc2NoZW1lGAUgASgJEhMKC2RyaXZlcl9uYW1lGAYgASgJEg0KBW1vZGVsGAcgASgJEhQKDG1hbnVmYWN0dXJlchgIIAEoCRIYChBmaXJtd2FyZV92ZXJzaW9uGAkgASgJEiwKDGRldmljZV9jbGFzcxgMIAEoDjIWLmNvbW1vbi52MS5EZXZpY2VDbGFzcxItCglsYXN0X3NlZW4YCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEh8KDnBhaXJpbmdfc3RhdHVzGAsgASgJQge6SARyAhhAEh0KCHJwY19wb3J0GA0gASgFQgu6SAgaBhj//wMoABIPCgdycGNfdGxzGA4gASgIEjYKCWVuZHBvaW50cxgPIAMoCzIZLmNvbW1vbi52MS5EZXZpY2VFbmRwb2ludEIIukgFkgECEBAiwgEKJ1BhaXJEaXNjb3ZlcmVkRGV2aWNlc09uRmxlZXROb2RlUmVxdWVzdBIeCg1mbGVldF9ub2RlX2lkGAEgASgDQge6SAQiAiAAEi4KEmRldmljZV9pZGVudGlmaWVycxgCIAMoCUISukgPkgEMEIAIIgdyBRABGP8BEhkKEXBhaXJfYWxsX3VucGFpcmVkGAMgASgIEiwKC2NyZWRlbnRpYWxzGAQgASgLMhcucGFpcmluZy52MS5DcmVkZW50aWFscyJjCihQYWlyRGlzY292ZXJlZERldmljZXNPbkZsZWV0Tm9kZVJlc3BvbnNlEjcKB3Jlc3VsdHMYASADKAsyJi5mbGVldG5vZGVhZG1pbi52MS5EZXZpY2VQYWlyaW5nUmVzdWx0IoQBChNEZXZpY2VQYWlyaW5nUmVzdWx0EhkKEWRldmljZV9pZGVudGlmaWVyGAEgASgJEjkKDnBhaXJpbmdfc3RhdHVzGAIgASgOMiEuZmxlZXRtYW5hZ2VtZW50LnYxLlBhaXJpbmdTdGF0dXMSFwoFZXJyb3IYAyABKAlCCLpIBXIDGIAgKoECChlGbGVldE5vZGVFbnJvbGxtZW50U3RhdHVzEiwKKEZMRUVUX05PREVfRU5ST0xMTUVOVF9TVEFUVVNfVU5TUEVDSUZJRUQQABIoCiRGTEVFVF9OT0RFX0VOUk9MTE1FTlRfU1RBVFVTX1BFTkRJTkcQARI2CjJGTEVFVF9OT0RFX0VOUk9MTE1FTlRfU1RBVFVTX0FXQUlUSU5HX0NPTkZJUk1BVElPThACEioKJkZMRUVUX05PREVfRU5ST0xMTUVOVF9TVEFUVVNfQ09ORklSTUVEEAMSKAokRkxFRVRfTk9ERV9FTlJPTExNRU5UX1NUQVRVU19SRVZPS0VEEAQqdAoPRmxlZXROb2RlSEFSb2xlEiIKHkZMRUVUX05PREVfSEFfUk9MRV9VTlNQRUNJRklFRBAAEh0KGUZMRUVUX05PREVfSEFfUk9MRV9BQ1RJVkUQARIeChpGTEVFVF9OT0RFX0hBX1JPTEVfU1RBTkRCWRACMtQJChVGbGVldE5vZGVBZG1pblNlcnZpY2USdwoUQ3JlYXRlRW5yb2xsbWVudENvZGUSLi5mbGVldG5vZGVhZG1pbi52MS5DcmVhdGVFbnJvbGxtZW50Q29kZVJlcXVlc3QaLy5mbGVldG5vZGVhZG1pbi52MS5DcmVhdGVFbnJvbGxtZW50Q29kZVJlc3BvbnNlEmUKDkxpc3RGbGVldE5vZGVzEiguZmxlZXRub2RlYWRtaW4udjEuTGlzdEZsZWV0Tm9kZXNSZXF1ZXN0GikuZmxlZXRub2RlYWRtaW4udjEuTGlzdEZsZWV0Tm9kZXNSZXNwb25zZRJrChBDb25maXJtRmxlZXROb2RlEiouZmxlZXRub2RlYWRtaW4udjEuQ29uZmlybUZsZWV0Tm9kZVJlcXVlc3QaKy5mbGVldG5vZGVhZG1pbi52MS5Db25maXJtRmxlZXROb2RlUmVzcG9uc2USaAoPUmV2b2tlRmxlZXROb2RlEikuZmxlZXRub2RlYWRtaW4udjEuUmV2b2tlRmxlZXROb2RlUmVxdWVzdBoqLmZsZWV0bm9kZWFkbWluLnYxLlJldm9rZUZsZWV0Tm9kZVJlc3BvbnNlEnoKFVBhaXJEZXZpY2VUb0ZsZWV0Tm9kZRIvLmZsZWV0bm9kZWFkbWluLnYxLlBhaXJEZXZpY2VUb0ZsZWV0Tm9kZVJlcXVlc3QaMC5mbGVldG5vZGVhZG1pbi52MS5QYWlyRGV2aWNlVG9GbGVldE5vZGVSZXNwb25zZRJfCgxVbnBhaXJEZXZpY2USJi5mbGVldG5vZGVhZG1pbi52MS5VbnBhaXJEZXZpY2VSZXF1ZXN0GicuZmxlZXRub2RlYWRtaW4udjEuVW5wYWlyRGV2aWNlUmVzcG9uc2USdwoUTGlzdEZsZWV0Tm9kZURldmljZXMSLi5mbGVldG5vZGVhZG1pbi52MS5MaXN0RmxlZXROb2RlRGV2aWNlc1JlcXVlc3QaLy5mbGVldG5vZGVhZG1pbi52MS5MaXN0RmxlZXROb2RlRGV2aWNlc1Jlc3BvbnNlEnYKE0Rpc2NvdmVyT25GbGVldE5vZGUSLS5mbGVldG5vZGVhZG1pbi52MS5EaXNjb3Zlck9uRmxlZXROb2RlUmVxdWVzdBouLmZsZWV0bm9kZWFkbWluLnYxLkRpc2NvdmVyT25GbGVldE5vZGVSZXNwb25zZTABEpUBCh5MaXN0RmxlZXROb2RlRGlzY292ZXJlZERldmljZXMSOC5mbGVldG5vZGVhZG1pbi52MS5MaXN0RmxlZXROb2RlRGlzY292ZXJlZERldmljZXNSZXF1ZXN0GjkuZmxlZXRub2RlYWRtaW4udjEuTGlzdEZsZWV0Tm9kZURpc2NvdmVyZWREZXZpY2VzUmVzcG9uc2USnQEKIFBhaXJEaXNjb3ZlcmVkRGV2aWNlc09uRmxlZXROb2RlEjouZmxlZXRub2RlYWRtaW4udjEuUGFpckRpc2NvdmVyZWREZXZpY2VzT25GbGVldE5vZGVSZXF1ZXN0GjsuZmxlZXRub2RlYWRtaW4udjEuUGFpckRpc2NvdmVyZWREZXZpY2VzT25GbGVldE5vZGVSZXNwb25zZTABQugBChVjb20uZmxlZXRub2RlYWRtaW4udjFCE0ZsZWV0bm9kZWFkbWluUHJvdG9QAVpVZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvZmxlZXRub2RlYWRtaW4vdjE7ZmxlZXRub2RlYWRtaW52MaICA0ZYWKoCEUZsZWV0bm9kZWFkbWluLlYxygIRRmxlZXRub2RlYWRtaW5cVjHiAh1GbGVldG5vZGVhZG1pblxWMVxHUEJNZXRhZGF0YeoCEkZsZWV0bm9kZWFkbWluOjpWMWIGcHJvdG8z",
     [
       file_buf_validate_validate,
+      file_common_v1_common,
       file_fleetmanagement_v1_fleetmanagement,
       file_google_protobuf_timestamp,
       file_pairing_v1_pairing,
@@ -35,7 +38,15 @@ export const file_fleetnodeadmin_v1_fleetnodeadmin: GenFile =
 /**
  * @generated from message fleetnodeadmin.v1.CreateEnrollmentCodeRequest
  */
-export type CreateEnrollmentCodeRequest = Message<"fleetnodeadmin.v1.CreateEnrollmentCodeRequest"> & {};
+export type CreateEnrollmentCodeRequest = Message<"fleetnodeadmin.v1.CreateEnrollmentCodeRequest"> & {
+  /**
+   * Enroll the new node as the standby for this confirmed node. The target
+   * must not already be in an HA pair.
+   *
+   * @generated from field: optional int64 standby_for_node_id = 1;
+   */
+  standbyForNodeId?: bigint | undefined;
+};
 
 /**
  * Describes the message fleetnodeadmin.v1.CreateEnrollmentCodeRequest.
@@ -153,7 +164,7 @@ export type FleetNodeSummary = Message<"fleetnodeadmin.v1.FleetNodeSummary"> & {
 
   /**
    * True only while this node has an active control connection that cannot
-   * process the server's current commands.
+   * process baseline V1 commands, including discovery.
    *
    * @generated from field: bool command_protocol_upgrade_required = 8;
    */
@@ -165,6 +176,98 @@ export type FleetNodeSummary = Message<"fleetnodeadmin.v1.FleetNodeSummary"> & {
    * @generated from field: bool control_stream_connected = 9;
    */
   controlStreamConnected: boolean;
+
+  /**
+   * Number of live devices assigned to this node. Redacted for callers with
+   * miner:pair only, like the other administrative details.
+   *
+   * @generated from field: int64 paired_device_count = 10;
+   */
+  pairedDeviceCount: bigint;
+
+  /**
+   * True only for a connected node behind the server's latest command protocol.
+   * Advisory only; command eligibility uses each command's minimum version.
+   *
+   * @generated from field: bool command_protocol_upgrade_recommended = 12;
+   */
+  commandProtocolUpgradeRecommended: boolean;
+
+  /**
+   * Last heartbeat's local interface addresses and running binary version.
+   *
+   * @generated from field: repeated string ip_addresses = 13;
+   */
+  ipAddresses: string[];
+
+  /**
+   * @generated from field: string version = 14;
+   */
+  version: string;
+
+  /**
+   * Username of the operator who confirmed enrollment, empty for older records.
+   *
+   * @generated from field: string enrolled_by = 15;
+   */
+  enrolledBy: string;
+
+  /**
+   * HA pair membership. Unset for standalone nodes. A pending standby
+   * enrollment reports STANDBY with its target as the peer.
+   *
+   * @generated from field: fleetnodeadmin.v1.FleetNodeHARole ha_role = 16;
+   */
+  haRole: FleetNodeHARole;
+
+  /**
+   * @generated from field: optional int64 ha_peer_node_id = 17;
+   */
+  haPeerNodeId?: bigint | undefined;
+
+  /**
+   * @generated from field: string ha_peer_node_name = 18;
+   */
+  haPeerNodeName: string;
+
+  /**
+   * True once the standby holds the active node's credential key.
+   *
+   * @generated from field: bool ha_standby_ready = 19;
+   */
+  haStandbyReady: boolean;
+
+  /**
+   * Why the standby is not ready yet; empty when ready.
+   *
+   * @generated from field: string ha_status_reason = 20;
+   */
+  haStatusReason: string;
+
+  /**
+   * True when this confirmed node is expected to scan but currently cannot.
+   * Standbys are excluded because their active peer covers discovery.
+   *
+   * @generated from field: bool discovery_coverage_degraded = 21;
+   */
+  discoveryCoverageDegraded: boolean;
+
+  /**
+   * Effective ranges from the current connection; unavailable when disconnected.
+   *
+   * @generated from field: repeated string discovery_ranges = 22;
+   */
+  discoveryRanges: string[];
+
+  /**
+   * @generated from field: bool discovery_config_reported = 23;
+   */
+  discoveryConfigReported: boolean;
+
+  /**
+   * @generated from field: bool discovery_config_mismatch = 24;
+   */
+  discoveryConfigMismatch: boolean;
 };
 
 /**
@@ -401,6 +504,16 @@ export type FleetNodeDeviceSummary = Message<"fleetnodeadmin.v1.FleetNodeDeviceS
    * @generated from field: optional int64 assigned_by = 6;
    */
   assignedBy?: bigint | undefined;
+
+  /**
+   * @generated from field: string manufacturer = 7;
+   */
+  manufacturer: string;
+
+  /**
+   * @generated from field: string model = 8;
+   */
+  model: string;
 };
 
 /**
@@ -567,6 +680,11 @@ export type FleetNodeDiscoveredDevice = Message<"fleetnodeadmin.v1.FleetNodeDisc
   firmwareVersion: string;
 
   /**
+   * @generated from field: common.v1.DeviceClass device_class = 12;
+   */
+  deviceClass: DeviceClass;
+
+  /**
    * @generated from field: google.protobuf.Timestamp last_seen = 10;
    */
   lastSeen?: Timestamp | undefined;
@@ -578,6 +696,21 @@ export type FleetNodeDiscoveredDevice = Message<"fleetnodeadmin.v1.FleetNodeDisc
    * @generated from field: string pairing_status = 11;
    */
   pairingStatus: string;
+
+  /**
+   * @generated from field: int32 rpc_port = 13;
+   */
+  rpcPort: number;
+
+  /**
+   * @generated from field: bool rpc_tls = 14;
+   */
+  rpcTls: boolean;
+
+  /**
+   * @generated from field: repeated common.v1.DeviceEndpoint endpoints = 15;
+   */
+  endpoints: DeviceEndpoint[];
 };
 
 /**
@@ -720,6 +853,37 @@ export enum FleetNodeEnrollmentStatus {
 export const FleetNodeEnrollmentStatusSchema: GenEnum<FleetNodeEnrollmentStatus> =
   /*@__PURE__*/
   enumDesc(file_fleetnodeadmin_v1_fleetnodeadmin, 0);
+
+/**
+ * A node is in at most one HA pair. The active node runs the pair's devices;
+ * the standby holds the same credential key and takes the devices over when the
+ * active node's control stream has been down for the failover delay.
+ *
+ * @generated from enum fleetnodeadmin.v1.FleetNodeHARole
+ */
+export enum FleetNodeHARole {
+  /**
+   * @generated from enum value: FLEET_NODE_HA_ROLE_UNSPECIFIED = 0;
+   */
+  FLEET_NODE_HA_ROLE_UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: FLEET_NODE_HA_ROLE_ACTIVE = 1;
+   */
+  FLEET_NODE_HA_ROLE_ACTIVE = 1,
+
+  /**
+   * @generated from enum value: FLEET_NODE_HA_ROLE_STANDBY = 2;
+   */
+  FLEET_NODE_HA_ROLE_STANDBY = 2,
+}
+
+/**
+ * Describes the enum fleetnodeadmin.v1.FleetNodeHARole.
+ */
+export const FleetNodeHARoleSchema: GenEnum<FleetNodeHARole> =
+  /*@__PURE__*/
+  enumDesc(file_fleetnodeadmin_v1_fleetnodeadmin, 1);
 
 /**
  * @generated from service fleetnodeadmin.v1.FleetNodeAdminService

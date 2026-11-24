@@ -10,6 +10,12 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
+// IsCallerError reports errors that fail the whole request instead of becoming
+// a source warning.
+func IsCallerError(err error) bool {
+	return fleeterror.IsInvalidArgumentError(err) || fleeterror.IsAuthenticationError(err) || fleeterror.IsForbiddenError(err)
+}
+
 // SourceWarning keeps internal diagnostics out of successful discovery frames.
 // Callers log the original error and choose a source label their caller may see.
 func SourceWarning(source string, err error) *pairingpb.DiscoverResponse {

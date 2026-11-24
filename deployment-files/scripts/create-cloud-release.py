@@ -16,11 +16,11 @@ DATABASE_FILES = (
     "deployment-files/ha/compose.yaml",
     "deployment-files/ha/patroni.Dockerfile",
     "deployment-files/ha/patroni.yml.tmpl",
-    "deployment-files/ha/patroni-build-requirements.txt",
     "deployment-files/ha/patroni-requirements.txt",
     "deployment-files/ha/scripts/patroni-entrypoint.sh",
     "deployment-files/ha/scripts/patroni-post-bootstrap.sh",
     "deployment-files/ha/scripts/render-patroni-config.py",
+    "deployment-files/ha/scripts/start-patroni.py",
 )
 
 
@@ -49,6 +49,9 @@ def metadata(root):
     # Retained upgrades and the one-time reconciliation are part of compatibility
     # even though only the current source determines the application version.
     compatibility_files = sorted((root / "server/migrations").rglob("*.sql"))
+    legacy_fixture = root / "server/migrations/legacy_internal.fixture"
+    if legacy_fixture.exists() or legacy_fixture.is_symlink():
+        compatibility_files.append(legacy_fixture)
     compatibility_files += sorted(
         path
         for path in (root / "server/internal/infrastructure/db/baseline").rglob("*")

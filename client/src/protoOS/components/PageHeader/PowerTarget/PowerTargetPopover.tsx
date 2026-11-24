@@ -1,8 +1,9 @@
 import { RefObject, useCallback, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
-import { PerformanceMode } from "@/protoOS/api/generatedApi";
 import { useMiningTarget } from "@/protoOS/api/hooks/useMiningTarget";
 import { PowerTargetMode, powerTargetModes } from "@/protoOS/components/PageHeader/PowerTarget/constants";
+import { useDeviceType } from "@/protoOS/store";
+import type { MiningTargetUpdate, PerformanceMode } from "@/protoOS/store/contract";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import Popover from "@/shared/components/Popover";
@@ -13,7 +14,7 @@ import { convertWtoKW } from "@/shared/utils/telemetryFormat";
 
 export type PowerTargetPopoverProps = {
   onDismiss: () => void;
-  onUpdateStart?: (miningTarget: { performance_mode?: PerformanceMode; power_target_watts?: number }) => void;
+  onUpdateStart?: (miningTarget: MiningTargetUpdate) => void;
 };
 
 const getInitialPowerTargetMode = (
@@ -21,9 +22,9 @@ const getInitialPowerTargetMode = (
   defaultTarget: number | undefined,
   maxTarget: number | undefined,
 ): PowerTargetMode => {
-  if (miningTarget === defaultTarget) {
+  if (defaultTarget !== undefined && miningTarget === defaultTarget) {
     return powerTargetModes.default;
-  } else if (miningTarget === maxTarget) {
+  } else if (maxTarget !== undefined && miningTarget === maxTarget) {
     return powerTargetModes.max;
   } else {
     return powerTargetModes.custom;
@@ -31,7 +32,9 @@ const getInitialPowerTargetMode = (
 };
 
 const PowerTargetPopover = ({ onDismiss, onUpdateStart }: PowerTargetPopoverProps) => {
-  const { miningTarget, defaultTarget, performanceMode, bounds, pending } = useMiningTarget();
+  const isContainer = useDeviceType() === "container";
+  const minimumWatts = isContainer ? 1 : 0;
+  const { miningTarget, defaultTarget, performanceMode, bounds, pending, error: loadError, retry } = useMiningTarget();
   const [selectedPerformanceMode, setSelectedPerformanceMode] = useState<PerformanceMode | undefined>(performanceMode);
   const [selectedPowerTargetMode, setSelectedPowerTargetMode] = useState<PowerTargetMode | undefined>(
     getInitialPowerTargetMode(miningTarget, defaultTarget, bounds?.max),
@@ -47,8 +50,14 @@ const PowerTargetPopover = ({ onDismiss, onUpdateStart }: PowerTargetPopoverProp
   const inputRef = useRef<HTMLInputElement>(null) as RefObject<HTMLInputElement>;
 
   const onChange = (value: string) => {
-    const parsedValue = parseFloat(value as string);
-    if (isNaN(parsedValue)) {
+    const parsedValue = Number(value);
+    if (
+      !value.trim() ||
+      !Number.isFinite(parsedValue) ||
+      parsedValue < 0 ||
+      Math.round(parsedValue * 1000) < minimumWatts
+    ) {
+      setError(isContainer ? "Enter a power target of at least 1 W." : "Enter a non-negative power target.");
       return;
     }
 
@@ -96,13 +105,31 @@ const PowerTargetPopover = ({ onDismiss, onUpdateStart }: PowerTargetPopoverProp
     }
 
     const powerTarget = calculatePowerTargetWattage();
+    if (
+      powerTarget === undefined ||
+      !Number.isFinite(powerTarget) ||
+      powerTarget < minimumWatts ||
+      (selectedPowerTargetMode === powerTargetModes.custom && !inputRef.current?.value.trim()) ||
+      (bounds && (powerTarget < bounds.min || powerTarget > bounds.max))
+    ) {
+      setError("Enter a valid power target.");
+      return;
+    }
     const miningTargetUpdate = {
-      performance_mode: selectedPerformanceMode,
-      power_target_watts: powerTarget,
+      performanceMode: selectedPerformanceMode,
+      valueWatts: powerTarget,
     };
 
     onUpdateStart?.(miningTargetUpdate);
-  }, [pending, selectedPerformanceMode, selectedPowerTargetMode, calculatePowerTargetWattage, onUpdateStart]);
+  }, [
+    pending,
+    selectedPerformanceMode,
+    selectedPowerTargetMode,
+    calculatePowerTargetWattage,
+    onUpdateStart,
+    bounds,
+    minimumWatts,
+  ]);
 
   return (
     <Popover
@@ -114,68 +141,97 @@ const PowerTargetPopover = ({ onDismiss, onUpdateStart }: PowerTargetPopoverProp
         <h2 className="text-heading-100 text-text-primary">Power target</h2>
         <p className="text-300 text-text-primary-70">Set a power target for the miner.</p>
       </div>
-      <SelectRowList
-        type={selectTypes.radio}
-        selectRows={[
-          {
-            id: powerTargetModes.default,
-            isSelected: selectedPowerTargetMode === powerTargetModes.default,
-            text: "Default",
-            sideText: `${convertWtoKW(defaultTarget)} kW`,
-          },
-          {
-            id: powerTargetModes.max,
-            isSelected: selectedPowerTargetMode === powerTargetModes.max,
-            text: "Max",
-            sideText: `${convertWtoKW(bounds?.max)} kW`,
-          },
-          {
-            id: powerTargetModes.custom,
-            "data-testid": "power-target-mode-custom",
-            isSelected: selectedPowerTargetMode === powerTargetModes.custom,
-            text: "Custom",
-          },
-        ]}
-        onChange={(id, isSelected) => {
-          if (isSelected) setSelectedPowerTargetMode(id as PowerTargetMode);
-        }}
-      />
-
-      {selectedPowerTargetMode === powerTargetModes.custom ? (
-        <div className="space-y-2">
-          <Input
-            id={"power-target-input"}
-            label="Power target"
-            className="w-full"
-            initValue={inputValue}
-            type="number"
-            inputRef={inputRef}
-            onChange={onChange}
-            units={"kW"}
-            disabled={pending}
-            testId="power-target-input"
-          />
-          <p className={clsx("text-200", error ? "text-intent-critical-fill" : "text-text-primary-70")}>
-            {error ||
-              `Set this miner's power target between
-              ${convertWtoKW(bounds?.min || 0)} kW and ${convertWtoKW(bounds?.max || 0)} kW.`}
-          </p>
+      {loadError && !pending ? (
+        <div className="flex flex-col gap-3" data-testid="power-target-error">
+          <p className="text-300 text-intent-critical-fill">{loadError}</p>
+          <div className="flex gap-3">
+            <Button text="Cancel" variant={variants.secondary} className="grow" size={sizes.base} onClick={onDismiss} />
+            <Button
+              text="Try again"
+              variant={variants.primary}
+              className="grow"
+              size={sizes.base}
+              testId="power-target-retry-button"
+              onClick={retry}
+            />
+          </div>
         </div>
-      ) : null}
+      ) : (
+        <>
+          <SelectRowList
+            type={selectTypes.radio}
+            selectRows={[
+              ...(defaultTarget !== undefined
+                ? [
+                    {
+                      id: powerTargetModes.default,
+                      isSelected: selectedPowerTargetMode === powerTargetModes.default,
+                      text: "Default",
+                      sideText: `${convertWtoKW(defaultTarget)} kW`,
+                    },
+                  ]
+                : []),
+              ...(bounds?.max !== undefined
+                ? [
+                    {
+                      id: powerTargetModes.max,
+                      isSelected: selectedPowerTargetMode === powerTargetModes.max,
+                      text: "Max",
+                      sideText: `${convertWtoKW(bounds?.max)} kW`,
+                    },
+                  ]
+                : []),
+              {
+                id: powerTargetModes.custom,
+                "data-testid": "power-target-mode-custom",
+                isSelected: selectedPowerTargetMode === powerTargetModes.custom,
+                text: "Custom",
+              },
+            ]}
+            onChange={(id, isSelected) => {
+              if (isSelected) setSelectedPowerTargetMode(id as PowerTargetMode);
+            }}
+          />
 
-      <div className="flex gap-3">
-        <Button text="Cancel" variant={variants.secondary} className="grow" size={sizes.base} onClick={onDismiss} />
-        <Button
-          text={pending ? "Applying" : "Apply"}
-          variant={variants.primary}
-          className="grow"
-          size={sizes.base}
-          disabled={pending || (!!error && selectedPowerTargetMode === powerTargetModes.custom)}
-          prefixIcon={pending ? <ProgressCircular color="inverse" indeterminate size={12} /> : undefined}
-          testId="power-target-apply-button"
-          onClick={handleUpdate}
-        />
-      </div>
+          {selectedPowerTargetMode === powerTargetModes.custom ? (
+            <div className="space-y-2">
+              <Input
+                id={"power-target-input"}
+                label="Power target"
+                className="w-full"
+                initValue={inputValue}
+                type="number"
+                inputRef={inputRef}
+                onChange={onChange}
+                units={"kW"}
+                disabled={pending}
+                testId="power-target-input"
+              />
+              <p className={clsx("text-200", error ? "text-intent-critical-fill" : "text-text-primary-70")}>
+                {error ||
+                  (bounds
+                    ? `Set this miner's power target between
+              ${convertWtoKW(bounds.min)} kW and ${convertWtoKW(bounds.max)} kW.`
+                    : "Enter the total power target in kW.")}
+              </p>
+            </div>
+          ) : null}
+
+          <div className="flex gap-3">
+            <Button text="Cancel" variant={variants.secondary} className="grow" size={sizes.base} onClick={onDismiss} />
+            <Button
+              text={pending ? "Applying" : "Apply"}
+              variant={variants.primary}
+              className="grow"
+              size={sizes.base}
+              disabled={pending || (!!error && selectedPowerTargetMode === powerTargetModes.custom)}
+              prefixIcon={pending ? <ProgressCircular color="inverse" indeterminate size={12} /> : undefined}
+              testId="power-target-apply-button"
+              onClick={handleUpdate}
+            />
+          </div>
+        </>
+      )}
     </Popover>
   );
 };

@@ -15,6 +15,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/deviceresolver"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	storemocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
@@ -37,29 +38,21 @@ func baseProps() interfaces.DeviceRenameProperties {
 }
 
 type workerNamePoolServiceStub struct {
-	verifyErr              error
-	reapplyErr             error
-	reapplyBatchIdentifier string
-	verifyCalls            int
-	reapplyCalls           int
+	reviews                []poolconfigurations.Review
+	reviewErr              error
+	reviewCalls            int
 	lastDesiredWorkerNames map[string]string
+	boardSelection         poolconfigurations.BoardSelection
+	boardOptions           poolconfigurations.WorkerNameOptions
 }
 
-func (s *workerNamePoolServiceStub) VerifyCredentials(_ context.Context, userUsername string, userPassword string) error {
-	s.verifyCalls++
-	return s.verifyErr
-}
-
-func (s *workerNamePoolServiceStub) ReapplyCurrentPoolsWithWorkerNames(
-	_ context.Context,
-	desiredWorkerNamesByDeviceIdentifier map[string]string,
-) (string, error) {
-	s.reapplyCalls++
-	s.lastDesiredWorkerNames = make(map[string]string, len(desiredWorkerNamesByDeviceIdentifier))
-	for deviceIdentifier, workerName := range desiredWorkerNamesByDeviceIdentifier {
-		s.lastDesiredWorkerNames[deviceIdentifier] = workerName
+func (s *workerNamePoolServiceStub) ReviewWorkerNames(_ context.Context, desired map[string]string) ([]poolconfigurations.Review, error) {
+	s.reviewCalls++
+	s.lastDesiredWorkerNames = make(map[string]string, len(desired))
+	for identifier, name := range desired {
+		s.lastDesiredWorkerNames[identifier] = name
 	}
-	return s.reapplyBatchIdentifier, s.reapplyErr
+	return s.reviews, s.reviewErr
 }
 
 func float64Ptr(v float64) *float64 { return &v }
@@ -851,256 +844,105 @@ func TestLoadDevicePropertiesForNameGeneration_SkipsRackLookupWithoutRackQualifi
 	assert.Empty(t, props[0].RackPosition)
 }
 
-func TestUpdateWorkerNames_VerifiesCredentialsBeforeAnyWrite(t *testing.T) {
-	ctx := authn.SetInfo(context.Background(), &session.Info{
-		SessionID:      "test-session-id",
-		UserID:         1,
-		OrganizationID: 2,
-	})
-	workerNamePoolSvc := &workerNamePoolServiceStub{
-		verifyErr: fleeterror.NewInvalidArgumentError("invalid credentials"),
-	}
-	service := &Service{
-		workerNamePoolService: workerNamePoolSvc,
-	}
-
-	_, err := service.UpdateWorkerNames(ctx, &pb.UpdateWorkerNamesRequest{
-		NameConfig: &pb.MinerNameConfig{
-			Properties: []*pb.NameProperty{
-				{Kind: &pb.NameProperty_StringValue{StringValue: &pb.StringProperty{Value: "worker"}}},
-			},
-			Separator: "-",
-		},
-		UserUsername: "fleet-user",
-		UserPassword: "secret",
-	})
-
-	require.Error(t, err)
-	require.ErrorContains(t, err, "invalid credentials")
-	assert.Equal(t, 1, workerNamePoolSvc.verifyCalls)
-	assert.Equal(t, 0, workerNamePoolSvc.reapplyCalls)
+func TestReviewWorkerNames_RejectsMissingWorkerOptions(t *testing.T) {
+	service := &Service{}
+	_, err := service.ReviewWorkerNames(authn.SetInfo(t.Context(), &session.Info{UserID: 1, OrganizationID: 2}), &pb.ReviewWorkerNamesRequest{})
+	require.True(t, fleeterror.IsInvalidArgumentError(err))
+	require.ErrorContains(t, err, "choose a worker option or a miner name pattern")
 }
 
-func TestUpdateWorkerNames_UpdatesNamesAndReappliesPools(t *testing.T) {
+func TestReviewWorkerNames_GeneratesSortedNamesAndReturnsCanonicalReview(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	ctx := authn.SetInfo(context.Background(), &session.Info{
-		SessionID:      "test-session-id",
-		UserID:         1,
-		OrganizationID: 2,
-		ExternalUserID: "user-1",
-		Username:       "test-user",
-	})
-
 	deviceStore := storemocks.NewMockDeviceStore(ctrl)
-	collectionStore := storemocks.NewMockCollectionStore(ctrl)
-	workerNamePoolSvc := &workerNamePoolServiceStub{
-		reapplyBatchIdentifier: "batch-123",
-	}
-
-	deviceStore.EXPECT().
-		AllDevicesBelongToOrg(gomock.Any(), []string{"dev-1", "dev-2"}, int64(2)).
-		Return(true, nil)
-	deviceStore.EXPECT().
-		GetDevicePropertiesForRename(gomock.Any(), int64(2), []string{"dev-1", "dev-2"}, false).
+	deviceStore.EXPECT().AllDevicesBelongToOrg(gomock.Any(), []string{"dev-1", "dev-2", "dev-3"}, int64(2)).Return(true, nil)
+	deviceStore.EXPECT().GetDevicePropertiesForRename(gomock.Any(), int64(2), []string{"dev-1", "dev-2", "dev-3"}, false).
 		Return([]interfaces.DeviceRenameProperties{
-			{
-				DeviceIdentifier:         "dev-1",
-				DiscoveredDeviceID:       1,
-				CustomName:               "Alpha",
-				WorkerName:               "R01-01",
-				WorkerNamePoolSyncStatus: "POOL_UPDATED_SUCCESSFULLY",
-			},
-			{
-				DeviceIdentifier:   "dev-2",
-				DiscoveredDeviceID: 2,
-				CustomName:         "Beta",
-				WorkerName:         "old-worker",
-			},
+			{DeviceIdentifier: "dev-3", CustomName: "Zulu", WorkerName: "old-z"},
+			{DeviceIdentifier: "dev-1", CustomName: "Alpha", WorkerName: "rig-01", WorkerNamePoolSyncStatus: "POOL_UPDATED_SUCCESSFULLY"},
+			{DeviceIdentifier: "dev-2", CustomName: "Beta", WorkerName: "old-b"},
 		}, nil)
-	collectionStore.EXPECT().
-		GetRackDetailsForDevices(gomock.Any(), int64(2), []string{"dev-1", "dev-2"}).
-		Return(map[string]interfaces.DeviceRackDetails{
-			"dev-1": {Label: "R01", Position: "01"},
-			"dev-2": {Label: "R01", Position: "02"},
-		}, nil)
-	service := &Service{
-		deviceStore:           deviceStore,
-		collectionStore:       collectionStore,
-		workerNamePoolService: workerNamePoolSvc,
-		deviceResolver:        deviceresolver.New(deviceStore),
-	}
-
-	resp, err := service.UpdateWorkerNames(ctx, &pb.UpdateWorkerNamesRequest{
-		DeviceSelector: &pb.DeviceSelector{
-			SelectionType: &pb.DeviceSelector_IncludeDevices{
-				IncludeDevices: &commonpb.DeviceIdentifierList{
-					DeviceIdentifiers: []string{"dev-1", "dev-2"},
-				},
-			},
-		},
-		NameConfig: &pb.MinerNameConfig{
-			Properties: []*pb.NameProperty{
-				{Kind: &pb.NameProperty_Qualifier{Qualifier: &pb.QualifierProperty{Type: pb.QualifierType_QUALIFIER_TYPE_RACK}}},
-				{Kind: &pb.NameProperty_Qualifier{Qualifier: &pb.QualifierProperty{Type: pb.QualifierType_QUALIFIER_TYPE_RACK_POSITION}}},
-			},
-			Separator: "-",
-		},
-		UserUsername: "fleet-user",
-		UserPassword: "secret",
+	reviews := &workerNamePoolServiceStub{reviews: []poolconfigurations.Review{{
+		ID: "review-1", Configuration: poolconfigurations.Configuration{ID: "configuration-1", Name: "Production"},
+		WorkerNames: []poolconfigurations.WorkerNameChange{{DeviceIdentifier: "dev-2", Before: "old-b", After: "rig-02"}, {DeviceIdentifier: "dev-3", Before: "old-z", After: "rig-03"}},
+	}}}
+	service := &Service{deviceStore: deviceStore, deviceResolver: deviceresolver.New(deviceStore), workerNamePoolService: reviews}
+	response, err := service.ReviewWorkerNames(authn.SetInfo(t.Context(), &session.Info{UserID: 1, OrganizationID: 2}), &pb.ReviewWorkerNamesRequest{
+		DeviceSelector: &pb.DeviceSelector{SelectionType: &pb.DeviceSelector_IncludeDevices{IncludeDevices: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{"dev-1", "dev-2", "dev-3"}}}},
+		NameConfig:     &pb.MinerNameConfig{Properties: []*pb.NameProperty{{Kind: &pb.NameProperty_StringAndCounter{StringAndCounter: &pb.StringAndCounterProperty{Prefix: "rig-", CounterStart: 1, CounterScale: 2}}}}},
+		Sort:           []*commonpb.SortConfig{{Field: commonpb.SortField_SORT_FIELD_NAME, Direction: commonpb.SortDirection_SORT_DIRECTION_ASC}},
 	})
-
 	require.NoError(t, err)
-	require.NotNil(t, resp)
-	assert.Equal(t, int32(1), resp.UpdatedCount)
-	assert.Equal(t, int32(1), resp.UnchangedCount)
-	assert.Equal(t, int32(0), resp.FailedCount)
-	assert.Equal(t, "batch-123", resp.BatchIdentifier)
-	assert.Equal(t, 1, workerNamePoolSvc.verifyCalls)
-	assert.Equal(t, 1, workerNamePoolSvc.reapplyCalls)
-	assert.Equal(t, map[string]string{"dev-2": "R01-02"}, workerNamePoolSvc.lastDesiredWorkerNames)
+	require.Equal(t, int32(1), response.UnchangedCount)
+	require.Zero(t, response.FailedCount)
+	require.Equal(t, map[string]string{"dev-1": "rig-01", "dev-2": "rig-02", "dev-3": "rig-03"}, reviews.lastDesiredWorkerNames)
+	require.Len(t, response.Reviews, 1)
+	require.Equal(t, "review-1", response.Reviews[0].ReviewId)
+	require.Equal(t, "configuration-1", response.Reviews[0].ConfigurationId)
+	require.Equal(t, "Production", response.Reviews[0].ConfigurationName)
+	require.Len(t, response.Reviews[0].Changes, 2)
+	require.Equal(t, "dev-2", response.Reviews[0].Changes[0].DeviceIdentifier)
+	require.Equal(t, "old-b", response.Reviews[0].Changes[0].Before)
+	require.Equal(t, "rig-02", response.Reviews[0].Changes[0].After)
 }
 
-func TestUpdateWorkerNames_SkipsWritesAndReapplyWhenAllNamesAreUnchanged(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	ctx := authn.SetInfo(context.Background(), &session.Info{
-		SessionID:      "test-session-id",
-		UserID:         1,
-		OrganizationID: 2,
-	})
-
-	deviceStore := storemocks.NewMockDeviceStore(ctrl)
-	collectionStore := storemocks.NewMockCollectionStore(ctrl)
-	workerNamePoolSvc := &workerNamePoolServiceStub{}
-
-	deviceStore.EXPECT().
-		AllDevicesBelongToOrg(gomock.Any(), []string{"dev-1"}, int64(2)).
-		Return(true, nil)
-	deviceStore.EXPECT().
-		GetDevicePropertiesForRename(gomock.Any(), int64(2), []string{"dev-1"}, false).
-		Return([]interfaces.DeviceRenameProperties{
-			{
-				DeviceIdentifier:         "dev-1",
-				DiscoveredDeviceID:       1,
-				CustomName:               "Alpha",
-				WorkerName:               "R01-01",
-				WorkerNamePoolSyncStatus: "POOL_UPDATED_SUCCESSFULLY",
-			},
-		}, nil)
-	collectionStore.EXPECT().
-		GetRackDetailsForDevices(gomock.Any(), int64(2), []string{"dev-1"}).
-		Return(map[string]interfaces.DeviceRackDetails{
-			"dev-1": {Label: "R01", Position: "01"},
-		}, nil)
-
-	service := &Service{
-		deviceStore:           deviceStore,
-		collectionStore:       collectionStore,
-		workerNamePoolService: workerNamePoolSvc,
-		deviceResolver:        deviceresolver.New(deviceStore),
+func TestReviewWorkerNames_UnchangedNameConsultsCanonicalState(t *testing.T) {
+	for _, syncStatus := range []string{"", "POOL_UPDATED_SUCCESSFULLY"} {
+		t.Run(syncStatus, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			deviceStore := storemocks.NewMockDeviceStore(ctrl)
+			deviceStore.EXPECT().AllDevicesBelongToOrg(gomock.Any(), []string{"dev-1"}, int64(2)).Return(true, nil)
+			deviceStore.EXPECT().GetDevicePropertiesForRename(gomock.Any(), int64(2), []string{"dev-1"}, false).
+				Return([]interfaces.DeviceRenameProperties{{DeviceIdentifier: "dev-1", WorkerName: "worker", WorkerNamePoolSyncStatus: syncStatus}}, nil)
+			reviews := &workerNamePoolServiceStub{}
+			service := &Service{deviceStore: deviceStore, deviceResolver: deviceresolver.New(deviceStore), workerNamePoolService: reviews}
+			response, err := service.ReviewWorkerNames(authn.SetInfo(t.Context(), &session.Info{UserID: 1, OrganizationID: 2}), &pb.ReviewWorkerNamesRequest{
+				DeviceSelector: &pb.DeviceSelector{SelectionType: &pb.DeviceSelector_IncludeDevices{IncludeDevices: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{"dev-1"}}}},
+				NameConfig:     &pb.MinerNameConfig{Properties: []*pb.NameProperty{{Kind: &pb.NameProperty_StringValue{StringValue: &pb.StringProperty{Value: "worker"}}}}},
+			})
+			require.NoError(t, err)
+			require.Equal(t, int32(1), response.UnchangedCount)
+			require.Empty(t, response.Reviews)
+			require.Equal(t, 1, reviews.reviewCalls)
+		})
 	}
-
-	resp, err := service.UpdateWorkerNames(ctx, &pb.UpdateWorkerNamesRequest{
-		DeviceSelector: &pb.DeviceSelector{
-			SelectionType: &pb.DeviceSelector_IncludeDevices{
-				IncludeDevices: &commonpb.DeviceIdentifierList{
-					DeviceIdentifiers: []string{"dev-1"},
-				},
-			},
-		},
-		NameConfig: &pb.MinerNameConfig{
-			Properties: []*pb.NameProperty{
-				{Kind: &pb.NameProperty_Qualifier{Qualifier: &pb.QualifierProperty{Type: pb.QualifierType_QUALIFIER_TYPE_RACK}}},
-				{Kind: &pb.NameProperty_Qualifier{Qualifier: &pb.QualifierProperty{Type: pb.QualifierType_QUALIFIER_TYPE_RACK_POSITION}}},
-			},
-			Separator: "-",
-		},
-		UserUsername: "fleet-user",
-		UserPassword: "secret",
-	})
-
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-	assert.Equal(t, int32(0), resp.UpdatedCount)
-	assert.Equal(t, int32(1), resp.UnchangedCount)
-	assert.Equal(t, int32(0), resp.FailedCount)
-	assert.Empty(t, resp.BatchIdentifier)
-	assert.Equal(t, 1, workerNamePoolSvc.verifyCalls)
-	assert.Equal(t, 0, workerNamePoolSvc.reapplyCalls)
-	assert.Empty(t, workerNamePoolSvc.lastDesiredWorkerNames)
 }
 
-func TestUpdateWorkerNames_ReappliesPoolsWhenWorkerNameAlreadyUpdatedButPoolSyncIsPending(t *testing.T) {
+func TestReviewWorkerNames_PreflightFailureDoesNotReturnReview(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	ctx := authn.SetInfo(context.Background(), &session.Info{
-		SessionID:      "test-session-id",
-		UserID:         1,
-		OrganizationID: 2,
-	})
-
 	deviceStore := storemocks.NewMockDeviceStore(ctrl)
-	collectionStore := storemocks.NewMockCollectionStore(ctrl)
-	workerNamePoolSvc := &workerNamePoolServiceStub{
-		reapplyBatchIdentifier: "batch-456",
-	}
-
-	deviceStore.EXPECT().
-		AllDevicesBelongToOrg(gomock.Any(), []string{"dev-1"}, int64(2)).
-		Return(true, nil)
-	deviceStore.EXPECT().
-		GetDevicePropertiesForRename(gomock.Any(), int64(2), []string{"dev-1"}, false).
-		Return([]interfaces.DeviceRenameProperties{
-			{
-				DeviceIdentifier:   "dev-1",
-				DiscoveredDeviceID: 1,
-				CustomName:         "Alpha",
-				WorkerName:         "R01-01",
-			},
-		}, nil)
-	collectionStore.EXPECT().
-		GetRackDetailsForDevices(gomock.Any(), int64(2), []string{"dev-1"}).
-		Return(map[string]interfaces.DeviceRackDetails{
-			"dev-1": {Label: "R01", Position: "01"},
-		}, nil)
-
-	service := &Service{
-		deviceStore:           deviceStore,
-		collectionStore:       collectionStore,
-		workerNamePoolService: workerNamePoolSvc,
-		deviceResolver:        deviceresolver.New(deviceStore),
-	}
-
-	resp, err := service.UpdateWorkerNames(ctx, &pb.UpdateWorkerNamesRequest{
-		DeviceSelector: &pb.DeviceSelector{
-			SelectionType: &pb.DeviceSelector_IncludeDevices{
-				IncludeDevices: &commonpb.DeviceIdentifierList{
-					DeviceIdentifiers: []string{"dev-1"},
-				},
-			},
-		},
-		NameConfig: &pb.MinerNameConfig{
-			Properties: []*pb.NameProperty{
-				{Kind: &pb.NameProperty_Qualifier{Qualifier: &pb.QualifierProperty{Type: pb.QualifierType_QUALIFIER_TYPE_RACK}}},
-				{Kind: &pb.NameProperty_Qualifier{Qualifier: &pb.QualifierProperty{Type: pb.QualifierType_QUALIFIER_TYPE_RACK_POSITION}}},
-			},
-			Separator: "-",
-		},
-		UserUsername: "fleet-user",
-		UserPassword: "secret",
+	deviceStore.EXPECT().AllDevicesBelongToOrg(gomock.Any(), []string{"dev-1"}, int64(2)).Return(true, nil)
+	deviceStore.EXPECT().GetDevicePropertiesForRename(gomock.Any(), int64(2), []string{"dev-1"}, false).
+		Return([]interfaces.DeviceRenameProperties{{DeviceIdentifier: "dev-1", WorkerName: "old"}}, nil)
+	preflightErr := fleeterror.NewFailedPreconditionError("a current pool configuration assignment is required")
+	reviews := &workerNamePoolServiceStub{reviewErr: preflightErr}
+	service := &Service{deviceStore: deviceStore, deviceResolver: deviceresolver.New(deviceStore), workerNamePoolService: reviews}
+	response, err := service.ReviewWorkerNames(authn.SetInfo(t.Context(), &session.Info{UserID: 1, OrganizationID: 2}), &pb.ReviewWorkerNamesRequest{
+		DeviceSelector: &pb.DeviceSelector{SelectionType: &pb.DeviceSelector_IncludeDevices{IncludeDevices: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{"dev-1"}}}},
+		NameConfig:     &pb.MinerNameConfig{Properties: []*pb.NameProperty{{Kind: &pb.NameProperty_StringValue{StringValue: &pb.StringProperty{Value: "new"}}}}},
 	})
+	require.ErrorIs(t, err, preflightErr)
+	require.Nil(t, response)
+}
 
+func TestReviewWorkerNames_MatchingNameReturnsCanonicalRetry(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+	deviceStore.EXPECT().AllDevicesBelongToOrg(gomock.Any(), []string{"dev-1"}, int64(2)).Return(true, nil)
+	deviceStore.EXPECT().GetDevicePropertiesForRename(gomock.Any(), int64(2), []string{"dev-1"}, false).
+		Return([]interfaces.DeviceRenameProperties{{DeviceIdentifier: "dev-1", WorkerName: "worker", WorkerNamePoolSyncStatus: "POOL_UPDATED_SUCCESSFULLY"}}, nil)
+	reviews := &workerNamePoolServiceStub{reviews: []poolconfigurations.Review{{ID: "retry", WorkerNames: []poolconfigurations.WorkerNameChange{{DeviceIdentifier: "dev-1", Before: "worker", After: "worker"}}}}}
+	service := &Service{deviceStore: deviceStore, deviceResolver: deviceresolver.New(deviceStore), workerNamePoolService: reviews}
+	response, err := service.ReviewWorkerNames(authn.SetInfo(t.Context(), &session.Info{UserID: 1, OrganizationID: 2}), &pb.ReviewWorkerNamesRequest{
+		DeviceSelector: &pb.DeviceSelector{SelectionType: &pb.DeviceSelector_IncludeDevices{IncludeDevices: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{"dev-1"}}}},
+		NameConfig:     &pb.MinerNameConfig{Properties: []*pb.NameProperty{{Kind: &pb.NameProperty_StringValue{StringValue: &pb.StringProperty{Value: "worker"}}}}},
+	})
 	require.NoError(t, err)
-	require.NotNil(t, resp)
-	assert.Equal(t, int32(1), resp.UpdatedCount)
-	assert.Equal(t, int32(0), resp.UnchangedCount)
-	assert.Equal(t, int32(0), resp.FailedCount)
-	assert.Equal(t, "batch-456", resp.BatchIdentifier)
-	assert.Equal(t, 1, workerNamePoolSvc.verifyCalls)
-	assert.Equal(t, 1, workerNamePoolSvc.reapplyCalls)
-	assert.Equal(t, map[string]string{"dev-1": "R01-01"}, workerNamePoolSvc.lastDesiredWorkerNames)
+	require.Zero(t, response.UnchangedCount)
+	require.Len(t, response.Reviews, 1)
+	require.Equal(t, "retry", response.Reviews[0].ReviewId)
+}
+
+func (s *workerNamePoolServiceStub) ReviewBoardWorkerNames(_ context.Context, selection poolconfigurations.BoardSelection, options poolconfigurations.WorkerNameOptions) ([]poolconfigurations.Review, int, error) {
+	s.boardSelection, s.boardOptions = selection, options
+	return s.reviews, 2, s.reviewErr
 }

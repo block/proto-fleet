@@ -1,6 +1,5 @@
 import { useCallback, useState } from "react";
 import type { ErrorProps } from "@/protoOS/api/apiResponseTypes";
-import type { LocateSystemParams } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext/useMinerHosting";
 import { useAuthRetry } from "@/protoOS/store";
 
@@ -12,26 +11,22 @@ interface UseLocateSystemParams {
 }
 
 export const useLocateSystem = () => {
-  const { api } = useMinerHosting();
+  const { adapter } = useMinerHosting();
   const [pending, setPending] = useState(false);
   const authRetry = useAuthRetry();
 
   const locateSystem = useCallback(
     ({ enable, ledOnTime, onError, onSuccess }: UseLocateSystemParams) => {
-      if (!api) return;
-
-      const query: LocateSystemParams = {};
-      if (enable !== undefined) query.enable = enable;
-      if (ledOnTime !== undefined) query.led_on_time = ledOnTime;
+      if (!adapter) return;
 
       setPending(true);
       authRetry({
-        request: (header) => api.locateSystem(query, header),
+        request: (header) => adapter.locateSystem({ enable, ledOnTime }, header),
         onSuccess,
         onError,
       }).finally(() => setPending(false));
     },
-    [api, authRetry],
+    [adapter, authRetry],
   );
 
   return { pending, locateSystem };

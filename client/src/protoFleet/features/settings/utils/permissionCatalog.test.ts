@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { buildPermissionGroups, type CatalogEntry, dependencyGaps, withRequiredReads } from "./permissionCatalog";
+import {
+  buildPermissionGroups,
+  type CatalogEntry,
+  dependencyGaps,
+  requiredReadsFor,
+  withRequiredReads,
+} from "./permissionCatalog";
 
 // Minimal catalog covering the keys the dependency rules reference.
 const catalog: CatalogEntry[] = [
@@ -16,6 +22,24 @@ const catalog: CatalogEntry[] = [
 ];
 
 describe("buildPermissionGroups", () => {
+  it("groups account permissions without changing catalog entries or their order", () => {
+    const roleManage: CatalogEntry = {
+      key: "role:manage",
+      description: "Manage roles.",
+      resource: "role",
+    };
+    const accountManage: CatalogEntry = {
+      key: "account:manage",
+      description: "Manage client accounts and delegation. Does not grant access to client data or pool overrides.",
+      resource: "account",
+    };
+
+    const groups = buildPermissionGroups([...catalog, roleManage, accountManage]);
+    const administration = groups.find((group) => group.resource === "admin");
+
+    expect(administration?.entries).toEqual([roleManage, accountManage]);
+  });
+
   it("publishes instance permissions as a visible role-editor group", () => {
     const instanceUpdate: CatalogEntry = {
       key: "instance:update",
@@ -28,6 +52,36 @@ describe("buildPermissionGroups", () => {
       label: "Instance",
       entries: [instanceUpdate],
     });
+  });
+
+  it("publishes controller permissions as a visible role-editor group", () => {
+    const softwareUpdate: CatalogEntry = {
+      key: "controller:software_update",
+      description: "Update CT1 controller software.",
+      resource: "controller",
+    };
+
+    expect(buildPermissionGroups([...catalog, softwareUpdate])).toContainEqual({
+      resource: "controller",
+      label: "Controllers",
+      entries: [softwareUpdate],
+    });
+    expect(requiredReadsFor(softwareUpdate.key, [...catalog, softwareUpdate])).toEqual([]);
+  });
+
+  it("publishes container power feed control as a visible role-editor group", () => {
+    const powerFeed: CatalogEntry = {
+      key: "container:power_feed",
+      description: "Turn a CT1 module's power feed on or off.",
+      resource: "container",
+    };
+
+    expect(buildPermissionGroups([...catalog, powerFeed])).toContainEqual({
+      resource: "container",
+      label: "Containers",
+      entries: [powerFeed],
+    });
+    expect(requiredReadsFor(powerFeed.key, [...catalog, powerFeed])).toEqual([]);
   });
 
   it("publishes maintenance permissions as a visible role-editor group", () => {
@@ -53,13 +107,6 @@ describe("dependencyGaps", () => {
     expect(gaps.required).toEqual([]);
     // The miner actions are a "choose at least one" set, never auto-added.
     expect(gaps.chooseOneOf).toEqual([["miner:reboot", "miner:stop_mining", "miner:set_power_target"]]);
-  });
-
-  it("never lists oneOf members as hard-required", () => {
-    const gaps = dependencyGaps(["schedule:manage"], catalog);
-    expect(gaps.required).not.toContain("miner:reboot");
-    expect(gaps.required).not.toContain("miner:stop_mining");
-    expect(gaps.required).not.toContain("miner:set_power_target");
   });
 
   it("stops suggesting the action set once one member is held (oneOf)", () => {

@@ -3,6 +3,8 @@ package device
 import (
 	"errors"
 	"math"
+	"net"
+	"syscall"
 	"testing"
 	"time"
 
@@ -16,6 +18,18 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+func TestConnectOfflineDevicePreservesProbeEvidence(t *testing.T) {
+	client := mocks.NewMockAntminerClient(gomock.NewController(t))
+	setupMockForDeviceCreation(client)
+	client.EXPECT().GetStatus(gomock.Any()).Return(nil, &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED})
+	client.EXPECT().Close()
+	device, err := New(testDeviceID, testDeviceInfo(), testCredentials(), mockClientFactory(client))
+	require.NoError(t, err)
+	err = device.Connect(t.Context())
+	require.Error(t, err)
+	require.True(t, sdk.DeviceProbeFailed(err))
+}
 
 // Test constants to reduce duplication
 const (
@@ -791,11 +805,13 @@ func TestDevice_UpdateMiningPools(t *testing.T) {
 			Priority:   1,
 			URL:        "stratum+tcp://pool1.example.com:3333",
 			WorkerName: "worker1",
+			Password:   "customer-primary",
 		},
 		{
 			Priority:   2,
 			URL:        "stratum+tcp://pool2.example.com:4444",
 			WorkerName: "worker2",
+			Password:   "",
 		},
 	}
 
@@ -810,6 +826,7 @@ func TestDevice_UpdateMiningPools(t *testing.T) {
 			Priority:   priority,
 			URL:        p.URL,
 			WorkerName: p.WorkerName,
+			Password:   p.Password,
 		})
 	}
 
@@ -880,19 +897,6 @@ func TestDevice_GetWebViewURL(t *testing.T) {
 	require.True(t, ok)
 	require.NoError(t, err)
 	assert.Equal(t, "http://192.168.1.100", url)
-}
-
-func TestDevice_ID(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockClient := mocks.NewMockAntminerClient(ctrl)
-	device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
-	defer cleanupDevice(t, device, mockClient)
-
-	// Test ID getter
-	id := device.ID()
-	assert.Equal(t, testDeviceID, id)
 }
 
 func TestDevice_Close(t *testing.T) {

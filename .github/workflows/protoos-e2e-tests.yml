@@ -8,11 +8,67 @@ on:
   workflow_call:
 
 jobs:
+  ct1-standalone:
+    name: CT1 production standalone
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+        with:
+          preinstall: "false"
+
+      - name: Configure Go cache
+        uses: ./.github/actions/go-cache-setup
+
+      - name: Cache npm and Playwright downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.npm
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-${{ runner.arch }}-ct1-node-${{ hashFiles('client/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-ct1-node-
+
+      - name: Install client dependencies
+        working-directory: client
+        run: npm ci
+
+      - name: Install Playwright browser
+        working-directory: client
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify same-origin production bundle (desktop and mobile)
+        working-directory: client
+        run: npm run test:e2e:ct1
+
+      - name: Upload CT1 Playwright report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report-protoos-ct1
+          path: |
+            client/e2eTests/protoOS/playwright-report/ct1/
+            client/e2eTests/protoOS/test-results/ct1/
+          retention-days: 14
+
   e2e-tests:
     timeout-minutes: 60
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      # A step `if:` cannot read secrets. This flag lets the Testmo steps skip
+      # when the repository has no TESTMO_TOKEN secret.
+      HAS_TESTMO_TOKEN: ${{ secrets.TESTMO_TOKEN != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -93,7 +149,7 @@ jobs:
 
       - name: Upload Playwright report
         id: playwright-report-artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:
           name: playwright-report-protoos-${{ matrix.project }}
@@ -114,12 +170,12 @@ jobs:
           fi
 
       - name: Install Testmo CLI
-        if: ${{ !cancelled() && github.event_name == 'schedule' }}
+        if: ${{ !cancelled() && github.event_name == 'schedule' && env.HAS_TESTMO_TOKEN == 'true' }}
         run: |
           npm install -g @testmo/testmo-cli@1.0.0
 
       - name: Submit test results to Testmo
-        if: ${{ !cancelled() && github.event_name == 'schedule' }}
+        if: ${{ !cancelled() && github.event_name == 'schedule' && env.HAS_TESTMO_TOKEN == 'true' }}
         working-directory: client/e2eTests/protoOS
         env:
           TESTMO_TOKEN: ${{ secrets.TESTMO_TOKEN }}
@@ -143,7 +199,7 @@ jobs:
             --results test-results/*.xml
 
       - name: Upload test screenshots
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: playwright-screenshots-protoos-${{ matrix.project }}

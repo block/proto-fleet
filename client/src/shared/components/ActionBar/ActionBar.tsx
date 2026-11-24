@@ -1,0 +1,121 @@
+import { ReactNode, useEffect, useMemo, useState } from "react";
+import clsx from "clsx";
+import { DismissTiny } from "@/shared/assets/icons";
+import Button, { variants } from "@/shared/components/Button";
+import { sizes } from "@/shared/components/ButtonGroup";
+import { type SelectionMode } from "@/shared/components/List";
+
+interface ActionBarProps {
+  className?: string;
+  /** IDs of currently selected items (used for count display in "subset" mode) */
+  selectedItems: string[];
+  itemNoun?: {
+    singular: string;
+    plural: string;
+  };
+  /**
+   * How items were selected:
+   * - "all": user clicked "Select All" — targets the entire fleet, or the full
+   *   filtered set across pages when a filter is active (see `filtersActive`)
+   * - "subset": user selected specific items
+   * - "none": no selection (ActionBar will be hidden)
+   * @default "subset"
+   */
+  selectionMode?: SelectionMode;
+  /**
+   * Total number of items covered by an "all"-mode selection. Used to display an
+   * accurate count since selectedItems only contains visible page items. When a
+   * filter is active this is the filtered total, not the whole fleet.
+   */
+  totalCount?: number;
+  /**
+   * Whether a filter is active. In "all" mode the count line then reads
+   * "All N … matching filters selected" to make clear the selection spans the
+   * filtered set across pages, not just the visible rows. Defaults to false.
+   */
+  filtersActive?: boolean;
+  selectionControls?: ReactNode;
+  renderActions: (setHidden: (hidden: boolean) => void) => ReactNode;
+  onClose?: () => void;
+}
+
+const ActionBar = ({
+  className,
+  selectedItems,
+  itemNoun = { singular: "miner", plural: "miners" },
+  selectionMode = "subset",
+  totalCount,
+  filtersActive = false,
+  selectionControls,
+  renderActions,
+  onClose,
+}: ActionBarProps) => {
+  const [show, setShow] = useState(false);
+  const [hidden, setHidden] = useState(false);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reveal action bar when selection grows; local `show` can also be cleared independently by the close button
+    setShow(selectedItems.length > 0);
+  }, [selectedItems]);
+
+  const selectionText = useMemo(() => {
+    const count = selectionMode === "all" ? (totalCount ?? selectedItems.length) : selectedItems.length;
+    const noun = count === 1 ? itemNoun.singular : itemNoun.plural;
+    if (selectionMode === "all") {
+      return filtersActive ? `All ${count} ${noun} matching filters selected` : `All ${count} ${noun} selected`;
+    }
+    return `${count} ${noun} selected`;
+  }, [filtersActive, itemNoun.plural, itemNoun.singular, selectionMode, selectedItems.length, totalCount]);
+
+  const handleClose = () => {
+    setShow(false);
+    onClose?.();
+  };
+
+  if (!show) {
+    return null;
+  }
+
+  const actionsClassName = clsx(
+    "ml-auto flex items-center justify-end gap-3",
+    selectionControls ? "phone:row-start-3 phone:ml-0 phone:flex-wrap" : "phone:row-start-2 phone:ml-0 phone:flex-wrap",
+    "tablet-only:col-start-2 tablet-only:row-start-2 tablet-only:ml-0 tablet-only:justify-end",
+    selectionControls ? "" : "tablet-only:col-span-2",
+  );
+
+  return (
+    <div
+      className={clsx(
+        "flex justify-center",
+        {
+          invisible: hidden,
+        },
+        className,
+      )}
+      data-testid="action-bar"
+    >
+      <div className="flex w-[calc(100%-theme(spacing.24))] items-center gap-2 rounded-2xl bg-black px-3 py-3 shadow-300 dark:bg-surface-elevated-base phone:grid phone:w-[calc(100%-theme(spacing.4))] phone:grid-cols-1 phone:gap-x-3 phone:gap-y-1 phone:py-2 tablet-only:grid tablet-only:w-[calc(100%-theme(spacing.12))] tablet-only:grid-cols-[minmax(0,1fr),auto] tablet-only:gap-x-3 tablet-only:gap-y-1 tablet-only:py-2">
+        <div className="flex min-w-0 items-center gap-2 tablet-only:col-span-2">
+          <Button
+            className="bg-grayscale-white-10! text-grayscale-white-90!"
+            prefixIcon={<DismissTiny />}
+            variant={variants.secondary}
+            size={sizes.compact}
+            testId="close-button"
+            ariaLabel="Clear selection"
+            onClick={handleClose}
+          />
+          <div className="text-emphasis-300 text-grayscale-white-90">{selectionText}</div>
+        </div>
+        {selectionControls ? (
+          <div className="flex flex-wrap items-center gap-2 phone:row-start-2 phone:ml-10 tablet-only:row-start-2 tablet-only:ml-10">
+            {selectionControls}
+          </div>
+        ) : null}
+        <div className={actionsClassName}>{renderActions(setHidden)}</div>
+      </div>
+    </div>
+  );
+};
+
+export default ActionBar;

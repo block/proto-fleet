@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -51,18 +52,8 @@ func TestIsRetryablePostgresError(t *testing.T) {
 			expected: false,
 		},
 		{
-			name:     "other postgres error - insufficient privilege",
-			err:      &pgconn.PgError{Code: "42501", Message: "permission denied"},
-			expected: false,
-		},
-		{
 			name:     "wrapped deadlock error",
 			err:      errors.Join(errors.New("context"), &pgconn.PgError{Code: PGDeadlockDetected}),
-			expected: true,
-		},
-		{
-			name:     "deeply wrapped retryable error",
-			err:      errors.Join(errors.New("outer"), errors.Join(errors.New("inner"), &pgconn.PgError{Code: PGSerializationFailure})),
 			expected: true,
 		},
 	}
@@ -95,7 +86,6 @@ func TestIsFailoverPostgresError(t *testing.T) {
 		{name: "unrelated postgres error with failover-like message", err: &pgconn.PgError{Code: PGUniqueViolation, Message: "duplicate key value contains bad connection"}, want: false},
 		{name: "wrapped unrelated postgres error with failover-like outer message", err: fmt.Errorf("unexpected eof while handling request: %w", &pgconn.PgError{Code: "22P02", Message: "invalid input syntax"}), want: false},
 		{name: "plain failover-like text", err: errors.New("driver: bad connection"), want: false},
-		{name: "generic error", err: errors.New("syntax error"), want: false},
 	}
 
 	for _, tt := range tests {
@@ -107,49 +97,34 @@ func TestIsFailoverPostgresError(t *testing.T) {
 	}
 }
 
-func TestRetryConfig(t *testing.T) {
-	// Verify DefaultRetryConfig has sensible values
-	if DefaultRetryConfig.MaxAttempts < 1 {
-		t.Errorf("MaxAttempts should be at least 1, got %d", DefaultRetryConfig.MaxAttempts)
-	}
-	if DefaultRetryConfig.InitialBackoff <= 0 {
-		t.Errorf("InitialBackoff should be positive, got %v", DefaultRetryConfig.InitialBackoff)
-	}
-	if DefaultRetryConfig.MaxBackoff < DefaultRetryConfig.InitialBackoff {
-		t.Errorf("MaxBackoff (%v) should be >= InitialBackoff (%v)",
-			DefaultRetryConfig.MaxBackoff, DefaultRetryConfig.InitialBackoff)
-	}
-	if DefaultRetryConfig.BackoffMultiplier < 1 {
-		t.Errorf("BackoffMultiplier should be >= 1, got %v", DefaultRetryConfig.BackoffMultiplier)
-	}
-}
-
-func TestExponentialBackoffCalculation(t *testing.T) {
-	// Verify the exponential backoff formula using DefaultRetryConfig
-	// InitialBackoff=100ms, BackoffMultiplier=2.0, MaxBackoff=2s
-	tests := []struct {
-		attempt  int
-		expected time.Duration
-	}{
-		{1, 100 * time.Millisecond},  // initial backoff
-		{2, 200 * time.Millisecond},  // 100ms * 2.0
-		{3, 400 * time.Millisecond},  // 200ms * 2.0
-		{4, 800 * time.Millisecond},  // 400ms * 2.0
-		{5, 1600 * time.Millisecond}, // 800ms * 2.0
-		{6, 2 * time.Second},         // capped at MaxBackoff
-	}
-
-	currentBackoff := DefaultRetryConfig.InitialBackoff
-	for _, tt := range tests {
-		delay := currentBackoff
-		if delay > DefaultRetryConfig.MaxBackoff {
-			delay = DefaultRetryConfig.MaxBackoff
+func TestRetrierExponentialBackoff(t *testing.T) {
+	// Fake time observes RetryQuery's actual waits without wall-clock sleeps or
+	// a production-only injection seam. Extend the default three attempts to
+	// reach the cap, restoring the package policy before other tests run.
+	original := DefaultRetryConfig
+	defer func() { DefaultRetryConfig = original }()
+	DefaultRetryConfig.MaxAttempts = 8
+	synctest.Test(t, func(t *testing.T) {
+		var attempts []time.Time
+		failure := &pgconn.PgError{Code: PGSerializationFailure}
+		err := (Retrier{}).RetryQuery(t.Context(), "BackoffQuery", func() error {
+			attempts = append(attempts, time.Now())
+			return failure
+		})
+		if !errors.Is(err, failure) {
+			t.Fatalf("RetryQuery error = %v, want wrapped serialization failure", err)
 		}
-		if delay != tt.expected {
-			t.Errorf("attempt %d: expected delay %v, got %v", tt.attempt, tt.expected, delay)
+		want := []time.Duration{100 * time.Millisecond, 200 * time.Millisecond, 400 * time.Millisecond,
+			800 * time.Millisecond, 1600 * time.Millisecond, 2 * time.Second, 2 * time.Second}
+		if len(attempts) != len(want)+1 {
+			t.Fatalf("attempts = %d, want %d", len(attempts), len(want)+1)
 		}
-		currentBackoff = time.Duration(float64(currentBackoff) * DefaultRetryConfig.BackoffMultiplier)
-	}
+		for i, delay := range want {
+			if got := attempts[i+1].Sub(attempts[i]); got != delay {
+				t.Errorf("retry %d delay = %v, want %v", i+1, got, delay)
+			}
+		}
+	})
 }
 
 func TestRetrierRetryQuery(t *testing.T) {

@@ -33,6 +33,8 @@ services:
           path: ./go.sum
         - action: rebuild
           path: ../go.work
+        - action: rebuild
+          path: ../sdk/mdk
     environment:
       AUTH_CLIENT_SECRET_KEY: "${AUTH_CLIENT_SECRET_KEY:-00000000000000000000000000000000000000000000}"
       AUTH_CLIENT_EXPIRATION_PERIOD: "168h" # Override to 168h for development
@@ -42,7 +44,8 @@ services:
       INFRASTRUCTURE_OT_CONTROL_SUBNETS: "${INFRASTRUCTURE_OT_CONTROL_SUBNETS:-}"
       PLUGINS_DIR: "/app/plugins"
       PLUGINS_ENABLED: "true"
-      PROTO_MINER_PORT: "8080"
+      # Use the driver defaults: R2 HTTP(S) plus CT1 native gRPC on 9095.
+      PROTO_MINER_PORT: "0"
     depends_on:
       timescaledb:
         condition: service_healthy
@@ -95,13 +98,14 @@ services:
         target: /dev/shm
         tmpfs:
           size: 256M
-    # Faster health checks for development
+    # Faster health checks for development. A fresh volume runs initdb and
+    # timescaledb-tune before the server listens, which can exceed 10s on CI.
     healthcheck:
       test: [ "CMD-SHELL", "psql -U fleet -d fleet -c 'SELECT 1' > /dev/null 2>&1" ]
       interval: 1s
       timeout: 3s
       retries: 5
-      start_period: 5s
+      start_period: 60s
 
   # Development-specific services
   fake-proto-rig:
@@ -327,6 +331,37 @@ services:
           memory: 128M
         reservations:
           memory: 64M
+    networks:
+      - fleet-network
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+  # Fake CT1 container simulator (MDK v2 REST and native gRPC). A single instance
+  # models a full container (96 modules x 3 = 288 boards), so unlike the R2
+  # rigs it runs as one replica rather than five.
+  fake-ct1:
+    build:
+      context: ..
+      dockerfile: server/fake-ct1/Dockerfile
+    environment:
+      HTTP_PORT: "8080"
+      GRPC_PORT: "9095"
+      SERVER_ID: "ct1-sim-001"
+      CT1_UNLOCATED_BOARDS: "${CT1_UNLOCATED_BOARDS:-0}"
+    healthcheck:
+      test: [ "CMD", "wget", "-qO-", "http://localhost:8080/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    ports:
+      - "8090:8080"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          memory: 128M
     networks:
       - fleet-network
     cap_add:

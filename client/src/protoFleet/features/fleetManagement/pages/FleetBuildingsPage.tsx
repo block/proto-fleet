@@ -8,7 +8,10 @@ import FleetGroupListActionBar from "../components/FleetGroupActionsMenu/FleetGr
 import { useFleetOutletContext } from "../components/FleetLayout";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { InventoryView } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
+import { useContainers } from "@/protoFleet/api/useContainers";
+import { useFleetInventory } from "@/protoFleet/api/useFleetInventory";
 import { issueOptions } from "@/protoFleet/components/DeviceSetList";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import NullState from "@/protoFleet/components/NullState";
@@ -24,6 +27,7 @@ import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import BuildingCard from "@/protoFleet/features/buildings/components/BuildingCard";
 import BuildingModals from "@/protoFleet/features/buildings/components/BuildingModals";
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
+import ContainerCard from "@/protoFleet/features/containers/ContainerCard";
 import { useFleetCreateFlow } from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/context";
 import { usePersistDisplayDeepLink } from "@/protoFleet/features/fleetManagement/hooks/usePersistDisplayDeepLink";
 import {
@@ -172,6 +176,58 @@ const FleetBuildingsPage = () => {
     });
   }, [urlSiteFilter.includeUnassigned, urlSiteIds, activeSite]);
   const requestSiteFilterMatchesNoRows = isMatchNoneSiteFilter(requestSiteFilter);
+  const {
+    containers: legacyContainers,
+    error: containersError,
+    loading: containersLoading,
+  } = useContainers(
+    requestSiteFilter.siteIds,
+    requestSiteFilter.includeUnassigned,
+    !requestSiteFilterMatchesNoRows && !canViewBuildingStats,
+  );
+
+  const inventory = useFleetInventory(
+    {
+      view: InventoryView.FACILITIES,
+      pageSize: 100,
+      siteIds: requestSiteFilter.siteIds,
+      includeUnassigned: requestSiteFilter.includeUnassigned,
+      errorComponentTypes,
+      telemetryRanges,
+    },
+    canViewBuildingStats && !requestSiteFilterMatchesNoRows,
+  );
+  const unfilteredInventory = useFleetInventory(
+    {
+      view: InventoryView.FACILITIES,
+      pageSize: 1,
+      ...siteFilterFromActive(activeSite),
+    },
+    canViewBuildingStats && hasActiveFilters,
+  );
+  // Keep confirmed removals hidden across view switches and stale in-flight polls.
+  // Pairing the controller again creates a new identifier.
+  const [unpairedContainerIds, setUnpairedContainerIds] = useState<Set<string>>(() => new Set());
+  const inventoryItems = useMemo(
+    () =>
+      inventory.items.filter(
+        (item) => item.details.case !== "container" || !unpairedContainerIds.has(item.details.value.deviceIdentifier),
+      ),
+    [inventory.items, unpairedContainerIds],
+  );
+  const inventoryTotal = Math.max(0, inventory.total - (inventory.items.length - inventoryItems.length));
+  const handleContainerUnpaired = (deviceIdentifier: string) => {
+    setUnpairedContainerIds((previous) => new Set(previous).add(deviceIdentifier));
+    inventory.refresh();
+    unfilteredInventory.refresh();
+  };
+  const containers = useMemo(
+    () =>
+      canViewBuildingStats
+        ? inventoryItems.flatMap((item) => (item.details.case === "container" ? [item.details.value] : []))
+        : legacyContainers.filter((container) => !unpairedContainerIds.has(container.deviceIdentifier)),
+    [canViewBuildingStats, inventoryItems, legacyContainers, unpairedContainerIds],
+  );
 
   // usePoll keeps fetchData in a ref and doesn't re-run on its identity
   // change, so a site/filter switch wouldn't refetch until the next poll
@@ -217,7 +273,12 @@ const FleetBuildingsPage = () => {
 
   // Returning the promise lets usePoll schedule the next tick from response
   // completion (not from request start) so slow responses can't overlap.
+  const refreshInventory = inventory.refresh;
   const fetchBuildings = useCallback(() => {
+    if (canViewBuildingStats) {
+      refreshInventory();
+      return Promise.resolve();
+    }
     const requestedFilterKey = listFilterKey; // captured for the staleness check
     const requestId = ++listRequestIdRef.current;
     if (isMatchNoneSiteFilter(requestSiteFilter)) {
@@ -262,6 +323,8 @@ const FleetBuildingsPage = () => {
       },
     });
   }, [
+    canViewBuildingStats,
+    refreshInventory,
     listBuildings,
     requestSiteFilter,
     errorComponentTypes,
@@ -278,7 +341,7 @@ const FleetBuildingsPage = () => {
     params: listFilterKey,
     poll: true,
     pollIntervalMs: POLL_INTERVAL_MS,
-    enabled: canReadBuildings,
+    enabled: canReadBuildings && !canViewBuildingStats,
   });
 
   // Drop the previous scope's rows the moment the site filter changes so
@@ -298,7 +361,13 @@ const FleetBuildingsPage = () => {
 
   // Server-side filter already scoped the list to the active site /
   // URL deep-link; just pass through.
-  const visibleBuildings = useMemo(() => buildings ?? [], [buildings]);
+  const visibleBuildings = useMemo(
+    () =>
+      canViewBuildingStats
+        ? inventory.items.flatMap((item) => (item.details.case === "building" ? [item.details.value] : []))
+        : (buildings ?? []),
+    [canViewBuildingStats, inventory.items, buildings],
+  );
   const visibleBuildingScopes = useMemo(
     () =>
       visibleBuildings.flatMap((building) => {
@@ -497,7 +566,12 @@ const FleetBuildingsPage = () => {
     );
   }, [setSearchParams]);
 
-  if (buildings === undefined || sites === undefined) {
+  if (
+    (canViewBuildingStats
+      ? inventory.loading
+      : buildings === undefined || (visibleBuildings.length === 0 && containersLoading)) ||
+    sites === undefined
+  ) {
     return (
       <FilterRow>
         <div className="text-300 text-text-primary-70">Loading…</div>
@@ -505,7 +579,7 @@ const FleetBuildingsPage = () => {
     );
   }
 
-  if (buildingsError && buildings.length === 0) {
+  if (buildingsError && visibleBuildings.length === 0 && containers.length === 0) {
     return (
       <FilterRow testId="fleet-buildings-error">
         <Header title="Couldn't load buildings" titleSize="text-heading-200" />
@@ -515,6 +589,7 @@ const FleetBuildingsPage = () => {
           size={sizes.compact}
           text="Retry"
           onClick={fetchBuildings}
+          className="w-fit"
           testId="fleet-buildings-retry"
         />
       </FilterRow>
@@ -638,7 +713,7 @@ const FleetBuildingsPage = () => {
     requestSiteFilter.siteIds.length > 0 || requestSiteFilter.includeUnassigned || requestSiteFilterMatchesNoRows;
 
   let pageContent: ReactNode;
-  if (buildings.length === 0) {
+  if (visibleBuildings.length === 0 && containers.length === 0) {
     pageContent = hasActiveFilters ? (
       <FilterRow testId="fleet-buildings-page">
         {inlineErrors}
@@ -680,24 +755,6 @@ const FleetBuildingsPage = () => {
         />
       </>
     );
-  } else if (visibleBuildings.length === 0) {
-    pageContent = (
-      <FilterRow testId="fleet-buildings-page">
-        {filterControls}
-        {hasActiveFilters ? (
-          <NoFilterResultsEmptyState hasActiveFilters onClearFilters={handleClearFilters} />
-        ) : (
-          <div
-            className="rounded-xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-70"
-            data-testid="fleet-buildings-filter-empty"
-          >
-            {activeSite.kind === "unassigned"
-              ? "No buildings without a site. Switch the picker to All Sites to see every building."
-              : "No buildings in this site yet."}
-          </div>
-        )}
-      </FilterRow>
-    );
   } else {
     pageContent = (
       <>
@@ -713,21 +770,75 @@ const FleetBuildingsPage = () => {
               className="px-6 pt-6 pb-4 text-emphasis-300 text-text-primary-70 laptop:px-10"
               data-testid="fleet-buildings-count-label"
             >
-              {formatListCountLabel(visibleBuildings.length, {
-                unfilteredTotal: totalUnfilteredBuildings,
-                hasActiveFilters,
-                singular: "building",
-                plural: "buildings",
-              })}
+              {canViewBuildingStats ? (
+                formatListCountLabel(inventoryTotal, {
+                  unfilteredTotal: unfilteredInventory.total,
+                  hasActiveFilters,
+                  singular: "facility",
+                  plural: "facilities",
+                })
+              ) : (
+                <>
+                  {containers.length > 0
+                    ? `${containers.length} ${containers.length === 1 ? "container" : "containers"} · `
+                    : ""}
+                  {formatListCountLabel(visibleBuildings.length, {
+                    unfilteredTotal: totalUnfilteredBuildings,
+                    hasActiveFilters,
+                    singular: "building",
+                    plural: "buildings",
+                  })}{" "}
+                </>
+              )}
             </div>
+            {canViewBuildingStats && (inventory.hasPreviousPage || inventory.hasNextPage) ? (
+              <div className="flex gap-3 px-6 pb-4 laptop:px-10">
+                <Button
+                  variant={variants.secondary}
+                  text="Previous"
+                  disabled={!inventory.hasPreviousPage}
+                  onClick={inventory.previousPage}
+                />
+                <Button
+                  variant={variants.secondary}
+                  text="Next"
+                  disabled={!inventory.hasNextPage}
+                  onClick={inventory.nextPage}
+                />
+              </div>
+            ) : null}
             <div className="px-6 pb-6 laptop:px-10" ref={measureRef}>
               <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${numColumns}, 1fr)` }}>
-                {visibleBuildings.map((building, index) => (
-                  <BuildingCard
-                    key={building.building?.id ? building.building.id.toString() : `building-${index}`}
-                    building={building}
-                  />
-                ))}
+                {canViewBuildingStats ? (
+                  inventoryItems.map((item) =>
+                    item.details.case === "container" ? (
+                      <ContainerCard
+                        key={`container:${item.ref?.id}`}
+                        container={item.details.value}
+                        inventory={item}
+                        onUnpaired={handleContainerUnpaired}
+                      />
+                    ) : item.details.case === "building" ? (
+                      <BuildingCard key={`building:${item.ref?.id}`} building={item.details.value} />
+                    ) : null,
+                  )
+                ) : (
+                  <>
+                    {containers.map((container) => (
+                      <ContainerCard
+                        key={container.deviceIdentifier}
+                        container={container}
+                        onUnpaired={handleContainerUnpaired}
+                      />
+                    ))}
+                    {visibleBuildings.map((building, index) => (
+                      <BuildingCard
+                        key={building.building?.id ? building.building.id.toString() : `building-${index}`}
+                        building={building}
+                      />
+                    ))}{" "}
+                  </>
+                )}
               </div>
             </div>
           </>
@@ -735,8 +846,17 @@ const FleetBuildingsPage = () => {
           <div className={LIST_WRAPPER}>
             <BuildingList
               buildings={visibleBuildings}
+              containers={containers}
+              onContainerUnpaired={handleContainerUnpaired}
               sites={sites}
-              totalUnfiltered={totalUnfilteredBuildings}
+              inventoryItems={canViewBuildingStats ? inventoryItems : undefined}
+              total={canViewBuildingStats ? inventoryTotal : undefined}
+              currentPage={inventory.currentPage}
+              hasNextPage={Boolean(canViewBuildingStats && inventory.hasNextPage)}
+              hasPreviousPage={Boolean(canViewBuildingStats && inventory.hasPreviousPage)}
+              onNextPage={inventory.nextPage}
+              onPrevPage={inventory.previousPage}
+              totalUnfiltered={canViewBuildingStats ? unfilteredInventory.total : totalUnfilteredBuildings}
               hasActiveFilters={hasActiveFilters}
               onEditBuilding={canManageBuildings ? openEditBuilding : undefined}
               onAddBuildingToSite={canManageBuildings ? handleAddBuildingToSite : undefined}
@@ -752,6 +872,16 @@ const FleetBuildingsPage = () => {
 
   return (
     <>
+      {inventory.error ? (
+        <div role="alert" className="px-6 py-3">
+          Could not load inventory: {inventory.error}
+        </div>
+      ) : null}
+      {containersError ? (
+        <div role="alert" className="px-6 py-3">
+          Could not load containers: {containersError}
+        </div>
+      ) : null}
       {pageContent}
       {bulkActionBar}
       <BuildingModals modals={buildingModals} sites={sites} />

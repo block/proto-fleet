@@ -30,6 +30,7 @@ const (
 )
 
 type cli struct {
+	RecoverFleetLease recoverFleetLeaseCmd `cmd:"" help:"inspect or rebind the Fleet lease after an etcd rebuild"`
 	RecoverEtcdRoot   recoverEtcdRootCmd   `cmd:"" help:"rotate the etcd administrator password using the installed signing key"`
 	EtcdStatus        etcdStatusCmd        `cmd:"" help:"check etcd quorum and quota without Fleet; nonzero on warning"`
 	Preflight         preflightCmd         `cmd:"" help:"validate an HA host before installation"`
@@ -48,10 +49,32 @@ type cli struct {
 	RequirePassive    requirePassiveCmd    `cmd:"" help:"verify that the local Fleet instance is passive"`
 	RequireActive     requireActiveCmd     `cmd:"" help:"verify that the local Fleet instance is active"`
 	UpdatePreflight   updatePreflightCmd   `cmd:"" help:"prepare the current release for an application update"`
+	CheckImages       checkImagesCmd       `cmd:"" help:"check prepared application images without loading or pulling"`
 	SchemaCheck       schemaCheckCmd       `cmd:"" help:"check target database compatibility before stopping Fleet"`
 	AppStop           appStopCmd           `cmd:"" help:"stop the Fleet application services"`
 	AppStart          appStartCmd          `cmd:"" help:"start the Fleet application services"`
 	WaitTakeover      waitTakeoverCmd      `cmd:"" help:"wait for the public endpoint to serve an application version"`
+}
+
+type recoverFleetLeaseCmd struct {
+	NodeEnv       string `default:"/etc/proto-fleet/ha/node.env" type:"path" help:"installed node environment file"`
+	Apply         bool   `help:"rebind the expired lease"`
+	OldClusterID  uint64 `name:"old-cluster-id" help:"etcd cluster ID stored in the restored database"`
+	NewClusterID  uint64 `name:"new-cluster-id" help:"verified replacement etcd cluster ID"`
+	WritersFenced bool   `help:"confirm ingress is closed and the old and recovered Fleet writers are stopped"`
+}
+
+func (c *recoverFleetLeaseCmd) Run(ctx context.Context) error {
+	report, err := deployment.RecoverFleetLease(ctx, c.NodeEnv, deployment.FleetLeaseRecoveryRequest{
+		Apply: c.Apply, OldClusterID: c.OldClusterID, NewClusterID: c.NewClusterID, WritersFenced: c.WritersFenced,
+	})
+	if err != nil {
+		return err
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(report); err != nil {
+		return fmt.Errorf("write Fleet lease recovery report: %w", err)
+	}
+	return nil
 }
 
 type recoverEtcdRootCmd struct {
@@ -213,12 +236,47 @@ func (c *uninstallCmd) Run(ctx context.Context) error {
 }
 
 type updateCmd struct {
-	Version  string `arg:"" help:"target application version"`
-	Complete bool   `help:"complete the update through failover from the active host"`
+	Version      string `arg:"" optional:"" help:"target application version"`
+	Capabilities bool   `help:"print supported update capabilities as JSON without contacting the host"`
+	PrepareOnly  bool   `help:"durably prepare the release while Fleet remains online"`
+	Prepared     bool   `help:"activate only the exact previously prepared release"`
+	Complete     bool   `help:"complete the update through failover from the active host"`
+}
+
+func writeUpdateCapabilities(output io.Writer) error {
+	if err := json.NewEncoder(output).Encode(map[string][]string{"capabilities": {updaterapi.CapabilityPreparedUpdateV1}}); err != nil {
+		return fmt.Errorf("write update capabilities: %w", err)
+	}
+	return nil
 }
 
 func (c *updateCmd) Run(ctx context.Context) error {
-	return runPassiveUpdate(ctx, c.Version, c.Complete, os.Stdout, validateHAUpdate, updaterapi.NewClient(defaultUpdaterSocket), deployment.Status)
+	if c.Capabilities {
+		if c.Version != "" || c.Complete || c.PrepareOnly || c.Prepared {
+			return errors.New("--capabilities cannot be combined with an update")
+		}
+		return writeUpdateCapabilities(os.Stdout)
+	}
+	if c.Version == "" {
+		return errors.New("target application version is required")
+	}
+	if c.PrepareOnly && (c.Prepared || c.Complete) {
+		return errors.New("--prepare-only cannot be combined with --prepared or --complete")
+	}
+	client := updaterapi.NewClient(defaultUpdaterSocket)
+	defer client.CloseIdleConnections()
+	if c.PrepareOnly {
+		return runUpdateMode(ctx, c.Version, false, true, false, os.Stdout, func(ctx context.Context, path, _ string, _ bool) error {
+			return deployment.ValidateUpdatePreparation(ctx, path)
+		}, client)
+	}
+	if c.Prepared {
+		if err := runUpdateMode(ctx, c.Version, c.Complete, false, true, os.Stdout, validateHAUpdate, client); err != nil {
+			return err
+		}
+		return verifyUpdateOutcome(ctx, c.Complete, os.Stdout, deployment.Status)
+	}
+	return runPassiveUpdate(ctx, c.Version, c.Complete, os.Stdout, validateHAUpdate, client, deployment.Status)
 }
 
 type startCmd struct {
@@ -288,6 +346,16 @@ func (c *appStopCmd) Run(ctx context.Context) error {
 	return deployment.StopApplication(ctx, root, c.Role)
 }
 
+type checkImagesCmd struct{}
+
+func (c *checkImagesCmd) Run(ctx context.Context) error {
+	root, err := deployment.ReleaseRoot()
+	if err != nil {
+		return err
+	}
+	return deployment.CheckApplicationImages(ctx, root)
+}
+
 type appStartCmd struct {
 	Version string `arg:"" help:"application version to start"`
 	Mode    string `arg:"" optional:"" default:"passive" enum:"passive,complete,any" help:"required HA readiness after startup"`
@@ -348,6 +416,8 @@ type updaterClient interface {
 	Status(ctx context.Context) (updaterapi.StatusResponse, error)
 	Trigger(ctx context.Context, operationID, targetVersion string) (updaterapi.Operation, error)
 	TriggerComplete(ctx context.Context, operationID, targetVersion string) (updaterapi.Operation, error)
+	Prepare(ctx context.Context, operationID, targetVersion string) (updaterapi.Operation, error)
+	TriggerPrepared(ctx context.Context, operationID, targetVersion string, complete bool) (updaterapi.Operation, error)
 }
 
 const (
@@ -376,6 +446,10 @@ func runPassiveUpdate(
 	if err := runUpdate(ctx, targetVersion, complete, output, preflight, client); err != nil {
 		return err
 	}
+	return verifyUpdateOutcome(ctx, complete, output, read)
+}
+
+func verifyUpdateOutcome(ctx context.Context, complete bool, output io.Writer, read statusReader) error {
 	report, err := read(ctx, installedNodeEnv)
 	if err != nil {
 		return fmt.Errorf("update succeeded but local HA outcome could not be verified: %w", err)
@@ -404,6 +478,10 @@ func runUpdate(
 	preflight updatePreflight,
 	client updaterClient,
 ) error {
+	return runUpdateMode(ctx, targetVersion, complete, false, false, output, preflight, client)
+}
+
+func runUpdateMode(ctx context.Context, targetVersion string, complete, prepareOnly, prepared bool, output io.Writer, preflight updatePreflight, client updaterClient) error {
 	if err := preflight(ctx, installedNodeEnv, targetVersion, complete); err != nil {
 		return err
 	}
@@ -411,6 +489,14 @@ func runUpdate(
 	trigger := client.Trigger
 	if complete {
 		trigger = client.TriggerComplete
+	}
+	if prepareOnly {
+		trigger = client.Prepare
+	}
+	if prepared {
+		trigger = func(ctx context.Context, id, version string) (updaterapi.Operation, error) {
+			return client.TriggerPrepared(ctx, id, version, complete)
+		}
 	}
 	operation, err := triggerUpdate(ctx, operationID, targetVersion, trigger)
 	if err != nil {
@@ -467,7 +553,7 @@ func runUpdate(
 			continue
 		}
 		statusFailureSince = time.Time{}
-		if status.Operation == nil || status.Operation.ID != operationID || status.Operation.TargetVersion != targetVersion {
+		if status.Operation == nil || status.Operation.ID != operationID || status.Operation.TargetVersion != targetVersion || status.Operation.Complete != complete || status.Operation.PrepareOnly != prepareOnly || status.Operation.Prepared != prepared {
 			return errors.New("host updater lost the accepted operation")
 		}
 		operation = *status.Operation

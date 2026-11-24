@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 )
@@ -116,7 +117,11 @@ func (c *Client) observeIdentityLocked(ctx context.Context) (pairingInfoResponse
 		if c.expectedIdentity != nil {
 			// Do not classify an unavailable public identity endpoint as a rejected
 			// miner password, even if its response happens to be HTTP 401/403.
+			dialFailed := sdk.DeviceDialFailed(ctx, err)
 			err = &identityError{reason: "identity endpoint is unavailable or returned an invalid response"}
+			if dialFailed {
+				err = sdk.WithDeviceProbeFailure(err)
+			}
 		}
 		return pairingInfoResponse{}, err
 	}

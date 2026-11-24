@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import Filters from "./Filters";
+import { defaultListFilter } from "@/shared/components/List/constants";
 import { testFilters, TestItem, testItems } from "@/shared/components/List/mocks/data";
 
 const setViewport = (width: number) => {
@@ -29,13 +30,16 @@ describe("Filters", () => {
   it("calls onFilter with the correct filter when a button filter is clicked", () => {
     const handleFiltering = vi.fn();
     render(<Filters<TestItem> filterItems={testFilters} items={testItems} onFilter={handleFiltering} />);
+    handleFiltering.mockClear();
 
-    for (const filterItem of testFilters) {
-      if (filterItem.type === "button") {
-        fireEvent.click(screen.getByText(filterItem.title));
-        expect(handleFiltering).toHaveBeenCalled();
-      }
-    }
+    fireEvent.click(screen.getByText("Active"));
+    expect(handleFiltering).toHaveBeenLastCalledWith(expect.objectContaining({ buttonFilters: ["active"] }));
+
+    fireEvent.click(screen.getByText("Warning"));
+    expect(handleFiltering).toHaveBeenLastCalledWith(expect.objectContaining({ buttonFilters: ["active", "warning"] }));
+
+    fireEvent.click(screen.getByText("All Items"));
+    expect(handleFiltering).toHaveBeenLastCalledWith(expect.objectContaining({ buttonFilters: [defaultListFilter] }));
   });
 
   it("renders without crashing when no filters are provided", () => {
@@ -73,22 +77,6 @@ describe("Filters", () => {
       // "Active" should now be active
       const activeBtn = screen.getByText("Active").closest("button");
       expect(activeBtn).toHaveAttribute("class", expect.stringContaining("accent"));
-    }
-  });
-
-  it("displays correct count for each button filter status", () => {
-    const handleFiltering = vi.fn();
-    render(<Filters<TestItem> filterItems={testFilters} items={testItems} onFilter={handleFiltering} />);
-
-    for (const filterItem of testFilters) {
-      if (filterItem.type === "button") {
-        const button = screen.getByText(filterItem.title);
-        // Find span with the count
-        const countSpan = button.querySelector("span");
-        if (countSpan) {
-          expect(countSpan.innerHTML).toEqual(filterItem.count.toString());
-        }
-      }
     }
   });
 
@@ -144,26 +132,16 @@ describe("Filters", () => {
     const handleFiltering = vi.fn();
     render(<Filters<TestItem> filterItems={testFilters} items={testItems} onFilter={handleFiltering} />);
 
-    // Find the first dropdown filter
-    const dropdownFilters = testFilters.filter((filter) => filter.type === "dropdown");
+    fireEvent.click(screen.getByText("Value Range"));
+    const option = await screen.findByTestId("filter-option-low");
+    handleFiltering.mockClear();
+    fireEvent.click(option);
 
-    if (dropdownFilters.length > 0 && dropdownFilters[0].options?.length > 0) {
-      const firstDropdown = dropdownFilters[0];
-      const secondOption = firstDropdown.options[1];
-
-      // Click the dropdown button to open it (shows title)
-      const dropdownButton = screen.getByText(firstDropdown.title);
-      fireEvent.click(dropdownButton);
-
-      // Find and click the first option
-      await waitFor(() => {
-        screen.findByText(secondOption.label).then((el) => {
-          fireEvent.click(el);
-        });
-      });
-
-      expect(handleFiltering).toHaveBeenCalled();
-    }
+    expect(handleFiltering).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        dropdownFilters: expect.objectContaining({ valueRange: ["low"] }),
+      }),
+    );
   });
 
   it("can hide the select all option for a dropdown filter", async () => {

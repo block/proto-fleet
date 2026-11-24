@@ -16,7 +16,7 @@ import (
 const createCustomRole = `-- name: CreateCustomRole :one
 INSERT INTO role (name, description, is_builtin, organization_id)
 VALUES ($1, $2, FALSE, $3)
-RETURNING id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id
+RETURNING id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id, permission_revision
 `
 
 type CreateCustomRoleParams struct {
@@ -38,12 +38,13 @@ func (q *Queries) CreateCustomRole(ctx context.Context, arg CreateCustomRolePara
 		&i.IsBuiltin,
 		&i.BuiltinKey,
 		&i.OrganizationID,
+		&i.PermissionRevision,
 	)
 	return i, err
 }
 
 const getBuiltinRoleForOrg = `-- name: GetBuiltinRoleForOrg :one
-SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id
+SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id, permission_revision
 FROM role
 WHERE is_builtin = TRUE
   AND organization_id = $1
@@ -71,12 +72,13 @@ func (q *Queries) GetBuiltinRoleForOrg(ctx context.Context, arg GetBuiltinRoleFo
 		&i.IsBuiltin,
 		&i.BuiltinKey,
 		&i.OrganizationID,
+		&i.PermissionRevision,
 	)
 	return i, err
 }
 
 const getRoleByID = `-- name: GetRoleByID :one
-SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id
+SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id, permission_revision
 FROM role
 WHERE id = $1
   AND deleted_at IS NULL
@@ -95,12 +97,13 @@ func (q *Queries) GetRoleByID(ctx context.Context, id int64) (Role, error) {
 		&i.IsBuiltin,
 		&i.BuiltinKey,
 		&i.OrganizationID,
+		&i.PermissionRevision,
 	)
 	return i, err
 }
 
 const getRoleByIDForUpdate = `-- name: GetRoleByIDForUpdate :one
-SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id
+SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id, permission_revision
 FROM role
 WHERE id = $1
   AND deleted_at IS NULL
@@ -128,6 +131,7 @@ func (q *Queries) GetRoleByIDForUpdate(ctx context.Context, id int64) (Role, err
 		&i.IsBuiltin,
 		&i.BuiltinKey,
 		&i.OrganizationID,
+		&i.PermissionRevision,
 	)
 	return i, err
 }
@@ -166,7 +170,7 @@ func (q *Queries) ListActiveOrganizationIDs(ctx context.Context) ([]int64, error
 }
 
 const listBuiltinRolesForOrg = `-- name: ListBuiltinRolesForOrg :many
-SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id
+SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id, permission_revision
 FROM role
 WHERE is_builtin = TRUE
   AND organization_id = $1
@@ -196,6 +200,7 @@ func (q *Queries) ListBuiltinRolesForOrg(ctx context.Context, organizationID sql
 			&i.IsBuiltin,
 			&i.BuiltinKey,
 			&i.OrganizationID,
+			&i.PermissionRevision,
 		); err != nil {
 			return nil, err
 		}
@@ -211,7 +216,7 @@ func (q *Queries) ListBuiltinRolesForOrg(ctx context.Context, organizationID sql
 }
 
 const listCustomRolesForOrg = `-- name: ListCustomRolesForOrg :many
-SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id
+SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id, permission_revision
 FROM role
 WHERE is_builtin = FALSE
   AND organization_id = $1
@@ -242,6 +247,7 @@ func (q *Queries) ListCustomRolesForOrg(ctx context.Context, organizationID sql.
 			&i.IsBuiltin,
 			&i.BuiltinKey,
 			&i.OrganizationID,
+			&i.PermissionRevision,
 		); err != nil {
 			return nil, err
 		}
@@ -257,7 +263,7 @@ func (q *Queries) ListCustomRolesForOrg(ctx context.Context, organizationID sql.
 }
 
 const listRoles = `-- name: ListRoles :many
-SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id
+SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id, permission_revision
 FROM role
 ORDER BY name
 `
@@ -281,6 +287,7 @@ func (q *Queries) ListRoles(ctx context.Context) ([]Role, error) {
 			&i.IsBuiltin,
 			&i.BuiltinKey,
 			&i.OrganizationID,
+			&i.PermissionRevision,
 		); err != nil {
 			return nil, err
 		}
@@ -475,7 +482,7 @@ ON CONFLICT (organization_id, builtin_key)
         description = EXCLUDED.description,
         is_builtin = TRUE,
         deleted_at = NULL
-RETURNING id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id
+RETURNING id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id, permission_revision
 `
 
 type UpsertBuiltinRoleForOrgParams struct {
@@ -506,6 +513,7 @@ func (q *Queries) UpsertBuiltinRoleForOrg(ctx context.Context, arg UpsertBuiltin
 		&i.IsBuiltin,
 		&i.BuiltinKey,
 		&i.OrganizationID,
+		&i.PermissionRevision,
 	)
 	return i, err
 }

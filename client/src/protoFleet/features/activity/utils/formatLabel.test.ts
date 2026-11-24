@@ -1,9 +1,11 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 
 import { formatActivityFilterLabel, formatLabel } from "./formatLabel";
 
 describe("formatLabel", () => {
   it("uses readable labels for known event types", () => {
+    expect(formatLabel("unpair_container")).toBe("Unpaired container");
     expect(formatLabel("login_failed")).toBe("Couldn't log in");
     expect(formatLabel("reboot")).toBe("Reboot miners");
     expect(formatLabel("set_rack_slot")).toBe("Updated rack position");
@@ -33,6 +35,9 @@ describe("formatLabel", () => {
   });
 
   it("uses action-oriented labels for activity type filters", () => {
+    expect(formatActivityFilterLabel("create_hosted_account_pool")).toBe("Create pool configuration");
+    expect(formatActivityFilterLabel("account_assets_recalled")).toBe("Recall mining assets");
+    expect(formatActivityFilterLabel("unpair_container")).toBe("Unpair container");
     expect(formatActivityFilterLabel("login")).toBe("Log in");
     expect(formatActivityFilterLabel("set_rack_slot")).toBe("Update rack position");
     expect(formatActivityFilterLabel("site.created")).toBe("Create site");

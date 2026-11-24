@@ -24,6 +24,7 @@ dependencies = [
     "grpcio>=1.76.0",
     "grpcio-tools>=1.76.0",
     "protobuf>=6.33.6",
+    "googleapis-common-protos>=1.70.0",
 ]
 
 [project.optional-dependencies]

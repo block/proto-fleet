@@ -20,17 +20,25 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
+	"time"
 
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
+
+	"github.com/block/proto-fleet/plugin/proto/internal/ct1"
 	"github.com/block/proto-fleet/plugin/proto/internal/device"
 	"github.com/block/proto-fleet/plugin/proto/pkg/proto"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 const (
-	driverName         = "proto"
-	apiVersion         = "v2"
-	maxValidPortNumber = math.MaxUint16
+	driverName               = "proto"
+	apiVersion               = "v2"
+	maxValidPortNumber       = math.MaxUint16
+	containerFallbackTimeout = time.Second
 )
 
 var canonicalDiscoveryPorts = []int{443}
@@ -101,8 +109,9 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 		sdk.CapabilityCoolingModeAir:     true,  // We support air cooling mode
 		sdk.CapabilityCoolingModeImmerse: true,  // We support immersion cooling mode
 		sdk.CapabilityPoolConfig:         true,  // We can configure mining pools
-		sdk.CapabilityPoolPriority:       true,  // We can set pool priority
-		sdk.CapabilityLogsDownload:       true,  // We can download device logs
+		sdk.CapabilityPoolClear:          true,
+		sdk.CapabilityPoolPriority:       true, // We can set pool priority
+		sdk.CapabilityLogsDownload:       true, // We can download device logs
 
 		// Power mode capabilities
 		sdk.CapabilityPowerModeEfficiency: true, // We support efficiency/low power mode
@@ -146,28 +155,12 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 }
 
 // GetDiscoveryPorts returns discovery ports in the order they should be tried.
-// When an explicit driver port override is configured, advertise that port first
-// so default omitted-port discovery follows the configured environment.
+// An explicit driver port override restricts discovery to that port.
 func (d *Driver) GetDiscoveryPorts(_ context.Context) []string {
-	if d.requiredPort > 0 && !isCanonicalDiscoveryPort(d.requiredPort) {
+	if d.requiredPort > 0 {
 		return []string{fmt.Sprintf("%d", d.requiredPort)}
 	}
-
-	ports := make([]string, 0, len(canonicalDiscoveryPorts))
-	seen := make(map[int]struct{}, len(canonicalDiscoveryPorts)+1)
-
-	if d.requiredPort > 0 {
-		ports = append(ports, fmt.Sprintf("%d", d.requiredPort))
-		seen[d.requiredPort] = struct{}{}
-	}
-
-	for _, port := range canonicalDiscoveryPorts {
-		if _, ok := seen[port]; ok {
-			continue
-		}
-		ports = append(ports, fmt.Sprintf("%d", port))
-	}
-	return ports
+	return []string{"443", "80", "8080", "9095"}
 }
 
 // DiscoverDevice implements the SDK Driver interface.
@@ -200,6 +193,19 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 		return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeInvalidConfig, fmt.Errorf("host address cannot be empty"))
 	}
 
+	if portInt32 == ct1.DefaultRPCPort {
+		return discoverContainer(ctx, ipAddress, portInt32, true)
+	}
+	if d.requiredPort > 0 {
+		info, err := discoverContainer(ctx, ipAddress, portInt32, true)
+		if err == nil {
+			return info, nil
+		}
+		if code := grpcstatus.Code(err); terminalRPCDiscoveryError(err) || code != codes.Unavailable && code != codes.DeadlineExceeded && code != codes.Unimplemented && code != codes.Unknown {
+			return sdk.DeviceInfo{}, err
+		}
+	}
+
 	schemes := []string{"https", "http"}
 
 	var conclusiveErr error
@@ -227,6 +233,17 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 			incompleteErr = err
 		}
 	}
+	if portInt32 != ct1.DefaultRPCPort && d.requiredPort == 0 {
+		// Bound opportunistic RPC checks on web ports. Explicit CT1 discovery
+		// keeps the longer budget for sequential identity requests.
+		probeCtx, cancel := context.WithTimeout(ctx, containerFallbackTimeout)
+		defer cancel()
+		if info, err := discoverContainer(probeCtx, ipAddress, portInt32, false); err == nil {
+			return info, nil
+		} else if terminalRPCDiscoveryError(err) {
+			return sdk.DeviceInfo{}, err
+		}
+	}
 	// A response successfully negotiated over either scheme is authoritative.
 	// The expected failure of trying the other transport must not turn a 404,
 	// 405, or structurally non-Proto response into an incomplete subnet scan.
@@ -244,6 +261,19 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 
 	return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeDeviceNotFound,
 		fmt.Errorf("failed to discover proto miner at %s:%s", ipAddress, port))
+}
+
+func terminalRPCDiscoveryError(err error) bool {
+	var config sdk.SDKError
+	if errors.As(err, &config) && config.Code == sdk.ErrCodeInvalidConfig {
+		return true
+	}
+	switch grpcstatus.Code(err) { //nolint:exhaustive // other statuses allow probing the existing R2 protocol
+	case codes.Unauthenticated, codes.PermissionDenied, codes.InvalidArgument, codes.FailedPrecondition, codes.Canceled:
+		return true
+	default:
+		return false
+	}
 }
 
 func typedDiscoveryError(code sdk.ErrorCode, err error) sdk.SDKError {
@@ -268,30 +298,9 @@ func discoverySchemeMismatch(err error) bool {
 }
 
 func (d *Driver) isAllowedDiscoveryPort(port int) bool {
-	if d.requiredPort == 0 {
-		return true
-	}
-	if isCanonicalDiscoveryPort(d.requiredPort) {
-		return isCanonicalDiscoveryPort(port)
-	}
-	return port == d.requiredPort
+	return d.requiredPort == 0 || port == d.requiredPort
 }
-
-func (d *Driver) expectedDiscoveryPorts() string {
-	if !isCanonicalDiscoveryPort(d.requiredPort) {
-		return fmt.Sprintf("port %d", d.requiredPort)
-	}
-	return "port 443"
-}
-
-func isCanonicalDiscoveryPort(port int) bool {
-	for _, canonicalPort := range canonicalDiscoveryPorts {
-		if port == canonicalPort {
-			return true
-		}
-	}
-	return false
-}
+func (d *Driver) expectedDiscoveryPorts() string { return fmt.Sprintf("port %d", d.requiredPort) }
 
 func getAndValidateDeviceInfo(ctx context.Context, client *proto.Client) (*proto.DeviceInfo, error) {
 	info, err := client.GetDeviceInfo(ctx)
@@ -332,6 +341,7 @@ func (d *Driver) discoverWithScheme(ctx context.Context, ipAddress string, port 
 	}
 
 	return sdk.DeviceInfo{
+		DeviceClass:     sdk.DeviceClassRig,
 		Host:            ipAddress,
 		Port:            port,
 		URLScheme:       scheme,
@@ -351,6 +361,20 @@ func (d *Driver) discoverWithScheme(ctx context.Context, ipAddress string, port 
 //   - Secure communication setup
 //   - Pairing verification
 func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, access sdk.SecretBundle) (sdk.DeviceInfo, error) {
+	if deviceInfo.DeviceClass == sdk.DeviceClassContainer {
+		credentials, err := containerCredentials(access)
+		if err != nil {
+			return sdk.DeviceInfo{}, err
+		}
+		device, err := ct1.NewDevice(ctx, "pairing", deviceInfo, credentials)
+		if err != nil {
+			return sdk.DeviceInfo{}, err
+		}
+		defer device.Close(ctx)
+		info, _, err := device.DescribeDevice(ctx)
+		return info, err
+	}
+
 	slog.Debug("Plugin PairDevice called",
 		"serial", deviceInfo.SerialNumber,
 		"host", deviceInfo.Host,
@@ -367,6 +391,7 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 	if err != nil {
 		return sdk.DeviceInfo{}, err
 	}
+	deviceInfo.DeviceClass = sdk.DeviceClassRig
 	deviceInfo.SerialNumber = info.SerialNumber
 	deviceInfo.MacAddress = info.MacAddress
 
@@ -375,12 +400,21 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 		return sdk.DeviceInfo{}, fmt.Errorf("expected UsernamePassword in secret bundle for pairing, got %T", access.Kind)
 	}
 
+	if credentials.Password == "" {
+		return sdk.DeviceInfo{}, sdk.NewErrorAuthenticationFailed(deviceInfo.SerialNumber, fmt.Errorf("password is required to authenticate"))
+	}
+
 	if err := client.SetCredentials(credentials); err != nil {
 		return sdk.DeviceInfo{}, fmt.Errorf("failed to set credentials: %w", err)
 	}
 
 	if err := client.Authenticate(ctx); err != nil {
-		return sdk.DeviceInfo{}, sdk.NewErrorAuthenticationFailed(deviceInfo.SerialNumber, err)
+		// Only the firmware's explicit rejection permits another credential trial.
+		// Transport, cancellation and malformed responses leave the result unknown.
+		if grpcstatus.Code(err) == codes.Unauthenticated {
+			return sdk.DeviceInfo{}, sdk.NewErrorAuthenticationFailed(deviceInfo.SerialNumber, err)
+		}
+		return sdk.DeviceInfo{}, sdk.NewErrorDeviceUnavailable(deviceInfo.SerialNumber, err)
 	}
 
 	// Record default-password state at pair time so the server can flag remediation
@@ -417,6 +451,13 @@ func (d *Driver) NewDevice(ctx context.Context, deviceID string, deviceInfo sdk.
 }
 
 func newDeviceFromSecret(ctx context.Context, deviceID string, deviceInfo sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.Device, error) {
+	if deviceInfo.DeviceClass == sdk.DeviceClassContainer {
+		credentials, err := containerCredentials(secret)
+		if err != nil {
+			return nil, err
+		}
+		return ct1.NewDevice(ctx, deviceID, deviceInfo, credentials)
+	}
 	credentials, err := credentialsFromSecret(secret)
 	if err != nil {
 		return nil, err
@@ -445,4 +486,65 @@ func credentialsFromSecret(secret sdk.SecretBundle) (sdk.UsernamePassword, error
 	default:
 		return sdk.UsernamePassword{}, fmt.Errorf("expected UsernamePassword in secret bundle, got %T", secret.Kind)
 	}
+}
+
+// GetCapabilitiesForModel prevents the shared Proto driver from advertising rig
+// commands on a CT1 controller. Container commands are a separate workstream.
+func (d *Driver) GetCapabilitiesForModel(ctx context.Context, manufacturer, model string) sdk.Capabilities {
+	if model != "CT1" {
+		return nil
+	}
+	_, base, _ := d.DescribeDriver(ctx)
+	for key := range base {
+		base[key] = false
+	}
+	for key, value := range ct1.Capabilities() {
+		base[key] = value
+	}
+	return base
+}
+
+// A container credential with an empty username is the controller's MDK bearer
+// token, sent only to the paired endpoints. Stored REST credentials remain
+// accepted as input but are never sent as RPC metadata.
+func containerCredentials(secret sdk.SecretBundle) (sdk.UsernamePassword, error) {
+	if secret.Kind == nil {
+		return sdk.UsernamePassword{}, nil
+	}
+	return credentialsFromSecret(secret)
+}
+
+// A discovered RPC port never replaces the HTTP endpoint used by ProtoOS.
+// listProtected lists a controller that requires a token, identity unknown, at
+// an explicit CT1 RPC port. Opportunistic probes of web ports never do: any
+// gRPC service with an auth gate would otherwise be listed as a CT1.
+func discoverContainer(ctx context.Context, host string, port int32, listProtected bool) (sdk.DeviceInfo, error) {
+	info := sdk.DeviceInfo{Host: host, Port: 8080, URLScheme: "http", RPCPort: port}
+	if value := os.Getenv("CT1_WEB_PORT"); value != "" {
+		p, err := sdk.ParsePort(value)
+		if err != nil {
+			return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeInvalidConfig, err)
+		}
+		info.Port = p
+	}
+	if value := os.Getenv("CT1_WEB_SCHEME"); value != "" {
+		info.URLScheme = value
+	}
+	if value := os.Getenv("CT1_RPC_TLS"); value != "" {
+		tls, err := strconv.ParseBool(value)
+		if err != nil {
+			return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeInvalidConfig, fmt.Errorf("invalid CT1_RPC_TLS: %w", err))
+		}
+		info.RPCTLS = tls
+	}
+	c, err := ct1.NewClient(info, sdk.UsernamePassword{})
+	if err != nil {
+		return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeInvalidConfig, err)
+	}
+	defer c.Close()
+	discovered, err := c.Discover(ctx, info)
+	if listProtected && errors.Is(err, ct1.ErrIdentityRequiresToken) {
+		return ct1.UnidentifiedController(info), nil
+	}
+	return discovered, err
 }

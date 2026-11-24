@@ -2,6 +2,24 @@
 
 Thank you for your interest in contributing to Proto Fleet! This guide covers the development workflows and conventions used in this project.
 
+## Technical Writing
+
+Use ASD-STE100 (Simplified Technical English) for all technical communication.
+This requirement applies to documentation, RFCs, plans, runbooks, PR titles and
+descriptions, commit messages, issues, review comments, and technical status reports.
+
+Apply the ASD-STE100 vocabulary and writing rules:
+
+- Use short, direct sentences. Give each sentence one main idea.
+- Use the active voice. Use the imperative form for instructions.
+- Keep procedural sentences to 20 words or fewer. Keep descriptive sentences
+  to 25 words or fewer.
+- Use the same term for the same meaning. Define unfamiliar abbreviations.
+- Keep commands, code, identifiers, file paths, URLs, and quoted source text exact.
+  Use necessary technical names and technical verbs consistently.
+
+Check new and revised text against ASD-STE100 before you submit it.
+
 ## Reporting Issues
 
 We use GitHub issue templates to keep reports consistent and actionable. When you open a new issue you will see an issue chooser with these options:
@@ -157,11 +175,12 @@ Codex users can run the same shared skill with `$pr-describe`.
 
 ### Making Database Schema Changes
 
-1. Coordinate schema changes and final migration numbers with maintainers.
-   Create a migration with `cd server && just db-migration-new shared_<name>`.
+1. Create a migration with `cd server && just db-migration-new shared_<name>`.
 2. Write both up and down migrations in `server/migrations/current/`.
-   Follow the [migration policy](docs/development/migrations.md) for numbering,
-   immutable history and existing-database upgrades.
+   Follow the [migration policy](docs/development/migrations.md) for
+   existing-database upgrades. Name unique
+   constraints and indexes using the
+   [naming convention](docs/development/migrations.md#constraint-and-index-names).
 3. Update queries in `server/sqlc/queries/` if needed
 4. Run `just gen-db-queries` from the repo root to regenerate sqlc bindings
    (see [Code Generation](#code-generation) for command selection)
@@ -193,7 +212,7 @@ generated output together with its sources.
 
 Never manually edit generated files in:
 
-- `client/src/protoOS/api/generatedApi.ts`
+- `client/src/protoOS/api/adapters/*/generated/`
 - `client/src/protoFleet/api/generated/`
 - `server/generated/`
 

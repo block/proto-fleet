@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Opt-in local integration smoke: requires Docker and Python 3. Uses the pinned
+# Integration smoke: requires Docker and Python 3. Uses the pinned
 # etcd image, a disposable container, and a loopback-only random port; no volumes.
 # Accelerate the production 1h policy to 5s. This tests etcd's contract, not a
 # full Patroni failover or a production-size workload.

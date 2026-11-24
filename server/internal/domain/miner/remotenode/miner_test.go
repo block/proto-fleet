@@ -3,6 +3,7 @@ package remotenode
 import (
 	"bytes"
 	"context"
+	"crypto/ecdh"
 	"fmt"
 	"math"
 	"strings"
@@ -23,6 +24,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/poolconfig"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/logformat"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -88,11 +90,21 @@ func okSender() *fakeSender {
 	return &fakeSender{ack: &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK}}
 }
 
+func testPoolConfigKeys(t *testing.T) ([]byte, []byte) {
+	t.Helper()
+	private := bytes.Repeat([]byte{9}, 32)
+	key, err := ecdh.X25519().NewPrivateKey(private)
+	require.NoError(t, err)
+	return key.PublicKey().Bytes(), private
+}
+
 func newTestMiner(t *testing.T, s CommandSender) *Miner {
 	t.Helper()
+	public, _ := testPoolConfigKeys(t)
 	m, err := New(Config{
 		Sender: s, FleetNodeID: 7, OrgID: 1,
-		DeviceIdentifier: "dev-1", DriverName: "virtual",
+		EncryptionPublicKey: func(context.Context) ([]byte, error) { return public, nil },
+		DeviceIdentifier:    "dev-1", DriverName: "virtual",
 		IPAddress: "10.0.0.5", Port: "4028", URLScheme: "http",
 		SerialNumber: "SN1", MacAddress: "AA:BB:CC:DD:EE:FF",
 	})
@@ -180,6 +192,7 @@ func decodeSent(t *testing.T, s *fakeSender) *gatewaypb.MinerCommand {
 
 func TestMiner_EncodesActionAndTarget(t *testing.T) {
 	ctx := context.Background()
+	poolPassword := fmt.Sprintf("pool-credential-%s", t.Name())
 	cases := []struct {
 		name  string
 		call  func(*Miner, *fakeSender) error
@@ -221,30 +234,43 @@ func TestMiner_EncodesActionAndTarget(t *testing.T) {
 					Priority: 0,
 					URL:      "stratum+tcp://pool1.example.com:3333",
 					Username: "worker1",
+					Password: poolPassword,
 				},
 				Backup1Pool: &dto.MiningPool{
 					Priority: 1,
 					URL:      "stratum+tcp://pool2.example.com:3333",
 					Username: "worker2",
+					Password: "",
 				},
 				Backup2Pool: &dto.MiningPool{
 					Priority: 2,
 					URL:      "stratum+tcp://pool4.example.com:3333",
 					Username: "worker4",
+					Password: poolPassword + "-backup",
 				},
 			})
 		}, func(t *testing.T, mc *gatewaypb.MinerCommand) {
-			pools := mc.GetUpdateMiningPools().GetPools()
+			_, private := testPoolConfigKeys(t)
+			config, err := poolconfig.Decrypt(private, mc.GetUpdateMiningPools().GetEncryptedConfig(), "dev-1")
+			require.NoError(t, err)
+			wire, err := proto.Marshal(mc)
+			require.NoError(t, err)
+			assert.NotContains(t, string(wire), poolPassword)
+			assert.NotContains(t, string(wire), poolPassword+"-backup")
+			pools := config.GetPools()
 			require.Len(t, pools, 3)
 			assert.Equal(t, int32(0), pools[0].GetPriority())
 			assert.Equal(t, "stratum+tcp://pool1.example.com:3333", pools[0].GetUrl())
 			assert.Equal(t, "worker1", pools[0].GetUsername())
+			assert.Equal(t, poolPassword, pools[0].GetPassword())
 			assert.Equal(t, int32(1), pools[1].GetPriority())
 			assert.Equal(t, "stratum+tcp://pool2.example.com:3333", pools[1].GetUrl())
 			assert.Equal(t, "worker2", pools[1].GetUsername())
+			assert.Empty(t, pools[1].GetPassword())
 			assert.Equal(t, int32(2), pools[2].GetPriority())
 			assert.Equal(t, "stratum+tcp://pool4.example.com:3333", pools[2].GetUrl())
 			assert.Equal(t, "worker4", pools[2].GetUsername())
+			assert.Equal(t, poolPassword+"-backup", pools[2].GetPassword())
 		}},
 		{"update miner password", func(m *Miner, s *fakeSender) error {
 			payload, err := proto.Marshal(&gatewaypb.UpdateMinerPasswordResult{
@@ -275,7 +301,11 @@ func TestMiner_EncodesActionAndTarget(t *testing.T) {
 
 			// Assert
 			require.NoError(t, err)
-			assert.Equal(t, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, s.minimumCommandProtocolVersion)
+			expectedVersion := gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1
+			if tc.name == "update mining pools" {
+				expectedVersion = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3
+			}
+			assert.Equal(t, expectedVersion, s.minimumCommandProtocolVersion)
 			mc := decodeSent(t, s)
 			assert.Equal(t, "dev-1", mc.GetTarget().GetDeviceIdentifier())
 			assert.Equal(t, "10.0.0.5", mc.GetTarget().GetIpAddress())
@@ -708,6 +738,20 @@ func TestMinerAcquireGateUsesSharedAdmissionPolicy(t *testing.T) {
 				GetErrors: &gatewaypb.GetErrorsAction{},
 			}},
 			wantDeferrable: 1,
+		},
+		{
+			name: "power feed inspection uses deferrable gate",
+			command: &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_ContainerPowerFeed{
+				ContainerPowerFeed: &gatewaypb.ContainerPowerFeedAction{Request: []byte(`{"action":"inspect","module":{"tank":1,"module":1}}`)},
+			}},
+			wantDeferrable: 1,
+		},
+		{
+			name: "other power feed action uses general gate",
+			command: &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_ContainerPowerFeed{
+				ContainerPowerFeed: &gatewaypb.ContainerPowerFeedAction{Request: []byte(`{"action":"turn_off","feed_id":"pdu-1-outlet-01","module":{"tank":1,"module":1}}`)},
+			}},
+			wantGeneral: 1,
 		},
 		{
 			name:        "unknown action uses general gate",
@@ -1397,4 +1441,78 @@ func TestMiner_UnsupportedMethodsReturnUnimplemented(t *testing.T) {
 	assert.True(t, fleeterror.IsUnimplementedError(m.Unpair(ctx)))
 	_, err := m.GetDeviceStatus(ctx)
 	assert.True(t, fleeterror.IsUnimplementedError(err))
+}
+
+func TestMiner_UpdateMiningPools_RequiresFreshEncryptionKey(t *testing.T) {
+	sender := okSender()
+	miner := newTestMiner(t, sender)
+	payload := dto.UpdateMiningPoolsPayload{DefaultPool: dto.MiningPool{URL: "stratum+tcp://pool.example.com:3333", Username: "worker", Password: "exact-password"}}
+	miner.encryptionPublicKey = nil
+	require.Error(t, miner.UpdateMiningPools(t.Context(), payload))
+	assert.Nil(t, sender.cmd)
+
+	public1, private1, err := passwordupdate.GenerateKeypair()
+	require.NoError(t, err)
+	public2, private2, err := passwordupdate.GenerateKeypair()
+	require.NoError(t, err)
+	calls := 0
+	miner.encryptionPublicKey = func(context.Context) ([]byte, error) {
+		calls++
+		if calls == 1 {
+			return public1, nil
+		}
+		return public2, nil
+	}
+	require.NoError(t, miner.UpdateMiningPools(t.Context(), payload))
+	first := decodeSent(t, sender).GetUpdateMiningPools().GetEncryptedConfig()
+	require.NoError(t, miner.UpdateMiningPools(t.Context(), payload))
+	second := decodeSent(t, sender).GetUpdateMiningPools().GetEncryptedConfig()
+	_, err = poolconfig.Decrypt(private1, first, "dev-1")
+	require.NoError(t, err)
+	_, err = poolconfig.Decrypt(private2, second, "dev-1")
+	require.NoError(t, err)
+	_, err = poolconfig.Decrypt(private1, second, "dev-1")
+	require.Error(t, err)
+	assert.Equal(t, 2, calls)
+}
+
+func TestMinerClearPoolsEncryptsExplicitEmptyIntent(t *testing.T) {
+	sender := okSender()
+	miner := newTestMiner(t, sender)
+	public, private, err := passwordupdate.GenerateKeypair()
+	require.NoError(t, err)
+	miner.encryptionPublicKey = func(context.Context) ([]byte, error) { return public, nil }
+	require.NoError(t, miner.UpdateMiningPools(t.Context(), dto.UpdateMiningPoolsPayload{ClearAll: true}))
+	config, err := poolconfig.Decrypt(private, decodeSent(t, sender).GetUpdateMiningPools().GetEncryptedConfig(), "dev-1")
+	require.NoError(t, err)
+	require.True(t, config.ClearAll)
+	require.Empty(t, config.Pools)
+	require.Error(t, miner.UpdateMiningPools(t.Context(), dto.UpdateMiningPoolsPayload{ClearAll: true, DesiredWorkerName: "changed"}))
+}
+
+func TestVerifyPoolsClearedRequiresExplicitCompleteObservation(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		payload   []byte
+		cleared   bool
+		wantError bool
+	}{
+		{"empty response", nil, false, true},
+		{"malformed response", []byte{0xff}, false, true},
+		{"pools remain", []byte{0x08, 0x00}, false, false},
+		{"cleared", []byte{0x08, 0x01}, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sender := okSender()
+			sender.ack.Payload = tc.payload
+			cleared, err := newTestMiner(t, sender).VerifyPoolsCleared(t.Context())
+			if tc.wantError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, tc.cleared, cleared)
+			require.Equal(t, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V9, sender.minimumCommandProtocolVersion)
+		})
+	}
 }

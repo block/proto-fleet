@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -18,10 +21,12 @@ import (
 type fakeHAState struct {
 	status  ha.Status
 	passive bool
+	active  bool
 }
 
 func (s fakeHAState) Status(time.Time) ha.Status { return s.status }
 func (s fakeHAState) Passive(time.Time) bool     { return s.passive }
+func (s fakeHAState) Active() bool               { return s.active }
 
 func TestHAHandlerReturnsOnlyRedactedStatus(t *testing.T) {
 	// Arrange
@@ -230,21 +235,45 @@ func TestActiveHandlerReflectsStrictActiveState(t *testing.T) {
 	for _, test := range []struct {
 		name       string
 		active     bool
+		passive    bool
 		statusCode int
+		roleHeader string
 	}{
 		{name: "active", active: true, statusCode: http.StatusOK},
-		{name: "passive", active: false, statusCode: http.StatusServiceUnavailable},
+		{name: "confirmed passive", passive: true, statusCode: http.StatusServiceUnavailable, roleHeader: "passive"},
+		{name: "unavailable or uncertain", statusCode: http.StatusServiceUnavailable},
+		{name: "active admission wins", active: true, passive: true, statusCode: http.StatusOK},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 
-			NewActiveHandler("v1.2.3", fakeActiveState(test.active))(
+			NewActiveHandler("v1.2.3", fakeHAState{active: test.active, passive: test.passive})(
 				recorder,
 				httptest.NewRequest(http.MethodGet, "/health/active", nil),
 			)
 
 			require.Equal(t, test.statusCode, recorder.Code)
 			require.Equal(t, "v1.2.3", recorder.Header().Get("X-Proto-Fleet-Version"))
+			require.Equal(t, test.roleHeader, recorder.Header().Get("X-Proto-Fleet-HA-Role"))
 		})
+	}
+}
+
+func TestPassiveHealthResponseMatchesPackagedNginxLogHeader(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	NewActiveHandler("test", fakeHAState{passive: true})(recorder,
+		httptest.NewRequest(http.MethodGet, "/health/active", nil))
+
+	var upstreamVariable string
+	for name, values := range recorder.Header() {
+		if len(values) == 1 && values[0] == "passive" {
+			upstreamVariable = "$upstream_http_" + strings.ReplaceAll(strings.ToLower(name), "-", "_")
+		}
+	}
+	require.NotEmpty(t, upstreamVariable)
+	for _, protocol := range []string{"http", "https"} {
+		config, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "deployment-files", "client", "nginx."+protocol+".conf"))
+		require.NoError(t, err)
+		require.Contains(t, string(config), `ha_role="`+upstreamVariable+`"`)
 	}
 }

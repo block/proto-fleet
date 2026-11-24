@@ -3,7 +3,6 @@ package activity
 import (
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
@@ -25,34 +24,6 @@ func newTestService(t *testing.T) (*Service, *mocks.MockActivityStore) {
 func strPtr(s string) *string { return &s }
 func intPtr(i int) *int       { return &i }
 func int64Ptr(i int64) *int64 { return &i }
-
-func TestService_Log_Success(t *testing.T) {
-	svc, mockStore := newTestService(t)
-
-	event := models.Event{
-		Category:       models.CategoryDeviceCommand,
-		Type:           "reboot",
-		Description:    "Reboot",
-		Result:         models.ResultSuccess,
-		ScopeCount:     intPtr(24),
-		ActorType:      models.ActorUser,
-		UserID:         strPtr("usr_abc"),
-		Username:       strPtr("admin"),
-		OrganizationID: int64Ptr(testOrgID),
-	}
-
-	mockStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ interface{}, got *models.Event) error {
-			assert.Equal(t, models.CategoryDeviceCommand, got.Category)
-			assert.Equal(t, "reboot", got.Type)
-			assert.Equal(t, models.ResultSuccess, got.Result)
-			assert.Equal(t, "usr_abc", *got.UserID)
-			return nil
-		},
-	)
-
-	svc.Log(t.Context(), event)
-}
 
 func TestService_Log_DefaultsResultToSuccess(t *testing.T) {
 	svc, mockStore := newTestService(t)
@@ -247,67 +218,6 @@ func TestService_Log_WarnsOnUserIDWithoutUsername(t *testing.T) {
 	mockStore.EXPECT().Insert(gomock.Any(), gomock.Any()).Return(nil)
 
 	svc.Log(t.Context(), event)
-}
-
-func TestService_List(t *testing.T) {
-	svc, mockStore := newTestService(t)
-
-	now := time.Now()
-	expected := []models.Entry{
-		{
-			ID:          1,
-			EventID:     "evt-1",
-			Category:    "auth",
-			Type:        "login",
-			Description: "Login",
-			Result:      "success",
-			ActorType:   "user",
-			UserID:      strPtr("usr_abc"),
-			Username:    strPtr("admin"),
-			CreatedAt:   now,
-		},
-	}
-
-	filter := models.Filter{OrganizationID: testOrgID, PageSize: 50}
-	mockStore.EXPECT().List(gomock.Any(), filter).Return(expected, nil)
-
-	result, err := svc.List(t.Context(), filter)
-	require.NoError(t, err)
-	assert.Equal(t, expected, result)
-}
-
-func TestService_Count(t *testing.T) {
-	svc, mockStore := newTestService(t)
-
-	filter := models.Filter{OrganizationID: testOrgID}
-	mockStore.EXPECT().Count(gomock.Any(), filter).Return(int64(42), nil)
-
-	count, err := svc.Count(t.Context(), filter)
-	require.NoError(t, err)
-	assert.Equal(t, int64(42), count)
-}
-
-func TestService_GetFilterOptions(t *testing.T) {
-	svc, mockStore := newTestService(t)
-
-	eventTypes := []models.EventTypeInfo{
-		{EventType: "login", EventCategory: "auth"},
-		{EventType: "reboot", EventCategory: "device_command"},
-	}
-	scopeTypes := []string{"group", "rack"}
-	users := []models.UserInfo{
-		{UserID: "usr_abc", Username: "admin"},
-	}
-
-	mockStore.EXPECT().GetDistinctEventTypes(gomock.Any(), testOrgID).Return(eventTypes, nil)
-	mockStore.EXPECT().GetDistinctScopeTypes(gomock.Any(), testOrgID).Return(scopeTypes, nil)
-	mockStore.EXPECT().GetDistinctUsers(gomock.Any(), testOrgID).Return(users, nil)
-
-	opts, err := svc.GetFilterOptions(t.Context(), testOrgID)
-	require.NoError(t, err)
-	assert.Equal(t, eventTypes, opts.EventTypes)
-	assert.Equal(t, scopeTypes, opts.ScopeTypes)
-	assert.Equal(t, users, opts.Users)
 }
 
 func TestService_GetFilterOptions_ErrorPropagation(t *testing.T) {

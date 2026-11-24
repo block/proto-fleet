@@ -22,6 +22,10 @@ const (
 	rigConfigReapplyActorName = "curtailment-config-reconciler"
 	rigConfigPollInterval     = 5 * time.Second
 	rigConfigRequestTimeout   = 5 * time.Second
+	// rigConfigFastDeliveryAttempts claims back off linearly; later failures
+	// retry every rigConfigSlowRetryInterval until delivery succeeds.
+	rigConfigFastDeliveryAttempts = 10
+	rigConfigSlowRetryInterval    = 10 * time.Minute
 )
 
 // PasswordCipher wraps and unwraps MQTT credentials.
@@ -54,16 +58,14 @@ type RuntimeStatus struct {
 
 // RuntimeController hot-reloads the subscriber after a settings write.
 type RuntimeController interface {
-	Reconcile(ctx context.Context) error
+	ReconcileSource(ctx context.Context, sourceID int64) error
 	QuiesceSource(ctx context.Context, sourceID int64) error
 	SourceRuntimeStatus(sourceID int64) RuntimeStatus
 }
 
-// RigCurtailmentConfigApplier replaces fallback config on paired Proto rigs.
-// Settings changes cover the organization; pairing and delivery retries cover
-// only the explicitly requested devices.
+// RigCurtailmentConfigApplier replaces fallback config on explicit Proto rigs.
+// Each device receives only the providers selected by its granted rule scopes.
 type RigCurtailmentConfigApplier interface {
-	ApplyCurtailmentConfigToProtoRigs(ctx context.Context, config sdk.CurtailmentConfig) error
 	ApplyCurtailmentConfigToDevices(ctx context.Context, config sdk.CurtailmentConfig, identifiers []string) error
 }
 
@@ -77,6 +79,8 @@ type SettingsService struct {
 	rigConfigStore   RigConfigReconciliationStore
 	clock            func() time.Time
 	reconcileTimeout time.Duration
+	sourceMutationMu sync.Mutex
+	sourceMutations  map[sourceMutationKey]*sourceMutationLock
 
 	rigConfigWake   chan struct{}
 	rigConfigRunMu  sync.Mutex
@@ -208,7 +212,7 @@ func (s *SettingsService) Create(ctx context.Context, req CreateSourceRequest) (
 	if err != nil {
 		return SourceView{}, sourceStoreError("create mqtt source setting", err)
 	}
-	s.reconcileAfterSettingsWrite(ctx, created.OrganizationID)
+	s.reconcileAfterSettingsWrite(ctx, created.OrganizationID, created.ID)
 	state, hasState, err := s.getStateForSource(ctx, created.OrganizationID, created.ID)
 	if err != nil {
 		return SourceView{}, err
@@ -220,6 +224,11 @@ func (s *SettingsService) Update(ctx context.Context, req UpdateSourceRequest) (
 	if req.ClearStaleness && req.StalenessThreshold != nil {
 		return SourceView{}, fleeterror.NewInvalidArgumentError("clear_staleness_threshold_sec conflicts with staleness_threshold_sec")
 	}
+	releaseMutation, err := s.acquireSourceMutation(ctx, req.OrganizationID, req.SourceID)
+	if err != nil {
+		return SourceView{}, err
+	}
+	defer releaseMutation()
 	current, err := s.getConfig(ctx, req.OrganizationID, req.SourceID)
 	if err != nil {
 		return SourceView{}, err
@@ -262,7 +271,7 @@ func (s *SettingsService) Update(ctx context.Context, req UpdateSourceRequest) (
 	if err != nil {
 		return SourceView{}, sourceStoreError("update mqtt source setting", err)
 	}
-	s.reconcileAfterSettingsWrite(ctx, updated.OrganizationID)
+	s.reconcileAfterSettingsWrite(ctx, updated.OrganizationID, updated.ID)
 	state, hasState, err := s.getStateForSource(ctx, updated.OrganizationID, updated.ID)
 	if err != nil {
 		return SourceView{}, err
@@ -271,6 +280,11 @@ func (s *SettingsService) Update(ctx context.Context, req UpdateSourceRequest) (
 }
 
 func (s *SettingsService) SetEnabled(ctx context.Context, orgID, sourceID int64, enabled bool) (SourceView, error) {
+	releaseMutation, err := s.acquireSourceMutation(ctx, orgID, sourceID)
+	if err != nil {
+		return SourceView{}, err
+	}
+	defer releaseMutation()
 	current, err := s.getConfig(ctx, orgID, sourceID)
 	if err != nil {
 		return SourceView{}, err
@@ -289,11 +303,11 @@ func (s *SettingsService) SetEnabled(ctx context.Context, orgID, sourceID int64,
 	updated, err := s.store.SetSourceConfigEnabled(ctx, orgID, sourceID, enabled)
 	if err != nil {
 		if !enabled {
-			_ = s.reconcile(ctx)
+			_ = s.reconcile(ctx, sourceID)
 		}
 		return SourceView{}, sourceStoreError("set mqtt source enabled", err)
 	}
-	s.reconcileAfterSettingsWrite(ctx, updated.OrganizationID)
+	s.reconcileAfterSettingsWrite(ctx, updated.OrganizationID, updated.ID)
 	state, hasState, err := s.getStateForSource(ctx, updated.OrganizationID, updated.ID)
 	if err != nil {
 		return SourceView{}, err
@@ -308,6 +322,11 @@ func (s *SettingsService) Delete(ctx context.Context, orgID, sourceID int64) err
 	if sourceID <= 0 {
 		return fleeterror.NewInvalidArgumentError("source_id must be set")
 	}
+	releaseMutation, err := s.acquireSourceMutation(ctx, orgID, sourceID)
+	if err != nil {
+		return err
+	}
+	defer releaseMutation()
 	count, err := s.store.CountAutomationRulesByMQTTSource(ctx, orgID, sourceID)
 	if err != nil {
 		return fmt.Errorf("count automation rules by mqtt source: %w", err)
@@ -318,7 +337,7 @@ func (s *SettingsService) Delete(ctx context.Context, orgID, sourceID int64) err
 	if err := s.store.DeleteDisabledSourceConfig(ctx, orgID, sourceID); err != nil {
 		return sourceStoreError("delete mqtt source setting", err)
 	}
-	s.reconcileAfterSettingsWrite(ctx, orgID)
+	s.reconcileAfterSettingsWrite(ctx, orgID, sourceID)
 	return nil
 }
 
@@ -361,14 +380,14 @@ func (s *SettingsService) ReapplyRigConfigBestEffort(ctx context.Context, orgID,
 	s.wakeRigConfigReconciler()
 }
 
-func (s *SettingsService) reconcileAfterSettingsWrite(ctx context.Context, orgID int64) {
+func (s *SettingsService) reconcileAfterSettingsWrite(ctx context.Context, orgID, sourceID int64) {
 	s.wakeRigConfigReconciler()
-	if err := s.reconcile(ctx); err != nil {
+	if err := s.reconcile(ctx, sourceID); err != nil {
 		slog.Error("reload MQTT runtime after durable settings write", "org_id", orgID, "error", err)
 	}
 }
 
-func (s *SettingsService) buildRigCurtailmentConfig(ctx context.Context, orgID int64) (sdk.CurtailmentConfig, error) {
+func (s *SettingsService) buildScopedRigCurtailmentConfig(ctx context.Context, orgID int64, allowedSourceIDs map[int64]bool) (sdk.CurtailmentConfig, error) {
 	sources, err := s.store.ListSourceConfigsByOrg(ctx, orgID)
 	if err != nil {
 		return sdk.CurtailmentConfig{}, fmt.Errorf("list mqtt sources for rig config: %w", err)
@@ -378,7 +397,7 @@ func (s *SettingsService) buildRigCurtailmentConfig(ctx context.Context, orgID i
 	})
 	providers := make([]sdk.CurtailmentProviderConfig, 0, len(sources))
 	for _, source := range sources {
-		if !source.Enabled {
+		if !source.Enabled || !allowedSourceIDs[source.ID] {
 			continue
 		}
 		if source.BrokerTransport != brokerTransportTCP {
@@ -478,7 +497,7 @@ func (s *SettingsService) viewFor(cfg SourceConfig, state SourceState, hasState 
 	}
 }
 
-func (s *SettingsService) validateSourceConfig(ctx context.Context, source SourceConfig) error {
+func validateSourceConnectionConfig(source SourceConfig, validatePassword func() error) error {
 	if source.OrganizationID <= 0 {
 		return fleeterror.NewInvalidArgumentError("org_id must be set")
 	}
@@ -510,16 +529,28 @@ func (s *SettingsService) validateSourceConfig(ctx context.Context, source Sourc
 	if err := validateBoundedString("mqtt_username", source.MQTTUsername); err != nil {
 		return err
 	}
-	if source.MQTTPasswordEncrypted == "" {
-		return fleeterror.NewInvalidArgumentError("mqtt_password is required")
+	if err := validatePassword(); err != nil {
+		return err
 	}
-	password, err := s.cipher.Decrypt(source.MQTTPasswordEncrypted)
-	if err != nil {
-		return fleeterror.NewInvalidArgumentErrorf("mqtt_password cannot be decrypted: %v", err)
-	}
-	clear(password)
 	if _, err := decoderForFormat(source.PayloadFormat); err != nil {
 		return fleeterror.NewInvalidArgumentError(err.Error())
+	}
+	return nil
+}
+
+func (s *SettingsService) validateSourceConfig(ctx context.Context, source SourceConfig) error {
+	if err := validateSourceConnectionConfig(source, func() error {
+		if source.MQTTPasswordEncrypted == "" {
+			return fleeterror.NewInvalidArgumentError("mqtt_password is required")
+		}
+		password, err := s.cipher.Decrypt(source.MQTTPasswordEncrypted)
+		if err != nil {
+			return fleeterror.NewInvalidArgumentErrorf("mqtt_password cannot be decrypted: %v", err)
+		}
+		clear(password)
+		return nil
+	}); err != nil {
+		return err
 	}
 	if source.StalenessThreshold <= 0 {
 		return fleeterror.NewInvalidArgumentError("staleness_threshold_sec must be greater than zero")
@@ -531,44 +562,12 @@ func (s *SettingsService) validateSourceConfig(ctx context.Context, source Sourc
 }
 
 func validateConnectionTestConfig(source SourceConfig, plaintextPassword string) error {
-	if source.OrganizationID <= 0 {
-		return fleeterror.NewInvalidArgumentError("org_id must be set")
-	}
-	if source.ServiceUserID <= 0 {
-		return fleeterror.NewInvalidArgumentError("service_user_id must be set")
-	}
-	if err := validateSourceName(source.SourceName); err != nil {
-		return err
-	}
-	if err := validateBoundedString("topic", source.Topic); err != nil {
-		return err
-	}
-	if err := validateBoundedString("broker_primary_host", source.BrokerPrimaryHost); err != nil {
-		return err
-	}
-	if err := validateBoundedString("broker_secondary_host", source.BrokerSecondaryHost); err != nil {
-		return err
-	}
-	if source.BrokerPort <= 0 || source.BrokerPort > 65535 {
-		return fleeterror.NewInvalidArgumentError("broker_port must be between 1 and 65535")
-	}
-	primary, secondary, ok := ResolveBrokerRoles(source.BrokerPrimaryHost, source.BrokerSecondaryHost)
-	if !ok {
-		return fleeterror.NewInvalidArgumentError("broker hosts must be distinct")
-	}
-	if err := validateBrokerTransport(source, primary, secondary); err != nil {
-		return fleeterror.NewInvalidArgumentError(err.Error())
-	}
-	if err := validateBoundedString("mqtt_username", source.MQTTUsername); err != nil {
-		return err
-	}
-	if strings.TrimSpace(plaintextPassword) == "" {
-		return fleeterror.NewInvalidArgumentError("mqtt_password is required")
-	}
-	if _, err := decoderForFormat(source.PayloadFormat); err != nil {
-		return fleeterror.NewInvalidArgumentError(err.Error())
-	}
-	return nil
+	return validateSourceConnectionConfig(source, func() error {
+		if strings.TrimSpace(plaintextPassword) == "" {
+			return fleeterror.NewInvalidArgumentError("mqtt_password is required")
+		}
+		return nil
+	})
 }
 
 func (s *SettingsService) encryptPassword(plaintext string) (string, error) {
@@ -581,13 +580,13 @@ func (s *SettingsService) encryptPassword(plaintext string) (string, error) {
 	return encrypted, nil
 }
 
-func (s *SettingsService) reconcile(ctx context.Context) error {
+func (s *SettingsService) reconcile(ctx context.Context, sourceID int64) error {
 	if s.runtime == nil {
 		return nil
 	}
 	reconcileCtx, cancel := context.WithTimeout(detachedContext(ctx), s.reconcileTimeout)
 	defer cancel()
-	if err := s.runtime.Reconcile(reconcileCtx); err != nil {
+	if err := s.runtime.ReconcileSource(reconcileCtx, sourceID); err != nil {
 		return fleeterror.NewUnavailableErrorf("MaestroOS source saved but runtime reload failed: %v", err)
 	}
 	return nil
@@ -669,6 +668,8 @@ func sourceStoreError(prefix string, err error) error {
 		return fleeterror.NewAlreadyExistsError("a MaestroOS curtailment source with this name already exists")
 	case errors.Is(err, ErrSourceConfigDeleteBlocked):
 		return fleeterror.NewFailedPreconditionError("disable the MaestroOS source before deleting it")
+	case errors.Is(err, ErrSourceConfigActiveCurtailment):
+		return fleeterror.NewFailedPreconditionError("cannot disable MaestroOS source while its automation events are active; restore or finish those events first")
 	case errors.Is(err, ErrSourceConfigReferenced):
 		return fleeterror.NewFailedPreconditionError("MaestroOS source is referenced by a curtailment automation rule")
 	default:

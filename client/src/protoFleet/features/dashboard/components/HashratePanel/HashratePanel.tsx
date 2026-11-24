@@ -2,18 +2,28 @@ import { useMemo } from "react";
 import { transformHashrateMetricsWithUnits } from "./utils";
 import { type Metric } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import LineChart from "@/protoFleet/components/LineChart";
-import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { padChartDataWithNulls } from "@/protoFleet/features/dashboard/utils/chartDataPadding";
+import ChartWidget from "@/shared/components/ChartWidget";
 import { FleetDuration } from "@/shared/components/DurationSelector";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 
 interface HashratePanelProps {
+  connectNulls?: boolean;
+  /** Account responses already include every output bucket, including gaps. */
+  padMissingBuckets?: boolean;
+  tooltipNotes?: Record<number, string>;
   duration: FleetDuration;
   /** Hashrate metrics — undefined = not loaded yet, empty array = loaded but no data */
   metrics: Metric[] | undefined;
 }
 
-export function HashratePanel({ duration, metrics }: HashratePanelProps) {
+export function HashratePanel({
+  duration,
+  metrics,
+  connectNulls,
+  tooltipNotes,
+  padMissingBuckets = true,
+}: HashratePanelProps) {
   // Transform metrics data to chart format with consistent unit scaling
   // Both chart data and unit are derived together to ensure consistency
   const { chartData, hashrateUnits } = useMemo(() => {
@@ -24,10 +34,10 @@ export function HashratePanel({ duration, metrics }: HashratePanelProps) {
 
     // Pad with null values for the full duration
     return {
-      chartData: padChartDataWithNulls(transformedData, duration),
+      chartData: padMissingBuckets ? padChartDataWithNulls(transformedData, duration) : transformedData,
       hashrateUnits: unit,
     };
-  }, [metrics, duration]);
+  }, [metrics, duration, padMissingBuckets]);
 
   // Get the latest hashrate value from already-transformed chart data
   const currentHashrate = useMemo(() => {
@@ -75,6 +85,8 @@ export function HashratePanel({ duration, metrics }: HashratePanelProps) {
   return (
     <ChartWidget stats={stat}>
       <LineChart
+        connectNulls={connectNulls}
+        tooltipNotes={tooltipNotes}
         chartData={chartData}
         aggregateKey="hashrate"
         units={hashrateUnits}

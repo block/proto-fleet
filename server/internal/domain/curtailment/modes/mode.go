@@ -1,5 +1,5 @@
-// Package modes provides pluggable mode-specific selection. Closed-loop
-// modes plug into Mode without touching the selector.
+// Package modes provides pure mode-specific candidate selection. Event
+// reconciliation implements closed-loop membership and drift enforcement.
 package modes
 
 // Candidate is the per-device input handed to a mode after ranking.
@@ -10,15 +10,14 @@ type Candidate struct {
 	EfficiencyJH     float64
 }
 
-// Outcome categorizes a mode result. TargetReached and UndershootTolerated
-// produce a non-empty Selected; InsufficientLoad produces empty Selected
-// plus a structured detail.
+// Outcome categorizes a mode result. Successful selection may be empty for
+// FULL_FLEET; InsufficientLoad returns empty Selected plus a structured detail.
 type Outcome int
 
 const (
-	// OutcomeTargetReached: realized kW lands in
-	// [target_kw, target_kw + last_added.power_w]. A small overshoot is
-	// unavoidable since miners are atomic.
+	// OutcomeTargetReached means the mode satisfied its selection goal.
+	// FIXED_KW reaches or overshoots target_kw by less than the last miner
+	// added; FULL_FLEET selects every eligible candidate, including none.
 	OutcomeTargetReached Outcome = iota
 
 	// OutcomeUndershootTolerated: sum < target_kw but >= target_kw - tolerance_kw.

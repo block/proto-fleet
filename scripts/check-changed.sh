@@ -16,4 +16,6 @@ if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
 fi
 
 export CHECK_CHANGED_BASE="$base"
+# Lefthook runs jobs in a pseudo-terminal, so a git pager in any job would wait for input forever.
+export GIT_PAGER=cat
 exec lefthook run changed-checks

@@ -147,7 +147,7 @@ func (s *SQLUserStore) CreateAdminUserWithOrganization(ctx context.Context, user
 
 	if err := q.CreateUserOrganization(ctx, sqlc.CreateUserOrganizationParams{
 		UserID:         userInternalID,
-		RoleID:         superAdminRoleID,
+		RoleID:         sql.NullInt64{Int64: superAdminRoleID, Valid: true},
 		OrganizationID: orgInternalID,
 	}); err != nil {
 		return fleeterror.NewInternalErrorf("error creating user_organization row: %v", err)
@@ -204,7 +204,7 @@ func (s *SQLUserStore) CreateUserOrganizationRole(ctx context.Context, userID in
 	if err := q.CreateUserOrganization(ctx, sqlc.CreateUserOrganizationParams{
 		UserID:         userID,
 		OrganizationID: organizationID,
-		RoleID:         roleID,
+		RoleID:         sql.NullInt64{Int64: roleID, Valid: true},
 	}); err != nil {
 		return err
 	}
@@ -295,14 +295,14 @@ func (s *SQLUserStore) LockAndCountOrgScopeSuperAdmins(ctx context.Context, orga
 func (s *SQLUserStore) UpdateUserOrganizationRole(ctx context.Context, userID int64, organizationID int64, oldAssignmentID int64, newRoleID int64) error {
 	q := s.getQueries(ctx)
 	if err := q.UpdateUserRole(ctx, sqlc.UpdateUserRoleParams{
-		RoleID:         newRoleID,
+		RoleID:         sql.NullInt64{Int64: newRoleID, Valid: true},
 		UserID:         userID,
 		OrganizationID: organizationID,
 	}); err != nil {
-		return fleeterror.NewInternalErrorf("error updating user_organization row: %v", err)
+		return fleeterror.NewInternalErrorf("error updating user_organization row: %w", err)
 	}
 	if err := q.UnassignRole(ctx, oldAssignmentID); err != nil {
-		return fleeterror.NewInternalErrorf("error soft-deleting old user_organization_role row: %v", err)
+		return fleeterror.NewInternalErrorf("error soft-deleting old user_organization_role row: %w", err)
 	}
 	if _, err := q.AssignRole(ctx, sqlc.AssignRoleParams{
 		UserID:         userID,
@@ -311,7 +311,7 @@ func (s *SQLUserStore) UpdateUserOrganizationRole(ctx context.Context, userID in
 		ScopeType:      "org",
 		ScopeID:        sql.NullInt64{},
 	}); err != nil {
-		return fleeterror.NewInternalErrorf("error inserting new user_organization_role row: %v", err)
+		return fleeterror.NewInternalErrorf("error inserting new user_organization_role row: %w", err)
 	}
 	return nil
 }
@@ -375,6 +375,20 @@ func (s *SQLUserStore) SoftDeleteUser(ctx context.Context, userID int64) error {
 	return s.getQueries(ctx).SoftDeleteUser(ctx, userID)
 }
 
+func (s *SQLUserStore) LockAndCountSoleHostedAccountAdministrations(ctx context.Context, organizationID int64, userID int64) (int64, error) {
+	q := s.GetTxQueries(ctx)
+	if q == nil {
+		return 0, fleeterror.NewInternalError("hosted administrator guard requires a transaction")
+	}
+	if _, err := q.LockHostedAccountOrganization(ctx, organizationID); err != nil {
+		return 0, err
+	}
+	return q.CountHostedAccountsWithoutAdministrator(ctx, sqlc.CountHostedAccountsWithoutAdministratorParams{
+		OrganizationID: organizationID,
+		ExcludedUserID: userID,
+	})
+}
+
 func (s *SQLUserStore) UpdateLastLogin(ctx context.Context, userID int64) error {
 	return s.getQueries(ctx).UpdateLastLogin(ctx, userID)
 }
@@ -406,6 +420,16 @@ func (s *SQLUserStore) GetUserRoleName(ctx context.Context, userID int64, organi
 	return s.getQueries(ctx).GetUserRoleName(ctx, sqlc.GetUserRoleNameParams{
 		UserID:         userID,
 		OrganizationID: organizationID,
+	})
+}
+
+func (s *SQLUserStore) GetActiveUserRoleNameForUpdate(ctx context.Context, userID, organizationID int64) (string, error) {
+	q := s.GetTxQueries(ctx)
+	if q == nil {
+		return "", fleeterror.NewInternalError("active organization role lookup requires a transaction")
+	}
+	return q.GetActiveUserRoleNameForUpdate(ctx, sqlc.GetActiveUserRoleNameForUpdateParams{
+		UserID: userID, OrganizationID: organizationID,
 	})
 }
 

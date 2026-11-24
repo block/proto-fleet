@@ -7,6 +7,8 @@ import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2
 import { file_buf_validate_validate } from "../../buf/validate/validate_pb";
 import type { MinerCapabilities } from "../../capabilities/v1/capabilities_pb";
 import { file_capabilities_v1_capabilities } from "../../capabilities/v1/capabilities_pb";
+import type { DeviceClass, DeviceEndpoint } from "../../common/v1/common_pb";
+import { file_common_v1_common } from "../../common/v1/common_pb";
 import type { DeviceSelector } from "../../minercommand/v1/command_pb";
 import { file_minercommand_v1_command } from "../../minercommand/v1/command_pb";
 import type { Message } from "@bufbuild/protobuf";
@@ -17,8 +19,13 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_pairing_v1_pairing: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChhwYWlyaW5nL3YxL3BhaXJpbmcucHJvdG8SCnBhaXJpbmcudjEinwIKBkRldmljZRIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRISCgppcF9hZGRyZXNzGAIgASgJEgwKBHBvcnQYAyABKAkSEwoLbWFjX2FkZHJlc3MYBCABKAkSFQoNc2VyaWFsX251bWJlchgFIAEoCRINCgVtb2RlbBgGIAEoCRIUCgxtYW51ZmFjdHVyZXIYByABKAkSEgoKdXJsX3NjaGVtZRgIIAEoCRI4CgxjYXBhYmlsaXRpZXMYCiABKAsyIi5jYXBhYmlsaXRpZXMudjEuTWluZXJDYXBhYmlsaXRpZXMSGAoQZmlybXdhcmVfdmVyc2lvbhgLIAEoCRITCgtkcml2ZXJfbmFtZRgMIAEoCUoECAkQClIEdHlwZSJDCgtDcmVkZW50aWFscxIQCgh1c2VybmFtZRgBIAEoCRIVCghwYXNzd29yZBgCIAEoCUgAiAEBQgsKCV9wYXNzd29yZCJQCg9NRE5TTW9kZVJlcXVlc3QSFAoMc2VydmljZV90eXBlGAEgASgJEg4KBmRvbWFpbhgCIAEoCRIXCg90aW1lb3V0X3NlY29uZHMYAyABKAUiZgoWTmV0d29ya1NjYW5Nb2RlUmVxdWVzdBIOCgZ0YXJnZXQYASABKAkSFwoFcG9ydHMYAiADKAlCCLpIBZIBAhAKEiMKG3VzZV9mbGVldF9ub2RlX2xvY2FsX3N1Ym5ldBgDIAEoCCJPChJJUFJhbmdlTW9kZVJlcXVlc3QSEAoIc3RhcnRfaXAYASABKAkSDgoGZW5kX2lwGAIgASgJEhcKBXBvcnRzGAMgAygJQgi6SAWSAQIQCiJNChFJUExpc3RNb2RlUmVxdWVzdBIfCgxpcF9hZGRyZXNzZXMYASADKAlCCbpIBpIBAxCAIBIXCgVwb3J0cxgCIAMoCUIIukgFkgECEAoi6AEKD0Rpc2NvdmVyUmVxdWVzdBIwCgdpcF9saXN0GAEgASgLMh0ucGFpcmluZy52MS5JUExpc3RNb2RlUmVxdWVzdEgAEjIKCGlwX3JhbmdlGAIgASgLMh4ucGFpcmluZy52MS5JUFJhbmdlTW9kZVJlcXVlc3RIABIrCgRtZG5zGAMgASgLMhsucGFpcmluZy52MS5NRE5TTW9kZVJlcXVlc3RIABI6CgxuZXR3b3JrX3NjYW4YBCABKAsyIi5wYWlyaW5nLnYxLk5ldHdvcmtTY2FuTW9kZVJlcXVlc3RIAEIGCgRtb2RlIkgKEERpc2NvdmVyUmVzcG9uc2USIwoHZGV2aWNlcxgBIAMoCzISLnBhaXJpbmcudjEuRGV2aWNlEg8KB3dhcm5pbmcYAiABKAkidQoLUGFpclJlcXVlc3QSLAoLY3JlZGVudGlhbHMYASABKAsyFy5wYWlyaW5nLnYxLkNyZWRlbnRpYWxzEjgKD2RldmljZV9zZWxlY3RvchgCIAEoCzIfLm1pbmVyY29tbWFuZC52MS5EZXZpY2VTZWxlY3RvciIpCgxQYWlyUmVzcG9uc2USGQoRZmFpbGVkX2RldmljZV9pZHMYASADKAkigwEKFEZsZWV0Tm9kZVBhaXJSZXF1ZXN0Ej0KB3RhcmdldHMYASADKAsyHy5wYWlyaW5nLnYxLkZsZWV0Tm9kZVBhaXJUYXJnZXRCC7pICJIBBQgBEIAIEiwKC2NyZWRlbnRpYWxzGAIgASgLMhcucGFpcmluZy52MS5DcmVkZW50aWFscyLnAgoTRmxlZXROb2RlUGFpclRhcmdldBIlChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCUIKukgHcgUQARj/ARIfCgppcF9hZGRyZXNzGAIgASgJQgu6SAhyBhABGC1wARKGAQoEcG9ydBgDIAEoCUJ4ukh1ugFsCgpwb3J0LnJhbmdlEilwb3J0IG11c3QgYmUgYSBkZWNpbWFsIG51bWJlciBpbiAxLi42NTUzNRozdGhpcy5tYXRjaGVzKCdeWzEtOV1bMC05XSokJykgJiYgaW50KHRoaXMpIDw9IDY1NTM1cgQQARgFEhsKCnVybF9zY2hlbWUYBCABKAlCB7pIBHICGCASHgoLZHJpdmVyX25hbWUYBSABKAlCCbpIBnIEEAEYMhIeCgxtYW51ZmFjdHVyZXIYBiABKAlCCLpIBXIDGP8BEiIKEGZpcm13YXJlX3ZlcnNpb24YByABKAlCCLpIBXIDGP8BMpQBCg5QYWlyaW5nU2VydmljZRJHCghEaXNjb3ZlchIbLnBhaXJpbmcudjEuRGlzY292ZXJSZXF1ZXN0GhwucGFpcmluZy52MS5EaXNjb3ZlclJlc3BvbnNlMAESOQoEUGFpchIXLnBhaXJpbmcudjEuUGFpclJlcXVlc3QaGC5wYWlyaW5nLnYxLlBhaXJSZXNwb25zZUKwAQoOY29tLnBhaXJpbmcudjFCDFBhaXJpbmdQcm90b1ABWkdnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9wYWlyaW5nL3YxO3BhaXJpbmd2MaICA1BYWKoCClBhaXJpbmcuVjHKAgpQYWlyaW5nXFYx4gIWUGFpcmluZ1xWMVxHUEJNZXRhZGF0YeoCC1BhaXJpbmc6OlYxYgZwcm90bzM",
-    [file_buf_validate_validate, file_capabilities_v1_capabilities, file_minercommand_v1_command],
+    "ChhwYWlyaW5nL3YxL3BhaXJpbmcucHJvdG8SCnBhaXJpbmcudjEi3gMKBkRldmljZRIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRISCgppcF9hZGRyZXNzGAIgASgJEgwKBHBvcnQYAyABKAkSEwoLbWFjX2FkZHJlc3MYBCABKAkSFQoNc2VyaWFsX251bWJlchgFIAEoCRINCgVtb2RlbBgGIAEoCRIUCgxtYW51ZmFjdHVyZXIYByABKAkSEgoKdXJsX3NjaGVtZRgIIAEoCRIsCgxkZXZpY2VfY2xhc3MYCSABKA4yFi5jb21tb24udjEuRGV2aWNlQ2xhc3MSOAoMY2FwYWJpbGl0aWVzGAogASgLMiIuY2FwYWJpbGl0aWVzLnYxLk1pbmVyQ2FwYWJpbGl0aWVzEhgKEGZpcm13YXJlX3ZlcnNpb24YCyABKAkSEwoLZHJpdmVyX25hbWUYDCABKAkSHQoIcnBjX3BvcnQYDSABKAVCC7pICBoGGP//AygAEg8KB3JwY190bHMYDiABKAgSNgoJZW5kcG9pbnRzGA8gAygLMhkuY29tbW9uLnYxLkRldmljZUVuZHBvaW50Qgi6SAWSAQIQEBIVCg1mbGVldF9ub2RlX2lkGBAgASgDEhYKDmFscmVhZHlfcGFpcmVkGBEgASgIUgR0eXBlIkMKC0NyZWRlbnRpYWxzEhAKCHVzZXJuYW1lGAEgASgJEhUKCHBhc3N3b3JkGAIgASgJSACIAQFCCwoJX3Bhc3N3b3JkIlAKD01ETlNNb2RlUmVxdWVzdBIUCgxzZXJ2aWNlX3R5cGUYASABKAkSDgoGZG9tYWluGAIgASgJEhcKD3RpbWVvdXRfc2Vjb25kcxgDIAEoBSJmChZOZXR3b3JrU2Nhbk1vZGVSZXF1ZXN0Eg4KBnRhcmdldBgBIAEoCRIXCgVwb3J0cxgCIAMoCUIIukgFkgECEAoSIwobdXNlX2ZsZWV0X25vZGVfbG9jYWxfc3VibmV0GAMgASgIIk8KEklQUmFuZ2VNb2RlUmVxdWVzdBIQCghzdGFydF9pcBgBIAEoCRIOCgZlbmRfaXAYAiABKAkSFwoFcG9ydHMYAyADKAlCCLpIBZIBAhAKIk0KEUlQTGlzdE1vZGVSZXF1ZXN0Eh8KDGlwX2FkZHJlc3NlcxgBIAMoCUIJukgGkgEDEIAgEhcKBXBvcnRzGAIgAygJQgi6SAWSAQIQCiLoAQoPRGlzY292ZXJSZXF1ZXN0EjAKB2lwX2xpc3QYASABKAsyHS5wYWlyaW5nLnYxLklQTGlzdE1vZGVSZXF1ZXN0SAASMgoIaXBfcmFuZ2UYAiABKAsyHi5wYWlyaW5nLnYxLklQUmFuZ2VNb2RlUmVxdWVzdEgAEisKBG1kbnMYAyABKAsyGy5wYWlyaW5nLnYxLk1ETlNNb2RlUmVxdWVzdEgAEjoKDG5ldHdvcmtfc2NhbhgEIAEoCzIiLnBhaXJpbmcudjEuTmV0d29ya1NjYW5Nb2RlUmVxdWVzdEgAQgYKBG1vZGUiSAoQRGlzY292ZXJSZXNwb25zZRIjCgdkZXZpY2VzGAEgAygLMhIucGFpcmluZy52MS5EZXZpY2USDwoHd2FybmluZxgCIAEoCSJ1CgtQYWlyUmVxdWVzdBIsCgtjcmVkZW50aWFscxgBIAEoCzIXLnBhaXJpbmcudjEuQ3JlZGVudGlhbHMSOAoPZGV2aWNlX3NlbGVjdG9yGAIgASgLMh8ubWluZXJjb21tYW5kLnYxLkRldmljZVNlbGVjdG9yIikKDFBhaXJSZXNwb25zZRIZChFmYWlsZWRfZGV2aWNlX2lkcxgBIAMoCSKDAQoURmxlZXROb2RlUGFpclJlcXVlc3QSPQoHdGFyZ2V0cxgBIAMoCzIfLnBhaXJpbmcudjEuRmxlZXROb2RlUGFpclRhcmdldEILukgIkgEFCAEQgAgSLAoLY3JlZGVudGlhbHMYAiABKAsyFy5wYWlyaW5nLnYxLkNyZWRlbnRpYWxzIocEChNGbGVldE5vZGVQYWlyVGFyZ2V0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BEh8KCmlwX2FkZHJlc3MYAiABKAlCC7pICHIGEAEYLXABEoYBCgRwb3J0GAMgASgJQni6SHW6AWwKCnBvcnQucmFuZ2USKXBvcnQgbXVzdCBiZSBhIGRlY2ltYWwgbnVtYmVyIGluIDEuLjY1NTM1GjN0aGlzLm1hdGNoZXMoJ15bMS05XVswLTldKiQnKSAmJiBpbnQodGhpcykgPD0gNjU1MzVyBBABGAUSGwoKdXJsX3NjaGVtZRgEIAEoCUIHukgEcgIYIBIeCgtkcml2ZXJfbmFtZRgFIAEoCUIJukgGcgQQARgyEh4KDG1hbnVmYWN0dXJlchgGIAEoCUIIukgFcgMY/wESIgoQZmlybXdhcmVfdmVyc2lvbhgHIAEoCUIIukgFcgMY/wESNgoMZGV2aWNlX2NsYXNzGAggASgOMhYuY29tbW9uLnYxLkRldmljZUNsYXNzQgi6SAWCAQIQARIdCghycGNfcG9ydBgJIAEoBUILukgIGgYY//8DKAASDwoHcnBjX3RscxgKIAEoCBI2CgllbmRwb2ludHMYCyADKAsyGS5jb21tb24udjEuRGV2aWNlRW5kcG9pbnRCCLpIBZIBAhAQMpQBCg5QYWlyaW5nU2VydmljZRJHCghEaXNjb3ZlchIbLnBhaXJpbmcudjEuRGlzY292ZXJSZXF1ZXN0GhwucGFpcmluZy52MS5EaXNjb3ZlclJlc3BvbnNlMAESOQoEUGFpchIXLnBhaXJpbmcudjEuUGFpclJlcXVlc3QaGC5wYWlyaW5nLnYxLlBhaXJSZXNwb25zZUKwAQoOY29tLnBhaXJpbmcudjFCDFBhaXJpbmdQcm90b1ABWkdnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9wYWlyaW5nL3YxO3BhaXJpbmd2MaICA1BYWKoCClBhaXJpbmcuVjHKAgpQYWlyaW5nXFYx4gIWUGFpcmluZ1xWMVxHUEJNZXRhZGF0YeoCC1BhaXJpbmc6OlYxYgZwcm90bzM",
+    [
+      file_buf_validate_validate,
+      file_capabilities_v1_capabilities,
+      file_common_v1_common,
+      file_minercommand_v1_command,
+    ],
   );
 
 /**
@@ -84,6 +91,13 @@ export type Device = Message<"pairing.v1.Device"> & {
   urlScheme: string;
 
   /**
+   * Hardware class reported by the device driver, independent of model name.
+   *
+   * @generated from field: common.v1.DeviceClass device_class = 9;
+   */
+  deviceClass: DeviceClass;
+
+  /**
    * Capabilities of the device
    *
    * @generated from field: capabilities.v1.MinerCapabilities capabilities = 10;
@@ -99,11 +113,44 @@ export type Device = Message<"pairing.v1.Device"> & {
 
   /**
    * Driver name identifies which plugin handles this device (e.g., "proto", "antminer").
-   * Used for plugin routing; distinct from type which describes hardware identity.
+   * Used for plugin routing; distinct from device_class which describes hardware identity.
    *
    * @generated from field: string driver_name = 12;
    */
   driverName: string;
+
+  /**
+   * Independent native RPC listener on the same host; zero uses the driver default.
+   *
+   * @generated from field: int32 rpc_port = 13;
+   */
+  rpcPort: number;
+
+  /**
+   * @generated from field: bool rpc_tls = 14;
+   */
+  rpcTls: boolean;
+
+  /**
+   * @generated from field: repeated common.v1.DeviceEndpoint endpoints = 15;
+   */
+  endpoints: DeviceEndpoint[];
+
+  /**
+   * Discovering Fleet Node; zero for direct Fleet Server discovery.
+   *
+   * @generated from field: int64 fleet_node_id = 16;
+   */
+  fleetNodeId: bigint;
+
+  /**
+   * True when the server finds an existing live Fleet pairing record for this
+   * device. Discovery still returns the device so existing records can refresh,
+   * while add-device clients can exclude it from new pairing selection.
+   *
+   * @generated from field: bool already_paired = 17;
+   */
+  alreadyPaired: boolean;
 };
 
 /**
@@ -485,6 +532,26 @@ export type FleetNodePairTarget = Message<"pairing.v1.FleetNodePairTarget"> & {
    * @generated from field: string firmware_version = 7;
    */
   firmwareVersion: string;
+
+  /**
+   * @generated from field: common.v1.DeviceClass device_class = 8;
+   */
+  deviceClass: DeviceClass;
+
+  /**
+   * @generated from field: int32 rpc_port = 9;
+   */
+  rpcPort: number;
+
+  /**
+   * @generated from field: bool rpc_tls = 10;
+   */
+  rpcTls: boolean;
+
+  /**
+   * @generated from field: repeated common.v1.DeviceEndpoint endpoints = 11;
+   */
+  endpoints: DeviceEndpoint[];
 };
 
 /**

@@ -1,9 +1,10 @@
-go 1.26.6
+go 1.26.11
 
 use (
 	./plugin/antminer
 	./plugin/proto
 	./plugin/virtual
+	./sdk/mdk
 	./server
 	./tests/plugin-contract
 )

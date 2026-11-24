@@ -1,5 +1,3 @@
-import { Pool } from "@/protoOS/api/generatedApi";
+import type { PoolInfo } from "@/protoOS/store/contract";
 
-export interface PoolInfo extends Pick<Pool, "status" | "url"> {
-  index: number;
-}
+export type PoolStatusEntry = Pick<PoolInfo, "status" | "url"> & Partial<Pick<PoolInfo, "priority">>;

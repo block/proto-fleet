@@ -14,6 +14,7 @@ services:
       context: ./server
     environment:
       LOG_LEVEL: "INFO"
+      FLEET_RUNTIME_METRICS_ENABLED: "${FLEET_RUNTIME_METRICS_ENABLED:-false}"
       AUTH_CLIENT_SECRET_KEY: "${AUTH_CLIENT_SECRET_KEY}"
       DB_USERNAME: "${DB_USERNAME}"
       DB_PASSWORD: "${DB_PASSWORD}"
@@ -33,6 +34,7 @@ services:
       # Host-profile tunables (deployment-files/profiles/); defaults mirror
       # the Go config defaults so unprofiled installs are unchanged
       DB_MAX_OPEN_CONNS: "${DB_MAX_OPEN_CONNS:-250}"
+      DB_MAX_DISPATCH_CONNS: "${DB_MAX_DISPATCH_CONNS:-0}"
       DB_MAX_IDLE_CONNS: "${DB_MAX_IDLE_CONNS:-50}"
       TELEMETRY_FETCH_INTERVAL: "${TELEMETRY_FETCH_INTERVAL:-5s}"
       TELEMETRY_STALENESS_THRESHOLD: "${TELEMETRY_STALENESS_THRESHOLD:-20s}"
@@ -41,15 +43,22 @@ services:
       TIMESCALEDB_QUERY_TIMEOUT: "${TIMESCALEDB_QUERY_TIMEOUT:-60s}"
       TIMESCALEDB_MAX_TIME_SERIES_ROWS: "${TIMESCALEDB_MAX_TIME_SERIES_ROWS:-100000}"
       TIMESCALEDB_ASYNC_METRIC_COMMIT: "${TIMESCALEDB_ASYNC_METRIC_COMMIT:-false}"
+      TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS: "${TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS:-false}"
       FLEET_COMMAND_MAX_WORKERS: "${FLEET_COMMAND_MAX_WORKERS:-500}"
       # Deployment-controlled half of the dual Modbus dial allowlist.
       # Empty keeps all infrastructure writes disabled.
       INFRASTRUCTURE_OT_CONTROL_SUBNETS: "${INFRASTRUCTURE_OT_CONTROL_SUBNETS:-}"
+      # Trusted Frigate release public keys. While it is empty, Fleet has no
+      # installed key and accepts an upload it cannot verify, with a warning;
+      # set it to /app/frigate-release-keys once a key is installed.
+      FRIGATE_UPDATE_RELEASE_KEYS_DIR: "${FRIGATE_UPDATE_RELEASE_KEYS_DIR:-}"
     volumes:
       # Sibling of deployment: retained across installer and updater tree swaps.
       - ../artifacts/firmware:/app/firmware
       - ../artifacts/command-artifacts:/app/command-artifacts
       - ../artifacts/logs:/app/logs
+      # Read-only so the server can never change the keys it trusts.
+      - ../artifacts/frigate-release-keys:/app/frigate-release-keys:ro
     depends_on:
       timescaledb:
         condition: service_healthy

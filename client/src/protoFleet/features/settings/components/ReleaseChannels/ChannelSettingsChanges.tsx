@@ -41,7 +41,7 @@ export default function ChannelSettingsChanges({
           </span>
           <Button
             variant={variants.textOnly}
-            text="View miners"
+            text={`View ${minerChanges.nouns.plural}`}
             ariaHasPopup="dialog"
             onClick={(event) => onViewMiners(minerChanges, event.currentTarget)}
           />

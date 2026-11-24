@@ -244,7 +244,7 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 
 	minerStatus, err := d.client.GetStatus(ctx)
 	if err != nil {
-		return sdk.DeviceMetrics{}, fmt.Errorf("failed to get miner status: %w", err)
+		return sdk.DeviceMetrics{}, fmt.Errorf("failed to get miner status: %w", sdk.WithDeviceDialFailure(ctx, err))
 	}
 
 	telemetry, err := d.client.GetTelemetry(ctx)
@@ -657,6 +657,7 @@ func (d *Device) UpdateMiningPools(ctx context.Context, pools []sdk.MiningPoolCo
 			Priority:   int(p.Priority),
 			URL:        p.URL,
 			WorkerName: p.WorkerName,
+			Password:   p.Password,
 		})
 	}
 	return d.client.UpdatePools(ctx, antminerPools)
@@ -686,6 +687,37 @@ func (d *Device) GetMiningPools(ctx context.Context) ([]sdk.ConfiguredPool, erro
 	}
 
 	return pools, nil
+}
+
+// GetStoredMiningPools uses authenticated configuration readback, including
+// disabled slots. Runtime RPC pool telemetry cannot prove stored credentials.
+func (d *Device) GetStoredMiningPools(ctx context.Context) ([]sdk.StoredMiningPool, error) {
+	config, err := d.client.GetMinerConfig(ctx)
+	if err != nil {
+		code := sdk.ErrCodeDeviceUnavailable
+		var sdkErr sdk.SDKError
+		if errors.As(err, &sdkErr) {
+			code = sdkErr.Code
+		} else if isAntminerAuthenticationError(err) {
+			code = sdk.ErrCodeAuthenticationFailed
+		}
+		return nil, sdk.SDKError{Code: code, Message: "complete stored pool configuration could not be read"}
+	}
+	if config == nil || config.Pools == nil || len(config.Pools) > 3 {
+		return nil, sdk.SDKError{Code: sdk.ErrCodeInvalidConfig, Message: "complete stored pool configuration is unavailable"}
+	}
+	result := make([]sdk.StoredMiningPool, len(config.Pools))
+	for i, pool := range config.Pools {
+		if !pool.DestinationPresent {
+			return nil, sdk.SDKError{Code: sdk.ErrCodeInvalidConfig, Message: "complete stored pool configuration is unavailable"}
+		}
+		result[i] = sdk.StoredMiningPool{Priority: int32(i), URL: pool.URL, Username: pool.Username} // #nosec G115 -- at most three slots checked above.
+		masked := (pool.Password != "" && strings.Trim(pool.Password, "*") == "") || strings.EqualFold(pool.Password, "<redacted>")
+		if pool.PasswordPresent && !masked {
+			result[i].Password = ptrString(pool.Password)
+		}
+	}
+	return result, nil
 }
 
 // BlinkLED implements the SDK Device interface.
@@ -751,7 +783,7 @@ func (d *Device) UpdateMinerPassword(ctx context.Context, currentPassword string
 
 // Optional capabilities - these return false to indicate they're not supported
 
-func (d *Device) TryBatchStatus(ctx context.Context, _ []string) (map[string]sdk.DeviceMetrics, bool, error) {
+func (d *Device) TryBatchStatus(ctx context.Context, _ []sdk.Device) (map[string]sdk.DeviceMetrics, bool, error) {
 	return nil, false, nil // Not supported by individual devices
 }
 

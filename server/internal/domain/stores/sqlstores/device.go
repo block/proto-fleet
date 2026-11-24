@@ -14,10 +14,12 @@ import (
 
 	"github.com/lib/pq"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	tm "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/credentialblob"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
@@ -28,6 +30,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
+	"github.com/block/proto-fleet/server/internal/runtimepolicy"
 )
 
 const (
@@ -56,12 +59,24 @@ func handleQueryError(err error, notFoundMsg, internalMsg string) error {
 
 type SQLDeviceStore struct {
 	SQLConnectionManager
+	statusRefreshInterval time.Duration
 }
 
 func NewSQLDeviceStore(conn *sql.DB) *SQLDeviceStore {
 	return &SQLDeviceStore{
-		SQLConnectionManager: NewSQLConnectionManager(conn),
+		SQLConnectionManager:  NewSQLConnectionManager(conn),
+		statusRefreshInterval: time.Minute,
 	}
+}
+
+// WithStatusFreshnessThreshold limits the refresh interval to half the closer's
+// freshness threshold, capped at one minute. Call it before polling starts.
+// Nonpositive thresholds retain the default, matching diagnostics configuration.
+func (s *SQLDeviceStore) WithStatusFreshnessThreshold(threshold time.Duration) *SQLDeviceStore {
+	if threshold > 0 {
+		s.statusRefreshInterval = min(time.Minute, threshold/2)
+	}
+	return s
 }
 
 func (s *SQLDeviceStore) getQueries(ctx context.Context) sqlc.Querier {
@@ -129,11 +144,14 @@ func (s *SQLDeviceStore) GetDeviceByDeviceIdentifier(ctx context.Context, identi
 		MacAddress:       device.MacAddress,
 		SerialNumber:     device.SerialNumber.String,
 		Model:            discoveredDevice.Model.String,
+		DeviceClass:      commonpb.DeviceClass(discoveredDevice.DeviceClass),
 		DriverName:       discoveredDevice.DriverName,
 		Manufacturer:     discoveredDevice.Manufacturer.String,
 		IpAddress:        discoveredDevice.IpAddress,
 		Port:             discoveredDevice.Port,
 		UrlScheme:        discoveredDevice.UrlScheme,
+		RpcPort:          discoveredDevice.RpcPort,
+		RpcTls:           discoveredDevice.RpcTls,
 	}
 
 	return result, nil
@@ -418,10 +436,13 @@ func (s *SQLDeviceStore) GetDeviceWithIPAssignment(ctx context.Context, deviceId
 			MacAddress:       device.MacAddress,
 			SerialNumber:     device.SerialNumber.String,
 			Model:            discoveredDevice.Model.String,
+			DeviceClass:      commonpb.DeviceClass(discoveredDevice.DeviceClass),
 			Manufacturer:     discoveredDevice.Manufacturer.String,
 			IpAddress:        discoveredDevice.IpAddress,
 			Port:             discoveredDevice.Port,
 			UrlScheme:        discoveredDevice.UrlScheme,
+			RpcPort:          discoveredDevice.RpcPort,
+			RpcTls:           discoveredDevice.RpcTls,
 		},
 		OrgID: orgID,
 	}, nil
@@ -448,8 +469,40 @@ func (s *SQLDeviceStore) GetTotalPairedDevices(ctx context.Context, orgID int64,
 	})
 }
 
+func (s *SQLDeviceStore) GetTotalPairedMiners(ctx context.Context, orgID int64, filter *stores.MinerFilter) (int64, error) {
+	fp := buildFilterParams(filter)
+
+	// site_ids may be nil (all-sites); the query COALESCEs NULL to an empty
+	// array so the cardinality()=0 "no filter" branch fires.
+	var siteIDs []int64
+	includeUnassigned := false
+	if filter != nil {
+		siteIDs = filter.SiteIDs
+		includeUnassigned = filter.IncludeUnassigned
+	}
+
+	return s.GetQueries(ctx).GetTotalPairedMiners(ctx, sqlc.GetTotalPairedMinersParams{
+		OrgID:             orgID,
+		StatusFilter:      fp.statusFilter,
+		ModelFilter:       fp.modelFilter,
+		SiteIds:           siteIDs,
+		IncludeUnassigned: includeUnassigned,
+	})
+}
+
 func (s *SQLDeviceStore) GetTotalDevicesPendingAuth(ctx context.Context, orgID int64) (int64, error) {
 	return s.GetQueries(ctx).GetTotalDevicesPendingAuth(ctx, orgID)
+}
+
+func (s *SQLDeviceStore) GetAlreadyPairedDeviceIdentifiers(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error) {
+	identifiers, err := s.GetQueries(ctx).GetAlreadyPairedDeviceIdentifiers(ctx, sqlc.GetAlreadyPairedDeviceIdentifiersParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get already-paired device identifiers: %w", err)
+	}
+	return identifiers, nil
 }
 
 func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]models.DeviceIdentifier, error) {
@@ -464,6 +517,18 @@ func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]m
 	}
 
 	return deviceIDs, nil
+}
+
+func (s *SQLDeviceStore) GetTelemetryEligibleDeviceIdentifiers(ctx context.Context, deviceIDs []models.DeviceIdentifier) ([]models.DeviceIdentifier, error) {
+	identifiers := make([]string, len(deviceIDs))
+	for i, id := range deviceIDs {
+		identifiers[i] = id.String()
+	}
+	eligible, err := s.GetQueries(ctx).GetTelemetryEligibleDeviceIdentifiers(ctx, identifiers)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get telemetry-eligible device identifiers: %w", err)
+	}
+	return models.ToDeviceIdentifiers(eligible), nil
 }
 
 // GetDeviceOrgDriverAndSite returns the trusted (org_id, driver_name, site_id)
@@ -689,6 +754,16 @@ func buildFilterParams(filter *stores.MinerFilter) modelGroupFilterParams {
 }
 
 func (s *SQLDeviceStore) UpsertDeviceStatus(ctx context.Context, deviceIdentifier models.DeviceIdentifier, status minermodels.MinerStatus, details string) error {
+	return s.upsertDeviceStatus(ctx, deviceIdentifier, status, details, sql.NullTime{})
+}
+
+// MarkFirmwareRebootRequiredStatus records when the installed firmware first
+// required a reboot independently of when polling notices the terminal state.
+func (s *SQLDeviceStore) MarkFirmwareRebootRequiredStatus(ctx context.Context, deviceIdentifier models.DeviceIdentifier, rebootRequiredAfter time.Time) error {
+	return s.upsertDeviceStatus(ctx, deviceIdentifier, minermodels.MinerStatusRebootRequired, "", sql.NullTime{Time: rebootRequiredAfter, Valid: !rebootRequiredAfter.IsZero()})
+}
+
+func (s *SQLDeviceStore) upsertDeviceStatus(ctx context.Context, deviceIdentifier models.DeviceIdentifier, status minermodels.MinerStatus, details string, rebootRequiredAfter sql.NullTime) error {
 	sqlStatus := toDeviceStatus(status)
 	deviceID, err := s.getQueries(ctx).GetDeviceIDByDeviceIdentifier(ctx, deviceIdentifier.String())
 	if err != nil {
@@ -698,10 +773,11 @@ func (s *SQLDeviceStore) UpsertDeviceStatus(ctx context.Context, deviceIdentifie
 	}
 
 	err = s.getQueries(ctx).UpsertDeviceStatus(ctx, sqlc.UpsertDeviceStatusParams{
-		DeviceID:        deviceID,
-		Status:          sqlStatus,
-		StatusTimestamp: sql.NullTime{Time: time.Now(), Valid: true},
-		StatusDetails:   sql.NullString{String: details, Valid: false},
+		DeviceID:            deviceID,
+		Status:              sqlStatus,
+		StatusTimestamp:     sql.NullTime{Time: time.Now(), Valid: true},
+		StatusDetails:       sql.NullString{String: details, Valid: false},
+		RebootRequiredAfter: rebootRequiredAfter,
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to upsert device status: %v", err)
@@ -709,7 +785,23 @@ func (s *SQLDeviceStore) UpsertDeviceStatus(ctx context.Context, deviceIdentifie
 	return nil
 }
 
-// UpsertDeviceStatuses upserts multiple device statuses in a single bulk query.
+// ReconcileRebootRequiredStatus clears a pending reboot only when the observed
+// boot is newer than the current installation's reboot boundary. The conditional
+// update also protects a newer installation that raced with the telemetry sample.
+func (s *SQLDeviceStore) ReconcileRebootRequiredStatus(ctx context.Context, deviceIdentifier models.DeviceIdentifier, bootedAfter time.Time, status minermodels.MinerStatus) (bool, error) {
+	updated, err := s.getQueries(ctx).ReconcileRebootRequiredStatus(ctx, sqlc.ReconcileRebootRequiredStatusParams{
+		DeviceIdentifier: deviceIdentifier.String(),
+		BootedAfter:      bootedAfter,
+		Status:           toDeviceStatus(status),
+	})
+	if err != nil {
+		return false, fleeterror.NewInternalErrorf("failed to reconcile reboot-required device status: %v", err)
+	}
+	return updated > 0, nil
+}
+
+// UpsertDeviceStatuses writes status changes immediately and refreshes unchanged
+// statuses at most once per refresh interval in a single bulk query.
 func (s *SQLDeviceStore) UpsertDeviceStatuses(ctx context.Context, updates []stores.DeviceStatusUpdate) error {
 	if len(updates) == 0 {
 		return nil
@@ -772,11 +864,12 @@ func (s *SQLDeviceStore) UpsertDeviceStatuses(ctx context.Context, updates []sto
 	})
 
 	// Build args in sorted order
-	now := time.Now()
-	args := make([]any, 0, len(validUpdates)*4)
+	args := make([]any, 0, len(validUpdates)*4+1)
 	for _, v := range validUpdates {
-		args = append(args, v.deviceID, toDeviceStatus(v.update.Status), now, "")
+		hasEvidence := v.update.Status != minermodels.MinerStatusOffline || v.update.OfflineConfirmed
+		args = append(args, v.deviceID, toDeviceStatus(v.update.Status), "", hasEvidence)
 	}
+	args = append(args, s.statusRefreshInterval.Microseconds())
 
 	query := buildDeviceStatusBulkUpsert(len(validUpdates))
 	_, err = s.conn.ExecContext(ctx, query, args...)
@@ -796,7 +889,11 @@ func (s *SQLDeviceStore) UpsertDeviceStatuses(ctx context.Context, updates []sto
 //
 // A single bulk INSERT with ON CONFLICT DO UPDATE is both fast (1 round-trip) and atomic.
 // The WHERE clause prevents telemetry status writes from overwriting firmware update
-// states (UPDATING, REBOOT_REQUIRED) that are managed by the command execution service.
+// states (UPDATING, REBOOT_REQUIRED) that are managed by the command execution
+// service, and ignores late results for unpaired Node-discovered miners.
+// Unchanged statuses refresh periodically without rewriting a stable device's row
+// on every poll. A change in reachability evidence also updates the row, even
+// when the status stays the same. Both timestamps use the database clock.
 func buildDeviceStatusBulkUpsert(rowCount int) string {
 	var b strings.Builder
 	paramNum := 1
@@ -804,18 +901,32 @@ func buildDeviceStatusBulkUpsert(rowCount int) string {
 		if i > 0 {
 			b.WriteString(", ")
 		}
-		fmt.Fprintf(&b, "($%d, $%d, $%d, $%d)", paramNum, paramNum+1, paramNum+2, paramNum+3)
+		fmt.Fprintf(&b, "($%d, $%d, statement_timestamp(), $%d, CASE WHEN $%d THEN statement_timestamp() END)", paramNum, paramNum+1, paramNum+2, paramNum+3)
 		paramNum += 4
 	}
 
 	return fmt.Sprintf(
-		"INSERT INTO device_status (device_id, status, status_timestamp, status_details) VALUES %s "+
+		"INSERT INTO device_status (device_id, status, status_timestamp, status_details, telemetry_status_at) VALUES %s "+
 			"ON CONFLICT (device_id) DO UPDATE SET "+
 			"status = EXCLUDED.status, "+
 			"status_timestamp = EXCLUDED.status_timestamp, "+
-			"status_details = EXCLUDED.status_details "+
-			"WHERE device_status.status NOT IN ('UPDATING', 'REBOOT_REQUIRED')",
-		b.String(),
+			"telemetry_status_at = EXCLUDED.telemetry_status_at, "+
+			"status_details = EXCLUDED.status_details, "+
+			"reboot_required_after = NULL "+
+			"WHERE device_status.status NOT IN ('UPDATING', 'REBOOT_REQUIRED') "+
+			"AND device_status.status_details IS DISTINCT FROM 'fleet_node_revoked' "+
+			"AND (device_status.status IS DISTINCT FROM EXCLUDED.status "+
+			"OR COALESCE(device_status.telemetry_status_at = device_status.status_timestamp, FALSE) IS DISTINCT FROM (EXCLUDED.telemetry_status_at IS NOT NULL) "+
+			"OR device_status.status_timestamp IS NULL "+
+			"OR device_status.status_timestamp <= statement_timestamp() - ($%d::bigint * interval '1 microsecond')) "+
+			"AND NOT EXISTS ("+
+			"SELECT 1 FROM device d "+
+			"JOIN device_pairing dp ON dp.device_id = d.id AND dp.pairing_status = 'UNPAIRED' "+
+			"JOIN discovered_device dd ON dd.id = d.discovered_device_id "+
+			"WHERE d.id = EXCLUDED.device_id "+
+			"AND dd.discovered_by_fleet_node_id IS NOT NULL "+
+			"AND NOT EXISTS (SELECT 1 FROM fleet_node_device fnd WHERE fnd.device_id = d.id))",
+		b.String(), paramNum,
 	)
 }
 
@@ -989,6 +1100,7 @@ func (s *SQLDeviceStore) GetOfflineFleetNodeDevices(ctx context.Context) ([]stor
 	targets := make([]stores.FleetNodeRecoveryTarget, 0, len(rows))
 	for _, row := range rows {
 		targets = append(targets, stores.FleetNodeRecoveryTarget{
+			RPCPort: row.RpcPort, RPCTLS: row.RpcTls, DeviceClass: row.DeviceClass,
 			FleetNodeID: row.FleetNodeID, DeviceIdentifier: row.DeviceIdentifier,
 			OrgID: row.OrgID, SerialNumber: row.SerialNumber.String, MacAddress: row.MacAddress,
 			DriverName: row.DriverName, LastKnownIP: row.IpAddress, LastKnownPort: row.Port,
@@ -1001,8 +1113,8 @@ func (s *SQLDeviceStore) GetOfflineFleetNodeDevices(ctx context.Context) ([]stor
 
 func (s *SQLDeviceStore) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, target stores.FleetNodeRecoveryTarget, ipAddress, port, urlScheme string) (bool, error) {
 	return db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (bool, error) {
-		// Lock the node before miner rows, matching revocation and pairing.
-		node, err := q.LockFleetNodeByID(ctx, sqlc.LockFleetNodeByIDParams{ID: target.FleetNodeID, OrgID: target.OrgID})
+		// Hold node identity while waiting for the device; do not delay revocation.
+		node, err := q.LockFleetNodeIdentityByID(ctx, sqlc.LockFleetNodeIdentityByIDParams{ID: target.FleetNodeID, OrgID: target.OrgID})
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil
 		}
@@ -1016,11 +1128,21 @@ func (s *SQLDeviceStore) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, ta
 		if err != nil || len(locked) == 0 {
 			return false, err
 		}
+		// Enrollment may have been revoked during the device wait. Serialize the
+		// final check with revocation only after the device is available.
+		recheckedNode, err := q.LockFleetNodeByID(ctx, sqlc.LockFleetNodeByIDParams{ID: target.FleetNodeID, OrgID: target.OrgID})
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		if err != nil || recheckedNode.EnrollmentStatus != string(enrollment.FleetNodeStatusConfirmed) {
+			return false, err
+		}
 		_, err = q.ApplyFleetNodeRecoveredEndpoint(ctx, sqlc.ApplyFleetNodeRecoveredEndpointParams{
 			IpAddress: ipAddress, Port: port, UrlScheme: urlScheme,
 			DeviceIdentifier: target.DeviceIdentifier, OrgID: target.OrgID, SerialNumber: sql.NullString{String: target.SerialNumber, Valid: true},
 			MacAddress: target.MacAddress, FleetNodeID: target.FleetNodeID,
 			ExpectedIpAddress: target.LastKnownIP, ExpectedPort: target.LastKnownPort, ExpectedUrlScheme: target.LastKnownScheme,
+			ExpectedRpcPort: target.RPCPort, ExpectedRpcTls: target.RPCTLS,
 		})
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil
@@ -1031,8 +1153,8 @@ func (s *SQLDeviceStore) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, ta
 
 func (s *SQLDeviceStore) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, target stores.FleetNodeRecoveryTarget, ipAddress, port, urlScheme string) (bool, error) {
 	return db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (bool, error) {
-		// Lock the node before the device, matching revocation and pairing.
-		node, err := q.LockFleetNodeByID(ctx, sqlc.LockFleetNodeByIDParams{ID: target.FleetNodeID, OrgID: target.OrgID})
+		// Hold node identity while waiting for the device; do not delay revocation.
+		node, err := q.LockFleetNodeIdentityByID(ctx, sqlc.LockFleetNodeIdentityByIDParams{ID: target.FleetNodeID, OrgID: target.OrgID})
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil
 		}
@@ -1046,18 +1168,28 @@ func (s *SQLDeviceStore) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.
 		if err != nil || len(locked) == 0 {
 			return false, err
 		}
+		// Enrollment may have been revoked during the device wait. Serialize the
+		// final check with revocation only after the device is available.
+		recheckedNode, err := q.LockFleetNodeByID(ctx, sqlc.LockFleetNodeByIDParams{ID: target.FleetNodeID, OrgID: target.OrgID})
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		if err != nil || recheckedNode.EnrollmentStatus != string(enrollment.FleetNodeStatusConfirmed) {
+			return false, err
+		}
 		_, err = q.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, sqlc.ApplyFleetNodeRecoveryAuthenticationNeededParams{
-			IpAddress:             ipAddress,
-			Port:                  port,
-			UrlScheme:             urlScheme,
-			DeviceIdentifier:      target.DeviceIdentifier,
-			OrgID:                 target.OrgID,
-			SerialNumber:          sql.NullString{String: target.SerialNumber, Valid: true},
-			MacAddress:            target.MacAddress,
-			FleetNodeID:           target.FleetNodeID,
-			ExpectedIpAddress:     target.LastKnownIP,
-			ExpectedPort:          target.LastKnownPort,
-			ExpectedUrlScheme:     target.LastKnownScheme,
+			IpAddress:         ipAddress,
+			Port:              port,
+			UrlScheme:         urlScheme,
+			DeviceIdentifier:  target.DeviceIdentifier,
+			OrgID:             target.OrgID,
+			SerialNumber:      sql.NullString{String: target.SerialNumber, Valid: true},
+			MacAddress:        target.MacAddress,
+			FleetNodeID:       target.FleetNodeID,
+			ExpectedIpAddress: target.LastKnownIP,
+			ExpectedPort:      target.LastKnownPort,
+			ExpectedUrlScheme: target.LastKnownScheme,
+			ExpectedRpcPort:   target.RPCPort, ExpectedRpcTls: target.RPCTLS,
 			CredentialUsernameEnc: base64.StdEncoding.EncodeToString(target.CredentialUsername),
 			CredentialPasswordEnc: base64.StdEncoding.EncodeToString(target.CredentialPassword),
 		})
@@ -1223,6 +1355,7 @@ func (s *SQLDeviceStore) executeListQuery(ctx context.Context, orgID int64, curs
 			&row.CursorID,
 			&row.DeviceID,
 			&row.DriverName,
+			&row.DeviceClass,
 			&row.CustomName,
 			&row.SiteID,
 			&row.SiteLabel,
@@ -1230,6 +1363,7 @@ func (s *SQLDeviceStore) executeListQuery(ctx context.Context, orgID int64, curs
 			&row.BuildingLabel,
 			&row.FleetNodeUnavailable,
 			&row.EmbeddedWebViewAvailable,
+			&row.FleetNodeID,
 			&row.SortValue,
 		)
 		if err != nil {
@@ -1433,6 +1567,35 @@ func (s *SQLDeviceStore) AllDevicesBelongToOrg(ctx context.Context, deviceIdenti
 	})
 }
 
+// FilterDeviceIdentifiersByOrg returns the provided identifiers that are live
+// devices in the org, in input order. Identifiers owned by another org are
+// omitted exactly like unknown ones.
+func (s *SQLDeviceStore) FilterDeviceIdentifiersByOrg(ctx context.Context, deviceIdentifiers []string, orgID int64) ([]string, error) {
+	if len(deviceIdentifiers) == 0 {
+		return []string{}, nil
+	}
+
+	rows, err := s.getQueries(ctx).GetOrgDeviceIDsWithIdentifiers(ctx, sqlc.GetOrgDeviceIDsWithIdentifiersParams{
+		DeviceIdentifiers: deviceIdentifiers,
+		OrgID:             orgID,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to filter device identifiers for org %d: %v", orgID, err)
+	}
+	owned := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		owned[row.DeviceIdentifier] = struct{}{}
+	}
+	filtered := make([]string, 0, len(rows))
+	for _, identifier := range deviceIdentifiers {
+		if _, ok := owned[identifier]; ok {
+			filtered = append(filtered, identifier)
+			delete(owned, identifier)
+		}
+	}
+	return filtered, nil
+}
+
 // SoftDeleteDevices verifies ownership and soft-deletes devices and their associated
 // discovered_device records in a single transaction to prevent TOCTOU races.
 // Returns a Forbidden error if any device does not belong to the specified org.
@@ -1441,7 +1604,7 @@ func (s *SQLDeviceStore) SoftDeleteDevices(ctx context.Context, deviceIdentifier
 		return 0, nil
 	}
 
-	deletedCount, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (int64, error) {
+	deletedCount, err := db.WithTransactionTimeout(ctx, s.conn.DB, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) (int64, error) {
 		allBelong, err := q.AllDevicesBelongToOrg(ctx, sqlc.AllDevicesBelongToOrgParams{
 			ExpectedCount:     len(deviceIdentifiers),
 			DeviceIdentifiers: deviceIdentifiers,
@@ -1452,6 +1615,10 @@ func (s *SQLDeviceStore) SoftDeleteDevices(ctx context.Context, deviceIdentifier
 		}
 		if !allBelong {
 			return 0, fleeterror.NewForbiddenError("access denied to one or more requested devices")
+		}
+
+		if err := devicewrite.PrepareDeletion(ctx, q, orgID, deviceIdentifiers); err != nil {
+			return 0, err
 		}
 
 		if _, err := q.DeleteMinerCredentialsForDeviceIdentifiers(ctx, sqlc.DeleteMinerCredentialsForDeviceIdentifiersParams{
@@ -1474,6 +1641,10 @@ func (s *SQLDeviceStore) SoftDeleteDevices(ctx context.Context, deviceIdentifier
 		})
 		if err != nil {
 			return 0, fleeterror.NewInternalErrorf("failed to soft-delete devices: %v", err)
+		}
+
+		if err := q.RetirePoolConfigurationEquipmentAssignments(ctx, sqlc.RetirePoolConfigurationEquipmentAssignmentsParams{OrganizationID: orgID, DeviceIdentifiers: deviceIdentifiers}); err != nil {
+			return 0, fleeterror.NewInternalErrorf("failed to retire deleted devices' pool assignments: %w", err)
 		}
 
 		err = q.SoftDeleteDiscoveredDevicesForDeletedDevices(ctx, sqlc.SoftDeleteDiscoveredDevicesForDeletedDevicesParams{
@@ -1546,7 +1717,7 @@ LEFT JOIN device_status ON device.id = device_status.device_id`)
 		sb.WriteString(`
 LEFT JOIN fleet_node_device fleet_node_assignment ON fleet_node_assignment.device_id = device.id
     AND fleet_node_assignment.org_id = device.org_id
-LEFT JOIN fleet_node assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
+LEFT JOIN fleet_node_live assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
     AND assigned_fleet_node.org_id = fleet_node_assignment.org_id
 LEFT JOIN LATERAL (SELECT ` + effectiveDeviceStatusExpr + ` AS status) effective_status ON TRUE`)
 	}
@@ -1558,6 +1729,9 @@ WHERE device.deleted_at IS NULL
     AND device.org_id = $1
     AND discovered_device.is_active = TRUE
     AND discovered_device.deleted_at IS NULL`)
+	if !fp.includeContainers {
+		sb.WriteString(" AND discovered_device.device_class <> 2")
+	}
 
 	args, argNum = appendFilterSQL(&sb, args, argNum, orgID, fp)
 	// Limit bounds the result at the SQL level so callers using this for
@@ -1627,7 +1801,7 @@ JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ON d.id = device_status.device_id
 LEFT JOIN fleet_node_device fleet_node_assignment ON fleet_node_assignment.device_id = d.id
     AND fleet_node_assignment.org_id = d.org_id
-LEFT JOIN fleet_node assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
+LEFT JOIN fleet_node_live assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
     AND assigned_fleet_node.org_id = fleet_node_assignment.org_id
 LEFT JOIN LATERAL (SELECT `+effectiveDeviceStatusExpr+` AS status) effective_status ON TRUE
 -- Open actionable errors (severity 1-4; excludes UNSPECIFIED=0)
@@ -1777,6 +1951,19 @@ func (s *SQLDeviceStore) UpdateFirmwareVersion(ctx context.Context, deviceIdenti
 		return fleeterror.NewInternalErrorf("failed to update firmware version for device %s: %v", deviceIdentifier, err)
 	}
 	return nil
+}
+
+// InitializeWorkerName preserves saved names even if pairing or import races a rename.
+func (s *SQLDeviceStore) InitializeWorkerName(ctx context.Context, orgID int64, deviceIdentifier models.DeviceIdentifier, workerName string) (bool, error) {
+	affected, err := s.getQueries(ctx).InitializeDeviceWorkerName(ctx, sqlc.InitializeDeviceWorkerNameParams{
+		OrgID:            orgID,
+		DeviceIdentifier: string(deviceIdentifier),
+		WorkerName:       workerName,
+	})
+	if err != nil {
+		return false, fleeterror.NewInternalErrorf("failed to initialize worker name for device %s: %v", deviceIdentifier, err)
+	}
+	return affected > 0, nil
 }
 
 func (s *SQLDeviceStore) UpdateWorkerName(ctx context.Context, deviceIdentifier models.DeviceIdentifier, workerName string) error {

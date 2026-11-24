@@ -25,10 +25,9 @@ func TestListRackZoneRefs_ReturnsCompositeEntries(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
+	dbSvc := testutil.NewDatabaseService(t, nil)
 	ctx := t.Context()
-	dbSvc := tc.DatabaseService
-	db := tc.ServiceProvider.DB
+	db := dbSvc.DB
 	collectionStore := sqlstores.NewSQLCollectionStore(db)
 	siteStore := sqlstores.NewSQLSiteStore(db)
 	buildingStore := sqlstores.NewSQLBuildingStore(db)
@@ -113,10 +112,9 @@ func TestListRackZoneRefs_SortOrder(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
+	dbSvc := testutil.NewDatabaseService(t, nil)
 	ctx := t.Context()
-	dbSvc := tc.DatabaseService
-	db := tc.ServiceProvider.DB
+	db := dbSvc.DB
 	collectionStore := sqlstores.NewSQLCollectionStore(db)
 	siteStore := sqlstores.NewSQLSiteStore(db)
 	buildingStore := sqlstores.NewSQLBuildingStore(db)
@@ -176,10 +174,9 @@ func TestListRackZoneRefs_CrossOrgIsolation(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
+	dbSvc := testutil.NewDatabaseService(t, nil)
 	ctx := t.Context()
-	dbSvc := tc.DatabaseService
-	db := tc.ServiceProvider.DB
+	db := dbSvc.DB
 	collectionStore := sqlstores.NewSQLCollectionStore(db)
 	siteStore := sqlstores.NewSQLSiteStore(db)
 	buildingStore := sqlstores.NewSQLBuildingStore(db)
@@ -226,10 +223,9 @@ func TestListRackZoneRefs_ExcludesSoftDeletedRacks(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
+	dbSvc := testutil.NewDatabaseService(t, nil)
 	ctx := t.Context()
-	dbSvc := tc.DatabaseService
-	db := tc.ServiceProvider.DB
+	db := dbSvc.DB
 	collectionStore := sqlstores.NewSQLCollectionStore(db)
 	siteStore := sqlstores.NewSQLSiteStore(db)
 	buildingStore := sqlstores.NewSQLBuildingStore(db)
@@ -274,10 +270,9 @@ func TestListRackZoneRefs_EmptyOrg(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
-	tc := testutil.InitializeDBServiceInfrastructure(t)
+	dbSvc := testutil.NewDatabaseService(t, nil)
 	ctx := t.Context()
-	dbSvc := tc.DatabaseService
-	db := tc.ServiceProvider.DB
+	db := dbSvc.DB
 	collectionStore := sqlstores.NewSQLCollectionStore(db)
 
 	user := dbSvc.CreateSuperAdminUser()

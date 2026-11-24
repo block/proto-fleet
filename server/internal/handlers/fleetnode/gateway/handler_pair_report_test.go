@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
@@ -62,7 +63,9 @@ func TestReportPairedDevices_PersistsAuthoritativelyAndForwards(t *testing.T) {
 	subject := &auth.Subject{FleetNodeID: h.fleetNodeID, OrgID: 1, Name: "agent-pair-correlation"}
 	stream := h.registry.Register(h.fleetNodeID)
 	defer stream.Unregister()
-	pair := &control.PairMeta{OrgID: 1, Targets: map[string]struct{}{"pair-corr-1": {}}}
+	pair := &control.PairMeta{OrgID: 1, Targets: map[string]struct{}{"pair-corr-1": {}}, Snapshots: map[string]*pairingpb.FleetNodePairTarget{
+		"pair-corr-1": {DeviceIdentifier: "pair-corr-1", IpAddress: "10.0.0.7", Port: "80", UrlScheme: "http", DriverName: "virtual"},
+	}}
 	session, err := h.registry.Send(context.Background(), h.fleetNodeID, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &pb.ControlCommand{CommandId: "pair-cmd"}, nil, control.ReportKindPair, pair)
 	require.NoError(t, err)
 	defer session.Close()
@@ -107,7 +110,9 @@ func TestReportPairedDevices_DefaultPasswordActivePersistsAndForwards(t *testing
 	subject := &auth.Subject{FleetNodeID: h.fleetNodeID, OrgID: 1, Name: "agent-pair-default"}
 	stream := h.registry.Register(h.fleetNodeID)
 	defer stream.Unregister()
-	pair := &control.PairMeta{OrgID: 1, Targets: map[string]struct{}{"pair-default-1": {}}}
+	pair := &control.PairMeta{OrgID: 1, Targets: map[string]struct{}{"pair-default-1": {}}, Snapshots: map[string]*pairingpb.FleetNodePairTarget{
+		"pair-default-1": {DeviceIdentifier: "pair-default-1", IpAddress: "10.0.0.7", Port: "80", UrlScheme: "http", DriverName: "proto"},
+	}}
 	session, err := h.registry.Send(context.Background(), h.fleetNodeID, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &pb.ControlCommand{CommandId: "pair-default-cmd"}, nil, control.ReportKindPair, pair)
 	require.NoError(t, err)
 	defer session.Close()
@@ -166,7 +171,9 @@ func TestReportPairedDevices_ForwardsPersistedStatusOnStaleAuthNeeded(t *testing
 
 	stream := h.registry.Register(h.fleetNodeID)
 	defer stream.Unregister()
-	pair := &control.PairMeta{OrgID: 1, Targets: map[string]struct{}{"mac:race": {}}}
+	pair := &control.PairMeta{OrgID: 1, Targets: map[string]struct{}{"mac:race": {}}, Snapshots: map[string]*pairingpb.FleetNodePairTarget{
+		"mac:race": {DeviceIdentifier: "mac:race", IpAddress: "10.0.0.7", Port: "80", UrlScheme: "http", DriverName: "virtual"},
+	}}
 	session, err := h.registry.Send(context.Background(), h.fleetNodeID, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &pb.ControlCommand{CommandId: "race-cmd"}, nil, control.ReportKindPair, pair)
 	require.NoError(t, err)
 	defer session.Close()

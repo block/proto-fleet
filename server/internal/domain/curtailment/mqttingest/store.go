@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	sqlc "github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
@@ -130,6 +131,8 @@ type RigConfigReconciliation struct {
 	DesiredGeneration       int64
 	EnqueuedGeneration      int64
 	FullReconcileGeneration int64
+	// DeliveryAttempts counts this claim among consecutive failed deliveries.
+	DeliveryAttempts int32
 }
 
 // ErrSourceStateNotFound means cold start.
@@ -145,6 +148,8 @@ var ErrSourceConfigNameExists = errors.New("mqttingest: source config name exist
 var ErrSourceConfigDeleteBlocked = errors.New("mqttingest: enabled source cannot be deleted")
 
 // ErrSourceConfigReferenced means an automation rule still references a source.
+var ErrSourceConfigActiveCurtailment = errors.New("mqttingest: source has active automation curtailment events")
+
 var ErrSourceConfigReferenced = errors.New("mqttingest: source config is referenced by automation")
 
 // ErrRigConfigReconciliationNotFound means no durable delivery work is due.
@@ -248,7 +253,20 @@ func (s *sqlcStore) SetSourceConfigEnabled(ctx context.Context, orgID, sourceID 
 		Enabled:        enabled,
 	})
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.ConstraintName == "ck_curtailment_mqtt_source_no_active_disable" {
+			return SourceConfig{}, ErrSourceConfigActiveCurtailment
+		}
 		if errors.Is(err, sql.ErrNoRows) {
+			if !enabled {
+				count, countErr := s.queries.CountLiveCurtailmentEventsByMQTTSource(ctx, sqlc.CountLiveCurtailmentEventsByMQTTSourceParams{OrganizationID: orgID, SourceID: sourceID})
+				if countErr != nil {
+					return SourceConfig{}, countErr
+				}
+				if count > 0 {
+					return SourceConfig{}, ErrSourceConfigActiveCurtailment
+				}
+			}
 			return SourceConfig{}, ErrSourceConfigNotFound
 		}
 		return SourceConfig{}, fmt.Errorf("set mqtt source config enabled: %w", err)
@@ -293,9 +311,10 @@ func (s *sqlcStore) RequestRigConfigReconciliationForDevices(ctx context.Context
 		return nil
 	}
 	if err := s.queries.RequestRigConfigReconciliationForDevices(ctx, sqlc.RequestRigConfigReconciliationForDevicesParams{
-		OrganizationID:    orgID,
-		RequestedBy:       requestedBy,
-		DeviceIdentifiers: identifiers,
+		ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER),
+		OrganizationID:       orgID,
+		RequestedBy:          requestedBy,
+		DeviceIdentifiers:    identifiers,
 	}); err != nil {
 		return fmt.Errorf("request rig config reconciliation: %w", err)
 	}
@@ -316,14 +335,16 @@ func (s *sqlcStore) ClaimRigConfigReconciliation(ctx context.Context) (RigConfig
 		DesiredGeneration:       row.DesiredGeneration,
 		EnqueuedGeneration:      row.EnqueuedGeneration,
 		FullReconcileGeneration: row.FullReconcileGeneration,
+		DeliveryAttempts:        row.DeliveryAttempts,
 	}, nil
 }
 
 func (s *sqlcStore) ListRigConfigReconciliationTargets(ctx context.Context, orgID, enqueuedGeneration, desiredGeneration int64) ([]string, error) {
 	identifiers, err := s.queries.ListRigConfigReconciliationTargets(ctx, sqlc.ListRigConfigReconciliationTargetsParams{
-		OrganizationID:     orgID,
-		EnqueuedGeneration: enqueuedGeneration,
-		DesiredGeneration:  desiredGeneration,
+		ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER),
+		OrganizationID:       orgID,
+		EnqueuedGeneration:   enqueuedGeneration,
+		DesiredGeneration:    desiredGeneration,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list rig config reconciliation targets: %w", err)
@@ -346,6 +367,8 @@ func (s *sqlcStore) RetryRigConfigReconciliation(ctx context.Context, orgID, gen
 		OrganizationID:    orgID,
 		DesiredGeneration: generation,
 		LastError:         sql.NullString{String: lastError, Valid: lastError != ""},
+		FastAttempts:      rigConfigFastDeliveryAttempts,
+		SlowRetrySeconds:  int32(rigConfigSlowRetryInterval / time.Second),
 	}); err != nil {
 		return fmt.Errorf("retry rig config reconciliation: %w", err)
 	}
@@ -508,4 +531,25 @@ func nullDurationSecondsFromDefault(v time.Duration, def int32) sql.NullInt32 {
 		return sql.NullInt32{}
 	}
 	return sql.NullInt32{Int32: int32(seconds), Valid: true} // #nosec G115 -- bounds-checked above
+}
+
+// RigConfigScopeStore resolves per-device provider scopes. Empty provider lists
+// deliver a disabled config so scope removals clear previously installed data.
+type RigConfigScopeStore interface {
+	ListRigConfigSourceScopes(ctx context.Context, orgID int64, identifiers []string) (map[string][]int64, error)
+}
+
+func (s *sqlcStore) ListRigConfigSourceScopes(ctx context.Context, orgID int64, identifiers []string) (map[string][]int64, error) {
+	if identifiers == nil {
+		identifiers = []string{}
+	}
+	rows, err := s.queries.ListRigConfigSourceScopes(ctx, sqlc.ListRigConfigSourceScopesParams{OrganizationID: orgID, ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER), DeviceIdentifiers: identifiers})
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string][]int64, len(rows))
+	for _, row := range rows {
+		result[row.DeviceIdentifier] = row.SourceIds
+	}
+	return result, nil
 }

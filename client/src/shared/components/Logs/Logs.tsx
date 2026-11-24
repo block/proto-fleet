@@ -1,4 +1,4 @@
-import { MouseEvent, SyntheticEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MouseEvent, type ReactNode, SyntheticEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 
 import { logTypes } from "./constants";
@@ -38,13 +38,25 @@ export type LogsData =
   | {
       kind: "structured";
       entries: StructuredLogEntry[];
+      /**
+       * The entries are the whole current view: replace earlier entries instead
+       * of appending, and show the empty state when there are none.
+       */
+      snapshot?: boolean;
       lines?: number;
       source?: string;
     };
 
-interface LogsProps {
+type LogsExport =
+  | { fetchMaxLogs: () => Promise<LogsData | undefined>; exportCsv?: never }
+  | {
+      /** Builds the export rows directly, for callers whose records carry more than the shared columns. */
+      exportCsv: () => Promise<string[] | undefined>;
+      fetchMaxLogs?: never;
+    };
+
+type LogsProps = LogsExport & {
   logsData?: LogsData;
-  fetchMaxLogs: () => Promise<LogsData | undefined>;
   downloadFilename?: string;
   /**
    * "document": the pane grows with its content and the page scrolls (Miner Logs).
@@ -52,7 +64,9 @@ interface LogsProps {
    * where the page itself never scrolls (Server Logs).
    */
   scrollMode?: "document" | "container";
-}
+  /** Callouts pinned above the toolbar in "document" mode, so they stay visible while the newest rows are in view. */
+  notices?: ReactNode;
+};
 
 const LEVEL_TO_LOG_TYPE: Record<StructuredLogEntry["level"], logType> = {
   debug: logTypes.debug,
@@ -69,7 +83,20 @@ const entryToLogInfo = (entry: StructuredLogEntry): LogInfo => ({
 
 const isStructured = (data: LogsData): data is Extract<LogsData, { kind: "structured" }> => data.kind === "structured";
 
-const Logs = ({ logsData, fetchMaxLogs, downloadFilename = "miner-logs", scrollMode = "document" }: LogsProps) => {
+const toCsv = (data: LogsData | undefined): string[] | undefined => {
+  if (!data) return undefined;
+  if (isStructured(data)) return data.entries.length ? formatLogInfoToCSV(data.entries.map(entryToLogInfo)) : undefined;
+  return data.content?.length ? formatLogsToCSV(data.content) : undefined;
+};
+
+const Logs = ({
+  logsData,
+  fetchMaxLogs,
+  exportCsv,
+  downloadFilename = "miner-logs",
+  scrollMode = "document",
+  notices,
+}: LogsProps) => {
   const [isExporting, setIsExporting] = useState(false);
   const [initPage, setInitPage] = useState(false);
   const [storedLogs, setStoredLogs] = useState<string[]>([]);
@@ -158,6 +185,13 @@ const Logs = ({ logsData, fetchMaxLogs, downloadFilename = "miner-logs", scrollM
     if (!logsData) return;
 
     if (isStructured(logsData)) {
+      if (logsData.snapshot) {
+        if (logsData.entries !== storedEntries) {
+          // eslint-disable-next-line react-hooks/set-state-in-effect -- replace the view when upstream logsData changes
+          formatAndSetStructuredEntries(logsData.entries);
+        }
+        return;
+      }
       if (!logsData.entries.length) return;
       const hasRegressed = hasIdSequenceRegressed(storedEntries, logsData.entries);
       const baseEntries = hasRegressed ? [] : storedEntries;
@@ -210,17 +244,8 @@ const Logs = ({ logsData, fetchMaxLogs, downloadFilename = "miner-logs", scrollM
         e.preventDefault();
         blurSearch(e);
         setIsExporting(true);
-        const exportLogs = await fetchMaxLogs();
-        if (!exportLogs) return;
-        let csvData: string[] | undefined;
-        if (isStructured(exportLogs)) {
-          if (exportLogs.entries.length) {
-            csvData = formatLogInfoToCSV(exportLogs.entries.map(entryToLogInfo));
-          }
-        } else if (exportLogs.content?.length) {
-          csvData = formatLogsToCSV(exportLogs.content);
-        }
-        if (csvData) {
+        const csvData = exportCsv ? await exportCsv() : toCsv(await fetchMaxLogs?.());
+        if (csvData?.length) {
           downloadLogs(csvData, getFileName(downloadFilename, "csv"));
         }
       } catch (error) {
@@ -229,7 +254,7 @@ const Logs = ({ logsData, fetchMaxLogs, downloadFilename = "miner-logs", scrollM
         setIsExporting(false);
       }
     },
-    [fetchMaxLogs, downloadFilename],
+    [fetchMaxLogs, exportCsv, downloadFilename],
   );
 
   const handleClickSearchBar = useCallback(() => {
@@ -237,6 +262,7 @@ const Logs = ({ logsData, fetchMaxLogs, downloadFilename = "miner-logs", scrollM
   }, []);
 
   const noResultsMessage = useMemo(() => {
+    if (!searchValue && !filterByLogType.length) return "No log entries";
     if (searchValue) {
       if (filterByLogType.length === 0) return `No results match “${searchValue}”`;
       if (filterByLogType.includes(logTypes.error) && filterByLogType.includes(logTypes.warn)) {
@@ -268,6 +294,7 @@ const Logs = ({ logsData, fetchMaxLogs, downloadFilename = "miner-logs", scrollM
 
   // The log pane only mounts once logs exist, so re-attach when they appear.
   const hasLogs = logs.length > 0;
+  const isEmptySnapshot = Boolean(logsData && isStructured(logsData) && logsData.snapshot && !logsData.entries.length);
   useEffect(() => {
     if (!hasLogs) return;
     const target = scrollMode === "container" ? scrollContainerRef.current : window;
@@ -282,78 +309,77 @@ const Logs = ({ logsData, fetchMaxLogs, downloadFilename = "miner-logs", scrollM
 
   return (
     <>
-      {logs.length ? (
+      {hasLogs || isEmptySnapshot ? (
         <>
-          <div
-            className="sticky top-[100px] z-10 h-[58px] bg-surface-base laptop:top-[60px]"
-            onClick={handleClickSearchBar}
-            ref={searchBarRef}
-          >
-            <div
-              className={clsx(
-                "flex items-center border-b-[1px] border-border-5 bg-surface-base p-[15px]",
-                "focus-within:border-b-2 focus-within:border-border-primary",
-              )}
-            >
-              <div className="flex grow items-center space-x-4">
-                <Search
-                  className="bg-surface-base!"
-                  onChange={setSearchValue}
-                  initValue={searchValue}
-                  variant="toolbar"
-                  shouldFocus={focusSearch}
-                />
-              </div>
-              <div className="flex items-center space-x-4">
-                <LogBadges
-                  label={errorCount === 1 ? "error" : "errors"}
-                  count={errorCount}
-                  testId="logs-error-badge"
-                  className={clsx(
-                    "text-text-critical",
-                    {
-                      "border-transparent bg-intent-critical-10": filterByLogType?.includes(logTypes.error),
-                    },
-                    {
-                      "border-intent-critical-10": !filterByLogType?.includes(logTypes.error),
-                    },
-                  )}
-                  selected={filterByLogType?.includes(logTypes.error) || false}
-                  onClick={createToggleFilter(logTypes.error)}
-                />
-                <LogBadges
-                  label={warningCount === 1 ? "warning" : "warnings"}
-                  count={warningCount}
-                  testId="logs-warning-badge"
-                  className={clsx(
-                    "text-text-warning",
-                    {
-                      "border-transparent bg-intent-warning-10": filterByLogType?.includes(logTypes.warn),
-                    },
-                    {
-                      "border-intent-warning-10": !filterByLogType?.includes(logTypes.warn),
-                    },
-                  )}
-                  selected={filterByLogType?.includes(logTypes.warn) || false}
-                  onClick={createToggleFilter(logTypes.warn)}
-                />
-                <Button
-                  size={sizes.compact}
-                  variant={variants.secondary}
-                  text="Export"
-                  disabled={isExporting}
-                  prefixIcon={isExporting ? <ProgressCircular indeterminate /> : undefined}
-                  onClick={handleExportLogs}
-                />
-                {searchValue ? (
-                  <Button
-                    variant={variants.secondary}
-                    size={sizes.compact}
-                    prefixIcon={<DismissTiny />}
-                    onClick={clearSearch}
-                    className="rounded-full!"
+          <div className="sticky top-[100px] z-10 bg-surface-base laptop:top-[60px]">
+            {notices ? <div className="pt-3">{notices}</div> : null}
+            <div className="h-[58px]" onClick={handleClickSearchBar} ref={searchBarRef}>
+              <div
+                className={clsx(
+                  "flex items-center border-b-[1px] border-border-5 bg-surface-base p-[15px]",
+                  "focus-within:border-b-2 focus-within:border-border-primary",
+                )}
+              >
+                <div className="flex grow items-center space-x-4">
+                  <Search
+                    className="bg-surface-base!"
+                    onChange={setSearchValue}
+                    initValue={searchValue}
+                    variant="toolbar"
+                    shouldFocus={focusSearch}
                   />
-                ) : null}
+                </div>
+                <div className="flex items-center space-x-4">
+                  <LogBadges
+                    label={errorCount === 1 ? "error" : "errors"}
+                    count={errorCount}
+                    testId="logs-error-badge"
+                    className={clsx(
+                      "text-text-critical",
+                      {
+                        "border-transparent bg-intent-critical-10": filterByLogType?.includes(logTypes.error),
+                      },
+                      {
+                        "border-intent-critical-10": !filterByLogType?.includes(logTypes.error),
+                      },
+                    )}
+                    selected={filterByLogType?.includes(logTypes.error) || false}
+                    onClick={createToggleFilter(logTypes.error)}
+                  />
+                  <LogBadges
+                    label={warningCount === 1 ? "warning" : "warnings"}
+                    count={warningCount}
+                    testId="logs-warning-badge"
+                    className={clsx(
+                      "text-text-warning",
+                      {
+                        "border-transparent bg-intent-warning-10": filterByLogType?.includes(logTypes.warn),
+                      },
+                      {
+                        "border-intent-warning-10": !filterByLogType?.includes(logTypes.warn),
+                      },
+                    )}
+                    selected={filterByLogType?.includes(logTypes.warn) || false}
+                    onClick={createToggleFilter(logTypes.warn)}
+                  />
+                  <Button
+                    size={sizes.compact}
+                    variant={variants.secondary}
+                    text="Export"
+                    disabled={isExporting}
+                    prefixIcon={isExporting ? <ProgressCircular indeterminate /> : undefined}
+                    onClick={handleExportLogs}
+                  />
+                  {searchValue ? (
+                    <Button
+                      variant={variants.secondary}
+                      size={sizes.compact}
+                      prefixIcon={<DismissTiny />}
+                      onClick={clearSearch}
+                      className="rounded-full!"
+                    />
+                  ) : null}
+                </div>
               </div>
             </div>
           </div>

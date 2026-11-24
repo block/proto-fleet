@@ -1,7 +1,9 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import LoginModal from "./LoginModal";
-import { MinerHostingProvider } from "@/protoOS/contexts/MinerHostingContext";
+import { MinerHostingProvider, useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+
+const AdapterState = () => <span data-testid="adapter-state">{useMinerHosting().resolution.status}</span>;
 
 describe("Login Modal", () => {
   const loginForm = "login-form";
@@ -20,13 +22,27 @@ describe("Login Modal", () => {
 
   let component: ReturnType<typeof render>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>((input) =>
+        Promise.resolve(
+          String(input).endsWith("/api/v1/system")
+            ? new Response(JSON.stringify({ "system-info": {} }), { status: 200 })
+            : new Response(null, { status: 404 }),
+        ),
+      ),
+    );
     component = render(
       <MinerHostingProvider>
+        <AdapterState />
         <LoginModal onSuccess={vi.fn} onDismiss={vi.fn} />
       </MinerHostingProvider>,
     );
+    await waitFor(() => expect(component.getByTestId("adapter-state")).toHaveTextContent("ready"));
   });
+
+  afterEach(() => vi.unstubAllGlobals());
 
   test("renders login modal with login form", () => {
     const { getByTestId } = component;

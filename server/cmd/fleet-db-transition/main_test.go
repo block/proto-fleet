@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"errors"
 	"net"
 	"os"
@@ -12,6 +13,14 @@ import (
 	"testing"
 	"time"
 )
+
+func TestPoolImportValidatesOrganizationBeforeConnecting(t *testing.T) {
+	t.Setenv("SERVICE_MASTER_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	err := run(t.Context(), []string{"--db-explicit-dsn=postgres://fleet@127.0.0.1:1/fleet?sslmode=disable", "import-pool-configurations", "--organization-id=0"})
+	if err == nil || err.Error() != "pool import requires a positive organization ID" {
+		t.Fatalf("expected organization validation, got %v", err)
+	}
+}
 
 func TestCheckSourceArgumentsBeforeDatabaseConnection(t *testing.T) {
 	t.Setenv("PGHOSTADDR", "")

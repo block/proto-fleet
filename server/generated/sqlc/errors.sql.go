@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"github.com/lib/pq"
@@ -15,6 +16,7 @@ import (
 )
 
 const closeStaleErrors = `-- name: CloseStaleErrors :execresult
+
 UPDATE errors
 SET closed_at = CURRENT_TIMESTAMP
 WHERE closed_at IS NULL
@@ -32,6 +34,9 @@ type CloseStaleErrorsParams struct {
 	StatusCutoffTime sql.NullTime
 }
 
+// ============================================================================
+// Error Lifecycle Management
+// ============================================================================
 // Closes stale errors only when device was successfully polled after the staleness cutoff time.
 // This ensures we have confirmed the error is absent from a recent poll.
 func (q *Queries) CloseStaleErrors(ctx context.Context, arg CloseStaleErrorsParams) (sql.Result, error) {
@@ -350,129 +355,6 @@ func (q *Queries) GetErrorByID(ctx context.Context, arg GetErrorByIDParams) (Err
 		&i.SiteID,
 	)
 	return i, err
-}
-
-const getOpenErrorByDedupKey = `-- name: GetOpenErrorByDedupKey :one
-SELECT id, error_id, org_id, miner_error, severity, summary, impact, cause_summary, recommended_action, first_seen_at, last_seen_at, closed_at, device_id, component_id, component_type, vendor_code, firmware, extra, created_at, updated_at, site_id FROM errors
-WHERE org_id = $1
-  AND device_id = $2
-  AND miner_error = $3
-  AND component_id IS NOT DISTINCT FROM $4
-  AND component_type IS NOT DISTINCT FROM $5
-  AND closed_at IS NULL
-LIMIT 1
-`
-
-type GetOpenErrorByDedupKeyParams struct {
-	OrgID         int64
-	DeviceID      int64
-	MinerError    int32
-	ComponentID   sql.NullString
-	ComponentType sql.NullInt32
-}
-
-// Finds an open error (closed_at IS NULL) matching the deduplication key.
-// Used to determine if an upsert should update an existing error or insert a new one.
-// PostgreSQL uses IS NOT DISTINCT FROM for NULL-safe comparison (MySQL uses <=>)
-func (q *Queries) GetOpenErrorByDedupKey(ctx context.Context, arg GetOpenErrorByDedupKeyParams) (Error, error) {
-	row := q.queryRow(ctx, q.getOpenErrorByDedupKeyStmt, getOpenErrorByDedupKey,
-		arg.OrgID,
-		arg.DeviceID,
-		arg.MinerError,
-		arg.ComponentID,
-		arg.ComponentType,
-	)
-	var i Error
-	err := row.Scan(
-		&i.ID,
-		&i.ErrorID,
-		&i.OrgID,
-		&i.MinerError,
-		&i.Severity,
-		&i.Summary,
-		&i.Impact,
-		&i.CauseSummary,
-		&i.RecommendedAction,
-		&i.FirstSeenAt,
-		&i.LastSeenAt,
-		&i.ClosedAt,
-		&i.DeviceID,
-		&i.ComponentID,
-		&i.ComponentType,
-		&i.VendorCode,
-		&i.Firmware,
-		&i.Extra,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.SiteID,
-	)
-	return i, err
-}
-
-const insertError = `-- name: InsertError :one
-WITH dev AS (
-    SELECT site_id FROM device WHERE id = $3
-)
-INSERT INTO errors (
-    error_id, org_id, device_id, miner_error, severity, summary, impact,
-    cause_summary, recommended_action, first_seen_at, last_seen_at,
-    component_id, component_type, vendor_code, firmware, extra, closed_at,
-    site_id
-)
-SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, dev.site_id
-FROM dev
-RETURNING id
-`
-
-type InsertErrorParams struct {
-	ErrorID           string
-	OrgID             int64
-	DeviceID          int64
-	MinerError        int32
-	Severity          int32
-	Summary           string
-	Impact            sql.NullString
-	CauseSummary      sql.NullString
-	RecommendedAction sql.NullString
-	FirstSeenAt       time.Time
-	LastSeenAt        time.Time
-	ComponentID       sql.NullString
-	ComponentType     sql.NullInt32
-	VendorCode        sql.NullString
-	Firmware          sql.NullString
-	Extra             pqtype.NullRawMessage
-	ClosedAt          sql.NullTime
-}
-
-// site_id is row-stamped from device.site_id at insert time so per-site
-// error history doesn't shift when the device is later reassigned.
-// Behavior note: a missing device $3 yields zero CTE rows and the :one
-// query returns sql.ErrNoRows rather than the FK-violation the prior
-// VALUES form raised. Caller wraps generically (fleeterror.New
-// InternalErrorf), so the surface is unchanged for present callers.
-func (q *Queries) InsertError(ctx context.Context, arg InsertErrorParams) (int64, error) {
-	row := q.queryRow(ctx, q.insertErrorStmt, insertError,
-		arg.ErrorID,
-		arg.OrgID,
-		arg.DeviceID,
-		arg.MinerError,
-		arg.Severity,
-		arg.Summary,
-		arg.Impact,
-		arg.CauseSummary,
-		arg.RecommendedAction,
-		arg.FirstSeenAt,
-		arg.LastSeenAt,
-		arg.ComponentID,
-		arg.ComponentType,
-		arg.VendorCode,
-		arg.Firmware,
-		arg.Extra,
-		arg.ClosedAt,
-	)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
 }
 
 const queryComponentKeysWithErrors = `-- name: QueryComponentKeysWithErrors :many
@@ -885,10 +767,8 @@ func (q *Queries) QueryErrors(ctx context.Context, arg QueryErrorsParams) ([]Que
 }
 
 const refreshOpenErrorsLastSeenByDevice = `-- name: RefreshOpenErrorsLastSeenByDevice :execresult
-
 UPDATE errors
-SET last_seen_at = GREATEST(last_seen_at, $1::timestamptz),
-    updated_at = CURRENT_TIMESTAMP
+SET last_seen_at = GREATEST(last_seen_at, $1::timestamptz)
 WHERE errors.org_id = $2
   AND errors.closed_at IS NULL
   AND errors.device_id = (
@@ -906,60 +786,121 @@ type RefreshOpenErrorsLastSeenByDeviceParams struct {
 	DeviceIdentifier string
 }
 
-// ============================================================================
-// Error Lifecycle Management
-// ============================================================================
 // Refreshes open errors for a device after an incomplete diagnostics poll.
 // Uses GREATEST so a delayed partial poll cannot move newer observations backward.
 func (q *Queries) RefreshOpenErrorsLastSeenByDevice(ctx context.Context, arg RefreshOpenErrorsLastSeenByDeviceParams) (sql.Result, error) {
 	return q.exec(ctx, q.refreshOpenErrorsLastSeenByDeviceStmt, refreshOpenErrorsLastSeenByDevice, arg.ObservedAt, arg.OrgID, arg.DeviceIdentifier)
 }
 
-const updateOpenError = `-- name: UpdateOpenError :exec
-UPDATE errors SET
-    last_seen_at = $1,
-    severity = $2,
-    summary = $3,
-    impact = $4,
-    cause_summary = $5,
-    recommended_action = $6,
-    vendor_code = $7,
-    firmware = $8,
-    extra = $9,
-    closed_at = $10
-WHERE id = $11 AND closed_at IS NULL
+const upsertDeviceErrors = `-- name: UpsertDeviceErrors :one
+WITH target_device AS (
+    SELECT id, site_id
+    FROM device
+    WHERE device.device_identifier = $1
+      AND device.org_id = $2
+      AND device.deleted_at IS NULL
+), reports AS (
+    SELECT
+        report ->> 'error_id' AS error_id,
+        (report ->> 'miner_error')::int AS miner_error,
+        (report ->> 'severity')::int AS severity,
+        report ->> 'summary' AS summary,
+        report ->> 'impact' AS impact,
+        report ->> 'cause_summary' AS cause_summary,
+        report ->> 'recommended_action' AS recommended_action,
+        (report ->> 'first_seen_at')::timestamptz AS first_seen_at,
+        (report ->> 'last_seen_at')::timestamptz AS last_seen_at,
+        report ->> 'component_id' AS component_id,
+        (report ->> 'component_type')::int AS component_type,
+        report ->> 'vendor_code' AS vendor_code,
+        report ->> 'firmware' AS firmware,
+        NULLIF(report -> 'extra', 'null'::jsonb) AS extra,
+        (report ->> 'closed_at')::timestamptz AS closed_at
+    FROM jsonb_array_elements($3::jsonb) AS item(report)
+), closed AS (
+    UPDATE errors
+    SET closed_at = report.closed_at,
+        last_seen_at = GREATEST(errors.last_seen_at, report.last_seen_at),
+        severity = report.severity,
+        summary = report.summary,
+        impact = report.impact,
+        cause_summary = report.cause_summary,
+        recommended_action = report.recommended_action,
+        vendor_code = report.vendor_code,
+        firmware = report.firmware,
+        extra = report.extra
+    FROM reports report, target_device target
+    WHERE report.closed_at IS NOT NULL
+      AND errors.org_id = $2
+      AND errors.device_id = target.id
+      AND errors.closed_at IS NULL
+      AND errors.miner_error = report.miner_error
+      AND (errors.component_id, errors.component_type)
+          IS NOT DISTINCT FROM (report.component_id, report.component_type)
+    RETURNING errors.miner_error, errors.component_id, errors.component_type
+), upserted AS (
+    INSERT INTO errors (
+        error_id, org_id, device_id, miner_error, severity, summary, impact,
+        cause_summary, recommended_action, first_seen_at, last_seen_at,
+        component_id, component_type, vendor_code, firmware, extra, closed_at,
+        site_id
+    )
+    SELECT
+        report.error_id, $2, target.id, report.miner_error, report.severity,
+        report.summary, report.impact, report.cause_summary, report.recommended_action,
+        report.first_seen_at, report.last_seen_at, report.component_id, report.component_type,
+        report.vendor_code, report.firmware, report.extra, report.closed_at,
+        target.site_id
+    FROM reports report
+    CROSS JOIN target_device target
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM closed
+        WHERE (closed.miner_error, closed.component_id, closed.component_type)
+              IS NOT DISTINCT FROM (report.miner_error, report.component_id, report.component_type)
+    )
+    ON CONFLICT (org_id, device_id, miner_error, component_id, component_type)
+        WHERE closed_at IS NULL
+    DO UPDATE SET
+        last_seen_at = GREATEST(errors.last_seen_at, EXCLUDED.last_seen_at, $4::timestamptz),
+        severity = EXCLUDED.severity,
+        summary = EXCLUDED.summary,
+        impact = EXCLUDED.impact,
+        cause_summary = EXCLUDED.cause_summary,
+        recommended_action = EXCLUDED.recommended_action,
+        vendor_code = EXCLUDED.vendor_code,
+        firmware = EXCLUDED.firmware,
+        extra = EXCLUDED.extra
+    WHERE errors.last_seen_at <= $5::timestamptz
+       OR (errors.severity, errors.summary, errors.impact, errors.cause_summary,
+           errors.recommended_action, errors.vendor_code, errors.firmware, errors.extra)
+          IS DISTINCT FROM
+          (EXCLUDED.severity, EXCLUDED.summary, EXCLUDED.impact, EXCLUDED.cause_summary,
+           EXCLUDED.recommended_action, EXCLUDED.vendor_code, EXCLUDED.firmware, EXCLUDED.extra)
+)
+SELECT EXISTS(SELECT 1 FROM target_device) AS device_found
 `
 
-type UpdateOpenErrorParams struct {
-	LastSeenAt        time.Time
-	Severity          int32
-	Summary           string
-	Impact            sql.NullString
-	CauseSummary      sql.NullString
-	RecommendedAction sql.NullString
-	VendorCode        sql.NullString
-	Firmware          sql.NullString
-	Extra             pqtype.NullRawMessage
-	ClosedAt          sql.NullTime
-	ID                int64
+type UpsertDeviceErrorsParams struct {
+	DeviceIdentifier string
+	OrgID            int64
+	ErrorReports     json.RawMessage
+	ObservedAt       time.Time
+	HeartbeatCutoff  time.Time
 }
 
-// Updates mutable fields on an existing open error.
-// Only updates if closed_at IS NULL to prevent updating closed errors.
-// Can also close the error by setting closed_at.
-func (q *Queries) UpdateOpenError(ctx context.Context, arg UpdateOpenErrorParams) error {
-	_, err := q.exec(ctx, q.updateOpenErrorStmt, updateOpenError,
-		arg.LastSeenAt,
-		arg.Severity,
-		arg.Summary,
-		arg.Impact,
-		arg.CauseSummary,
-		arg.RecommendedAction,
-		arg.VendorCode,
-		arg.Firmware,
-		arg.Extra,
-		arg.ClosedAt,
-		arg.ID,
+// Persists one device's deduplicated error report. Reports carrying closed_at close the
+// matching open row; the rest insert or update it through idx_errors_open_dedup.
+// Unchanged open rows are rewritten only once last_seen_at passes the heartbeat cutoff.
+func (q *Queries) UpsertDeviceErrors(ctx context.Context, arg UpsertDeviceErrorsParams) (bool, error) {
+	row := q.queryRow(ctx, q.upsertDeviceErrorsStmt, upsertDeviceErrors,
+		arg.DeviceIdentifier,
+		arg.OrgID,
+		arg.ErrorReports,
+		arg.ObservedAt,
+		arg.HeartbeatCutoff,
 	)
-	return err
+	var device_found bool
+	err := row.Scan(&device_found)
+	return device_found, err
 }

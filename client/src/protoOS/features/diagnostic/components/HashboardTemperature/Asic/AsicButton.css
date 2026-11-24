@@ -1,0 +1,22 @@
+/* Each cell responds to its own width without per-ASIC resize observers. */
+.asic-cell-responsive {
+  container: asic-cell / inline-size;
+}
+
+.asic-cell-responsive .asic-cell-label {
+  color: var(--color-text-primary);
+}
+
+.asic-cell-responsive .asic-cell-metric {
+  display: none;
+}
+
+@container asic-cell (min-width: 56px) {
+  .asic-cell-responsive .asic-cell-label {
+    color: var(--color-text-primary-50);
+  }
+
+  .asic-cell-responsive .asic-cell-metric {
+    display: block;
+  }
+}

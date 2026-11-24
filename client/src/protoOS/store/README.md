@@ -114,37 +114,45 @@ The telemetry slice stores real-time measurement data:
 
 ### State
 
-- **miner**: `MinerTelemetryData | null` - Miner-level metrics
-- **hashboards**: `Map<string, HashboardTelemetryData>` - Hashboard telemetry keyed by serial
-- **asics**: `Map<string, AsicTelemetryData>` - ASIC telemetry keyed by ID
-- **psus**: `Map<number, PsuTelemetryData>` - PSU telemetry keyed by slot number
-- **fans**: `Map<number, FanTelemetryData>` - Fan telemetry keyed by ID
-- **lastApiResponse**: `any | null` - Last API response
-- **lastUpdated**: `number` - Last update timestamp
-- **intervalMs**: `number` - Sampling interval
+The slice mirrors the normalized telemetry contract (`contract.ts` → `TelemetryState`),
+keyed by entity:
+
+- **rollupsByEntity**: `Map<EntityKey, LevelRollup>` - Level rollup metrics (hashrate, power, efficiency, temperature)
+- **hashboards**: `Map<HashboardId, HashboardTelemetry>` - Hashboard telemetry
+- **asics**: `Map<AsicId, AsicTelemetry>` - ASIC telemetry
+- **psus**: `Map<ComponentId, PsuTelemetry>` - PSU telemetry
+- **fans**: `Map<ComponentId, FanTelemetry>` - Fan telemetry
+- **plant**: `Map<ComponentId, PlantTelemetry>` - Plant / cooling telemetry
+- **coolingModeByOwner**: `Map<EntityKey, CoolingMode>` - Cooling mode per owner
+- **resourceByScope** / **asicLoadByHashboard**: `Map<…, ResourceState>` - Per-scope staleness / load state
 
 ### Telemetry Data Types
 
+Entity telemetry types (`PsuTelemetry`, `FanTelemetry`, `HashboardTelemetry`, `LevelRollup`,
+…) are defined in `contract.ts`. Each metric field is a `MetricTelemetry` (`{ latest?, timeSeries? }`):
+
 ```typescript
-// PSU Telemetry
-export interface PsuTelemetryData {
-  id: number;
+export interface PsuTelemetry {
+  componentId: ComponentId;
   inputVoltage?: MetricTelemetry;
   inputCurrent?: MetricTelemetry;
   inputPower?: MetricTelemetry;
   outputVoltage?: MetricTelemetry;
   outputCurrent?: MetricTelemetry;
   outputPower?: MetricTelemetry;
-  temperatures?: MetricTelemetry[];
+  ambientTemperature?: MetricTelemetry;
+  averageTemperature?: MetricTelemetry;
+  hotspotTemperature?: MetricTelemetry;
 }
 
-// Fan Telemetry
-export interface FanTelemetryData {
-  id: number;
+export interface FanTelemetry {
+  componentId: ComponentId;
+  power?: MetricTelemetry;
   rpm?: MetricTelemetry;
-  percentage?: MetricTelemetry;
-  minRpm?: MetricTelemetry;
-  maxRpm?: MetricTelemetry;
+  speedPercent?: MetricTelemetry;
+  minimumRpm?: MetricTelemetry;
+  maximumRpm?: MetricTelemetry;
+  health?: HealthState;
 }
 ```
 
@@ -155,7 +163,7 @@ export interface FanTelemetryData {
 ```typescript
 export type Measurement = {
   value: number | null;
-  units: MetricUnit | undefined;
+  units: DisplayMetricUnit | undefined;
   formatted?: string;
 };
 ```
@@ -176,34 +184,46 @@ Combines both historical time series data and the latest measurement for a given
 ### MetricTimeSeries
 
 ```typescript
+export interface MetricPoint {
+  timestampMs: number;
+  value: number | null;
+  min?: number | null;
+  max?: number | null;
+  sampleCount?: number;
+}
+
 export interface MetricTimeSeries {
-  aggregates?: {
-    min?: Measurement;
-    avg?: Measurement;
-    max?: Measurement;
-  };
-  units: MetricUnit;
-  values: (number | null)[];
-  startTime: number;
-  endTime: number;
+  points: MetricPoint[];
+  bucketSizeMs?: number;
+  units?: MetricUnit; // canonical contract unit
+  aggregates?: { min?: Measurement; avg?: Measurement; max?: Measurement };
 }
 ```
 
 Used for time-series data like hashrate, temperature, power, and efficiency over time.
+Each point carries its own `timestampMs`; series are bucketed at `bucketSizeMs`.
 
 ### Supported Units
 
+Canonical units are defined by the contract (`contract.MetricUnit`, e.g. `"°C"`, `"W"`,
+`"TH/s"`) and are what the store persists. `DisplayMetricUnit` is a strict superset that
+adds the alternate/derived units we only ever convert _to_ for display and never store:
+
 ```typescript
-export type MetricUnit =
-  | TemperatureUnit // "C" | "F"
-  | PowerUnit // "W" | "kW" | "MW"
-  | HashrateUnit // "TH/s" | "GH/s" | "MH/s"
-  | EfficiencyUnit // "J/TH"
-  | PercentageUnit // "%"
-  | RpmUnit // "RPM"
-  | VoltageUnit // "V" | "mV"
-  | CurrentUnit; // "A" | "mA"
+export type DisplayMetricUnit =
+  | ContractMetricUnit // canonical: "°C", "W", "TH/s", "%", "RPM", "V", "A", ...
+  | "°F" // Fahrenheit display
+  | "kW"
+  | "MW" // derived power
+  | "mV"
+  | "mA" // derived voltage / current
+  | "GHz"; // derived frequency
 ```
+
+The Celsius/Fahrenheit **preference** is a separate semantic enum (`TemperatureUnit`,
+`"C" | "F"`) mapped to its display token (`"°C" | "°F"`) at the render boundary via
+`temperatureDisplayUnit`. Display units already carry their glyph (including the degree
+sign), so `formatValue` appends them verbatim.
 
 ## API Integration
 
@@ -299,8 +319,8 @@ const hashboards = useMinerHashboards(); // HashboardData[]
 const bayCount = useBayCount();
 
 // Get telemetry data
-const fans = useFansTelemetry(); // FanTelemetryData[]
-const psus = usePsusTelemetry(); // PsuTelemetryData[]
+const fans = useFansTelemetry(); // FanTelemetry[]
+const psus = usePsusTelemetry(); // PsuTelemetry[]
 
 // Get UI state
 const duration = useDuration();
@@ -315,7 +335,7 @@ const chartData = useChartDataForMetric("hashrate");
 import { convertValueUnits, formatValue, convertAndFormatMeasurement } from "@/protoOS/store";
 
 // Convert units while preserving type
-const converted = convertValueUnits(measurement, "F");
+const converted = convertValueUnits(measurement, "°F");
 
 // Format measurement for display
 const formatted = formatValue(measurement, true);
@@ -343,9 +363,9 @@ const Temperature = () => {
   return (
     <div>
       {fans.map(fan => (
-        <div key={fan.id}>
+        <div key={fan.componentId}>
           RPM: {fan.rpm?.latest?.value}
-          Speed: {fan.percentage?.latest?.value}%
+          Speed: {fan.speedPercent?.latest?.value}%
         </div>
       ))}
     </div>

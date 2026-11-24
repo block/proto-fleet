@@ -12,8 +12,6 @@ import SkeletonBar from "@/shared/components/SkeletonBar";
 import SlotNumber from "@/shared/components/SlotNumber";
 
 const Hardware = () => {
-  // TODO: [STORE_REFACTOR] Remove this useHardware call once we update this page to read directly from the store
-  // Hardware data is now populated by useHardware in AppWrapper.tsx
   const { hashboardsInfo, controlBoardInfo, fansInfo, psusInfo, pending, error } = useHardware();
   const coolingMode = useCoolingMode();
 
@@ -23,7 +21,7 @@ const Hardware = () => {
   const skeletonBar = <SkeletonBar className="h-[22px] w-20" />;
 
   const noFansConnected = areAllFansDisconnected(coolingData?.fans);
-  const isImmersionMode = coolingMode === "Off";
+  const isImmersionMode = coolingMode === "off";
   const showNoFansCallout = noFansConnected && isImmersionMode;
 
   if (pending) {
@@ -57,11 +55,11 @@ const Hardware = () => {
         </Row>
         <Row className="flex items-center">
           <div className="w-92 text-300">
-            {controlBoardInfo?.board_id
+            {controlBoardInfo?.boardId
               ? `Control Board ${getControlBoardGeneration(controlBoardInfo) ?? "Unknown"}`
               : skeletonBar}
           </div>
-          <div className="w-46 text-300">{controlBoardInfo?.serial_number ?? skeletonBar}</div>
+          <div className="w-46 text-300">{controlBoardInfo?.serialNumber ?? skeletonBar}</div>
         </Row>
       </div>
       <div className="mb-10" role="table" data-testid="hardware-hashboards-section">
@@ -81,8 +79,8 @@ const Hardware = () => {
               </div>
               {hashboard ? (
                 <>
-                  <div className="w-46 text-300">Model {hashboard.board}</div>
-                  <div className="w-46 text-300">{hashboard.hb_sn}</div>
+                  <div className="w-46 text-300">Model {hashboard.boardModel}</div>
+                  <div className="w-46 text-300">{hashboard.identity.value}</div>
                 </>
               ) : (
                 <>
@@ -146,7 +144,7 @@ const Hardware = () => {
               {psu ? (
                 <>
                   <div className="w-46 text-300">Model {psu.model}</div>
-                  <div className="w-46 text-300">{psu.psu_sn}</div>
+                  <div className="w-46 text-300">{psu.serialNumber}</div>
                 </>
               ) : (
                 <>

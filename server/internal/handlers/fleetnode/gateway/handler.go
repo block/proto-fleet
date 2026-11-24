@@ -8,23 +8,30 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"buf.build/go/protovalidate"
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/admissionctx"
+	"github.com/block/proto-fleet/server/internal/domain/discoveryranges"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
+	"github.com/google/uuid"
 )
 
 const (
@@ -54,6 +61,7 @@ type Handler struct {
 	pairing    *pairing.Service
 	registry   *control.Registry
 	files      *files.Service
+	packages   ControllerSoftwarePackages
 	// Keep the persisted session rotation and in-memory fence in the same order.
 	sessionRotationMu sync.Mutex
 }
@@ -67,6 +75,19 @@ var _ fleetnodegatewayv1connect.FleetNodeGatewayServiceHandler = &Handler{}
 
 func NewHandler(enrollment *enrollment.Service, auth *auth.Service, pairing *pairing.Service, registry *control.Registry, filesService *files.Service) *Handler {
 	return &Handler{enrollment: enrollment, auth: auth, pairing: pairing, registry: registry, files: filesService}
+}
+
+// ControllerSoftwarePackages opens an uploaded controller software package by
+// its ID. *files.FrigatePackageStore satisfies it.
+type ControllerSoftwarePackages interface {
+	Open(id uuid.UUID) (*os.File, int64, error)
+}
+
+// WithControllerSoftwarePackages lets a Fleet Node download a controller
+// software package for an update command that names it.
+func (h *Handler) WithControllerSoftwarePackages(packages ControllerSoftwarePackages) *Handler {
+	h.packages = packages
+	return h
 }
 
 func CommandArtifactUploadReadLimitOption() connect.HandlerOption {
@@ -116,13 +137,13 @@ func (h *Handler) CompleteAuthHandshake(ctx context.Context, req *connect.Reques
 	}), nil
 }
 
-func (h *Handler) UploadHeartbeat(ctx context.Context, _ *connect.Request[pb.UploadHeartbeatRequest]) (*connect.Response[pb.UploadHeartbeatResponse], error) {
+func (h *Handler) UploadHeartbeat(ctx context.Context, req *connect.Request[pb.UploadHeartbeatRequest]) (*connect.Response[pb.UploadHeartbeatResponse], error) {
 	subject, err := auth.GetSubject(ctx)
 	if err != nil {
 		return nil, err
 	}
 	now := time.Now().UTC()
-	if err := h.enrollment.UpdateLastSeen(ctx, subject.FleetNodeID, subject.OrgID, now); err != nil {
+	if err := h.enrollment.UpdateLastSeen(ctx, subject.FleetNodeID, subject.OrgID, now, req.Msg.GetIpAddresses(), req.Msg.GetVersion()); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&pb.UploadHeartbeatResponse{
@@ -280,6 +301,9 @@ func (h *Handler) DownloadCommandArtifact(ctx context.Context, req *connect.Requ
 }
 
 func (h *Handler) openCommandArtifactPayload(ref *pb.CommandArtifactRef) (io.ReadCloser, files.CommandArtifactInfo, error) {
+	if ref.GetPurpose() == pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_CONTROLLER_SOFTWARE_PACKAGE {
+		return h.openControllerSoftwarePackage(ref)
+	}
 	if ref.GetPurpose() != pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_FIRMWARE_PAYLOAD {
 		return h.files.OpenCommandArtifact(ref.GetArtifactId())
 	}
@@ -295,6 +319,27 @@ func (h *Handler) openCommandArtifactPayload(ref *pb.CommandArtifactRef) (io.Rea
 		Size:     info.Size,
 		SHA256:   info.SHA256,
 	}, nil
+}
+
+// openControllerSoftwarePackage opens an uploaded controller software package.
+// Admission grants this exact package ID. The package store keeps no digest,
+// so the digest of the reference is returned unchanged: the node checks the
+// bytes it receives against the digest in its command, and Fleet checks the
+// digest that each controller commits.
+func (h *Handler) openControllerSoftwarePackage(ref *pb.CommandArtifactRef) (io.ReadCloser, files.CommandArtifactInfo, error) {
+	none := files.CommandArtifactInfo{}
+	if h.packages == nil {
+		return nil, none, fleeterror.NewInternalError("controller software package store is not configured")
+	}
+	id, err := uuid.Parse(ref.GetArtifactId())
+	if err != nil {
+		return nil, none, fleeterror.NewInvalidArgumentError("controller software package ID is not valid")
+	}
+	file, size, err := h.packages.Open(id)
+	if err != nil {
+		return nil, none, fleeterror.NewNotFoundError("controller software package is not available on this Fleet host")
+	}
+	return file, files.CommandArtifactInfo{ID: ref.GetArtifactId(), Filename: ref.GetFilename(), Size: size, SHA256: ref.GetSha256()}, nil
 }
 
 func sendCommandArtifactDownloadResponse(ctx context.Context, stream *connect.ServerStream[pb.DownloadCommandArtifactResponse], msg *pb.DownloadCommandArtifactResponse) error {
@@ -519,7 +564,16 @@ func (h *Handler) ReportDiscoveredDevices(ctx context.Context, req *connect.Requ
 	inScope := make([]*pb.DiscoveredDeviceReport, 0, len(in))
 	var outOfScope int64
 	for _, d := range in {
-		if ok && (scope == nil || scope(d.GetIpAddress(), d.GetPort())) {
+		port := d.GetPort()
+		if d.GetDeviceClass() == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER && d.GetRpcPort() != 0 {
+			if d.GetRpcPort() < 1 || d.GetRpcPort() > 65535 {
+				outOfScope++
+				continue
+			}
+			// Native CT1 discovery probes RPC; Port remains its separate HTTP endpoint.
+			port = strconv.Itoa(int(d.GetRpcPort()))
+		}
+		if ok && (scope == nil || scope(d.GetIpAddress(), port)) {
 			inScope = append(inScope, d)
 		} else {
 			outOfScope++
@@ -533,13 +587,17 @@ func (h *Handler) ReportDiscoveredDevices(ctx context.Context, req *connect.Requ
 			IPAddress:        d.GetIpAddress(),
 			Port:             d.GetPort(),
 			URLScheme:        d.GetUrlScheme(),
+			RPCPort:          d.GetRpcPort(),
+			RPCTLS:           d.GetRpcTls(),
+			Endpoints:        d.GetEndpoints(),
 			DriverName:       d.GetDriverName(),
 			Model:            d.GetModel(),
+			DeviceClass:      d.GetDeviceClass(),
 			Manufacturer:     d.GetManufacturer(),
 			FirmwareVersion:  d.GetFirmwareVersion(),
 		})
 	}
-	acceptedIdx, ownershipRejected, err := h.pairing.UpsertDiscoveredDevices(ctx, subject.FleetNodeID, subject.OrgID, reports)
+	accepted, ownershipRejected, err := h.pairing.UpsertDiscoveredDevices(ctx, subject.FleetNodeID, subject.OrgID, reports)
 	if err != nil {
 		return nil, err
 	}
@@ -551,17 +609,17 @@ func (h *Handler) ReportDiscoveredDevices(ctx context.Context, req *connect.Requ
 			"ownership_rejected", ownershipRejected,
 		)
 	}
-	if len(acceptedIdx) > 0 {
+	if len(accepted) > 0 {
 		// Forward only store-accepted devices; out-of-scope and
 		// ownership/attribution-rejected rows must not surface to the operator.
-		batch := &pairingpb.DiscoverResponse{Devices: make([]*pairingpb.Device, 0, len(acceptedIdx))}
-		for _, i := range acceptedIdx {
-			batch.Devices = append(batch.Devices, toPairingDevice(inScope[i]))
+		batch := &pairingpb.DiscoverResponse{Devices: make([]*pairingpb.Device, 0, len(accepted))}
+		for _, d := range accepted {
+			batch.Devices = append(batch.Devices, toPairingDevice(d))
 		}
 		h.registry.PublishBatch(subject.FleetNodeID, commandID, batch)
 	}
 	return connect.NewResponse(&pb.ReportDiscoveredDevicesResponse{
-		AcceptedCount: int64(len(acceptedIdx)),
+		AcceptedCount: int64(len(accepted)),
 		RejectedCount: ownershipRejected + outOfScope,
 	}), nil
 }
@@ -594,7 +652,7 @@ func (h *Handler) ReportPairedDevices(ctx context.Context, req *connect.Request[
 	persisted := make([]*pb.FleetNodePairResult, 0, len(kept))
 	var persistFailed []string
 	for _, r := range kept {
-		status, err := h.pairing.PersistFleetNodePairResult(ctx, subject.FleetNodeID, meta.OrgID, r, meta.AssignedBy)
+		status, err := h.pairing.PersistFleetNodePairResult(ctx, meta, r)
 		if err != nil {
 			// Per-device isolation: one persist failure must not drop the others
 			// (already paired on the node). A failed result isn't forwarded as paired;
@@ -656,16 +714,20 @@ func defaultPasswordActiveForStatus(status string) *bool {
 	return nil
 }
 
-func toPairingDevice(d *pb.DiscoveredDeviceReport) *pairingpb.Device {
+func toPairingDevice(d pairing.DiscoveredDeviceReport) *pairingpb.Device {
 	return &pairingpb.Device{
-		DeviceIdentifier: d.GetDeviceIdentifier(),
-		IpAddress:        d.GetIpAddress(),
-		Port:             d.GetPort(),
-		UrlScheme:        d.GetUrlScheme(),
-		DriverName:       d.GetDriverName(),
-		Model:            d.GetModel(),
-		Manufacturer:     d.GetManufacturer(),
-		FirmwareVersion:  d.GetFirmwareVersion(),
+		DeviceIdentifier: d.DeviceIdentifier,
+		IpAddress:        d.IPAddress,
+		Port:             d.Port,
+		UrlScheme:        d.URLScheme,
+		RpcPort:          d.RPCPort,
+		RpcTls:           d.RPCTLS,
+		Endpoints:        d.Endpoints,
+		DriverName:       d.DriverName,
+		Model:            d.Model,
+		DeviceClass:      d.DeviceClass,
+		Manufacturer:     d.Manufacturer,
+		FirmwareVersion:  d.FirmwareVersion,
 	}
 }
 
@@ -678,6 +740,12 @@ var (
 	// ControlStreamLivenessInterval keeps data moving across the fleetd-to-NGINX
 	// hop so NGINX can detect a stalled upstream within its read timeout.
 	ControlStreamLivenessInterval = 30 * time.Second
+
+	// ControlStreamKeepaliveInterval is the ping cadence negotiated with nodes
+	// that speak CommandProtocolVersion V7. Both ends close the stream after
+	// control.KeepaliveMisses intervals of silence, so the HA failover loop
+	// sees a half-open connection within seconds instead of a TCP timeout.
+	ControlStreamKeepaliveInterval = 5 * time.Second
 )
 
 func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[pb.ControlStreamRequest, pb.ControlStreamResponse]) error {
@@ -718,21 +786,52 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 	if hello == nil {
 		return controlStreamExitError(ctx, fleeterror.NewInvalidArgumentError("first ControlStreamRequest must be Hello"))
 	}
+	if err := protovalidate.Validate(hello); err != nil {
+		return fleeterror.NewInvalidArgumentErrorf("invalid discovery configuration: %v", err)
+	}
+	if config := hello.GetDiscoveryConfig(); config != nil {
+		scope, err := discoveryranges.Parse(config.GetRanges())
+		if err != nil {
+			return fleeterror.NewInvalidArgumentErrorf("invalid discovery ranges: %v", err)
+		}
+		config.Ranges = scope.Strings()
+	}
 
 	regHandle, err := h.registry.RegisterAuthenticated(
 		subject.FleetNodeID,
 		subject.SessionFingerprint,
 		hello.GetMaxCommandProtocolVersion(),
+		control.WithDiscoveryConfig(hello.GetDiscoveryConfig()),
 	)
 	if err != nil {
 		return fleeterror.NewUnauthenticatedError("fleet node session was replaced or revoked")
 	}
 	defer regHandle.Unregister()
 
-	if err := sendControlStreamAccepted(ctx, stream.Send); err != nil {
+	// Older nodes never ping, so only V7 nodes get a keepalive deadline.
+	var keepalive time.Duration
+	livenessInterval := ControlStreamLivenessInterval
+	if hello.GetMaxCommandProtocolVersion() >= pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7 {
+		keepalive = ControlStreamKeepaliveInterval
+		livenessInterval = keepalive
+	}
+	silence := control.KeepaliveMisses * keepalive
+	var silent atomic.Bool
+	var watchdog *time.Timer
+	if keepalive > 0 {
+		// The watchdog runs apart from the loop below, which can block in Send on
+		// a half-open connection, so a silent node leaves the registry (and can
+		// fail over) without waiting for TCP to give up.
+		watchdog = time.AfterFunc(silence, func() {
+			silent.Store(true)
+			regHandle.Unregister()
+		})
+		defer watchdog.Stop()
+	}
+	if err := sendControlStreamAccepted(ctx, stream.Send, keepalive); err != nil {
 		return err
 	}
-	liveness := time.NewTicker(ControlStreamLivenessInterval)
+	liveness := time.NewTicker(livenessInterval)
 	defer liveness.Stop()
 	// Side-goroutine bridges blocking stream.Receive into the select loop. Its
 	// send selects on regHandle.Done (closed by the deferred Unregister) so it
@@ -752,21 +851,35 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 		}
 	}()
 
+	sendCommand := func(cmd *pb.ControlCommand) error {
+		observeSend := regHandle.ObserveCommandSend(ctx, cmd)
+		err := sendControlCommand(stream.Send, cmd)
+		observeSend(err)
+		return err
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			return controlStreamExitError(ctx, nil)
 		case <-regHandle.Done:
-			// Newest-wins eviction or Unregister fired; let the handler
-			// exit so connect-go closes the stream.
+			// Newest-wins eviction, Unregister, or the keepalive watchdog fired;
+			// let the handler exit so connect-go closes the stream.
+			if silent.Load() {
+				return controlStreamExitError(ctx, fleeterror.NewUnavailableErrorf("control stream silent for %s", silence))
+			}
 			return controlStreamExitError(ctx, nil)
 		case <-liveness.C:
-			if err := sendControlStreamAccepted(ctx, stream.Send); err != nil {
+			if err := sendControlStreamAccepted(ctx, stream.Send, keepalive); err != nil {
 				return err
 			}
 		case cmd := <-regHandle.Outgoing:
-			if sendErr := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Command{Command: cmd}}); sendErr != nil {
-				return controlStreamExitError(ctx, fleeterror.NewInternalErrorf("send command: %v", sendErr))
+			if sendErr := sendCommand(cmd); sendErr != nil {
+				return controlStreamExitError(ctx, fleeterror.NewInternalErrorf("%v", sendErr))
+			}
+		case commandID := <-regHandle.Cancels:
+			if sendErr := sendControlCancel(stream.Send, sendCommand, regHandle.Outgoing, commandID); sendErr != nil {
+				return controlStreamExitError(ctx, fleeterror.NewInternalErrorf("%v", sendErr))
 			}
 		case r := <-incoming:
 			if r.err != nil {
@@ -774,6 +887,9 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 					return controlStreamExitError(ctx, nil)
 				}
 				return controlStreamExitError(ctx, fleeterror.NewInternalErrorf("control stream recv: %v", r.err))
+			}
+			if watchdog != nil {
+				watchdog.Reset(silence)
 			}
 			if ack := r.msg.GetAck(); ack != nil {
 				// Trust boundary for node input: drop a malformed/oversized ack rather than
@@ -785,6 +901,40 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 				}
 				regHandle.PublishAck(ack)
 			}
+			if frame := r.msg.GetMinerWebResponse(); frame != nil {
+				regHandle.PublishMinerWebResponse(frame)
+			}
+			if frame := r.msg.GetCommandFrame(); frame != nil {
+				regHandle.PublishCommandFrame(frame)
+			}
+		}
+	}
+}
+
+func sendControlCommand(send func(*pb.ControlStreamResponse) error, cmd *pb.ControlCommand) error {
+	if err := send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Command{Command: cmd}}); err != nil {
+		return fmt.Errorf("send command: %w", err)
+	}
+	return nil
+}
+
+// sendControlCancel sends every command already queued for the node, then the
+// cancel. A command and its cancel can be ready at once and select picks one
+// at random. A cancel that reached the node first would be ignored, and the
+// command would hold a node slot until its node lifetime ends. A command is
+// queued before its cancel, so draining here keeps each cancel behind it.
+func sendControlCancel(send func(*pb.ControlStreamResponse) error, sendCommand func(*pb.ControlCommand) error, outgoing <-chan *pb.ControlCommand, commandID string) error {
+	for {
+		select {
+		case cmd := <-outgoing:
+			if err := sendCommand(cmd); err != nil {
+				return err
+			}
+		default:
+			if err := send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Cancel{Cancel: &pb.ControlCancel{CommandId: commandID}}}); err != nil {
+				return fmt.Errorf("send cancel: %w", err)
+			}
+			return nil
 		}
 	}
 }
@@ -797,10 +947,12 @@ func controlStreamExitError(ctx context.Context, fallback error) error {
 	return fallback
 }
 
-func sendControlStreamAccepted(ctx context.Context, send func(*pb.ControlStreamResponse) error) error {
-	if err := send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{
-		Accepted: &pb.ControlAccepted{ServerTime: timestamppb.New(time.Now().UTC())},
-	}}); err != nil {
+func sendControlStreamAccepted(ctx context.Context, send func(*pb.ControlStreamResponse) error, keepalive time.Duration) error {
+	accepted := &pb.ControlAccepted{ServerTime: timestamppb.New(time.Now().UTC())}
+	if keepalive > 0 {
+		accepted.KeepaliveInterval = durationpb.New(keepalive)
+	}
+	if err := send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{Accepted: accepted}}); err != nil {
 		return controlStreamExitError(ctx, fleeterror.NewInternalErrorf("send accepted: %v", err))
 	}
 	return nil

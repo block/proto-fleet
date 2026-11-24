@@ -72,12 +72,8 @@ func effectivePermissionsFromContext(ctx context.Context) *authz.EffectivePermis
 // streaming session; this is the handler's responsibility, not the
 // middleware's.
 //
-// TODO: every current caller passes authz.ResourceContext{} because
-// the migrated handlers are all org-scoped. The first site-scoped
-// migration (miner actions, rack ops, log download) should add a
-// shared helper — e.g. siteResourceForMiner(ctx, minerID) — rather
-// than inlining the miner_id → site_id lookup at each callsite. Drop
-// this TODO once the helper exists.
+// Callers supply the resource context resolved for the requested operation;
+// use RequireOrgWidePermission when authority must have no site narrowing.
 func RequirePermission(ctx context.Context, key string, rc authz.ResourceContext) (*session.Info, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {

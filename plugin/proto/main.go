@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	requiredPort = 443
+	requiredPort = 0 // No override: scan the driver's R2 HTTP(S) and CT1 gRPC ports.
 )
 
 func main() {

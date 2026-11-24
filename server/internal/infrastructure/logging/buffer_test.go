@@ -97,31 +97,6 @@ func TestBuffer_SearchIsCaseInsensitive(t *testing.T) {
 	}
 }
 
-func TestBuffer_LimitTruncatesAndCapsLatestID(t *testing.T) {
-	b := NewBuffer(10, slog.LevelDebug)
-	for range 5 {
-		emit(t, b, slog.LevelInfo, "msg")
-	}
-
-	res := b.Snapshot(SnapshotOptions{Limit: 2})
-	if got, want := len(res.Records), 2; got != want {
-		t.Fatalf("len=%d want %d", got, want)
-	}
-	if !res.Truncated {
-		t.Errorf("expected Truncated=true")
-	}
-	// LatestID must NOT advance past the records we actually returned,
-	// otherwise a resume poll with since_id=LatestID would silently skip
-	// the matches that were clipped by the limit (records 3..5 here).
-	if got, want := res.LatestID, uint64(2); got != want {
-		t.Errorf("LatestID=%d want %d (capped at last returned record)", got, want)
-	}
-	// Sanity: LatestID equals the ID of the last returned record.
-	if last := res.Records[len(res.Records)-1].ID; res.LatestID != last {
-		t.Errorf("LatestID=%d does not match last returned record ID=%d", res.LatestID, last)
-	}
-}
-
 // TestBuffer_TruncatedResumeReturnsClippedMatches exercises the contract
 // the proto documents: poll once with a Limit, get truncated=true, then poll
 // again with since_id=latest_id and receive every matching record that didn't

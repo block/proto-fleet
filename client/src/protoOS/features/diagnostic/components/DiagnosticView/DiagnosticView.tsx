@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import ComponentSection from "../ComponentSection";
 import ComponentSelector from "../ComponentSelector";
 import type { ComponentFilterType } from "../ComponentSelector/types";
@@ -7,13 +8,17 @@ import EmptySlotCard from "../EmptySlotCard";
 import FanStatusCard from "../FanStatusCard";
 import HashboardStatusCard from "../HashboardStatusCard";
 import PsuStatusCard from "../PsuStatusCard";
-import { TOTAL_FAN_SLOTS, TOTAL_PSU_SLOTS, useCoolingStatus, useTelemetry } from "@/protoOS/api";
+import ContainerDiagnosticView from "./ContainerDiagnosticView";
+import { TOTAL_FAN_SLOTS, TOTAL_PSU_SLOTS, useCoolingStatus, useHashboardStatus, useTelemetry } from "@/protoOS/api";
 import {
   useBayCount,
   useControlBoard,
   useCoolingMode,
+  useDeviceType,
   useFanIds,
   useHashboardSerialsByBay,
+  useMinerStore,
+  useModuleModel,
   usePsuIds,
   useSlotsPerBay,
 } from "@/protoOS/store";
@@ -56,7 +61,7 @@ const FansSection = () => {
   const { data: coolingData } = useCoolingStatus();
 
   const noFansConnected = areAllFansDisconnected(coolingData?.fans);
-  const isImmersionMode = coolingMode === "Off";
+  const isImmersionMode = coolingMode === "off";
   const showNoFansState = noFansConnected && isImmersionMode;
 
   return (
@@ -72,6 +77,21 @@ const HashboardsSection = () => {
   const bayCount = useBayCount();
   const slotsPerBay = useSlotsPerBay();
 
+  // Each card renders an ASIC preview, so fetch per-ASIC status only for the
+  // boards this grid actually renders — the non-null serials in the bay layout
+  // — not every board in the container. A CT1 container is up to 864 boards x
+  // ~312 ASICs; fetching all of them fires hundreds of /asics requests and writes
+  // tens of thousands of ASIC samples to the store in one synchronous pass, which
+  // stalls the main thread and makes navigating away from Diagnostics lag.
+  const renderedSerials = useMemo(
+    () =>
+      Object.values(hashboardsByBay)
+        .flat()
+        .filter((serial): serial is string => serial !== null),
+    [hashboardsByBay],
+  );
+  useHashboardStatus({ hashboardSerialNumbers: renderedSerials, poll: false });
+
   const totalBays = bayCount || 3;
   const bayIndices = Array.from({ length: totalBays }, (_, i) => i + 1);
 
@@ -84,7 +104,7 @@ const HashboardsSection = () => {
 
             return serialsInBay.map((serial, slotIndex) => {
               if (serial) {
-                return <HashboardStatusCard key={serial} serialNumber={serial} />;
+                return <HashboardStatusCard key={serial} identifier={serial} />;
               }
 
               const slotNumber = (bayIndex - 1) * slotsPerBay + slotIndex + 1;
@@ -140,9 +160,29 @@ const ControlBoardSection = () => {
 };
 ControlBoardSection.displayName = "ControlBoardSection";
 
-function DiagnosticView({ className }: DiagnosticViewProps) {
+// CT1 controllers belong to the container HA pair, not to individual modules.
+// Controller inventory and latency API work is tracked in GitHub issue #88.
+export const OtherHardwareSection = () => {
+  // CT1 PSU slots are module-local: every module can have a PSU in slot 1.
+  // Use canonical IDs for both reconciliation and the module-aware card path.
+  const psuIds = useMinerStore(useShallow((state) => [...state.hardware.psus.keys()]));
+
+  return (
+    <ComponentSection title="Hardware">
+      <div className="grid items-start gap-1 tablet:grid-cols-2 desktop:grid-cols-3">
+        {psuIds.map((id) => (
+          <PsuStatusCard key={id} componentId={id} showComponentIcon={false} />
+        ))}
+      </div>
+    </ComponentSection>
+  );
+};
+OtherHardwareSection.displayName = "OtherHardwareSection";
+
+function ModuleDiagnosticView({ className }: DiagnosticViewProps) {
   useTelemetry({ level: ["hashboard", "asic", "psu"] });
   const [selectedComponent, setSelectedComponent] = useState<ComponentFilterType>("all");
+  const moduleModel = useModuleModel();
 
   const shouldShowComponent = (component: ComponentFilterType) => {
     return selectedComponent === "all" || selectedComponent === component;
@@ -151,7 +191,7 @@ function DiagnosticView({ className }: DiagnosticViewProps) {
   return (
     <div className={`w-full space-y-6 ${className || ""}`}>
       <div className="flex flex-col items-start gap-3 pb-6 tablet:flex-row tablet:items-center">
-        <div className="grow text-heading-300">Diagnostics</div>
+        <div className="grow text-heading-300">Systems</div>
         <ComponentSelector selectedComponent={selectedComponent} onSelect={setSelectedComponent} />
       </div>
 
@@ -168,20 +208,35 @@ function DiagnosticView({ className }: DiagnosticViewProps) {
           </ErrorBoundary>
         ) : null}
 
-        {shouldShowComponent("psus") ? (
-          <ErrorBoundary>
-            <PsusSection />
-          </ErrorBoundary>
-        ) : null}
+        {moduleModel === "ct1" ? (
+          shouldShowComponent("psus") ? (
+            <ErrorBoundary>
+              <OtherHardwareSection />
+            </ErrorBoundary>
+          ) : null
+        ) : (
+          <>
+            {shouldShowComponent("psus") ? (
+              <ErrorBoundary>
+                <PsusSection />
+              </ErrorBoundary>
+            ) : null}
 
-        {shouldShowComponent("controlBoard") ? (
-          <ErrorBoundary>
-            <ControlBoardSection />
-          </ErrorBoundary>
-        ) : null}
+            {shouldShowComponent("controlBoard") ? (
+              <ErrorBoundary>
+                <ControlBoardSection />
+              </ErrorBoundary>
+            ) : null}
+          </>
+        )}
       </div>
     </div>
   );
+}
+
+function DiagnosticView(props: DiagnosticViewProps) {
+  const deviceType = useDeviceType();
+  return deviceType === "container" ? <ContainerDiagnosticView {...props} /> : <ModuleDiagnosticView {...props} />;
 }
 
 export default DiagnosticView;

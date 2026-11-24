@@ -92,6 +92,37 @@ func TestService_CreateCustomRole_PrivilegeParityRejectsBeyondCaller(t *testing.
 	require.Contains(t, err.Error(), "does not hold")
 }
 
+func TestService_UpdateCustomRole_AccountManageGrantParity(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+	orgID, privilegedID := setupOrgWithSuperAdmin(t, db)
+	callerID := insertTestUser(t, db)
+	initialKeys := []string{authz.PermRoleManage}
+	roleID := createCustomRoleWithPermissions(t, db, orgID, "Super admin", initialKeys)
+	q := sqlc.New(db)
+	_, err := q.AssignRole(ctx, sqlc.AssignRoleParams{
+		UserID: callerID, OrganizationID: orgID, RoleID: roleID, ScopeType: "org",
+	})
+	require.NoError(t, err)
+
+	svc := authz.NewService(db, nil)
+	requestedKeys := []string{authz.PermRoleManage, authz.PermAccountManage}
+	_, err = svc.UpdateCustomRole(ctx, callerID, orgID, roleID, "Super admin", "unsaved edit", requestedKeys)
+	require.ErrorContains(t, err, "cannot grant account:manage: caller does not hold this permission at org scope")
+	persistedKeys, err := q.ListRolePermissionKeys(ctx, roleID)
+	require.NoError(t, err)
+	require.ElementsMatch(t, initialKeys, persistedKeys)
+	persistedRole, err := q.GetRoleByID(ctx, roleID)
+	require.NoError(t, err)
+	require.Empty(t, persistedRole.Description.String)
+
+	_, err = svc.UpdateCustomRole(ctx, privilegedID, orgID, roleID, "Super admin", "authorized edit", requestedKeys)
+	require.NoError(t, err)
+	persistedKeys, err = q.ListRolePermissionKeys(ctx, roleID)
+	require.NoError(t, err)
+	require.ElementsMatch(t, requestedKeys, persistedKeys)
+}
+
 func TestService_CreateCustomRole_DeactivatedCallerCannotPersistGrants(t *testing.T) {
 	// Codex MED-1 regression: a soft-deleted caller's user_organization_role
 	// rows must not surface in the in-tx LoadEffectiveTx, so the parity

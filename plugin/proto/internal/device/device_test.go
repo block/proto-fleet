@@ -18,6 +18,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestNewOfflineDevicePreservesProbeEvidence(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	host, portText, err := net.SplitHostPort(listener.Addr().String())
+	require.NoError(t, err)
+	port, err := sdk.ParsePort(portText)
+	require.NoError(t, err)
+	require.NoError(t, listener.Close())
+	_, err = New(t.Context(), "rig", sdk.DeviceInfo{Host: host, Port: port, URLScheme: "http"},
+		sdk.UsernamePassword{Username: "admin", Password: "proto"})
+	require.Error(t, err)
+	require.True(t, sdk.DeviceProbeFailed(err), "%v", err)
+}
+
 func TestIsAuthenticationError(t *testing.T) {
 	tests := []struct {
 		name     string

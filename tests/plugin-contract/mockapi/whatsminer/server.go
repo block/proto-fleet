@@ -29,13 +29,11 @@ type Server struct {
 	dataDir  string
 
 	mu        sync.Mutex
-	commands  []string
 	wg        sync.WaitGroup
 	closed    chan struct{}
 	responses map[string][]byte
 
 	overrides       map[string][]byte
-	behaviors       map[string]mockapi.ConnBehavior
 	defaultBehavior mockapi.ConnBehavior
 }
 
@@ -71,7 +69,6 @@ func NewServer(t testing.TB, dataDir string) *Server {
 		closed:    make(chan struct{}),
 		responses: loadAllResponses(t, dataDir),
 		overrides: make(map[string][]byte),
-		behaviors: make(map[string]mockapi.ConnBehavior),
 	}
 
 	s.wg.Add(1)
@@ -94,17 +91,6 @@ func (s *Server) Host() string {
 	return host
 }
 
-func (s *Server) Port() string {
-	_, port, _ := net.SplitHostPort(s.Addr())
-	return port
-}
-
-func (s *Server) Commands() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]string(nil), s.commands...)
-}
-
 // SetResponse overrides the response for a specific command.
 func (s *Server) SetResponse(cmd string, data []byte) {
 	s.mu.Lock()
@@ -112,14 +98,7 @@ func (s *Server) SetResponse(cmd string, data []byte) {
 	s.overrides[cmd] = data
 }
 
-// SetConnBehavior changes how the mock handles connections for a specific command.
-func (s *Server) SetConnBehavior(cmd string, behavior mockapi.ConnBehavior) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.behaviors[cmd] = behavior
-}
-
-// SetDefaultConnBehavior sets the fallback behavior for all commands without a specific override.
+// SetDefaultConnBehavior sets the behavior for all commands.
 func (s *Server) SetDefaultConnBehavior(behavior mockapi.ConnBehavior) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -131,7 +110,6 @@ func (s *Server) ResetOverrides() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.overrides = make(map[string][]byte)
-	s.behaviors = make(map[string]mockapi.ConnBehavior)
 	s.defaultBehavior = mockapi.BehaviorNormal
 }
 
@@ -196,10 +174,6 @@ func (s *Server) handleConn(conn net.Conn) {
 		}
 		s.t.Logf("mock WhatsMiner: decrypted privileged command: %s", cmd)
 
-		s.mu.Lock()
-		s.commands = append(s.commands, cmd)
-		s.mu.Unlock()
-
 		resp := s.loadResponse(cmd)
 		encResp := s.encryptResponse(resp)
 		s.writeResponse(conn, cmd, encResp)
@@ -209,19 +183,10 @@ func (s *Server) handleConn(conn net.Conn) {
 	cmd := extractCommand(req)
 
 	s.mu.Lock()
-	s.commands = append(s.commands, cmd)
-	behavior, ok := s.behaviors[cmd]
-	if !ok {
-		behavior = s.defaultBehavior
-	}
+	behavior := s.defaultBehavior
 	s.mu.Unlock()
 
-	switch behavior {
-	case mockapi.BehaviorTimeout:
-		// Block until the test's cleanup closes the server.
-		<-s.closed
-		return
-	case mockapi.BehaviorCloseConn:
+	if behavior == mockapi.BehaviorCloseConn {
 		return
 	}
 

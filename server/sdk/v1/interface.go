@@ -166,10 +166,19 @@ type SensorMetrics struct {
 
 // DeviceMetrics represents the complete telemetry snapshot for a mining device
 type DeviceMetrics struct {
+	// Container is present only for a controller observation, never for a miner.
+	Container *ContainerSnapshot
+
 	// Identity
 	DeviceID        string
 	Timestamp       time.Time
 	FirmwareVersion string
+
+	// UptimeSeconds is whole elapsed seconds since the device booted; nil means unknown.
+	// UptimeObservedAt is the start of the device request that sampled uptime.
+	// Preserve both values together when caching; a zero observation time is unusable.
+	UptimeSeconds    *uint64
+	UptimeObservedAt time.Time
 
 	// Device-level health
 	Health       HealthStatus
@@ -337,6 +346,16 @@ type MiningPoolConfig struct {
 	Priority   int32
 	URL        string
 	WorkerName string
+	// Password is the credential to write, including an explicitly empty value.
+	Password string `json:"-"`
+}
+
+func (p MiningPoolConfig) String() string {
+	return fmt.Sprintf("MiningPoolConfig{Priority:%d URL:%q WorkerName:%q Password:[redacted]}", p.Priority, p.URL, p.WorkerName)
+}
+
+func (p MiningPoolConfig) GoString() string {
+	return p.String()
 }
 
 // ConfiguredPool represents a pool currently configured on a device
@@ -347,13 +366,68 @@ type ConfiguredPool struct {
 	Username string // Worker name / username configured on the miner
 }
 
+// StoredMiningPool is a private observation of a stored firmware slot.
+// Password is nil when unavailable or masked; a pointer to "" proves empty.
+// Never infer this value from desired configuration or a write acknowledgement.
+type StoredMiningPool struct {
+	Priority int32
+	URL      string
+	Username string
+	Password *string `json:"-"`
+}
+
+func (p StoredMiningPool) String() string {
+	return fmt.Sprintf("StoredMiningPool{Priority:%d URL:%q Username:%q Password:[redacted]}", p.Priority, p.URL, p.Username)
+}
+
+func (p StoredMiningPool) GoString() string { return p.String() }
+
+// DeviceStoredPoolReader is optional and separate from runtime pool telemetry.
+// Implementations read every stored slot, including disabled slots, without
+// filtering or truncation. Password presence is actual firmware evidence; hidden
+// or masked values remain nil. A write ACK or cached desired state is not proof.
+// Unsupported firmware must return an error rather than runtime telemetry.
+type DeviceStoredPoolReader interface {
+	GetStoredMiningPools(ctx context.Context) ([]StoredMiningPool, error)
+}
+
 // NewDeviceResult contains the result of creating a new device
 type NewDeviceResult struct {
 	Device Device
 }
 
-// DeviceInfo represents information about a discovered device
+// DeviceClass identifies the independently discoverable hardware unit.
+type DeviceClass int32
+
+const (
+	DeviceClassUnspecified DeviceClass = iota
+	DeviceClassRig
+	DeviceClassContainer
+)
+
+// DeviceEndpoint is a discovered address for a device. The plugin supplies
+// ID (endpoint identity) and DeviceKey (shared device identity). Fleet treats
+// both as opaque values and scopes DeviceKey by driver and network owner.
+type DeviceEndpoint struct {
+	ID        string
+	DeviceKey string
+	// MemberIDs declares current group members so discovery can retire replaced endpoints.
+	MemberIDs []string
+	Host      string
+	Port      int32
+	URLScheme string
+	RPCPort   int32
+	RPCTLS    bool
+}
+
+// DeviceInfo represents information about a discovered device.
 type DeviceInfo struct {
+	Endpoints []DeviceEndpoint
+	// RPCPort and RPCTLS select a separate native RPC listener on Host.
+	// Zero port uses the driver's default; Port/URLScheme remain the web endpoint.
+	RPCPort         int32
+	RPCTLS          bool
+	DeviceClass     DeviceClass
 	Host            string // e.g., "192.168.1.100" (maps to proto 'host')
 	Port            int32  // e.g., 4028 (maps to proto 'port')
 	URLScheme       string // e.g., "http", "https", "ssh" (maps to proto 'url_scheme')
@@ -446,6 +520,11 @@ type FirmwareFile struct {
 	Size     int64
 	SHA256   string
 	FilePath string // On-disk path for gRPC bridge passthrough (plugins share the server's filesystem)
+	// RequestID is stable across automatic retries of one Fleet command and
+	// unique to that command, even across Fleet databases; empty when unknown.
+	// Fleet sends the same file and RequestID again when the device reports
+	// FirmwareStateContinue.
+	RequestID string
 }
 
 // DeviceMaintenance represents device maintenance operations
@@ -456,9 +535,26 @@ type DeviceMaintenance interface {
 	Unpair(ctx context.Context) error
 }
 
+// FirmwareStateContinue is the FirmwareUpdateStatus.State a device reports
+// when its update has a further step that changes the device. Fleet then
+// calls FirmwareUpdate again with the same file and RequestID, which passes
+// write admission like the first call, and resumes polling.
+const FirmwareStateContinue = "continue"
+
 // FirmwareUpdateStatus represents the current firmware installation state on a device.
 type FirmwareUpdateStatus struct {
-	State    string // "current", "downloading", "downloaded", "installing", "installed", "confirming", "success", "error"
+	// "current", "downloading", "downloaded", "installing", "installed",
+	// "confirming", "success", or "error". Devices declaring
+	// CapabilityFirmwareSelfManaged report "completed" once the updater
+	// rebooted and verified every component, or "failed" once it finished with
+	// component failures; Fleet neither reboots nor automatically retries them.
+	// They report FirmwareStateContinue between steps that each need
+	// FirmwareUpdate to start them.
+	State string
+	// Progress is the install percentage, 0 to 100. While State is
+	// "installing", "downloaded", or FirmwareStateContinue, each report higher
+	// than every earlier one restarts the firmware command's timeout, so an
+	// update that keeps advancing is not timed out.
 	Progress *int
 	Error    *string
 }
@@ -466,6 +562,9 @@ type FirmwareUpdateStatus struct {
 // FirmwareUpdateStatusProvider is an optional interface that devices can implement
 // to report firmware installation progress after a file has been uploaded.
 // Plugins that do not support install status polling should not implement this.
+// GetFirmwareUpdateStatus must only read: Fleet does not admit it as a device
+// write, so it must never start or change an update. An update that needs
+// another step reports FirmwareStateContinue and starts it in FirmwareUpdate.
 type FirmwareUpdateStatusProvider interface {
 	GetFirmwareUpdateStatus(ctx context.Context) (*FirmwareUpdateStatus, error)
 }
@@ -480,7 +579,9 @@ type DeviceErrorReporting interface {
 // DeviceOptional represents optional device capabilities
 type DeviceOptional interface {
 	// Optional capabilities - return (result, false, nil) if unsupported
-	TryBatchStatus(ctx context.Context, ids []string) (map[string]DeviceMetrics, bool, error)
+	// TryBatchStatus accepts captured device handles so remote adapters retain
+	// each backend generation; callers must not substitute newer registrations.
+	TryBatchStatus(ctx context.Context, devices []Device) (map[string]DeviceMetrics, bool, error)
 	TrySubscribe(ctx context.Context, ids []string) (<-chan DeviceMetrics, bool, error)
 	TryGetWebViewURL(ctx context.Context) (string, bool, error)
 	TryGetTimeSeriesData(ctx context.Context, metricNames []string, startTime, endTime time.Time, granularity *time.Duration, maxPoints int32, pageToken string) (series []DeviceMetrics, nextPageToken string, supported bool, err error)
@@ -510,6 +611,15 @@ type Driver interface {
 	// CoreV1 - Device Management (required)
 	NewDevice(ctx context.Context, deviceID string, deviceInfo DeviceInfo, secret SecretBundle) (NewDeviceResult, error)
 }
+
+// ScopedDeviceResolver preserves an existing backend for an exact trusted
+// lifecycle scope and complete connection/secret configuration. NewDevice keeps
+// its unconditional replacement semantics.
+type ScopedDeviceResolver interface {
+	GetOrCreateDevice(ctx context.Context, id string, info DeviceInfo, secret SecretBundle, scope string) (NewDeviceResult, error)
+}
+
+const CapabilityScopedDeviceReuse = "sdk_scoped_device_reuse"
 
 // DefaultCredentialsProvider is an optional interface that drivers can implement
 // to provide default credentials for auto-authentication during pairing.
@@ -552,6 +662,11 @@ const (
 	CapabilityDiscovery = "discovery" // Device discovery support
 	CapabilityPairing   = "pairing"   // Device pairing support
 
+	// CapabilityGetErrors declares that GetErrors returns the device's errors.
+	// It is the name the Rust and Python SDKs already use, and is independent
+	// of CapabilityErrorCount telemetry.
+	CapabilityGetErrors = "get_errors"
+
 	// Command capabilities
 	CapabilityReboot             = "reboot"               // Device reboot support
 	CapabilityMiningStart        = "mining_start"         // Start mining support
@@ -560,11 +675,15 @@ const (
 	CapabilityFactoryReset       = "factory_reset"        // Factory reset support
 	CapabilityCoolingModeAir     = "cooling_mode_air"     // Air cooling mode support
 	CapabilityCoolingModeImmerse = "cooling_mode_immerse" // Immersion cooling mode support
+	CapabilityPoolClear          = "pool_clear"           // Explicit whole-device empty-stack support with complete stored readback.
 	CapabilityPoolConfig         = "pool_config"          // Pool configuration support
-	CapabilityPoolPriority       = "pool_priority"        // Pool priority support
-	CapabilityNativeStratumV2    = "native_stratum_v2"    // Firmware speaks Stratum V2 natively
-	CapabilityLogsDownload       = "logs_download"        // Device logs download support
-	CapabilityLogLevels          = "log_levels"           // Device logs include a per-line log-level field
+	// CapabilityWorkerNameDefaultNone opts out of the SDK default MAC suffix.
+	// Unset worker names use the full MAC address unless this is true.
+	CapabilityWorkerNameDefaultNone = "worker_name_default_none"
+	CapabilityPoolPriority          = "pool_priority"     // Pool priority support
+	CapabilityNativeStratumV2       = "native_stratum_v2" // Firmware speaks Stratum V2 natively
+	CapabilityLogsDownload          = "logs_download"     // Device logs download support
+	CapabilityLogLevels             = "log_levels"        // Device logs include a per-line log-level field
 	//#nosec G101 -- Capability constant name, not actual credentials
 	CapabilityUpdateMinerPassword = "update_miner_password" // Update miner web UI password support
 
@@ -592,9 +711,10 @@ const (
 	CapabilityPSUStats          = "psu_stats_reported"    // PSU stats reported
 
 	// Firmware capabilities
-	CapabilityFirmware     = "firmware"      // Firmware update support (generic)
-	CapabilityOTAUpdate    = "ota_update"    // OTA update support
-	CapabilityManualUpload = "manual_upload" // Manual firmware upload support
+	CapabilityFirmware            = "firmware"              // Firmware update support (generic)
+	CapabilityFirmwareSelfManaged = "firmware_self_managed" // Updater reboots/verifies components and reports completed.
+	CapabilityOTAUpdate           = "ota_update"            // OTA update support
+	CapabilityManualUpload        = "manual_upload"         // Manual firmware upload support
 
 	// Authentication capabilities
 	CapabilityBasicAuth = "basic_auth" // Basic (username/password) authentication

@@ -229,6 +229,9 @@ func (s *Service) UpdateCustomRole(ctx context.Context, callerID, orgID, roleID 
 	}
 	trimmedDescription := strings.TrimSpace(description)
 	view, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (RoleView, error) {
+		if _, err := q.LockHostedAccountOrganization(ctx, orgID); err != nil {
+			return RoleView{}, err
+		}
 		existing, err := getRoleInOrg(ctx, q, orgID, roleID)
 		if err != nil {
 			return RoleView{}, err
@@ -263,6 +266,13 @@ func (s *Service) UpdateCustomRole(ctx context.Context, callerID, orgID, roleID 
 				return RoleView{}, fleeterror.NewInvalidArgumentError("invalid role_id")
 			}
 			return RoleView{}, fleeterror.NewInternalErrorf("authz: reload role: %w", err)
+		}
+		unadministered, guardErr := q.CountHostedAccountsWithoutAdministrator(ctx, sqlc.CountHostedAccountsWithoutAdministratorParams{OrganizationID: orgID, ExcludedUserID: 0})
+		if guardErr != nil {
+			return RoleView{}, guardErr
+		}
+		if unadministered != 0 {
+			return RoleView{}, fleeterror.NewFailedPreconditionError("account must retain an active direct or explicitly authorized ancestor administrator")
 		}
 		return hydrateRole(ctx, q, updated)
 	})
@@ -301,6 +311,9 @@ func (s *Service) UpdateCustomRole(ctx context.Context, callerID, orgID, roleID 
 func (s *Service) DeleteCustomRole(ctx context.Context, callerID, orgID, roleID int64) error {
 	var deletedName string
 	err := db.WithTransactionNoResult(ctx, s.conn, func(q sqlc.Querier) error {
+		if _, err := q.LockHostedAccountOrganization(ctx, orgID); err != nil {
+			return err
+		}
 		if err := authorizeCallerCanGrant(ctx, q, callerID, orgID, nil); err != nil {
 			return err
 		}

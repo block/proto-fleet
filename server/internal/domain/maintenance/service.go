@@ -100,40 +100,67 @@ func clampLimit(limit int32) int32 {
 // ---------------------------------------------------------------
 
 // CreateRepairTicket generates a TK-XXXX ticket number and inserts the
-// ticket row inside a single transaction.
-func (s *Service) CreateRepairTicket(ctx context.Context, params models.CreateParams) (*models.RepairTicket, error) {
+// ticket row inside a single transaction. The boolean reports whether a new
+// ticket was created rather than replayed.
+func (s *Service) CreateRepairTicket(ctx context.Context, params models.CreateParams) (*models.RepairTicket, bool, error) {
 	params.IdempotencyKey = strings.TrimSpace(params.IdempotencyKey)
 	if params.IdempotencyKey == "" || len(params.IdempotencyKey) > 64 {
-		return nil, fleeterror.NewInvalidArgumentError("idempotency_key must contain between 1 and 64 characters")
+		return nil, false, fleeterror.NewInvalidArgumentError("idempotency_key must contain between 1 and 64 characters")
 	}
 	params.Component = strings.TrimSpace(params.Component)
 	if params.Component == "" {
-		return nil, fleeterror.NewInvalidArgumentError("component is required")
+		params.Component = "Unknown"
 	}
 	if params.Diagnosis != nil {
 		trimmed := strings.TrimSpace(*params.Diagnosis)
-		if trimmed == "" {
-			return nil, fleeterror.NewInvalidArgumentError("diagnosis is required")
-		}
 		params.Diagnosis = &trimmed
+		if trimmed == "" {
+			params.Diagnosis = nil
+		}
 	}
-	if params.Category != models.TicketCategoryMiner && params.Category != models.TicketCategoryInfrastructure {
-		return nil, fleeterror.NewInvalidArgumentError("invalid ticket category")
+	if params.Category < models.TicketCategoryMiner || params.Category > models.TicketCategoryOther {
+		return nil, false, fleeterror.NewInvalidArgumentError("invalid ticket category")
 	}
 	if params.MinerIdentifier != nil {
 		identifier := strings.TrimSpace(*params.MinerIdentifier)
 		params.MinerIdentifier = &identifier
 	}
-	if params.Category == models.TicketCategoryMiner &&
+	if len(params.ClientAccountIDs) > 0 && params.Category != models.TicketCategoryInfrastructure && params.Category != models.TicketCategoryOther {
+		return nil, false, fleeterror.NewInvalidArgumentError("explicit client audiences require infrastructure or Other category")
+	}
+	if params.Category == models.TicketCategoryAccount && (params.CreatedByAccountID == nil || len(params.Targets) > 0) {
+		return nil, false, fleeterror.NewInvalidArgumentError("account tickets require an account creator and no assets")
+	}
+	if (params.Category == models.TicketCategoryModule || params.Category == models.TicketCategoryHashboard) && len(params.Targets) == 0 {
+		return nil, false, fleeterror.NewInvalidArgumentError("physical targets are required")
+	}
+	if params.Category == models.TicketCategoryOther {
+		if strings.TrimSpace(params.Description) == "" {
+			return nil, false, fleeterror.NewInvalidArgumentError("description is required")
+		}
+		if params.SiteID == nil {
+			return nil, false, fleeterror.NewInvalidArgumentError("site_id is required for Other tickets")
+		}
+		if len(params.Targets) > 0 || params.MinerIdentifier != nil || params.RackID != nil || params.RackLabel != nil || params.GroupLabel != nil {
+			return nil, false, fleeterror.NewInvalidArgumentError("Other tickets cannot select equipment")
+		}
+		if params.ShareWithClients && len(params.ClientAccountIDs) == 0 {
+			return nil, false, fleeterror.NewInvalidArgumentError("sharing Other tickets requires explicit affected clients")
+		}
+	}
+	if params.Category == models.TicketCategoryInfrastructure && len(params.Targets) > 0 {
+		return nil, false, fleeterror.NewInvalidArgumentError("infrastructure tickets cannot select physical assets")
+	}
+	if params.Category == models.TicketCategoryMiner && len(params.Targets) == 0 &&
 		(params.MinerIdentifier == nil || *params.MinerIdentifier == "") {
-		return nil, fleeterror.NewInvalidArgumentError("miner_identifier is required for miner tickets")
+		return nil, false, fleeterror.NewInvalidArgumentError("miner_identifier is required for miner tickets")
 	}
 	if params.Category == models.TicketCategoryInfrastructure && params.SiteID == nil {
-		return nil, fleeterror.NewInvalidArgumentError("site_id is required for infrastructure tickets")
+		return nil, false, fleeterror.NewInvalidArgumentError("site_id is required for infrastructure tickets")
 	}
 	requestHash, err := createRepairTicketRequestHash(params)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to hash repair ticket create request: %v", err)
+		return nil, false, fleeterror.NewInternalErrorf("failed to hash repair ticket create request: %v", err)
 	}
 	params.CreateRequestHash = requestHash
 
@@ -166,13 +193,45 @@ func (s *Service) CreateRepairTicket(ctx context.Context, params models.CreatePa
 			}
 		}
 		var initialMinerContext *models.AssetContext
-		switch params.Category {
-		case models.TicketCategoryMiner:
-			if params.MinerIdentifier == nil || strings.TrimSpace(*params.MinerIdentifier) == "" {
-				return fleeterror.NewInvalidArgumentError("miner_identifier is required for miner tickets")
+		var openingTargets []models.TicketAsset
+		if len(params.Targets) > 0 {
+			for i, selection := range params.Targets {
+				if selection.Kind != params.Category && !(params.Category == models.TicketCategoryModule && selection.Kind == models.TicketCategoryHashboard) {
+					return fleeterror.NewInvalidArgumentError("target kind must match ticket category")
+				}
+				asset, err := s.resolveAuthorizedTarget(txCtx, params.OrgID, selection)
+				if err != nil {
+					return err
+				}
+				if i > 0 && !optionalInt64Equal(params.SiteID, asset.SiteID) {
+					return fleeterror.NewInvalidArgumentError("ticket targets must belong to the same site")
+				}
+				asset.Kind = selection.Kind
+				openingTargets = append(openingTargets, *asset)
+				params.SiteID = asset.SiteID
 			}
-			identifier := strings.TrimSpace(*params.MinerIdentifier)
-			asset, err := s.refs.ResolveMinerContext(txCtx, params.OrgID, identifier)
+			if err := validateTicketParent(openingTargets); err != nil {
+				return err
+			}
+			params.BuildingID, params.RackID, params.MinerIdentifier = nil, nil, nil
+		}
+		switch {
+		case params.Category == models.TicketCategoryMiner && len(params.Targets) <= 1:
+			var asset *models.AssetContext
+			var err error
+			identifier := ""
+			if len(params.Targets) == 1 {
+				asset, err = s.refs.ResolveMinerContextByID(txCtx, params.OrgID, params.Targets[0].ID)
+				if err == nil {
+					identifier = asset.MinerIdentifier
+				}
+			} else {
+				if params.MinerIdentifier == nil || strings.TrimSpace(*params.MinerIdentifier) == "" {
+					return fleeterror.NewInvalidArgumentError("miner_identifier is required for miner tickets")
+				}
+				identifier = strings.TrimSpace(*params.MinerIdentifier)
+				asset, err = s.refs.ResolveMinerContext(txCtx, params.OrgID, identifier)
+			}
 			if err != nil {
 				return err
 			}
@@ -181,7 +240,7 @@ func (s *Service) CreateRepairTicket(ctx context.Context, params models.CreatePa
 			params.SiteID, params.BuildingID = asset.SiteID, asset.BuildingID
 			params.Zone, params.RackID = asset.Zone, asset.RackID
 			params.RackLabel, params.GroupLabel = asset.RackLabel, asset.GroupLabel
-		case models.TicketCategoryInfrastructure:
+		case params.Category == models.TicketCategoryInfrastructure || params.Category == models.TicketCategoryOther:
 			if params.SiteID == nil {
 				return fleeterror.NewInvalidArgumentError("site_id is required for infrastructure tickets")
 			}
@@ -191,8 +250,7 @@ func (s *Service) CreateRepairTicket(ctx context.Context, params models.CreatePa
 			}
 			params.SiteID, params.BuildingID = location.SiteID, location.BuildingID
 			params.MinerIdentifier, params.RackID, params.RackLabel, params.GroupLabel = nil, nil, nil, nil
-		case models.TicketCategoryUnspecified:
-			return fleeterror.NewInvalidArgumentError("invalid ticket category")
+
 		}
 
 		if params.SiteID != nil {
@@ -205,14 +263,34 @@ func (s *Service) CreateRepairTicket(ctx context.Context, params models.CreatePa
 				return err
 			}
 		}
-		if params.Category == models.TicketCategoryInfrastructure && params.BuildingID != nil {
+		if (params.Category == models.TicketCategoryInfrastructure || params.Category == models.TicketCategoryOther) && params.BuildingID != nil {
 			location, err := s.refs.ResolveLocationContext(txCtx, params.OrgID, params.SiteID, params.BuildingID)
 			if err != nil {
 				return err
 			}
 			params.SiteID, params.BuildingID = location.SiteID, location.BuildingID
 		}
-		if params.Category == models.TicketCategoryMiner {
+		if len(params.Targets) > 0 && initialMinerContext == nil {
+			if err := s.refs.LockTicketAssetPlacements(txCtx, params.OrgID, params.Targets); err != nil {
+				return err
+			}
+			var lockedTargets []models.TicketAsset
+			for _, selection := range params.Targets {
+				asset, err := s.resolveAuthorizedTarget(txCtx, params.OrgID, selection)
+				if err != nil {
+					return err
+				}
+				if !optionalInt64Equal(params.SiteID, asset.SiteID) {
+					return fleeterror.NewFailedPreconditionError("ticket target placement changed while creating the repair ticket; retry the request")
+				}
+				asset.Kind = selection.Kind
+				lockedTargets = append(lockedTargets, *asset)
+			}
+			if err := validateTicketParent(lockedTargets); err != nil {
+				return err
+			}
+		}
+		if initialMinerContext != nil {
 			if initialMinerContext.RackID != nil {
 				if err := s.refs.LockRackForTicket(txCtx, params.OrgID, *initialMinerContext.RackID); err != nil {
 					return err
@@ -234,6 +312,12 @@ func (s *Service) CreateRepairTicket(ctx context.Context, params models.CreatePa
 			return err
 		}
 
+		if params.BeforeCreate != nil {
+			if err := params.BeforeCreate(txCtx); err != nil {
+				return err
+			}
+		}
+
 		nextID, err := s.store.NextTicketNumber(txCtx, params.OrgID)
 		if err != nil {
 			return err
@@ -247,7 +331,7 @@ func (s *Service) CreateRepairTicket(ctx context.Context, params models.CreatePa
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	// Activity log fires AFTER tx commits.
@@ -273,7 +357,7 @@ func (s *Service) CreateRepairTicket(ctx context.Context, params models.CreatePa
 		s.activitySvc.Log(ctx, event)
 	}
 
-	return ticket, nil
+	return ticket, createdNew, nil
 }
 
 // GetRepairTicket returns the full ticket detail including comments and
@@ -338,11 +422,12 @@ func (s *Service) UpdateRepairTicket(ctx context.Context, params models.UpdatePa
 		}
 		params.Component = &trimmed
 	}
+	if params.ResolutionNote != nil {
+		trimmed := strings.TrimSpace(*params.ResolutionNote)
+		params.ResolutionNote = &trimmed
+	}
 	if params.Diagnosis != nil {
 		trimmed := strings.TrimSpace(*params.Diagnosis)
-		if trimmed == "" {
-			return nil, fleeterror.NewInvalidArgumentError("diagnosis must not be empty")
-		}
 		params.Diagnosis = &trimmed
 	}
 	if params.RMAVendor != nil {
@@ -371,15 +456,41 @@ func (s *Service) UpdateRepairTicket(ctx context.Context, params models.UpdatePa
 		return nil, fleeterror.NewInvalidArgumentError("ticket update must include at least one mutable field")
 	}
 	hasRMAMutation := params.RMAVendor != nil || params.RMATracking != nil || params.RMAEta != nil || params.ClearRMAEta
-	if (params.Resolution != nil || params.RepairLocation != nil) &&
+	if (params.Resolution != nil || params.RepairLocation != nil || params.ResolutionNote != nil) &&
 		(params.Status == nil || *params.Status != models.TicketStatusCompleted) {
-		return nil, fleeterror.NewInvalidArgumentError("resolution and repair_location require a transition to completed")
+		return nil, fleeterror.NewInvalidArgumentError("resolution, resolution_note, and repair_location require a transition to completed")
 	}
 
 	result, err := s.transactor.RunInTxWithResult(ctx, func(txCtx context.Context) (any, error) {
+		var location *models.RepairTicket
+		if params.Status != nil && *params.Status == models.TicketStatusOpen {
+			// Read placement before taking locks: location deletion uses site →
+			// building ordering, so reopening must not hold the ticket first.
+			var err error
+			location, err = s.store.GetRepairTicket(txCtx, params.OrgID, params.ID)
+			if err != nil {
+				return nil, err
+			}
+			if err := verifyAuthorizedSite(txCtx, location.SiteID); err != nil {
+				return nil, err
+			}
+			if location.SiteID != nil {
+				if err := s.refs.LockSiteForTicket(txCtx, params.OrgID, *location.SiteID); err != nil {
+					return nil, err
+				}
+			}
+			if location.BuildingID != nil {
+				if err := s.refs.LockBuildingForTicket(txCtx, params.OrgID, *location.BuildingID); err != nil {
+					return nil, err
+				}
+			}
+		}
 		current, err := s.store.GetRepairTicketForUpdate(txCtx, params.OrgID, params.ID)
 		if err != nil {
 			return nil, err
+		}
+		if location != nil && (!optionalInt64Equal(location.SiteID, current.SiteID) || !optionalInt64Equal(location.BuildingID, current.BuildingID)) {
+			return nil, fleeterror.NewFailedPreconditionError("ticket location changed while reopening; retry the request")
 		}
 		if err := verifyAuthorizedSite(txCtx, current.SiteID); err != nil {
 			return nil, err
@@ -391,11 +502,23 @@ func (s *Service) UpdateRepairTicket(ctx context.Context, params models.UpdatePa
 		if err := verifyTicketVersion(current, params.ExpectedUpdatedAt); err != nil {
 			return nil, err
 		}
+		if params.ClosingAccountID != nil {
+			if targetStatus != models.TicketStatusCompleted {
+				return nil, fleeterror.NewInvalidArgumentError("closing_account_id requires a transition to completed")
+			}
+			allowed, err := s.refs.CanAccountCloseTicket(txCtx, params.OrgID, params.ID, *params.ClosingAccountID)
+			if err != nil {
+				return nil, err
+			}
+			if !allowed {
+				return nil, fleeterror.NewFailedPreconditionError("client closure requires an open ticket created by this account with no reserved parts or RMA details")
+			}
+		}
 		if hasRMAMutation && targetStatus != models.TicketStatusSentToVendor {
 			return nil, fleeterror.NewInvalidArgumentError("RMA fields require sent-to-vendor status")
 		}
-		if current.Status == models.TicketStatusCompleted {
-			return nil, fleeterror.NewFailedPreconditionError("completed tickets are terminal")
+		if current.Status == models.TicketStatusCompleted && (params.Status == nil || targetStatus != models.TicketStatusOpen) {
+			return nil, fleeterror.NewFailedPreconditionError("completed tickets are terminal unless explicitly reopened")
 		}
 		if !statusTransitionAllowed(current.Status, targetStatus) {
 			return nil, fleeterror.NewFailedPreconditionErrorf("ticket status transition %d to %d is not allowed", current.Status, targetStatus)
@@ -421,6 +544,9 @@ func (s *Service) UpdateRepairTicket(ctx context.Context, params models.UpdatePa
 			}
 		}
 		if targetStatus == models.TicketStatusCompleted {
+			if params.ResolutionNote == nil || strings.TrimSpace(*params.ResolutionNote) == "" {
+				return nil, fleeterror.NewInvalidArgumentError("a client-visible resolution note is required")
+			}
 			resolution := current.Resolution
 			if params.Resolution != nil {
 				resolution = *params.Resolution
@@ -440,6 +566,17 @@ func (s *Service) UpdateRepairTicket(ctx context.Context, params models.UpdatePa
 			}
 		}
 
+		for _, board := range params.AffectedBoards {
+			if board.Kind != models.TicketCategoryHashboard {
+				return nil, fleeterror.NewInvalidArgumentError("affected boards must select hashboards")
+			}
+			if board.ID <= 0 || board.ParentModuleID == nil || *board.ParentModuleID <= 0 {
+				return nil, fleeterror.NewInvalidArgumentError("affected board requires its original parent module")
+			}
+			if err := s.store.AddRepairTicketBoard(txCtx, params.OrgID, params.ID, board.ID, *board.ParentModuleID); err != nil {
+				return nil, err
+			}
+		}
 		var parts []models.PartUsage
 		if params.PartsSelection != nil || targetStatus == models.TicketStatusCompleted {
 			parts, err = s.reconcileParts(txCtx, current, params.PartsSelection)
@@ -710,6 +847,11 @@ func (s *Service) BulkClose(ctx context.Context, params models.BulkCloseParams) 
 	if err != nil {
 		return 0, err
 	}
+	if params.ResolutionNote == nil || strings.TrimSpace(*params.ResolutionNote) == "" {
+		return 0, fleeterror.NewInvalidArgumentError("a client-visible resolution note is required")
+	}
+	trimmedNote := strings.TrimSpace(*params.ResolutionNote)
+	params.ResolutionNote = &trimmedNote
 	if params.Resolution < models.TicketResolutionRepaired || params.Resolution > models.TicketResolutionNoActionNeeded {
 		return 0, fleeterror.NewInvalidArgumentError("resolution is required when completing tickets")
 	}
@@ -734,7 +876,7 @@ func (s *Service) BulkClose(ctx context.Context, params models.BulkCloseParams) 
 				return err
 			}
 			completionLocation := params.RepairLocation
-			if ticket.Category == models.TicketCategoryInfrastructure {
+			if ticket.Category != models.TicketCategoryMiner {
 				completionLocation = models.RepairLocationUnspecified
 			}
 			if err := verifyTicketVersion(ticket, params.ExpectedVersions[id]); err != nil {
@@ -802,14 +944,14 @@ func (s *Service) BulkClose(ctx context.Context, params models.BulkCloseParams) 
 			}
 		}
 		if len(minerIDs) > 0 {
-			rows, err := s.store.BulkCloseTickets(txCtx, params.OrgID, minerIDs, int16(params.Resolution), int16(params.RepairLocation), params.Notes)
+			rows, err := s.store.BulkCloseTickets(txCtx, params.OrgID, minerIDs, int16(params.Resolution), int16(params.RepairLocation), params.ResolutionNote)
 			if err != nil {
 				return err
 			}
 			attemptAffected += rows
 		}
 		if len(infrastructureIDs) > 0 {
-			rows, err := s.store.BulkCloseTickets(txCtx, params.OrgID, infrastructureIDs, int16(params.Resolution), int16(models.RepairLocationUnspecified), params.Notes)
+			rows, err := s.store.BulkCloseTickets(txCtx, params.OrgID, infrastructureIDs, int16(params.Resolution), int16(models.RepairLocationUnspecified), params.ResolutionNote)
 			if err != nil {
 				return err
 			}
@@ -861,25 +1003,32 @@ func (s *Service) GetTicketStats(ctx context.Context, filter models.ListFilter) 
 // Comments
 // ---------------------------------------------------------------
 
-// CreateComment adds a comment exactly once for a caller-generated key.
-func (s *Service) CreateComment(ctx context.Context, orgID, ticketID, userID int64, userName, text, idempotencyKey string) (*models.TicketComment, error) {
+// CreateComment adds a comment exactly once for a caller-generated key and
+// reports whether it was newly created.
+func (s *Service) CreateComment(ctx context.Context, orgID, ticketID, userID int64, userName, text, idempotencyKey string, scopes ...models.CommentScope) (*models.TicketComment, bool, error) {
+	if len(scopes) == 0 {
+		scopes = []models.CommentScope{{Internal: true}}
+	}
+	if len(scopes) > 1 || (len(scopes) == 1 && scopes[0].Internal && scopes[0].AccountID != "") {
+		return nil, false, fleeterror.NewInvalidArgumentError("internal comments cannot target an account")
+	}
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return nil, fleeterror.NewInvalidArgumentError("comment text is required")
+		return nil, false, fleeterror.NewInvalidArgumentError("comment text is required")
 	}
 	if utf8.RuneCountInString(text) > 4096 {
-		return nil, fleeterror.NewInvalidArgumentError("comment text must not exceed 4096 characters")
+		return nil, false, fleeterror.NewInvalidArgumentError("comment text must not exceed 4096 characters")
 	}
 	idempotencyKey = strings.TrimSpace(idempotencyKey)
 	if idempotencyKey == "" || len(idempotencyKey) > 64 {
-		return nil, fleeterror.NewInvalidArgumentError("idempotency_key must contain between 1 and 64 characters")
+		return nil, false, fleeterror.NewInvalidArgumentError("idempotency_key must contain between 1 and 64 characters")
 	}
-	requestHash, err := createCommentRequestHash(ticketID, userID, text)
+	requestHash, err := createCommentRequestHash(ticketID, userID, text, scopes...)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to hash comment request: %v", err)
+		return nil, false, fleeterror.NewInternalErrorf("failed to hash comment request: %v", err)
 	}
 	if s.transactor == nil {
-		return nil, fleeterror.NewInternalError("maintenance transactor is not configured")
+		return nil, false, fleeterror.NewInternalError("maintenance transactor is not configured")
 	}
 	result, err := s.transactor.RunInTxWithResult(ctx, func(txCtx context.Context) (any, error) {
 		if err := s.store.LockTicketCommentCreateKey(txCtx, orgID, idempotencyKey); err != nil {
@@ -909,18 +1058,26 @@ func (s *Service) CreateComment(ctx context.Context, orgID, ticketID, userID int
 		if err := verifyAuthorizedSite(txCtx, ticket.SiteID); err != nil {
 			return nil, err
 		}
-		comment, err := s.store.CreateTicketComment(txCtx, orgID, ticketID, userID, text, idempotencyKey, requestHash)
+		if !scopes[0].Internal {
+			if !ticket.SharedWithClients || len(ticket.Audiences) == 0 {
+				return nil, fleeterror.NewInvalidArgumentError("share the ticket before posting a client reply")
+			}
+			if err := verifyCommentAudience(ticket, scopes[0].AccountID); err != nil {
+				return nil, err
+			}
+		}
+		comment, err := s.store.CreateTicketComment(txCtx, orgID, ticketID, userID, text, idempotencyKey, requestHash, scopes...)
 		if err != nil {
 			return nil, err
 		}
 		return &commentCreateResult{comment: comment, siteID: ticket.SiteID, created: true}, nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	created, ok := result.(*commentCreateResult)
 	if !ok || created == nil || created.comment == nil {
-		return nil, fleeterror.NewInternalError("create comment transaction returned an invalid result")
+		return nil, false, fleeterror.NewInternalError("create comment transaction returned an invalid result")
 	}
 	comment := created.comment
 	comment.AuthoredByCaller = true
@@ -944,15 +1101,21 @@ func (s *Service) CreateComment(ctx context.Context, orgID, ticketID, userID int
 		s.activitySvc.Log(ctx, event)
 	}
 
-	return comment, nil
+	return comment, created.created, nil
 }
 
-func createCommentRequestHash(ticketID, userID int64, text string) (string, error) {
+func createCommentRequestHash(ticketID, userID int64, text string, scopes ...models.CommentScope) (string, error) {
+	scope := models.CommentScope{Internal: true}
+	if len(scopes) > 0 {
+		scope = scopes[0]
+	}
 	payload, err := json.Marshal(struct {
-		TicketID int64  `json:"ticket_id"`
-		UserID   int64  `json:"user_id"`
-		Text     string `json:"text"`
-	}{TicketID: ticketID, UserID: userID, Text: text})
+		Internal  bool   `json:"internal,omitempty"`
+		AccountID string `json:"account_id,omitempty"`
+		TicketID  int64  `json:"ticket_id"`
+		UserID    int64  `json:"user_id"`
+		Text      string `json:"text"`
+	}{TicketID: ticketID, UserID: userID, Text: text, Internal: scope.Internal, AccountID: scope.AccountID})
 	if err != nil {
 		return "", fmt.Errorf("marshal comment request: %w", err)
 	}
@@ -1229,9 +1392,9 @@ func partsByID(parts []models.PartUsage) map[int64]models.PartUsage {
 }
 
 func hasTicketMutation(params models.UpdateParams) bool {
-	return params.Status != nil || params.Urgent != nil || params.AssigneeUserID != nil || params.ClearAssignee ||
+	return len(params.AffectedBoards) > 0 || params.Status != nil || params.Urgent != nil || params.AssigneeUserID != nil || params.ClearAssignee ||
 		params.Component != nil || params.Diagnosis != nil || params.WarrantyStatus != nil || params.Resolution != nil ||
-		params.RepairLocation != nil || params.Notes != nil || params.RMAVendor != nil || params.RMATracking != nil ||
+		params.RepairLocation != nil || params.ResolutionNote != nil || params.Notes != nil || params.RMAVendor != nil || params.RMATracking != nil ||
 		params.RMAEta != nil || params.ClearRMAEta || params.PartsSelection != nil
 }
 
@@ -1271,7 +1434,9 @@ func statusTransitionAllowed(from, to models.TicketStatus) bool {
 		return to == models.TicketStatusOpen || to == models.TicketStatusInProgress || to == models.TicketStatusSentToVendor || to == models.TicketStatusCompleted
 	case models.TicketStatusSentToVendor:
 		return to == models.TicketStatusInProgress || to == models.TicketStatusCompleted
-	case models.TicketStatusCompleted, models.TicketStatusUnspecified:
+	case models.TicketStatusCompleted:
+		return to == models.TicketStatusOpen
+	case models.TicketStatusUnspecified:
 		return false
 	}
 	return false
@@ -1297,20 +1462,26 @@ func validateCompletion(category models.TicketCategory, resolution models.Ticket
 
 func createRepairTicketRequestHash(params models.CreateParams) (string, error) {
 	request := struct {
-		Category        models.TicketCategory `json:"category"`
-		Urgent          bool                  `json:"urgent"`
-		Component       string                `json:"component"`
-		Diagnosis       *string               `json:"diagnosis"`
-		MinerIdentifier *string               `json:"miner_identifier"`
-		AlertID         *string               `json:"alert_id"`
-		AssigneeUserID  *int64                `json:"assignee_user_id"`
-		WarrantyStatus  models.WarrantyStatus `json:"warranty_status"`
-		DailyImpactUsd  float64               `json:"daily_impact_usd"`
-		SiteID          *int64                `json:"site_id"`
-		BuildingID      *int64                `json:"building_id"`
-		Zone            *string               `json:"zone"`
-		Notes           *string               `json:"notes"`
+		ShareWithClients   bool                          `json:"share_with_clients"`
+		Description        string                        `json:"description"`
+		CreatedByAccountID *int64                        `json:"created_by_account_id"`
+		Targets            []models.TicketAssetSelection `json:"targets"`
+		ClientAccountIDs   []string                      `json:"client_account_ids"`
+		Category           models.TicketCategory         `json:"category"`
+		Urgent             bool                          `json:"urgent"`
+		Component          string                        `json:"component"`
+		Diagnosis          *string                       `json:"diagnosis"`
+		MinerIdentifier    *string                       `json:"miner_identifier"`
+		AlertID            *string                       `json:"alert_id"`
+		AssigneeUserID     *int64                        `json:"assignee_user_id"`
+		WarrantyStatus     models.WarrantyStatus         `json:"warranty_status"`
+		DailyImpactUsd     float64                       `json:"daily_impact_usd"`
+		SiteID             *int64                        `json:"site_id"`
+		BuildingID         *int64                        `json:"building_id"`
+		Zone               *string                       `json:"zone"`
+		Notes              *string                       `json:"notes"`
 	}{
+		ShareWithClients: params.ShareWithClients, Description: params.Description, CreatedByAccountID: params.CreatedByAccountID, Targets: params.Targets, ClientAccountIDs: params.ClientAccountIDs,
 		Category: params.Category, Urgent: params.Urgent, Component: params.Component,
 		Diagnosis: params.Diagnosis, AlertID: params.AlertID, AssigneeUserID: params.AssigneeUserID,
 		WarrantyStatus: params.WarrantyStatus, DailyImpactUsd: params.DailyImpactUsd, Notes: params.Notes,
@@ -1347,4 +1518,185 @@ func derefInt64(v *int64) any {
 		return "(none)"
 	}
 	return *v
+}
+
+func validateTicketParent(targets []models.TicketAsset) error {
+	var parentKind models.TicketCategory
+	var parentID int64
+	for i, target := range targets {
+		kind, id := target.Kind, target.ID
+		if kind == models.TicketCategoryHashboard {
+			if target.ModuleID == nil {
+				return fleeterror.NewInvalidArgumentError("hashboard target requires a parent module")
+			}
+			kind, id = models.TicketCategoryModule, *target.ModuleID
+		}
+		if i > 0 && (kind != parentKind || id != parentID) {
+			return fleeterror.NewInvalidArgumentError("equipment tickets must concern one parent miner or module")
+		}
+		parentKind, parentID = kind, id
+	}
+	return nil
+}
+
+func (s *Service) resolveAuthorizedTarget(ctx context.Context, orgID int64, selection models.TicketAssetSelection) (*models.TicketAsset, error) {
+	if selection.ID <= 0 || (selection.Kind != models.TicketCategoryMiner && selection.Kind != models.TicketCategoryModule && selection.Kind != models.TicketCategoryHashboard) {
+		return nil, fleeterror.NewInvalidArgumentError("invalid physical target")
+	}
+	if (selection.Kind == models.TicketCategoryHashboard) != (selection.ParentModuleID != nil) {
+		return nil, fleeterror.NewInvalidArgumentError("hashboard targets require their parent module")
+	}
+	asset, err := s.refs.ResolveTicketAsset(ctx, orgID, selection.Kind, selection.ID)
+	if err != nil {
+		return nil, err
+	}
+	if selection.Kind == models.TicketCategoryHashboard && !optionalInt64Equal(selection.ParentModuleID, asset.ModuleID) {
+		return nil, fleeterror.NewInvalidArgumentError("hashboard parent must match its current installation")
+	}
+	if err := verifyAuthorizedSite(ctx, asset.SiteID); err != nil {
+		return nil, err
+	}
+	return asset, nil
+}
+func (s *Service) ListTicketAssetOptions(ctx context.Context, p models.TicketAssetOptionsParams) (*models.TicketAssetPage, error) {
+	return s.refs.ListTicketAssetOptions(ctx, p)
+}
+
+// UpdateTicketTarget records host evidence against the opening physical identity.
+func (s *Service) UpdateTicketTarget(ctx context.Context, p models.UpdateTargetParams) (*models.RepairTicket, error) {
+	if p.ExpectedUpdatedAt.IsZero() {
+		return nil, fleeterror.NewInvalidArgumentError("expected_updated_at is required")
+	}
+	if p.Diagnosis == nil && p.WarrantyEvidence == nil && p.RepairOutcome == nil && p.RMAOutcome == nil && p.ModuleModel == nil && p.ReplacementModuleID == nil && p.ReplacementHashboardID == nil && !p.ClearReplacementModule && !p.ClearReplacementHashboard {
+		return nil, fleeterror.NewInvalidArgumentError("target update must include evidence")
+	}
+	if p.Kind != models.TicketCategoryModule && (p.ReplacementModuleID != nil || p.ReplacementModuleModel != nil || p.ClearReplacementModule) {
+		return nil, fleeterror.NewInvalidArgumentError("module replacement requires a module target")
+	}
+	if p.ModuleModel != nil && p.Kind != models.TicketCategoryModule && p.Kind != models.TicketCategoryHashboard {
+		return nil, fleeterror.NewInvalidArgumentError("module model requires a module or hashboard target")
+	}
+	if p.Kind != models.TicketCategoryHashboard && (p.ReplacementHashboardID != nil || p.ClearReplacementHashboard) {
+		return nil, fleeterror.NewInvalidArgumentError("board replacement requires a hashboard target")
+	}
+	if p.ClearReplacementModule && (p.ReplacementModuleID != nil || p.ReplacementModuleModel != nil) {
+		return nil, fleeterror.NewInvalidArgumentError("replacement module cannot be set and cleared together")
+	}
+	if p.ClearReplacementHashboard && p.ReplacementHashboardID != nil {
+		return nil, fleeterror.NewInvalidArgumentError("replacement hashboard cannot be set and cleared together")
+	}
+	if p.ReplacementModuleModel != nil && p.ReplacementModuleID == nil {
+		return nil, fleeterror.NewInvalidArgumentError("replacement model requires a replacement module")
+	}
+	for _, model := range []*string{p.ModuleModel, p.ReplacementModuleModel} {
+		if model != nil {
+			*model = strings.TrimSpace(*model)
+			if *model == "" {
+				return nil, fleeterror.NewInvalidArgumentError("actual module model must not be blank")
+			}
+		}
+	}
+	result, err := s.transactor.RunInTxWithResult(ctx, func(txCtx context.Context) (any, error) {
+		ticket, err := s.store.GetRepairTicketForUpdate(txCtx, p.OrgID, p.TicketID)
+		if err != nil {
+			return nil, err
+		}
+		if err := verifyAuthorizedSite(txCtx, ticket.SiteID); err != nil {
+			return nil, err
+		}
+		if err := verifyTicketVersion(ticket, p.ExpectedUpdatedAt); err != nil {
+			return nil, err
+		}
+		if ticket.Status == models.TicketStatusCompleted {
+			return nil, fleeterror.NewFailedPreconditionError("reopen the ticket before changing target evidence")
+		}
+		var target *models.TicketAsset
+		for i := range ticket.Targets {
+			if ticket.Targets[i].Kind == p.Kind && ticket.Targets[i].ID == p.AssetID {
+				target = &ticket.Targets[i]
+				break
+			}
+		}
+		if target == nil {
+			return nil, fleeterror.NewNotFoundError("ticket target not found")
+		}
+		p.ModelModuleID = nil
+		if p.ModuleModel != nil && *p.ModuleModel != target.Model {
+			if target.ModuleID == nil {
+				return nil, fleeterror.NewInvalidArgumentError("target has no physical parent module")
+			}
+			site, err := s.refs.LockModuleModelSite(txCtx, p.OrgID, *target.ModuleID)
+			if err != nil {
+				return nil, err
+			}
+			if err := verifyAuthorizedSite(txCtx, site); err != nil {
+				return nil, err
+			}
+			p.ModelModuleID = target.ModuleID
+		}
+		if p.ReplacementModuleID != nil {
+			if *p.ReplacementModuleID == p.AssetID {
+				return nil, fleeterror.NewInvalidArgumentError("replacement must be a different physical module")
+			}
+			if p.ReplacementModuleModel != nil {
+				site, err := s.refs.LockModuleModelSite(txCtx, p.OrgID, *p.ReplacementModuleID)
+				if err != nil {
+					return nil, err
+				}
+				if err := verifyAuthorizedSite(txCtx, site); err != nil {
+					return nil, err
+				}
+			}
+			replacement, err := s.resolveAuthorizedTarget(txCtx, p.OrgID, models.TicketAssetSelection{Kind: models.TicketCategoryModule, ID: *p.ReplacementModuleID})
+			if err != nil {
+				return nil, err
+			}
+			originalModel := target.Model
+			if p.ModuleModel != nil {
+				originalModel = *p.ModuleModel
+			}
+			replacementModel := replacement.Model
+			if p.ReplacementModuleModel != nil {
+				replacementModel = *p.ReplacementModuleModel
+			}
+			if originalModel == "" || replacementModel == "" || originalModel != replacementModel {
+				return nil, fleeterror.NewInvalidArgumentError("replacement module must have the same actual hardware model")
+			}
+		}
+		if p.ReplacementHashboardID != nil {
+			if *p.ReplacementHashboardID == p.AssetID {
+				return nil, fleeterror.NewInvalidArgumentError("replacement must be a different physical hashboard")
+			}
+			replacement, err := s.resolveAuthorizedTarget(txCtx, p.OrgID, models.TicketAssetSelection{Kind: models.TicketCategoryHashboard, ID: *p.ReplacementHashboardID, ParentModuleID: target.ModuleID})
+			if err != nil {
+				return nil, err
+			}
+			if !optionalInt64Equal(replacement.ModuleID, target.ModuleID) {
+				return nil, fleeterror.NewInvalidArgumentError("replacement board must be installed in the original module")
+			}
+		}
+		if err := s.store.UpdateTicketTarget(txCtx, p); err != nil {
+			return nil, err
+		}
+		return s.store.GetRepairTicket(txCtx, p.OrgID, p.TicketID)
+	})
+	if err != nil {
+		return nil, err
+	}
+	ticket, ok := result.(*models.RepairTicket)
+	if !ok || ticket == nil {
+		return nil, fleeterror.NewInternalError("target transaction returned unexpected result")
+	}
+	return ticket, nil
+}
+
+func (s *Service) ListTicketBoardOptions(ctx context.Context, p models.TicketAssetOptionsParams) (*models.TicketAssetPage, error) {
+	ticket, err := s.store.GetRepairTicket(ctx, p.OrgID, p.TicketID)
+	if err != nil {
+		return nil, err
+	}
+	if err = verifyAuthorizedSite(ctx, ticket.SiteID); err != nil {
+		return nil, err
+	}
+	return s.refs.ListTicketBoardOptions(ctx, p)
 }

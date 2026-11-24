@@ -50,6 +50,8 @@ func convertCommandCapabilities(caps sdk.Capabilities) *capabilitiespb.CommandCa
 	}
 
 	return &capabilitiespb.CommandCapabilities{
+		TankMiningSupported:          caps[sdk.CapabilityTankMining],
+		ModuleMiningSupported:        caps[sdk.CapabilityModuleMining],
 		RebootSupported:              caps[sdk.CapabilityReboot],
 		MiningStartSupported:         caps[sdk.CapabilityMiningStart],
 		MiningStopSupported:          caps[sdk.CapabilityMiningStop],
@@ -91,5 +93,6 @@ func convertFirmwareCapabilities(caps sdk.Capabilities) *capabilitiespb.Firmware
 	return &capabilitiespb.FirmwareCapabilities{
 		OtaUpdateSupported:    caps[sdk.CapabilityOTAUpdate],
 		ManualUploadSupported: caps[sdk.CapabilityManualUpload],
+		SelfManagedCompletion: caps[sdk.CapabilityFirmwareSelfManaged],
 	}
 }

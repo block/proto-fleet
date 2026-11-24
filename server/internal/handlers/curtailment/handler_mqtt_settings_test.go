@@ -20,7 +20,7 @@ import (
 func TestHandler_MqttSettingsRequireManage(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(nil)
+	h := newTestHandler(nil)
 	_, err := h.ListMqttCurtailmentSources(
 		sessionCtxWithPerms(42, authz.PermCurtailmentRead),
 		connect.NewRequest(&pb.ListMqttCurtailmentSourcesRequest{}),
@@ -40,7 +40,7 @@ func TestHandler_CreateMqttCurtailmentSourceReturnsRedactedPassword(t *testing.T
 		Cipher: &handlerMqttCipher{},
 	})
 	require.NoError(t, err)
-	h := NewHandler(nil, settings)
+	h := newTestHandler(nil, settings)
 
 	resp, err := h.CreateMqttCurtailmentSource(
 		startSessionCtxWithPerms(t, 42, domainAuth.AdminRoleName, authz.PermCurtailmentManage),
@@ -69,7 +69,7 @@ func TestHandler_CreateMqttCurtailmentSourceReturnsRedactedPassword(t *testing.T
 func TestHandler_CreateMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(nil)
+	h := newTestHandler(nil)
 	_, err := h.CreateMqttCurtailmentSource(
 		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
 		connect.NewRequest(&pb.CreateMqttCurtailmentSourceRequest{}),
@@ -84,7 +84,7 @@ func TestHandler_CreateMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
 func TestHandler_UpdateMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(nil)
+	h := newTestHandler(nil)
 	_, err := h.UpdateMqttCurtailmentSource(
 		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
 		connect.NewRequest(&pb.UpdateMqttCurtailmentSourceRequest{SourceId: 11}),
@@ -99,7 +99,7 @@ func TestHandler_UpdateMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
 func TestHandler_EnableMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(nil)
+	h := newTestHandler(nil)
 	_, err := h.SetMqttCurtailmentSourceEnabled(
 		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
 		connect.NewRequest(&pb.SetMqttCurtailmentSourceEnabledRequest{SourceId: 11, Enabled: true}),
@@ -114,7 +114,7 @@ func TestHandler_EnableMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
 func TestHandler_DisableMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(nil)
+	h := newTestHandler(nil)
 	_, err := h.SetMqttCurtailmentSourceEnabled(
 		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
 		connect.NewRequest(&pb.SetMqttCurtailmentSourceEnabledRequest{SourceId: 11, Enabled: false}),
@@ -126,7 +126,22 @@ func TestHandler_DisableMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
 
-func TestHandler_DeleteMqttCurtailmentSourceAllowsManagePermission(t *testing.T) {
+func TestHandler_DeleteMqttCurtailmentSourceRequiresAdmin(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(nil)
+	_, err := h.DeleteMqttCurtailmentSource(
+		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
+		connect.NewRequest(&pb.DeleteMqttCurtailmentSourceRequest{SourceId: 11}),
+	)
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
+func TestHandler_DeleteMqttCurtailmentSourceAllowsAdmin(t *testing.T) {
 	t.Parallel()
 
 	store := &handlerMqttSettingsStore{}
@@ -135,10 +150,10 @@ func TestHandler_DeleteMqttCurtailmentSourceAllowsManagePermission(t *testing.T)
 		Cipher: &handlerMqttCipher{},
 	})
 	require.NoError(t, err)
-	h := NewHandler(nil, settings)
+	h := newTestHandler(nil, settings)
 
 	_, err = h.DeleteMqttCurtailmentSource(
-		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
+		startSessionCtxWithPerms(t, 42, domainAuth.AdminRoleName, authz.PermCurtailmentManage),
 		connect.NewRequest(&pb.DeleteMqttCurtailmentSourceRequest{SourceId: 11}),
 	)
 
@@ -172,7 +187,7 @@ func TestHandler_TestMqttCurtailmentSourceConnectionReturnsBrokerResults(t *test
 		ConnectionTester: tester,
 	})
 	require.NoError(t, err)
-	h := NewHandler(nil, settings)
+	h := newTestHandler(nil, settings)
 
 	resp, err := h.TestMqttCurtailmentSourceConnection(
 		startSessionCtxWithPerms(t, 42, domainAuth.AdminRoleName, authz.PermCurtailmentManage),
@@ -204,7 +219,7 @@ func TestHandler_TestMqttCurtailmentSourceConnectionReturnsBrokerResults(t *test
 func TestHandler_TestMqttCurtailmentSourceConnectionRequiresAdmin(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(nil)
+	h := newTestHandler(nil)
 	_, err := h.TestMqttCurtailmentSourceConnection(
 		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
 		connect.NewRequest(&pb.TestMqttCurtailmentSourceConnectionRequest{}),

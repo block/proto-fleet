@@ -5,18 +5,29 @@ import { beforeEach, describe, expect, it } from "vitest";
 import AppLayout from "./AppLayout";
 import { navigationMenuTypes } from "@/protoOS/components/NavigationMenu";
 import { MinerHostingProvider } from "@/protoOS/contexts/MinerHostingContext";
+import { asDeviceId } from "@/protoOS/store/contract";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
 describe("AppLayout", () => {
   beforeEach(() => {
     useMinerStore.getState().systemInfo.setSystemInfo({
-      product_name: "Proto Rig",
-      os: { version: "1.8.0" },
+      identity: {
+        deviceId: asDeviceId("device:test"),
+        deviceType: "rig",
+        adapterId: "mdk-v1",
+        productName: "Proto Rig",
+        macAddresses: [],
+      },
+      moduleModel: "r2",
+      operatingSystem: { version: "1.8.0" },
     });
-    useMinerStore.getState().networkInfo.setNetworkInfo({
-      ip: "192.168.2.14",
-      mac: "02:00:00:07:3A:11",
-    });
+    useMinerStore
+      .getState()
+      .networkInfo.setNetworkInfo(
+        new Map([
+          ["primary", { id: "primary", ipAddress: "192.168.2.14", macAddress: "02:00:00:07:3A:11", isPrimary: true }],
+        ]),
+      );
   });
 
   it("uses host metadata for the navigation info panel in fleet-hosted mode", () => {

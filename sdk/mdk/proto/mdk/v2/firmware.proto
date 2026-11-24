@@ -1,0 +1,561 @@
+syntax = "proto3";
+
+package mdk.v2;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "mdk/v2/mining.proto";
+import "mdk/v2/options.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
+
+// FirmwareService deploys hashboard firmware from GitHub releases,
+// pull-request build artifacts, or branch (tip of main) build artifacts and
+// tracks per-board update progress.
+service FirmwareService {
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_tag) = {
+    name: "Firmware"
+    description: "Hashboard firmware artifact discovery and update deployment."
+  };
+
+  // UploadFirmwareArtifact streams locally downloaded firmware images to the
+  // server for validation and content-addressed caching. The first message must
+  // contain metadata; subsequent messages carry bounded image chunks.
+  rpc UploadFirmwareArtifact(stream UploadFirmwareArtifactRequest) returns (UploadFirmwareArtifactResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+  }
+
+  // BeginFirmwareArtifactUpload starts a chunked unary upload for clients that
+  // cannot send client-streaming calls, such as browsers using the Connect or
+  // REST gateways. It validates the same metadata as UploadFirmwareArtifact
+  // and returns an upload ID that exists only on the connected node. Idle
+  // uploads expire and release their staged bytes.
+  rpc BeginFirmwareArtifactUpload(BeginFirmwareArtifactUploadRequest) returns (BeginFirmwareArtifactUploadResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {
+      post: "/api/v2/firmware/uploads"
+      body: "*"
+    };
+  }
+
+  // WriteFirmwareArtifactUploadChunk writes bytes for one image at an exact
+  // offset. Images may be written in any order, but each image's bytes must
+  // be contiguous. Repeating an already received chunk is accepted, so a
+  // client can safely retry after a lost response.
+  rpc WriteFirmwareArtifactUploadChunk(WriteFirmwareArtifactUploadChunkRequest) returns (WriteFirmwareArtifactUploadChunkResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {
+      post: "/api/v2/firmware/uploads/{upload_id}/chunks"
+      body: "*"
+    };
+  }
+
+  // CommitFirmwareArtifactUpload validates and caches a complete upload,
+  // exactly like the final step of UploadFirmwareArtifact. An incomplete
+  // upload is refused without discarding received bytes.
+  rpc CommitFirmwareArtifactUpload(CommitFirmwareArtifactUploadRequest) returns (CommitFirmwareArtifactUploadResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {post: "/api/v2/firmware/uploads/{upload_id}/commit"};
+  }
+
+  // AbortFirmwareArtifactUpload discards an unfinished upload. Aborting an
+  // unknown or expired upload succeeds.
+  rpc AbortFirmwareArtifactUpload(AbortFirmwareArtifactUploadRequest) returns (AbortFirmwareArtifactUploadResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {delete: "/api/v2/firmware/uploads/{upload_id}"};
+  }
+
+  // GetFirmwarePolicy returns the container's desired exact firmware target.
+  rpc GetFirmwarePolicy(GetFirmwarePolicyRequest) returns (GetFirmwarePolicyResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/firmware/policy"};
+  }
+
+  // SetFirmwarePolicy revision-fences a hot policy replacement or disable.
+  rpc SetFirmwarePolicy(SetFirmwarePolicyRequest) returns (SetFirmwarePolicyResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {put: "/api/v2/firmware/policy" body: "*"};
+  }
+
+  // FenceFirmwarePolicyAdmission is a peer-only HA activation barrier.
+  rpc FenceFirmwarePolicyAdmission(FenceFirmwarePolicyAdmissionRequest) returns (FenceFirmwarePolicyAdmissionResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+  }
+
+  // RefreshFirmwarePolicy activates an exact shared generation on an HA peer.
+  rpc RefreshFirmwarePolicy(RefreshFirmwarePolicyRequest) returns (RefreshFirmwarePolicyResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+  }
+
+  // ListFirmwarePolicyBoards returns retained compliance and retry state.
+  rpc ListFirmwarePolicyBoards(ListFirmwarePolicyBoardsRequest) returns (ListFirmwarePolicyBoardsResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/firmware/policy/boards"};
+  }
+
+  // RetryFirmwarePolicyBoards resets terminal policy failures for a scope.
+  rpc RetryFirmwarePolicyBoards(RetryFirmwarePolicyBoardsRequest) returns (RetryFirmwarePolicyBoardsResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {post: "/api/v2/firmware/policy/retry" body: "*"};
+  }
+
+  // StartFirmwareUpdate deploys an uploaded firmware artifact to the selected boards.
+  rpc StartFirmwareUpdate(StartFirmwareUpdateRequest) returns (StartFirmwareUpdateResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {
+      post: "/api/v2/firmware/updates"
+      body: "*"
+    };
+  }
+
+  // GetFirmwareUpdate returns the current state of one update job.
+  rpc GetFirmwareUpdate(GetFirmwareUpdateRequest) returns (GetFirmwareUpdateResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/firmware/updates/{task_id}"};
+  }
+
+  // ListFirmwareUpdates lists active and completed update jobs, newest first.
+  rpc ListFirmwareUpdates(ListFirmwareUpdatesRequest) returns (ListFirmwareUpdatesResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/firmware/updates"};
+  }
+
+  // CancelFirmwareUpdate requests cancellation of an active update job.
+  rpc CancelFirmwareUpdate(CancelFirmwareUpdateRequest) returns (CancelFirmwareUpdateResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {post: "/api/v2/firmware/updates/{task_id}/cancel"};
+  }
+}
+
+// FirmwareArtifactSource identifies where a firmware artifact comes from.
+enum FirmwareArtifactSource {
+  FIRMWARE_ARTIFACT_SOURCE_UNSPECIFIED = 0;
+  FIRMWARE_ARTIFACT_SOURCE_RELEASE = 1;
+  FIRMWARE_ARTIFACT_SOURCE_PR = 2;
+  // UPLOAD identifies content delivered by an operator client and cached by
+  // its content digest. RELEASE, PR, and BRANCH remain for source
+  // attribution/history.
+  FIRMWARE_ARTIFACT_SOURCE_UPLOAD = 3;
+  // BRANCH identifies a workflow artifact built by a push to a branch
+  // (typically tip of main).
+  FIRMWARE_ARTIFACT_SOURCE_BRANCH = 4;
+}
+
+// FirmwareArtifactRef identifies one deployable firmware artifact.
+message FirmwareArtifactRef {
+  FirmwareArtifactSource source = 1;
+  // Release fields (source = RELEASE).
+  string release_tag = 2;
+  string asset_name = 3;
+  int64 asset_id = 4;
+  // Pull-request fields (source = PR). artifact_id and artifact_name are
+  // shared with BRANCH refs.
+  int32 pr_number = 5;
+  int64 artifact_id = 6;
+  string artifact_name = 7;
+  // upload_id is the server-assigned content digest for an uploaded bundle.
+  string upload_id = 8;
+  // Branch fields (source = BRANCH).
+  string branch = 9;
+  string head_sha = 10;
+}
+
+// FirmwareReleaseAsset is a firmware file attached to a GitHub release.
+message FirmwareReleaseAsset {
+  int64 id = 1;
+  string name = 2;
+  int64 size_bytes = 3;
+}
+
+// FirmwareRelease is a GitHub release carrying firmware assets.
+message FirmwareRelease {
+  string tag = 1;
+  string name = 2;
+  bool prerelease = 3;
+  google.protobuf.Timestamp published_at = 4;
+  repeated FirmwareReleaseAsset assets = 5;
+}
+
+// FirmwarePRArtifact is a firmware artifact built by a pull-request workflow.
+message FirmwarePRArtifact {
+  int64 artifact_id = 1;
+  string name = 2;
+  int64 size_bytes = 3;
+  int64 workflow_run = 4;
+  string head_sha = 5;
+  google.protobuf.Timestamp created_at = 6;
+  int32 pr_number = 7;
+  string pr_title = 8;
+}
+
+// FirmwareBranchArtifact is the latest successful workflow artifact for a branch.
+message FirmwareBranchArtifact {
+  int64 artifact_id = 1;
+  string name = 2;
+  int64 size_bytes = 3;
+  int64 workflow_run = 4;
+  string head_sha = 5;
+  google.protobuf.Timestamp created_at = 6;
+  string branch = 7;
+}
+
+// HardwareRev mirrors the hashboard firmware hardware_revision enum
+// (lib/hashboard/lib/protobuf/protos/hashboard_cmd.proto) value for value, so
+// clients can compare it numerically against the advertised
+// Hashboard.hw_revision string without re-implementing hbmeta's
+// metadata-revision translation.
+enum HardwareRev {
+  HARDWARE_REV_UNSPECIFIED = 0;
+  HARDWARE_REV_B2_PROTO_1 = 20;
+  HARDWARE_REV_B2_EVT = 21;
+  HARDWARE_REV_B3A_DEV = 30;
+  HARDWARE_REV_B3A_PROTO_1 = 31;
+  HARDWARE_REV_B3B_PROTO_1 = 32;
+  HARDWARE_REV_B3A_MP = 33;
+  HARDWARE_REV_B3B_MP = 34;
+  HARDWARE_REV_B4_192_PROTO_0 = 40;
+  HARDWARE_REV_B4_192_PROTO_1 = 41;
+  HARDWARE_REV_B4_128_PROTO_1 = 42;
+  HARDWARE_REV_B4_192_PROTO_2 = 43;
+  HARDWARE_REV_B4_128_PROTO_2 = 44;
+  HARDWARE_REV_F1_PROTO_1A = 50;
+  HARDWARE_REV_F1_PROTO_1B = 51;
+  HARDWARE_REV_F1_EVT = 52;
+  HARDWARE_REV_F1_EVT2 = 53;
+}
+
+// FirmwareImage is the decoded metadata of one firmware .bin inside an
+// artifact.
+message FirmwareImage {
+  string name = 1;
+  string version = 2;
+  string hardware_revision = 3;
+  string build = 4;
+  string git_id = 5;
+  string git_branch = 6;
+  google.protobuf.Timestamp built_at = 7;
+  // compatible_hardware_revisions lists the board hardware revisions this
+  // image can flash, resolved server-side from hardware_revision with the
+  // same hbmeta family/metadata gates used by deployment preflight. Empty
+  // means the server did not resolve compatibility (older server or unknown
+  // revision string), not universal compatibility.
+  repeated HardwareRev compatible_hardware_revisions = 8;
+  // hash is the exact embedded firmware identity reported after boot.
+  string hash = 9;
+  // sha256 is the digest of the complete signed image file.
+  string sha256 = 10;
+}
+
+// FirmwareUpdateOptions tune one update job. Proto3 zero values give the safe
+// defaults: stop mining before flashing and restore it afterwards.
+message FirmwareUpdateOptions {
+  // force flashes even when the image version is not newer.
+  bool force = 1;
+  // skip_stop_mining refuses boards that are not already idle instead of
+  // stopping them.
+  bool skip_stop_mining = 2;
+  // skip_restore_mining leaves boards idle after a successful flash.
+  bool skip_restore_mining = 3;
+  // max_parallel bounds concurrent flashes; 0 uses the server default.
+  uint32 max_parallel = 4;
+  // dry_run stops after preflight and reports what would happen.
+  bool dry_run = 5;
+  // build restricts image selection to one build type (e.g. "prod", "dev",
+  // "mfgtest") when an artifact carries several builds per hardware family.
+  // Empty requires the artifact to be unambiguous.
+  string build = 6;
+}
+
+// FirmwareUpdateStatus is the lifecycle state of an update job.
+enum FirmwareUpdateStatus {
+  FIRMWARE_UPDATE_STATUS_UNSPECIFIED = 0;
+  FIRMWARE_UPDATE_STATUS_PENDING = 1;
+  FIRMWARE_UPDATE_STATUS_DOWNLOADING = 2;
+  FIRMWARE_UPDATE_STATUS_RUNNING = 3;
+  FIRMWARE_UPDATE_STATUS_COMPLETED = 4;
+  FIRMWARE_UPDATE_STATUS_COMPLETED_WITH_ERRORS = 5;
+  FIRMWARE_UPDATE_STATUS_FAILED = 6;
+  FIRMWARE_UPDATE_STATUS_CANCELED = 7;
+  FIRMWARE_UPDATE_STATUS_INTERRUPTED = 8;
+}
+
+// FirmwareTargetStatus is the lifecycle state of one board within a job.
+enum FirmwareTargetStatus {
+  FIRMWARE_TARGET_STATUS_UNSPECIFIED = 0;
+  FIRMWARE_TARGET_STATUS_QUEUED = 1;
+  FIRMWARE_TARGET_STATUS_STOPPING_MINING = 2;
+  FIRMWARE_TARGET_STATUS_PREFLIGHT = 3;
+  FIRMWARE_TARGET_STATUS_FLASHING = 4;
+  FIRMWARE_TARGET_STATUS_REBOOTING = 5;
+  FIRMWARE_TARGET_STATUS_VERIFYING = 6;
+  FIRMWARE_TARGET_STATUS_RESTORING_MINING = 7;
+  FIRMWARE_TARGET_STATUS_SUCCEEDED = 8;
+  FIRMWARE_TARGET_STATUS_SKIPPED_UP_TO_DATE = 9;
+  FIRMWARE_TARGET_STATUS_FAILED = 10;
+}
+
+// FirmwareUpdateTarget reports per-board update state.
+message FirmwareUpdateTarget {
+  // mac_address is the CT1 board identity and must be empty for R2.
+  string mac_address = 1;
+  // serial is the stable R2 board identity. CT1 boards may also report it but
+  // retain mac_address as their identity.
+  string serial = 2;
+  FirmwareTargetStatus status = 3;
+  // phase details the DFU stage while flashing (preparing/writing/activating).
+  string phase = 4;
+  double progress_percent = 5;
+  string from_version = 6;
+  string to_version = 7;
+  // reason is a stable failure classifier (e.g. dfu_write_failed).
+  string reason = 8;
+  // message carries free-form failure detail.
+  string message = 9;
+  google.protobuf.Timestamp updated_at = 10;
+  // slot is the optional one-based R2 chassis observation.
+  optional uint32 slot = 11;
+}
+
+// FirmwareUpdate is one firmware update job.
+message FirmwareUpdate {
+  string task_id = 1;
+  FirmwareArtifactRef artifact = 2;
+  FirmwareUpdateOptions options = 3;
+  FirmwareUpdateStatus status = 4;
+  string error = 5;
+  google.protobuf.Timestamp started_at = 6;
+  google.protobuf.Timestamp completed_at = 7;
+  repeated FirmwareUpdateTarget targets = 8;
+  // server_id is the CT1 Frigate node that owns this update job. It is empty
+  // for R2, whose singleton device service already identifies the owner.
+  string server_id = 9;
+}
+
+// FirmwareTargetSelector selects exactly one R2 board by its stable serial.
+message FirmwareTargetSelector {
+  string serial_number = 1;
+}
+
+message FirmwareUploadImage {
+  // name is a safe single-component .bin filename.
+  string name = 1;
+  int64 size_bytes = 2;
+  // sha256 is the lowercase hexadecimal digest of this image.
+  string sha256 = 3;
+}
+
+message FirmwareUploadMetadata {
+  // source records where the operator obtained the images. It must be
+  // RELEASE, PR, or BRANCH; the server returns an UPLOAD reference after
+  // caching.
+  FirmwareArtifactRef source = 1;
+  // images contains at most 64 signed firmware images.
+  repeated FirmwareUploadImage images = 2;
+}
+
+message FirmwareUploadChunk {
+  // image_index selects an entry in metadata.images.
+  uint32 image_index = 1;
+  bytes data = 2;
+}
+
+message UploadFirmwareArtifactRequest {
+  oneof payload {
+    FirmwareUploadMetadata metadata = 1;
+    FirmwareUploadChunk chunk = 2;
+  }
+}
+
+message UploadFirmwareArtifactResponse {
+  FirmwareArtifactRef artifact = 1;
+  repeated FirmwareImage images = 2;
+}
+
+message BeginFirmwareArtifactUploadRequest {
+  FirmwareUploadMetadata metadata = 1;
+}
+
+message BeginFirmwareArtifactUploadResponse {
+  // upload_id identifies the upload on the connected node only.
+  string upload_id = 1;
+  // max_chunk_bytes is the largest accepted chunk data size.
+  uint32 max_chunk_bytes = 2;
+  // expires_at is when the upload is discarded unless another call uses it.
+  google.protobuf.Timestamp expires_at = 3;
+}
+
+message WriteFirmwareArtifactUploadChunkRequest {
+  string upload_id = 1;
+  // image_index selects an entry in the begin request's metadata.images.
+  uint32 image_index = 2;
+  // offset is the byte offset of data within the selected image.
+  int64 offset = 3;
+  bytes data = 4;
+}
+
+message WriteFirmwareArtifactUploadChunkResponse {
+  uint32 image_index = 1;
+  // next_offset is the number of contiguous bytes received for this image.
+  int64 next_offset = 2;
+  // received_bytes and total_bytes cover every image in the upload.
+  int64 received_bytes = 3;
+  int64 total_bytes = 4;
+  google.protobuf.Timestamp expires_at = 5;
+}
+
+message CommitFirmwareArtifactUploadRequest {
+  string upload_id = 1;
+}
+
+message CommitFirmwareArtifactUploadResponse {
+  FirmwareArtifactRef artifact = 1;
+  repeated FirmwareImage images = 2;
+}
+
+message AbortFirmwareArtifactUploadRequest {
+  string upload_id = 1;
+}
+
+message AbortFirmwareArtifactUploadResponse {}
+
+enum FirmwarePolicyFailureMode {
+  FIRMWARE_POLICY_FAILURE_MODE_UNSPECIFIED = 0;
+  FIRMWARE_POLICY_FAILURE_MODE_STRICT_HOLD = 1;
+  FIRMWARE_POLICY_FAILURE_MODE_BEST_EFFORT = 2;
+}
+
+enum FirmwarePolicyBoardStatus {
+  FIRMWARE_POLICY_BOARD_STATUS_UNSPECIFIED = 0;
+  FIRMWARE_POLICY_BOARD_STATUS_DISABLED = 1;
+  FIRMWARE_POLICY_BOARD_STATUS_PENDING_IDENTITY = 2;
+  FIRMWARE_POLICY_BOARD_STATUS_COMPLIANT = 3;
+  FIRMWARE_POLICY_BOARD_STATUS_QUEUED = 4;
+  FIRMWARE_POLICY_BOARD_STATUS_UPDATING = 5;
+  FIRMWARE_POLICY_BOARD_STATUS_DEFERRED = 6;
+  FIRMWARE_POLICY_BOARD_STATUS_FAILED_HELD = 7;
+  FIRMWARE_POLICY_BOARD_STATUS_FAILED_ADMITTED = 8;
+  FIRMWARE_POLICY_BOARD_STATUS_EXEMPT_ISOLATED = 9;
+  FIRMWARE_POLICY_BOARD_STATUS_EXCLUDED_RUN_IN = 10;
+}
+
+message FirmwarePolicy {
+  uint64 generation = 1;
+  bool enabled = 2;
+  FirmwarePolicyFailureMode failure_mode = 3;
+  uint32 max_parallel = 4;
+  FirmwareArtifactRef artifact = 5;
+  string build = 6;
+  repeated FirmwareImage images = 7;
+  string updated_by = 8;
+  google.protobuf.Timestamp updated_at = 9;
+  bool artifact_ready = 10;
+}
+
+message FirmwarePolicyBoard {
+  string mac_address = 1;
+  uint64 policy_generation = 2;
+  FirmwarePolicyBoardStatus status = 3;
+  string observed_version = 4;
+  string observed_build = 5;
+  string observed_git_id = 6;
+  string observed_hash = 7;
+  google.protobuf.Timestamp observed_at = 8;
+  uint32 attempts = 9;
+  google.protobuf.Timestamp next_retry_at = 10;
+  string task_id = 11;
+  string reason = 12;
+  string message = 13;
+  google.protobuf.Timestamp updated_at = 14;
+}
+
+message GetFirmwarePolicyRequest {}
+message GetFirmwarePolicyResponse { FirmwarePolicy policy = 1; }
+
+message SetFirmwarePolicyRequest {
+  uint64 expected_generation = 1;
+  bool enabled = 2;
+  FirmwareArtifactRef artifact = 3;
+  string build = 4;
+  FirmwarePolicyFailureMode failure_mode = 5;
+  uint32 max_parallel = 6;
+}
+message SetFirmwarePolicyResponse { FirmwarePolicy policy = 1; }
+
+message FenceFirmwarePolicyAdmissionRequest { uint64 expected_generation = 1; }
+message FenceFirmwarePolicyAdmissionResponse {}
+message RefreshFirmwarePolicyRequest { uint64 expected_generation = 1; }
+message RefreshFirmwarePolicyResponse { FirmwarePolicy policy = 1; }
+
+message ListFirmwarePolicyBoardsRequest {}
+message ListFirmwarePolicyBoardsResponse {
+  FirmwarePolicy policy = 1;
+  repeated FirmwarePolicyBoard boards = 2;
+}
+
+message RetryFirmwarePolicyBoardsRequest { BoardScope scope = 1; }
+message RetryFirmwarePolicyBoardsResponse {
+  FirmwarePolicy policy = 1;
+  repeated FirmwarePolicyBoard boards = 2;
+}
+
+message StartFirmwareUpdateRequest {
+  FirmwareArtifactRef artifact = 1;
+  // scope is retained for CT1 compatibility. CT1 must provide scope and leave
+  // r2_targets empty.
+  BoardScope scope = 2;
+  FirmwareUpdateOptions options = 3;
+  // task_id is optional and used by HA peers so sibling jobs from one cluster
+  // deployment share a visible update identifier. Ordinary clients leave it empty.
+  string task_id = 4;
+  // r2_targets selects R2 boards by stable serial number. R2 must provide at
+  // least one selector and leave scope unset. Exactly one of scope or
+  // r2_targets is valid. Empty, mixed, duplicate, incomplete, or stale
+  // selection must fail explicitly.
+  repeated FirmwareTargetSelector r2_targets = 5;
+}
+
+message StartFirmwareUpdateResponse {
+  FirmwareUpdate update = 1;
+}
+
+message GetFirmwareUpdateRequest {
+  string task_id = 1;
+  // server_id optionally selects which Frigate node owns task_id. Empty means
+  // the connected node, preserving pre-cluster behavior.
+  string server_id = 2;
+}
+
+message GetFirmwareUpdateResponse {
+  FirmwareUpdate update = 1;
+}
+
+message ListFirmwareUpdatesRequest {
+  // local_only is used by HA peers to avoid recursive fanout when aggregating
+  // cluster update lists. Ordinary clients leave it false.
+  bool local_only = 1;
+}
+
+message ListFirmwareUpdatesResponse {
+  repeated FirmwareUpdate updates = 1;
+}
+
+message CancelFirmwareUpdateRequest {
+  string task_id = 1;
+  // server_id optionally selects which Frigate node owns task_id. Empty means
+  // the connected node, preserving pre-cluster behavior.
+  string server_id = 2;
+}
+
+message CancelFirmwareUpdateResponse {
+  FirmwareUpdate update = 1;
+}

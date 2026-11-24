@@ -33,12 +33,27 @@ if [ "$matched" = 3 ]; then
 fi
 [ "$matched" = 0 ] || { echo "Partially adopted artifact mounts require operator review." >&2; exit 1; }
 [ ! -e "$root" ] || [ -d "$root" ] || { echo "Artifact destination is not a directory." >&2; exit 1; }
+was_running=$(docker inspect --format '{{.State.Running}}' "$container")
 scratch=$(mktemp -d "$parent/.fleet-artifacts.XXXXXX")
-trap 'rm -rf -- "$scratch"' EXIT
+restart_on_failure=false
+cleanup() {
+    local status=$?
+    if rm -rf -- "$scratch"; then
+        if [ "$status" -ne 0 ] && [ "$restart_on_failure" = true ]; then
+            docker start "$container" >/dev/null ||
+                echo "Could not restart retained container $container; recover it manually." >&2
+        fi
+    else
+        echo "Could not remove artifact scratch directory $scratch; recover manually." >&2
+    fi
+    exit "$status"
+}
+trap cleanup EXIT
 chmod 700 "$scratch"
 mkdir "$scratch/app" "$scratch/artifacts"
 chmod 700 "$scratch/artifacts"
 docker stop "$container" >/dev/null
+restart_on_failure="$was_running"
 # Copying /app also handles legitimately absent artifact directories without
 # confusing a Docker failure with an empty directory. No old binary is retained.
 docker cp "$container:/app/." "$scratch/app"
@@ -65,6 +80,9 @@ if [ -e "$root" ]; then
         echo "Artifact destination conflicts with the retained container: $root" >&2; exit 1;
     }
 else
+    # A failed or interrupted rename may already have committed the copy.
+    restart_on_failure=false
     mv "$scratch/artifacts" "$root"
 fi
+restart_on_failure=false
 echo "Preserved local artifacts in $root. The old container remains stopped until replacement."

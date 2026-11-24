@@ -185,7 +185,7 @@ const SiteResourcePanel = ({ siteId, activeSite }: SiteResourcePanelProps) => {
       <div className="-mx-10 mb-6 h-px bg-border-5 phone:-mx-6" />
 
       <div className="flex items-center justify-between gap-4">
-        <DurationSelector duration={tab} durations={TABS} onSelect={setTab} />
+        <DurationSelector ariaLabel="Site resources" duration={tab} durations={TABS} onSelect={setTab} />
         <div className="flex items-center gap-2">
           {tab !== "Components" && carousel.hasOverflow ? (
             <div className="flex items-center gap-1">

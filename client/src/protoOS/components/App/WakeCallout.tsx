@@ -42,7 +42,7 @@ const WakeCallout = ({ afterWake, onWake }: WakeCalloutProps) => {
   const handleSwitchToAirCooled = () => {
     setIsUpdatingCooling(true);
     setCooling({
-      mode: "Auto",
+      mode: "automatic",
       onSuccess: () => {
         setIsUpdatingCooling(false);
         setShowFansDetectedDialog(false);

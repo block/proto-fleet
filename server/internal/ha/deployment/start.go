@@ -17,6 +17,9 @@ import (
 
 // StartInstalledServices is the role-aware systemd entrypoint for an installed HA node.
 func StartInstalledServices(ctx context.Context, envPath, rootPasswordFile string) error {
+	if err := clearControlledStartToken(controlledStartToken); err != nil {
+		return err
+	}
 	config, err := loadNodeConfig(envPath)
 	if err != nil {
 		return err

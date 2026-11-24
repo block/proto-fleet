@@ -1,63 +1,56 @@
 import type { StateCreator } from "zustand";
+import type { ResourceState, SystemInfoData, SystemInfoState } from "../contract";
 import type { MinerStore } from "../useMinerStore";
-import type { SystemInfoSysteminfo } from "@/protoOS/api/generatedApi";
 
-// =============================================================================
-// Slice Interface
-// =============================================================================
-
-export interface SystemInfoSlice extends SystemInfoSysteminfo {
-  // Request state
-  pending?: boolean;
-  error?: string;
-
-  // Actions
-  setSystemInfo: (systemInfo: SystemInfoSysteminfo | undefined) => void;
+export interface SystemInfoSlice extends SystemInfoState {
+  setSystemInfo: (systemInfo: SystemInfoData | undefined) => void;
+  setSystemTag: (systemTag: string) => void;
   setError: (error: string | undefined) => void;
   setPending: (pending: boolean) => void;
   reset: () => void;
 }
 
-// =============================================================================
-// Slice Creator
-// =============================================================================
+const idleResource = (): ResourceState => ({ status: "idle" });
 
 export const createSystemInfoSlice: StateCreator<MinerStore, [["zustand/immer", never]], [], SystemInfoSlice> = (
   set,
 ) => ({
-  // Actions
+  resource: idleResource(),
+  data: undefined,
+  systemTag: undefined,
+
   setSystemInfo: (systemInfo) =>
     set((state) => {
-      if (systemInfo) {
-        // Spread all fields from systemInfo into the root level
-        Object.assign(state.systemInfo, systemInfo);
-      }
-      // Note: When systemInfo is undefined, we don't clear fields -
-      // they remain as is. To clear, pass an empty object {} instead.
+      state.systemInfo.data = systemInfo;
+      state.systemInfo.resource = systemInfo ? { status: "ready", updatedAtMs: Date.now() } : idleResource();
+    }),
+
+  setSystemTag: (systemTag) =>
+    set((state) => {
+      state.systemInfo.systemTag = systemTag;
     }),
 
   setError: (error) =>
     set((state) => {
-      state.systemInfo.error = error;
-      state.systemInfo.pending = false;
+      state.systemInfo.resource = error
+        ? { status: "error", error: { code: "SYSTEM_INFO", message: error, retryable: true } }
+        : idleResource();
     }),
 
   setPending: (pending) =>
     set((state) => {
-      state.systemInfo.pending = pending;
-    }),
-
-  // setSystemInfo(undefined) is a no-op by design (it only merges truthy
-  // values), so a real clear must remove the flattened API fields. Delete every
-  // data field (everything that isn't an action) so a miner switch fully clears
-  // the previous device's system info.
-  reset: () =>
-    set((state) => {
-      const slice = state.systemInfo as unknown as Record<string, unknown>;
-      for (const key of Object.keys(slice)) {
-        if (typeof slice[key] !== "function") {
-          delete slice[key];
-        }
+      if (pending) {
+        // Preserve successful reachability during polling; setError clears it on failure.
+        state.systemInfo.resource = { status: "loading", updatedAtMs: state.systemInfo.resource.updatedAtMs };
       }
     }),
+
+  reset: () =>
+    set((state) => {
+      state.systemInfo.data = undefined;
+      state.systemInfo.systemTag = undefined;
+      state.systemInfo.resource = idleResource();
+    }),
 });
+
+export type { DeviceType } from "../contract";

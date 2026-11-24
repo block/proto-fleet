@@ -395,135 +395,6 @@ func TestSQLDiscoveredDeviceStore_GetDevice_ShouldReturnErrorForNonExistentDevic
 	assert.Equal(t, minerdiscovery.MinerNotFoundFleetError, err)
 }
 
-func TestSQLDiscoveredDeviceStore_GetActiveUnpairedDevices_ShouldReturnUnpairedDevices(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping test in short mode")
-	}
-
-	// Arrange
-	db := testutil.GetTestDB(t)
-	store := sqlstores.NewSQLDiscoveredDeviceStore(db)
-	ctx := t.Context()
-
-	queries := sqlc.New(db)
-	orgID, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-		OrgID: "test-org-unpaired",
-		Name:  "Test Org Unpaired",
-	})
-	require.NoError(t, err)
-
-	t.Cleanup(func() {
-		_, _ = db.ExecContext(ctx, "DELETE FROM discovered_device WHERE org_id = $1", orgID)
-		_ = queries.DeleteOrganization(ctx, orgID)
-	})
-
-	// Create 3 active discovered devices (all unpaired)
-	for i := 1; i <= 3; i++ {
-		deviceIdentifier := fmt.Sprintf("device-%d", i)
-		doi := discoverymodels.DeviceOrgIdentifier{
-			DeviceIdentifier: deviceIdentifier,
-			OrgID:            orgID,
-		}
-
-		device := &discoverymodels.DiscoveredDevice{
-			Device: pb.Device{
-				DeviceIdentifier: deviceIdentifier,
-				Model:            "S19 Pro",
-				Manufacturer:     "Bitmain",
-				DriverName:       "ANTMINER",
-				IpAddress:        fmt.Sprintf("192.168.1.%d", 100+i),
-				Port:             "4028",
-				UrlScheme:        "http",
-			},
-			IsActive: true,
-			OrgID:    orgID,
-		}
-		_, err = store.Save(ctx, doi, device)
-		require.NoError(t, err)
-	}
-
-	// Act
-	devices, nextCursor, err := store.GetActiveUnpairedDevices(ctx, orgID, "", 10)
-
-	// Assert
-	require.NoError(t, err)
-	assert.Len(t, devices, 3, "Should return all 3 unpaired devices")
-	assert.Empty(t, nextCursor, "Should not have next cursor since all devices fit in one page")
-	for _, device := range devices {
-		assert.True(t, device.IsActive)
-	}
-}
-
-func TestSQLDiscoveredDeviceStore_GetActiveUnpairedDevices_ShouldSupportPagination(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping test in short mode")
-	}
-
-	// Arrange
-	db := testutil.GetTestDB(t)
-	store := sqlstores.NewSQLDiscoveredDeviceStore(db)
-	ctx := t.Context()
-
-	queries := sqlc.New(db)
-	orgID, err := queries.CreateOrganization(ctx, sqlc.CreateOrganizationParams{
-		OrgID: "test-org-pagination",
-		Name:  "Test Org Pagination",
-	})
-	require.NoError(t, err)
-
-	t.Cleanup(func() {
-		_, _ = db.ExecContext(ctx, "DELETE FROM discovered_device WHERE org_id = $1", orgID)
-		_ = queries.DeleteOrganization(ctx, orgID)
-	})
-
-	// Create 5 unpaired devices
-	for i := 1; i <= 5; i++ {
-		deviceIdentifier := fmt.Sprintf("page-device-%d", i)
-		doi := discoverymodels.DeviceOrgIdentifier{
-			DeviceIdentifier: deviceIdentifier,
-			OrgID:            orgID,
-		}
-
-		device := &discoverymodels.DiscoveredDevice{
-			Device: pb.Device{
-				DeviceIdentifier: deviceIdentifier,
-				Model:            "S19 Pro",
-				Manufacturer:     "Bitmain",
-				DriverName:       "ANTMINER",
-				IpAddress:        fmt.Sprintf("192.168.1.%d", 100+i),
-				Port:             "4028",
-				UrlScheme:        "http",
-			},
-			IsActive: true,
-			OrgID:    orgID,
-		}
-		_, err = store.Save(ctx, doi, device)
-		require.NoError(t, err)
-	}
-
-	// Act - Get first page
-	firstPage, nextCursor, err := store.GetActiveUnpairedDevices(ctx, orgID, "", 2)
-	require.NoError(t, err)
-	assert.Len(t, firstPage, 2)
-	assert.NotEmpty(t, nextCursor, "Should have next cursor since there are more pages")
-
-	// Act - Get second page using cursor
-	secondPage, nextCursor2, err := store.GetActiveUnpairedDevices(ctx, orgID, nextCursor, 2)
-	require.NoError(t, err)
-	assert.Len(t, secondPage, 2)
-	assert.NotEmpty(t, nextCursor2, "Should have next cursor since there are more pages")
-
-	// Act - Get third page
-	thirdPage, nextCursor3, err := store.GetActiveUnpairedDevices(ctx, orgID, nextCursor2, 2)
-	require.NoError(t, err)
-	assert.Len(t, thirdPage, 1, "Last page should have 1 device")
-	assert.Empty(t, nextCursor3, "Should not have next cursor on last page")
-
-	// Assert - Pages should have different devices
-	assert.NotEqual(t, firstPage[0].DeviceIdentifier, secondPage[0].DeviceIdentifier)
-	assert.NotEqual(t, secondPage[0].DeviceIdentifier, thirdPage[0].DeviceIdentifier)
-}
-
 func TestSQLDiscoveredDeviceStore_CountActiveUnpairedDevices_ShouldReturnCorrectCount(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping test in short mode")
@@ -578,4 +449,56 @@ func TestSQLDiscoveredDeviceStore_CountActiveUnpairedDevices_ShouldReturnCorrect
 	// Assert
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), count)
+}
+
+func TestDiscoveryIdentitySurvivesDatabaseReloadBeforePairing(t *testing.T) {
+	conn := testutil.GetTestDB(t)
+	q := sqlc.New(conn)
+	orgID, err := q.CreateOrganization(t.Context(), sqlc.CreateOrganizationParams{OrgID: "discovery-identity", Name: "Discovery identity"})
+	require.NoError(t, err)
+	store := sqlstores.NewSQLDiscoveredDeviceStore(conn)
+	doi := discoverymodels.DeviceOrgIdentifier{DeviceIdentifier: "identity-candidate", OrgID: orgID}
+	device := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: doi.DeviceIdentifier, SerialNumber: "PROTO-SERIAL-1", MacAddress: "00:11:22:33:44:55", IpAddress: "192.0.2.1", Port: "443", UrlScheme: "https", DriverName: "proto"}, OrgID: orgID, IsActive: true}
+	saved, err := store.SaveDirect(t.Context(), doi, device)
+	require.NoError(t, err)
+	require.Equal(t, device.SerialNumber, saved.SerialNumber)
+	require.Equal(t, device.MacAddress, saved.MacAddress)
+	reloaded, err := store.GetDevice(t.Context(), doi)
+	require.NoError(t, err)
+	require.Equal(t, device.SerialNumber, reloaded.SerialNumber)
+	require.Equal(t, device.MacAddress, reloaded.MacAddress)
+	endpoint, err := store.GetByIPAndPort(t.Context(), orgID, device.IpAddress, device.Port)
+	require.NoError(t, err)
+	require.Equal(t, device.SerialNumber, endpoint.SerialNumber)
+	require.Equal(t, device.MacAddress, endpoint.MacAddress)
+}
+func TestRediscoveryReplacesRatherThanInfersIdentityEvidence(t *testing.T) {
+	conn := testutil.GetTestDB(t)
+	q := sqlc.New(conn)
+	orgID, err := q.CreateOrganization(t.Context(), sqlc.CreateOrganizationParams{OrgID: "discovery-evidence", Name: "Discovery evidence"})
+	require.NoError(t, err)
+	store := sqlstores.NewSQLDiscoveredDeviceStore(conn)
+	doi := discoverymodels.DeviceOrgIdentifier{DeviceIdentifier: "evidence-candidate", OrgID: orgID}
+	device := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: doi.DeviceIdentifier, SerialNumber: "FIRST", MacAddress: "00:11:22:33:44:55", IpAddress: "192.0.2.1", Port: "443", UrlScheme: "https", DriverName: "proto"}, OrgID: orgID, IsActive: true}
+	_, err = store.SaveDirect(t.Context(), doi, device)
+	require.NoError(t, err)
+	device.SerialNumber = "SECOND"
+	device.MacAddress = "00:11:22:33:44:66"
+	device.IpAddress = "192.0.2.2"
+	_, err = store.SaveDirect(t.Context(), doi, device)
+	require.NoError(t, err)
+	reloaded, err := store.GetDevice(t.Context(), doi)
+	require.NoError(t, err)
+	require.Equal(t, "SECOND", reloaded.SerialNumber)
+	require.Equal(t, "00:11:22:33:44:66", reloaded.MacAddress)
+	// Missing discovery evidence is missing, even at a previously known endpoint.
+	// Carrying an old identifier forward would mistake a replacement for the old miner.
+	device.SerialNumber = ""
+	device.MacAddress = ""
+	_, err = store.SaveDirect(t.Context(), doi, device)
+	require.NoError(t, err)
+	reloaded, err = store.GetDevice(t.Context(), doi)
+	require.NoError(t, err)
+	require.Empty(t, reloaded.SerialNumber)
+	require.Empty(t, reloaded.MacAddress)
 }

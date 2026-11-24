@@ -1,5 +1,89 @@
 import { expect, test } from "../fixtures/pageFixtures";
 
+test.describe("Add miners scan completion", () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+
+  test("accepts a completed empty scan without a results panel", async ({ page, addMinersPage, isMobile }) => {
+    await page.setContent(`
+      <div>No devices found</div>
+      <div ${isMobile ? "hidden" : ""}><button>Rescan network</button></div>
+    `);
+
+    await expect(addMinersPage.getFoundMinersList()).toHaveCount(0);
+    await addMinersPage.waitForNetworkScanToFinish(1000);
+    expect(await addMinersPage.getFoundMinersCount()).toBe(0);
+    await expect(page.getByRole("button", { name: /Continue with \d+ miners?/ })).toHaveCount(0);
+  });
+
+  test("requires the results panel before accepting a nonempty scan", async ({ page, addMinersPage, isMobile }) => {
+    await page.setContent(`
+      <div>1 miner found on your network</div>
+      <div id="results"></div>
+      <button>Continue with 1 miners</button>
+      <div ${isMobile ? "hidden" : ""}><button>Rescan network</button></div>
+    `);
+
+    await expect(addMinersPage.getFoundMinersList()).toHaveCount(0);
+    let missingPanelError: unknown;
+    try {
+      await addMinersPage.waitForNetworkScanToFinish(750);
+    } catch (error) {
+      missingPanelError = error;
+    }
+    expect(missingPanelError).toBeInstanceOf(Error);
+
+    await page.locator("#results").evaluate((results) => {
+      results.setAttribute("data-testid", "found-miners-list");
+      results.textContent = "Proto Rig";
+    });
+
+    await addMinersPage.waitForNetworkScanToFinish();
+    expect(await addMinersPage.getFoundMinersCount()).toBe(1);
+  });
+
+  test("waits for discovery to finish before reading a late container and miner summary", async ({
+    page,
+    addMinersPage,
+  }) => {
+    // Mobile keeps the scanning action in its closed overflow menu. The partial
+    // summary is the visible indication that discovery has not finished yet.
+    await page.setContent(`
+      <div id="summary">Scanning… 1 miner found on your network</div>
+      <div data-testid="found-miners-list">Proto Rig</div>
+      <div hidden><button>Scanning</button></div>
+      <button>Continue with 1 miners</button>
+    `);
+
+    // Keep discovery incomplete through a short negative-assertion budget.
+    // An early return would let selection miss a container arriving afterward.
+    await expect(page.getByTestId("found-miners-list")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Continue with 1 miners", exact: true })).toBeVisible();
+    let partialScanError: unknown;
+    try {
+      await addMinersPage.waitForNetworkScanToFinish(750);
+    } catch (error) {
+      partialScanError = error;
+    }
+    expect(partialScanError).toBeInstanceOf(Error);
+    expect((partialScanError as Error).message).toContain("toBe");
+
+    await page.locator("#summary").evaluate((summary) => {
+      summary.textContent = "1 container and 1 miner found on your network";
+    });
+    await page.getByRole("button", { name: "Continue with 1 miners", exact: true }).evaluate((button) => {
+      button.textContent = "Continue with 2 miners";
+    });
+    await page.getByRole("button", { name: "Scanning", exact: true, includeHidden: true }).evaluate((button) => {
+      button.textContent = "Rescan network";
+      button.parentElement!.hidden = false;
+    });
+
+    await addMinersPage.waitForNetworkScanToFinish();
+    expect(await addMinersPage.getFoundMinersCount()).toBe(1);
+    await expect(page.getByRole("button", { name: "Continue with 2 miners", exact: true })).toBeVisible();
+  });
+});
+
 test.describe("Proto Fleet - Add Miners Validation", () => {
   test.beforeEach(async ({ page, commonSteps }) => {
     await page.goto("/");
@@ -45,7 +129,7 @@ test.describe("Proto Fleet - Add Miners Validation", () => {
   test(
     "Continue anyway button proceeds with valid entries only",
     { tag: "@smoke" },
-    async ({ minersPage, addMinersPage, page }) => {
+    async ({ minersPage, addMinersPage }) => {
       await test.step("Navigate to add miners flow", async () => {
         await minersPage.navigateToMinersPage();
         await minersPage.clickAddMinersButton();
@@ -66,13 +150,7 @@ test.describe("Proto Fleet - Add Miners Validation", () => {
 
       await test.step("Validate dialog is closed and discovery proceeds", async () => {
         await addMinersPage.validateValidationErrorDialogIsClosed();
-        // The pairing step should now be active (either loading or showing results)
-        const findingMinersTitle = page.getByText("Finding miners on your network");
-        const foundMinersSection = page.getByText(/\d+ miners found/);
-        const noMinersFound = page.getByText(/No miners found/);
-
-        // Wait for either the loading state, results, or no miners found
-        await expect(findingMinersTitle.or(foundMinersSection).or(noMinersFound)).toBeVisible({ timeout: 10000 });
+        await addMinersPage.waitForNetworkScanToFinish();
       });
     },
   );

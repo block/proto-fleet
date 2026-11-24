@@ -57,6 +57,7 @@ export function useDeviceSetListState(
   getIncludeUnassigned?: () => boolean,
   getIncludeNoBuilding?: () => boolean,
   getTelemetryRanges?: () => FleetListTelemetryRangeFilter[],
+  fetchStatsEnabled = true,
 ) {
   const { getDeviceSetStats } = useDeviceSets();
   const [deviceSets, setDeviceSets] = useState<DeviceSet[]>([]);
@@ -94,7 +95,7 @@ export function useDeviceSetListState(
 
   const fetchStats = useCallback(
     (items: DeviceSet[]) => {
-      if (items.length === 0) return;
+      if (!fetchStatsEnabled || items.length === 0) return;
       const requestId = ++statsRequestId.current;
       const ids = items.map((c) => c.id);
       getDeviceSetStats({
@@ -109,7 +110,7 @@ export function useDeviceSetListState(
         },
       });
     },
-    [getDeviceSetStats],
+    [fetchStatsEnabled, getDeviceSetStats],
   );
 
   const fetchPage = useCallback(

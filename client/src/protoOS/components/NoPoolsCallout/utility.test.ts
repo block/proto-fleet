@@ -20,6 +20,11 @@ describe("NoPoolsCallout utility", () => {
   });
 
   it.each([
+    "/pools",
+    "/pools/",
+    "/miners/miner-1/pools",
+    "/miners/miner%2F1/pools/",
+    "/POOLS",
     "/settings/mining-pools",
     "/settings/mining-pools/",
     "/miners/miner-1/settings/mining-pools",
@@ -34,27 +39,39 @@ describe("NoPoolsCallout utility", () => {
     });
   });
 
-  it.each(["/settings/mining-pools/extra", "/onboarding/mining-pool", "/groups/1/settings/mining-pools"])(
-    "shows the callout on non-mining-pools null state path %s",
+  it.each([
+    "/pools/extra",
+    "/groups/1/pools",
+    "/settings/mining-pools/extra",
+    "/onboarding/mining-pool",
+    "/groups/1/settings/mining-pools",
+  ])("shows the callout on non-mining-pools null state path %s", (pathname) => {
+    expect(getNoPoolsCalloutState([], pathname)).toEqual({
+      arePoolsConfigured: false,
+      noPoolsLive: true,
+      shouldShowNoPoolsCallout: true,
+    });
+  });
+
+  it.each(["/pools", "/miners/miner-1/pools", "/miners/miner-1/settings/mining-pools"])(
+    "shows the callout on %s when configured pools are inactive",
     (pathname) => {
-      expect(getNoPoolsCalloutState([], pathname)).toEqual({
-        arePoolsConfigured: false,
+      expect(
+        getNoPoolsCalloutState(
+          [{ status: "Dead" }, { status: "Dead", url: "stratum+tcp://backup.example:3333" }],
+          pathname,
+        ),
+      ).toEqual({
+        arePoolsConfigured: true,
         noPoolsLive: true,
         shouldShowNoPoolsCallout: true,
       });
     },
   );
-
-  it("shows the callout on the mining pools page when configured pools are inactive", () => {
-    expect(
-      getNoPoolsCalloutState(
-        [{ status: "Dead" }, { status: "Dead", url: "stratum+tcp://backup.example:3333" }],
-        "/miners/miner-1/settings/mining-pools",
-      ),
-    ).toEqual({
-      arePoolsConfigured: true,
-      noPoolsLive: true,
-      shouldShowNoPoolsCallout: true,
-    });
+  it("suppresses only lost connections while mapping runs", () => {
+    const pools = [{ status: "Idle", url: "stratum+tcp://pool.example:3333" }];
+    expect(getNoPoolsCalloutState(pools, "/", true).shouldShowNoPoolsCallout).toBe(false);
+    expect(getNoPoolsCalloutState([], "/", true).shouldShowNoPoolsCallout).toBe(true);
+    expect(getNoPoolsCalloutState(pools, "/", false).shouldShowNoPoolsCallout).toBe(true);
   });
 });

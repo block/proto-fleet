@@ -49,7 +49,7 @@ const RackCard = ({
     <div
       data-testid="rack-card"
       className={clsx(
-        "flex cursor-pointer flex-col rounded-2xl bg-surface-overlay transition-opacity hover:opacity-80",
+        "flex min-w-0 cursor-pointer flex-col rounded-2xl bg-surface-overlay transition-opacity hover:opacity-80",
         {
           "cursor-default": !onClick,
         },
@@ -72,7 +72,7 @@ const RackCard = ({
       <div className="flex flex-1 flex-col px-5 pt-5 pb-4">
         {/* Header */}
         <div className="mb-5 flex items-center justify-between">
-          <span data-testid="rack-card-label" className="text-300 text-emphasis-300">
+          <span data-testid="rack-card-label" className="min-w-0 truncate text-300 text-emphasis-300" title={label}>
             {label}
           </span>
           {zone ? (

@@ -34,8 +34,10 @@ command that reused its command_id.
 package control
 
 import (
+	"context"
 	"errors"
 	"sync"
+	"time"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
@@ -52,6 +54,10 @@ const commandEventBuffer = 64
 // one node enqueue without serializing behind the gateway's single drain loop.
 const outgoingBuffer = 1024
 
+// KeepaliveMisses is how many negotiated keepalive intervals of silence either
+// end of a V7 ControlStream tolerates before closing it.
+const KeepaliveMisses = 3
+
 // MaxConcurrentCommandArtifactUploadsPerFleetNode bounds upload streams before
 // their first message can be matched to a command expectation.
 const MaxConcurrentCommandArtifactUploadsPerFleetNode = 2
@@ -67,6 +73,10 @@ const maxReportsPerCommand = discoverylimits.MaxScanTargets * discoverylimits.Ma
 var (
 	// ErrNoActiveStream: no ControlStream for the fleet_node (callers map to FailedPrecondition).
 	ErrNoActiveStream = errors.New("no active control stream for fleet_node")
+
+	// ErrCommandProtocolUpgradeRequired marks a server-side rejection before
+	// enqueue, so callers can surface an upgrade diagnostic without trusting node text.
+	ErrCommandProtocolUpgradeRequired = errors.New("upgrade Fleet Node")
 
 	// errSessionInvalidated: the authenticated session was replaced or revoked
 	// before its ControlStream could register.
@@ -136,8 +146,9 @@ const (
 // the report quota. nil for discovery.
 type PairMeta struct {
 	OrgID      int64
-	AssignedBy *int64              // operator user id; nullable end-to-end
-	Targets    map[string]struct{} // dispatched device identifiers; also the report quota
+	AssignedBy *int64                                    // operator user id; nullable end-to-end
+	Targets    map[string]struct{}                       // dispatched device identifiers; also the report quota
+	Snapshots  map[string]*pairingpb.FleetNodePairTarget // immutable dispatch targets, retained for persistence retries
 }
 
 // ArtifactDirection indicates which side of a command artifact transfer owns the bytes.
@@ -170,24 +181,30 @@ type artifactExpectation struct {
 // connection is the server's view of one agent ControlStream. It can hold many
 // concurrent in-flight commands keyed by command_id. Fields guarded by Registry.mu.
 type connection struct {
+	discoveryConfig           *gatewaypb.DiscoveryConfig
 	outgoing                  chan *gatewaypb.ControlCommand // commands to the ControlStream handler (buffered, never closed)
+	cancels                   chan string                    // command_ids to cancel on the node (buffered, never closed)
 	done                      chan struct{}                  // closed once on evict/Unregister; wakes the handler and blocked senders
 	cmds                      map[string]*inflightCommand    // in-flight commands by command_id
 	maxCommandProtocolVersion gatewaypb.CommandProtocolVersion
+	connectedAt               time.Time
 }
 
 // inflightCommand is the operator/worker side of one in-flight command. Its result
 // channel determines its shape: report-bearing commands carry `events` (plus
 // scope/reported); ack-only commands carry `ack`.
 type inflightCommand struct {
-	id string
+	dispatchedAt     time.Time
+	dispatchObserved bool
+	id               string
 
 	// report-bearing (events != nil): discovery/pairing batches + terminal ack.
-	kind       ReportKind        // which gateway report RPC may admit reports for this command
-	scope      ReportScope       // admits only reported devices within the requested scope; nil = unconstrained
-	events     chan CommandEvent // buffered, never closed
-	reported   int               // cumulative admitted device count, for quota
-	maxReports int               // per-command report quota: scan ceiling for discovery, target count for pair
+	kind          ReportKind                    // which gateway report RPC may admit reports for this command
+	scope         ReportScope                   // admits only reported devices within the requested scope; nil = unconstrained
+	events        chan CommandEvent             // buffered, never closed
+	reported      int                           // cumulative admitted device count, for quota
+	maxReports    int                           // per-command report quota: scan ceiling for discovery, target count for pair
+	requestBudget *discoverylimits.ReportBudget // server-owned aggregate discovery quota
 
 	// pair-only: gateway persistence metadata, scoped to the dispatched targets
 	// (consuming each to bar replay). nil for discovery/ack-only commands.
@@ -197,6 +214,10 @@ type inflightCommand struct {
 	ack chan *gatewaypb.ControlAck // cap 1, never closed
 
 	artifacts []artifactExpectation
+	web       *minerWebResult // only for a restricted miner-web command; guarded by Registry.mu
+	// frames holds the newest unread frame of a streaming command. nil for
+	// every other command.
+	frames *commandFrames
 
 	done chan struct{} // closed once on teardown/free; wakes the waiter
 }
@@ -206,11 +227,17 @@ type inflightCommand struct {
 func (c *inflightCommand) reportBearing() bool { return c.events != nil }
 
 type Registry struct {
+	dispatchObserver func(context.Context, string, string, string, time.Duration)
+	protocolObserver func(bool)
+
+	minerWebSlots            chan struct{}
 	mu                       sync.Mutex
 	conns                    map[int64]*connection
 	sessionFences            map[int64]sessionFence
 	commandArtifactUploads   map[int64]int
 	commandArtifactDownloads map[int64]int
+	started                  time.Time
+	disconnectedAt           map[int64]time.Time
 }
 
 type sessionFence struct {
@@ -220,11 +247,53 @@ type sessionFence struct {
 
 func NewRegistry() *Registry {
 	return &Registry{
+		minerWebSlots:            make(chan struct{}, MaxConcurrentMinerWebRequests),
 		conns:                    make(map[int64]*connection),
 		sessionFences:            make(map[int64]sessionFence),
 		commandArtifactUploads:   make(map[int64]int),
 		commandArtifactDownloads: make(map[int64]int),
+		started:                  time.Now(),
+		disconnectedAt:           make(map[int64]time.Time),
 	}
+}
+
+// WithProtocolObserver installs a bounded compatibility outcome callback before use.
+func (r *Registry) WithProtocolObserver(observe func(bool)) *Registry {
+	r.protocolObserver = observe
+	return r
+}
+
+// Connected reports whether fleetNodeID has an active ControlStream.
+func (r *Registry) Connected(fleetNodeID int64) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.conns[fleetNodeID] != nil
+}
+
+// ConnectedSince reports when fleetNodeID's current ControlStream registered.
+// ok is false while the node is disconnected.
+func (r *Registry) ConnectedSince(fleetNodeID int64) (since time.Time, ok bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if conn := r.conns[fleetNodeID]; conn != nil {
+		return conn.connectedAt, true
+	}
+	return time.Time{}, false
+}
+
+// DisconnectedSince reports when fleetNodeID's last ControlStream ended. A node
+// that has not connected since this registry started counts as disconnected
+// since then. ok is false while the node is connected.
+func (r *Registry) DisconnectedSince(fleetNodeID int64) (since time.Time, ok bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.conns[fleetNodeID] != nil {
+		return time.Time{}, false
+	}
+	if since, ok := r.disconnectedAt[fleetNodeID]; ok {
+		return since, true
+	}
+	return r.started, true
 }
 
 // ConnectedFleetNodeIDs returns the fleet_node IDs with an active ControlStream
@@ -240,14 +309,70 @@ func (r *Registry) ConnectedFleetNodeIDs() []int64 {
 	return ids
 }
 
-// CommandProtocolUpgradeRequired reports whether an active connection is too
-// old to process the server's current commands. Disconnected nodes are handled
-// by their existing connection status instead.
+// CommandProtocolUpgradeRequired reports whether an active connection cannot
+// process baseline V1 commands, including discovery.
 func (r *Registry) CommandProtocolUpgradeRequired(fleetNodeID int64) bool {
+	return r.commandProtocolBelow(fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1)
+}
+
+// Protocol versions are monotonic. New enum versions advance recommendations
+// without changing any command's minimum supported version.
+var latestCommandProtocolVersion = func() gatewaypb.CommandProtocolVersion {
+	var latest gatewaypb.CommandProtocolVersion
+	for version := range gatewaypb.CommandProtocolVersion_name {
+		latest = max(latest, gatewaypb.CommandProtocolVersion(version))
+	}
+	return latest
+}()
+
+// CommandProtocolUpgradeRecommended reports whether a connected node is behind
+// the server's latest protocol. It must not be used to gate commands.
+func (r *Registry) CommandProtocolUpgradeRecommended(fleetNodeID int64) bool {
+	return r.commandProtocolBelow(fleetNodeID, latestCommandProtocolVersion)
+}
+
+func (r *Registry) commandProtocolBelow(fleetNodeID int64, version gatewaypb.CommandProtocolVersion) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	conn := r.conns[fleetNodeID]
-	return conn != nil && conn.maxCommandProtocolVersion < gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1
+	return conn != nil && conn.maxCommandProtocolVersion < version
+}
+
+// CommandProtocolUpgradeRequiredForVersion reports whether a connected node
+// needs an upgrade for a specific command. Disconnected nodes retain their
+// existing connection handling.
+func (r *Registry) CommandProtocolUpgradeRequiredForVersion(fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion) bool {
+	return r.commandProtocolBelow(fleetNodeID, minimumCommandProtocolVersion)
+}
+
+// CommandProtocolUpgradeRequiredForDispatch records an early rejection when a
+// connected node needs an upgrade. Disconnected nodes retain their usual handling.
+func (r *Registry) CommandProtocolUpgradeRequiredForDispatch(fleetNodeID int64, minimum gatewaypb.CommandProtocolVersion) bool {
+	connected, compatible := r.checkDispatchProtocol(fleetNodeID, minimum)
+	return connected && !compatible
+}
+
+// SupportsCommandProtocolVersion checks for a live, compatible node before
+// workflow admission and records early protocol rejections.
+func (r *Registry) SupportsCommandProtocolVersion(fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion) bool {
+	_, compatible := r.checkDispatchProtocol(fleetNodeID, minimumCommandProtocolVersion)
+	return compatible
+}
+
+func (r *Registry) checkDispatchProtocol(fleetNodeID int64, minimum gatewaypb.CommandProtocolVersion) (connected, compatible bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	conn := r.conns[fleetNodeID]
+	if conn == nil {
+		return false, false
+	}
+	compatible = conn.maxCommandProtocolVersion >= minimum
+	// Only record early rejections. addCmd records the check for commands that
+	// reach dispatch.
+	if !compatible && r.protocolObserver != nil {
+		r.protocolObserver(false)
+	}
+	return true, compatible
 }
 
 // teardown closes connection.done and every in-flight command's done. Caller holds
@@ -282,16 +407,38 @@ func (r *Registry) addCmd(fleetNodeID int64, minimumCommandProtocolVersion gatew
 	if !ok {
 		return nil, nil, ErrNoActiveStream
 	}
+	if r.protocolObserver != nil {
+		r.protocolObserver(conn.maxCommandProtocolVersion >= minimumCommandProtocolVersion)
+	}
 	if conn.maxCommandProtocolVersion < minimumCommandProtocolVersion {
 		return nil, nil, fleeterror.NewFailedPreconditionErrorf(
-			"fleet node command protocol version %d does not support this command; requires version %d; upgrade Fleet Node",
+			"fleet node command protocol version %d does not support this command; requires version %d; %w",
 			conn.maxCommandProtocolVersion,
 			minimumCommandProtocolVersion,
+			ErrCommandProtocolUpgradeRequired,
 		)
 	}
 	if _, dup := conn.cmds[c.id]; dup {
 		return nil, nil, errDuplicateCommandID
 	}
+	if c.requestBudget != nil && c.requestBudget.Exhausted() {
+		return nil, nil, ErrReportQuotaExceeded
+	}
+	if c.web != nil {
+		count := 0
+		for _, pending := range conn.cmds {
+			if pending.web != nil {
+				count++
+			}
+		}
+		if count >= MaxConcurrentMinerWebRequestsPerNode {
+			return nil, nil, fleeterror.NewUnavailableErrorf("fleet node embedded view capacity reached")
+		}
+	}
+	if c.frames != nil && commandStreamsLocked(conn) >= MaxConcurrentCommandStreamsPerNode {
+		return nil, nil, ErrCommandStreamCapacity
+	}
+	c.dispatchedAt = time.Now()
 	conn.cmds[c.id] = c
 	return conn.outgoing, conn.done, nil
 }
@@ -310,4 +457,13 @@ func (r *Registry) removeCmd(fleetNodeID int64, c *inflightCommand) {
 		delete(conn.cmds, c.id)
 		close(c.done)
 	}
+}
+
+// ConnectionCount returns a cheap point-in-time count of authenticated streams.
+// It is diagnostic process state; expected inventory and heartbeat health are
+// evaluated independently from persisted state.
+func (r *Registry) ConnectionCount() int64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return int64(len(r.conns))
 }

@@ -8,6 +8,9 @@ const listCompleted = vi.fn(async ({ pageToken, onSuccess, onFinally }) => {
     tickets: [
       {
         ticket: {
+          targets: [],
+          audiences: [],
+          description: "",
           id: secondPage ? 3n : 2n,
           ticketNumber: secondPage ? "TK-3" : "TK-2",
           component: "Fan",
@@ -149,6 +152,9 @@ it("keeps history stable until refresh and retains the modal navigation snapshot
       tickets: [
         {
           ticket: {
+            targets: [],
+            audiences: [],
+            description: "",
             id,
             ticketNumber: `TK-${id}`,
             component: "Fan",
@@ -189,6 +195,9 @@ it("starts at page one without probing the old history cursor on refresh", async
           : [
               {
                 ticket: {
+                  targets: [],
+                  audiences: [],
+                  description: "",
                   id: secondPage ? 3n : 2n,
                   ticketNumber: secondPage ? "TK-3" : "TK-2",
                   component: "Fan",

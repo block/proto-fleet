@@ -1,13 +1,19 @@
 import { useState } from "react";
 import { MemoryRouter } from "react-router-dom";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor as waitForDefault, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
 import NavigationMenu from "./NavigationMenu";
 import NavigationRailToggle from "./NavigationRailToggle";
 import { useNavigationRail } from "./useNavigationRail";
+import { AccountSchema } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import { NavItem, primaryNavItems } from "@/protoFleet/config/navItems";
+import { HostedAccountsContext } from "@/protoFleet/features/hostedAccounts/HostedAccountsContext";
 import type { ActiveSite } from "@/protoFleet/store/types/activeSite";
+
+// The default poll interval is 50 ms. That interval is most of the run time of this file.
+const waitFor: typeof waitForDefault = (callback, options) => waitForDefault(callback, { interval: 1, ...options });
 
 const { mockUseWindowDimensions, permissionsMock, activeSiteMock, accountMock } = vi.hoisted(() => ({
   mockUseWindowDimensions: vi.fn(),
@@ -64,6 +70,125 @@ describe("Navigation Menu", () => {
     activeSiteMock.current = { kind: "all" };
     accountMock.username = "achen";
     accountMock.role = "SUPER_ADMIN";
+  });
+
+  it.each([true, false])(
+    "shows Clients inside the phone Settings Admin group only for hosts (host=%s)",
+    async (hostAccess) => {
+      mockUseWindowDimensions.mockReturnValue({ isPhone: true });
+      permissionsMock.current = ["miner:read", "fleet:read"];
+      const user = userEvent.setup();
+      render(
+        <MemoryRouter initialEntries={["/settings/network"]}>
+          <HostedAccountsContext.Provider
+            value={{
+              reportingAccess: false,
+              accounts: [create(AccountSchema, { accountId: "customer" })],
+              hostAccess,
+              loading: false,
+              error: null,
+              refresh: vi.fn(),
+            }}
+          >
+            <NavigationMenu items={primaryNavItems} isVisible />
+          </HostedAccountsContext.Provider>
+        </MemoryRouter>,
+      );
+      await screen.findByRole("button", { name: "Settings menu toggle" });
+      const submenu = screen.getByTestId("secondary-nav");
+      if (hostAccess) {
+        expect(within(submenu).getByText("Admin")).toBeInTheDocument();
+        expect(within(submenu).getByRole("link", { name: "Clients" })).toHaveAttribute("href", "/accounts");
+        await user.click(within(submenu).getByRole("link", { name: "Clients" }));
+        await waitFor(() =>
+          expect(screen.getByRole("link", { name: "Clients" })).toHaveAttribute("aria-current", "page"),
+        );
+        expect(screen.getByRole("link", { name: "Fleet" })).toBeInTheDocument();
+      } else {
+        expect(screen.queryByRole("link", { name: "Clients" })).not.toBeInTheDocument();
+      }
+    },
+  );
+
+  it.each([true, false])(
+    "shows Reports for an authorized reporter in the phone drawer (%s)",
+    async (reportingAccess) => {
+      mockUseWindowDimensions.mockReturnValue({ isPhone: true });
+      render(
+        <MemoryRouter initialEntries={["/accounts/reports"]}>
+          <HostedAccountsContext.Provider
+            value={{ accounts: [], hostAccess: true, reportingAccess, loading: false, error: null, refresh: vi.fn() }}
+          >
+            <NavigationMenu items={primaryNavItems} isVisible />
+          </HostedAccountsContext.Provider>
+        </MemoryRouter>,
+      );
+      if (reportingAccess) {
+        expect(await screen.findByRole("link", { name: "Reports" })).toHaveAttribute("aria-current", "page");
+      } else {
+        expect(screen.queryByRole("link", { name: "Reports" })).not.toBeInTheDocument();
+      }
+      expect(screen.queryByRole("link", { name: "Clients" })).not.toBeInTheDocument();
+    },
+  );
+
+  it("shows only account Settings sections in the mobile drawer", async () => {
+    mockUseWindowDimensions.mockReturnValue({ isPhone: true });
+    permissionsMock.current = ["role:read", "user:read", "apikey:manage"];
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/accounts/customer/access"]}>
+        <NavigationMenu
+          items={[
+            {
+              path: "/accounts/customer/settings",
+              label: "Settings",
+              children: [
+                {
+                  path: "/accounts/customer/pools",
+                  label: "Pools",
+                  parent: "/accounts/customer/settings",
+                  section: "Fleet",
+                },
+                {
+                  path: "/accounts/customer/access",
+                  label: "Access",
+                  parent: "/accounts/customer/settings",
+                  section: "Admin",
+                },
+              ],
+            },
+          ]}
+          isVisible
+        />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole("button", { name: "Settings menu toggle" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    const submenu = within(screen.getByTestId("secondary-nav"));
+    expect(submenu.getByRole("link", { name: "Access" })).toHaveAttribute("aria-current", "page");
+    expect(submenu.queryByRole("link", { name: "Security" })).not.toBeInTheDocument();
+    expect(submenu.queryByRole("link", { name: "Integrations" })).not.toBeInTheDocument();
+    await user.click(submenu.getByRole("link", { name: "Pools" }));
+    expect(await screen.findByRole("link", { name: "Pools" })).toHaveAttribute("href", "/accounts/customer/pools");
+    expect(screen.getByRole("link", { name: "Accounts" })).toHaveAttribute("href", "/accounts");
+  });
+  it("keeps the logo inside an account workspace when its Overview is available", async () => {
+    mockUseWindowDimensions.mockReturnValue({ isPhone: true });
+    render(
+      <MemoryRouter>
+        <NavigationMenu
+          items={[
+            { path: "/accounts/customer/overview", label: "Overview" },
+            { path: "/accounts/customer/settings", label: "Settings" },
+          ]}
+          isVisible
+        />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByTestId("navigation-home-link")).toHaveAttribute("href", "/accounts/customer/overview");
   });
 
   it.each([
@@ -324,9 +449,9 @@ describe("Navigation Menu", () => {
     );
 
     expect(screen.getByRole("navigation", { name: "Main" })).toHaveClass(
-      "h-dvh",
+      "h-full",
       "min-h-0",
-      "max-h-dvh",
+      "max-h-full",
       "overflow-hidden",
     );
     expect(screen.getByRole("navigation", { name: "Main" })).not.toHaveClass("min-h-screen");

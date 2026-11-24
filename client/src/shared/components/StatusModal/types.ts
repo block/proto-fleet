@@ -34,12 +34,14 @@ export type MinerStatusModalProps = {
   isOffline?: boolean;
   needsAuthentication?: boolean;
   needsMiningPool?: boolean;
+  onAssignPoolConfiguration?: () => void;
+  onAuthenticateMiner?: () => void;
 };
 
 /**
  * Types for ComponentStatusModalContent
  */
-export type ComponentType = "hashboard" | "psu" | "fan" | "controlBoard" | "other";
+export type ComponentType = "hashboard" | "psu" | "fan" | "controlBoard" | "tank" | "other";
 
 // Component details for displaying metrics, visualization, and metadata
 export interface ComponentMetric {
@@ -57,7 +59,11 @@ export interface ComponentMetadata {
 // Props for the ComponentStatusModal
 export interface ComponentStatusModalProps {
   summary?: string; // e.g., "Hashboard 3 has multiple errors"
+  /** Qualifies readings separately from the fault title. */
+  notice?: string;
   componentType: ComponentType;
+  /** Reported health can require attention even without detailed error messages. */
+  health?: "ok" | "degraded" | "fault" | "offline" | "unknown";
   errors: ErrorData[];
   metrics?: ComponentMetric[];
   metadata?: ComponentMetadata;
@@ -104,4 +110,6 @@ export interface StatusModalProps<TComponentAddress = any> {
   showBackButton?: boolean;
   /** Force the modal header into the same collapsed state normally reached after scrolling past the large title. */
   forceScrolledHeader?: boolean;
+  /** Trap keyboard focus and restore the opener when dismissed. */
+  manageFocus?: boolean;
 }

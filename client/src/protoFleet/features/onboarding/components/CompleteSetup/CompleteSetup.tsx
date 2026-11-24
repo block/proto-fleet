@@ -1,17 +1,12 @@
 import { AnimatePresence, motion } from "motion/react";
 import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { create } from "@bufbuild/protobuf";
 import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { StreamCommandBatchUpdatesRequestSchema } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import useAuthNeededMiners from "@/protoFleet/api/useAuthNeededMiners";
-import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import usePoolNeededCount from "@/protoFleet/api/usePoolNeededCount";
-import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
 import { Alert, Dismiss, MiningPools } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
-import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 
 type TaskCardProps = {
@@ -180,27 +175,16 @@ const CompleteSetup = ({
     refetchPoolNeededCount();
   }, [completSetupDismissed, isLoadingPoolNeeded, minersChangedAt, refetchAuthNeededMiners, refetchPoolNeededCount]);
 
-  // Get streaming command batch updates
-  const { streamCommandBatchUpdates } = useMinerCommand();
-
-  // State for fleet authentication before pool assignment
-  const [showAuthModal, setShowAuthModal] = useState(false);
-  const [poolFleetCredentials, setPoolFleetCredentials] = useState<{ username: string; password: string } | undefined>(
-    undefined,
-  );
-
   // State for showing pool selection modal
   const [showPoolSelectionModal, setShowPoolSelectionModal] = useState(false);
 
   // State for tracking when we're polling after pool assignment
-  const [isPollingAfterPoolAssignment, setIsPollingAfterPoolAssignment] = useState(false);
+  const [isRefreshingEquipment, setIsRefreshingEquipment] = useState(false);
 
   // Store cleanup function to stop polling when status is detected
   const pollingCleanupRef = useRef<(() => void) | null>(null);
   // Track pool count when polling starts to detect changes
   const poolCountWhenPollingStartedRef = useRef<number | null>(null);
-  // Store target count for pool assignment operation (used for toast message when complete)
-  const pendingPoolAssignmentRef = useRef<{ targetCount: number; failureCount: number } | null>(null);
   const refetchMiners = onRefetchMiners;
 
   // Track latest poolNeededCount to avoid stale closure in callbacks
@@ -209,33 +193,10 @@ const CompleteSetup = ({
     poolNeededCountRef.current = poolNeededCount;
   }, [poolNeededCount]);
 
-  // Show completion toast and refresh miner table when pool assignment finishes
-  const finalizePoolAssignment = useCallback(() => {
-    if (!pendingPoolAssignmentRef.current) return;
-
-    const { targetCount, failureCount } = pendingPoolAssignmentRef.current;
-    const minerLabel = targetCount === 1 ? "miner" : "miners";
-    if (failureCount > 0) {
-      pushToast({
-        message: `Pool assignment failed for ${failureCount} of ${targetCount} ${minerLabel}`,
-        status: TOAST_STATUSES.error,
-      });
-    } else {
-      pushToast({
-        message: `Assigned pools to ${targetCount} ${minerLabel}`,
-        status: TOAST_STATUSES.success,
-      });
-    }
-    pendingPoolAssignmentRef.current = null;
-
-    // Refresh the miner table to reflect updated statuses
-    refetchMiners?.();
-  }, [refetchMiners]);
-
   // Polls for status updates with fixed 2s intervals after 1s initial delay.
   // Returns cleanup function to cancel pending polls.
   const pollForStatusUpdates = useCallback(() => {
-    setIsPollingAfterPoolAssignment(true);
+    setIsRefreshingEquipment(true);
     poolCountWhenPollingStartedRef.current = poolNeededCountRef.current;
 
     let pollCount = 0;
@@ -248,7 +209,7 @@ const CompleteSetup = ({
     const resetPollingState = () => {
       pollingCleanupRef.current = null;
       poolCountWhenPollingStartedRef.current = null;
-      setIsPollingAfterPoolAssignment(false);
+      setIsRefreshingEquipment(false);
     };
 
     const poll = () => {
@@ -262,7 +223,6 @@ const CompleteSetup = ({
         timeouts.push(setTimeout(poll, pollIntervalMs));
       } else {
         // Max polls reached - finalize and reset
-        finalizePoolAssignment();
         resetPollingState();
       }
     };
@@ -278,29 +238,16 @@ const CompleteSetup = ({
 
     pollingCleanupRef.current = cleanup;
     return cleanup;
-  }, [refetchAuthNeededMiners, refetchPoolNeededCount, finalizePoolAssignment]);
+  }, [refetchAuthNeededMiners, refetchPoolNeededCount]);
 
-  // Stop polling and show toast when pool count decreases (pool assignment succeeded)
   useEffect(() => {
-    // Check pending assignment first - it has the target count from when operation started
-    if (pendingPoolAssignmentRef.current && poolNeededCount < pendingPoolAssignmentRef.current.targetCount) {
-      finalizePoolAssignment();
-      pollingCleanupRef.current?.();
-    }
-    // Only check for pairing completion flow when there's no pending pool assignment.
-    // Without this guard, a pool count increase (e.g., another miner entering NEEDS_MINING_POOL)
-    // would stop polling without showing the completion toast.
-    else if (
-      !pendingPoolAssignmentRef.current &&
+    if (
       pollingCleanupRef.current &&
-      poolCountWhenPollingStartedRef.current !== null
-    ) {
-      const hasChanged = poolCountWhenPollingStartedRef.current !== poolNeededCount;
-      if (hasChanged) {
-        pollingCleanupRef.current();
-      }
-    }
-  }, [poolNeededCount, finalizePoolAssignment]);
+      poolCountWhenPollingStartedRef.current !== null &&
+      poolCountWhenPollingStartedRef.current !== poolNeededCount
+    )
+      pollingCleanupRef.current();
+  }, [poolNeededCount]);
 
   // Ensure polling is cleaned up if the component unmounts while polling is active
   useEffect(() => {
@@ -309,87 +256,11 @@ const CompleteSetup = ({
     };
   }, []);
 
-  // Handlers for pool selection modal
-  const handlePoolAssignmentSuccess = useCallback(
-    async (batchIdentifier: string) => {
-      setShowPoolSelectionModal(false);
-
-      // Show loading state immediately while stream runs
-      setIsPollingAfterPoolAssignment(true);
-
-      // Capture target count at operation start (miners needing pools)
-      const targetCount = poolNeededCountRef.current;
-      let failureCount = 0;
-      let streamErrorOccurred = false;
-
-      const streamAbortController = new AbortController();
-
-      await streamCommandBatchUpdates({
-        streamRequest: create(StreamCommandBatchUpdatesRequestSchema, {
-          batchIdentifier,
-        }),
-        onStreamData: (response) => {
-          const success = Number(response.status?.commandBatchDeviceCount?.success || 0);
-          const failure = Number(response.status?.commandBatchDeviceCount?.failure || 0);
-          const completed = success + failure;
-          const serverTotal = Number(response.status?.commandBatchDeviceCount?.total || 0);
-
-          // Track failures for completion toast
-          failureCount = failure;
-
-          // Abort stream when all devices in the batch have completed (per server-reported total)
-          if (serverTotal > 0 && completed >= serverTotal) {
-            streamAbortController.abort();
-          }
-        },
-        onError: (error) => {
-          streamErrorOccurred = true;
-          setIsPollingAfterPoolAssignment(false);
-          pushToast({
-            message: `Pool assignment failed: ${error}`,
-            status: TOAST_STATUSES.error,
-          });
-        },
-        streamAbortController,
-      });
-
-      // Don't proceed with polling if stream encountered an error
-      if (streamErrorOccurred) {
-        return;
-      }
-
-      // Store info for completion toast when polling detects count change
-      pendingPoolAssignmentRef.current = { targetCount, failureCount };
-
-      pollForStatusUpdates();
-    },
-    [streamCommandBatchUpdates, pollForStatusUpdates],
-  );
-
-  const handlePoolAssignmentError = useCallback((error: string) => {
-    pushToast({
-      message: error,
-      status: TOAST_STATUSES.error,
-      longRunning: true,
-    });
-    setShowPoolSelectionModal(false);
-    setPoolFleetCredentials(undefined);
-  }, []);
-
   const handlePoolDismiss = useCallback(() => {
     setShowPoolSelectionModal(false);
-    setPoolFleetCredentials(undefined);
-  }, []);
-
-  const handleAuthSuccess = useCallback((username: string, password: string) => {
-    setPoolFleetCredentials({ username, password });
-    setShowAuthModal(false);
-    setShowPoolSelectionModal(true);
-  }, []);
-
-  const handleAuthDismiss = useCallback(() => {
-    setShowAuthModal(false);
-  }, []);
+    refetchMiners?.();
+    refetchPoolNeededCount();
+  }, [refetchMiners, refetchPoolNeededCount]);
 
   // Watch for pairing operations completing and start polling
   const lastProcessedPairingTimestampRef = useRef(0);
@@ -448,9 +319,9 @@ const CompleteSetup = ({
                           return;
                         }
 
-                        setShowAuthModal(true);
+                        setShowPoolSelectionModal(true);
                       }}
-                      isLoading={isLoadingPoolNeeded || isPollingAfterPoolAssignment}
+                      isLoading={isLoadingPoolNeeded || isRefreshingEquipment}
                     />
                   </motion.div>
                 ) : null}
@@ -476,24 +347,17 @@ const CompleteSetup = ({
           </div>
         </div>
       ) : null}
-      <AuthenticateFleetModal
-        open={showAuthModal}
-        purpose="pool"
-        onAuthenticated={handleAuthSuccess}
-        onDismiss={handleAuthDismiss}
-      />
       <PoolSelectionPageWrapper
-        open={showPoolSelectionModal ? !!poolFleetCredentials : false}
+        open={showPoolSelectionModal}
         selectionMode="all"
         poolNeededCount={poolNeededCount}
         filterCriteria={{
           deviceStatus: DeviceStatus.NEEDS_MINING_POOL,
           pairingStatus: PairingStatus.PAIRED,
         }}
-        userUsername={poolFleetCredentials?.username}
-        userPassword={poolFleetCredentials?.password}
-        onSuccess={handlePoolAssignmentSuccess}
-        onError={handlePoolAssignmentError}
+        onApplied={() => {
+          pollForStatusUpdates();
+        }}
         onDismiss={handlePoolDismiss}
       />
     </>

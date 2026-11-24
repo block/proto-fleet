@@ -12,6 +12,8 @@ import (
 
 var fleetDeploymentEnvironmentKeys = []string{
 	"HTTP_TRUSTED_PROXY_CIDRS",
+	"FLEET_RUNTIME_METRICS_ENABLED",
+	"TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS",
 	"DD_API_KEY",
 	"DD_ENV",
 	"DD_SITE",
@@ -90,12 +92,14 @@ func fleetApplicationProfileFromValues(values map[string]string, defaultBetaAler
 			profile[key] = value
 		}
 	}
-	if _, ok := profile["MARKET_DATA_ENABLED"]; ok {
-		enabled, err := fleetFeatureFlagOrDefault(profile, "MARKET_DATA_ENABLED", false)
-		if err != nil {
-			return nil, err
+	for _, key := range []string{"MARKET_DATA_ENABLED", "TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS", "FLEET_RUNTIME_METRICS_ENABLED"} {
+		if _, ok := profile[key]; ok {
+			enabled, err := fleetFeatureFlagOrDefault(profile, key, false)
+			if err != nil {
+				return nil, err
+			}
+			profile[key] = strconv.FormatBool(enabled)
 		}
-		profile["MARKET_DATA_ENABLED"] = strconv.FormatBool(enabled)
 	}
 	if cidrs := profile["HTTP_TRUSTED_PROXY_CIDRS"]; cidrs != "" {
 		for _, value := range strings.Split(cidrs, ",") {

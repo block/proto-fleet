@@ -6,6 +6,7 @@ syntax = "proto3";
 package fleetnodeadmin.v1;
 
 import "buf/validate/validate.proto";
+import "common/v1/common.proto";
 import "fleetmanagement/v1/fleetmanagement.proto";
 import "google/protobuf/timestamp.proto";
 import "pairing/v1/pairing.proto";
@@ -31,7 +32,20 @@ enum FleetNodeEnrollmentStatus {
     FLEET_NODE_ENROLLMENT_STATUS_REVOKED                = 4;
 }
 
-message CreateEnrollmentCodeRequest {}
+// A node is in at most one HA pair. The active node runs the pair's devices;
+// the standby holds the same credential key and takes the devices over when the
+// active node's control stream has been down for the failover delay.
+enum FleetNodeHARole {
+    FLEET_NODE_HA_ROLE_UNSPECIFIED = 0;
+    FLEET_NODE_HA_ROLE_ACTIVE      = 1;
+    FLEET_NODE_HA_ROLE_STANDBY     = 2;
+}
+
+message CreateEnrollmentCodeRequest {
+    // Enroll the new node as the standby for this confirmed node. The target
+    // must not already be in an HA pair.
+    optional int64 standby_for_node_id = 1 [(buf.validate.field).int64.gt = 0];
+}
 
 message CreateEnrollmentCodeResponse {
     // Plaintext code. Returned exactly once and never re-fetchable.
@@ -59,10 +73,37 @@ message FleetNodeSummary {
     // pending enrollment.
     optional int64 pending_enrollment_id = 7 [(buf.validate.field).int64.gt = 0];
     // True only while this node has an active control connection that cannot
-    // process the server's current commands.
+    // process baseline V1 commands, including discovery.
     bool command_protocol_upgrade_required = 8;
     // True only while this node has an active ControlStream connection.
     bool control_stream_connected = 9;
+    // Number of live devices assigned to this node. Redacted for callers with
+    // miner:pair only, like the other administrative details.
+    int64 paired_device_count = 10;
+    // True only for a connected node behind the server's latest command protocol.
+    // Advisory only; command eligibility uses each command's minimum version.
+    bool command_protocol_upgrade_recommended = 12;
+    // Last heartbeat's local interface addresses and running binary version.
+    repeated string ip_addresses = 13;
+    string version = 14;
+    // Username of the operator who confirmed enrollment, empty for older records.
+    string enrolled_by = 15;
+    // HA pair membership. Unset for standalone nodes. A pending standby
+    // enrollment reports STANDBY with its target as the peer.
+    FleetNodeHARole ha_role = 16;
+    optional int64 ha_peer_node_id = 17;
+    string ha_peer_node_name = 18;
+    // True once the standby holds the active node's credential key.
+    bool ha_standby_ready = 19;
+    // Why the standby is not ready yet; empty when ready.
+    string ha_status_reason = 20;
+    // True when this confirmed node is expected to scan but currently cannot.
+    // Standbys are excluded because their active peer covers discovery.
+    bool discovery_coverage_degraded = 21;
+    // Effective ranges from the current connection; unavailable when disconnected.
+    repeated string discovery_ranges = 22;
+    bool discovery_config_reported = 23;
+    bool discovery_config_mismatch = 24;
 }
 
 message ConfirmFleetNodeRequest {
@@ -115,6 +156,8 @@ message FleetNodeDeviceSummary {
     string device_type = 4;
     google.protobuf.Timestamp assigned_at = 5;
     optional int64 assigned_by = 6;
+    string manufacturer = 7;
+    string model = 8;
 }
 
 message DiscoverOnFleetNodeRequest {
@@ -154,10 +197,14 @@ message FleetNodeDiscoveredDevice {
     string model             = 7;
     string manufacturer      = 8;
     string firmware_version  = 9;
+    common.v1.DeviceClass device_class = 12;
     google.protobuf.Timestamp last_seen = 10;
     // Empty when never attempted; "AUTHENTICATION_NEEDED" after a pair attempt
     // that needs credentials.
     string pairing_status    = 11 [(buf.validate.field).string.max_len = 64];
+  int32 rpc_port = 13 [(buf.validate.field).int32 = {gte: 0, lte: 65535}];
+  bool rpc_tls = 14;
+  repeated common.v1.DeviceEndpoint endpoints = 15 [(buf.validate.field).repeated.max_items = 16];
 }
 
 message PairDiscoveredDevicesOnFleetNodeRequest {

@@ -15,17 +15,18 @@ const createRepairTicketComment = `-- name: CreateRepairTicketComment :one
 WITH inserted AS (
     INSERT INTO repair_ticket_comment (
         org_id, ticket_id, user_id, user_name, text,
-        idempotency_key, create_request_hash
+        idempotency_key, create_request_hash,internal,account_id
     )
     SELECT $1, $2, $3, u.username, $4,
-           $5, $6
+           $5, $6, $7, a.id
     FROM "user" u
-    WHERE u.id = $3 AND u.deleted_at IS NULL
-    RETURNING id, org_id, ticket_id, user_id, user_name, text, created_at, deleted_at
+    LEFT JOIN hosted_account a ON a.organization_id=$1 AND a.account_id=$8
+    WHERE ($8::text='' OR a.id IS NOT NULL) AND u.id = $3 AND u.deleted_at IS NULL
+    RETURNING id, org_id, ticket_id, user_id, user_name, text, created_at, deleted_at,internal,account_id
 )
 SELECT i.id, i.org_id, i.ticket_id, i.user_id, i.user_name,
-       i.text, i.created_at, i.deleted_at
-FROM inserted i
+       i.text, i.created_at, i.deleted_at,i.internal,COALESCE(a.account_id,'')::text AS account_uuid,COALESCE(a.name,'')::text AS account_name
+FROM inserted i LEFT JOIN hosted_account a ON a.id=i.account_id AND a.organization_id=i.org_id
 `
 
 type CreateRepairTicketCommentParams struct {
@@ -35,17 +36,22 @@ type CreateRepairTicketCommentParams struct {
 	Text              string
 	IdempotencyKey    sql.NullString
 	CreateRequestHash sql.NullString
+	Internal          bool
+	AccountUuid       string
 }
 
 type CreateRepairTicketCommentRow struct {
-	ID        int64
-	OrgID     int64
-	TicketID  int64
-	UserID    int64
-	UserName  string
-	Text      string
-	CreatedAt time.Time
-	DeletedAt sql.NullTime
+	ID          int64
+	OrgID       int64
+	TicketID    int64
+	UserID      int64
+	UserName    string
+	Text        string
+	CreatedAt   time.Time
+	DeletedAt   sql.NullTime
+	Internal    bool
+	AccountUuid string
+	AccountName string
 }
 
 func (q *Queries) CreateRepairTicketComment(ctx context.Context, arg CreateRepairTicketCommentParams) (CreateRepairTicketCommentRow, error) {
@@ -56,6 +62,8 @@ func (q *Queries) CreateRepairTicketComment(ctx context.Context, arg CreateRepai
 		arg.Text,
 		arg.IdempotencyKey,
 		arg.CreateRequestHash,
+		arg.Internal,
+		arg.AccountUuid,
 	)
 	var i CreateRepairTicketCommentRow
 	err := row.Scan(
@@ -67,13 +75,16 @@ func (q *Queries) CreateRepairTicketComment(ctx context.Context, arg CreateRepai
 		&i.Text,
 		&i.CreatedAt,
 		&i.DeletedAt,
+		&i.Internal,
+		&i.AccountUuid,
+		&i.AccountName,
 	)
 	return i, err
 }
 
 const getRepairTicketCommentByIdempotencyKey = `-- name: GetRepairTicketCommentByIdempotencyKey :one
 SELECT id, org_id, ticket_id, user_id, user_name, text, created_at, deleted_at,
-       create_request_hash
+       create_request_hash,internal,COALESCE((SELECT account_id FROM hosted_account WHERE id=repair_ticket_comment.account_id),'')::text AS account_uuid,COALESCE((SELECT name FROM hosted_account WHERE id=repair_ticket_comment.account_id),'')::text AS account_name
 FROM repair_ticket_comment
 WHERE org_id = $1
   AND idempotency_key = $2
@@ -94,6 +105,9 @@ type GetRepairTicketCommentByIdempotencyKeyRow struct {
 	CreatedAt         time.Time
 	DeletedAt         sql.NullTime
 	CreateRequestHash sql.NullString
+	Internal          bool
+	AccountUuid       string
+	AccountName       string
 }
 
 func (q *Queries) GetRepairTicketCommentByIdempotencyKey(ctx context.Context, arg GetRepairTicketCommentByIdempotencyKeyParams) (GetRepairTicketCommentByIdempotencyKeyRow, error) {
@@ -109,6 +123,9 @@ func (q *Queries) GetRepairTicketCommentByIdempotencyKey(ctx context.Context, ar
 		&i.CreatedAt,
 		&i.DeletedAt,
 		&i.CreateRequestHash,
+		&i.Internal,
+		&i.AccountUuid,
+		&i.AccountName,
 	)
 	return i, err
 }
@@ -140,8 +157,8 @@ func (q *Queries) GetRepairTicketCommentSiteForUpdate(ctx context.Context, arg G
 
 const listRepairTicketComments = `-- name: ListRepairTicketComments :many
 SELECT c.id, c.org_id, c.ticket_id, c.user_id, c.user_name,
-       c.text, c.created_at, c.deleted_at
-FROM repair_ticket_comment c
+       c.text, c.created_at, c.deleted_at,c.internal,COALESCE(a.account_id,'')::text AS account_uuid,COALESCE(a.name,'')::text AS account_name
+FROM repair_ticket_comment c LEFT JOIN hosted_account a ON a.id=c.account_id AND a.organization_id=c.org_id
 WHERE c.org_id = $1 AND c.ticket_id = $2
   AND c.deleted_at IS NULL
 ORDER BY c.created_at ASC, c.id ASC
@@ -153,14 +170,17 @@ type ListRepairTicketCommentsParams struct {
 }
 
 type ListRepairTicketCommentsRow struct {
-	ID        int64
-	OrgID     int64
-	TicketID  int64
-	UserID    int64
-	UserName  string
-	Text      string
-	CreatedAt time.Time
-	DeletedAt sql.NullTime
+	ID          int64
+	OrgID       int64
+	TicketID    int64
+	UserID      int64
+	UserName    string
+	Text        string
+	CreatedAt   time.Time
+	DeletedAt   sql.NullTime
+	Internal    bool
+	AccountUuid string
+	AccountName string
 }
 
 func (q *Queries) ListRepairTicketComments(ctx context.Context, arg ListRepairTicketCommentsParams) ([]ListRepairTicketCommentsRow, error) {
@@ -181,6 +201,9 @@ func (q *Queries) ListRepairTicketComments(ctx context.Context, arg ListRepairTi
 			&i.Text,
 			&i.CreatedAt,
 			&i.DeletedAt,
+			&i.Internal,
+			&i.AccountUuid,
+			&i.AccountName,
 		); err != nil {
 			return nil, err
 		}
@@ -212,10 +235,16 @@ func (q *Queries) LockRepairTicketCommentCreateKey(ctx context.Context, arg Lock
 }
 
 const softDeleteRepairTicketCommentByAuthor = `-- name: SoftDeleteRepairTicketCommentByAuthor :execrows
-UPDATE repair_ticket_comment
-SET deleted_at = NOW()
-WHERE id = $1 AND org_id = $2
-  AND user_id = $3 AND deleted_at IS NULL
+WITH deleted AS (
+    UPDATE repair_ticket_comment c
+    SET deleted_at = NOW()
+    WHERE c.id = $1 AND c.org_id = $2
+      AND c.user_id = $3 AND c.deleted_at IS NULL
+    RETURNING c.org_id, c.ticket_id
+)
+UPDATE repair_ticket r SET updated_at = clock_timestamp()
+FROM deleted d
+WHERE r.org_id = d.org_id AND r.id = d.ticket_id
 `
 
 type SoftDeleteRepairTicketCommentByAuthorParams struct {

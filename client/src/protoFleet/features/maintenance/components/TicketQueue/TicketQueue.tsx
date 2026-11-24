@@ -2,25 +2,22 @@ import { useCallback, useMemo, useState } from "react";
 import clsx from "clsx";
 
 import { getComponentIcon, getComponentIconColor } from "../../componentIcons";
+import { ticketAssetLabel, ticketCategoryFilters } from "../../ticketAssets";
 import type { TicketItem } from "../../types";
 import BulkCloseModal from "../BulkClose/BulkCloseModal";
 import CreateTicketModal from "../CreateTicket/CreateTicketModal";
-import ListPagination from "../ListPagination";
 import TicketDetailModal from "../TicketDetail/TicketDetailModal";
-import {
-  SortDirection,
-  TicketCategory,
-  TicketSortField,
-  TicketStatus,
-} from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
+import { SortDirection, TicketSortField, TicketStatus } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import type { TicketVersion } from "@/protoFleet/api/maintenance";
+import ListPagination from "@/protoFleet/components/ListPagination";
 import ListSearchInput from "@/protoFleet/components/ListSearchInput";
-import ActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar";
 import { useMaintenanceOptions } from "@/protoFleet/features/maintenance/hooks/useMaintenanceOptions";
 import { useTicketQueue } from "@/protoFleet/features/maintenance/hooks/useTicketQueue";
 import { useHasPermission } from "@/protoFleet/store";
-import { Info } from "@/shared/assets/icons";
+import { Alert, Info } from "@/shared/assets/icons";
+import ActionBar from "@/shared/components/ActionBar";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
+import Callout from "@/shared/components/Callout";
 import List, { type SelectionMode } from "@/shared/components/List";
 import FilterChipsBar, { type FilterChipsBarFilter } from "@/shared/components/List/Filters/FilterChipsBar";
 import type { ColConfig, ColTitles, ListAction } from "@/shared/components/List/types";
@@ -44,16 +41,13 @@ const STATUS_OPTIONS = [
 const CATEGORY_OPTIONS = [
   { id: "miner", label: "Miner" },
   { id: "infrastructure", label: "Infrastructure" },
+  { id: "other", label: "Other" },
 ];
 const statusEnums: Record<string, TicketStatus> = {
   open: TicketStatus.OPEN,
   in_progress: TicketStatus.IN_PROGRESS,
   on_hold: TicketStatus.ON_HOLD,
   sent_to_vendor: TicketStatus.SENT_TO_VENDOR,
-};
-const categoryEnums: Record<string, TicketCategory> = {
-  miner: TicketCategory.MINER,
-  infrastructure: TicketCategory.INFRASTRUCTURE,
 };
 const formatStatus = (status: string) =>
   ({
@@ -127,7 +121,7 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
       queue.setFilter({
         excludeCompleted: true,
         statuses: (next.status ?? []).map((v) => statusEnums[v]).filter(Boolean),
-        categories: (next.category ?? []).map((v) => categoryEnums[v]).filter(Boolean),
+        categories: (next.category ?? []).flatMap((value) => ticketCategoryFilters[value] ?? []),
         siteIds: (next.site ?? []).map(BigInt),
         assigneeUserId: mine && options.currentAssignee ? BigInt(options.currentAssignee.id) : undefined,
         searchQuery: search,
@@ -203,7 +197,7 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
         component: (t) => (
           <div className="flex flex-col">
             <span className="text-emphasis-300 font-medium">
-              {t.component}: {t.diagnosis}
+              {t.description || [t.component, t.diagnosis].filter(Boolean).join(": ")}
             </span>
             <span className="text-300 text-text-primary-70">{t.ticketNumber}</span>
           </div>
@@ -213,7 +207,13 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
       asset: {
         component: (t) => (
           <div className="flex flex-col">
-            <span>{t.minerIdentifier ?? t.component}</span>
+            <span>
+              {t.targets.length
+                ? t.targets.map(ticketAssetLabel).join(", ")
+                : t.category === "account" || t.category === "other"
+                  ? t.audiences.map((item) => item.name).join(", ") || "Other"
+                  : (t.minerIdentifier ?? t.component)}
+            </span>
             <span className="text-300 text-text-primary-70">{t.buildingName ?? "—"}</span>
           </div>
         ),
@@ -341,8 +341,14 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
   if (queue.error && queue.data.length === 0)
     return (
       <div role="alert">
-        {queue.error}
-        <Button text="Retry" variant={variants.secondary} onClick={() => void queue.refresh()} />
+        <Callout
+          intent="danger"
+          prefixIcon={<Alert />}
+          title="Could not load tickets"
+          subtitle={queue.error}
+          buttonText="Retry"
+          buttonOnClick={() => void queue.refresh()}
+        />
       </div>
     );
   return (
@@ -438,9 +444,9 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
       )}
       {viewMode === "list" ? (
         <ListPagination
-          currentPage={queue.currentPage}
-          pageSize={50}
-          visibleCount={queue.data.length}
+          firstItemIndex={queue.currentPage * 50 + 1}
+          lastItemIndex={queue.currentPage * 50 + queue.data.length}
+          hasPreviousPage={queue.currentPage > 0}
           total={queue.total}
           itemName="tickets"
           hasNextPage={!!queue.nextPageToken}
@@ -528,7 +534,7 @@ const TicketKanbanView = ({
               onClick={() => onClick(ticket)}
             >
               <span>{ticket.ticketNumber}</span>
-              <span>{ticket.diagnosis}</span>
+              <span>{ticket.description || [ticket.component, ticket.diagnosis].filter(Boolean).join(": ")}</span>
               <span className="text-200 text-text-primary-70">
                 {[ticket.assigneeName ?? "Unassigned", ageText(ticket.createdAt)].filter(Boolean).join(", ")}
               </span>

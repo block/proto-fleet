@@ -3,6 +3,7 @@ package sqlstores_test
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -35,11 +36,11 @@ func TestSQLCurtailmentStore_ResponseProfileRevisionFencesExecution(t *testing.T
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 	ctx := t.Context()
-	profileID := seedResponseProfile(t, testContext.DatabaseService.DB, user.OrganizationID, "execution-revision-profile")
+	profileID := seedResponseProfile(t, testContext.DB, user.OrganizationID, "execution-revision-profile")
 
 	original, err := store.GetResponseProfile(ctx, user.OrganizationID, profileID)
 	require.NoError(t, err)
@@ -67,6 +68,7 @@ func TestSQLCurtailmentStore_ResponseProfileRevisionFencesExecution(t *testing.T
 	)
 	staleExecution.ResponseProfileID = profileID
 	staleExecution.ResponseProfileRevision = original.Revision
+	prepareAutomationExecutionFixture(t, &staleExecution)
 	_, err = store.InsertEventWithTargets(ctx, staleExecution, nil)
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
@@ -74,6 +76,7 @@ func TestSQLCurtailmentStore_ResponseProfileRevisionFencesExecution(t *testing.T
 	currentExecution := staleExecution
 	currentExecution.EventUUID = uuid.New()
 	currentExecution.ResponseProfileRevision = updated.Revision
+	prepareAutomationExecutionFixture(t, &currentExecution)
 	_, err = store.InsertEventWithTargets(ctx, currentExecution, nil)
 	require.NoError(t, err)
 }
@@ -83,9 +86,9 @@ func TestSQLCurtailmentStore_RecurtailRequiresMatchingEventProfileBinding(t *tes
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	database := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	database := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	ctx := t.Context()
 	profileID := seedResponseProfile(t, database, user.OrganizationID, "recurtail-binding-profile")
@@ -104,6 +107,7 @@ func TestSQLCurtailmentStore_RecurtailRequiresMatchingEventProfileBinding(t *tes
 	execution.ResponseProfileID = profile.ID
 	execution.ResponseProfileRevision = profile.Revision
 	execution.DecisionSnapshotJSON = []byte(`{}`)
+	prepareAutomationExecutionFixture(t, &execution)
 	inserted, err := store.InsertEventWithTargets(ctx, execution, nil)
 	require.NoError(t, err)
 	require.NotNil(t, inserted)
@@ -168,11 +172,11 @@ func TestSQLCurtailmentStore_ResponseProfileRevisionIgnoresMetadataOnlyUpdate(t 
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 	ctx := t.Context()
-	profileID := seedResponseProfile(t, testContext.DatabaseService.DB, user.OrganizationID, "metadata-revision-profile")
+	profileID := seedResponseProfile(t, testContext.DB, user.OrganizationID, "metadata-revision-profile")
 
 	original, err := store.GetResponseProfile(ctx, user.OrganizationID, profileID)
 	require.NoError(t, err)
@@ -197,9 +201,9 @@ func TestSQLCurtailmentStore_ResponseProfileRevisionTreatsNullAndZeroToleranceEq
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	database := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	database := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	ctx := t.Context()
 
@@ -254,11 +258,11 @@ func TestSQLCurtailmentStore_ResponseProfileRevisionRejectsStaleUpdate(t *testin
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 	ctx := t.Context()
-	profileID := seedResponseProfile(t, testContext.DatabaseService.DB, user.OrganizationID, "revisioned-profile")
+	profileID := seedResponseProfile(t, testContext.DB, user.OrganizationID, "revisioned-profile")
 
 	original, err := store.GetResponseProfile(ctx, user.OrganizationID, profileID)
 	require.NoError(t, err)
@@ -299,21 +303,21 @@ func TestSQLCurtailmentStore_ResponseProfileRevisionRejectsStaleUpdate(t *testin
 	assert.Equal(t, "first-revision-update", current.ProfileName)
 }
 
-func TestSQLCurtailmentStore_AutomationRuleRetainsAndRefreshesBoundProfileRevision(t *testing.T) {
+func TestSQLCurtailmentStore_DisabledAutomationRuleRetainsAndRefreshesBoundProfileRevision(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DB)
 	ctx := t.Context()
-	profileID := seedResponseProfile(t, testContext.DatabaseService.DB, user.OrganizationID, "automation-revision-profile")
+	profileID := seedResponseProfile(t, testContext.DB, user.OrganizationID, "automation-revision-profile")
 	profile, err := store.GetResponseProfile(ctx, user.OrganizationID, profileID)
 	require.NoError(t, err)
 	sourceID := seedMQTTSourceConfig(
 		t,
-		testContext.DatabaseService.DB,
+		testContext.DB,
 		user.OrganizationID,
 		user.DatabaseID,
 		"automation-revision-source",
@@ -321,13 +325,14 @@ func TestSQLCurtailmentStore_AutomationRuleRetainsAndRefreshesBoundProfileRevisi
 	)
 
 	rule, err := store.CreateAutomationRule(ctx, models.AutomationRule{
+		AdminControlsGranted:    true,
 		OrgID:                   user.OrganizationID,
 		RuleName:                "automation-revision-rule",
 		TriggerType:             models.AutomationTriggerTypeMQTT,
 		MQTTSourceID:            sourceID,
 		ResponseProfileID:       profileID,
 		ResponseProfileRevision: profile.Revision,
-		Enabled:                 true,
+		Enabled:                 false,
 	}, models.ResponseProfileFanSettings{})
 	require.NoError(t, err)
 	assert.Equal(t, profile.Revision, rule.ResponseProfileRevision)
@@ -358,6 +363,7 @@ func TestSQLCurtailmentStore_AutomationRuleRetainsAndRefreshesBoundProfileRevisi
 		false,
 		uuid.Nil,
 		models.ResponseProfileFanSettings{},
+		true,
 	)
 	require.NoError(t, err)
 	reboundRule, err := store.SetAutomationRuleEnabled(
@@ -367,6 +373,7 @@ func TestSQLCurtailmentStore_AutomationRuleRetainsAndRefreshesBoundProfileRevisi
 		true,
 		updated.Revision,
 		models.ResponseProfileFanSettings{},
+		true,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, updated.Revision, reboundRule.ResponseProfileRevision)
@@ -377,9 +384,9 @@ func TestSQLCurtailmentStore_StaleAutomationEnableCannotMixProfileBinding(t *tes
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	database := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	database := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	ctx := t.Context()
 	profileAID := seedResponseProfile(t, database, user.OrganizationID, "stale-enable-profile-a")
@@ -398,6 +405,7 @@ func TestSQLCurtailmentStore_StaleAutomationEnableCannotMixProfileBinding(t *tes
 	)
 
 	rule, err := store.CreateAutomationRule(ctx, models.AutomationRule{
+		AdminControlsGranted:    true,
 		OrgID:                   user.OrganizationID,
 		RuleName:                "stale-enable-rule",
 		TriggerType:             models.AutomationTriggerTypeMQTT,
@@ -436,9 +444,9 @@ func TestSQLCurtailmentStore_AutomationExecutionRejectsReboundRule(t *testing.T)
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	database := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	database := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	ctx := t.Context()
 	profileAID := seedResponseProfile(t, database, user.OrganizationID, "execution-fence-profile-a")
@@ -457,6 +465,7 @@ func TestSQLCurtailmentStore_AutomationExecutionRejectsReboundRule(t *testing.T)
 	)
 
 	rule, err := store.CreateAutomationRule(ctx, models.AutomationRule{
+		AdminControlsGranted:    true,
 		OrgID:                   user.OrganizationID,
 		RuleName:                "execution-fence-rule",
 		TriggerType:             models.AutomationTriggerTypeMQTT,
@@ -485,6 +494,7 @@ func TestSQLCurtailmentStore_AutomationExecutionRejectsReboundRule(t *testing.T)
 	staleExecution.ResponseProfileRevision = profileA.Revision
 	staleExecution.AutomationRuleID = rule.ID
 	staleExecution.AutomationMQTTSourceID = sourceID
+	prepareAutomationExecutionFixture(t, &staleExecution)
 	_, err = store.InsertEventWithTargets(ctx, staleExecution, nil)
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
@@ -493,11 +503,12 @@ func TestSQLCurtailmentStore_AutomationExecutionRejectsReboundRule(t *testing.T)
 	currentExecution.EventUUID = uuid.New()
 	currentExecution.ResponseProfileID = profileB.ID
 	currentExecution.ResponseProfileRevision = profileB.Revision
+	prepareAutomationExecutionFixture(t, &currentExecution)
 	_, err = store.InsertEventWithTargets(ctx, currentExecution, nil)
 	require.NoError(t, err)
 }
 
-func TestSQLCurtailmentStore_AutomationExecutionRevalidatesSourceUser(t *testing.T) {
+func TestSQLCurtailmentStore_AutomationExecutionUsesDurableGrant(t *testing.T) {
 	tests := []struct {
 		name               string
 		topologyScope      bool
@@ -512,36 +523,27 @@ func TestSQLCurtailmentStore_AutomationExecutionRevalidatesSourceUser(t *testing
 			topologyScope: true,
 		},
 		{
-			name:               "revoked scope permission",
-			topologyScope:      true,
-			demoteAssignments:  true,
-			wantForbidden:      true,
-			wantErrorSubstring: "no longer has permission",
+			name:              "revoked scope permission",
+			topologyScope:     true,
+			demoteAssignments: true,
 		},
 		{
-			name:               "demoted admin role",
-			topologyScope:      true,
-			requiresAdminRole:  true,
-			wantForbidden:      true,
-			wantErrorSubstring: "no longer has the admin role",
+			name:              "demoted admin role",
+			topologyScope:     true,
+			requiresAdminRole: true,
 		},
 		{
-			name:               "changed MQTT source principal",
-			topologyScope:      true,
-			useDifferentActor:  true,
-			wantErrorSubstring: "automation rule changed before execution",
+			name:              "changed MQTT source principal",
+			topologyScope:     true,
+			useDifferentActor: true,
 		},
 		{
-			name:               "revoked site scope permission",
-			demoteAssignments:  true,
-			wantForbidden:      true,
-			wantErrorSubstring: "no longer has permission",
+			name:              "revoked site scope permission",
+			demoteAssignments: true,
 		},
 		{
-			name:               "demoted admin role for site scope",
-			requiresAdminRole:  true,
-			wantForbidden:      true,
-			wantErrorSubstring: "no longer has the admin role",
+			name:              "demoted admin role for site scope",
+			requiresAdminRole: true,
 		},
 	}
 
@@ -551,9 +553,9 @@ func TestSQLCurtailmentStore_AutomationExecutionRevalidatesSourceUser(t *testing
 				t.Skip("skipping database integration test in short mode")
 			}
 
-			testContext := testutil.InitializeDBServiceInfrastructure(t)
-			user := testContext.DatabaseService.CreateSuperAdminUser()
-			database := testContext.DatabaseService.DB
+			testContext := testutil.NewDatabaseService(t, nil)
+			user := testContext.CreateSuperAdminUser()
+			database := testContext.DB
 			store := sqlstores.NewSQLCurtailmentStore(database)
 			ctx := t.Context()
 			site, err := sqlstores.NewSQLSiteStore(database).CreateSite(ctx, sitesmodels.CreateSiteParams{
@@ -598,6 +600,7 @@ func TestSQLCurtailmentStore_AutomationExecutionRevalidatesSourceUser(t *testing
 				true,
 			)
 			rule, err := store.CreateAutomationRule(ctx, models.AutomationRule{
+				AdminControlsGranted:    true,
 				OrgID:                   user.OrganizationID,
 				RuleName:                "automation-authorization-rule",
 				TriggerType:             models.AutomationTriggerTypeMQTT,
@@ -616,7 +619,7 @@ func TestSQLCurtailmentStore_AutomationExecutionRevalidatesSourceUser(t *testing
 				})
 				require.NoError(t, roleErr)
 				require.NoError(t, queries.UpdateUserRole(ctx, sqlc.UpdateUserRoleParams{
-					RoleID:         fieldTech.ID,
+					RoleID:         sql.NullInt64{Int64: fieldTech.ID, Valid: true},
 					UserID:         user.DatabaseID,
 					OrganizationID: user.OrganizationID,
 				}))
@@ -639,7 +642,7 @@ func TestSQLCurtailmentStore_AutomationExecutionRevalidatesSourceUser(t *testing
 			}
 			createdByUserID := user.DatabaseID
 			if tt.useDifferentActor {
-				createdByUserID = testContext.DatabaseService.CreateSuperAdminUser2().DatabaseID
+				createdByUserID = testContext.CreateSuperAdminUser2().DatabaseID
 			}
 
 			scopeType := models.ScopeTypeSite
@@ -668,13 +671,23 @@ func TestSQLCurtailmentStore_AutomationExecutionRevalidatesSourceUser(t *testing
 				tt.requiresAdminRole,
 			))
 
+			prepareAutomationExecutionFixture(t, &execution)
+
 			inserted, err := store.InsertEventWithTargets(ctx, execution, nil)
 			if tt.wantErrorSubstring == "" {
 				require.NoError(t, err)
 				require.NotNil(t, inserted)
 				stored, getErr := store.GetEventByUUID(ctx, user.OrganizationID, execution.EventUUID)
 				require.NoError(t, getErr)
-				assert.JSONEq(t, string(profile.ScopeJSON), string(stored.ScopeJSON))
+				profileScope, scopeErr := domainCurtailment.ResponseProfileScope(*profile)
+				require.NoError(t, scopeErr)
+				storedScope, _, scopeErr := domainCurtailment.ScopeFromJSON(stored.ScopeJSON)
+				require.NoError(t, scopeErr)
+				expectedFilter, scopeErr := domainCurtailment.ListCandidatesParamsForScope(profileScope)
+				require.NoError(t, scopeErr)
+				actualFilter, scopeErr := domainCurtailment.ListCandidatesParamsForScope(storedScope)
+				require.NoError(t, scopeErr)
+				assert.Equal(t, expectedFilter, actualFilter)
 				envelope, parseErr := domainCurtailment.AuthorizationEnvelopeFromJSON(stored.AuthorizationEnvelopeJSON)
 				require.NoError(t, parseErr)
 				assert.Equal(t, []int64{site.ID}, envelope.SelectedResourceSiteIDs)
@@ -706,21 +719,19 @@ func TestSQLCurtailmentStore_AutomationRecurtailRevalidatesExecutionFence(t *tes
 			mutation: "none",
 		},
 		{
-			name:               "revoked scope permission",
+			name:               "revoked human scope permission leaves grant active",
 			mutation:           "permissions",
-			wantForbidden:      true,
-			wantErrorSubstring: "no longer has permission",
+			wantErrorSubstring: "",
 		},
 		{
-			name:               "demoted admin role",
+			name:               "demoted human admin leaves grant active",
 			mutation:           "role",
-			wantForbidden:      true,
-			wantErrorSubstring: "no longer has the admin role",
+			wantErrorSubstring: "",
 		},
 		{
 			name:               "changed MQTT source principal",
 			mutation:           "source",
-			wantErrorSubstring: "source principal changed since event creation",
+			wantErrorSubstring: "",
 		},
 		{
 			name:               "changed ownership marker",
@@ -731,7 +742,7 @@ func TestSQLCurtailmentStore_AutomationRecurtailRevalidatesExecutionFence(t *tes
 			name:               "topology coverage moved outside permissions",
 			mutation:           "topology",
 			wantForbidden:      true,
-			wantErrorSubstring: "no longer has permission",
+			wantErrorSubstring: "scope exceeds its organization execution grant",
 		},
 	}
 
@@ -741,9 +752,9 @@ func TestSQLCurtailmentStore_AutomationRecurtailRevalidatesExecutionFence(t *tes
 				t.Skip("skipping database integration test in short mode")
 			}
 
-			testContext := testutil.InitializeDBServiceInfrastructure(t)
-			user := testContext.DatabaseService.CreateSuperAdminUser()
-			database := testContext.DatabaseService.DB
+			testContext := testutil.NewDatabaseService(t, nil)
+			user := testContext.CreateSuperAdminUser()
+			database := testContext.DB
 			store := sqlstores.NewSQLCurtailmentStore(database)
 			ctx := t.Context()
 			queries := sqlc.New(database)
@@ -814,6 +825,7 @@ func TestSQLCurtailmentStore_AutomationRecurtailRevalidatesExecutionFence(t *tes
 				true,
 			)
 			rule, err := store.CreateAutomationRule(ctx, models.AutomationRule{
+				AdminControlsGranted:    true,
 				OrgID:                   user.OrganizationID,
 				RuleName:                "automation-recurtail-rule",
 				TriggerType:             models.AutomationTriggerTypeMQTT,
@@ -850,16 +862,13 @@ func TestSQLCurtailmentStore_AutomationRecurtailRevalidatesExecutionFence(t *tes
 			execution.ResponseProfileRevision = profile.Revision
 			execution.AutomationRuleID = rule.ID
 			execution.AutomationMQTTSourceID = sourceID
-			if tt.mutation == "ownership" {
-				differentRule := "different-rule"
-				execution.SourceActorID = &differentRule
-			}
 			execution.DecisionSnapshotJSON = []byte(fmt.Sprintf(
 				`{"response_profile_id":%d,"response_profile_revision":%q,"requires_admin_controls":%t}`,
 				profile.ID,
 				profile.Revision.String(),
 				tt.mutation != "topology",
 			))
+			prepareAutomationExecutionFixture(t, &execution)
 			inserted, err := store.InsertEventWithTargets(ctx, execution, nil)
 			require.NoError(t, err)
 			updatedRows, err := queries.UpdateCurtailmentEventState(ctx, sqlc.UpdateCurtailmentEventStateParams{
@@ -877,7 +886,10 @@ func TestSQLCurtailmentStore_AutomationRecurtailRevalidatesExecutionFence(t *tes
 			require.NoError(t, err)
 			automationServiceUserID := user.DatabaseID
 			switch tt.mutation {
-			case "none", "ownership":
+			case "none":
+			case "ownership":
+				_, err = database.ExecContext(ctx, "UPDATE curtailment_event SET source_actor_id='different-rule' WHERE event_uuid=$1", eventUUID)
+				require.NoError(t, err)
 			case "permissions":
 				assignment, assignmentErr := queries.GetOrgScopeAssignmentForUser(ctx, sqlc.GetOrgScopeAssignmentForUserParams{
 					UserID:         user.DatabaseID,
@@ -895,12 +907,12 @@ func TestSQLCurtailmentStore_AutomationRecurtailRevalidatesExecutionFence(t *tes
 				require.NoError(t, assignmentErr)
 			case "role":
 				require.NoError(t, queries.UpdateUserRole(ctx, sqlc.UpdateUserRoleParams{
-					RoleID:         fieldTech.ID,
+					RoleID:         sql.NullInt64{Int64: fieldTech.ID, Valid: true},
 					UserID:         user.DatabaseID,
 					OrganizationID: user.OrganizationID,
 				}))
 			case "source":
-				replacement := testContext.DatabaseService.CreateSuperAdminUser2()
+				replacement := testContext.CreateSuperAdminUser2()
 				source, sourceErr := queries.GetMQTTSourceConfigByOrg(ctx, sqlc.GetMQTTSourceConfigByOrgParams{
 					ID:             sourceID,
 					OrganizationID: user.OrganizationID,
@@ -975,9 +987,9 @@ func TestSQLCurtailmentStore_AutomationExecutionSerializesConcurrentRebind(t *te
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	database := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	database := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
@@ -996,6 +1008,7 @@ func TestSQLCurtailmentStore_AutomationExecutionSerializesConcurrentRebind(t *te
 		true,
 	)
 	rule, err := store.CreateAutomationRule(ctx, models.AutomationRule{
+		AdminControlsGranted:    true,
 		OrgID:                   user.OrganizationID,
 		RuleName:                "concurrent-execution-rule",
 		TriggerType:             models.AutomationTriggerTypeMQTT,
@@ -1062,6 +1075,7 @@ func TestSQLCurtailmentStore_AutomationExecutionSerializesConcurrentRebind(t *te
 	execution.IdempotencyKey = &idempotencyKey
 	executionResult := make(chan error, 1)
 	go func() {
+		prepareAutomationExecutionFixture(t, &execution)
 		_, executionErr := store.InsertEventWithTargets(ctx, execution, nil)
 		executionResult <- executionErr
 	}()
@@ -1101,13 +1115,14 @@ func TestSQLCurtailmentStore_AutomationExecutionSerializesConcurrentRebind(t *te
 		true,
 		profileA.Revision,
 		models.ResponseProfileFanSettings{},
+		true,
 	)
 	require.NoError(t, err)
 
 	updatedProfile := *profileA
 	updatedProfile.ProfileName = "concurrent-execution-profile-a-updated"
 	updatedProfile.RestoreBatchSize++
-	updatedProfileResult, err := store.UpdateResponseProfile(
+	_, err = store.UpdateResponseProfile(
 		ctx,
 		updatedProfile,
 		nil,
@@ -1116,17 +1131,9 @@ func TestSQLCurtailmentStore_AutomationExecutionSerializesConcurrentRebind(t *te
 		profileA.ScopeJSON,
 		models.ResponseProfileFanSettings{},
 	)
-	require.NoError(t, err)
-	_, err = store.SetAutomationRuleEnabled(
-		ctx,
-		user.OrganizationID,
-		rule.ID,
-		true,
-		updatedProfileResult.Revision,
-		models.ResponseProfileFanSettings{},
-	)
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "enabled automation rules")
 
 	current, err = store.GetAutomationRule(ctx, user.OrganizationID, rule.ID)
 	require.NoError(t, err)
@@ -1138,9 +1145,9 @@ func TestSQLCurtailmentStore_ProfileUpdateAndFanExecutionUseConsistentLockOrder(
 		t.Skip("skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	database := testContext.DatabaseService.DB
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
+	database := testContext.DB
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
@@ -1222,6 +1229,7 @@ func TestSQLCurtailmentStore_ProfileUpdateAndFanExecutionUseConsistentLockOrder(
 	execution.ExpectedFacilityFanSites = map[int64]int64{fanID: fanSiteID}
 	executionResult := make(chan error, 1)
 	go func() {
+		prepareAutomationExecutionFixture(t, &execution)
 		_, executionErr := store.InsertEventWithTargets(ctx, execution, nil)
 		executionResult <- executionErr
 	}()
@@ -1258,4 +1266,30 @@ func TestSQLCurtailmentStore_ProfileUpdateAndFanExecutionUseConsistentLockOrder(
 	executionErr := <-executionResult
 	require.Error(t, executionErr)
 	assert.True(t, fleeterror.IsFailedPreconditionError(executionErr), "expected stale revision, got %v", executionErr)
+}
+
+func prepareAutomationExecutionFixture(t *testing.T, event *models.InsertEventParams) {
+	t.Helper()
+	if event.SourceActorType != models.SourceActorAutomation || event.AutomationRuleID <= 0 {
+		return
+	}
+	reference := fmt.Sprint(event.AutomationRuleID)
+	source := "curtailment_automation"
+	key := "curtailment_automation_rule:" + reference
+	event.SourceActorID = &reference
+	event.ExternalSource = &source
+	event.ExternalReference = &reference
+	event.IdempotencyKey = &key
+	var snapshot map[string]any
+	if len(event.DecisionSnapshotJSON) > 0 {
+		require.NoError(t, json.Unmarshal(event.DecisionSnapshotJSON, &snapshot))
+	}
+	if snapshot == nil {
+		snapshot = map[string]any{}
+	}
+	snapshot["response_profile_id"] = event.ResponseProfileID
+	snapshot["response_profile_revision"] = event.ResponseProfileRevision.String()
+	raw, err := json.Marshal(snapshot)
+	require.NoError(t, err)
+	event.DecisionSnapshotJSON = raw
 }
