@@ -33,13 +33,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/runtimepolicy"
 )
 
-const (
-	// ambiguousASICType is skipped when returning available miner types.
-	// Devices with type="asic" are resolved to specific types (proto/antminer)
-	// via the model field elsewhere.
-	ambiguousASICType = "asic"
-)
-
 var _ stores.DeviceStore = &SQLDeviceStore{}
 
 // handleQueryError wraps database query errors with appropriate FleetError types.
@@ -81,40 +74,6 @@ func (s *SQLDeviceStore) WithStatusFreshnessThreshold(threshold time.Duration) *
 
 func (s *SQLDeviceStore) getQueries(ctx context.Context) sqlc.Querier {
 	return s.GetQueries(ctx)
-}
-
-type deviceQueryCursor struct {
-	ID       int64
-	DeviceID int64
-}
-
-// encodeCursor encodes a Cursor struct to a base64 string
-func (s *SQLDeviceStore) encodeCursor(c *deviceQueryCursor) string {
-	if c == nil {
-		return ""
-	}
-	raw := fmt.Sprintf("%d:%d", c.ID, c.DeviceID)
-	return base64.StdEncoding.EncodeToString([]byte(raw))
-}
-
-// decodeCursor decodes a base64 string to a Cursor struct
-func (s *SQLDeviceStore) decodeCursor(encoded string) (deviceQueryCursor, error) {
-	if encoded == "" {
-		return deviceQueryCursor{}, nil
-	}
-
-	b, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return deviceQueryCursor{}, fleeterror.NewInvalidArgumentErrorf("invalid cursor encoding: %v", err)
-	}
-
-	var cursor deviceQueryCursor
-	_, err = fmt.Sscanf(string(b), "%d:%d", &cursor.ID, &cursor.DeviceID)
-	if err != nil {
-		return deviceQueryCursor{}, fleeterror.NewInvalidArgumentErrorf("invalid cursor values: %v", err)
-	}
-
-	return cursor, nil
 }
 
 func (s *SQLDeviceStore) GetDeviceByDeviceIdentifier(ctx context.Context, identifier string, orgID int64) (*pb.Device, error) {

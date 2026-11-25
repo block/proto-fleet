@@ -103,19 +103,9 @@ const (
 	defaultHeartbeatInterval     = 30 * time.Second
 	defaultStatusPollingInterval = 10 * time.Second
 
-	// Channel buffer sizes - prevent blocking on temporary consumer delays while limiting memory.
-
-	// streamResponseChannelBuffer: gRPC streaming responses to clients.
-	// Allows clients to lag briefly (network hiccups) without blocking the sender goroutine.
-	streamResponseChannelBuffer = 100
-
-	// statusUpdateChannelBuffer: miner state count updates for streaming.
-	// Provides buffer for consumer processing delays at the configured update interval.
-	statusUpdateChannelBuffer = 100
-
 	// resultsChannelBuffer: status results from workers before batch DB writes.
-	// Larger than others because all workers (ConcurrencyLimit) write here concurrently,
-	// requiring headroom to avoid blocking workers while statusWriterRoutine flushes to DB.
+	// All workers (ConcurrencyLimit) write here concurrently, so it needs headroom
+	// to avoid blocking workers while statusWriterRoutine flushes to DB.
 	resultsChannelBuffer = 5000
 
 	// Batch limits

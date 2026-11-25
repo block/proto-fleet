@@ -97,9 +97,9 @@ func (s *SQLMaintenanceStore) ResolveMinerContext(ctx context.Context, orgID int
 		SiteName:        row.SiteName,
 		BuildingID:      nullInt64ToPtr(row.BuildingID),
 		BuildingName:    row.BuildingName,
-		Zone:            stringPtr(row.Zone),
+		Zone:            nullStringToPtr(row.Zone),
 		RackID:          nullInt64ToPtr(row.RackID),
-		RackLabel:       stringPtr(row.RackLabel),
+		RackLabel:       nullStringToPtr(row.RackLabel),
 		GroupLabel:      nonEmptyStringPtr(row.GroupLabel),
 	}, nil
 }
@@ -189,7 +189,7 @@ func (s *SQLMaintenanceStore) ListTicketAssetOptions(ctx context.Context, p mode
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.GetQueries(ctx).ListRepairTicketAssetOptions(ctx, sqlc.ListRepairTicketAssetOptionsParams{HostAuthority: json.RawMessage("[]"), OrgID: p.OrgID, SiteIds: maintenanceNilIfEmpty(p.SiteIDs), IncludeUnassigned: p.IncludeUnassigned, ExcludedSiteIds: maintenanceNilIfEmpty(p.ExcludedSiteIDs), Kind: sql.NullInt16{Int16: int16(p.Kind), Valid: p.Kind != models.TicketCategoryUnspecified}, Search: p.Search, CursorKind: int16(cursor.Kind), CursorID: cursor.ID, ResultLimit: size + 1})
+	rows, err := s.GetQueries(ctx).ListRepairTicketAssetOptions(ctx, sqlc.ListRepairTicketAssetOptionsParams{HostAuthority: json.RawMessage("[]"), OrgID: p.OrgID, SiteIds: nilIfEmpty(p.SiteIDs), IncludeUnassigned: p.IncludeUnassigned, ExcludedSiteIds: nilIfEmpty(p.ExcludedSiteIDs), Kind: sql.NullInt16{Int16: int16(p.Kind), Valid: p.Kind != models.TicketCategoryUnspecified}, Search: p.Search, CursorKind: int16(cursor.Kind), CursorID: cursor.ID, ResultLimit: size + 1})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("list physical ticket assets: %w", err)
 	}

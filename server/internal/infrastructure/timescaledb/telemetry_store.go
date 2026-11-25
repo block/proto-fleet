@@ -19,12 +19,6 @@ import (
 )
 
 const (
-	// Temperature thresholds for status counts (in Celsius)
-	// Cold: temp < 0, Ok: 0 <= temp < 70, Hot: 70 <= temp < 90, Critical: temp >= 90
-	tempThresholdCold     = 0.0  // Below this = Cold
-	tempThresholdHot      = 70.0 // Below this = Ok, at or above = Hot
-	tempThresholdCritical = 90.0 // At or above = Critical
-
 	// Data source selection thresholds
 	// Queries <= 1 day use raw data for highest resolution
 	rawDataMaxDuration = 24 * time.Hour
@@ -205,8 +199,8 @@ type statusData struct {
 }
 
 // toStatusCounts converts temperature histogram data to status counts.
-// Maps histogram buckets to status categories using the same thresholds as
-// tempThresholdCold=0, tempThresholdHot=70, tempThresholdCritical=90:
+// Maps histogram buckets to status categories. The thresholds must match the
+// temp_*_count filters in server/sqlc/queries/fleet_metric_rollups.sql:
 //   - Cold: temp < 0 → tempBelow0 bucket
 //   - Ok: 0 <= temp < 70 → buckets 0-10 through 60-70
 //   - Hot: 70 <= temp < 90 → buckets 70-80 and 80-90

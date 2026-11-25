@@ -316,7 +316,7 @@ rollup AS (
         SUM(p.sum_temp)::float8 AS sum_temp,
         SUM(p.temp_points)::bigint AS temp_points,
         COUNT(*) FILTER (WHERE p.temp_points > 0)::bigint AS temp_device_count,
-        -- Thresholds must match tempThresholdCold/Hot/Critical in telemetry_store.go.
+        -- Thresholds must match toStatusCounts in telemetry_store.go.
         COUNT(*) FILTER (WHERE p.latest_temp < 0)::int AS temp_cold_count,
         COUNT(*) FILTER (WHERE p.latest_temp >= 0 AND p.latest_temp < 70)::int AS temp_ok_count,
         COUNT(*) FILTER (WHERE p.latest_temp >= 70 AND p.latest_temp < 90)::int AS temp_hot_count,

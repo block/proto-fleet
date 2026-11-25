@@ -334,16 +334,6 @@ func safeInt32ToComponentType(val int32) models.ComponentType {
 	return models.ComponentType(uint(val))
 }
 
-// nullStringToPtr converts a sql.NullString to a *string pointer.
-// Returns nil if the NullString is not valid, otherwise returns a pointer to the string value.
-// This helper consolidates the repeated pattern of converting database nullable strings to Go pointers.
-func nullStringToPtr(ns sql.NullString) *string {
-	if !ns.Valid {
-		return nil
-	}
-	return &ns.String
-}
-
 // ============================================================================
 // Query Methods
 // ============================================================================
@@ -690,15 +680,6 @@ func normalizeLimit(pageSize int) int32 {
 		return int32(models.MaxPageSize)
 	}
 	return int32(pageSize) // #nosec G115 -- Validated within bounds (1-1000)
-}
-
-// stringsToNullStrings converts a string slice to sql.NullString slice.
-func stringsToNullStrings(strs []string) []sql.NullString {
-	result := make([]sql.NullString, len(strs))
-	for i, s := range strs {
-		result[i] = sql.NullString{String: s, Valid: true}
-	}
-	return result
 }
 
 // severitiesToInt32s converts Severity slice to int32 slice.

@@ -83,6 +83,33 @@ func nullInt64ToPtr(n sql.NullInt64) *int64 {
 	return &v
 }
 
+// nullStringToPtr returns a pointer to the underlying string when Valid,
+// otherwise nil.
+func nullStringToPtr(ns sql.NullString) *string {
+	if !ns.Valid {
+		return nil
+	}
+	return &ns.String
+}
+
+// nullTimeToPtr returns a pointer to the underlying time when Valid,
+// otherwise nil.
+func nullTimeToPtr(nt sql.NullTime) *time.Time {
+	if !nt.Valid {
+		return nil
+	}
+	return &nt.Time
+}
+
+// nilIfEmpty returns nil for empty or nil slices so that pq.Array
+// produces a SQL NULL (matches everything) rather than '{}' (matches nothing).
+func nilIfEmpty[T any](values []T) []T {
+	if len(values) == 0 {
+		return nil
+	}
+	return values
+}
+
 // ptrToNullInt32 returns a NullInt32 that's Valid when v is non-nil.
 func ptrToNullInt32(v *int32) sql.NullInt32 {
 	if v == nil {

@@ -42,7 +42,7 @@ func (s *SQLApiKeyStore) CreateApiKey(ctx context.Context, key *interfaces.ApiKe
 		SubjectKind:    string(key.SubjectKind),
 		OrganizationID: key.OrganizationID,
 		CreatedAt:      key.CreatedAt,
-		ExpiresAt:      timePtrToNullTime(key.ExpiresAt),
+		ExpiresAt:      ptrToNullTime(key.ExpiresAt),
 	})
 }
 
@@ -58,7 +58,7 @@ func (s *SQLApiKeyStore) CreateFleetNodeApiKey(ctx context.Context, key *interfa
 		FleetNodeID:    sql.NullInt64{Int64: *key.FleetNodeID, Valid: true},
 		OrganizationID: key.OrganizationID,
 		CreatedAt:      key.CreatedAt,
-		ExpiresAt:      timePtrToNullTime(key.ExpiresAt),
+		ExpiresAt:      ptrToNullTime(key.ExpiresAt),
 	})
 }
 
@@ -139,11 +139,4 @@ func (s *SQLApiKeyStore) UpdateApiKeyLastUsed(ctx context.Context, id int64, las
 		LastUsedAt: sql.NullTime{Time: lastUsedAt, Valid: true},
 		ID:         id,
 	})
-}
-
-func timePtrToNullTime(t *time.Time) sql.NullTime {
-	if t == nil {
-		return sql.NullTime{}
-	}
-	return sql.NullTime{Time: *t, Valid: true}
 }

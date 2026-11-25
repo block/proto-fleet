@@ -16,8 +16,6 @@ import (
 
 	apikeyv1 "github.com/block/proto-fleet/server/generated/grpc/apikey/v1"
 	authv1 "github.com/block/proto-fleet/server/generated/grpc/auth/v1"
-	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
-	fleetperformancev1 "github.com/block/proto-fleet/server/generated/grpc/fleetperformance/v1"
 	telemetryv1 "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/block/proto-fleet/server/internal/transportguard"
 	"golang.org/x/term"
@@ -153,26 +151,6 @@ func (c *Client) RevokeAPIKey(ctx context.Context, keyID string) (*apikeyv1.Revo
 	resp := &apikeyv1.RevokeApiKeyResponse{}
 	req := &apikeyv1.RevokeApiKeyRequest{KeyId: keyID}
 	if err := c.invoke(ctx, "/apikey.v1.ApiKeyService/RevokeApiKey", req, resp, authSessionOnly); err != nil {
-		return nil, err
-	}
-	return resp, nil
-}
-
-func (c *Client) ListMiners(ctx context.Context, pageSize int32, cursor string) (*fleetmanagementv1.ListMinerStateSnapshotsResponse, error) {
-	req := &fleetmanagementv1.ListMinerStateSnapshotsRequest{
-		PageSize: pageSize,
-		Cursor:   cursor,
-	}
-	resp := &fleetmanagementv1.ListMinerStateSnapshotsResponse{}
-	if err := c.invoke(ctx, "/fleetmanagement.v1.FleetManagementService/ListMinerStateSnapshots", req, resp, authAuthenticated); err != nil {
-		return nil, err
-	}
-	return resp, nil
-}
-
-func (c *Client) GetFleetPerformance(ctx context.Context) (*fleetperformancev1.GetFleetPerformanceResponse, error) {
-	resp := &fleetperformancev1.GetFleetPerformanceResponse{}
-	if err := c.invoke(ctx, "/fleetperformance.v1.FleetPerformanceService/GetFleetPerformance", &fleetperformancev1.GetFleetPerformanceRequest{}, resp, authAuthenticated); err != nil {
 		return nil, err
 	}
 	return resp, nil

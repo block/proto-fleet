@@ -140,8 +140,6 @@ func (s *Service) SetDeviceIdentifierResolver(r DeviceIdentifierResolver) {
 	s.capabilityChecker.SetDeviceIdentifierResolver(r)
 }
 
-const defaultPoolPriority uint32 = 0
-
 // maxCallbackRetries bounds callback attempts before marking FINISHED.
 // The callback gets up to maxCallbackRetries more post-finish attempts
 // to prevent permanent audit gaps from transient DB failures.

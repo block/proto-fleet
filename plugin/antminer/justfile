@@ -8,13 +8,5 @@ default:
 test:
   go test --count=1 ./...
 
-# run unit tests only
-test-unit:
-  go test ./tests/unit/...
-
-# run integration tests only
-test-integration:
-  go test ./tests/...
-
 # run linting and tests together
 check: lint test

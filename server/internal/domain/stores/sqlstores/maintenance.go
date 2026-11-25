@@ -141,10 +141,10 @@ func (s *SQLMaintenanceStore) ListRepairTickets(ctx context.Context, filter mode
 	rows, err := s.GetQueries(ctx).ListRepairTickets(ctx, sqlc.ListRepairTicketsParams{
 		CursorValue: cursorValue(cursor), CursorID: cursorID(cursor), SortField: int16(sortField),
 		SortDirection: int16(direction), LimitN: maintenanceLimit(filter.Limit), OrgID: filter.OrgID,
-		FilterStatuses: maintenanceNilIfEmpty(filter.Statuses), FilterCategories: maintenanceNilIfEmpty(filter.Categories),
-		FilterSiteIds: maintenanceNilIfEmpty(filter.SiteIDs), ExcludedSiteIds: maintenanceNilIfEmpty(filter.ExcludedSiteIDs),
-		FilterBuildingIds: maintenanceNilIfEmpty(filter.BuildingIDs),
-		FilterRackIds:     maintenanceNilIfEmpty(filter.RackIDs), FilterGroupLabels: maintenanceNilIfEmpty(filter.GroupLabels),
+		FilterStatuses: nilIfEmpty(filter.Statuses), FilterCategories: nilIfEmpty(filter.Categories),
+		FilterSiteIds: nilIfEmpty(filter.SiteIDs), ExcludedSiteIds: nilIfEmpty(filter.ExcludedSiteIDs),
+		FilterBuildingIds: nilIfEmpty(filter.BuildingIDs),
+		FilterRackIds:     nilIfEmpty(filter.RackIDs), FilterGroupLabels: nilIfEmpty(filter.GroupLabels),
 		FilterAssigneeUserID: ptrToNullInt64(filter.AssigneeUserID), FilterUrgentOnly: filter.UrgentOnly,
 		FilterExcludeCompleted: filter.ExcludeCompleted, FilterOverdueOnly: filter.OverdueOnly,
 		SearchPattern: likeSearchPattern(filter.SearchQuery),
@@ -248,8 +248,8 @@ func (s *SQLMaintenanceStore) GetTicketStats(ctx context.Context, filter models.
 
 func (s *SQLMaintenanceStore) ListCompletedTicketAssignees(ctx context.Context, filter models.CompletedFilter) ([]models.Assignee, error) {
 	rows, err := s.GetQueries(ctx).ListCompletedTicketAssignees(ctx, sqlc.ListCompletedTicketAssigneesParams{
-		OrgID: filter.OrgID, FilterSiteIds: maintenanceNilIfEmpty(filter.SiteIDs),
-		ExcludedSiteIds: maintenanceNilIfEmpty(filter.ExcludedSiteIDs),
+		OrgID: filter.OrgID, FilterSiteIds: nilIfEmpty(filter.SiteIDs),
+		ExcludedSiteIds: nilIfEmpty(filter.ExcludedSiteIDs),
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to list completed ticket assignees: %w", err)
@@ -270,7 +270,7 @@ func (s *SQLMaintenanceStore) ListCompletedTickets(ctx context.Context, filter m
 		CursorValue: cursorValue(cursor), CursorID: cursorID(cursor), SortDirection: int16(direction),
 		LimitN: maintenanceLimit(filter.Limit), SortField: int16(sortField), OrgID: filter.OrgID,
 		ComponentFilter: ptrToNullString(filter.Component), AssigneeFilter: ptrToNullInt64(filter.AssigneeUserID),
-		FilterSiteIds: maintenanceNilIfEmpty(filter.SiteIDs), ExcludedSiteIds: maintenanceNilIfEmpty(filter.ExcludedSiteIDs),
+		FilterSiteIds: nilIfEmpty(filter.SiteIDs), ExcludedSiteIds: nilIfEmpty(filter.ExcludedSiteIDs),
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to list completed tickets: %w", err)
@@ -294,8 +294,8 @@ func (s *SQLMaintenanceStore) ListCompletedTickets(ctx context.Context, filter m
 func (s *SQLMaintenanceStore) CountCompletedTickets(ctx context.Context, filter models.CompletedFilter) (int32, error) {
 	count, err := s.GetQueries(ctx).CountCompletedTickets(ctx, sqlc.CountCompletedTicketsParams{
 		OrgID: filter.OrgID, ComponentFilter: ptrToNullString(filter.Component),
-		AssigneeFilter: ptrToNullInt64(filter.AssigneeUserID), FilterSiteIds: maintenanceNilIfEmpty(filter.SiteIDs),
-		ExcludedSiteIds: maintenanceNilIfEmpty(filter.ExcludedSiteIDs),
+		AssigneeFilter: ptrToNullInt64(filter.AssigneeUserID), FilterSiteIds: nilIfEmpty(filter.SiteIDs),
+		ExcludedSiteIds: nilIfEmpty(filter.ExcludedSiteIDs),
 	})
 	if err != nil {
 		return 0, fleeterror.NewInternalErrorf("failed to count completed tickets: %w", err)
@@ -322,7 +322,7 @@ func (s *SQLMaintenanceStore) GetTicketCommentByIdempotencyKey(ctx context.Conte
 		}
 		return nil, "", fleeterror.NewInternalErrorf("failed to get repair ticket comment by idempotency key: %w", err)
 	}
-	comment := models.TicketComment{Internal: row.Internal, AccountID: row.AccountUuid, AccountName: row.AccountName, ID: row.ID, OrgID: row.OrgID, TicketID: row.TicketID, UserID: row.UserID, UserName: row.UserName, Text: row.Text, CreatedAt: row.CreatedAt, DeletedAt: timePtr(row.DeletedAt)}
+	comment := models.TicketComment{Internal: row.Internal, AccountID: row.AccountUuid, AccountName: row.AccountName, ID: row.ID, OrgID: row.OrgID, TicketID: row.TicketID, UserID: row.UserID, UserName: row.UserName, Text: row.Text, CreatedAt: row.CreatedAt, DeletedAt: nullTimeToPtr(row.DeletedAt)}
 	return &comment, row.CreateRequestHash.String, nil
 }
 
@@ -339,7 +339,7 @@ func (s *SQLMaintenanceStore) CreateTicketComment(ctx context.Context, orgID, ti
 	if err != nil {
 		return nil, maintenanceWriteError("create repair ticket comment", err)
 	}
-	comment := models.TicketComment{Internal: row.Internal, AccountID: row.AccountUuid, AccountName: row.AccountName, ID: row.ID, OrgID: row.OrgID, TicketID: row.TicketID, UserID: row.UserID, UserName: row.UserName, Text: row.Text, CreatedAt: row.CreatedAt, DeletedAt: timePtr(row.DeletedAt)}
+	comment := models.TicketComment{Internal: row.Internal, AccountID: row.AccountUuid, AccountName: row.AccountName, ID: row.ID, OrgID: row.OrgID, TicketID: row.TicketID, UserID: row.UserID, UserName: row.UserName, Text: row.Text, CreatedAt: row.CreatedAt, DeletedAt: nullTimeToPtr(row.DeletedAt)}
 	return &comment, nil
 }
 func (s *SQLMaintenanceStore) ListTicketComments(ctx context.Context, orgID, ticketID int64) ([]models.TicketComment, error) {
@@ -349,7 +349,7 @@ func (s *SQLMaintenanceStore) ListTicketComments(ctx context.Context, orgID, tic
 	}
 	out := make([]models.TicketComment, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, models.TicketComment{Internal: row.Internal, AccountID: row.AccountUuid, AccountName: row.AccountName, ID: row.ID, OrgID: row.OrgID, TicketID: row.TicketID, UserID: row.UserID, UserName: row.UserName, Text: row.Text, CreatedAt: row.CreatedAt, DeletedAt: timePtr(row.DeletedAt)})
+		out = append(out, models.TicketComment{Internal: row.Internal, AccountID: row.AccountUuid, AccountName: row.AccountName, ID: row.ID, OrgID: row.OrgID, TicketID: row.TicketID, UserID: row.UserID, UserName: row.UserName, Text: row.Text, CreatedAt: row.CreatedAt, DeletedAt: nullTimeToPtr(row.DeletedAt)})
 	}
 	return out, nil
 }
@@ -400,7 +400,7 @@ func (s *SQLMaintenanceStore) ListTicketParts(ctx context.Context, orgID, ticket
 	}
 	out := make([]models.PartUsage, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, models.PartUsage{InventoryPartID: row.InventoryPartID, PartName: row.PartName, Quantity: row.Quantity, ConsumedAt: timePtr(row.ConsumedAt)})
+		out = append(out, models.PartUsage{InventoryPartID: row.InventoryPartID, PartName: row.PartName, Quantity: row.Quantity, ConsumedAt: nullTimeToPtr(row.ConsumedAt)})
 	}
 	return out, nil
 }
@@ -419,7 +419,7 @@ func ticketFromCompletedRow(row sqlc.ListCompletedTicketsRow) models.RepairTicke
 }
 
 func ticket(id, orgID int64, number string, category, status int16, urgent bool, component string, diagnosis, miner, alert sql.NullString, assignee sql.NullInt64, assigneeName string, warranty, resolution, location int16, notes sql.NullString, resolutionNote string, impact, vendor, tracking sql.NullString, eta sql.NullTime, siteID sql.NullInt64, siteName string, buildingID sql.NullInt64, buildingName string, zone sql.NullString, rackID sql.NullInt64, rackLabel, groupLabel sql.NullString, completed sql.NullTime, created, updated time.Time, deleted sql.NullTime) models.RepairTicket {
-	return models.RepairTicket{ID: id, OrgID: orgID, TicketNumber: number, Category: models.TicketCategory(category), Status: models.TicketStatus(status), Urgent: urgent, Component: component, Diagnosis: stringPtr(diagnosis), MinerIdentifier: stringPtr(miner), AlertID: stringPtr(alert), AssigneeUserID: nullInt64ToPtr(assignee), AssigneeName: assigneeName, WarrantyStatus: models.WarrantyStatus(warranty), Resolution: models.TicketResolution(resolution), RepairLocation: models.RepairLocation(location), Notes: stringPtr(notes), ResolutionNote: resolutionNote, DailyImpactUsd: floatFromNumeric(impact), RMAVendor: stringPtr(vendor), RMATracking: stringPtr(tracking), RMAEta: timePtr(eta), SiteID: nullInt64ToPtr(siteID), SiteName: siteName, BuildingID: nullInt64ToPtr(buildingID), BuildingName: buildingName, Zone: stringPtr(zone), RackID: nullInt64ToPtr(rackID), RackLabel: stringPtr(rackLabel), GroupLabel: stringPtr(groupLabel), CompletedAt: timePtr(completed), CreatedAt: created, UpdatedAt: updated, DeletedAt: timePtr(deleted)}
+	return models.RepairTicket{ID: id, OrgID: orgID, TicketNumber: number, Category: models.TicketCategory(category), Status: models.TicketStatus(status), Urgent: urgent, Component: component, Diagnosis: nullStringToPtr(diagnosis), MinerIdentifier: nullStringToPtr(miner), AlertID: nullStringToPtr(alert), AssigneeUserID: nullInt64ToPtr(assignee), AssigneeName: assigneeName, WarrantyStatus: models.WarrantyStatus(warranty), Resolution: models.TicketResolution(resolution), RepairLocation: models.RepairLocation(location), Notes: nullStringToPtr(notes), ResolutionNote: resolutionNote, DailyImpactUsd: floatFromNumeric(impact), RMAVendor: nullStringToPtr(vendor), RMATracking: nullStringToPtr(tracking), RMAEta: nullTimeToPtr(eta), SiteID: nullInt64ToPtr(siteID), SiteName: siteName, BuildingID: nullInt64ToPtr(buildingID), BuildingName: buildingName, Zone: nullStringToPtr(zone), RackID: nullInt64ToPtr(rackID), RackLabel: nullStringToPtr(rackLabel), GroupLabel: nullStringToPtr(groupLabel), CompletedAt: nullTimeToPtr(completed), CreatedAt: created, UpdatedAt: updated, DeletedAt: nullTimeToPtr(deleted)}
 }
 
 func normalizeCursor(field models.TicketSortField, direction models.SortDirection, cursor *models.TicketCursor) (models.TicketSortField, models.SortDirection, *models.TicketCursor, error) {
@@ -458,12 +458,6 @@ func maintenanceLimit(limit int32) int32 {
 	}
 	return limit
 }
-func maintenanceNilIfEmpty[T any](values []T) []T {
-	if len(values) == 0 {
-		return nil
-	}
-	return values
-}
 func sqlText(value any) string {
 	switch v := value.(type) {
 	case string:
@@ -473,20 +467,6 @@ func sqlText(value any) string {
 	default:
 		return fmt.Sprint(v)
 	}
-}
-func stringPtr(value sql.NullString) *string {
-	if !value.Valid {
-		return nil
-	}
-	v := value.String
-	return &v
-}
-func timePtr(value sql.NullTime) *time.Time {
-	if !value.Valid {
-		return nil
-	}
-	v := value.Time
-	return &v
 }
 func boolToNull(value *bool) sql.NullBool {
 	if value == nil {
@@ -534,10 +514,10 @@ func maintenanceWriteError(action string, err error) error {
 	return fleeterror.NewInternalErrorf("failed to %s: %w", action, err)
 }
 func countRepairParams(f models.ListFilter) sqlc.CountRepairTicketsParams {
-	return sqlc.CountRepairTicketsParams{OrgID: f.OrgID, FilterStatuses: maintenanceNilIfEmpty(f.Statuses), FilterCategories: maintenanceNilIfEmpty(f.Categories), FilterSiteIds: maintenanceNilIfEmpty(f.SiteIDs), ExcludedSiteIds: maintenanceNilIfEmpty(f.ExcludedSiteIDs), FilterBuildingIds: maintenanceNilIfEmpty(f.BuildingIDs), FilterRackIds: maintenanceNilIfEmpty(f.RackIDs), FilterGroupLabels: maintenanceNilIfEmpty(f.GroupLabels), FilterAssigneeUserID: ptrToNullInt64(f.AssigneeUserID), FilterUrgentOnly: f.UrgentOnly, FilterExcludeCompleted: f.ExcludeCompleted, FilterOverdueOnly: f.OverdueOnly, SearchPattern: likeSearchPattern(f.SearchQuery)}
+	return sqlc.CountRepairTicketsParams{OrgID: f.OrgID, FilterStatuses: nilIfEmpty(f.Statuses), FilterCategories: nilIfEmpty(f.Categories), FilterSiteIds: nilIfEmpty(f.SiteIDs), ExcludedSiteIds: nilIfEmpty(f.ExcludedSiteIDs), FilterBuildingIds: nilIfEmpty(f.BuildingIDs), FilterRackIds: nilIfEmpty(f.RackIDs), FilterGroupLabels: nilIfEmpty(f.GroupLabels), FilterAssigneeUserID: ptrToNullInt64(f.AssigneeUserID), FilterUrgentOnly: f.UrgentOnly, FilterExcludeCompleted: f.ExcludeCompleted, FilterOverdueOnly: f.OverdueOnly, SearchPattern: likeSearchPattern(f.SearchQuery)}
 }
 func statsParams(f models.ListFilter) sqlc.GetFilteredTicketStatsParams {
-	return sqlc.GetFilteredTicketStatsParams{OrgID: f.OrgID, FilterStatuses: maintenanceNilIfEmpty(f.Statuses), FilterCategories: maintenanceNilIfEmpty(f.Categories), FilterSiteIds: maintenanceNilIfEmpty(f.SiteIDs), ExcludedSiteIds: maintenanceNilIfEmpty(f.ExcludedSiteIDs), FilterBuildingIds: maintenanceNilIfEmpty(f.BuildingIDs), FilterRackIds: maintenanceNilIfEmpty(f.RackIDs), FilterGroupLabels: maintenanceNilIfEmpty(f.GroupLabels), FilterAssigneeUserID: ptrToNullInt64(f.AssigneeUserID), FilterUrgentOnly: f.UrgentOnly, FilterExcludeCompleted: f.ExcludeCompleted, FilterOverdueOnly: f.OverdueOnly, SearchPattern: likeSearchPattern(f.SearchQuery)}
+	return sqlc.GetFilteredTicketStatsParams{OrgID: f.OrgID, FilterStatuses: nilIfEmpty(f.Statuses), FilterCategories: nilIfEmpty(f.Categories), FilterSiteIds: nilIfEmpty(f.SiteIDs), ExcludedSiteIds: nilIfEmpty(f.ExcludedSiteIDs), FilterBuildingIds: nilIfEmpty(f.BuildingIDs), FilterRackIds: nilIfEmpty(f.RackIDs), FilterGroupLabels: nilIfEmpty(f.GroupLabels), FilterAssigneeUserID: ptrToNullInt64(f.AssigneeUserID), FilterUrgentOnly: f.UrgentOnly, FilterExcludeCompleted: f.ExcludeCompleted, FilterOverdueOnly: f.OverdueOnly, SearchPattern: likeSearchPattern(f.SearchQuery)}
 }
 
 func (s *SQLMaintenanceStore) hydrateTicketMetadata(ctx context.Context, orgID int64, tickets []*models.RepairTicket) error {

@@ -2266,17 +2266,6 @@ func rowSet(rows []map[string]string, key string) map[string]bool {
 	return out
 }
 
-func rowIDSet(rows []map[string]string) map[int64]bool {
-	out := map[int64]bool{}
-	for _, row := range rows {
-		id, ok := rowID(row)
-		if ok {
-			out[id] = true
-		}
-	}
-	return out
-}
-
 func compoundRowSet(rows []map[string]string, a, b string) map[string]bool {
 	out := map[string]bool{}
 	for _, row := range rows {
@@ -2316,23 +2305,6 @@ func valueForUniqueKey(row map[string]string, key string) string {
 	default:
 		return row[key]
 	}
-}
-
-func validateUniqueCompound(rows []map[string]string, section, a, b string) []*pb.ImportValidationError {
-	seen := map[string]bool{}
-	var errs []*pb.ImportValidationError
-	for i, row := range rows {
-		if row[a] == "" || row[b] == "" {
-			errs = append(errs, csvErr(rowNumber(row, i+1), section, a+" and "+b+" are required"))
-			continue
-		}
-		key := row[a] + "\x00" + row[b]
-		if seen[key] {
-			errs = append(errs, csvErr(rowNumber(row, i+1), section, "duplicate "+a+"/"+b))
-		}
-		seen[key] = true
-	}
-	return errs
 }
 
 func validateUniqueBuildingRows(rows []map[string]string) []*pb.ImportValidationError {
@@ -3232,18 +3204,6 @@ func buildingCapacityKey(building buildingmodels.Building) string {
 	return "name:" + building.SiteLabel + "\x00" + building.Name
 }
 
-func desiredRackLabelsByID(rows []map[string]string) map[int64]string {
-	out := map[int64]string{}
-	for _, row := range rows {
-		id, ok := rowID(row)
-		if !ok {
-			continue
-		}
-		out[id] = rackSectionLabel(row)
-	}
-	return out
-}
-
 func desiredRackLabel(miner minerSnapshot, desiredRackLabels map[int64]string) string {
 	if miner.RackID == nil {
 		return miner.Rack
@@ -3356,16 +3316,6 @@ func rackSectionLabel(row map[string]string) string {
 		return row[fieldLabel]
 	}
 	return row[fieldRack]
-}
-
-func existingByIDRow[T any](row map[string]string, existing map[int64]T) (T, bool) {
-	var zero T
-	id, ok := rowID(row)
-	if !ok {
-		return zero, false
-	}
-	value, ok := existing[id]
-	return value, ok
 }
 
 func siteIdentitySet(rows []map[string]string, sites []sitemodels.Site) map[string]bool {
@@ -3748,14 +3698,6 @@ func desiredSiteSet(rows []map[string]string, sites []sitemodels.Site) map[strin
 			delete(out, site.Name)
 		}
 		out[name] = true
-	}
-	return out
-}
-
-func rowSetFromBuildings(rows []buildingmodels.Building) map[string]bool {
-	out := map[string]bool{}
-	for _, row := range rows {
-		out[buildingIdentity(row)] = true
 	}
 	return out
 }

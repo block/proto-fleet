@@ -21,19 +21,3 @@ func NewDeviceNotManagedErr(deviceID models.DeviceIdentifier) DeviceNotManagedEr
 func (e DeviceNotManagedErr) Error() string {
 	return "device not managed by scheduler: " + e.DeviceID.String() + ": " + e.FleetError.Error()
 }
-
-type DeviceAlreadyScheduledErr struct {
-	fleeterror.FleetError
-	DeviceID models.DeviceIdentifier // ID of the device that is already scheduled
-}
-
-func NewDeviceAlreadyScheduledErr(deviceID models.DeviceIdentifier) DeviceAlreadyScheduledErr {
-	return DeviceAlreadyScheduledErr{
-		FleetError: fleeterror.NewInternalError("device already scheduled"),
-		DeviceID:   deviceID,
-	}
-}
-
-func (e DeviceAlreadyScheduledErr) Error() string {
-	return "device already scheduled: " + e.DeviceID.String() + ": " + e.FleetError.Error()
-}

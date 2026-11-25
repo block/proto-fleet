@@ -2,7 +2,6 @@ package sitemap
 
 import (
 	"fmt"
-	"strconv"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/sitemap/v1"
 	buildingmodels "github.com/block/proto-fleet/server/internal/domain/buildings/models"
@@ -1043,5 +1042,3 @@ func optInt32(row map[string]string, field string) int32 {
 }
 
 func int64Ptr(v int64) *int64 { return &v }
-
-func quote(v string) string { return strconv.Quote(v) }

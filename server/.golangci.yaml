@@ -87,8 +87,6 @@ linters:
           - goconst
           - scopelint
         path: _test\.go
-      - path: apps/hamilton/(.*)/fake_(.*)\.go
-        text: parameter '.+' seems to be unused, consider removing or renaming it as _
       - path: (.+)\.go$
         text: '^(G104|G204|G307|G306|G404):'
       - path: (.+)\.go$

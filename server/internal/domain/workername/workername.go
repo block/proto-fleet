@@ -17,7 +17,3 @@ func FromPoolUsername(username string) string {
 
 	return strings.TrimSpace(trimmed[firstSeparator+1:])
 }
-
-func IsPoolSyncComplete(status string) bool {
-	return strings.TrimSpace(status) == string(PoolSyncStatusPoolUpdatedSuccessfully)
-}
