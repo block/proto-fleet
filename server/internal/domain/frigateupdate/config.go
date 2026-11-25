@@ -4,14 +4,15 @@ import "time"
 
 // Config holds configuration for Fleet-triggered Frigate software updates.
 type Config struct {
-	PackageDir        string        `help:"Directory that stores uploaded Frigate Debian packages. It must be on persistent storage; with the standard deployment the default lives in the persisted firmware volume." default:"firmware/frigate-packages" env:"PACKAGE_DIR"`
-	MaxPackageSize    int64         `help:"Maximum Frigate package size in bytes. Frigate itself refuses packages over 1 GiB." default:"536870912" env:"MAX_PACKAGE_SIZE"`
-	ReleaseKeysDir    string        `help:"Directory of PEM-encoded Frigate release public keys (ECDSA P-256) used to check package signatures at upload. Controllers re-verify with their own keys. When it is empty, Fleet checks a signature only against a public key supplied with the upload, and accepts an upload it cannot verify with a warning." default:"" env:"RELEASE_KEYS_DIR"`
-	PollInterval      time.Duration `help:"How often the update runner advances jobs and reads rollout status from the controllers." default:"5s" env:"POLL_INTERVAL"`
-	StageStallTimeout time.Duration `help:"How long package staging may make no progress before the job fails." default:"10m" env:"STAGE_STALL_TIMEOUT"`
-	StartTimeout      time.Duration `help:"How long Fleet keeps retrying Start for a job that Frigate does not know before it gives up and fails the job." default:"10m" env:"START_TIMEOUT"`
-	CallTimeout       time.Duration `help:"Timeout for one controller update call that does not carry package bytes." default:"30s" env:"CALL_TIMEOUT"`
-	ChunkTimeout      time.Duration `help:"Timeout for staging one 1 MiB package chunk." default:"60s" env:"CHUNK_TIMEOUT"`
+	PackageDir            string        `help:"Directory that stores uploaded Frigate Debian packages. It must be on persistent storage; with the standard deployment the default lives in the persisted firmware volume." default:"firmware/frigate-packages" env:"PACKAGE_DIR"`
+	MaxPackageSize        int64         `help:"Maximum Frigate package size in bytes. Frigate itself refuses packages over 1 GiB." default:"536870912" env:"MAX_PACKAGE_SIZE"`
+	ReleaseKeysDir        string        `help:"Directory of PEM-encoded Frigate release public keys (ECDSA P-256) used to check package signatures at upload. Controllers re-verify with their own keys. When it is empty, Fleet checks a signature only against a public key supplied with the upload, and accepts an upload it cannot verify with a warning." default:"" env:"RELEASE_KEYS_DIR"`
+	ProtoOSReleaseKeysDir string        `help:"Directory of PEM-encoded ProtoOS release public keys (ECDSA P-256) used to check proto-os package signatures at upload, with the same rules as the Frigate release key directory. A Frigate release key never verifies a proto-os package, and a ProtoOS release key never verifies a Frigate package." default:"" env:"PROTOOS_RELEASE_KEYS_DIR"`
+	PollInterval          time.Duration `help:"How often the update runner advances jobs and reads rollout status from the controllers." default:"5s" env:"POLL_INTERVAL"`
+	StageStallTimeout     time.Duration `help:"How long package staging may make no progress before the job fails." default:"10m" env:"STAGE_STALL_TIMEOUT"`
+	StartTimeout          time.Duration `help:"How long Fleet keeps retrying Start for a job that Frigate does not know before it gives up and fails the job." default:"10m" env:"START_TIMEOUT"`
+	CallTimeout           time.Duration `help:"Timeout for one controller update call that does not carry package bytes." default:"30s" env:"CALL_TIMEOUT"`
+	ChunkTimeout          time.Duration `help:"Timeout for staging one 1 MiB package chunk." default:"60s" env:"CHUNK_TIMEOUT"`
 }
 
 const (

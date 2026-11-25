@@ -860,15 +860,21 @@ func start(config *Config) (result error) {
 	if err != nil {
 		return err
 	}
-	// Without a release key directory Fleet has no installed release key. It
-	// then checks an uploaded signature only against a public key supplied with
-	// the upload; the controllers verify every package with their own keys.
-	var frigateVerifier *frigateReleaseDomain.Verifier
-	if config.FrigateUpdate.ReleaseKeysDir != "" {
-		frigateVerifier = frigateReleaseDomain.NewDirVerifier(config.FrigateUpdate.ReleaseKeysDir)
+	// Without a release key directory for a package kind, Fleet has no
+	// installed release key for that kind. It then checks an uploaded signature
+	// only against a public key supplied with the upload; the controllers
+	// verify every package with their own keys.
+	frigateVerifiers := map[frigateUpdateDomain.PackageKind]*frigateReleaseDomain.Verifier{}
+	for kind, dir := range map[frigateUpdateDomain.PackageKind]string{
+		frigateUpdateDomain.PackageKindFrigate: config.FrigateUpdate.ReleaseKeysDir,
+		frigateUpdateDomain.PackageKindProtoOS: config.FrigateUpdate.ProtoOSReleaseKeysDir,
+	} {
+		if dir != "" {
+			frigateVerifiers[kind] = frigateReleaseDomain.NewDirVerifier(dir)
+		}
 	}
 	frigateAuthorizer := frigateUpdateHandler.NewAuthorizer()
-	frigateUpdateSvc := frigateUpdateDomain.NewService(conn, minerService, frigatePackageStore, frigateVerifier, frigateAuthorizer, activitySvc, config.FrigateUpdate)
+	frigateUpdateSvc := frigateUpdateDomain.NewService(conn, minerService, frigatePackageStore, frigateVerifiers, frigateAuthorizer, activitySvc, config.FrigateUpdate)
 	frigateUploadMgr := frigateUpdateHandler.NewUploadManager()
 	// Both loops belong to the active replica only, and uploads are served only
 	// there. They are separate runtime jobs because each reports its own progress.

@@ -250,7 +250,10 @@ type initiateRequest struct {
 }
 
 type initiateResponse struct {
-	UploadID     string `json:"upload_id"`
+	UploadID string `json:"upload_id"`
+	// Kind is the package kind that the release statement names: "frigate"
+	// or "proto_os".
+	Kind         string `json:"kind"`
 	Version      string `json:"version"`
 	Architecture string `json:"architecture"`
 	// Warning is set when Fleet accepts the upload without verifying the
@@ -334,7 +337,7 @@ func (h *uploadHandler) initiate(w http.ResponseWriter, r *http.Request) {
 
 	slog.Info("frigate package upload initiated", "upload_id", uploadID, "filename", req.Filename, "size", req.Size, "signature_check", string(check.Signature))
 	writeJSON(w, http.StatusOK, initiateResponse{
-		UploadID: uploadID, Version: check.Statement.Version, Architecture: check.Statement.Architecture, Warning: check.Warning,
+		UploadID: uploadID, Kind: string(check.Kind), Version: check.Statement.Version, Architecture: check.Statement.Architecture, Warning: check.Warning,
 	})
 }
 
@@ -407,6 +410,7 @@ func (h *uploadHandler) chunk(w http.ResponseWriter, r *http.Request) {
 
 type packageResponse struct {
 	ID                  string `json:"id"`
+	Kind                string `json:"kind"`
 	Filename            string `json:"filename"`
 	Version             string `json:"version"`
 	Architecture        string `json:"architecture"`
@@ -472,7 +476,7 @@ func (h *uploadHandler) complete(w http.ResponseWriter, r *http.Request) {
 	slog.Info("frigate package upload completed", "upload_id", uploadID, "package_id", p.ID, "reused", result.Reused)
 	writeJSON(w, http.StatusOK, completeResponse{
 		Package: packageResponse{
-			ID: p.ID.String(), Filename: p.Filename, Version: p.Version, Architecture: p.Architecture, SHA256: p.SHA256,
+			ID: p.ID.String(), Kind: string(p.Kind), Filename: p.Filename, Version: p.Version, Architecture: p.Architecture, SHA256: p.SHA256,
 			SizeBytes: p.SizeBytes, Repository: p.Repository, ReleaseKeyID: p.ReleaseKeyID,
 			MinInstalledVersion: p.MinInstalledVersion, IssuedAt: p.IssuedAt.UTC().Format(time.RFC3339),
 			UploadedAt: p.UploadedAt.UTC().Format(time.RFC3339),

@@ -21,10 +21,11 @@ WHERE channel_id = sqlc.arg('channel_id')
 
 -- name: ControllerSoftwareVersionUploaded :one
 -- Whether the organization has an uploaded controller software package of this
--- version, for any architecture.
+-- version, for any architecture. A ProtoOS package is not controller software.
 SELECT EXISTS (
     SELECT 1 FROM frigate_update_package p
     WHERE p.org_id = sqlc.arg('org_id')
+      AND p.kind = 'frigate'
       AND p.deleted_at IS NULL
       AND release_channel_controller_software_key(p.version) = release_channel_controller_software_key(sqlc.arg('version')::text)
 )::boolean AS uploaded;

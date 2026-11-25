@@ -68,6 +68,8 @@ const (
 // ReleaseCheck is the outcome of checking a release statement at upload.
 type ReleaseCheck struct {
 	Statement frigaterelease.Statement
+	// Kind is the kind of the package that the statement names.
+	Kind PackageKind
 	// KeyID identifies the key that verified the signature. It is empty when
 	// Fleet did not verify the signature.
 	KeyID     string
@@ -77,11 +79,12 @@ type ReleaseCheck struct {
 	Warning string
 }
 
-// Package is an uploaded Frigate package. Fleet checked it against its release
+// Package is an uploaded package. Fleet checked it against its release
 // statement, and checked the statement's signature when it had a key to check
 // it with.
 type Package struct {
 	ID           uuid.UUID
+	Kind         PackageKind
 	Filename     string
 	Version      string
 	Architecture string
@@ -103,7 +106,7 @@ type Package struct {
 
 func packageFromRow(r sqlc.GetFrigateUpdatePackageRow) Package {
 	return Package{
-		ID: r.ID, Filename: r.Filename, Version: r.Version, Architecture: r.Architecture, SHA256: r.Sha256,
+		ID: r.ID, Kind: PackageKind(r.Kind), Filename: r.Filename, Version: r.Version, Architecture: r.Architecture, SHA256: r.Sha256,
 		SizeBytes: r.SizeBytes, Repository: r.Repository, ReleaseKeyID: r.ReleaseKeyID,
 		MinInstalledVersion: r.MinInstalledVersion, IssuedAt: r.IssuedAt, UploadedAt: r.UploadedAt,
 		UploadedBy: r.UploadedByUsername, Deleted: r.DeletedAt.Valid,
@@ -112,7 +115,7 @@ func packageFromRow(r sqlc.GetFrigateUpdatePackageRow) Package {
 
 func packageFromListRow(r sqlc.ListFrigateUpdatePackagesRow) Package {
 	return Package{
-		ID: r.ID, Filename: r.Filename, Version: r.Version, Architecture: r.Architecture, SHA256: r.Sha256,
+		ID: r.ID, Kind: PackageKind(r.Kind), Filename: r.Filename, Version: r.Version, Architecture: r.Architecture, SHA256: r.Sha256,
 		SizeBytes: r.SizeBytes, Repository: r.Repository, ReleaseKeyID: r.ReleaseKeyID,
 		MinInstalledVersion: r.MinInstalledVersion, IssuedAt: r.IssuedAt, UploadedAt: r.UploadedAt,
 		UploadedBy: r.UploadedByUsername,
@@ -121,7 +124,7 @@ func packageFromListRow(r sqlc.ListFrigateUpdatePackagesRow) Package {
 
 func packageFromModel(r sqlc.FrigateUpdatePackage, uploader string) Package {
 	return Package{
-		ID: r.ID, Filename: r.Filename, Version: r.Version, Architecture: r.Architecture, SHA256: r.Sha256,
+		ID: r.ID, Kind: PackageKind(r.Kind), Filename: r.Filename, Version: r.Version, Architecture: r.Architecture, SHA256: r.Sha256,
 		SizeBytes: r.SizeBytes, Repository: r.Repository, ReleaseKeyID: r.ReleaseKeyID,
 		MinInstalledVersion: r.MinInstalledVersion, IssuedAt: r.IssuedAt, UploadedAt: r.UploadedAt,
 		UploadedBy: uploader, Deleted: r.DeletedAt.Valid,
@@ -144,7 +147,7 @@ func (s *Service) ValidateUploadStatement(ctx context.Context, statement, signat
 	if err := validateFilename(filename); err != nil {
 		return ReleaseCheck{}, err
 	}
-	check, err := s.checkRelease(statement, signature, publicKey)
+	check, err := s.checkRelease(statement, signature, publicKey, filename)
 	if err != nil {
 		return ReleaseCheck{}, err
 	}
@@ -154,10 +157,12 @@ func (s *Service) ValidateUploadStatement(ctx context.Context, statement, signat
 	if size != check.Statement.Size {
 		return ReleaseCheck{}, fleeterror.NewInvalidArgumentErrorf("package size %d does not match the signed release statement (%d)", size, check.Statement.Size)
 	}
-	if size > s.cfg.MaxPackageSize {
-		return ReleaseCheck{}, fleeterror.NewInvalidArgumentErrorf("package size exceeds the maximum allowed size (%d bytes)", s.cfg.MaxPackageSize)
-	}
 	return check, nil
+}
+
+// maxPackageSize is the largest package of a kind that Fleet accepts.
+func (s *Service) maxPackageSize(kind PackageKind) int64 {
+	return min(s.cfg.MaxPackageSize, kind.rules().maxSize)
 }
 
 func validateFilename(name string) error {
@@ -172,11 +177,14 @@ func validateFilename(name string) error {
 	return nil
 }
 
-// checkRelease checks a release statement and its signature.
+// checkRelease checks a release statement and its signature. The statement
+// names the package kind, which selects the rules that only that kind has,
+// the size limit, and the installed release keys. A key installed for one kind
+// never verifies a package of another kind.
 //
-// When Fleet has installed release keys, the signature must verify against one
-// of them, and publicKey is not used: a key from the uploader cannot replace
-// the keys an operator installed.
+// When Fleet has installed release keys for the kind, the signature must
+// verify against one of them, and publicKey is not used: a key from the
+// uploader cannot replace the keys an operator installed.
 //
 // When Fleet has no installed release key, the upload is still accepted. The
 // signature is checked against publicKey when one is supplied. If none is
@@ -188,9 +196,27 @@ func validateFilename(name string) error {
 // A key directory that cannot be read, or that holds a file that does not
 // parse, is an error and never falls back to publicKey, so a bad key rotation
 // does not turn the installed-key check off.
-func (s *Service) checkRelease(statement, signature, publicKey []byte) (ReleaseCheck, error) {
-	if s.verifier != nil {
-		verified, err := s.verifier.Verify(statement, signature, "")
+func (s *Service) checkRelease(statement, signature, publicKey []byte, filename string) (ReleaseCheck, error) {
+	parsed, err := frigaterelease.ParseStatement(statement)
+	if err != nil {
+		return ReleaseCheck{}, fleeterror.NewInvalidArgumentErrorf("release statement rejected: %v", err)
+	}
+	kind := kindOfStatement(parsed)
+	if err := kind.rules().checkUpload(parsed, filename); err != nil {
+		return ReleaseCheck{}, err
+	}
+	if limit := s.maxPackageSize(kind); parsed.Size > limit {
+		return ReleaseCheck{}, fleeterror.NewInvalidArgumentErrorf("package size exceeds the maximum allowed size (%d bytes)", limit)
+	}
+	check, err := s.checkSignature(kind, statement, signature, publicKey)
+	check.Kind = kind
+	return check, err
+}
+
+// checkSignature is the signature part of checkRelease.
+func (s *Service) checkSignature(kind PackageKind, statement, signature, publicKey []byte) (ReleaseCheck, error) {
+	if verifier := s.verifiers[kind]; verifier != nil {
+		verified, err := verifier.Verify(statement, signature, "")
 		switch {
 		case err == nil:
 			return ReleaseCheck{Statement: verified.Statement, KeyID: verified.KeyID, Signature: SignatureInstalledKey}, nil
@@ -296,14 +322,12 @@ func (s *Service) ImportPackage(ctx context.Context, in ImportInput) (ImportResu
 	if err := validateFilename(in.Filename); err != nil {
 		return ImportResult{}, err
 	}
-	check, err := s.checkRelease(in.Statement, in.Signature, in.PublicKey)
+	check, err := s.checkRelease(in.Statement, in.Signature, in.PublicKey, in.Filename)
 	if err != nil {
 		return ImportResult{}, err
 	}
 	statement := check.Statement
-	if statement.Size > s.cfg.MaxPackageSize {
-		return ImportResult{}, fleeterror.NewInvalidArgumentErrorf("package size exceeds the maximum allowed size (%d bytes)", s.cfg.MaxPackageSize)
-	}
+	rules := check.Kind.rules()
 
 	stat, err := os.Stat(in.StagedPath)
 	if err != nil {
@@ -325,6 +349,9 @@ func (s *Service) ImportPackage(ctx context.Context, in ImportInput) (ImportResu
 	}
 	if err := control.Matches(statement); err != nil {
 		return ImportResult{}, fleeterror.NewInvalidArgumentErrorf("package does not match the signed release statement: %v", err)
+	}
+	if rules.exactControlVersion && control.Version != statement.Version {
+		return ImportResult{}, fleeterror.NewInvalidArgumentErrorf("package version is %q, but the signed release statement says %q", control.Version, statement.Version)
 	}
 
 	existing, err := s.queries.GetFrigateUpdatePackageBySHA256(ctx, sqlc.GetFrigateUpdatePackageBySHA256Params{OrgID: info.OrganizationID, Sha256: digest})
@@ -351,7 +378,7 @@ func (s *Service) ImportPackage(ctx context.Context, in ImportInput) (ImportResu
 		return ImportResult{}, fleeterror.NewInternalErrorf("failed to store the package: %v", err)
 	}
 	row, err := s.queries.InsertFrigateUpdatePackage(ctx, sqlc.InsertFrigateUpdatePackageParams{
-		ID: id, OrgID: info.OrganizationID, Filename: in.Filename, Version: statement.Version,
+		ID: id, OrgID: info.OrganizationID, Kind: string(check.Kind), Filename: in.Filename, Version: statement.Version,
 		Architecture: statement.Architecture, Sha256: statement.SHA256, SizeBytes: statement.Size,
 		Repository: statement.Repository, ReleaseKeyID: check.KeyID, MinInstalledVersion: statement.MinInstalledVersion,
 		IssuedAt: statement.IssuedAt, Statement: in.Statement, Signature: in.Signature,
@@ -369,7 +396,7 @@ func (s *Service) ImportPackage(ctx context.Context, in ImportInput) (ImportResu
 		return ImportResult{}, fleeterror.NewInternalErrorf("failed to record the package: %v", err)
 	}
 
-	description := fmt.Sprintf("Uploaded controller software %s (%s)", statement.Version, statement.Architecture)
+	description := fmt.Sprintf("Uploaded %s %s (%s)", rules.noun, statement.Version, statement.Architecture)
 	if check.Signature == SignatureUnverified {
 		description += ", signature not verified"
 	}
@@ -467,6 +494,7 @@ func hashFile(path string) (string, error) {
 func (s *Service) logPackageEvent(ctx context.Context, orgID int64, eventType, description string, pkg sqlc.FrigateUpdatePackage, externalID, username string, signature SignatureCheck) {
 	metadata := map[string]any{
 		"package_id":   pkg.ID.String(),
+		"kind":         pkg.Kind,
 		"version":      pkg.Version,
 		"architecture": pkg.Architecture,
 		"sha256":       pkg.Sha256,
@@ -572,7 +600,7 @@ func (s *Service) DeletePackage(ctx context.Context, id uuid.UUID) error {
 		slog.Warn("failed to delete frigate package blob", "package_id", id, "error", err)
 	}
 	s.logPackageEvent(ctx, info.OrganizationID, packageDeletedEventType,
-		fmt.Sprintf("Deleted controller software %s (%s)", deleted.Version, deleted.Architecture), deleted, info.ExternalUserID, info.Username, "")
+		fmt.Sprintf("Deleted %s %s (%s)", PackageKind(deleted.Kind).rules().noun, deleted.Version, deleted.Architecture), deleted, info.ExternalUserID, info.Username, "")
 	return nil
 }
 

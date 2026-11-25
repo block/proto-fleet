@@ -13,8 +13,10 @@ import (
 const (
 	// SchemaV1 is the only statement schema Fleet understands.
 	SchemaV1 = "frigate-release-statement/v1"
-	// PackageName is the Debian package name Fleet accepts.
+	// PackageName is the Debian package name of the controller software.
 	PackageName = "frigate"
+	// ProtoOSPackageName is the Debian package name of the ProtoOS browser UI.
+	ProtoOSPackageName = "proto-os"
 	// MaxStatementBytes bounds a statement. It matches the controller manifest limit.
 	MaxStatementBytes = 4 << 10
 	// MaxSignatureBytes bounds a DER signature. It matches Frigate's verifier: an
@@ -132,8 +134,8 @@ func (s Statement) Validate() error {
 	switch {
 	case s.Schema != SchemaV1:
 		return fmt.Errorf("%w: unsupported schema %q", ErrStatementInvalid, s.Schema)
-	case s.Package != PackageName:
-		return fmt.Errorf("%w: package must be %q", ErrStatementInvalid, PackageName)
+	case s.Package != PackageName && s.Package != ProtoOSPackageName:
+		return fmt.Errorf("%w: package must be %q or %q", ErrStatementInvalid, PackageName, ProtoOSPackageName)
 	case !debianVersionRe.MatchString(s.Version):
 		return fmt.Errorf("%w: invalid version", ErrStatementInvalid)
 	case !architectureRe.MatchString(s.Architecture):

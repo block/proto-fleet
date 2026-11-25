@@ -472,7 +472,7 @@ func (e *env) seedPackage(version string) (sqlc.FrigateUpdatePackage, []byte) {
 	require.NoError(e.t, writeFile(staged, blob))
 	require.NoError(e.t, e.store.Publish(id, staged))
 	row, err := sqlc.New(e.conn).InsertFrigateUpdatePackage(e.ctx, sqlc.InsertFrigateUpdatePackageParams{
-		ID: id, OrgID: e.orgID, Filename: "frigate_" + version + "_arm64.deb", Version: version, Architecture: "arm64",
+		ID: id, OrgID: e.orgID, Kind: string(PackageKindFrigate), Filename: "frigate_" + version + "_arm64.deb", Version: version, Architecture: "arm64",
 		Sha256: hex.EncodeToString(sum[:]), SizeBytes: int64(len(blob)), Repository: "btc-mining/frigate",
 		ReleaseKeyID: testKeyID, IssuedAt: time.Now().UTC(), Statement: []byte(`{"stmt":true}`), Signature: []byte{1, 2, 3},
 		UploadedBy: sql.NullInt64{Int64: e.userID, Valid: true},

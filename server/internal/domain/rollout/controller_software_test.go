@@ -37,6 +37,23 @@ func (f *fixture) uploadControllerSoftware(t *testing.T, orgID int64, version st
 	require.NoError(t, err)
 }
 
+func TestProtoOSPackageIsNotAControllerSoftwareVersion(t *testing.T) {
+	f := newFixture(t, 0)
+	f.addContainer(t, "ct1-a", "1.4.0")
+	f.channel(t, allAtOnce, "ct1-a")
+	_, err := f.conn.ExecContext(t.Context(), `
+		INSERT INTO frigate_update_package (id, org_id, kind, filename, version, architecture, sha256, size_bytes, repository, release_key_id, issued_at, statement, signature)
+		VALUES ($1, $2, 'proto_os', 'proto-os_v1.5.0_all.deb', '1.5.0', 'all', $3, 1, 'block/proto-fleet', 'key', now(), '\x00', '\x00')
+	`, uuid.New(), f.orgID, fmt.Sprintf("%064x", 99))
+	require.NoError(t, err)
+
+	err = f.svc.SetControllerSoftware(t.Context(), f.orgID, testActor.ID, f.channelID, "Proto", "CT1", "1.5.0")
+
+	require.True(t, fleeterror.IsFailedPreconditionError(err), "a ProtoOS package of the same version is not controller software: %v", err)
+	f.uploadControllerSoftware(t, f.orgID, "1.5.0")
+	require.NoError(t, f.svc.SetControllerSoftware(t.Context(), f.orgID, testActor.ID, f.channelID, "Proto", "CT1", "1.5.0"))
+}
+
 // hashboardFirmware makes fw-2 the container's hashboard firmware 2.0.0.
 func (f *fixture) hashboardFirmware() Assignment {
 	f.files.metadata = map[string]files.FirmwareMetadata{

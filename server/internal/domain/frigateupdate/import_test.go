@@ -45,7 +45,7 @@ func newReleaseSigner(t *testing.T) releaseFixture {
 func newReleaseFixture(t *testing.T, e *env) releaseFixture {
 	t.Helper()
 	f := newReleaseSigner(t)
-	e.svc.verifier = frigaterelease.NewStaticVerifier(f.key)
+	e.svc.verifiers[PackageKindFrigate] = frigaterelease.NewStaticVerifier(f.key)
 	return f
 }
 
@@ -257,7 +257,7 @@ func TestImportPackage_WithoutInstalledKey(t *testing.T) {
 	} {
 		t.Run(installed.name, func(t *testing.T) {
 			e := newEnv(t)
-			e.svc.verifier = installed.verifier(t)
+			e.svc.verifiers[PackageKindFrigate] = installed.verifier(t)
 			for i, tt := range tests {
 				t.Run(tt.name, func(t *testing.T) {
 					deb, statement := versionedRelease(t, fmt.Sprintf("2.1.%d", i))
@@ -341,7 +341,7 @@ func TestImportPackage_BrokenKeyDirectoryFailsClosed(t *testing.T) {
 	e := newEnv(t)
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "release.pem"), []byte("not a key"), 0o600))
-	e.svc.verifier = frigaterelease.NewDirVerifier(dir)
+	e.svc.verifiers[PackageKindFrigate] = frigaterelease.NewDirVerifier(dir)
 	signer := newReleaseSigner(t)
 	deb := buildDeb(t, controlText("frigate", "2.1.0", "arm64"), "control.tar.gz")
 	statement := statementFor(t, deb, nil)
@@ -442,7 +442,7 @@ func TestImportPackage_StaleUnverifiedRefreshKeepsVerifiedRelease(t *testing.T) 
 
 	refresh := func(statement []byte) error {
 		in := ImportInput{Statement: statement, Signature: signer.sign(t, statement)}
-		check, err := e.svc.checkRelease(in.Statement, in.Signature, nil)
+		check, err := e.svc.checkRelease(in.Statement, in.Signature, nil, "f.deb")
 		require.NoError(t, err)
 		_, err = e.svc.refreshRelease(e.ctx, stale, check, in)
 		return err

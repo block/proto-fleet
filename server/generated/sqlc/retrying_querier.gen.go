@@ -4736,6 +4736,18 @@ func (q *retryingQuerier) GetFrigateUpdateJobByRequestKey(ctx context.Context, a
 	return result, err
 }
 
+func (q *retryingQuerier) GetFrigateUpdateJobPackageKind(ctx context.Context, id uuid.UUID) (string, error) {
+	var result string
+	err := q.retrier.RetryQuery(ctx, "GetFrigateUpdateJobPackageKind", func() error {
+		callResult, callErr := q.next.GetFrigateUpdateJobPackageKind(ctx, id)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetFrigateUpdatePackage(ctx context.Context, arg GetFrigateUpdatePackageParams) (GetFrigateUpdatePackageRow, error) {
 	var result GetFrigateUpdatePackageRow
 	err := q.retrier.RetryQuery(ctx, "GetFrigateUpdatePackage", func() error {
@@ -13847,6 +13859,12 @@ func (q *retryingQuerier) UpdateFleetNodeLastSeenAt(ctx context.Context, arg Upd
 func (q *retryingQuerier) UpdateFrigateUpdateInstance(ctx context.Context, arg UpdateFrigateUpdateInstanceParams) error {
 	return q.retrier.RetryQuery(ctx, "UpdateFrigateUpdateInstance", func() error {
 		return q.next.UpdateFrigateUpdateInstance(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) UpdateFrigateUpdateInstanceProtoOS(ctx context.Context, arg UpdateFrigateUpdateInstanceProtoOSParams) error {
+	return q.retrier.RetryQuery(ctx, "UpdateFrigateUpdateInstanceProtoOS", func() error {
+		return q.next.UpdateFrigateUpdateInstanceProtoOS(ctx, arg)
 	})
 }
 

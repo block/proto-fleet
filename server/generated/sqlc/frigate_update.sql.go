@@ -281,8 +281,23 @@ func (q *Queries) GetFrigateUpdateJobByRequestKey(ctx context.Context, arg GetFr
 	return i, err
 }
 
+const getFrigateUpdateJobPackageKind = `-- name: GetFrigateUpdateJobPackageKind :one
+SELECT p.kind
+FROM frigate_update_job j
+JOIN frigate_update_package p ON p.id = j.package_id
+WHERE j.id = $1
+`
+
+// The package kind selects the job's state machine.
+func (q *Queries) GetFrigateUpdateJobPackageKind(ctx context.Context, id uuid.UUID) (string, error) {
+	row := q.queryRow(ctx, q.getFrigateUpdateJobPackageKindStmt, getFrigateUpdateJobPackageKind, id)
+	var kind string
+	err := row.Scan(&kind)
+	return kind, err
+}
+
 const getFrigateUpdatePackage = `-- name: GetFrigateUpdatePackage :one
-SELECT p.id, p.org_id, p.filename, p.version, p.architecture, p.sha256, p.size_bytes, p.repository, p.release_key_id, p.min_installed_version, p.issued_at, p.statement, p.signature, p.uploaded_by, p.uploaded_at, p.deleted_at, COALESCE(u.username, '')::text AS uploaded_by_username
+SELECT p.id, p.org_id, p.filename, p.version, p.architecture, p.sha256, p.size_bytes, p.repository, p.release_key_id, p.min_installed_version, p.issued_at, p.statement, p.signature, p.uploaded_by, p.uploaded_at, p.deleted_at, p.kind, COALESCE(u.username, '')::text AS uploaded_by_username
 FROM frigate_update_package p
 LEFT JOIN "user" u ON u.id = p.uploaded_by
 WHERE p.org_id = $1 AND p.id = $2
@@ -310,6 +325,7 @@ type GetFrigateUpdatePackageRow struct {
 	UploadedBy          sql.NullInt64
 	UploadedAt          time.Time
 	DeletedAt           sql.NullTime
+	Kind                string
 	UploadedByUsername  string
 }
 
@@ -334,13 +350,14 @@ func (q *Queries) GetFrigateUpdatePackage(ctx context.Context, arg GetFrigateUpd
 		&i.UploadedBy,
 		&i.UploadedAt,
 		&i.DeletedAt,
+		&i.Kind,
 		&i.UploadedByUsername,
 	)
 	return i, err
 }
 
 const getFrigateUpdatePackageBySHA256 = `-- name: GetFrigateUpdatePackageBySHA256 :one
-SELECT id, org_id, filename, version, architecture, sha256, size_bytes, repository, release_key_id, min_installed_version, issued_at, statement, signature, uploaded_by, uploaded_at, deleted_at FROM frigate_update_package
+SELECT id, org_id, filename, version, architecture, sha256, size_bytes, repository, release_key_id, min_installed_version, issued_at, statement, signature, uploaded_by, uploaded_at, deleted_at, kind FROM frigate_update_package
 WHERE org_id = $1 AND sha256 = $2 AND deleted_at IS NULL
 `
 
@@ -369,6 +386,7 @@ func (q *Queries) GetFrigateUpdatePackageBySHA256(ctx context.Context, arg GetFr
 		&i.UploadedBy,
 		&i.UploadedAt,
 		&i.DeletedAt,
+		&i.Kind,
 	)
 	return i, err
 }
@@ -526,20 +544,21 @@ func (q *Queries) InsertFrigateUpdateJob(ctx context.Context, arg InsertFrigateU
 
 const insertFrigateUpdatePackage = `-- name: InsertFrigateUpdatePackage :one
 INSERT INTO frigate_update_package (
-    id, org_id, filename, version, architecture, sha256, size_bytes, repository,
+    id, org_id, kind, filename, version, architecture, sha256, size_bytes, repository,
     release_key_id, min_installed_version, issued_at, statement, signature, uploaded_by
 ) VALUES (
-    $1, $2, $3, $4, $5,
-    $6, $7, $8, $9,
-    $10, $11, $12, $13,
-    $14
+    $1, $2, $3, $4, $5, $6,
+    $7, $8, $9, $10,
+    $11, $12, $13, $14,
+    $15
 )
-RETURNING id, org_id, filename, version, architecture, sha256, size_bytes, repository, release_key_id, min_installed_version, issued_at, statement, signature, uploaded_by, uploaded_at, deleted_at
+RETURNING id, org_id, filename, version, architecture, sha256, size_bytes, repository, release_key_id, min_installed_version, issued_at, statement, signature, uploaded_by, uploaded_at, deleted_at, kind
 `
 
 type InsertFrigateUpdatePackageParams struct {
 	ID                  uuid.UUID
 	OrgID               int64
+	Kind                string
 	Filename            string
 	Version             string
 	Architecture        string
@@ -558,6 +577,7 @@ func (q *Queries) InsertFrigateUpdatePackage(ctx context.Context, arg InsertFrig
 	row := q.queryRow(ctx, q.insertFrigateUpdatePackageStmt, insertFrigateUpdatePackage,
 		arg.ID,
 		arg.OrgID,
+		arg.Kind,
 		arg.Filename,
 		arg.Version,
 		arg.Architecture,
@@ -589,6 +609,7 @@ func (q *Queries) InsertFrigateUpdatePackage(ctx context.Context, arg InsertFrig
 		&i.UploadedBy,
 		&i.UploadedAt,
 		&i.DeletedAt,
+		&i.Kind,
 	)
 	return i, err
 }
@@ -666,7 +687,7 @@ func (q *Queries) ListFrigateUpdateCleanupJobs(ctx context.Context) ([]FrigateUp
 }
 
 const listFrigateUpdateInstances = `-- name: ListFrigateUpdateInstances :many
-SELECT job_id, instance_id, stage_state, manifest_sha256, staged_bytes, size_bytes, agent_phase, last_contact, contact_stale, running_version, migration_executed, error_code, error_message, updated_at FROM frigate_update_instance WHERE job_id = $1 ORDER BY instance_id
+SELECT job_id, instance_id, stage_state, manifest_sha256, staged_bytes, size_bytes, agent_phase, last_contact, contact_stale, running_version, migration_executed, error_code, error_message, updated_at, protoos_job_state, protoos_installed_version, protoos_served_release_tag FROM frigate_update_instance WHERE job_id = $1 ORDER BY instance_id
 `
 
 func (q *Queries) ListFrigateUpdateInstances(ctx context.Context, jobID uuid.UUID) ([]FrigateUpdateInstance, error) {
@@ -693,6 +714,9 @@ func (q *Queries) ListFrigateUpdateInstances(ctx context.Context, jobID uuid.UUI
 			&i.ErrorCode,
 			&i.ErrorMessage,
 			&i.UpdatedAt,
+			&i.ProtoosJobState,
+			&i.ProtoosInstalledVersion,
+			&i.ProtoosServedReleaseTag,
 		); err != nil {
 			return nil, err
 		}
@@ -708,7 +732,7 @@ func (q *Queries) ListFrigateUpdateInstances(ctx context.Context, jobID uuid.UUI
 }
 
 const listFrigateUpdateInstancesForJobs = `-- name: ListFrigateUpdateInstancesForJobs :many
-SELECT job_id, instance_id, stage_state, manifest_sha256, staged_bytes, size_bytes, agent_phase, last_contact, contact_stale, running_version, migration_executed, error_code, error_message, updated_at FROM frigate_update_instance WHERE job_id = ANY($1::uuid[]) ORDER BY job_id, instance_id
+SELECT job_id, instance_id, stage_state, manifest_sha256, staged_bytes, size_bytes, agent_phase, last_contact, contact_stale, running_version, migration_executed, error_code, error_message, updated_at, protoos_job_state, protoos_installed_version, protoos_served_release_tag FROM frigate_update_instance WHERE job_id = ANY($1::uuid[]) ORDER BY job_id, instance_id
 `
 
 func (q *Queries) ListFrigateUpdateInstancesForJobs(ctx context.Context, jobIds []uuid.UUID) ([]FrigateUpdateInstance, error) {
@@ -735,6 +759,9 @@ func (q *Queries) ListFrigateUpdateInstancesForJobs(ctx context.Context, jobIds 
 			&i.ErrorCode,
 			&i.ErrorMessage,
 			&i.UpdatedAt,
+			&i.ProtoosJobState,
+			&i.ProtoosInstalledVersion,
+			&i.ProtoosServedReleaseTag,
 		); err != nil {
 			return nil, err
 		}
@@ -826,7 +853,7 @@ func (q *Queries) ListFrigateUpdateJobsForDevice(ctx context.Context, arg ListFr
 }
 
 const listFrigateUpdatePackages = `-- name: ListFrigateUpdatePackages :many
-SELECT p.id, p.org_id, p.filename, p.version, p.architecture, p.sha256, p.size_bytes, p.repository, p.release_key_id, p.min_installed_version, p.issued_at, p.statement, p.signature, p.uploaded_by, p.uploaded_at, p.deleted_at, COALESCE(u.username, '')::text AS uploaded_by_username
+SELECT p.id, p.org_id, p.filename, p.version, p.architecture, p.sha256, p.size_bytes, p.repository, p.release_key_id, p.min_installed_version, p.issued_at, p.statement, p.signature, p.uploaded_by, p.uploaded_at, p.deleted_at, p.kind, COALESCE(u.username, '')::text AS uploaded_by_username
 FROM frigate_update_package p
 LEFT JOIN "user" u ON u.id = p.uploaded_by
 WHERE p.org_id = $1 AND p.deleted_at IS NULL
@@ -850,6 +877,7 @@ type ListFrigateUpdatePackagesRow struct {
 	UploadedBy          sql.NullInt64
 	UploadedAt          time.Time
 	DeletedAt           sql.NullTime
+	Kind                string
 	UploadedByUsername  string
 }
 
@@ -879,6 +907,7 @@ func (q *Queries) ListFrigateUpdatePackages(ctx context.Context, orgID int64) ([
 			&i.UploadedBy,
 			&i.UploadedAt,
 			&i.DeletedAt,
+			&i.Kind,
 			&i.UploadedByUsername,
 		); err != nil {
 			return nil, err
@@ -1017,7 +1046,7 @@ func (q *Queries) LockFrigateUpdateJob(ctx context.Context, id uuid.UUID) (Friga
 }
 
 const lockFrigateUpdatePackage = `-- name: LockFrigateUpdatePackage :one
-SELECT id, org_id, filename, version, architecture, sha256, size_bytes, repository, release_key_id, min_installed_version, issued_at, statement, signature, uploaded_by, uploaded_at, deleted_at FROM frigate_update_package
+SELECT id, org_id, filename, version, architecture, sha256, size_bytes, repository, release_key_id, min_installed_version, issued_at, statement, signature, uploaded_by, uploaded_at, deleted_at, kind FROM frigate_update_package
 WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL
 FOR UPDATE
 `
@@ -1047,6 +1076,7 @@ func (q *Queries) LockFrigateUpdatePackage(ctx context.Context, arg LockFrigateU
 		&i.UploadedBy,
 		&i.UploadedAt,
 		&i.DeletedAt,
+		&i.Kind,
 	)
 	return i, err
 }
@@ -1167,6 +1197,45 @@ func (q *Queries) UpdateFrigateUpdateInstance(ctx context.Context, arg UpdateFri
 		arg.ContactStale,
 		arg.RunningVersion,
 		arg.MigrationExecuted,
+		arg.ErrorCode,
+		arg.ErrorMessage,
+		arg.JobID,
+		arg.InstanceID,
+	)
+	return err
+}
+
+const updateFrigateUpdateInstanceProtoOS = `-- name: UpdateFrigateUpdateInstanceProtoOS :exec
+UPDATE frigate_update_instance SET
+    protoos_job_state = $1,
+    protoos_installed_version = $2,
+    protoos_served_release_tag = $3,
+    last_contact = $4,
+    error_code = $5,
+    error_message = $6,
+    updated_at = CURRENT_TIMESTAMP
+WHERE job_id = $7 AND instance_id = $8
+`
+
+type UpdateFrigateUpdateInstanceProtoOSParams struct {
+	ProtoosJobState         string
+	ProtoosInstalledVersion string
+	ProtoosServedReleaseTag string
+	LastContact             sql.NullTime
+	ErrorCode               string
+	ErrorMessage            string
+	JobID                   uuid.UUID
+	InstanceID              string
+}
+
+// What one controller reports about a ProtoOS job. The staging columns are
+// Fleet's and stay as they are.
+func (q *Queries) UpdateFrigateUpdateInstanceProtoOS(ctx context.Context, arg UpdateFrigateUpdateInstanceProtoOSParams) error {
+	_, err := q.exec(ctx, q.updateFrigateUpdateInstanceProtoOSStmt, updateFrigateUpdateInstanceProtoOS,
+		arg.ProtoosJobState,
+		arg.ProtoosInstalledVersion,
+		arg.ProtoosServedReleaseTag,
+		arg.LastContact,
 		arg.ErrorCode,
 		arg.ErrorMessage,
 		arg.JobID,

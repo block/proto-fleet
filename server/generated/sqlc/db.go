@@ -1317,6 +1317,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getFrigateUpdateJobByRequestKeyStmt, err = db.PrepareContext(ctx, getFrigateUpdateJobByRequestKey); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFrigateUpdateJobByRequestKey: %w", err)
 	}
+	if q.getFrigateUpdateJobPackageKindStmt, err = db.PrepareContext(ctx, getFrigateUpdateJobPackageKind); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFrigateUpdateJobPackageKind: %w", err)
+	}
 	if q.getFrigateUpdatePackageStmt, err = db.PrepareContext(ctx, getFrigateUpdatePackage); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFrigateUpdatePackage: %w", err)
 	}
@@ -3867,6 +3870,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateFrigateUpdateInstanceStmt, err = db.PrepareContext(ctx, updateFrigateUpdateInstance); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateFrigateUpdateInstance: %w", err)
 	}
+	if q.updateFrigateUpdateInstanceProtoOSStmt, err = db.PrepareContext(ctx, updateFrigateUpdateInstanceProtoOS); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateFrigateUpdateInstanceProtoOS: %w", err)
+	}
 	if q.updateFrigateUpdateInstanceStagingStmt, err = db.PrepareContext(ctx, updateFrigateUpdateInstanceStaging); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateFrigateUpdateInstanceStaging: %w", err)
 	}
@@ -6220,6 +6226,11 @@ func (q *Queries) Close() error {
 	if q.getFrigateUpdateJobByRequestKeyStmt != nil {
 		if cerr := q.getFrigateUpdateJobByRequestKeyStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getFrigateUpdateJobByRequestKeyStmt: %w", cerr)
+		}
+	}
+	if q.getFrigateUpdateJobPackageKindStmt != nil {
+		if cerr := q.getFrigateUpdateJobPackageKindStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFrigateUpdateJobPackageKindStmt: %w", cerr)
 		}
 	}
 	if q.getFrigateUpdatePackageStmt != nil {
@@ -10472,6 +10483,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateFrigateUpdateInstanceStmt: %w", cerr)
 		}
 	}
+	if q.updateFrigateUpdateInstanceProtoOSStmt != nil {
+		if cerr := q.updateFrigateUpdateInstanceProtoOSStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateFrigateUpdateInstanceProtoOSStmt: %w", cerr)
+		}
+	}
 	if q.updateFrigateUpdateInstanceStagingStmt != nil {
 		if cerr := q.updateFrigateUpdateInstanceStagingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateFrigateUpdateInstanceStagingStmt: %w", cerr)
@@ -11267,6 +11283,7 @@ type Queries struct {
 	getFrigateUpdateDeviceSiteStmt                              *sql.Stmt
 	getFrigateUpdateJobStmt                                     *sql.Stmt
 	getFrigateUpdateJobByRequestKeyStmt                         *sql.Stmt
+	getFrigateUpdateJobPackageKindStmt                          *sql.Stmt
 	getFrigateUpdatePackageStmt                                 *sql.Stmt
 	getFrigateUpdatePackageBySHA256Stmt                         *sql.Stmt
 	getFrigateUpdateTargetStmt                                  *sql.Stmt
@@ -12117,6 +12134,7 @@ type Queries struct {
 	updateDiscoveredDeviceFirmwareVersionStmt                   *sql.Stmt
 	updateFleetNodeLastSeenAtStmt                               *sql.Stmt
 	updateFrigateUpdateInstanceStmt                             *sql.Stmt
+	updateFrigateUpdateInstanceProtoOSStmt                      *sql.Stmt
 	updateFrigateUpdateInstanceStagingStmt                      *sql.Stmt
 	updateFrigateUpdateJobStmt                                  *sql.Stmt
 	updateFrigateUpdatePackageReleaseStmt                       *sql.Stmt
@@ -12619,6 +12637,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getFrigateUpdateDeviceSiteStmt:                              q.getFrigateUpdateDeviceSiteStmt,
 		getFrigateUpdateJobStmt:                                     q.getFrigateUpdateJobStmt,
 		getFrigateUpdateJobByRequestKeyStmt:                         q.getFrigateUpdateJobByRequestKeyStmt,
+		getFrigateUpdateJobPackageKindStmt:                          q.getFrigateUpdateJobPackageKindStmt,
 		getFrigateUpdatePackageStmt:                                 q.getFrigateUpdatePackageStmt,
 		getFrigateUpdatePackageBySHA256Stmt:                         q.getFrigateUpdatePackageBySHA256Stmt,
 		getFrigateUpdateTargetStmt:                                  q.getFrigateUpdateTargetStmt,
@@ -13469,6 +13488,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateDiscoveredDeviceFirmwareVersionStmt:                   q.updateDiscoveredDeviceFirmwareVersionStmt,
 		updateFleetNodeLastSeenAtStmt:                               q.updateFleetNodeLastSeenAtStmt,
 		updateFrigateUpdateInstanceStmt:                             q.updateFrigateUpdateInstanceStmt,
+		updateFrigateUpdateInstanceProtoOSStmt:                      q.updateFrigateUpdateInstanceProtoOSStmt,
 		updateFrigateUpdateInstanceStagingStmt:                      q.updateFrigateUpdateInstanceStagingStmt,
 		updateFrigateUpdateJobStmt:                                  q.updateFrigateUpdateJobStmt,
 		updateFrigateUpdatePackageReleaseStmt:                       q.updateFrigateUpdatePackageReleaseStmt,

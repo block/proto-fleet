@@ -38,7 +38,7 @@ func TestDeactivationWaitsForBlockingFrigateUpdate(t *testing.T) {
 			info, err := session.GetInfo(ctx)
 			require.NoError(t, err)
 			q := sqlc.New(f.conn)
-			pkg, err := q.InsertFrigateUpdatePackage(ctx, sqlc.InsertFrigateUpdatePackageParams{ID: uuid.New(), OrgID: f.target.OrganizationID, Filename: "frigate.deb", Version: "2.0.0", Architecture: "arm64", Sha256: strings.Repeat("a", 64), SizeBytes: 1, Repository: "btc-mining/frigate", ReleaseKeyID: "key", IssuedAt: time.Now().UTC(), Statement: []byte(`{}`), Signature: []byte{1}, UploadedBy: sql.NullInt64{Int64: info.UserID, Valid: true}})
+			pkg, err := q.InsertFrigateUpdatePackage(ctx, sqlc.InsertFrigateUpdatePackageParams{ID: uuid.New(), OrgID: f.target.OrganizationID, Kind: "frigate", Filename: "frigate.deb", Version: "2.0.0", Architecture: "arm64", Sha256: strings.Repeat("a", 64), SizeBytes: 1, Repository: "btc-mining/frigate", ReleaseKeyID: "key", IssuedAt: time.Now().UTC(), Statement: []byte(`{}`), Signature: []byte{1}, UploadedBy: sql.NullInt64{Int64: info.UserID, Valid: true}})
 			require.NoError(t, err)
 			job, err := q.InsertFrigateUpdateJob(ctx, sqlc.InsertFrigateUpdateJobParams{ID: uuid.New(), OrgID: f.target.OrganizationID, DeviceID: f.target.DeviceID, PackageID: pkg.ID, TargetVersion: pkg.Version, ExpectedInstanceIds: []string{"controller"}, RequestKey: uuid.NewString(), ActorUserID: info.UserID, ActorExternalID: "operator", ActorUsername: "operator"})
 			require.NoError(t, err)
