@@ -328,6 +328,8 @@ export interface LevelRollup extends LevelTelemetry {
 }
 
 export interface HashboardTelemetry extends LevelTelemetry {
+  /** Source health observation time; polling does not renew this timestamp. */
+  healthObservedAt?: number;
   hashboardId: HashboardId;
   /** Explicit isolation reported by firmware; offline alone does not imply isolation. */
   isolated?: boolean;

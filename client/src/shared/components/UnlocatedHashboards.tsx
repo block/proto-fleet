@@ -11,6 +11,7 @@ export interface UnlocatedHashboard {
   identity: string;
   serial?: string;
   firmware?: string;
+  readingsUnavailable?: boolean;
   status: string;
   hashrate: string;
   temperature: string;
@@ -162,12 +163,24 @@ export default function UnlocatedHashboards({
                       />
                     ),
                   },
-                  status: { width: "w-36", component: (board) => (stale ? "Unknown" : board.status) },
-                  hashrate: { width: "w-32", component: (board) => (stale ? "—" : board.hashrate) },
-                  temperature: { width: "w-32", component: (board) => (stale ? "—" : board.temperature) },
+                  status: {
+                    width: "w-36",
+                    component: (board) => (stale || board.readingsUnavailable ? "Unknown" : board.status),
+                  },
+                  hashrate: {
+                    width: "w-32",
+                    component: (board) => (stale || board.readingsUnavailable ? "—" : board.hashrate),
+                  },
+                  temperature: {
+                    width: "w-32",
+                    component: (board) => (stale || board.readingsUnavailable ? "—" : board.temperature),
+                  },
                   issues: {
                     width: "w-24",
-                    component: (board) => (stale || board.issues === undefined ? "—" : String(board.issues.length)),
+                    component: (board) =>
+                      stale || board.readingsUnavailable || board.issues === undefined
+                        ? "—"
+                        : String(board.issues.length),
                   },
                 }}
                 noDataElement={
@@ -190,13 +203,16 @@ export default function UnlocatedHashboards({
               <Button variant="textOnly" text="Back to hashboards" onClick={() => setSelectedId(undefined)} />
               <h3 className="text-emphasis-300">{selected.identity}</h3>
               <p>Location unknown</p>
-              <p>Hashrate: {stale ? "—" : selected.hashrate}</p>
-              <p>Temperature: {stale ? "—" : selected.temperature}</p>
-              {selected.power ? <p>Power: {stale ? "—" : selected.power}</p> : null}
-              {selected.efficiency ? <p>Efficiency: {stale ? "—" : selected.efficiency}</p> : null}
+              {!stale && selected.readingsUnavailable ? <p role="status">Current readings are unavailable.</p> : null}
+              <p>Hashrate: {stale || selected.readingsUnavailable ? "—" : selected.hashrate}</p>
+              <p>Temperature: {stale || selected.readingsUnavailable ? "—" : selected.temperature}</p>
+              {selected.power ? <p>Power: {stale || selected.readingsUnavailable ? "—" : selected.power}</p> : null}
+              {selected.efficiency ? (
+                <p>Efficiency: {stale || selected.readingsUnavailable ? "—" : selected.efficiency}</p>
+              ) : null}
               {selected.serial ? <p>Serial number: {selected.serial}</p> : null}
               {selected.firmware ? <p>Firmware: {selected.firmware}</p> : null}
-              {stale || selected.issues === undefined ? (
+              {stale || selected.readingsUnavailable || selected.issues === undefined ? (
                 <p>Issue details unavailable.</p>
               ) : selected.issues.length ? (
                 <ul className="list-disc pl-5">

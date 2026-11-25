@@ -31,7 +31,8 @@ func projectUnlocated(c *pb.Container, data []byte, now time.Time) error {
 		}
 		if len(board.MetadataJSON) > 0 {
 			if err := json.Unmarshal(board.MetadataJSON, &metadata); err != nil {
-				return fmt.Errorf("decode unlocated board metadata: %w", err)
+				// Optional firmware data must not prevent other boards from loading.
+				metadata.FirmwareVersion = ""
 			}
 		}
 		b.FirmwareVersion = metadata.FirmwareVersion
@@ -52,7 +53,8 @@ func projectUnlocated(c *pb.Container, data []byte, now time.Time) error {
 			}
 			if len(board.HealthJSON) > 0 {
 				if err := json.Unmarshal(board.HealthJSON, &health); err != nil {
-					return fmt.Errorf("decode unlocated board health: %w", err)
+					// Discard partial decoding so malformed health cannot imply no issues.
+					health = nil
 				}
 			}
 			if health != nil && !observationStale(health.Timestamp, now) {

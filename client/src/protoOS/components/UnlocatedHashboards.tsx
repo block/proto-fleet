@@ -5,6 +5,7 @@ import { usePsuObservationTime } from "@/protoOS/hooks/usePsuObservationTime";
 import { useDetailedErrors } from "@/protoOS/store/hooks/useMinerStatus";
 import { useTemperatureUnit } from "@/protoOS/store/hooks/useUI";
 import useMinerStore from "@/protoOS/store/useMinerStore";
+import { readingStatus } from "@/protoOS/store/utils/readingFreshness";
 import UnlocatedHashboards from "@/shared/components/UnlocatedHashboards";
 import {
   convertCtoF,
@@ -36,6 +37,7 @@ export default function ContainerUnlocatedHashboards({
       const issues = errors.filter((error) => error.component?.id === board.id).map((error) => error.message);
       return {
         id: board.id,
+        readingsUnavailable: readingStatus(reading?.healthObservedAt, now) !== "current",
         identity: board.identity.value,
         serial: details?.serialNumber,
         firmware: details?.firmware?.version,

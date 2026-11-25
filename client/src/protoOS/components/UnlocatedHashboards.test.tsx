@@ -1,11 +1,12 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, expect, it } from "vitest";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { getScopeHealth } from "./StatusModal/scopeHealth";
 import ContainerUnlocatedHashboards from "./UnlocatedHashboards";
 import { toCanonicalContainer, toCanonicalErrors } from "@/protoOS/api/adapters/mdkV2/normalize";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
 beforeEach(() => useMinerStore.getState().resetDeviceData());
+afterEach(() => vi.useRealTimers());
 
 it("exposes an unlocated board and its fault without a tank or module", () => {
   const wire = {
@@ -22,6 +23,7 @@ it("exposes an unlocated board and its fault without a tank or module", () => {
                     macAddress: "aa:bb:cc:dd:ee:01",
                     serial: "board-one",
                     health: {
+                      timestamp: new Date().toISOString(),
                       hashrate: 2.5,
                       temperatures: [28],
                       errors: [{}],
@@ -81,6 +83,7 @@ it.each([
   );
   const board = [...snapshot.telemetry.hashboards.values()][0];
   board.health = "ok";
+  board.healthObservedAt = Date.now();
   board.miningStatus = miningStatus;
   useMinerStore.getState().hardware.replaceHardware(snapshot.hardware);
   useMinerStore.getState().telemetry.mergeTelemetry(snapshot.telemetry);
@@ -88,4 +91,66 @@ it.each([
   fireEvent.click(screen.getByRole("button", { name: "View hashboards" }));
   expect(screen.getByText(label)).toBeInTheDocument();
   expect(screen.queryByText("Healthy")).not.toBeInTheDocument();
+});
+
+it.each(["old", "missing", "future"] as const)("does not renew %s health when inventory polls succeed", (kind) => {
+  vi.useFakeTimers();
+  const now = Date.now();
+  const timestamp = kind === "missing" ? undefined : new Date(now + (kind === "old" ? -180_000 : 60_000)).toISOString();
+  const wire = {
+    containerMap: {
+      tanks: [
+        {
+          id: 0,
+          modules: [
+            {
+              id: 0,
+              slots: [
+                {
+                  hashboard: {
+                    serial: "expired",
+                    health: { timestamp, hashrate: 2.5, temperatures: [28], errors: [{}] },
+                  },
+                },
+                {
+                  hashboard: {
+                    serial: "current",
+                    health: { timestamp: new Date(now).toISOString(), hashrate: 3.5, temperatures: [32], errors: [] },
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  };
+  const poll = () => {
+    const snapshot = toCanonicalContainer(wire, {}, {}, "ct1");
+    const store = useMinerStore.getState();
+    store.hardware.replaceHardware(snapshot.hardware);
+    store.telemetry.mergeTelemetry(snapshot.telemetry);
+    store.minerStatus.setErrors(toCanonicalErrors(wire, "ct1"));
+  };
+  poll();
+  render(<ContainerUnlocatedHashboards />);
+  fireEvent.click(screen.getByRole("button", { name: "View hashboards" }));
+  act(() => {
+    vi.advanceTimersByTime(10_000);
+    poll();
+  });
+  const expired = screen.getByRole("button", { name: "View hashboard expired" }).closest("tr")!;
+  expect(within(expired).getByText("Unknown")).toBeInTheDocument();
+  expect(within(expired).queryByText("28.0 °C")).not.toBeInTheDocument();
+  const current = screen.getByRole("button", { name: "View hashboard current" }).closest("tr")!;
+  expect(within(current).getByText("32.0 °C")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "View hashboard expired" }));
+  expect(screen.getByText("Current readings are unavailable.")).toBeInTheDocument();
+  expect(screen.getByText("Issue details unavailable.")).toBeInTheDocument();
+  expect(screen.queryByText("Unknown error")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Back to hashboards" }));
+  fireEvent.click(screen.getByRole("button", { name: "View hashboard current" }));
+  expect(screen.getByText("Temperature: 32.0 °C")).toBeInTheDocument();
+  act(() => vi.advanceTimersByTime(120_000));
+  expect(screen.getByText("Temperature: —")).toBeInTheDocument();
 });

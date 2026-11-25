@@ -99,8 +99,32 @@ func TestUnlocatedInventoryPersistsAndClearsWithoutInventingPlacements(t *testin
 	require.False(t, stale.UnlocatedBoards[0].IssuesKnown)
 	require.Empty(t, stale.UnlocatedBoards[0].Issues)
 
+	// A site move must withdraw the previous site's evidence from the new reader.
+	var siteID int64
+	require.NoError(t, db.QueryRowContext(ctx, "INSERT INTO site(org_id,name,slug) VALUES($1,'New site','new-site') RETURNING id", org).Scan(&siteID))
+	_, err = db.ExecContext(ctx, "UPDATE device SET site_id=$1 WHERE device_identifier=$2", siteID, d.DeviceIdentifier)
+	require.NoError(t, err)
+	newSiteReader := func(site *int64) (bool, error) { return site != nil && *site == siteID, nil }
+	moved, err := service.Get(ctx, org, d.DeviceIdentifier, newSiteReader)
+	require.NoError(t, err)
+	require.Empty(t, moved.UnlocatedBoards)
+	// A delayed poll from before the move cannot restore the withdrawn data.
+	write()
+	moved, err = service.Get(ctx, org, d.DeviceIdentifier, newSiteReader)
+	require.NoError(t, err)
+	require.Empty(t, moved.UnlocatedBoards)
+	// A new observation can populate the new site's inventory.
+	snapshot.ObservedAt = time.Now().UTC().Add(time.Second)
+	for i := range snapshot.UnlocatedHashboards {
+		snapshot.UnlocatedHashboards[i].ObservedAt = snapshot.ObservedAt
+	}
+	write()
+	moved, err = service.Get(ctx, org, d.DeviceIdentifier, newSiteReader)
+	require.NoError(t, err)
+	require.Len(t, moved.UnlocatedBoards, 2)
+
 	// A later complete map moves the same identities into real board slots.
-	snapshot.ObservedAt = now.Add(time.Second)
+	snapshot.ObservedAt = snapshot.ObservedAt.Add(time.Second)
 	mapped := []sdk.ContainerHashboard{board("located-1", 1)}
 	for index, entry := range snapshot.UnlocatedHashboards {
 		entry.Position = int32(index + 2) //nolint:gosec // The fixture contains two unlocated boards.

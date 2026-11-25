@@ -444,6 +444,7 @@ const toHashboardTelemetry = (entry: BoardEntry): HashboardTelemetry => ({
         : null,
   hashboardId: entry.hashboardId,
   health: healthState(entry.board),
+  healthObservedAt: observationTime(entry.board.health?.timestamp),
   miningStatus: boardMiningStatus(entry.board),
   reportedIssueCount: entry.board.health
     ? (entry.board.health.errors?.length ?? 0) + (entry.board.health.warnings?.length ?? 0)

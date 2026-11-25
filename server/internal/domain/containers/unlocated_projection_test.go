@@ -114,3 +114,27 @@ func TestUnlocatedBoardProjectionUsesIndependentStateAndHealthTimes(t *testing.T
 		})
 	}
 }
+
+func TestUnlocatedBoardProjectionContainsMalformedOptionalFields(t *testing.T) {
+	now := time.Now().UTC()
+	for _, stale := range []bool{false, true} {
+		for _, malformed := range []string{
+			`{"firmwareVersion":123}`, `[]`, `"invalid"`,
+		} {
+			boards := []sdk.ContainerHashboard{
+				{Serial: "malformed", ObservedAt: now, MetadataJSON: json.RawMessage(malformed),
+					HealthJSON: json.RawMessage(`{"timestamp":123,"errors":"invalid"}`)},
+				{Serial: "valid", ObservedAt: now, MetadataJSON: json.RawMessage(`{"firmwareVersion":"2.3.4"}`)},
+			}
+			data, err := json.Marshal(boards)
+			require.NoError(t, err)
+			c := &pb.Container{Stale: stale}
+			require.NoError(t, projectUnlocated(c, data, now))
+			require.Len(t, c.UnlocatedBoards, 2)
+			require.Empty(t, c.UnlocatedBoards[0].FirmwareVersion)
+			require.False(t, c.UnlocatedBoards[0].IssuesKnown)
+			require.Empty(t, c.UnlocatedBoards[0].Issues)
+			require.Equal(t, "2.3.4", c.UnlocatedBoards[1].FirmwareVersion)
+		}
+	}
+}
