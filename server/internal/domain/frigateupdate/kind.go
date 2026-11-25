@@ -31,6 +31,9 @@ type kindRules struct {
 	manifest      sdk.FrigatePackageKind
 	// noun names the package in activity log entries, after a verb.
 	noun string
+	// runningEntry is the format of the activity log entry for a job that
+	// becomes running. Its one %s is the target version.
+	runningEntry string
 	// maxSize caps Fleet's configured package size limit.
 	maxSize int64
 	// exactControlVersion requires the control file version to equal the
@@ -53,6 +56,7 @@ var packageKinds = map[PackageKind]kindRules{
 		debianPackage: frigaterelease.PackageName,
 		manifest:      sdk.FrigatePackageFrigate,
 		noun:          "controller software",
+		runningEntry:  "The controller accepted the update to %s",
 		maxSize:       frigaterelease.MaxPackageBytes,
 		checkUpload:   func(frigaterelease.Statement, string) error { return nil },
 		releaseTag:    func(string) (string, string) { return "", "" },
@@ -61,6 +65,7 @@ var packageKinds = map[PackageKind]kindRules{
 		debianPackage:       frigaterelease.ProtoOSPackageName,
 		manifest:            sdk.FrigatePackageProtoOS,
 		noun:                "ProtoOS",
+		runningEntry:        "The controllers committed the package for ProtoOS %s and are installing it",
 		maxSize:             maxProtoOSPackageBytes,
 		exactControlVersion: true,
 		checkUpload:         checkProtoOSUpload,

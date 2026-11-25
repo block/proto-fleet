@@ -174,6 +174,10 @@ describe("formatActivityDescription", () => {
 
     it.each([
       ["frigate_update_started", "Started ProtoOS update to 0.6.2~internal.14"],
+      [
+        "frigate_update_running",
+        "The controllers committed the package for ProtoOS 0.6.2~internal.14 and are installing it",
+      ],
       ["frigate_update_succeeded", "ProtoOS updated to 0.6.2~internal.14"],
       ["frigate_update_failed", "ProtoOS update to 0.6.2~internal.14 failed"],
       ["frigate_update_cancelled", "Cancelled the ProtoOS update to 0.6.2~internal.14"],
@@ -181,29 +185,6 @@ describe("formatActivityDescription", () => {
     ])("keeps the server's text for %s, which names ProtoOS", (eventType, description) => {
       const metadata = { package_kind: "proto_os", target_version: "0.6.2~internal.14" };
       expect(formatActivityDescription(entry(eventType, description, metadata))).toBe(description);
-    });
-
-    it("says a running ProtoOS update is in progress, not accepted by a controller", () => {
-      const running = entry("frigate_update_running", "The controller accepted the update to 0.6.2~internal.14", {
-        package_kind: "proto_os",
-        target_version: "0.6.2~internal.14",
-      });
-      expect(formatActivityDescription(running)).toBe("ProtoOS update to 0.6.2~internal.14 in progress");
-    });
-
-    it("names controller software for a running update with no package kind, as entries before ProtoOS have", () => {
-      const running = entry("frigate_update_running", "The controller accepted the update to 1.6.0", {
-        target_version: "1.6.0",
-      });
-      expect(formatActivityDescription(running)).toBe("Controller software update to 1.6.0 in progress");
-    });
-
-    it("keeps the server's text for a package kind this client doesn't know", () => {
-      const running = entry("frigate_update_running", "The controller accepted the update to 2.0.0", {
-        package_kind: "something_new",
-        target_version: "2.0.0",
-      });
-      expect(formatActivityDescription(running)).toBe("The controller accepted the update to 2.0.0");
     });
 
     it("never shows the internal name of the controller software", () => {

@@ -682,11 +682,12 @@ func (s *Service) logTransition(ctx context.Context, before, after sqlc.FrigateU
 		slog.Warn("frigate update activity lookup failed", "job_id", after.ID, "error", err)
 		kind = PackageKindFrigate
 	}
-	noun := kind.rules().noun
+	rules := kind.rules()
+	noun := rules.noun
 	switch after.State {
 	case StateRunning:
 		s.logJobEvent(ctx, after, kind, "frigate_update_running",
-			fmt.Sprintf("The controller accepted the update to %s", after.TargetVersion), activitymodels.ResultSuccess, "")
+			fmt.Sprintf(rules.runningEntry, after.TargetVersion), activitymodels.ResultSuccess, "")
 	case StateSucceeded:
 		s.logJobEvent(ctx, after, kind, "frigate_update_succeeded",
 			fmt.Sprintf("%s updated to %s", sentenceCase(noun), after.TargetVersion), activitymodels.ResultSuccess, "")

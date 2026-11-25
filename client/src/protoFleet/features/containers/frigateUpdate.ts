@@ -331,7 +331,7 @@ const isUpdatableKind = (kind: FrigatePackageKind): kind is UpdatableKind =>
 export const packageKindRules = (kind: FrigatePackageKind): PackageKindRules =>
   isUpdatableKind(kind) ? UPDATABLE_KIND_RULES[kind] : OTHER_KIND_RULES;
 
-// The REST upload responses and the activity log name a kind as the server stores it.
+// The REST upload responses name a kind as the server stores it.
 const KIND_BY_NAME = new Map<string, FrigatePackageKind>([
   ["frigate", FrigatePackageKind.CONTROLLER_SOFTWARE],
   ["proto_os", FrigatePackageKind.PROTO_OS],

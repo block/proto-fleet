@@ -7,8 +7,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/block/proto-fleet/server/internal/domain/activity"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
@@ -345,6 +347,29 @@ func TestProtoOS_AndControllerSoftwareJobsExcludeEachOther(t *testing.T) {
 	support, err := e.svc.GetSupport(e.ctx, e.device.ID, e.pkg.ID)
 	require.NoError(t, err)
 	assert.Equal(t, CodeUpdateInProgress, support.IneligibleCode)
+}
+
+func TestProtoOS_RunningActivityEntryNamesTheInstall(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		newEnv func(*testing.T) *env
+		want   string
+	}{
+		{"ProtoOS", newProtoOSEnv, "The controllers committed the package for ProtoOS 0.6.2~internal.14 and are installing it"},
+		{"controller software", newEnv, "The controller accepted the update to 2.0.0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := tc.newEnv(t)
+			e.svc.activity = activity.NewService(sqlstores.NewSQLActivityStore(e.conn))
+			job := e.advanceToRunning(e.start("key-1"))
+
+			var description string
+			require.NoError(t, e.conn.QueryRowContext(e.ctx,
+				`SELECT description FROM activity_log WHERE event_type='frigate_update_running' AND metadata->>'job_id'=$1`,
+				job.Row.ID.String()).Scan(&description))
+			assert.Equal(t, tc.want, description)
+		})
+	}
 }
 
 var _ interfaces.ProtoOSUpdateChecker = (*fakeUpdater)(nil)
