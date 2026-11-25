@@ -13,14 +13,14 @@ validate_release_repository() {
 # Parse data only: never source configuration or release metadata as shell.
 release_repository_from_metadata() {
   local contents="$1" repository
-  repository=$(printf '%s\n' "$contents" | awk '
+  repository=$(printf '%s\n' "$contents" | awk -v public_repository="$PUBLIC_RELEASE_REPOSITORY" '
     /^[[:space:]]*release_repository/ {
       count++
       if ($0 !~ /^release_repository: /) exit 2
       sub(/^release_repository: /, "")
       value=$0
     }
-    END { if (count > 1) exit 2; if (count == 0) print "block/proto-fleet"; else print value }
+    END { if (count > 1) exit 2; if (count == 0) print public_repository; else print value }
   ') || return 1
   validate_release_repository "$repository" || return 1
   printf '%s' "$repository"
@@ -587,7 +587,7 @@ RELEASE_REPOSITORY="$PACKAGED_RELEASE_REPOSITORY"
 validate_release_repository "$RELEASE_REPOSITORY" || { echo "invalid packaged repository" >&2; exit 1; }
 installed_repository=""
 if [[ -e "$PROGRAM_DIR" ]]; then
-  installed_repository="block/proto-fleet"
+  installed_repository="$PUBLIC_RELEASE_REPOSITORY"
 fi
 if [[ -f "$PROGRAM_DIR/version.txt" ]]; then
   installed_metadata=$(as_root cat "$PROGRAM_DIR/version.txt") || { echo "cannot read installed release metadata" >&2; exit 1; }
@@ -605,7 +605,6 @@ if [[ "$ACTION" == migrate-to-public ]]; then
 elif [[ -n "$installed_repository" && "$installed_repository" != "$expected_installed_repository" ]]; then
   echo "installed release repository conflicts with this packaged installer" >&2; exit 1
 fi
-persisted_repository=""
 if as_root test -e "$source_config" || as_root test -L "$source_config"; then
   as_root test -f "$source_config" && ! as_root test -L "$source_config" || {
     echo "release repository configuration must be a regular file" >&2; exit 1;
@@ -620,8 +619,7 @@ if as_root test -e "$source_config" || as_root test -L "$source_config"; then
     fi
     exit 1
   fi
-fi
-if [[ "$ACTION" == migrate-to-public && "$persisted_repository" != "$expected_installed_repository" ]]; then
+elif [[ "$ACTION" == migrate-to-public ]]; then
   echo "repository migration requires the persisted repository pin for $expected_installed_repository" >&2
   exit 1
 fi
