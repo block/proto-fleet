@@ -131,6 +131,9 @@ if [[ -n "${FAKE_SYSTEMCTL_RECOVERY_PROBE:-}" && ( "$1" == "start" || "$1" == "i
   cat "$FLEETNODE_ROOT_PREFIX/etc/fleetnode/release-repository" \
     "$FLEETNODE_ROOT_PREFIX/opt/fleetnode/fleetnode" > "$FAKE_SYSTEMCTL_RECOVERY_PROBE.$1"
 fi
+if [[ "${1:-}" == "reset-failed" && "${FAKE_SYSTEMCTL_UNLOADED_AFTER_STOP:-0}" == "1" ]]; then
+  exit 1
+fi
 if [[ "${1:-}" == "start" ]]; then
   if [[ "${FAKE_SYSTEMCTL_FAIL_START:-0}" == "1" ]]; then
     exit 1
@@ -143,6 +146,22 @@ fi
 exit 0
 EOF
 chmod 0755 "$TEST_DIR/bin/systemctl"
+
+cat > "$TEST_DIR/bin/sync" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ -f "${MIGRATION_TERM_BEFORE_STOP:-}" && -f "$2/pending" ]]; then
+  rm -f "$MIGRATION_TERM_BEFORE_STOP"
+  kill -TERM "$PPID"
+fi
+if [[ -f "${MIGRATION_FAIL_COMPLETION_FLUSH:-}" ]] &&
+    grep -Fxq 'start fleet-node.service' "$SYSTEMCTL_LOG" &&
+    grep -Fxq block/proto-fleet "$FLEETNODE_ROOT_PREFIX/etc/fleetnode/release-repository"; then
+  rm -f "$MIGRATION_FAIL_COMPLETION_FLUSH"
+  exit 1
+fi
+EOF
+chmod 0755 "$TEST_DIR/bin/sync"
 
 cat > "$TEST_DIR/bin/getent" <<'EOF'
 #!/usr/bin/env bash
@@ -1000,12 +1019,42 @@ cmp "$TEST_DIR/expected-recovery" "$TEST_DIR/recovery.is-active" || fail "recove
 [[ ! -e "$MIGRATION_DIR" ]] || fail "recovery retained the migration directory"
 
 : > "$SYSTEMCTL_LOG"
+: > "$TEST_DIR/term-before-stop"
+interrupted_status=0
+MIGRATION_TERM_BEFORE_STOP="$TEST_DIR/term-before-stop" \
+  run_staged_installer v3.1.0 migrate-to-public > "$TEST_DIR/migration-interrupted.out" 2>&1 || interrupted_status=$?
+[[ "$interrupted_status" == 143 && ! -e "$TEST_DIR/term-before-stop" ]] || fail "installer did not receive TERM before stopping the service"
+assert_no_service_change "an interruption before cutover"
+assert_migration_state v3.0.0 btc-mining/proto-fleet-internal
+[[ ! -e "$MIGRATION_DIR" ]] || fail "interruption retained the staged files"
+
+: > "$SYSTEMCTL_LOG"
+: > "$TEST_DIR/fail-completion-flush"
+if MIGRATION_FAIL_COMPLETION_FLUSH="$TEST_DIR/fail-completion-flush" FAKE_SYSTEMCTL_UNLOADED_AFTER_STOP=1 \
+    run_staged_installer v3.1.0 migrate-to-public > "$TEST_DIR/migration-flush-failure.out" 2>&1; then
+  fail "migration accepted a failed completion flush"
+fi
+[[ ! -e "$TEST_DIR/fail-completion-flush" ]] || fail "installer did not reach the completion flush"
+assert_migration_state v3.0.0 btc-mining/proto-fleet-internal
+cmp "$TEST_DIR/internal-fleetnode" "$ROOT_PREFIX/opt/fleetnode/fleetnode"
+[[ "$(grep -Fxc 'start fleet-node.service' "$SYSTEMCTL_LOG")" == 2 ]] || fail "a failed completion flush did not restart the internal release"
+[[ ! -e "$MIGRATION_DIR" ]] || fail "rollback retained the migration directory"
+
+: > "$SYSTEMCTL_LOG"
 run_staged_installer v3.1.0 migrate-to-public
 assert_migration_state v3.1.0 block/proto-fleet
 assert_file_contains "$ROOT_PREFIX/opt/fleetnode/fleetnode" "# fixture version: v3.1.0"
 assert_file_contains "$SYSTEMCTL_LOG" "stop fleet-node.service"
 assert_file_contains "$SYSTEMCTL_LOG" "start fleet-node.service"
 [[ ! -e "$MIGRATION_DIR" ]] || fail "success retained the migration directory"
+
+mkdir "$MIGRATION_DIR"
+touch "$MIGRATION_DIR/committed"
+: > "$SYSTEMCTL_LOG"
+run_without_release recover-public-migration
+assert_no_service_change "cleanup after a completed switch"
+assert_migration_state v3.1.0 block/proto-fleet
+[[ ! -e "$MIGRATION_DIR" ]] || fail "recovery retained the completed migration files"
 
 [[ ! -s "$CURL_LOG" ]] || fail "staged migration contacted the network"
 

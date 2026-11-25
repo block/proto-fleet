@@ -424,12 +424,10 @@ program_replaced=0
 unit_replaced=0
 enroll_helper_replaced=0
 install_complete=0
-migration_started=0
+migration_phase=""
 
 flush_migration_paths() {
-  if [[ "$TEST_MODE" != "1" ]]; then
-    as_root sync -f "$@"
-  fi
+  as_root sync -f "$@"
 }
 
 replace_repository_pin() {
@@ -445,21 +443,33 @@ finish_public_migration() {
     as_root rm -rf "$migration_dir"
 }
 
+rollback_public_migration() {
+  if as_root test -f "$migration_dir/committed"; then
+    as_root mv "$migration_dir/committed" "$migration_dir/pending" || return 1
+  fi
+  # A prior recovery attempt may have failed to flush the rollback marker.
+  flush_migration_paths "$migration_dir" || return 1
+  as_root "$SYSTEMCTL" stop fleet-node.service || return 1
+  if as_root test -d "$migration_dir/previous"; then
+    as_root rm -rf "$PROGRAM_DIR" || return 1
+    as_root mv "$migration_dir/previous" "$PROGRAM_DIR" || return 1
+  fi
+  replace_repository_pin "$migration_dir/release-repository" || return 1
+  flush_migration_paths "$migration_dir" "$source_config" || return 1
+  # systemd can unload a disabled unit after it stops. Start loads it again.
+  as_root "$SYSTEMCTL" reset-failed fleet-node.service >/dev/null 2>&1 || true
+  as_root "$SYSTEMCTL" start fleet-node.service || return 1
+  as_root "$SYSTEMCTL" is-active --quiet fleet-node.service || return 1
+  echo "Restored the previous Fleet Node program and repository pin."
+  finish_public_migration
+}
+
 recover_public_migration() {
   if as_root test -f "$migration_dir/pending"; then
-    as_root "$SYSTEMCTL" stop fleet-node.service || return 1
-    if as_root test -d "$migration_dir/previous"; then
-      as_root rm -rf "$PROGRAM_DIR" || return 1
-      as_root mv "$migration_dir/previous" "$PROGRAM_DIR" || return 1
-    fi
-    replace_repository_pin "$migration_dir/release-repository" || return 1
-    flush_migration_paths "$migration_dir" "$source_config" || return 1
-    as_root "$SYSTEMCTL" reset-failed fleet-node.service || return 1
-    as_root "$SYSTEMCTL" start fleet-node.service || return 1
-    as_root "$SYSTEMCTL" is-active --quiet fleet-node.service || return 1
-    echo "Restored the previous Fleet Node program and repository pin."
+    rollback_public_migration
+  else
+    finish_public_migration
   fi
-  finish_public_migration
 }
 
 cleanup() {
@@ -470,10 +480,11 @@ cleanup() {
     echo "rollback failed: $*" >&2
     rollback_failed=1
   }
-  if [[ "$migration_started" == "1" && "$install_complete" != "1" ]]; then
-    recover_public_migration || rollback_error "run recover-public-migration with this installer"
-  fi
   if [[ "$install_complete" != "1" ]]; then
+    case "$migration_phase" in
+      preparing) finish_public_migration || rollback_error "run recover-public-migration with this installer" ;;
+      activating) rollback_public_migration || rollback_error "run recover-public-migration with this installer" ;;
+    esac
     if [[ "$service_stopped" == "1" ]]; then
       as_root "$SYSTEMCTL" stop fleet-node.service || rollback_error "stop candidate Fleet Node service"
     fi
@@ -817,7 +828,7 @@ migrate_to_public() {
   fi
 
   as_root mkdir -m 0700 "$migration_dir"
-  migration_started=1
+  migration_phase=preparing
   stage_program "$migration_dir/candidate"
   as_root cp -p "$source_config" "$migration_dir/release-repository"
   as_root install -m 0644 "$work_dir/release-repository" "$migration_dir/public-repository"
@@ -826,6 +837,7 @@ migrate_to_public() {
   as_root touch "$migration_dir/pending"
   flush_migration_paths "$migration_dir"
 
+  migration_phase=activating
   as_root "$SYSTEMCTL" stop fleet-node.service
   as_root mv "$PROGRAM_DIR" "$migration_dir/previous"
   flush_migration_paths "$migration_dir"
@@ -835,8 +847,12 @@ migrate_to_public() {
   as_root "$SYSTEMCTL" start fleet-node.service
   as_root "$SYSTEMCTL" is-active --quiet fleet-node.service
 
-  finish_public_migration
+  as_root mv "$migration_dir/pending" "$migration_dir/committed"
+  flush_migration_paths "$migration_dir"
   install_complete=1
+  if ! as_root rm -rf "$migration_dir"; then
+    echo "Cannot remove the saved migration files. Run recover-public-migration." >&2
+  fi
   echo "Fleet Node switched to $PUBLIC_RELEASE_REPOSITORY at $VERSION."
 }
 

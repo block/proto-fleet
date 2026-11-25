@@ -314,9 +314,10 @@ The installer attached to `v0.7.0-rc.1` predates this command.
 
 #### Recover a failed or interrupted switch
 
-If the candidate fails to start, the installer restores the previous program
-and its repository pin, then starts the previous service. Check the installed
-version and pin. Check that the previous Node reconnects before you retry.
+If the candidate fails to start or the installer cannot record completion,
+the installer tries to restore the previous program and its repository pin.
+A successful rollback starts the previous service. Check the installed version
+and pin. Check that the previous Node reconnects before you retry.
 
 If the installer was interrupted or reports a rollback failure, keep the
 recovery files in `/opt/.fleetnode-public-migration`. Use the same
@@ -329,8 +330,9 @@ bash ./install-fleet-node.sh recover-public-migration
 If recovery reports an error, check the service log with
 `sudo journalctl -u fleet-node.service`. Correct the cause and run recovery
 again. After recovery, verify the installed version, pin, and Node connection.
-Then retry the switch. Recovery has no effect after the switch completes and
-the installer removes the saved files.
+If the Node runs the internal release, retry the switch. If the switch already
+completed and saved files remain, recovery removes them without restarting the
+Node.
 
 ## Resetting the SUPER_ADMIN password
 
