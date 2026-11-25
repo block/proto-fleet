@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import ChannelHistoryModal from "./ChannelHistoryModal";
-import type { ControllerSoftwareApi } from "./controllerSoftwareUtils";
+import { type ControllerSoftwareApi, controllerSoftwareVersions } from "./controllerSoftwareUtils";
 import ReleaseChannelManageView from "./ReleaseChannelManageView";
 import ReleaseChannelsTable from "./ReleaseChannelsTable";
 import { mixedDeviceNouns } from "./rolloutStatus";
@@ -95,7 +95,7 @@ const ReleaseChannelsTab = ({
       list: listControllerSoftware,
       listContainers: listControllerSoftwareContainers,
       set: setControllerSoftware,
-      listVersions: async (signal) => (await listPackages(signal)).map((uploaded) => uploaded.version),
+      listVersions: async (signal) => controllerSoftwareVersions(await listPackages(signal)),
     }),
     [
       canSetControllerSoftware,

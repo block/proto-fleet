@@ -1,4 +1,5 @@
 import type { UpdateStatus } from "./rolloutStatus";
+import { type FrigatePackage, FrigatePackageKind } from "@/protoFleet/api/generated/frigateupdate/v1/frigateupdate_pb";
 import type {
   ReleaseChannelContainer,
   ReleaseChannelControllerSoftware,
@@ -26,6 +27,10 @@ export interface ControllerSoftwareApi {
   // Versions of the uploaded controller software packages.
   listVersions: (signal?: AbortSignal) => Promise<string[]>;
 }
+
+/** The versions a channel can name. The server refuses a ProtoOS package version as the controller software target. */
+export const controllerSoftwareVersions = (packages: readonly FrigatePackage[]): string[] =>
+  packages.filter((item) => item.kind === FrigatePackageKind.CONTROLLER_SOFTWARE).map((item) => item.version);
 
 // Versions compare as the server compares them: trimmed, without one leading "v".
 export const controllerSoftwareVersionKey = (version: string): string => version.trim().replace(/^[vV]/, "");
