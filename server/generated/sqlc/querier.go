@@ -1275,6 +1275,7 @@ type Querier interface {
 	GetTotalPairedMiners(ctx context.Context, arg GetTotalPairedMinersParams) (int64, error)
 	GetTotalPools(ctx context.Context, orgID int64) (int64, error)
 	GetUnfinishedCompletedPoolRemoval(ctx context.Context, arg GetUnfinishedCompletedPoolRemovalParams) (uuid.UUID, error)
+	GetUnlocatedHashboards(ctx context.Context, deviceID int64) (json.RawMessage, error)
 	GetUserByExternalId(ctx context.Context, userID string) (User, error)
 	GetUserById(ctx context.Context, id int64) (User, error)
 	GetUserByIdForUpdate(ctx context.Context, id int64) (User, error)

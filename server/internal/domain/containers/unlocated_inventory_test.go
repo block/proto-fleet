@@ -167,3 +167,69 @@ func TestUnlocatedInventoryPersistsAndClearsWithoutInventingPlacements(t *testin
 	require.NoError(t, db.QueryRowContext(ctx, "SELECT count(*) FROM hashboard_installation WHERE removed_at IS NULL").Scan(&count))
 	require.Equal(t, 3, count)
 }
+
+func TestUnlocatedInventoryRetainedAcrossPartialObservation(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+	org, err := sqlc.New(db).CreateOrganization(ctx, sqlc.CreateOrganizationParams{OrgID: "unlocated-retain", Name: "Unlocated retain"})
+	require.NoError(t, err)
+	d := &discoverymodels.DiscoveredDevice{Device: pairingpb.Device{
+		DeviceIdentifier: "retain-ct1", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER,
+		SerialNumber: "retain-serial", Model: "CT1", Manufacturer: "Proto", DriverName: "proto",
+		IpAddress: "192.0.2.13", Port: "8080", UrlScheme: "http",
+	}, OrgID: org, IsActive: true}
+	_, err = sqlstores.NewSQLDiscoveredDeviceStore(db).Save(ctx, discoverymodels.DeviceOrgIdentifier{OrgID: org, DeviceIdentifier: d.DeviceIdentifier}, d)
+	require.NoError(t, err)
+	devices := sqlstores.NewSQLDeviceStore(db)
+	require.NoError(t, devices.InsertDevice(ctx, &d.Device, org, d.DeviceIdentifier))
+	require.NoError(t, devices.UpsertDevicePairing(ctx, &d.Device, org, "PAIRED"))
+	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
+	require.NoError(t, err)
+	service := containers.NewService(sqlstores.NewSQLContainerStore(db))
+	allow := func(*int64) (bool, error) { return true, nil }
+
+	base := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
+	board := func(serial, mac string, observed time.Time) sdk.ContainerHashboard {
+		return sdk.ContainerHashboard{Serial: serial, MACAddress: mac, Occupancy: "occupied", State: sdk.MinerStatusActive,
+			ObservedAt: observed, StateObservedAt: observed, HashrateHS: new(100e12), TemperatureC: new(65.0)}
+	}
+	writeAt := func(at time.Time, complete bool, unlocated []sdk.ContainerHashboard, tanks []sdk.ContainerTank) {
+		t.Helper()
+		snap := &sdk.ContainerSnapshot{ObservedAt: at, TopologyComplete: complete, Tanks: tanks, UnlocatedHashboards: unlocated}
+		require.NoError(t, store.StoreDeviceMetrics(ctx, telemetry.DeviceMetrics{DeviceIdentifier: d.DeviceIdentifier, Timestamp: at, Container: snap}))
+	}
+
+	// A complete inventory records two placement-free boards.
+	writeAt(base, true,
+		[]sdk.ContainerHashboard{board("retain-a", "02:00:00:00:00:0a", base), board("retain-b", "02:00:00:00:00:0b", base)}, nil)
+	got, err := service.Get(ctx, org, d.DeviceIdentifier, allow)
+	require.NoError(t, err)
+	require.Len(t, got.UnlocatedBoards, 2)
+
+	// A partial poll that reports neither board must not erase the retained inventory.
+	writeAt(base.Add(time.Second), false, nil, nil)
+	retained, err := service.Get(ctx, org, d.DeviceIdentifier, allow)
+	require.NoError(t, err)
+	require.Len(t, retained.UnlocatedBoards, 2)
+	require.ElementsMatch(t, []string{"retain-a", "retain-b"},
+		[]string{retained.UnlocatedBoards[0].Serial, retained.UnlocatedBoards[1].Serial})
+
+	// A partial poll that confirms one board in a physical slot drops only that board.
+	at := base.Add(2 * time.Second)
+	placed := board("retain-a", "02:00:00:00:00:0a", at)
+	placed.Position = 1
+	writeAt(at, false, nil, []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{{
+		Position: 1, ReportedID: "module-1", State: sdk.MinerStatusActive, ObservedAt: at,
+		Hashboards: []sdk.ContainerHashboard{placed},
+	}}}})
+	dropped, err := service.Get(ctx, org, d.DeviceIdentifier, allow)
+	require.NoError(t, err)
+	require.Len(t, dropped.UnlocatedBoards, 1)
+	require.Equal(t, "retain-b", dropped.UnlocatedBoards[0].Serial)
+
+	// A complete inventory without placement-free boards authoritatively clears them.
+	writeAt(base.Add(3*time.Second), true, nil, nil)
+	cleared, err := service.Get(ctx, org, d.DeviceIdentifier, allow)
+	require.NoError(t, err)
+	require.Empty(t, cleared.UnlocatedBoards)
+}

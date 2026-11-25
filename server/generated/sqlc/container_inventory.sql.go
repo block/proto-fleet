@@ -50,6 +50,17 @@ func (q *Queries) AdvanceContainerInventory(ctx context.Context, arg AdvanceCont
 	return device_id, err
 }
 
+const getUnlocatedHashboards = `-- name: GetUnlocatedHashboards :one
+SELECT unlocated_hashboards FROM container_inventory WHERE device_id = $1
+`
+
+func (q *Queries) GetUnlocatedHashboards(ctx context.Context, deviceID int64) (json.RawMessage, error) {
+	row := q.queryRow(ctx, q.getUnlocatedHashboardsStmt, getUnlocatedHashboards, deviceID)
+	var unlocated_hashboards json.RawMessage
+	err := row.Scan(&unlocated_hashboards)
+	return unlocated_hashboards, err
+}
+
 const insertContainerModuleMetrics = `-- name: InsertContainerModuleMetrics :exec
 WITH inserted AS (
   INSERT INTO container_module_metrics (module_id, time, collected_at, hashrate_hs, power_w, temperature_c, efficiency_jh, coverage,site_id,topology_version_id)

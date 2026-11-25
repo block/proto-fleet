@@ -6608,6 +6608,18 @@ func (q *retryingQuerier) GetUnfinishedCompletedPoolRemoval(ctx context.Context,
 	return result, err
 }
 
+func (q *retryingQuerier) GetUnlocatedHashboards(ctx context.Context, deviceID int64) (json.RawMessage, error) {
+	var result json.RawMessage
+	err := q.retrier.RetryQuery(ctx, "GetUnlocatedHashboards", func() error {
+		callResult, callErr := q.next.GetUnlocatedHashboards(ctx, deviceID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetUserByExternalId(ctx context.Context, userID string) (User, error) {
 	var result User
 	err := q.retrier.RetryQuery(ctx, "GetUserByExternalId", func() error {

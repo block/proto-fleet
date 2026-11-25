@@ -43,6 +43,10 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 	if snapshot.ObservedAt.IsZero() || snapshot.ObservedAt.After(received.Add(5*time.Second)) {
 		return fmt.Errorf("invalid container observation time")
 	}
+	// The caller's completeness claim decides whether this poll is an authoritative
+	// full inventory. Capture it before the override below repurposes the flag for
+	// placement reconciliation, so a partial poll never erases retained inventory.
+	completeTopology := snapshot.TopologyComplete
 	if len(snapshot.UnlocatedHashboards) > 0 {
 		// Unlocated inventory cannot establish that absent placements are empty.
 		snapshot.TopologyComplete = false
@@ -215,9 +219,17 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 	if err := storeHashboards(ctx, q, orgID, id, snapshot); err != nil {
 		return err
 	}
-	// Only accepted observations are retained. This replaces the previous list,
-	// including an empty list when boards acquire physical locations.
-	unlocated, err := json.Marshal(snapshot.UnlocatedHashboards)
+	// A complete inventory authoritatively replaces the list, including an empty
+	// list when boards acquire physical locations. A partial observation cannot:
+	// an omitted board was not confirmed removed, so its retained details survive.
+	boards := snapshot.UnlocatedHashboards
+	if !completeTopology {
+		boards, err = retainUnlocatedHashboards(ctx, q, id, snapshot)
+		if err != nil {
+			return err
+		}
+	}
+	unlocated, err := json.Marshal(boards)
 	if err != nil {
 		return fmt.Errorf("encode unlocated hashboards: %w", err)
 	}
@@ -249,4 +261,70 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 		return err
 	}
 	return retireChangedPoolAssignments(ctx, q, poolSelection, poolBindings)
+}
+
+// unlocatedIdentityKeys returns the normalized identities a board can be matched
+// on. An entry without a stable identity returns none and cannot be deduplicated.
+func unlocatedIdentityKeys(b sdk.ContainerHashboard) []string {
+	keys := make([]string, 0, 2)
+	if mac := normalizeHashboardMAC(b.MACAddress); mac != "" {
+		keys = append(keys, "mac:"+mac)
+	}
+	if serial := strings.TrimSpace(b.Serial); serial != "" {
+		keys = append(keys, "serial:"+serial)
+	}
+	return keys
+}
+
+// retainUnlocatedHashboards merges a partial observation with the stored
+// placement-free inventory. The current observations win, a board confirmed in a
+// physical slot leaves the set, and every other previously stored entry is kept:
+// omission in a partial poll is not a confirmed removal.
+func retainUnlocatedHashboards(ctx context.Context, q *sqlc.Queries, deviceID int64, snapshot *sdk.ContainerSnapshot) ([]sdk.ContainerHashboard, error) {
+	stored, err := q.GetUnlocatedHashboards(ctx, deviceID)
+	if err != nil {
+		return nil, err
+	}
+	var previous []sdk.ContainerHashboard
+	if len(stored) > 0 {
+		if err := json.Unmarshal(stored, &previous); err != nil {
+			return nil, fmt.Errorf("decode retained unlocated hashboards: %w", err)
+		}
+	}
+	accounted := map[string]bool{}
+	for _, b := range snapshot.UnlocatedHashboards {
+		for _, key := range unlocatedIdentityKeys(b) {
+			accounted[key] = true
+		}
+	}
+	for ti := range snapshot.Tanks {
+		for mi := range snapshot.Tanks[ti].Modules {
+			for _, b := range snapshot.Tanks[ti].Modules[mi].Hashboards {
+				if b.Occupancy != occupiedHashboardSlot {
+					continue
+				}
+				for _, key := range unlocatedIdentityKeys(b) {
+					accounted[key] = true
+				}
+			}
+		}
+	}
+	retained := append([]sdk.ContainerHashboard(nil), snapshot.UnlocatedHashboards...)
+	for _, b := range previous {
+		keys := unlocatedIdentityKeys(b)
+		if len(keys) == 0 {
+			continue
+		}
+		seen := false
+		for _, key := range keys {
+			if accounted[key] {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			retained = append(retained, b)
+		}
+	}
+	return retained, nil
 }

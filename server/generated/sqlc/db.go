@@ -1785,6 +1785,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getUnfinishedCompletedPoolRemovalStmt, err = db.PrepareContext(ctx, getUnfinishedCompletedPoolRemoval); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUnfinishedCompletedPoolRemoval: %w", err)
 	}
+	if q.getUnlocatedHashboardsStmt, err = db.PrepareContext(ctx, getUnlocatedHashboards); err != nil {
+		return nil, fmt.Errorf("error preparing query GetUnlocatedHashboards: %w", err)
+	}
 	if q.getUserByExternalIdStmt, err = db.PrepareContext(ctx, getUserByExternalId); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUserByExternalId: %w", err)
 	}
@@ -7005,6 +7008,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getUnfinishedCompletedPoolRemovalStmt: %w", cerr)
 		}
 	}
+	if q.getUnlocatedHashboardsStmt != nil {
+		if cerr := q.getUnlocatedHashboardsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getUnlocatedHashboardsStmt: %w", cerr)
+		}
+	}
 	if q.getUserByExternalIdStmt != nil {
 		if cerr := q.getUserByExternalIdStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getUserByExternalIdStmt: %w", cerr)
@@ -11431,6 +11439,7 @@ type Queries struct {
 	getTotalPairedMinersStmt                                    *sql.Stmt
 	getTotalPoolsStmt                                           *sql.Stmt
 	getUnfinishedCompletedPoolRemovalStmt                       *sql.Stmt
+	getUnlocatedHashboardsStmt                                  *sql.Stmt
 	getUserByExternalIdStmt                                     *sql.Stmt
 	getUserByIdStmt                                             *sql.Stmt
 	getUserByIdForUpdateStmt                                    *sql.Stmt
@@ -12784,6 +12793,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getTotalPairedMinersStmt:                                    q.getTotalPairedMinersStmt,
 		getTotalPoolsStmt:                                           q.getTotalPoolsStmt,
 		getUnfinishedCompletedPoolRemovalStmt:                       q.getUnfinishedCompletedPoolRemovalStmt,
+		getUnlocatedHashboardsStmt:                                  q.getUnlocatedHashboardsStmt,
 		getUserByExternalIdStmt:                                     q.getUserByExternalIdStmt,
 		getUserByIdStmt:                                             q.getUserByIdStmt,
 		getUserByIdForUpdateStmt:                                    q.getUserByIdForUpdateStmt,
