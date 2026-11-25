@@ -263,7 +263,7 @@ jobs:
     permissions:
       contents: write
       id-token: write
-    uses: btc-mining/proto-fleet-internal/.github/workflows/sign-protoos-release.yml@main
+    uses: block/proto-fleet/.github/workflows/sign-protoos-release.yml@main # zizmor: ignore[unpinned-uses] AWS trust requires the signing workflow ref on protected main.
 
   publish-release:
     name: Publish release
