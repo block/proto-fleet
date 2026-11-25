@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -309,7 +310,23 @@ func retainUnlocatedHashboards(ctx context.Context, q *sqlc.Queries, deviceID in
 			}
 		}
 	}
-	retained := append([]sdk.ContainerHashboard(nil), snapshot.UnlocatedHashboards...)
+	return boundedUnlocatedInventory(snapshot.UnlocatedHashboards, previous, accounted), nil
+}
+
+// maxRetainedUnlocatedHashboards caps the merged placement-free inventory. A
+// container's real board population is far below this, so the bound only trips on
+// a faulty or hostile controller that reports fresh identities every partial poll;
+// without it the stored JSON, its decode/rewrite under the org lock, and every
+// list projection would grow without limit.
+const maxRetainedUnlocatedHashboards = 1024
+
+// boundedUnlocatedInventory merges the current observations with retained entries
+// the poll neither re-observed nor placed (accounted), keeping current entries and
+// then the most-recently observed retained ones up to the cap. Current entries are
+// already bounded by per-message limits; the cap bounds accumulation across polls.
+func boundedUnlocatedInventory(current, previous []sdk.ContainerHashboard, accounted map[string]bool) []sdk.ContainerHashboard {
+	retained := append([]sdk.ContainerHashboard(nil), current...)
+	kept := make([]sdk.ContainerHashboard, 0, len(previous))
 	for _, b := range previous {
 		keys := unlocatedIdentityKeys(b)
 		if len(keys) == 0 {
@@ -323,8 +340,14 @@ func retainUnlocatedHashboards(ctx context.Context, q *sqlc.Queries, deviceID in
 			}
 		}
 		if !seen {
-			retained = append(retained, b)
+			kept = append(kept, b)
 		}
 	}
-	return retained, nil
+	// Evict the stalest identities first when bounded, never the fresh poll.
+	sort.SliceStable(kept, func(i, j int) bool { return kept[i].ObservedAt.After(kept[j].ObservedAt) })
+	retained = append(retained, kept...)
+	if len(retained) > maxRetainedUnlocatedHashboards {
+		retained = retained[:maxRetainedUnlocatedHashboards]
+	}
+	return retained
 }
