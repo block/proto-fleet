@@ -23,17 +23,6 @@ func MockAuthContextForTesting(ctx context.Context, userID, orgID int64) context
 	return middleware.WithEffectivePermissions(authn.SetInfo(ctx, info), allCatalogEffective())
 }
 
-// MockAuthContextWithSessionID creates a context with a custom session ID for testing.
-// Use this when testing session-specific behavior like stream deduplication.
-func MockAuthContextWithSessionID(ctx context.Context, sessionID string, userID, orgID int64) context.Context {
-	info := &session.Info{
-		SessionID:      sessionID,
-		UserID:         userID,
-		OrganizationID: orgID,
-	}
-	return middleware.WithEffectivePermissions(authn.SetInfo(ctx, info), allCatalogEffective())
-}
-
 // allCatalogEffective returns an org-scope EffectivePermissions that
 // grants every catalog key — the SUPER_ADMIN equivalent for unit
 // tests that don't want to declare a permission set per call site.

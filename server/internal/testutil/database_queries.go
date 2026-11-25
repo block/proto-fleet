@@ -247,12 +247,6 @@ func (s *DatabaseService) createDeviceIPAssignment(deviceID int64, ipAddress str
 	assert.NoError(s.t, err)
 }
 
-func (s *DatabaseService) GetDevicePairingByDeviceIdentifier(databaseDeviceID int64) (sqlc.PairingStatusEnum, error) {
-	return db2.WithTransaction(context.Background(), s.DB, func(q sqlc.Querier) (sqlc.PairingStatusEnum, error) {
-		return q.GetDevicePairingStatusByDeviceDatabaseID(context.Background(), databaseDeviceID)
-	})
-}
-
 func (s *DatabaseService) GetTotalDevicePairings(orgID int64, _ int32) (int, error) {
 	return db2.WithTransaction(context.Background(), s.DB, func(q sqlc.Querier) (int, error) {
 		count, err := q.GetTotalPairedDevices(context.Background(), sqlc.GetTotalPairedDevicesParams{

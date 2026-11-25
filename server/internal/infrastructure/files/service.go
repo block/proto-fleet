@@ -432,15 +432,6 @@ func addFileToZIP(zipWrite *zip.Writer, filename string) error {
 	return nil
 }
 
-func (s *Service) getCommandBatchLogBundle(batchLogUUID string) (string, error) {
-	bundlePath := findBatchBundlePath(batchLogUUID)
-	if bundlePath == "" {
-		return "", fleeterror.NewInternalErrorf("log bundle is not available yet, please try again later")
-	}
-
-	return bundlePath, nil
-}
-
 func (s *Service) GetBatchLogBundleFile(batchLogUUID string) (*FSFile, error) {
 	downloadableFilePath := findBatchBundlePath(batchLogUUID)
 	if downloadableFilePath == "" {

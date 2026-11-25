@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"math"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -220,9 +219,9 @@ func toListParams(f models.Filter) sqlc.ListActivityLogsParams {
 		UserIds:            nilIfEmpty(f.UserIDs),
 		ScopeTypes:         nilIfEmpty(f.ScopeTypes),
 		SearchPattern:      likeSearchPattern(f.SearchText),
-		StartTime:          nullTimeFromPtr(f.StartTime),
-		EndTime:            nullTimeFromPtr(f.EndTime),
-		CursorTime:         nullTimeFromPtr(cursorTime),
+		StartTime:          ptrToNullTime(f.StartTime),
+		EndTime:            ptrToNullTime(f.EndTime),
+		CursorTime:         ptrToNullTime(cursorTime),
 		CursorID:           nullInt64FromPtr(cursorID),
 		PageSize:           clampPageSize(f.PageSize),
 		SiteIds:            emptyIfNil(f.SiteIDs),
@@ -239,8 +238,8 @@ func toCountParams(f models.Filter) sqlc.CountActivityLogsParams {
 		UserIds:            nilIfEmpty(f.UserIDs),
 		ScopeTypes:         nilIfEmpty(f.ScopeTypes),
 		SearchPattern:      likeSearchPattern(f.SearchText),
-		StartTime:          nullTimeFromPtr(f.StartTime),
-		EndTime:            nullTimeFromPtr(f.EndTime),
+		StartTime:          ptrToNullTime(f.StartTime),
+		EndTime:            ptrToNullTime(f.EndTime),
 		SiteIds:            emptyIfNil(f.SiteIDs),
 		IncludeUnassigned:  f.IncludeUnassigned,
 		OrgLevelCategories: models.OrgLevelCategories(),
@@ -262,16 +261,16 @@ func rowToEntry(row sqlc.ListActivityLogsRow) models.Entry {
 		Type:         row.EventType,
 		Description:  row.Description,
 		Result:       row.Result,
-		ErrorMessage: ptrFromNullString(row.ErrorMessage),
-		ScopeType:    ptrFromNullString(row.ScopeType),
-		ScopeLabel:   ptrFromNullString(row.ScopeLabel),
+		ErrorMessage: nullStringToPtr(row.ErrorMessage),
+		ScopeType:    nullStringToPtr(row.ScopeType),
+		ScopeLabel:   nullStringToPtr(row.ScopeLabel),
 		ScopeCount:   intPtrFromNullInt32(row.ScopeCount),
 		ActorType:    row.ActorType,
-		UserID:       ptrFromNullString(row.UserID),
-		Username:     ptrFromNullString(row.Username),
+		UserID:       nullStringToPtr(row.UserID),
+		Username:     nullStringToPtr(row.Username),
 		CreatedAt:    row.CreatedAt,
 		Metadata:     metadata,
-		BatchID:      ptrFromNullString(row.BatchID),
+		BatchID:      nullStringToPtr(row.BatchID),
 	}
 }
 
@@ -309,35 +308,12 @@ func validNullInt64(v int64) sql.NullInt64 {
 	return sql.NullInt64{Int64: v, Valid: true}
 }
 
-func nullTimeFromPtr(t *time.Time) sql.NullTime {
-	if t == nil {
-		return sql.NullTime{}
-	}
-	return sql.NullTime{Time: *t, Valid: true}
-}
-
-func ptrFromNullString(ns sql.NullString) *string {
-	if !ns.Valid {
-		return nil
-	}
-	return &ns.String
-}
-
 func intPtrFromNullInt32(n sql.NullInt32) *int {
 	if !n.Valid {
 		return nil
 	}
 	v := int(n.Int32)
 	return &v
-}
-
-// nilIfEmpty returns nil for empty or nil slices so that pq.Array
-// produces a SQL NULL (matches everything) rather than '{}' (matches nothing).
-func nilIfEmpty(s []string) []string {
-	if len(s) == 0 {
-		return nil
-	}
-	return s
 }
 
 func clampPageSize(size int) int32 {

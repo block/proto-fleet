@@ -530,10 +530,6 @@ func isUnchangedRename(nextName string, props interfaces.DeviceRenameProperties)
 	return strings.TrimSpace(nextName) == getRenameSortName(props)
 }
 
-func isUnchangedWorkerName(nextName string, props interfaces.DeviceRenameProperties) bool {
-	return strings.TrimSpace(nextName) == strings.TrimSpace(props.WorkerName)
-}
-
 func renameResponseCount(n int) int32 {
 	if n > math.MaxInt32 {
 		return math.MaxInt32

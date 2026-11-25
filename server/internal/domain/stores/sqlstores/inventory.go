@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -71,9 +70,9 @@ func (s *SQLInventoryStore) GetForUpdate(ctx context.Context, orgID, id int64) (
 func (s *SQLInventoryStore) List(ctx context.Context, filter models.ListFilter) ([]models.InventoryPart, error) {
 	rows, err := s.GetQueries(ctx).ListInventoryParts(ctx, sqlc.ListInventoryPartsParams{
 		OrgID:           filter.OrgID,
-		FilterSiteIds:   inventoryNilIfEmpty(filter.SiteIDs),
-		ExcludedSiteIds: inventoryNilIfEmpty(filter.ExcludedSiteIDs),
-		FilterTypes:     inventoryNilIfEmpty(filter.Types),
+		FilterSiteIds:   nilIfEmpty(filter.SiteIDs),
+		ExcludedSiteIds: nilIfEmpty(filter.ExcludedSiteIDs),
+		FilterTypes:     nilIfEmpty(filter.Types),
 		FilterLowStock:  filter.LowStockOnly,
 		SearchPattern:   likeSearchPattern(filter.SearchQuery),
 		CursorID:        ptrToNullInt64(filter.CursorID),
@@ -92,9 +91,9 @@ func (s *SQLInventoryStore) List(ctx context.Context, filter models.ListFilter) 
 func (s *SQLInventoryStore) Count(ctx context.Context, filter models.ListFilter) (int32, error) {
 	count, err := s.GetQueries(ctx).CountInventoryParts(ctx, sqlc.CountInventoryPartsParams{
 		OrgID:           filter.OrgID,
-		FilterSiteIds:   inventoryNilIfEmpty(filter.SiteIDs),
-		ExcludedSiteIds: inventoryNilIfEmpty(filter.ExcludedSiteIDs),
-		FilterTypes:     inventoryNilIfEmpty(filter.Types),
+		FilterSiteIds:   nilIfEmpty(filter.SiteIDs),
+		ExcludedSiteIds: nilIfEmpty(filter.ExcludedSiteIDs),
+		FilterTypes:     nilIfEmpty(filter.Types),
 		FilterLowStock:  filter.LowStockOnly,
 		SearchPattern:   likeSearchPattern(filter.SearchQuery),
 	})
@@ -307,17 +306,17 @@ func inventoryPart(
 		OrgID:        orgID,
 		Name:         name,
 		Type:         partType,
-		Manufacturer: inventoryStringPtr(manufacturer),
-		PartNumber:   inventoryStringPtr(partNumber),
+		Manufacturer: nullStringToPtr(manufacturer),
+		PartNumber:   nullStringToPtr(partNumber),
 		SiteID:       nullInt64ToPtr(siteID),
 		SiteName:     siteName,
 		OnHand:       onHand,
 		Allocated:    allocated,
 		ReorderPoint: reorderPoint,
-		BinLocation:  inventoryStringPtr(binLocation),
+		BinLocation:  nullStringToPtr(binLocation),
 		CreatedAt:    createdAt.Time,
 		UpdatedAt:    updatedAt.Time,
-		DeletedAt:    inventoryTimePtr(deletedAt),
+		DeletedAt:    nullTimeToPtr(deletedAt),
 	}
 }
 
@@ -343,27 +342,4 @@ func inventoryPartFromSiteRow(row sqlc.ListPartsBySiteRow) models.InventoryPart 
 	return inventoryPart(row.ID, row.OrgID, row.Name, row.Type, row.Manufacturer, row.PartNumber, row.SiteID, row.SiteName,
 		row.OnHand, row.Allocated, row.ReorderPoint, row.BinLocation,
 		sql.NullTime{Time: row.CreatedAt, Valid: true}, sql.NullTime{Time: row.UpdatedAt, Valid: true}, row.DeletedAt)
-}
-
-func inventoryStringPtr(value sql.NullString) *string {
-	if !value.Valid {
-		return nil
-	}
-	v := value.String
-	return &v
-}
-
-func inventoryTimePtr(value sql.NullTime) *time.Time {
-	if !value.Valid {
-		return nil
-	}
-	v := value.Time
-	return &v
-}
-
-func inventoryNilIfEmpty[T any](values []T) []T {
-	if len(values) == 0 {
-		return nil
-	}
-	return values
 }

@@ -127,7 +127,7 @@ func seedOrgBuiltins(ctx context.Context, q sqlc.Querier, orgID int64) (map[Buil
 			// seed permissions would silently restore anything they
 			// deliberately revoked. Seed-formula changes that need to
 			// reach existing rows ship as explicit one-off migrations
-			// (see migrations/000055_backfill_admin_user_manage.up.sql).
+			// (see migrations/000060_backfill_admin_user_manage.up.sql).
 
 		case errors.Is(err, sql.ErrNoRows):
 			role, err := q.UpsertBuiltinRoleForOrg(ctx, sqlc.UpsertBuiltinRoleForOrgParams{

@@ -41,8 +41,6 @@ const (
 	containerFallbackTimeout = time.Second
 )
 
-var canonicalDiscoveryPorts = []int{443}
-
 var errMissingDeviceIdentity = errors.New("device did not provide")
 
 // defaultCredentials are the factory defaults for Proto rigs, tried during

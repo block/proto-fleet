@@ -107,10 +107,3 @@ func toNullString(s string) sql.NullString {
 		Valid:  s != "",
 	}
 }
-
-func nullTimeToPtr(nt sql.NullTime) *time.Time {
-	if !nt.Valid {
-		return nil
-	}
-	return &nt.Time
-}

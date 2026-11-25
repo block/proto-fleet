@@ -242,10 +242,6 @@ type pairingInfoResponse struct {
 	CbSn string `json:"cb_sn"`
 }
 
-type messageResponse struct {
-	Message string `json:"message"`
-}
-
 type errorResponse struct {
 	Error *errorDetail `json:"error"`
 }

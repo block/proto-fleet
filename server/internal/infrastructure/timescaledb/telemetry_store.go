@@ -19,12 +19,6 @@ import (
 )
 
 const (
-	// Temperature thresholds for status counts (in Celsius)
-	// Cold: temp < 0, Ok: 0 <= temp < 70, Hot: 70 <= temp < 90, Critical: temp >= 90
-	tempThresholdCold     = 0.0  // Below this = Cold
-	tempThresholdHot      = 70.0 // Below this = Ok, at or above = Hot
-	tempThresholdCritical = 90.0 // At or above = Critical
-
 	// Data source selection thresholds
 	// Queries <= 1 day use raw data for highest resolution
 	rawDataMaxDuration = 24 * time.Hour

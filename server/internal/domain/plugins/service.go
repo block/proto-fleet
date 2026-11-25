@@ -153,19 +153,6 @@ func (s *Service) GetRawCapabilitiesForDevice(ctx context.Context, driverName, m
 	return caps
 }
 
-// resolvePluginForDevice finds the plugin for a device by driver name.
-func (s *Service) resolvePluginForDevice(device *pairingpb.Device) *LoadedPlugin {
-	if device.DriverName == "" {
-		return nil
-	}
-
-	plugin, exists := s.manager.GetPluginByDriverName(device.DriverName)
-	if !exists {
-		return nil
-	}
-	return plugin
-}
-
 // mergeCapabilities merges model-specific capabilities with base capabilities.
 // Model-specific capabilities override base capabilities.
 func mergeCapabilities(base, override sdk.Capabilities) sdk.Capabilities {

@@ -3,7 +3,6 @@ package command
 import (
 	"context"
 	"log/slog"
-	"math"
 
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -96,17 +95,6 @@ func (h *Handler) SetPowerTarget(
 		return nil, err
 	}
 	return connect.NewResponse(&pb.SetPowerTargetResponse{BatchIdentifier: result.BatchIdentifier}), nil
-}
-
-// clampToInt32 satisfies gosec; device counts never approach the bounds.
-func clampToInt32(n int) int32 {
-	if n > math.MaxInt32 {
-		return math.MaxInt32
-	}
-	if n < math.MinInt32 {
-		return math.MinInt32
-	}
-	return int32(n)
 }
 
 func (h *Handler) DownloadLogs(
