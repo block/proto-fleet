@@ -361,6 +361,60 @@ func TestFrigateStageRoutesPerInstanceAndRewritesActor(t *testing.T) {
 	require.Zero(t, b.count("Append")+b.count("Commit")+b.count("Abort"))
 }
 
+func TestFrigateStageSendsTheProtoOSPackageSelector(t *testing.T) {
+	d, a, _ := updatePair(t)
+	manifest := sdk.FrigateManifest{
+		JobID: testJobID, InstanceID: "a", ExpectedInstanceIDs: []string{"a", "b"}, ReleaseTag: "v0.6.2", AssetName: "proto-os_v0.6.2_all.deb",
+		TargetVersion: "0.6.2", SHA256: testDigest, SizeBytes: 4096, Coordination: sdk.FrigateCoordinationSelf,
+		Package: sdk.FrigatePackageProtoOS, ReleaseStatement: []byte("statement"), ReleaseSignature: []byte("signature"),
+	}
+	_, err := d.FrigateStageBegin(t.Context(), "a", manifest)
+	require.NoError(t, err)
+	require.Equal(t, mdk.ServerUpdatePackage_SERVER_UPDATE_PACKAGE_PROTO_OS, a.manifest.GetPackage())
+	require.Equal(t, mdk.ServerUpdateCoordination_SERVER_UPDATE_COORDINATION_SELF, a.manifest.GetCoordination())
+	require.Equal(t, "proto-os_v0.6.2_all.deb", a.manifest.GetAssetName())
+
+	manifest.Package = sdk.FrigatePackageFrigate
+	_, err = d.FrigateStageBegin(t.Context(), "a", manifest)
+	require.NoError(t, err)
+	require.Equal(t, mdk.ServerUpdatePackage_SERVER_UPDATE_PACKAGE_UNSPECIFIED, a.manifest.GetPackage())
+}
+
+func TestFrigateSupportReportsProtoOSState(t *testing.T) {
+	d, a, b := updatePair(t)
+	updated := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
+	a.mu.Lock()
+	a.support.ProtoOsSelfSupported = true
+	a.support.ProtoOsInstalledVersion = "0.6.2~internal.14"
+	a.support.ProtoOsReleaseRepositories = []string{"btc-mining/proto-fleet-internal"}
+	a.support.ProtoOsServed = &mdk.ProtoOSBundleStatus{Source: mdk.ProtoOSBundleSource_PROTO_OS_BUNDLE_SOURCE_PACKAGE, ReleaseTag: "v0.6.2-internal.14"}
+	a.support.ProtoOsJob = &mdk.ProtoOSPackageJob{
+		JobId: testJobID, ReleaseTag: "v0.6.2-internal.14", TargetVersion: "0.6.2~internal.14",
+		State: mdk.ProtoOSPackageJobState_PROTO_OS_PACKAGE_JOB_STATE_SUCCEEDED, Message: "installed", UpdatedAt: timestamppb.New(updated),
+	}
+	a.mu.Unlock()
+	b.mu.Lock()
+	b.support.ProtoOsSupportMessage = "the ProtoOS web UI is disabled"
+	b.support.ProtoOsServed = &mdk.ProtoOSBundleStatus{Source: mdk.ProtoOSBundleSource(99)}
+	b.support.ProtoOsJob = &mdk.ProtoOSPackageJob{JobId: testJobID, State: mdk.ProtoOSPackageJobState(99)}
+	b.mu.Unlock()
+
+	supports, err := d.FrigateUpdateSupport(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, sdk.FrigateProtoOSSupport{
+		SelfSupported: true, InstalledVersion: "0.6.2~internal.14", ReleaseRepositories: []string{"btc-mining/proto-fleet-internal"},
+		Served: sdk.FrigateProtoOSBundle{Source: sdk.FrigateProtoOSBundlePackage, ReleaseTag: "v0.6.2-internal.14"},
+		Job: sdk.FrigateProtoOSJob{
+			JobID: testJobID, ReleaseTag: "v0.6.2-internal.14", TargetVersion: "0.6.2~internal.14",
+			State: sdk.FrigateProtoOSJobSucceeded, Message: "installed", UpdatedAt: updated,
+		},
+	}, supports[0].ProtoOS)
+	require.False(t, supports[1].ProtoOS.SelfSupported)
+	require.Equal(t, "the ProtoOS web UI is disabled", supports[1].ProtoOS.SupportMessage)
+	require.Equal(t, sdk.FrigateProtoOSBundleUnknown, supports[1].ProtoOS.Served.Source, "an unknown source is not dropped")
+	require.Equal(t, sdk.FrigateProtoOSJobUnknown, supports[1].ProtoOS.Job.State, "an unknown state is not dropped")
+}
+
 func TestFrigateStageRejectsUnknownOrMismatchedInstance(t *testing.T) {
 	d, a, b := updatePair(t)
 	_, err := d.FrigateStageBegin(t.Context(), "c", sdk.FrigateManifest{JobID: testJobID, InstanceID: "c"})
