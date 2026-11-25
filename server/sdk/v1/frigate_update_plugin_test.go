@@ -276,6 +276,14 @@ func TestFrigateUpdateRejectsInvalidRequestsBeforeTheDevice(t *testing.T) {
 			return err
 		}
 	}
+	protoOSBegin := func(mutate func(*FrigateManifest)) func() error {
+		return func() error {
+			m := validProtoOSManifest()
+			mutate(&m)
+			_, err := client.FrigateStageBegin(ctx, "a", m)
+			return err
+		}
+	}
 	start := func(mutate func(*FrigateStartRequest)) func() error {
 		return func() error {
 			r := validStart()
@@ -336,6 +344,15 @@ func TestFrigateUpdateRejectsInvalidRequestsBeforeTheDevice(t *testing.T) {
 		"manifest without signature":   begin(func(m *FrigateManifest) { m.ReleaseSignature = nil }),
 		"manifest huge signature":      begin(func(m *FrigateManifest) { m.ReleaseSignature = make([]byte, 513) }),
 		"manifest wrong instance":      begin(func(m *FrigateManifest) { m.InstanceID = "b" }),
+		"manifest unknown package":     begin(func(m *FrigateManifest) { m.Package = "firmware" }),
+		"proto-os legacy coordination": protoOSBegin(func(m *FrigateManifest) { m.Coordination = FrigateCoordinationLegacy }),
+		"proto-os without tag":         protoOSBegin(func(m *FrigateManifest) { m.ReleaseTag = "" }),
+		"proto-os tag without v": protoOSBegin(func(m *FrigateManifest) {
+			m.ReleaseTag, m.AssetName, m.TargetVersion = "0.6.2", "proto-os_0.6.2_all.deb", "0.6.2"
+		}),
+		"proto-os other asset":         protoOSBegin(func(m *FrigateManifest) { m.AssetName = "proto-os_v0.6.2-internal.14_arm64.deb" }),
+		"proto-os tag as version":      protoOSBegin(func(m *FrigateManifest) { m.TargetVersion = "0.6.2-internal.14" }),
+		"proto-os without statement":   protoOSBegin(func(m *FrigateManifest) { m.ReleaseStatement = nil }),
 		"empty target instance":        func() error { _, err := client.FrigateStageBegin(ctx, "", validManifest()); return err },
 		"empty chunk":                  appendCall(func(a *FrigateStageAppend) { a.Chunk = nil }),
 		"oversize chunk":               appendCall(func(a *FrigateStageAppend) { a.Chunk = make([]byte, FrigateStageChunkBytes+1) }),
@@ -387,8 +404,17 @@ func TestFrigateUpdateRejectsInvalidRequestsBeforeTheDevice(t *testing.T) {
 	m.ExpectedInstanceIDs = []string{"a", "1", "2", "3", "4", "5", "6", "7"}
 	_, err = client.FrigateStageBegin(ctx, "a", m)
 	require.NoError(t, err)
+	_, err = client.FrigateStageBegin(ctx, "a", validProtoOSManifest())
+	require.NoError(t, err)
 	_, err = client.FrigateUpdateStatus(ctx, "")
 	require.NoError(t, err)
+}
+
+func TestProtoOSReleaseNames(t *testing.T) {
+	require.Equal(t, "0.6.2~internal.14", ProtoOSDebianVersion("v0.6.2-internal.14"))
+	require.Equal(t, "1.0.0~rc-1", ProtoOSDebianVersion("v1.0.0-rc-1"), "only the first hyphen becomes a tilde")
+	require.Equal(t, "0.6.2", ProtoOSDebianVersion("v0.6.2"))
+	require.Equal(t, "proto-os_v0.6.2-internal.14_all.deb", ProtoOSAssetName("v0.6.2-internal.14"))
 }
 
 func TestFrigateManifestMustTargetTheCalledInstance(t *testing.T) {

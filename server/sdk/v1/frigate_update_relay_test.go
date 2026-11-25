@@ -80,6 +80,62 @@ func TestFrigateRelayCarriesEveryCallExceptAppend(t *testing.T) {
 	assert.Equal(t, "cancel", device.method)
 }
 
+func validProtoOSManifest() FrigateManifest {
+	m := validManifest()
+	m.Package, m.ReleaseTag, m.AssetName, m.TargetVersion = FrigatePackageProtoOS, "v0.6.2-internal.14", "proto-os_v0.6.2-internal.14_all.deb", "0.6.2~internal.14"
+	return m
+}
+
+func TestFrigateProtoOSFieldsCrossThePluginAndTheRelay(t *testing.T) {
+	supports := []FrigateInstanceSupport{
+		{
+			InstanceID: "a", PeerInstanceID: "b", RemoteTriggerAllowed: true,
+			ProtoOS: FrigateProtoOSSupport{
+				SelfSupported: true, InstalledVersion: "0.6.1", ReleaseRepositories: []string{"btc-mining/proto-fleet-internal", "block/proto-fleet"},
+				Served: FrigateProtoOSBundle{Source: FrigateProtoOSBundlePackage, ReleaseTag: "v0.6.1"},
+				Job: FrigateProtoOSJob{
+					JobID: testFrigateJob, ReleaseTag: "v0.6.2-internal.14", TargetVersion: "0.6.2~internal.14",
+					State: FrigateProtoOSJobFailed, Message: "downgrade refused", UpdatedAt: frigateRoundTripTime,
+				},
+			},
+		},
+		{
+			InstanceID: "b", PeerInstanceID: "a",
+			ProtoOS: FrigateProtoOSSupport{SupportMessage: "the ProtoOS web UI is disabled", Served: FrigateProtoOSBundle{Source: FrigateProtoOSBundleNone}},
+		},
+	}
+	for name, connect := range map[string]func(*frigateUpdaterDevice) DeviceFrigateUpdater{
+		"plugin": func(d *frigateUpdaterDevice) DeviceFrigateUpdater { return outcomeRPCDevice(t, d) },
+		"relay":  func(d *frigateUpdaterDevice) DeviceFrigateUpdater { return relayTo(d) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			device := &frigateUpdaterDevice{supports: supports}
+			updater := connect(device)
+
+			got, err := updater.FrigateUpdateSupport(t.Context())
+			require.NoError(t, err)
+			assert.Equal(t, supports, got)
+
+			_, err = updater.FrigateStageBegin(t.Context(), "a", validProtoOSManifest())
+			require.NoError(t, err)
+			assert.Equal(t, validProtoOSManifest(), device.manifest)
+		})
+	}
+
+	t.Run("relayed copy", func(t *testing.T) {
+		blob := []byte("proto-os package")
+		sum := sha256.Sum256(blob)
+		manifest := validProtoOSManifest()
+		manifest.SHA256, manifest.SizeBytes = hex.EncodeToString(sum[:]), int64(len(blob))
+		begin, err := EncodeFrigateRelayStageBegin("a", manifest)
+		require.NoError(t, err)
+		c := &stagingController{fingerprint: testFrigateFP}
+		_, err = ServeFrigateRelayStage(t.Context(), c, begin, testFrigateFP, FrigateRelayPackage{Data: bytes.NewReader(blob), SizeBytes: int64(len(blob))})
+		require.NoError(t, err)
+		assert.Equal(t, manifest, c.manifest)
+	})
+}
+
 func TestServeFrigateRelayKeepsARefusalAndRejectsBadRequests(t *testing.T) {
 	refusal := &FrigateRefusal{Reason: "UPDATE_NOT_FOUND", Message: "unknown rollout", Code: codes.NotFound}
 	_, err := relayTo(&frigateUpdaterDevice{err: refusal}).FrigateUpdateStatus(t.Context(), testFrigateJob)
@@ -129,6 +185,7 @@ type stagingController struct {
 }
 
 func (c *stagingController) FrigateStageBegin(_ context.Context, _ string, m FrigateManifest) (FrigateStageProgress, error) {
+	c.manifest = m
 	return FrigateStageProgress{JobID: m.JobID, ManifestSHA256: c.fingerprint, NextOffset: int64(len(c.data)), SizeBytes: m.SizeBytes}, nil
 }
 
