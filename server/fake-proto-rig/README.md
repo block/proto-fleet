@@ -55,7 +55,7 @@ part of the real device API.
 ### Running Directly
 
 ```bash
-go run .
+GOWORK=off go run .
 ```
 
 ### Running with Docker

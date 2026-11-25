@@ -31,7 +31,7 @@ Each environment extends the base configuration and adds or overrides settings a
 
 - Development-specific build contexts
 - Local development settings
-- Testing services (mms, fake-antminer)
+- Testing services (`fake-proto-rig`, `fake-antminer` and its fault variants, `proto-sim`, `antminer-sim`, `fake-ct1`)
 - Development-specific network configuration
 
 #### Production (`deployment-files/docker-compose.yaml`)
@@ -72,7 +72,7 @@ When making changes:
 
 Due to a limitation in Docker Compose's extension mechanism, services with `depends_on` directives cannot be extended. To work around this:
 
-1. The base configuration file (`docker-compose.base.yaml`) does not contain any `depends_on` directives
+1. The base configuration file (`docker-compose.base.yaml`) has no `depends_on` directives on the services that other files extend. Only its `grafana` service depends on `timescaledb`
 2. Each environment-specific file adds the necessary `depends_on` directives for its services
 
 This approach allows services to be extended while maintaining proper dependency relationships in each environment.

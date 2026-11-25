@@ -133,10 +133,9 @@ require custom binary or file handling.
 
 Manifest `field_flags` entries are overrides for fields that should not use the
 default descriptor-derived flag. They are not a complete list of every flag on a
-command. For example, `pools update` still auto-generates `--pool-id`,
-`--pool-name`, `--url`, and `--username`; the manifest only lists `password`
-because that field needs the custom `--pool-password-stdin` secret path instead
-of a string argv flag.
+command. For example, `pools confirm` still auto-generates its other flags;
+the manifest only lists `password` because that field needs the custom
+`--password-stdin` secret path instead of a string argv flag.
 
 `field_flags` supports string overrides and stdin-backed secrets.
 
@@ -219,7 +218,6 @@ The generated command registry currently contributes:
 - `errors`
 - `groups`
 - `miners`
-- `network`
 - `onboarding`
 - `pools`
 - `racks`
@@ -247,8 +245,8 @@ applies an uploaded file to explicitly named devices, groups, or racks (never
 all devices) through `minercommand.v1.MinerCommandService/FirmwareUpdate`,
 reusing the bounded miner selector resolver.
 
-The generated manifest contains 117 command entries. Together with 14
-handwritten leaves, fleetcli exposes 131 leaf commands and 119 distinct
+The generated manifest contains 127 command entries. Together with 15
+handwritten leaves, fleetcli exposes 142 leaf commands and 129 distinct
 non-node unary RPCs. Intentional omissions are streaming methods, Fleet Node
 services, direct miner operations, server-LAN network methods, the deprecated
 collection service, account-management RPCs, unimplemented RPCs, the

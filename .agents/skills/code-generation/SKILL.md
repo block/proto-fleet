@@ -15,7 +15,7 @@ remain identifiable.
 | Source changes | Command |
 | --- | --- |
 | Protobuf contracts in `proto/` or `server/sdk/v1/pb/` | `just gen-protos` |
-| SQL schema in `server/migrations/` or queries in `server/sqlc/queries/` | `just gen-db-queries` |
+| SQL schema in `server/migrations/current/` or queries in `server/sqlc/queries/` | `just gen-db-queries` |
 | Fleet CLI manifest (`server/tools/generate-fleet-cli/commands.json`) or templates (`server/tools/generate-fleet-cli/templates/`) | `just gen-fleet-cli` |
 | Inputs to the server's `go:generate` directives | `just gen-go` |
 | Generator implementations, configuration/tool versions (including Buf and sqlc configuration), or inputs spanning generators | `just gen` |

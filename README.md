@@ -178,8 +178,10 @@ Only do this on networks you trust. The dev server serves unminified source and 
 After modifying definitions in `proto/`, regenerate generated clients and server code:
 
 ```bash
-just gen
+just gen-protos
 ```
+
+Use `just gen` for changes that span generators. See [CONTRIBUTING.md](CONTRIBUTING.md#code-generation).
 
 ## Contributing
 

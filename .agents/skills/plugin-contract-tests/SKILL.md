@@ -6,7 +6,7 @@ description: Verify miner-driver behavior after protocol or contract-fixture cha
 # plugin-contract-tests
 
 The contract suite (`tests/plugin-contract/`) runs each miner test in its own
-container so port-bound mocks (`fake-antminer`, ASIC-rs harnesses) don't
+container so port-bound mocks (`tests/plugin-contract/mockapi/`, ASIC-rs harnesses) don't
 collide. Pre-push lefthook does **not** run it. Server `just lint` does **not**
 run it. CI runs it on PR via `protofleet-contract-checks.yml`, but by then
 it's a feedback delay.

@@ -74,8 +74,8 @@ Save the optional PR number or URL supplied with the skill invocation as
    | Dark | `dark` color scheme | The PR adds a component, or changes colors, theme tokens, status colors, charts, borders, or backgrounds |
 
    The sizes are the same as the `desktop` and `mobile` projects in
-   `client/e2eTests/*/playwright.config.ts`. ProtoFleet has no mobile E2E
-   project, so do not capture mobile for ProtoFleet only to fill the matrix.
+   `client/e2eTests/*/playwright.config.ts`. Do not capture mobile for
+   ProtoFleet only to fill the matrix.
    When both mobile and dark apply, capture desktop dark and mobile light.
    Capture mobile dark only when the change is specific to mobile dark mode.
 

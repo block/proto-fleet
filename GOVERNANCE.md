@@ -34,7 +34,7 @@ If a maintainer opposes a proposed change, then the change cannot land. The exce
 
 See:
 
-* [Code Owners - `CODEOWNERS`](./.github/CODEOWNERS)
+* [Code Owners - `CODEOWNERS`](./CODEOWNERS)
 * [Contribution Guide - `CONTRIBUTING.md`](./CONTRIBUTING.md)
 
 ### Maintainer activities

@@ -10,7 +10,6 @@ This is a fake Antminer implementation that simulates both the cgminer API (port
   - `stats`: Get miner stats
   - `pools`: Get mining pools
   - `devs`: Get device details
-  - `config`: Get miner configuration
   
 - Simulates Web API on port 80
   - `/cgi-bin/get_system_info.cgi`: Get system information
@@ -31,7 +30,7 @@ The miner can be configured using environment variables:
 - `MINER_TYPE`: Model name (default: "Antminer S19j Pro")
 - `SERIAL_NUMBER`: Serial number (default: "fake-antminer-1")
 - `MAC_ADDRESS`: MAC address (default: "00:11:22:33:44:55")
-- `FIRMWARE_VERSION`: Firmware version (default: "Antminer S19j Pro 110Th 28/11/2022 16:51:53")
+- `FIRMWARE_VERSION`: Firmware version (default: "2.0.0")
 
 ### Authentication
 
@@ -73,7 +72,7 @@ docker-compose up -d --scale fake-antminer=100
 To build and run the fake Antminer locally:
 
 ```bash
-go build -o fake-antminer
+GOWORK=off go build -o fake-antminer
 ./fake-antminer
 ```
 

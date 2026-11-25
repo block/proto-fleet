@@ -1,6 +1,6 @@
 # Proto Fleet Python SDK
 
-**Version:** 1.0.0
+**Version:** 2.0.0
 
 Python SDK for building Proto Fleet mining device plugins. This SDK enables developers to create plugins in Python that integrate seamlessly with the Proto Fleet management system.
 
@@ -18,9 +18,9 @@ Python SDK for building Proto Fleet mining device plugins. This SDK enables deve
 ## Requirements
 
 - Python 3.11 or higher
-- grpcio >= 1.60.0
-- grpcio-tools >= 1.60.0
-- protobuf >= 4.25.0
+- grpcio >= 1.76.0
+- grpcio-tools >= 1.76.0
+- protobuf >= 6.33.6
 
 ## Installation
 
@@ -202,4 +202,4 @@ See the main Proto Fleet repository for contribution guidelines.
 ## Support
 
 For questions, issues, or feedback:
-- GitHub Issues: [proto-fleet/issues](https://github.com/proto-at-block/proto-fleet/issues)
+- GitHub Issues: [proto-fleet/issues](https://github.com/block/proto-fleet/issues)

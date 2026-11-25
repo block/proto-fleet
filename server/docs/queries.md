@@ -111,22 +111,22 @@ This ensures each device shows all its errors, not just page_size errors total.
 
 ## Component Pagination
 
-For `ResultViewComponent`, we paginate by **(device_id, component_id)** pairs.
+For `ResultViewComponent`, we paginate by **(device_id, component_type, component_id)** tuples.
 
 ### QueryComponentKeysWithErrors
 
 ```sql
-SELECT device_id, device_identifier, component_id, MIN(severity) as worst_severity
-GROUP BY device_id, device_identifier, component_id
+SELECT device_id, device_identifier, component_type, component_id, MIN(severity) as worst_severity
+GROUP BY device_id, device_identifier, component_type, component_id
 HAVING (cursor conditions)
-ORDER BY worst_severity ASC, device_id ASC, component_id ASC
+ORDER BY worst_severity ASC, device_id ASC, component_type ASC, component_id ASC
 ```
 
 **Handling NULL component_id**:
 Device-level errors have `component_id = NULL`. The HAVING clause handles this:
 
 ```sql
-OR (severity = cursor AND device_id = cursor AND (
+OR (severity = cursor AND device_id = cursor AND component_type = cursor AND (
     component_id > cursor_component_id
     OR (cursor_component_id IS NULL AND component_id IS NOT NULL)
 ))
@@ -138,11 +138,11 @@ This ensures:
 
 ### CountComponentsWithErrors
 
-Uses a subquery pattern because `COUNT(DISTINCT device_id, component_id)` isn't valid SQL:
+Uses a subquery pattern because `COUNT(DISTINCT device_id, component_type, component_id)` isn't valid SQL:
 
 ```sql
 SELECT COUNT(*) FROM (
-    SELECT DISTINCT device_id, component_id
+    SELECT DISTINCT device_id, component_type, component_id
     FROM errors ...
 ) as component_count
 ```
@@ -151,11 +151,11 @@ SELECT COUNT(*) FROM (
 
 ## Index Usage
 
-All queries use these indexes (defined in migration 000057):
-- `idx_dedup` on `(org_id, device_id, miner_error, component_id, component_type)` - deduplication lookup
-- `idx_org_severity` on `(org_id, severity)` - severity-based filtering
-- `idx_org_last_seen` on `(org_id, last_seen_at DESC)` - time-based filtering and sorting
-- `idx_pagination` on `(org_id, last_seen_at DESC, id DESC)` - cursor pagination
-- `idx_open_errors` on `(org_id, closed_at, severity)` - filtering open errors
+All queries use these indexes (defined in legacy migration 000005, now in the 1000 baseline):
+- `idx_errors_dedup` on `(org_id, device_id, miner_error, component_id, component_type)` - deduplication lookup
+- `idx_errors_org_severity` on `(org_id, severity)` - severity-based filtering
+- `idx_errors_org_last_seen` on `(org_id, last_seen_at DESC)` - time-based filtering and sorting
+- `idx_errors_pagination` on `(org_id, last_seen_at DESC, id DESC)` - cursor pagination
+- `idx_errors_open` on `(org_id, closed_at, severity)` - filtering open errors
 
 The `error_id` column has a UNIQUE constraint (implicit index). JOINs with `device` and `discovered_device` use their primary keys.

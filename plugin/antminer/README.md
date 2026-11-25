@@ -10,11 +10,9 @@ Fleet SDK v1 plugin for Bitmain Antminer devices.
 - Status monitoring via RPC API
 - Telemetry collection (hashrate, temperature, power, uptime)
 - Web interface access
+- Mining start/stop, reboot, pool configuration, password update, log download, and file-based firmware upload
 
 ### Limitations
-- Mining control requires web API implementation
-- Firmware updates not implemented
-- Pool configuration requires web API implementation
 - No streaming support
 - No batch operations
 
@@ -27,11 +25,11 @@ plugin/antminer/
 │   ├── types/             # Shared types
 │   ├── driver/            # Driver implementation
 │   └── device/            # Device implementation
-├── pkg/
-│   ├── antminer/         # Client and RPC implementation
-│   │   └── web/          # Web API types
-│   └── auth/             # Authentication service
-└── tests/                # Integration tests
+└── pkg/
+    └── antminer/         # Client implementation
+        ├── rpc/          # RPC API client
+        ├── web/          # Web API client and types
+        └── networking/   # Network helpers
 ```
 
 ## Usage
@@ -63,9 +61,5 @@ Connects to port 4028 and issues RPC `version` command to identify Antminer devi
 
 ## Testing
 ```bash
-# Unit tests
-go test ./internal/... ./pkg/...
-
-# Integration tests  
-go test ./tests/...
+go test ./...
 ```

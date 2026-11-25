@@ -278,12 +278,12 @@ creation. The UI offers seven-, 30- and 90-day expiry choices.
 - [Account and administration handlers](../../server/internal/handlers/hostedaccounts/handler.go),
   [reporting and allocation handlers](../../server/internal/handlers/hostedaccounts/assets.go),
   [activity handlers](../../server/internal/handlers/hostedaccounts/activity.go) and
-  [pool handlers](../../server/internal/handlers/hostedaccounts/pool.go).
+  [pool configuration handlers](../../server/internal/handlers/poolconfigurations/handler.go).
 - [Key authority and lifecycle](../../server/internal/domain/hostedaccounts/key.go),
   [credential authority query](../../server/sqlc/queries/hosted_account_key.sql) and
   [profile selection and password verification](../../server/internal/domain/hostedaccounts/pool.go).
 - [Key endpoint integration coverage](../../server/internal/handlers/hostedaccounts/key_integration_test.go)
-  and [pool endpoint integration coverage](../../server/internal/handlers/hostedaccounts/pool_integration_test.go).
+  and [shared pool integration coverage](../../server/internal/handlers/hostedaccounts/shared_pool_integration_test.go).
 
 ### Host ticket and note visibility
 

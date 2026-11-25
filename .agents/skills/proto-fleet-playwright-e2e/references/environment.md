@@ -19,5 +19,5 @@ flows, use realistic authentication rather than exposing stores/globals; report
 any coverage gaps that cannot be exercised cleanly.
 
 After an environment restart, rerun the previously blocked targeted test.
-Shared fake-antminer/fake-proto-rig changes also affect contract tests and
+Shared fake-antminer/fake-proto-rig changes also affect plugin tests and
 local dev; use the fixture skill when those behavior changes are authorized.

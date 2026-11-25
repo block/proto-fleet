@@ -92,5 +92,5 @@ After installation, `protoc-gen-python-grpc` is available on PATH via Hermit.
 
 | Tool | Version |
 |---|---|
-| grpcio-tools | 1.76.0 |
-| protobuf | 6.33.5 |
+| grpcio-tools | 1.80.0 |
+| protobuf | 6.33.6 |

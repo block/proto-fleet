@@ -9,7 +9,7 @@ description: Update fake-antminer or fake-proto-rig fixtures and verify their sh
 Web API (port 80). `server/fake-proto-rig/` simulates the Proto miner REST
 API. They are linked into multiple test surfaces:
 
-- Plugin contract tests (`tests/plugin-contract/miners/`)
+- Plugin tests (`plugin/antminer/`, `plugin/proto/`)
 - E2E tests (`client/e2eTests/`)
 - Local `just dev` (when virtual or fake plugins are configured)
 
@@ -20,7 +20,7 @@ noticing.
 
 1. After editing handler responses, models, or default config, identify
    which surfaces consume the fixture and run the relevant suite:
-   - Plugin contract: `just test-contract`
+   - Plugin tests: `cd plugin/antminer && just test` or `cd plugin/proto && just test`
    - ProtoFleet E2E: `just test-e2e-fleet`
    - ProtoOS E2E: `just test-e2e-protoos`
 2. If the change is a new field or new endpoint, check that consumers
@@ -32,5 +32,5 @@ noticing.
 ## What to avoid
 
 - Don't add request-handler logic that depends on real-time clocks or
-  external services. The fixtures must be deterministic for contract
-  testing.
+  external services. The fixtures must be deterministic for plugin and
+  E2E testing.

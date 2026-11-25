@@ -80,11 +80,11 @@ go mod init github.com/yourorg/my-miner-plugin
 // go.mod
 module github.com/yourorg/my-miner-plugin
 
-go 1.21
+go 1.26.11
 
 require (
     github.com/block/proto-fleet/server v0.0.0-latest
-    github.com/hashicorp/go-plugin v1.7.0
+    github.com/hashicorp/go-plugin v1.8.0
 )
 
 // Use local development version if needed
@@ -999,7 +999,6 @@ For complete API documentation, see:
 
 - [Driver Interface](./interface.go) - Core interfaces and types
 - [Error Handling](./errors.go) - Standardized error types and constructors
-- [Metric Values](./metric_values.go) - Type-safe metric value system
 - [Version Utils](./version.go) - Version constants and capability validation
 - [Plugin Implementation](./plugin.go) - gRPC plugin implementation
 - [Protocol Buffers](./pb/) - Generated protobuf definitions

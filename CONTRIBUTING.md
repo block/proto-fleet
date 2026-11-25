@@ -230,7 +230,7 @@ This ensures applications remain decoupled and shared code stays truly reusable.
 
 The repository uses a Go workspace (`go.work`) for integrated development:
 
-- All Go modules (server and plugins) are included in the workspace
+- The workspace includes the server, the Go plugins, `sdk/mdk`, and `tests/plugin-contract`. The simulators under `server/fake-*` are separate modules outside the workspace
 - Changes across modules are immediately available without version bumps
 - Both `go.work` and `go.work.sum` are committed to Git for reproducible builds
 - Run `go work sync` after updating dependencies
