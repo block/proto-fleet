@@ -29,9 +29,9 @@ CONSOLIDATION_SHA256 = {
     LEGACY_FIXTURE: "8bcc7788d7919fe049655444c43c1339d2fdf752d0faa882bcfbc2e10b7c8b1c",
 }
 
-# Issue #221: startup cannot reach a corrective migration after 1016 fails.
-# Permit only the reviewed original -> repaired bytes, never arbitrary edits to
-# this path. Context: https://github.com/btc-mining/proto-fleet-internal/pull/222.
+# Startup cannot reach a corrective migration after 1016 fails. Permit only the
+# reviewed original -> repaired bytes, never arbitrary edits to this path.
+# Context: commit 91ab93a99 (fix(db): bound metric provenance migration backfills).
 REPAIRED_MIGRATIONS = {
     CURRENT + "001016_internal_ct1_metric_summaries.up.sql": (
         "8268ab02c4d7bcaefe299b13fcf9153edf08ed17664c052547f1e69642d9c63c",
@@ -39,9 +39,11 @@ REPAIRED_MIGRATIONS = {
     ),
 }
 
-# PRs #229 and #232 both merged version 1026. The duplicate prevents loading
-# any migrations, so a later corrective migration cannot run. Preserve #229's
-# checkpoint and allow only #232's exact SQL bytes to move to 1027.
+# Commits d3fe0f370 (Fleet Node details) and 9cc2c5a02 (container telemetry
+# compression) both merged version 1026. The duplicate prevents loading any
+# migrations, so a later corrective migration cannot run. Preserve the Fleet
+# Node details checkpoint and allow only the exact compression SQL bytes to
+# move to 1027.
 RENAMED_MIGRATIONS = {
     CURRENT + "001026_internal_container_telemetry_compression.up.sql": (
         CURRENT + "001027_internal_container_telemetry_compression.up.sql",

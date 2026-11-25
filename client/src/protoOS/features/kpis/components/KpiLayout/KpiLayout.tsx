@@ -50,8 +50,7 @@ const KpiLayout = () => {
   // per-tank chart lines and the Lowest Performer readout. Scoped to the active
   // tab's metric (not all four) since only one chart is on screen.
   // TODO(frigate): replace this per-board fan-out (one request per board) with a
-  // container-wide / tank-level aggregated timeseries endpoint (see the
-  // "Proposed API improvements" issue #88).
+  // container-wide / tank-level aggregated timeseries endpoint.
   const perBoardLevels = useMemo<TimeSeriesLevel[]>(() => {
     if (!isContainer) return [];
     const fields = perBoardFieldsForMetric(activeMetric);

@@ -36,11 +36,4 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
-          args=(--base-ref "origin/${BASE_REF}")
-          if [[ "$GITHUB_REPOSITORY" == "btc-mining/proto-fleet-internal" ]]; then
-            git fetch --no-tags https://github.com/block/proto-fleet.git refs/heads/main
-            public_commit="$(git rev-parse FETCH_HEAD)"
-            echo "Checking shared history against frozen public commit ${public_commit}"
-            args+=(--public-ref "$public_commit")
-          fi
-          python3 scripts/check-migration-history.py "${args[@]}"
+          python3 scripts/check-migration-history.py --base-ref "origin/${BASE_REF}"

@@ -161,7 +161,7 @@ const ControlBoardSection = () => {
 ControlBoardSection.displayName = "ControlBoardSection";
 
 // CT1 controllers belong to the container HA pair, not to individual modules.
-// Controller inventory and latency API work is tracked in GitHub issue #88.
+// Controller inventory and latency API work is part of the proposed MDK v2 / Frigate API improvements.
 export const OtherHardwareSection = () => {
   // CT1 PSU slots are module-local: every module can have a PSU in slot 1.
   // Use canonical IDs for both reconciliation and the module-aware card path.

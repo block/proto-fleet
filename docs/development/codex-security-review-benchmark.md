@@ -13,7 +13,8 @@ workflow-level model setting. The prompt, sandbox, output validation, timeout
 budget, trusted finalizer, and human-review policy retain their existing behavior.
 
 The 2026-11-11 paired validation runs used the same trusted workflow revision
-`6f3775f2eed3a2d73e495edf1aae7012015ff45f`:
+`6f3775f2eed3a2d73e495edf1aae7012015ff45f`. They ran in the internal repository
+before the repository consolidation, so their run pages are not public:
 [Astra](https://github.com/btc-mining/proto-fleet-internal/actions/runs/43078247871)
 and [Sol](https://github.com/btc-mining/proto-fleet-internal/actions/runs/43078250039).
 Both completed 6/6 cases and kept both clean controls clean. Both detected the
@@ -43,13 +44,11 @@ early or ambiguous cancellations fail the workflow as automation failures; they
 do not produce model-completion evidence.
 
 The checked-in [corpus](../../.github/codex-benchmark-corpus.json) pins the source
-repository, `block/proto-fleet`, and exact base/head SHAs. These historical
-commits belong to upstream and are not available through the internal
-repository's commits API. The reviewer explicitly checks out upstream, while
-the selector, inline workflow code, finalizer, and artifacts remain in the
-internal workflow run. `adjudicated` selects six cases; `large-pr` selects two
+repository, `block/proto-fleet`, and exact base/head SHAs. The reviewer checks
+out those pinned commits. The selector, inline workflow code, finalizer, and
+artifacts belong to the dispatched workflow run. `adjudicated` selects six cases; `large-pr` selects two
 historical timeouts. `validation` selects six fixed cases whose expectations
-were frozen in [PR #461](https://github.com/btc-mining/proto-fleet-internal/pull/461)
+were frozen in [commit 47d320db5](https://github.com/block/proto-fleet/commit/47d320db5c82afa75286d86f96edf3693523f39d)
 before the Astra/Sol medium comparison. Neither the model, source repository,
 nor commit ranges can be supplied by the caller. Historical checkouts fetch
 only the pinned commits and their ancestors, excluding later fixes from the
@@ -86,12 +85,11 @@ for those specific runs:
 }
 ```
 
-Save it as a JSON file and send it to the internal repository containing the
-trusted workflow. The dispatch target and historical checkout source are
-separate: dispatch here, then the reviewer fetches `block/proto-fleet`:
+Save it as a JSON file and send it to `block/proto-fleet`, which contains the
+trusted workflow:
 
 ```sh
-gh api --method POST repos/btc-mining/proto-fleet-internal/dispatches --input /tmp/benchmark-request.json
+gh api --method POST repos/block/proto-fleet/dispatches --input /tmp/benchmark-request.json
 ```
 
 `profile` is required. `corpus` defaults to `adjudicated`; `repeat` defaults to
@@ -161,7 +159,7 @@ Every new material finding needs independent human adjudication; matching only
 the overall risk is insufficient. Report per-finding recall and severity,
 invalid findings, clean-control results, completion, and automation failures.
 
-For `validation`, use the frozen expectations in PR #461: both `HIGH`
+For `validation`, use the frozen expectations in commit 47d320db5: both `HIGH`
 findings in #1090, one `MEDIUM` each in #1076, #1077, and #1080, and clean
 controls #1095 and #1102. Require 6/6 completed cases, no required finding
 missed or downgraded, both controls clean, and no invalid new

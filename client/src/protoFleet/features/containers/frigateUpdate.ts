@@ -13,7 +13,7 @@ export const FRIGATE_UPDATE_PERMISSION = "controller:software_update";
 
 // The runbook location is not final; change it here and nowhere else.
 export const FRIGATE_UPDATE_RUNBOOK_URL =
-  "https://github.com/btc-mining/proto-fleet-internal/blob/main/docs/development/frigate-server-updates.md";
+  "https://github.com/block/proto-fleet/blob/main/docs/development/frigate-server-updates.md";
 
 const REMOTE_TRIGGER_DISABLED =
   "Remote updates are turned off on a controller. On that controller, set update.allow_remote_trigger to true in its configuration, then check again.";

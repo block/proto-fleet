@@ -39,7 +39,7 @@ const ModuleBar = ({ state, number }: Pick<ModuleTileProps, "state" | "number">)
   if (number !== undefined)
     return (
       <>
-        {/* Individual board outlines remain neutral until Fleet collects hashboard data (#163). */}
+        {/* Individual board outlines remain neutral; hashboard states are not wired here yet. */}
         <span
           className="flex h-[90px] w-9 shrink-0 overflow-hidden rounded-xs border border-border-10"
           aria-hidden="true"
