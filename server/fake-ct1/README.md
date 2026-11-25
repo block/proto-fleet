@@ -610,7 +610,8 @@ GOWORK=off go test ./...
 
 > **Note:** This fixture is consumed by the CT1 adapter, device bundle,
 > and local fleet testing. See the `fake-rig-fixtures` skill — a change
-> here can ripple into contract and E2E suites.
+> here can ripple into the Proto plugin and Fleet Node CT1 tests and the
+> ProtoOS CT1 E2E suite.
 
 The dry-cooler inlet temperature models the mixed return from the two tank outlets. Fleet can display this dedicated plant reading alongside the average of current individual fan speeds; the automatic temperature setpoint is a target, not a measured temperature.
 
