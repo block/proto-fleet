@@ -1,7 +1,9 @@
 import type { ActivityEntry } from "@/protoFleet/api/generated/activity/v1/activity_pb";
+import { FrigatePackageKind } from "@/protoFleet/api/generated/frigateupdate/v1/frigateupdate_pb";
 import { ALERT_FIRING_EVENT_TYPE, ALERT_RESOLVED_EVENT_TYPE } from "@/protoFleet/features/activity/utils/alertEntries";
 import { baseEventType, isCompletedEvent } from "@/protoFleet/features/activity/utils/eventType";
 import { formatLabel } from "@/protoFleet/features/activity/utils/formatLabel";
+import { packageKindFromName, packageKindRules } from "@/protoFleet/features/containers/frigateUpdate";
 import { formatRole } from "@/protoFleet/features/settings/utils/formatRole";
 
 type ActivityMetadata = Record<string, unknown>;
@@ -125,6 +127,19 @@ const formatDeletedBuilding = (entry: ActivityEntry): string | undefined => {
 // Preserve that searchable text, including user-authored names and versions.
 const formatRolloutDescription = (entry: ActivityEntry): string => entry.description || formatLabel(entry.eventType);
 
+// The server says "The controller accepted the update" for every package kind,
+// but a ProtoOS update has no Start for a controller to accept. Entries written
+// before ProtoOS updates carry no package_kind, and they are all controller
+// software. A kind this client doesn't know keeps the server's text.
+const formatSoftwareUpdateRunning = (entry: ActivityEntry): string => {
+  const name = metadataString(entry, "package_kind") ?? "frigate";
+  const kind = packageKindFromName(name);
+  const version = metadataString(entry, "target_version");
+  if (kind === FrigatePackageKind.UNSPECIFIED || !version) return formatRolloutDescription(entry);
+  const { title } = packageKindRules(kind);
+  return `${title} update to ${version} in progress`;
+};
+
 const descriptionFormatters: Record<string, (entry: ActivityEntry) => string | undefined> = {
   login: () => "Logged in",
   login_failed: () => "Couldn't log in",
@@ -226,6 +241,15 @@ const descriptionFormatters: Record<string, (entry: ActivityEntry) => string | u
   rollout_retried: formatRolloutDescription,
   // Carries the channel, model and version the server recorded.
   release_channel_controller_software_changed: formatRolloutDescription,
+  // The server names the package kind and the version.
+  frigate_update_started: formatRolloutDescription,
+  frigate_update_running: formatSoftwareUpdateRunning,
+  frigate_update_succeeded: formatRolloutDescription,
+  frigate_update_verified: formatRolloutDescription,
+  frigate_update_failed: formatRolloutDescription,
+  frigate_update_cancelled: formatRolloutDescription,
+  frigate_update_abandoned: formatRolloutDescription,
+  frigate_update_cancel_refused: formatRolloutDescription,
 
   command_preflight_blocked: (entry) => {
     const skippedCount = metadataNumber(entry, "skipped_count");
