@@ -1,5 +1,0 @@
-@reference "../../../shared/styles/index.css";
-
-.protoos-list-layout .protoos-list-inset {
-  @apply sticky left-0 w-[100cqw] px-6 tablet:px-10 laptop:px-14;
-}

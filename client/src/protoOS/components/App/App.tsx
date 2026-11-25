@@ -1,4 +1,4 @@
-import { ComponentType, ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ComponentType, Fragment, ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 
 import AuthenticatedShell from "./AuthenticatedShell";
@@ -60,6 +60,7 @@ interface AppProps {
   fullscreen?: boolean;
   hideErrors?: boolean;
   calloutTopSpacing?: boolean;
+  CalloutLayout?: ComponentType<ContentLayoutProps>;
   title: string;
   ContentLayout?: ComponentType<ContentLayoutProps>;
 }
@@ -69,6 +70,7 @@ const App = ({
   fullscreen,
   hideErrors,
   calloutTopSpacing,
+  CalloutLayout = Fragment,
   title,
   ContentLayout = DefaultContentLayout,
 }: AppProps) => {
@@ -433,11 +435,13 @@ const App = ({
           // Normal mode: Render with AppLayout + callouts
           <AppLayout title={title} ContentLayout={ContentLayout} type={navigationMenuTypes.app}>
             {calloutTopSpacing && hasVisibleCallout ? <div className="pt-6 laptop:pt-14" /> : null}
-            {isWarmingUp ? <WarmingUpCallout /> : <WakeCallout afterWake={afterWake} onWake={handleWake} />}
-            {shouldShowNoPoolsCallout && !isWarmingUp ? (
-              <NoPoolsCallout arePoolsConfigured={arePoolsConfigured} />
-            ) : null}
-            {!isWarmingUp && !isSleeping && errors.errors?.length && !hideErrors ? <ErrorCallout /> : null}
+            <CalloutLayout>
+              {isWarmingUp ? <WarmingUpCallout /> : <WakeCallout afterWake={afterWake} onWake={handleWake} />}
+              {shouldShowNoPoolsCallout && !isWarmingUp ? (
+                <NoPoolsCallout arePoolsConfigured={arePoolsConfigured} />
+              ) : null}
+              {!isWarmingUp && !isSleeping && errors.errors?.length && !hideErrors ? <ErrorCallout /> : null}
+            </CalloutLayout>
             {children}
           </AppLayout>
         )}

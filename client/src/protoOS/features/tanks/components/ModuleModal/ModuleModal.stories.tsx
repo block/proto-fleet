@@ -3,9 +3,9 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { moduleFixture, type ModuleFixtureState } from "@/protoOS/api/adapters/mdkV2/moduleFixtures";
 import { toCanonicalSystemInfo } from "@/protoOS/api/adapters/mdkV2/normalize";
+import ListContentLayout from "@/protoOS/components/ContentLayout/ListContentLayout";
 import HashboardTemperatureWrapper from "@/protoOS/features/diagnostic/components/HashboardTemperature/HashboardTemperatureWrapper";
 import Modules from "@/protoOS/features/modules/Modules";
-import ModulesStoryLayout from "@/protoOS/features/modules/ModulesStoryLayout";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
 const ModuleStory = ({
@@ -32,9 +32,9 @@ const ModuleStory = ({
   }, [state, tankLabel]);
   if (!ready) return null;
   const modulesPage = (
-    <ModulesStoryLayout>
+    <ListContentLayout className="h-screen bg-surface-base text-text-primary">
       <Modules />
-    </ModulesStoryLayout>
+    </ListContentLayout>
   );
   return (
     <MemoryRouter initialEntries={[`/modules/1/1${table ? "/T1-M1-HB1" : ""}`]}>

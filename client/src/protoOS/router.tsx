@@ -28,6 +28,7 @@ import {
 } from "./routePrefetch";
 import App from "@/protoOS/components/App";
 import FullScreenContentLayout from "@/protoOS/components/ContentLayout/FullScreenContentLayout";
+import ListContentInset from "@/protoOS/components/ContentLayout/ListContentInset";
 import ListContentLayout from "@/protoOS/components/ContentLayout/ListContentLayout";
 import SettingsContentLayout from "@/protoOS/components/ContentLayout/SettingsContentLayout";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
@@ -162,6 +163,7 @@ interface CreateRouteOptions {
   fullscreen?: boolean;
   hideErrors?: boolean;
   calloutTopSpacing?: boolean;
+  CalloutLayout?: ComponentType<ContentLayoutProps>;
   ContentLayout?: ComponentType<ContentLayoutProps>;
 }
 
@@ -173,6 +175,7 @@ const createRoute = (path: string, children: ReactNode, options: CreateRouteOpti
       fullscreen={options.fullscreen}
       hideErrors={options.hideErrors}
       calloutTopSpacing={options.calloutTopSpacing}
+      CalloutLayout={options.CalloutLayout}
       ContentLayout={options.ContentLayout}
     >
       {children}
@@ -265,7 +268,7 @@ export const routerConfig: CustomRouteObject[] = [
       <ContainerRoute>
         <ContainerModules />
       </ContainerRoute>,
-      { title: "Modules", hideErrors: true, ContentLayout: ListContentLayout },
+      { title: "Modules", hideErrors: true, ContentLayout: ListContentLayout, CalloutLayout: ListContentInset },
     ),
     children: [
       {
