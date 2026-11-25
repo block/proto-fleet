@@ -205,8 +205,11 @@ const (
 	// The legacy path: each instance's root helper dials the Flotilla
 	// FrigateUpdateMaintenanceService.Exchange endpoint named in the manifest.
 	ServerUpdateCoordination_SERVER_UPDATE_COORDINATION_UNSPECIFIED ServerUpdateCoordination = 0
-	// The root helpers coordinate through the shared etcd cluster. The manifest
-	// must carry a signed release statement and no Flotilla connection fields.
+	// No Flotilla takes part. The manifest must carry a signed release statement
+	// and no Flotilla connection fields or maintenance token. For the frigate
+	// package the root helpers coordinate through the shared etcd cluster. For
+	// the proto-os package the root helper installs on the authority of the
+	// signed release statement alone, with no barrier.
 	ServerUpdateCoordination_SERVER_UPDATE_COORDINATION_SELF ServerUpdateCoordination = 1
 )
 
@@ -558,8 +561,9 @@ type GetServerUpdateSupportResponse struct {
 	// SERVER_UPDATE_COORDINATION_SELF end to end. Callers must not stage a SELF
 	// manifest or call StartServerUpdate unless it is true.
 	SelfCoordinationSupported bool `protobuf:"varint,14,opt,name=self_coordination_supported,json=selfCoordinationSupported,proto3" json:"self_coordination_supported,omitempty"`
-	// remote_trigger_allowed reports whether the site allows StartServerUpdate
-	// (the update.allow_remote_trigger setting).
+	// remote_trigger_allowed reports the update.allow_remote_trigger setting. It
+	// gates StartServerUpdate and the staging of a PROTO_OS manifest whose
+	// coordination is SELF.
 	RemoteTriggerAllowed bool `protobuf:"varint,15,opt,name=remote_trigger_allowed,json=remoteTriggerAllowed,proto3" json:"remote_trigger_allowed,omitempty"`
 	// proto_os_package_supported is true only when the root update helper can
 	// install a static proto-os package without stopping Frigate. Callers must
@@ -980,19 +984,24 @@ type ServerUpdateManifest struct {
 	Coordination ServerUpdateCoordination `protobuf:"varint,20,opt,name=coordination,proto3,enum=mdk.v2.ServerUpdateCoordination" json:"coordination,omitempty"`
 	// release_statement holds the exact signed bytes of the release statement
 	// (frigate-release-statement/v1 JSON). Required when coordination is SELF
-	// or package is PROTO_OS; forbidden otherwise.
+	// or package is PROTO_OS; forbidden otherwise. For PROTO_OS with SELF
+	// coordination it is the only authority for the install.
 	ReleaseStatement []byte `protobuf:"bytes,21,opt,name=release_statement,json=releaseStatement,proto3" json:"release_statement,omitempty"`
 	// release_signature holds the DER ECDSA P-256 signature over
 	// release_statement. Required when coordination is SELF or package is
 	// PROTO_OS; forbidden otherwise. A PROTO_OS signature must verify against
-	// the ProtoOS release keys, never the Frigate release keys.
+	// the ProtoOS release keys, never the Frigate release keys, in both
+	// coordination modes.
 	ReleaseSignature []byte `protobuf:"bytes,22,opt,name=release_signature,json=releaseSignature,proto3" json:"release_signature,omitempty"`
 	// package selects the Debian package this manifest installs. UNSPECIFIED is
-	// frigate. PROTO_OS requires proto_os_package_supported and
-	// proto_os_signed_packages, coordination UNSPECIFIED, an asset named
+	// frigate. PROTO_OS requires proto_os_signed_packages, an asset named
 	// proto-os_<release_tag>_all.deb, the Debian version of that package in
 	// target_version, and a release statement and signature for exactly that
-	// package.
+	// package. With coordination UNSPECIFIED, Flotilla authenticates the
+	// manifest and proto_os_package_supported is required. With coordination
+	// SELF, no Flotilla takes part, site_id and container_id are informational,
+	// asset_id may be zero, and proto_os_self_supported and
+	// remote_trigger_allowed are required.
 	Package       ServerUpdatePackage `protobuf:"varint,23,opt,name=package,proto3,enum=mdk.v2.ServerUpdatePackage" json:"package,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

@@ -117,8 +117,9 @@ export type GetServerUpdateSupportResponse = Message<"mdk.v2.GetServerUpdateSupp
   selfCoordinationSupported: boolean;
 
   /**
-   * remote_trigger_allowed reports whether the site allows StartServerUpdate
-   * (the update.allow_remote_trigger setting).
+   * remote_trigger_allowed reports the update.allow_remote_trigger setting. It
+   * gates StartServerUpdate and the staging of a PROTO_OS manifest whose
+   * coordination is SELF.
    *
    * @generated from field: bool remote_trigger_allowed = 15;
    */
@@ -404,7 +405,8 @@ export type ServerUpdateManifest = Message<"mdk.v2.ServerUpdateManifest"> & {
   /**
    * release_statement holds the exact signed bytes of the release statement
    * (frigate-release-statement/v1 JSON). Required when coordination is SELF
-   * or package is PROTO_OS; forbidden otherwise.
+   * or package is PROTO_OS; forbidden otherwise. For PROTO_OS with SELF
+   * coordination it is the only authority for the install.
    *
    * @generated from field: bytes release_statement = 21;
    */
@@ -414,7 +416,8 @@ export type ServerUpdateManifest = Message<"mdk.v2.ServerUpdateManifest"> & {
    * release_signature holds the DER ECDSA P-256 signature over
    * release_statement. Required when coordination is SELF or package is
    * PROTO_OS; forbidden otherwise. A PROTO_OS signature must verify against
-   * the ProtoOS release keys, never the Frigate release keys.
+   * the ProtoOS release keys, never the Frigate release keys, in both
+   * coordination modes.
    *
    * @generated from field: bytes release_signature = 22;
    */
@@ -422,11 +425,14 @@ export type ServerUpdateManifest = Message<"mdk.v2.ServerUpdateManifest"> & {
 
   /**
    * package selects the Debian package this manifest installs. UNSPECIFIED is
-   * frigate. PROTO_OS requires proto_os_package_supported and
-   * proto_os_signed_packages, coordination UNSPECIFIED, an asset named
+   * frigate. PROTO_OS requires proto_os_signed_packages, an asset named
    * proto-os_<release_tag>_all.deb, the Debian version of that package in
    * target_version, and a release statement and signature for exactly that
-   * package.
+   * package. With coordination UNSPECIFIED, Flotilla authenticates the
+   * manifest and proto_os_package_supported is required. With coordination
+   * SELF, no Flotilla takes part, site_id and container_id are informational,
+   * asset_id may be zero, and proto_os_self_supported and
+   * remote_trigger_allowed are required.
    *
    * @generated from field: mdk.v2.ServerUpdatePackage package = 23;
    */
@@ -1378,8 +1384,11 @@ export enum ServerUpdateCoordination {
   UNSPECIFIED = 0,
 
   /**
-   * The root helpers coordinate through the shared etcd cluster. The manifest
-   * must carry a signed release statement and no Flotilla connection fields.
+   * No Flotilla takes part. The manifest must carry a signed release statement
+   * and no Flotilla connection fields or maintenance token. For the frigate
+   * package the root helpers coordinate through the shared etcd cluster. For
+   * the proto-os package the root helper installs on the authority of the
+   * signed release statement alone, with no barrier.
    *
    * @generated from enum value: SERVER_UPDATE_COORDINATION_SELF = 1;
    */
