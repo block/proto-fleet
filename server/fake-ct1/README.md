@@ -672,9 +672,39 @@ ECDSA P-256 against `CT1_UPDATE_TRUSTED_KEY_FILES` and bound to the manifest.
 Once a rollout stops Frigate, every service except update Status/Retry/Cancel
 answers Unavailable and Status reports `served_by_maintenance=true`, as with
 the real maintenance service. Unlike real Frigate, the fake allows remote
-triggering by default. ProtoOS package updates
-(`SERVER_UPDATE_PACKAGE_PROTO_OS`) are not simulated: support reports
-`proto_os_package_supported=false`, and the manifest `package` field is ignored.
+triggering by default.
+
+The pair also simulates ProtoOS package updates without Flotilla: a manifest
+with `package=SERVER_UPDATE_PACKAGE_PROTO_OS` and
+`coordination=SERVER_UPDATE_COORDINATION_SELF`. Support reports
+`proto_os_self_supported=true` and the accepted release repositories
+(`btc-mining/proto-fleet-internal` and `block/proto-fleet`). Each controller
+starts with no `proto-os` package installed and serves the bundled copy.
+
+- Begin refuses a manifest with `UPDATE_MANIFEST_INVALID` when the release
+  tag, the asset name (`proto-os_<tag>_all.deb`), the Debian version and the
+  release statement do not agree, when the statement names another package,
+  architecture or repository, or when it sets `min_installed_version`. Begin
+  refuses with `UPDATE_REMOTE_TRIGGER_DISABLED` when remote triggers are off.
+- When the copy is committed, that controller alone starts a job. Start is not
+  used. The job goes from `QUEUED` to `INSTALLING` to `SUCCEEDED`, one step each
+  `CT1_UPDATE_STEP`. Then support reports the new
+  `proto_os_installed_version` and serves the release tag from source
+  `PACKAGE`.
+- The job verifies the signature against `CT1_PROTOOS_TRUSTED_KEY_FILES` only.
+  A Frigate release key never verifies a ProtoOS package, and a ProtoOS key
+  never verifies a Frigate package. A bad signature ends the job `FAILED` with
+  `UPDATE_SIGNATURE_INVALID` in its message. With no ProtoOS key, the message
+  starts with `UPDATE_NO_TRUSTED_KEYS`.
+- A version older than the installed version ends the job `FAILED`. The same
+  version ends it `SUCCEEDED` without an install.
+- A controller holds one job at a time. While a ProtoOS job is queued or
+  installing on a controller, Begin and Abort for that controller and Start for
+  the pair are refused with `UPDATE_ACTIVE_JOB`. While a Frigate rollout runs,
+  Begin of a ProtoOS manifest is refused the same way.
+
+The legacy Flotilla path for ProtoOS (`coordination` unspecified) is not
+simulated, so support reports `proto_os_package_supported=false`.
 
 Generate a development signing key:
 
@@ -703,6 +733,9 @@ CT1_HA_PAIR=1 CT1_UPDATE_TRUSTED_KEY_FILES=$PWD/release.pub GOWORK=off go run .
 | `CT1_UPDATE_FAULT_MIGRATE_FAILURES` | Number of rollouts that fail at MIGRATING (retryable, stays stopped). |
 | `CT1_UPDATE_FAULT_STALE_CONTACT` | Non-driver instance reports `contact_stale` with an old `last_contact`. |
 | `CT1_UPDATE_FAULT_DRIVER_REBOOT` | Driver role moves to the peer during INSTALLING. |
+| `CT1_PROTOOS_TRUSTED_KEY_FILES` | Comma-separated PEM public keys that sign ProtoOS releases; none fails each ProtoOS job with `UPDATE_NO_TRUSTED_KEYS`. |
+| `CT1_PROTOOS_FAULT_SELF_UNSUPPORTED` | Support reports `proto_os_self_supported=false` with a message; Begin of a ProtoOS manifest returns `FailedPrecondition`. |
+| `CT1_PROTOOS_FAULT_INSTALL_FAILED` | Each ProtoOS job fails at INSTALLING with `UPDATE_INSTALL_FAILED`; the installed version does not change. |
 
 ### Hashboard mapping
 
