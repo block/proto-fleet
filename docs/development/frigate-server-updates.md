@@ -6,6 +6,11 @@ tracks the update. The controllers verify, coordinate, stop, install, migrate
 and restart themselves, and they keep reporting progress while Frigate is
 stopped.
 
+Fleet can also update the ProtoOS browser UI (the `proto-os` Debian package)
+on the controllers of a container, without Flotilla. Each controller installs
+its copy alone and keeps Frigate running. See
+[ProtoOS packages](#protoos-packages).
+
 This page is for operators and developers. The wire contract is
 `proto/frigateupdate/v1/frigateupdate.proto`; the controller side is the MDK
 `ServerUpdateService` (`sdk/mdk/proto/mdk/v2/server_update.proto`).
@@ -56,7 +61,8 @@ drive the install steps.
 - **A container behind a Fleet Node needs a node with command protocol V20.**
   For an older node, `GetSupport` and every update call return
   `FailedPrecondition` with a message that tells the operator to upgrade the
-  node. See [Containers behind a Fleet Node](#containers-behind-a-fleet-node)
+  node. A ProtoOS update needs V21; see [ProtoOS packages](#protoos-packages).
+  See [Containers behind a Fleet Node](#containers-behind-a-fleet-node)
   for the other limits of that path.
 - **The controllers must allow remote triggers** (`update.allow_remote_trigger`
   on Frigate) and report self-coordination support, the update helper, a
@@ -82,6 +88,7 @@ drive the install steps.
   the package again and restart the update. A running rollout is unaffected,
   because Frigate already holds its own copy.
 - Frigate refuses packages over 1 GiB. Fleet's own default limit is 512 MiB.
+  A ProtoOS package can be 64 MiB at most.
 - `ListPackages` sets `stored_on_this_host` on each package. It is false when
   the package record is shared (the database is) but this replica holds no copy
   of the bytes, for example after a failover. Clients should disable "update"
@@ -131,6 +138,9 @@ Limits of this path:
 - The node must speak command protocol V20. Fleet does not send an update
   command to an older node. A new node works with an older Fleet, which sends
   no update commands. Upgrade Fleet and the node in any order.
+- A stage begin or a `stage` command for a ProtoOS package needs command
+  protocol V21, because an older node ignores the package selector of the
+  manifest.
 - The package can be 500 MiB at most. This is the download limit of the node,
   which is less than Fleet's default upload limit of 512 MiB. The node refuses
   a larger package, and the job fails with `FLEET_STAGE_STALLED` after the
@@ -173,7 +183,8 @@ has are not enough.
 
 A release channel can name the controller software version its containers
 should run. That target starts no update here; it holds the channel's firmware
-updates from containers that are behind. See
+updates from containers that are behind. Only a controller software package
+can supply the target version. A ProtoOS package of the same version does not. See
 [CT1 controller software version](firmware-rollout-api.md#ct1-controller-software-version).
 
 `ListPackages` also returns `has_updatable_container`: whether a container is
@@ -190,10 +201,11 @@ All settings are Fleet server flags with environment variables:
 | --- | --- | --- |
 | `FRIGATE_UPDATE_PACKAGE_DIR` | `firmware/frigate-packages` | Where uploaded packages are stored. The default is inside the persisted firmware volume (`artifacts/firmware` is mounted at `/app/firmware` by the standard compose files), so the packages survive container recreation. Any other directory must be on persistent storage and writable by the server user. |
 | `FRIGATE_UPDATE_MAX_PACKAGE_SIZE` | `536870912` | Largest package Fleet accepts, in bytes. |
-| `FRIGATE_UPDATE_RELEASE_KEYS_DIR` | empty | Directory of trusted release public keys. When it is empty, or holds no key, Fleet has no installed release key and checks an upload as [Signature check at upload](#signature-check-at-upload) describes. With the standard compose deployment, set it to `/app/frigate-release-keys` (see [Release key directory](#release-key-directory)). |
+| `FRIGATE_UPDATE_RELEASE_KEYS_DIR` | empty | Directory of trusted release public keys for controller software packages. When it is empty, or holds no key, Fleet has no installed release key and checks an upload as [Signature check at upload](#signature-check-at-upload) describes. With the standard compose deployment, set it to `/app/frigate-release-keys` (see [Release key directory](#release-key-directory)). |
+| `FRIGATE_UPDATE_PROTOOS_RELEASE_KEYS_DIR` | empty | Directory of trusted release public keys for ProtoOS packages. It has the same rules as `FRIGATE_UPDATE_RELEASE_KEYS_DIR`. A key in one directory never verifies a package of the other kind. |
 | `FRIGATE_UPDATE_POLL_INTERVAL` | `5s` | Runner tick and rollout status poll interval. |
 | `FRIGATE_UPDATE_STAGE_STALL_TIMEOUT` | `10m` | Staging that makes no progress for this long fails the job. |
-| `FRIGATE_UPDATE_START_TIMEOUT` | `10m` | A job that has been `starting` this long, with a fresh status read showing Frigate never accepted the job, is failed with `FLEET_START_TIMEOUT`. |
+| `FRIGATE_UPDATE_START_TIMEOUT` | `10m` | A job that has been `starting` this long, with a fresh status read showing Frigate never accepted the job, is failed with `FLEET_START_TIMEOUT`. A ProtoOS job fails when a controller that answers has not finished its install this long after the last copy was committed. |
 | `FRIGATE_UPDATE_CALL_TIMEOUT` | `30s` | Timeout for a controller call that carries no package bytes. |
 | `FRIGATE_UPDATE_CHUNK_TIMEOUT` | `60s` | Timeout for staging one 1 MiB chunk. |
 
@@ -210,7 +222,9 @@ The grace period keeps it from racing an import that is still recording its row.
 ### Signature check at upload
 
 What Fleet does with the release signature depends on whether it has a release
-key installed in its [release key directory](#release-key-directory).
+key installed in its [release key directory](#release-key-directory). Fleet
+uses the directory of the package kind that the statement names: `frigate` or
+`proto-os`.
 
 | Fleet has an installed key | Public key in the upload | Result |
 | --- | --- | --- |
@@ -254,6 +268,10 @@ The activity log entry for an upload records the outcome as `signature_check`:
 
 The key directory holds the public halves of the keys that sign Frigate
 releases: PEM `PUBLIC KEY` blocks for ECDSA P-256 keys in files ending `.pem`.
+The ProtoOS key directory (`FRIGATE_UPDATE_PROTOOS_RELEASE_KEYS_DIR`) holds the
+keys that sign ProtoOS releases in the same format. Fleet reads it with the
+same rules. The standard compose files do not mount a ProtoOS key directory
+yet.
 Fleet reads the directory on every verification, so adding or removing a key
 takes effect without a restart. A file that does not parse is an error rather
 than being skipped, so a bad rotation cannot silently shrink the trusted set.
@@ -308,8 +326,11 @@ present (possibly empty), `issued_at` as `2006-01-02T15:04:05Z`, and no whitespa
 fields or trailing data. Fleet parses the statement and re-marshals it; any
 difference from the input bytes is refused, because a statement Frigate would
 refuse after Fleet had staged the package wastes the whole staging step. The
-`.deb` version is matched against the statement by splitting at the last hyphen
-(Debian revisions), so `1.4.0-1` matches statement version `1.4.0`.
+`package` field is `frigate` for controller software or `proto-os` for
+ProtoOS. The `.deb` version of a controller software package is matched
+against the statement by splitting at the last hyphen (Debian revisions), so
+`1.4.0-1` matches statement version `1.4.0`. The `.deb` version of a ProtoOS
+package must equal the statement version.
 
 ### Upload request
 
@@ -318,14 +339,15 @@ POST /api/v1/frigate-packages/upload/chunked
 {"filename": "frigate_1.4.0_arm64.deb", "size": 123456789,
  "release_statement_b64": "...", "release_signature_b64": "...",
  "release_public_key_b64": "..."}
--> {"upload_id": "...", "version": "1.4.0", "architecture": "arm64"}
+-> {"upload_id": "...", "kind": "frigate", "version": "1.4.0", "architecture": "arm64"}
 
 PUT  /api/v1/frigate-packages/upload/chunked/{upload_id}      Content-Range: bytes 0-33554431/123456789
 POST /api/v1/frigate-packages/upload/chunked/{upload_id}/complete
 -> {"package": {...}, "reused": false}
 ```
 
-`release_public_key_b64` is optional. Both responses carry a `warning` string
+`kind` is `frigate` or `proto_os`; the package in the complete response has it
+too. `release_public_key_b64` is optional. Both responses carry a `warning` string
 when Fleet accepts the package without a verified signature; see
 [Signature check at upload](#signature-check-at-upload).
 
@@ -368,6 +390,9 @@ to 64 MiB), so the default limits are enough. If you put another proxy in front 
 bodies of at least the chunk size.
 
 ## Job states
+
+This section is about controller software jobs. For ProtoOS jobs, see
+[ProtoOS packages](#protoos-packages).
 
 `staging` (uploading to the controllers), `staged`, `starting` (Start sent, not yet
 confirmed), `running` (Frigate accepted; see the rollout phase), then one of
@@ -444,6 +469,88 @@ is no longer paired, Fleet abandons the job: it becomes `abandoned` with
 The controllers may still be partway through installing, so the job's
 `next_step` asks the operator to check them on site.
 
+## ProtoOS packages
+
+A ProtoOS release from `block/proto-fleet` publishes `proto-os_<tag>_all.deb`
+with a signed release statement. Fleet uploads, lists and deletes it with the
+same calls as a controller software package. `FrigatePackage.kind` is
+`FRIGATE_PACKAGE_KIND_PROTO_OS`.
+
+### Upload
+
+Fleet applies these rules to a statement with package `proto-os`, in addition
+to the rules for every package:
+
+- The architecture is `all`, and `min_installed_version` is empty.
+- The version is the Debian version of a release tag. The tag is the version
+  with a `v` prefix and the first `~` changed to `-`: version
+  `0.6.2~internal.14` has tag `v0.6.2-internal.14`.
+- The file name is `proto-os_<tag>_all.deb`.
+- The package is 64 MiB at most.
+- The `.deb` control file names package `proto-os`, architecture `all`, and
+  exactly the statement version.
+
+Fleet checks the signature against `FRIGATE_UPDATE_PROTOOS_RELEASE_KEYS_DIR`,
+as [Signature check at upload](#signature-check-at-upload) describes. A
+Frigate release key never verifies a ProtoOS package. The controllers verify
+the signature against their ProtoOS release keys.
+
+### Eligibility
+
+`GetSupport` with a ProtoOS package requires each controller to:
+
+- answer, and run no update job of either kind;
+- accept ProtoOS packages from Fleet (`proto_os.self_supported`), else
+  `FLEET_PROTOOS_UNSUPPORTED` with the controller's support message;
+- allow remote triggers, else `FLEET_REMOTE_TRIGGER_DISABLED`;
+- accept releases from the statement's repository, else
+  `FLEET_PROTOOS_REPOSITORY_UNTRUSTED`;
+- name only an HA peer that Fleet knows, else `FLEET_INSTANCE_UNREACHABLE`.
+
+Self coordination, etcd health, the HA cluster, the architecture and the
+Frigate release keys do not apply. A container behind a Fleet Node needs a
+node with command protocol V21. For an older node, `GetSupport` and
+`StartUpdate` return `FailedPrecondition` with a message that tells the
+operator to upgrade the node.
+
+### Job
+
+A ProtoOS job is a job of the same table, for one container. One blocking job
+per container is the rule for both kinds together. `stage_only` is refused
+with `InvalidArgument`. The job states are:
+
+1. `staging`: Fleet copies the package to each controller, directly or through
+   a Fleet Node. Each controller installs its copy alone as soon as the copy
+   is committed. Fleet sends no Start.
+2. `running`: every copy is committed. Fleet reads update support every poll
+   interval and records, for each controller, the state of this job, the
+   installed version and the release tag that it serves.
+3. `succeeded`: each controller reports this job as succeeded and has the
+   target version installed. A controller that has the version installed
+   already reports success without an install.
+4. `failed`: a controller reports this job as failed
+   (`FLEET_PROTOOS_INSTALL_FAILED`, with the controller's message). A failed
+   ProtoOS job does not block the container and cannot be retried. Start a new
+   job for the same package.
+
+The staging rules are the same as for controller software: the stall timeout,
+`FLEET_PACKAGE_MISSING`, the cleanup sweep and the 24-hour abandon rule.
+
+A controller that answers but does not report this job within
+`FRIGATE_UPDATE_START_TIMEOUT` after the last commit fails the job with
+`FLEET_PROTOOS_JOB_NOT_REPORTED`. A controller that reports the job but does
+not finish it in that time fails the job with `FLEET_PROTOOS_INSTALL_TIMEOUT`.
+A controller that does not answer never fails the job. When it stays silent
+for 24 hours after the last commit, Fleet abandons the job with
+`FLEET_CONTROLLERS_LOST`.
+
+`RetryUpdate` is refused for a ProtoOS job. `CancelUpdate` is accepted only
+until Fleet sends the first call that can commit a copy: the commit of a
+direct copy, or the `stage` command to a Fleet Node. The job lock orders that
+point with a cancel, so a cancelled job never commits a copy. After that
+point, `cancellable` is false and the cancel is refused, because the install
+runs to its end.
+
 ## Running against the fake HA pair
 
 `server/fake-ct1` can simulate both controllers of one CT1 cluster and the full
@@ -473,8 +580,14 @@ steps through the rollout phases every `CT1_UPDATE_STEP` (default 2s) and stops
 answering ordinary services while it is "installing", which exercises the
 maintenance-served status path.
 
+The fake pair also simulates ProtoOS installs. Set
+`CT1_PROTOOS_TRUSTED_KEY_FILES` to the ProtoOS release public keys, and put
+the same keys in `FRIGATE_UPDATE_PROTOOS_RELEASE_KEYS_DIR`. See the README of
+`server/fake-ct1` for the ProtoOS fault switches.
+
 The domain tests (`server/internal/domain/frigateupdate`) cover the runner
-against an in-memory controller pair. Three tests use the fake pair.
+against an in-memory controller pair, for both package kinds. Three tests use
+the fake pair.
 `TestFleetNodeReleaseChannelFirmware` in `server/e2e` runs a full update
 through the public API, the Fleet runner, and a real Fleet Node. Start it with
 `just fleetnode-channel-e2e`. See the [E2E testing guide](../../server/e2e/README.md).
@@ -484,7 +597,9 @@ calls against it. `TestCT1SimulatorControllerSoftwareUpdateThroughNode` in
 `server/cmd/fleetnode` runs a full update through the Fleet Node path. It uses
 Fleet's handle for a container behind a node, the node's command handler, the
 Proto plugin process, and the fake pair. That test replaces only the control
-stream between Fleet and the node.
+stream between Fleet and the node. `TestCT1SimulatorProtoOSPackageUpdateThroughNode`
+stages a ProtoOS package on the same path and reads the install of each
+controller.
 
 ## Operating notes
 
