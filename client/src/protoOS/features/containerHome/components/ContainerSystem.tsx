@@ -29,7 +29,7 @@ export default function ContainerSystem({ plant, fans }: { plant?: PlantTelemetr
     id: `${side} tanks`,
     tanks: tanks
       .filter((tank) => tankSide(tank.slot) === side)
-      .sort((a, b) => a.slot! - b.slot!)
+      .sort((a, b) => b.slot! - a.slot!)
       .map((tank) => ({
         id: tank.id,
         label: String(tank.slot),

@@ -37,7 +37,7 @@ const StateMarker = ({ state, severity }: { state: OverviewModuleStatus; severit
 
 const tankOrder = new Map([3, 2, 1, 6, 5, 4].map((slot, index) => [slot, index]));
 
-/** Service-side tank layout: module 01 starts at the bottom left of each tank. */
+/** Service-side tank layout: module 01 starts at the top left of each tank. */
 export default function ModuleStateGrid({
   grid,
   onSelectModule,
