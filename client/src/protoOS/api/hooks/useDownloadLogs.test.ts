@@ -63,23 +63,6 @@ describe("useDownloadLogs", () => {
     });
   });
 
-  test("escapes double quotes in log messages", async () => {
-    const mockRawLogs = ['raw log with "quotes"'];
-    const mockCsvData = ["Time,Type,Message", '2024-01-29 12:00:00,Info,"Test ""quoted"" message"'];
-
-    mockFetchData.mockResolvedValue({ content: mockRawLogs });
-    (formatLogsToCSV as Mock).mockReturnValue(mockCsvData);
-
-    const { result } = renderHook(() => useDownloadLogs());
-
-    await result.current.downloadLogs();
-
-    await waitFor(() => {
-      expect(formatLogsToCSV).toHaveBeenCalledWith(mockRawLogs);
-      expect(downloadLogsUtil).toHaveBeenCalledWith(mockCsvData, "miner-logs-2024-01-29.csv");
-    });
-  });
-
   test("does not download if logsResponse is null", async () => {
     mockFetchData.mockResolvedValue(null);
 

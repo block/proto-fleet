@@ -26,6 +26,7 @@ describe("List actions", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   test("renders with provided actions", () => {
@@ -98,13 +99,10 @@ describe("List actions", () => {
   });
 
   test("positions the popover using the current scroll offset when opened after scrolling", async () => {
-    Object.defineProperty(window, "scrollY", {
-      value: 500,
-      configurable: true,
-    });
+    vi.stubGlobal("scrollY", 500);
 
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function mockRect(this: HTMLElement) {
-      if (this.className === "relative") {
+      if (this.querySelector(':scope > [data-testid="list-actions-trigger"]')) {
         return {
           x: 120,
           y: 40,
@@ -118,7 +116,7 @@ describe("List actions", () => {
         } as DOMRect;
       }
 
-      if (typeof this.className === "string" && this.className.includes("z-50")) {
+      if (this.firstElementChild?.classList.contains("popover-content")) {
         return {
           x: 0,
           y: 0,

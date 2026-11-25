@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type ComponentProps, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   closestCenter,
@@ -25,7 +25,6 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import { emptyPoolInfo } from "@/shared/components/MiningPools/constants";
 import PoolRow from "@/shared/components/MiningPools/PoolRow";
-import { PoolIndex, PoolInfo } from "@/shared/components/MiningPools/types";
 import { isValidPool } from "@/shared/components/MiningPools/utility";
 import Popover, { popoverSizes } from "@/shared/components/Popover";
 import { PopoverProvider, usePopover } from "@/shared/components/Popover";
@@ -33,6 +32,7 @@ import Row from "@/shared/components/Row";
 import { positions } from "@/shared/constants";
 import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
+import { PoolIndex, PoolInfo } from "@/shared/types/pool";
 import { debounce, deepClone } from "@/shared/utils/utility";
 
 interface PoolChangeOptions {
@@ -42,6 +42,8 @@ interface PoolChangeOptions {
 interface PoolsProps {
   onChangePools: (pools: PoolInfo[], options?: PoolChangeOptions) => void;
   pools: PoolInfo[];
+  renderModal?: (props: ComponentProps<typeof BackupPoolModalWrapper>) => ReactNode;
+  showDeleteToast?: boolean;
 }
 
 const MAX_POOLS = 3;
@@ -191,7 +193,8 @@ const SortablePoolRow = ({
   );
 };
 
-const Pools = ({ onChangePools, pools }: PoolsProps) => {
+const Pools = ({ onChangePools, pools, renderModal, showDeleteToast = true }: PoolsProps) => {
+  const poolModal = renderModal ?? ((props) => <BackupPoolModalWrapper {...props} />);
   const [localPools, setLocalPools] = useState<PoolInfo[]>(deepClone(pools));
   const [isEditing, setIsEditing] = useState(false);
   const [currentPoolIndex, setCurrentPoolIndex] = useState<PoolIndex | null>(null);
@@ -225,6 +228,8 @@ const Pools = ({ onChangePools, pools }: PoolsProps) => {
       }),
     [],
   );
+
+  useEffect(() => () => debouncedEditDone.cancel(), [debouncedEditDone]);
 
   const startEditing = useCallback(() => {
     debouncedEditDone.cancel();
@@ -301,12 +306,13 @@ const Pools = ({ onChangePools, pools }: PoolsProps) => {
       handlePoolsChange(newPools, { isDelete: true });
       setCurrentPoolIndex(null);
 
-      pushToast({
-        message: "Pool removed",
-        status: TOAST_STATUSES.error,
-      });
+      if (showDeleteToast)
+        pushToast({
+          message: "Pool removed",
+          status: TOAST_STATUSES.error,
+        });
     },
-    [localPools, handlePoolsChange],
+    [localPools, handlePoolsChange, showDeleteToast],
   );
 
   const handleAddPool = useCallback(() => {
@@ -363,14 +369,14 @@ const Pools = ({ onChangePools, pools }: PoolsProps) => {
             />
           </div>
         </div>
-        <BackupPoolModalWrapper
-          open={currentPoolIndex !== null}
-          onChangePools={handleModalSave}
-          onDismiss={handleModalDismiss}
-          poolIndex={currentPoolIndex ?? 0}
-          pools={localPools}
-          mode="add"
-        />
+        {poolModal({
+          open: currentPoolIndex !== null,
+          onChangePools: handleModalSave,
+          onDismiss: handleModalDismiss,
+          poolIndex: currentPoolIndex ?? 0,
+          pools: localPools,
+          mode: "add",
+        })}
       </>
     );
   }
@@ -409,15 +415,15 @@ const Pools = ({ onChangePools, pools }: PoolsProps) => {
         </div>
       ) : null}
 
-      <BackupPoolModalWrapper
-        open={currentPoolIndex !== null}
-        onChangePools={handleModalSave}
-        onDismiss={handleModalDismiss}
-        onDelete={isEditMode && canDelete ? () => handleDeletePool(currentPoolIndex!) : undefined}
-        poolIndex={currentPoolIndex ?? 0}
-        pools={localPools}
-        mode={isEditMode ? "edit" : "add"}
-      />
+      {poolModal({
+        open: currentPoolIndex !== null,
+        onChangePools: handleModalSave,
+        onDismiss: handleModalDismiss,
+        onDelete: isEditMode && canDelete ? () => handleDeletePool(currentPoolIndex!) : undefined,
+        poolIndex: currentPoolIndex ?? 0,
+        pools: localPools,
+        mode: isEditMode ? "edit" : "add",
+      })}
     </div>
   );
 };

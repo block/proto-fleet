@@ -5,21 +5,22 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sort"
-	"strings"
 	"time"
+
+	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/pairing"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
-	"github.com/block/proto-fleet/server/internal/domain/workername"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/id"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
@@ -140,6 +141,17 @@ func (p *Pairer) PairDevice(ctx context.Context, discoveredDevice *discoverymode
 		return err
 	}
 
+	// Container plugins decide whether anonymous pairing is supported. Do not
+	// offer or persist the shared driver's rig defaults for a public controller.
+	if credentials == nil && discoveredDevice.DeviceClass == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
+		err := p.executePairing(ctx, plugin, discoveredDevice, nil)
+		if fleeterror.IsAuthenticationError(err) {
+			// A controller that requires a credential needs the operator's, the
+			// same as a rig with no working defaults.
+			return fleeterror.NewInvalidArgumentErrorf("invalid_argument: credentials are required for pairing")
+		}
+		return err
+	}
 	// If no credentials provided, try default credentials if plugin provides them
 	if credentials == nil {
 		if provider, ok := plugin.Driver.(sdk.DefaultCredentialsProvider); ok {
@@ -165,6 +177,8 @@ func (p *Pairer) pairWithDefaultCredentials(ctx context.Context, plugin *LoadedP
 			Password: &password,
 		}
 
+		expected := proto.CloneOf(&discoveredDevice.Device)
+		expectedFleetNodeID := discoveredDevice.DiscoveredByFleetNodeID
 		err := p.callPluginPairDevice(ctx, plugin, discoveredDevice, credentials)
 		if err != nil {
 			if isAuthenticationFailure(err) {
@@ -175,9 +189,11 @@ func (p *Pairer) pairWithDefaultCredentials(ctx context.Context, plugin *LoadedP
 			return classifyPairingDriverError(err, "plugin pairing failed")
 		}
 
-		workerName, fallbackWorkerName := p.resolveFleetWorkerName(ctx, plugin, discoveredDevice, credentials)
-		if err := p.handlePairViaStore(ctx, discoveredDevice, credentials, workerName, fallbackWorkerName, plugin); err != nil {
-			return fleeterror.NewInternalErrorf("error saving device to database: %v", err)
+		if err := p.handlePairViaStore(ctx, discoveredDevice, expected, expectedFleetNodeID, credentials, plugin); err != nil {
+			if fleeterror.IsFailedPreconditionError(err) {
+				return err
+			}
+			return fleeterror.NewInternalErrorf("error saving device to database: %w", err)
 		}
 
 		// Only fetch device info when pair_device didn't return a firmware version.
@@ -207,7 +223,7 @@ func (p *Pairer) pairWithDefaultCredentials(ctx context.Context, plugin *LoadedP
 func (p *Pairer) callPluginPairDevice(ctx context.Context, plugin *LoadedPlugin, discoveredDevice *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
 	deviceInfo := convertFleetDeviceToSDKDeviceInfo(&discoveredDevice.Device)
 
-	secretBundle, err := p.createSecretBundle(credentials)
+	secretBundle, err := p.getSecretBundleForDeviceInfo(ctx, discoveredDevice, credentials)
 	if err != nil {
 		return fmt.Errorf("failed to create secret bundle: %w", err)
 	}
@@ -217,9 +233,17 @@ func (p *Pairer) callPluginPairDevice(ctx context.Context, plugin *LoadedPlugin,
 		return err
 	}
 
+	if err := deviceendpoints.ValidatePairingResult(deviceInfo.Endpoints, updatedDeviceInfo.Endpoints); err != nil {
+		return fleeterror.NewFailedPreconditionError(err.Error())
+	}
+	// Pairing owns identity and credentials. Only discovery may reconcile and
+	// persist endpoint groups, using its inventory locks and ambiguity checks.
 	discoveredDevice.SerialNumber = updatedDeviceInfo.SerialNumber
 	discoveredDevice.MacAddress = networking.NormalizeMAC(updatedDeviceInfo.MacAddress)
 	discoveredDevice.Model = updatedDeviceInfo.Model
+	if updatedDeviceInfo.DeviceClass != sdk.DeviceClassUnspecified {
+		discoveredDevice.DeviceClass = commonpb.DeviceClass(updatedDeviceInfo.DeviceClass)
+	}
 	discoveredDevice.Manufacturer = updatedDeviceInfo.Manufacturer
 	discoveredDevice.FirmwareVersion = updatedDeviceInfo.FirmwareVersion
 	discoveredDevice.DefaultPasswordActive = updatedDeviceInfo.DefaultPasswordActive
@@ -229,13 +253,17 @@ func (p *Pairer) callPluginPairDevice(ctx context.Context, plugin *LoadedPlugin,
 
 // executePairing performs the actual pairing operation with given credentials.
 func (p *Pairer) executePairing(ctx context.Context, plugin *LoadedPlugin, discoveredDevice *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
+	expected := proto.CloneOf(&discoveredDevice.Device)
+	expectedFleetNodeID := discoveredDevice.DiscoveredByFleetNodeID
 	if err := p.callPluginPairDevice(ctx, plugin, discoveredDevice, credentials); err != nil {
 		return classifyPairingDriverError(err, "plugin pairing failed")
 	}
 
-	workerName, fallbackWorkerName := p.resolveFleetWorkerName(ctx, plugin, discoveredDevice, credentials)
-	if err := p.handlePairViaStore(ctx, discoveredDevice, credentials, workerName, fallbackWorkerName, plugin); err != nil {
-		return fleeterror.NewInternalErrorf("error saving device to database: %v", err)
+	if err := p.handlePairViaStore(ctx, discoveredDevice, expected, expectedFleetNodeID, credentials, plugin); err != nil {
+		if fleeterror.IsFailedPreconditionError(err) {
+			return err
+		}
+		return fleeterror.NewInternalErrorf("error saving device to database: %w", err)
 	}
 
 	return nil
@@ -245,15 +273,18 @@ func (p *Pairer) executePairing(ctx context.Context, plugin *LoadedPlugin, disco
 func (p *Pairer) handlePairViaStore(
 	ctx context.Context,
 	discoveredDevice *discoverymodels.DiscoveredDevice,
+	expected *pb.Device,
+	expectedFleetNodeID *int64,
 	credentials *pb.Credentials,
-	workerName string,
-	fallbackWorkerName bool,
 	plugin *LoadedPlugin,
 ) error {
 	originalIdentifier := discoveredDevice.DeviceIdentifier
 	return p.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		// Restore original identifier so retries after serialization failures start with clean state.
 		discoveredDevice.DeviceIdentifier = originalIdentifier
+		if err := p.discoveredDeviceStore.LockPairingSnapshot(ctx, discoverymodels.DeviceOrgIdentifier{OrgID: discoveredDevice.OrgID, DeviceIdentifier: originalIdentifier}, expected, expectedFleetNodeID); err != nil {
+			return err
+		}
 
 		// Check if device already exists by its device_identifier (e.g., from AUTHENTICATION_NEEDED status)
 		existingDevice, err := p.deviceStore.GetDeviceByDeviceIdentifier(ctx, discoveredDevice.DeviceIdentifier, discoveredDevice.OrgID)
@@ -309,17 +340,11 @@ func (p *Pairer) handlePairViaStore(
 			}
 		}
 
-		shouldUpdateWorkerName := strings.TrimSpace(workerName) != ""
-		if shouldUpdateWorkerName && fallbackWorkerName && existingDevice != nil {
-			keepExistingWorkerName, err := workername.HasStored(ctx, p.deviceStore, discoveredDevice.OrgID, discoveredDevice.DeviceIdentifier)
-			if err != nil {
+		// Pool usernames are opaque: a dot does not identify a worker suffix.
+		// Initialize only missing names, including when reconciling a re-paired miner.
+		if workerName := defaultFleetWorkerName(discoveredDevice.MacAddress); workerName != "" && discoveredDevice.DeviceClass != commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
+			if _, err := p.deviceStore.InitializeWorkerName(ctx, discoveredDevice.OrgID, models.DeviceIdentifier(discoveredDevice.DeviceIdentifier), workerName); err != nil {
 				return err
-			}
-			shouldUpdateWorkerName = !keepExistingWorkerName
-		}
-		if shouldUpdateWorkerName {
-			if err := p.deviceStore.UpdateWorkerName(ctx, models.DeviceIdentifier(discoveredDevice.DeviceIdentifier), workerName); err != nil {
-				return fleeterror.NewInternalErrorf("failed to update worker name: %v", err)
 			}
 		}
 
@@ -347,93 +372,8 @@ func (p *Pairer) handlePairViaStore(
 	})
 }
 
-func (p *Pairer) resolveFleetWorkerName(
-	ctx context.Context,
-	plugin *LoadedPlugin,
-	discoveredDevice *discoverymodels.DiscoveredDevice,
-	credentials *pb.Credentials,
-) (string, bool) {
-	fallback := defaultFleetWorkerName(discoveredDevice.MacAddress)
-	if !plugin.Caps[sdk.CapabilityPoolConfig] {
-		return fallback, true
-	}
-
-	workerName, err := p.fetchWorkerNameFromPairedDevice(ctx, plugin, discoveredDevice, credentials)
-	if err != nil {
-		slog.Debug("failed to fetch worker name during pairing",
-			"device_identifier", discoveredDevice.DeviceIdentifier,
-			"error", err)
-		return fallback, true
-	}
-	if workerName == "" {
-		return fallback, true
-	}
-
-	return workerName, false
-}
-
 func defaultFleetWorkerName(macAddress string) string {
 	return networking.NormalizeMAC(macAddress)
-}
-
-func (p *Pairer) fetchWorkerNameFromPairedDevice(
-	ctx context.Context,
-	plugin *LoadedPlugin,
-	discoveredDevice *discoverymodels.DiscoveredDevice,
-	credentials *pb.Credentials,
-) (string, error) {
-	secretBundle, err := p.getSecretBundleForDeviceInfo(ctx, discoveredDevice, credentials)
-	if err != nil {
-		return "", err
-	}
-
-	result, err := plugin.Driver.NewDevice(
-		ctx,
-		discoveredDevice.DeviceIdentifier,
-		convertFleetDeviceToSDKDeviceInfo(&discoveredDevice.Device),
-		secretBundle,
-	)
-	if err != nil {
-		return "", err
-	}
-	if result.Device == nil {
-		return "", fleeterror.NewInternalError("paired device client was not returned by plugin")
-	}
-	defer func() {
-		closeCtx, cancel := context.WithTimeout(context.Background(), pairerDeviceCloseTimeout)
-		defer cancel()
-		if closeErr := result.Device.Close(closeCtx); closeErr != nil {
-			slog.Debug("failed to close paired device client after worker-name lookup",
-				"device_identifier", discoveredDevice.DeviceIdentifier,
-				"error", closeErr)
-		}
-	}()
-
-	pools, err := result.Device.GetMiningPools(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	return extractWorkerNameFromConfiguredPools(pools), nil
-}
-
-func extractWorkerNameFromConfiguredPools(pools []sdk.ConfiguredPool) string {
-	if len(pools) == 0 {
-		return ""
-	}
-
-	sortedPools := append([]sdk.ConfiguredPool(nil), pools...)
-	sort.SliceStable(sortedPools, func(i, j int) bool {
-		return sortedPools[i].Priority < sortedPools[j].Priority
-	})
-
-	for _, pool := range sortedPools {
-		if workerName := workername.FromPoolUsername(pool.Username); workerName != "" {
-			return workerName
-		}
-	}
-
-	return ""
 }
 
 // reconcileExistingDevice tries to find an existing paired device that matches the newly
@@ -441,6 +381,11 @@ func extractWorkerNameFromConfiguredPools(pools []sdk.ConfiguredPool) string {
 // This handles re-pairing after subnet migration for both Proto (MAC available) and
 // Antminer (only serial available after callPluginPairDevice) devices.
 func (p *Pairer) reconcileExistingDevice(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, excludeIdentifier string) (*pb.Device, error) {
+	if discoveredDevice.DeviceClass == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER || len(discoveredDevice.Endpoints) > 0 {
+		// Discovery reconciles endpoint groups. A controller serial/MAC must
+		// not merge separate devices.
+		return nil, nil
+	}
 	// Try MAC-based reconciliation first
 	result, err := p.reconcileDeviceByMAC(ctx, discoveredDevice, excludeIdentifier)
 	if err != nil {
@@ -521,7 +466,7 @@ func (p *Pairer) reconcileDeviceByMAC(ctx context.Context, discoveredDevice *dis
 	return p.performReconciliation(ctx, discoveredDevice, pairedDevice)
 }
 
-// performReconciliation updates the OLD discovered_device's network info to match the new one,
+// performReconciliation updates the OLD discovered_device's network info and known device class,
 // soft-deletes the NEW orphaned discovered_device record, and updates the discoveredDevice's
 // DeviceIdentifier to match the existing device. This enables re-pairing after a device
 // moves to a new subnet without breaking the device→discovered_device link.
@@ -536,6 +481,9 @@ func (p *Pairer) performReconciliation(ctx context.Context, discoveredDevice *di
 		return nil, fleeterror.NewInternalErrorf("failed to get old discovered device: %v", err)
 	}
 	oldDiscoveredDevice.UpdateNetworkInfo(discoveredDevice.IpAddress, discoveredDevice.Port, discoveredDevice.UrlScheme)
+	if discoveredDevice.DeviceClass != commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED {
+		oldDiscoveredDevice.DeviceClass = discoveredDevice.DeviceClass
+	}
 	if _, err := p.discoveredDeviceStore.Save(ctx, oldDOI, oldDiscoveredDevice); err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to update old discovered device network info: %v", err)
 	}
@@ -565,7 +513,7 @@ func (p *Pairer) saveCredentials(ctx context.Context, discoveredDevice *discover
 	if plugin == nil {
 		return fleeterror.NewInternalErrorf("failed to save credentials: plugin is nil")
 	}
-	bundle, err := p.createSecretBundle(credentials)
+	bundle, err := p.getSecretBundleForDeviceInfo(ctx, discoveredDevice, credentials)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to create secret bundle: %v", err)
 	}
@@ -607,8 +555,12 @@ func convertFleetDeviceToSDKDeviceInfo(device *pb.Device) sdk.DeviceInfo {
 		Host:            device.IpAddress,
 		Port:            port,
 		URLScheme:       device.UrlScheme,
+		RPCPort:         device.RpcPort,
+		RPCTLS:          device.RpcTls,
+		Endpoints:       deviceendpoints.ToSDK(device.Endpoints),
 		SerialNumber:    device.SerialNumber,
 		Model:           device.Model,
+		DeviceClass:     sdk.DeviceClass(device.DeviceClass),
 		Manufacturer:    device.Manufacturer,
 		MacAddress:      device.MacAddress,
 		FirmwareVersion: device.FirmwareVersion,
@@ -634,6 +586,9 @@ func (p *Pairer) createSecretBundle(credentials *pb.Credentials) (sdk.SecretBund
 
 // getSecretBundleForDeviceInfo builds the SecretBundle used when describing a device via plugins.
 func (p *Pairer) getSecretBundleForDeviceInfo(ctx context.Context, device *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) (sdk.SecretBundle, error) {
+	if credentials == nil && device.DeviceClass == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
+		return sdk.SecretBundle{Version: "v1"}, nil
+	}
 	return p.createSecretBundle(credentials)
 }
 
@@ -670,6 +625,9 @@ func isDefaultPasswordActiveFailure(err error) bool {
 // recognize codes.Unauthenticated here — otherwise credential drift falls
 // through to InternalError and AUTHENTICATION_NEEDED remediation never fires.
 func classifyPairingDriverError(err error, prefix string) error {
+	if fleeterror.IsFailedPreconditionError(err) {
+		return err
+	}
 	if isDefaultPasswordActiveFailure(err) {
 		return fleeterror.NewForbiddenErrorf("%s: %v", prefix, err)
 	}
@@ -683,9 +641,13 @@ func classifyPairingDriverError(err error, prefix string) error {
 			return fleeterror.NewUnauthenticatedErrorf("%s: %v", prefix, err)
 		case codes.PermissionDenied:
 			return fleeterror.NewForbiddenErrorf("%s: %v", prefix, err)
+		case codes.FailedPrecondition:
+			// The driver names a state the operator has to change first, such
+			// as a different controller answering at a paired address.
+			return fleeterror.NewFailedPreconditionErrorf("%s: %s", prefix, st.Message())
 		case codes.OK, codes.Canceled, codes.Unknown, codes.InvalidArgument,
 			codes.DeadlineExceeded, codes.NotFound, codes.AlreadyExists,
-			codes.ResourceExhausted, codes.FailedPrecondition, codes.Aborted,
+			codes.ResourceExhausted, codes.Aborted,
 			codes.OutOfRange, codes.Unimplemented, codes.Internal,
 			codes.Unavailable, codes.DataLoss:
 			// All other gRPC status codes fall through to InternalError below.

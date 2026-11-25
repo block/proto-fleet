@@ -84,14 +84,12 @@ miners:
 			}`))
 
 			// WhatsMiner-specific: error codes edge case
-			// Skipped: asic-rs WhatsMiner V2 GetMessages returns empty message strings.
-			// See https://github.com/256foundation/asic-rs/issues/201
 			t.Run("error_codes_appear_in_get_errors", func(t *testing.T) {
-				t.Skip("asic-rs #201: WhatsMiner V2 GetMessages returns empty error strings")
 				// Arrange
+				// The firmware reports each error as {"<code>": "<time>"}.
 				mock.SetResponse("get_error_code", []byte(`{
 					"STATUS": "S", "When": 1741500000, "Code": 136,
-					"Msg": {"error_code": [110]},
+					"Msg": {"error_code": [{"110": "2025-03-09 06:00:00"}]},
 					"Description": "btminer"
 				}`))
 				t.Cleanup(mock.ResetOverrides)

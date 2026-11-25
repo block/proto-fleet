@@ -5,7 +5,7 @@ import ActiveUpdateBanners from "./ActiveUpdateBanners";
 import RolloutDetailModal from "./RolloutDetailModal";
 import RolloutLiveView from "./RolloutLiveView";
 import RolloutMinersModal, { type RolloutMinerFilter } from "./RolloutMinersModal";
-import { canRetryRemaining, isActive, pairGeneration, pairLabel } from "./rolloutStatus";
+import { canRetryRemaining, capitalize, deviceNouns, isActive, pairGeneration, pairLabel } from "./rolloutStatus";
 import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import {
   acknowledgeRollout,
@@ -236,12 +236,15 @@ const ActiveUpdatesMonitor = ({
             setViewUpdate(next);
           }
           pushToast({
-            message: `Retry requested for remaining ${pairLabel(rollout)} miners in ${rollout.channelName}`,
+            message: `Retry requested for remaining ${pairLabel(rollout)} ${deviceNouns(rollout).plural} in ${rollout.channelName}`,
             status: STATUSES.success,
           });
         })
         .catch((error) => {
-          pushToast({ message: error?.message || "Couldn't retry the remaining miners", status: STATUSES.error });
+          pushToast({
+            message: error?.message || `Couldn't retry the remaining ${deviceNouns(rollout).plural}`,
+            status: STATUSES.error,
+          });
         })
         .finally(() => setRetryingId(null));
     });
@@ -377,7 +380,7 @@ const ActiveUpdatesMonitor = ({
         title="Cancel the remaining updates?"
         subtitle={
           cancelTarget
-            ? `Cancel the remaining ${pairLabel(cancelTarget)} updates in ${cancelTarget.channelName}. Miners already updated keep ${cancelTarget.firmwareVersion}. No new update commands will be sent, but commands already sent may still finish. Canceled work is not retried until you retry it or change the assignment.`
+            ? `Cancel the remaining ${pairLabel(cancelTarget)} updates in ${cancelTarget.channelName}. ${capitalize(deviceNouns(cancelTarget).plural)} already updated keep ${cancelTarget.firmwareVersion}. No new update commands will be sent, but commands already sent may still finish. Canceled work is not retried until you retry it or change the assignment.`
             : ""
         }
         testId="cancel-rollout-dialog"
@@ -411,8 +414,8 @@ const ActiveUpdatesMonitor = ({
         subtitle={
           rollbackTarget
             ? clearsAssignment
-              ? `The firmware assignment for ${pairLabel(rollbackTarget)} in ${rollbackTarget.channelName} will be cleared, canceling remaining update work. No firmware version will be enforced and no rollback update will start. Miners keep their installed firmware; update commands already sent may still finish.`
-              : `${pairLabel(rollbackTarget)} in ${rollbackTarget.channelName} goes back to ${rollbackTarget.previousFirmwareVersion}. Any in-progress update for this manufacturer and model is canceled and a new update restores that version on every miner not running it.`
+              ? `The firmware assignment for ${pairLabel(rollbackTarget)} in ${rollbackTarget.channelName} will be cleared, canceling remaining update work. No firmware version will be enforced and no rollback update will start. ${capitalize(deviceNouns(rollbackTarget).plural)} keep their installed firmware; update commands already sent may still finish.`
+              : `${pairLabel(rollbackTarget)} in ${rollbackTarget.channelName} goes back to ${rollbackTarget.previousFirmwareVersion}. Any in-progress update for this manufacturer and model is canceled and a new update restores that version on every ${deviceNouns(rollbackTarget).singular} not running it.`
             : ""
         }
         testId="rollback-firmware-dialog"

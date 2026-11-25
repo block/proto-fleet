@@ -64,7 +64,7 @@ func runDispatchedObservationFailure(
 		}
 	}
 	if scenario.desiredState == models.DesiredStateActive {
-		r.confirmOneRestore(context.Background(), ev, target, candidate)
+		r.confirmTarget(context.Background(), ev, target, candidate, true, models.TargetStatePending)
 		return
 	}
 	r.confirmOneDispatched(context.Background(), ev, target, candidate, scenario.failureState)
@@ -211,7 +211,7 @@ func runFullTickPositiveConfirmation(
 		LatestHashRateHS: ptrFloat64(100),
 	}
 	if scenario.desiredState == models.DesiredStateActive {
-		r.confirmOneRestore(context.Background(), ev, target, candidate)
+		r.confirmTarget(context.Background(), ev, target, candidate, true, models.TargetStatePending)
 		return
 	}
 	r.confirmOneDispatched(context.Background(), ev, target, candidate, models.TargetStateDispatching)
@@ -371,7 +371,7 @@ func TestConfirmOneRestore_TimeoutAgingRaceLosesToPulseResolution(t *testing.T) 
 	// Still below the restore threshold, so the tick enters timeout aging.
 	cand := &models.Candidate{DeviceIdentifier: "miner-r", LatestPowerW: ptrFloat64(100)}
 
-	r.confirmOneRestore(context.Background(), ev, stale, cand)
+	r.confirmTarget(context.Background(), ev, stale, cand, true, models.TargetStatePending)
 
 	assert.Equal(t, models.TargetStateResolved, store.targetState(20, "miner-r"),
 		"pulse-resolved restore must not be reverted (esp. not to RESTORE_FAILED) by stale timeout aging")
@@ -431,7 +431,7 @@ func TestTimeoutAging_StaleBatchRaceLosesToRedispatch(t *testing.T) {
 			}
 			if tt.desiredState == models.DesiredStateActive {
 				cand.LatestPowerW = ptrFloat64(100)
-				r.confirmOneRestore(context.Background(), ev, &stale, cand)
+				r.confirmTarget(context.Background(), ev, &stale, cand, true, models.TargetStatePending)
 			} else {
 				r.confirmOneDispatched(context.Background(), ev, &stale, cand, models.TargetStateDispatching)
 			}

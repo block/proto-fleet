@@ -1,0 +1,198 @@
+-- name: AdvanceContainerInventory :one
+INSERT INTO container_inventory (device_id, observed_at, org_id, hashboard_firmware_version, hashboard_firmware_mixed,
+    psu_firmware_version, psu_firmware_mixed)
+SELECT d.id, sqlc.arg('observed_at')::timestamptz, d.org_id, sqlc.arg('hashboard_firmware_version')::text, sqlc.arg('hashboard_firmware_mixed')::boolean,
+    sqlc.arg('psu_firmware_version')::text, sqlc.arg('psu_firmware_mixed')::boolean
+FROM device d JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.org_id=d.org_id
+WHERE d.device_identifier = sqlc.arg('device_identifier') AND d.deleted_at IS NULL
+  AND dd.deleted_at IS NULL AND dd.device_class = 2
+ON CONFLICT (device_id) DO UPDATE SET observed_at = EXCLUDED.observed_at, hashboard_firmware_version = EXCLUDED.hashboard_firmware_version,
+    hashboard_firmware_mixed = EXCLUDED.hashboard_firmware_mixed,
+    psu_firmware_version = EXCLUDED.psu_firmware_version, psu_firmware_mixed = EXCLUDED.psu_firmware_mixed
+WHERE container_inventory.observed_at < EXCLUDED.observed_at
+RETURNING device_id;
+
+
+-- name: ReconcileContainerTanks :exec
+INSERT INTO container_tank (device_id, position, first_seen_at, last_seen_at)
+SELECT sqlc.arg('device_id'), x.position, sqlc.arg('observed_at'), sqlc.arg('observed_at')
+FROM jsonb_to_recordset(sqlc.arg('tanks')::jsonb) AS x(position int)
+ON CONFLICT (device_id, position) DO UPDATE
+SET present = TRUE, last_seen_at = EXCLUDED.last_seen_at;
+
+-- Detach changed placements before inserting their replacements, including swaps.
+-- Identity rows survive retirement; a returning PSU reuses its original ID.
+-- name: RetireContainerModules :exec
+UPDATE container_module m SET retired_at = sqlc.arg('observed_at'),identity_confirmed=FALSE
+FROM container_tank t
+WHERE m.tank_id=t.id AND m.retired_at IS NULL AND (
+ (t.device_id=sqlc.arg('device_id') AND (
+  (sqlc.arg('complete')::boolean AND NOT EXISTS (
+   SELECT 1 FROM jsonb_to_recordset(sqlc.arg('modules')::jsonb) AS x(tank_position int,position int,reported_id text)
+   WHERE x.tank_position=t.position AND x.position=m.position
+  )) OR EXISTS (
+   SELECT 1 FROM jsonb_to_recordset(sqlc.arg('modules')::jsonb) AS x(tank_position int,position int,reported_id text)
+   WHERE x.tank_position=t.position AND x.position=m.position AND btrim(m.reported_id)<>btrim(COALESCE(x.reported_id,''))
+  )
+ )) OR EXISTS (
+  SELECT 1 FROM jsonb_to_recordset(sqlc.arg('modules')::jsonb) AS x(tank_position int,position int,reported_id text)
+  JOIN container_module_identity i ON i.reported_module_id=btrim(x.reported_id) AND i.module_id=m.id
+  JOIN device d ON d.id=sqlc.arg('device_id') AND d.org_id=i.org_id
+  WHERE t.device_id<>d.id OR t.position<>x.tank_position OR m.position<>x.position
+ )
+);
+
+
+-- name: MarkAbsentContainerTanks :exec
+UPDATE container_tank t SET present = FALSE
+WHERE t.device_id = sqlc.arg('device_id') AND NOT EXISTS (
+  SELECT 1 FROM jsonb_to_recordset(sqlc.arg('tanks')::jsonb) AS x(position int) WHERE x.position = t.position
+);
+
+
+-- name: ReconcileContainerModules :exec
+WITH input AS (
+ SELECT (value->>'tank_position')::int AS tank_position,(value->>'position')::int AS position,
+ (value->>'reported_id')::text AS reported_id,(value->>'identity_confirmed')::boolean AS identity_confirmed,
+ (value->>'state')::text AS state,(value->>'observed_at')::timestamptz AS observed_at,
+ NULLIF(value->'issues','null'::jsonb) AS issues,(value->>'issues_observed_at')::timestamptz AS issues_observed_at
+ FROM jsonb_array_elements(sqlc.arg('modules')::jsonb)
+), incoming AS MATERIALIZED (
+ SELECT COALESCE(identity.module_id,unresolved.id,nextval('container_module_id_seq')) AS id,t.id AS tank_id,
+ x.position,x.reported_id,x.identity_confirmed,x.state,x.observed_at,x.issues,x.issues_observed_at
+ FROM input x
+ JOIN container_tank t ON t.device_id=sqlc.arg('device_id') AND t.position=x.tank_position
+ JOIN device d ON d.id=t.device_id
+ LEFT JOIN container_module_identity identity ON identity.org_id=d.org_id AND identity.reported_module_id=btrim(x.reported_id)
+ LEFT JOIN container_module unresolved ON unresolved.tank_id=t.id AND unresolved.position=x.position
+  AND unresolved.retired_at IS NULL AND btrim(unresolved.reported_id)='' AND COALESCE(x.reported_id,'')=''
+ WHERE identity.reported_module_id IS NULL OR identity.module_id IS NOT NULL
+), reconciled AS (
+INSERT INTO container_module (id,tank_id,position,reported_id,identity_confirmed,first_seen_at,last_seen_at,state,state_observed_at,issues,issues_observed_at,issues_source_times,observation_site_id)
+SELECT x.id,x.tank_id,x.position,COALESCE(x.reported_id,''),
+ COALESCE(x.identity_confirmed,FALSE) AND COALESCE(x.reported_id,'')<>'',
+ sqlc.arg('observed_at'),sqlc.arg('observed_at'),x.state,x.observed_at,x.issues,x.issues_observed_at,COALESCE(x.issues->'source_times','{}'::jsonb),(SELECT device.site_id FROM device WHERE device.id=sqlc.arg('device_id'))
+FROM incoming x
+ON CONFLICT (id) DO UPDATE
+SET tank_id=EXCLUDED.tank_id,position=EXCLUDED.position,retired_at=NULL,
+    reported_id=EXCLUDED.reported_id,
+    identity_confirmed = EXCLUDED.identity_confirmed,
+    last_seen_at = EXCLUDED.last_seen_at,
+    observation_site_id = EXCLUDED.observation_site_id,
+    attribution_since = CASE WHEN container_module.observation_site_id IS DISTINCT FROM EXCLUDED.observation_site_id
+      OR container_module.tank_id <> EXCLUDED.tank_id OR container_module.position <> EXCLUDED.position
+      OR container_module.retired_at IS NOT NULL
+      THEN EXCLUDED.last_seen_at ELSE container_module.attribution_since END,
+    -- AdvanceContainerInventory admits strictly newer collection snapshots.
+    -- Source time explains freshness; it does not order consolidated statuses.
+    state = EXCLUDED.state,
+    state_observed_at = EXCLUDED.state_observed_at,
+    -- Rejected payloads must not consume source timestamps needed by a corrected report.
+    (issues, issues_observed_at, issues_source_times) = (
+      SELECT CASE
+        -- Missing evidence immediately withdraws confirmation; keep its watermark.
+        WHEN EXCLUDED.issues_observed_at IS NULL THEN NULL
+        WHEN evidence.accepted THEN EXCLUDED.issues
+        WHEN NOT COALESCE((EXCLUDED.issues->>'complete')::boolean, FALSE)
+          AND EXCLUDED.issues IS DISTINCT FROM container_module.issues THEN NULL
+        ELSE container_module.issues END,
+      CASE WHEN evidence.accepted
+        THEN GREATEST(container_module.issues_observed_at, EXCLUDED.issues_observed_at)
+        ELSE container_module.issues_observed_at END,
+      CASE WHEN evidence.accepted THEN COALESCE((
+        SELECT jsonb_object_agg(COALESCE(previous.key, incoming.key),
+          GREATEST(previous.value::timestamptz, incoming.value::timestamptz))
+        FROM jsonb_each_text(container_module.issues_source_times) AS previous(key, value)
+        FULL JOIN jsonb_each_text(EXCLUDED.issues_source_times) AS incoming(key, value) USING (key)
+      ), '{}'::jsonb) ELSE container_module.issues_source_times END
+      FROM (SELECT EXCLUDED.issues_observed_at IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM jsonb_each_text(EXCLUDED.issues_source_times) incoming
+        JOIN jsonb_each_text(container_module.issues_source_times) previous USING (key)
+        WHERE incoming.value::timestamptz < previous.value::timestamptz
+      ) AND (
+        container_module.issues_observed_at IS NULL OR
+        EXCLUDED.issues_observed_at > container_module.issues_observed_at OR
+        EXISTS (
+          SELECT 1 FROM jsonb_each_text(EXCLUDED.issues_source_times) incoming
+          LEFT JOIN jsonb_each_text(container_module.issues_source_times) previous USING (key)
+          WHERE previous.value IS NULL OR incoming.value::timestamptz > previous.value::timestamptz
+        )
+      ) AS accepted) evidence
+    )
+RETURNING id,reported_id
+)
+INSERT INTO container_module_identity(org_id,reported_module_id,module_id)
+SELECT d.org_id,btrim(r.reported_id),r.id FROM reconciled r JOIN device d ON d.id=sqlc.arg('device_id')
+WHERE btrim(r.reported_id)<>'' ON CONFLICT (org_id,reported_module_id) DO NOTHING;
+
+
+-- Samples require the organization-scoped PSU identity and accepted placement.
+-- Unresolved positional observations never receive module measurements.
+-- name: InsertContainerModuleMetrics :exec
+WITH inserted AS (
+  INSERT INTO container_module_metrics (module_id, time, collected_at, hashrate_hs, power_w, temperature_c, efficiency_jh, coverage,site_id,topology_version_id)
+  SELECT m.id, x.time, sqlc.arg('collected_at')::timestamptz, x.hashrate_hs, x.power_w, x.temperature_c, x.efficiency_jh, x.coverage,d.site_id,o.version_id
+  FROM jsonb_to_recordset(sqlc.arg('samples')::jsonb) AS x(tank_position int, position int, reported_id text, time timestamptz, hashrate_hs double precision, power_w double precision, temperature_c double precision, efficiency_jh double precision, coverage jsonb)
+  JOIN device d ON d.device_identifier = sqlc.arg('device_identifier') AND d.deleted_at IS NULL
+  JOIN container_tank t ON t.device_id = d.id AND t.position = x.tank_position AND t.present
+  JOIN container_module m ON m.tank_id = t.id AND m.position = x.position AND m.retired_at IS NULL
+    AND m.reported_id=x.reported_id AND btrim(x.reported_id)<>''
+  JOIN container_module_identity identity ON identity.module_id=m.id AND identity.org_id=d.org_id AND identity.reported_module_id=btrim(x.reported_id)
+  JOIN container_module_placement placement ON placement.module_id=m.id AND placement.ended_at IS NULL
+    AND placement.tank_id=t.id AND placement.position=x.position AND placement.site_id IS NOT DISTINCT FROM d.site_id
+    -- Cached samples after a move cannot acquire the new placement's authority.
+    AND (x.time>=placement.started_at OR NOT EXISTS (
+      SELECT 1 FROM container_module_placement prior WHERE prior.module_id=m.id AND prior.id<placement.id
+    ))
+  LEFT JOIN container_topology_observation o ON o.device_id=d.id AND o.collected_at=sqlc.arg('collected_at')::timestamptz
+  ON CONFLICT (module_id, time, collected_at) DO NOTHING
+  RETURNING *
+)
+INSERT INTO container_module_latest_metrics (module_id, time, collected_at, hashrate_hs, power_w, temperature_c, efficiency_jh, coverage, source_times)
+SELECT module_id, time, collected_at, hashrate_hs, power_w, temperature_c, efficiency_jh, coverage, COALESCE(NULLIF(coverage->'source_times', 'null'::jsonb),'{}'::jsonb) FROM inserted
+ON CONFLICT (module_id) DO UPDATE
+SET time = EXCLUDED.time, collected_at = EXCLUDED.collected_at, hashrate_hs = EXCLUDED.hashrate_hs,
+    power_w = EXCLUDED.power_w, temperature_c = EXCLUDED.temperature_c, efficiency_jh=EXCLUDED.efficiency_jh, coverage=EXCLUDED.coverage,
+ source_times=(SELECT COALESCE(jsonb_object_agg(COALESCE(p.key,n.key),GREATEST(p.value::timestamptz,n.value::timestamptz)),'{}'::jsonb)
+ FROM jsonb_each_text(container_module_latest_metrics.source_times) p FULL JOIN jsonb_each_text(EXCLUDED.source_times) n USING(key))
+WHERE (container_module_latest_metrics.time, container_module_latest_metrics.collected_at) < (EXCLUDED.time, EXCLUDED.collected_at);
+
+-- name: InsertModuleDiagnosticObservations :exec
+WITH eligible AS (
+ SELECT m.id,
+  CASE WHEN m.attribution_since IS NULL THEN m.issues
+       WHEN sources.times='{}'::jsonb AND items.values='[]'::jsonb THEN NULL
+       ELSE m.issues || jsonb_build_object(
+        'source_times',sources.times,'items',items.values,
+        'observed_at',LEAST(sources.oldest,items.oldest),
+        'complete',COALESCE((m.issues->>'complete')::boolean,FALSE)
+          AND sources.times=COALESCE(m.issues->'source_times','{}'::jsonb)
+          AND items.values=COALESCE(NULLIF(m.issues->'items','null'::jsonb),'[]'::jsonb)
+          AND (m.issues->>'observed_at')::timestamptz>=m.attribution_since)
+  END AS issues
+ FROM container_module m JOIN container_tank t ON t.id=m.tank_id
+ CROSS JOIN LATERAL (
+  SELECT COALESCE(jsonb_object_agg(key,value),'{}'::jsonb) AS times,min(value::timestamptz) AS oldest
+  FROM jsonb_each_text(m.issues->'source_times')
+  WHERE value::timestamptz>=m.attribution_since
+ ) sources
+ CROSS JOIN LATERAL (
+  SELECT COALESCE(jsonb_agg(item ORDER BY ordinal),'[]'::jsonb) AS values,
+   min((item->>'observed_at')::timestamptz) AS oldest
+  FROM jsonb_array_elements(NULLIF(m.issues->'items','null'::jsonb)) WITH ORDINALITY AS issue(item,ordinal)
+  WHERE (item->>'observed_at')::timestamptz>=m.attribution_since
+   AND COALESCE((m.issues->'source_times'->>(concat_ws(':',item->>'component',NULLIF(item->>'component_id',''))))::timestamptz>=m.attribution_since,TRUE)
+ ) items
+ WHERE t.device_id=sqlc.arg('device_id') AND m.retired_at IS NULL AND m.last_seen_at=sqlc.arg('collected_at')
+), attributed AS (
+ UPDATE container_module m SET
+ state=CASE WHEN m.attribution_since IS NULL OR m.state_observed_at>=m.attribution_since THEN m.state ELSE 'unknown' END,
+ state_observed_at=CASE WHEN m.attribution_since IS NULL OR m.state_observed_at>=m.attribution_since THEN m.state_observed_at ELSE NULL END,
+ issues=eligible.issues,
+ issues_observed_at=GREATEST(m.issues_observed_at,(eligible.issues->>'observed_at')::timestamptz)
+ FROM eligible WHERE m.id=eligible.id
+ RETURNING m.*
+)
+INSERT INTO container_module_diagnostic_observation(module_id,collected_at,site_id,attribution_since,state,state_observed_at,issues)
+SELECT id,last_seen_at,observation_site_id,attribution_since,state,state_observed_at,issues FROM attributed
+ON CONFLICT DO NOTHING;

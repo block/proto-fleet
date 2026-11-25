@@ -1,6 +1,17 @@
 name: Configure Go Cache
 description: Setup Go build, module, and golangci-lint caching for workspace
 
+inputs:
+  build-cache-scope:
+    description: Isolate build caches for jobs that compile different packages
+    default: workspace
+  build-cache-revision:
+    description: Optional suffix to save newly compiled code after a restore
+    default: ""
+  build-cache-restore-scope:
+    description: Fallback build cache scope when splitting an existing job
+    default: workspace
+
 runs:
   using: "composite"
   steps:
@@ -10,9 +21,11 @@ runs:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-${{ runner.arch }}-go-workspace-${{ hashFiles('**/go.sum', 'go.work') }}
+        key: ${{ runner.os }}-${{ runner.arch }}-go-${{ inputs.build-cache-scope }}-${{ hashFiles('**/go.sum', 'go.work') }}${{ inputs.build-cache-revision }}
         restore-keys: |
-          ${{ runner.os }}-${{ runner.arch }}-go-workspace-
+          ${{ runner.os }}-${{ runner.arch }}-go-${{ inputs.build-cache-scope }}-${{ hashFiles('**/go.sum', 'go.work') }}
+          ${{ runner.os }}-${{ runner.arch }}-go-${{ inputs.build-cache-scope }}-
+          ${{ runner.os }}-${{ runner.arch }}-go-${{ inputs.build-cache-restore-scope }}-
           ${{ runner.os }}-${{ runner.arch }}-go-
 
     - name: Configure golangci-lint cache

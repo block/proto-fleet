@@ -46,7 +46,7 @@ func TestFirmwareUpdateArtifact_QueuesHealthyDuplicateAfterCachedCopyCorrupts(t 
 
 	// The healthy duplicate's current sidecar does not describe this miner;
 	// dispatch must continue to validate against the saved assignment snapshot.
-	_, err = filesService.UpdateFirmwareMetadata(healthyID, files.FirmwareMetadata{
+	_, err = filesService.UpdateFirmwareMetadata(t.Context(), healthyID, files.FirmwareMetadata{
 		TargetManufacturer: "Bitmain", TargetModel: "S19", FirmwareVersion: "9.0.0",
 	})
 	require.NoError(t, err)
@@ -78,6 +78,7 @@ func TestFirmwareUpdateArtifact_QueuesHealthyDuplicateAfterCachedCopyCorrupts(t 
 		require.NoError(t, json.Unmarshal(rawPayload, &payload))
 		assert.Equal(t, healthyID, payload.FirmwareFileID)
 		assert.Equal(t, assignment.Checksum, payload.FirmwareChecksum)
+		assert.Empty(t, payload.FirmwareComponent, "main firmware names no component")
 		reader, _, err := filesService.OpenFirmwareArtifact(payload.FirmwareFileID, payload.FirmwareChecksum)
 		require.NoError(t, err)
 		delivered, readErr := io.ReadAll(reader)

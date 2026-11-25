@@ -1,7 +1,12 @@
 import { Link, useLocation } from "react-router-dom";
 import { clsx } from "clsx";
 
-import { isNavItemAllowedByPermissions, type SecondaryNavItem } from "@/protoFleet/config/navItems";
+import {
+  getActiveSecondaryNavPath,
+  isNavItemAllowedByPermissions,
+  type SecondaryNavItem,
+} from "@/protoFleet/config/navItems";
+import { useHostedAccounts } from "@/protoFleet/features/hostedAccounts/HostedAccountsContext";
 import { useNavFeatureEnabled } from "@/protoFleet/hooks/useNavFeatureEnabled";
 import { usePermissions } from "@/protoFleet/store";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
@@ -9,32 +14,32 @@ import { stripLeadingSlash } from "@/shared/utils/stringUtils";
 
 type SecondaryNavigationProps = {
   items: SecondaryNavItem[];
+  parentPath?: string;
 };
 
-const SecondaryNavigation = ({ items }: SecondaryNavigationProps) => {
+const SecondaryNavigation = ({ items, parentPath }: SecondaryNavigationProps) => {
   const { pathname } = useLocation();
   const { isPhone } = useWindowDimensions();
   const permissions = usePermissions();
   const featureEnabled = useNavFeatureEnabled();
+  const directory = useHostedAccounts();
 
   // Phones expose Settings sections in the drawer; larger screens use this navigation.
   if (isPhone) return null;
 
   // Filter items by current-path parent, required permission, and feature gate.
   const visibleItems = items.filter((item) => {
-    const _pathname = stripLeadingSlash(pathname);
+    const _pathname = stripLeadingSlash(parentPath ?? pathname);
     const _parent = stripLeadingSlash(item.parent);
     const pathMatch = _pathname === _parent || _pathname.startsWith(`${_parent}/`);
     const permissionMatch = isNavItemAllowedByPermissions(item, permissions);
     const featureMatch = !item.requiredFeature || featureEnabled[item.requiredFeature];
-    return pathMatch && permissionMatch && featureMatch;
+    const accountMatch = !item.requiresHostedAccounts || (directory?.hostAccess && directory.accounts.length > 0);
+    const reportingMatch = !item.requiresReportingAccess || directory?.reportingAccess;
+    return pathMatch && permissionMatch && featureMatch && accountMatch && reportingMatch;
   });
 
-  const isCurrentPath = (path: string) => {
-    const _pathname = stripLeadingSlash(pathname);
-    const _path = stripLeadingSlash(path);
-    return _pathname === _path || _pathname.startsWith(`${_path}/`);
-  };
+  const activePath = getActiveSecondaryNavPath(visibleItems, pathname);
 
   // if current route has no secondary nav items
   // dont render anything
@@ -68,9 +73,9 @@ const SecondaryNavigation = ({ items }: SecondaryNavigationProps) => {
                   <li key={item.path}>
                     <Link
                       to={"/" + stripLeadingSlash(item.path)}
-                      aria-current={isCurrentPath(item.path) ? "page" : undefined}
+                      aria-current={activePath === item.path ? "page" : undefined}
                       className={clsx("block rounded-lg px-2 py-1 text-emphasis-300 text-text-primary-70", {
-                        "bg-core-primary-5": isCurrentPath(item.path),
+                        "bg-core-primary-5": activePath === item.path,
                       })}
                     >
                       {item.label}

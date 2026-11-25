@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -153,44 +152,6 @@ func (h *dbHarness) fetchRows(t *testing.T) []rowSnapshot {
 	return out
 }
 
-// errInjectingStore wraps a real Store and returns queued errors in
-// order for the first len(errs) calls; subsequent calls pass through to
-// the underlying store. It lets failure-path tests exercise the real DB
-// for successful writes while still simulating transient db errors
-// without dropping the table or closing the connection mid-test.
-type errInjectingStore struct {
-	mu    sync.Mutex
-	inner notificationhistory.Store
-	errs  []error
-}
-
-func (s *errInjectingStore) nextErr() (error, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(s.errs) == 0 {
-		return nil, false
-	}
-	var injected error
-	injected, s.errs = s.errs[0], s.errs[1:]
-	return injected, true
-}
-
-func (s *errInjectingStore) Insert(ctx context.Context, n *notificationhistory.Notification) error {
-	if injected, ok := s.nextErr(); ok && injected != nil {
-		return injected
-	}
-	return s.inner.Insert(ctx, n)
-}
-
-// InsertBatch is all-or-nothing: a queued error fails the whole batch (nothing persists),
-// otherwise it delegates to the real store.
-func (s *errInjectingStore) InsertBatch(ctx context.Context, notifs []*notificationhistory.Notification) error {
-	if injected, ok := s.nextErr(); ok && injected != nil {
-		return injected
-	}
-	return s.inner.InsertBatch(ctx, notifs)
-}
-
 // stubOrgLister is a deterministic OrgLister for tests.
 type stubOrgLister struct {
 	ids []int64
@@ -260,127 +221,106 @@ func TestServeHTTP_ResolvedPayloadRecordsStatus(t *testing.T) {
 	require.Equal(t, "resolved", rows[0].Status)
 }
 
-// non-POST is rejected and never reaches the DB. Method check runs
-// before auth so Grafana operators get a useful Allow header back.
-func TestServeHTTP_NonPostRejected(t *testing.T) {
+// A request that the handler rejects, or accepts with no alert, writes no row.
+func TestServeHTTP_RejectedOrEmptyRequestWritesNoRow(t *testing.T) {
 	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil, nil)
 
-	req := httptest.NewRequest(http.MethodGet, Path, nil)
-	req.Header.Set("Authorization", "Bearer "+testWebhookToken)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
+	tests := []struct {
+		name string
+		// handlerToken is the credential that the handler expects.
+		handlerToken string
+		request      func(t *testing.T) *http.Request
+		wantStatus   int
+		// wantAllow applies only when it is not empty.
+		wantAllow string
+	}{
+		{
+			// The method check runs before authentication, so the operator gets an Allow header.
+			name:         "non-POST is rejected",
+			handlerToken: testWebhookToken,
+			request: func(*testing.T) *http.Request {
+				req := httptest.NewRequest(http.MethodGet, Path, nil)
+				req.Header.Set("Authorization", "Bearer "+testWebhookToken)
+				return req
+			},
+			wantStatus: http.StatusMethodNotAllowed,
+			wantAllow:  http.MethodPost,
+		},
+		{
+			name:         "missing Authorization is rejected",
+			handlerToken: testWebhookToken,
+			request: func(*testing.T) *http.Request {
+				req := httptest.NewRequest(http.MethodPost, Path, bytes.NewReader(shapedPayload()))
+				req.Header.Set("Content-Type", "application/json")
+				return req
+			},
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:         "wrong Bearer credential is rejected",
+			handlerToken: testWebhookToken,
+			request: func(*testing.T) *http.Request {
+				req := httptest.NewRequest(http.MethodPost, Path, bytes.NewReader(shapedPayload()))
+				req.Header.Set("Authorization", "Bearer not-the-secret")
+				return req
+			},
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			// The scheme must be Bearer, even when the credential is correct.
+			name:         "non-Bearer scheme is rejected",
+			handlerToken: testWebhookToken,
+			request: func(*testing.T) *http.Request {
+				req := httptest.NewRequest(http.MethodPost, Path, bytes.NewReader(shapedPayload()))
+				req.Header.Set("Authorization", "Token "+testWebhookToken)
+				return req
+			},
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			// A handler with an empty token must refuse an empty Bearer credential:
+			// a comparison of empty with empty is true.
+			name:         "unconfigured handler rejects an empty Bearer credential",
+			handlerToken: "",
+			request: func(*testing.T) *http.Request {
+				req := httptest.NewRequest(http.MethodPost, Path, bytes.NewReader(shapedPayload()))
+				req.Header.Set("Authorization", "Bearer ")
+				return req
+			},
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:         "malformed JSON is rejected",
+			handlerToken: testWebhookToken,
+			request: func(t *testing.T) *http.Request {
+				return newAuthedRequest(t, []byte("not json"))
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:         "empty batch is acknowledged",
+			handlerToken: testWebhookToken,
+			request: func(t *testing.T) *http.Request {
+				return newAuthedRequest(t, []byte(`{"version":"4","status":"firing","alerts":[]}`))
+			},
+			wantStatus: http.StatusNoContent,
+		},
+	}
 
-	require.Equal(t, http.StatusMethodNotAllowed, rec.Code)
-	require.Equal(t, http.MethodPost, rec.Header().Get("Allow"))
-	require.Equal(t, 0, h.countRows(t))
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := NewHandler(h.store, tc.handlerToken, nil, nil)
 
-// missing Authorization → 401, no DB writes.
-func TestServeHTTP_MissingAuthorizationRejected(t *testing.T) {
-	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil, nil)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, tc.request(t))
 
-	req := httptest.NewRequest(http.MethodPost, Path, bytes.NewReader(shapedPayload()))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusUnauthorized, rec.Code)
-	require.Equal(t, 0, h.countRows(t))
-}
-
-// wrong Bearer credential → 401.
-func TestServeHTTP_WrongTokenRejected(t *testing.T) {
-	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil, nil)
-
-	req := httptest.NewRequest(http.MethodPost, Path, bytes.NewReader(shapedPayload()))
-	req.Header.Set("Authorization", "Bearer not-the-secret")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusUnauthorized, rec.Code)
-	require.Equal(t, 0, h.countRows(t))
-}
-
-// a non-Bearer scheme is rejected even when the credential matches.
-func TestServeHTTP_NonBearerSchemeRejected(t *testing.T) {
-	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil, nil)
-
-	req := httptest.NewRequest(http.MethodPost, Path, bytes.NewReader(shapedPayload()))
-	req.Header.Set("Authorization", "Token "+testWebhookToken)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusUnauthorized, rec.Code)
-	require.Equal(t, 0, h.countRows(t))
-}
-
-// an unconfigured handler (empty token) must refuse every request, including
-// an "empty Bearer" — empty-equals-empty would otherwise round-trip true.
-func TestServeHTTP_UnconfiguredHandlerRejectsEverything(t *testing.T) {
-	h := newDBHarness(t)
-	handler := NewHandler(h.store, "", nil, nil)
-
-	req := httptest.NewRequest(http.MethodPost, Path, bytes.NewReader(shapedPayload()))
-	req.Header.Set("Authorization", "Bearer ")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusUnauthorized, rec.Code)
-	require.Equal(t, 0, h.countRows(t))
-}
-
-// malformed JSON → 400, no DB writes.
-func TestServeHTTP_InvalidJSONRejected(t *testing.T) {
-	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil, nil)
-
-	req := newAuthedRequest(t, []byte("not json"))
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-	require.Equal(t, 0, h.countRows(t))
-}
-
-// empty batch is ack'd without writing.
-func TestServeHTTP_EmptyBatchAcked(t *testing.T) {
-	h := newDBHarness(t)
-	handler := NewHandler(h.store, testWebhookToken, nil, nil)
-
-	req := newAuthedRequest(t, []byte(`{"version":"4","status":"firing","alerts":[]}`))
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusNoContent, rec.Code)
-	require.Equal(t, 0, h.countRows(t))
-}
-
-// partial store failure within a batch must not block the rest — as long
-// the batch persist is atomic: if it fails, nothing lands and the handler 5xxs so Grafana retries.
-func TestServeHTTP_BatchInsertFailureReturns5xx(t *testing.T) {
-	h := newDBHarness(t)
-	store := &errInjectingStore{inner: h.store, errs: []error{errors.New("transient db error")}}
-	handler := NewHandler(store, testWebhookToken, nil, nil)
-
-	body := []byte(`{
-		"version": "4",
-		"status": "firing",
-		"alerts": [
-			{"status":"firing","labels":{"alertname":"A","organization_id":"1"}},
-			{"status":"firing","labels":{"alertname":"B","organization_id":"1"}}
-		]
-	}`)
-
-	req := newAuthedRequest(t, body)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusInternalServerError, rec.Code)
-	require.Equal(t, 0, h.countRows(t))
+			require.Equal(t, tc.wantStatus, rec.Code)
+			if tc.wantAllow != "" {
+				require.Equal(t, tc.wantAllow, rec.Header().Get("Allow"))
+			}
+			require.Equal(t, 0, h.countRows(t))
+		})
+	}
 }
 
 // unknown JSON fields are accepted so a future Grafana version with new

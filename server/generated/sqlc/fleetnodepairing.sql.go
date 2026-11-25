@@ -8,10 +8,74 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"github.com/lib/pq"
 )
+
+const clearFleetNodeRevokedStatus = `-- name: ClearFleetNodeRevokedStatus :execrows
+UPDATE device_status ds
+SET status_details = NULL
+FROM fleet_node_device fnd
+WHERE ds.device_id = $1
+  AND fnd.device_id = ds.device_id
+  AND fnd.org_id = $2
+  AND fnd.fleet_node_id = $3
+  AND ds.status_details = 'fleet_node_revoked'
+`
+
+type ClearFleetNodeRevokedStatusParams struct {
+	DeviceID    int64
+	OrgID       int64
+	FleetNodeID int64
+}
+
+// Pairing has rebound this device in the same transaction, so the new owner
+// may replace the revocation's OFFLINE status with a fresh status.
+func (q *Queries) ClearFleetNodeRevokedStatus(ctx context.Context, arg ClearFleetNodeRevokedStatusParams) (int64, error) {
+	result, err := q.exec(ctx, q.clearFleetNodeRevokedStatusStmt, clearFleetNodeRevokedStatus, arg.DeviceID, arg.OrgID, arg.FleetNodeID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const countFleetNodeDevicesByNode = `-- name: CountFleetNodeDevicesByNode :many
+SELECT fnd.fleet_node_id, count(*)::bigint AS device_count
+FROM fleet_node_device fnd
+JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id AND d.deleted_at IS NULL
+WHERE fnd.org_id = $1
+GROUP BY fnd.fleet_node_id
+`
+
+type CountFleetNodeDevicesByNodeRow struct {
+	FleetNodeID int64
+	DeviceCount int64
+}
+
+func (q *Queries) CountFleetNodeDevicesByNode(ctx context.Context, orgID int64) ([]CountFleetNodeDevicesByNodeRow, error) {
+	rows, err := q.query(ctx, q.countFleetNodeDevicesByNodeStmt, countFleetNodeDevicesByNode, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CountFleetNodeDevicesByNodeRow
+	for rows.Next() {
+		var i CountFleetNodeDevicesByNodeRow
+		if err := rows.Scan(&i.FleetNodeID, &i.DeviceCount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
 
 const deletePairingsForFleetNode = `-- name: DeletePairingsForFleetNode :execrows
 DELETE FROM fleet_node_device
@@ -96,6 +160,33 @@ func (q *Queries) DeviceHasActivePairing(ctx context.Context, arg DeviceHasActiv
 	return exists, err
 }
 
+const deviceHasRevokedFleetNodeStatus = `-- name: DeviceHasRevokedFleetNodeStatus :one
+SELECT EXISTS (
+    SELECT 1
+    FROM device d
+    JOIN device_status ds ON ds.device_id = d.id
+    WHERE d.id = $1
+      AND d.org_id = $2
+      AND d.deleted_at IS NULL
+      AND ds.status_details = 'fleet_node_revoked'
+)
+`
+
+type DeviceHasRevokedFleetNodeStatusParams struct {
+	DeviceID int64
+	OrgID    int64
+}
+
+// Direct binding cannot recover a miner unpaired by revocation. Check after
+// the binding attempt so a concurrent revoke that deleted the old assignment
+// is visible before the direct-binding transaction commits.
+func (q *Queries) DeviceHasRevokedFleetNodeStatus(ctx context.Context, arg DeviceHasRevokedFleetNodeStatusParams) (bool, error) {
+	row := q.queryRow(ctx, q.deviceHasRevokedFleetNodeStatusStmt, deviceHasRevokedFleetNodeStatus, arg.DeviceID, arg.OrgID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const getFleetNodePairedDeviceIdentifier = `-- name: GetFleetNodePairedDeviceIdentifier :one
 SELECT d.device_identifier
 FROM fleet_node_device fnd
@@ -116,39 +207,43 @@ func (q *Queries) GetFleetNodePairedDeviceIdentifier(ctx context.Context, arg Ge
 	return device_identifier, err
 }
 
-const listFleetNodeDeviceIDsForRevocation = `-- name: ListFleetNodeDeviceIDsForRevocation :many
-SELECT device_id
-FROM fleet_node_device
-WHERE fleet_node_id = $1 AND org_id = $2
-ORDER BY device_id ASC
+const getFleetNodePairingTarget = `-- name: GetFleetNodePairingTarget :one
+SELECT dd.device_identifier, dd.ip_address, dd.port, dd.url_scheme,
+       dd.rpc_port, dd.rpc_tls, dd.endpoints
+FROM device d
+JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.org_id = d.org_id
+WHERE d.id = $1 AND d.org_id = $2
+  AND d.deleted_at IS NULL AND dd.deleted_at IS NULL
 `
 
-type ListFleetNodeDeviceIDsForRevocationParams struct {
-	FleetNodeID int64
-	OrgID       int64
+type GetFleetNodePairingTargetParams struct {
+	DeviceID int64
+	OrgID    int64
 }
 
-func (q *Queries) ListFleetNodeDeviceIDsForRevocation(ctx context.Context, arg ListFleetNodeDeviceIDsForRevocationParams) ([]int64, error) {
-	rows, err := q.query(ctx, q.listFleetNodeDeviceIDsForRevocationStmt, listFleetNodeDeviceIDsForRevocation, arg.FleetNodeID, arg.OrgID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []int64
-	for rows.Next() {
-		var device_id int64
-		if err := rows.Scan(&device_id); err != nil {
-			return nil, err
-		}
-		items = append(items, device_id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+type GetFleetNodePairingTargetRow struct {
+	DeviceIdentifier string
+	IpAddress        string
+	Port             string
+	UrlScheme        string
+	RpcPort          int32
+	RpcTls           bool
+	Endpoints        json.RawMessage
+}
+
+func (q *Queries) GetFleetNodePairingTarget(ctx context.Context, arg GetFleetNodePairingTargetParams) (GetFleetNodePairingTargetRow, error) {
+	row := q.queryRow(ctx, q.getFleetNodePairingTargetStmt, getFleetNodePairingTarget, arg.DeviceID, arg.OrgID)
+	var i GetFleetNodePairingTargetRow
+	err := row.Scan(
+		&i.DeviceIdentifier,
+		&i.IpAddress,
+		&i.Port,
+		&i.UrlScheme,
+		&i.RpcPort,
+		&i.RpcTls,
+		&i.Endpoints,
+	)
+	return i, err
 }
 
 const listFleetNodeDevices = `-- name: ListFleetNodeDevices :many
@@ -156,6 +251,8 @@ SELECT fnd.fleet_node_id,
        fnd.device_id,
        d.device_identifier,
        COALESCE(dd.driver_name, '')::text AS device_type,
+       COALESCE(dd.manufacturer, '')::text AS manufacturer,
+       COALESCE(dd.model, '')::text AS model,
        fnd.assigned_at,
        fnd.assigned_by
 FROM fleet_node_device fnd
@@ -176,6 +273,8 @@ type ListFleetNodeDevicesRow struct {
 	DeviceID         int64
 	DeviceIdentifier string
 	DeviceType       string
+	Manufacturer     string
+	Model            string
 	AssignedAt       time.Time
 	AssignedBy       sql.NullInt64
 }
@@ -194,9 +293,52 @@ func (q *Queries) ListFleetNodeDevices(ctx context.Context, arg ListFleetNodeDev
 			&i.DeviceID,
 			&i.DeviceIdentifier,
 			&i.DeviceType,
+			&i.Manufacturer,
+			&i.Model,
 			&i.AssignedAt,
 			&i.AssignedBy,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listFleetNodeDevicesForRevocation = `-- name: ListFleetNodeDevicesForRevocation :many
+SELECT fnd.device_id, d.device_identifier
+FROM fleet_node_device fnd
+JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id
+WHERE fnd.fleet_node_id = $1 AND fnd.org_id = $2
+ORDER BY fnd.device_id ASC
+`
+
+type ListFleetNodeDevicesForRevocationParams struct {
+	FleetNodeID int64
+	OrgID       int64
+}
+
+type ListFleetNodeDevicesForRevocationRow struct {
+	DeviceID         int64
+	DeviceIdentifier string
+}
+
+func (q *Queries) ListFleetNodeDevicesForRevocation(ctx context.Context, arg ListFleetNodeDevicesForRevocationParams) ([]ListFleetNodeDevicesForRevocationRow, error) {
+	rows, err := q.query(ctx, q.listFleetNodeDevicesForRevocationStmt, listFleetNodeDevicesForRevocation, arg.FleetNodeID, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListFleetNodeDevicesForRevocationRow
+	for rows.Next() {
+		var i ListFleetNodeDevicesForRevocationRow
+		if err := rows.Scan(&i.DeviceID, &i.DeviceIdentifier); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -219,9 +361,10 @@ WITH candidate AS (
          dd.discovered_by_fleet_node_id,
          dd.ip_address,
          dd.port,
-         dd.url_scheme,
+         dd.url_scheme, dd.rpc_port, dd.rpc_tls, dd.endpoints,
          dd.driver_name,
          dd.model,
+         dd.device_class,
          dd.manufacturer,
          dd.firmware_version,
          dd.last_seen,
@@ -290,7 +433,7 @@ WITH candidate AS (
     AND ($9::bigint IS NULL OR dd.id > $9::bigint)
   ORDER BY dd.id ASC, d.id DESC NULLS LAST
 )
-SELECT id, org_id, device_identifier, discovered_by_fleet_node_id, ip_address, port, url_scheme, driver_name, model, manufacturer, firmware_version, last_seen, pairing_status
+SELECT id, org_id, device_identifier, discovered_by_fleet_node_id, ip_address, port, url_scheme, rpc_port, rpc_tls, endpoints, driver_name, model, device_class, manufacturer, firmware_version, last_seen, pairing_status
 FROM candidate
 WHERE ($2::text[] IS NULL OR pairing_status = ANY($2::text[]))
 ORDER BY id ASC
@@ -317,8 +460,12 @@ type ListFleetNodeDiscoveredDevicesRow struct {
 	IpAddress               string
 	Port                    string
 	UrlScheme               string
+	RpcPort                 int32
+	RpcTls                  bool
+	Endpoints               json.RawMessage
 	DriverName              string
 	Model                   sql.NullString
+	DeviceClass             int32
 	Manufacturer            sql.NullString
 	FirmwareVersion         sql.NullString
 	LastSeen                sql.NullTime
@@ -330,7 +477,7 @@ type ListFleetNodeDiscoveredDevicesRow struct {
 // or bound to another node. A row bound to the requesting node surfaces only
 // in AUTHENTICATION_NEEDED so recovery-triggered failures remain retryable.
 // Other AUTHENTICATION_NEEDED rows also surface for retry. Inverse of
-// GetActiveUnpairedDiscoveredDevices, which excludes fleet-node rows.
+// CountActiveUnpairedDiscoveredDevices, which excludes fleet-node rows.
 // The exclusions use NOT EXISTS so a device with more than one live row is
 // judged across all of them, not just the joined row. They match by
 // discovered_device_id OR device_identifier: a paired device whose original
@@ -367,8 +514,12 @@ func (q *Queries) ListFleetNodeDiscoveredDevices(ctx context.Context, arg ListFl
 			&i.IpAddress,
 			&i.Port,
 			&i.UrlScheme,
+			&i.RpcPort,
+			&i.RpcTls,
+			&i.Endpoints,
 			&i.DriverName,
 			&i.Model,
+			&i.DeviceClass,
 			&i.Manufacturer,
 			&i.FirmwareVersion,
 			&i.LastSeen,
@@ -427,25 +578,58 @@ func (q *Queries) LockFleetNodePairingDevice(ctx context.Context, arg LockFleetN
 	return items, nil
 }
 
+const offlineDevicesForFleetNodeRevocation = `-- name: OfflineDevicesForFleetNodeRevocation :execrows
+INSERT INTO device_status (device_id, status, status_timestamp, status_details)
+SELECT fnd.device_id, 'OFFLINE', CURRENT_TIMESTAMP, 'fleet_node_revoked'
+FROM fleet_node_device fnd
+WHERE fnd.fleet_node_id = $1 AND fnd.org_id = $2
+ORDER BY fnd.device_id
+ON CONFLICT (device_id) DO UPDATE SET
+    status = EXCLUDED.status,
+    status_timestamp = EXCLUDED.status_timestamp,
+    telemetry_status_at = NULL,
+    status_details = EXCLUDED.status_details,
+    reboot_required_after = NULL
+`
+
+type OfflineDevicesForFleetNodeRevocationParams struct {
+	FleetNodeID int64
+	OrgID       int64
+}
+
+func (q *Queries) OfflineDevicesForFleetNodeRevocation(ctx context.Context, arg OfflineDevicesForFleetNodeRevocationParams) (int64, error) {
+	result, err := q.exec(ctx, q.offlineDevicesForFleetNodeRevocationStmt, offlineDevicesForFleetNodeRevocation, arg.FleetNodeID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const pairDeviceToFleetNode = `-- name: PairDeviceToFleetNode :execrows
+WITH locked_device AS MATERIALIZED (
+    SELECT device.id FROM device
+    WHERE device.id=$4 AND device.org_id=$2 FOR NO KEY UPDATE
+)
 INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id, assigned_by)
-VALUES ($1, $2, $3, $4)
+VALUES ($1, (SELECT locked_device.id FROM locked_device), $2, $3)
 ON CONFLICT (device_id) DO NOTHING
 `
 
 type PairDeviceToFleetNodeParams struct {
 	FleetNodeID int64
-	DeviceID    int64
 	OrgID       int64
 	AssignedBy  sql.NullInt64
+	DeviceID    int64
 }
 
+// The parent lock also protects absence of a route during dispatch. A scalar
+// lookup keeps a missing parent an insert error rather than a successful no-op.
 func (q *Queries) PairDeviceToFleetNode(ctx context.Context, arg PairDeviceToFleetNodeParams) (int64, error) {
 	result, err := q.exec(ctx, q.pairDeviceToFleetNodeStmt, pairDeviceToFleetNode,
 		arg.FleetNodeID,
-		arg.DeviceID,
 		arg.OrgID,
 		arg.AssignedBy,
+		arg.DeviceID,
 	)
 	if err != nil {
 		return 0, err
@@ -483,9 +667,43 @@ func (q *Queries) TransferDiscoveredDeviceAttribution(ctx context.Context, arg T
 	return result.RowsAffected()
 }
 
-const unpairDevice = `-- name: UnpairDevice :execrows
-DELETE FROM fleet_node_device
-WHERE device_id = $1 AND org_id = $2
+const unpairDevice = `-- name: UnpairDevice :one
+WITH locked_device AS MATERIALIZED (
+    SELECT d.id, d.discovered_device_id
+    FROM device d
+    WHERE d.id = $1 AND d.org_id = $2
+    FOR UPDATE
+), removed AS (
+    DELETE FROM fleet_node_device fnd
+    USING locked_device d
+    WHERE fnd.device_id = d.id AND fnd.org_id = $2
+    RETURNING fnd.device_id
+), reset_discovery AS (
+    UPDATE discovered_device dd
+    SET endpoints = '{}', endpoint_key = '', serial_number = '', mac_address = ''
+    FROM locked_device d
+    WHERE dd.id = d.discovered_device_id AND dd.org_id = $2
+      AND dd.endpoint_key <> ''
+      AND EXISTS (SELECT 1 FROM removed)
+      AND NOT EXISTS (
+          SELECT 1 FROM device owner
+          WHERE owner.discovered_device_id = dd.id
+            AND owner.org_id = dd.org_id AND owner.deleted_at IS NULL
+            AND (
+                EXISTS (SELECT 1 FROM device_pairing dp WHERE dp.device_id = owner.id
+                        AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED'))
+                OR EXISTS (SELECT 1 FROM fleet_node_device fnd
+                           WHERE fnd.device_id = owner.id AND fnd.org_id = owner.org_id
+                             AND fnd.device_id NOT IN (SELECT device_id FROM removed))
+            )
+      )
+    RETURNING dd.id
+), reset_identity AS (
+    UPDATE device d SET serial_number = NULL, mac_address = ''
+    WHERE d.id IN (SELECT device_id FROM removed)
+      AND d.discovered_device_id IN (SELECT id FROM reset_discovery)
+)
+SELECT count(*)::bigint FROM removed
 `
 
 type UnpairDeviceParams struct {
@@ -493,15 +711,36 @@ type UnpairDeviceParams struct {
 	OrgID    int64
 }
 
+// A remaining cloud pairing or another inventory owner keeps its saved routes.
 func (q *Queries) UnpairDevice(ctx context.Context, arg UnpairDeviceParams) (int64, error) {
-	result, err := q.exec(ctx, q.unpairDeviceStmt, unpairDevice, arg.DeviceID, arg.OrgID)
+	row := q.queryRow(ctx, q.unpairDeviceStmt, unpairDevice, arg.DeviceID, arg.OrgID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const unpairDevicesForFleetNodeRevocation = `-- name: UnpairDevicesForFleetNodeRevocation :execrows
+UPDATE device_pairing dp
+SET pairing_status = 'UNPAIRED', unpaired_at = CURRENT_TIMESTAMP
+FROM fleet_node_device fnd
+WHERE dp.device_id = fnd.device_id
+  AND fnd.fleet_node_id = $1 AND fnd.org_id = $2
+`
+
+type UnpairDevicesForFleetNodeRevocationParams struct {
+	FleetNodeID int64
+	OrgID       int64
+}
+
+func (q *Queries) UnpairDevicesForFleetNodeRevocation(ctx context.Context, arg UnpairDevicesForFleetNodeRevocationParams) (int64, error) {
+	result, err := q.exec(ctx, q.unpairDevicesForFleetNodeRevocationStmt, unpairDevicesForFleetNodeRevocation, arg.FleetNodeID, arg.OrgID)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected()
 }
 
-const upsertDiscoveredDeviceFromFleetNode = `-- name: UpsertDiscoveredDeviceFromFleetNode :execrows
+const upsertDiscoveredDeviceFromFleetNode = `-- name: UpsertDiscoveredDeviceFromFleetNode :one
 INSERT INTO discovered_device (
     org_id,
     device_identifier,
@@ -513,25 +752,104 @@ INSERT INTO discovered_device (
     manufacturer,
     firmware_version,
     discovered_by_fleet_node_id,
-    is_active
+    is_active,
+    device_class,
+    rpc_port,
+    rpc_tls, endpoint_key, endpoints
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE)
+VALUES ($1, COALESCE((
+    SELECT dd.device_identifier
+    FROM discovered_device dd
+    WHERE dd.org_id = $1
+      AND dd.device_identifier = $2
+      AND dd.deleted_at IS NULL
+), (
+    SELECT dd.device_identifier
+    FROM discovered_device dd
+    WHERE dd.org_id = $1
+      AND dd.deleted_at IS NULL
+      AND dd.discovered_by_fleet_node_id = $3
+      AND dd.ip_address = $4
+      AND dd.driver_name = $5
+      AND ($6 = 0 OR dd.device_class = $6)
+      AND COALESCE(dd.model, '') = COALESCE($7, '')
+      AND (
+        ($2 LIKE 'auto:%' AND dd.device_identifier LIKE 'auto:%'
+          AND dd.port = $8)
+        OR ($2 LIKE 'container:%' AND dd.device_identifier LIKE 'container:%'
+          AND dd.device_class = 2)
+      )
+    ORDER BY dd.id ASC
+    LIMIT 1
+), $2),
+    $4, $8, $9,
+    $5, $7, $10,
+    $11, $3,
+    TRUE, $6, $12, $13,
+    $14, $15)
 ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     ip_address = EXCLUDED.ip_address,
-    port = EXCLUDED.port,
-    url_scheme = EXCLUDED.url_scheme,
+    -- Native CT1 rediscovery must retain the existing browser endpoint.
+    port = CASE WHEN discovered_device.device_class = 2 AND EXCLUDED.rpc_port > 0
+                  AND discovered_device.endpoint_key = '' AND EXCLUDED.endpoint_key = ''
+                THEN discovered_device.port ELSE EXCLUDED.port END,
+    url_scheme = CASE WHEN discovered_device.device_class = 2 AND EXCLUDED.rpc_port > 0
+                  AND discovered_device.endpoint_key = '' AND EXCLUDED.endpoint_key = ''
+                      THEN discovered_device.url_scheme ELSE EXCLUDED.url_scheme END,
+    rpc_port = EXCLUDED.rpc_port,
+    rpc_tls = EXCLUDED.rpc_tls,
+    endpoint_key = EXCLUDED.endpoint_key,
+    endpoints = EXCLUDED.endpoints,
     driver_name = COALESCE(discovered_device.driver_name, EXCLUDED.driver_name),
     model = EXCLUDED.model,
+    device_class = COALESCE(NULLIF(EXCLUDED.device_class, 0), discovered_device.device_class),
     manufacturer = EXCLUDED.manufacturer,
-    firmware_version = EXCLUDED.firmware_version,
+    -- Keep the stored version only when the report has no endpoint group and the
+    -- row identity is the device's MAC, serial, or container. A row found by
+    -- address can now belong to a replaced device. Telemetry writes the version
+    -- of a device that it polls only when the version changes, and a scan report
+    -- can be older than that write. A report can also omit the version.
+    firmware_version = CASE
+        WHEN EXCLUDED.endpoint_key <> '' OR NOT (
+            discovered_device.device_identifier LIKE 'mac:%'
+            OR discovered_device.device_identifier LIKE 'serial:%'
+            OR discovered_device.device_identifier LIKE 'container:%'
+        )
+        THEN EXCLUDED.firmware_version
+        WHEN COALESCE(discovered_device.firmware_version, '') <> '' AND EXISTS (
+            SELECT 1
+            FROM device d
+            JOIN device_pairing dp ON dp.device_id = d.id
+            WHERE (d.discovered_device_id = discovered_device.id OR d.device_identifier = discovered_device.device_identifier)
+              AND d.org_id = discovered_device.org_id
+              AND d.deleted_at IS NULL
+              AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+        )
+        THEN discovered_device.firmware_version
+        WHEN EXCLUDED.firmware_version IS NULL AND (
+            discovered_device.device_identifier NOT LIKE 'container:%' OR EXISTS (
+                SELECT 1
+                FROM device d
+                WHERE (d.discovered_device_id = discovered_device.id OR d.device_identifier = discovered_device.device_identifier)
+                  AND d.org_id = discovered_device.org_id
+                  AND d.deleted_at IS NULL
+            )
+        )
+        THEN discovered_device.firmware_version
+        ELSE EXCLUDED.firmware_version
+    END,
     discovered_by_fleet_node_id = EXCLUDED.discovered_by_fleet_node_id,
     last_seen = CURRENT_TIMESTAMP,
     is_active = TRUE
-WHERE (
+WHERE (discovered_device.endpoint_key = '' OR
+    (discovered_device.endpoint_key = EXCLUDED.endpoint_key AND discovered_device.driver_name = EXCLUDED.driver_name))
+AND (EXCLUDED.endpoint_key <> '' OR EXCLUDED.rpc_port > 0
+    OR (discovered_device.rpc_port = 0 AND NOT discovered_device.rpc_tls))
+AND (
     discovered_device.discovered_by_fleet_node_id = EXCLUDED.discovered_by_fleet_node_id
     -- The attributing node was revoked (soft-deleted), so a replacement node may
     -- reclaim its rows (otherwise a re-scan of the same stable mac:/serial: device
-    -- is rejected forever). Attribution moves to the reporter ($10), staying
+    -- is rejected forever). Attribution moves to the reporter, staying
     -- non-NULL, so cloud-exclusion (discovered_by_fleet_node_id IS NULL) is never
     -- widened. Cloud-paired and live-cross-node rows remain blocked below.
     OR (
@@ -550,7 +868,7 @@ WHERE (
     -- cloud-paired device or one paired to another node; bare and own-node pass.
     SELECT 1
     FROM device d
-    WHERE d.discovered_device_id = discovered_device.id
+    WHERE (d.discovered_device_id = discovered_device.id OR d.device_identifier = discovered_device.device_identifier)
       AND d.org_id = discovered_device.org_id
       AND d.deleted_at IS NULL
       AND (
@@ -561,14 +879,14 @@ WHERE (
             WHERE dp.device_id = d.id
               AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
           )
-          -- A device paired to THIS reporting node ($10) is node-dialed, not
+          -- A device paired to THIS reporting node is node-dialed, not
           -- cloud-dialed; its paired-like row must not block its own node's re-scan.
           AND NOT EXISTS (
             SELECT 1
             FROM fleet_node_device fnd
             WHERE fnd.device_id = d.id
               AND fnd.org_id = d.org_id
-              AND fnd.fleet_node_id = $10
+              AND fnd.fleet_node_id = $3
           )
         )
         OR EXISTS (
@@ -576,47 +894,66 @@ WHERE (
           FROM fleet_node_device fnd
           WHERE fnd.device_id = d.id
             AND fnd.org_id = d.org_id
-            AND fnd.fleet_node_id <> $10
+            AND fnd.fleet_node_id <> $3
         )
       )
 )
+RETURNING device_class, device_identifier, endpoints
 `
 
 type UpsertDiscoveredDeviceFromFleetNodeParams struct {
 	OrgID                   int64
 	DeviceIdentifier        string
+	DiscoveredByFleetNodeID sql.NullInt64
 	IpAddress               string
+	DriverName              string
+	DeviceClass             int32
+	Model                   sql.NullString
 	Port                    string
 	UrlScheme               string
-	DriverName              string
-	Model                   sql.NullString
 	Manufacturer            sql.NullString
 	FirmwareVersion         sql.NullString
-	DiscoveredByFleetNodeID sql.NullInt64
+	RpcPort                 int32
+	RpcTls                  bool
+	EndpointKey             string
+	Endpoints               json.RawMessage
 }
 
-// 0 rows on conflict signals rejection. A remote report must not redirect the
+type UpsertDiscoveredDeviceFromFleetNodeRow struct {
+	DeviceClass      int32
+	DeviceIdentifier string
+	Endpoints        json.RawMessage
+}
+
+// No returned row on conflict signals rejection. A remote report must not redirect the
 // endpoint/credentials of a miner the cloud owns, so the update is blocked
 // unless the row is already attributed to this fleet node or to a revoked node
 // that can be reclaimed. Devices paired to the reporting node itself stay
-// refreshable, subject to the attribution guard. The agent synthesizes a stable
-// per-device identifier (mac:/serial:, else auto:<hash>), so a re-scan reuses
-// the same row.
-func (q *Queries) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg UpsertDiscoveredDeviceFromFleetNodeParams) (int64, error) {
-	result, err := q.exec(ctx, q.upsertDiscoveredDeviceFromFleetNodeStmt, upsertDiscoveredDeviceFromFleetNode,
+// refreshable, subject to the attribution guard. Synthetic identifiers include
+// the physical node id. After attribution moves to an HA peer, reconcile its
+// new synthetic identifier to the inherited endpoint within that node and org.
+// Exact identifiers take precedence, preserving the ownership guard. Container
+// identity excludes the port because CT1 browser/RPC endpoints can change.
+// A web-only scan cannot erase a saved native RPC route.
+func (q *Queries) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg UpsertDiscoveredDeviceFromFleetNodeParams) (UpsertDiscoveredDeviceFromFleetNodeRow, error) {
+	row := q.queryRow(ctx, q.upsertDiscoveredDeviceFromFleetNodeStmt, upsertDiscoveredDeviceFromFleetNode,
 		arg.OrgID,
 		arg.DeviceIdentifier,
+		arg.DiscoveredByFleetNodeID,
 		arg.IpAddress,
+		arg.DriverName,
+		arg.DeviceClass,
+		arg.Model,
 		arg.Port,
 		arg.UrlScheme,
-		arg.DriverName,
-		arg.Model,
 		arg.Manufacturer,
 		arg.FirmwareVersion,
-		arg.DiscoveredByFleetNodeID,
+		arg.RpcPort,
+		arg.RpcTls,
+		arg.EndpointKey,
+		arg.Endpoints,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+	var i UpsertDiscoveredDeviceFromFleetNodeRow
+	err := row.Scan(&i.DeviceClass, &i.DeviceIdentifier, &i.Endpoints)
+	return i, err
 }

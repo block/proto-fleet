@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/lib/pq"
 )
@@ -44,7 +45,7 @@ WITH eligible AS MATERIALIZED (
     WHERE d.device_identifier = $4
       AND d.org_id = $5
       AND d.deleted_at IS NULL
-      AND fnd.fleet_node_id = $11
+      AND fnd.fleet_node_id = $13
       AND ds.status = 'OFFLINE'
     FOR UPDATE OF fnd, ds
 )
@@ -64,8 +65,11 @@ WHERE d.discovered_device_id = dd.id
   AND dd.ip_address = $8
   AND dd.port = $9
   AND dd.url_scheme = $10
+  AND dd.rpc_port = $11
+  AND dd.rpc_tls = $12
   AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
+  AND dd.endpoint_key = ''
   AND dd.is_active = TRUE
   AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
 RETURNING d.id
@@ -82,6 +86,8 @@ type ApplyFleetNodeRecoveredEndpointParams struct {
 	ExpectedIpAddress string
 	ExpectedPort      string
 	ExpectedUrlScheme string
+	ExpectedRpcPort   int32
+	ExpectedRpcTls    bool
 	FleetNodeID       int64
 }
 
@@ -102,6 +108,8 @@ func (q *Queries) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, arg Apply
 		arg.ExpectedIpAddress,
 		arg.ExpectedPort,
 		arg.ExpectedUrlScheme,
+		arg.ExpectedRpcPort,
+		arg.ExpectedRpcTls,
 		arg.FleetNodeID,
 	)
 	var id int64
@@ -124,7 +132,10 @@ WITH eligible AS MATERIALIZED (
       AND dd.ip_address = $7
       AND dd.port = $8
       AND dd.url_scheme = $9
+  AND dd.rpc_port = $10
+  AND dd.rpc_tls = $11
       AND dd.deleted_at IS NULL
+  AND dd.endpoint_key = ''
       AND dd.is_active = TRUE
     FOR UPDATE OF fnd, ds, dd
 ), updated_pairing AS (
@@ -137,20 +148,23 @@ WITH eligible AS MATERIALIZED (
     WHERE dp.device_id = d.id
       AND d.device_identifier = $4
       AND d.org_id = $5
-      AND COALESCE(d.serial_number, '') = $10
-      AND d.mac_address = $11
+      AND COALESCE(d.serial_number, '') = $12
+      AND d.mac_address = $13
       AND dd.ip_address = $7
       AND dd.port = $8
       AND dd.url_scheme = $9
+  AND dd.rpc_port = $10
+  AND dd.rpc_tls = $11
       AND d.deleted_at IS NULL
       AND dd.deleted_at IS NULL
+  AND dd.endpoint_key = ''
       AND dd.is_active = TRUE
       AND (
           (mc.device_id IS NULL
-           AND $12::text = ''
-           AND $13::text = '')
-          OR (mc.username_enc = $12
-              AND mc.password_enc = $13)
+           AND $14::text = ''
+           AND $15::text = '')
+          OR (mc.username_enc = $14
+              AND mc.password_enc = $15)
       )
       AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
     RETURNING d.id, d.discovered_device_id
@@ -175,6 +189,8 @@ type ApplyFleetNodeRecoveryAuthenticationNeededParams struct {
 	ExpectedIpAddress     string
 	ExpectedPort          string
 	ExpectedUrlScheme     string
+	ExpectedRpcPort       int32
+	ExpectedRpcTls        bool
 	SerialNumber          sql.NullString
 	MacAddress            string
 	CredentialUsernameEnc string
@@ -198,6 +214,8 @@ func (q *Queries) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context
 		arg.ExpectedIpAddress,
 		arg.ExpectedPort,
 		arg.ExpectedUrlScheme,
+		arg.ExpectedRpcPort,
+		arg.ExpectedRpcTls,
 		arg.SerialNumber,
 		arg.MacAddress,
 		arg.CredentialUsernameEnc,
@@ -251,7 +269,7 @@ JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
-LEFT JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+LEFT JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 LEFT JOIN LATERAL (
     SELECT CASE
         WHEN fn.id IS NOT NULL
@@ -274,6 +292,7 @@ WHERE d.deleted_at IS NULL
   AND d.org_id = $1
   AND dd.is_active = TRUE
   AND dd.deleted_at IS NULL
+  AND dd.device_class <> 2
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
   -- Status filter mirrors GetTotalMinerStateSnapshots so
   -- sum(bucket counts) == filtered list total for every filter value.
@@ -530,7 +549,7 @@ SELECT d.device_identifier
 FROM device d
 JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
 JOIN device_pairing dp ON dp.device_id = fnd.device_id
-JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 WHERE d.deleted_at IS NULL
   AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
   AND fn.deleted_at IS NULL
@@ -566,6 +585,50 @@ func (q *Queries) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]string, 
 	return items, nil
 }
 
+const getAlreadyPairedDeviceIdentifiers = `-- name: GetAlreadyPairedDeviceIdentifiers :many
+SELECT d.device_identifier
+FROM device d
+JOIN device_pairing dp ON dp.device_id = d.id
+JOIN discovered_device dd ON dd.id = d.discovered_device_id
+WHERE d.org_id = $1
+  AND dd.org_id = $1
+  AND d.device_identifier = ANY($2::text[])
+  AND d.deleted_at IS NULL
+  AND dd.is_active = TRUE
+  AND dd.deleted_at IS NULL
+  AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+`
+
+type GetAlreadyPairedDeviceIdentifiersParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+// Resolve only the devices returned by the current discovery batch. This avoids
+// loading fleet-wide pairing state for large installations.
+func (q *Queries) GetAlreadyPairedDeviceIdentifiers(ctx context.Context, arg GetAlreadyPairedDeviceIdentifiersParams) ([]string, error) {
+	rows, err := q.query(ctx, q.getAlreadyPairedDeviceIdentifiersStmt, getAlreadyPairedDeviceIdentifiers, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var device_identifier string
+		if err := rows.Scan(&device_identifier); err != nil {
+			return nil, err
+		}
+		items = append(items, device_identifier)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getAvailableFirmwareVersions = `-- name: GetAvailableFirmwareVersions :many
 SELECT DISTINCT dd.firmware_version
 FROM device d
@@ -576,6 +639,7 @@ WHERE dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD
   AND d.org_id = $1
   AND dd.is_active = TRUE
   AND dd.deleted_at IS NULL
+  AND dd.device_class <> 2
   AND dd.firmware_version IS NOT NULL
   AND dd.firmware_version != ''
 ORDER BY dd.firmware_version
@@ -612,6 +676,7 @@ JOIN device_pairing dp ON d.id = dp.device_id
 WHERE dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
   AND d.deleted_at IS NULL
   AND d.org_id = $1
+  AND dd.device_class <> 2
   AND dd.model IS NOT NULL
   AND dd.model != ''
 ORDER BY dd.model
@@ -722,7 +787,7 @@ FROM device d
 LEFT JOIN fleet_node_device fnd
     ON fnd.device_id = d.id
    AND fnd.org_id = d.org_id
-LEFT JOIN fleet_node fn
+LEFT JOIN fleet_node_live fn
     ON fn.id = fnd.fleet_node_id
    AND fn.org_id = fnd.org_id
    AND fn.deleted_at IS NULL
@@ -785,36 +850,6 @@ func (q *Queries) GetDeviceIDByDeviceIdentifier(ctx context.Context, deviceIdent
 	var id int64
 	err := row.Scan(&id)
 	return id, err
-}
-
-const getDeviceIDsByDeviceIdentifiers = `-- name: GetDeviceIDsByDeviceIdentifiers :many
-SELECT id
-FROM device
-WHERE device_identifier = ANY($1::text[])
-  AND deleted_at IS NULL
-`
-
-func (q *Queries) GetDeviceIDsByDeviceIdentifiers(ctx context.Context, deviceIdentifiers []string) ([]int64, error) {
-	rows, err := q.query(ctx, q.getDeviceIDsByDeviceIdentifiersStmt, getDeviceIDsByDeviceIdentifiers, pq.Array(deviceIdentifiers))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const getDeviceIDsWithIdentifiers = `-- name: GetDeviceIDsWithIdentifiers :many
@@ -954,7 +989,7 @@ WITH latest_metrics AS (
         device_metrics.temp_c,
         device_metrics.power_w,
         device_metrics.efficiency_jh
-    FROM device_metrics
+    FROM device_metrics AS device_metrics
     INNER JOIN device d2 ON device_metrics.device_identifier = d2.device_identifier
         AND d2.deleted_at IS NULL
         AND d2.org_id = $2
@@ -1238,6 +1273,7 @@ func (q *Queries) GetDistinctDeviceSiteIDs(ctx context.Context, arg GetDistinctD
 }
 
 const getFilteredDeviceIdentifiers = `-- name: GetFilteredDeviceIdentifiers :many
+
 SELECT
     d.device_identifier
 FROM device d
@@ -1245,7 +1281,7 @@ JOIN device_pairing dp ON d.id = dp.device_id
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
-LEFT JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+LEFT JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 LEFT JOIN LATERAL (
     SELECT CASE
         WHEN fn.id IS NOT NULL
@@ -1274,9 +1310,12 @@ type GetFilteredDeviceIdentifiersParams struct {
 	ManufacturerFilter  sql.NullString
 }
 
-// Mirrors GetFilteredDeviceIds but returns device_identifier strings instead of
-// internal IDs. Used by command preflight filtering, which operates on
-// identifiers (the same primitive used by selectors and schedules).
+// Zone / building filters are not handled by this static query;
+// callers with those filters must route through the dynamic builder
+// (device_filters.go).
+// Returns device identifiers filtered by pairing status and optional device
+// status, model and manufacturer. Used by command preflight filtering, which
+// operates on identifiers (the same primitive used by selectors and schedules).
 func (q *Queries) GetFilteredDeviceIdentifiers(ctx context.Context, arg GetFilteredDeviceIdentifiersParams) ([]string, error) {
 	rows, err := q.query(ctx, q.getFilteredDeviceIdentifiersStmt, getFilteredDeviceIdentifiers,
 		arg.OrgID,
@@ -1296,78 +1335,6 @@ func (q *Queries) GetFilteredDeviceIdentifiers(ctx context.Context, arg GetFilte
 			return nil, err
 		}
 		items = append(items, device_identifier)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const getFilteredDeviceIds = `-- name: GetFilteredDeviceIds :many
-
-SELECT
-    d.id as device_id
-FROM device d
-JOIN device_pairing dp ON d.id = dp.device_id
-JOIN discovered_device dd ON d.discovered_device_id = dd.id
-LEFT JOIN device_status ds ON d.id = ds.device_id
-LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
-LEFT JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
-LEFT JOIN LATERAL (
-    SELECT CASE
-        WHEN fn.id IS NOT NULL
-             AND fn.deleted_at IS NULL
-             AND fn.enrollment_status = 'CONFIRMED'
-             AND fn.last_seen_at IS NOT NULL
-             AND fn.last_seen_at < NOW() - INTERVAL '2 minutes'
-        THEN 'OFFLINE'
-        ELSE ds.status::text
-    END AS status
-) effective_status ON TRUE
-WHERE d.org_id = $1
-    AND dp.pairing_status::text = ANY($2::text[])
-    AND d.deleted_at IS NULL
-    AND ($3::text IS NULL OR effective_status.status = $3::text)
-    AND ($4::text IS NULL OR dd.model = ANY(string_to_array($4, ',')))
-    AND ($5::text IS NULL OR dd.manufacturer = ANY(string_to_array($5, ',')))
-ORDER BY d.id
-`
-
-type GetFilteredDeviceIdsParams struct {
-	OrgID               int64
-	PairingStatusValues []string
-	DeviceStatus        sql.NullString
-	ModelFilter         sql.NullString
-	ManufacturerFilter  sql.NullString
-}
-
-// Zone / building filters are not handled by this static query;
-// callers with those filters must route through the dynamic builder
-// (device_filters.go).
-// Returns device IDs filtered by pairing status and optional device status.
-// Used for bulk command operations.
-func (q *Queries) GetFilteredDeviceIds(ctx context.Context, arg GetFilteredDeviceIdsParams) ([]int64, error) {
-	rows, err := q.query(ctx, q.getFilteredDeviceIdsStmt, getFilteredDeviceIds,
-		arg.OrgID,
-		pq.Array(arg.PairingStatusValues),
-		arg.DeviceStatus,
-		arg.ModelFilter,
-		arg.ManufacturerFilter,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []int64
-	for rows.Next() {
-		var device_id int64
-		if err := rows.Scan(&device_id); err != nil {
-			return nil, err
-		}
-		items = append(items, device_id)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -1433,7 +1400,7 @@ JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
-LEFT JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+LEFT JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 LEFT JOIN LATERAL (
     SELECT CASE
         WHEN fn.id IS NOT NULL
@@ -1452,6 +1419,7 @@ WHERE dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
   -- remediation path.
   AND dd.is_active = TRUE
   AND dd.deleted_at IS NULL
+  AND dd.device_class <> 2
   AND d.org_id = $1
   AND dd.model IS NOT NULL
   AND dd.model != ''
@@ -1556,7 +1524,7 @@ JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
-LEFT JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+LEFT JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 LEFT JOIN LATERAL (
     SELECT CASE
         WHEN fn.id IS NOT NULL
@@ -1579,6 +1547,7 @@ WHERE d.org_id = $1
   AND d.device_identifier = ANY($2::text[])
   AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
+  AND dd.device_class <> 2
   AND dd.is_active = TRUE
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
 `
@@ -1706,6 +1675,7 @@ SELECT
     dd.ip_address,
     dd.port,
     dd.url_scheme,
+    dd.rpc_port, dd.rpc_tls, dd.device_class,
     mc.username_enc,
     mc.password_enc
 FROM fleet_node_device fnd
@@ -1713,10 +1683,11 @@ JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id
 JOIN device_pairing dp ON dp.device_id = d.id
 JOIN device_status ds ON ds.device_id = d.id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
-JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 LEFT JOIN miner_credentials mc ON mc.device_id = d.id
 WHERE d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
+  AND dd.endpoint_key = ''
   AND dd.is_active = TRUE
   AND fn.deleted_at IS NULL
   AND fn.enrollment_status = 'CONFIRMED'
@@ -1737,6 +1708,9 @@ type GetOfflineFleetNodeDevicesRow struct {
 	IpAddress        string
 	Port             string
 	UrlScheme        string
+	RpcPort          int32
+	RpcTls           bool
+	DeviceClass      int32
 	UsernameEnc      sql.NullString
 	PasswordEnc      sql.NullString
 }
@@ -1763,9 +1737,55 @@ func (q *Queries) GetOfflineFleetNodeDevices(ctx context.Context) ([]GetOfflineF
 			&i.IpAddress,
 			&i.Port,
 			&i.UrlScheme,
+			&i.RpcPort,
+			&i.RpcTls,
+			&i.DeviceClass,
 			&i.UsernameEnc,
 			&i.PasswordEnc,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getOrgDeviceIDsWithIdentifiers = `-- name: GetOrgDeviceIDsWithIdentifiers :many
+SELECT id, device_identifier
+FROM device
+WHERE device_identifier = ANY($1::text[])
+  AND org_id = $2
+  AND deleted_at IS NULL
+`
+
+type GetOrgDeviceIDsWithIdentifiersParams struct {
+	DeviceIdentifiers []string
+	OrgID             int64
+}
+
+type GetOrgDeviceIDsWithIdentifiersRow struct {
+	ID               int64
+	DeviceIdentifier string
+}
+
+// Resolves caller-supplied identifiers within one organization. Identifiers
+// owned by another organization are omitted exactly like unknown ones.
+func (q *Queries) GetOrgDeviceIDsWithIdentifiers(ctx context.Context, arg GetOrgDeviceIDsWithIdentifiersParams) ([]GetOrgDeviceIDsWithIdentifiersRow, error) {
+	rows, err := q.query(ctx, q.getOrgDeviceIDsWithIdentifiersStmt, getOrgDeviceIDsWithIdentifiers, pq.Array(arg.DeviceIdentifiers), arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetOrgDeviceIDsWithIdentifiersRow
+	for rows.Next() {
+		var i GetOrgDeviceIDsWithIdentifiersRow
+		if err := rows.Scan(&i.ID, &i.DeviceIdentifier); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -2000,19 +2020,59 @@ WHERE d.org_id = $1
   AND d.deleted_at IS NULL
   AND dp.pairing_status = 'PAIRED'
   AND dd.manufacturer = 'Proto'
+  AND dd.device_class <> $3::integer
 ORDER BY d.id
 FOR SHARE OF d, dd, dp
 `
 
 type GetPairedProtoDeviceIdentifiersByIdentifiersParams struct {
-	OrgID             int64
-	DeviceIdentifiers []string
+	OrgID                int64
+	DeviceIdentifiers    []string
+	ContainerDeviceClass int32
 }
 
 // Lock eligible rows until targeted fallback-config commands are enqueued.
 // Pairing, manufacturer, and deletion changes must wait for that transaction.
 func (q *Queries) GetPairedProtoDeviceIdentifiersByIdentifiers(ctx context.Context, arg GetPairedProtoDeviceIdentifiersByIdentifiersParams) ([]string, error) {
-	rows, err := q.query(ctx, q.getPairedProtoDeviceIdentifiersByIdentifiersStmt, getPairedProtoDeviceIdentifiersByIdentifiers, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	rows, err := q.query(ctx, q.getPairedProtoDeviceIdentifiersByIdentifiersStmt, getPairedProtoDeviceIdentifiersByIdentifiers, arg.OrgID, pq.Array(arg.DeviceIdentifiers), arg.ContainerDeviceClass)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var device_identifier string
+		if err := rows.Scan(&device_identifier); err != nil {
+			return nil, err
+		}
+		items = append(items, device_identifier)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getTelemetryEligibleDeviceIdentifiers = `-- name: GetTelemetryEligibleDeviceIdentifiers :many
+SELECT d.device_identifier
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
+LEFT JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+  AND fn.deleted_at IS NULL
+  AND fn.enrollment_status = 'CONFIRMED'
+WHERE d.device_identifier = ANY($1::text[])
+  AND d.deleted_at IS NULL
+  AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+  AND (fnd.device_id IS NULL OR fn.id IS NOT NULL)
+`
+
+// Apply the same eligibility rules as GetAllPairedDeviceIdentifiers.
+func (q *Queries) GetTelemetryEligibleDeviceIdentifiers(ctx context.Context, deviceIdentifiers []string) ([]string, error) {
+	rows, err := q.query(ctx, q.getTelemetryEligibleDeviceIdentifiersStmt, getTelemetryEligibleDeviceIdentifiers, pq.Array(deviceIdentifiers))
 	if err != nil {
 		return nil, err
 	}
@@ -2059,7 +2119,7 @@ LEFT JOIN device d ON dd.id = d.discovered_device_id
 LEFT JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
-LEFT JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+LEFT JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 LEFT JOIN LATERAL (
     SELECT CASE
         WHEN fn.id IS NOT NULL
@@ -2074,6 +2134,7 @@ LEFT JOIN LATERAL (
 WHERE dd.org_id = $1
     AND dd.is_active = TRUE
     AND dd.deleted_at IS NULL
+  AND dd.device_class <> 2
     -- Pairing status filter
     AND (
         $2::text IS NULL
@@ -2250,6 +2311,74 @@ func (q *Queries) GetTotalPairedDevices(ctx context.Context, arg GetTotalPairedD
 	return count, err
 }
 
+const getTotalPairedMiners = `-- name: GetTotalPairedMiners :one
+SELECT COUNT(*)
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN device_status ds ON d.id = ds.device_id
+WHERE dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+    AND d.deleted_at IS NULL
+    AND d.org_id = $1
+    AND dd.is_active = TRUE
+    AND dd.device_class <> 2
+    AND ($2::text IS NULL OR ds.status::text = ANY(string_to_array($2, ',')))
+    AND ($3::text IS NULL OR dd.model = ANY(string_to_array($3, ',')))
+    AND (
+         (cardinality(COALESCE($4::bigint[], '{}')) = 0 AND $5::boolean = false)
+      OR d.site_id = ANY(COALESCE($4::bigint[], '{}'))
+      OR ($5::boolean AND d.site_id IS NULL)
+    )
+`
+
+type GetTotalPairedMinersParams struct {
+	OrgID             int64
+	StatusFilter      sql.NullString
+	ModelFilter       sql.NullString
+	SiteIds           []int64
+	IncludeUnassigned bool
+}
+
+// The site filter is additive: site_ids is an OR across sites,
+// include_unassigned adds site_id IS NULL rows, and the empty + false case
+// applies no site restriction (count all paired devices in the org).
+func (q *Queries) GetTotalPairedMiners(ctx context.Context, arg GetTotalPairedMinersParams) (int64, error) {
+	row := q.queryRow(ctx, q.getTotalPairedMinersStmt, getTotalPairedMiners,
+		arg.OrgID,
+		arg.StatusFilter,
+		arg.ModelFilter,
+		pq.Array(arg.SiteIds),
+		arg.IncludeUnassigned,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const initializeDeviceWorkerName = `-- name: InitializeDeviceWorkerName :execrows
+UPDATE device
+SET worker_name = $1::text
+WHERE device_identifier = $2
+  AND org_id = $3
+  AND deleted_at IS NULL
+  AND worker_name IS NULL
+  AND btrim($1::text) <> ''
+`
+
+type InitializeDeviceWorkerNameParams struct {
+	WorkerName       string
+	DeviceIdentifier string
+	OrgID            int64
+}
+
+func (q *Queries) InitializeDeviceWorkerName(ctx context.Context, arg InitializeDeviceWorkerNameParams) (int64, error) {
+	result, err := q.exec(ctx, q.initializeDeviceWorkerNameStmt, initializeDeviceWorkerName, arg.WorkerName, arg.DeviceIdentifier, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const insertDevice = `-- name: InsertDevice :one
 INSERT INTO device (
     org_id,
@@ -2307,13 +2436,15 @@ SELECT
     dd.id as cursor_id,
     COALESCE(d.id, 0) as device_id,
     dd.driver_name,
+    dd.device_class,
     d.custom_name,
     d.site_id,
     COALESCE(s.name, '') as site_label,
     d.building_id,
     COALESCE(b.name, '') as building_label,
     FALSE as fleet_node_unavailable,
-    FALSE as embedded_web_view_available
+    FALSE as embedded_web_view_available,
+    NULL::bigint as fleet_node_id
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id
 LEFT JOIN device_pairing dp ON d.id = dp.device_id
@@ -2341,6 +2472,7 @@ type ListMinerStateSnapshotsRow struct {
 	CursorID                 int64
 	DeviceID                 int64
 	DriverName               string
+	DeviceClass              int32
 	CustomName               sql.NullString
 	SiteID                   sql.NullInt64
 	SiteLabel                string
@@ -2348,6 +2480,7 @@ type ListMinerStateSnapshotsRow struct {
 	BuildingLabel            string
 	FleetNodeUnavailable     bool
 	EmbeddedWebViewAvailable bool
+	FleetNodeID              sql.NullInt64
 }
 
 // TYPE GENERATION STUB - This query is never executed.
@@ -2381,6 +2514,7 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context) ([]ListMinerState
 			&i.CursorID,
 			&i.DeviceID,
 			&i.DriverName,
+			&i.DeviceClass,
 			&i.CustomName,
 			&i.SiteID,
 			&i.SiteLabel,
@@ -2388,6 +2522,7 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context) ([]ListMinerState
 			&i.BuildingLabel,
 			&i.FleetNodeUnavailable,
 			&i.EmbeddedWebViewAvailable,
+			&i.FleetNodeID,
 		); err != nil {
 			return nil, err
 		}
@@ -2594,6 +2729,43 @@ func (q *Queries) ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.
 	return i, err
 }
 
+const reconcileRebootRequiredStatus = `-- name: ReconcileRebootRequiredStatus :execrows
+UPDATE device_status ds
+SET status = $1::device_status_enum,
+    status_timestamp = CURRENT_TIMESTAMP,
+    telemetry_status_at = NULL,
+    status_details = NULL,
+    reboot_required_after = NULL
+FROM device d
+JOIN discovered_device dd ON dd.id = d.discovered_device_id
+JOIN device_pairing dp ON dp.device_id = d.id
+WHERE ds.device_id = d.id
+  AND d.device_identifier = $2
+  AND d.deleted_at IS NULL
+  AND dd.deleted_at IS NULL
+  AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+  AND ds.status = 'REBOOT_REQUIRED'
+  AND COALESCE(ds.reboot_required_after, ds.status_timestamp) < $3::timestamptz
+  AND ds.status_details IS DISTINCT FROM 'fleet_node_revoked'
+`
+
+type ReconcileRebootRequiredStatusParams struct {
+	Status           DeviceStatusEnum
+	DeviceIdentifier string
+	BootedAfter      time.Time
+}
+
+// The status and reboot-boundary predicates apply to the current status row even
+// after waiting for a concurrent firmware install's write to finish. Boot
+// evidence from an earlier install must not clear a later pending reboot.
+func (q *Queries) ReconcileRebootRequiredStatus(ctx context.Context, arg ReconcileRebootRequiredStatusParams) (int64, error) {
+	result, err := q.exec(ctx, q.reconcileRebootRequiredStatusStmt, reconcileRebootRequiredStatus, arg.Status, arg.DeviceIdentifier, arg.BootedAfter)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const setDevicePairingAuthNeededIfNotPaired = `-- name: SetDevicePairingAuthNeededIfNotPaired :execrows
 WITH locked_device AS MATERIALIZED (
     SELECT device.id
@@ -2653,12 +2825,28 @@ func (q *Queries) SoftDeleteDevices(ctx context.Context, arg SoftDeleteDevicesPa
 }
 
 const softDeleteDiscoveredDevicesForDeletedDevices = `-- name: SoftDeleteDiscoveredDevicesForDeletedDevices :exec
-UPDATE discovered_device dd SET deleted_at = NOW()
+UPDATE discovered_device dd SET
+    deleted_at = NOW(),
+    endpoints = '{}',
+    endpoint_key = '',
+    serial_number = CASE WHEN dd.endpoint_key <> '' THEN '' ELSE dd.serial_number END,
+    mac_address = CASE WHEN dd.endpoint_key <> '' THEN '' ELSE dd.mac_address END
 FROM device d
 WHERE dd.id = d.discovered_device_id
   AND d.device_identifier = ANY($1::text[])
   AND d.org_id = $2
   AND dd.deleted_at IS NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM device owner
+      WHERE owner.discovered_device_id = dd.id
+        AND owner.org_id = dd.org_id
+        AND owner.deleted_at IS NULL
+        AND (
+            EXISTS (SELECT 1 FROM device_pairing dp WHERE dp.device_id = owner.id
+                    AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED'))
+            OR EXISTS (SELECT 1 FROM fleet_node_device fnd WHERE fnd.device_id = owner.id AND fnd.org_id = owner.org_id)
+        )
+  )
 `
 
 type SoftDeleteDiscoveredDevicesForDeletedDevicesParams struct {
@@ -2666,7 +2854,8 @@ type SoftDeleteDiscoveredDevicesForDeletedDevicesParams struct {
 	OrgID             int64
 }
 
-// Soft-deletes discovered_device records linked to the specified devices.
+// Keep a shared discovery record while another live device still owns it.
+// Grouped controllers must rebuild their saved routes after explicit unpairing.
 func (q *Queries) SoftDeleteDiscoveredDevicesForDeletedDevices(ctx context.Context, arg SoftDeleteDiscoveredDevicesForDeletedDevicesParams) error {
 	_, err := q.exec(ctx, q.softDeleteDiscoveredDevicesForDeletedDevicesStmt, softDeleteDiscoveredDevicesForDeletedDevices, pq.Array(arg.DeviceIdentifiers), arg.OrgID)
 	return err
@@ -2858,36 +3047,55 @@ INSERT INTO device_status (
     device_id,
     status,
     status_timestamp,
-    status_details
+    status_details,
+    reboot_required_after
 ) VALUES (
     $1,
     $2,
     $3,
-    $4
+    $4,
+    $5::timestamptz
 )
 ON CONFLICT (device_id) DO UPDATE SET
     status = EXCLUDED.status,
     status_timestamp = EXCLUDED.status_timestamp,
-    status_details = EXCLUDED.status_details
+    telemetry_status_at = NULL,
+    status_details = EXCLUDED.status_details,
+    reboot_required_after = EXCLUDED.reboot_required_after
+WHERE device_status.status_details IS DISTINCT FROM 'fleet_node_revoked'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM device d
+    JOIN device_pairing dp ON dp.device_id = d.id AND dp.pairing_status = 'UNPAIRED'
+    JOIN discovered_device dd ON dd.id = d.discovered_device_id
+    WHERE d.id = EXCLUDED.device_id
+      AND dd.discovered_by_fleet_node_id IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM fleet_node_device fnd WHERE fnd.device_id = d.id)
+  )
 `
 
 type UpsertDeviceStatusParams struct {
-	DeviceID        int64
-	Status          DeviceStatusEnum
-	StatusTimestamp sql.NullTime
-	StatusDetails   sql.NullString
+	DeviceID            int64
+	Status              DeviceStatusEnum
+	StatusTimestamp     sql.NullTime
+	StatusDetails       sql.NullString
+	RebootRequiredAfter sql.NullTime
 }
 
 // Zone / building filters are not handled by this static query.
 // When the caller's filter includes BuildingIDs, IncludeNoBuilding,
 // ZoneKeys, or IncludeNoRack, the Go store routes to the dynamic
 // query builder (see device_filters.go) so counts match the list.
+// A queued result from a revoked Node cannot restore a now-unpaired miner's
+// status. The status-row marker also blocks writes that began before the
+// revocation committed and waited on this row's lock.
 func (q *Queries) UpsertDeviceStatus(ctx context.Context, arg UpsertDeviceStatusParams) error {
 	_, err := q.exec(ctx, q.upsertDeviceStatusStmt, upsertDeviceStatus,
 		arg.DeviceID,
 		arg.Status,
 		arg.StatusTimestamp,
 		arg.StatusDetails,
+		arg.RebootRequiredAfter,
 	)
 	return err
 }

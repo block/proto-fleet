@@ -1,16 +1,14 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { generateUptimeHeadline } from "./utils";
 import type { SegmentedBarChartData } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel/types";
 
 describe("generateUptimeHeadline", () => {
-  it("returns 'No data' when no data points are provided", () => {
-    const result = generateUptimeHeadline([]);
-    expect(result).toBe("No data");
-  });
-
-  it("returns 'No data' when empty array of arrays is provided", () => {
-    const result = generateUptimeHeadline([[]]);
-    expect(result).toBe("No data");
+  it.each<{ name: string; data: SegmentedBarChartData[][] }>([
+    { name: "no data points are provided", data: [] },
+    { name: "empty array of arrays is provided", data: [[]] },
+  ])("returns 'No data' when $name", ({ data }) => {
+    expect(generateUptimeHeadline(data)).toBe("No data");
   });
 
   it("returns 'All miners hashing' when all miners are hashing", () => {
@@ -28,49 +26,14 @@ describe("generateUptimeHeadline", () => {
     expect(result).toBe("All miners hashing");
   });
 
-  it("returns percentage when only one miner is not hashing", () => {
-    const data: SegmentedBarChartData[][] = [
-      [
-        {
-          datetime: Date.now(),
-          hashing: 4,
-          notHashing: 1,
-        },
-      ],
-    ];
+  it.each([
+    { name: "only one miner is not hashing", hashing: 4, notHashing: 1, expected: "20% not hashing" },
+    { name: "multiple miners are not hashing", hashing: 3, notHashing: 2, expected: "40% not hashing" },
+    { name: "3 of 100 miners are not hashing", hashing: 97, notHashing: 3, expected: "3% not hashing" },
+  ])("returns percentage when $name", ({ hashing, notHashing, expected }) => {
+    const data: SegmentedBarChartData[][] = [[{ datetime: Date.now(), hashing, notHashing }]];
 
-    const result = generateUptimeHeadline(data);
-    expect(result).toBe("20% not hashing");
-  });
-
-  it("returns percentage when multiple miners are not hashing", () => {
-    const data: SegmentedBarChartData[][] = [
-      [
-        {
-          datetime: Date.now(),
-          hashing: 3,
-          notHashing: 2,
-        },
-      ],
-    ];
-
-    const result = generateUptimeHeadline(data);
-    expect(result).toBe("40% not hashing");
-  });
-
-  it("calculates correct percentage for not hashing miners", () => {
-    const data: SegmentedBarChartData[][] = [
-      [
-        {
-          datetime: Date.now(),
-          hashing: 97,
-          notHashing: 3,
-        },
-      ],
-    ];
-
-    const result = generateUptimeHeadline(data);
-    expect(result).toBe("3% not hashing");
+    expect(generateUptimeHeadline(data)).toBe(expected);
   });
 
   it("rounds percentage to nearest integer", () => {
@@ -265,5 +228,46 @@ describe("generateUptimeHeadline", () => {
     const result = generateUptimeHeadline(data);
     // 2/(6+2+2) = 20%
     expect(result).toBe("20% not hashing");
+  });
+});
+
+describe("account uptime headlines", () => {
+  it("shows missing readings independently of the asset label", () => {
+    expect(
+      generateUptimeHeadline([[{ datetime: 0, hashing: 0, notHashing: 0, broken: 0 }]], {
+        audience: "account",
+        assetLabel: "module",
+      }),
+    ).toBe("No hashing-state readings");
+  });
+
+  it("surfaces missing observations when the reporting assets are healthy", () => {
+    expect(
+      generateUptimeHeadline([[{ datetime: 0, hashing: 2, notHashing: 0, broken: 0 }]], {
+        audience: "account",
+        assetLabel: "asset",
+        expectedAssetCount: 4,
+      }),
+    ).toBe("2 of 4 assets reporting");
+  });
+
+  it("reports zero coverage when all allocated assets have missing observations", () => {
+    expect(
+      generateUptimeHeadline([[{ datetime: 0, hashing: 0 }]], {
+        audience: "account",
+        assetLabel: "asset",
+        expectedAssetCount: 1,
+      }),
+    ).toBe("0 of 1 asset reporting");
+  });
+
+  it("keeps the healthy headline when every allocated asset reports", () => {
+    expect(
+      generateUptimeHeadline([[{ datetime: 0, hashing: 4 }]], {
+        audience: "account",
+        assetLabel: "asset",
+        expectedAssetCount: 4,
+      }),
+    ).toBe("All assets hashing");
   });
 });

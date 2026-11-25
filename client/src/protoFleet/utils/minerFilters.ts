@@ -3,11 +3,17 @@ import type { ActiveFilters, DropdownFilterItem } from "@/shared/components/List
 /**
  * Creates a dropdown filter for miner models.
  * All models are selected by default.
+ *
+ * Option ids use the model strings supplied by the caller. Callers can
+ * optionally provide display labels for their UI.
  */
-export function createModelFilter(models: string[]): DropdownFilterItem {
+export function createModelFilter(
+  models: string[],
+  getLabel: (model: string) => string = (model) => model,
+): DropdownFilterItem {
   const options = models.map((model) => ({
     id: model,
-    label: model,
+    label: getLabel(model),
   }));
 
   return {

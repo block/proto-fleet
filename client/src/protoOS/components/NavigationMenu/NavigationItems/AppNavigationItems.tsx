@@ -5,6 +5,7 @@ import { navigationItems } from "../constants";
 import NavigationItem from "../NavigationItem";
 import { NavigationItemValue } from "../types";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import { useDeviceType } from "@/protoOS/store";
 import MorphingPlusMinus from "@/shared/components/MorphingPlusMinus";
 import useCssVariable from "@/shared/hooks/useCssVariable";
 import { cubicBezierValues } from "@/shared/utils/cssUtils";
@@ -18,6 +19,9 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
   const [showAccordionItems, setShowAccordionItems] = useState(pageName.startsWith("settings"));
   const [showAccordionExpand, setShowAccordionExpand] = useState(false);
   const { isFleetHosted } = useMinerHosting();
+  const deviceType = useDeviceType();
+  const homeNavigationItem = deviceType === "container" ? navigationItems.containerHome : navigationItems.home;
+  const isHomePage = ["", "hashrate", "efficiency", "power-usage", "temperature"].includes(pageName);
 
   const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
 
@@ -39,8 +43,19 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
 
   return (
     <>
-      <NavigationItem id={navigationItems.home} text="Home" onClick={handleClick} pageName={pageName} />
-      <NavigationItem id={navigationItems.diagnostics} text="Diagnostics" onClick={handleClick} pageName={pageName} />
+      <NavigationItem
+        id={homeNavigationItem}
+        text="Home"
+        onClick={handleClick}
+        pageName={isHomePage ? homeNavigationItem : pageName}
+      />
+      <NavigationItem id={navigationItems.systems} text="Systems" onClick={handleClick} pageName={pageName} />
+      {deviceType === "container" ? (
+        <>
+          <NavigationItem id={navigationItems.modules} text="Modules" onClick={handleClick} pageName={pageName} />
+          <NavigationItem id={navigationItems.pools} text="Pools" onClick={handleClick} pageName={pageName} />
+        </>
+      ) : null}
       <NavigationItem id={navigationItems.logs} text="Logs" onClick={handleClick} pageName={pageName} />
       <NavigationItem
         suffixIcon={
@@ -72,7 +87,7 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
                 read-only view — so hide it. Pools stays visible: pool edits are
                 also Fleet-managed, but the page shows the miner's current pools
                 read-only so operators can see what's configured. */}
-            {isFleetHosted ? null : (
+            {isFleetHosted || deviceType === "container" ? null : (
               <NavigationItem
                 id={navigationItems.authentication}
                 text="Authentication"
@@ -89,26 +104,28 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
               isChildItem
             />
             <NavigationItem
-              id={navigationItems.miningPools}
-              text="Pools"
+              id={deviceType === "container" ? navigationItems.hardware : navigationItems.miningPools}
+              text={deviceType === "container" ? "Hardware" : "Pools"}
               onClick={handleClick}
               pageName={pageName}
               isChildItem
             />
             <NavigationItem
-              id={navigationItems.hardware}
-              text="Hardware"
+              id={deviceType === "container" ? navigationItems.miningPools : navigationItems.hardware}
+              text={deviceType === "container" ? "Pools" : "Hardware"}
               onClick={handleClick}
               pageName={pageName}
               isChildItem
             />
-            <NavigationItem
-              id={navigationItems.cooling}
-              text="Cooling"
-              onClick={handleClick}
-              pageName={pageName}
-              isChildItem
-            />
+            {deviceType !== "container" ? (
+              <NavigationItem
+                id={navigationItems.cooling}
+                text="Cooling"
+                onClick={handleClick}
+                pageName={pageName}
+                isChildItem
+              />
+            ) : null}
           </motion.div>
         ) : null}
       </AnimatePresence>

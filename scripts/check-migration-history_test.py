@@ -1,14 +1,21 @@
 #!/usr/bin/env python3
 """Exercise migration policy against real, disposable Git histories; no database."""
 
+import hashlib
+import importlib.util
 import pathlib
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 CHECKER = pathlib.Path(__file__).with_name("check-migration-history.py")
 CURRENT = "server/migrations/current/"
+LATEST = "server/migrations/LATEST"
+SPEC = importlib.util.spec_from_file_location("migration_history", CHECKER)
+HISTORY = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(HISTORY)
 
 
 class MigrationHistoryTest(unittest.TestCase):
@@ -36,6 +43,21 @@ class MigrationHistoryTest(unittest.TestCase):
     def pair(self, name, body="SELECT 1;\n", directory=CURRENT):
         for direction in ("up", "down"):
             self.write(f"{directory}{name}.{direction}.sql", body)
+        if directory == CURRENT:
+            latest = max((self.repo / CURRENT).glob("*.up.sql"))
+            self.write(LATEST, latest.name.removesuffix(".up.sql") + "\n")
+
+    def write_consolidation_archive(self):
+        paths = (
+            HISTORY.CONSOLIDATION_UP,
+            HISTORY.CONSOLIDATION_DOWN,
+            HISTORY.LEGACY_FIXTURE,
+        )
+        archive = {path: (CHECKER.parent.parent / path).read_bytes() for path in paths}
+        for path, body in archive.items():
+            (self.repo / path).write_bytes(body)
+        self.write(LATEST, pathlib.PurePosixPath(HISTORY.CONSOLIDATION).name + "\n")
+        return archive
 
     def commit(self):
         self.git("add", ".")
@@ -65,15 +87,27 @@ class MigrationHistoryTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn(error, result.stderr)
 
-    def test_public_gaps_are_valid_without_private_repository(self):
+    def test_version_gaps_are_valid(self):
         self.pair("001003_shared_next")
-        self.check("--public-only")
+        self.check()
 
     def test_internal_prerequisite_and_public_prefix(self):
         self.pair("001001_internal_private", "-- requires-shared: 1000\nSELECT 1;\n")
         self.pair("001002_shared_pending")
         self.pair("001003_internal_checkpoint", "-- requires-shared: 1002\nSELECT 1;\n")
         self.check("--public-ref", self.base)
+
+    def test_latest_marker_missing_stale_or_wrong_name(self):
+        self.pair("001001_shared_next")
+        for marker in (None, "001000_shared_baseline\n", "001001_shared_other\n"):
+            with self.subTest(marker=marker):
+                if marker is None:
+                    (self.repo / LATEST).unlink()
+                else:
+                    self.write(LATEST, marker)
+                self.check(error="LATEST")
+        self.write(LATEST, "001001_shared_next\n")
+        self.check()
 
     def test_missing_direction(self):
         self.write(CURRENT + "001001_shared_next.up.sql", "SELECT 1;")
@@ -100,10 +134,6 @@ class MigrationHistoryTest(unittest.TestCase):
                 self.pair("001001_internal_next", declaration)
                 self.check(error="requires-shared")
 
-    def test_public_rejects_private_sql(self):
-        self.pair("001001_internal_next", "-- requires-shared: 1000\n")
-        self.check("--public-only", error="private migration")
-
     def test_immutable_sql_changed_deleted_or_renamed(self):
         for relative in (
             "server/migrations/000149_legacy.up.sql",
@@ -129,11 +159,267 @@ class MigrationHistoryTest(unittest.TestCase):
         self.pair("001004_shared_late")
         self.check(error="high-water")
 
+    def test_repair_exception_requires_exact_path_and_both_revisions(self):
+        name = "001016_internal_ct1_metric_summaries"
+        path = CURRENT + name + ".up.sql"
+        original = "-- requires-shared: 1000\nSELECT 1;\n"
+        repaired = "-- requires-shared: 1000\nSELECT 2;\n"
+        self.pair(name, original)
+        self.base = self.commit()
+        exception = (
+            hashlib.sha256(original.encode()).hexdigest(),
+            hashlib.sha256(repaired.encode()).hexdigest(),
+        )
+        with mock.patch.dict(
+            HISTORY.REPAIRED_MIGRATIONS, {path: exception}, clear=True
+        ):
+            self.write(path, repaired)
+            HISTORY.check(self.repo, self.base)
+            for body in (original + "-- unexpected\n", repaired + "-- unexpected\n"):
+                self.write(path, body)
+                with self.assertRaisesRegex(ValueError, "immutable migration"):
+                    HISTORY.check(self.repo, self.base)
+            self.write(path, repaired)
+            (self.repo / path).unlink()
+            with self.assertRaisesRegex(ValueError, "immutable migration"):
+                HISTORY.check(self.repo, self.base)
+            self.write(path, repaired)
+            down = CURRENT + name + ".down.sql"
+            self.write(down, repaired)
+            with self.assertRaisesRegex(ValueError, "immutable migration"):
+                HISTORY.check(self.repo, self.base)
+            self.write(down, original)
+
+            # A previously repaired base cannot be reverted or edited again.
+            self.base = self.commit()
+            HISTORY.check(self.repo, self.base)
+            self.write(path, original)
+            with self.assertRaisesRegex(ValueError, "immutable migration"):
+                HISTORY.check(self.repo, self.base)
+
+            # The exception cannot replace an unknown earlier revision.
+            self.write(path, original + "-- different history\n")
+            self.base = self.commit()
+            self.write(path, repaired)
+            with self.assertRaisesRegex(ValueError, "immutable migration"):
+                HISTORY.check(self.repo, self.base)
+
     def test_public_shared_sql_must_match_bytes(self):
         self.pair("001002_shared_promoted", "SELECT 2;\n")
         public = self.commit()
         self.write(CURRENT + "001002_shared_promoted.up.sql", "SELECT 3;\n")
         self.check("--public-ref", public, error="public shared migration differs")
+
+    def test_collision_repair_allows_only_exact_renamed_pair(self):
+        old = CURRENT + "001026_internal_container_telemetry_compression"
+        new = CURRENT + "001027_internal_container_telemetry_compression"
+        body = "-- requires-shared: 1000\nSELECT 1;\n"
+        self.pair("001026_internal_fleet_node_details", body)
+        before_collision = self.commit()
+        self.pair("001026_internal_container_telemetry_compression", body)
+        self.base = self.commit()
+        renames = {
+            f"{old}.{direction}.sql": (
+                f"{new}.{direction}.sql",
+                hashlib.sha256(body.encode()).hexdigest(),
+            )
+            for direction in ("up", "down")
+        }
+        with mock.patch.object(HISTORY, "RENAMED_MIGRATIONS", renames, create=True):
+            # The broken merged history still fails until both files move.
+            with self.assertRaisesRegex(ValueError, "duplicate migration version"):
+                HISTORY.check(self.repo, self.base)
+            for source, (target, _) in renames.items():
+                (self.repo / source).rename(self.repo / target)
+            self.write(LATEST, new.removeprefix(CURRENT) + "\n")
+            HISTORY.check(self.repo, self.base)
+            HISTORY.check(self.repo, before_collision)
+
+            for source, (target, _) in renames.items():
+                with self.subTest(target=target, mutation="change"):
+                    self.write(target, body + "-- changed\n")
+                    with self.assertRaisesRegex(ValueError, "immutable migration"):
+                        HISTORY.check(self.repo, self.base)
+                self.write(target, body)
+                with self.subTest(target=target, mutation="delete"):
+                    (self.repo / target).unlink()
+                    with self.assertRaisesRegex(ValueError, "immutable migration"):
+                        HISTORY.check(self.repo, self.base)
+                self.write(target, body)
+                with self.subTest(target=target, mutation="retain original"):
+                    self.write(source, body)
+                    with self.assertRaisesRegex(
+                        ValueError, "duplicate migration version"
+                    ):
+                        HISTORY.check(self.repo, self.base)
+                (self.repo / source).unlink()
+
+            # Once repaired, the renamed files are immutable as usual.
+            repaired_base = self.commit()
+            HISTORY.check(self.repo, repaired_base)
+            self.write(new + ".up.sql", body + "-- changed again\n")
+            with self.assertRaisesRegex(ValueError, "immutable migration"):
+                HISTORY.check(self.repo, repaired_base)
+            self.write(new + ".up.sql", body)
+
+            # Never accept unknown original SQL under the allowlisted name.
+            for source, (target, _) in renames.items():
+                (self.repo / target).rename(self.repo / source)
+            self.write(old + ".up.sql", body + "-- unknown original\n")
+            unknown_base = self.commit()
+            for source, (target, _) in renames.items():
+                (self.repo / source).rename(self.repo / target)
+                self.write(target, body)
+            with self.assertRaisesRegex(ValueError, "immutable migration"):
+                HISTORY.check(self.repo, unknown_base)
+
+    def test_topology_collision_repair_uses_pinned_repository_sql(self):
+        old = CURRENT + "001057_internal_bound_topology_reference_planning"
+        new = CURRENT + "001058_internal_bound_topology_reference_planning"
+        self.pair(
+            "001057_internal_device_write_outcomes",
+            "-- requires-shared: 1000\nSELECT 1;\n",
+        )
+        before_collision = self.commit()
+        for direction in ("up", "down"):
+            target = f"{new}.{direction}.sql"
+            archive = (
+                CHECKER.parent.parent / f"{HISTORY.CONSOLIDATION}.{direction}.sql"
+            ).read_bytes()
+            if direction == "down":
+                archive = archive.removesuffix(b"\n*/\n")
+            original = HISTORY.archived_sql(archive, CURRENT)[target]
+            self.write(f"{old}.{direction}.sql", original.decode())
+        self.base = self.commit()
+        self.check(error="duplicate migration version")
+
+        for direction in ("up", "down"):
+            (self.repo / f"{old}.{direction}.sql").rename(
+                self.repo / f"{new}.{direction}.sql"
+            )
+        self.write(LATEST, new.removeprefix(CURRENT) + "\n")
+        self.check()
+        HISTORY.check(self.repo, before_collision)
+
+        for direction in ("up", "down"):
+            path = f"{new}.{direction}.sql"
+            original = (self.repo / path).read_text()
+            with self.subTest(direction=direction):
+                self.write(path, original + "-- unapproved change\n")
+                self.check(error="immutable migration")
+                self.write(path, original)
+
+    def test_consolidation_preserves_merged_sql(self):
+        public = self.base
+        internal_legacy = "000150_private_legacy"
+        self.pair(internal_legacy, directory=HISTORY.MIGRATIONS)
+        private_baseline = "001001_internal_baseline"
+        private_tip = "001114_internal_tip"
+        self.pair(private_baseline, "-- requires-shared: 1000\nSELECT 1;\n")
+        self.pair(private_tip, "-- requires-shared: 1000\nSELECT 2;\n")
+        self.base = self.commit()
+
+        def move_sections(directory, names, direction):
+            sections = []
+            for name in names:
+                filename = f"{name}.{direction}.sql"
+                path = self.repo / directory / filename
+                sections.append(
+                    f"\n-- fleet-migration: {filename}\n" + path.read_text()
+                )
+                path.unlink()
+            return "".join(sections)
+
+        up = HISTORY.CONSOLIDATION + ".up.sql"
+        down = HISTORY.CONSOLIDATION + ".down.sql"
+        up_sql = move_sections(CURRENT, [private_baseline, private_tip], "up")
+        down_sql = move_sections(CURRENT, [private_tip, private_baseline], "down")
+        self.write(up, up_sql)
+        self.write(down, HISTORY.DOWN_GUARD.decode() + "\n/*\n" + down_sql + "\n*/\n")
+        self.write(
+            HISTORY.LEGACY_FIXTURE,
+            move_sections(HISTORY.MIGRATIONS, [internal_legacy], "up")
+            + move_sections(HISTORY.MIGRATIONS, [internal_legacy], "down"),
+        )
+        self.write(LATEST, pathlib.PurePosixPath(HISTORY.CONSOLIDATION).name + "\n")
+        self.check("--public-ref", public)
+
+        for version in (1001, 1017):
+            with self.subTest(version=version):
+                name = f"{version:06d}_shared_reserved"
+                self.pair(name)
+                self.check(error=f"migration {version}: number is reserved")
+                for direction in ("up", "down"):
+                    (self.repo / f"{CURRENT}{name}.{direction}.sql").unlink()
+        self.write(up, up_sql.replace("SELECT 2", "SELECT 3"))
+        self.check(error="preserve exactly the removed migration bytes")
+        self.write(up, "SELECT 3;\n" + up_sql)
+        self.check(error="up header must contain only comments")
+
+    def test_public_consolidation_uses_reviewed_archive(self):
+        up = HISTORY.CONSOLIDATION_UP
+        down = HISTORY.CONSOLIDATION_DOWN
+        archive = self.write_consolidation_archive()
+        self.check()
+
+        for path, body in archive.items():
+            with self.subTest(path=path):
+                (self.repo / path).write_bytes(b"-- changed\n" + body)
+                self.check(error=f"consolidation archive checksum differs: {path}")
+                (self.repo / path).write_bytes(body)
+
+        for version in (1001, 1017):
+            with self.subTest(version=version):
+                name = f"{version:06d}_shared_reserved"
+                self.pair(name)
+                self.check(error=f"migration {version}: number is reserved")
+                for direction in ("up", "down"):
+                    (self.repo / f"{CURRENT}{name}.{direction}.sql").unlink()
+
+        for path, direction in ((up, "up"), (down, "down")):
+            filename = f"001013_internal_fleet_node_heartbeat.{direction}.sql"
+            body = archive[path]
+            sections = HISTORY.archived_sql(body, CURRENT)
+            section = HISTORY.SECTION_MARKER + filename.encode() + b"\n"
+            section += sections[CURRENT + filename]
+            (self.repo / path).write_bytes(body.replace(section, b"", 1))
+        self.check(error="consolidation archive checksum differs")
+
+    def test_merged_consolidation_is_immutable_and_requires_shared_migrations(self):
+        archive = self.write_consolidation_archive()
+        self.base = self.commit()
+        self.check()
+
+        for path in (HISTORY.LEGACY_FIXTURE, HISTORY.CONSOLIDATION_UP):
+            with self.subTest(path=path):
+                body = archive[path]
+                (self.repo / path).write_bytes(body + b"\n-- changed\n")
+                self.check(
+                    error=f"immutable migration changed, deleted or renamed: {path}"
+                )
+                (self.repo / path).write_bytes(body)
+
+        name = "001116_internal_next"
+        self.pair(name, "-- requires-shared: 1115\nSELECT 1;\n")
+        self.check(error="use shared migrations after consolidation")
+        for direction in ("up", "down"):
+            (self.repo / f"{CURRENT}{name}.{direction}.sql").unlink()
+        self.pair("001116_shared_next")
+        self.check()
+
+    def test_consolidated_public_legacy_must_match_bytes(self):
+        self.write_consolidation_archive()
+        self.base = self.commit()
+        self.check("--public-ref", self.base)
+
+        path = HISTORY.MIGRATIONS + "000149_legacy.up.sql"
+        original = (self.repo / path).read_text()
+        self.write(path, original + "-- changed in public\n")
+        public = self.commit()
+        self.write(path, original)
+        self.check(
+            "--public-ref", public, error=f"public legacy migration differs: {path}"
+        )
 
     def test_public_shared_files_cannot_skip_internal_shared_migration(self):
         self.pair("001002_shared_promoted")

@@ -1,0 +1,34 @@
+# CT1 Debian package for Frigate controllers. Build it only for release tags.
+# The tree in dist/protoOS-frigate/ comes from
+# deployment-files/scripts/create-protoos-frigate-bundle.py. It has the
+# built dashboard and the generated Frigate manifest, with modes 0644 and 0755.
+# Frigate accepts only a static package: no maintainer scripts and no
+# dependencies other than the Pre-Depends field below.
+name: proto-os
+arch: all
+platform: linux
+version: "${VERSION}"
+# Gives the Debian version 0.6.2~internal.14 for v0.6.2-internal.14: the "v" is removed
+# and the first "-" becomes "~". Frigate and update tools must use the same mapping.
+version_schema: semver
+section: web
+priority: optional
+maintainer: "Block Inc."
+description: "ProtoOS web dashboard for CT1 Frigate controllers"
+deb:
+  compression: gzip
+  predepends:
+    - frigate-protoos-host (>= 1)
+contents:
+  - src: dist/protoOS-frigate/
+    dst: /var/www/
+    type: tree
+    file_info:
+      owner: root
+      group: root
+  - src: dist/web_dashboard_version
+    dst: /etc/web_dashboard_version
+    file_info:
+      mode: 0644
+      owner: root
+      group: root

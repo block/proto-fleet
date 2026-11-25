@@ -1,11 +1,12 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 
+import type { CurtailmentSubmitValues } from "@/protoFleet/api/curtailmentTypes";
 import { CurtailmentMode, type CurtailmentScope } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import {
   buildStartCurtailmentRequest,
   buildUpdateCurtailmentEventRequest,
 } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
-import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
 const baseValues: CurtailmentSubmitValues = {
   scopeType: "wholeOrg",
@@ -14,7 +15,6 @@ const baseValues: CurtailmentSubmitValues = {
   buildingTargetIds: [],
   rackTargetIds: [],
   groupTargetIds: [],
-  deviceSetIds: [],
   deviceIdentifiers: [],
   responseProfileId: "customPlan",
   curtailmentMode: "fixedKwReduction",
@@ -274,15 +274,6 @@ describe("curtailmentRequestBuilders", () => {
   });
 
   it("keeps unsupported scope state from falling back to the whole fleet", () => {
-    expect(() =>
-      buildStartCurtailmentRequest({
-        ...baseValues,
-        scopeType: "deviceSet",
-        scopeId: "racks",
-        deviceSetIds: ["rack-1"],
-      }),
-    ).toThrow("Unsupported curtailment target scope.");
-
     expect(() =>
       buildStartCurtailmentRequest({
         ...baseValues,
@@ -568,5 +559,19 @@ describe("curtailmentRequestBuilders", () => {
     );
 
     expect(request.restoreBatchIntervalSec).toBe(0);
+  });
+  it("keeps a blank max duration on the server-default path", () => {
+    expect(buildStartCurtailmentRequest(baseValues).maxDurationSeconds).toBe(0);
+    expect(buildStartCurtailmentRequest({ ...baseValues, maxDurationSec: "600" }).maxDurationSeconds).toBe(600);
+  });
+
+  it("bounds minimum duration and rejects a minimum longer than an explicit cap", () => {
+    expect(buildStartCurtailmentRequest({ ...baseValues, minDurationSec: "604800" }).minCurtailedDurationSec).toBe(
+      604800,
+    );
+    expect(() => buildStartCurtailmentRequest({ ...baseValues, minDurationSec: "604801" })).toThrow("604,800 or less");
+    expect(() => buildStartCurtailmentRequest({ ...baseValues, minDurationSec: "601", maxDurationSec: "600" })).toThrow(
+      "Minimum curtailed duration cannot exceed max duration.",
+    );
   });
 });

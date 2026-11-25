@@ -2,7 +2,6 @@ package metrics
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"math"
 )
@@ -267,11 +266,4 @@ func (p *Provider) EmitCurtailmentFanRestoreFailure(_ context.Context, orgID int
 		},
 		Value: value,
 	})
-}
-
-func validateLabelKey(key string) error {
-	if !IsKnownLabel(key) {
-		return fmt.Errorf("metrics: label key %q is not in the contract allowlist", key)
-	}
-	return nil
 }

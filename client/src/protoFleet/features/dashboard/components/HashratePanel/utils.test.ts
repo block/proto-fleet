@@ -1,23 +1,61 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { transformHashrateMetricsToChartData, transformHashrateMetricsWithUnits } from "./utils";
 import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { transformEfficiencyMetricsToChartData } from "@/protoFleet/features/dashboard/components/EfficiencyPanel/utils";
+import { transformPowerMetricsToChartData } from "@/protoFleet/features/dashboard/components/PowerPanel/utils";
 import { createMockMetric } from "@/protoFleet/features/dashboard/utils/createMockMetric";
 
-describe("transformHashrateMetricsToChartData", () => {
-  it("should return empty array for empty metrics", () => {
-    expect(transformHashrateMetricsToChartData([])).toEqual([]);
+describe.each([
+  {
+    name: "transformEfficiencyMetricsToChartData",
+    transform: transformEfficiencyMetricsToChartData,
+    measurementType: MeasurementType.EFFICIENCY,
+    key: "efficiency",
+    gapValue: 24.4,
+    normalizedValue: 24.4,
+    rawValue: 24.4e12,
+    rawTitle: "normalizes large over-converted values back to J/TH",
+  },
+  {
+    name: "transformPowerMetricsToChartData",
+    transform: transformPowerMetricsToChartData,
+    measurementType: MeasurementType.POWER,
+    key: "power",
+    gapValue: 3200,
+    normalizedValue: 3.2,
+    rawValue: 3200,
+    rawTitle: "normalizes raw watt values to kW",
+  },
+  {
+    name: "transformHashrateMetricsToChartData",
+    transform: transformHashrateMetricsToChartData,
+    measurementType: MeasurementType.HASHRATE,
+    key: "hashrate",
+    gapValue: 500,
+    normalizedValue: 500,
+    rawValue: 500e12,
+    rawTitle: "normalizes raw H/s values into TH/S",
+  },
+])("$name", ({ transform, measurementType, key, gapValue, normalizedValue, rawValue, rawTitle }) => {
+  it("keeps an unavailable bucket as a gap instead of zero", () => {
+    const metric = createMockMetric(measurementType, gapValue, 1000);
+    metric.aggregatedValues = [];
+    expect(transform([metric])[0][key]).toBeNull();
   });
 
-  it("should transform metrics to chart data format", () => {
-    const metrics = [createMockMetric(MeasurementType.HASHRATE, 500, 1000)];
-    const result = transformHashrateMetricsToChartData(metrics);
-    expect(result).toEqual([{ datetime: 1000000, hashrate: 500 }]);
+  it("returns empty array for empty metrics", () => {
+    expect(transform([])).toEqual([]);
   });
 
-  it("should normalize raw H/s values into TH/S", () => {
-    const metrics = [createMockMetric(MeasurementType.HASHRATE, 500e12, 1000)];
-    const result = transformHashrateMetricsToChartData(metrics);
-    expect(result).toEqual([{ datetime: 1000000, hashrate: 500 }]);
+  it("keeps already-normalized values unchanged", () => {
+    const metrics = [createMockMetric(measurementType, normalizedValue, 1000)];
+    expect(transform(metrics)).toEqual([{ datetime: 1000000, [key]: normalizedValue }]);
+  });
+
+  it(rawTitle, () => {
+    const metrics = [createMockMetric(measurementType, rawValue, 1000)];
+    expect(transform(metrics)).toEqual([{ datetime: 1000000, [key]: normalizedValue }]);
   });
 });
 

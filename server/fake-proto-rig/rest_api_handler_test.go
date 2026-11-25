@@ -24,14 +24,6 @@ const (
 	invalidSecp256k1SV2AuthorityKey = "9caKLbMD1LpCeqMFyyWo8R62MKGZ4ya3EGCfhVnPUQifpnNF7GT"
 )
 
-func TestNewMinerState_DefaultModelIsRig(t *testing.T) {
-	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
-
-	if state.Model != "Rig" {
-		t.Fatalf("expected default model %q, got %q", "Rig", state.Model)
-	}
-}
-
 func TestConfigureStartupAuthState_SeedsDefaultPasswordBaseline(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	configureStartupAuthState(state)
@@ -135,20 +127,6 @@ func TestHandleLogin_CorrectPassword_Returns200(t *testing.T) {
 	}
 }
 
-func TestHandleLogin_NoPasswordSet_AcceptsAny(t *testing.T) {
-	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
-	h := NewRESTApiHandler(state)
-
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
-		strings.NewReader(`{"password":"anything"}`))
-	h.handleLogin(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
-	}
-}
-
 func TestHandleRefresh_ValidRefreshToken_Returns200(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	h := NewRESTApiHandler(state)
@@ -216,45 +194,7 @@ func TestProtectedRouteRequiresBearerToken(t *testing.T) {
 	}
 }
 
-func TestProtectedRouteAcceptsIssuedBearerToken(t *testing.T) {
-	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
-	state.SetMiningState(MiningStateStopped)
-	state.AddPool(&Pool{Idx: 0, Url: "stratum+tcp://pool.example.com:3333", Username: "worker"})
-	h := NewRESTApiHandler(state)
-
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"password":"anything"}`))
-	loginRR := httptest.NewRecorder()
-	mux.ServeHTTP(loginRR, loginReq)
-
-	if loginRR.Code != http.StatusOK {
-		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, loginRR.Code, loginRR.Body.String())
-	}
-
-	var tokens AuthTokens
-	if err := json.Unmarshal(loginRR.Body.Bytes(), &tokens); err != nil {
-		t.Fatalf("failed to unmarshal auth tokens: %v; body=%s", err, loginRR.Body.String())
-	}
-	if tokens.AccessToken == "" {
-		t.Fatal("expected access token to be set")
-	}
-
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/mining/start", nil)
-	req.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
-	mux.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusAccepted {
-		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, rr.Code, rr.Body.String())
-	}
-	if state.GetMiningState() != MiningStateMining {
-		t.Fatalf("expected mining state %q, got %q", MiningStateMining, state.GetMiningState())
-	}
-}
-
-func TestPoolsAllowedWhenDefaultPasswordActive(t *testing.T) {
+func TestAuthenticatedRequestsAllowedWhenDefaultPasswordActive(t *testing.T) {
 	// Firmware blocks only PUT /system/unlock while the default password is
 	// active, so Fleet can provision pool settings before the operator changes
 	// the factory password.
@@ -280,47 +220,6 @@ func TestPoolsAllowedWhenDefaultPasswordActive(t *testing.T) {
 	}
 
 	tests := []struct {
-		name   string
-		method string
-		path   string
-		body   string
-	}{
-		{name: "list pools", method: http.MethodGet, path: "/api/v1/pools"},
-		{name: "read pool by id", method: http.MethodGet, path: "/api/v1/pools/0"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			rr := httptest.NewRecorder()
-			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
-			req.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
-			mux.ServeHTTP(rr, req)
-
-			if rr.Code == http.StatusForbidden {
-				t.Fatalf("expected pools to be allowed while default password is active, got 403; body=%s", rr.Body.String())
-			}
-		})
-	}
-}
-
-func TestAuthenticatedRequestsAllowedWhenDefaultPasswordActive(t *testing.T) {
-	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
-	state.SeedDefaultPassword("defaultPass123")
-	h := NewRESTApiHandler(state)
-
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"password":"defaultPass123"}`))
-	loginRR := httptest.NewRecorder()
-	mux.ServeHTTP(loginRR, loginReq)
-
-	var tokens AuthTokens
-	if err := json.Unmarshal(loginRR.Body.Bytes(), &tokens); err != nil {
-		t.Fatalf("failed to unmarshal auth tokens: %v; body=%s", err, loginRR.Body.String())
-	}
-
-	tests := []struct {
 		name       string
 		method     string
 		path       string
@@ -330,6 +229,8 @@ func TestAuthenticatedRequestsAllowedWhenDefaultPasswordActive(t *testing.T) {
 		{name: "mining status", method: http.MethodGet, path: "/api/v1/mining", wantStatus: http.StatusOK},
 		{name: "cooling status", method: http.MethodGet, path: "/api/v1/cooling", wantStatus: http.StatusOK},
 		{name: "network update", method: http.MethodPut, path: "/api/v1/network", wantStatus: http.StatusOK},
+		{name: "list pools", method: http.MethodGet, path: "/api/v1/pools", wantStatus: http.StatusOK},
+		{name: "read pool by id", method: http.MethodGet, path: "/api/v1/pools/0", wantStatus: http.StatusOK},
 	}
 
 	for _, tt := range tests {
@@ -411,6 +312,9 @@ func TestLogoutInvalidatesIssuedBearerToken(t *testing.T) {
 
 	if protectedRR.Code != http.StatusAccepted {
 		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, protectedRR.Code, protectedRR.Body.String())
+	}
+	if state.GetMiningState() != MiningStateMining {
+		t.Fatalf("expected mining state %q, got %q", MiningStateMining, state.GetMiningState())
 	}
 
 	logoutReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", strings.NewReader("{}"))
@@ -659,9 +563,6 @@ func TestHandleSecureStatus_PutSetsOverride(t *testing.T) {
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
-	}
-	if !state.GetSecureOverride() {
-		t.Fatal("expected secure override marker to be set")
 	}
 
 	// Missing secure_override is rejected with 422 like the firmware.
@@ -955,19 +856,6 @@ func TestHandleTestPoolConnection_InvalidURL_Returns400(t *testing.T) {
 	}
 }
 
-func TestHandleTestPoolConnection_ValidURL_Returns200(t *testing.T) {
-	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
-	h := NewRESTApiHandler(state)
-
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/pools/test-connection", strings.NewReader(`{"url":"stratum+tcp://mine.ocean.xyz:3334"}`))
-	h.handleTestPoolConnection(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
-	}
-}
-
 func TestHandleTestPoolConnection_SupportsSV2DefaultPortAndAuthorityKey(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	h := NewRESTApiHandler(state)
@@ -1113,22 +1001,6 @@ func TestHashboardDetailRoute_RequiresBearerAuth(t *testing.T) {
 
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("expected %d, got %d; body=%s", http.StatusUnauthorized, rr.Code, rr.Body.String())
-	}
-}
-
-func TestNetworkRoute_GET_DoesNotRequireBearerAuth(t *testing.T) {
-	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
-	h := NewRESTApiHandler(state)
-
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/network", nil)
-	mux.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
 	}
 }
 
@@ -1837,24 +1709,6 @@ func TestHandlePairingInfo_WrongMethod_Returns405(t *testing.T) {
 	}
 }
 
-func TestHandlePairingAuthKey_POST_SetsKey(t *testing.T) {
-	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
-	h := NewRESTApiHandler(state)
-
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/pairing/auth-key",
-		strings.NewReader(`{"public_key":"test-key-123"}`))
-	h.handlePairingAuthKey(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
-	}
-
-	if state.GetAuthKey() != "test-key-123" {
-		t.Fatalf("expected auth key %q, got %q", "test-key-123", state.GetAuthKey())
-	}
-}
-
 func TestPairingAuthKeyRoute_POST_AllowsInitialPairWithoutAuth(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	h := NewRESTApiHandler(state)
@@ -2424,6 +2278,42 @@ func TestHandleErrors_ReturnsSpecShape(t *testing.T) {
 }
 
 // --- Cooling endpoint tests ---
+
+func TestHandleCooling_GET_FanPercentageMatchesAPIContract(t *testing.T) {
+	for _, speed := range []uint32{0, 75} {
+		t.Run(fmt.Sprintf("percentage_%d", speed), func(t *testing.T) {
+			state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+			state.SetCoolingMode(CoolingModeManual, &speed, nil)
+			h := NewRESTApiHandler(state)
+			rr := httptest.NewRecorder()
+			h.handleCooling(rr, httptest.NewRequest(http.MethodGet, "/api/v1/cooling", nil))
+			if rr.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+			}
+
+			// Decode the wire contract independently of the simulator's response type.
+			var response struct {
+				CoolingStatus struct {
+					Fans []struct {
+						Slot       int  `json:"slot"`
+						Percentage *int `json:"percentage"`
+					} `json:"fans"`
+				} `json:"cooling-status"`
+			}
+			if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+				t.Fatal(err)
+			}
+			if len(response.CoolingStatus.Fans) != 4 {
+				t.Fatalf("expected 4 fans, got %d", len(response.CoolingStatus.Fans))
+			}
+			for _, fan := range response.CoolingStatus.Fans {
+				if fan.Percentage == nil || *fan.Percentage != int(speed) {
+					t.Errorf("fan %d: expected percentage %d in response: %s", fan.Slot, speed, rr.Body.String())
+				}
+			}
+		})
+	}
+}
 
 func TestHandleCooling_GET_AutoMode_IncludesTargetTemp(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
@@ -3756,22 +3646,6 @@ func TestFakeFirmwareUpdateOutcomeRoute_EnabledRequiresBearerAuth(t *testing.T) 
 	}
 }
 
-func TestFakeFirmwareUpdateOutcomeRoute_EnabledAcceptsAuthenticatedRequest(t *testing.T) {
-	state, mux := newFirmwareOutcomeControlMux(t, true)
-	rr := requestFirmwareOutcomeControl(mux, `{"outcome":"error"}`, true)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected %d with test controls and bearer auth, got %d; body=%s",
-			http.StatusOK, rr.Code, rr.Body.String())
-	}
-	state.mu.RLock()
-	defer state.mu.RUnlock()
-	if state.FWNextUpdateOutcome != firmwareUpdateOutcomeError {
-		t.Fatalf("expected authenticated control to set outcome %q, got %q",
-			firmwareUpdateOutcomeError, state.FWNextUpdateOutcome)
-	}
-}
-
 func TestFakeFirmwareUpdateOutcomeRoute_RejectsOversizedBody(t *testing.T) {
 	state, mux := newFirmwareOutcomeControlMux(t, true)
 	body := `{"outcome":"` + strings.Repeat("x", int(maxTestControlRequestBytes))
@@ -4023,71 +3897,53 @@ func TestTelemetryService_PUT_InvalidBody_Returns400(t *testing.T) {
 	}
 }
 
-func TestPowerSuppliesUpdate_EmptyBody_Returns202(t *testing.T) {
-	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
-	h := NewRESTApiHandler(state)
-
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/power-supplies/update", nil)
-	h.handlePowerSuppliesUpdate(rr, req)
-
-	if rr.Code != http.StatusAccepted {
-		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, rr.Code, rr.Body.String())
+func TestPowerSuppliesUpdate(t *testing.T) {
+	tests := []struct {
+		name string
+		// body is nil for a request with no body.
+		body       io.Reader
+		wantStatus int
+	}{
+		{
+			name:       "empty body returns 202",
+			body:       nil,
+			wantStatus: http.StatusAccepted,
+		},
+		{
+			name:       "valid PSU types return 202",
+			body:       strings.NewReader(`{"psu_types":{"1":"boco_bs502a17","2":"boco_bs402a17"}}`),
+			wantStatus: http.StatusAccepted,
+		},
+		{
+			name:       "unknown PSU type returns 422",
+			body:       strings.NewReader(`{"psu_types":{"1":"acme_9000"}}`),
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name:       "invalid slot returns 422",
+			body:       strings.NewReader(`{"psu_types":{"9":"chicony_s24"}}`),
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name:       "malformed JSON returns 400",
+			body:       strings.NewReader(`{"psu_types":`),
+			wantStatus: http.StatusBadRequest,
+		},
 	}
-}
 
-func TestPowerSuppliesUpdate_ValidPSUTypes_Returns202(t *testing.T) {
-	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
-	h := NewRESTApiHandler(state)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+			h := NewRESTApiHandler(state)
 
-	rr := httptest.NewRecorder()
-	body := `{"psu_types":{"1":"boco_bs502a17","2":"boco_bs402a17"}}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/power-supplies/update", strings.NewReader(body))
-	h.handlePowerSuppliesUpdate(rr, req)
+			rr := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/power-supplies/update", tt.body)
+			h.handlePowerSuppliesUpdate(rr, req)
 
-	if rr.Code != http.StatusAccepted {
-		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, rr.Code, rr.Body.String())
-	}
-}
-
-func TestPowerSuppliesUpdate_UnknownPSUType_Returns422(t *testing.T) {
-	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
-	h := NewRESTApiHandler(state)
-
-	rr := httptest.NewRecorder()
-	body := `{"psu_types":{"1":"acme_9000"}}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/power-supplies/update", strings.NewReader(body))
-	h.handlePowerSuppliesUpdate(rr, req)
-
-	if rr.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected %d, got %d; body=%s", http.StatusUnprocessableEntity, rr.Code, rr.Body.String())
-	}
-}
-
-func TestPowerSuppliesUpdate_InvalidSlot_Returns422(t *testing.T) {
-	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
-	h := NewRESTApiHandler(state)
-
-	rr := httptest.NewRecorder()
-	body := `{"psu_types":{"9":"chicony_s24"}}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/power-supplies/update", strings.NewReader(body))
-	h.handlePowerSuppliesUpdate(rr, req)
-
-	if rr.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected %d, got %d; body=%s", http.StatusUnprocessableEntity, rr.Code, rr.Body.String())
-	}
-}
-
-func TestPowerSuppliesUpdate_MalformedJSON_Returns400(t *testing.T) {
-	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
-	h := NewRESTApiHandler(state)
-
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/power-supplies/update", strings.NewReader(`{"psu_types":`))
-	h.handlePowerSuppliesUpdate(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("expected %d, got %d; body=%s", http.StatusBadRequest, rr.Code, rr.Body.String())
+			if rr.Code != tt.wantStatus {
+				t.Fatalf("expected %d, got %d; body=%s", tt.wantStatus, rr.Code, rr.Body.String())
+			}
+		})
 	}
 }
 

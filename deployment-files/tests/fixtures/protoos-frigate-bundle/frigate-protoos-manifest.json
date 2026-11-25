@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "generation": "fd2f7112e8fe76cb1a68d2e474afea3824ffda3385ee0a42ef2a5878598f64b5",
+  "release": {
+    "repository": "example-org/proto-fleet",
+    "tag": "v0.6.2-internal.14",
+    "commit": "0123456789abcdef0123456789abcdef01234567",
+    "asset": "proto-os-v0.6.2-internal.14.tar.gz",
+    "sha256": "4cbd887f7aada4aefa507cdb106bf5a2a125872b6999439cd20a3107a846252e"
+  },
+  "files": [
+    {
+      "path": "assets/B.js",
+      "size": 2,
+      "sha256": "c0cde77fa8fef97d476c10aad3d2d54fcc2f336140d073651c2dcccf1e379fd6"
+    },
+    {
+      "path": "assets/_c.1.js",
+      "size": 2,
+      "sha256": "a3a5e715f0cc574a73c3f9bebb6bc24f32ffd5b67b387244c2c909da779a1478"
+    },
+    {
+      "path": "assets/a\u0026b.js",
+      "size": 4,
+      "sha256": "d0da1b703b71d49adeb296231d6a1e15953e63ce2376d1f5330cca244ee9559d"
+    },
+    {
+      "path": "assets/a-b.js",
+      "size": 3,
+      "sha256": "a63d8014dba891345b30174df2b2a57efbb65b4f9f09b98f245d1b3192277ece"
+    },
+    {
+      "path": "assets/a.js",
+      "size": 2,
+      "sha256": "87428fc522803d31065e7bce3cf03fe475096631e5e07bbd7a0fde60c4cf25c7"
+    },
+    {
+      "path": "assets/a/x.js",
+      "size": 3,
+      "sha256": "18b22c496be9a73d8aceeed68339bb1e93487725bedb32a8df0bc5a694a9854a"
+    },
+    {
+      "path": "assets/app-AbCd1234.js",
+      "size": 20,
+      "sha256": "23f4382db03786db366309b3205ecac1abc7c3f675ac4eaf3ddc81278080703a"
+    },
+    {
+      "path": "assets/café.js",
+      "size": 7,
+      "sha256": "a2b7c6175be7176d99ef82a4f4c1b0ac73b4060d53cfe9fabc39a493e282efb5"
+    },
+    {
+      "path": "assets/emoji-😀.js",
+      "size": 6,
+      "sha256": "5312b0b582d805303c95d7e2b1bc6fad70e04b3dde5413aae758b68767b06ada"
+    },
+    {
+      "path": "assets/lt\u003cgt\u003e.js",
+      "size": 3,
+      "sha256": "fa93cf4d442e979c6a66c6b6a58c3d5bd7eb1ecac1205f25b5a9ef0ad1d534ba"
+    },
+    {
+      "path": "assets/plus+at@.js",
+      "size": 7,
+      "sha256": "59d10c4fbc004336df00a24e575f4159edd578dc79732242df9c8337a16a4852"
+    },
+    {
+      "path": "assets/q\"uote.js",
+      "size": 6,
+      "sha256": "88bdeff7ba192fa68d48df993f971cd5255263240018cf9e7021e116ba01ee64"
+    },
+    {
+      "path": "assets/sep\u2028.js",
+      "size": 3,
+      "sha256": "e9fe7e88e89d532379960402db8f9458194dae772aa5fda5a12806c22215f0ff"
+    },
+    {
+      "path": "assets/sep\u2029.js",
+      "size": 3,
+      "sha256": "6edb888d959ca75e8d03a1e97bfedb06d4eaf1b282d7e9953444078ffe626b5f"
+    },
+    {
+      "path": "assets/sub/x.css",
+      "size": 15,
+      "sha256": "6d6068180a5c710c68c8ee0e290cb9b37b3450492d3f9e3ae46083deb152fbcf"
+    },
+    {
+      "path": "assets/with space.js",
+      "size": 6,
+      "sha256": "9d39745403e5faf662463b32d613eedf45037d0180983ae8bc87f538cf0c9653"
+    },
+    {
+      "path": "config.js",
+      "size": 20,
+      "sha256": "78bf4da887692003a680a3dad32e23f3a6c61ab8146acf6412a53354146ef34d"
+    },
+    {
+      "path": "favicon.png",
+      "size": 16,
+      "sha256": "6f22d7318d79fac7b1da9f0337da86df7a629703f20ec93a8b503c089c001ca5"
+    },
+    {
+      "path": "fonts/JetBrainsMono-Italic[wght].ttf",
+      "size": 4,
+      "sha256": "365782ec3d6e748e93c2d9a44112886bf0ffcc36e13a71d5c8c4bcb696d2b311"
+    },
+    {
+      "path": "fonts/JetBrainsMono[wght].ttf",
+      "size": 4,
+      "sha256": "3987ee06e6407146a4797fc5e14ed14d9aabbe59adc0494dca15064faedb9b79"
+    },
+    {
+      "path": "fonts/a.woff2",
+      "size": 11,
+      "sha256": "1c082eb90441e76b1e6847e9b78cd63ba53584494d0d53336b6f2bc113dd66ec"
+    },
+    {
+      "path": "index.html",
+      "size": 38,
+      "sha256": "20aac61a9cb094b2a7196dcb37cd9e66abfbcd0a816ba88fb9175b2e734de748"
+    },
+    {
+      "path": "version.txt",
+      "size": 110,
+      "sha256": "b4e35a7fdf622c3c45a53df04eefda005023ab26ce0ff2c5330d1d3c09546e6a"
+    }
+  ]
+}

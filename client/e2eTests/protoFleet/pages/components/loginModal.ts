@@ -1,4 +1,5 @@
 import { testConfig } from "../../config/test.config";
+import { submitWithPasswordAttemptRetry } from "../../helpers/passwordAttemptRetry";
 import { BasePage } from "../base";
 
 export class LoginModalComponent extends BasePage {
@@ -8,7 +9,12 @@ export class LoginModalComponent extends BasePage {
 
     await modal.locator("xpath=.//input[@id='username']").fill(testConfig.users.admin.username);
     await modal.locator("xpath=.//input[@id='password']").fill(testConfig.users.admin.password);
-    await modal.getByRole("button", { name: "Continue" }).click();
+    const response = await submitWithPasswordAttemptRetry(this.page, /\/VerifyCredentials$/, async () => {
+      await modal.getByRole("button", { name: "Continue" }).click();
+    });
+    if (!response.ok()) {
+      throw new Error(`Credential verification failed: HTTP ${response.status()}`);
+    }
 
     await this.validateTitleInModalNotVisible(headingText);
   }

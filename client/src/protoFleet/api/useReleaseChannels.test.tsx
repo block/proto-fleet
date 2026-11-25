@@ -1,4 +1,4 @@
-import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor as waitForDefault } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create, toJson } from "@bufbuild/protobuf";
 import { TimestampSchema } from "@bufbuild/protobuf/wkt";
@@ -15,6 +15,8 @@ import {
   ListRolloutsResponseSchema,
   PauseRolloutRequestSchema,
   PreviewReleaseChannelScopeResponseSchema,
+  ReleaseChannelContainerSchema,
+  ReleaseChannelControllerSoftwareSchema,
   ReleaseChannelMinerSchema,
   ReleaseChannelModelGroupSchema,
   ReleaseChannelSchema,
@@ -38,12 +40,16 @@ import { type ReleaseChannelsApi, useReleaseChannels } from "@/protoFleet/api/us
 import { defaultBehavior } from "@/protoFleet/features/settings/components/ReleaseChannels/behaviorUtils";
 import ModelMinersModal from "@/protoFleet/features/settings/components/ReleaseChannels/ModelMinersModal";
 
+// The default poll interval is 50 ms. That interval is most of the run time of this file.
+const waitFor: typeof waitForDefault = (callback, options) => waitForDefault(callback, { interval: 1, ...options });
+
 const {
   mockListReleaseChannels,
   mockGetReleaseChannel,
   mockListReleaseChannelModelGroups,
   mockListRollouts,
   mockListMinerStateSnapshots,
+  mockListContainers,
   mockCreateReleaseChannel,
   mockUpdateReleaseChannel,
   mockDeleteReleaseChannel,
@@ -57,9 +63,16 @@ const {
   mockRetryFailedRolloutDevices,
   mockListReleaseChannelMiners,
   mockListRolloutDevices,
+  mockListReleaseChannelControllerSoftware,
+  mockListReleaseChannelContainers,
+  mockSetReleaseChannelControllerSoftware,
   mockHandleAuthErrors,
   mockAuth,
 } = vi.hoisted(() => ({
+  mockListReleaseChannelControllerSoftware: vi.fn(),
+  mockListReleaseChannelContainers: vi.fn(),
+  mockSetReleaseChannelControllerSoftware: vi.fn(),
+  mockListContainers: vi.fn(),
   mockListReleaseChannels: vi.fn(),
   mockGetReleaseChannel: vi.fn(),
   mockListReleaseChannelModelGroups: vi.fn(),
@@ -109,9 +122,15 @@ vi.mock("@/protoFleet/api/clients", () => ({
     retryFailedRolloutDevices: mockRetryFailedRolloutDevices,
     listReleaseChannelMiners: mockListReleaseChannelMiners,
     listRolloutDevices: mockListRolloutDevices,
+    listReleaseChannelControllerSoftware: mockListReleaseChannelControllerSoftware,
+    listReleaseChannelContainers: mockListReleaseChannelContainers,
+    setReleaseChannelControllerSoftware: mockSetReleaseChannelControllerSoftware,
   },
   fleetManagementClient: {
     listMinerStateSnapshots: mockListMinerStateSnapshots,
+  },
+  containersClient: {
+    listContainers: mockListContainers,
   },
 }));
 
@@ -332,7 +351,8 @@ const paginatedActionCases = [
   {
     name: "channel miners",
     rpc: mockListReleaseChannelMiners,
-    call: (api: ReleaseChannelsApi, signal?: AbortSignal) => api.listChannelMiners(1n, "Proto", "Rig", signal),
+    call: (api: ReleaseChannelsApi, signal?: AbortSignal) =>
+      api.listChannelMiners(1n, "Proto", "Rig", undefined, signal),
     firstPage: { miners: [], cursor: "details-2" },
   },
   {
@@ -363,6 +383,7 @@ describe("useReleaseChannels", () => {
       miners: [{ deviceIdentifier: "rig-001", name: "Rig A01" }],
       cursor: "",
     });
+    mockListContainers.mockResolvedValue({ containers: [] });
   });
 
   afterEach(() => {
@@ -2124,6 +2145,88 @@ describe("useReleaseChannels", () => {
     expect(mockListMinerStateSnapshots).toHaveBeenCalledTimes(1);
   });
 
+  it("names containers alongside miners, and keeps miner names when the container list is forbidden", async () => {
+    const poll = capturePollingTimer();
+    mockListContainers.mockResolvedValue({ containers: [{ deviceIdentifier: "ct-001", name: "North CT1" }] });
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.minerNames).toEqual({ "rig-001": "Rig A01", "ct-001": "North CT1" }));
+    expect(mockListContainers).toHaveBeenCalledExactlyOnceWith({}, pollOptions);
+
+    mockListContainers.mockRejectedValue(new ConnectError("site:read is required", Code.PermissionDenied));
+    expireMinerNames();
+    await act(async () => {
+      poll();
+    });
+    expect(result.current.minerNames).toEqual({ "rig-001": "Rig A01" });
+    expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+    await act(async () => {
+      poll();
+    });
+    expect(mockListContainers).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps device names through a container list failure and retries only that list", async () => {
+    const poll = capturePollingTimer();
+    mockListContainers.mockResolvedValue({ containers: [{ deviceIdentifier: "ct-001", name: "North CT1" }] });
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.minerNames).toEqual({ "rig-001": "Rig A01", "ct-001": "North CT1" }));
+
+    expireMinerNames();
+    mockListMinerStateSnapshots.mockResolvedValue({
+      miners: [{ deviceIdentifier: "rig-001", name: "Renamed A01" }],
+      cursor: "",
+    });
+    mockListContainers.mockRejectedValue(new ConnectError("containers unavailable", Code.Unavailable));
+    await act(async () => {
+      poll();
+    });
+    expect(result.current.minerNames).toEqual({ "rig-001": "Renamed A01", "ct-001": "North CT1" });
+    expect(result.current.error).toBeNull();
+    expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+
+    mockListContainers.mockResolvedValue({ containers: [{ deviceIdentifier: "ct-001", name: "Renamed CT1" }] });
+    await act(async () => {
+      poll();
+    });
+    expect(result.current.minerNames).toEqual({ "rig-001": "Renamed A01", "ct-001": "Renamed CT1" });
+    expect(mockListMinerStateSnapshots).toHaveBeenCalledTimes(2);
+    expect(mockListContainers).toHaveBeenCalledTimes(3);
+  });
+
+  it("holds the names scan until its miner pages settle after the container list fails", async () => {
+    const poll = capturePollingTimer();
+    const lastPage = deferred<{ miners: { deviceIdentifier: string; name: string }[]; cursor: string }>();
+    mockListMinerStateSnapshots
+      .mockResolvedValueOnce({ miners: [{ deviceIdentifier: "rig-001", name: "Rig A01" }], cursor: "names-2" })
+      .mockReturnValueOnce(lastPage.promise);
+    mockListContainers.mockRejectedValue(new ConnectError("containers unavailable", Code.Unavailable));
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    await act(async () => {
+      poll();
+    });
+    expect(mockListMinerStateSnapshots).toHaveBeenCalledTimes(2);
+    expect(mockListContainers).toHaveBeenCalledOnce();
+    await act(async () => {
+      lastPage.resolve({ miners: [{ deviceIdentifier: "rig-999", name: "Rig Z99" }], cursor: "" });
+    });
+    expect(result.current.minerNames).toEqual({ "rig-001": "Rig A01", "rig-999": "Rig Z99" });
+    await act(async () => {
+      poll();
+    });
+    expect(mockListMinerStateSnapshots).toHaveBeenCalledTimes(2);
+    expect(mockListContainers).toHaveBeenCalledTimes(2);
+  });
+
+  it("delegates a container list authentication failure to auth handling once", async () => {
+    capturePollingTimer();
+    const error = new ConnectError("session expired", Code.Unauthenticated);
+    mockListContainers.mockRejectedValue(error);
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(mockHandleAuthErrors).toHaveBeenCalledExactlyOnceWith({ error }));
+    expect(result.current.minerNames).toEqual({});
+  });
+
   it("reuses fully paged names across polls and mutations until five minutes after the scan completes", async () => {
     const poll = capturePollingTimer();
     let now = Date.now();
@@ -3028,6 +3131,101 @@ describe("useReleaseChannels", () => {
     expect(mockListReleaseChannels).toHaveBeenNthCalledWith(4, { pageSize: 1000, cursor: "page-2" }, pollOptions);
   });
 
+  it("reads a channel's controller software and refreshes after setting a version", async () => {
+    const software = create(ReleaseChannelControllerSoftwareSchema, {
+      manufacturer: "Proto",
+      model: "CT1",
+      targetVersion: "1.6.0",
+      containerCount: 2,
+      onTargetCount: 1,
+    });
+    mockListReleaseChannelControllerSoftware.mockResolvedValue({ models: [software] });
+    mockSetReleaseChannelControllerSoftware.mockResolvedValue({});
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    const controller = new AbortController();
+    await expect(result.current.listControllerSoftware(1n, controller.signal)).resolves.toEqual([software]);
+    expect(mockListReleaseChannelControllerSoftware).toHaveBeenCalledWith(
+      { channelId: 1n },
+      { timeoutMs: 30_000, signal: controller.signal },
+    );
+    // Reading it leaves the polled snapshot alone.
+    expect(mockListReleaseChannels).toHaveBeenCalledTimes(1);
+
+    let saved;
+    await act(async () => {
+      saved = await result.current.setControllerSoftware(1n, "Proto", "CT1", "1.6.0");
+    });
+    expect(saved).toBeUndefined();
+    expect(mockSetReleaseChannelControllerSoftware).toHaveBeenCalledExactlyOnceWith({
+      channelId: 1n,
+      manufacturer: "Proto",
+      model: "CT1",
+      version: "1.6.0",
+    });
+    // The version changes which containers an update waits for.
+    expect(mockListReleaseChannels).toHaveBeenCalledTimes(2);
+  });
+
+  it("loads every page of controller software details for the requested model", async () => {
+    const firstPage = Array.from({ length: 1000 }, (_, i) =>
+      create(ReleaseChannelContainerSchema, {
+        deviceIdentifier: `ct1:${i}`,
+        controllerSoftwareVersion: "1.6.0",
+        onTarget: true,
+      }),
+    );
+    const last = create(ReleaseChannelContainerSchema, {
+      deviceIdentifier: "ct1:1000",
+      controllerSoftwareVersion: "1.5.0",
+    });
+    mockListReleaseChannelContainers
+      .mockResolvedValueOnce({ containers: firstPage, cursor: "next" })
+      .mockResolvedValueOnce({ containers: [last], cursor: "" });
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    const controller = new AbortController();
+    const containers = await result.current.listControllerSoftwareContainers(1n, "Proto", "CT1", controller.signal);
+    expect(containers).toHaveLength(1001);
+    expect(containers[1000]).toEqual(last);
+    expect(mockListReleaseChannelContainers).toHaveBeenNthCalledWith(
+      1,
+      { channelId: 1n, manufacturer: "Proto", model: "CT1", pageSize: 1000, cursor: "" },
+      { signal: controller.signal, timeoutMs: 30_000 },
+    );
+    expect(mockListReleaseChannelContainers).toHaveBeenNthCalledWith(
+      2,
+      { channelId: 1n, manufacturer: "Proto", model: "CT1", pageSize: 1000, cursor: "next" },
+      { signal: controller.signal, timeoutMs: 30_000 },
+    );
+  });
+
+  it("rejects an incomplete container detail read when a later page fails", async () => {
+    mockListReleaseChannelContainers
+      .mockResolvedValueOnce({
+        containers: [create(ReleaseChannelContainerSchema, { deviceIdentifier: "ct1:a" })],
+        cursor: "next",
+      })
+      .mockRejectedValueOnce(new Error("second page failed"));
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    await expect(result.current.listControllerSoftwareContainers(1n, "Proto", "CT1")).rejects.toThrow(
+      "second page failed",
+    );
+  });
+
+  it("delegates a controller software authentication failure to auth handling", async () => {
+    const error = new ConnectError("session expired", Code.Unauthenticated);
+    mockSetReleaseChannelControllerSoftware.mockRejectedValue(error);
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await expect(result.current.setControllerSoftware(1n, "Proto", "CT1", "1.6.0")).rejects.toBe(error);
+    expect(mockHandleAuthErrors).toHaveBeenCalledExactlyOnceWith({ error });
+    expect(mockListReleaseChannels).toHaveBeenCalledTimes(1);
+  });
+
   it("creates a channel from a draft and refreshes", async () => {
     mockCreateReleaseChannel.mockResolvedValue({ channel: canary });
     const { result } = renderHook(() => useReleaseChannels());
@@ -3238,6 +3436,32 @@ describe("useReleaseChannels", () => {
     expect(mockRetryFailedRolloutDevices).toHaveBeenCalledWith({ rolloutId: 9n, expectedRevision: 5n });
   });
 
+  it("names the firmware component only for firmware other than a model's main firmware", async () => {
+    mockApplyReleaseChannelFirmware.mockResolvedValue({ startedRollouts: [] });
+    mockListReleaseChannelMiners.mockResolvedValue({ miners: [], cursor: "" });
+    const { result } = renderHook(() => useReleaseChannels());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await act(async () => {
+      await result.current.applyFirmware(1n, [
+        { manufacturer: "Proto", model: "CT1", firmwareFileId: "archive" },
+        { manufacturer: "Proto", model: "CT1", component: "psu", firmwareFileId: "capsule" },
+      ]);
+      await result.current.listChannelMiners(1n, "Proto", "CT1", "psu");
+      await result.current.listChannelMiners(1n, "Proto", "CT1", "");
+    });
+    expect(mockApplyReleaseChannelFirmware).toHaveBeenCalledWith({
+      channelId: 1n,
+      assignments: [
+        { manufacturer: "Proto", model: "CT1", firmwareFileId: "archive" },
+        { manufacturer: "Proto", model: "CT1", component: "psu", firmwareFileId: "capsule" },
+      ],
+    });
+    const requests = mockListReleaseChannelMiners.mock.calls.map(([request]) => request);
+    expect(requests[0]).toMatchObject({ channelId: 1n, manufacturer: "Proto", model: "CT1", component: "psu" });
+    expect(requests[1]).not.toHaveProperty("component");
+  });
+
   it("walks every page of the detail lists", async () => {
     const controller = new AbortController();
     mockListReleaseChannelMiners
@@ -3251,7 +3475,7 @@ describe("useReleaseChannels", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     await act(async () => {
-      const miners = await result.current.listChannelMiners(1n, "Proto", "Rig", controller.signal);
+      const miners = await result.current.listChannelMiners(1n, "Proto", "Rig", undefined, controller.signal);
       expect(miners.map((m) => m.deviceIdentifier)).toEqual(["rig-001", "rig-002"]);
       const devices = await result.current.listRolloutDevices(9n, controller.signal);
       expect(devices.map((d) => d.deviceIdentifier)).toEqual(["rig-001", "rig-002"]);

@@ -148,3 +148,11 @@ describe("UptimePanel", () => {
     expect(url.searchParams.getAll("status").sort()).toEqual(["offline", "sleeping"]);
   });
 });
+
+describe("hosted account hashing state label", () => {
+  it.each([undefined, []])("labels loaded and pending state observations without contractual uptime", (counts) => {
+    render(<UptimePanel audience="account" duration="24h" uptimeStatusCounts={counts} />);
+    expect(screen.getByText("Hashing status")).toBeInTheDocument();
+    expect(screen.queryByText("Uptime")).not.toBeInTheDocument();
+  });
+});

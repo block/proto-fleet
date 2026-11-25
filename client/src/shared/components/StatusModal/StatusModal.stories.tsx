@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react";
+import { fn } from "storybook/test";
 import { StatusModal } from "./StatusModal";
 import type { ComponentAddress, ComponentStatusData, ErrorData, MinerStatusData } from "./types";
 import { variants } from "@/shared/components/Button";
@@ -338,6 +339,66 @@ export const MinerStatusNormal: Story = {
       forceScrolledHeader={args.forceScrolledHeader}
     />
   ),
+};
+
+const poolRequiredStatus: MinerStatusData = {
+  ...mockMinerStatusData,
+  props: {
+    ...mockMinerStatusData.props,
+    title: "Needs attention",
+    subtitle: undefined,
+    needsMiningPool: true,
+    onAssignPoolConfiguration: fn(),
+  },
+};
+
+export const PoolRequired: Story = {
+  args: {
+    getMinerStatus: () => poolRequiredStatus,
+    getComponentStatus: () => undefined,
+    open: true,
+    manageFocus: true,
+  },
+};
+
+export const PoolRequiredReadOnly: Story = {
+  args: {
+    ...PoolRequired.args,
+    getMinerStatus: () => ({
+      ...poolRequiredStatus,
+      props: { ...poolRequiredStatus.props, onAssignPoolConfiguration: undefined },
+    }),
+  },
+};
+
+export const PoolRequiredWithAuthentication: Story = {
+  args: {
+    ...PoolRequired.args,
+    getMinerStatus: () => ({
+      ...poolRequiredStatus,
+      props: {
+        ...poolRequiredStatus.props,
+        needsAuthentication: true,
+        onAuthenticateMiner: fn(),
+      },
+    }),
+  },
+};
+
+export const PoolRequiredWithErrors: Story = {
+  args: {
+    ...PoolRequired.args,
+    getMinerStatus: () => ({
+      ...poolRequiredStatus,
+      props: {
+        ...poolRequiredStatus.props,
+        errors: {
+          ...mockMinerStatusData.props.errors,
+          fan: [{ componentName: "Fan 1", message: "Fan speed too low", onClick: fn() }],
+        },
+      },
+    }),
+  },
 };
 
 export const MinerStatusWithErrors: Story = {

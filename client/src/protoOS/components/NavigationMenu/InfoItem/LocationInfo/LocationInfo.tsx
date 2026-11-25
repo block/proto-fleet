@@ -1,3 +1,4 @@
+import CopyableValue from "../CopyableValue";
 import Row from "@/shared/components/Row";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 
@@ -10,14 +11,15 @@ export interface LocationInfoProps {
 
 const LocationInfo = ({ loading, values = [] }: LocationInfoProps) => {
   return (
-    <Row divider={false} compact className="flex items-center" testId="location-info-item">
-      <div className="grow">
+    <Row divider={false} compact className="group/copyable flex items-center" testId="location-info-item">
+      <div className="min-w-0 grow">
         <div className="relative text-200 text-text-primary-70">Location</div>
         <div className="font-mono text-mono-text-50 leading-[16px] text-text-primary-30">
           {loading ? (
             <SkeletonBar className="h-[14px]! w-2/3" />
           ) : values.length ? (
-            values.map((line, index) => <div key={`${index}-${line}`}>{line}</div>)
+            // Each level is a separate value, so each line has its own copy button.
+            values.map((line, index) => <CopyableValue key={`${index}-${line}`} label="Location" value={line} />)
           ) : (
             "—"
           )}

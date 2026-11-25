@@ -3,9 +3,13 @@ import { render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POLL_INTERVAL_MS } from "./constants";
 import Fleet from "./Fleet";
+import useExportMinerListCsv from "@/protoFleet/api/useExportMinerListCsv";
+import { useTankFilterOptions } from "@/protoFleet/api/useTankFilterOptions";
+import { SiteScopeProvider } from "@/protoFleet/routing/siteScope";
 
 const {
   mockMinerList,
+  mockExportCsv,
   mockRefetchAuthNeededMiners,
   mockRefetchErrors,
   mockListAllBuildings,
@@ -13,6 +17,7 @@ const {
   mockNotifyMinersChanged,
   mockFleetOutletContext,
 } = vi.hoisted(() => ({
+  mockExportCsv: vi.fn(),
   mockMinerList: vi.fn(() => <div data-testid="miner-list">MinerList</div>),
   mockRefetchAuthNeededMiners: vi.fn(),
   mockRefetchErrors: vi.fn(),
@@ -30,6 +35,15 @@ const {
     minersChangedAt: 0,
     publishViewFilterContext: vi.fn(),
   },
+}));
+
+vi.mock("@/protoFleet/api/useExportMinerListCsv", () => ({
+  default: vi.fn(() => ({ exportCsv: mockExportCsv, isExportingCsv: false })),
+}));
+
+vi.mock("@/protoFleet/api/useContainerFilterOptions", () => ({ useContainerFilterOptions: () => [] }));
+vi.mock("@/protoFleet/api/useTankFilterOptions", () => ({
+  useTankFilterOptions: vi.fn(() => [{ id: "7", label: "CT1 T1 · North" }]),
 }));
 
 // Mock all dependencies
@@ -161,6 +175,49 @@ describe("Fleet - Polling", () => {
     vi.useRealTimers();
   });
 
+  it("zeros the export count and blocks CSV when path and filter sites do not intersect", async () => {
+    const useFleetModule = await import("@/protoFleet/api/useFleet");
+    vi.mocked(useFleetModule.default).mockReturnValue(
+      createFleetMock({
+        inventoryItems: [],
+        inventoryMinerCount: 25,
+        totalMiners: 25,
+        hasInitialLoadCompleted: true,
+      }),
+    );
+    mockFleetOutletContext.siteCatalogAccessGranted = false;
+    render(
+      <MemoryRouter initialEntries={["/north/fleet/miners?site=2"]}>
+        <SiteScopeProvider value={{ kind: "site", id: "1", slug: "north" }}>
+          <Fleet />
+        </SiteScopeProvider>
+      </MemoryRouter>,
+    );
+    const calls = mockMinerList.mock.calls as unknown as Array<
+      [{ inventoryMinerCount: number; totalMiners: number; onExportCsv: () => void }]
+    >;
+    const props = calls[calls.length - 1][0];
+    expect(props.inventoryMinerCount).toBe(0);
+    expect(props.totalMiners).toBe(0);
+    props.onExportCsv();
+    expect(mockExportCsv).not.toHaveBeenCalled();
+    expect(useExportMinerListCsv).toHaveBeenLastCalledWith({ filter: undefined, enabled: false });
+  });
+
+  it("allows action refreshes during loading but stops them after leaving Fleet", async () => {
+    const useFleetModule = await import("@/protoFleet/api/useFleet");
+    vi.mocked(useFleetModule.default).mockReturnValue(createFleetMock({ hasInitialLoadCompleted: false }));
+    const { unmount } = renderFleet();
+    const calls = mockMinerList.mock.calls as unknown as Array<[{ loading: boolean; onRefetchMiners: () => void }]>;
+    const props = calls[calls.length - 1][0];
+    expect(props.loading).toBe(true);
+    props.onRefetchMiners();
+    expect(mockNotifyMinersChanged).toHaveBeenCalledOnce();
+    unmount();
+    props.onRefetchMiners();
+    expect(mockNotifyMinersChanged).toHaveBeenCalledOnce();
+  });
+
   it("should setup polling interval after initial load completes", async () => {
     const useFleetModule = await import("@/protoFleet/api/useFleet");
 
@@ -259,9 +316,21 @@ describe("Fleet - Component Integration", () => {
     mockUseHasPermission.mockReturnValue(true);
   });
 
-  it("should render MinerList component", () => {
-    const { getByTestId } = renderFleet();
-    expect(getByTestId("miner-list")).toBeInTheDocument();
+  it("publishes tank labels to the list and saved views when inventory access is available", () => {
+    renderFleet();
+    const availableTanks = [{ id: "7", label: "CT1 T1 · North" }];
+    expect(useTankFilterOptions).toHaveBeenLastCalledWith(true);
+    expect(mockMinerList).toHaveBeenLastCalledWith(expect.objectContaining({ availableTanks }), undefined);
+    expect(mockFleetOutletContext.publishViewFilterContext).toHaveBeenLastCalledWith(
+      expect.objectContaining({ availableTanks }),
+    );
+  });
+
+  it("hides the tank selector without inventory access", () => {
+    mockUseHasPermission.mockImplementation((permission) => permission !== "fleet:read");
+    renderFleet();
+    expect(useTankFilterOptions).toHaveBeenLastCalledWith(false);
+    expect(mockMinerList).toHaveBeenLastCalledWith(expect.objectContaining({ availableTanks: undefined }), undefined);
   });
 
   it("should call useFleet hook with correct parameters", async () => {

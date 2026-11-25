@@ -5,6 +5,12 @@ server, React/TypeScript clients (ProtoOS and ProtoFleet), Go/Rust/Python
 device plugins, and protobuf contracts. Human contributor workflows live in
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Technical communication
+
+Use ASD-STE100 (Simplified Technical English) for all technical communication,
+including documentation, PR descriptions, and review comments. Follow the
+[technical writing rules](CONTRIBUTING.md#technical-writing) before you submit text.
+
 ## Task-specific guidance
 
 Read the guidance relevant to the requested change; a small edit does not
@@ -19,7 +25,7 @@ require reading the full repo map or every skill.
 | Python generator source or bundled `scripts/pip-config.sh` | [Packaging skill](.agents/skills/python-gen-tarball/SKILL.md), [generator README](packages/proto-python-gen/README.md) |
 | Miner drivers, fake rigs, or ASIC-rs inputs | Relevant [repo skill](.agents/skills/) for contract tests, fixtures, or ASIC-rs builds |
 | Go dependencies or missing tools | [Dependency guidance](docs/development/dependencies.md) |
-| PR descriptions or readiness | [PR standard](docs/development/pr-descriptions.md), [readiness skill](.agents/skills/pr-ready/SKILL.md) |
+| PR descriptions or readiness | [PR standard](docs/development/pr-descriptions.md), [readiness skill](.agents/skills/pr-ready/SKILL.md), [screenshots skill](.agents/skills/pr-screenshots/SKILL.md) |
 
 Before debugging or changing a documented fragile subsystem, search
 `docs/solutions/` by relevant `module:`, `tags:`, or `problem_type:` and read
@@ -36,6 +42,7 @@ shows the full surface; setup options are in CONTRIBUTING.md.
 | Setup / local app | `just setup` / `just dev` |
 | Generate / lint / format | `just gen` / `just lint` / `just format` |
 | Check changed areas | `just check-changed` |
+| Scan dependencies for known vulnerabilities | `just vuln-scan` |
 | Rebuild a plugin for Docker | `just rebuild-plugin <proto\|antminer\|virtual\|asicrs>` |
 | Plugin contracts | `just test-contract` |
 | ProtoFleet / ProtoOS E2E | `just test-e2e-fleet` / `just test-e2e-protoos` |
@@ -96,5 +103,5 @@ identify when to load them. `.claude/skills/` exposes those same definitions to
 Claude through per-skill links. Do not copy or fork instructions between
 discovery directories. `CLAUDE.md` is a thin entry point. Keep
 `.claude/settings.local.json` private. Claude invokes these workflows as
-`/regen`, `/pr-ready`, `/pr-describe`, `/triage-pr`, `/release-notes`, and
-`/plan`; Codex uses the corresponding `$name`.
+`/regen`, `/pr-ready`, `/pr-describe`, `/pr-screenshots`, `/triage-pr`,
+`/release-notes`, and `/plan`; Codex uses the corresponding `$name`.

@@ -224,9 +224,15 @@ export function buildComponentStatusProps(
     metadata.model = { label: "Model", value: miner.model };
   }
 
-  // Compute summary using shared logic
+  // Compute summary using shared logic. The fleet error path only maps to
+  // miner-hardware component types (ERROR_COMPONENT_TO_SHARED never yields
+  // "tank" — tanks are container infrastructure with no miner-error analysis),
+  // so narrowing "tank" out here leaves exactly the StatusComponentType set and
+  // is unreachable at runtime.
   const summary =
-    computeComponentStatusTitle(sharedType, displayIndex ?? undefined, componentErrors.length) ?? undefined;
+    sharedType === "tank"
+      ? undefined
+      : (computeComponentStatusTitle(sharedType, displayIndex ?? undefined, componentErrors.length) ?? undefined);
 
   return {
     componentType: sharedType,

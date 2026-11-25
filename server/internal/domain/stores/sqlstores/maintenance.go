@@ -3,6 +3,7 @@ package sqlstores
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -61,7 +62,18 @@ func (s *SQLMaintenanceStore) NextTicketNumber(ctx context.Context, orgID int64)
 }
 
 func (s *SQLMaintenanceStore) CreateRepairTicket(ctx context.Context, params models.CreateParams, ticketNumber string) (*models.RepairTicket, error) {
+	var ticket *models.RepairTicket
+	err := (&SQLTransactor{SQLConnectionManager: s.SQLConnectionManager}).RunInTx(ctx, func(txCtx context.Context) error {
+		var err error
+		ticket, err = s.createRepairTicket(txCtx, params, ticketNumber)
+		return err
+	})
+	return ticket, err
+}
+
+func (s *SQLMaintenanceStore) createRepairTicket(ctx context.Context, params models.CreateParams, ticketNumber string) (*models.RepairTicket, error) {
 	id, err := s.GetQueries(ctx).CreateRepairTicket(ctx, sqlc.CreateRepairTicketParams{
+		SharedWithClients: params.ShareWithClients, Description: params.Description, CreatedByAccountID: ptrToNullInt64(params.CreatedByAccountID),
 		OrgID: params.OrgID, TicketNumber: ticketNumber, Category: int16(params.Category),
 		Urgent: params.Urgent, Component: params.Component, Diagnosis: ptrToNullString(params.Diagnosis),
 		MinerIdentifier: ptrToNullString(params.MinerIdentifier), AlertID: ptrToNullString(params.AlertID),
@@ -79,6 +91,21 @@ func (s *SQLMaintenanceStore) CreateRepairTicket(ctx context.Context, params mod
 		}
 		return nil, maintenanceWriteError("create repair ticket", err)
 	}
+	if err := s.snapshotRepairTicketOpening(ctx, params, id); err != nil {
+		return nil, err
+	}
+	if err := s.joinHashboardRepairObligations(ctx, params.OrgID, id); err != nil {
+		return nil, err
+	}
+	for _, accountID := range params.ClientAccountIDs {
+		rows, err := s.GetQueries(ctx).AssociateRepairTicketAccount(ctx, sqlc.AssociateRepairTicketAccountParams{OrgID: params.OrgID, TicketID: id, AccountID: accountID})
+		if err != nil {
+			return nil, maintenanceWriteError("associate ticket account", err)
+		}
+		if rows == 0 {
+			return nil, fleeterror.NewInvalidArgumentError("client account is invalid or duplicated")
+		}
+	}
 	return s.GetRepairTicket(ctx, params.OrgID, id)
 }
 
@@ -88,6 +115,9 @@ func (s *SQLMaintenanceStore) GetRepairTicket(ctx context.Context, orgID, id int
 		return nil, maintenanceGetError(err, id)
 	}
 	ticket := ticketFromGetRow(row)
+	if err := s.hydrateTicketMetadata(ctx, orgID, []*models.RepairTicket{&ticket}); err != nil {
+		return nil, err
+	}
 	return &ticket, nil
 }
 
@@ -97,6 +127,9 @@ func (s *SQLMaintenanceStore) GetRepairTicketForUpdate(ctx context.Context, orgI
 		return nil, maintenanceGetError(err, id)
 	}
 	ticket := ticketFromForUpdateRow(row)
+	if err := s.hydrateTicketMetadata(ctx, orgID, []*models.RepairTicket{&ticket}); err != nil {
+		return nil, err
+	}
 	return &ticket, nil
 }
 
@@ -127,6 +160,13 @@ func (s *SQLMaintenanceStore) ListRepairTickets(ctx context.Context, filter mode
 			Cursor: models.TicketCursor{SortField: sortField, SortDirection: direction, Value: sqlText(row.SortValue), ID: row.ID},
 		})
 	}
+	tickets := make([]*models.RepairTicket, len(out))
+	for i := range out {
+		tickets[i] = &out[i].RepairTicket
+	}
+	if err := s.hydrateTicketMetadata(ctx, filter.OrgID, tickets); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
@@ -140,11 +180,11 @@ func (s *SQLMaintenanceStore) CountRepairTickets(ctx context.Context, filter mod
 
 func (s *SQLMaintenanceStore) UpdateRepairTicket(ctx context.Context, params models.UpdateParams) (*models.RepairTicket, error) {
 	id, err := s.GetQueries(ctx).UpdateRepairTicket(ctx, sqlc.UpdateRepairTicketParams{
-		Status: ticketStatusToNull(params.Status), Urgent: boolToNull(params.Urgent), ClearAssignee: params.ClearAssignee,
+		ClosingAccountID: ptrToNullInt64(params.ClosingAccountID), Status: ticketStatusToNull(params.Status), Urgent: boolToNull(params.Urgent), ClearAssignee: params.ClearAssignee,
 		AssigneeUserID: ptrToNullInt64(params.AssigneeUserID), Component: ptrToNullString(params.Component),
 		Diagnosis: ptrToNullString(params.Diagnosis), WarrantyStatus: warrantyToNull(params.WarrantyStatus),
 		Resolution: resolutionToNull(params.Resolution), RepairLocation: repairLocationToNull(params.RepairLocation),
-		Notes: ptrToNullString(params.Notes), RmaVendor: ptrToNullString(params.RMAVendor),
+		ResolutionNote: ptrToNullString(params.ResolutionNote), Notes: ptrToNullString(params.Notes), RmaVendor: ptrToNullString(params.RMAVendor),
 		RmaTracking: ptrToNullString(params.RMATracking), ClearRmaEta: params.ClearRMAEta,
 		RmaEta: ptrToNullTime(params.RMAEta), ID: params.ID, OrgID: params.OrgID,
 	})
@@ -181,9 +221,9 @@ func (s *SQLMaintenanceStore) BulkMarkUrgent(ctx context.Context, orgID int64, t
 	return rows, nil
 }
 
-func (s *SQLMaintenanceStore) BulkCloseTickets(ctx context.Context, orgID int64, ticketIDs []int64, resolution, repairLocation int16, notes *string) (int64, error) {
+func (s *SQLMaintenanceStore) BulkCloseTickets(ctx context.Context, orgID int64, ticketIDs []int64, resolution, repairLocation int16, resolutionNote *string) (int64, error) {
 	rows, err := s.GetQueries(ctx).BulkCloseTickets(ctx, sqlc.BulkCloseTicketsParams{
-		Resolution: resolution, RepairLocation: repairLocation, Notes: ptrToNullString(notes), OrgID: orgID, TicketIds: ticketIDs,
+		Resolution: resolution, RepairLocation: repairLocation, ResolutionNote: ptrToNullString(resolutionNote), OrgID: orgID, TicketIds: ticketIDs,
 	})
 	if err != nil {
 		return 0, maintenanceWriteError("bulk close tickets", err)
@@ -241,6 +281,13 @@ func (s *SQLMaintenanceStore) ListCompletedTickets(ctx context.Context, filter m
 		out = append(out, models.RepairTicketSummary{RepairTicket: ticket, CommentCount: row.CommentCount, PartsCount: row.PartsCount,
 			Cursor: models.TicketCursor{SortField: sortField, SortDirection: direction, Value: sqlText(row.SortValue), ID: row.ID}})
 	}
+	tickets := make([]*models.RepairTicket, len(out))
+	for i := range out {
+		tickets[i] = &out[i].RepairTicket
+	}
+	if err := s.hydrateTicketMetadata(ctx, filter.OrgID, tickets); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
@@ -275,20 +322,24 @@ func (s *SQLMaintenanceStore) GetTicketCommentByIdempotencyKey(ctx context.Conte
 		}
 		return nil, "", fleeterror.NewInternalErrorf("failed to get repair ticket comment by idempotency key: %w", err)
 	}
-	comment := models.TicketComment{ID: row.ID, OrgID: row.OrgID, TicketID: row.TicketID, UserID: row.UserID, UserName: row.UserName, Text: row.Text, CreatedAt: row.CreatedAt, DeletedAt: timePtr(row.DeletedAt)}
+	comment := models.TicketComment{Internal: row.Internal, AccountID: row.AccountUuid, AccountName: row.AccountName, ID: row.ID, OrgID: row.OrgID, TicketID: row.TicketID, UserID: row.UserID, UserName: row.UserName, Text: row.Text, CreatedAt: row.CreatedAt, DeletedAt: timePtr(row.DeletedAt)}
 	return &comment, row.CreateRequestHash.String, nil
 }
 
-func (s *SQLMaintenanceStore) CreateTicketComment(ctx context.Context, orgID, ticketID, userID int64, text, idempotencyKey, requestHash string) (*models.TicketComment, error) {
+func (s *SQLMaintenanceStore) CreateTicketComment(ctx context.Context, orgID, ticketID, userID int64, text, idempotencyKey, requestHash string, scopes ...models.CommentScope) (*models.TicketComment, error) {
+	scope := models.CommentScope{Internal: true}
+	if len(scopes) > 0 {
+		scope = scopes[0]
+	}
 	row, err := s.GetQueries(ctx).CreateRepairTicketComment(ctx, sqlc.CreateRepairTicketCommentParams{
-		OrgID: orgID, TicketID: ticketID, UserID: userID, Text: text,
+		OrgID: orgID, TicketID: ticketID, UserID: userID, Text: text, Internal: scope.Internal, AccountUuid: scope.AccountID,
 		IdempotencyKey:    sql.NullString{String: idempotencyKey, Valid: true},
 		CreateRequestHash: sql.NullString{String: requestHash, Valid: true},
 	})
 	if err != nil {
 		return nil, maintenanceWriteError("create repair ticket comment", err)
 	}
-	comment := models.TicketComment{ID: row.ID, OrgID: row.OrgID, TicketID: row.TicketID, UserID: row.UserID, UserName: row.UserName, Text: row.Text, CreatedAt: row.CreatedAt, DeletedAt: timePtr(row.DeletedAt)}
+	comment := models.TicketComment{Internal: row.Internal, AccountID: row.AccountUuid, AccountName: row.AccountName, ID: row.ID, OrgID: row.OrgID, TicketID: row.TicketID, UserID: row.UserID, UserName: row.UserName, Text: row.Text, CreatedAt: row.CreatedAt, DeletedAt: timePtr(row.DeletedAt)}
 	return &comment, nil
 }
 func (s *SQLMaintenanceStore) ListTicketComments(ctx context.Context, orgID, ticketID int64) ([]models.TicketComment, error) {
@@ -298,7 +349,7 @@ func (s *SQLMaintenanceStore) ListTicketComments(ctx context.Context, orgID, tic
 	}
 	out := make([]models.TicketComment, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, models.TicketComment{ID: row.ID, OrgID: row.OrgID, TicketID: row.TicketID, UserID: row.UserID, UserName: row.UserName, Text: row.Text, CreatedAt: row.CreatedAt, DeletedAt: timePtr(row.DeletedAt)})
+		out = append(out, models.TicketComment{Internal: row.Internal, AccountID: row.AccountUuid, AccountName: row.AccountName, ID: row.ID, OrgID: row.OrgID, TicketID: row.TicketID, UserID: row.UserID, UserName: row.UserName, Text: row.Text, CreatedAt: row.CreatedAt, DeletedAt: timePtr(row.DeletedAt)})
 	}
 	return out, nil
 }
@@ -355,20 +406,20 @@ func (s *SQLMaintenanceStore) ListTicketParts(ctx context.Context, orgID, ticket
 }
 
 func ticketFromGetRow(row sqlc.GetRepairTicketRow) models.RepairTicket {
-	return ticket(row.ID, row.OrgID, row.TicketNumber, row.Category, row.Status, row.Urgent, row.Component, row.Diagnosis, row.MinerIdentifier, row.AlertID, row.AssigneeUserID, row.AssigneeName, row.WarrantyStatus, row.Resolution, row.RepairLocation, row.Notes, row.DailyImpactUsd, row.RmaVendor, row.RmaTracking, row.RmaEta, row.SiteID, row.SiteName, row.BuildingID, row.BuildingName, row.Zone, row.RackID, row.RackLabel, row.GroupLabel, row.CompletedAt, row.CreatedAt, row.UpdatedAt, row.DeletedAt)
+	return ticket(row.ID, row.OrgID, row.TicketNumber, row.Category, row.Status, row.Urgent, row.Component, row.Diagnosis, row.MinerIdentifier, row.AlertID, row.AssigneeUserID, row.AssigneeName, row.WarrantyStatus, row.Resolution, row.RepairLocation, row.Notes, row.ResolutionNote, row.DailyImpactUsd, row.RmaVendor, row.RmaTracking, row.RmaEta, row.SiteID, row.SiteName, row.BuildingID, row.BuildingName, row.Zone, row.RackID, row.RackLabel, row.GroupLabel, row.CompletedAt, row.CreatedAt, row.UpdatedAt, row.DeletedAt)
 }
 func ticketFromForUpdateRow(row sqlc.GetRepairTicketForUpdateRow) models.RepairTicket {
-	return ticket(row.ID, row.OrgID, row.TicketNumber, row.Category, row.Status, row.Urgent, row.Component, row.Diagnosis, row.MinerIdentifier, row.AlertID, row.AssigneeUserID, row.AssigneeName, row.WarrantyStatus, row.Resolution, row.RepairLocation, row.Notes, row.DailyImpactUsd, row.RmaVendor, row.RmaTracking, row.RmaEta, row.SiteID, row.SiteName, row.BuildingID, row.BuildingName, row.Zone, row.RackID, row.RackLabel, row.GroupLabel, row.CompletedAt, row.CreatedAt, row.UpdatedAt, row.DeletedAt)
+	return ticket(row.ID, row.OrgID, row.TicketNumber, row.Category, row.Status, row.Urgent, row.Component, row.Diagnosis, row.MinerIdentifier, row.AlertID, row.AssigneeUserID, row.AssigneeName, row.WarrantyStatus, row.Resolution, row.RepairLocation, row.Notes, row.ResolutionNote, row.DailyImpactUsd, row.RmaVendor, row.RmaTracking, row.RmaEta, row.SiteID, row.SiteName, row.BuildingID, row.BuildingName, row.Zone, row.RackID, row.RackLabel, row.GroupLabel, row.CompletedAt, row.CreatedAt, row.UpdatedAt, row.DeletedAt)
 }
 func ticketFromListRow(row sqlc.ListRepairTicketsRow) models.RepairTicket {
-	return ticket(row.ID, row.OrgID, row.TicketNumber, row.Category, row.Status, row.Urgent, row.Component, row.Diagnosis, row.MinerIdentifier, row.AlertID, row.AssigneeUserID, row.AssigneeName, row.WarrantyStatus, row.Resolution, row.RepairLocation, row.Notes, row.DailyImpactUsd, row.RmaVendor, row.RmaTracking, row.RmaEta, row.SiteID, row.SiteName, row.BuildingID, row.BuildingName, row.Zone, row.RackID, row.RackLabel, row.GroupLabel, row.CompletedAt, row.CreatedAt, row.UpdatedAt, row.DeletedAt)
+	return ticket(row.ID, row.OrgID, row.TicketNumber, row.Category, row.Status, row.Urgent, row.Component, row.Diagnosis, row.MinerIdentifier, row.AlertID, row.AssigneeUserID, row.AssigneeName, row.WarrantyStatus, row.Resolution, row.RepairLocation, row.Notes, row.ResolutionNote, row.DailyImpactUsd, row.RmaVendor, row.RmaTracking, row.RmaEta, row.SiteID, row.SiteName, row.BuildingID, row.BuildingName, row.Zone, row.RackID, row.RackLabel, row.GroupLabel, row.CompletedAt, row.CreatedAt, row.UpdatedAt, row.DeletedAt)
 }
 func ticketFromCompletedRow(row sqlc.ListCompletedTicketsRow) models.RepairTicket {
-	return ticket(row.ID, row.OrgID, row.TicketNumber, row.Category, row.Status, row.Urgent, row.Component, row.Diagnosis, row.MinerIdentifier, row.AlertID, row.AssigneeUserID, row.AssigneeName, row.WarrantyStatus, row.Resolution, row.RepairLocation, row.Notes, row.DailyImpactUsd, row.RmaVendor, row.RmaTracking, row.RmaEta, row.SiteID, row.SiteName, row.BuildingID, row.BuildingName, row.Zone, row.RackID, row.RackLabel, row.GroupLabel, row.CompletedAt, row.CreatedAt, row.UpdatedAt, row.DeletedAt)
+	return ticket(row.ID, row.OrgID, row.TicketNumber, row.Category, row.Status, row.Urgent, row.Component, row.Diagnosis, row.MinerIdentifier, row.AlertID, row.AssigneeUserID, row.AssigneeName, row.WarrantyStatus, row.Resolution, row.RepairLocation, row.Notes, row.ResolutionNote, row.DailyImpactUsd, row.RmaVendor, row.RmaTracking, row.RmaEta, row.SiteID, row.SiteName, row.BuildingID, row.BuildingName, row.Zone, row.RackID, row.RackLabel, row.GroupLabel, row.CompletedAt, row.CreatedAt, row.UpdatedAt, row.DeletedAt)
 }
 
-func ticket(id, orgID int64, number string, category, status int16, urgent bool, component string, diagnosis, miner, alert sql.NullString, assignee sql.NullInt64, assigneeName string, warranty, resolution, location int16, notes, impact, vendor, tracking sql.NullString, eta sql.NullTime, siteID sql.NullInt64, siteName string, buildingID sql.NullInt64, buildingName string, zone sql.NullString, rackID sql.NullInt64, rackLabel, groupLabel sql.NullString, completed sql.NullTime, created, updated time.Time, deleted sql.NullTime) models.RepairTicket {
-	return models.RepairTicket{ID: id, OrgID: orgID, TicketNumber: number, Category: models.TicketCategory(category), Status: models.TicketStatus(status), Urgent: urgent, Component: component, Diagnosis: stringPtr(diagnosis), MinerIdentifier: stringPtr(miner), AlertID: stringPtr(alert), AssigneeUserID: nullInt64ToPtr(assignee), AssigneeName: assigneeName, WarrantyStatus: models.WarrantyStatus(warranty), Resolution: models.TicketResolution(resolution), RepairLocation: models.RepairLocation(location), Notes: stringPtr(notes), DailyImpactUsd: floatFromNumeric(impact), RMAVendor: stringPtr(vendor), RMATracking: stringPtr(tracking), RMAEta: timePtr(eta), SiteID: nullInt64ToPtr(siteID), SiteName: siteName, BuildingID: nullInt64ToPtr(buildingID), BuildingName: buildingName, Zone: stringPtr(zone), RackID: nullInt64ToPtr(rackID), RackLabel: stringPtr(rackLabel), GroupLabel: stringPtr(groupLabel), CompletedAt: timePtr(completed), CreatedAt: created, UpdatedAt: updated, DeletedAt: timePtr(deleted)}
+func ticket(id, orgID int64, number string, category, status int16, urgent bool, component string, diagnosis, miner, alert sql.NullString, assignee sql.NullInt64, assigneeName string, warranty, resolution, location int16, notes sql.NullString, resolutionNote string, impact, vendor, tracking sql.NullString, eta sql.NullTime, siteID sql.NullInt64, siteName string, buildingID sql.NullInt64, buildingName string, zone sql.NullString, rackID sql.NullInt64, rackLabel, groupLabel sql.NullString, completed sql.NullTime, created, updated time.Time, deleted sql.NullTime) models.RepairTicket {
+	return models.RepairTicket{ID: id, OrgID: orgID, TicketNumber: number, Category: models.TicketCategory(category), Status: models.TicketStatus(status), Urgent: urgent, Component: component, Diagnosis: stringPtr(diagnosis), MinerIdentifier: stringPtr(miner), AlertID: stringPtr(alert), AssigneeUserID: nullInt64ToPtr(assignee), AssigneeName: assigneeName, WarrantyStatus: models.WarrantyStatus(warranty), Resolution: models.TicketResolution(resolution), RepairLocation: models.RepairLocation(location), Notes: stringPtr(notes), ResolutionNote: resolutionNote, DailyImpactUsd: floatFromNumeric(impact), RMAVendor: stringPtr(vendor), RMATracking: stringPtr(tracking), RMAEta: timePtr(eta), SiteID: nullInt64ToPtr(siteID), SiteName: siteName, BuildingID: nullInt64ToPtr(buildingID), BuildingName: buildingName, Zone: stringPtr(zone), RackID: nullInt64ToPtr(rackID), RackLabel: stringPtr(rackLabel), GroupLabel: stringPtr(groupLabel), CompletedAt: timePtr(completed), CreatedAt: created, UpdatedAt: updated, DeletedAt: timePtr(deleted)}
 }
 
 func normalizeCursor(field models.TicketSortField, direction models.SortDirection, cursor *models.TicketCursor) (models.TicketSortField, models.SortDirection, *models.TicketCursor, error) {
@@ -487,4 +538,81 @@ func countRepairParams(f models.ListFilter) sqlc.CountRepairTicketsParams {
 }
 func statsParams(f models.ListFilter) sqlc.GetFilteredTicketStatsParams {
 	return sqlc.GetFilteredTicketStatsParams{OrgID: f.OrgID, FilterStatuses: maintenanceNilIfEmpty(f.Statuses), FilterCategories: maintenanceNilIfEmpty(f.Categories), FilterSiteIds: maintenanceNilIfEmpty(f.SiteIDs), ExcludedSiteIds: maintenanceNilIfEmpty(f.ExcludedSiteIDs), FilterBuildingIds: maintenanceNilIfEmpty(f.BuildingIDs), FilterRackIds: maintenanceNilIfEmpty(f.RackIDs), FilterGroupLabels: maintenanceNilIfEmpty(f.GroupLabels), FilterAssigneeUserID: ptrToNullInt64(f.AssigneeUserID), FilterUrgentOnly: f.UrgentOnly, FilterExcludeCompleted: f.ExcludeCompleted, FilterOverdueOnly: f.OverdueOnly, SearchPattern: likeSearchPattern(f.SearchQuery)}
+}
+
+func (s *SQLMaintenanceStore) hydrateTicketMetadata(ctx context.Context, orgID int64, tickets []*models.RepairTicket) error {
+	if len(tickets) == 0 {
+		return nil
+	}
+	ids := make([]int64, len(tickets))
+	byID := make(map[int64]*models.RepairTicket, len(tickets))
+	for i, t := range tickets {
+		ids[i] = t.ID
+		byID[t.ID] = t
+	}
+	rows, err := s.GetQueries(ctx).GetRepairTicketMetadata(ctx, sqlc.GetRepairTicketMetadataParams{OrgID: orgID, TicketIds: ids})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("load ticket metadata: %w", err)
+	}
+	for _, row := range rows {
+		t := byID[row.ID]
+		t.SharedWithClients = row.SharedWithClients
+		t.Description, t.CreatedByAccountID = row.Description, row.CreatedByAccountID
+		if err := json.Unmarshal(row.Targets, &t.Targets); err != nil {
+			return fleeterror.NewInternalErrorf("decode ticket targets: %w", err)
+		}
+		if err := json.Unmarshal(row.Audiences, &t.Audiences); err != nil {
+			return fleeterror.NewInternalErrorf("decode ticket audiences: %w", err)
+		}
+	}
+	return nil
+}
+func (s *SQLMaintenanceStore) AddRepairTicketBoard(ctx context.Context, orgID, ticketID, boardID, parentModuleID int64) error {
+	contains, err := s.GetQueries(ctx).RepairTicketContainsModule(ctx, sqlc.RepairTicketContainsModuleParams{OrgID: orgID, TicketID: ticketID, ModuleID: sql.NullInt64{Int64: parentModuleID, Valid: true}})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("resolve ticket module: %w", err)
+	}
+	if !contains {
+		return fleeterror.NewInvalidArgumentError("affected board must belong to a module already referenced by the ticket")
+	}
+	rows, err := s.GetQueries(ctx).AddRepairTicketBoard(ctx, sqlc.AddRepairTicketBoardParams{OrgID: orgID, TicketID: ticketID, BoardID: boardID, ParentModuleID: parentModuleID})
+	if err != nil {
+		return maintenanceWriteError("add affected board", err)
+	}
+	if rows == 0 {
+		return fleeterror.NewInvalidArgumentError("board was not installed in the referenced module when this ticket opened")
+	}
+	return s.joinHashboardRepairObligations(ctx, orgID, ticketID)
+}
+func (s *SQLMaintenanceStore) UpdateTicketTarget(ctx context.Context, p models.UpdateTargetParams) error {
+	rows, err := s.GetQueries(ctx).UpdateRepairTicketTargetEvidence(ctx, sqlc.UpdateRepairTicketTargetEvidenceParams{
+		OrgID: p.OrgID, TicketID: p.TicketID, Kind: int16(p.Kind), AssetID: p.AssetID,
+		ClearReplacementModule: p.ClearReplacementModule, ClearReplacementHashboard: p.ClearReplacementHashboard,
+		Diagnosis: ptrToNullString(p.Diagnosis), WarrantyEvidence: ptrToNullString(p.WarrantyEvidence), RepairOutcome: ptrToNullString(p.RepairOutcome), RmaOutcome: ptrToNullString(p.RMAOutcome), ModuleModel: ptrToNullString(p.ModuleModel), ReplacementModuleID: ptrToNullInt64(p.ReplacementModuleID), ReplacementHashboardID: ptrToNullInt64(p.ReplacementHashboardID),
+	})
+	if err != nil {
+		return maintenanceWriteError("update ticket target", err)
+	}
+	if rows == 0 {
+		return fleeterror.NewNotFoundError("ticket target not found")
+	}
+	for _, evidence := range []struct {
+		id    *int64
+		model *string
+	}{{p.ModelModuleID, p.ModuleModel}, {p.ReplacementModuleID, p.ReplacementModuleModel}} {
+		if evidence.id == nil || evidence.model == nil {
+			continue
+		}
+		changed, err := s.GetQueries(ctx).RecordMaintenanceModuleModel(ctx, sqlc.RecordMaintenanceModuleModelParams{OrgID: p.OrgID, ModuleID: *evidence.id, Model: *evidence.model})
+		if err != nil {
+			return maintenanceWriteError("record actual module model", err)
+		}
+		if changed != 1 {
+			return fleeterror.NewNotFoundError("physical module not found")
+		}
+	}
+	if err := s.GetQueries(ctx).TouchRepairTicket(ctx, sqlc.TouchRepairTicketParams{OrgID: p.OrgID, ID: p.TicketID}); err != nil {
+		return maintenanceWriteError("touch ticket", err)
+	}
+	return nil
 }

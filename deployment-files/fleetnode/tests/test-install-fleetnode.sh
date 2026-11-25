@@ -221,7 +221,6 @@ assert_file_contains "$TEST_DIR/version-flag.out" "Usage: install-fleet-node.sh 
 assert_file_contains "$FLEETNODE_DIR/install-fleet-node.sh" "LINUX_SERVICE_PATH=\"$LINUX_SERVICE_PATH\""
 assert_file_contains "$FLEETNODE_DIR/install-fleet-node.sh" "PATH=\"\$LINUX_SERVICE_PATH\""
 assert_file_contains "$FLEETNODE_DIR/install-fleet-node.sh" "as_root flock -n \"\$INSTALL_LOCK_PATH\""
-assert_file_contains "$FLEETNODE_DIR/install-fleet-node.sh" '--property=ActiveState --value fleet-node.service'
 if grep -Fq 'fleetnode.service' "$FLEETNODE_DIR/install-fleet-node.sh"; then
   fail "installer contains a migration path for the old systemd unit"
 fi

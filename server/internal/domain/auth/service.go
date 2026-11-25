@@ -403,28 +403,6 @@ func (s *Service) UpdateUsername(ctx context.Context, username string) error {
 	return nil
 }
 
-// VerifyCredentials verifies username and password without creating a session
-// Used for re-authentication in sensitive operations
-func (s *Service) VerifyCredentials(ctx context.Context, username, password string) error {
-	if username == "" || password == "" {
-		return fleeterror.NewInvalidArgumentError("username and password are required")
-	}
-
-	user, err := s.userStore.GetUserByUsername(ctx, username)
-	if err != nil {
-		return fleeterror.NewForbiddenErrorf("invalid credentials")
-	}
-	if err := s.loginAttempts.check(user.ID); err != nil {
-		return fleeterror.NewForbiddenErrorf("invalid credentials")
-	}
-
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-		return fleeterror.NewForbiddenErrorf("invalid credentials")
-	}
-
-	return nil
-}
-
 // VerifySessionCredentials verifies that the provided username and password match
 // the currently authenticated session user. Both must match — this prevents
 // cross-user credential usage in step-up authentication flows.
@@ -591,25 +569,52 @@ func (s *Service) authorizeCallerForUser(ctx context.Context, callerUserID, orgI
 	// here means the target isn't in the caller's org; mask as
 	// InvalidArgument to avoid leaking existence across tenants. Other
 	// errors are transient and must propagate as Internal.
-	if _, err := s.userManagementStore.GetUserRoleName(ctx, target.ID, orgID); err != nil {
+	roleName, err := s.userManagementStore.GetUserRoleName(ctx, target.ID, orgID)
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return stores.User{}, fleeterror.NewInvalidArgumentError("invalid user_id")
 		}
 		return stores.User{}, fleeterror.NewInternalErrorf("error getting target user role: %v", err)
 	}
+	// A roleless affiliation admits customer login, not host user management.
+	// Use the same masked rejection as a missing/cross-organization target.
+	if roleName == "" {
+		return stores.User{}, fleeterror.NewInvalidArgumentError("invalid user_id")
+	}
 
 	targetEff, err := s.permResolver.LoadEffective(ctx, target.ID, orgID)
 	if err != nil {
-		return stores.User{}, fleeterror.NewInternalErrorf("error loading target permissions: %v", err)
+		return stores.User{}, fleeterror.NewInternalErrorf("error loading target permissions: %w", err)
 	}
 	callerEff, err := s.permResolver.LoadEffective(ctx, callerUserID, orgID)
 	if err != nil {
-		return stores.User{}, fleeterror.NewInternalErrorf("error loading caller permissions: %v", err)
+		return stores.User{}, fleeterror.NewInternalErrorf("error loading caller permissions: %w", err)
 	}
-	if err := requireCallerCanManageTarget(callerEff, targetEff); err != nil {
+	if err := RequireCallerCanManageTarget(callerEff, targetEff); err != nil {
 		return stores.User{}, err
 	}
 	return target, nil
+}
+
+// authorizeOrganizationUserInTx closes the gap between the optimistic target
+// lookup and the mutation. The active-role query takes organization first,
+// then affiliation/role locks; permission parity is rechecked on locked state.
+func (s *Service) authorizeOrganizationUserInTx(ctx context.Context, callerUserID, orgID, targetID int64) error {
+	if _, err := s.userManagementStore.GetActiveUserRoleNameForUpdate(ctx, targetID, orgID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fleeterror.NewInvalidArgumentError("invalid user_id")
+		}
+		return fleeterror.NewInternalErrorf("error locking target organization role: %w", err)
+	}
+	targetEff, err := s.permResolver.LoadEffectiveForUpdateInTx(ctx, targetID, orgID)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error loading target permissions: %w", err)
+	}
+	callerEff, err := s.permResolver.LoadEffectiveForUpdateInTx(ctx, callerUserID, orgID)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error loading caller permissions: %w", err)
+	}
+	return RequireCallerCanManageTarget(callerEff, targetEff)
 }
 
 // resolveCreateUserRole picks the role a freshly created user will be
@@ -658,20 +663,20 @@ func (s *Service) resolveCreateUserRole(ctx context.Context, callerUserID, orgID
 	}})
 	callerEff, err := s.permResolver.LoadEffective(ctx, callerUserID, orgID)
 	if err != nil {
-		return stores.Role{}, fleeterror.NewInternalErrorf("error loading caller permissions: %v", err)
+		return stores.Role{}, fleeterror.NewInternalErrorf("error loading caller permissions: %w", err)
 	}
-	if err := requireCallerCanManageTarget(callerEff, targetEff); err != nil {
+	if err := RequireCallerCanManageTarget(callerEff, targetEff); err != nil {
 		return stores.Role{}, err
 	}
 	return role, nil
 }
 
-// requireCallerCanManageTarget enforces the user-management hierarchy:
+// RequireCallerCanManageTarget enforces the user-management hierarchy:
 // callers with org-scope role:manage need only subsume the target;
 // everyone else must strictly dominate it. Without the strict-dominate
 // requirement, ADMIN (equal perms to a fresh ADMIN account) could mint
 // new ADMINs via CreateUser and walk off with the temp password.
-func requireCallerCanManageTarget(callerEff, targetEff *authz.EffectivePermissions) error {
+func RequireCallerCanManageTarget(callerEff, targetEff *authz.EffectivePermissions) error {
 	if callerEff.Has(authz.PermRoleManage, authz.ResourceContext{}) {
 		if !targetEff.IsSubsumedBy(callerEff) {
 			return fleeterror.NewForbiddenError("insufficient permissions to manage this user")
@@ -877,6 +882,9 @@ func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPa
 
 	// Update password and revoke all sessions atomically.
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		if err := s.authorizeOrganizationUserInTx(ctx, info.UserID, orgID, user.ID); err != nil {
+			return err
+		}
 		if _, err := s.userManagementStore.AdminResetUserPassword(ctx, user.ID, string(hashedPassword)); err != nil {
 			return fleeterror.NewInternalErrorf("error resetting password: %v", err)
 		}
@@ -919,7 +927,7 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 
 	orgs, err := s.userStore.GetOrganizationsForUser(ctx, info.UserID)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error getting user organizations: %v", err)
+		return nil, fleeterror.NewInternalErrorf("error getting user organizations: %w", err)
 	}
 
 	if len(orgs) != 1 {
@@ -930,7 +938,7 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 
 	currentUser, err := s.userStore.GetUserByID(ctx, info.UserID)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error getting current user: %v", err)
+		return nil, fleeterror.NewInternalErrorf("error getting current user: %w", err)
 	}
 
 	// Prevent self-deactivation
@@ -953,15 +961,28 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 	// SUPER_ADMIN and deactivation of another could both observe a
 	// valid post-state and commit, leaving the org with zero owners.
 	err = s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		// Share the organization lock with hosted membership mutations. Acquire
+		// it before user/role locks so concurrent deactivation and demotion cannot
+		// remove every customer administrator or invert the lock order.
+		soleAccounts, guardErr := s.userManagementStore.LockAndCountSoleHostedAccountAdministrations(ctx, orgID, user.ID)
+		if guardErr != nil {
+			return fleeterror.NewInternalErrorf("error checking hosted account administrators: %w", guardErr)
+		}
+		if err := s.authorizeOrganizationUserInTx(ctx, info.UserID, orgID, user.ID); err != nil {
+			return err
+		}
+		if soleAccounts > 0 {
+			return fleeterror.NewFailedPreconditionError("assign another account administrator before deactivating this user")
+		}
 		current, err := s.userManagementStore.GetOrgScopeAssignmentForUser(ctx, user.ID, orgID)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return fleeterror.NewInternalErrorf("error getting target assignment: %v", err)
+			return fleeterror.NewInternalErrorf("error getting target assignment: %w", err)
 		}
 		// GetOrgScopeAssignmentForUser also locks the user when a current
 		// assignment exists. Lock it explicitly as well so legacy users without
 		// a migrated assignment still serialize with maintenance assignment.
 		if _, lockErr := s.userStore.GetUserByIDForUpdate(ctx, user.ID); lockErr != nil {
-			return fleeterror.NewInternalErrorf("error locking target user: %v", lockErr)
+			return fleeterror.NewInternalErrorf("error locking target user: %w", lockErr)
 		}
 		// If the target holds an org-scope SUPER_ADMIN seat, lock every
 		// live SA assignment in the org and require count > 1 (the
@@ -969,7 +990,7 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 		if err == nil && current.BuiltinKey == string(authz.BuiltinKeySuperAdmin) {
 			total, countErr := s.userManagementStore.LockAndCountOrgScopeSuperAdmins(ctx, orgID)
 			if countErr != nil {
-				return fleeterror.NewInternalErrorf("error counting org super admins: %v", countErr)
+				return fleeterror.NewInternalErrorf("error counting org super admins: %w", countErr)
 			}
 			if total <= 1 {
 				return fleeterror.NewFailedPreconditionError("cannot deactivate the last SUPER_ADMIN in the organization")
@@ -977,7 +998,7 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 		}
 		activeTickets, countErr := s.userManagementStore.CountActiveRepairTicketsAssignedToUser(ctx, orgID, user.ID)
 		if countErr != nil {
-			return fleeterror.NewInternalErrorf("error counting active maintenance tickets: %v", countErr)
+			return fleeterror.NewInternalErrorf("error counting active maintenance tickets: %w", countErr)
 		}
 		if activeTickets > 0 {
 			return fleeterror.NewFailedPreconditionError("reassign or unassign active maintenance tickets before deactivating this user")
@@ -1045,6 +1066,11 @@ func (s *Service) UpdateUserRole(ctx context.Context, req *authv1.UpdateUserRole
 		if err != nil {
 			return err
 		}
+		// Match account writers' organization-first lock order. Otherwise a
+		// root-granted inviter could lose authority during invitation acceptance.
+		if _, err := s.userManagementStore.LockAndCountSoleHostedAccountAdministrations(ctx, orgID, 0); err != nil {
+			return err
+		}
 		newRole, err := s.userManagementStore.GetRoleByIDForUpdate(ctx, parsed)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -1084,7 +1110,7 @@ func (s *Service) UpdateUserRole(ctx context.Context, req *authv1.UpdateUserRole
 		// effective set from the new role's permission keys.
 		targetCurrentEff, err := s.permResolver.LoadEffectiveForUpdateInTx(ctx, target.ID, orgID)
 		if err != nil {
-			return fleeterror.NewInternalErrorf("error loading target permissions: %v", err)
+			return fleeterror.NewInternalErrorf("error loading target permissions: %w", err)
 		}
 		newRoleKeys, err := s.userManagementStore.ListPermissionKeysByRoleID(ctx, newRole.ID)
 		if err != nil {
@@ -1096,12 +1122,12 @@ func (s *Service) UpdateUserRole(ctx context.Context, req *authv1.UpdateUserRole
 		}})
 		callerEff, err := s.permResolver.LoadEffectiveForUpdateInTx(ctx, info.UserID, orgID)
 		if err != nil {
-			return fleeterror.NewInternalErrorf("error loading caller permissions: %v", err)
+			return fleeterror.NewInternalErrorf("error loading caller permissions: %w", err)
 		}
-		if err := requireCallerCanManageTarget(callerEff, targetCurrentEff); err != nil {
+		if err := RequireCallerCanManageTarget(callerEff, targetCurrentEff); err != nil {
 			return err
 		}
-		if err := requireCallerCanManageTarget(callerEff, targetNewEff); err != nil {
+		if err := RequireCallerCanManageTarget(callerEff, targetNewEff); err != nil {
 			return err
 		}
 
@@ -1123,6 +1149,13 @@ func (s *Service) UpdateUserRole(ctx context.Context, req *authv1.UpdateUserRole
 
 		if err := s.userManagementStore.UpdateUserOrganizationRole(ctx, target.ID, orgID, current.AssignmentID, newRole.ID); err != nil {
 			return err
+		}
+		unadministered, err := s.userManagementStore.LockAndCountSoleHostedAccountAdministrations(ctx, orgID, 0)
+		if err != nil {
+			return err
+		}
+		if unadministered != 0 {
+			return fleeterror.NewFailedPreconditionError("account must retain an active direct or explicitly authorized ancestor administrator")
 		}
 		swapped = true
 		return nil

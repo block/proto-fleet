@@ -4,21 +4,19 @@ import WidgetWrapper from "../WidgetWrapper";
 
 interface PoolWidgetProps {
   loading: boolean;
-  isConnected: boolean;
-  isOpen: boolean;
+  label: string;
   onTogglePopover: () => void;
 }
 
-const PoolWidget = ({ loading, isOpen, onTogglePopover }: PoolWidgetProps) => {
+const PoolWidget = ({ loading, label, onTogglePopover }: PoolWidgetProps) => {
   return (
     <WidgetWrapper
       onClick={loading ? undefined : onTogglePopover}
       className={clsx("text-text-primary", {
         "hover:cursor-progress": loading,
       })}
-      isOpen={isOpen}
     >
-      Mining Pool
+      {label}
     </WidgetWrapper>
   );
 };

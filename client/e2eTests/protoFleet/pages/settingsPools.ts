@@ -2,11 +2,8 @@ import { expect } from "@playwright/test";
 import { BasePage } from "./base";
 
 export class SettingsPoolsPage extends BasePage {
-  private getPoolRowByName(name: string) {
-    return this.page
-      .getByTestId("pool-row")
-      .filter({ has: this.page.getByTestId("pool-name").getByText(name, { exact: true }) })
-      .first();
+  private row(name: string) {
+    return this.page.getByRole("row").filter({ has: this.page.getByText(name, { exact: true }) });
   }
 
   async validateMiningPoolsSubmenuHidden() {
@@ -14,58 +11,38 @@ export class SettingsPoolsPage extends BasePage {
   }
 
   async validateMiningPoolsPageOpened() {
-    await expect(this.page).toHaveURL(/.*\/mining-pools/);
-    await this.validateButtonIsVisible("Add pool");
+    await expect(this.page).toHaveURL(/\/mining-pools$/);
+    await expect(this.page.getByText("Pool configurations", { exact: true })).toBeVisible();
   }
 
   async clickAddPool() {
-    await this.clickButton("Add pool");
+    await this.page.getByRole("button", { name: "Create configuration", exact: true }).click();
   }
 
-  async validatePoolEntryByUniqueName(expectedName: string, expectedUrl: string, expectedUsername: string) {
-    await expect(this.page.getByTestId(`pool-row`).getByTestId("pool-name").getByText(expectedName)).toBeVisible();
-    const row = this.getPoolRowByName(expectedName);
-    await expect(row.getByTestId("pool-url").getByText(expectedUrl)).toBeVisible();
-    await expect(row.getByTestId("pool-username").getByText(expectedUsername)).toBeVisible();
+  async editConfiguration(name: string) {
+    await this.row(name)
+      .getByRole("button", { name: `Actions for ${name}`, exact: true })
+      .click();
+    await this.page.getByRole("button", { name: "Edit configuration", exact: true }).click();
+  }
+
+  async validatePoolEntryByUniqueName(name: string, url: string, username: string) {
+    const row = this.row(name);
+    await expect(row).toContainText(url);
+    await row.click();
+    const details = this.page.getByRole("dialog", { name: "Pool configuration", exact: true });
+    await expect(details).toContainText(`Username: ${username}`);
+    await this.page.keyboard.press("Escape");
+    await expect(details).toBeHidden();
   }
 
   async deletePoolByNameIfVisible(name: string) {
-    const row = this.getPoolRowByName(name);
-    if (!(await row.isVisible().catch(() => false))) {
-      return;
-    }
-
-    await row.getByRole("button", { name: "Options menu", exact: true }).click();
-    await this.clickButton("Delete pool");
+    const row = this.row(name);
+    if (!(await row.isVisible())) return;
+    await row.getByRole("button", { name: `Actions for ${name}`, exact: true }).click();
+    await this.page.getByRole("button", { name: "Delete configuration", exact: true }).click();
+    const confirmation = this.page.getByRole("dialog", { name: "Delete configuration", exact: true });
+    await confirmation.getByRole("button", { name: "Delete configuration", exact: true }).click();
     await expect(row).toHaveCount(0);
-  }
-
-  async deleteAllPools() {
-    const poolRows = this.page.getByTestId("pool-row");
-    const poolCount = await poolRows.count();
-
-    for (let i = 0; i < poolCount; i++) {
-      const firstRow = poolRows.first();
-      await firstRow.getByRole("button", { name: "Options menu", exact: true }).click();
-      await this.clickButton("Delete pool");
-      await expect(poolRows).toHaveCount(poolCount - 1 - i);
-    }
-    await expect(poolRows).toHaveCount(0);
-  }
-
-  async deletePoolsByPrefix(prefix: string) {
-    const poolRows = await this.page.getByTestId("pool-row").all();
-    const poolNamesToDelete: string[] = [];
-
-    for (const row of poolRows) {
-      const poolName = (await row.getByTestId("pool-name").textContent())?.trim();
-      if (poolName?.startsWith(prefix)) {
-        poolNamesToDelete.push(poolName);
-      }
-    }
-
-    for (const poolName of poolNamesToDelete) {
-      await this.deletePoolByNameIfVisible(poolName);
-    }
   }
 }

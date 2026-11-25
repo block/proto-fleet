@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 
+import { useSiteContainers } from "../../hooks/useSiteContainers";
 import ManageBuildingsModal from "../ManageBuildingsModal";
 import {
   type BuildingFormValues,
@@ -12,11 +13,12 @@ import {
 import { type Building, type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type Site, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { type SiteFormValues } from "@/protoFleet/api/sites";
-import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
 import BuildingSettingsModal from "@/protoFleet/features/buildings/components/BuildingSettingsModal";
 import { formatSiteAddress } from "@/protoFleet/features/sites/formatAddress";
-import { Ellipsis } from "@/shared/assets/icons";
+import { Alert, Ellipsis } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import Callout from "@/shared/components/Callout";
+import FullScreenTwoPaneModal from "@/shared/components/FullScreenTwoPaneModal";
 import Header from "@/shared/components/Header";
 import PlaceholderBlock from "@/shared/components/PlaceholderBlock";
 import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
@@ -84,12 +86,13 @@ const BuildingRow = ({
   saving,
   onRemove,
 }: {
-  buildingId: bigint;
+  buildingId: bigint | string;
   label: string;
   rackCount: bigint;
   saving: boolean;
-  onRemove: (buildingId: bigint, label: string) => void;
+  onRemove: (buildingId: bigint | string, label: string) => void;
 }) => {
+  const rackLabel = typeof buildingId === "string" ? "tank" : "rack";
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -108,7 +111,8 @@ const BuildingRow = ({
       <div className="min-w-0 flex-1">
         <div className="truncate text-300 text-text-primary">{label || "(unnamed building)"}</div>
         <div className="truncate text-300 text-text-primary-50">
-          {rackCount.toString()} {rackCount === 1n ? "rack" : "racks"}
+          {rackCount.toString()} {rackLabel}
+          {rackCount === 1n ? "" : "s"}
         </div>
       </div>
 
@@ -166,11 +170,20 @@ const ManageSiteModal = ({
   onEditDetails,
   onDeleteRequested,
   onDismiss,
-  saving = false,
+  saving: parentSaving = false,
   buildingsRefreshKey = 0,
   unassignedRackCount,
   unassignedMinerCount,
 }: ManageSiteModalProps) => {
+  const {
+    containers,
+    loadError: containerLoadError,
+    retry: retryContainers,
+    error: containerError,
+    saving: containerSaving,
+    assign,
+  } = useSiteContainers(open);
+  const saving = parentSaving || containerSaving;
   const { listBuildingsBySite } = useBuildings();
   // undefined = loading; [] = loaded-empty. Mirrors the site's committed
   // membership — every mutation in this modal writes before updating it.
@@ -205,10 +218,17 @@ const ManageSiteModal = ({
     return () => controller.abort();
   }, [shouldFetchBuildings, fetchSiteId, listBuildingsBySite, buildingsRefreshKey]);
 
-  const sortedEntries = useMemo(
-    () => (entries ? [...entries].sort((a, b) => a.label.localeCompare(b.label)) : undefined),
-    [entries],
-  );
+  const sortedEntries = useMemo(() => {
+    if (!entries || !containers) return undefined;
+    const containerEntries = containers
+      .filter((container) => container.site?.id === site.id)
+      .map((container) => ({
+        buildingId: container.deviceIdentifier,
+        label: container.name || container.deviceIdentifier,
+        rackCount: container.tankCount,
+      }));
+    return [...entries, ...containerEntries].sort((a, b) => a.label.localeCompare(b.label));
+  }, [entries, containers, site.id]);
 
   const previewTitle = (site.name || draft.name || "Untitled site").trim();
   const previewLocation = useMemo(() => formatSiteAddress(draft) || "—", [draft]);
@@ -250,12 +270,16 @@ const ManageSiteModal = ({
   // "Unassigned"; the building itself is not deleted). Drop the row only once
   // the write lands so a failure leaves the list truthful.
   const handleRemoveBuilding = useCallback(
-    async (buildingId: bigint, label: string) => {
+    async (buildingId: bigint | string, label: string) => {
+      if (typeof buildingId === "string") {
+        await assign([buildingId]);
+        return;
+      }
       const ok = await onRemoveBuilding(buildingId, label);
       if (!ok) return;
       setEntries((prev) => (prev ?? []).filter((e) => e.buildingId !== buildingId));
     },
-    [onRemoveBuilding],
+    [onRemoveBuilding, assign],
   );
 
   // Inline building-create confirm. CreateBuilding already associated the new
@@ -351,7 +375,9 @@ const ManageSiteModal = ({
                 titleSize="text-heading-100"
               />
               {sortedEntries === undefined ? (
-                <div className="text-300 text-text-primary-50">Loading…</div>
+                <div className="text-300 text-text-primary-50">
+                  {containerLoadError ? "Buildings unavailable" : "Loading…"}
+                </div>
               ) : sortedEntries.length === 0 ? (
                 <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-50">
                   <span>No buildings added to this site</span>
@@ -370,7 +396,7 @@ const ManageSiteModal = ({
                 <div className="flex flex-col divide-y divide-border-5" data-testid="manage-site-modal-buildings-list">
                   {sortedEntries.map((b) => (
                     <BuildingRow
-                      key={b.buildingId.toString()}
+                      key={`${typeof b.buildingId}:${b.buildingId}`}
                       buildingId={b.buildingId}
                       label={b.label}
                       rackCount={b.rackCount}
@@ -391,6 +417,18 @@ const ManageSiteModal = ({
                 </p>
               ) : null}
             </section>
+            {containerLoadError || containerError ? (
+              <div role="alert">
+                <Callout
+                  intent="danger"
+                  prefixIcon={<Alert />}
+                  title={containerLoadError ? "Couldn't load containers" : "Couldn't update buildings"}
+                  subtitle={containerLoadError ?? containerError}
+                  buttonText={containerLoadError ? "Retry" : undefined}
+                  buttonOnClick={retryContainers}
+                />
+              </div>
+            ) : null}
           </div>
         }
         secondaryPane={
@@ -413,12 +451,19 @@ const ManageSiteModal = ({
             <div className="flex flex-1 items-center justify-center p-5">
               <div className="flex flex-wrap justify-center gap-3" data-testid="manage-site-modal-building-grid">
                 {sortedEntries === undefined ? (
-                  <PlaceholderBlock label="Loading buildings…" className="h-20 w-[120px]" />
+                  <PlaceholderBlock
+                    label={containerLoadError ? "Buildings unavailable" : "Loading buildings…"}
+                    className="h-20 w-[120px]"
+                  />
                 ) : sortedEntries.length === 0 ? (
                   <p className="text-200 whitespace-nowrap text-text-primary-50">No buildings in this site</p>
                 ) : (
                   sortedEntries.map((b) => (
-                    <PlaceholderBlock key={b.buildingId.toString()} label={b.label} className="h-20 w-[120px]" />
+                    <PlaceholderBlock
+                      key={`${typeof b.buildingId}:${b.buildingId}`}
+                      label={b.label}
+                      className="h-20 w-[120px]"
+                    />
                   ))
                 )}
               </div>

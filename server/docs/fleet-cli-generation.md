@@ -215,7 +215,7 @@ The generated command registry currently contributes:
 - `activity`
 - `alerts` with nested channel, rule, maintenance-window, and history commands
 - `buildings`
-- `curtailment` with nested event, signal, MQTT, profile, and automation commands
+- `curtailment` with nested `events`, `mqtt-sources`, `profiles`, and `automation-rules` commands
 - `errors`
 - `groups`
 - `miners`

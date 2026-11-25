@@ -5,6 +5,7 @@ import AuthenticatedShell from "./AuthenticatedShell";
 import ErrorCallout from "./ErrorCallout";
 import WakeCallout from "./WakeCallout";
 import WarmingUpCallout from "./WarmingUpCallout";
+import { useHardware } from "@/protoOS/api/hooks/useHardware";
 import { useMiningStart } from "@/protoOS/api/hooks/useMiningStart";
 import { useMiningStatus } from "@/protoOS/api/hooks/useMiningStatus";
 import { useSystemInfo } from "@/protoOS/api/hooks/useSystemInfo";
@@ -14,14 +15,16 @@ import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultCont
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import { navigationMenuTypes } from "@/protoOS/components/NavigationMenu";
 import NoPoolsCallout from "@/protoOS/components/NoPoolsCallout";
-import { getNoPoolsCalloutState } from "@/protoOS/components/NoPoolsCallout/utility";
+import { useNoPoolsCalloutState } from "@/protoOS/components/NoPoolsCallout/useNoPoolsCalloutState";
 import { WarnWakeDialog } from "@/protoOS/components/Power";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import LoginModal from "@/protoOS/features/auth/components/LoginModal";
+import ContainerFrigateUpdateDowntime from "@/protoOS/features/firmwareUpdate/components/ContainerFrigateUpdateDowntime";
 import { isAuthRequiredPath } from "@/protoOS/routeAuth";
-import { globalRoutePrefetch } from "@/protoOS/routePrefetch";
+import { containerRoutePrefetch, globalRoutePrefetch } from "@/protoOS/routePrefetch";
 import {
   useDefaultPasswordActive,
+  useDeviceType,
   useOnboarded,
   usePasswordSet,
   usePoolsInfo as usePoolsInfoStore,
@@ -82,7 +85,9 @@ const App = ({
   const navigate = useNavigate();
   const location = useLocation();
   const { pathname } = useMemo(() => location, [location]);
-  const { isFleetHosted } = useMinerHosting();
+  const { isFleetHosted, resolution } = useMinerHosting();
+  const usesActorHeader = resolution.status === "ready" && resolution.adapterId === "mdk-v2";
+  const bypassesAuthentication = isFleetHosted || usesActorHeader;
 
   // Infer if this is an onboarding route from the pathname
   const isOnboardingRoute = pathname.startsWith("/onboarding");
@@ -95,18 +100,22 @@ const App = ({
   // Fetch system status (populates store)
   useSystemStatus();
 
+  // Public hardware discovery is required to finish the welcome-screen
+  // bootstrap before the miner has credentials.
+  useHardware();
+
   // Get system status from store
   // undefined = pending/not fetched yet
   const isOnboarded = useOnboarded();
   const isPasswordSet = usePasswordSet();
   const isDefaultPasswordActive = useDefaultPasswordActive();
 
-  const { hasAccess } = useAccessToken(!isFleetHosted);
+  const { hasAccess } = useAccessToken(!bypassesAuthentication);
   // Require defaultPasswordActive to be explicitly resolved as false before
   // firing protected hooks. `!== true` would treat `undefined` (status still
   // loading) as safe, producing a burst of 403s on a factory-password device
   // during the window between token validation and status resolution.
-  const canAccessProtectedApi = isFleetHosted || (hasAccess === true && isDefaultPasswordActive === false);
+  const canAccessProtectedApi = bypassesAuthentication || (hasAccess === true && isDefaultPasswordActive === false);
 
   // Public endpoint — runs regardless of canAccessProtectedApi so bootup
   // flags stay fresh before the user has authenticated.
@@ -125,7 +134,7 @@ const App = ({
   // ONBOARDING NAVIGATION
   // ============================================================================
   useEffect(() => {
-    if (isFleetHosted) {
+    if (bypassesAuthentication) {
       return;
     }
 
@@ -146,7 +155,7 @@ const App = ({
     }
   }, [
     navigate,
-    isFleetHosted,
+    bypassesAuthentication,
     isOnboarded,
     isPasswordSet,
     isDefaultPasswordActive,
@@ -218,10 +227,10 @@ const App = ({
   const setDismissedLoginModal = useSetDismissedLoginModal();
 
   useEffect(() => {
-    if (isFleetHosted && showLoginModal) {
+    if (bypassesAuthentication && showLoginModal) {
       setShowLoginModal(false);
     }
-  }, [isFleetHosted, setShowLoginModal, showLoginModal]);
+  }, [bypassesAuthentication, setShowLoginModal, showLoginModal]);
 
   const handleDismissLogin = useCallback(() => {
     // Every auth-required route is render-gated when canAccessProtectedApi is
@@ -254,10 +263,7 @@ const App = ({
   // Suppress the global "No mining pools configured" banner on the Pools
   // page when it's already in its own null state — otherwise the user sees
   // the same empty-state message and CTA twice.
-  const { arePoolsConfigured, shouldShowNoPoolsCallout } = useMemo(
-    () => getNoPoolsCalloutState(poolsInfo, pathname),
-    [poolsInfo, pathname],
-  );
+  const { arePoolsConfigured, shouldShowNoPoolsCallout } = useNoPoolsCalloutState(poolsInfo, pathname);
 
   const hasVisibleCallout = isWarmingUp || isSleeping || shouldShowNoPoolsCallout;
 
@@ -266,6 +272,7 @@ const App = ({
   // ============================================================================
   const isWebServerRunning = useIsWebServerRunning();
   const isMiningDriverRunning = useIsMiningDriverRunning();
+  const deviceType = useDeviceType();
 
   // Warm sidebar destinations at idle once the device passes the boot
   // wall — running prefetch parallel with bootup polling contends for
@@ -274,8 +281,10 @@ const App = ({
   // re-schedule.
   useEffect(() => {
     if (isFleetHosted || !isWebServerRunning || !isMiningDriverRunning) return;
-    return prefetchRoutes(globalRoutePrefetch);
-  }, [isWebServerRunning, isMiningDriverRunning, isFleetHosted]);
+    return prefetchRoutes(
+      deviceType === "container" ? [...globalRoutePrefetch, ...containerRoutePrefetch] : globalRoutePrefetch,
+    );
+  }, [isWebServerRunning, isMiningDriverRunning, isFleetHosted, deviceType]);
 
   // ============================================================================
   // FIRMWARE UPDATE AUTO-REFRESH AFTER REBOOT
@@ -288,7 +297,7 @@ const App = ({
 
   const isUpdateInProgress = useFirmwareUpdateInstalling();
   const fwUpdateStatus = useFwUpdateStatus();
-  const currentVersion = fwUpdateStatus?.current_version;
+  const currentVersion = fwUpdateStatus?.currentVersion;
 
   // Detect when firmware update enters an in-progress state
   // (downloading, downloaded, installing, or confirming)
@@ -346,7 +355,12 @@ const App = ({
   // ============================================================================
   // Skip the mining driver check during onboarding since the miner may not be fully operational yet
   if (!isFleetHosted && (!isWebServerRunning || (!isOnboardingRoute && !isMiningDriverRunning))) {
-    return <BootingUp />;
+    return (
+      <>
+        <BootingUp />
+        <ContainerFrigateUpdateDowntime />
+      </>
+    );
   }
 
   // Show loading spinner while waiting for system status
@@ -382,7 +396,7 @@ const App = ({
   // route hooks (useTelemetry, useTimeSeries, etc.) fire 401/403 bursts before
   // LoginModal or the default-password redirect takes over. LoginModal itself
   // still renders below so the user can recover from an expired session.
-  const gateRouteChildren = !isFleetHosted && isAuthRequiredPath(pathname) && !canAccessProtectedApi;
+  const gateRouteChildren = !bypassesAuthentication && isAuthRequiredPath(pathname) && !canAccessProtectedApi;
 
   // ============================================================================
   // RENDER
@@ -391,13 +405,14 @@ const App = ({
     <ErrorBoundary>
       {canAccessProtectedApi ? <AuthenticatedShell reloadSystemInfo={reloadSystemInfo} /> : null}
 
-      {/* Toaster - Fixed position, renders above everything */}
-      <div className="fixed right-4 bottom-4 z-10 phone:right-2 phone:bottom-2">
-        <Toaster />
-      </div>
+      {isFleetHosted ? (
+        <div className="fixed right-4 bottom-4 z-60 phone:right-2 phone:bottom-2">
+          <Toaster />
+        </div>
+      ) : null}
 
       {/* Login Modal - Layout agnostic */}
-      {!isFleetHosted && showLoginModal ? (
+      {!bypassesAuthentication && showLoginModal ? (
         <LoginModal onDismiss={handleDismissLogin} onSuccess={handleSuccessLogin} />
       ) : null}
 

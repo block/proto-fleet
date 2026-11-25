@@ -101,19 +101,38 @@ func (mr *MockUpdateSchedulerMockRecorder) AddNewDevices(ctx any, deviceID ...an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddNewDevices", reflect.TypeOf((*MockUpdateScheduler)(nil).AddNewDevices), varargs...)
 }
 
-// FetchDevices mocks base method.
-func (m *MockUpdateScheduler) FetchDevices(ctx context.Context, after time.Time) ([]models.Device, error) {
+// DeferDevices mocks base method.
+func (m *MockUpdateScheduler) DeferDevices(ctx context.Context, devices ...models.Device) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FetchDevices", ctx, after)
+	varargs := []any{ctx}
+	for _, a := range devices {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "DeferDevices", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeferDevices indicates an expected call of DeferDevices.
+func (mr *MockUpdateSchedulerMockRecorder) DeferDevices(ctx any, devices ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx}, devices...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeferDevices", reflect.TypeOf((*MockUpdateScheduler)(nil).DeferDevices), varargs...)
+}
+
+// FetchDue mocks base method.
+func (m *MockUpdateScheduler) FetchDue(ctx context.Context, now time.Time, limit int) ([]models.Device, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FetchDue", ctx, now, limit)
 	ret0, _ := ret[0].([]models.Device)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// FetchDevices indicates an expected call of FetchDevices.
-func (mr *MockUpdateSchedulerMockRecorder) FetchDevices(ctx, after any) *gomock.Call {
+// FetchDue indicates an expected call of FetchDue.
+func (mr *MockUpdateSchedulerMockRecorder) FetchDue(ctx, now, limit any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FetchDevices", reflect.TypeOf((*MockUpdateScheduler)(nil).FetchDevices), ctx, after)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FetchDue", reflect.TypeOf((*MockUpdateScheduler)(nil).FetchDue), ctx, now, limit)
 }
 
 // IsFailedDevice mocks base method.
@@ -168,6 +187,25 @@ func (mr *MockUpdateSchedulerMockRecorder) RequeueDevices(ctx any, devices ...an
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx}, devices...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequeueDevices", reflect.TypeOf((*MockUpdateScheduler)(nil).RequeueDevices), varargs...)
+}
+
+// RestoreDevices mocks base method.
+func (m *MockUpdateScheduler) RestoreDevices(ctx context.Context, devices ...models.Device) error {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx}
+	for _, a := range devices {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "RestoreDevices", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RestoreDevices indicates an expected call of RestoreDevices.
+func (mr *MockUpdateSchedulerMockRecorder) RestoreDevices(ctx any, devices ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx}, devices...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RestoreDevices", reflect.TypeOf((*MockUpdateScheduler)(nil).RestoreDevices), varargs...)
 }
 
 // MockTelemetryDataStore is a mock of TelemetryDataStore interface.

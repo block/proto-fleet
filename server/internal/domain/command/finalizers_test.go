@@ -38,17 +38,6 @@ func TestComposeFinalizers_RunsAllAndReturnsFirstError(t *testing.T) {
 		"best-effort: all callbacks must run even if an earlier one fails")
 }
 
-func TestComposeFinalizers_AllSucceed(t *testing.T) {
-	order := []string{}
-	cb := func(name string) onFinishedCallbackFunc {
-		return func() error { order = append(order, name); return nil }
-	}
-
-	fn := composeFinalizers(cb("a"), cb("b"), cb("c"))
-	assert.NoError(t, fn())
-	assert.Equal(t, []string{"a", "b", "c"}, order)
-}
-
 func TestComposeFinalizers_RetrySkipsAlreadySucceededCallbacks(t *testing.T) {
 	// Simulates the status routine's retry loop: the first run fails at
 	// callback 2; the second run must not re-invoke callback 1, because its

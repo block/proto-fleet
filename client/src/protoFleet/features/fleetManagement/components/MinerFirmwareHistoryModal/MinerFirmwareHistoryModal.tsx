@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { timestampMs } from "@bufbuild/protobuf/wkt";
 
+import { firmwareComponentLabel } from "@/protoFleet/api/firmwareComponent";
 import {
   type MinerFirmwareHistoryEntry,
   RolloutDevicePhase,
@@ -81,7 +82,11 @@ export function MinerFirmwareHistoryModalView({
     firmware: {
       width: "w-[140px]",
       allowWrap: true,
-      component: (entry) => <span title={entry.firmwareChecksum}>{entry.firmwareVersion || "—"}</span>,
+      component: (entry) => (
+        <span title={entry.firmwareChecksum}>
+          {[firmwareComponentLabel(entry.component), entry.firmwareVersion || "—"].filter(Boolean).join(" ")}
+        </span>
+      ),
     },
     channel: { width: "w-[140px]", allowWrap: true, component: (entry) => entry.channelName },
     outcome: { width: "w-[210px]", allowWrap: true, component: (entry) => <MinerOutcome entry={entry} /> },

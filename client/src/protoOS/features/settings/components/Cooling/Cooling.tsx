@@ -2,7 +2,6 @@ import React, { useCallback, useState } from "react";
 import clsx from "clsx";
 import InfoModal from "./InfoModal";
 import { useCoolingStatus } from "@/protoOS/api";
-import { CoolingConfig } from "@/protoOS/api/generatedApi";
 import { EnteringSleepDialog } from "@/protoOS/components/Power";
 import { useCoolingMode, useFansTelemetry, useIsSleeping } from "@/protoOS/store";
 import { areFansDetectedInImmersionMode } from "@/protoOS/store/utils/coolingUtils";
@@ -44,16 +43,16 @@ const CoolingOption = ({ title, description, icon, isSelected = false }: Cooling
 type CoolingMode = CoolingModeOption;
 
 const FAN_MODES: {
-  [K in CoolingMode]: string;
+  [K in CoolingMode]: "automatic" | "off";
 } = {
-  [COOLING_MODES.air]: "Auto",
-  [COOLING_MODES.immersion]: "Off",
+  [COOLING_MODES.air]: "automatic",
+  [COOLING_MODES.immersion]: "off",
 } as const;
 
 // Note: "Manual" is treated as air-cooled since fans run at fixed speed (vs "Off" for immersion where fans are disabled)
-const isAirCooledMode = (fanMode: string | undefined) => fanMode === "Auto" || fanMode === "Manual";
+const isAirCooledMode = (fanMode: string | undefined) => fanMode === "automatic" || fanMode === "manual";
 
-const isImmersionMode = (fanMode: string | undefined) => fanMode === "Off";
+const isImmersionMode = (fanMode: string | undefined) => fanMode === "off";
 
 const coolingModeFromFanMode = (fanMode: string | undefined | null): CoolingMode | undefined => {
   if (!fanMode) return undefined;
@@ -135,7 +134,7 @@ const Cooling = () => {
       });
 
       setCooling({
-        mode: FAN_MODES[id as CoolingMode] as CoolingConfig["mode"],
+        mode: FAN_MODES[id as CoolingMode],
         onSuccess: () => {
           updateToast(toast, {
             message: `Cooling mode updated to ${id.replace("-", " ")}`,

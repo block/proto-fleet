@@ -145,9 +145,35 @@ type MinerSummary struct {
 }
 
 type Pool struct {
-	URL      string `json:"url"`
-	Username string `json:"user"`
-	Password string `json:"pass"`
+	URL                string `json:"url"`
+	Username           string `json:"user"`
+	Password           string `json:"pass"`
+	PasswordPresent    bool   `json:"-"`
+	DestinationPresent bool   `json:"-"`
+}
+
+// UnmarshalJSON keeps credential presence separate from its value. A missing
+// or null firmware field cannot prove an explicitly empty stored password.
+func (p *Pool) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		URL      *string `json:"url"`
+		Username *string `json:"user"`
+		Password *string `json:"pass"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return fmt.Errorf("decode stored pool: %w", err)
+	}
+	*p = Pool{PasswordPresent: wire.Password != nil, DestinationPresent: wire.URL != nil && wire.Username != nil}
+	if wire.URL != nil {
+		p.URL = *wire.URL
+	}
+	if wire.Username != nil {
+		p.Username = *wire.Username
+	}
+	if wire.Password != nil {
+		p.Password = *wire.Password
+	}
+	return nil
 }
 
 type MinerConfig struct {

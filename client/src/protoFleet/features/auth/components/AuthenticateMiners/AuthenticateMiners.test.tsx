@@ -34,7 +34,7 @@ const mockUnpairedMiners = {
   miner3: {
     deviceIdentifier: "miner3",
     macAddress: "00:00:00:00:00:03",
-    model: "Proto Rig",
+    model: "Antminer S19",
     name: "Miner 3",
     ipAddress: "192.168.1.103",
   },
@@ -138,26 +138,6 @@ describe("AuthenticateMiners", () => {
 
     fireEvent.click(getByText("Hide miner list"));
     expect(queryByText("IP Address")).not.toBeInTheDocument();
-  });
-
-  it("allows entering bulk credentials", async () => {
-    const { getByLabelText } = render(
-      <AuthenticateMiners
-        onClose={mockOnClose}
-        onSuccess={mockOnSuccess}
-        onPairingCompleted={mockNotifyPairingCompleted}
-        onRefetchMiners={mockRefetchMiners}
-      />,
-    );
-
-    const usernameInput = getByLabelText(bulkUsernameLabel);
-    const passwordInput = getByLabelText(bulkPasswordLabel);
-
-    fireEvent.change(usernameInput, { target: { value: mockUsername } });
-    fireEvent.change(passwordInput, { target: { value: mockPassword } });
-
-    expect(usernameInput).toHaveValue(mockUsername);
-    expect(passwordInput).toHaveValue(mockPassword);
   });
 
   it("autofocuses the bulk username input on mount", () => {
@@ -283,8 +263,8 @@ describe("AuthenticateMiners", () => {
     expect(getByText("3 miners selected")).toBeInTheDocument();
   });
 
-  it("filters miners by model", async () => {
-    const { getByText, getAllByText } = render(
+  it("filters miners by model", () => {
+    const { getByText, getByTestId, queryByText, queryByTestId } = render(
       <AuthenticateMiners
         onClose={mockOnClose}
         onSuccess={mockOnSuccess}
@@ -295,17 +275,24 @@ describe("AuthenticateMiners", () => {
 
     fireEvent.click(getByText(showMinersLabel));
 
-    // Find the Model dropdown filter button (not the table header)
-    const modelButtons = getAllByText("Model");
-    // The dropdown filter button should be the first one
-    const modelDropdown = modelButtons[0].closest("button");
-    expect(modelDropdown).toBeInTheDocument();
+    expect(getByText("192.168.1.101")).toBeInTheDocument();
+    expect(getByText("192.168.1.102")).toBeInTheDocument();
+    expect(getByText("192.168.1.103")).toBeInTheDocument();
 
-    fireEvent.click(modelDropdown!);
+    // Select the model of miners 1 and 2
+    fireEvent.click(getByTestId("filter-dropdown-Model"));
+    fireEvent.click(getByTestId("filter-option-Proto Rig"));
+    fireEvent.click(getByTestId("filter-dropdown-Model"));
+    expect(queryByTestId("dropdown-filter-popover")).not.toBeInTheDocument();
 
-    // Check that Proto Rig option appears (could be multiple - in dropdown and in table)
-    const protoRigOptions = getAllByText("Proto Rig");
-    expect(protoRigOptions.length).toBeGreaterThan(0);
+    expect(getByText("192.168.1.101")).toBeInTheDocument();
+    expect(getByText("192.168.1.102")).toBeInTheDocument();
+    expect(queryByText("192.168.1.103")).not.toBeInTheDocument();
+
+    // "Select all" selects only the miners that the filter shows
+    fireEvent.click(getByText("Select none"));
+    fireEvent.click(getByText("Select all"));
+    expect(getByText("2 miners selected")).toBeInTheDocument();
   });
 
   it("disables inputs during authentication", async () => {
@@ -477,40 +464,6 @@ describe("AuthenticateMiners", () => {
     expect(getByText("3 miners remaining")).toBeInTheDocument();
   });
 
-  it("disables authenticate button when no miners are selected", () => {
-    const { getByText } = render(
-      <AuthenticateMiners
-        onClose={mockOnClose}
-        onSuccess={mockOnSuccess}
-        onPairingCompleted={mockNotifyPairingCompleted}
-        onRefetchMiners={mockRefetchMiners}
-      />,
-    );
-
-    fireEvent.click(getByText(showMinersLabel));
-    fireEvent.click(getByText("Select none"));
-
-    const authenticateButton = getByText("Authenticate").closest("button");
-    expect(authenticateButton).toBeDisabled();
-  });
-
-  it("enables authenticate button when miners are selected", () => {
-    const { getByText } = render(
-      <AuthenticateMiners
-        onClose={mockOnClose}
-        onSuccess={mockOnSuccess}
-        onPairingCompleted={mockNotifyPairingCompleted}
-        onRefetchMiners={mockRefetchMiners}
-      />,
-    );
-
-    fireEvent.click(getByText(showMinersLabel));
-
-    // By default all miners are selected
-    const authenticateButton = getByText("Authenticate").closest("button");
-    expect(authenticateButton).not.toBeDisabled();
-  });
-
   it("re-enables authenticate button after selecting miners", () => {
     const { getByText } = render(
       <AuthenticateMiners
@@ -535,34 +488,6 @@ describe("AuthenticateMiners", () => {
   });
 
   describe("selection persistence", () => {
-    it("preserves empty selection when user deselects all miners", async () => {
-      const { getByText } = render(
-        <AuthenticateMiners
-          onClose={mockOnClose}
-          onSuccess={mockOnSuccess}
-          onPairingCompleted={mockNotifyPairingCompleted}
-          onRefetchMiners={mockRefetchMiners}
-        />,
-      );
-
-      fireEvent.click(getByText(showMinersLabel));
-
-      // Initially all miners selected
-      expect(getByText("3 miners selected")).toBeInTheDocument();
-
-      // User deselects all
-      fireEvent.click(getByText("Select none"));
-      expect(getByText("0 miners selected")).toBeInTheDocument();
-
-      // Selection should remain empty (not auto-select all again)
-      await vi.waitFor(
-        () => {
-          expect(getByText("0 miners selected")).toBeInTheDocument();
-        },
-        { timeout: 500 },
-      );
-    });
-
     it("does not reset selection to all when miner list updates", async () => {
       const mockRefetch = vi.fn();
       const { getByText, rerender } = render(

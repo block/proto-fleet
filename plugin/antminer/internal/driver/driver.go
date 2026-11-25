@@ -254,6 +254,7 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 	}
 
 	return sdk.DeviceInfo{
+		DeviceClass:     sdk.DeviceClassRig,
 		Host:            ipAddress,
 		Port:            rpcPort,
 		URLScheme:       "http",
@@ -298,6 +299,7 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 		return sdk.DeviceInfo{}, fmt.Errorf("failed to get device info after pairing: %w", err)
 	}
 
+	deviceInfo.DeviceClass = sdk.DeviceClassRig
 	deviceInfo.SerialNumber = deviceInfoResp.SerialNumber
 	deviceInfo.MacAddress = deviceInfoResp.MacAddress
 

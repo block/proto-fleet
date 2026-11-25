@@ -4,11 +4,17 @@ on:
   pull_request:
     types: [edited, opened, reopened, ready_for_review, synchronize]
 
+env:
+  CODEX_MODEL: gpt-6.1-sol
+
 jobs:
   review-agent:
     name: Run bounded Codex reviewer
-    if: github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
+    # Dependabot-triggered runs cannot read OPENAI_API_KEY; the review policy
+    # sends those PRs to human review.
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]'
+    # openai/codex-action's drop-sudo fails on ubuntu-26.04 (openai/codex-action#188).
+    runs-on: ubuntu-24.04
     # GitHub did not interrupt the pinned composite action at its caller step timeout.
     # Leave one minute for trusted finalization before GitHub's five-minute cleanup.
     # This outer job boundary is therefore the enforceable review budget.
@@ -20,7 +26,6 @@ jobs:
       contents: read
     env:
       OPENAI_API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
-      CODEX_MODEL: gpt-6-astra
       CODEX_REASONING_EFFORT: medium
       CODEX_TIMEOUT_MINUTES: "30"
       CODEX_CANCELLATION_CLEANUP_SECONDS: "300"
@@ -64,7 +69,7 @@ jobs:
           git cat-file -e "$REVIEW_BASE_SHA^{commit}"
           git cat-file -e "$REVIEW_HEAD_SHA^{commit}"
           test "$REVIEW_COMMIT_RANGE" = "$REVIEW_BASE_SHA...$REVIEW_HEAD_SHA"
-          test "$CODEX_MODEL" = "gpt-6-astra"
+          test "$CODEX_MODEL" = "gpt-6.1-sol"
           test "$CODEX_REASONING_EFFORT" = "medium"
           if git config --local --get-regexp '^http\..*\.extraheader$'; then
             echo "Checkout retained HTTP credentials after the exact-SHA fetch." >&2
@@ -299,7 +304,7 @@ jobs:
 
       - name: Upload trusted raw review handoff
         if: ${{ always() && steps.write_raw_review.outcome == 'success' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: codex-security-review-raw
           path: |
@@ -309,8 +314,10 @@ jobs:
 
   security-review:
     name: security-review
+    outputs:
+      superseded: ${{ steps.classify_agent.outputs.classification == 'superseded' }}
     needs: review-agent
-    if: ${{ always() && github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ always() && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -443,6 +450,9 @@ jobs:
         run: |
           case "$REVIEW_AGENT_RESULT:$AGENT_CLASSIFICATION" in
             success:completed|cancelled:budget-timeout) ;;
+            cancelled:superseded)
+              echo "Review superseded by a newer run; retaining that run's result."
+              ;;
             *)
               echo "Review automation did not produce a completed review or verified budget timeout: $REVIEW_AGENT_RESULT/$AGENT_CLASSIFICATION ($AGENT_CLASSIFICATION_DETAIL)" >&2
               exit 1
@@ -452,14 +462,14 @@ jobs:
       - name: Download trusted raw review handoff
         id: download_raw
         if: ${{ needs.review-agent.result == 'success' }}
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: codex-security-review-raw
           path: .
 
       - name: Write completed or fail-closed security review result
         id: write_review_result
-        if: ${{ always() && steps.validate_agent.outcome == 'success' && (needs.review-agent.result == 'cancelled' || steps.download_raw.outcome == 'success') }}
+        if: ${{ always() && steps.classify_agent.outputs.classification != 'superseded' && steps.validate_agent.outcome == 'success' && (needs.review-agent.result == 'cancelled' || steps.download_raw.outcome == 'success') }}
         run: |
           python3 - <<'PY'
           import json
@@ -600,6 +610,7 @@ jobs:
               ])
 
           result = {
+              "model": os.environ["CODEX_MODEL"],
               "head_sha": head_sha,
               "commit_range": commit_range,
               "run_id": run_id,
@@ -621,7 +632,7 @@ jobs:
 
       - name: Upload security review result
         if: ${{ always() && steps.write_review_result.outcome == 'success' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: codex-security-review-result
           path: codex-security-review-result.json
@@ -629,7 +640,7 @@ jobs:
 
       - name: Upload security review markdown
         if: ${{ always() && steps.write_review_result.outcome == 'success' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: codex-security-review-markdown
           path: codex-security-review.md
@@ -638,7 +649,7 @@ jobs:
   post-review:
     name: Post Codex Security Review
     needs: security-review
-    if: ${{ always() && needs.security-review.result == 'success' && github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ always() && needs.security-review.result == 'success' && needs.security-review.outputs.superseded != 'true' && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Serialize posters without cancellation. A stale poster must reach the
@@ -651,13 +662,12 @@ jobs:
       issues: write
       pull-requests: write
     env:
-      CODEX_MODEL: gpt-6-astra
       REVIEW_COMMIT_RANGE: ${{ format('{0}...{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) }}
       REVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       REVIEW_PR_NUMBER: ${{ github.event.pull_request.number }}
     steps:
       - name: Download security review markdown
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: codex-security-review-markdown
           path: .

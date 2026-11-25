@@ -6,7 +6,6 @@ import InfraDeviceDetailModal from "./InfraDeviceDetail/InfraDeviceDetailModal";
 import ManageColumnsModal, { type InfraColumnPreference } from "./ManageColumnsModal";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
-import RowActionsMenu, { type RowAction } from "@/protoFleet/features/fleetManagement/components/RowActionsMenu";
 import { formatDeviceType } from "@/protoFleet/features/infrastructure/deviceType";
 import { summarizeDriverConfig } from "@/protoFleet/features/infrastructure/driverForms";
 import {
@@ -29,6 +28,7 @@ import type { ActiveFilters, FilterItem, NestedFilterDropdownItem } from "@/shar
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 import { SORT_ASC, type SortDirection } from "@/shared/components/List/types";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import RowActionsMenu, { type RowAction } from "@/shared/components/RowActionsMenu";
 import Switch from "@/shared/components/Switch";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 

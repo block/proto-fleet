@@ -1,10 +1,11 @@
 import { type CSSProperties, type ReactNode, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import { healthHeatBand, HEAT_CLASS, type HeatBand } from "./cardHealth";
 import { type BuildingRackHealth, type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { useBuildingStats } from "@/protoFleet/api/useBuildingStats";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
-import RowActionsMenu from "@/protoFleet/features/fleetManagement/components/RowActionsMenu";
+import RowActionsMenu from "@/shared/components/RowActionsMenu";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import { useInViewport } from "@/shared/hooks/useInViewport";
 import { formatEfficiencyOrDash, formatHashrateOrDash, formatPowerMwOrDash } from "@/shared/utils/telemetryFormat";
@@ -19,30 +20,10 @@ interface BuildingCardProps {
   showMetrics?: boolean;
 }
 
-type HeatBand = 0 | 1 | 2 | 3 | 4 | 5;
-
 const issueRatio = (r: BuildingRackHealth): number => {
   const total = r.hashingCount + r.brokenCount + r.offlineCount + r.sleepingCount;
   if (total === 0) return 0;
   return (r.brokenCount + r.offlineCount + r.sleepingCount) / total;
-};
-
-const healthHeatBand = (ratio: number): HeatBand => {
-  if (ratio <= 0) return 0;
-  if (ratio < 0.05) return 1;
-  if (ratio < 0.15) return 2;
-  if (ratio < 0.3) return 3;
-  if (ratio < 0.5) return 4;
-  return 5;
-};
-
-const HEAT_CLASS: Record<HeatBand, string> = {
-  0: "bg-core-primary-fill/10",
-  1: "bg-intent-critical-fill/8",
-  2: "bg-intent-critical-fill/18",
-  3: "bg-intent-critical-fill/32",
-  4: "bg-intent-critical-fill/50",
-  5: "bg-intent-critical-fill/72",
 };
 
 interface RackGridProps {

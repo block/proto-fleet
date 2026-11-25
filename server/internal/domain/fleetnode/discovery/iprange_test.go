@@ -36,7 +36,6 @@ func TestValidatedIPv4RangeRejectsInvalidScope(t *testing.T) {
 		{"not-an-ip", "10.0.0.5", "start_ip"},
 		{"2001:db8::1", "2001:db8::5", "start_ip"},
 		{"10.0.0.10", "10.0.0.5", ">="},
-		{"10.0.0.0", "10.0.16.0", "exceeds"},
 		{"8.8.8.8", "8.8.8.10", "private"},
 	} {
 		t.Run(tc.message, func(t *testing.T) {

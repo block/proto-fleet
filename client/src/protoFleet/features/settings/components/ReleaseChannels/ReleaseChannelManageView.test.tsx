@@ -58,6 +58,14 @@ vi.mock("@/protoFleet/components/TargetSelectionModal", () => ({
   ),
 }));
 
+// The container catalog is fleet data too. A loaded, empty one leaves every
+// directly selected identifier with the Miners selector.
+vi.mock("@/protoFleet/api/useContainers", () => {
+  // One catalog object, as the hook returns between reads.
+  const catalog = { containers: [], error: undefined, loading: false, refetch: () => {} };
+  return { useContainers: () => catalog };
+});
+
 vi.mock("@/shared/features/toaster", () => ({
   pushToast: vi.fn(),
   STATUSES: { success: "success", error: "error" },
@@ -670,6 +678,13 @@ describe("release channel firmware assignments", () => {
     expect(onApply).not.toHaveBeenCalled();
   });
 
+  test("does not offer PSU firmware, which a channel cannot enforce", () => {
+    renderManage(assignedChannel(), undefined, false, [{ ...replacementFile, component: "psu" }]);
+    fireEvent.click(screen.getByTestId("channel-firmware-select-Rig"));
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    expect(screen.getByRole("option", { name: "No firmware" })).toBeVisible();
+  });
+
   test.each([
     { reason: "255 Unicode code points after trimming", version: `\u0085${"🚀".repeat(255)}\u3000` },
     { reason: "Unicode version", version: "版本-🚀" },
@@ -1133,7 +1148,7 @@ describe("release channel firmware assignments", () => {
     const { listChannelMiners } = renderManage(channel);
     fireEvent.click(screen.getByTestId("view-miners- rig ", { normalizer: (value) => value }));
     await waitFor(() =>
-      expect(listChannelMiners).toHaveBeenCalledExactlyOnceWith(1n, " PROTO ", " rig ", expect.any(AbortSignal)),
+      expect(listChannelMiners).toHaveBeenCalledExactlyOnceWith(1n, " PROTO ", " rig ", "", expect.any(AbortSignal)),
     );
   });
 });
@@ -1423,23 +1438,6 @@ describe("release channel scope synchronization", () => {
     expect(onSave.mock.calls[1][0].scope).toEqual(
       create(ReleaseChannelScopeSchema, { ...incoming, buildingIds: [2n] }),
     );
-  });
-
-  test("keeps a pending preview when polling changes only selector order", async () => {
-    const channel = { ...existingChannel(), scope: create(ReleaseChannelScopeSchema, { siteIds: [1n, 2n] }) };
-    const { previewScope, updateChannel } = renderSettings(channel);
-    let finishPreview!: (preview: PreviewReleaseChannelScopeResponse) => void;
-    previewScope.mockReturnValueOnce(
-      new Promise((resolve) => {
-        finishPreview = resolve;
-      }),
-    );
-    await waitFor(() => expect(previewScope).toHaveBeenCalledOnce());
-    updateChannel({ ...channel, scope: create(ReleaseChannelScopeSchema, { siteIds: [2n, 1n] }) }, false);
-    await act(async () => finishPreview(create(PreviewReleaseChannelScopeResponseSchema, { minerCount: 42 })));
-    expect(screen.queryByTestId("scope-preview")).not.toBeInTheDocument();
-    expect(previewScope).toHaveBeenCalledOnce();
-    expect(screen.getByTestId("save-channel")).toBeDisabled();
   });
 
   test("treats an absent remote scope as empty dimensions while retaining a local edit", async () => {

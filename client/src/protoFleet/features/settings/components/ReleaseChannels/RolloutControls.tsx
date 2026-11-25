@@ -8,7 +8,7 @@ import {
   rolloutBehaviorErrors,
   type RolloutNumericField,
 } from "./behaviorUtils";
-import { methodHelpText, methodLabels } from "./rolloutStatus";
+import { type DeviceNouns, methodHelp, methodLabels, MINER_NOUNS } from "./rolloutStatus";
 import {
   type RolloutAutomationThresholds,
   RolloutAutomationThresholdsSchema,
@@ -53,8 +53,10 @@ export type RolloutNumberDraft = Partial<Record<RolloutNumericField, { text: str
 interface RolloutControlsProps {
   behavior: RolloutBehavior;
   onChange: (behavior: RolloutBehavior) => void;
-  // Miners the channel currently covers, for the plan readout.
+  // Devices the channel currently covers, for the plan readout.
   inScopeCount?: number;
+  // What the channel's devices are called: miners unless it holds containers.
+  nouns?: DeviceNouns;
   disabled?: boolean;
   // Existing delegated channels can switch back before saving another method.
   allowDelegated?: boolean;
@@ -70,6 +72,7 @@ const RolloutControls = ({
   behavior,
   onChange,
   inScopeCount = 0,
+  nouns = MINER_NOUNS,
   disabled = false,
   allowDelegated = false,
   numberDraft,
@@ -88,8 +91,8 @@ const RolloutControls = ({
   const batched = behavior.method === RolloutMethod.BATCHED;
   const pilot = behavior.method === RolloutMethod.PILOT_THEN_CONTINUE;
   const gates = gatesAfterBatch(behavior);
-  const errors = rolloutBehaviorErrors(behavior);
-  const readout = errors.batchSize || errors.pilotSize ? null : planReadout(behavior, inScopeCount);
+  const errors = rolloutBehaviorErrors(behavior, nouns);
+  const readout = errors.batchSize || errors.pilotSize ? null : planReadout(behavior, inScopeCount, nouns);
   const numericInput = (
     field: RolloutNumericField,
     value: number | undefined,
@@ -121,14 +124,14 @@ const RolloutControls = ({
   const availableMethods =
     allowDelegated || behavior.method === RolloutMethod.DELEGATED
       ? [
-          ...methodOptions,
+          ...methodOptions(nouns),
           {
             value: String(RolloutMethod.DELEGATED),
             label: methodLabels[RolloutMethod.DELEGATED],
-            description: methodHelpText[RolloutMethod.DELEGATED],
+            description: methodHelp(RolloutMethod.DELEGATED, nouns),
           },
         ]
-      : methodOptions;
+      : methodOptions(nouns);
 
   return (
     <div className="flex flex-col gap-4" data-testid="rollout-controls">
@@ -154,21 +157,24 @@ const RolloutControls = ({
           testId="rollout-order"
         />
       </div>
-      <p className="text-200 text-text-primary-70">
-        {methodHelpText[behavior.method] || methodHelpText[RolloutMethod.ALL_AT_ONCE]}
-      </p>
+      <p className="text-200 text-text-primary-70">{methodHelp(behavior.method, nouns)}</p>
 
       {paced ? (
         <div className="grid grid-cols-2 gap-3 phone:grid-cols-1">
           {pilot ? (
             <Input
               id="pilot-size"
-              label="Pilot batch size (miners)"
+              label={`Pilot batch size (${nouns.plural})`}
               {...behaviorInput("pilotSize")}
               disabled={disabled}
             />
           ) : (
-            <Input id="batch-size" label="Batch size (miners)" {...behaviorInput("batchSize")} disabled={disabled} />
+            <Input
+              id="batch-size"
+              label={`Batch size (${nouns.plural})`}
+              {...behaviorInput("batchSize")}
+              disabled={disabled}
+            />
           )}
           {batched && !behavior.reviewAfterEachBatch ? (
             <Input
@@ -231,8 +237,8 @@ const RolloutControls = ({
           {behavior.autoContinueOnHealthyTelemetry ? (
             <>
               <p className="text-200 text-text-primary-70">
-                A reviewed batch continues on its own once every miner is back and hashing, none failed, the limits
-                below hold, and telemetry has settled. Leave a maximum empty to skip that check.
+                A reviewed batch continues on its own once every {nouns.singular} is back and hashing, none failed, the
+                limits below hold, and telemetry has settled. Leave a maximum empty to skip that check.
               </p>
               <div className="grid grid-cols-2 gap-3 phone:grid-cols-1">
                 {maximumInputs.map(([field, id, label]) => (
@@ -247,8 +253,8 @@ const RolloutControls = ({
                       disabled={disabled}
                     />
                     <p className="text-200 text-text-primary-70">
-                      Minimum share of verified miners each enabled hashrate, efficiency, or temperature check must
-                      sample. Empty means 100%; error counts do not use this setting.
+                      Minimum share of verified {nouns.plural} each enabled hashrate, efficiency, or temperature check
+                      must sample. Empty means 100%; error counts do not use this setting.
                     </p>
                   </div>
                 ) : null}
@@ -266,7 +272,7 @@ const RolloutControls = ({
 
       <Input
         id="max-concurrent-offline"
-        label="Max miners offline at once (0 for no limit)"
+        label={`Max ${nouns.plural} offline at once (0 for no limit)`}
         {...behaviorInput("maxConcurrentOffline")}
         disabled={disabled}
       />

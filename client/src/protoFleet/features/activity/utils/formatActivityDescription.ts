@@ -2,6 +2,7 @@ import type { ActivityEntry } from "@/protoFleet/api/generated/activity/v1/activ
 import { ALERT_FIRING_EVENT_TYPE, ALERT_RESOLVED_EVENT_TYPE } from "@/protoFleet/features/activity/utils/alertEntries";
 import { baseEventType, isCompletedEvent } from "@/protoFleet/features/activity/utils/eventType";
 import { formatLabel } from "@/protoFleet/features/activity/utils/formatLabel";
+import { formatRole } from "@/protoFleet/features/settings/utils/formatRole";
 
 type ActivityMetadata = Record<string, unknown>;
 
@@ -146,6 +147,16 @@ const descriptionFormatters: Record<string, (entry: ActivityEntry) => string | u
     const username = displayName(entry, "target_username");
     return username ? `Updated role for ${username}` : "Updated user role";
   },
+  create_team_invitation: (entry) => {
+    const role = metadataString(entry, "role_name");
+    return withTarget("Created user invitation", role ? formatRole(role) : undefined);
+  },
+  revoke_team_invitation: () => "Revoked user invitation",
+  delete_team_invitation: () => "Deleted user invitation",
+  accept_team_invitation: (entry) => {
+    const role = metadataString(entry, "role_name");
+    return withTarget("Joined team", role ? formatRole(role) : undefined);
+  },
   create_api_key: () => "Created API key",
   revoke_api_key: () => "Revoked API key",
 
@@ -164,6 +175,7 @@ const descriptionFormatters: Record<string, (entry: ActivityEntry) => string | u
   clear_rack_slot: (entry) => withTarget("Updated rack position", displayName(entry)),
   save_rack: (entry) => withTarget("Saved rack", displayName(entry)),
   unpair_miners: () => "Unpaired miners",
+  unpair_container: () => "Unpaired container",
   rename_miners: () => "Renamed miners",
 
   create_pool: (entry) => withTarget("Created pool", displayName(entry, "pool_name")),
@@ -212,6 +224,8 @@ const descriptionFormatters: Record<string, (entry: ActivityEntry) => string | u
   rollout_completed: formatRolloutDescription,
   rollout_completed_with_failures: formatRolloutDescription,
   rollout_retried: formatRolloutDescription,
+  // Carries the channel, model and version the server recorded.
+  release_channel_controller_software_changed: formatRolloutDescription,
 
   command_preflight_blocked: (entry) => {
     const skippedCount = metadataNumber(entry, "skipped_count");

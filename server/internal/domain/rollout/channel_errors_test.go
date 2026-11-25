@@ -105,7 +105,7 @@ func TestChannelLookupErrorsDistinguishMissingRows(t *testing.T) {
 			return err
 		}},
 		{"miners", func(ctx context.Context, orgID, channelID int64) error {
-			_, _, err := f.svc.ListChannelMiners(ctx, orgID, channelID, "", "", 0, "")
+			_, _, err := f.svc.ListChannelMiners(ctx, orgID, channelID, "", "", "", 0, "")
 			return err
 		}},
 		{"model groups", func(ctx context.Context, orgID, channelID int64) error {

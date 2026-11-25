@@ -13,8 +13,10 @@ export const curtailmentNumericFieldLimits = {
   restoreIntervalSec: 3600,
   fanDelaySec: 3600,
   postEventCooldownSec: 86400,
-  minDurationSec: 2147483647,
+  minDurationSec: 604800,
 } as const;
+
+export const nonAdminBatchIntervalMax = 300;
 
 export const immediateRestoreBatchSize = 0;
 export const immediateRestoreBatchSizeInputValue = String(immediateRestoreBatchSize);

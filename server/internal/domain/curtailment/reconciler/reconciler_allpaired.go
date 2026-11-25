@@ -57,7 +57,7 @@ func (r *Reconciler) claimAllPairedPolicyTargets(
 			"event_id", ev.ID, "error", err)
 		return false
 	}
-	activeSet := toStringSet(activeDevices)
+	activeSet := curtailment.ToStringSet(activeDevices)
 	for _, target := range existingTargets {
 		delete(activeSet, target.DeviceIdentifier)
 	}
@@ -65,12 +65,12 @@ func (r *Reconciler) claimAllPairedPolicyTargets(
 		candidates,
 		activeSet,
 		ev.IncludeMaintenance && ev.ForceIncludeMaintenance,
-		candidateMinPowerWForEvent(ev, orgConfig.CandidateMinPowerW),
+		candidateMinPowerWForPlan(ctx, ev, orgConfig.CandidateMinPowerW),
 	)
 	targets := curtailment.BuildInsertTargetParams(
 		plan.Selected,
 		models.ModeFullFleet,
-		candidateMinPowerWForEvent(ev, orgConfig.CandidateMinPowerW),
+		candidateMinPowerWForPlan(ctx, ev, orgConfig.CandidateMinPowerW),
 	)
 	topologyFilter := isTopologyCandidateFilter(params)
 	targets = excludeNonReopenableExistingTargetParams(targets, existingTargets)
@@ -127,7 +127,7 @@ func (r *Reconciler) refreshAllPairedPolicyTargets(
 	targets []*models.Target,
 	candidates map[string]*models.Candidate,
 ) {
-	minPowerW := candidateMinPowerWForEvent(ev, 0)
+	minPowerW := candidateMinPowerWForPlan(ctx, ev, 0)
 	refreshable := make(map[string]*models.Target, len(targets))
 	updates := make([]interfaces.AllPairedReadinessUpdate, 0, len(targets))
 	for _, target := range targets {
@@ -203,7 +203,7 @@ func (r *Reconciler) refreshAllPairedTopologyRestoreTargets(
 	ev *models.Event,
 	targets []*models.Target,
 ) bool {
-	if !isAllPairedTopologyPolicyEvent(ev) {
+	if !isAllPairedTopologyPolicyEvent(ctx, ev) {
 		return true
 	}
 
@@ -235,6 +235,12 @@ func (r *Reconciler) refreshAllPairedTopologyRestoreTargets(
 	candidatesByID := candidatesByDeviceID(candidates)
 	updates := make([]interfaces.AllPairedReadinessUpdate, 0, len(refreshable))
 	for deviceIdentifier, target := range refreshable {
+		if candidatesByID[deviceIdentifier] == nil && ev.State == models.EventStateRestoring {
+			if target.State != models.TargetStateRestoreFailed {
+				r.parkUncommandableTopologyRestore(ctx, ev, target, nil)
+			}
+			continue
+		}
 		nextState, reason := curtailment.AllPairedPolicyRestoreTargetState(candidatesByID[deviceIdentifier])
 		if !shouldRefreshAllPairedRestoreTarget(target, nextState, reason) {
 			continue
@@ -283,7 +289,7 @@ func (r *Reconciler) applyAllPairedReadinessUpdates(
 			"event_id", ev.ID, "update_count", len(updates), "error", err)
 		return false
 	}
-	applied := toStringSet(appliedDevices)
+	applied := curtailment.ToStringSet(appliedDevices)
 	if len(applied) < len(updates) {
 		// Rows that advanced concurrently (dispatch claim, Stop reset,
 		// event phase change) are skipped by the SQL guards; the next tick
@@ -347,6 +353,8 @@ func (r *Reconciler) releaseAllPairedPolicyTarget(ctx context.Context, ev *model
 		return
 	}
 	target.State = models.TargetStateReleased
+	now := r.now()
+	target.ReleasedAt = &now
 	target.LastError = &reason
 }
 

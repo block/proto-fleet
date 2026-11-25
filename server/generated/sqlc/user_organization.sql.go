@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 )
 
 const createUserOrganization = `-- name: CreateUserOrganization :exec
@@ -17,7 +18,7 @@ VALUES ($1, $2, $3)
 type CreateUserOrganizationParams struct {
 	UserID         int64
 	OrganizationID int64
-	RoleID         int64
+	RoleID         sql.NullInt64
 }
 
 func (q *Queries) CreateUserOrganization(ctx context.Context, arg CreateUserOrganizationParams) error {
@@ -25,11 +26,42 @@ func (q *Queries) CreateUserOrganization(ctx context.Context, arg CreateUserOrga
 	return err
 }
 
+const getActiveUserRoleNameForUpdate = `-- name: GetActiveUserRoleNameForUpdate :one
+WITH organization_lock AS MATERIALIZED (
+    SELECT org.id FROM organization org
+    WHERE org.id = $2 AND org.deleted_at IS NULL
+    FOR NO KEY UPDATE OF org
+)
+SELECT r.name
+FROM organization_lock o
+JOIN user_organization uo ON uo.organization_id = o.id
+JOIN "user" u ON u.id = uo.user_id AND u.deleted_at IS NULL
+JOIN role r ON r.id = uo.role_id AND r.organization_id = uo.organization_id
+           AND r.deleted_at IS NULL AND r.name <> ''
+WHERE uo.user_id = $1 AND uo.deleted_at IS NULL
+FOR NO KEY UPDATE OF uo, r
+`
+
+type GetActiveUserRoleNameForUpdateParams struct {
+	UserID         int64
+	OrganizationID int64
+}
+
+// Organization user management must not target customer-only affiliations.
+// Lock organization first to serialize account/role mutations, but allow the
+// key-share locks needed by concurrent affiliation/session foreign keys.
+func (q *Queries) GetActiveUserRoleNameForUpdate(ctx context.Context, arg GetActiveUserRoleNameForUpdateParams) (string, error) {
+	row := q.queryRow(ctx, q.getActiveUserRoleNameForUpdateStmt, getActiveUserRoleNameForUpdate, arg.UserID, arg.OrganizationID)
+	var name string
+	err := row.Scan(&name)
+	return name, err
+}
+
 const getOrganizationsForUser = `-- name: GetOrganizationsForUser :many
 SELECT o.id, o.org_id, o.name, o.created_at, o.updated_at, o.deleted_at
 FROM organization o
          JOIN user_organization uo ON o.id = uo.organization_id
-WHERE uo.user_id = $1
+WHERE uo.user_id = $1 AND uo.deleted_at IS NULL AND o.deleted_at IS NULL
 `
 
 func (q *Queries) GetOrganizationsForUser(ctx context.Context, userID int64) ([]Organization, error) {
@@ -63,7 +95,7 @@ func (q *Queries) GetOrganizationsForUser(ctx context.Context, userID int64) ([]
 }
 
 const getUserRoleInOrganization = `-- name: GetUserRoleInOrganization :one
-SELECT r.id, r.name, r.description, r.created_at, r.updated_at, r.deleted_at, r.is_builtin, r.builtin_key, r.organization_id
+SELECT r.id, r.name, r.description, r.created_at, r.updated_at, r.deleted_at, r.is_builtin, r.builtin_key, r.organization_id, r.permission_revision
 FROM role r
          JOIN user_organization uo ON r.id = uo.role_id
 WHERE uo.user_id = $1
@@ -88,14 +120,16 @@ func (q *Queries) GetUserRoleInOrganization(ctx context.Context, arg GetUserRole
 		&i.IsBuiltin,
 		&i.BuiltinKey,
 		&i.OrganizationID,
+		&i.PermissionRevision,
 	)
 	return i, err
 }
 
 const getUserRoleName = `-- name: GetUserRoleName :one
-SELECT r.name
-FROM role r
-JOIN user_organization uo ON r.id = uo.role_id
+SELECT COALESCE(r.name, '')::text AS name
+FROM user_organization uo
+JOIN "user" u ON u.id = uo.user_id AND u.deleted_at IS NULL
+LEFT JOIN role r ON r.id = uo.role_id AND r.organization_id = uo.organization_id AND r.deleted_at IS NULL
 WHERE uo.user_id = $1
   AND uo.organization_id = $2
   AND uo.deleted_at IS NULL
@@ -114,9 +148,10 @@ func (q *Queries) GetUserRoleName(ctx context.Context, arg GetUserRoleNameParams
 }
 
 const getUserRoleNameForUpdate = `-- name: GetUserRoleNameForUpdate :one
-SELECT r.name
-FROM role r
-JOIN user_organization uo ON r.id = uo.role_id
+SELECT COALESCE(r.name, '')::text AS name
+FROM user_organization uo
+JOIN "user" u ON u.id = uo.user_id AND u.deleted_at IS NULL
+LEFT JOIN role r ON r.id = uo.role_id AND r.organization_id = uo.organization_id AND r.deleted_at IS NULL
 WHERE uo.user_id = $1
   AND uo.organization_id = $2
   AND uo.deleted_at IS NULL
@@ -201,7 +236,7 @@ WHERE user_id = $2
 `
 
 type UpdateUserRoleParams struct {
-	RoleID         int64
+	RoleID         sql.NullInt64
 	UserID         int64
 	OrganizationID int64
 }

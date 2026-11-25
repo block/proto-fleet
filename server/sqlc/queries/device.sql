@@ -35,6 +35,21 @@ WHERE dp.pairing_status = 'PAIRED'
     AND d.deleted_at IS NULL
 ORDER BY dp.id, d.id;
 
+-- name: GetAlreadyPairedDeviceIdentifiers :many
+-- Resolve only the devices returned by the current discovery batch. This avoids
+-- loading fleet-wide pairing state for large installations.
+SELECT d.device_identifier
+FROM device d
+JOIN device_pairing dp ON dp.device_id = d.id
+JOIN discovered_device dd ON dd.id = d.discovered_device_id
+WHERE d.org_id = sqlc.arg('org_id')
+  AND dd.org_id = sqlc.arg('org_id')
+  AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND d.deleted_at IS NULL
+  AND dd.is_active = TRUE
+  AND dd.deleted_at IS NULL
+  AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD');
+
 -- name: GetPairedProtoDeviceIdentifiersByIdentifiers :many
 -- Lock eligible rows until targeted fallback-config commands are enqueued.
 -- Pairing, manufacturer, and deletion changes must wait for that transaction.
@@ -47,6 +62,7 @@ WHERE d.org_id = sqlc.arg('org_id')
   AND d.deleted_at IS NULL
   AND dp.pairing_status = 'PAIRED'
   AND dd.manufacturer = 'Proto'
+  AND dd.device_class <> sqlc.arg('container_device_class')::integer
 ORDER BY d.id
 FOR SHARE OF d, dd, dp;
 
@@ -63,6 +79,28 @@ WHERE dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD
     AND d.deleted_at IS NULL
     AND d.org_id = $1
     AND dd.is_active = TRUE
+    AND (sqlc.narg('status_filter')::text IS NULL OR ds.status::text = ANY(string_to_array(sqlc.narg('status_filter'), ',')))
+    AND (sqlc.narg('model_filter')::text IS NULL OR dd.model = ANY(string_to_array(sqlc.narg('model_filter'), ',')))
+    AND (
+         (cardinality(COALESCE(sqlc.arg('site_ids')::bigint[], '{}')) = 0 AND sqlc.arg('include_unassigned')::boolean = false)
+      OR d.site_id = ANY(COALESCE(sqlc.arg('site_ids')::bigint[], '{}'))
+      OR (sqlc.arg('include_unassigned')::boolean AND d.site_id IS NULL)
+    );
+
+-- name: GetTotalPairedMiners :one
+-- The site filter is additive: site_ids is an OR across sites,
+-- include_unassigned adds site_id IS NULL rows, and the empty + false case
+-- applies no site restriction (count all paired devices in the org).
+SELECT COUNT(*)
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN device_status ds ON d.id = ds.device_id
+WHERE dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
+    AND d.deleted_at IS NULL
+    AND d.org_id = $1
+    AND dd.is_active = TRUE
+    AND dd.device_class <> 2
     AND (sqlc.narg('status_filter')::text IS NULL OR ds.status::text = ANY(string_to_array(sqlc.narg('status_filter'), ',')))
     AND (sqlc.narg('model_filter')::text IS NULL OR dd.model = ANY(string_to_array(sqlc.narg('model_filter'), ',')))
     AND (
@@ -277,6 +315,15 @@ SET worker_name = $2
 WHERE device_identifier = $1
   AND deleted_at IS NULL;
 
+-- name: InitializeDeviceWorkerName :execrows
+UPDATE device
+SET worker_name = sqlc.arg('worker_name')::text
+WHERE device_identifier = sqlc.arg('device_identifier')
+  AND org_id = sqlc.arg('org_id')
+  AND deleted_at IS NULL
+  AND worker_name IS NULL
+  AND btrim(sqlc.arg('worker_name')::text) <> '';
+
 -- name: UpdateDeviceWorkerNamePoolSyncStatusByID :exec
 UPDATE device
 SET worker_name_pool_sync_status = $2
@@ -314,7 +361,7 @@ FROM device d
 LEFT JOIN fleet_node_device fnd
     ON fnd.device_id = d.id
    AND fnd.org_id = d.org_id
-LEFT JOIN fleet_node fn
+LEFT JOIN fleet_node_live fn
     ON fn.id = fnd.fleet_node_id
    AND fn.org_id = fnd.org_id
    AND fn.deleted_at IS NULL
@@ -323,10 +370,13 @@ WHERE d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND d.org_id = $1
   AND d.deleted_at IS NULL;
 
--- name: GetDeviceIDsByDeviceIdentifiers :many
-SELECT id
+-- name: GetOrgDeviceIDsWithIdentifiers :many
+-- Resolves caller-supplied identifiers within one organization. Identifiers
+-- owned by another organization are omitted exactly like unknown ones.
+SELECT id, device_identifier
 FROM device
 WHERE device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL;
 
 -- name: GetDeviceIDsWithIdentifiers :many
@@ -366,11 +416,25 @@ SELECT d.device_identifier
 FROM device d
 JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
 JOIN device_pairing dp ON dp.device_id = fnd.device_id
-JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 WHERE d.deleted_at IS NULL
   AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
   AND fn.deleted_at IS NULL
   AND fn.enrollment_status = 'CONFIRMED';
+
+-- name: GetTelemetryEligibleDeviceIdentifiers :many
+-- Apply the same eligibility rules as GetAllPairedDeviceIdentifiers.
+SELECT d.device_identifier
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
+LEFT JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+  AND fn.deleted_at IS NULL
+  AND fn.enrollment_status = 'CONFIRMED'
+WHERE d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND d.deleted_at IS NULL
+  AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+  AND (fnd.device_id IS NULL OR fn.id IS NOT NULL);
 
 -- name: CountMinersByState :one
 -- Counts miners by their operational state for fleet health dashboard.
@@ -430,7 +494,7 @@ JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
-LEFT JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+LEFT JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 LEFT JOIN LATERAL (
     SELECT CASE
         WHEN fn.id IS NOT NULL
@@ -454,6 +518,7 @@ WHERE d.deleted_at IS NULL
   AND d.org_id = sqlc.arg('org_id')
   AND dd.is_active = TRUE
   AND dd.deleted_at IS NULL
+  AND dd.device_class <> 2
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
   -- Status filter mirrors GetTotalMinerStateSnapshots so
   -- sum(bucket counts) == filtered list total for every filter value.
@@ -527,22 +592,61 @@ WHERE d.deleted_at IS NULL
 -- ZoneKeys, or IncludeNoRack, the Go store routes to the dynamic
 -- query builder (see device_filters.go) so counts match the list.
 
+-- A queued result from a revoked Node cannot restore a now-unpaired miner's
+-- status. The status-row marker also blocks writes that began before the
+-- revocation committed and waited on this row's lock.
 -- name: UpsertDeviceStatus :exec
 INSERT INTO device_status (
     device_id,
     status,
     status_timestamp,
-    status_details
+    status_details,
+    reboot_required_after
 ) VALUES (
     $1,
     $2,
     $3,
-    $4
+    $4,
+    sqlc.narg('reboot_required_after')::timestamptz
 )
 ON CONFLICT (device_id) DO UPDATE SET
     status = EXCLUDED.status,
     status_timestamp = EXCLUDED.status_timestamp,
-    status_details = EXCLUDED.status_details;
+    telemetry_status_at = NULL,
+    status_details = EXCLUDED.status_details,
+    reboot_required_after = EXCLUDED.reboot_required_after
+WHERE device_status.status_details IS DISTINCT FROM 'fleet_node_revoked'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM device d
+    JOIN device_pairing dp ON dp.device_id = d.id AND dp.pairing_status = 'UNPAIRED'
+    JOIN discovered_device dd ON dd.id = d.discovered_device_id
+    WHERE d.id = EXCLUDED.device_id
+      AND dd.discovered_by_fleet_node_id IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM fleet_node_device fnd WHERE fnd.device_id = d.id)
+  );
+
+-- name: ReconcileRebootRequiredStatus :execrows
+-- The status and reboot-boundary predicates apply to the current status row even
+-- after waiting for a concurrent firmware install's write to finish. Boot
+-- evidence from an earlier install must not clear a later pending reboot.
+UPDATE device_status ds
+SET status = sqlc.arg('status')::device_status_enum,
+    status_timestamp = CURRENT_TIMESTAMP,
+    telemetry_status_at = NULL,
+    status_details = NULL,
+    reboot_required_after = NULL
+FROM device d
+JOIN discovered_device dd ON dd.id = d.discovered_device_id
+JOIN device_pairing dp ON dp.device_id = d.id
+WHERE ds.device_id = d.id
+  AND d.device_identifier = sqlc.arg('device_identifier')
+  AND d.deleted_at IS NULL
+  AND dd.deleted_at IS NULL
+  AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+  AND ds.status = 'REBOOT_REQUIRED'
+  AND COALESCE(ds.reboot_required_after, ds.status_timestamp) < sqlc.arg('booted_after')::timestamptz
+  AND ds.status_details IS DISTINCT FROM 'fleet_node_revoked';
 
 -- name: GetDeviceStatus :one
 SELECT
@@ -579,7 +683,7 @@ JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
-LEFT JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+LEFT JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 LEFT JOIN LATERAL (
     SELECT CASE
         WHEN fn.id IS NOT NULL
@@ -598,6 +702,7 @@ WHERE dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
   -- remediation path.
   AND dd.is_active = TRUE
   AND dd.deleted_at IS NULL
+  AND dd.device_class <> 2
   AND d.org_id = @org_id
   AND dd.model IS NOT NULL
   AND dd.model != ''
@@ -622,6 +727,7 @@ JOIN device_pairing dp ON d.id = dp.device_id
 WHERE dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
   AND d.deleted_at IS NULL
   AND d.org_id = $1
+  AND dd.device_class <> 2
   AND dd.model IS NOT NULL
   AND dd.model != ''
 ORDER BY dd.model
@@ -637,6 +743,7 @@ WHERE dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD
   AND d.org_id = $1
   AND dd.is_active = TRUE
   AND dd.deleted_at IS NULL
+  AND dd.device_class <> 2
   AND dd.firmware_version IS NOT NULL
   AND dd.firmware_version != ''
 ORDER BY dd.firmware_version
@@ -685,6 +792,7 @@ SELECT
     dd.ip_address,
     dd.port,
     dd.url_scheme,
+    dd.rpc_port, dd.rpc_tls, dd.device_class,
     mc.username_enc,
     mc.password_enc
 FROM fleet_node_device fnd
@@ -692,10 +800,11 @@ JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id
 JOIN device_pairing dp ON dp.device_id = d.id
 JOIN device_status ds ON ds.device_id = d.id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
-JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 LEFT JOIN miner_credentials mc ON mc.device_id = d.id
 WHERE d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
+  AND dd.endpoint_key = ''
   AND dd.is_active = TRUE
   AND fn.deleted_at IS NULL
   AND fn.enrollment_status = 'CONFIRMED'
@@ -739,8 +848,11 @@ WHERE d.discovered_device_id = dd.id
   AND dd.ip_address = sqlc.arg(expected_ip_address)
   AND dd.port = sqlc.arg(expected_port)
   AND dd.url_scheme = sqlc.arg(expected_url_scheme)
+  AND dd.rpc_port = sqlc.arg(expected_rpc_port)
+  AND dd.rpc_tls = sqlc.arg(expected_rpc_tls)
   AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
+  AND dd.endpoint_key = ''
   AND dd.is_active = TRUE
   AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
 RETURNING d.id;
@@ -766,7 +878,10 @@ WITH eligible AS MATERIALIZED (
       AND dd.ip_address = sqlc.arg(expected_ip_address)
       AND dd.port = sqlc.arg(expected_port)
       AND dd.url_scheme = sqlc.arg(expected_url_scheme)
+  AND dd.rpc_port = sqlc.arg(expected_rpc_port)
+  AND dd.rpc_tls = sqlc.arg(expected_rpc_tls)
       AND dd.deleted_at IS NULL
+  AND dd.endpoint_key = ''
       AND dd.is_active = TRUE
     FOR UPDATE OF fnd, ds, dd
 ), updated_pairing AS (
@@ -784,8 +899,11 @@ WITH eligible AS MATERIALIZED (
       AND dd.ip_address = sqlc.arg(expected_ip_address)
       AND dd.port = sqlc.arg(expected_port)
       AND dd.url_scheme = sqlc.arg(expected_url_scheme)
+  AND dd.rpc_port = sqlc.arg(expected_rpc_port)
+  AND dd.rpc_tls = sqlc.arg(expected_rpc_tls)
       AND d.deleted_at IS NULL
       AND dd.deleted_at IS NULL
+  AND dd.endpoint_key = ''
       AND dd.is_active = TRUE
       AND (
           (mc.device_id IS NULL
@@ -844,13 +962,15 @@ SELECT
     dd.id as cursor_id,
     COALESCE(d.id, 0) as device_id,
     dd.driver_name,
+    dd.device_class,
     d.custom_name,
     d.site_id,
     COALESCE(s.name, '') as site_label,
     d.building_id,
     COALESCE(b.name, '') as building_label,
     FALSE as fleet_node_unavailable,
-    FALSE as embedded_web_view_available
+    FALSE as embedded_web_view_available,
+    NULL::bigint as fleet_node_id
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id
 LEFT JOIN device_pairing dp ON d.id = dp.device_id
@@ -868,7 +988,7 @@ WITH latest_metrics AS (
         device_metrics.temp_c,
         device_metrics.power_w,
         device_metrics.efficiency_jh
-    FROM device_metrics
+    FROM device_metrics AS device_metrics
     INNER JOIN device d2 ON device_metrics.device_identifier = d2.device_identifier
         AND d2.deleted_at IS NULL
         AND d2.org_id = sqlc.arg('org_id')
@@ -942,7 +1062,7 @@ LEFT JOIN device d ON dd.id = d.discovered_device_id
 LEFT JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
-LEFT JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+LEFT JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 LEFT JOIN LATERAL (
     SELECT CASE
         WHEN fn.id IS NOT NULL
@@ -957,6 +1077,7 @@ LEFT JOIN LATERAL (
 WHERE dd.org_id = sqlc.arg('org_id')
     AND dd.is_active = TRUE
     AND dd.deleted_at IS NULL
+  AND dd.device_class <> 2
     -- Pairing status filter
     AND (
         sqlc.narg('pairing_status_filter')::text IS NULL
@@ -1045,40 +1166,10 @@ WHERE dd.org_id = sqlc.arg('org_id')
 -- callers with those filters must route through the dynamic builder
 -- (device_filters.go).
 
--- name: GetFilteredDeviceIds :many
--- Returns device IDs filtered by pairing status and optional device status.
--- Used for bulk command operations.
-SELECT
-    d.id as device_id
-FROM device d
-JOIN device_pairing dp ON d.id = dp.device_id
-JOIN discovered_device dd ON d.discovered_device_id = dd.id
-LEFT JOIN device_status ds ON d.id = ds.device_id
-LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
-LEFT JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
-LEFT JOIN LATERAL (
-    SELECT CASE
-        WHEN fn.id IS NOT NULL
-             AND fn.deleted_at IS NULL
-             AND fn.enrollment_status = 'CONFIRMED'
-             AND fn.last_seen_at IS NOT NULL
-             AND fn.last_seen_at < NOW() - INTERVAL '2 minutes'
-        THEN 'OFFLINE'
-        ELSE ds.status::text
-    END AS status
-) effective_status ON TRUE
-WHERE d.org_id = sqlc.arg('org_id')
-    AND dp.pairing_status::text = ANY(sqlc.arg('pairing_status_values')::text[])
-    AND d.deleted_at IS NULL
-    AND (sqlc.narg('device_status')::text IS NULL OR effective_status.status = sqlc.narg('device_status')::text)
-    AND (sqlc.narg('model_filter')::text IS NULL OR dd.model = ANY(string_to_array(sqlc.narg('model_filter'), ',')))
-    AND (sqlc.narg('manufacturer_filter')::text IS NULL OR dd.manufacturer = ANY(string_to_array(sqlc.narg('manufacturer_filter'), ',')))
-ORDER BY d.id;
-
 -- name: GetFilteredDeviceIdentifiers :many
--- Mirrors GetFilteredDeviceIds but returns device_identifier strings instead of
--- internal IDs. Used by command preflight filtering, which operates on
--- identifiers (the same primitive used by selectors and schedules).
+-- Returns device identifiers filtered by pairing status and optional device
+-- status, model and manufacturer. Used by command preflight filtering, which
+-- operates on identifiers (the same primitive used by selectors and schedules).
 SELECT
     d.device_identifier
 FROM device d
@@ -1086,7 +1177,7 @@ JOIN device_pairing dp ON d.id = dp.device_id
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
-LEFT JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+LEFT JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 LEFT JOIN LATERAL (
     SELECT CASE
         WHEN fn.id IS NOT NULL
@@ -1167,13 +1258,30 @@ WHERE fnd.device_id = d.id
   AND d.org_id = sqlc.arg('org_id');
 
 -- name: SoftDeleteDiscoveredDevicesForDeletedDevices :exec
--- Soft-deletes discovered_device records linked to the specified devices.
-UPDATE discovered_device dd SET deleted_at = NOW()
+-- Keep a shared discovery record while another live device still owns it.
+-- Grouped controllers must rebuild their saved routes after explicit unpairing.
+UPDATE discovered_device dd SET
+    deleted_at = NOW(),
+    endpoints = '{}',
+    endpoint_key = '',
+    serial_number = CASE WHEN dd.endpoint_key <> '' THEN '' ELSE dd.serial_number END,
+    mac_address = CASE WHEN dd.endpoint_key <> '' THEN '' ELSE dd.mac_address END
 FROM device d
 WHERE dd.id = d.discovered_device_id
   AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND d.org_id = sqlc.arg('org_id')
-  AND dd.deleted_at IS NULL;
+  AND dd.deleted_at IS NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM device owner
+      WHERE owner.discovered_device_id = dd.id
+        AND owner.org_id = dd.org_id
+        AND owner.deleted_at IS NULL
+        AND (
+            EXISTS (SELECT 1 FROM device_pairing dp WHERE dp.device_id = owner.id
+                    AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED'))
+            OR EXISTS (SELECT 1 FROM fleet_node_device fnd WHERE fnd.device_id = owner.id AND fnd.org_id = owner.org_id)
+        )
+  );
 
 -- name: GetPairedDeviceByMACAddress :many
 -- Finds an existing paired device by MAC address for a given organization.
@@ -1295,7 +1403,7 @@ JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
-LEFT JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+LEFT JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 LEFT JOIN LATERAL (
     SELECT CASE
         WHEN fn.id IS NOT NULL
@@ -1318,6 +1426,7 @@ WHERE d.org_id = sqlc.arg('org_id')
   AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
+  AND dd.device_class <> 2
   AND dd.is_active = TRUE
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD');
 

@@ -23,6 +23,7 @@ jobs:
             deployment-files/scripts/compose-project.sh \
             deployment-files/scripts/create-release-manifest.sh \
             deployment-files/scripts/docker-daemon.sh \
+            deployment-files/scripts/sign-protoos-release.sh \
             deployment-files/uninstall.sh \
             deployment-files/tests/test-install-overlay-migration.sh \
             deployment-files/tests/test-profiles.sh \
@@ -37,6 +38,15 @@ jobs:
 
       - name: Validate HA deployment profile
         run: ./deployment-files/ha/tests/test-profile.sh
+
+      - name: Validate etcd retention with the pinned HA image
+        run: ./deployment-files/ha/tests/test-etcd-retention.sh
+
+      - name: Validate HA firewall traffic
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nftables iproute2
+          sudo bash deployment-files/ha/tests/test-firewall.sh
 
       - name: Validate non-interactive upgrade safety
         run: ./deployment-files/tests/test-run-fleet-upgrade.sh
@@ -58,6 +68,23 @@ jobs:
 
       - name: Validate uninstaller updater cleanup
         run: ./deployment-files/tests/test-uninstall-updater-cleanup.sh
+
+  protoos-frigate-package:
+    name: ProtoOS Frigate package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+        with:
+          preinstall: "false"
+
+      - name: Validate ProtoOS Frigate bundle manifest, .deb package and release signing
+        run: python3 deployment-files/tests/test_protoos_frigate_bundle.py
 
   fleetnode-installer:
     name: Fleet Node installer

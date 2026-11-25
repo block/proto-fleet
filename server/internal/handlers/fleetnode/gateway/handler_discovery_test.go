@@ -10,10 +10,51 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 )
+
+func TestReportDiscoveredDevices_ContainerRPCScopeAndPersistence(t *testing.T) {
+	h := newControlHarness(t)
+	ctx := authn.SetInfo(t.Context(), &auth.Subject{FleetNodeID: h.fleetNodeID, OrgID: 1})
+	stream := h.registry.Register(h.fleetNodeID)
+	defer stream.Unregister()
+	scope := func(ip, port string) bool { return ip == "10.0.0.50" && port == "9095" }
+	session, err := h.registry.Send(ctx, h.fleetNodeID, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &pb.ControlCommand{CommandId: "rpc-scan"}, scope, control.ReportKindDiscovery, nil)
+	require.NoError(t, err)
+	defer session.Close()
+	<-stream.Outgoing
+	resp, err := h.handler.ReportDiscoveredDevices(ctx, connect.NewRequest(&pb.ReportDiscoveredDevicesRequest{
+		CommandId: "rpc-scan",
+		Devices: []*pb.DiscoveredDeviceReport{
+			{DeviceIdentifier: "ct1", IpAddress: "10.0.0.50", Port: "8181", UrlScheme: "https", RpcPort: 9095, RpcTls: true, DriverName: "proto", Model: "CT1", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER},
+			{DeviceIdentifier: "wrong-ip", IpAddress: "10.0.0.51", Port: "8181", RpcPort: 9095, DriverName: "proto", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER},
+			{DeviceIdentifier: "wrong-rpc", IpAddress: "10.0.0.50", Port: "9095", RpcPort: 9443, DriverName: "proto", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER},
+			{DeviceIdentifier: "rig-rpc", IpAddress: "10.0.0.50", Port: "8181", RpcPort: 9095, DriverName: "proto", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_RIG},
+			{DeviceIdentifier: "invalid-rpc", IpAddress: "10.0.0.50", Port: "9095", RpcPort: -1, DriverName: "proto", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER},
+		},
+	}))
+	require.NoError(t, err)
+	require.Equal(t, int64(1), resp.Msg.GetAcceptedCount())
+	require.Equal(t, int64(4), resp.Msg.GetRejectedCount())
+	var web, scheme string
+	var rpc int
+	var tls bool
+	require.NoError(t, h.db.QueryRowContext(ctx, "SELECT port,url_scheme,rpc_port,rpc_tls FROM discovered_device WHERE org_id=1 AND device_identifier='ct1'").Scan(&web, &scheme, &rpc, &tls))
+	require.Equal(t, "8181", web)
+	require.Equal(t, "https", scheme)
+	require.Equal(t, 9095, rpc)
+	require.True(t, tls)
+	select {
+	case event := <-session.Events():
+		require.Len(t, event.Batch.GetDevices(), 1)
+		require.Equal(t, "ct1", event.Batch.GetDevices()[0].GetDeviceIdentifier())
+	case <-time.After(time.Second):
+		t.Fatal("expected accepted container report")
+	}
+}
 
 func TestReportDiscoveredDevices_RejectsMissingCommandID(t *testing.T) {
 	// Arrange
@@ -149,6 +190,50 @@ func TestReportDiscoveredDevices_PublishesOnlyAcceptedDevices(t *testing.T) {
 		assert.Equal(t, "fresh-1", ev.Batch.GetDevices()[0].GetDeviceIdentifier())
 	case <-time.After(time.Second):
 		t.Fatal("expected batch on events channel")
+	}
+}
+
+func TestReportDiscoveredDevices_PublishesPersistedDeviceClass(t *testing.T) {
+	h := newControlHarness(t)
+	ctx := authn.SetInfo(t.Context(), &auth.Subject{FleetNodeID: h.fleetNodeID, OrgID: 1})
+	stream := h.registry.Register(h.fleetNodeID)
+	defer stream.Unregister()
+	session, err := h.registry.Send(ctx, h.fleetNodeID, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &pb.ControlCommand{CommandId: "class-rescan"}, nil, control.ReportKindDiscovery, nil)
+	require.NoError(t, err)
+	defer session.Close()
+	<-stream.Outgoing
+
+	for _, tc := range []struct {
+		name     string
+		reported commonpb.DeviceClass
+		want     commonpb.DeviceClass
+	}{
+		{"new unspecified device", commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED, commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED},
+		{"learn container class", commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, commonpb.DeviceClass_DEVICE_CLASS_CONTAINER},
+		{"preserve container on rescan", commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED, commonpb.DeviceClass_DEVICE_CLASS_CONTAINER},
+		{"replace with explicit class", commonpb.DeviceClass_DEVICE_CLASS_RIG, commonpb.DeviceClass_DEVICE_CLASS_RIG},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, err := h.handler.ReportDiscoveredDevices(ctx, connect.NewRequest(&pb.ReportDiscoveredDevicesRequest{
+				CommandId: "class-rescan",
+				Devices: []*pb.DiscoveredDeviceReport{{
+					DeviceIdentifier: "class-device", IpAddress: "10.0.0.50", Port: "80",
+					UrlScheme: "http", DriverName: "proto", Model: "CT1", DeviceClass: tc.reported,
+				}},
+			}))
+			require.NoError(t, err)
+			require.Equal(t, int64(1), resp.Msg.GetAcceptedCount())
+			require.Zero(t, resp.Msg.GetRejectedCount())
+			select {
+			case ev := <-session.Events():
+				require.NotNil(t, ev.Batch)
+				require.Len(t, ev.Batch.GetDevices(), 1)
+				assert.Equal(t, "class-device", ev.Batch.GetDevices()[0].GetDeviceIdentifier())
+				assert.Equal(t, tc.want, ev.Batch.GetDevices()[0].GetDeviceClass())
+			case <-time.After(time.Second):
+				t.Fatal("expected discovery batch on events channel")
+			}
+		})
 	}
 }
 

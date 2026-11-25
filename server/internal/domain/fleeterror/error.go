@@ -512,8 +512,9 @@ func IsAlreadyExistsError(err error) bool {
 
 // ConnectionError represents a network connectivity error when attempting to reach a device
 type ConnectionError struct {
-	DeviceIdentifier string
-	Err              error
+	DeviceIdentifier  string
+	Err               error
+	DeviceProbeFailed bool // The status probe failed to connect to the miner itself.
 }
 
 func (e ConnectionError) Error() string {

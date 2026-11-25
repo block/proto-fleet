@@ -11,6 +11,12 @@ describe("Stat", () => {
     expect(screen.getByText("value")).toBeInTheDocument();
   });
 
+  it("renders secondary values beside the main value with subdued styling", () => {
+    render(<Stat label="Power" value="2.0 kW" preformatted size="large" valueSuffix="Max 3.0 · Min 1.0 kW" />);
+    expect(screen.getByText("Max 3.0 · Min 1.0 kW")).toHaveClass("text-200", "text-text-primary-50");
+    expect(screen.getByText("2.0 kW").parentElement).toHaveClass("items-baseline", "flex-wrap");
+  });
+
   it("renders loading state when value is undefined", () => {
     render(<Stat label="Hashrate" value={undefined} size="small" />);
 

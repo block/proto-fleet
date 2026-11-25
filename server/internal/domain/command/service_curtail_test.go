@@ -71,10 +71,11 @@ func newCurtailDispatchServiceWithActivityStore(t *testing.T) (*Service, *fakeMe
 	q := &fakeMessageQueue{}
 	store := &recordingActivityStore{}
 	svc := &Service{
-		config:           &Config{},
-		executionService: &ExecutionService{run: newExecutionRun(context.Background())},
-		messageQueue:     q,
-		activitySvc:      activity.NewService(store),
+		config:            &Config{},
+		capabilityChecker: &curtailCapabilityStub{},
+		executionService:  &ExecutionService{run: newExecutionRun(context.Background())},
+		messageQueue:      q,
+		activitySvc:       activity.NewService(store),
 	}
 	svc.resolveDeviceIDsOverride = func(_ context.Context, ids []string) ([]int64, error) {
 		out := make([]int64, len(ids))
@@ -233,4 +234,43 @@ func TestCurtail_SuppressedActivityContextSkipsCommandActivity(t *testing.T) {
 	assert.Empty(t, store.inserts, "suppressed curtailment-owned dispatch must not write command activity rows")
 	assert.Equal(t, 1, statusRoutineCalls, "batch tracking must still run when activity is suppressed")
 	assert.Nil(t, callback, "activity completion finalizer must be omitted when activity is suppressed")
+}
+
+// curtailCapabilityStub keeps the command admission tests focused on queueing;
+// capability-specific cases set the unsupported identifier set explicitly.
+type curtailCapabilityStub struct{ unsupported map[string]bool }
+
+func (*curtailCapabilityStub) SetDeviceIdentifierResolver(DeviceIdentifierResolver) {}
+func (c *curtailCapabilityStub) CheckCapabilities(ctx context.Context, selector *pb.DeviceSelector, _ pb.CommandType, orgID int64) (*pb.CheckCommandCapabilitiesResponse, error) {
+	return c.CheckCurtailCapabilities(ctx, selector, sdk.CurtailLevelFull, orgID)
+}
+func (c *curtailCapabilityStub) CheckCurtailCapabilities(_ context.Context, selector *pb.DeviceSelector, _ sdk.CurtailLevel, _ int64) (*pb.CheckCommandCapabilitiesResponse, error) {
+	out := &pb.CheckCommandCapabilitiesResponse{}
+	for _, id := range selector.GetIncludeDevices().GetDeviceIdentifiers() {
+		if !c.unsupported[id] {
+			out.SupportedDeviceIdentifiers = append(out.SupportedDeviceIdentifiers, id)
+		}
+	}
+	return out, nil
+}
+
+func TestCurtailAdmissionRejectsUnsupportedCapabilityBeforeQueue(t *testing.T) {
+	svc, q := newCurtailDispatchService(t)
+	svc.capabilityChecker = &curtailCapabilityStub{unsupported: map[string]bool{"miner-1": true}}
+	_, err := svc.Curtail(manualSessionCtx(1), includeSelector("miner-1"), sdk.CurtailLevelFull)
+	require.Error(t, err)
+	assert.Zero(t, q.enqueueCalls)
+}
+
+func TestCurtailAdmissionSkipsUnsupportedTargetsForInternalDispatch(t *testing.T) {
+	svc, queue := newCurtailDispatchService(t)
+	svc.capabilityChecker = &curtailCapabilityStub{unsupported: map[string]bool{"unsupported": true}}
+	result, err := svc.Curtail(schedulerSessionCtx(1), includeSelector("supported", "unsupported"), sdk.CurtailLevelFull)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"supported"}, result.DispatchedDeviceIdentifiers)
+	require.Len(t, result.Skipped, 1)
+	assert.Equal(t, "unsupported", result.Skipped[0].DeviceIdentifier)
+	assert.Equal(t, "capability", result.Skipped[0].FilterName)
+	assert.Equal(t, 1, queue.enqueueCalls)
+	assert.Len(t, queue.lastDeviceIDs, 1)
 }

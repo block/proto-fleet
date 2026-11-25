@@ -5,7 +5,10 @@ import { type Timestamp, timestampMs } from "@bufbuild/protobuf/wkt";
 import type { RolloutMinerFilter } from "./RolloutMinersModal";
 import {
   batchLabel,
+  capitalize,
   type DeltaIntent,
+  deviceCountLabel,
+  deviceNouns,
   evidenceScopeLabel,
   failedCount,
   formatDurationSeconds,
@@ -27,6 +30,7 @@ import {
   scopeCounts,
   scopedToBatch,
 } from "./rolloutStatus";
+import { formatCurtailmentDuration as formatElapsed } from "@/protoFleet/api/curtailmentDisplayUtils";
 import {
   type Rollout,
   type RolloutEvidence,
@@ -35,8 +39,6 @@ import {
   RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { gatesAfterBatch } from "@/protoFleet/api/rolloutBehavior";
-import { formatCurtailmentElapsedDuration as formatElapsed } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
-import RowActionsMenu, { type RowAction } from "@/protoFleet/features/fleetManagement/components/RowActionsMenu";
 import { useTemperatureUnit } from "@/protoFleet/store";
 import { Alert, ArrowRight, Info, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -44,14 +46,13 @@ import type { ButtonProps } from "@/shared/components/ButtonGroup";
 import Callout, { intents } from "@/shared/components/Callout";
 import CompositionBar from "@/shared/components/CompositionBar";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import RowActionsMenu, { type RowAction } from "@/shared/components/RowActionsMenu";
 import { formatTimestamp } from "@/shared/utils/formatTimestamp";
 
 const millisecondsPerSecond = 1000;
 
 const formatRolloutTimestamp = (timestamp?: Timestamp): string =>
   timestamp ? formatTimestamp(Math.floor(timestampMs(timestamp) / 1000)) : "—";
-
-const minersNoun = (count: number): string => (count === 1 ? "1 miner" : `${count.toLocaleString()} miners`);
 
 // Ticks once per second so the elapsed readout moves between polling
 // snapshots (same pattern as the curtailment card).
@@ -93,13 +94,15 @@ const deltaTextColor: Record<DeltaIntent, string> = {
   neutral: "text-text-primary-50",
 };
 
-// Baseline-vs-current telemetry for the miners in scope, plus the error
+// Baseline-vs-current telemetry for the devices in scope, plus the error
 // count: the evidence an operator weighs at a review gate.
 function PerformanceStrip({
   evidence,
+  devicePlural,
   testIdPrefix,
 }: {
   evidence: RolloutEvidence;
+  devicePlural: string;
   testIdPrefix: string;
 }): ReactElement {
   const temperatureUnit = useTemperatureUnit();
@@ -137,7 +140,7 @@ function PerformanceStrip({
         </div>
       </div>
       <div className="mt-3 text-200 text-text-primary-50">
-        Compares the baseline before the update with telemetry after miners come back.
+        Compares the baseline before the update with telemetry after {devicePlural} come back.
       </div>
     </div>
   );
@@ -243,6 +246,8 @@ const RolloutLiveView = ({
   onManage,
 }: RolloutLiveViewProps) => {
   const inline = presentation === "inline";
+  // An update of a container model counts and names containers, not miners.
+  const { singular, plural } = deviceNouns(rollout);
   const testIdPrefix = inline ? "inline-" : "";
   const testId = (value: string) => `${testIdPrefix}${value}`;
   const detailsId = useId();
@@ -305,7 +310,7 @@ const RolloutLiveView = ({
   const overflowActions: RowAction[] = [];
   if (inline) {
     overflowActions.push({
-      label: "View miners",
+      label: `View ${plural}`,
       onClick: () => onViewMiners(rollout, "all"),
       testId: testId("view-rollout-view-miners-action"),
     });
@@ -440,7 +445,7 @@ const RolloutLiveView = ({
         <div className="mt-6 grid gap-3" data-testid={testId("rollout-detail-progress")}>
           <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
             <div className="text-200 text-text-primary-50">
-              {`${!inline && scopedToBatch(rollout) ? batchLabel(rollout) : "Overall progress"}: ${counts.updated.toLocaleString()} of ${counts.total.toLocaleString()} miners updated (${counts.percent}%)`}
+              {`${!inline && scopedToBatch(rollout) ? batchLabel(rollout) : "Overall progress"}: ${counts.updated.toLocaleString()} of ${counts.total.toLocaleString()} ${plural} updated (${counts.percent}%)`}
             </div>
             <div className="text-right text-200 text-text-primary">
               {active && startedAtMs !== undefined ? (
@@ -482,7 +487,7 @@ const RolloutLiveView = ({
           ) : null}
           {!inline ? (
             <Button
-              text="View miners"
+              text={`View ${plural}`}
               variant={variants.textOnly}
               className="justify-self-start"
               onClick={() => onViewMiners(rollout, "all")}
@@ -508,9 +513,9 @@ const RolloutLiveView = ({
             intent={intents.danger}
             prefixIcon={<Alert />}
             testId={testId("rollout-failed-banner")}
-            title={`${minersNoun(failed)} failed to update`}
-            subtitle="Review miner details for the cause of each failed update."
-            buttonText="Review miners"
+            title={`${deviceCountLabel(rollout, failed)} failed to update`}
+            subtitle={`Review ${singular} details for the cause of each failed update.`}
+            buttonText={`Review ${plural}`}
             buttonOnClick={() => onViewMiners(rollout, "failed")}
           />
         ) : null}
@@ -521,7 +526,7 @@ const RolloutLiveView = ({
             intent={intents.information}
             prefixIcon={<Info />}
             testId={testId("review-banner")}
-            title={`${batchCounts.updated} of ${scopedTargetCount} miners in this batch updated to ${rollout.firmwareVersion}.`}
+            title={`${batchCounts.updated} of ${scopedTargetCount} ${plural} in this batch updated to ${rollout.firmwareVersion}.`}
             subtitle={
               evidence && rollout.behavior?.autoContinueOnHealthyTelemetry
                 ? evidence.readyToAdvance
@@ -531,7 +536,7 @@ const RolloutLiveView = ({
                     : `Holding for review: ${evidence.holdReason}.`
                 : rollout.currentBatch + 1 < rollout.batchCount
                   ? "Check the evidence below, then continue to start the next batch."
-                  : "Check the evidence below, then continue to update the remaining miners."
+                  : `Check the evidence below, then continue to update the remaining ${plural}.`
             }
           />
         ) : null}
@@ -543,7 +548,7 @@ const RolloutLiveView = ({
             prefixIcon={<Info />}
             testId={testId("paused-banner")}
             title="Update paused"
-            subtitle="No new update commands are sent and the update does not advance until resumed. Miners already updating finish on their own."
+            subtitle={`No new update commands are sent and the update does not advance until resumed. ${capitalize(plural)} already updating finish on their own.`}
           />
         ) : null}
 
@@ -567,7 +572,10 @@ const RolloutLiveView = ({
           >
             <div className={inline ? "mt-6" : "mt-10"} data-testid={testId("rollout-detail-stats")}>
               <div className="grid gap-x-12 gap-y-5 text-text-primary tablet:grid-cols-4">
-                <StatBlock label="Scope" value={`${rollout.channelName} channel, ${minersNoun(rollout.deviceCount)}`} />
+                <StatBlock
+                  label="Scope"
+                  value={`${rollout.channelName} channel, ${deviceCountLabel(rollout, rollout.deviceCount)}`}
+                />
                 <StatBlock
                   label="Target version"
                   value={rollout.firmwareVersion}
@@ -590,7 +598,7 @@ const RolloutLiveView = ({
             {evidence ? (
               <div className="mt-10" data-testid={testId("rollout-evidence")}>
                 <div className="mb-4 text-200 text-text-primary-50">
-                  {`Telemetry evidence: ${evidenceScopeLabel(rollout).toLowerCase()} (${minersNoun(evidence.devicesTotal)})`}
+                  {`Telemetry evidence: ${evidenceScopeLabel(rollout).toLowerCase()} (${deviceCountLabel(rollout, evidence.devicesTotal)})`}
                 </div>
                 <div className="mb-6 grid grid-cols-2 gap-x-8 gap-y-5">
                   <StatBlock
@@ -606,7 +614,9 @@ const RolloutLiveView = ({
                     testId={testId("evidence-hashing")}
                   />
                 </div>
-                {active ? <PerformanceStrip evidence={evidence} testIdPrefix={testIdPrefix} /> : null}
+                {active ? (
+                  <PerformanceStrip evidence={evidence} devicePlural={plural} testIdPrefix={testIdPrefix} />
+                ) : null}
               </div>
             ) : null}
           </div>

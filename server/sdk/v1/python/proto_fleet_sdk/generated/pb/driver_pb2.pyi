@@ -55,6 +55,12 @@ class CurtailLevel(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     CURTAIL_LEVEL_EFFICIENCY: _ClassVar[CurtailLevel]
     CURTAIL_LEVEL_FULL: _ClassVar[CurtailLevel]
 
+class DeviceClass(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    DEVICE_CLASS_UNSPECIFIED: _ClassVar[DeviceClass]
+    DEVICE_CLASS_RIG: _ClassVar[DeviceClass]
+    DEVICE_CLASS_CONTAINER: _ClassVar[DeviceClass]
+
 class MinerError(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     MINER_ERROR_UNSPECIFIED: _ClassVar[MinerError]
@@ -105,6 +111,20 @@ class MinerError(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     HASHRATE_BELOW_TARGET: _ClassVar[MinerError]
     HASHBOARD_WARN_CRC_HIGH: _ClassVar[MinerError]
     THERMAL_MARGIN_LOW: _ClassVar[MinerError]
+    ASIC_OVERVOLTAGE: _ClassVar[MinerError]
+    ASIC_UNDERVOLTAGE: _ClassVar[MinerError]
+    ASIC_ENUMERATION_FAILED: _ClassVar[MinerError]
+    ASIC_ECC_ERROR: _ClassVar[MinerError]
+    ASIC_TEMPERATURE_IMBALANCE: _ClassVar[MinerError]
+    HASHBOARD_STARTUP_FAILED: _ClassVar[MinerError]
+    HASHBOARD_NO_STACK_RUNNING: _ClassVar[MinerError]
+    HASHBOARD_STACK_ENUMERATION_FAILED: _ClassVar[MinerError]
+    BOARD_BUSBAR_VOLTAGE_DROP: _ClassVar[MinerError]
+    BOARD_POWER_RAIL_FAULT: _ClassVar[MinerError]
+    REFERENCE_CLOCK_FAULT: _ClassVar[MinerError]
+    DIAGNOSTIC_STORAGE_FAULT: _ClassVar[MinerError]
+    FIRMWARE_RUNTIME_ERROR: _ClassVar[MinerError]
+    ASIC_THERMAL_THROTTLING: _ClassVar[MinerError]
     VENDOR_ERROR_UNMAPPED: _ClassVar[MinerError]
 
 class Severity(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
@@ -151,6 +171,9 @@ PERFORMANCE_MODE_EFFICIENCY: PerformanceMode
 CURTAIL_LEVEL_UNSPECIFIED: CurtailLevel
 CURTAIL_LEVEL_EFFICIENCY: CurtailLevel
 CURTAIL_LEVEL_FULL: CurtailLevel
+DEVICE_CLASS_UNSPECIFIED: DeviceClass
+DEVICE_CLASS_RIG: DeviceClass
+DEVICE_CLASS_CONTAINER: DeviceClass
 MINER_ERROR_UNSPECIFIED: MinerError
 PSU_NOT_PRESENT: MinerError
 PSU_MODEL_MISMATCH: MinerError
@@ -199,6 +222,20 @@ IO_MODULE_FAILURE: MinerError
 HASHRATE_BELOW_TARGET: MinerError
 HASHBOARD_WARN_CRC_HIGH: MinerError
 THERMAL_MARGIN_LOW: MinerError
+ASIC_OVERVOLTAGE: MinerError
+ASIC_UNDERVOLTAGE: MinerError
+ASIC_ENUMERATION_FAILED: MinerError
+ASIC_ECC_ERROR: MinerError
+ASIC_TEMPERATURE_IMBALANCE: MinerError
+HASHBOARD_STARTUP_FAILED: MinerError
+HASHBOARD_NO_STACK_RUNNING: MinerError
+HASHBOARD_STACK_ENUMERATION_FAILED: MinerError
+BOARD_BUSBAR_VOLTAGE_DROP: MinerError
+BOARD_POWER_RAIL_FAULT: MinerError
+REFERENCE_CLOCK_FAULT: MinerError
+DIAGNOSTIC_STORAGE_FAULT: MinerError
+FIRMWARE_RUNTIME_ERROR: MinerError
+ASIC_THERMAL_THROTTLING: MinerError
 VENDOR_ERROR_UNMAPPED: MinerError
 SEVERITY_UNSPECIFIED: Severity
 SEVERITY_CRITICAL: Severity
@@ -245,26 +282,34 @@ class DescribeDriverResponse(_message.Message):
     def __init__(self, driver_name: _Optional[str] = ..., api_version: _Optional[str] = ..., caps: _Optional[_Union[Capabilities, _Mapping]] = ...) -> None: ...
 
 class NewDeviceRequest(_message.Message):
-    __slots__ = ("device_id", "info", "secret")
+    __slots__ = ("device_id", "info", "secret", "reuse_scope_key")
     DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
     INFO_FIELD_NUMBER: _ClassVar[int]
     SECRET_FIELD_NUMBER: _ClassVar[int]
+    REUSE_SCOPE_KEY_FIELD_NUMBER: _ClassVar[int]
     device_id: str
     info: DeviceInfo
     secret: SecretBundle
-    def __init__(self, device_id: _Optional[str] = ..., info: _Optional[_Union[DeviceInfo, _Mapping]] = ..., secret: _Optional[_Union[SecretBundle, _Mapping]] = ...) -> None: ...
+    reuse_scope_key: str
+    def __init__(self, device_id: _Optional[str] = ..., info: _Optional[_Union[DeviceInfo, _Mapping]] = ..., secret: _Optional[_Union[SecretBundle, _Mapping]] = ..., reuse_scope_key: _Optional[str] = ...) -> None: ...
 
 class NewDeviceResponse(_message.Message):
-    __slots__ = ("device_id",)
+    __slots__ = ("device_id", "reuse_scope_key", "backend_generation")
     DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
+    REUSE_SCOPE_KEY_FIELD_NUMBER: _ClassVar[int]
+    BACKEND_GENERATION_FIELD_NUMBER: _ClassVar[int]
     device_id: str
-    def __init__(self, device_id: _Optional[str] = ...) -> None: ...
+    reuse_scope_key: str
+    backend_generation: bytes
+    def __init__(self, device_id: _Optional[str] = ..., reuse_scope_key: _Optional[str] = ..., backend_generation: _Optional[bytes] = ...) -> None: ...
 
 class DeviceRef(_message.Message):
-    __slots__ = ("device_id",)
+    __slots__ = ("device_id", "backend_generation")
     DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
+    BACKEND_GENERATION_FIELD_NUMBER: _ClassVar[int]
     device_id: str
-    def __init__(self, device_id: _Optional[str] = ...) -> None: ...
+    backend_generation: bytes
+    def __init__(self, device_id: _Optional[str] = ..., backend_generation: _Optional[bytes] = ...) -> None: ...
 
 class MetricValue(_message.Message):
     __slots__ = ("value", "kind", "metadata")
@@ -405,7 +450,7 @@ class SensorMetrics(_message.Message):
     def __init__(self, component_info: _Optional[_Union[ComponentInfo, _Mapping]] = ..., type: _Optional[str] = ..., unit: _Optional[str] = ..., value: _Optional[_Union[MetricValue, _Mapping]] = ...) -> None: ...
 
 class DeviceMetrics(_message.Message):
-    __slots__ = ("device_id", "timestamp", "health", "health_reason", "hashrate_hs", "temp_c", "fan_rpm", "power_w", "efficiency_jh", "hash_boards", "psu_metrics", "control_board_metrics", "fan_metrics", "sensor_metrics", "firmware_version", "default_password_active")
+    __slots__ = ("device_id", "timestamp", "health", "health_reason", "hashrate_hs", "temp_c", "fan_rpm", "power_w", "efficiency_jh", "hash_boards", "psu_metrics", "control_board_metrics", "fan_metrics", "sensor_metrics", "firmware_version", "default_password_active", "container", "uptime_seconds", "uptime_observed_at")
     DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
     TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
     HEALTH_FIELD_NUMBER: _ClassVar[int]
@@ -422,6 +467,9 @@ class DeviceMetrics(_message.Message):
     SENSOR_METRICS_FIELD_NUMBER: _ClassVar[int]
     FIRMWARE_VERSION_FIELD_NUMBER: _ClassVar[int]
     DEFAULT_PASSWORD_ACTIVE_FIELD_NUMBER: _ClassVar[int]
+    CONTAINER_FIELD_NUMBER: _ClassVar[int]
+    UPTIME_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    UPTIME_OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
     device_id: str
     timestamp: _timestamp_pb2.Timestamp
     health: HealthStatus
@@ -438,13 +486,18 @@ class DeviceMetrics(_message.Message):
     sensor_metrics: _containers.RepeatedCompositeFieldContainer[SensorMetrics]
     firmware_version: str
     default_password_active: bool
-    def __init__(self, device_id: _Optional[str] = ..., timestamp: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., health: _Optional[_Union[HealthStatus, str]] = ..., health_reason: _Optional[str] = ..., hashrate_hs: _Optional[_Union[MetricValue, _Mapping]] = ..., temp_c: _Optional[_Union[MetricValue, _Mapping]] = ..., fan_rpm: _Optional[_Union[MetricValue, _Mapping]] = ..., power_w: _Optional[_Union[MetricValue, _Mapping]] = ..., efficiency_jh: _Optional[_Union[MetricValue, _Mapping]] = ..., hash_boards: _Optional[_Iterable[_Union[HashBoardMetrics, _Mapping]]] = ..., psu_metrics: _Optional[_Iterable[_Union[PSUMetrics, _Mapping]]] = ..., control_board_metrics: _Optional[_Iterable[_Union[ControlBoardMetrics, _Mapping]]] = ..., fan_metrics: _Optional[_Iterable[_Union[FanMetrics, _Mapping]]] = ..., sensor_metrics: _Optional[_Iterable[_Union[SensorMetrics, _Mapping]]] = ..., firmware_version: _Optional[str] = ..., default_password_active: bool = ...) -> None: ...
+    container: ContainerSnapshot
+    uptime_seconds: int
+    uptime_observed_at: _timestamp_pb2.Timestamp
+    def __init__(self, device_id: _Optional[str] = ..., timestamp: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., health: _Optional[_Union[HealthStatus, str]] = ..., health_reason: _Optional[str] = ..., hashrate_hs: _Optional[_Union[MetricValue, _Mapping]] = ..., temp_c: _Optional[_Union[MetricValue, _Mapping]] = ..., fan_rpm: _Optional[_Union[MetricValue, _Mapping]] = ..., power_w: _Optional[_Union[MetricValue, _Mapping]] = ..., efficiency_jh: _Optional[_Union[MetricValue, _Mapping]] = ..., hash_boards: _Optional[_Iterable[_Union[HashBoardMetrics, _Mapping]]] = ..., psu_metrics: _Optional[_Iterable[_Union[PSUMetrics, _Mapping]]] = ..., control_board_metrics: _Optional[_Iterable[_Union[ControlBoardMetrics, _Mapping]]] = ..., fan_metrics: _Optional[_Iterable[_Union[FanMetrics, _Mapping]]] = ..., sensor_metrics: _Optional[_Iterable[_Union[SensorMetrics, _Mapping]]] = ..., firmware_version: _Optional[str] = ..., default_password_active: bool = ..., container: _Optional[_Union[ContainerSnapshot, _Mapping]] = ..., uptime_seconds: _Optional[int] = ..., uptime_observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
 
 class DescribeDeviceRequest(_message.Message):
-    __slots__ = ("device_id",)
+    __slots__ = ("device_id", "backend_generation")
     DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
+    BACKEND_GENERATION_FIELD_NUMBER: _ClassVar[int]
     device_id: str
-    def __init__(self, device_id: _Optional[str] = ...) -> None: ...
+    backend_generation: bytes
+    def __init__(self, device_id: _Optional[str] = ..., backend_generation: _Optional[bytes] = ...) -> None: ...
 
 class DescribeDeviceResponse(_message.Message):
     __slots__ = ("device", "caps")
@@ -603,14 +656,16 @@ class SetPowerTargetRequest(_message.Message):
     def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., performance_mode: _Optional[_Union[PerformanceMode, str]] = ...) -> None: ...
 
 class MiningPool(_message.Message):
-    __slots__ = ("priority", "url", "worker_name")
+    __slots__ = ("priority", "url", "worker_name", "password")
     PRIORITY_FIELD_NUMBER: _ClassVar[int]
     URL_FIELD_NUMBER: _ClassVar[int]
     WORKER_NAME_FIELD_NUMBER: _ClassVar[int]
+    PASSWORD_FIELD_NUMBER: _ClassVar[int]
     priority: int
     url: str
     worker_name: str
-    def __init__(self, priority: _Optional[int] = ..., url: _Optional[str] = ..., worker_name: _Optional[str] = ...) -> None: ...
+    password: str
+    def __init__(self, priority: _Optional[int] = ..., url: _Optional[str] = ..., worker_name: _Optional[str] = ..., password: _Optional[str] = ...) -> None: ...
 
 class UpdateMiningPoolsRequest(_message.Message):
     __slots__ = ("ref", "pools")
@@ -642,6 +697,30 @@ class GetMiningPoolsResponse(_message.Message):
     pools: _containers.RepeatedCompositeFieldContainer[ConfiguredPool]
     def __init__(self, pools: _Optional[_Iterable[_Union[ConfiguredPool, _Mapping]]] = ...) -> None: ...
 
+class StoredMiningPool(_message.Message):
+    __slots__ = ("priority", "url", "username", "password")
+    PRIORITY_FIELD_NUMBER: _ClassVar[int]
+    URL_FIELD_NUMBER: _ClassVar[int]
+    USERNAME_FIELD_NUMBER: _ClassVar[int]
+    PASSWORD_FIELD_NUMBER: _ClassVar[int]
+    priority: int
+    url: str
+    username: str
+    password: str
+    def __init__(self, priority: _Optional[int] = ..., url: _Optional[str] = ..., username: _Optional[str] = ..., password: _Optional[str] = ...) -> None: ...
+
+class GetStoredMiningPoolsRequest(_message.Message):
+    __slots__ = ("ref",)
+    REF_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ...) -> None: ...
+
+class GetStoredMiningPoolsResponse(_message.Message):
+    __slots__ = ("pools",)
+    POOLS_FIELD_NUMBER: _ClassVar[int]
+    pools: _containers.RepeatedCompositeFieldContainer[StoredMiningPool]
+    def __init__(self, pools: _Optional[_Iterable[_Union[StoredMiningPool, _Mapping]]] = ...) -> None: ...
+
 class DownloadLogsRequest(_message.Message):
     __slots__ = ("ref", "since", "batch_log_uuid")
     REF_FIELD_NUMBER: _ClassVar[int]
@@ -661,7 +740,7 @@ class DownloadLogsResponse(_message.Message):
     def __init__(self, log_data: _Optional[str] = ..., more_data: bool = ...) -> None: ...
 
 class DeviceInfo(_message.Message):
-    __slots__ = ("host", "port", "url_scheme", "serial_number", "model", "manufacturer", "mac_address", "firmware_version", "default_password_active")
+    __slots__ = ("host", "port", "url_scheme", "serial_number", "model", "manufacturer", "mac_address", "firmware_version", "default_password_active", "device_class", "rpc_port", "rpc_tls", "endpoints")
     HOST_FIELD_NUMBER: _ClassVar[int]
     PORT_FIELD_NUMBER: _ClassVar[int]
     URL_SCHEME_FIELD_NUMBER: _ClassVar[int]
@@ -671,6 +750,10 @@ class DeviceInfo(_message.Message):
     MAC_ADDRESS_FIELD_NUMBER: _ClassVar[int]
     FIRMWARE_VERSION_FIELD_NUMBER: _ClassVar[int]
     DEFAULT_PASSWORD_ACTIVE_FIELD_NUMBER: _ClassVar[int]
+    DEVICE_CLASS_FIELD_NUMBER: _ClassVar[int]
+    RPC_PORT_FIELD_NUMBER: _ClassVar[int]
+    RPC_TLS_FIELD_NUMBER: _ClassVar[int]
+    ENDPOINTS_FIELD_NUMBER: _ClassVar[int]
     host: str
     port: int
     url_scheme: str
@@ -680,7 +763,11 @@ class DeviceInfo(_message.Message):
     mac_address: str
     firmware_version: str
     default_password_active: bool
-    def __init__(self, host: _Optional[str] = ..., port: _Optional[int] = ..., url_scheme: _Optional[str] = ..., serial_number: _Optional[str] = ..., model: _Optional[str] = ..., manufacturer: _Optional[str] = ..., mac_address: _Optional[str] = ..., firmware_version: _Optional[str] = ..., default_password_active: bool = ...) -> None: ...
+    device_class: DeviceClass
+    rpc_port: int
+    rpc_tls: bool
+    endpoints: _containers.RepeatedCompositeFieldContainer[DeviceEndpoint]
+    def __init__(self, host: _Optional[str] = ..., port: _Optional[int] = ..., url_scheme: _Optional[str] = ..., serial_number: _Optional[str] = ..., model: _Optional[str] = ..., manufacturer: _Optional[str] = ..., mac_address: _Optional[str] = ..., firmware_version: _Optional[str] = ..., default_password_active: bool = ..., device_class: _Optional[_Union[DeviceClass, str]] = ..., rpc_port: _Optional[int] = ..., rpc_tls: bool = ..., endpoints: _Optional[_Iterable[_Union[DeviceEndpoint, _Mapping]]] = ...) -> None: ...
 
 class DiscoverDeviceRequest(_message.Message):
     __slots__ = ("ip_address", "port")
@@ -793,18 +880,20 @@ class UpdateMinerPasswordRequest(_message.Message):
     def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., current_password: _Optional[str] = ..., new_password: _Optional[str] = ...) -> None: ...
 
 class FirmwareFileInfo(_message.Message):
-    __slots__ = ("file_path", "original_filename", "file_size", "id", "sha256")
+    __slots__ = ("file_path", "original_filename", "file_size", "id", "sha256", "request_id")
     FILE_PATH_FIELD_NUMBER: _ClassVar[int]
     ORIGINAL_FILENAME_FIELD_NUMBER: _ClassVar[int]
     FILE_SIZE_FIELD_NUMBER: _ClassVar[int]
     ID_FIELD_NUMBER: _ClassVar[int]
     SHA256_FIELD_NUMBER: _ClassVar[int]
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
     file_path: str
     original_filename: str
     file_size: int
     id: str
     sha256: str
-    def __init__(self, file_path: _Optional[str] = ..., original_filename: _Optional[str] = ..., file_size: _Optional[int] = ..., id: _Optional[str] = ..., sha256: _Optional[str] = ...) -> None: ...
+    request_id: str
+    def __init__(self, file_path: _Optional[str] = ..., original_filename: _Optional[str] = ..., file_size: _Optional[int] = ..., id: _Optional[str] = ..., sha256: _Optional[str] = ..., request_id: _Optional[str] = ...) -> None: ...
 
 class UpdateFirmwareRequest(_message.Message):
     __slots__ = ("ref", "firmware")
@@ -868,3 +957,858 @@ class DeviceErrors(_message.Message):
     device_id: str
     errors: _containers.RepeatedCompositeFieldContainer[DeviceError]
     def __init__(self, device_id: _Optional[str] = ..., errors: _Optional[_Iterable[_Union[DeviceError, _Mapping]]] = ...) -> None: ...
+
+class ContainerHA(_message.Message):
+    __slots__ = ("observed_at", "degraded")
+    OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
+    DEGRADED_FIELD_NUMBER: _ClassVar[int]
+    observed_at: _timestamp_pb2.Timestamp
+    degraded: bool
+    def __init__(self, observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., degraded: bool = ...) -> None: ...
+
+class ContainerSnapshot(_message.Message):
+    __slots__ = ("hashboard_firmware_version", "hashboard_firmware_mixed", "psu_firmware_version", "psu_firmware_mixed", "ha", "unlocated_hashboards", "metrics", "fans", "controls", "observed_at", "tanks", "plant", "topology_complete")
+    HASHBOARD_FIRMWARE_VERSION_FIELD_NUMBER: _ClassVar[int]
+    HASHBOARD_FIRMWARE_MIXED_FIELD_NUMBER: _ClassVar[int]
+    PSU_FIRMWARE_VERSION_FIELD_NUMBER: _ClassVar[int]
+    PSU_FIRMWARE_MIXED_FIELD_NUMBER: _ClassVar[int]
+    HA_FIELD_NUMBER: _ClassVar[int]
+    UNLOCATED_HASHBOARDS_FIELD_NUMBER: _ClassVar[int]
+    METRICS_FIELD_NUMBER: _ClassVar[int]
+    FANS_FIELD_NUMBER: _ClassVar[int]
+    CONTROLS_FIELD_NUMBER: _ClassVar[int]
+    OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
+    TANKS_FIELD_NUMBER: _ClassVar[int]
+    PLANT_FIELD_NUMBER: _ClassVar[int]
+    TOPOLOGY_COMPLETE_FIELD_NUMBER: _ClassVar[int]
+    hashboard_firmware_version: str
+    hashboard_firmware_mixed: bool
+    psu_firmware_version: str
+    psu_firmware_mixed: bool
+    ha: ContainerHA
+    unlocated_hashboards: _containers.RepeatedCompositeFieldContainer[ContainerHashboard]
+    metrics: ContainerRollup
+    fans: _containers.RepeatedCompositeFieldContainer[ContainerFan]
+    controls: ContainerControls
+    observed_at: _timestamp_pb2.Timestamp
+    tanks: _containers.RepeatedCompositeFieldContainer[ContainerTank]
+    plant: ContainerPlant
+    topology_complete: bool
+    def __init__(self, hashboard_firmware_version: _Optional[str] = ..., hashboard_firmware_mixed: bool = ..., psu_firmware_version: _Optional[str] = ..., psu_firmware_mixed: bool = ..., ha: _Optional[_Union[ContainerHA, _Mapping]] = ..., unlocated_hashboards: _Optional[_Iterable[_Union[ContainerHashboard, _Mapping]]] = ..., metrics: _Optional[_Union[ContainerRollup, _Mapping]] = ..., fans: _Optional[_Iterable[_Union[ContainerFan, _Mapping]]] = ..., controls: _Optional[_Union[ContainerControls, _Mapping]] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., tanks: _Optional[_Iterable[_Union[ContainerTank, _Mapping]]] = ..., plant: _Optional[_Union[ContainerPlant, _Mapping]] = ..., topology_complete: bool = ...) -> None: ...
+
+class ContainerTank(_message.Message):
+    __slots__ = ("metrics", "topology_complete", "position", "modules")
+    METRICS_FIELD_NUMBER: _ClassVar[int]
+    TOPOLOGY_COMPLETE_FIELD_NUMBER: _ClassVar[int]
+    POSITION_FIELD_NUMBER: _ClassVar[int]
+    MODULES_FIELD_NUMBER: _ClassVar[int]
+    metrics: ContainerRollup
+    topology_complete: bool
+    position: int
+    modules: _containers.RepeatedCompositeFieldContainer[ContainerModule]
+    def __init__(self, metrics: _Optional[_Union[ContainerRollup, _Mapping]] = ..., topology_complete: bool = ..., position: _Optional[int] = ..., modules: _Optional[_Iterable[_Union[ContainerModule, _Mapping]]] = ...) -> None: ...
+
+class ContainerModule(_message.Message):
+    __slots__ = ("identity_confirmed", "hashboards", "position", "reported_id", "state", "observed_at", "metrics", "issues")
+    IDENTITY_CONFIRMED_FIELD_NUMBER: _ClassVar[int]
+    HASHBOARDS_FIELD_NUMBER: _ClassVar[int]
+    POSITION_FIELD_NUMBER: _ClassVar[int]
+    REPORTED_ID_FIELD_NUMBER: _ClassVar[int]
+    STATE_FIELD_NUMBER: _ClassVar[int]
+    OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
+    METRICS_FIELD_NUMBER: _ClassVar[int]
+    ISSUES_FIELD_NUMBER: _ClassVar[int]
+    identity_confirmed: bool
+    hashboards: _containers.RepeatedCompositeFieldContainer[ContainerHashboard]
+    position: int
+    reported_id: str
+    state: str
+    observed_at: _timestamp_pb2.Timestamp
+    metrics: ContainerModuleMetrics
+    issues: ContainerModuleIssues
+    def __init__(self, identity_confirmed: bool = ..., hashboards: _Optional[_Iterable[_Union[ContainerHashboard, _Mapping]]] = ..., position: _Optional[int] = ..., reported_id: _Optional[str] = ..., state: _Optional[str] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., metrics: _Optional[_Union[ContainerModuleMetrics, _Mapping]] = ..., issues: _Optional[_Union[ContainerModuleIssues, _Mapping]] = ...) -> None: ...
+
+class HashboardIdentityClaim(_message.Message):
+    __slots__ = ("mac_address", "serial")
+    MAC_ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    SERIAL_FIELD_NUMBER: _ClassVar[int]
+    mac_address: str
+    serial: str
+    def __init__(self, mac_address: _Optional[str] = ..., serial: _Optional[str] = ...) -> None: ...
+
+class ContainerHashboard(_message.Message):
+    __slots__ = ("power_w", "efficiency_jh", "feed", "identity_claims", "unavailable_reason", "position", "occupancy", "mac_address", "serial", "state", "mining_state", "isolated", "observed_at", "state_observed_at", "hashrate_hs", "temperature_c", "hashrail_ok", "refclks_ok", "metadata_json", "health_json")
+    POWER_W_FIELD_NUMBER: _ClassVar[int]
+    EFFICIENCY_JH_FIELD_NUMBER: _ClassVar[int]
+    FEED_FIELD_NUMBER: _ClassVar[int]
+    IDENTITY_CLAIMS_FIELD_NUMBER: _ClassVar[int]
+    UNAVAILABLE_REASON_FIELD_NUMBER: _ClassVar[int]
+    POSITION_FIELD_NUMBER: _ClassVar[int]
+    OCCUPANCY_FIELD_NUMBER: _ClassVar[int]
+    MAC_ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    SERIAL_FIELD_NUMBER: _ClassVar[int]
+    STATE_FIELD_NUMBER: _ClassVar[int]
+    MINING_STATE_FIELD_NUMBER: _ClassVar[int]
+    ISOLATED_FIELD_NUMBER: _ClassVar[int]
+    OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
+    STATE_OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
+    HASHRATE_HS_FIELD_NUMBER: _ClassVar[int]
+    TEMPERATURE_C_FIELD_NUMBER: _ClassVar[int]
+    HASHRAIL_OK_FIELD_NUMBER: _ClassVar[int]
+    REFCLKS_OK_FIELD_NUMBER: _ClassVar[int]
+    METADATA_JSON_FIELD_NUMBER: _ClassVar[int]
+    HEALTH_JSON_FIELD_NUMBER: _ClassVar[int]
+    power_w: float
+    efficiency_jh: float
+    feed: ContainerFeedEvidence
+    identity_claims: _containers.RepeatedCompositeFieldContainer[HashboardIdentityClaim]
+    unavailable_reason: str
+    position: int
+    occupancy: str
+    mac_address: str
+    serial: str
+    state: str
+    mining_state: str
+    isolated: bool
+    observed_at: _timestamp_pb2.Timestamp
+    state_observed_at: _timestamp_pb2.Timestamp
+    hashrate_hs: float
+    temperature_c: float
+    hashrail_ok: bool
+    refclks_ok: bool
+    metadata_json: bytes
+    health_json: bytes
+    def __init__(self, power_w: _Optional[float] = ..., efficiency_jh: _Optional[float] = ..., feed: _Optional[_Union[ContainerFeedEvidence, _Mapping]] = ..., identity_claims: _Optional[_Iterable[_Union[HashboardIdentityClaim, _Mapping]]] = ..., unavailable_reason: _Optional[str] = ..., position: _Optional[int] = ..., occupancy: _Optional[str] = ..., mac_address: _Optional[str] = ..., serial: _Optional[str] = ..., state: _Optional[str] = ..., mining_state: _Optional[str] = ..., isolated: bool = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., state_observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., hashrate_hs: _Optional[float] = ..., temperature_c: _Optional[float] = ..., hashrail_ok: bool = ..., refclks_ok: bool = ..., metadata_json: _Optional[bytes] = ..., health_json: _Optional[bytes] = ...) -> None: ...
+
+class ContainerModuleMetrics(_message.Message):
+    __slots__ = ("efficiency_jh", "rollup", "observed_at", "hashrate_hs", "power_w", "temperature_c")
+    EFFICIENCY_JH_FIELD_NUMBER: _ClassVar[int]
+    ROLLUP_FIELD_NUMBER: _ClassVar[int]
+    OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
+    HASHRATE_HS_FIELD_NUMBER: _ClassVar[int]
+    POWER_W_FIELD_NUMBER: _ClassVar[int]
+    TEMPERATURE_C_FIELD_NUMBER: _ClassVar[int]
+    efficiency_jh: float
+    rollup: ContainerRollup
+    observed_at: _timestamp_pb2.Timestamp
+    hashrate_hs: float
+    power_w: float
+    temperature_c: float
+    def __init__(self, efficiency_jh: _Optional[float] = ..., rollup: _Optional[_Union[ContainerRollup, _Mapping]] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., hashrate_hs: _Optional[float] = ..., power_w: _Optional[float] = ..., temperature_c: _Optional[float] = ...) -> None: ...
+
+class ContainerPlant(_message.Message):
+    __slots__ = ("dry_cooler_inlet_temperature_c", "observed_at", "total_power_w", "facility_power_w", "pue", "inlet_temperature_c", "outlet_temperature_c", "alarm_active", "critical_alarm_active", "buzzer_active")
+    DRY_COOLER_INLET_TEMPERATURE_C_FIELD_NUMBER: _ClassVar[int]
+    OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
+    TOTAL_POWER_W_FIELD_NUMBER: _ClassVar[int]
+    FACILITY_POWER_W_FIELD_NUMBER: _ClassVar[int]
+    PUE_FIELD_NUMBER: _ClassVar[int]
+    INLET_TEMPERATURE_C_FIELD_NUMBER: _ClassVar[int]
+    OUTLET_TEMPERATURE_C_FIELD_NUMBER: _ClassVar[int]
+    ALARM_ACTIVE_FIELD_NUMBER: _ClassVar[int]
+    CRITICAL_ALARM_ACTIVE_FIELD_NUMBER: _ClassVar[int]
+    BUZZER_ACTIVE_FIELD_NUMBER: _ClassVar[int]
+    dry_cooler_inlet_temperature_c: float
+    observed_at: _timestamp_pb2.Timestamp
+    total_power_w: float
+    facility_power_w: float
+    pue: float
+    inlet_temperature_c: float
+    outlet_temperature_c: float
+    alarm_active: bool
+    critical_alarm_active: bool
+    buzzer_active: bool
+    def __init__(self, dry_cooler_inlet_temperature_c: _Optional[float] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., total_power_w: _Optional[float] = ..., facility_power_w: _Optional[float] = ..., pue: _Optional[float] = ..., inlet_temperature_c: _Optional[float] = ..., outlet_temperature_c: _Optional[float] = ..., alarm_active: bool = ..., critical_alarm_active: bool = ..., buzzer_active: bool = ...) -> None: ...
+
+class ContainerFan(_message.Message):
+    __slots__ = ("component_id", "observed_at", "speed_percent", "power_w", "direction", "alarm_active")
+    COMPONENT_ID_FIELD_NUMBER: _ClassVar[int]
+    OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
+    SPEED_PERCENT_FIELD_NUMBER: _ClassVar[int]
+    POWER_W_FIELD_NUMBER: _ClassVar[int]
+    DIRECTION_FIELD_NUMBER: _ClassVar[int]
+    ALARM_ACTIVE_FIELD_NUMBER: _ClassVar[int]
+    component_id: str
+    observed_at: _timestamp_pb2.Timestamp
+    speed_percent: float
+    power_w: float
+    direction: str
+    alarm_active: bool
+    def __init__(self, component_id: _Optional[str] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., speed_percent: _Optional[float] = ..., power_w: _Optional[float] = ..., direction: _Optional[str] = ..., alarm_active: bool = ...) -> None: ...
+
+class ContainerControls(_message.Message):
+    __slots__ = ("observed_at", "supported", "controls", "setpoints", "main_circuit_breaker_supported", "main_circuit_breaker_closed", "alarm_reset_supported", "alarm_mute_supported", "dry_cooler_fan_reverse_supported")
+    OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
+    SUPPORTED_FIELD_NUMBER: _ClassVar[int]
+    CONTROLS_FIELD_NUMBER: _ClassVar[int]
+    SETPOINTS_FIELD_NUMBER: _ClassVar[int]
+    MAIN_CIRCUIT_BREAKER_SUPPORTED_FIELD_NUMBER: _ClassVar[int]
+    MAIN_CIRCUIT_BREAKER_CLOSED_FIELD_NUMBER: _ClassVar[int]
+    ALARM_RESET_SUPPORTED_FIELD_NUMBER: _ClassVar[int]
+    ALARM_MUTE_SUPPORTED_FIELD_NUMBER: _ClassVar[int]
+    DRY_COOLER_FAN_REVERSE_SUPPORTED_FIELD_NUMBER: _ClassVar[int]
+    observed_at: _timestamp_pb2.Timestamp
+    supported: bool
+    controls: _containers.RepeatedCompositeFieldContainer[ContainerControl]
+    setpoints: _containers.RepeatedCompositeFieldContainer[ContainerSetpoint]
+    main_circuit_breaker_supported: bool
+    main_circuit_breaker_closed: bool
+    alarm_reset_supported: bool
+    alarm_mute_supported: bool
+    dry_cooler_fan_reverse_supported: bool
+    def __init__(self, observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., supported: bool = ..., controls: _Optional[_Iterable[_Union[ContainerControl, _Mapping]]] = ..., setpoints: _Optional[_Iterable[_Union[ContainerSetpoint, _Mapping]]] = ..., main_circuit_breaker_supported: bool = ..., main_circuit_breaker_closed: bool = ..., alarm_reset_supported: bool = ..., alarm_mute_supported: bool = ..., dry_cooler_fan_reverse_supported: bool = ...) -> None: ...
+
+class ContainerControl(_message.Message):
+    __slots__ = ("name", "enabled")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    ENABLED_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    enabled: bool
+    def __init__(self, name: _Optional[str] = ..., enabled: bool = ...) -> None: ...
+
+class ContainerSetpoint(_message.Message):
+    __slots__ = ("name", "value", "unit")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    VALUE_FIELD_NUMBER: _ClassVar[int]
+    UNIT_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    value: float
+    unit: str
+    def __init__(self, name: _Optional[str] = ..., value: _Optional[float] = ..., unit: _Optional[str] = ...) -> None: ...
+
+class SetContainerControlRequest(_message.Message):
+    __slots__ = ("ref", "name", "enabled")
+    REF_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    ENABLED_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    name: str
+    enabled: bool
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., name: _Optional[str] = ..., enabled: bool = ...) -> None: ...
+
+class RunContainerAlarmActionRequest(_message.Message):
+    __slots__ = ("ref", "action")
+    REF_FIELD_NUMBER: _ClassVar[int]
+    ACTION_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    action: str
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., action: _Optional[str] = ...) -> None: ...
+
+class ContainerModuleIssues(_message.Message):
+    __slots__ = ("source_times", "observed_at", "complete", "items")
+    class SourceTimesEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: _timestamp_pb2.Timestamp
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+    SOURCE_TIMES_FIELD_NUMBER: _ClassVar[int]
+    OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
+    COMPLETE_FIELD_NUMBER: _ClassVar[int]
+    ITEMS_FIELD_NUMBER: _ClassVar[int]
+    source_times: _containers.MessageMap[str, _timestamp_pb2.Timestamp]
+    observed_at: _timestamp_pb2.Timestamp
+    complete: bool
+    items: _containers.RepeatedCompositeFieldContainer[ContainerModuleIssue]
+    def __init__(self, source_times: _Optional[_Mapping[str, _timestamp_pb2.Timestamp]] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., complete: bool = ..., items: _Optional[_Iterable[_Union[ContainerModuleIssue, _Mapping]]] = ...) -> None: ...
+
+class ContainerModuleIssue(_message.Message):
+    __slots__ = ("component", "component_id", "cause", "severity", "canonical_error", "observed_at")
+    COMPONENT_FIELD_NUMBER: _ClassVar[int]
+    COMPONENT_ID_FIELD_NUMBER: _ClassVar[int]
+    CAUSE_FIELD_NUMBER: _ClassVar[int]
+    SEVERITY_FIELD_NUMBER: _ClassVar[int]
+    CANONICAL_ERROR_FIELD_NUMBER: _ClassVar[int]
+    OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
+    component: str
+    component_id: str
+    cause: str
+    severity: str
+    canonical_error: MinerError
+    observed_at: _timestamp_pb2.Timestamp
+    def __init__(self, component: _Optional[str] = ..., component_id: _Optional[str] = ..., cause: _Optional[str] = ..., severity: _Optional[str] = ..., canonical_error: _Optional[_Union[MinerError, str]] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+
+class SetTankMiningRequest(_message.Message):
+    __slots__ = ("ref", "positions", "mining")
+    REF_FIELD_NUMBER: _ClassVar[int]
+    POSITIONS_FIELD_NUMBER: _ClassVar[int]
+    MINING_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    positions: _containers.RepeatedScalarFieldContainer[int]
+    mining: bool
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., positions: _Optional[_Iterable[int]] = ..., mining: bool = ...) -> None: ...
+
+class ModuleMiningTarget(_message.Message):
+    __slots__ = ("tank", "module", "reported_id")
+    TANK_FIELD_NUMBER: _ClassVar[int]
+    MODULE_FIELD_NUMBER: _ClassVar[int]
+    REPORTED_ID_FIELD_NUMBER: _ClassVar[int]
+    tank: int
+    module: int
+    reported_id: str
+    def __init__(self, tank: _Optional[int] = ..., module: _Optional[int] = ..., reported_id: _Optional[str] = ...) -> None: ...
+
+class SetModuleMiningRequest(_message.Message):
+    __slots__ = ("ref", "modules", "mining")
+    REF_FIELD_NUMBER: _ClassVar[int]
+    MODULES_FIELD_NUMBER: _ClassVar[int]
+    MINING_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    modules: _containers.RepeatedCompositeFieldContainer[ModuleMiningTarget]
+    mining: bool
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., modules: _Optional[_Iterable[_Union[ModuleMiningTarget, _Mapping]]] = ..., mining: bool = ...) -> None: ...
+
+class BoardIdentifyTarget(_message.Message):
+    __slots__ = ("tank", "module", "slot", "module_reported_id", "mac_address")
+    TANK_FIELD_NUMBER: _ClassVar[int]
+    MODULE_FIELD_NUMBER: _ClassVar[int]
+    SLOT_FIELD_NUMBER: _ClassVar[int]
+    MODULE_REPORTED_ID_FIELD_NUMBER: _ClassVar[int]
+    MAC_ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    tank: int
+    module: int
+    slot: int
+    module_reported_id: str
+    mac_address: str
+    def __init__(self, tank: _Optional[int] = ..., module: _Optional[int] = ..., slot: _Optional[int] = ..., module_reported_id: _Optional[str] = ..., mac_address: _Optional[str] = ...) -> None: ...
+
+class SetBoardIdentifyRequest(_message.Message):
+    __slots__ = ("ref", "board", "mode")
+    REF_FIELD_NUMBER: _ClassVar[int]
+    BOARD_FIELD_NUMBER: _ClassVar[int]
+    MODE_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    board: BoardIdentifyTarget
+    mode: str
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., board: _Optional[_Union[BoardIdentifyTarget, _Mapping]] = ..., mode: _Optional[str] = ...) -> None: ...
+
+class StreamBoardASICReadingsRequest(_message.Message):
+    __slots__ = ("ref", "board")
+    REF_FIELD_NUMBER: _ClassVar[int]
+    BOARD_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    board: BoardIdentifyTarget
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., board: _Optional[_Union[BoardIdentifyTarget, _Mapping]] = ...) -> None: ...
+
+class BoardASICPosition(_message.Message):
+    __slots__ = ("index", "stack_id", "stack_index", "x", "y")
+    INDEX_FIELD_NUMBER: _ClassVar[int]
+    STACK_ID_FIELD_NUMBER: _ClassVar[int]
+    STACK_INDEX_FIELD_NUMBER: _ClassVar[int]
+    X_FIELD_NUMBER: _ClassVar[int]
+    Y_FIELD_NUMBER: _ClassVar[int]
+    index: int
+    stack_id: int
+    stack_index: int
+    x: int
+    y: int
+    def __init__(self, index: _Optional[int] = ..., stack_id: _Optional[int] = ..., stack_index: _Optional[int] = ..., x: _Optional[int] = ..., y: _Optional[int] = ...) -> None: ...
+
+class BoardASICLayout(_message.Message):
+    __slots__ = ("stack_count", "asics_per_stack", "total_asics", "positions")
+    STACK_COUNT_FIELD_NUMBER: _ClassVar[int]
+    ASICS_PER_STACK_FIELD_NUMBER: _ClassVar[int]
+    TOTAL_ASICS_FIELD_NUMBER: _ClassVar[int]
+    POSITIONS_FIELD_NUMBER: _ClassVar[int]
+    stack_count: int
+    asics_per_stack: int
+    total_asics: int
+    positions: _containers.RepeatedCompositeFieldContainer[BoardASICPosition]
+    def __init__(self, stack_count: _Optional[int] = ..., asics_per_stack: _Optional[int] = ..., total_asics: _Optional[int] = ..., positions: _Optional[_Iterable[_Union[BoardASICPosition, _Mapping]]] = ...) -> None: ...
+
+class BoardASICReading(_message.Message):
+    __slots__ = ("index", "temperature_c", "hashrate_ghs", "voltage_v", "frequency_mhz", "pass_rate_percent", "thermal_quarantined")
+    INDEX_FIELD_NUMBER: _ClassVar[int]
+    TEMPERATURE_C_FIELD_NUMBER: _ClassVar[int]
+    HASHRATE_GHS_FIELD_NUMBER: _ClassVar[int]
+    VOLTAGE_V_FIELD_NUMBER: _ClassVar[int]
+    FREQUENCY_MHZ_FIELD_NUMBER: _ClassVar[int]
+    PASS_RATE_PERCENT_FIELD_NUMBER: _ClassVar[int]
+    THERMAL_QUARANTINED_FIELD_NUMBER: _ClassVar[int]
+    index: int
+    temperature_c: float
+    hashrate_ghs: float
+    voltage_v: float
+    frequency_mhz: float
+    pass_rate_percent: float
+    thermal_quarantined: bool
+    def __init__(self, index: _Optional[int] = ..., temperature_c: _Optional[float] = ..., hashrate_ghs: _Optional[float] = ..., voltage_v: _Optional[float] = ..., frequency_mhz: _Optional[float] = ..., pass_rate_percent: _Optional[float] = ..., thermal_quarantined: bool = ...) -> None: ...
+
+class BoardASICFrame(_message.Message):
+    __slots__ = ("mac_address", "observed_at", "layout", "asics")
+    MAC_ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
+    LAYOUT_FIELD_NUMBER: _ClassVar[int]
+    ASICS_FIELD_NUMBER: _ClassVar[int]
+    mac_address: str
+    observed_at: _timestamp_pb2.Timestamp
+    layout: BoardASICLayout
+    asics: _containers.RepeatedCompositeFieldContainer[BoardASICReading]
+    def __init__(self, mac_address: _Optional[str] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., layout: _Optional[_Union[BoardASICLayout, _Mapping]] = ..., asics: _Optional[_Iterable[_Union[BoardASICReading, _Mapping]]] = ...) -> None: ...
+
+class ContainerRollup(_message.Message):
+    __slots__ = ("unlocated_hashboards", "hashrate_hs", "power_w", "efficiency_jh", "temperature_c", "min_temperature_c", "max_temperature_c", "hashrate", "power", "temperature", "power_source", "attribution", "source_times")
+    class SourceTimesEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: _timestamp_pb2.Timestamp
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+    UNLOCATED_HASHBOARDS_FIELD_NUMBER: _ClassVar[int]
+    HASHRATE_HS_FIELD_NUMBER: _ClassVar[int]
+    POWER_W_FIELD_NUMBER: _ClassVar[int]
+    EFFICIENCY_JH_FIELD_NUMBER: _ClassVar[int]
+    TEMPERATURE_C_FIELD_NUMBER: _ClassVar[int]
+    MIN_TEMPERATURE_C_FIELD_NUMBER: _ClassVar[int]
+    MAX_TEMPERATURE_C_FIELD_NUMBER: _ClassVar[int]
+    HASHRATE_FIELD_NUMBER: _ClassVar[int]
+    POWER_FIELD_NUMBER: _ClassVar[int]
+    TEMPERATURE_FIELD_NUMBER: _ClassVar[int]
+    POWER_SOURCE_FIELD_NUMBER: _ClassVar[int]
+    ATTRIBUTION_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_TIMES_FIELD_NUMBER: _ClassVar[int]
+    unlocated_hashboards: int
+    hashrate_hs: float
+    power_w: float
+    efficiency_jh: float
+    temperature_c: float
+    min_temperature_c: float
+    max_temperature_c: float
+    hashrate: MetricCoverage
+    power: MetricCoverage
+    temperature: MetricCoverage
+    power_source: str
+    attribution: str
+    source_times: _containers.MessageMap[str, _timestamp_pb2.Timestamp]
+    def __init__(self, unlocated_hashboards: _Optional[int] = ..., hashrate_hs: _Optional[float] = ..., power_w: _Optional[float] = ..., efficiency_jh: _Optional[float] = ..., temperature_c: _Optional[float] = ..., min_temperature_c: _Optional[float] = ..., max_temperature_c: _Optional[float] = ..., hashrate: _Optional[_Union[MetricCoverage, _Mapping]] = ..., power: _Optional[_Union[MetricCoverage, _Mapping]] = ..., temperature: _Optional[_Union[MetricCoverage, _Mapping]] = ..., power_source: _Optional[str] = ..., attribution: _Optional[str] = ..., source_times: _Optional[_Mapping[str, _timestamp_pb2.Timestamp]] = ...) -> None: ...
+
+class MetricCoverage(_message.Message):
+    __slots__ = ("reporting", "expected", "topology_complete", "oldest_at", "newest_at")
+    REPORTING_FIELD_NUMBER: _ClassVar[int]
+    EXPECTED_FIELD_NUMBER: _ClassVar[int]
+    TOPOLOGY_COMPLETE_FIELD_NUMBER: _ClassVar[int]
+    OLDEST_AT_FIELD_NUMBER: _ClassVar[int]
+    NEWEST_AT_FIELD_NUMBER: _ClassVar[int]
+    reporting: int
+    expected: int
+    topology_complete: bool
+    oldest_at: _timestamp_pb2.Timestamp
+    newest_at: _timestamp_pb2.Timestamp
+    def __init__(self, reporting: _Optional[int] = ..., expected: _Optional[int] = ..., topology_complete: bool = ..., oldest_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., newest_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+
+class ContainerFeedEvidence(_message.Message):
+    __slots__ = ("power_feed_id", "expected_power_feed_id", "wiring_status", "wiring_reasons", "configured_tank", "configured_module", "observed_power_feed_id")
+    POWER_FEED_ID_FIELD_NUMBER: _ClassVar[int]
+    EXPECTED_POWER_FEED_ID_FIELD_NUMBER: _ClassVar[int]
+    WIRING_STATUS_FIELD_NUMBER: _ClassVar[int]
+    WIRING_REASONS_FIELD_NUMBER: _ClassVar[int]
+    CONFIGURED_TANK_FIELD_NUMBER: _ClassVar[int]
+    CONFIGURED_MODULE_FIELD_NUMBER: _ClassVar[int]
+    OBSERVED_POWER_FEED_ID_FIELD_NUMBER: _ClassVar[int]
+    power_feed_id: str
+    expected_power_feed_id: str
+    wiring_status: str
+    wiring_reasons: _containers.RepeatedScalarFieldContainer[str]
+    configured_tank: int
+    configured_module: int
+    observed_power_feed_id: str
+    def __init__(self, power_feed_id: _Optional[str] = ..., expected_power_feed_id: _Optional[str] = ..., wiring_status: _Optional[str] = ..., wiring_reasons: _Optional[_Iterable[str]] = ..., configured_tank: _Optional[int] = ..., configured_module: _Optional[int] = ..., observed_power_feed_id: _Optional[str] = ...) -> None: ...
+
+class DeviceEndpoint(_message.Message):
+    __slots__ = ("id", "device_key", "host", "port", "url_scheme", "rpc_port", "rpc_tls", "member_ids")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    DEVICE_KEY_FIELD_NUMBER: _ClassVar[int]
+    HOST_FIELD_NUMBER: _ClassVar[int]
+    PORT_FIELD_NUMBER: _ClassVar[int]
+    URL_SCHEME_FIELD_NUMBER: _ClassVar[int]
+    RPC_PORT_FIELD_NUMBER: _ClassVar[int]
+    RPC_TLS_FIELD_NUMBER: _ClassVar[int]
+    MEMBER_IDS_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    device_key: str
+    host: str
+    port: int
+    url_scheme: str
+    rpc_port: int
+    rpc_tls: bool
+    member_ids: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, id: _Optional[str] = ..., device_key: _Optional[str] = ..., host: _Optional[str] = ..., port: _Optional[int] = ..., url_scheme: _Optional[str] = ..., rpc_port: _Optional[int] = ..., rpc_tls: bool = ..., member_ids: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class MiningGroupsRequest(_message.Message):
+    __slots__ = ("ref", "payload")
+    REF_FIELD_NUMBER: _ClassVar[int]
+    PAYLOAD_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    payload: bytes
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., payload: _Optional[bytes] = ...) -> None: ...
+
+class MiningGroupsResponse(_message.Message):
+    __slots__ = ("payload",)
+    PAYLOAD_FIELD_NUMBER: _ClassVar[int]
+    payload: bytes
+    def __init__(self, payload: _Optional[bytes] = ...) -> None: ...
+
+class ControllerRecordsRequest(_message.Message):
+    __slots__ = ("ref", "payload")
+    REF_FIELD_NUMBER: _ClassVar[int]
+    PAYLOAD_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    payload: bytes
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., payload: _Optional[bytes] = ...) -> None: ...
+
+class ControllerRecordsResponse(_message.Message):
+    __slots__ = ("payload",)
+    PAYLOAD_FIELD_NUMBER: _ClassVar[int]
+    payload: bytes
+    def __init__(self, payload: _Optional[bytes] = ...) -> None: ...
+
+class ContainerMiningRequest(_message.Message):
+    __slots__ = ("ref", "payload")
+    REF_FIELD_NUMBER: _ClassVar[int]
+    PAYLOAD_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    payload: bytes
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., payload: _Optional[bytes] = ...) -> None: ...
+
+class ContainerMiningResponse(_message.Message):
+    __slots__ = ("payload",)
+    PAYLOAD_FIELD_NUMBER: _ClassVar[int]
+    payload: bytes
+    def __init__(self, payload: _Optional[bytes] = ...) -> None: ...
+
+class ContainerPowerFeedRequest(_message.Message):
+    __slots__ = ("ref", "payload")
+    REF_FIELD_NUMBER: _ClassVar[int]
+    PAYLOAD_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    payload: bytes
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., payload: _Optional[bytes] = ...) -> None: ...
+
+class ContainerPowerFeedResponse(_message.Message):
+    __slots__ = ("payload",)
+    PAYLOAD_FIELD_NUMBER: _ClassVar[int]
+    payload: bytes
+    def __init__(self, payload: _Optional[bytes] = ...) -> None: ...
+
+class FrigateServerUpdateRequest(_message.Message):
+    __slots__ = ("ref", "support", "stage_begin", "stage_append", "stage_commit", "stage_abort", "start", "status", "retry", "cancel")
+    REF_FIELD_NUMBER: _ClassVar[int]
+    SUPPORT_FIELD_NUMBER: _ClassVar[int]
+    STAGE_BEGIN_FIELD_NUMBER: _ClassVar[int]
+    STAGE_APPEND_FIELD_NUMBER: _ClassVar[int]
+    STAGE_COMMIT_FIELD_NUMBER: _ClassVar[int]
+    STAGE_ABORT_FIELD_NUMBER: _ClassVar[int]
+    START_FIELD_NUMBER: _ClassVar[int]
+    STATUS_FIELD_NUMBER: _ClassVar[int]
+    RETRY_FIELD_NUMBER: _ClassVar[int]
+    CANCEL_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    support: FrigateUpdateSupportRequest
+    stage_begin: FrigateStageBeginRequest
+    stage_append: FrigateStageAppendRequest
+    stage_commit: FrigateStageCommitRequest
+    stage_abort: FrigateStageAbortRequest
+    start: FrigateUpdateStartRequest
+    status: FrigateUpdateStatusRequest
+    retry: FrigateUpdateRetryRequest
+    cancel: FrigateUpdateCancelRequest
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., support: _Optional[_Union[FrigateUpdateSupportRequest, _Mapping]] = ..., stage_begin: _Optional[_Union[FrigateStageBeginRequest, _Mapping]] = ..., stage_append: _Optional[_Union[FrigateStageAppendRequest, _Mapping]] = ..., stage_commit: _Optional[_Union[FrigateStageCommitRequest, _Mapping]] = ..., stage_abort: _Optional[_Union[FrigateStageAbortRequest, _Mapping]] = ..., start: _Optional[_Union[FrigateUpdateStartRequest, _Mapping]] = ..., status: _Optional[_Union[FrigateUpdateStatusRequest, _Mapping]] = ..., retry: _Optional[_Union[FrigateUpdateRetryRequest, _Mapping]] = ..., cancel: _Optional[_Union[FrigateUpdateCancelRequest, _Mapping]] = ...) -> None: ...
+
+class FrigateServerUpdateResponse(_message.Message):
+    __slots__ = ("support", "stage_progress", "stage_commit", "stage_abort", "rollout", "status")
+    SUPPORT_FIELD_NUMBER: _ClassVar[int]
+    STAGE_PROGRESS_FIELD_NUMBER: _ClassVar[int]
+    STAGE_COMMIT_FIELD_NUMBER: _ClassVar[int]
+    STAGE_ABORT_FIELD_NUMBER: _ClassVar[int]
+    ROLLOUT_FIELD_NUMBER: _ClassVar[int]
+    STATUS_FIELD_NUMBER: _ClassVar[int]
+    support: FrigateUpdateSupportResponse
+    stage_progress: FrigateStageProgress
+    stage_commit: FrigateStageCommitResult
+    stage_abort: _empty_pb2.Empty
+    rollout: FrigateRollout
+    status: FrigateStatus
+    def __init__(self, support: _Optional[_Union[FrigateUpdateSupportResponse, _Mapping]] = ..., stage_progress: _Optional[_Union[FrigateStageProgress, _Mapping]] = ..., stage_commit: _Optional[_Union[FrigateStageCommitResult, _Mapping]] = ..., stage_abort: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., rollout: _Optional[_Union[FrigateRollout, _Mapping]] = ..., status: _Optional[_Union[FrigateStatus, _Mapping]] = ...) -> None: ...
+
+class FrigateUpdateSupportRequest(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class FrigateUpdateSupportResponse(_message.Message):
+    __slots__ = ("instances",)
+    INSTANCES_FIELD_NUMBER: _ClassVar[int]
+    instances: _containers.RepeatedCompositeFieldContainer[FrigateInstanceSupport]
+    def __init__(self, instances: _Optional[_Iterable[_Union[FrigateInstanceSupport, _Mapping]]] = ...) -> None: ...
+
+class FrigateInstanceSupport(_message.Message):
+    __slots__ = ("instance_id", "peer_instance_id", "running_version", "architecture", "installation_type", "helper_available", "support_message", "cluster_id", "active_job_id", "spool_free_bytes", "etcd_members_total", "etcd_members_healthy", "trusted_release_key_ids", "self_coordination_supported", "remote_trigger_allowed", "error")
+    INSTANCE_ID_FIELD_NUMBER: _ClassVar[int]
+    PEER_INSTANCE_ID_FIELD_NUMBER: _ClassVar[int]
+    RUNNING_VERSION_FIELD_NUMBER: _ClassVar[int]
+    ARCHITECTURE_FIELD_NUMBER: _ClassVar[int]
+    INSTALLATION_TYPE_FIELD_NUMBER: _ClassVar[int]
+    HELPER_AVAILABLE_FIELD_NUMBER: _ClassVar[int]
+    SUPPORT_MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    CLUSTER_ID_FIELD_NUMBER: _ClassVar[int]
+    ACTIVE_JOB_ID_FIELD_NUMBER: _ClassVar[int]
+    SPOOL_FREE_BYTES_FIELD_NUMBER: _ClassVar[int]
+    ETCD_MEMBERS_TOTAL_FIELD_NUMBER: _ClassVar[int]
+    ETCD_MEMBERS_HEALTHY_FIELD_NUMBER: _ClassVar[int]
+    TRUSTED_RELEASE_KEY_IDS_FIELD_NUMBER: _ClassVar[int]
+    SELF_COORDINATION_SUPPORTED_FIELD_NUMBER: _ClassVar[int]
+    REMOTE_TRIGGER_ALLOWED_FIELD_NUMBER: _ClassVar[int]
+    ERROR_FIELD_NUMBER: _ClassVar[int]
+    instance_id: str
+    peer_instance_id: str
+    running_version: str
+    architecture: str
+    installation_type: str
+    helper_available: bool
+    support_message: str
+    cluster_id: str
+    active_job_id: str
+    spool_free_bytes: int
+    etcd_members_total: int
+    etcd_members_healthy: int
+    trusted_release_key_ids: _containers.RepeatedScalarFieldContainer[str]
+    self_coordination_supported: bool
+    remote_trigger_allowed: bool
+    error: str
+    def __init__(self, instance_id: _Optional[str] = ..., peer_instance_id: _Optional[str] = ..., running_version: _Optional[str] = ..., architecture: _Optional[str] = ..., installation_type: _Optional[str] = ..., helper_available: bool = ..., support_message: _Optional[str] = ..., cluster_id: _Optional[str] = ..., active_job_id: _Optional[str] = ..., spool_free_bytes: _Optional[int] = ..., etcd_members_total: _Optional[int] = ..., etcd_members_healthy: _Optional[int] = ..., trusted_release_key_ids: _Optional[_Iterable[str]] = ..., self_coordination_supported: bool = ..., remote_trigger_allowed: bool = ..., error: _Optional[str] = ...) -> None: ...
+
+class FrigateManifest(_message.Message):
+    __slots__ = ("job_id", "site_id", "container_id", "instance_id", "expected_instance_ids", "release_tag", "target_version", "asset_id", "asset_name", "sha256", "size_bytes", "actor", "coordination", "release_statement", "release_signature")
+    JOB_ID_FIELD_NUMBER: _ClassVar[int]
+    SITE_ID_FIELD_NUMBER: _ClassVar[int]
+    CONTAINER_ID_FIELD_NUMBER: _ClassVar[int]
+    INSTANCE_ID_FIELD_NUMBER: _ClassVar[int]
+    EXPECTED_INSTANCE_IDS_FIELD_NUMBER: _ClassVar[int]
+    RELEASE_TAG_FIELD_NUMBER: _ClassVar[int]
+    TARGET_VERSION_FIELD_NUMBER: _ClassVar[int]
+    ASSET_ID_FIELD_NUMBER: _ClassVar[int]
+    ASSET_NAME_FIELD_NUMBER: _ClassVar[int]
+    SHA256_FIELD_NUMBER: _ClassVar[int]
+    SIZE_BYTES_FIELD_NUMBER: _ClassVar[int]
+    ACTOR_FIELD_NUMBER: _ClassVar[int]
+    COORDINATION_FIELD_NUMBER: _ClassVar[int]
+    RELEASE_STATEMENT_FIELD_NUMBER: _ClassVar[int]
+    RELEASE_SIGNATURE_FIELD_NUMBER: _ClassVar[int]
+    job_id: str
+    site_id: str
+    container_id: str
+    instance_id: str
+    expected_instance_ids: _containers.RepeatedScalarFieldContainer[str]
+    release_tag: str
+    target_version: str
+    asset_id: int
+    asset_name: str
+    sha256: str
+    size_bytes: int
+    actor: str
+    coordination: str
+    release_statement: bytes
+    release_signature: bytes
+    def __init__(self, job_id: _Optional[str] = ..., site_id: _Optional[str] = ..., container_id: _Optional[str] = ..., instance_id: _Optional[str] = ..., expected_instance_ids: _Optional[_Iterable[str]] = ..., release_tag: _Optional[str] = ..., target_version: _Optional[str] = ..., asset_id: _Optional[int] = ..., asset_name: _Optional[str] = ..., sha256: _Optional[str] = ..., size_bytes: _Optional[int] = ..., actor: _Optional[str] = ..., coordination: _Optional[str] = ..., release_statement: _Optional[bytes] = ..., release_signature: _Optional[bytes] = ...) -> None: ...
+
+class FrigateStageBeginRequest(_message.Message):
+    __slots__ = ("instance_id", "manifest")
+    INSTANCE_ID_FIELD_NUMBER: _ClassVar[int]
+    MANIFEST_FIELD_NUMBER: _ClassVar[int]
+    instance_id: str
+    manifest: FrigateManifest
+    def __init__(self, instance_id: _Optional[str] = ..., manifest: _Optional[_Union[FrigateManifest, _Mapping]] = ...) -> None: ...
+
+class FrigateStageAppendRequest(_message.Message):
+    __slots__ = ("instance_id", "job_id", "manifest_sha256", "offset", "chunk", "actor")
+    INSTANCE_ID_FIELD_NUMBER: _ClassVar[int]
+    JOB_ID_FIELD_NUMBER: _ClassVar[int]
+    MANIFEST_SHA256_FIELD_NUMBER: _ClassVar[int]
+    OFFSET_FIELD_NUMBER: _ClassVar[int]
+    CHUNK_FIELD_NUMBER: _ClassVar[int]
+    ACTOR_FIELD_NUMBER: _ClassVar[int]
+    instance_id: str
+    job_id: str
+    manifest_sha256: str
+    offset: int
+    chunk: bytes
+    actor: str
+    def __init__(self, instance_id: _Optional[str] = ..., job_id: _Optional[str] = ..., manifest_sha256: _Optional[str] = ..., offset: _Optional[int] = ..., chunk: _Optional[bytes] = ..., actor: _Optional[str] = ...) -> None: ...
+
+class FrigateStageCommitRequest(_message.Message):
+    __slots__ = ("instance_id", "job_id", "manifest_sha256", "actor")
+    INSTANCE_ID_FIELD_NUMBER: _ClassVar[int]
+    JOB_ID_FIELD_NUMBER: _ClassVar[int]
+    MANIFEST_SHA256_FIELD_NUMBER: _ClassVar[int]
+    ACTOR_FIELD_NUMBER: _ClassVar[int]
+    instance_id: str
+    job_id: str
+    manifest_sha256: str
+    actor: str
+    def __init__(self, instance_id: _Optional[str] = ..., job_id: _Optional[str] = ..., manifest_sha256: _Optional[str] = ..., actor: _Optional[str] = ...) -> None: ...
+
+class FrigateStageAbortRequest(_message.Message):
+    __slots__ = ("instance_id", "job_id", "manifest_sha256", "actor")
+    INSTANCE_ID_FIELD_NUMBER: _ClassVar[int]
+    JOB_ID_FIELD_NUMBER: _ClassVar[int]
+    MANIFEST_SHA256_FIELD_NUMBER: _ClassVar[int]
+    ACTOR_FIELD_NUMBER: _ClassVar[int]
+    instance_id: str
+    job_id: str
+    manifest_sha256: str
+    actor: str
+    def __init__(self, instance_id: _Optional[str] = ..., job_id: _Optional[str] = ..., manifest_sha256: _Optional[str] = ..., actor: _Optional[str] = ...) -> None: ...
+
+class FrigateStageProgress(_message.Message):
+    __slots__ = ("job_id", "manifest_sha256", "next_offset", "size_bytes")
+    JOB_ID_FIELD_NUMBER: _ClassVar[int]
+    MANIFEST_SHA256_FIELD_NUMBER: _ClassVar[int]
+    NEXT_OFFSET_FIELD_NUMBER: _ClassVar[int]
+    SIZE_BYTES_FIELD_NUMBER: _ClassVar[int]
+    job_id: str
+    manifest_sha256: str
+    next_offset: int
+    size_bytes: int
+    def __init__(self, job_id: _Optional[str] = ..., manifest_sha256: _Optional[str] = ..., next_offset: _Optional[int] = ..., size_bytes: _Optional[int] = ...) -> None: ...
+
+class FrigateStageCommitResult(_message.Message):
+    __slots__ = ("job_id", "bytes_staged", "sha256")
+    JOB_ID_FIELD_NUMBER: _ClassVar[int]
+    BYTES_STAGED_FIELD_NUMBER: _ClassVar[int]
+    SHA256_FIELD_NUMBER: _ClassVar[int]
+    job_id: str
+    bytes_staged: int
+    sha256: str
+    def __init__(self, job_id: _Optional[str] = ..., bytes_staged: _Optional[int] = ..., sha256: _Optional[str] = ...) -> None: ...
+
+class FrigateUpdateStartRequest(_message.Message):
+    __slots__ = ("job_id", "target_version", "expected_instance_ids", "stage_only", "idempotency_key", "expected_manifest_sha256", "actor")
+    class ExpectedManifestSha256Entry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+    JOB_ID_FIELD_NUMBER: _ClassVar[int]
+    TARGET_VERSION_FIELD_NUMBER: _ClassVar[int]
+    EXPECTED_INSTANCE_IDS_FIELD_NUMBER: _ClassVar[int]
+    STAGE_ONLY_FIELD_NUMBER: _ClassVar[int]
+    IDEMPOTENCY_KEY_FIELD_NUMBER: _ClassVar[int]
+    EXPECTED_MANIFEST_SHA256_FIELD_NUMBER: _ClassVar[int]
+    ACTOR_FIELD_NUMBER: _ClassVar[int]
+    job_id: str
+    target_version: str
+    expected_instance_ids: _containers.RepeatedScalarFieldContainer[str]
+    stage_only: bool
+    idempotency_key: str
+    expected_manifest_sha256: _containers.ScalarMap[str, str]
+    actor: str
+    def __init__(self, job_id: _Optional[str] = ..., target_version: _Optional[str] = ..., expected_instance_ids: _Optional[_Iterable[str]] = ..., stage_only: bool = ..., idempotency_key: _Optional[str] = ..., expected_manifest_sha256: _Optional[_Mapping[str, str]] = ..., actor: _Optional[str] = ...) -> None: ...
+
+class FrigateUpdateStatusRequest(_message.Message):
+    __slots__ = ("job_id",)
+    JOB_ID_FIELD_NUMBER: _ClassVar[int]
+    job_id: str
+    def __init__(self, job_id: _Optional[str] = ...) -> None: ...
+
+class FrigateUpdateRetryRequest(_message.Message):
+    __slots__ = ("job_id", "idempotency_key", "actor")
+    JOB_ID_FIELD_NUMBER: _ClassVar[int]
+    IDEMPOTENCY_KEY_FIELD_NUMBER: _ClassVar[int]
+    ACTOR_FIELD_NUMBER: _ClassVar[int]
+    job_id: str
+    idempotency_key: str
+    actor: str
+    def __init__(self, job_id: _Optional[str] = ..., idempotency_key: _Optional[str] = ..., actor: _Optional[str] = ...) -> None: ...
+
+class FrigateUpdateCancelRequest(_message.Message):
+    __slots__ = ("job_id", "idempotency_key", "actor")
+    JOB_ID_FIELD_NUMBER: _ClassVar[int]
+    IDEMPOTENCY_KEY_FIELD_NUMBER: _ClassVar[int]
+    ACTOR_FIELD_NUMBER: _ClassVar[int]
+    job_id: str
+    idempotency_key: str
+    actor: str
+    def __init__(self, job_id: _Optional[str] = ..., idempotency_key: _Optional[str] = ..., actor: _Optional[str] = ...) -> None: ...
+
+class FrigateStatus(_message.Message):
+    __slots__ = ("rollout", "served_by_maintenance", "answered_by")
+    ROLLOUT_FIELD_NUMBER: _ClassVar[int]
+    SERVED_BY_MAINTENANCE_FIELD_NUMBER: _ClassVar[int]
+    ANSWERED_BY_FIELD_NUMBER: _ClassVar[int]
+    rollout: FrigateRollout
+    served_by_maintenance: bool
+    answered_by: str
+    def __init__(self, rollout: _Optional[_Union[FrigateRollout, _Mapping]] = ..., served_by_maintenance: bool = ..., answered_by: _Optional[str] = ...) -> None: ...
+
+class FrigateRollout(_message.Message):
+    __slots__ = ("job_id", "target_version", "phase", "instances", "driver_instance_id", "migration_executor_instance_id", "error_code", "error_message", "next_step", "stage_only", "disruption_started", "retryable", "cancellable", "automatic_retries", "actor", "created_at", "updated_at", "stopped_at", "expires_at", "from_version", "package_sha256", "release_key_id")
+    JOB_ID_FIELD_NUMBER: _ClassVar[int]
+    TARGET_VERSION_FIELD_NUMBER: _ClassVar[int]
+    PHASE_FIELD_NUMBER: _ClassVar[int]
+    INSTANCES_FIELD_NUMBER: _ClassVar[int]
+    DRIVER_INSTANCE_ID_FIELD_NUMBER: _ClassVar[int]
+    MIGRATION_EXECUTOR_INSTANCE_ID_FIELD_NUMBER: _ClassVar[int]
+    ERROR_CODE_FIELD_NUMBER: _ClassVar[int]
+    ERROR_MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    NEXT_STEP_FIELD_NUMBER: _ClassVar[int]
+    STAGE_ONLY_FIELD_NUMBER: _ClassVar[int]
+    DISRUPTION_STARTED_FIELD_NUMBER: _ClassVar[int]
+    RETRYABLE_FIELD_NUMBER: _ClassVar[int]
+    CANCELLABLE_FIELD_NUMBER: _ClassVar[int]
+    AUTOMATIC_RETRIES_FIELD_NUMBER: _ClassVar[int]
+    ACTOR_FIELD_NUMBER: _ClassVar[int]
+    CREATED_AT_FIELD_NUMBER: _ClassVar[int]
+    UPDATED_AT_FIELD_NUMBER: _ClassVar[int]
+    STOPPED_AT_FIELD_NUMBER: _ClassVar[int]
+    EXPIRES_AT_FIELD_NUMBER: _ClassVar[int]
+    FROM_VERSION_FIELD_NUMBER: _ClassVar[int]
+    PACKAGE_SHA256_FIELD_NUMBER: _ClassVar[int]
+    RELEASE_KEY_ID_FIELD_NUMBER: _ClassVar[int]
+    job_id: str
+    target_version: str
+    phase: str
+    instances: _containers.RepeatedCompositeFieldContainer[FrigateInstanceProgress]
+    driver_instance_id: str
+    migration_executor_instance_id: str
+    error_code: str
+    error_message: str
+    next_step: str
+    stage_only: bool
+    disruption_started: bool
+    retryable: bool
+    cancellable: bool
+    automatic_retries: int
+    actor: str
+    created_at: _timestamp_pb2.Timestamp
+    updated_at: _timestamp_pb2.Timestamp
+    stopped_at: _timestamp_pb2.Timestamp
+    expires_at: _timestamp_pb2.Timestamp
+    from_version: str
+    package_sha256: str
+    release_key_id: str
+    def __init__(self, job_id: _Optional[str] = ..., target_version: _Optional[str] = ..., phase: _Optional[str] = ..., instances: _Optional[_Iterable[_Union[FrigateInstanceProgress, _Mapping]]] = ..., driver_instance_id: _Optional[str] = ..., migration_executor_instance_id: _Optional[str] = ..., error_code: _Optional[str] = ..., error_message: _Optional[str] = ..., next_step: _Optional[str] = ..., stage_only: bool = ..., disruption_started: bool = ..., retryable: bool = ..., cancellable: bool = ..., automatic_retries: _Optional[int] = ..., actor: _Optional[str] = ..., created_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., updated_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., stopped_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., expires_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., from_version: _Optional[str] = ..., package_sha256: _Optional[str] = ..., release_key_id: _Optional[str] = ...) -> None: ...
+
+class FrigateInstanceProgress(_message.Message):
+    __slots__ = ("instance_id", "phase", "last_contact", "running_version", "migration_executed", "error_code", "error_message", "manifest_sha256", "contact_stale")
+    INSTANCE_ID_FIELD_NUMBER: _ClassVar[int]
+    PHASE_FIELD_NUMBER: _ClassVar[int]
+    LAST_CONTACT_FIELD_NUMBER: _ClassVar[int]
+    RUNNING_VERSION_FIELD_NUMBER: _ClassVar[int]
+    MIGRATION_EXECUTED_FIELD_NUMBER: _ClassVar[int]
+    ERROR_CODE_FIELD_NUMBER: _ClassVar[int]
+    ERROR_MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    MANIFEST_SHA256_FIELD_NUMBER: _ClassVar[int]
+    CONTACT_STALE_FIELD_NUMBER: _ClassVar[int]
+    instance_id: str
+    phase: str
+    last_contact: _timestamp_pb2.Timestamp
+    running_version: str
+    migration_executed: bool
+    error_code: str
+    error_message: str
+    manifest_sha256: str
+    contact_stale: bool
+    def __init__(self, instance_id: _Optional[str] = ..., phase: _Optional[str] = ..., last_contact: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., running_version: _Optional[str] = ..., migration_executed: bool = ..., error_code: _Optional[str] = ..., error_message: _Optional[str] = ..., manifest_sha256: _Optional[str] = ..., contact_stale: bool = ...) -> None: ...

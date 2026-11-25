@@ -17,9 +17,16 @@ jobs:
         env:
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          # vX.Y.Z with an optional prerelease suffix (e.g. v1.2.3-alpha.4).
-          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9._-]+)?$ ]]; then
-            echo "::error::Tag '$TAG_NAME' does not match expected format (e.g., v1.2.3, v1.2.3-rc.1, or v1.2.3-<label>.1)"
+          # vX.Y.Z with an optional SemVer 2.0 prerelease suffix (e.g. v1.2.3-alpha.4).
+          # Identifiers use [0-9A-Za-z-] and are separated by dots. They cannot
+          # be empty, numeric identifiers cannot have a leading zero, and build
+          # metadata is not allowed. The CT1 Debian package version comes from
+          # the tag, and a final hyphen would give an invalid Debian version.
+          numeric='(0|[1-9][0-9]*)'
+          identifier='(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
+          semver_re="^v${numeric}\.${numeric}\.${numeric}(-${identifier}(\.${identifier})*)?$"
+          if [[ ! "$TAG_NAME" =~ $semver_re ]] || [[ "$TAG_NAME" == *- ]]; then
+            echo "::error::Tag '$TAG_NAME' does not match expected format (e.g., v1.2.3, v1.2.3-rc.1, or v1.2.3-<label>.1). The suffix must follow SemVer 2.0: dot-separated [0-9A-Za-z-] identifiers, no empty identifier, no leading zero in a numeric identifier, no '+' build metadata, and no final '-'."
             exit 1
           fi
           # Reserve RC naming: any RC-looking tag must be canonical vX.Y.Z-rc.N.
@@ -62,6 +69,10 @@ jobs:
       release_repository: ${{ github.repository }}
       version: ${{ github.ref_name }}
       retention_days: 1
+      # The signing job downloads the ProtoOS artifact after the environment
+      # approval. Keep this small artifact for the time that the approval can
+      # take. The other artifacts are large, and no later job needs them.
+      protoos_retention_days: 7
       channel: release
       is_prerelease: ${{ contains(github.ref_name, '-') }}
     secrets: inherit
@@ -74,46 +85,46 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Download repository-specific installers
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: proto-fleet-release-installers
           path: /tmp/release-assets/installers
 
       - name: Download deployment bundle artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: proto-fleet-deployment-bundle-*
           path: /tmp/release-assets/bundles
           merge-multiple: true
 
       - name: Download Windows installer artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: proto-fleet-windows-installer
           path: /tmp/release-assets/windows
 
       - name: Download server artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: proto-fleet-server-artifact-*
           path: /tmp/release-assets/server
           merge-multiple: true
 
       - name: Download Fleet Node artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: fleetnode-linux-*
           path: /tmp/release-assets/fleetnode
           merge-multiple: true
 
       - name: Download client artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: proto-fleet-client-artifact
           path: /tmp/release-assets/client
 
       - name: Download ProtoOS artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: proto-os-artifact
           path: /tmp/release-assets/proto-os
@@ -161,6 +172,32 @@ jobs:
             fi
           done
 
+      - name: Verify ProtoOS CT1 package
+        env:
+          VERSION: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          cd /tmp/release-assets/proto-os
+          deb="proto-os_${VERSION}_all.deb"
+          archive="proto-os-${VERSION}.tar.gz"
+          if [[ ! -f "$deb" || ! -f "$deb.sha256" || ! -f "$archive" ]]; then
+            echo "::error::Missing ProtoOS CT1 package, checksum, or archive"
+            exit 1
+          fi
+          expected_sidecar="$RUNNER_TEMP/proto-os-deb.sha256"
+          sha256sum "$deb" > "$expected_sidecar"
+          if ! cmp -s "$expected_sidecar" "$deb.sha256"; then
+            echo "::error::ProtoOS CT1 package checksum is not bound to $deb"
+            exit 1
+          fi
+          python3 -I "$GITHUB_WORKSPACE/deployment-files/scripts/create-protoos-frigate-bundle.py" \
+            --repository "$REPOSITORY" \
+            --tag "$VERSION" \
+            --commit "$COMMIT" \
+            --archive "$archive" \
+            --verify-deb "$deb"
+
       - name: Create or refresh draft release and upload assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -180,6 +217,8 @@ jobs:
             /tmp/release-assets/client/proto-fleet-client-"$TAG_NAME".tar.gz
             /tmp/release-assets/proto-os/proto-os-"$TAG_NAME".tar.gz
             /tmp/release-assets/proto-os/proto-os_"$TAG_NAME".ipk
+            /tmp/release-assets/proto-os/proto-os_"$TAG_NAME"_all.deb
+            /tmp/release-assets/proto-os/proto-os_"$TAG_NAME"_all.deb.sha256
             /tmp/release-assets/installers/install.sh
             /tmp/release-assets/installers/install-fleet-node.sh
             ./deployment-files/uninstall.sh
@@ -209,6 +248,30 @@ jobs:
               ;;
           esac
 
+  # The signing jobs are in sign-protoos-release.yml, and GitHub takes that
+  # file from main, not from this tag. A tag runs its own copy of this
+  # workflow, so a job in this file cannot be the boundary for the release
+  # key: the AWS role trust policy accepts only the jobs of that file on main.
+  # The comment in that file describes the trust policy and the signing rules.
+  #
+  # The line names this repository because `uses` does not accept an
+  # expression. In a fork or a moved repository, change the line and the role
+  # trust policy together; a run cannot start when it cannot read the file.
+  sign-protoos-release:
+    name: Sign ProtoOS release statement
+    needs: [publish-proto-fleet]
+    permissions:
+      contents: write
+      id-token: write
+    uses: btc-mining/proto-fleet-internal/.github/workflows/sign-protoos-release.yml@main
+
+  publish-release:
+    name: Publish release
+    runs-on: ubuntu-latest
+    needs: [publish-proto-fleet, sign-protoos-release]
+    env:
+      GH_REPO: ${{ github.repository }}
+    steps:
       - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

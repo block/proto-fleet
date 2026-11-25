@@ -1,12 +1,6 @@
 package workername
 
-import (
-	"context"
-	"strings"
-
-	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
-)
+import "strings"
 
 type PoolSyncStatus string
 
@@ -22,23 +16,6 @@ func FromPoolUsername(username string) string {
 	}
 
 	return strings.TrimSpace(trimmed[firstSeparator+1:])
-}
-
-func HasStored(
-	ctx context.Context,
-	deviceStore interfaces.DeviceStore,
-	orgID int64,
-	deviceIdentifier string,
-) (bool, error) {
-	props, err := deviceStore.GetDevicePropertiesForRename(ctx, orgID, []string{deviceIdentifier}, false)
-	if err != nil {
-		return false, fleeterror.NewInternalErrorf("failed to read existing worker name: %v", err)
-	}
-	if len(props) == 0 {
-		return false, nil
-	}
-
-	return strings.TrimSpace(props[0].WorkerName) != "", nil
 }
 
 func IsPoolSyncComplete(status string) bool {

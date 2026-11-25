@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { createModelFilter, filterByModel } from "./minerFilters";
 import type { ActiveFilters } from "@/shared/components/List/Filters/types";
@@ -16,13 +17,6 @@ describe("minerFilters", () => {
       expect(filter.options.map((o) => o.label)).toEqual(["S19", "S21", "T21"]);
     });
 
-    it("should set all models as default selected options", () => {
-      const models = ["S19", "S21"];
-      const filter = createModelFilter(models);
-
-      expect(filter.defaultOptionIds).toEqual(["S19", "S21"]);
-    });
-
     it("should handle empty models array", () => {
       const filter = createModelFilter([]);
 
@@ -30,11 +24,22 @@ describe("minerFilters", () => {
       expect(filter.defaultOptionIds).toHaveLength(0);
     });
 
-    it("should handle single model", () => {
-      const filter = createModelFilter(["S19"]);
+    it("should keep raw model labels by default", () => {
+      const filter = createModelFilter(["CU1", "S21 Pro"]);
 
-      expect(filter.options).toHaveLength(1);
-      expect(filter.defaultOptionIds).toEqual(["S19"]);
+      expect(filter.options.map((o) => o.id)).toEqual(["CU1", "S21 Pro"]);
+      expect(filter.defaultOptionIds).toEqual(["CU1", "S21 Pro"]);
+      expect(filter.options.map((o) => o.label)).toEqual(["CU1", "S21 Pro"]);
+    });
+
+    it("should use custom display labels while keeping raw ids for filtering", () => {
+      const filter = createModelFilter(["CU1", "S21 Pro"], (model) =>
+        model.startsWith("CU") ? "Proto Container" : model,
+      );
+
+      expect(filter.options.map((o) => o.id)).toEqual(["CU1", "S21 Pro"]);
+      expect(filter.defaultOptionIds).toEqual(["CU1", "S21 Pro"]);
+      expect(filter.options.map((o) => o.label)).toEqual(["Proto Container", "S21 Pro"]);
     });
   });
 
@@ -94,20 +99,6 @@ describe("minerFilters", () => {
 
       expect(filterByModel(createItem("S21"), filters)).toBe(false);
       expect(filterByModel(createItem("T21"), filters)).toBe(false);
-    });
-
-    it("should work with single model filter", () => {
-      const filters: ActiveFilters = {
-        buttonFilters: [],
-        dropdownFilters: { model: ["S19"] },
-
-        numericFilters: {},
-
-        textareaListFilters: {},
-      };
-
-      expect(filterByModel(createItem("S19"), filters)).toBe(true);
-      expect(filterByModel(createItem("S21"), filters)).toBe(false);
     });
   });
 });

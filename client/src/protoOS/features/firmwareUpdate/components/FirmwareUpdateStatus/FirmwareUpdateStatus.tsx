@@ -2,12 +2,12 @@ import { useMemo, useState } from "react";
 
 import clsx from "clsx";
 import FirmwareUpdateStatusWidget from "./FirmwareUpdateStatusWidget";
-import type { UpdateStatus } from "@/protoOS/api/generatedApi";
 import FirmwareUpdateStatusModal from "@/protoOS/features/firmwareUpdate/components/FirmwareUpdateStatusModal";
 import { statusLabelFromUpdateStatus } from "@/protoOS/features/firmwareUpdate/utility";
+import type { FirmwareUpdateInfo } from "@/protoOS/store/contract";
 
 interface FirmwareUpdateStatusProps {
-  updateStatus?: UpdateStatus;
+  updateStatus?: FirmwareUpdateInfo;
   installing?: boolean;
   loading?: boolean;
   rebootPending?: boolean;
@@ -26,26 +26,18 @@ const FirmwareUpdateStatus = ({
   onUpdate,
 }: FirmwareUpdateStatusProps) => {
   const [showModal, setShowModal] = useState(false);
-  // A `current` status can still carry the newest failed catalog check or
-  // update attempt in `error`; surface it as an update error.
-  const displayedUpdateStatus = useMemo<UpdateStatus | undefined>(() => {
-    return updateStatus?.status === "current" && updateStatus.error
-      ? { ...updateStatus, status: "error" }
-      : updateStatus;
-  }, [updateStatus]);
   const firmwareStatusMessage = useMemo(() => {
-    return statusLabelFromUpdateStatus(displayedUpdateStatus);
-  }, [displayedUpdateStatus]);
+    return statusLabelFromUpdateStatus(updateStatus);
+  }, [updateStatus]);
 
   return (
     <div
       className={clsx("relative", {
-        hidden:
-          !displayedUpdateStatus || displayedUpdateStatus.status === "current" || firmwareStatusMessage === undefined,
+        hidden: !updateStatus || updateStatus.status === "current" || firmwareStatusMessage === undefined,
       })}
     >
       <FirmwareUpdateStatusWidget
-        updateStatus={displayedUpdateStatus}
+        updateStatus={updateStatus}
         statusMessage={firmwareStatusMessage}
         installing={installing}
         loading={loading}
@@ -53,7 +45,7 @@ const FirmwareUpdateStatus = ({
       />
       <FirmwareUpdateStatusModal
         open={showModal}
-        updateStatus={displayedUpdateStatus}
+        updateStatus={updateStatus}
         onReboot={onReboot}
         rebootPending={rebootPending}
         onDismiss={() => setShowModal(false)}

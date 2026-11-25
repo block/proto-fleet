@@ -142,14 +142,6 @@ func createPairRequestWithAllDevicesFilter(pairingStatuses []fm.PairingStatus) *
 	}
 }
 
-// TODO: setUpMockMinerServer should be reimplemented using plugin-based test infrastructure
-// This functionality should be reimplemented using the proto plugin's integration test
-// helpers (see plugin/proto/tests/integration) when needed for server integration testing.
-func setUpMockMinerServer(t *testing.T) (string, string) {
-	t.Skip("Disabled pending plugin-based test infrastructure")
-	return "", ""
-}
-
 func TestDiscoverWithIPList(t *testing.T) {
 	t.Run("discovers devices from IP list", func(t *testing.T) {
 		// Arrange
@@ -693,64 +685,6 @@ func TestDiscoverWithIPRange(t *testing.T) {
 		assertDevicesEqual(t, devices, []*discoverymodels.DiscoveredDevice{mockDevice1, mockDevice2, mockDevice3})
 	})
 
-	t.Run("does not lead to duplicate device pairings", func(t *testing.T) {
-		testContext := testutil.InitializeDBServiceInfrastructure(t)
-		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
-
-		host, portStr := setUpMockMinerServer(t)
-
-		// Arrange
-		var discoverWg sync.WaitGroup
-		discoverWg.Add(2)
-
-		mockDiscoverer := &MockDiscoverer{}
-		mockDevice := createMockDevice(host, portStr, "proto")
-
-		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Run(func(_ mock.Arguments) {
-			defer discoverWg.Done()
-		}).Return(mockDevice, nil)
-
-		pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
-
-		request := &pb.IPRangeModeRequest{
-			StartIp: host,
-			EndIp:   host,
-			Ports:   []string{portStr},
-		}
-		resultChan, err := pairingService.DiscoverWithIPRange(ctx, request)
-		require.NoError(t, err)
-
-		var devices []*pb.Device
-		for result := range resultChan {
-			require.Empty(t, result.Warning)
-			devices = append(devices, result.Devices...)
-		}
-		require.Len(t, devices, 1)
-
-		// Act
-		resultChan, err = pairingService.DiscoverWithIPRange(ctx, request)
-		require.NoError(t, err)
-		_, err = pairingService.PairDevices(ctx, createPairRequest([]string{devices[0].DeviceIdentifier}))
-		require.NoError(t, err)
-
-		devices = []*pb.Device{}
-		for result := range resultChan {
-			require.Empty(t, result.Warning)
-			devices = append(devices, result.Devices...)
-		}
-
-		discoverWg.Wait()
-
-		// Assert
-		mockDiscoverer.AssertExpectations(t)
-
-		assertDevicesEqual(t, devices, []*discoverymodels.DiscoveredDevice{mockDevice})
-
-		totalPairedDevices, err := testContext.DatabaseService.GetTotalDevicePairings(adminUser.OrganizationID, 100)
-		require.NoError(t, err)
-		assert.Equal(t, 1, totalPairedDevices)
-	})
-
 	t.Run("handles discovery failures in IP range", func(t *testing.T) {
 		// Arrange
 		var discoverWg sync.WaitGroup
@@ -808,6 +742,7 @@ func TestPairDevices(t *testing.T) {
 
 		mockDiscoverer := &MockDiscoverer{}
 		mockDevice := createMockDevice(host, portStr, "antminer")
+		mockDevice.MacAddress = "AA:BB:CC:DD:EE:FF"
 		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Return(mockDevice, nil)
 
 		// Create mock pairer that returns credentials required error
@@ -816,7 +751,7 @@ func TestPairDevices(t *testing.T) {
 		mockAntminerPairer := pairingMocks.NewMockPairer(ctrl)
 		mockAntminerPairer.EXPECT().
 			PairDevice(gomock.Any(), gomock.Any(), nil).
-			Return(fmt.Errorf("invalid_argument: credentials are required but were not provided"))
+			Return(fmt.Errorf("invalid_argument: credentials are required but were not provided")).Times(3)
 
 		pairingService, ctx := setupTestService(t, testContext, adminUser, mockAntminerPairer, mockDiscoverer)
 
@@ -850,57 +785,18 @@ func TestPairDevices(t *testing.T) {
 		pairingStatus, err := queries.GetDevicePairingStatusByDeviceDatabaseID(ctx, deviceID)
 		require.NoError(t, err)
 		assert.Equal(t, pairing.StatusAuthenticationNeeded, string(pairingStatus), "device pairing status should be AUTHENTICATION_NEEDED")
-
-	})
-
-	t.Run("pairs proto device successfully without credentials", func(t *testing.T) {
-		testContext := testutil.InitializeDBServiceInfrastructure(t)
-		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
-
-		host, portStr := setUpMockMinerServer(t)
-
-		mockDiscoverer := &MockDiscoverer{}
-		mockDevice := createMockDevice(host, portStr, "proto")
-		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Return(mockDevice, nil)
-
-		pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
-
-		// First discover the device
-		request := &pb.IPListModeRequest{
-			IpAddresses: []string{host},
-			Ports:       []string{portStr},
+		var workerName string
+		require.NoError(t, testContext.ServiceProvider.DB.QueryRowContext(ctx, `SELECT worker_name FROM device WHERE id=$1`, deviceID).Scan(&workerName))
+		assert.Equal(t, devices[0].MacAddress, workerName)
+		for _, saved := range []string{"saved-worker", ""} {
+			_, err = testContext.ServiceProvider.DB.ExecContext(ctx, `UPDATE device SET worker_name=$2 WHERE id=$1`, deviceID, saved)
+			require.NoError(t, err)
+			_, err = pairingService.PairDevices(ctx, pairRequest)
+			require.NoError(t, err)
+			require.NoError(t, testContext.ServiceProvider.DB.QueryRowContext(ctx, `SELECT worker_name FROM device WHERE id=$1`, deviceID).Scan(&workerName))
+			assert.Equal(t, saved, workerName, "auth-needed retries preserve saved names, including explicit no worker name")
 		}
 
-		resultChan, err := pairingService.DiscoverWithIPList(ctx, request)
-		require.NoError(t, err)
-
-		var devices []*pb.Device
-		for result := range resultChan {
-			require.Empty(t, result.Warning)
-			devices = append(devices, result.Devices...)
-		}
-		require.Len(t, devices, 1)
-
-		// Now pair the device
-		pairRequest := createPairRequest([]string{devices[0].DeviceIdentifier})
-
-		_, err = pairingService.PairDevices(ctx, pairRequest)
-		require.NoError(t, err)
-
-		// Verify device is active after pairing
-		discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB)
-		orgDeviceID := discoverymodels.DeviceOrgIdentifier{
-			DeviceIdentifier: devices[0].DeviceIdentifier,
-			OrgID:            adminUser.OrganizationID,
-		}
-		discoveredDevice, err := discoveredDeviceStore.GetDevice(ctx, orgDeviceID)
-		require.NoError(t, err)
-		assert.True(t, discoveredDevice.IsActive, "discovered device should be active after pairing")
-
-		// Verify pairing was successful
-		totalPairedDevices, err := testContext.DatabaseService.GetTotalDevicePairings(adminUser.OrganizationID, 10)
-		require.NoError(t, err)
-		assert.Equal(t, 1, totalPairedDevices)
 	})
 
 	t.Run("fails to pair unsupported device type", func(t *testing.T) {
@@ -950,45 +846,6 @@ func TestPairDevices(t *testing.T) {
 		_, err := pairingService.PairDevices(ctx, pairRequest)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "Failed to pair any devices")
-	})
-
-	t.Run("pairs miners even if one of them fails", func(t *testing.T) {
-		host, portStr := setUpMockMinerServer(t)
-
-		testContext := testutil.InitializeDBServiceInfrastructure(t)
-		adminUser := testContext.DatabaseService.CreateSuperAdminUser()
-
-		mockDiscoverer := &MockDiscoverer{}
-		mockDevice := createMockDevice(host, portStr, "proto")
-		mockDiscoverer.On("Discover", mock.Anything, host, portStr).Return(mockDevice, nil)
-
-		pairingService, ctx := setupTestService(t, testContext, adminUser, nil, mockDiscoverer)
-
-		request := &pb.IPListModeRequest{
-			IpAddresses: []string{host},
-			Ports:       []string{portStr},
-		}
-
-		resultChan, err := pairingService.DiscoverWithIPList(ctx, request)
-		require.NoError(t, err)
-
-		var devices []*pb.Device
-		for result := range resultChan {
-			require.Empty(t, result.Warning)
-			devices = append(devices, result.Devices...)
-		}
-		require.Len(t, devices, 1)
-
-		// send pairing request with one valid and one invalid device identifier
-		pairRequest := createPairRequest([]string{devices[0].DeviceIdentifier, "test-invalid-device"})
-
-		_, err = pairingService.PairDevices(ctx, pairRequest)
-		require.NoError(t, err)
-
-		// Verify pairing was successful for the valid device
-		totalPairedDevices, err := testContext.DatabaseService.GetTotalDevicePairings(adminUser.OrganizationID, 10)
-		require.NoError(t, err)
-		assert.Equal(t, 1, totalPairedDevices)
 	})
 
 	t.Run("treats already paired key rotation auth failures as idempotent without credentials", func(t *testing.T) {
@@ -2364,4 +2221,110 @@ func TestPairDevices_IncludeDevices_EmptyList(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "include_devices selector requires at least one device identifier")
 	})
+}
+
+func TestContainerDiscoveryRetainsIdentityAcrossControllerFailover(t *testing.T) {
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+	registerDiscoveryPortsPlugin(t, testContext, "proto", []string{"80", "443"})
+	discoverer := &MockDiscoverer{}
+	service, ctx := setupTestService(t, testContext, adminUser, nil, discoverer)
+	var originalIdentifier string
+	for _, endpoint := range []struct{ ip, port, serial string }{
+		{"172.16.71.10", "80", "controller-a"},
+		{"172.16.71.10", "80", "controller-b"},
+		{"172.16.71.10", "443", "controller-b"},
+		{"172.16.71.11", "80", "another-container"},
+	} {
+		device := &discoverymodels.DiscoveredDevice{Device: pb.Device{
+			DeviceClass: commonv1.DeviceClass_DEVICE_CLASS_CONTAINER,
+			IpAddress:   endpoint.ip, Port: endpoint.port, DriverName: "proto",
+			Model: "CT1", Manufacturer: "Proto", SerialNumber: endpoint.serial,
+		}}
+		discoverer.On("Discover", mock.Anything, endpoint.ip, endpoint.port).Return(device, nil).Once()
+		results, err := service.DiscoverWithIPList(ctx, &pb.IPListModeRequest{
+			IpAddresses: []string{endpoint.ip}, Ports: []string{endpoint.port},
+		})
+		require.NoError(t, err)
+		var devices []*pb.Device
+		for result := range results {
+			devices = append(devices, result.Devices...)
+		}
+		require.Len(t, devices, 1)
+		if originalIdentifier == "" {
+			originalIdentifier = devices[0].DeviceIdentifier
+		} else if endpoint.ip == "172.16.71.10" {
+			assert.Equal(t, originalIdentifier, devices[0].DeviceIdentifier, "controller and port changes must retain the container")
+		} else {
+			assert.NotEqual(t, originalIdentifier, devices[0].DeviceIdentifier)
+		}
+	}
+}
+
+func TestContainerDirectDiscoveryDoesNotReuseFleetNodeEndpoint(t *testing.T) {
+	for _, assigned := range []bool{false, true} {
+		for _, port := range []string{"80", "443", "9095"} {
+			t.Run(fmt.Sprintf("assigned=%t/port=%s", assigned, port), func(t *testing.T) {
+				infra := testutil.InitializeDBServiceInfrastructure(t)
+				admin := infra.DatabaseService.CreateSuperAdminUser()
+				db := infra.ServiceProvider.DB
+				registerDiscoveryPortsPlugin(t, infra, "proto", []string{"80", "443", "9095"})
+				var nodeID int64
+				require.NoError(t, db.QueryRow(`INSERT INTO fleet_node (org_id,name,identity_pubkey,encryption_pubkey,enrollment_status) VALUES ($1,'node',$2,$3,'CONFIRMED') RETURNING id`, admin.OrganizationID, []byte("node-key"), make([]byte, 32)).Scan(&nodeID))
+				store := sqlstores.NewSQLDiscoveredDeviceStore(db)
+				remote := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: "remote-ct1", DeviceClass: commonv1.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", Model: "CT1", Manufacturer: "Proto", IpAddress: "192.168.1.20", Port: "8181", UrlScheme: "http"}, OrgID: admin.OrganizationID, IsActive: true}
+				ctx := testutil.MockAuthContextForTesting(t.Context(), admin.DatabaseID, admin.OrganizationID)
+				doi := remote.GetDeviceOrgIdentifier()
+				_, err := store.Save(ctx, doi, remote)
+				require.NoError(t, err)
+				if assigned {
+					devices := sqlstores.NewSQLDeviceStore(db)
+					require.NoError(t, devices.InsertDevice(ctx, &remote.Device, admin.OrganizationID, remote.DeviceIdentifier))
+					require.NoError(t, devices.UpsertDevicePairing(ctx, &remote.Device, admin.OrganizationID, "PAIRED"))
+					_, err = db.Exec(`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) SELECT $1,id,org_id FROM device WHERE device_identifier=$2`, nodeID, remote.DeviceIdentifier)
+				} else {
+					_, err = db.Exec(`UPDATE discovered_device SET discovered_by_fleet_node_id=$1 WHERE device_identifier=$2`, nodeID, remote.DeviceIdentifier)
+				}
+				require.NoError(t, err)
+				discoverer := &MockDiscoverer{}
+				local := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceClass: commonv1.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", Model: "CT1", Manufacturer: "Proto", IpAddress: remote.IpAddress, Port: port, UrlScheme: "http", SerialNumber: "local-controller"}}
+				if port == "9095" {
+					local.Port = "8080"
+					local.RpcPort = 9095
+				}
+				discoverer.On("Discover", mock.Anything, local.IpAddress, port).Return(local, nil).Once()
+				pairer := pairingMocks.NewMockPairer(gomock.NewController(t))
+				pairer.EXPECT().PairDevice(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+				pairer.EXPECT().GetDeviceInfo(gomock.Any(), gomock.Any(), gomock.Any()).Return(&local.Device, nil).AnyTimes()
+				service, ctx := setupTestService(t, infra, admin, pairer, discoverer)
+				results, err := service.DiscoverWithIPList(ctx, &pb.IPListModeRequest{IpAddresses: []string{local.IpAddress}, Ports: []string{port}})
+				require.NoError(t, err)
+				var found []*pb.Device
+				for result := range results {
+					found = append(found, result.Devices...)
+				}
+				require.Len(t, found, 1)
+				require.NotEqual(t, remote.DeviceIdentifier, found[0].DeviceIdentifier)
+				saved, err := store.GetDevice(ctx, doi)
+				require.NoError(t, err)
+				require.Equal(t, "8181", saved.Port)
+				// Even a caller supplying the remote identifier cannot overwrite it via direct discovery.
+				attempted := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceClass: commonv1.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", Model: "CT1", IpAddress: "192.168.1.99", Port: "8080", UrlScheme: "http"}, IsActive: true}
+				_, err = store.SaveDirect(ctx, doi, attempted)
+				require.Error(t, err)
+				unchanged, err := store.GetDevice(ctx, doi)
+				require.NoError(t, err)
+				require.Equal(t, remote.IpAddress, unchanged.IpAddress)
+				require.Equal(t, "8181", unchanged.Port)
+
+				localSaved, err := store.GetDevice(ctx, discoverymodels.DeviceOrgIdentifier{OrgID: admin.OrganizationID, DeviceIdentifier: found[0].DeviceIdentifier})
+				require.NoError(t, err)
+				require.Nil(t, localSaved.DiscoveredByFleetNodeID)
+				response, err := service.PairDevices(ctx, createPairRequest([]string{localSaved.DeviceIdentifier}))
+				require.NoError(t, err)
+				require.Empty(t, response.FailedDeviceIds)
+
+			})
+		}
+	}
 }

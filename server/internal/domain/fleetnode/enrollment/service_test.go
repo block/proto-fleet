@@ -13,6 +13,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 )
 
 func TestRegisterFleetNode_CreatesFleetNodeWithIdentityAndEncryptionKeys(t *testing.T) {
@@ -108,6 +109,30 @@ func TestRevokeFleetNodeFailurePreservesControlStream(t *testing.T) {
 	}
 }
 
+func TestRevokeFleetNodeRemovesTelemetryForEveryDevice(t *testing.T) {
+	store := &revokeFleetNodeStore{devices: []RevokedDevice{
+		{ID: 1, Identifier: "first"}, {ID: 2, Identifier: "second"},
+	}}
+	service := NewService(store, apikey.NewService(revokeAPIKeyStore{}, nil), inlineTransactor{}, nil)
+	var removed []telemetrymodels.DeviceIdentifier
+	var events []string
+	service.WithTelemetryRemover(func(_ context.Context, identifiers ...telemetrymodels.DeviceIdentifier) error {
+		events = append(events, "remove telemetry")
+		removed = append(removed, identifiers...)
+		if identifiers[0] == "first" {
+			return errors.New("not managed")
+		}
+		return nil
+	})
+	service.WithMinerInvalidator(func(_ context.Context, _ int64) {
+		events = append(events, "invalidate miner")
+	})
+
+	require.NoError(t, service.RevokeFleetNode(t.Context(), 42, 7))
+	assert.Equal(t, []telemetrymodels.DeviceIdentifier{"first", "second"}, removed)
+	assert.Equal(t, []string{"remove telemetry", "invalidate miner", "invalidate miner"}, events)
+}
+
 type inlineTransactor struct{}
 
 func (inlineTransactor) RunInTx(ctx context.Context, fn func(context.Context) error) error {
@@ -131,6 +156,7 @@ func (failingTransactor) RunInTxWithResult(context.Context, func(context.Context
 type revokeFleetNodeStore struct {
 	Store
 	pending *PendingEnrollment
+	devices []RevokedDevice
 }
 
 func (s *revokeFleetNodeStore) LockFleetNodeByID(context.Context, int64, int64) (*FleetNode, error) {
@@ -152,8 +178,20 @@ func (*revokeFleetNodeStore) CancelEnrollmentForFleetNode(context.Context, int64
 	return 1, nil
 }
 
-func (*revokeFleetNodeStore) ListDeviceIDsForFleetNode(context.Context, int64, int64) ([]int64, error) {
-	return nil, nil
+func (s *revokeFleetNodeStore) ListDevicesForFleetNodeRevocation(context.Context, int64, int64) ([]RevokedDevice, error) {
+	return s.devices, nil
+}
+
+func (*revokeFleetNodeStore) LockDevicesForFleetNodeRevocation(context.Context, int64, int64) error {
+	return nil
+}
+
+func (*revokeFleetNodeStore) UnpairDevicesForFleetNodeRevocation(context.Context, int64, int64) (int64, error) {
+	return 0, nil
+}
+
+func (*revokeFleetNodeStore) OfflineDevicesForFleetNodeRevocation(context.Context, int64, int64) (int64, error) {
+	return 0, nil
 }
 
 func (*revokeFleetNodeStore) DeleteMinerCredentialsForFleetNode(context.Context, int64, int64) (int64, error) {
@@ -182,7 +220,7 @@ type registerFleetNodeStore struct {
 	gotIdentityPubkey []byte
 }
 
-func (s *registerFleetNodeStore) CreatePendingEnrollment(context.Context, string, int64, int64, time.Time) (*PendingEnrollment, error) {
+func (s *registerFleetNodeStore) CreatePendingEnrollment(context.Context, string, int64, int64, time.Time, *int64) (*PendingEnrollment, error) {
 	panic("unexpected CreatePendingEnrollment")
 }
 
@@ -199,11 +237,15 @@ func (s *registerFleetNodeStore) GetPendingEnrollmentByFleetNode(context.Context
 	panic("unexpected GetPendingEnrollmentByFleetNode")
 }
 
+func (*registerFleetNodeStore) GetCancelledEnrollmentByFleetNode(context.Context, int64, int64, int64) (*PendingEnrollment, error) {
+	panic("unexpected GetCancelledEnrollmentByFleetNode")
+}
+
 func (s *registerFleetNodeStore) BindEnrollmentToFleetNode(context.Context, int64, int64) (int64, error) {
 	return 1, nil
 }
 
-func (s *registerFleetNodeStore) ConfirmEnrollment(context.Context, int64, time.Time) (int64, error) {
+func (s *registerFleetNodeStore) ConfirmEnrollment(context.Context, int64, time.Time, int64) (int64, error) {
 	panic("unexpected ConfirmEnrollment")
 }
 
@@ -245,6 +287,10 @@ func (s *registerFleetNodeStore) LockFleetNodeByID(context.Context, int64, int64
 	panic("unexpected LockFleetNodeByID")
 }
 
+func (*registerFleetNodeStore) LockFleetNodeIdentityByID(context.Context, int64, int64) (*FleetNode, error) {
+	panic("unexpected LockFleetNodeIdentityByID")
+}
+
 func (s *registerFleetNodeStore) ListFleetNodesForOrganization(context.Context, int64) ([]FleetNodeListing, error) {
 	panic("unexpected ListFleetNodesForOrganization")
 }
@@ -261,7 +307,7 @@ func (s *registerFleetNodeStore) SoftDeleteFleetNodesForExpiredEnrollments(conte
 	panic("unexpected SoftDeleteFleetNodesForExpiredEnrollments")
 }
 
-func (s *registerFleetNodeStore) UpdateLastSeen(context.Context, int64, int64, time.Time) (int64, error) {
+func (s *registerFleetNodeStore) UpdateLastSeen(context.Context, int64, int64, time.Time, []string, string) (int64, error) {
 	panic("unexpected UpdateLastSeen")
 }
 
@@ -269,8 +315,20 @@ func (s *registerFleetNodeStore) DeletePairingsForFleetNode(context.Context, int
 	panic("unexpected DeletePairingsForFleetNode")
 }
 
-func (s *registerFleetNodeStore) ListDeviceIDsForFleetNode(context.Context, int64, int64) ([]int64, error) {
-	panic("unexpected ListDeviceIDsForFleetNode")
+func (s *registerFleetNodeStore) ListDevicesForFleetNodeRevocation(context.Context, int64, int64) ([]RevokedDevice, error) {
+	panic("unexpected ListDevicesForFleetNodeRevocation")
+}
+
+func (*registerFleetNodeStore) LockDevicesForFleetNodeRevocation(context.Context, int64, int64) error {
+	panic("unexpected LockDevicesForFleetNodeRevocation")
+}
+
+func (s *registerFleetNodeStore) UnpairDevicesForFleetNodeRevocation(context.Context, int64, int64) (int64, error) {
+	panic("unexpected UnpairDevicesForFleetNodeRevocation")
+}
+
+func (s *registerFleetNodeStore) OfflineDevicesForFleetNodeRevocation(context.Context, int64, int64) (int64, error) {
+	panic("unexpected OfflineDevicesForFleetNodeRevocation")
 }
 
 func (s *registerFleetNodeStore) DeleteMinerCredentialsForFleetNode(context.Context, int64, int64) (int64, error) {

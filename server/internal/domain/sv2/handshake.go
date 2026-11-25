@@ -9,10 +9,10 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"net"
 	"os"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/infrastructure/pooldial"
 	btcec "github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ellswift"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -70,7 +70,7 @@ func HandshakeProbe(ctx context.Context, stratumURL string, authorityKey []byte,
 	dialCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	conn, err := (&net.Dialer{}).DialContext(dialCtx, "tcp", addr)
+	conn, err := pooldial.DialContext(dialCtx, "tcp", addr)
 	if err != nil {
 		return false, fmt.Errorf("tcp dial for handshake: %w", err)
 	}

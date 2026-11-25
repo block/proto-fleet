@@ -2,11 +2,9 @@ package curtailment
 
 import (
 	"context"
-	"time"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
@@ -17,12 +15,12 @@ import (
 )
 
 func (h *Handler) ListCurtailmentResponseProfiles(ctx context.Context, _ *connect.Request[pb.ListCurtailmentResponseProfilesRequest]) (*connect.Response[pb.ListCurtailmentResponseProfilesResponse], error) {
-	info, err := requireScopedPermissionCapability(ctx, authz.PermCurtailmentManage)
+	info, err := middleware.RequirePermissionAtAnySite(ctx, authz.PermCurtailmentManage)
 	if err != nil {
 		return nil, err
 	}
-	if h.responseProfiles == nil {
-		return nil, errCurtailmentNotImplemented("ListCurtailmentResponseProfiles")
+	if err := requireService(h.responseProfiles, "ListCurtailmentResponseProfiles"); err != nil {
+		return nil, err
 	}
 	profiles, err := h.responseProfiles.List(ctx, info.OrganizationID)
 	if err != nil {
@@ -52,12 +50,12 @@ func (h *Handler) ListCurtailmentResponseProfiles(ctx context.Context, _ *connec
 }
 
 func (h *Handler) GetCurtailmentResponseProfile(ctx context.Context, req *connect.Request[pb.GetCurtailmentResponseProfileRequest]) (*connect.Response[pb.GetCurtailmentResponseProfileResponse], error) {
-	info, err := requireScopedPermissionCapability(ctx, authz.PermCurtailmentManage)
+	info, err := middleware.RequirePermissionAtAnySite(ctx, authz.PermCurtailmentManage)
 	if err != nil {
 		return nil, err
 	}
-	if h.responseProfiles == nil {
-		return nil, errCurtailmentNotImplemented("GetCurtailmentResponseProfile")
+	if err := requireService(h.responseProfiles, "GetCurtailmentResponseProfile"); err != nil {
+		return nil, err
 	}
 	profile, err := h.getResponseProfileWithPersistedPermission(ctx, info.OrganizationID, req.Msg.GetProfileId())
 	if err != nil {
@@ -67,12 +65,12 @@ func (h *Handler) GetCurtailmentResponseProfile(ctx context.Context, req *connec
 }
 
 func (h *Handler) CreateCurtailmentResponseProfile(ctx context.Context, req *connect.Request[pb.CreateCurtailmentResponseProfileRequest]) (*connect.Response[pb.CreateCurtailmentResponseProfileResponse], error) {
-	info, err := requireScopedPermissionCapability(ctx, authz.PermCurtailmentManage)
+	info, err := middleware.RequirePermissionAtAnySite(ctx, authz.PermCurtailmentManage)
 	if err != nil {
 		return nil, err
 	}
-	if h.responseProfiles == nil {
-		return nil, errCurtailmentNotImplemented("CreateCurtailmentResponseProfile")
+	if err := requireService(h.responseProfiles, "CreateCurtailmentResponseProfile"); err != nil {
+		return nil, err
 	}
 	requirements, err := h.responseProfileResourceContexts(ctx, info.OrganizationID, req.Msg.GetScopes(), req.Msg.GetSite(), true)
 	if err != nil {
@@ -102,12 +100,12 @@ func (h *Handler) CreateCurtailmentResponseProfile(ctx context.Context, req *con
 }
 
 func (h *Handler) UpdateCurtailmentResponseProfile(ctx context.Context, req *connect.Request[pb.UpdateCurtailmentResponseProfileRequest]) (*connect.Response[pb.UpdateCurtailmentResponseProfileResponse], error) {
-	info, err := requireScopedPermissionCapability(ctx, authz.PermCurtailmentManage)
+	info, err := middleware.RequirePermissionAtAnySite(ctx, authz.PermCurtailmentManage)
 	if err != nil {
 		return nil, err
 	}
-	if h.responseProfiles == nil {
-		return nil, errCurtailmentNotImplemented("UpdateCurtailmentResponseProfile")
+	if err := requireService(h.responseProfiles, "UpdateCurtailmentResponseProfile"); err != nil {
+		return nil, err
 	}
 	existing, err := h.getResponseProfileWithPersistedPermission(ctx, info.OrganizationID, req.Msg.GetProfileId())
 	if err != nil {
@@ -149,12 +147,12 @@ func (h *Handler) UpdateCurtailmentResponseProfile(ctx context.Context, req *con
 }
 
 func (h *Handler) DeleteCurtailmentResponseProfile(ctx context.Context, req *connect.Request[pb.DeleteCurtailmentResponseProfileRequest]) (*connect.Response[pb.DeleteCurtailmentResponseProfileResponse], error) {
-	info, err := requireScopedPermissionCapability(ctx, authz.PermCurtailmentManage)
+	info, err := middleware.RequirePermissionAtAnySite(ctx, authz.PermCurtailmentManage)
 	if err != nil {
 		return nil, err
 	}
-	if h.responseProfiles == nil {
-		return nil, errCurtailmentNotImplemented("DeleteCurtailmentResponseProfile")
+	if err := requireService(h.responseProfiles, "DeleteCurtailmentResponseProfile"); err != nil {
+		return nil, err
 	}
 	profile, err := h.getResponseProfileWithPersistedPermission(ctx, info.OrganizationID, req.Msg.GetProfileId())
 	if err != nil {
@@ -223,13 +221,7 @@ func parseResponseProfileExecutionRevision(profileID int64, rawRevision string) 
 			"response_profile_id and expected_response_profile_revision must be set together",
 		)
 	}
-	revision, err := uuid.Parse(rawRevision)
-	if err != nil {
-		return uuid.Nil, fleeterror.NewInvalidArgumentError(
-			"expected_response_profile_revision must be a UUID",
-		)
-	}
-	return revision, nil
+	return parseRevisionUUID(rawRevision, "expected_response_profile_revision")
 }
 
 func validateCurtailmentExecutionSchemaVersion(version uint32) error {
@@ -251,8 +243,8 @@ func (h *Handler) currentResponseProfileForExecution(
 	if profileID == 0 {
 		return nil, nil
 	}
-	if h.responseProfiles == nil {
-		return nil, errCurtailmentNotImplemented("response profile execution")
+	if err := requireService(h.responseProfiles, "response profile execution"); err != nil {
+		return nil, err
 	}
 	profile, err := h.getResponseProfileWithPersistedPermission(ctx, orgID, profileID)
 	if err != nil {
@@ -380,8 +372,8 @@ func (h *Handler) responseProfileResourceContexts(
 	if len(scopes) > 0 {
 		return h.scopeResourceContextRequirementsFromProto(ctx, orgID, scopes, nil, requireKnownDevices)
 	}
-	if site == nil {
-		return scopeResourceContextRequirements{}, nil
+	if site == nil || site.GetSiteId() <= 0 {
+		return scopeResourceContextRequirements{}, fleeterror.NewInvalidArgumentError("response profile scope is required")
 	}
 	siteID := site.GetSiteId()
 	return scopeResourceContextRequirements{siteContexts: []authz.ResourceContext{{SiteID: &siteID}}}, nil
@@ -414,8 +406,8 @@ func (h *Handler) authorizeFacilityFanDevices(
 	if len(deviceIDs) == 0 {
 		return map[int64]models.ResponseProfileInfrastructureDevice{}, nil
 	}
-	if h.responseProfiles == nil {
-		return nil, errCurtailmentNotImplemented("facility fan authorization")
+	if err := requireService(h.responseProfiles, "facility fan authorization"); err != nil {
+		return nil, err
 	}
 	devices, err := h.responseProfiles.FacilityFanDevices(ctx, orgID, deviceIDs)
 	if err != nil {
@@ -654,9 +646,9 @@ func responseProfileFromCreateRequest(orgID int64, msg *pb.CreateCurtailmentResp
 }
 
 func responseProfileFromUpdateRequest(orgID int64, msg *pb.UpdateCurtailmentResponseProfileRequest) (models.ResponseProfile, error) {
-	revision, err := uuid.Parse(msg.GetExpectedRevision())
+	revision, err := parseRevisionUUID(msg.GetExpectedRevision(), "expected_revision")
 	if err != nil {
-		return models.ResponseProfile{}, fleeterror.NewInvalidArgumentError("expected_revision must be a UUID")
+		return models.ResponseProfile{}, err
 	}
 	profile, err := responseProfileFromPayload(
 		orgID,
@@ -836,6 +828,8 @@ func toResponseProfileProto(profile *models.ResponseProfile) *pb.CurtailmentResp
 	}
 	out := &pb.CurtailmentResponseProfile{
 		ProfileId:                   profile.ID,
+		EnabledAutomationRuleCount:  uint32SaturatingInt64(profile.EnabledAutomationRuleCount),
+		AutomationBindingStatus:     "unbound",
 		ProfileName:                 profile.ProfileName,
 		Mode:                        modeProto(profile.Mode),
 		Strategy:                    strategyProto(profile.Strategy),
@@ -852,8 +846,11 @@ func toResponseProfileProto(profile *models.ResponseProfile) *pb.CurtailmentResp
 		FacilityFanDeviceIds:        append([]int64(nil), profile.FacilityFanDeviceIDs...),
 		FanOffDelaySec:              uint32Saturating(profile.FanOffDelaySec),
 		FanRestoreDelaySec:          uint32Saturating(profile.FanRestoreDelaySec),
-		CreatedAt:                   profileTimeProto(profile.CreatedAt),
-		UpdatedAt:                   profileTimeProto(profile.UpdatedAt),
+		CreatedAt:                   timeProto(profile.CreatedAt),
+		UpdatedAt:                   timeProto(profile.UpdatedAt),
+	}
+	if profile.EnabledAutomationRuleCount > 0 {
+		out.AutomationBindingStatus = "enabled"
 	}
 	if profile.Revision != uuid.Nil {
 		out.Revision = profile.Revision.String()
@@ -911,17 +908,10 @@ func optionalUint32ToInt32Default(field string, v *uint32, defaultValue int32) (
 	return uint32ToInt32Strict(field, *v)
 }
 
-func uint32PtrSaturating(v *int32) *uint32 {
-	if v == nil {
-		return nil
+func parseRevisionUUID(raw, field string) (uuid.UUID, error) {
+	value, err := uuid.Parse(raw)
+	if err != nil {
+		return uuid.Nil, fleeterror.NewInvalidArgumentErrorf("%s must be a UUID", field)
 	}
-	out := uint32Saturating(*v)
-	return &out
-}
-
-func profileTimeProto(t time.Time) *timestamppb.Timestamp {
-	if t.IsZero() {
-		return nil
-	}
-	return timestamppb.New(t)
+	return value, nil
 }

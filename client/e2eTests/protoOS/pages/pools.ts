@@ -71,19 +71,6 @@ export class PoolsPage extends BasePage {
     await expect(this.page.getByTestId("modal").getByRole("button", { name: "Save" })).toBeDisabled();
   }
 
-  async validateSaveButtonEnabled() {
-    await expect(this.page.getByTestId("modal").getByRole("button", { name: "Save" })).toBeEnabled();
-  }
-
-  async validateCalloutWithText(text: string) {
-    await expect(this.page.getByTestId("callout")).toBeVisible();
-    await expect(this.page.getByTestId("callout").getByText(text)).toBeVisible();
-  }
-
-  async closeCallout() {
-    await this.page.getByTestId("callout").getByRole("button").click();
-  }
-
   async closeModal() {
     await this.page.getByTestId("modal").getByLabel("Close dialog").click();
     await this.validateModalIsClosed();

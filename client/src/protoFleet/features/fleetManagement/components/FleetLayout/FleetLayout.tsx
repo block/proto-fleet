@@ -3,7 +3,6 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import clsx from "clsx";
 
 import { type FleetOutletContext } from "./outletContext";
-import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { buildKnownSiteIds } from "@/protoFleet/api/sites";
 import { useSitesContext, useSitesPolling } from "@/protoFleet/api/SitesContext";
 import useSiteMapCsv from "@/protoFleet/api/useSiteMapCsv";
@@ -15,7 +14,7 @@ import FleetViewTabs from "@/protoFleet/features/fleetManagement/components/Flee
 import SiteMapCsvImportModal from "@/protoFleet/features/fleetManagement/components/SiteMapCsvImportModal";
 import { findActiveView, type FleetTabId } from "@/protoFleet/features/fleetManagement/views/savedViews";
 import useFleetViews from "@/protoFleet/features/fleetManagement/views/useFleetViews";
-import { type FilterLabelSource } from "@/protoFleet/features/fleetManagement/views/viewSummary";
+import { type FilterSummaryContext } from "@/protoFleet/features/fleetManagement/views/viewSummary";
 import CompleteSetup from "@/protoFleet/features/onboarding/components/CompleteSetup/CompleteSetup";
 import { activeSiteFromScopablePath, scopedPath, unscopedScopablePath } from "@/protoFleet/routing/siteScope";
 import { useHasPermission, useUsername } from "@/protoFleet/store";
@@ -218,12 +217,14 @@ const FleetLayout = () => {
     [navigate, pathScope],
   );
 
-  const [viewFilterContext, setViewFilterContext] = useState<{
-    availableGroups: DeviceSet[];
-    availableRacks: DeviceSet[];
-    availableBuildings: FilterLabelSource[];
-    availableSites: FilterLabelSource[];
-  }>({ availableGroups: [], availableRacks: [], availableBuildings: [], availableSites: [] });
+  const [viewFilterContext, setViewFilterContext] = useState<Required<FilterSummaryContext>>({
+    availableGroups: [],
+    availableRacks: [],
+    availableBuildings: [],
+    availableContainers: [],
+    availableTanks: [],
+    availableSites: [],
+  });
   // Partial publish: a child tab only overwrites the keys it knows about,
   // so racks publishing buildings doesn't clobber miners' group/rack lists.
   const publishViewFilterContext = useCallback<FleetOutletContext["publishViewFilterContext"]>((ctx) => {
@@ -232,12 +233,16 @@ const FleetLayout = () => {
         availableGroups: ctx.availableGroups ?? prev.availableGroups,
         availableRacks: ctx.availableRacks ?? prev.availableRacks,
         availableBuildings: ctx.availableBuildings ?? prev.availableBuildings,
+        availableContainers: ctx.availableContainers ?? prev.availableContainers,
+        availableTanks: ctx.availableTanks ?? prev.availableTanks,
         availableSites: ctx.availableSites ?? prev.availableSites,
       };
       const unchanged =
         next.availableGroups === prev.availableGroups &&
         next.availableRacks === prev.availableRacks &&
         next.availableBuildings === prev.availableBuildings &&
+        next.availableContainers === prev.availableContainers &&
+        next.availableTanks === prev.availableTanks &&
         next.availableSites === prev.availableSites;
       return unchanged ? prev : next;
     });

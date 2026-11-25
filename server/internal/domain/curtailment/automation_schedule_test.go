@@ -1,0 +1,700 @@
+package curtailment
+
+import (
+	"context"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/schedulewindow"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+)
+
+// The harness clock is 2026-06-11 21:00 UTC, inside the 20:00-23:00 window.
+var (
+	scheduleWindowStart = time.Date(2026, 6, 11, 20, 0, 0, 0, time.UTC)
+	scheduleWindowEnd   = time.Date(2026, 6, 11, 23, 0, 0, 0, time.UTC)
+)
+
+func dailyEveningSchedule() *models.AutomationSchedule {
+	return &models.AutomationSchedule{
+		Definition: schedulewindow.Definition{
+			Type:      schedulewindow.TypeRecurring,
+			Timezone:  "UTC",
+			StartDate: "2026-06-01",
+			StartTime: "20:00",
+			EndTime:   "23:00",
+			Frequency: schedulewindow.FrequencyDaily,
+		},
+		ServiceUserID: 777,
+		Revision:      uuid.New(),
+	}
+}
+
+type scheduleBoundary struct {
+	at       time.Time
+	revision uuid.UUID
+}
+
+// scheduleDurableFake mirrors the mailbox row: a rule keeps its latest
+// boundary after the work completes, and only a newer boundary or schedule
+// revision replaces it.
+type scheduleDurableFake struct {
+	*durableAutomationFake
+	schedules []models.ScheduledAutomationRule
+	latest    map[int64]scheduleBoundary
+	events    map[uuid.UUID]*models.Event
+}
+
+func (f *scheduleDurableFake) ListEnabledScheduleAutomationRules(context.Context) ([]models.ScheduledAutomationRule, error) {
+	return f.schedules, nil
+}
+
+func (f *scheduleDurableFake) ScheduleWindowEventState(_ context.Context, _, _ int64, windowStart time.Time, scheduleRevision uuid.UUID) (models.EventState, bool, error) {
+	for _, event := range f.events {
+		if eventStartedForWindow(event, windowStart) && event.ScheduleRevision == scheduleRevision {
+			return event.State, true, nil
+		}
+	}
+	return "", false, nil
+}
+
+func (f *scheduleDurableFake) QueueScheduleAutomationExecution(_ context.Context, work models.AutomationExecution) error {
+	if latest, ok := f.latest[work.RuleID]; ok && latest.revision == work.ScheduleRevision && !latest.at.Before(work.ReceivedAt) {
+		return nil
+	}
+	if f.latest == nil {
+		f.latest = make(map[int64]scheduleBoundary)
+	}
+	f.latest[work.RuleID] = scheduleBoundary{at: work.ReceivedAt, revision: work.ScheduleRevision}
+	work.OrgID = 42
+	work.Generation = 1
+	work.TargetAt = work.ReceivedAt
+	f.pending = append(f.pending, work)
+	return nil
+}
+
+func newScheduleHarness(t *testing.T) (*automationHarness, *scheduleDurableFake) {
+	t.Helper()
+	h := newAutomationHarness(t)
+	h.seedRunnableProfile()
+	h.rule.RuleName = "Evening peak"
+	h.rule.TriggerType = models.AutomationTriggerTypeSchedule
+	h.rule.MQTTSourceID = 0
+	h.rule.MQTTSourceName = ""
+	h.rule.Schedule = dailyEveningSchedule()
+	durable := &scheduleDurableFake{
+		durableAutomationFake: &durableAutomationFake{automationFakeStore: h.rules},
+		schedules:             []models.ScheduledAutomationRule{{RuleID: h.rule.ID, Schedule: *h.rule.Schedule}},
+		events:                h.curtailments.eventsByUUID,
+	}
+	h.automation.store = durable
+	return h, durable
+}
+
+func (h *automationHarness) seedScheduledEvent(state models.EventState, windowStart time.Time) uuid.UUID {
+	h.t.Helper()
+	id := h.seedAutomationEvent(state)
+	start := windowStart
+	h.curtailments.eventsByUUID[id].ScheduledStartAt = &start
+	h.curtailments.eventsByUUID[id].ScheduleRevision = h.rule.Schedule.Revision
+	return id
+}
+
+// seedScheduledReplayEvent seeds a scheduler event that the start's replay
+// lookup finds, with no active-event pointer on the rule.
+func (h *automationHarness) seedScheduledReplayEvent(state models.EventState, windowStart time.Time) *models.Event {
+	h.t.Helper()
+	event := h.seedAutomationReplayEvent(state)
+	start := windowStart
+	event.SourceActorType = models.SourceActorScheduler
+	event.ScheduledStartAt = &start
+	event.ScheduleRevision = h.rule.Schedule.Revision
+	return event
+}
+
+// slowExecutionStore blocks the execution claim until shutdown and counts
+// schedule production passes.
+type slowExecutionStore struct {
+	*scheduleDurableFake
+	claimed chan struct{}
+	once    sync.Once
+	lists   atomic.Int32
+}
+
+func (f *slowExecutionStore) ClaimAutomationExecution(ctx context.Context) (*models.AutomationExecution, error) {
+	f.once.Do(func() { close(f.claimed) })
+	<-ctx.Done()
+	return nil, nil
+}
+
+func (f *slowExecutionStore) ListEnabledScheduleAutomationRules(context.Context) ([]models.ScheduledAutomationRule, error) {
+	f.lists.Add(1)
+	return nil, nil
+}
+
+func TestAutomationService_RunAssertsSchedulesWhileExecutionIsSlow(t *testing.T) {
+	t.Parallel()
+	h, durable := newScheduleHarness(t)
+	store := &slowExecutionStore{scheduleDurableFake: durable, claimed: make(chan struct{})}
+	h.automation.store = store
+	h.automation.scheduleProduceInterval = 10 * time.Millisecond
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.automation.Run(ctx)
+	}()
+	select {
+	case <-store.claimed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not claim execution work")
+	}
+	base := store.lists.Load()
+	assert.Eventually(t, func() bool { return store.lists.Load() >= base+3 }, 2*time.Second, 5*time.Millisecond,
+		"schedule production must not wait for a slow execution")
+	cancel()
+	<-done
+}
+
+// isolatedExecutionStore hands queued work to concurrent workers; the slow
+// rule's lookup blocks until shutdown.
+type isolatedExecutionStore struct {
+	*automationFakeStore
+	mu          sync.Mutex
+	queue       []models.AutomationExecution
+	slowRuleID  int64
+	slowStarted chan struct{}
+	completed   chan int64
+}
+
+func (f *isolatedExecutionStore) QueueAutomationExecution(context.Context, models.AutomationExecution) error {
+	return nil
+}
+
+func (f *isolatedExecutionStore) ClaimAutomationExecution(context.Context) (*models.AutomationExecution, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.queue) == 0 {
+		return nil, nil
+	}
+	work := f.queue[0]
+	f.queue = f.queue[1:]
+	return &work, nil
+}
+
+func (f *isolatedExecutionStore) CompleteAutomationExecution(_ context.Context, ruleID, _ int64, _ time.Time) error {
+	f.completed <- ruleID
+	return nil
+}
+
+func (f *isolatedExecutionStore) RetryAutomationExecution(context.Context, int64, int64, time.Time, string) error {
+	return nil
+}
+
+func (f *isolatedExecutionStore) GetAutomationRule(ctx context.Context, orgID, ruleID int64) (*models.AutomationRule, error) {
+	if ruleID == f.slowRuleID {
+		close(f.slowStarted)
+		<-ctx.Done()
+		return nil, fleeterror.NewInternalError("rule lookup interrupted")
+	}
+	return &models.AutomationRule{ID: ruleID, OrgID: orgID, TriggerType: models.AutomationTriggerTypeSchedule}, nil
+}
+
+func TestAutomationService_RunIsolatesSlowExecutions(t *testing.T) {
+	t.Parallel()
+	h := newAutomationHarness(t)
+	store := &isolatedExecutionStore{
+		automationFakeStore: h.rules,
+		queue: []models.AutomationExecution{
+			{RuleID: 1, OrgID: h.orgID, Generation: 1},
+			{RuleID: 2, OrgID: h.orgID, Generation: 1},
+		},
+		slowRuleID:  1,
+		slowStarted: make(chan struct{}),
+		completed:   make(chan int64, 2),
+	}
+	h.automation.store = store
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.automation.Run(ctx)
+	}()
+	select {
+	case <-store.slowStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not start the slow rule")
+	}
+	select {
+	case ruleID := <-store.completed:
+		assert.Equal(t, int64(2), ruleID)
+	case <-time.After(2 * time.Second):
+		t.Fatal("a slow rule blocked another rule's due work")
+	}
+	cancel()
+	<-done
+}
+
+func TestScheduleOneTimeWindowFitsDurationCap(t *testing.T) {
+	assert.Equal(t, schedulewindow.MaxOneTimeDuration, time.Duration(maxFiniteDurationSeconds)*time.Second,
+		"scheduleStartRequest caps a window's event at its time left without clamping it to the duration cap")
+}
+
+func TestScheduleBoundaryAt(t *testing.T) {
+	def := dailyEveningSchedule().Definition
+
+	boundary, err := scheduleBoundaryAt(def, scheduleWindowStart.Add(time.Hour))
+	require.NoError(t, err)
+	require.NotNil(t, boundary)
+	assert.Equal(t, models.AutomationSignalOff, boundary.Target)
+	assert.Equal(t, scheduleDirectionStart, boundary.Direction)
+	assert.True(t, boundary.ReceivedAt.Equal(scheduleWindowStart))
+
+	boundary, err = scheduleBoundaryAt(def, scheduleWindowEnd.Add(time.Hour))
+	require.NoError(t, err)
+	require.NotNil(t, boundary)
+	assert.Equal(t, models.AutomationSignalOn, boundary.Target)
+	assert.Equal(t, scheduleDirectionEnd, boundary.Direction)
+	assert.True(t, boundary.ReceivedAt.Equal(scheduleWindowEnd))
+
+	boundary, err = scheduleBoundaryAt(def, time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC))
+	require.NoError(t, err)
+	assert.Nil(t, boundary, "nothing to assert before the first window")
+}
+
+func TestAutomationService_ScheduleWindowStartsScheduledEvent(t *testing.T) {
+	t.Parallel()
+	h, durable := newScheduleHarness(t)
+
+	h.automation.produceScheduleAssertions(t.Context())
+	require.Len(t, durable.pending, 1)
+	assert.Equal(t, models.AutomationSignalOff, durable.pending[0].Target)
+	assert.True(t, durable.pending[0].ReceivedAt.Equal(scheduleWindowStart))
+
+	h.automation.processDueExecutions(t.Context())
+
+	assert.Equal(t, []int64{h.rule.ID}, durable.completed)
+	require.Equal(t, 1, h.curtailments.insertEventCalls)
+	event := h.curtailments.lastInsertEvent
+	assert.Equal(t, models.SourceActorScheduler, event.SourceActorType)
+	assert.Equal(t, int64(0), event.AutomationMQTTSourceID)
+	assert.Equal(t, h.rule.ID, event.AutomationRuleID)
+	assert.Equal(t, int64(777), event.CreatedByUserID)
+	require.NotNil(t, event.ScheduledStartAt)
+	assert.True(t, event.ScheduledStartAt.Equal(scheduleWindowStart))
+	assert.Equal(t, h.rule.Schedule.Revision, event.AutomationScheduleRevision, "the store's rule lock rechecks the schedule revision the worker read")
+	assert.True(t, event.AutomationWindowEndAt.Equal(scheduleWindowEnd), "the store rejects the start once the window ends")
+	// FULL_FLEET profiles are not forced unbounded: the window end caps them.
+	assert.False(t, event.AllowUnbounded)
+	require.NotNil(t, event.MaxDurationSeconds)
+	assert.Equal(t, int32(2*60*60), *event.MaxDurationSeconds)
+	assert.Equal(t, `Schedule "Evening peak"`, event.Reason)
+	require.NotNil(t, h.rule.ActiveEventUUID)
+	assert.Equal(t, h.rules.lastActiveEvent, *h.rule.ActiveEventUUID)
+}
+
+func TestAutomationService_ScheduleRepeatedAssertionDoesNotRestartWindow(t *testing.T) {
+	t.Parallel()
+	h, durable := newScheduleHarness(t)
+
+	h.automation.produceScheduleAssertions(t.Context())
+	h.automation.processDueExecutions(t.Context())
+	require.Equal(t, 1, h.curtailments.insertEventCalls)
+
+	// An operator stops the window's event early; the same boundary asserted
+	// again on the next pass must not start it again.
+	h.curtailments.eventsByUUID[*h.rule.ActiveEventUUID] = &models.Event{
+		EventUUID: *h.rule.ActiveEventUUID, OrgID: h.orgID, State: models.EventStateCompleted,
+	}
+	h.automation.produceScheduleAssertions(t.Context())
+	h.automation.processDueExecutions(t.Context())
+	assert.Equal(t, 1, h.curtailments.insertEventCalls)
+	assert.Empty(t, durable.pending)
+}
+
+func TestAutomationService_ScheduleWindowEndRestores(t *testing.T) {
+	t.Parallel()
+	h, durable := newScheduleHarness(t)
+	h.automation.clock = func() time.Time { return scheduleWindowEnd.Add(30 * time.Second) }
+	id := h.seedScheduledEvent(models.EventStateActive, scheduleWindowStart)
+
+	h.automation.produceScheduleAssertions(t.Context())
+	require.Len(t, durable.pending, 1)
+	assert.Equal(t, models.AutomationSignalOn, durable.pending[0].Target)
+	h.automation.processDueExecutions(t.Context())
+
+	assert.Equal(t, []int64{h.rule.ID}, durable.completed)
+	assert.Equal(t, 1, h.curtailments.beginRestoreCalls)
+	assert.Equal(t, id, h.curtailments.beginRestoreLastEventID)
+	assert.Equal(t, 1, h.rules.restoreStartedCalls)
+	assert.True(t, h.rules.lastRestoreStartedAt.Equal(scheduleWindowEnd))
+}
+
+func TestAutomationService_ScheduleWindowEndLeavesOtherEventsRunning(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name          string
+		windowStart   time.Time
+		otherRevision bool
+	}{
+		{"event for a later window", scheduleWindowStart.Add(30 * time.Minute), false},
+		{"event from an edited schedule with the same window start", scheduleWindowStart, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h, durable := newScheduleHarness(t)
+			h.automation.clock = func() time.Time { return scheduleWindowEnd.Add(30 * time.Second) }
+			id := h.seedScheduledEvent(models.EventStateActive, tt.windowStart)
+			if tt.otherRevision {
+				h.curtailments.eventsByUUID[id].ScheduleRevision = uuid.New()
+			}
+
+			h.automation.produceScheduleAssertions(t.Context())
+			h.automation.processDueExecutions(t.Context())
+
+			assert.Equal(t, []int64{h.rule.ID}, durable.completed)
+			assert.Equal(t, 0, h.curtailments.beginRestoreCalls)
+			assert.Equal(t, 0, h.rules.restoreStartedCalls)
+		})
+	}
+}
+
+func TestAutomationService_ScheduleWindowWaitsForPreviousWindowEvent(t *testing.T) {
+	t.Parallel()
+	h, durable := newScheduleHarness(t)
+	h.seedScheduledEvent(models.EventStateRestoring, scheduleWindowStart.AddDate(0, 0, -1))
+
+	h.automation.produceScheduleAssertions(t.Context())
+	h.automation.processDueExecutions(t.Context())
+
+	assert.Equal(t, []int64{h.rule.ID}, durable.retried)
+	assert.Equal(t, 0, h.curtailments.insertEventCalls)
+	require.NotEmpty(t, h.rules.executionErrors)
+	assert.Contains(t, h.rules.executionErrors[0], "previous schedule window")
+}
+
+func TestAutomationService_ScheduleWindowKeepsItsOwnLiveEvent(t *testing.T) {
+	t.Parallel()
+	h, durable := newScheduleHarness(t)
+	h.seedScheduledEvent(models.EventStateActive, scheduleWindowStart)
+
+	h.automation.produceScheduleAssertions(t.Context())
+	h.automation.processDueExecutions(t.Context())
+
+	assert.Equal(t, []int64{h.rule.ID}, durable.completed)
+	assert.Equal(t, 0, h.curtailments.insertEventCalls)
+}
+
+func TestAutomationService_ScheduleDropsStaleOrEndedWindows(t *testing.T) {
+	t.Parallel()
+
+	t.Run("boundary no longer in the schedule", func(t *testing.T) {
+		t.Parallel()
+		h, durable := newScheduleHarness(t)
+		durable.pending = []models.AutomationExecution{{
+			RuleID: h.rule.ID, OrgID: h.orgID, Target: models.AutomationSignalOff, ReceivedAt: scheduleWindowStart.Add(-time.Hour),
+			ScheduleRevision: h.rule.Schedule.Revision,
+		}}
+		h.automation.processDueExecutions(t.Context())
+		assert.Equal(t, []int64{h.rule.ID}, durable.completed)
+		assert.Equal(t, 0, h.curtailments.insertEventCalls)
+	})
+
+	t.Run("window already over", func(t *testing.T) {
+		t.Parallel()
+		h, durable := newScheduleHarness(t)
+		h.automation.clock = func() time.Time { return scheduleWindowEnd }
+		durable.pending = []models.AutomationExecution{{
+			RuleID: h.rule.ID, OrgID: h.orgID, Target: models.AutomationSignalOff, ReceivedAt: scheduleWindowStart,
+			ScheduleRevision: h.rule.Schedule.Revision,
+		}}
+		h.automation.processDueExecutions(t.Context())
+		assert.Equal(t, []int64{h.rule.ID}, durable.completed)
+		assert.Equal(t, 0, h.curtailments.insertEventCalls)
+	})
+
+	t.Run("boundary from an earlier schedule revision", func(t *testing.T) {
+		t.Parallel()
+		h, durable := newScheduleHarness(t)
+		h.automation.clock = func() time.Time { return scheduleWindowEnd.Add(30 * time.Second) }
+		h.seedScheduledEvent(models.EventStateActive, scheduleWindowStart)
+		durable.pending = []models.AutomationExecution{
+			{RuleID: h.rule.ID, OrgID: h.orgID, Target: models.AutomationSignalOff, ReceivedAt: scheduleWindowStart, ScheduleRevision: uuid.New()},
+			{RuleID: h.rule.ID, OrgID: h.orgID, Target: models.AutomationSignalOn, ReceivedAt: scheduleWindowEnd, ScheduleRevision: uuid.New()},
+		}
+		h.automation.processDueExecutions(t.Context())
+		assert.Equal(t, []int64{h.rule.ID, h.rule.ID}, durable.completed)
+		assert.Equal(t, 0, h.curtailments.insertEventCalls)
+		assert.Equal(t, 0, h.curtailments.beginRestoreCalls)
+	})
+}
+
+func TestAutomationService_ScheduleRetriedStartAfterOperatorStop(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name              string
+		pointerWriteFails bool
+		newRevision       bool
+		wantInserts       int
+	}{
+		{"same revision does not run the window again", false, false, 1},
+		{"same revision without the active-event pointer does not run the window again", true, false, 1},
+		{"re-enabled schedule runs the window again", false, true, 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h, durable := newScheduleHarness(t)
+			if tt.pointerWriteFails {
+				h.rules.setActiveErr = fleeterror.NewInternalError("connection reset")
+			}
+			h.automation.produceScheduleAssertions(t.Context())
+			work := durable.pending[0]
+			h.automation.processDueExecutions(t.Context())
+			require.Equal(t, 1, h.curtailments.insertEventCalls)
+			eventUUID := h.rules.lastActiveEvent
+			if tt.pointerWriteFails {
+				require.Nil(t, h.rule.ActiveEventUUID)
+				h.rules.setActiveErr = nil
+			}
+
+			// The start's acknowledgement or active-event pointer was lost, and
+			// an operator stopped the window's event before the retry.
+			start := scheduleWindowStart
+			h.curtailments.eventsByUUID[eventUUID] = &models.Event{
+				EventUUID: eventUUID, OrgID: h.orgID, State: models.EventStateCompleted,
+				ScheduledStartAt: &start, ScheduleRevision: h.rule.Schedule.Revision,
+			}
+			if tt.newRevision {
+				h.rule.Schedule.Revision = uuid.New()
+				work.ScheduleRevision = h.rule.Schedule.Revision
+			}
+			durable.pending = []models.AutomationExecution{work}
+			h.automation.processDueExecutions(t.Context())
+
+			assert.Equal(t, tt.wantInserts, h.curtailments.insertEventCalls)
+		})
+	}
+}
+
+func TestAutomationService_ScheduleRetriedStartAfterStoppedEventFinishesRestoring(t *testing.T) {
+	t.Parallel()
+	h, durable := newScheduleHarness(t)
+	// The window's event was restoring when the retry read the window's history
+	// and finished before the replay lookup, which matches only live events.
+	eventUUID := uuid.New()
+	start := scheduleWindowStart
+	h.curtailments.eventsByUUID[eventUUID] = &models.Event{
+		EventUUID: eventUUID, OrgID: h.orgID, State: models.EventStateRestoring,
+		SourceActorType: models.SourceActorScheduler, ScheduledStartAt: &start, ScheduleRevision: h.rule.Schedule.Revision,
+	}
+
+	h.automation.produceScheduleAssertions(t.Context())
+	h.automation.processDueExecutions(t.Context())
+
+	assert.Equal(t, []int64{h.rule.ID}, durable.completed)
+	assert.Equal(t, 0, h.curtailments.insertEventCalls, "a window whose event an operator stopped must not start again")
+}
+
+func TestAutomationService_ScheduleStartReplay(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		eventWindow time.Time
+		wantAdopted bool
+	}{
+		{"adopts the window's own live event", scheduleWindowStart, true},
+		{"waits for an earlier window's live event", scheduleWindowStart.AddDate(0, 0, -1), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h, durable := newScheduleHarness(t)
+			event := h.seedScheduledReplayEvent(models.EventStateActive, tt.eventWindow)
+
+			h.automation.produceScheduleAssertions(t.Context())
+			h.automation.processDueExecutions(t.Context())
+
+			assert.Equal(t, 0, h.curtailments.insertEventCalls)
+			if tt.wantAdopted {
+				assert.Equal(t, []int64{h.rule.ID}, durable.completed)
+				assert.Equal(t, event.EventUUID, h.rules.lastActiveEvent)
+				return
+			}
+			assert.Equal(t, []int64{h.rule.ID}, durable.retried)
+			assert.Equal(t, uuid.Nil, h.rules.lastActiveEvent)
+			require.NotEmpty(t, h.rules.executionErrors)
+			assert.Contains(t, h.rules.executionErrors[0], "previous schedule window")
+		})
+	}
+}
+
+func TestAutomationService_ScheduleEditRequeuesEarlierBoundary(t *testing.T) {
+	t.Parallel()
+	h, durable := newScheduleHarness(t)
+	h.automation.produceScheduleAssertions(t.Context())
+	h.automation.processDueExecutions(t.Context())
+	require.Equal(t, 1, h.curtailments.insertEventCalls)
+	h.curtailments.eventsByUUID[*h.rule.ActiveEventUUID] = &models.Event{
+		EventUUID: *h.rule.ActiveEventUUID, OrgID: h.orgID, State: models.EventStateCompleted,
+	}
+
+	// The edited schedule's window opened before the boundary already applied.
+	edited := dailyEveningSchedule()
+	edited.Definition.StartTime = "19:00"
+	h.rule.Schedule = edited
+	durable.schedules = []models.ScheduledAutomationRule{{RuleID: h.rule.ID, Schedule: *edited}}
+	h.automation.produceScheduleAssertions(t.Context())
+	require.Len(t, durable.pending, 1)
+	assert.True(t, durable.pending[0].ReceivedAt.Equal(scheduleWindowStart.Add(-time.Hour)))
+	h.automation.processDueExecutions(t.Context())
+	assert.Equal(t, 2, h.curtailments.insertEventCalls)
+	assert.Equal(t, edited.Revision, h.curtailments.lastInsertEvent.AutomationScheduleRevision)
+}
+
+func TestAutomationService_CreateScheduleRuleValidation(t *testing.T) {
+	t.Parallel()
+
+	pastOneTime := &models.AutomationSchedule{
+		Definition: schedulewindow.Definition{
+			Type: schedulewindow.TypeOneTime, Timezone: "UTC",
+			StartDate: "2026-06-01", StartTime: "10:00", EndDate: "2026-06-01", EndTime: "12:00",
+		},
+		ServiceUserID: 777,
+	}
+	tests := []struct {
+		name   string
+		mutate func(*models.AutomationRule)
+		want   string
+	}{
+		{"missing schedule", func(r *models.AutomationRule) { r.Schedule = nil }, "require a schedule"},
+		{"mqtt source on schedule rule", func(r *models.AutomationRule) { r.MQTTSourceID = 7001 }, "cannot set mqtt_source_id"},
+		{"missing saving user", func(r *models.AutomationRule) { r.Schedule.ServiceUserID = 0 }, "saving user"},
+		{"invalid definition", func(r *models.AutomationRule) { r.Schedule.Definition.Timezone = "Nowhere/Else" }, "invalid schedule"},
+		{"no remaining windows", func(r *models.AutomationRule) { r.Schedule = pastOneTime }, "no remaining windows"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h, _ := newScheduleHarness(t)
+			rule := *h.rule
+			rule.ID = 0
+			schedule := *h.rule.Schedule
+			rule.Schedule = &schedule
+			tt.mutate(&rule)
+			_, err := h.automation.Create(t.Context(), SaveAutomationRuleRequest{
+				Rule:                            rule,
+				ExpectedResponseProfileRevision: h.profile.Revision,
+				CanUseAdminControls:             true,
+			})
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err), err)
+			assert.Contains(t, err.Error(), tt.want)
+		})
+	}
+
+	t.Run("valid schedule", func(t *testing.T) {
+		t.Parallel()
+		h, _ := newScheduleHarness(t)
+		rule := *h.rule
+		rule.ID = 0
+		created, err := h.automation.Create(t.Context(), SaveAutomationRuleRequest{
+			Rule:                            rule,
+			ExpectedResponseProfileRevision: h.profile.Revision,
+			CanUseAdminControls:             true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, created.Schedule)
+		assert.Equal(t, models.AutomationTriggerTypeSchedule, created.TriggerType)
+	})
+
+	t.Run("mqtt rule with schedule", func(t *testing.T) {
+		t.Parallel()
+		h := newAutomationHarness(t)
+		rule := *h.rule
+		rule.ID = 0
+		rule.Schedule = dailyEveningSchedule()
+		_, err := h.automation.Create(t.Context(), SaveAutomationRuleRequest{Rule: rule, ExpectedResponseProfileRevision: h.profile.Revision})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot set a schedule")
+	})
+}
+
+func TestAutomationService_UpdateRejectsTriggerTypeChange(t *testing.T) {
+	t.Parallel()
+	h := newAutomationHarness(t)
+	rule := *h.rule
+	rule.TriggerType = models.AutomationTriggerTypeSchedule
+	rule.MQTTSourceID = 0
+	rule.Schedule = dailyEveningSchedule()
+
+	_, err := h.automation.Update(t.Context(), SaveAutomationRuleRequest{
+		Rule:                            rule,
+		ExpectedResponseProfileRevision: h.profile.Revision,
+		CanUseAdminControls:             true,
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "trigger_type cannot change")
+	assert.Equal(t, 0, h.rules.updateCalls)
+}
+
+func TestValidateExecutionFenceTriggers(t *testing.T) {
+	t.Parallel()
+	revision := uuid.New()
+	tests := []struct {
+		name  string
+		fence ExecutionFence
+		use   ExecutionFenceUse
+		ok    bool
+	}{
+		{"mqtt start", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationMQTTSourceID: 3, SourceActorType: models.SourceActorAutomation}, ExecutionFenceStart, true},
+		{"mqtt start with schedule revision", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationMQTTSourceID: 3, AutomationScheduleRevision: revision, SourceActorType: models.SourceActorAutomation}, ExecutionFenceStart, false},
+		{"schedule start", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationScheduleRevision: revision, AutomationWindowEndAt: scheduleWindowEnd, SourceActorType: models.SourceActorScheduler}, ExecutionFenceStart, true},
+		{"schedule start without schedule revision", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationWindowEndAt: scheduleWindowEnd, SourceActorType: models.SourceActorScheduler}, ExecutionFenceStart, false},
+		{"schedule start without window end", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationScheduleRevision: revision, SourceActorType: models.SourceActorScheduler}, ExecutionFenceStart, false},
+		{"mqtt start with window end", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationMQTTSourceID: 3, AutomationWindowEndAt: scheduleWindowEnd, SourceActorType: models.SourceActorAutomation}, ExecutionFenceStart, false},
+		{"schedule start with source", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationMQTTSourceID: 3, SourceActorType: models.SourceActorScheduler}, ExecutionFenceStart, false},
+		{"automation start without source", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationScheduleRevision: revision, SourceActorType: models.SourceActorAutomation}, ExecutionFenceStart, false},
+		{"user start with rule", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationScheduleRevision: revision, SourceActorType: models.SourceActorUser}, ExecutionFenceStart, false},
+		{"user start with schedule revision", ExecutionFence{AutomationScheduleRevision: revision, SourceActorType: models.SourceActorUser}, ExecutionFenceStart, false},
+		{"source without rule", ExecutionFence{AutomationMQTTSourceID: 3, SourceActorType: models.SourceActorUser}, ExecutionFenceStart, false},
+		{"schedule store", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationScheduleRevision: revision, AutomationServiceUserID: 4}, ExecutionFenceStore, true},
+		{"schedule store without schedule revision", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationServiceUserID: 4}, ExecutionFenceStore, false},
+		{"schedule recurtail", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationScheduleRevision: revision, AutomationServiceUserID: 4}, ExecutionFenceRecurtail, true},
+		{"rule without service user", ExecutionFence{ResponseProfileID: 1, ResponseProfileRevision: revision, AutomationRuleID: 2, AutomationScheduleRevision: revision}, ExecutionFenceStore, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := ValidateExecutionFence(tt.fence, tt.use)
+			if tt.ok {
+				assert.NoError(t, err)
+				return
+			}
+			assert.True(t, fleeterror.IsInvalidArgumentError(err), err)
+		})
+	}
+}
+
+func TestScheduledEventOwnership(t *testing.T) {
+	t.Parallel()
+	h, _ := newScheduleHarness(t)
+	event := h.seedAutomationReplayEvent(models.EventStateActive)
+	event.SourceActorType = models.SourceActorScheduler
+
+	assert.NoError(t, ValidateAutomationEventOwnership(event, h.orgID, h.rule.ID))
+	assert.NoError(t, validateAutomationReplayOwnership(event, h.rule, nil))
+
+	mqttRule := *h.rule
+	mqttRule.TriggerType = models.AutomationTriggerTypeMQTT
+	assert.Error(t, validateAutomationReplayOwnership(event, &mqttRule, nil), "an MQTT rule does not own a scheduler event")
+}

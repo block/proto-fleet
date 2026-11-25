@@ -1,5 +1,5 @@
 import { MemoryRouter } from "react-router-dom";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
@@ -68,11 +68,7 @@ vi.mock("@/protoFleet/features/groupManagement/components/DeviceSetActionsMenu",
 }));
 
 vi.mock("@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection", () => ({
-  DeviceSetPerformanceSection: ({ className, gapClassName }: { className?: string; gapClassName?: string }) => (
-    <div className={className} data-gap-class={gapClassName} data-testid="group-performance-grid">
-      Performance section
-    </div>
-  ),
+  DeviceSetPerformanceSection: () => <div>Performance section</div>,
 }));
 
 vi.mock("@/protoFleet/features/groupManagement/components/FleetHealth", () => ({
@@ -87,11 +83,7 @@ vi.mock("@/protoFleet/features/groupManagement/components/GroupModal", () => ({
 
 vi.mock("@/protoFleet/features/kpis/components/FleetErrors", () => ({
   __esModule: true,
-  default: ({ gapClassName }: { gapClassName?: string }) => (
-    <div data-gap-class={gapClassName} data-testid="group-fleet-errors">
-      Fleet errors
-    </div>
-  ),
+  default: () => <div>Fleet errors</div>,
 }));
 
 vi.mock("@/protoFleet/store", () => ({
@@ -186,24 +178,5 @@ describe("GroupOverviewPage", () => {
         }),
       ),
     );
-  });
-
-  it("uses the detail view spacing rhythm for sections and section content", async () => {
-    render(
-      <MemoryRouter>
-        <GroupOverviewPage />
-      </MemoryRouter>,
-    );
-
-    expect(await screen.findByTestId("group-overview-section")).toHaveClass("px-4", "pt-10", "laptop:px-8");
-    expect(screen.getByTestId("group-overview-section").firstElementChild).toHaveClass(
-      "gap-1",
-      "overflow-visible",
-      "p-2",
-    );
-    expect(screen.getByTestId("group-fleet-errors")).toHaveAttribute("data-gap-class", "gap-1");
-    expect(screen.getByTestId("group-performance-section").querySelector(".sticky")).toHaveClass("pt-10", "pb-1");
-    expect(screen.getByTestId("group-performance-grid")).toHaveClass("p-2");
-    expect(screen.getByTestId("group-performance-grid")).toHaveAttribute("data-gap-class", "gap-1");
   });
 });

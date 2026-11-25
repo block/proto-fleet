@@ -3,6 +3,7 @@ package admin_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,22 +20,56 @@ import (
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/discovery"
+	domainpairing "github.com/block/proto-fleet/server/internal/domain/pairing"
 	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
+
+type blockingPairingStateAnnotator struct {
+	started chan struct{}
+}
+
+func (a *blockingPairingStateAnnotator) AnnotateAlreadyPaired(ctx context.Context, _ int64, devices []*pairingpb.Device) error {
+	if len(devices) == 0 {
+		return nil
+	}
+	close(a.started)
+	<-ctx.Done()
+	return fmt.Errorf("pairing lookup stopped: %w", ctx.Err())
+}
+
+type failingPairingStateAnnotator struct {
+	err error
+}
+
+func (a failingPairingStateAnnotator) AnnotateAlreadyPaired(context.Context, int64, []*pairingpb.Device) error {
+	return a.err
+}
 
 func TestDiscoverOnFleetNode_StreamsBatchesAndStopsOnAck(t *testing.T) {
 	// Arrange
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-discover-1")
 	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
+	h.insertDeviceWithIdentifier(t, "auto:abc")
+	require.NoError(t, sqlstores.NewSQLDeviceStore(h.db).UpsertDevicePairing(
+		t.Context(),
+		&pairingpb.Device{DeviceIdentifier: "auto:abc"},
+		h.orgID,
+		domainpairing.StatusPaired,
+	))
 
 	client := startAdminServer(t, h)
 
 	agentDone := make(chan struct{})
+	t.Cleanup(func() { <-agentDone })
 	go func() {
 		defer close(agentDone)
 		select {
@@ -80,6 +115,7 @@ func TestDiscoverOnFleetNode_StreamsBatchesAndStopsOnAck(t *testing.T) {
 	require.NoError(t, resp.Close())
 	require.Len(t, devices, 1)
 	assert.Equal(t, "auto:abc", devices[0].GetDeviceIdentifier())
+	assert.True(t, devices[0].GetAlreadyPaired())
 	<-agentDone
 }
 
@@ -113,11 +149,13 @@ func TestDiscoverOnFleetNode_FailedAckWithoutMessageReturnsError(t *testing.T) {
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-discover-failed-ack")
 	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 
 	client := startAdminServer(t, h)
 
 	agentDone := make(chan struct{})
+	t.Cleanup(func() { <-agentDone })
 	go func() {
 		defer close(agentDone)
 		select {
@@ -163,11 +201,13 @@ func TestDiscoverOnFleetNode_PartialAckCompletesSuccessfully(t *testing.T) {
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-discover-partial")
 	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 
 	client := startAdminServer(t, h)
 
 	agentDone := make(chan struct{})
+	t.Cleanup(func() { <-agentDone })
 	go func() {
 		defer close(agentDone)
 		select {
@@ -224,11 +264,13 @@ func TestDiscoverOnFleetNode_RejectsInconsistentSuccessAck(t *testing.T) {
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-discover-inconsistent-ack")
 	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 
 	client := startAdminServer(t, h)
 
 	agentDone := make(chan struct{})
+	t.Cleanup(func() { <-agentDone })
 	go func() {
 		defer close(agentDone)
 		select {
@@ -323,7 +365,6 @@ func TestDiscoverOnFleetNode_RejectsUnsupportedNetworkScanTarget(t *testing.T) {
 		target string
 	}{
 		{name: "ipv6 cidr", target: "2001:db8::/32"},
-		{name: "ipv4 cidr broader than /20", target: "10.0.0.0/16"},
 		{name: "leading dash flag", target: "-iL/etc/passwd"},
 	}
 	for _, tc := range tests {
@@ -387,11 +428,12 @@ func TestDiscoverOnFleetNode_RejectsMDNSMode(t *testing.T) {
 	assert.Equal(t, connect.CodeInvalidArgument, connErr.Code())
 }
 
-func TestDiscoverOnFleetNode_NetworkScanModePassesThrough(t *testing.T) {
+func TestDiscoverOnFleetNode_NetworkScanModePreservesCIDROnWire(t *testing.T) {
 	// Arrange
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-discover-network-scan")
 	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 
 	client := startAdminServer(t, h)
@@ -463,6 +505,7 @@ func TestDiscoverOnFleetNode_PreservesIPRangeOnWire(t *testing.T) {
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-discover-range")
 	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 
 	client := startAdminServer(t, h)
@@ -572,6 +615,7 @@ func TestDiscoverOnFleetNode_TimesOutWhenAgentNeverResponds(t *testing.T) {
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-discover-timeout")
 	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 	// Drain the outgoing command so Send doesn't block, but never ack it.
 	go func() { <-stream.Outgoing }()
@@ -595,6 +639,135 @@ func TestDiscoverOnFleetNode_TimesOutWhenAgentNeverResponds(t *testing.T) {
 	require.NoError(t, resp.Err())
 	require.Len(t, warnings, 1)
 	assert.Contains(t, warnings[0], "timed out")
+}
+
+func TestDiscoverOnFleetNode_PairingLookupUsesDiscoveryDeadline(t *testing.T) {
+	prev := discovery.DiscoverCommandTimeout
+	discovery.DiscoverCommandTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { discovery.DiscoverCommandTimeout = prev })
+
+	annotator := &blockingPairingStateAnnotator{started: make(chan struct{})}
+	h := newPairingHarnessWithPairingState(t, annotator)
+	fleetNodeID := h.createFleetNode(t, "admin-discover-lookup-timeout")
+	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
+	defer stream.Unregister()
+	go func() {
+		cmd := <-stream.Outgoing
+		h.registry.PublishBatch(fleetNodeID, cmd.GetCommandId(), &pairingpb.DiscoverResponse{
+			Devices: []*pairingpb.Device{{DeviceIdentifier: "blocked-lookup", IpAddress: "10.0.0.5"}},
+		})
+	}()
+
+	client := startAdminServer(t, h)
+	resp, err := client.DiscoverOnFleetNode(context.Background(), connect.NewRequest(&pb.DiscoverOnFleetNodeRequest{
+		FleetNodeId: fleetNodeID,
+		Request: &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_IpList{
+			IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.5"}},
+		}},
+	}))
+	require.NoError(t, err)
+	var devices []*pairingpb.Device
+	var warnings []string
+	for resp.Receive() {
+		devices = append(devices, resp.Msg().GetResponse().GetDevices()...)
+		if warning := resp.Msg().GetResponse().GetWarning(); warning != "" {
+			warnings = append(warnings, warning)
+		}
+	}
+
+	require.NoError(t, resp.Err())
+	assert.Empty(t, devices)
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], discoverylimits.RequestTimeoutWarning)
+}
+
+func TestDiscoverOnFleetNode_PairingLookupFailureFailsClosed(t *testing.T) {
+	h := newPairingHarnessWithPairingState(t, failingPairingStateAnnotator{err: errors.New("lookup failed")})
+	fleetNodeID := h.createFleetNode(t, "admin-discover-lookup-failure")
+	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
+	defer stream.Unregister()
+	go func() {
+		cmd := <-stream.Outgoing
+		h.registry.PublishBatch(fleetNodeID, cmd.GetCommandId(), &pairingpb.DiscoverResponse{
+			Devices: []*pairingpb.Device{{DeviceIdentifier: "unverified-pairing-state", IpAddress: "10.0.0.5"}},
+		})
+	}()
+
+	err := h.handler.DiscoverOnFleetNode(h.adminCtx(), connect.NewRequest(&pb.DiscoverOnFleetNodeRequest{
+		FleetNodeId: fleetNodeID,
+		Request: &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_IpList{
+			IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.5"}},
+		}},
+	}), nil)
+
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInternal, fleetErr.GRPCCode)
+	assert.Contains(t, err.Error(), "lookup failed")
+}
+
+func TestDiscoverOnFleetNode_CallerDeadlineDuringPairingLookupReturnsDeadlineExceeded(t *testing.T) {
+	annotator := &blockingPairingStateAnnotator{started: make(chan struct{})}
+	h := newPairingHarnessWithPairingState(t, annotator)
+	fleetNodeID := h.createFleetNode(t, "admin-discover-lookup-caller-deadline")
+	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
+	defer stream.Unregister()
+	go func() {
+		cmd := <-stream.Outgoing
+		h.registry.PublishBatch(fleetNodeID, cmd.GetCommandId(), &pairingpb.DiscoverResponse{
+			Devices: []*pairingpb.Device{{DeviceIdentifier: "blocked-lookup", IpAddress: "10.0.0.5"}},
+		})
+	}()
+
+	ctx, cancel := context.WithTimeout(h.adminCtx(), 200*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- h.handler.DiscoverOnFleetNode(ctx, connect.NewRequest(&pb.DiscoverOnFleetNodeRequest{
+			FleetNodeId: fleetNodeID,
+			Request: &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_IpList{
+				IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.5"}},
+			}},
+		}), nil)
+	}()
+	<-annotator.started
+
+	err := <-done
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeDeadlineExceeded, connect.CodeOf(err))
+}
+
+func TestDiscoverOnFleetNode_CallerCancellationDuringPairingLookupIsQuiet(t *testing.T) {
+	annotator := &blockingPairingStateAnnotator{started: make(chan struct{})}
+	h := newPairingHarnessWithPairingState(t, annotator)
+	fleetNodeID := h.createFleetNode(t, "admin-discover-lookup-cancel")
+	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
+	defer stream.Unregister()
+	go func() {
+		cmd := <-stream.Outgoing
+		h.registry.PublishBatch(fleetNodeID, cmd.GetCommandId(), &pairingpb.DiscoverResponse{
+			Devices: []*pairingpb.Device{{DeviceIdentifier: "cancelled-lookup", IpAddress: "10.0.0.5"}},
+		})
+	}()
+
+	ctx, cancel := context.WithCancel(h.adminCtx())
+	done := make(chan error, 1)
+	go func() {
+		done <- h.handler.DiscoverOnFleetNode(ctx, connect.NewRequest(&pb.DiscoverOnFleetNodeRequest{
+			FleetNodeId: fleetNodeID,
+			Request: &pairingpb.DiscoverRequest{Mode: &pairingpb.DiscoverRequest_IpList{
+				IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.5"}},
+			}},
+		}), nil)
+	}()
+	<-annotator.started
+	cancel()
+
+	require.NoError(t, <-done)
 }
 
 func startAdminServer(t *testing.T, h *pairingHarness) fleetnodeadminv1connect.FleetNodeAdminServiceClient {

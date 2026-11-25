@@ -33,8 +33,6 @@ export const testFilterStates = {
   error: "error",
 };
 
-export type TestFilterState = (typeof testFilterStates)[keyof typeof testFilterStates];
-
 const now = new Date();
 
 export const testItems: TestItem[] = [

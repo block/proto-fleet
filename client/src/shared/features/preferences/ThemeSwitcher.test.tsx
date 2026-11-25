@@ -25,11 +25,6 @@ describe("ThemeSwitcher", () => {
     setTheme: vi.fn(),
   };
 
-  test("renders with title 'Theme'", () => {
-    render(<ThemeSwitcher {...defaultProps} />);
-    expect(screen.getByText("Theme")).toBeDefined();
-  });
-
   test("renders theme options (System, Light, Dark)", () => {
     render(<ThemeSwitcher {...defaultProps} />);
     expect(screen.getByText("System")).toBeDefined();

@@ -1,0 +1,841 @@
+syntax = "proto3";
+
+package mdk.v2;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "mdk/v2/common.proto";
+import "mdk/v2/mining.proto";
+import "mdk/v2/options.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
+
+// HashboardService provides hashboard and container layout information.
+service HashboardService {
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_tag) = {
+    name: "Hashboards"
+    description: "Hashboard inventory, health snapshots, and container layout."
+  };
+  // ListHashboards returns currently visible hashboards with their latest health snapshots.
+  rpc ListHashboards(ListHashboardsRequest) returns (ListHashboardsResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/hashboards"};
+  }
+
+  // GetHashboard returns one hashboard selected by CT1 MAC address or R2 serial
+  // number.
+  rpc GetHashboard(GetHashboardRequest) returns (GetHashboardResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/hashboards/{identifier}"};
+  }
+
+  // GetHashboardASICs returns ASIC-level health data for one hashboard selected
+  // by CT1 MAC address or R2 serial number.
+  rpc GetHashboardASICs(GetHashboardASICsRequest) returns (GetHashboardASICsResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/hashboards/{identifier}/asics"};
+  }
+
+  // GetHashboardASICMetadata reads decoded ASIC eFuse metadata from a connected
+  // board selected by CT1 MAC address or R2 serial number. Firmware makes this
+  // data available only after ASIC enumeration, so
+  // the board must have reached the mining state. An implementation may cache
+  // a successful read for the lifetime of that board connection.
+  rpc GetHashboardASICMetadata(GetHashboardASICMetadataRequest) returns (GetHashboardASICMetadataResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/hashboards/{identifier}/asic-metadata"};
+  }
+
+  // ListUnitTags returns operator tags for modules, hashboards, and container
+  // power feeds.
+  rpc ListUnitTags(ListUnitTagsRequest) returns (ListUnitTagsResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/tags"};
+  }
+
+  // SetUnitTag upserts an operator tag for a module (keyed by module ID), a
+  // hashboard (keyed by MAC address), or a container power feed (keyed by
+  // backend feed ID). An empty tag deletes the entry.
+  rpc SetUnitTag(SetUnitTagRequest) returns (SetUnitTagResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (mdk.v2.tunnel_mutation_route) = TUNNEL_MUTATION_ROUTE_SHARED_STATE;
+    option (google.api.http) = {
+      put: "/api/v2/tags"
+      body: "*"
+    };
+  }
+
+  // GetContainerMap returns the full physical layout of a CT1 container.
+  rpc GetContainerMap(GetContainerMapRequest) returns (GetContainerMapResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/container/map"};
+  }
+
+  // GetHashboardEvents returns recent history for one hashboard selected by CT1
+  // MAC address or R2 serial number.
+  rpc GetHashboardEvents(GetHashboardEventsRequest) returns (GetHashboardEventsResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/hashboards/{identifier}/events"};
+  }
+
+  // SetIdentifyLED records the desired identification LED state for a board or
+  // module. The HA node that owns each board applies the command to firmware.
+  rpc SetIdentifyLED(SetIdentifyLEDRequest) returns (SetIdentifyLEDResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (mdk.v2.tunnel_mutation_route) = TUNNEL_MUTATION_ROUTE_SHARED_STATE;
+    option (google.api.http) = {
+      post: "/api/v2/hashboards/identify-led"
+      body: "*"
+    };
+  }
+
+  // ListRecoveryEvidence returns bounded summaries of evidence snapshots taken
+  // before automatic hashboard recovery acted, newest first.
+  rpc ListRecoveryEvidence(ListRecoveryEvidenceRequest) returns (ListRecoveryEvidenceResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {get: "/api/v2/recovery-evidence"};
+  }
+
+  // GetRecoveryEvidence returns one recovery evidence snapshot, including its
+  // bounded JSON payload.
+  rpc GetRecoveryEvidence(GetRecoveryEvidenceRequest) returns (GetRecoveryEvidenceResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {get: "/api/v2/recovery-evidence/{evidence_id}"};
+  }
+}
+
+// HashboardIdentifyLEDMode is the operator-requested identification LED mode.
+enum HashboardIdentifyLEDMode {
+  HASHBOARD_IDENTIFY_LED_MODE_UNSPECIFIED = 0;
+  HASHBOARD_IDENTIFY_LED_MODE_OFF = 1;
+  HASHBOARD_IDENTIFY_LED_MODE_BLINK = 2;
+}
+
+message SetIdentifyLEDRequest {
+  BoardScope scope = 1;
+  HashboardIdentifyLEDMode mode = 2;
+}
+
+message SetIdentifyLEDResponse {
+  int32 boards_updated = 1;
+  // expires_at is set for BLINK requests and omitted for OFF requests.
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+// PsuIdentity is manufacturer metadata for the shared power supply
+// identified by Hashboard.module_id. It is absent until compatible firmware
+// has reported and Frigate has durably retained the details.
+message PsuIdentity {
+  string psu_type = 1;
+  string vendor = 2;
+  string model = 3;
+  // serial is the PSU manufacturer serial, not the hashboard PCBA serial.
+  string serial = 4;
+  string revision = 5;
+  // firmware_version is the latest reported PSU firmware; empty means unavailable.
+  // It can change without changing the module identity.
+  string firmware_version = 6;
+}
+
+// Hashboard represents a mining hashboard with its current state and health.
+message Hashboard {
+  // mac_address is the legacy CT1 board identity. It is empty for R2 and must
+  // never contain a synthesized address.
+  string mac_address = 1;
+  // serial is the stable physical identity for R2 and must be populated. CT1
+  // retains its existing MAC identity and may also report a serial.
+  string serial = 2;
+  string hw_revision = 3;
+  MiningState mining_state = 4;
+  HashboardLocation location = 5;
+  HashboardHealth health = 6;
+  string owner_server_id = 7;
+  HashboardSource source = 8;
+  // Latest module ID as 16-character lowercase hex. Live advertisements take
+  // precedence, with the shared last-known identity used across restart/HA.
+  string module_id = 9;
+  // isolated is true when this board is excluded from cluster start/stop and the
+  // mining-intent reconciler. Set via MiningService.SetIsolation. Reflects only
+  // the serving node's process-local isolation set; it is always false for
+  // boards with source HASHBOARD_SOURCE_REMOTE even if the owning node has
+  // isolated them.
+  bool isolated = 10;
+  // Semantic hashboard firmware version advertised over L2, for example "1.2.3".
+  string firmware_version = 11;
+  // Power supply type reported by firmware health telemetry, for example
+  // "BOCO" or "WELLTIP". Populated only for boards with a live local
+  // connection; empty when the type has not been reported.
+  string psu_type = 12;
+  // Abbreviated commit hash extracted from the active firmware image's Git
+  // describe identifier, for example "1a2b3c4". Populated only for boards
+  // with a live local connection; empty when firmware metadata has not been read.
+  string firmware_git_hash = 13;
+  // recovery is present while bounded automatic READY retries are active or
+  // exhausted for a protected MC3 firmware recovery episode.
+  HashboardRecovery recovery = 14;
+  // power_target_min_watts and power_target_max_watts are the latest valid
+  // per-board tuning limits advertised by locally connected firmware.
+  optional double power_target_min_watts = 15;
+  optional double power_target_max_watts = 16;
+  // Field 17 was proposed for bootloader_version during the MDKv2 draft, but
+  // supported hashboards no longer report it. Reserve the number and name.
+  reserved 17;
+  reserved "bootloader_version";
+  string api_version = 18;
+  string chip_id = 19;
+  string asic_model = 20;
+  optional uint32 expected_asic_count = 21;
+  optional uint32 observed_asic_count = 22;
+  reserved 23, 24;
+  reserved "resource_id", "binding_id";
+  // asic_bin is the complete board-level CP-bin summary decoded from ASIC
+  // eFuse GRWVPL values. It is one exact TUI-compatible name (for example
+  // "Z11" or "M04"), a catalogued V8 mixed-bin PCBA recipe label when its
+  // distinct-bin presence signature matches exactly (for example "3A08MX1"),
+  // "Mixed" for other complete valid mixtures, or empty when metadata is
+  // unavailable, incomplete, or invalid. Recipe labels do not verify bin
+  // multiplicity or placement.
+  string asic_bin = 25;
+  // psu_identity is durable module-level enrichment keyed by module_id.
+  PsuIdentity psu_identity = 26;
+}
+
+// HashboardRecovery is the shared HA-safe automatic READY retry state.
+message HashboardRecovery {
+  HashboardErrorCause cause = 1;
+  uint32 retry_count = 2;
+  uint32 max_attempts = 3;
+  google.protobuf.Timestamp next_retry_at = 4;
+  bool exhausted = 5;
+  string controller_server_id = 6;
+}
+
+// HashboardSource describes where the board state in this response came from.
+enum HashboardSource {
+  HASHBOARD_SOURCE_UNSPECIFIED = 0;
+  HASHBOARD_SOURCE_LOCAL = 1;
+  HASHBOARD_SOURCE_REMOTE = 2;
+  HASHBOARD_SOURCE_INVENTORY = 3;
+}
+
+// HashboardLocation describes the physical position of a hashboard.
+message HashboardLocation {
+  reserved 3;
+  reserved "breaker_id";
+  int32 tank = 1;
+  int32 module = 2;
+  string power_feed_id = 4;
+  // slot is the optional one-based R2 chassis slot.
+  optional uint32 slot = 5;
+  // hashboard_position is the resolved one-based board position within a CT1
+  // module. Values 1-3 are displayed as HB1-HB3. It is absent when Frigate
+  // cannot place the board safely.
+  optional uint32 hashboard_position = 6;
+  // hashboard_position_source describes whether the resolved position came
+  // from firmware identity or the deterministic legacy MAC-order fallback.
+  HashboardPositionSource hashboard_position_source = 7;
+  string wiring_status = 8;
+  repeated string wiring_reasons = 9;
+  string expected_power_feed_id = 10;
+  string switch_id = 11;
+  string switch_port_id = 12;
+}
+
+// HashboardPositionSource identifies the evidence used to place a CT1 board
+// within its three-board module.
+enum HashboardPositionSource {
+  HASHBOARD_POSITION_SOURCE_UNSPECIFIED = 0;
+  HASHBOARD_POSITION_SOURCE_FIRMWARE = 1;
+  HASHBOARD_POSITION_SOURCE_MAC_ORDER = 2;
+  HASHBOARD_POSITION_SOURCE_SWITCH_PORT = 3;
+}
+
+// BoardTemperatureSensorLocation identifies where a board temperature sensor is mounted.
+enum BoardTemperatureSensorLocation {
+  BOARD_TEMPERATURE_SENSOR_LOCATION_UNSPECIFIED = 0;
+  BOARD_TEMPERATURE_SENSOR_LOCATION_POWER = 1;
+  BOARD_TEMPERATURE_SENSOR_LOCATION_FLOW_IN = 2;
+  BOARD_TEMPERATURE_SENSOR_LOCATION_FLOW_OUT = 3;
+  BOARD_TEMPERATURE_SENSOR_LOCATION_MCU = 4;
+  BOARD_TEMPERATURE_SENSOR_LOCATION_ASIC_FRONT = 5;
+  BOARD_TEMPERATURE_SENSOR_LOCATION_ASIC_REAR = 6;
+  BOARD_TEMPERATURE_SENSOR_LOCATION_PCBA = 7;
+  BOARD_TEMPERATURE_SENSOR_LOCATION_ASIC_CENTERLINE = 8;
+  BOARD_TEMPERATURE_SENSOR_LOCATION_ASIC_CORNER = 9;
+}
+
+// BoardTemperatureSensor is one board-level temperature sample with its physical identity.
+message BoardTemperatureSensor {
+  // index is the zero-based firmware sensor index.
+  int32 index = 1;
+  // temperature is the board temperature in degrees Celsius.
+  double temperature = 2;
+  BoardTemperatureSensorLocation location = 3;
+}
+
+// PsuThermalHealth contains the power supply's thermal telemetry.
+message PsuThermalHealth {
+  optional double inlet_temperature = 1;
+  optional double sr_heatsink_temperature = 2;
+  optional double pfc_heatsink_temperature = 3;
+  optional uint32 temperatures_age_ms = 4;
+  bool thermal_state_valid = 5;
+  bool over_temperature_warning = 6;
+  bool over_temperature_fault = 7;
+  optional uint32 thermal_state_age_ms = 8;
+}
+
+// PsuElectricalHealth contains one complete power-supply electrical snapshot.
+message PsuElectricalHealth {
+  double input_voltage = 1;
+  double input_current = 2;
+  double input_power = 3;
+  double output_voltage = 4;
+  double output_current = 5;
+  double output_power = 6;
+  uint32 sample_age_ms = 7;
+}
+
+// HashboardVoltageTuningState is the firmware-reported automatic PSU voltage
+// tuning state. Presence on HashboardHealth distinguishes a reported DISABLED
+// state from a board that has not supplied health telemetry yet.
+enum HashboardVoltageTuningState {
+  HASHBOARD_VOLTAGE_TUNING_STATE_UNSPECIFIED = 0;
+  HASHBOARD_VOLTAGE_TUNING_STATE_DISABLED = 1;
+  HASHBOARD_VOLTAGE_TUNING_STATE_INIT = 2;
+  HASHBOARD_VOLTAGE_TUNING_STATE_SWEEP = 3;
+  HASHBOARD_VOLTAGE_TUNING_STATE_TUNING = 4;
+  HASHBOARD_VOLTAGE_TUNING_STATE_STABILIZED = 5;
+}
+
+// HashboardPerformanceTuningAlgorithm is the performance tuning algorithm
+// currently selected by the hashboard firmware. Presence on HashboardHealth
+// distinguishes a reported NONE value from legacy health telemetry.
+enum HashboardPerformanceTuningAlgorithm {
+  HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_UNSPECIFIED = 0;
+  HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_NONE = 1;
+  HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_VOLTAGE_IMBALANCE = 2;
+  HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_TEMPERATURE_GRADIENT = 3;
+  HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_TEMPERATURE_GRADIENT_WITH_VOLTAGE = 4;
+  HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_FMARGIN = 5;
+  HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_FUZZING = 6;
+  HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_DISABLED = 7;
+  HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_FMARGIN_THERMAL_THROTTLE = 8;
+  HASHBOARD_PERFORMANCE_TUNING_ALGORITHM_FMARGIN_DELTA_THERMAL_THROTTLE = 9;
+}
+
+// HashboardASICThermalThrottleHealth is one firmware-reported FMargin
+// thermal-throttle snapshot. quarantined_asic_ids are compact firmware ASIC
+// identities and must be joined through ASIC.compact_index before display.
+message HashboardASICThermalThrottleHealth {
+  uint32 asic_count = 1;
+  repeated uint32 quarantined_asic_ids = 2;
+}
+
+// HashboardHealth contains real-time health metrics for a hashboard.
+message HashboardHealth {
+  double hashrate = 1;
+  double hashrate_ideal = 2;
+  repeated double temperatures = 3;
+  double voltage = 4;
+  double current = 5;
+  double power = 6;
+  // Firmware RTOS uptime in milliseconds.
+  uint64 uptime = 7;
+  bool hashrail_ok = 8 [deprecated = true];
+  bool refclks_ok = 9 [deprecated = true];
+  google.protobuf.Timestamp timestamp = 10;
+  repeated HashboardHealthError errors = 11;
+  repeated HashboardHealthError warnings = 12;
+  repeated BoardTemperatureSensor temperature_sensors = 13;
+  // Latched reason for the most recent mining shutdown. This is diagnostic
+  // history and must not be counted as an active error.
+  HashboardHealthError last_shutdown_error = 14;
+  PsuThermalHealth psu_thermal = 15;
+  // average_asic_temperature_c is absent when the source cannot distinguish
+  // ASIC temperature from other board sensors.
+  optional double average_asic_temperature_c = 16;
+  PsuElectricalHealth psu_electrical = 17;
+  optional HashboardVoltageTuningState voltage_tuning_state = 18;
+  optional HashboardPerformanceTuningAlgorithm performance_tuning_algorithm = 19;
+  // Mean ASIC Fbest headroom in MHz, present only after firmware FMargin has
+  // produced a valid sample for the current controller run.
+  optional double fmargin_mean_mhz = 20;
+  HashboardASICThermalThrottleHealth asic_thermal_throttle = 21;
+  // Maximum of reported ASIC temperatures, never board or PSU sensors.
+  optional double maximum_asic_temperature_c = 22;
+  // Observation time of the ASIC frame supplying the temperature summary.
+  google.protobuf.Timestamp asic_temperature_observed_at = 23;
+}
+
+// HashboardErrorCause identifies a firmware-reported or Frigate-derived
+// hashboard error or warning cause.
+enum HashboardErrorCause {
+  HASHBOARD_ERROR_CAUSE_UNSPECIFIED = 0;
+  HASHBOARD_ERROR_CAUSE_BOARD_OVER_CURRENT = 1;
+  HASHBOARD_ERROR_CAUSE_BOARD_OVER_VOLTAGE = 2;
+  HASHBOARD_ERROR_CAUSE_BOARD_UNDER_VOLTAGE = 3;
+  HASHBOARD_ERROR_CAUSE_BOARD_OVER_TEMPERATURE = 4;
+  HASHBOARD_ERROR_CAUSE_BOARD_POWER_SUPPLY = 5;
+  HASHBOARD_ERROR_CAUSE_BOARD_POWER_SUPPLY_OVER_TEMPERATURE = 6;
+  HASHBOARD_ERROR_CAUSE_BOARD_EXCESSIVE_BUSBAR_VOLTAGE_DROP = 7;
+  HASHBOARD_ERROR_CAUSE_BLACKBOX_STORAGE_FAULT = 8;
+  HASHBOARD_ERROR_CAUSE_ASIC_OVER_VOLTAGE = 10;
+  HASHBOARD_ERROR_CAUSE_ASIC_UNDER_VOLTAGE = 11;
+  HASHBOARD_ERROR_CAUSE_ASIC_OVER_TEMPERATURE = 12;
+  HASHBOARD_ERROR_CAUSE_ASIC_UNDER_TEMPERATURE = 13;
+  HASHBOARD_ERROR_CAUSE_ASIC_ENUMERATION = 14;
+  HASHBOARD_ERROR_CAUSE_ASIC_ECC = 15;
+  HASHBOARD_ERROR_CAUSE_ASIC_CORNER_TEMPERATURE_DELTA = 16;
+  HASHBOARD_ERROR_CAUSE_ASIC_LEADING_EDGE_TEMPERATURE_DELTA = 17;
+  HASHBOARD_ERROR_CAUSE_ASIC_TRAILING_EDGE_TEMPERATURE_DELTA = 18;
+  HASHBOARD_ERROR_CAUSE_ASIC_HOTSPOT_TEMPERATURE_DELTA = 19;
+  HASHBOARD_ERROR_CAUSE_SOFTWARE_ERROR = 20;
+  HASHBOARD_ERROR_CAUSE_USB_ERROR = 21;
+  HASHBOARD_ERROR_CAUSE_MC3_STARTUP_TIMEOUT = 22;
+  HASHBOARD_ERROR_CAUSE_MC3_STARTUP_FAILED = 23;
+  HASHBOARD_ERROR_CAUSE_MC3_NO_STACK_RUNNING = 24;
+  HASHBOARD_ERROR_CAUSE_MC3_RUNTIME_COMMS_BUSY_TIMEOUT = 25;
+  HASHBOARD_ERROR_CAUSE_MC3_KNOWN_GOOD_STARTUP_DROP = 26;
+  // Frigate derives thermal throttling from asic_thermal_throttle; firmware
+  // does not emit this value in its errors or warnings arrays.
+  HASHBOARD_ERROR_CAUSE_ASIC_THERMAL_THROTTLING = 27;
+  HASHBOARD_ERROR_CAUSE_STACK_ENUMERATION = 30;
+  HASHBOARD_ERROR_CAUSE_STACK_DELTA_THERMAL_THROTTLE = 31;
+  HASHBOARD_ERROR_CAUSE_UNKNOWN_ERROR = 99;
+  // Frigate derives a stack dropout warning when a stack that hashed in the
+  // current mining session, whether enumerated at session start or joining
+  // later, stops hashing while other stacks continue. The warning clears when
+  // the stack hashes again. Firmware does not emit this value; it sits outside
+  // the firmware numbering range so future firmware causes cannot collide
+  // with it.
+  HASHBOARD_ERROR_CAUSE_STACK_DROPOUT = 1000;
+}
+
+// HashboardVoltageDomain identifies the ASIC voltage domain involved in an error.
+enum HashboardVoltageDomain {
+  HASHBOARD_VOLTAGE_DOMAIN_UNSPECIFIED = 0;
+  HASHBOARD_VOLTAGE_DOMAIN_VDD = 1;
+  HASHBOARD_VOLTAGE_DOMAIN_VDD_VDDI3 = 2;
+  HASHBOARD_VOLTAGE_DOMAIN_VDDI3_VDDI2 = 3;
+  HASHBOARD_VOLTAGE_DOMAIN_VDDI2_VDDI1 = 4;
+  HASHBOARD_VOLTAGE_DOMAIN_VDDI1 = 5;
+  HASHBOARD_VOLTAGE_DOMAIN_VDD_VDDI1 = 6;
+  HASHBOARD_VOLTAGE_DOMAIN_VDDI3_VSS = 7;
+}
+
+// HashboardASICErrorState contains ASIC-specific detail for an error.
+message HashboardASICErrorState {
+  // Id is the raw zero-based firmware ASIC ID. Firmware numbers only the
+  // ASICs in its live topology, so on a board with an unpopulated or
+  // non-enumerated stack it can differ from the physical ASIC index.
+  uint32 id = 1;
+  double voltage = 2;
+  double temperature = 3;
+  HashboardVoltageDomain voltage_domain = 4;
+  // PhysicalPosition is the owning Frigate's mapping of id onto the board's
+  // physical ASIC layout at capture time. Its index uses the same physical
+  // index space as ASIC.index. It is absent when the layout could not
+  // resolve id unambiguously, from older Frigate releases, and for latched
+  // last-shutdown errors whose firmware topology may predate the current one.
+  HashboardASICPhysicalPosition physical_position = 5;
+}
+
+// HashboardASICPhysicalPosition locates one ASIC on the hashboard's physical
+// layout.
+message HashboardASICPhysicalPosition {
+  // Index is the zero-based physical ASIC position, stack_id multiplied by
+  // the layout's ASICs per stack plus stack_index.
+  uint32 index = 1;
+  // StackId is the zero-based physical stack; stack 0 is labeled A.
+  uint32 stack_id = 2;
+  // StackIndex is the zero-based ASIC position within the stack.
+  uint32 stack_index = 3;
+}
+
+// HashboardHealthError is a firmware-reported or Frigate-derived error or
+// warning.
+message HashboardHealthError {
+  HashboardErrorCause cause = 1;
+  uint32 firmware_timestamp = 2;
+  HashboardASICErrorState asic = 3;
+  // Stack is the raw zero-based firmware stack index for stack-scoped errors.
+  optional uint32 stack = 4;
+}
+
+// ASIC represents per-ASIC health data on a hashboard.
+message ASIC {
+  // index is the zero-based physical ASIC position on the hashboard.
+  int32 index = 1;
+  // voltage_mv is the ASIC voltage in millivolts.
+  int32 voltage_mv = 2;
+  // temperature_dc is the ASIC temperature in decicelsius (e.g. 725 = 72.5 C).
+  int32 temperature_dc = 3;
+  // frequency_mhz is the ASIC clock frequency in megahertz.
+  int32 frequency_mhz = 4;
+  // pass_rate_bp is the nonce pass rate in basis points (e.g. 9950 = 99.50%).
+  int32 pass_rate_bp = 5;
+  // hashrate_ghs10 is the hashrate in GH/s * 10 (e.g. 125 = 12.5 GH/s).
+  int32 hashrate_ghs10 = 6;
+  // ThermalQuarantined is present when firmware supplied a valid thermal-
+  // throttle snapshot covering this ASIC. Absence means not reported.
+  optional bool thermal_quarantined = 7;
+  // compact_index is the original zero-based CT1 firmware identity. It is
+  // absent when the producer cannot map this sample to a physical position.
+  optional int32 compact_index = 8;
+  // debug_health is the newest sampled production debug-health observation
+  // for this ASIC from the shared database, which may have been recorded by
+  // either HA node. It is absent when the Frigate node serving this request
+  // has opt-in production debug-health capture disabled (even if its HA peer
+  // captures the board), when firmware does not publish debug-health frames,
+  // when no sample is newer than three sample intervals, or when the newest
+  // sample reported a different ASIC count than this health frame. It can lag
+  // the health frame by up to one sample interval plus a short read cache;
+  // compare observed_at with the frame time before treating both as current.
+  ASICDebugHealth debug_health = 9;
+}
+
+// ASICECCCounters holds the three cumulative MC3 ULink ECC (UECC) counters
+// that firmware reports for one ASIC. Zero is also what firmware reports when
+// it does not populate a counter, so zeros do not prove an error-free link.
+message ASICECCCounters {
+  uint32 uecc0 = 1;
+  uint32 uecc1 = 2;
+  uint32 uecc2 = 3;
+}
+
+// ASICDebugHealth is one sampled firmware debug-health observation for one
+// ASIC: ECC counters and raw voltage-domain sensor readings.
+message ASICDebugHealth {
+  // observed_at is when Frigate accepted the sampled firmware frame.
+  google.protobuf.Timestamp observed_at = 1;
+  // ecc_total holds the cumulative firmware counters at observed_at.
+  ASICECCCounters ecc_total = 2;
+  // ecc_delta counts errors since ecc_delta_since. It is absent for the first
+  // sample of a board connection or mining session, after a gap longer than
+  // three sample intervals, after the reported ASIC count changed, and when
+  // ecc_counter_reset is set.
+  ASICECCCounters ecc_delta = 3;
+  // ecc_delta_since is the observation time of the baseline sample that
+  // ecc_delta is measured from. It is present exactly when ecc_delta is.
+  google.protobuf.Timestamp ecc_delta_since = 4;
+  // ecc_counter_reset reports that a counter or the firmware slot counter went
+  // backwards since the baseline, for example after an undetected firmware
+  // restart or a slot counter wrap. No delta is reported for that sample.
+  bool ecc_counter_reset = 5;
+  // Raw MC3 voltage-domain sensor readings in volts, as reported by firmware.
+  double vddi1_v = 6;
+  double vddi2_v = 7;
+  double vddi3_v = 8;
+  double vss_v = 9;
+  double vdd_v = 10;
+  double vddio_v = 11;
+  double vddh_v = 12;
+}
+
+// ASICMetadata is decoded, immutable eFuse identity and binning data for one
+// ASIC. index uses the same zero-based physical index as ASIC and
+// HashboardASICLayout.
+message ASICMetadata {
+  int32 index = 1;
+  string lot_id = 2;
+  string wafer_id = 3;
+  uint32 die_x = 4;
+  uint32 die_y = 5;
+  uint32 binning_version = 6;
+  uint32 binning = 7;
+  // valid is true when firmware successfully decoded this ASIC's eFuse data.
+  bool valid = 8;
+  // grwvpl is the ASIC manufacturer part number.
+  uint64 grwvpl = 9;
+}
+
+// ASICLayoutEntry maps an ASIC index to its physical hashboard position.
+message ASICLayoutEntry {
+  int32 index = 1;
+  int32 stack_id = 2;
+  int32 stack_index = 3;
+  int32 x = 4;
+  int32 y = 5;
+}
+
+// HashboardASICLayout describes the physical ASIC layout for a hashboard.
+message HashboardASICLayout {
+  int32 stack_count = 1;
+  int32 asics_per_stack = 2;
+  int32 total_asics = 3;
+  repeated ASICLayoutEntry entries = 4;
+}
+
+// ContainerMap represents the full physical layout of a CT1 container.
+message ContainerMap {
+  repeated Tank tanks = 1;
+}
+
+// Tank represents a physical tank in the container.
+message Tank {
+  int32 id = 1;
+  repeated Module modules = 2;
+  // module_layout describes the physical module grid for this tank. Only
+  // mapped modules appear in modules; grid gaps remain meaningful positions.
+  ModuleLayout module_layout = 3;
+  // display_number is the operator-facing tank number from the optional
+  // container tank_display configuration. Zero means unset, and clients then
+  // display id. It is presentation only: id remains the identity used by
+  // hashboard locations, power-feed IDs, PLC addressing, and stored data.
+  int32 display_number = 4;
+  // display_label is the optional operator-facing tank name, for example
+  // "Tank 4 (door)". Empty means clients show "Tank <display number>".
+  string display_label = 5;
+}
+
+// ModuleNumberingOrder describes how sequential module IDs fill a grid.
+enum ModuleNumberingOrder {
+  MODULE_NUMBERING_ORDER_UNSPECIFIED = 0;
+  MODULE_NUMBERING_ORDER_ROW_MAJOR = 1;
+  MODULE_NUMBERING_ORDER_COLUMN_MAJOR = 2;
+}
+
+// ModuleLayout describes the physical module grid inside a tank.
+message ModuleLayout {
+  uint32 rows = 1;
+  uint32 columns = 2;
+  ModuleNumberingOrder numbering = 3;
+}
+
+// Module represents a module within a tank.
+message Module {
+  int32 id = 1;
+  repeated Slot slots = 2;
+}
+
+// Slot represents a hashboard slot within a module.
+message Slot {
+  reserved 1;
+  reserved "breaker_id";
+  Hashboard hashboard = 2;
+  bool occupied = 3;
+  string power_feed_id = 4;
+  // Fixed slot expectation, also present for an unoccupied slot.
+  HashboardLocation configured_location = 5;
+}
+
+message ListHashboardsRequest {}
+
+// HashboardSlotState distinguishes incomplete observations from confirmed
+// empty and occupied chassis slots.
+enum HashboardSlotState {
+  HASHBOARD_SLOT_STATE_UNSPECIFIED = 0;
+  HASHBOARD_SLOT_STATE_UNKNOWN = 1;
+  HASHBOARD_SLOT_STATE_EMPTY = 2;
+  HASHBOARD_SLOT_STATE_OCCUPIED = 3;
+}
+
+// HashboardTopologySlot is one one-based chassis slot observation. slot must be
+// within [1, HashboardTopology.capacity], and a topology must not contain the
+// same slot more than once. UNSPECIFIED is never valid in an emitted slot.
+// OCCUPIED requires serial_number; UNKNOWN and EMPTY require it to be empty.
+message HashboardTopologySlot {
+  uint32 slot = 1;
+  HashboardSlotState state = 2;
+  string serial_number = 3;
+  // last_known is historical evidence only. It is emitted only for UNKNOWN or
+  // EMPTY slots because an OCCUPIED slot already carries current identity.
+  HashboardHistoricalIdentityEvidence last_known = 4;
+}
+
+// HashboardHistoricalIdentityEvidence is the last valid occupied identity
+// observed in one physical slot. It can be rendered while the current slot is
+// UNKNOWN or EMPTY, but it is never current authority. After a board moves, the
+// same serial_number can appear in more than one slot's history; board-catalog
+// consumers should retain the newest observed_at.
+message HashboardHistoricalIdentityEvidence {
+  string serial_number = 1;
+  google.protobuf.Timestamp observed_at = 2;
+}
+
+// HashboardTopology describes the bounded R2 chassis topology. The whole
+// message is omitted for products without a fixed slot topology. capacity is
+// the nonzero number of physical slots. generation changes whenever capacity,
+// current slot state, or current serial identity changes; a last_known-only
+// update does not change generation. complete is true only when slots contains
+// exactly one EMPTY or OCCUPIED observation for every slot from 1 through
+// capacity. Each OCCUPIED entry must match exactly one Hashboard in the same
+// ListHashboardsResponse by serial, and its HashboardLocation.slot must agree.
+// When complete is false, an unreported slot is UNKNOWN and must never be
+// inferred to be EMPTY.
+message HashboardTopology {
+  uint32 capacity = 1;
+  uint64 generation = 2;
+  bool complete = 3;
+  repeated HashboardTopologySlot slots = 4;
+}
+
+message ListHashboardsResponse {
+  repeated Hashboard hashboards = 1;
+  HashboardTopology topology = 2;
+}
+
+message GetHashboardRequest {
+  // identifier accepts a CT1 MAC address or R2 serial number.
+  string identifier = 1;
+}
+
+message GetHashboardResponse {
+  Hashboard hashboard = 1;
+}
+
+message GetHashboardASICsRequest {
+  // identifier accepts a CT1 MAC address or R2 serial number.
+  string identifier = 1;
+}
+
+message GetHashboardASICsResponse {
+  repeated ASIC asics = 1;
+  HashboardASICLayout layout = 2;
+}
+
+message GetHashboardASICMetadataRequest {
+  // identifier accepts a CT1 MAC address or R2 serial number.
+  string identifier = 1;
+}
+
+message GetHashboardASICMetadataResponse {
+  repeated ASICMetadata metadata = 1;
+  HashboardASICLayout layout = 2;
+}
+
+// UnitTag is an operator note for a tagged unit. kind is "module" (key = module
+// ID), "board" (key = MAC address), or "power_feed" (key = container power-feed
+// ID, e.g. pdu-1-outlet-03).
+message UnitTag {
+  string kind = 1;
+  string key = 2;
+  string tag = 3;
+  string updated_by = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+message ListUnitTagsRequest {}
+
+message ListUnitTagsResponse {
+  repeated UnitTag tags = 1;
+}
+
+message SetUnitTagRequest {
+  UnitTag tag = 1;
+}
+
+message SetUnitTagResponse {
+  UnitTag tag = 1;
+}
+
+message GetContainerMapRequest {}
+
+message GetContainerMapResponse {
+  ContainerMap container_map = 1;
+}
+
+// HashboardEventType categorizes an entry in a hashboard event history.
+enum HashboardEventType {
+  HASHBOARD_EVENT_TYPE_UNSPECIFIED = 0;
+  HASHBOARD_EVENT_TYPE_MINING_STATE_CHANGE = 1;
+  HASHBOARD_EVENT_TYPE_ERROR = 2;
+  HASHBOARD_EVENT_TYPE_WARNING = 3;
+  HASHBOARD_EVENT_TYPE_ISOLATION = 4;
+  HASHBOARD_EVENT_TYPE_LAST_SHUTDOWN = 5;
+  // A stack that hashed earlier in the mining session, at session start or
+  // after joining later, stopped hashing.
+  HASHBOARD_EVENT_TYPE_STACK_DROPOUT = 6;
+}
+
+// HashboardEvent is a single entry in a hashboard's event history.
+message HashboardEvent {
+  google.protobuf.Timestamp time = 1; // For aggregated cause events, first-seen time.
+  HashboardEventType type = 2;
+  MiningState from_state = 3; // state-change only.
+  MiningState to_state = 4; // state-change only.
+  HashboardErrorCause cause = 5; // error/warning/last-shutdown only.
+  int32 count = 6; // occurrences within window (aggregated cause events).
+  google.protobuf.Timestamp last_seen = 7; // error/warning/last-shutdown only.
+  HashboardASICErrorState asic = 8; // where present on the cause.
+  string isolation_reason = 9; // isolation only.
+  string isolated_by = 10; // isolation only.
+  string detail = 11; // human-readable summary.
+  optional uint32 stack = 12; // raw zero-based firmware stack index, when reported.
+}
+
+message GetHashboardEventsRequest {
+  // identifier accepts a CT1 MAC address or R2 serial number.
+  string identifier = 1;
+  // window optionally bounds the event history; the server defaults and caps it.
+  TimeRange window = 2;
+}
+
+message GetHashboardEventsResponse {
+  // mac_address is the legacy CT1 identity and is empty for R2.
+  string mac_address = 1;
+  repeated HashboardEvent events = 2;
+  // effective_window is the actual [start, end) window the server used after
+  // applying the default span and clamping, so clients know the real span
+  // covered by the returned events.
+  TimeRange effective_window = 3;
+  // serial is the stable R2 identity.
+  string serial = 4;
+  // slot is the optional one-based R2 chassis slot.
+  optional uint32 slot = 5;
+}
+
+// RecoveryEvidenceSummary describes one evidence snapshot without its payload.
+message RecoveryEvidenceSummary {
+  // evidence_id is the stable snapshot identifier.
+  string evidence_id = 1;
+  // episode_id links the snapshot to the recovery episode or power cycle.
+  string episode_id = 2;
+  string mac_address = 3;
+  // trigger is power_recovery, power_recovery_capture_only, or ready_recovery.
+  string trigger = 4;
+  // causes are the active causes that made the board eligible for recovery.
+  repeated HashboardErrorCause causes = 5;
+  google.protobuf.Timestamp captured_at = 6;
+  // captured_by is the HA server ID of the node that took the snapshot.
+  string captured_by = 7;
+  // truncated reports that the payload dropped data to stay within its cap.
+  bool truncated = 8;
+  // payload_bytes is the stored JSON payload size.
+  uint32 payload_bytes = 9;
+}
+
+message ListRecoveryEvidenceRequest {
+  // identifier optionally selects one CT1 hashboard by MAC address.
+  string identifier = 1;
+  // episode_id optionally selects snapshots for one recovery episode.
+  string episode_id = 2;
+  // limit bounds the result; the server defaults and caps it.
+  uint32 limit = 3;
+}
+
+message ListRecoveryEvidenceResponse {
+  repeated RecoveryEvidenceSummary evidence = 1;
+}
+
+message GetRecoveryEvidenceRequest {
+  string evidence_id = 1;
+}
+
+message GetRecoveryEvidenceResponse {
+  RecoveryEvidenceSummary summary = 1;
+  // evidence_json is the bounded JSON snapshot. Its sources carry explicit
+  // ok, unavailable, or error status so readers tolerate missing data.
+  string evidence_json = 2;
+}

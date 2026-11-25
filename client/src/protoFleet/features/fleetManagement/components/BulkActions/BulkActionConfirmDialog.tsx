@@ -4,6 +4,7 @@ import Dialog from "@/shared/components/Dialog";
 
 interface BulkActionConfirmDialogProps {
   open?: boolean;
+  confirmationDisabled?: boolean;
   actionConfirmation: ActionWarnDialogOptions;
   onConfirmation: () => void;
   onCancel: () => void;
@@ -12,6 +13,7 @@ interface BulkActionConfirmDialogProps {
 
 const BulkActionConfirmDialog = ({
   open,
+  confirmationDisabled,
   actionConfirmation,
   onConfirmation,
   onCancel,
@@ -37,6 +39,7 @@ const BulkActionConfirmDialog = ({
         {
           text: actionConfirmation.confirmAction.title,
           onClick: onConfirmation,
+          disabled: confirmationDisabled,
           variant: actionConfirmation.confirmAction.variant,
           testId: actionConfirmation.testId,
         },

@@ -42,6 +42,9 @@ export async function getAuthAccessToken(page: Page) {
     const parsed = JSON.parse(authData) as {
       state?: {
         auth?: {
+          session?: {
+            accessToken?: { value?: string };
+          };
           authTokens?: {
             accessToken?: { value?: string };
           };
@@ -49,7 +52,8 @@ export async function getAuthAccessToken(page: Page) {
       };
     };
 
-    const accessToken = parsed.state?.auth?.authTokens?.accessToken?.value;
+    const accessToken =
+      parsed.state?.auth?.session?.accessToken?.value ?? parsed.state?.auth?.authTokens?.accessToken?.value;
     if (!accessToken) {
       throw new Error("Missing access token in proto-os-auth");
     }

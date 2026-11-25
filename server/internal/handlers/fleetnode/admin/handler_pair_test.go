@@ -2,6 +2,7 @@ package admin_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -17,27 +18,44 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/gateway"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 )
 
 func TestPairDiscoveredDevicesOnFleetNode_PairAllBeyondOneBatch(t *testing.T) {
+	testPairDiscoveredDevicesOnFleetNodeBatches(t, false)
+}
+
+func TestPairDiscoveredDevicesOnFleetNode_ExplicitSelectionChunks(t *testing.T) {
+	testPairDiscoveredDevicesOnFleetNodeBatches(t, true)
+}
+
+func testPairDiscoveredDevicesOnFleetNodeBatches(t *testing.T, explicit bool) {
+	t.Helper()
+	// Arrange
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-pairall-pages")
 	count := fleetnodepairing.MaxPairBatch + 1
+	if explicit {
+		count = 1024 // Public selection limit remains larger than one command.
+	}
 	_, err := h.db.Exec(`
 		INSERT INTO discovered_device (org_id, device_identifier, ip_address, port, url_scheme, driver_name, is_active, discovered_by_fleet_node_id)
 		SELECT $1, 'mac:page-' || n, '10.0.0.7', '80', 'http', 'virtual', TRUE, $2
 		FROM generate_series(1, $3::int) AS n`, h.orgID, fleetNodeID, count)
 	require.NoError(t, err)
 	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 	client := startAdminServer(t, h)
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
+	commands := make(chan *gatewaypb.ControlCommand, count)
 	go func() {
 		for {
 			select {
@@ -45,6 +63,7 @@ func TestPairDiscoveredDevicesOnFleetNode_PairAllBeyondOneBatch(t *testing.T) {
 				if !ok {
 					return
 				}
+				commands <- cmd
 				// Missing results synthesize failures and leave discovery rows
 				// eligible: the next page must not select them again.
 				stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Code: gatewaypb.AckCode_ACK_CODE_PARTIAL})
@@ -53,9 +72,16 @@ func TestPairDiscoveredDevicesOnFleetNode_PairAllBeyondOneBatch(t *testing.T) {
 			}
 		}
 	}()
-	resp, err := client.PairDiscoveredDevicesOnFleetNode(ctx, connect.NewRequest(&pb.PairDiscoveredDevicesOnFleetNodeRequest{
-		FleetNodeId: fleetNodeID, PairAllUnpaired: true,
-	}))
+	credentials := &pairingpb.Credentials{Username: "root", Password: proto.String("secret")}
+	request := &pb.PairDiscoveredDevicesOnFleetNodeRequest{FleetNodeId: fleetNodeID, PairAllUnpaired: !explicit, Credentials: credentials}
+	if explicit {
+		for i := 1; i <= count; i++ {
+			request.DeviceIdentifiers = append(request.DeviceIdentifiers, fmt.Sprintf("mac:page-%d", i))
+		}
+	}
+
+	// Act
+	resp, err := client.PairDiscoveredDevicesOnFleetNode(ctx, connect.NewRequest(request))
 	require.NoError(t, err)
 	seen := make(map[string]bool, count)
 	for resp.Receive() {
@@ -67,7 +93,21 @@ func TestPairDiscoveredDevicesOnFleetNode_PairAllBeyondOneBatch(t *testing.T) {
 	}
 	require.NoError(t, resp.Err())
 	require.NoError(t, resp.Close())
+
+	// Assert
 	assert.Len(t, seen, count)
+	dispatched := map[string]bool{}
+	for len(commands) > 0 {
+		var envelope gatewaypb.AgentCommand
+		require.NoError(t, proto.Unmarshal((<-commands).GetPayload(), &envelope))
+		assert.True(t, proto.Equal(credentials, envelope.GetPair().GetCredentials()))
+		require.LessOrEqual(t, len(envelope.GetPair().GetTargets()), fleetnodepairing.MaxPairBatch)
+		for _, target := range envelope.GetPair().GetTargets() {
+			assert.False(t, dispatched[target.GetDeviceIdentifier()])
+			dispatched[target.GetDeviceIdentifier()] = true
+		}
+	}
+	assert.Len(t, dispatched, count)
 }
 
 func (h *pairingHarness) insertDiscoveredForNode(t *testing.T, fleetNodeID int64, identifier string) {
@@ -97,10 +137,12 @@ func TestPairDiscoveredDevicesOnFleetNode_PairsAndStreamsResults(t *testing.T) {
 	fleetNodeID := h.createFleetNode(t, "admin-pairdisc-1")
 	h.insertDiscoveredForNode(t, fleetNodeID, "mac:hp-1")
 	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 	client := startAdminServer(t, h)
 
 	agentDone := make(chan struct{})
+	t.Cleanup(func() { <-agentDone })
 	go func() {
 		defer close(agentDone)
 		select {
@@ -167,10 +209,12 @@ func TestPairDiscoveredDevicesOnFleetNode_SynthesizesUnreportedTargets(t *testin
 	h.insertDiscoveredForNode(t, fleetNodeID, "mac:reported")
 	h.insertDiscoveredForNode(t, fleetNodeID, "mac:dropped")
 	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 	client := startAdminServer(t, h)
 
 	agentDone := make(chan struct{})
+	t.Cleanup(func() { <-agentDone })
 	go func() {
 		defer close(agentDone)
 		select {
@@ -217,10 +261,12 @@ func TestPairDiscoveredDevicesOnFleetNode_DropsResultsOutsideRequestedTargets(t 
 	h.insertDiscoveredForNode(t, fleetNodeID, "mac:req")
 	h.insertDiscoveredForNode(t, fleetNodeID, "mac:sneaky")
 	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 	client := startAdminServer(t, h)
 
 	agentDone := make(chan struct{})
+	t.Cleanup(func() { <-agentDone })
 	go func() {
 		defer close(agentDone)
 		select {
@@ -282,6 +328,7 @@ func TestPairDiscoveredDevicesOnFleetNode_PersistsAfterOperatorDisconnect(t *tes
 	fleetNodeID := h.createFleetNode(t, "admin-pairdisc-disconnect")
 	h.insertDiscoveredForNode(t, fleetNodeID, "mac:dc-1")
 	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 	client := startAdminServer(t, h)
 
@@ -355,6 +402,28 @@ func TestPairDiscoveredDevicesOnFleetNode_NoStreamReturnsFailedPrecondition(t *t
 	// Assert
 	require.Error(t, resp.Err())
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(resp.Err()))
+	var connectErr *connect.Error
+	require.ErrorAs(t, resp.Err(), &connectErr)
+	assert.Equal(t, "fleet node has no active control stream", connectErr.Message())
+}
+
+func TestPairDiscoveredDevicesOnFleetNode_UnconfirmedNodeReturnsFailedPrecondition(t *testing.T) {
+	h := newPairingHarness(t)
+	fleetNodeID := h.createFleetNode(t, "admin-pairdisc-unconfirmed")
+	_, err := h.db.Exec(`UPDATE fleet_node SET enrollment_status = $1 WHERE id = $2`, enrollment.FleetNodeStatusPending, fleetNodeID)
+	require.NoError(t, err)
+	client := startAdminServer(t, h)
+	resp, err := client.PairDiscoveredDevicesOnFleetNode(t.Context(), connect.NewRequest(&pb.PairDiscoveredDevicesOnFleetNodeRequest{
+		FleetNodeId:       fleetNodeID,
+		DeviceIdentifiers: []string{"mac:unconfirmed"},
+	}))
+	require.NoError(t, err)
+	for resp.Receive() {
+	}
+	var connectErr *connect.Error
+	require.ErrorAs(t, resp.Err(), &connectErr)
+	assert.Equal(t, connect.CodeFailedPrecondition, connectErr.Code())
+	assert.Equal(t, "fleet node is not CONFIRMED", connectErr.Message())
 }
 
 func TestPairDiscoveredDevicesOnFleetNode_NoPairableTargetsReturnsInvalidArgument(t *testing.T) {
@@ -362,6 +431,7 @@ func TestPairDiscoveredDevicesOnFleetNode_NoPairableTargetsReturnsInvalidArgumen
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-pairdisc-empty")
 	stream := h.registry.Register(fleetNodeID)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 	defer stream.Unregister()
 	client := startAdminServer(t, h)
 

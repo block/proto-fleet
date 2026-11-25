@@ -118,20 +118,6 @@ describe("useFleetViews", () => {
     expect(result.current.record.views.map((view) => view.name)).toEqual(["B"]);
   });
 
-  it("reorderUserViews respects the supplied id order", () => {
-    const { result } = renderHook(() => useFleetViews("alice"));
-    act(() => {
-      result.current.addUserView({ name: "A", tab: "miners", searchParams: "" });
-      result.current.addUserView({ name: "B", tab: "miners", searchParams: "model=S21" });
-      result.current.addUserView({ name: "C", tab: "miners", searchParams: "status=offline" });
-    });
-    const ids = result.current.record.views.map((view) => view.id);
-    act(() => {
-      result.current.reorderUserViews([ids[2], ids[0], ids[1]]);
-    });
-    expect(result.current.record.views.map((view) => view.name)).toEqual(["C", "A", "B"]);
-  });
-
   it("scopes records by username", () => {
     const alice = renderHook(() => useFleetViews("alice"));
     act(() => {

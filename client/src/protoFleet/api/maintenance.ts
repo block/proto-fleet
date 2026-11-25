@@ -8,8 +8,11 @@ import type {
   RepairTicket,
   RepairTicketDetail,
   RepairTicketSummary,
+  TicketAsset,
+  TicketAssetSelection,
   TicketComment,
   TicketFilter,
+  UpdateTicketTargetRequest,
 } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import {
   RepairLocation,
@@ -31,6 +34,8 @@ type Callbacks<T> = {
   onFinally?: () => void;
 };
 
+export type TicketAssetPage = { assets: TicketAsset[]; nextPageToken: string };
+
 export type ListTicketsProps = Callbacks<{
   tickets: RepairTicketSummary[];
   nextPageToken: string;
@@ -46,6 +51,10 @@ export type ListTicketsProps = Callbacks<{
 export type CreateTicketProps = Callbacks<RepairTicket | undefined> & {
   category: TicketCategory;
   component: string;
+  description: string;
+  targets?: Omit<TicketAssetSelection, "$typeName">[];
+  clientAccountIds?: string[];
+  shareWithClients?: boolean;
   idempotencyKey: string;
   diagnosis?: string;
   urgent?: boolean;
@@ -74,8 +83,10 @@ export type UpdateTicketProps = Callbacks<RepairTicket | undefined> & {
   diagnosis?: string;
   warrantyStatus?: WarrantyStatus;
   resolution?: TicketResolution;
+  resolutionNote?: string;
   repairLocation?: RepairLocation;
   partsSelection?: PartSelection[];
+  affectedBoards?: Omit<TicketAssetSelection, "$typeName">[];
   notes?: string;
   rmaVendor?: string;
   rmaTracking?: string;
@@ -94,7 +105,7 @@ export type BulkTicketMutation =
       value: {
         resolution: TicketResolution;
         repairLocation: RepairLocation;
-        notes?: string;
+        resolutionNote: string;
       };
     }
   | { case: undefined };
@@ -187,6 +198,10 @@ export const useMaintenanceApi = () => {
       onFinally,
       category,
       component,
+      description,
+      targets = [],
+      clientAccountIds = [],
+      shareWithClients = false,
       idempotencyKey,
       diagnosis = "",
       urgent = false,
@@ -208,6 +223,10 @@ export const useMaintenanceApi = () => {
           {
             category,
             component,
+            description,
+            targets,
+            clientAccountIds,
+            shareWithClients,
             idempotencyKey,
             diagnosis,
             urgent,
@@ -286,14 +305,10 @@ export const useMaintenanceApi = () => {
     }) => {
       try {
         if (signal?.aborted) return;
-        const encoded =
-          mutation.case === "bulkClose"
-            ? { case: "bulkClose" as const, value: { ...mutation.value, notes: mutation.value.notes ?? "" } }
-            : mutation;
         const response = await maintenanceClient.bulkUpdateRepairTickets(
           {
             ticketIds,
-            mutation: encoded,
+            mutation,
             clearAssignee,
             expectedVersions,
           },
@@ -399,14 +414,23 @@ export const useMaintenanceApi = () => {
       ticketId,
       text,
       idempotencyKey,
+      internal = true,
       signal,
       onSuccess,
       onError,
       onFinally,
-    }: Callbacks<TicketComment | undefined> & { ticketId: bigint; text: string; idempotencyKey: string }) => {
+    }: Callbacks<TicketComment | undefined> & {
+      ticketId: bigint;
+      text: string;
+      idempotencyKey: string;
+      internal?: boolean;
+    }) => {
       try {
         if (signal?.aborted) return;
-        const response = await maintenanceClient.createTicketComment({ ticketId, text, idempotencyKey }, { signal });
+        const response = await maintenanceClient.createTicketComment(
+          { ticketId, text, idempotencyKey, internal },
+          { signal },
+        );
         if (!signal?.aborted) onSuccess?.(response.comment);
       } catch (error) {
         report(error, signal, onError);
@@ -432,8 +456,108 @@ export const useMaintenanceApi = () => {
     [report],
   );
 
+  const listTicketAssets = useCallback(
+    async ({
+      siteIds = [],
+      includeUnassigned = false,
+      ticketId,
+      kind,
+      search = "",
+      pageSize = 50,
+      pageToken = "",
+      signal,
+      onSuccess,
+      onError,
+      onFinally,
+    }: Callbacks<TicketAssetPage> & {
+      siteIds?: bigint[];
+      includeUnassigned?: boolean;
+      ticketId?: bigint;
+      kind?: TicketCategory;
+      search?: string;
+      pageSize?: number;
+      pageToken?: string;
+    }) => {
+      try {
+        const response = await maintenanceClient.listTicketAssetOptions(
+          { siteIds, includeUnassigned, ticketId, kind, search, pageSize, pageToken },
+          { signal },
+        );
+        if (!signal?.aborted) onSuccess?.(response);
+      } catch (error) {
+        report(error, signal, onError);
+      } finally {
+        onFinally?.();
+      }
+    },
+    [report],
+  );
+
+  const updateTarget = useCallback(
+    async ({
+      signal,
+      onSuccess,
+      onError,
+      onFinally,
+      ...input
+    }: Callbacks<RepairTicket | undefined> & Omit<UpdateTicketTargetRequest, "$typeName">) => {
+      try {
+        const response = await maintenanceClient.updateTicketTarget(input, { signal });
+        if (!signal?.aborted) onSuccess?.(response.ticket);
+      } catch (error) {
+        report(error, signal, onError);
+      } finally {
+        onFinally?.();
+      }
+    },
+    [report],
+  );
+
+  const shareTicket = useCallback(
+    async ({
+      ticketId,
+      expectedUpdatedAt,
+      signal,
+      onSuccess,
+      onError,
+    }: Callbacks<void> & { ticketId: bigint; expectedUpdatedAt: Timestamp }) => {
+      try {
+        await maintenanceClient.shareRepairTicket({ ticketId, expectedUpdatedAt }, { signal });
+        onSuccess?.();
+      } catch (error) {
+        report(error, signal, onError);
+      }
+    },
+    [report],
+  );
+  const setCommentVisibility = useCallback(
+    async ({
+      ticketId,
+      commentId,
+      internal,
+      expectedUpdatedAt,
+      signal,
+      onSuccess,
+      onError,
+    }: Callbacks<void> & { ticketId: bigint; commentId: bigint; internal: boolean; expectedUpdatedAt: Timestamp }) => {
+      try {
+        await maintenanceClient.setTicketCommentVisibility(
+          { ticketId, commentId, internal, expectedUpdatedAt },
+          { signal },
+        );
+        onSuccess?.();
+      } catch (error) {
+        report(error, signal, onError);
+      }
+    },
+    [report],
+  );
   return {
+    shareTicket,
+    setCommentVisibility,
     listTickets,
+    listTicketAssets,
+    updateTarget,
     getTicket,
     createTicket,
     updateTicket,

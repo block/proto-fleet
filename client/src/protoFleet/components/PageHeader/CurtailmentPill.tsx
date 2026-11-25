@@ -5,11 +5,11 @@ import type { CurtailmentPillEvent, CurtailmentPillProps, CurtailmentPillState }
 import PageHeaderPopoverPill from "./PageHeaderPopoverPill";
 import {
   activeCurtailmentDisplayStateConfigs,
-  type CurtailmentEventState,
   curtailmentEventStateConfigs,
-  formatCurtailmentKw,
   formatCurtailmentSelectedMinerCount,
-} from "@/protoFleet/features/energy/curtailmentDisplayUtils";
+} from "@/protoFleet/api/curtailmentDisplayUtils";
+import type { CurtailmentEventState } from "@/protoFleet/api/curtailmentTypes";
+import { formatCurtailmentKw } from "@/protoFleet/api/curtailmentUtils";
 
 export type { CurtailmentPillEvent, CurtailmentPillProps, CurtailmentPillState } from "./curtailmentPillTypes";
 

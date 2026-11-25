@@ -1,25 +1,48 @@
-import { type ReactNode, useCallback, useMemo } from "react";
+import { type ReactNode, useCallback, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 
 import FleetGroupActionsMenu from "../FleetGroupActionsMenu";
-import { type RowAction } from "../RowActionsMenu";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type FleetListStats } from "@/protoFleet/api/generated/common/v1/fleet_list_stats_pb";
+import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
+import { EntityKind, type InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
+import ContainerActionsMenu from "@/protoFleet/features/containers/ContainerActionsMenu";
+import { containerHealth } from "@/protoFleet/features/containers/containerHealth";
+import { useOpenContainerView } from "@/protoFleet/features/containers/useOpenContainerView";
 import { createBuildingColConfig } from "@/protoFleet/features/fleetManagement/components/BuildingList/buildingColConfig";
 import { buildingTabHref } from "@/protoFleet/features/fleetManagement/utils/fleetTabLinks";
 import { useTemperatureUnit } from "@/protoFleet/store";
 import type { ActiveSite } from "@/protoFleet/store/types/activeSite";
-import { ArrowRight, Edit, Plus } from "@/shared/assets/icons";
+import { ArrowRight, ChevronDown, Edit, Plus } from "@/shared/assets/icons";
+import Button, { sizes, variants } from "@/shared/components/Button";
 import List, { type SelectionMode } from "@/shared/components/List";
 import { type ColTitles } from "@/shared/components/List/types";
+import { type RowAction } from "@/shared/components/RowActionsMenu";
 
-export type BuildingListItem = {
+type BuildingRow = {
+  kind: "building";
   id: string;
+  name: string;
   building: BuildingWithCounts;
   siteName: string;
   stats?: FleetListStats;
 };
+
+type ContainerRow = {
+  kind: "container";
+  id: string;
+  name: string;
+  container: Container;
+  siteName: string;
+  moduleCount: number;
+  inventory?: InventoryItem;
+  incomplete: boolean;
+  health: { healthy: number; needsAttention: number; offline: number; sleeping: number };
+};
+
+export type BuildingListItem = BuildingRow | ContainerRow;
 
 export type BuildingColumn =
   "name" | "site" | "racks" | "miners" | "issues" | "hashrate" | "efficiency" | "power" | "temperature" | "health";
@@ -53,7 +76,16 @@ const ACTIVE_COLS: BuildingColumn[] = [
 ];
 
 interface BuildingListProps {
+  inventoryItems?: InventoryItem[];
+  total?: number;
+  currentPage?: number;
+  hasNextPage?: boolean;
+  hasPreviousPage?: boolean;
+  onNextPage?: () => void;
+  onPrevPage?: () => void;
   buildings: BuildingWithCounts[];
+  containers?: Container[];
+  onContainerUnpaired?: (deviceIdentifier: string) => void;
   sites: SiteWithCounts[];
   emptyStateRow?: ReactNode;
   onEditBuilding?: (building: BuildingWithCounts) => void;
@@ -67,8 +99,19 @@ interface BuildingListProps {
   hasActiveFilters?: boolean;
 }
 
+const EMPTY_CONTAINERS: Container[] = [];
+
 const BuildingList = ({
   buildings,
+  inventoryItems,
+  total,
+  currentPage = 0,
+  hasNextPage,
+  hasPreviousPage,
+  onNextPage,
+  onPrevPage,
+  containers = EMPTY_CONTAINERS,
+  onContainerUnpaired,
   sites,
   emptyStateRow,
   onEditBuilding,
@@ -80,7 +123,9 @@ const BuildingList = ({
   hasActiveFilters,
 }: BuildingListProps) => {
   const navigate = useNavigate();
+  const openContainerView = useOpenContainerView();
   const temperatureUnit = useTemperatureUnit();
+  const topRef = useRef<HTMLDivElement>(null);
 
   const siteNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -91,24 +136,54 @@ const BuildingList = ({
     return map;
   }, [sites]);
 
-  const items: BuildingListItem[] = useMemo(
-    () =>
-      [...buildings]
-        .sort((a, b) => (a.building?.name ?? "").localeCompare(b.building?.name ?? ""))
-        .map((building) => {
-          const buildingId = building.building?.id ?? 0n;
-          const id = buildingId.toString();
-          const siteId = building.building?.siteId;
-          const siteName = siteId
-            ? (siteNameById.get(siteId.toString()) ?? INACTIVE_PLACEHOLDER)
-            : INACTIVE_PLACEHOLDER;
-          return { id, building, siteName, stats: building.listStats };
-        }),
-    [buildings, siteNameById],
-  );
+  const items: BuildingListItem[] = useMemo(() => {
+    const rows: BuildingListItem[] = buildings.map((building) => {
+      const id = (building.building?.id ?? 0n).toString();
+      const siteId = building.building?.siteId;
+      return {
+        kind: "building",
+        id,
+        name: building.building?.name ?? "(unnamed)",
+        building,
+        siteName: siteId ? (siteNameById.get(siteId.toString()) ?? INACTIVE_PLACEHOLDER) : INACTIVE_PLACEHOLDER,
+        stats: building.listStats,
+      };
+    });
+    for (const container of containers) {
+      const { total, incomplete } = containerHealth(container);
+      rows.push({
+        kind: "container",
+        id: `container:${container.deviceIdentifier}`,
+        name: container.name,
+        container,
+        siteName: container.site?.label ?? INACTIVE_PLACEHOLDER,
+        moduleCount: total,
+        incomplete,
+        health: container.tanks.reduce(
+          (sum, tank) => ({
+            healthy: sum.healthy + tank.hashingCount,
+            needsAttention: sum.needsAttention + tank.attentionCount + tank.isolatedCount,
+            offline: sum.offline + tank.offlineCount,
+            sleeping: sum.sleeping + tank.sleepingCount,
+          }),
+          { healthy: 0, needsAttention: 0, offline: 0, sleeping: 0 },
+        ),
+      });
+    }
+    if (inventoryItems) {
+      const byKey = new Map(rows.map((row) => [row.id, row]));
+      return inventoryItems.flatMap((item) => {
+        const key =
+          item.ref?.kind === EntityKind.CONTAINER ? `container:${item.deviceIdentifier}` : item.ref?.id.toString();
+        const row = key ? byKey.get(key) : undefined;
+        return row ? [row.kind === "container" ? { ...row, inventory: item } : row] : [];
+      });
+    }
+    return rows.sort((a, b) => a.name.localeCompare(b.name));
+  }, [buildings, containers, inventoryItems, siteNameById]);
 
   const buildExtraActions = useCallback(
-    (item: BuildingListItem): RowAction[] => {
+    (item: BuildingRow): RowAction[] => {
       return [
         { label: "View building", icon: <ArrowRight />, onClick: () => navigate(`/buildings/${item.id}`) },
         {
@@ -141,12 +216,16 @@ const BuildingList = ({
 
   const renderName = useCallback(
     (item: BuildingListItem) => {
-      const buildingId = item.building.building?.id;
-      const buildingName = item.building.building?.name ?? "(unnamed)";
+      const buildingId = item.kind === "building" ? item.building.building?.id : undefined;
+      const buildingName = item.name;
       return (
         <div className="grid w-full grid-cols-[1fr_auto] items-center gap-2">
-          <span className="truncate text-emphasis-300">{buildingName}</span>
-          {buildingId !== undefined && buildingId !== 0n ? (
+          <div className="min-w-0">
+            <span className="block truncate text-emphasis-300">{buildingName}</span>
+          </div>
+          {item.kind === "container" ? (
+            <ContainerActionsMenu container={item.container} onUnpaired={onContainerUnpaired} />
+          ) : buildingId !== undefined && buildingId !== 0n ? (
             <FleetGroupActionsMenu
               scopes={[{ kind: "building", id: buildingId, name: buildingName }]}
               ariaLabel={`Actions for ${buildingName}`}
@@ -157,7 +236,7 @@ const BuildingList = ({
         </div>
       );
     },
-    [buildExtraActions],
+    [buildExtraActions, onContainerUnpaired],
   );
 
   const colConfig = useMemo(
@@ -165,22 +244,68 @@ const BuildingList = ({
     [activeSite, renderName, temperatureUnit],
   );
 
-  const handleRowClick = useCallback((item: BuildingListItem) => navigate(`/buildings/${item.id}`), [navigate]);
+  const handleRowClick = useCallback(
+    (item: BuildingListItem) => {
+      if (item.kind === "container") {
+        openContainerView(item.container);
+      } else {
+        navigate(`/buildings/${item.id}`);
+      }
+    },
+    [navigate, openContainerView],
+  );
   const isSelectableBuilding = useCallback((item: BuildingListItem) => {
-    const buildingId = item.building.building?.id;
+    const buildingId = item.kind === "building" ? item.building.building?.id : undefined;
     return buildingId !== undefined && buildingId !== 0n;
   }, []);
   const handleSelectionModeChange = useCallback(() => undefined, []);
+  const pagination =
+    total !== undefined && (total > 0 || hasPreviousPage || hasNextPage) ? (
+      <div className={`sticky left-0 flex flex-col items-center gap-4 py-6 ${PAGE_SCROLL_CHROME_WIDTH}`}>
+        <span className="text-300 text-text-primary">
+          Showing {items.length ? currentPage * 100 + 1 : 0}–{items.length ? currentPage * 100 + items.length : 0} of{" "}
+          {total} {inventoryItems ? "facilities" : "buildings"}
+        </span>
+        <div className="flex gap-3">
+          <Button
+            variant={variants.secondary}
+            size={sizes.compact}
+            ariaLabel="Previous page"
+            prefixIcon={<ChevronDown className="rotate-90" />}
+            disabled={!hasPreviousPage}
+            onClick={() => {
+              onPrevPage?.();
+              topRef.current?.scrollIntoView({ behavior: "smooth" });
+            }}
+          />
+          <Button
+            variant={variants.secondary}
+            size={sizes.compact}
+            ariaLabel="Next page"
+            prefixIcon={<ChevronDown className="rotate-270" />}
+            disabled={!hasNextPage}
+            onClick={() => {
+              onNextPage?.();
+              topRef.current?.scrollIntoView({ behavior: "smooth" });
+            }}
+          />
+        </div>
+      </div>
+    ) : null;
   const commonProps = {
     activeCols: ACTIVE_COLS,
-    colTitles: COL_TITLES,
+    colTitles: containers.length ? { ...COL_TITLES, racks: "Racks / tanks", miners: "Miners / modules" } : COL_TITLES,
     colConfig,
     items,
     itemKey: "id" as const,
-    total: items.length,
-    totalUnfiltered,
+    total: total ?? items.length,
+    footerContent: pagination,
+    // The building-only denominator cannot describe a mixed filtered list.
+    totalUnfiltered: inventoryItems ? totalUnfiltered : containers.length ? undefined : totalUnfiltered,
     hasActiveFilters,
-    itemName: { singular: "building", plural: "buildings" },
+    itemName: inventoryItems
+      ? { singular: "facility", plural: "facilities" }
+      : { singular: "building", plural: "buildings" },
     onRowClick: handleRowClick,
     emptyStateRow,
     paddingLeft: { phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" },
@@ -192,20 +317,26 @@ const BuildingList = ({
   if (selectedIds !== undefined && onSelectedIdsChange !== undefined) {
     const selectionMode: SelectionMode = selectedIds.length > 0 ? "subset" : "none";
     return (
-      <List<BuildingListItem, string, BuildingColumn>
-        {...commonProps}
-        itemSelectable
-        customSelectedItems={selectedIds}
-        customSetSelectedItems={onSelectedIdsChange}
-        customSelectionMode={selectionMode}
-        onSelectionModeChange={handleSelectionModeChange}
-        pageScopedSelection
-        isRowSelectable={isSelectableBuilding}
-      />
+      <div ref={topRef}>
+        <List<BuildingListItem, string, BuildingColumn>
+          {...commonProps}
+          itemSelectable
+          customSelectedItems={selectedIds}
+          customSetSelectedItems={onSelectedIdsChange}
+          customSelectionMode={selectionMode}
+          onSelectionModeChange={handleSelectionModeChange}
+          pageScopedSelection
+          isRowSelectable={isSelectableBuilding}
+        />
+      </div>
     );
   }
 
-  return <List<BuildingListItem, string, BuildingColumn> {...commonProps} />;
+  return (
+    <div ref={topRef}>
+      <List<BuildingListItem, string, BuildingColumn> {...commonProps} />
+    </div>
+  );
 };
 
 export default BuildingList;

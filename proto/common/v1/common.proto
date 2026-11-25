@@ -32,3 +32,25 @@ enum FleetErrorCode {
   FLEET_ERROR_CODE_UNSPECIFIED = 0;
   FLEET_ERROR_CODE_NOT_ACTIVE = 1;
 }
+
+// DeviceClass identifies the independently discoverable hardware unit.
+// Tanks and modules belong to a container; they are not separate devices.
+enum DeviceClass {
+  DEVICE_CLASS_UNSPECIFIED = 0;
+  DEVICE_CLASS_RIG = 1;
+  DEVICE_CLASS_CONTAINER = 2;
+}
+
+// Discovered device address. The plugin defines the opaque endpoint ID and
+// shared device key; Fleet scopes the key by driver and network owner.
+message DeviceEndpoint {
+  string id = 1;
+  string device_key = 2;
+  string host = 3;
+  int32 port = 4;
+  string url_scheme = 5;
+  int32 rpc_port = 6;
+  bool rpc_tls = 7;
+  // Current group members. Discovery removes routes for replaced members.
+  repeated string member_ids = 8;
+}

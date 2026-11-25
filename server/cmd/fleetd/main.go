@@ -13,6 +13,19 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	"github.com/block/proto-fleet/server/generated/grpc/poolconfigurations/v1/poolconfigurationsv1connect"
+	"github.com/block/proto-fleet/server/internal/domain/poolapplications"
+	poolconfigurationsDomain "github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
+	poolconfigurationsHandler "github.com/block/proto-fleet/server/internal/handlers/poolconfigurations"
+
+	frigateupdatev1connect "github.com/block/proto-fleet/server/generated/grpc/frigateupdate/v1/frigateupdatev1connect"
+	mininggroupsv1connect "github.com/block/proto-fleet/server/generated/grpc/mininggroups/v1/mininggroupsv1connect"
+	frigateReleaseDomain "github.com/block/proto-fleet/server/internal/domain/frigaterelease"
+	frigateUpdateDomain "github.com/block/proto-fleet/server/internal/domain/frigateupdate"
+	mininggroupsDomain "github.com/block/proto-fleet/server/internal/domain/mininggroups"
+	frigateUpdateHandler "github.com/block/proto-fleet/server/internal/handlers/frigateupdate"
+	mininggroupsHandler "github.com/block/proto-fleet/server/internal/handlers/mininggroups"
+
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/ipscanner"
 	marketdataDomain "github.com/block/proto-fleet/server/internal/domain/marketdata"
@@ -37,6 +50,7 @@ import (
 	fleet_telemetry "github.com/block/proto-fleet/server/internal/infrastructure/fleet-telemetry"
 	"github.com/block/proto-fleet/server/internal/infrastructure/logging"
 	"github.com/block/proto-fleet/server/internal/infrastructure/metrics"
+	"github.com/block/proto-fleet/server/internal/infrastructure/runtimemetrics"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
@@ -47,23 +61,26 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/authz/v1/authzv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/buildings/v1/buildingsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/collection/v1/collectionv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/containers/v1/containersv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/device_set/v1/device_setv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/errors/v1/errorsv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/fleetinventory/v1/fleetinventoryv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/hosted/v1/hostedv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/inventory/v1/inventoryv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/invitation/v1/invitationv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/maintenance/v1/maintenancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/marketdata/v1/marketdatav1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
-	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/rollout/v1/rolloutv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
@@ -77,20 +94,24 @@ import (
 	buildingsDomain "github.com/block/proto-fleet/server/internal/domain/buildings"
 	collectionDomain "github.com/block/proto-fleet/server/internal/domain/collection"
 	commandDomain "github.com/block/proto-fleet/server/internal/domain/command"
+	containersDomain "github.com/block/proto-fleet/server/internal/domain/containers"
 	curtailmentDomain "github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/mqttingest"
 	curtailmentReconciler "github.com/block/proto-fleet/server/internal/domain/curtailment/reconciler"
 	"github.com/block/proto-fleet/server/internal/domain/deviceresolver"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
+	fleetInventoryDomain "github.com/block/proto-fleet/server/internal/domain/fleetinventory"
 	fleetmanagementDomain "github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
 	fleetnodeauth "github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	fleetnodediscovery "github.com/block/proto-fleet/server/internal/domain/fleetnode/discovery"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
+	fleetnodeha "github.com/block/proto-fleet/server/internal/domain/fleetnode/ha"
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	fleetnoderecovery "github.com/block/proto-fleet/server/internal/domain/fleetnode/recovery"
 	"github.com/block/proto-fleet/server/internal/domain/fleetoptions"
 	foremanImportDomain "github.com/block/proto-fleet/server/internal/domain/foremanimport"
+	hostedaccountsDomain "github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 	infrastructureDomain "github.com/block/proto-fleet/server/internal/domain/infrastructure"
 	inventoryDomain "github.com/block/proto-fleet/server/internal/domain/inventory"
 	maintenanceDomain "github.com/block/proto-fleet/server/internal/domain/maintenance"
@@ -118,17 +139,21 @@ import (
 	buildingsHandler "github.com/block/proto-fleet/server/internal/handlers/buildings"
 	collectionHandler "github.com/block/proto-fleet/server/internal/handlers/collection"
 	"github.com/block/proto-fleet/server/internal/handlers/command"
+	containersHandler "github.com/block/proto-fleet/server/internal/handlers/containers"
 	curtailmentHandler "github.com/block/proto-fleet/server/internal/handlers/curtailment"
 	devicesetHandler "github.com/block/proto-fleet/server/internal/handlers/deviceset"
 	errorqueryHandler "github.com/block/proto-fleet/server/internal/handlers/errorquery"
 	firmwareHandler "github.com/block/proto-fleet/server/internal/handlers/firmware"
+	fleetInventoryHandler "github.com/block/proto-fleet/server/internal/handlers/fleetinventory"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetmanagement"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/admin"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/gateway"
 	foremanImportHandler "github.com/block/proto-fleet/server/internal/handlers/foremanimport"
+	hostedaccountsHandler "github.com/block/proto-fleet/server/internal/handlers/hostedaccounts"
 	infrastructureHandler "github.com/block/proto-fleet/server/internal/handlers/infrastructure"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 	inventoryHandler "github.com/block/proto-fleet/server/internal/handlers/inventory"
+	invitationHandler "github.com/block/proto-fleet/server/internal/handlers/invitation"
 	maintenanceHandler "github.com/block/proto-fleet/server/internal/handlers/maintenance"
 	marketdataHandler "github.com/block/proto-fleet/server/internal/handlers/marketdata"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
@@ -136,7 +161,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/networkinfo"
 	"github.com/block/proto-fleet/server/internal/handlers/onboarding"
 	"github.com/block/proto-fleet/server/internal/handlers/pairing"
-	"github.com/block/proto-fleet/server/internal/handlers/pools"
 	rolloutHandler "github.com/block/proto-fleet/server/internal/handlers/rollout"
 	scheduleHandler "github.com/block/proto-fleet/server/internal/handlers/schedule"
 	serverlogHandler "github.com/block/proto-fleet/server/internal/handlers/serverlog"
@@ -151,6 +175,10 @@ import (
 )
 
 const shutdownTimeout = 10 * time.Second
+
+// Matches the updater's API stop grace; a timed-out drain still blocks HA
+// lease release.
+const pendingUnpairsStopTimeout = 3 * time.Second
 
 // version is overwritten at release build time via -ldflags "-X main.version=<tag>".
 var version = "dev"
@@ -197,12 +225,18 @@ func normalizeFleetdArgs(args []string) []string {
 // service shape (no business data), so the inclusion list is "all
 // services" rather than a curated subset.
 var reflectEnabledServices = []string{
+	mininggroupsv1connect.MiningGroupServiceName,
+	frigateupdatev1connect.FrigateUpdateServiceName,
 	marketdatav1connect.MarketDataServiceName,
+	hostedv1connect.HostedAccountServiceName,
+	invitationv1connect.InvitationServiceName,
 	pairingv1connect.PairingServiceName,
 	telemetryv1connect.TelemetryServiceName,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceName,
 	sitesv1connect.SiteServiceName,
 	buildingsv1connect.BuildingServiceName,
+	containersv1connect.ContainerServiceName,
+	fleetinventoryv1connect.FleetInventoryServiceName,
 	infrastructurev1connect.InfrastructureServiceName,
 	sitemapv1connect.SiteMapServiceName,
 	curtailmentv1connect.CurtailmentServiceName,
@@ -214,6 +248,9 @@ var reflectEnabledServices = []string{
 }
 
 func start(config *Config) (result error) {
+	if err := config.MinerProxy.Validate(); err != nil {
+		return err
+	}
 	clientIP, err := middleware.NewClientIPMiddleware(config.HTTP.TrustedProxyCIDRs)
 	if err != nil {
 		return err
@@ -252,9 +289,27 @@ func start(config *Config) (result error) {
 		}
 	}()
 
-	conn, err := db.ConnectAndMigrate(&config.DB)
+	runtimeMetrics, err := runtimemetrics.Start(config.RuntimeMetrics)
+	if err != nil {
+		return fmt.Errorf("start runtime metrics: %w", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		if err := runtimeMetrics.Shutdown(ctx); err != nil {
+			slog.Error("runtime metrics shutdown failed", "error", err)
+		}
+	}()
+	observeConnect, err := runtimeMetrics.ConnectionObserver("application")
+	if err != nil {
+		return fmt.Errorf("observe database connections: %w", err)
+	}
+	conn, err := db.ConnectAndMigrateObserved(&config.DB, observeConnect)
 	if err != nil {
 		return err
+	}
+	if err := runtimeMetrics.ObservePool("application", conn.Stats); err != nil {
+		return fmt.Errorf("observe database pool: %w", err)
 	}
 
 	metricsProvider, err := metrics.Setup(context.Background(), version, config.Metrics, conn)
@@ -299,8 +354,8 @@ func start(config *Config) (result error) {
 	}
 
 	userStore := sqlstores.NewSQLUserStore(conn)
-	poolStore := sqlstores.NewSQLPoolStore(conn, encryptSvc)
-	deviceStore := sqlstores.NewSQLDeviceStore(conn)
+	deviceStore := sqlstores.NewSQLDeviceStore(conn).
+		WithStatusFreshnessThreshold(config.Diagnostics.CloserStalenessThreshold)
 	collectionStore := sqlstores.NewSQLCollectionStore(conn, config.TimescaleDB.MaxAge)
 	activityStore := sqlstores.NewSQLActivityStore(conn)
 	notificationHistoryStore := sqlstores.NewSQLNotificationHistoryStore(conn)
@@ -318,11 +373,23 @@ func start(config *Config) (result error) {
 	fleetNodeEnrollmentSvc := enrollment.NewService(fleetNodeEnrollmentStore, apiKeySvc, transactor, activitySvc)
 	fleetNodePairingStore := sqlstores.NewSQLFleetNodePairingStore(conn)
 	fleetNodePairingSvc := fleetnodepairing.NewService(fleetNodePairingStore, fleetNodeEnrollmentStore, transactor)
-	fleetNodeControlRegistry := control.NewRegistry()
+	dispatchObserver, err := runtimeMetrics.DispatchObserver()
+	if err != nil {
+		return fmt.Errorf("initialize dispatch metrics: %w", err)
+	}
+	nodeMetrics, err := runtimeMetrics.NewNodeMetrics()
+	if err != nil {
+		return fmt.Errorf("initialize node metrics: %w", err)
+	}
+	fleetNodeControlRegistry := control.NewRegistry().WithDispatchObserver(dispatchObserver).WithProtocolObserver(nodeMetrics.ProtocolCheck)
+
+	if err := runtimeMetrics.ObserveNodeConnections(fleetNodeControlRegistry.ConnectionCount); err != nil {
+		return fmt.Errorf("observe node connections: %w", err)
+	}
 	fleetNodeEnrollmentSvc.WithControlStreamInvalidator(fleetNodeControlRegistry.RevokeSession)
 	fleetNodeDiscoverySvc := fleetnodediscovery.NewService(fleetNodeControlRegistry, fleetNodeEnrollmentSvc)
 	fleetNodeAuthStore := sqlstores.NewSQLFleetNodeAuthStore(conn)
-	fleetNodeAuthSvc := fleetnodeauth.NewService(fleetNodeAuthStore, fleetNodeEnrollmentStore, apiKeySvc)
+	fleetNodeAuthSvc := fleetnodeauth.NewService(fleetNodeAuthStore, fleetNodeEnrollmentStore, apiKeySvc).WithOperationalMetrics(nodeMetrics)
 
 	tokenSvc, err := tokenDomain.NewService(config.Auth)
 	if err != nil {
@@ -339,6 +406,11 @@ func start(config *Config) (result error) {
 
 	// userStore implements both UserStore and UserManagementStore interfaces
 	authSvc := authDomain.NewService(userStore, userStore, transactor, tokenSvc, sessionSvc, encryptSvc, activitySvc, permissionResolver)
+	hostedaccountsSvc := hostedaccountsDomain.NewService(conn, maintenanceDomain.NewService(maintenanceStore, maintenanceStore, inventoryStore, transactor, nil))
+	hostedInvitationsSvc := hostedaccountsDomain.NewInvitationService(hostedaccountsSvc, sessionSvc)
+	teamInvitationsSvc := hostedaccountsDomain.NewTeamInvitationService(hostedaccountsSvc, sessionSvc)
+	hostedKeysSvc := hostedaccountsDomain.NewKeyService(hostedaccountsSvc, apiKeySvc)
+	hostedPoolsSvc := hostedaccountsDomain.NewPoolService(hostedaccountsSvc, encryptSvc, hostedKeysSvc, authSvc)
 
 	identityStateCleanup := newBackgroundLoop(func(ctx context.Context) {
 		cleanupInterval := sessionSvc.CleanupInterval()
@@ -418,6 +490,8 @@ func start(config *Config) (result error) {
 	}
 	scheduler := scheduler.NewScheduler(
 		config.Scheduler,
+		config.Telemetry.StalenessThreshold,
+		config.Telemetry.FetchInterval,
 	)
 
 	filesService, err := files.NewService(config.Files)
@@ -494,6 +568,9 @@ func start(config *Config) (result error) {
 	pairingSvc.WithOptionsCache(fleetOptionsCache)
 	fleetNodePairingSvc.WithMinerInvalidator(minerService.InvalidateMinerByID)
 	fleetNodeEnrollmentSvc.WithMinerInvalidator(minerService.InvalidateMinerByID)
+	fleetNodeEnrollmentSvc.WithTelemetryRemover(telemetryService.RemoveUnpairedDevices)
+	fleetNodeHASvc := fleetnodeha.NewService(conn, transactor, fleetNodeControlRegistry, activitySvc, minerService.InvalidateMiner)
+	fleetNodeEnrollmentSvc.WithHA(fleetNodeHASvc)
 
 	// Initialize IP scanner service
 	ipScannerService := ipscanner.NewIPScannerService(
@@ -526,24 +603,30 @@ func start(config *Config) (result error) {
 
 	executionService := commandDomain.NewExecutionService(&config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc, minerService, deviceStore, telemetryService, filesService)
 	executionService.WithMetricsEmitter(metricsProvider)
+	commandMetrics, err := runtimeMetrics.NewCommandMetrics()
+	if err != nil {
+		return fmt.Errorf("create command metrics: %w", err)
+	}
+	executionService.WithOperationalMetrics(commandMetrics)
 
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
 	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService, deviceStore, userStore, authSvc, telemetryService, pluginService, activitySvc)
 	commandSvc.SetPluginCapabilitiesProvider(pluginService)
+	commandSvc.SetCommandProtocolChecker(fleetNodeControlRegistry)
 	// buildingStore is constructed below alongside siteStore; both are
 	// needed for the parseFilter cross-org check on building_ids and
 	// zone_keys. Hoist the construction so fleetMgmtSvc can depend on it.
 	siteStore := sqlstores.NewSQLSiteStore(conn)
 	buildingStore := sqlstores.NewSQLBuildingStore(conn)
-	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, poolStore, errorStore, collectionStore, buildingStore, commandSvc, activitySvc)
+	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, errorStore, collectionStore, buildingStore, nil, activitySvc)
+	fleetMgmtSvc.WithMinerWebCapability(fleetNodeControlRegistry)
 	fleetMgmtSvc.WithOptionsCache(fleetOptionsCache)
 	// Filtered "select all" command dispatch resolves its MinerListFilter through
 	// the fleetmanagement resolver; wire it now that fleetMgmtSvc exists (it
 	// depends on commandSvc, so this can't be passed to NewService).
 	commandSvc.SetDeviceIdentifierResolver(fleetMgmtSvc)
-	defer fleetMgmtSvc.WaitForPendingUnpairs(shutdownTimeout)
-	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore, userStore)
-	poolsSvc := poolsDomain.NewService(poolStore, transactor, config.Pools, activitySvc)
+	onboardingSvc := onboardingDomain.NewService(deviceStore, db.NewFailoverResettingQuerier(db.NewRetryDB(conn)), userStore)
+	poolsSvc := poolsDomain.NewService(config.Pools)
 	scheduleStore := sqlstores.NewSQLScheduleStore(conn)
 	scheduleSvc := scheduleDomain.NewService(scheduleStore, scheduleStore, scheduleStore, transactor, activitySvc)
 
@@ -554,11 +637,9 @@ func start(config *Config) (result error) {
 		siteStore,
 		infrastructureDriverRegistry,
 		activitySvc,
+		metricsProvider,
 	)
-	// Curtailment operational metrics route through this single recorder.
-	// Swap NoOpMetrics for the platform observability implementation once
-	// the pipeline shape lands (OTel Meter, Prometheus, or DogStatsD).
-	var curtailmentMetrics curtailmentDomain.Metrics = curtailmentDomain.NoOpMetrics{}
+	var curtailmentMetrics curtailmentDomain.Metrics = metricsProvider
 	curtailmentSvc := curtailmentDomain.NewService(curtailmentStore,
 		curtailmentDomain.WithServiceMetrics(curtailmentMetrics),
 		curtailmentDomain.WithAuditLogger(activitySvc),
@@ -566,17 +647,16 @@ func start(config *Config) (result error) {
 	)
 	curtailmentResponseProfileSvc := curtailmentDomain.NewResponseProfileService(curtailmentStore)
 
-	sitesSvc := sitesDomain.NewService(siteStore, buildingStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
+	sitesSvc := sitesDomain.NewService(siteStore, buildingStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc).WithContainerStats(db.NewFailoverResettingQuerier(db.NewRetryDB(conn)))
 	buildingsSvc := buildingsDomain.NewService(buildingStore, siteStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
 	infrastructureSvc := infrastructureDomain.NewService(infrastructureStore, siteStore, infrastructureDriverRegistry, transactor, activitySvc)
 	sitemapSvc := sitemapDomain.NewService(siteStore, buildingStore, collectionStore, deviceStore, fleetMgmtSvc, transactor, activitySvc)
 
 	// Register the schedule-conflict preflight filter on commandSvc so every
-	// caller (manual API, schedule processor, future curtailment reconciler)
-	// sees the same priority/manual-fallback semantics. Pre-pre-work this
-	// only ran inline inside the schedule processor, leaving manual
-	// SetPowerTarget calls free to race a running power-target schedule.
+	// caller (manual API, schedule processor, curtailment reconciler)
+	// sees the same priority/manual-fallback semantics.
 	commandSvc.RegisterFilter(commandDomain.NewScheduleConflictFilter(scheduleStore))
+	commandSvc.RegisterFilter(commandDomain.NewScheduleContainerFilter(conn))
 	// CurtailmentActiveFilter blocks non-curtailment commands on locked
 	// devices; reconciler self-traffic bypasses via ActorCurtailment.
 	commandSvc.RegisterFilter(commandDomain.NewCurtailmentActiveFilter(curtailmentStore))
@@ -660,7 +740,7 @@ func start(config *Config) (result error) {
 		return fmt.Errorf("failed to initialize curtailment mqtt subscriber: %w", err)
 	}
 	mqttConnectionTester, err := mqttingest.NewMQTTConnectionTester(mqttingest.ConnectionTesterConfig{
-		NewClient: func() mqttingest.MQTTClient { return mqttclient.New() },
+		NewClient: func() mqttingest.MQTTClient { return mqttclient.NewProbe() },
 	})
 	if err != nil {
 		return fmt.Errorf("failed to initialize curtailment mqtt connection tester: %w", err)
@@ -679,8 +759,8 @@ func start(config *Config) (result error) {
 	pairingSvc.WithRigConfigReapplier(mqttSettingsSvc.ReapplyRigConfigBestEffort)
 	fleetNodePairingSvc.WithRigConfigReapplier(mqttSettingsSvc.ReapplyRigConfigBestEffort)
 
-	// Feeds the MQTT curtailment default alert rules; skipped when the
-	// metrics pipeline is off so its periodic queries aren't wasted work.
+	// Emits MQTT curtailment alert state and durable pending-work ages; skipped
+	// when the metrics pipeline is off to avoid unused periodic queries.
 	var curtailmentAlertMetrics runtimejobs.Lifecycle
 	if metricsProvider.Enabled() {
 		alertMetricsLoop, err := curtailmentDomain.NewAlertMetricsLoop(curtailmentDomain.AlertMetricsConfig{
@@ -688,6 +768,8 @@ func start(config *Config) (result error) {
 			Runtime:           mqttSubscriber,
 			ActiveCurtailment: curtailmentStore,
 			Emitter:           metricsProvider,
+			PendingWork:       curtailmentStore,
+			PendingAges:       metricsProvider,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to initialize curtailment alert metrics loop: %w", err)
@@ -697,7 +779,6 @@ func start(config *Config) (result error) {
 
 	deviceResolver := deviceresolver.New(deviceStore)
 	collectionSvc := collectionDomain.NewService(collectionStore, deviceStore, siteStore, buildingStore, transactor, deviceResolver.Resolve, telemetryService, activitySvc)
-	foremanImportSvc := foremanImportDomain.NewService(poolsSvc, collectionSvc, deviceStore)
 
 	grafanaClient := alertsDomain.NewGrafana(config.Metrics.Grafana)
 	// fleet-api owns org channel storage + delivery; Grafana keeps only rule evaluation,
@@ -764,23 +845,67 @@ func start(config *Config) (result error) {
 	if config.Updates.Enabled {
 		releaseCheckerJob = releaseChecker
 	}
+	poolRepository := poolconfigurationsDomain.NewRepository(encryptSvc)
+	poolReviewer := poolapplications.NewReviewer(hostedPoolsSvc, pluginService)
+	poolReadiness := poolapplications.NewReadiness(conn, poolReviewer, minerService)
+	poolChecker := poolapplications.NewChecker(conn, poolReviewer, minerService, encryptSvc, hostedPoolsSvc)
+	poolConfigurationsSvc := poolconfigurationsDomain.NewService(conn, poolRepository, hostedPoolsSvc, poolReviewer).WithDeviceSelector(fleetMgmtSvc).WithReadiness(poolReadiness).WithConnectionTester(poolsSvc).WithChecker(poolChecker)
+	foremanImportSvc := foremanImportDomain.NewService(poolConfigurationsSvc, collectionSvc, deviceStore)
+
+	poolWorker := poolapplications.NewWorker(conn, poolRepository, poolReviewer, minerService, encryptSvc)
+	fleetMgmtSvc.WithWorkerNameReviews(poolConfigurationsSvc)
+	groupsSvc := mininggroupsDomain.NewService(conn, minerService, hostedPoolsSvc, encryptSvc).WithPoolConfigurations(poolRepository, poolReviewer).WithPoolRemovals(poolChecker)
+	poolWorker.WithBoardApplications(groupsSvc).WithRemovals(poolChecker)
+	frigatePackageStore, err := files.NewFrigatePackageStore(config.FrigateUpdate.PackageDir)
+	if err != nil {
+		return err
+	}
+	// Without a release key directory Fleet has no installed release key. It
+	// then checks an uploaded signature only against a public key supplied with
+	// the upload; the controllers verify every package with their own keys.
+	var frigateVerifier *frigateReleaseDomain.Verifier
+	if config.FrigateUpdate.ReleaseKeysDir != "" {
+		frigateVerifier = frigateReleaseDomain.NewDirVerifier(config.FrigateUpdate.ReleaseKeysDir)
+	}
+	frigateAuthorizer := frigateUpdateHandler.NewAuthorizer()
+	frigateUpdateSvc := frigateUpdateDomain.NewService(conn, minerService, frigatePackageStore, frigateVerifier, frigateAuthorizer, activitySvc, config.FrigateUpdate)
+	frigateUploadMgr := frigateUpdateHandler.NewUploadManager()
+	// Both loops belong to the active replica only, and uploads are served only
+	// there. They are separate runtime jobs because each reports its own progress.
+	frigateUpdateRunner := newBackgroundLoop(frigateUpdateSvc.Run)
+	frigatePackageCleanup := newBackgroundLoop(func(ctx context.Context) {
+		frigateUploadMgr.StartCleanup(ctx, config.Files.ChunkedUploadSessionTTL, frigateUpdateSvc)
+	})
 	jobs, err := newRuntimeJobs(runtimeJobLifecycles{
+		plugins: stopOnlyLifecycle{
+			stop:     pluginService.Shutdown,
+			timeout:  time.Duration(config.Plugins.ShutdownTimeoutSeconds) * time.Second,
+			detached: true,
+		},
+		pendingUnpairs:            stopOnlyLifecycle{stop: fleetMgmtSvc.WaitForPendingUnpairs, timeout: pendingUnpairsStopTimeout},
 		identityStateCleanup:      identityStateCleanup,
 		commandArtifactCleanup:    commandArtifactCleanup,
 		diagnosticsErrorCloser:    diagnosticsService,
 		telemetry:                 telemetryService,
 		ipScanner:                 ipScannerService,
 		commandExecution:          executionService,
+		miningGroupReconciliation: newBackgroundLoop(groupsSvc.Run),
+		poolConfigurationUpdates:  newBackgroundLoop(poolWorker.Run),
 		scheduleProcessor:         scheduleProcessor,
 		rolloutEnforcement:        rolloutEnforcement,
 		curtailmentReconciler:     curtailmentRec,
 		curtailmentMQTTSubscriber: mqttSubscriber,
+		curtailmentAutomation:     newBackgroundLoop(curtailmentAutomationSvc.Run),
 		curtailmentRigConfig:      mqttSettingsSvc,
 		curtailmentAlertMetrics:   curtailmentAlertMetrics,
 		chunkedUploadCleanup:      chunkedUploadCleanup,
+		frigateUpdateRunner:       frigateUpdateRunner,
+		frigatePackageCleanup:     frigatePackageCleanup,
+		fleetNodeFailover:         newBackgroundLoop(fleetNodeHASvc.Run),
 		systemMonitoring:          systemMonitoring,
 		haReadiness:               haReadiness,
 		releaseChecker:            releaseCheckerJob,
+		hostedReporting:           newBackgroundLoop(hostedaccountsDomain.NewReportingJobs(hostedaccountsSvc, alertsDeliverer).Run),
 	})
 	if err != nil {
 		return err
@@ -816,9 +941,10 @@ func start(config *Config) (result error) {
 
 	validateInterceptor := validate.NewInterceptor()
 
-	requestAuth := interceptors.NewAuthInterceptor(sessionSvc, userStore, userStore, apiKeySvc, permissionResolver, interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures, interceptors.FleetNodeAuthenticatedProcedures)
+	requestAuth := interceptors.NewAuthInterceptor(sessionSvc, userStore, userStore, apiKeySvc, permissionResolver, hostedKeysSvc, interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures, interceptors.FleetNodeAuthenticatedProcedures)
 
 	li := connect.WithInterceptors(
+		interceptors.NewRequestTelemetryInterceptor(),
 		interceptors.NewErrorMappingInterceptor(),
 		interceptors.NewActiveInterceptor(fleetRuntime),
 		interceptors.NewErrorStackTraceLoggingInterceptor(config.Log.Level),
@@ -850,11 +976,15 @@ func start(config *Config) (result error) {
 	mux.Handle("POST /api/v1/firmware/upload/chunked", activeHTTP.Wrap(firmwareHandler.NewInitiateHandler(chunkedMgr, filesService, requestAuth)))
 	mux.Handle("PUT /api/v1/firmware/upload/chunked/{uploadId}", activeHTTP.Wrap(firmwareHandler.NewChunkHandler(chunkedMgr, requestAuth)))
 	mux.Handle("POST /api/v1/firmware/upload/chunked/{uploadId}/complete", activeHTTP.Wrap(firmwareHandler.NewCompleteHandler(chunkedMgr, filesService, requestAuth, activitySvc)))
+	frigateUploads := frigateUpdateHandler.NewUploadHandlers(frigateUploadMgr, frigateUpdateSvc, frigatePackageStore, frigateAuthorizer, requestAuth)
+	mux.Handle("POST /api/v1/frigate-packages/upload/chunked", activeHTTP.Wrap(frigateUploads.Initiate))
+	mux.Handle("PUT /api/v1/frigate-packages/upload/chunked/{uploadId}", activeHTTP.Wrap(frigateUploads.Chunk))
+	mux.Handle("POST /api/v1/frigate-packages/upload/chunked/{uploadId}/complete", activeHTTP.Wrap(frigateUploads.Complete))
 	mux.Handle("GET /api/v1/firmware/files", activeHTTP.Wrap(firmwareHandler.NewListFilesHandler(filesService, requestAuth)))
 	mux.Handle("PATCH /api/v1/firmware/files/{fileId}", activeHTTP.Wrap(firmwareHandler.NewUpdateMetadataHandler(filesService, requestAuth, activitySvc)))
 	mux.Handle("DELETE /api/v1/firmware/files/{fileId}", activeHTTP.Wrap(firmwareHandler.NewDeleteFileHandler(filesService, requestAuth)))
 	mux.Handle("DELETE /api/v1/firmware/files", activeHTTP.Wrap(firmwareHandler.NewDeleteAllFilesHandler(filesService, requestAuth)))
-	mux.Handle("/miners/{deviceIdentifier}/api/v1/{rest...}", activeHTTP.Wrap(minerProxyHandler.NewHandler(conn, sessionSvc, userStore, permissionResolver, encryptSvc)))
+	mux.Handle("/miners/{deviceIdentifier}/api/{apiVersion}/{rest...}", activeHTTP.Wrap(minerProxyHandler.NewHandler(conn, sessionSvc, userStore, permissionResolver, encryptSvc, config.MinerProxy, fleetNodeControlRegistry)))
 
 	if len(reflectEnabledServices) != 0 {
 		slog.Debug("enabling reflection", "services", reflectEnabledServices)
@@ -866,24 +996,31 @@ func start(config *Config) (result error) {
 	}
 
 	mux.Handle(authv1connect.NewAuthServiceHandler(auth.NewHandler(authSvc), li))
+	mux.Handle(hostedv1connect.NewHostedAccountServiceHandler(hostedaccountsHandler.NewHandler(hostedaccountsSvc, hostedInvitationsSvc, hostedKeysSvc, userStore, permissionResolver), li, hostedaccountsHandler.ReportingRequestReadLimitOption()))
+	mux.Handle(invitationv1connect.NewInvitationServiceHandler(invitationHandler.NewHandler(hostedInvitationsSvc, teamInvitationsSvc), li))
 	mux.Handle(onboardingv1connect.NewOnboardingServiceHandler(onboarding.NewHandler(authSvc, onboardingSvc), li))
 	mux.Handle(pairingv1connect.NewPairingServiceHandler(pairing.NewHandler(pairingSvc, fleetNodeDiscoverySvc, fleetNodePairingSvc), li))
 	mux.Handle(networkinfov1connect.NewNetworkInfoServiceHandler(networkinfo.NewHandler(pairingSvc), li))
 	mux.Handle(marketdatav1connect.NewMarketDataServiceHandler(marketdataHandler.NewHandler(marketDataSvc), li))
 	mux.Handle(fleetmanagementv1connect.NewFleetManagementServiceHandler(fleetmanagement.NewHandler(fleetMgmtSvc), li))
 	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(command.NewHandler(commandSvc), li))
-	mux.Handle(poolsv1connect.NewPoolsServiceHandler(pools.NewHandler(poolsSvc), li))
+	mux.Handle(poolconfigurationsv1connect.NewPoolConfigurationServiceHandler(poolconfigurationsHandler.NewHandler(poolConfigurationsSvc), li))
 	mux.Handle(schedulev1connect.NewScheduleServiceHandler(scheduleHandler.NewHandler(scheduleSvc), li))
 	rolloutPath, rolloutHTTP := rolloutv1connect.NewRolloutServiceHandler(rolloutHandler.NewHandler(rolloutSvc), li)
 	mux.Handle(rolloutPath, rolloutHTTP)
 	rolloutHandler.RegisterRESTRoutes(mux, rolloutHTTP)
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(
-		curtailmentHandler.NewHandlerWithAutomation(curtailmentSvc, curtailmentResponseProfileSvc, curtailmentAutomationSvc, mqttSettingsSvc),
+		curtailmentHandler.NewHandler(curtailmentSvc, curtailmentResponseProfileSvc, curtailmentAutomationSvc, mqttSettingsSvc),
 		li,
 		curtailmentHandler.RequestReadLimitOption(),
 	))
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
+	mux.Handle(mininggroupsv1connect.NewMiningGroupServiceHandler(mininggroupsHandler.NewHandler(groupsSvc), li))
+	mux.Handle(frigateupdatev1connect.NewFrigateUpdateServiceHandler(frigateUpdateHandler.NewHandler(frigateUpdateSvc), li))
+	containersPath, containersHTTP := containersv1connect.NewContainerServiceHandler(containersHandler.NewHandler(containersDomain.NewService(sqlstores.NewSQLContainerStore(conn))).WithCommands(commandSvc), li)
+	mux.Handle(containersPath, containersHandler.WithBoardASICStreamWriteDeadline(containersHTTP, commandDomain.BoardASICStreamWriteBudget()))
+	mux.Handle(fleetinventoryv1connect.NewFleetInventoryServiceHandler(fleetInventoryHandler.NewHandler(fleetInventoryDomain.NewService(db.NewFailoverResettingQuerier(db.NewRetryDB(conn))).WithBuildings(buildingStore).WithMiners(fleetMgmtSvc)), li))
 	mux.Handle(infrastructurev1connect.NewInfrastructureServiceHandler(infrastructureHandler.NewHandler(infrastructureSvc), li))
 	mux.Handle(sitemapv1connect.NewSiteMapServiceHandler(
 		sitemapHandler.NewHandler(sitemapSvc),
@@ -891,11 +1028,13 @@ func start(config *Config) (result error) {
 		connect.WithReadMaxBytes(sitemapDomain.MaxImportBytes+1024),
 	))
 	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(
-		gateway.NewHandler(fleetNodeEnrollmentSvc, fleetNodeAuthSvc, fleetNodePairingSvc, fleetNodeControlRegistry, filesService),
+		gateway.NewHandler(fleetNodeEnrollmentSvc, fleetNodeAuthSvc, fleetNodePairingSvc, fleetNodeControlRegistry, filesService).
+			WithControllerSoftwarePackages(frigatePackageStore),
 		li,
 		gateway.CommandArtifactUploadReadLimitOption(),
+		gateway.BootstrapRateLimitOption(),
 	))
-	mux.Handle(fleetnodeadminv1connect.NewFleetNodeAdminServiceHandler(admin.NewHandler(fleetNodeEnrollmentSvc, fleetNodePairingSvc, fleetNodeDiscoverySvc, fleetNodeControlRegistry), li))
+	mux.Handle(fleetnodeadminv1connect.NewFleetNodeAdminServiceHandler(admin.NewHandler(fleetNodeEnrollmentSvc, fleetNodePairingSvc, fleetNodeDiscoverySvc, fleetNodeControlRegistry, fleetNodeHASvc, pairingSvc), li))
 	mux.Handle(collectionv1connect.NewDeviceCollectionServiceHandler(collectionHandler.NewHandler(collectionSvc), li))
 	mux.Handle(device_setv1connect.NewDeviceSetServiceHandler(devicesetHandler.NewHandler(collectionSvc), li))
 	mux.Handle(telemetryv1connect.NewTelemetryServiceHandler(telemetryHandler.NewHandler(telemetryService), li))
@@ -952,7 +1091,8 @@ func start(config *Config) (result error) {
 		handler = m.Wrap(handler)
 	}
 
-	handler = h2c.NewHandler(handler, newHTTP2Server(config.HTTP))
+	requestDrain := &httpRequestDrain{handler: handler}
+	handler = h2c.NewHandler(requestDrain, newHTTP2Server(config.HTTP))
 	httpServer := http.Server{
 		Addr:              config.HTTP.Address,
 		Handler:           handler,
@@ -969,7 +1109,7 @@ func start(config *Config) (result error) {
 		}
 	}()
 
-	return serveFleetRuntime(&httpServer, listener, fleetRuntime, shutdownTimeout)
+	return serveFleetRuntime(&httpServer, listener, fleetRuntime, shutdownTimeout, requestDrain)
 }
 
 func newHTTP2Server(config HTTPConfig) *http2.Server {

@@ -1,0 +1,664 @@
+syntax = "proto3";
+
+package hosted.v1;
+
+import "buf/validate/validate.proto";
+import "hosted/v1/reporting.proto";
+import "hosted/v1/analysis.proto";
+import "activity/v1/activity.proto";
+import "maintenance/v1/maintenance.proto";
+import "common/v1/equipment_coverage.proto";
+import "common/v1/sort.proto";
+import "telemetry/v1/telemetry.proto";
+import "google/protobuf/timestamp.proto";
+
+// Endpoint error details for allocation and board replacement.
+enum AssetAssignmentErrorCode {
+  ASSET_ASSIGNMENT_ERROR_CODE_UNSPECIFIED = 0;
+  ASSET_ASSIGNMENT_ERROR_CODE_MINING_GROUPS_NOT_READY = 1;
+}
+
+// HostedAccountService uses account authority independently of organization RBAC.
+// Every private account operation names its account; names are display labels.
+// invitation.v1.InvitationService redeems the invitation codes issued here.
+service HostedAccountService {
+  rpc GenerateAccountAnalysis(GenerateAccountAnalysisRequest) returns (GenerateAccountAnalysisResponse);
+  rpc ListAccountAnalyses(ListAccountAnalysesRequest) returns (ListAccountAnalysesResponse);
+  rpc GetAccountAnalysis(GetAccountAnalysisRequest) returns (GetAccountAnalysisResponse);
+  rpc DeleteAccountAnalysis(DeleteAccountAnalysisRequest) returns (DeleteAccountAnalysisResponse);
+  rpc ExportAccountAnalysis(ExportAccountAnalysisRequest) returns (stream ExportAccountAnalysisResponse);
+ rpc ListHostReportQueue(ListHostReportQueueRequest) returns (ListHostReportQueueResponse);
+ rpc AcknowledgeHostReportQueue(AcknowledgeHostReportQueueRequest) returns (AcknowledgeHostReportQueueResponse);
+ rpc RetryHostReportQueueNotification(RetryHostReportQueueNotificationRequest) returns (RetryHostReportQueueNotificationResponse);
+  rpc CreateHostReportRequest(CreateHostReportRequestRequest) returns (CreateHostReportRequestResponse);
+  rpc RecordHostReportRequestFulfillment(RecordHostReportRequestFulfillmentRequest) returns (RecordHostReportRequestFulfillmentResponse);
+  rpc ListHostReportRequests(ListHostReportRequestsRequest) returns (ListHostReportRequestsResponse);
+  rpc ListHostReportingAccounts(ListHostReportingAccountsRequest) returns (ListHostReportingAccountsResponse);
+  rpc GetHostReportingSetup(GetHostReportingSetupRequest) returns (GetHostReportingSetupResponse);
+  rpc SetHostReportingAuthority(SetHostReportingAuthorityRequest) returns (SetHostReportingAuthorityResponse);
+  rpc MutateHostReportingInputs(MutateHostReportingInputsRequest) returns (MutateHostReportingInputsResponse);
+  rpc ListHostReportingFacts(ListHostReportingFactsRequest) returns (ListHostReportingFactsResponse);
+  rpc PrepareHostReport(PrepareHostReportRequest) returns (PrepareHostReportResponse);
+  rpc PublishHostReport(PublishHostReportRequest) returns (PublishHostReportResponse);
+  rpc ListHostReports(ListHostReportsRequest) returns (ListHostReportsResponse);
+  rpc GetHostReport(GetHostReportRequest) returns (GetHostReportResponse);
+  rpc RecordHostReportDelivery(RecordHostReportDeliveryRequest) returns (RecordHostReportDeliveryResponse);
+  rpc ListAccountReports(ListAccountReportsRequest) returns (ListAccountReportsResponse);
+  rpc GetAccountReport(GetAccountReportRequest) returns (GetAccountReportResponse);
+  rpc ExportAccountReport(ExportAccountReportRequest) returns (stream ExportAccountReportResponse);
+  rpc ExportHostReport(ExportHostReportRequest) returns (stream ExportHostReportResponse);
+
+  rpc ListAccountTickets(ListAccountTicketsRequest) returns (ListAccountTicketsResponse);
+  rpc GetAccountTicket(GetAccountTicketRequest) returns (GetAccountTicketResponse);
+  rpc CreateAccountTicket(CreateAccountTicketRequest) returns (CreateAccountTicketResponse);
+  rpc CommentAccountTicket(CommentAccountTicketRequest) returns (CommentAccountTicketResponse);
+  rpc ChangeAccountTicketStatus(ChangeAccountTicketStatusRequest) returns (ChangeAccountTicketStatusResponse);
+  rpc ListAccountTicketAssets(ListAccountTicketAssetsRequest) returns (ListAccountTicketAssetsResponse);
+  rpc ListAccountActivities(ListAccountActivitiesRequest) returns (ListAccountActivitiesResponse);
+  rpc ExportAccountActivities(ExportAccountActivitiesRequest) returns (stream ExportAccountActivitiesResponse);
+  rpc GetAccountDashboard(GetAccountDashboardRequest) returns (GetAccountDashboardResponse);
+  rpc GetAccountAssetDetail(GetAccountAssetDetailRequest) returns (GetAccountAssetDetailResponse);
+  rpc GetAccountMiningSummary(GetAccountMiningSummaryRequest) returns (GetAccountMiningSummaryResponse);
+  rpc ListAccountAssets(ListAccountAssetsRequest) returns (ListAccountAssetsResponse);
+  rpc AssignAccountAssets(AssignAccountAssetsRequest) returns (AssignAccountAssetsResponse);
+  rpc ReplaceAccountHashboard(ReplaceAccountHashboardRequest) returns (ReplaceAccountHashboardResponse);
+  rpc ListAccounts(ListAccountsRequest) returns (ListAccountsResponse);
+  rpc GetAccount(GetAccountRequest) returns (GetAccountResponse);
+  rpc ListChildren(ListChildrenRequest) returns (ListChildrenResponse);
+  rpc CreateAccount(CreateAccountRequest) returns (CreateAccountResponse);
+  rpc ConfigureAccount(ConfigureAccountRequest) returns (ConfigureAccountResponse);
+  rpc RenameAccount(RenameAccountRequest) returns (RenameAccountResponse);
+  rpc ListMembers(ListMembersRequest) returns (ListMembersResponse);
+  rpc SetMemberRole(SetMemberRoleRequest) returns (SetMemberRoleResponse);
+  rpc RevokeMember(RevokeMemberRequest) returns (RevokeMemberResponse);
+  rpc ListAncestorGrants(ListAncestorGrantsRequest) returns (ListAncestorGrantsResponse);
+  rpc SetAncestorGrant(SetAncestorGrantRequest) returns (SetAncestorGrantResponse);
+  rpc RevokeAncestorGrant(RevokeAncestorGrantRequest) returns (RevokeAncestorGrantResponse);
+  rpc GetSitePolicy(GetSitePolicyRequest) returns (GetSitePolicyResponse);
+  rpc SetSitePolicy(SetSitePolicyRequest) returns (SetSitePolicyResponse);
+  rpc ListInvitations(ListInvitationsRequest) returns (ListInvitationsResponse);
+  rpc CreateInvitation(CreateInvitationRequest) returns (CreateInvitationResponse);
+  rpc RevokeInvitation(RevokeInvitationRequest) returns (RevokeInvitationResponse);
+
+  rpc CreateAccountKey(CreateAccountKeyRequest) returns (CreateAccountKeyResponse);
+  rpc ListAccountKeys(ListAccountKeysRequest) returns (ListAccountKeysResponse);
+  rpc RevokeAccountKey(RevokeAccountKeyRequest) returns (RevokeAccountKeyResponse);
+}
+
+// Client-safe audit history for this account, including miner command outcomes
+// during established allocation intervals. Child-private account changes and
+// organization alerts are excluded. Actors, raw errors and batch IDs are never
+// exposed. Filter options and counts use the same authorized projection as rows.
+message ListAccountActivitiesRequest {
+  option (buf.validate.message).cel = {
+    id: "account_activity.no_users"
+    message: "account activity does not expose user identities"
+    expression: "!has(this.filter) || this.filter.user_ids.size() == 0"
+  };
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  activity.v1.ActivityFilter filter = 2;
+  int32 page_size = 3 [(buf.validate.field).int32 = {gte: 1, lte: 100}];
+  string page_token = 4;
+}
+message ListAccountActivitiesResponse {
+  repeated activity.v1.ActivityEntry activities = 1;
+  string next_page_token = 2;
+  int32 total_count = 3;
+  activity.v1.ListActivityFilterOptionsResponse filter_options = 4;
+  // Opaque fingerprint of effective account and host physical read scope.
+  // Clients discard accumulated pages when this changes.
+  string authority_fingerprint = 5;
+}
+message ExportAccountActivitiesRequest {
+  option (buf.validate.message).cel = {
+    id: "account_activity_export.no_users"
+    message: "account activity does not expose user identities"
+    expression: "!has(this.filter) || this.filter.user_ids.size() == 0"
+  };
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  activity.v1.ActivityFilter filter = 2;
+}
+message ExportAccountActivitiesResponse { bytes chunk = 1; }
+
+enum AccountRole {
+  ACCOUNT_ROLE_UNSPECIFIED = 0;
+  ACCOUNT_ROLE_VIEWER = 1;
+  ACCOUNT_ROLE_POOL_OPERATOR = 2;
+  ACCOUNT_ROLE_ADMINISTRATOR = 3;
+}
+
+// Capability mask: view=1, manage pool configurations=2, change pools=4,
+// manage memberships=8, delegate/recall=16, generate ad hoc reports=32. Ancestor grants remain explicit.
+message Account {
+  string account_id = 1;
+  string parent_account_id = 2;
+  string name = 3;
+  uint32 depth = 4;
+  uint64 capability_ceiling = 5;
+  uint64 effective_capabilities = 6;
+  AccountRole role = 7;
+  bool suspended = 8;
+  int64 revision = 9;
+  // Present only for direct clients returned by the host's ListChildren.
+  ClientManagementSummary management_summary = 10;
+  bool ticketing_enabled = 11;
+  // Derived from live direct membership, View authority and account ticketing.
+  // All teammates are eligible; there is no individual ticket-access setting.
+  bool ticket_access = 12;
+}
+
+// Commercial allocation and direct membership counts for host client management.
+// Includes retained assignments and allocations delegated to subclients.
+message ClientManagementSummary {
+  int64 miner_count = 1;
+  // Always zero. Current allocations count individual hashboards.
+  int64 module_count = 2;
+  // Distinct containers represented by allocated hashboards.
+  int64 container_count = 3;
+  // Live direct memberships with an active user and organization affiliation.
+  // Excludes invitations, ancestor grants, and subclient-only memberships.
+  int64 login_count = 4;
+  // All allocated hashboards, including boards grouped into modules in inventory.
+  int64 hashboard_count = 5;
+}
+
+message SitePolicy {
+  // Unrestricted here still respects restrictions of every ancestor.
+  bool restricted = 1;
+  repeated int64 site_ids = 2 [(buf.validate.field).repeated = {unique: true, items: {int64: {gt: 0}}}];
+}
+
+message Member {
+  string user_id = 1;
+  string username = 2;
+  AccountRole role = 3;
+  int64 revision = 4;
+  google.protobuf.Timestamp joined_at = 5;
+}
+
+message AncestorGrant {
+  string ancestor_account_id = 1;
+  uint64 capabilities = 2;
+  int64 revision = 3;
+}
+
+message Invitation {
+  string invitation_id = 1;
+  AccountRole role = 2;
+  google.protobuf.Timestamp expires_at = 3;
+  google.protobuf.Timestamp revoked_at = 4;
+  google.protobuf.Timestamp accepted_at = 5;
+  google.protobuf.Timestamp created_at = 6;
+  // The server derives current usability from lifecycle and live inviter authority.
+  // Acceptance rechecks authority; this observation does not reserve access.
+  bool available = 7;
+}
+
+message ListAccountsRequest {}
+message ListAccountsResponse {
+  repeated Account accounts = 1;
+  // True only when the user can operate the host workspace.
+  bool host_access = 2;
+}
+
+message GetAccountRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+}
+message GetAccountResponse {
+  Account account = 1;
+  SitePolicy site_policy = 2;
+}
+
+message ListChildrenRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+}
+message ListChildrenResponse { repeated Account accounts = 1; }
+
+message CreateAccountRequest {
+  // Omission enables client ticketing.
+  optional bool ticketing_enabled = 5;
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  // Omission gives host operators separate host administration, without a team
+  // membership. Customer-created subclients use the creator as administrator.
+  // An explicitly selected user becomes the initial member; users are not enumerated.
+  optional string administrator_user_id = 3 [(buf.validate.field).string.uuid = true];
+  uint64 capabilities = 4 [(buf.validate.field).uint64 = {gte: 1, lte: 63}];
+}
+message CreateAccountResponse { Account account = 1; }
+
+message ConfigureAccountRequest {
+  optional bool ticketing_enabled = 5;
+  // The active parent workspace controls only its directly delegated child.
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string child_account_id = 2 [(buf.validate.field).string.uuid = true];
+  uint64 capabilities = 3 [(buf.validate.field).uint64 = {gte: 1, lte: 63}];
+  bool suspended = 4;
+}
+message ConfigureAccountResponse {}
+
+message RenameAccountRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+}
+message RenameAccountResponse {}
+
+message ListMembersRequest { string account_id = 1 [(buf.validate.field).string.uuid = true]; }
+message ListMembersResponse { repeated Member members = 1; }
+message SetMemberRoleRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string user_id = 2 [(buf.validate.field).string.uuid = true];
+  AccountRole role = 3 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+}
+message SetMemberRoleResponse {}
+message RevokeMemberRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string user_id = 2 [(buf.validate.field).string.uuid = true];
+}
+message RevokeMemberResponse {}
+
+message ListAncestorGrantsRequest { string account_id = 1 [(buf.validate.field).string.uuid = true]; }
+message ListAncestorGrantsResponse { repeated AncestorGrant grants = 1; }
+message SetAncestorGrantRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string ancestor_account_id = 2 [(buf.validate.field).string.uuid = true];
+  uint64 capabilities = 3 [(buf.validate.field).uint64 = {gte: 1, lte: 63}];
+}
+message SetAncestorGrantResponse {}
+message RevokeAncestorGrantRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string ancestor_account_id = 2 [(buf.validate.field).string.uuid = true];
+}
+message RevokeAncestorGrantResponse {}
+
+message SetSitePolicyRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  SitePolicy site_policy = 2 [(buf.validate.field).required = true];
+  optional string child_account_id = 3 [(buf.validate.field).string.uuid = true];
+}
+message SetSitePolicyResponse {}
+message GetSitePolicyRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  optional string child_account_id = 2 [(buf.validate.field).string.uuid = true];
+}
+message GetSitePolicyResponse {
+  SitePolicy site_policy = 1;
+  bool effective_restricted = 2;
+  repeated int64 effective_site_ids = 3;
+}
+
+// Lists unaccepted invitations, including revoked and expired links.
+// Accepted invitations remain stored but are excluded before pagination.
+message ListInvitationsRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  // Zero uses 25. At most 100 invitations are returned per page.
+  int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+  // Opaque continuation token from the same organization and account.
+  string page_token = 3 [(buf.validate.field).string.max_len = 512];
+}
+message ListInvitationsResponse {
+  repeated Invitation invitations = 1 [(buf.validate.field).repeated.max_items = 100];
+  string next_page_token = 2;
+}
+message CreateInvitationRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  AccountRole role = 2 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  // Zero uses 24 hours. Invitations expire at most 24 hours after creation.
+  uint32 expires_in_seconds = 3 [(buf.validate.field).uint32.lte = 86400];
+}
+message CreateInvitationResponse {
+  Invitation invitation = 1;
+  // Eight-character bearer code, formatted XXXX-XXXX, shown once for manual
+  // sharing. Never retained in activity logs.
+  string token = 2;
+}
+message RevokeInvitationRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string invitation_id = 2 [(buf.validate.field).string.uuid = true];
+}
+message RevokeInvitationResponse {}
+
+// Account keys require X-Fleet-Account-ID on every request. Bounds grant no
+// membership or implicit ancestor access; issuer permissions are checked live.
+message AccountKey {
+  string key_id = 1;
+  string name = 2;
+  string prefix = 3;
+  uint64 capabilities = 4;
+  // Explicitly selected direct children; not exhaustive when the opt-in below is set.
+  repeated string descendant_account_ids = 5;
+  // Includes all current and future direct children, subject to live issuer access.
+  bool include_future_descendants = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp expires_at = 8;
+  google.protobuf.Timestamp last_used_at = 9;
+  string issuer_user_id = 10;
+  string issuer_username = 11;
+}
+message CreateAccountKeyRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  uint64 capabilities = 3 [(buf.validate.field).uint64 = {gte: 1, lte: 7}];
+  repeated string descendant_account_ids = 4 [(buf.validate.field).repeated = {max_items: 100, unique: true, items: {string: {uuid: true}}}];
+  // Opts in to all current and future direct children, including unlisted ones.
+  // Each child still requires live issuer access; unavailable for subclients.
+  bool include_future_descendants = 5;
+  google.protobuf.Timestamp expires_at = 6;
+}
+message CreateAccountKeyResponse {
+  AccountKey key = 1;
+  // Secret shown once; not returned by listings or retained in activity logs.
+  string secret = 2;
+}
+message ListAccountKeysRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  // Zero uses 25. At most 100 keys are returned per page.
+  int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+  // Continuation is bound to the account, issuer and current listing visibility.
+  string page_token = 3 [(buf.validate.field).string.max_len = 512];
+}
+message ListAccountKeysResponse {
+  repeated AccountKey keys = 1 [(buf.validate.field).repeated.max_items = 100];
+  string next_page_token = 2;
+}
+message RevokeAccountKeyRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string key_id = 2 [(buf.validate.field).string.uuid = true];
+}
+message RevokeAccountKeyResponse {}
+
+// Reporting allocations never change placement, equipment control or pool configuration.
+enum MiningAssetKind {
+  MINING_ASSET_KIND_UNSPECIFIED = 0;
+  MINING_ASSET_KIND_MINER = 5;
+  MINING_ASSET_KIND_MODULE = 6;
+  MINING_ASSET_KIND_HASHBOARD = 7;
+}
+enum AssetAssignmentIntent {
+  ASSET_ASSIGNMENT_INTENT_UNSPECIFIED = 0;
+  ASSET_ASSIGNMENT_INTENT_ASSIGN = 1;
+  ASSET_ASSIGNMENT_INTENT_RECALL = 2;
+}
+message MiningSummary {
+  int64 asset_count = 1;
+  int64 miner_count = 2;
+  int64 module_count = 3;
+  int64 unavailable_count = 4;
+  int64 outside_policy_count = 5;
+  optional double hashrate_hs = 6;
+  optional double power_w = 7;
+  // Sum of power / sum of hashrate; present only with complete valid coverage.
+  optional double efficiency_j_th = 8;
+  int64 hashrate_reporting_count = 9;
+  int64 power_reporting_count = 10;
+  int64 paired_reporting_count = 11;
+  int64 partial_module_count = 12;
+  int64 unknown_module_count = 13;
+  int64 hashing_count = 14;
+  int64 attention_count = 15;
+  int64 offline_count = 16;
+  int64 sleeping_count = 17;
+  int64 unknown_count = 18;
+  optional double temperature_c = 19;
+  int64 temperature_reporting_count = 20;
+  optional double uptime_percent = 21;
+  int64 uptime_reporting_count = 22;
+  int64 hashboard_count = 23;
+}
+message AccountMiningBucket {
+  string account_id = 1;
+  string name = 2;
+  bool suspended = 3;
+  MiningSummary summary = 4;
+}
+message GetAccountMiningSummaryRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+}
+message GetAccountMiningSummaryResponse {
+  MiningSummary totals = 1;
+  // Direct and named child partitions require membership-management or delegation.
+  MiningSummary direct = 2;
+  repeated AccountMiningBucket children = 3;
+  bool can_manage_assignments = 4;
+  google.protobuf.Timestamp generated_at = 5;
+}
+message AccountAsset {
+  MiningAssetKind kind = 1;
+  int64 id = 2;
+  int64 revision = 3;
+  string name = 4;
+  int64 container_id = 5;
+  string container_name = 6;
+  int64 site_id = 7;
+  string site_name = 8;
+  // Owner labels require membership-management or delegation authority.
+  string owner_account_id = 9;
+  string owner_account_name = 10;
+  optional double hashrate_hs = 11;
+  optional double power_w = 12;
+  bool available = 13;
+  bool outside_policy = 14;
+  bool partial_coverage = 15;
+  bool unknown_coverage = 16;
+  string state = 17;
+  google.protobuf.Timestamp observed_at = 18;
+  // Model belongs to the miner itself; a controller model is never a module model.
+  string model = 19;
+  optional double temperature_c = 20;
+  optional double efficiency_j_th = 21;
+  common.v1.EquipmentCoverage coverage = 22;
+  // Exact board membership and allocation revisions for reviewing module changes.
+  repeated HashboardAllocationSelection boards = 23;
+  // Live user permission and direct ownership hint, independent of owner-label
+  // visibility. Review rechecks authority, capability and physical readiness.
+  bool can_change_pools = 24;
+}
+message MiningAssetReference {
+  MiningAssetKind kind = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  int64 id = 2 [(buf.validate.field).int64.gt = 0];
+}
+message ListAccountAssetsRequest {
+  option (buf.validate.message).cel = {
+    id: "asset_lookup_scope"
+    message: "selected assets cannot be combined with pagination or filters"
+    expression: "size(this.selected_assets) == 0 || (this.page_size == 0 && this.page_token == '' && this.search == '' && !has(this.owner_account_id) && !has(this.container_id) && !has(this.sort) && !has(this.model) && !has(this.site_id) && !this.hashboards_only && !has(this.replacement_for))"
+  };
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+  string page_token = 3 [(buf.validate.field).string.max_len = 8192];
+  string search = 4 [(buf.validate.field).string.max_len = 255];
+  // Active account means directly held; otherwise only a direct child is valid.
+  optional string owner_account_id = 5 [(buf.validate.field).string.uuid = true];
+  optional int64 container_id = 6 [(buf.validate.field).int64.gt = 0];
+  // Bounded exact lookup for Fleet selection; returns only authorized leaves.
+  // Missing leaves are omitted. Callers must reject incomplete selections.
+  repeated MiningAssetReference selected_assets = 7 [(buf.validate.field).repeated.max_items = 500];
+  // Name ascending by default. Metrics and model use the same sort fields as Fleet.
+  common.v1.SortConfig sort = 8;
+  optional string model = 9 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  optional int64 site_id = 10 [(buf.validate.field).int64.gt = 0];
+  // Show individual boards, including boards otherwise grouped into modules.
+  bool hashboards_only = 11;
+  // Host-only candidate list for this reviewed allocation. The server resolves
+  // the deepest owner and returns available, unallocated boards within its policy.
+  HashboardAllocationSelection replacement_for = 12;
+  option (buf.validate.message).cel = {
+    id: "replacement_candidate_scope"
+    message: "replacement candidates require individual hashboards held by the active account"
+    expression: "!has(this.replacement_for) || (this.hashboards_only && has(this.owner_account_id) && this.owner_account_id == this.account_id)"
+  };
+  option (buf.validate.message).cel = {
+    id: "asset_sort_fields"
+    message: "unsupported asset sort field"
+    expression: "!has(this.sort) || int(this.sort.field) in [0, 1, 5, 6, 7, 8, 9]"
+  };
+}
+message AccountAssetLocationOption {
+  int64 id = 1;
+  string name = 2;
+}
+message AccountAssetFilterOptions {
+  repeated string models = 1;
+  repeated AccountAssetLocationOption sites = 2;
+  repeated AccountAssetLocationOption containers = 3;
+}
+message ListAccountAssetsResponse {
+  repeated AccountAsset assets = 1;
+  string next_page_token = 2;
+  bool can_manage_assignments = 3;
+  // Live membership-management or delegation authority permits owner labels.
+  bool can_view_assignments = 4;
+  // Direct child management metadata only: summary is absent in this response.
+  // This does not grant access to child-private settings, members or pools.
+  repeated AccountMiningBucket children = 5;
+  // Options cover the full authorized inventory, independently of page and filters.
+  // Retired and physically redacted allocations contribute no options.
+  AccountAssetFilterOptions filter_options = 6;
+}
+message HashboardAllocationSelection {
+  int64 id = 1 [(buf.validate.field).int64.gt = 0];
+  int64 expected_revision = 2 [(buf.validate.field).int64.gte = 0];
+}
+message MiningAssetSelection {
+  option (buf.validate.message).cel = {
+    id: "module_membership"
+    message: "module selection requires its reviewed boards; other assets must not supply boards"
+    expression: "int(this.kind) == 6 ? size(this.boards) > 0 : size(this.boards) == 0"
+  };
+  MiningAssetKind kind = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  int64 id = 2 [(buf.validate.field).int64.gt = 0];
+  // Zero denotes a leaf never allocated. Recall retains and increments revisions.
+  int64 expected_revision = 3 [(buf.validate.field).int64.gte = 0];
+  repeated HashboardAllocationSelection boards = 4 [(buf.validate.field).repeated.max_items = 3];
+}
+message AssignAccountAssetsRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string child_account_id = 2 [(buf.validate.field).string.uuid = true];
+  AssetAssignmentIntent intent = 3 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  // Exact reviewed leaves: a container is never expanded during mutation.
+  repeated MiningAssetSelection assets = 4 [(buf.validate.field).repeated = {min_items: 1, max_items: 500}];
+}
+message AssignAccountAssetsResponse {}
+
+// Host-only manual replacement; transfers the full client/subclient allocation.
+// The old board keeps its past history. The new board is authorized from transfer.
+message ReplaceAccountHashboardRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  HashboardAllocationSelection old_board = 2 [(buf.validate.field).required = true];
+  HashboardAllocationSelection replacement_board = 3 [(buf.validate.field).required = true];
+}
+message ReplaceAccountHashboardResponse {}
+
+// Reporting filters retain the selected account's authority and navigation.
+message GetAccountDashboardRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  // Absent: entire estate; account itself: directly managed; child: delegated.
+  optional string owner_account_id = 2 [(buf.validate.field).string.uuid = true];
+  optional int64 site_id = 3 [(buf.validate.field).int64.gt = 0];
+  google.protobuf.Timestamp start_time = 4 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp end_time = 5 [(buf.validate.field).required = true];
+  int32 bucket_seconds = 6 [(buf.validate.field).int32 = {gte: 60, lte: 86400}];
+}
+message AccountDashboardReading {
+  google.protobuf.Timestamp time = 1;
+  MiningSummary summary = 2;
+  // Distributions include only source-authorized observations in this bucket.
+  // Empty counts preserve gaps; missing observations are never healthy assets.
+  telemetry.v1.TemperatureStatusCount temperature_status = 3;
+  telemetry.v1.UptimeStatusCount uptime_status = 4;
+}
+message AccountDashboardSite {
+  int64 site_id = 1;
+  string name = 2;
+  MiningSummary summary = 3;
+}
+message GetAccountDashboardResponse {
+  MiningSummary totals = 1;
+  repeated AccountDashboardReading readings = 2;
+  repeated AccountDashboardSite sites = 3;
+  repeated AccountMiningBucket children = 4;
+  google.protobuf.Timestamp generated_at = 5;
+  // Allocation intervals are recorded prospectively. Earlier ownership is unknown.
+  google.protobuf.Timestamp history_available_from = 6;
+}
+message GetAccountAssetDetailRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  MiningAssetReference asset = 2 [(buf.validate.field).required = true];
+}
+message GetAccountAssetDetailResponse {
+  // Current allocation and current site permission are required, even with history.
+  AccountAsset asset = 1;
+}
+
+// Client ticket projections omit host operational notes, parts and other
+// accounts' assets and conversations. Status is shared with the host queue.
+message AccountTicketDetail {
+  maintenance.v1.RepairTicket ticket = 1;
+  repeated maintenance.v1.TicketComment comments = 2;
+  bool can_close = 3;
+  // Older visible comments are fetched with GetAccountTicket.before_comment_id.
+  int64 next_before_comment_id = 4 [(buf.validate.field).int64.gte = 0];
+}
+message ListAccountTicketsRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  int64 before_id = 2 [(buf.validate.field).int64.gte = 0];
+  repeated maintenance.v1.TicketStatus statuses = 3 [(buf.validate.field).repeated.items.enum = {defined_only: true, not_in: [0]}];
+}
+message ListAccountTicketsResponse {
+  repeated maintenance.v1.RepairTicket tickets = 1;
+  int64 next_before_id = 2;
+}
+message GetAccountTicketRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  int64 ticket_id = 2 [(buf.validate.field).int64.gt = 0];
+  // Zero returns the latest 50 visible comments, ordered oldest first.
+  int64 before_comment_id = 3 [(buf.validate.field).int64.gte = 0];
+}
+message CreateAccountTicketRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string description = 2 [(buf.validate.field).string = {min_len: 1, max_len: 4096}];
+  string component = 3 [(buf.validate.field).string.max_len = 255];
+  repeated maintenance.v1.TicketAssetSelection targets = 4 [(buf.validate.field).repeated.max_items = 100];
+  string idempotency_key = 5 [(buf.validate.field).string = {min_len: 1, max_len: 64}];
+}
+message CommentAccountTicketRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  int64 ticket_id = 2 [(buf.validate.field).int64.gt = 0];
+  string text = 3 [(buf.validate.field).string = {min_len: 1, max_len: 4096}];
+  string idempotency_key = 4 [(buf.validate.field).string = {min_len: 1, max_len: 64}];
+}
+message ChangeAccountTicketStatusRequest {
+  option (buf.validate.message).cel = {
+    id: "account_ticket.resolution_note_required"
+    message: "closing a ticket requires a resolution note"
+    expression: "!this.close || this.resolution_note.size() > 0"
+  };
+  option (buf.validate.message).cel = {
+    id: "account_ticket.resolution_note_closing_only"
+    message: "resolution_note is only valid when closing a ticket"
+    expression: "this.close || this.resolution_note == ''"
+  };
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  int64 ticket_id = 2 [(buf.validate.field).int64.gt = 0];
+  bool close = 3;
+  string resolution_note = 4 [(buf.validate.field).string.max_len = 4096];
+  google.protobuf.Timestamp expected_updated_at = 5 [(buf.validate.field).required = true];
+}
+message ListAccountTicketAssetsRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string search = 2 [(buf.validate.field).string.max_len = 255];
+  // Maximum assets per page. 0 selects the default of 50; the maximum is 200.
+  int32 page_size = 3 [(buf.validate.field).int32 = {gte: 0, lte: 200}];
+  // Continuation token from a previous response. Valid only with the same
+  // account and search; otherwise the request fails with INVALID_ARGUMENT.
+  string page_token = 4 [(buf.validate.field).string.max_len = 2048];
+}
+message ListAccountTicketAssetsResponse {
+  repeated maintenance.v1.TicketAsset assets = 1;
+  string next_page_token = 2;
+}
+
+message GetAccountTicketResponse { AccountTicketDetail detail = 1; }
+message CreateAccountTicketResponse { AccountTicketDetail detail = 1; }
+message CommentAccountTicketResponse { AccountTicketDetail detail = 1; }
+message ChangeAccountTicketStatusResponse { AccountTicketDetail detail = 1; }

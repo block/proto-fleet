@@ -9,6 +9,11 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
+
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/credentialblob"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
@@ -20,6 +25,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/telemetry"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
+	"github.com/block/proto-fleet/server/internal/infrastructure/id"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	lru "github.com/hashicorp/golang-lru/v2/expirable"
 )
@@ -34,8 +40,8 @@ const (
 	minerCacheTTL = 1 * time.Minute
 
 	// minerCacheSize is the maximum number of miner handles to cache.
-	// Sized to cover very large fleets without meaningful memory overhead.
-	minerCacheSize = 10_000
+	// Keep a 50k-endpoint fleet resident with room for growth between polls.
+	minerCacheSize = 100_000
 )
 
 var _ telemetry.CachedMinerGetter = &Service{}
@@ -46,6 +52,7 @@ type Service struct {
 	userStore      stores.UserStore
 	encryptService *encrypt.Service
 	filesService   *files.Service
+	writeService   *devicewrite.Service
 	pluginManager  PluginManager
 
 	// commandSender, when set, routes commands for fleet-node-paired devices over the
@@ -100,6 +107,7 @@ func NewMinerService(db *sql.DB, userStore stores.UserStore, encryptService *enc
 		userStore:            userStore,
 		encryptService:       encryptService,
 		filesService:         filesService,
+		writeService:         devicewrite.NewService(db),
 		pluginManager:        pluginManager,
 		cache:                lru.NewLRU[string, interfaces.Miner](minerCacheSize, nil, minerCacheTTL),
 	}
@@ -121,6 +129,26 @@ func (s *Service) GetMiner(ctx context.Context, deviceID int64) (interfaces.Mine
 
 func (s *Service) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID models.DeviceIdentifier) (interfaces.Miner, error) {
 	return s.getMinerFromDeviceIdentifier(ctx, deviceID, nil, true)
+}
+
+// GetMinerForDeletion captures the current binding before soft-delete.
+// Cached read handles may predate changes and cannot match the deletion permit.
+func (s *Service) GetMinerForDeletion(ctx context.Context, deviceID models.DeviceIdentifier) (interfaces.Miner, error) {
+	return s.getMinerFromDeviceIdentifier(ctx, deviceID, nil, false)
+}
+
+// GetMinerForCommand resolves the current binding once for a new execution.
+// Cached read handles can predate a site, route, credential or epoch change;
+// they remain independently guarded and must not be refreshed during dispatch.
+func (s *Service) GetMinerForCommand(ctx context.Context, deviceID int64) (interfaces.Miner, error) {
+	identifier, err := s.GetQueries(ctx).GetDeviceIdentifierByID(ctx, deviceID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("device not found: %d", deviceID)
+		}
+		return nil, fmt.Errorf("failed to get device identifier: %w", err)
+	}
+	return s.getMinerFromDeviceIdentifier(ctx, models.DeviceIdentifier(identifier), nil, false)
 }
 
 func (s *Service) GetMinerForPasswordUpdate(ctx context.Context, deviceID int64, currentPassword string) (interfaces.Miner, error) {
@@ -190,37 +218,76 @@ func (s *Service) resolveMiner(ctx context.Context, deviceID models.DeviceIdenti
 
 	deviceUsername := deviceData.UsernameEnc.String
 	devicePassword := deviceData.PasswordEnc.String
-	if protoMissingCredentials != nil &&
+	useTransientCredentials := protoMissingCredentials != nil &&
 		deviceData.DriverName == models.DriverNameProto &&
-		!deviceData.UsernameEnc.Valid &&
-		!deviceData.PasswordEnc.Valid {
+		!deviceData.UsernameEnc.Valid && !deviceData.PasswordEnc.Valid
+	if useTransientCredentials {
 		deviceUsername, devicePassword, err = s.encryptTransientCredentials(*protoMissingCredentials)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	m, err := s.createMiner(
-		ctx,
-		deviceData.DeviceIdentifier,
-		deviceData.OrgID,
-		siteID,
-		deviceData.Port,
-		deviceData.DriverName,
-		deviceManufacturer,
-		deviceModel,
-		deviceUsername,
-		devicePassword,
-		deviceData.IpAddress,
-		deviceData.UrlScheme,
-		deviceData.SerialNumber.String,
-		deviceData.MacAddress,
-	)
+	if !s.pluginManager.HasPluginForDriverName(deviceData.DriverName) {
+		return nil, fmt.Errorf("no plugin available (driver_name=%q) — ensure the device has been discovered and the appropriate plugin is loaded", deviceData.DriverName)
+	}
+	// SDK scope excludes facade-only metadata; write gates still capture the entire fresh row.
+	sdkBinding := deviceData
+	// Custody changes must preserve plugin-local curtailment restore state.
+	// The facade and its write gate still bind the complete row and epoch.
+	sdkBinding.WriteEpoch = 0
+	sdkBinding.SiteID = sql.NullInt64{}
+	sdkBinding.Model = sql.NullString{}
+	sdkBinding.Manufacturer = sql.NullString{}
+	scope, err := devicewrite.DirectBindingHash(sdkBinding)
+	if err != nil {
+		return nil, err
+	}
+	// Password recovery gets a fresh scoped backend, preserving generation fencing
+	// without reusing transient credentials or bypassing normal scoped resolution.
+	if useTransientCredentials {
+		scope += ":password-recovery:" + id.GenerateID()
+	}
+	controllers, err := deviceendpoints.Decode([]byte(deviceData.Endpoints))
+	if err != nil {
+		return nil, err
+	}
+	m, err := plugins.NewPluginMinerWithCredentials(ctx, plugins.PluginMinerConfig{
+		SDKReuseScopeKey:   scope,
+		DeviceClass:        sdk.DeviceClass(deviceData.DeviceClass),
+		RPCPort:            deviceData.RpcPort,
+		RPCTLS:             deviceData.RpcTls,
+		Endpoints:          deviceendpoints.ToSDK(controllers),
+		DeviceIdentifier:   deviceData.DeviceIdentifier,
+		DriverName:         deviceData.DriverName,
+		Caps:               s.effectiveCapabilitiesForDevice(ctx, deviceData.DriverName, deviceManufacturer, deviceModel),
+		DeviceIPAddress:    deviceData.IpAddress,
+		DevicePort:         deviceData.Port,
+		DeviceScheme:       deviceData.UrlScheme,
+		DeviceSerialNumber: deviceData.SerialNumber.String,
+		DeviceUsername:     deviceUsername,
+		DevicePassword:     devicePassword,
+		MacAddress:         deviceData.MacAddress,
+		OrgID:              deviceData.OrgID,
+		SiteID:             siteID,
+		EncryptService:     s.encryptService,
+		FilesService:       s.filesService,
+		DriverGetter:       s.pluginManager,
+		WriteGate:          s.directWriteGate(deviceData),
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	return m, nil
+	hash, err := devicewrite.DirectBindingHash(deviceData)
+	if err != nil {
+		return nil, err
+	}
+	direct, ok := m.(*plugins.PluginMiner)
+	if !ok {
+		return nil, fleeterror.NewInternalError("direct miner adapter could not be bound")
+	}
+	return &directMinerHandle{PluginMiner: direct, owner: s, deviceID: deviceData.ID, organizationID: deviceData.OrgID, bindingHash: hash}, nil
 }
 
 func (s *Service) encryptTransientCredentials(credentials sdk.UsernamePassword) (string, string, error) {
@@ -251,8 +318,17 @@ func (s *Service) tryFleetNodeMiner(ctx context.Context, deviceID models.DeviceI
 	}
 	// No server-side plugin gate: the fleet node (not the server) dials the miner
 	// and loads the driver plugin; the server only routes the command.
+	controllers, err := deviceendpoints.Decode([]byte(telemetryRoute.Endpoints))
+	if err != nil {
+		return nil, false, err
+	}
 	remoteCommandMiner, err := remotenode.New(remotenode.Config{
-		Sender:             s.commandSender,
+		DeviceClass: commonpb.DeviceClass(telemetryRoute.DeviceClass),
+		Sender:      s.commandSender,
+		EncryptionPublicKey: func(ctx context.Context) ([]byte, error) {
+			return s.poolConfigEncryptionPublicKey(ctx, telemetryRoute.OrgID, telemetryRoute.DeviceIdentifier, telemetryRoute.FleetNodeID)
+		},
+		WriteGate:          s.remoteWriteGate(telemetryRoute),
 		Gate:               s.nodeLimiter,
 		DeferrableReadGate: s.nodeDeferrableReadLimiter,
 		LogDownloadGate:    s.nodeLogDownloadLimiter,
@@ -265,6 +341,9 @@ func (s *Service) tryFleetNodeMiner(ctx context.Context, deviceID models.DeviceI
 		IPAddress:          telemetryRoute.IpAddress,
 		Port:               telemetryRoute.Port,
 		URLScheme:          telemetryRoute.UrlScheme,
+		RPCPort:            telemetryRoute.RpcPort,
+		RPCTLS:             telemetryRoute.RpcTls,
+		Endpoints:          controllers,
 		SerialNumber:       telemetryRoute.SerialNumber.String,
 		MacAddress:         telemetryRoute.MacAddress,
 		CredentialUsername: fleetNodeCredentialBytes(telemetryRoute.UsernameEnc),
@@ -282,6 +361,22 @@ func (s *Service) tryFleetNodeMiner(ctx context.Context, deviceID models.DeviceI
 		return nil, false, err
 	}
 	return telemetryMiner, true, nil
+}
+
+// Resolve the key at write time so cached miner handles cannot use a rotated key
+// or send credentials to a node after the device has moved.
+func (s *Service) poolConfigEncryptionPublicKey(ctx context.Context, orgID int64, deviceIdentifier string, fleetNodeID int64) ([]byte, error) {
+	routes, err := s.GetQueries(ctx).GetDeviceCommandRoutes(ctx, sqlc.GetDeviceCommandRoutesParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: []string{deviceIdentifier},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("resolve pool configuration encryption key: %w", err)
+	}
+	if len(routes) != 1 || routes[0].DeviceIdentifier != deviceIdentifier || !routes[0].FleetNodeID.Valid || routes[0].FleetNodeID.Int64 != fleetNodeID {
+		return nil, errors.New("pool configuration node route changed")
+	}
+	return append([]byte(nil), routes[0].EncryptionPubkey...), nil
 }
 
 func fleetNodeCredentialBytes(value sql.NullString) []byte {
@@ -318,29 +413,6 @@ func (s *Service) InvalidateMinerByID(ctx context.Context, deviceID int64) {
 		return
 	}
 	s.InvalidateMiner(models.DeviceIdentifier(identifier))
-}
-
-func (s *Service) createMiner(ctx context.Context, deviceIdentifier string, orgID int64, siteID int64, devicePort string, driverName string, deviceManufacturer string, deviceModel string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string, deviceSerialNumber string, macAddress string) (interfaces.Miner, error) {
-	if !s.pluginManager.HasPluginForDriverName(driverName) {
-		return nil, fmt.Errorf("no plugin available (driver_name=%q) — ensure the device has been discovered and the appropriate plugin is loaded", driverName)
-	}
-	return plugins.NewPluginMinerWithCredentials(ctx, plugins.PluginMinerConfig{
-		DeviceIdentifier:   deviceIdentifier,
-		DriverName:         driverName,
-		Caps:               s.effectiveCapabilitiesForDevice(ctx, driverName, deviceManufacturer, deviceModel),
-		DeviceIPAddress:    deviceIPAddress,
-		DevicePort:         devicePort,
-		DeviceScheme:       deviceScheme,
-		DeviceSerialNumber: deviceSerialNumber,
-		DeviceUsername:     deviceUsername,
-		DevicePassword:     devicePassword,
-		MacAddress:         macAddress,
-		OrgID:              orgID,
-		SiteID:             siteID,
-		EncryptService:     s.encryptService,
-		FilesService:       s.filesService,
-		DriverGetter:       s.pluginManager,
-	})
 }
 
 func (s *Service) effectiveCapabilitiesForDevice(ctx context.Context, driverName string, deviceManufacturer string, deviceModel string) sdk.Capabilities {

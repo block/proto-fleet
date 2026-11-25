@@ -1,17 +1,20 @@
 import type { ComponentProps } from "react";
 import type { RenderResult } from "@testing-library/react";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
-import type { FullScreenTwoPaneModalProps } from "@/protoFleet/components/FullScreenTwoPaneModal";
-import CurtailmentStartModal, {
-  type CurtailmentFormValues,
-  type CurtailmentPlanPreview,
-  type CurtailmentResponseProfileOption,
-  type CurtailmentSiteOption,
-} from "@/protoFleet/features/energy/CurtailmentStartModal";
+import type {
+  CurtailmentFormValues,
+  CurtailmentPlanPreview,
+  CurtailmentResponseProfileOption,
+  CurtailmentSiteOption,
+} from "@/protoFleet/api/curtailmentTypes";
+import { buildStartCurtailmentRequest } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
+import CurtailmentStartModal from "@/protoFleet/features/energy/CurtailmentStartModal";
 import type { FacilityFanDeviceOption } from "@/protoFleet/features/energy/FacilityFanSelectionModal";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
+import type { FullScreenTwoPaneModalProps } from "@/shared/components/FullScreenTwoPaneModal";
 
 type MockFullScreenTwoPaneModalProps = Pick<
   FullScreenTwoPaneModalProps,
@@ -45,14 +48,10 @@ vi.mock("@/protoFleet/features/energy/useCurtailmentPlanPreview", () => ({
     restoreEstimate: "~2 minutes",
     scopeLabel: "across the fleet",
   }),
-  getUnsupportedDeviceSetPreviewError: (values: CurtailmentFormValues) =>
-    values.scopeType === "deviceSet" && values.deviceSetIds.length > 0
-      ? "Rack and group curtailment previews are not supported yet. Select specific miners or the whole fleet to preview and start this curtailment."
-      : undefined,
   useCurtailmentPlanPreview: mockUseCurtailmentPlanPreview,
 }));
 
-vi.mock("@/protoFleet/components/FullScreenTwoPaneModal", () => ({
+vi.mock("@/shared/components/FullScreenTwoPaneModal", () => ({
   default: ({ title, isBusy, buttons, abovePanes, primaryPane, secondaryPane }: MockFullScreenTwoPaneModalProps) => (
     <div role="dialog" aria-label={title} data-busy={isBusy ? "true" : "false"}>
       {buttons?.map((button) => (
@@ -169,19 +168,6 @@ vi.mock("@/protoFleet/components/TargetSelectionModal/MinerSelectionModal", () =
         >
           Save current miner selection
         </button>
-        <button
-          type="button"
-          onClick={() =>
-            onSave({
-              selectedMinerIds: ["miner-1", "miner-2"],
-              allSelected: true,
-              totalMiners: 2,
-              filter: { models: ["S21"], rackIds: [], groupIds: [] },
-            })
-          }
-        >
-          Save filtered all miners
-        </button>
       </div>
     ) : null,
 }));
@@ -207,7 +193,6 @@ const responseProfiles: CurtailmentResponseProfileOption[] = [
       scopeType: "explicitMiners",
       scopeId: undefined,
       siteId: "",
-      deviceSetIds: [],
       deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
       targetKw: "50",
       toleranceKw: "5",
@@ -246,7 +231,6 @@ const wholeFleetResponseProfiles: CurtailmentResponseProfileOption[] = [
       scopeType: "wholeOrg",
       scopeId: "whole-org",
       siteId: "",
-      deviceSetIds: [],
       deviceIdentifiers: [],
       includeMaintenance: false,
     },
@@ -263,7 +247,6 @@ const siteResponseProfiles: CurtailmentResponseProfileOption[] = [
       scopeType: "site",
       scopeId: "Austin, TX",
       siteId: "101",
-      deviceSetIds: [],
       deviceIdentifiers: [],
       includeMaintenance: false,
     },
@@ -357,11 +340,34 @@ async function confirmCurtailment(user: ReturnType<typeof userEvent.setup>, conf
 
 describe("CurtailmentStartModal", () => {
   beforeEach(() => {
+    useFleetStore.getState().auth.setRole("ADMIN");
     mockUseCurtailmentPlanPreview.mockReturnValue({
       preview: undefined,
       previewError: undefined,
       isPreviewLoading: false,
     });
+  });
+
+  it("requires explicitly reloading a changed profile before running the updated plan", async () => {
+    const user = userEvent.setup();
+    const saved = responseProfiles[0];
+    renderModal({
+      responseProfiles: [saved],
+      initialValues: { ...configuredValues, responseProfileId: saved.id, responseProfileRevision: "older-revision" },
+    });
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("This profile changed");
+    await user.click(screen.getByRole("button", { name: "Reload profile" }));
+    expect(screen.queryByRole("button", { name: "Reload profile" })).not.toBeInTheDocument();
+    expect(mockUseCurtailmentPlanPreview).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        values: expect.objectContaining({
+          responseProfileId: saved.id,
+          responseProfileRevision: saved.revision,
+          targetKw: "50",
+        }),
+      }),
+    );
   });
 
   it("renders the empty state and target selectors", () => {
@@ -428,7 +434,6 @@ describe("CurtailmentStartModal", () => {
         siteId: "101",
         siteIds: ["101"],
         siteNamesById: { "101": "Austin, TX" },
-        deviceSetIds: [],
         deviceIdentifiers: [],
       }),
     );
@@ -619,7 +624,6 @@ describe("CurtailmentStartModal", () => {
         scopeType: "wholeOrg",
         scopeId: "whole-org",
         siteId: "",
-        deviceSetIds: [],
         deviceIdentifiers: [],
         toleranceKw: "5",
         priority: "emergency",
@@ -770,7 +774,6 @@ describe("CurtailmentStartModal", () => {
         scopeType: "site",
         scopeId: "Austin, TX",
         siteId: "101",
-        deviceSetIds: [],
         deviceIdentifiers: [],
       }),
     );
@@ -859,18 +862,32 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
-  it("normalizes a site-scoped response profile without a site id to whole fleet", async () => {
+  it.each([
+    {
+      name: "without a site id",
+      id: "missing-site-id-shed",
+      label: "Missing site id shed",
+      scopeId: "Missing site",
+      siteId: "   ",
+    },
+    {
+      name: "with an invalid site id",
+      id: "invalid-site-id-shed",
+      label: "Invalid site id shed",
+      scopeId: "Austin, TX",
+      siteId: "austin-tx",
+    },
+  ])("normalizes a site-scoped response profile $name to whole fleet", async ({ id, label, scopeId, siteId }) => {
     const user = userEvent.setup();
     const malformedSiteResponseProfiles: CurtailmentResponseProfileOption[] = [
       {
-        id: "missing-site-id-shed",
-        label: "Missing site id shed",
+        id,
+        label,
         values: {
           ...responseProfiles[0].values,
           scopeType: "site",
-          scopeId: "Missing site",
-          siteId: "   ",
-          deviceSetIds: [],
+          scopeId,
+          siteId,
           deviceIdentifiers: [],
           includeMaintenance: false,
         },
@@ -882,9 +899,9 @@ describe("CurtailmentStartModal", () => {
     });
 
     await user.click(screen.getByRole("button", { name: "Profile" }));
-    await user.click(screen.getByText("Missing site id shed"));
+    await user.click(screen.getByText(label));
 
-    expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Missing site id shed");
+    expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent(label);
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
@@ -893,55 +910,10 @@ describe("CurtailmentStartModal", () => {
 
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
-        responseProfileId: "missing-site-id-shed",
+        responseProfileId: id,
         scopeType: "wholeOrg",
         scopeId: "whole-org",
         siteId: "",
-        deviceSetIds: [],
-        deviceIdentifiers: [],
-      }),
-    );
-  });
-
-  it("normalizes a site-scoped response profile with an invalid site id to whole fleet", async () => {
-    const user = userEvent.setup();
-    const malformedSiteResponseProfiles: CurtailmentResponseProfileOption[] = [
-      {
-        id: "invalid-site-id-shed",
-        label: "Invalid site id shed",
-        values: {
-          ...responseProfiles[0].values,
-          scopeType: "site",
-          scopeId: "Austin, TX",
-          siteId: "austin-tx",
-          deviceSetIds: [],
-          deviceIdentifiers: [],
-          includeMaintenance: false,
-        },
-      },
-    ];
-    const { onSubmit } = renderModal({
-      initialValues: { ...configuredValues, includeMaintenance: false },
-      responseProfiles: malformedSiteResponseProfiles,
-    });
-
-    await user.click(screen.getByRole("button", { name: "Profile" }));
-    await user.click(screen.getByText("Invalid site id shed"));
-
-    expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Invalid site id shed");
-    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
-    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
-    await confirmCurtailment(user);
-
-    expect(onSubmit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        responseProfileId: "invalid-site-id-shed",
-        scopeType: "wholeOrg",
-        scopeId: "whole-org",
-        siteId: "",
-        deviceSetIds: [],
         deviceIdentifiers: [],
       }),
     );
@@ -976,7 +948,6 @@ describe("CurtailmentStartModal", () => {
         responseProfileId: "emergency-shed",
         scopeType: "explicitMiners",
         scopeId: undefined,
-        deviceSetIds: [],
         deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
       }),
     );
@@ -1117,7 +1088,6 @@ describe("CurtailmentStartModal", () => {
         fanRestoreDelaySec: "120",
         scopeType: "site",
         scopeId: "Austin, TX",
-        deviceSetIds: [],
         deviceIdentifiers: [],
         includeMaintenance: true,
       }),
@@ -1149,7 +1119,6 @@ describe("CurtailmentStartModal", () => {
         siteIds: ["102"],
         scopeType: "site",
         scopeId: "Denver, CO",
-        deviceSetIds: [],
         deviceIdentifiers: [],
       }),
     );
@@ -1285,7 +1254,6 @@ describe("CurtailmentStartModal", () => {
         siteNamesById: { "102": "Denver, CO" },
         scopeType: "site",
         scopeId: "Denver, CO",
-        deviceSetIds: [],
         deviceIdentifiers: [],
       }),
     );
@@ -1319,7 +1287,6 @@ describe("CurtailmentStartModal", () => {
         siteNamesById: { "101": "Toronto" },
         scopeType: "site",
         scopeId: "All sites",
-        deviceSetIds: [],
         deviceIdentifiers: [],
       }),
     );
@@ -1352,7 +1319,6 @@ describe("CurtailmentStartModal", () => {
         siteNamesById: { "101": "Austin, TX", "102": "Denver, CO" },
         scopeType: "site",
         scopeId: "2 sites",
-        deviceSetIds: [],
         deviceIdentifiers: [],
       }),
     );
@@ -1746,7 +1712,6 @@ describe("CurtailmentStartModal", () => {
         siteSelection: "allSites",
         scopeType: "site",
         scopeId: "All sites",
-        deviceSetIds: [],
         deviceIdentifiers: [],
       }),
     );
@@ -2031,27 +1996,6 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getAllByText("Preview is unavailable until a valid target reduction is entered.")).toHaveLength(2);
   });
 
-  it("shows unsupported target-scope errors before controlled preview props", () => {
-    renderModal({
-      initialValues: {
-        ...configuredValues,
-        includeMaintenance: false,
-        scopeType: "deviceSet",
-        scopeId: "racks",
-        deviceSetIds: ["rack-1"],
-      },
-      preview,
-    });
-
-    expect(
-      screen.getAllByText(
-        "Rack and group curtailment previews are not supported yet. Select specific miners or the whole fleet to preview and start this curtailment.",
-      ),
-    ).toHaveLength(2);
-    expect(screen.queryByText("Curtail 18 miners across the fleet immediately")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeDisabled();
-  });
-
   it("renders estimated reduction against the requested reduction", () => {
     renderModal({
       initialValues: {
@@ -2288,7 +2232,6 @@ describe("CurtailmentStartModal", () => {
       expect.objectContaining({
         scopeType: "explicitMiners",
         scopeId: undefined,
-        deviceSetIds: [],
         deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
       }),
     );
@@ -2487,7 +2430,6 @@ describe("CurtailmentStartModal", () => {
         scopeId: "whole-org",
         siteSelection: "allSites",
         siteId: "",
-        deviceSetIds: [],
         deviceIdentifiers: [],
         minerSelectionMode: "all",
       }),
@@ -2515,35 +2457,6 @@ describe("CurtailmentStartModal", () => {
         scopeType: "wholeOrg",
         siteSelection: "allSites",
         siteIds: [],
-        deviceIdentifiers: [],
-        minerSelectionMode: "all",
-      }),
-    );
-  });
-
-  it("treats filtered all-miner selection as all miners instead of submitting page-loaded ids", async () => {
-    const user = userEvent.setup();
-    const { onSubmit } = renderModal({
-      initialValues: { ...configuredValues, includeMaintenance: false },
-      siteOptions,
-    });
-
-    await user.click(screen.getByRole("button", { name: /Miners\s+Select/ }));
-    await user.click(screen.getByRole("button", { name: "Save filtered all miners" }));
-
-    expect(screen.getByRole("button", { name: /Miners\s+All miners/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Sites\s+All sites/ })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
-    await confirmCurtailment(user);
-
-    expect(onSubmit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        scopeType: "wholeOrg",
-        scopeId: "whole-org",
-        siteSelection: "allSites",
-        siteId: "",
-        deviceSetIds: [],
         deviceIdentifiers: [],
         minerSelectionMode: "all",
       }),
@@ -2582,7 +2495,6 @@ describe("CurtailmentStartModal", () => {
         siteId: "",
         siteIds: [],
         siteNamesById: {},
-        deviceSetIds: [],
         deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
         minerSelectionMode: "subset",
       }),
@@ -2622,7 +2534,6 @@ describe("CurtailmentStartModal", () => {
         siteId: "101",
         siteIds: ["101", "102"],
         siteNamesById: { "101": "Austin, TX", "102": "Denver, CO" },
-        deviceSetIds: [],
         deviceIdentifiers: [],
         minerSelectionMode: "subset",
       }),
@@ -2659,7 +2570,6 @@ describe("CurtailmentStartModal", () => {
         siteSelection: "site",
         siteId: "101",
         siteIds: ["101"],
-        deviceSetIds: [],
         deviceIdentifiers: [],
         minerSelectionMode: "subset",
       }),
@@ -2785,5 +2695,167 @@ describe("CurtailmentStartModal", () => {
     expect(targetInput).toHaveAttribute("aria-invalid", "true");
     expect(targetInput).toHaveAttribute("aria-describedby", "curtailment-target-kw-error");
     expect(screen.getByText("Enter a target reduction.")).toBeInTheDocument();
+  });
+  it("hides all-paired targeting from non-admin operators", () => {
+    useFleetStore.getState().auth.setRole("FIELD_TECH");
+    renderModal({ initialValues: { ...configuredValues, curtailmentMode: "fullFleet" } });
+    expect(screen.queryByText("Target all paired miners")).not.toBeInTheDocument();
+  });
+
+  const allPairedResponseProfile: CurtailmentResponseProfileOption = {
+    ...wholeFleetResponseProfiles[0],
+    id: "7",
+    values: {
+      ...wholeFleetResponseProfiles[0].values,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      includeMaintenance: true,
+      forceIncludeAllPairedMiners: true,
+    },
+  };
+
+  it("shows inherited all-paired targeting to operators and detaches the profile only when they turn it off", async () => {
+    useFleetStore.getState().auth.setRole("FIELD_TECH");
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({ initialValues: configuredValues, responseProfiles: [allPairedResponseProfile] });
+
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+    await user.click(screen.getByText("Standard shed"));
+
+    expect(getAllPairedCheckbox()).toBeChecked();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Only administrators can target all paired miners. Turn this off to run a custom plan.",
+    );
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeDisabled();
+    expect(mockUseCurtailmentPlanPreview).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        disabled: true,
+        values: expect.objectContaining({
+          responseProfileId: allPairedResponseProfile.id,
+          responseProfileRevision: allPairedResponseProfile.revision,
+          forceIncludeAllPairedMiners: true,
+        }),
+      }),
+    );
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await user.click(getAllPairedCheckbox());
+
+    expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Custom plan");
+    expect(screen.queryByText("Target all paired miners")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    await confirmCurtailment(user);
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(buildStartCurtailmentRequest(onSubmit.mock.calls[0][0])).toMatchObject({
+      responseProfileId: 0n,
+      expectedResponseProfileRevision: "",
+      forceIncludeAllPairedMiners: false,
+      includeMaintenance: false,
+      forceIncludeMaintenance: false,
+    });
+  });
+
+  it("does not block operators who narrow inherited all-paired targeting to explicit miners", async () => {
+    useFleetStore.getState().auth.setRole("FIELD_TECH");
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      initialValues: configuredValues,
+      responseProfiles: [allPairedResponseProfile],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+    await user.click(screen.getByText("Standard shed"));
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: /^Miners\b/ }));
+    await user.click(screen.getByRole("button", { name: "Save miners" }));
+
+    expect(screen.queryByText("Target all paired miners")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    await confirmCurtailment(user);
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(buildStartCurtailmentRequest(onSubmit.mock.calls[0][0])).toMatchObject({
+      responseProfileId: 0n,
+      forceIncludeAllPairedMiners: false,
+      includeMaintenance: false,
+      forceIncludeMaintenance: false,
+    });
+  });
+
+  it("lets operators edit a reason while inherited all-paired targeting remains read-only", async () => {
+    useFleetStore.getState().auth.setRole("FIELD_TECH");
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      mode: "edit",
+      initialValues: { ...configuredValues, curtailmentMode: "fullFleet", forceIncludeAllPairedMiners: true },
+    });
+
+    expect(getAllPairedCheckbox()).toBeChecked();
+    expect(getAllPairedCheckbox()).toBeDisabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await user.clear(screen.getByLabelText("Reason"));
+    await user.type(screen.getByLabelText("Reason"), "Updated reason");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: "Updated reason", forceIncludeAllPairedMiners: true }),
+    );
+  });
+
+  it.each(["curtailment-curtail-batch-interval", "curtailment-restore-batch-interval"])(
+    "limits non-admin %s to 300 seconds",
+    async (testId) => {
+      useFleetStore.getState().auth.setRole("FIELD_TECH");
+      const user = userEvent.setup();
+      const { onSubmit } = renderModal({ initialValues: configuredValues });
+      const input = screen.getByTestId(testId);
+      await user.clear(input);
+      await user.type(input, "301");
+      expect(screen.getByText("Enter batch interval of 300 or less.")).toBeVisible();
+      await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+      expect(onSubmit).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("curtailment-run-confirmation")).not.toBeInTheDocument();
+      fireEvent.change(screen.getByTestId(testId), { target: { value: "300" } });
+      await waitFor(() => expect(screen.queryByText("Enter batch interval of 300 or less.")).not.toBeInTheDocument());
+      expect(screen.getByRole("button", { name: "Run curtailment" })).toBeEnabled();
+    },
+  );
+
+  it("retains the admin interval allowance through 3600 seconds", async () => {
+    const user = userEvent.setup();
+    renderModal({ initialValues: configuredValues });
+    const input = screen.getByTestId("curtailment-restore-batch-interval");
+    await user.clear(input);
+    await user.type(input, "3600");
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeEnabled();
+    await user.clear(input);
+    await user.type(input, "3601");
+    expect(screen.getByText("Enter batch interval of 3,600 or less.")).toBeVisible();
+  });
+
+  it("lets operators edit a reason without changing an inherited elevated restore interval", async () => {
+    useFleetStore.getState().auth.setRole("FIELD_TECH");
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      mode: "edit",
+      initialValues: { ...configuredValues, restoreIntervalSec: "3600" },
+    });
+    const reason = screen.getByLabelText("Reason");
+    await user.clear(reason);
+    await user.type(reason, "Updated reason");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: "Updated reason", restoreIntervalSec: "3600" }),
+    );
+    const interval = screen.getByTestId("curtailment-restore-batch-interval");
+    await user.clear(interval);
+    await user.type(interval, "301");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(screen.getByText("Enter batch interval of 300 or less.")).toBeVisible();
   });
 });

@@ -1,19 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { HttpResponse, MessageResponse } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import {
-  AUTH_ACTIONS,
-  useAccessToken,
-  useAuthHeader,
-  usePausedAuthAction,
-  useSetPausedAuthAction,
-} from "@/protoOS/store";
+import { AUTH_ACTIONS, useAccessToken, usePausedAuthAction, useSetPausedAuthAction } from "@/protoOS/store";
 
 const useFirmwareUpdate = () => {
-  const { api, isFleetHosted } = useMinerHosting();
+  const { adapter, isFleetHosted } = useMinerHosting();
   const { checkAccess, hasAccess } = useAccessToken(!isFleetHosted);
-  const authHeader = useAuthHeader();
   const pausedAuthAction = usePausedAuthAction();
   const setPausedAuthAction = useSetPausedAuthAction();
   const [pendingUpdate, setPendingUpdate] = useState(false);
@@ -21,46 +13,11 @@ const useFirmwareUpdate = () => {
   const performUpdate = useCallback(async () => {
     setPendingUpdate(true);
     try {
-      const response = await api?.postUpdateSystem(authHeader);
-
-      // Check if the response has a JSON parsing error embedded in it
-      if (response?.error?.message?.includes("Unexpected end of JSON input")) {
-        return {
-          data: { message: "System update initiated successfully" },
-          status: 200,
-          ok: true,
-          error: null,
-        };
-      }
-
-      return response;
-    } catch (error: any) {
-      // Handle JSON parsing errors embedded in response object
-      if (error?.error?.message?.includes("Unexpected end of JSON input")) {
-        return {
-          data: { message: "System update initiated successfully" },
-          status: 200,
-          ok: true,
-          error: null,
-        };
-      }
-
-      // Handle JSON parsing errors from thrown exceptions
-      if (error?.message?.includes("Unexpected end of JSON input")) {
-        return {
-          data: { message: "System update initiated successfully" },
-          status: 200,
-          ok: true,
-          error: null,
-        };
-      }
-
-      // Re-throw other errors
-      throw error;
+      await adapter?.startFirmwareUpdate();
     } finally {
       setPendingUpdate(false);
     }
-  }, [api, authHeader]);
+  }, [adapter]);
 
   // called when you click install.
   // Fleet-hosted: the server proxy authenticates to the miner, so run the
@@ -85,53 +42,8 @@ const useFirmwareUpdate = () => {
   }, [hasAccess, pausedAuthAction, setPausedAuthAction, performUpdate]);
 
   const checkFirmwareUpdate = useCallback(async () => {
-    try {
-      const response = await api?.updateCheck();
-
-      // Check if the response has a JSON parsing error embedded in it
-      if (response?.error?.message?.includes("Unexpected end of JSON input")) {
-        return {
-          data: { message: "Update check completed successfully" },
-          status: 200,
-          ok: true,
-          error: null,
-        } as HttpResponse<MessageResponse>;
-      }
-
-      // API returns void on success, so check status codes
-      if (response && response.status === 200) {
-        return {
-          data: { message: "Update check initiated successfully" },
-          status: 200,
-          ok: true,
-          error: null,
-        } as HttpResponse<MessageResponse>;
-      }
-      if (response && response.status === 202) {
-        return {
-          data: { message: "Update check accepted and in progress" },
-          status: 202,
-          ok: true,
-          error: null,
-        } as HttpResponse<MessageResponse>;
-      }
-
-      return response as unknown as HttpResponse<MessageResponse>;
-    } catch (error: any) {
-      // Handle JSON parsing errors from thrown exceptions
-      if (error?.message?.includes("Unexpected end of JSON input")) {
-        return {
-          data: { message: "Update check completed successfully" },
-          status: 200,
-          ok: true,
-          error: null,
-        } as HttpResponse<MessageResponse>;
-      }
-
-      // Re-throw other errors
-      throw error;
-    }
-  }, [api]);
+    await adapter?.checkForFirmwareUpdate();
+  }, [adapter]);
 
   return useMemo(
     () => ({

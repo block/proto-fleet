@@ -44,12 +44,46 @@ func TestCommandAdmissionPolicy(t *testing.T) {
 			wantKind:  "get_errors",
 		},
 		{
+			name: "board ASIC stream",
+			command: minerAgentCommand(&gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_StreamBoardAsicReadings{
+				StreamBoardAsicReadings: &gatewaypb.StreamBoardASICReadingsAction{},
+			}}),
+			wantClass: CommandAdmissionDeferrableRead,
+			wantKind:  "stream_board_asic_readings",
+		},
+		{
+			name:      "power feed inspection",
+			command:   minerAgentCommand(powerFeedCommand(`{"action":"inspect","module":{"tank":1,"module":1}}`)),
+			wantClass: CommandAdmissionDeferrableRead,
+			wantKind:  "container_power_feed_inspect",
+		},
+		{
+			name:      "power feed action other than inspection",
+			command:   minerAgentCommand(powerFeedCommand(`{"action":"turn_off","feed_id":"pdu-1-outlet-01","module":{"tank":1,"module":1}}`)),
+			wantClass: CommandAdmissionGeneral,
+			wantKind:  "container_power_feed",
+		},
+		{
+			name:      "undecodable power feed request",
+			command:   minerAgentCommand(powerFeedCommand(`{"action":"inspect","module":{"tank":1,"module":1},"outlet":"x"}`)),
+			wantClass: CommandAdmissionGeneral,
+			wantKind:  "container_power_feed",
+		},
+		{
 			name: "pool read",
 			command: minerAgentCommand(&gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetMiningPools{
 				GetMiningPools: &gatewaypb.GetMiningPoolsAction{},
 			}}),
 			wantClass: CommandAdmissionGeneral,
 			wantKind:  "get_mining_pools",
+		},
+		{
+			name: "pool clearing observation",
+			command: minerAgentCommand(&gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_VerifyPoolsCleared{
+				VerifyPoolsCleared: &gatewaypb.VerifyPoolsClearedAction{},
+			}}),
+			wantClass: CommandAdmissionGeneral,
+			wantKind:  "verify_pools_cleared",
 		},
 		{
 			name: "firmware status read",
@@ -115,6 +149,22 @@ func TestCommandAdmissionPolicy(t *testing.T) {
 			wantClass: CommandAdmissionExclusive,
 			wantKind:  "endpoint_recovery",
 		},
+		{
+			name: "credential key export",
+			command: &gatewaypb.AgentCommand{Command: &gatewaypb.AgentCommand_ExportCredentialKey{
+				ExportCredentialKey: &gatewaypb.ExportCredentialKey{},
+			}},
+			wantClass: CommandAdmissionGeneral,
+			wantKind:  "credential_key_export",
+		},
+		{
+			name: "credential key install",
+			command: &gatewaypb.AgentCommand{Command: &gatewaypb.AgentCommand_InstallCredentialKey{
+				InstallCredentialKey: &gatewaypb.InstallCredentialKey{},
+			}},
+			wantClass: CommandAdmissionGeneral,
+			wantKind:  "credential_key_install",
+		},
 	}
 
 	for _, tt := range tests {
@@ -140,5 +190,11 @@ func TestOptimisticCommandCapacityLeavesOperatorReservation(t *testing.T) {
 func minerAgentCommand(command *gatewaypb.MinerCommand) *gatewaypb.AgentCommand {
 	return &gatewaypb.AgentCommand{Command: &gatewaypb.AgentCommand_MinerCommand{
 		MinerCommand: command,
+	}}
+}
+
+func powerFeedCommand(request string) *gatewaypb.MinerCommand {
+	return &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_ContainerPowerFeed{
+		ContainerPowerFeed: &gatewaypb.ContainerPowerFeedAction{Request: []byte(request)},
 	}}
 }

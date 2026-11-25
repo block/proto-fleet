@@ -25,10 +25,6 @@ export class SettingsSchedulesPage extends BasePage {
     await this.page.locator("#schedule-name").fill(name);
   }
 
-  async selectActionType(label: string) {
-    await this.selectOption("#schedule-action", "Action type", label);
-  }
-
   async selectScheduleType(label: string) {
     await this.selectOption("#schedule-type", "Type", label);
   }

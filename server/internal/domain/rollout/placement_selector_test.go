@@ -39,6 +39,13 @@ func softDeletePlacement(t *testing.T, f *fixture, selector placementSelectorCas
 }
 
 func TestChannelPlacementSelectorsRejectUnresolvedAdditions(t *testing.T) {
+	// Each case is a refusal that changes nothing, so all cases share one
+	// database. Each case gives its placements and its foreign org a unique name.
+	f := newFixture(t, 2)
+	original, err := f.svc.CreateChannel(t.Context(), f.orgID, 1, ChannelSpec{
+		Name: "Original", Scope: Scope{DeviceIdentifiers: []string{"miner-0"}},
+	})
+	require.NoError(t, err)
 	for _, selector := range placementSelectorCases {
 		problems := []string{"missing", "foreign org", "deleted"}
 		if selector.kind == "rack" || selector.kind == "group" {
@@ -47,21 +54,17 @@ func TestChannelPlacementSelectorsRejectUnresolvedAdditions(t *testing.T) {
 		for _, problem := range problems {
 			for _, operation := range []string{"create", "update"} {
 				t.Run(selector.kind+"/"+problem+"/"+operation, func(t *testing.T) {
-					f := newFixture(t, 2)
 					ctx := t.Context()
-					local := emptyPlacementScope(t, f, "Local")
-					original, err := f.svc.CreateChannel(ctx, f.orgID, 1, ChannelSpec{
-						Name: "Original", Scope: Scope{DeviceIdentifiers: []string{"miner-0"}},
-					})
-					require.NoError(t, err)
+					name := selector.kind + " " + problem + " " + operation
+					local := emptyPlacementScope(t, f, "Local "+name)
 					badID := int64(999999)
 					switch problem {
 					case "foreign org":
 						foreign := *f
 						require.NoError(t, f.conn.QueryRowContext(ctx, `
-							INSERT INTO organization (org_id, name) VALUES ('other-org', 'Other') RETURNING id
-						`).Scan(&foreign.orgID))
-						badID = selector.ids(emptyPlacementScope(t, &foreign, "Foreign"))[0]
+							INSERT INTO organization (org_id, name) VALUES ($1, $1) RETURNING id
+						`, "other "+name).Scan(&foreign.orgID))
+						badID = selector.ids(emptyPlacementScope(t, &foreign, "Foreign "+name))[0]
 					case "deleted":
 						badID = selector.ids(local)[0]
 						softDeletePlacement(t, f, selector, badID)
@@ -74,6 +77,7 @@ func TestChannelPlacementSelectorsRejectUnresolvedAdditions(t *testing.T) {
 					scope := selector.withID(badID)
 					scope.DeviceIdentifiers = []string{"miner-1"}
 					spec := ChannelSpec{Name: "Changed", Description: "Must not persist", Scope: scope, Behavior: Behavior{Method: MethodBatched, BatchSize: 2}}
+					var err error
 					if operation == "create" {
 						_, err = f.svc.CreateChannel(ctx, f.orgID, 1, spec)
 					} else {

@@ -6,7 +6,10 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"errors"
 	"time"
+
+	"connectrpc.com/connect"
 
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -44,7 +47,12 @@ type ResolvedFleetNode struct {
 	SessionFingerprint string
 }
 
+type OperationalMetrics interface {
+	AuthOutcome(ctx context.Context, operation, result string)
+}
+
 type Service struct {
+	metrics         OperationalMetrics
 	store           Store
 	enrollmentStore enrollment.Store
 	apiKeySvc       *apikey.Service
@@ -62,7 +70,55 @@ func NewService(store Store, enrollmentStore enrollment.Store, apiKeySvc *apikey
 	}
 }
 
-func (s *Service) BeginHandshake(ctx context.Context, apiKeyPlaintext string, identityPubkey []byte) ([]byte, time.Time, error) {
+// WithOperationalMetrics must be called before the service is shared.
+func (s *Service) WithOperationalMetrics(metrics OperationalMetrics) *Service {
+	s.metrics = metrics
+	return s
+}
+
+func (s *Service) observeAuth(ctx context.Context, operation string, err error, rejection ...string) {
+	if s.metrics == nil {
+		return
+	}
+	result := "success"
+	if err != nil {
+		code := connect.CodeOf(err)
+		var fe fleeterror.FleetError
+		if errors.As(err, &fe) {
+			code = fe.GRPCCode
+		}
+		switch {
+		case code == connect.CodeUnauthenticated || code == connect.CodePermissionDenied:
+			switch operation {
+			case "session":
+				result = "session_rejected"
+			case "complete_handshake":
+				result = "challenge_rejected"
+			default:
+				result = "credential_rejected"
+			}
+			if len(rejection) > 0 && rejection[0] != "" {
+				result = rejection[0]
+			}
+		case code == connect.CodeFailedPrecondition:
+			result = "enrollment_required"
+		case code == connect.CodeCanceled:
+			result = "canceled"
+		case code == connect.CodeDeadlineExceeded:
+			result = "timeout"
+		case errors.Is(ctx.Err(), context.DeadlineExceeded):
+			result = "timeout"
+		case errors.Is(ctx.Err(), context.Canceled):
+			result = "canceled"
+		default:
+			result = "internal"
+		}
+	}
+	s.metrics.AuthOutcome(ctx, operation, result)
+}
+
+func (s *Service) BeginHandshake(ctx context.Context, apiKeyPlaintext string, identityPubkey []byte) (_ []byte, _ time.Time, resultErr error) {
+	defer func() { s.observeAuth(ctx, "begin_handshake", resultErr) }()
 	apiKey, err := s.apiKeySvc.Validate(ctx, apiKeyPlaintext)
 	if err != nil {
 		return nil, time.Time{}, err
@@ -103,7 +159,9 @@ func (s *Service) BeginHandshake(ctx context.Context, apiKeyPlaintext string, id
 	return challenge, expiresAt, nil
 }
 
-func (s *Service) CompleteHandshake(ctx context.Context, challenge, signature []byte) (string, time.Time, int64, error) {
+func (s *Service) CompleteHandshake(ctx context.Context, challenge, signature []byte) (_ string, _ time.Time, _ int64, resultErr error) {
+	rejection := ""
+	defer func() { s.observeAuth(ctx, "complete_handshake", resultErr, rejection) }()
 	now := time.Now().UTC()
 	// ConsumeChallenge is DELETE ... RETURNING; a replayed challenge finds
 	// nothing and returns NotFound.
@@ -123,6 +181,7 @@ func (s *Service) CompleteHandshake(ctx context.Context, challenge, signature []
 		return "", time.Time{}, 0, logInternal("fleet node lookup", clientErrAuth, err)
 	}
 	if !ed25519.Verify(agent.IdentityPubkey, challenge, signature) {
+		rejection = "credential_rejected"
 		return "", time.Time{}, 0, fleeterror.NewUnauthenticatedError("signature verification failed")
 	}
 
@@ -141,7 +200,8 @@ func (s *Service) CompleteHandshake(ctx context.Context, challenge, signature []
 	return plaintext, expiresAt, agentID, nil
 }
 
-func (s *Service) ResolveSession(ctx context.Context, sessionTokenPlaintext string) (*ResolvedFleetNode, error) {
+func (s *Service) ResolveSession(ctx context.Context, sessionTokenPlaintext string) (_ *ResolvedFleetNode, resultErr error) {
+	defer func() { s.observeAuth(ctx, "session", resultErr) }()
 	fingerprint := SessionFingerprint(sessionTokenPlaintext)
 	row, err := s.store.GetSessionFleetNode(ctx, fingerprint, time.Now().UTC())
 	if err != nil {

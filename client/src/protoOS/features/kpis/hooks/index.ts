@@ -1,3 +1,2 @@
-import useAsicColor from "./useAsicColor";
-
-export { useAsicColor };
+export { useAsicPalette } from "./useAsicPalette";
+export type { AsicPalette } from "./useAsicPalette";

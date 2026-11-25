@@ -1,11 +1,13 @@
--- name: UpsertDiscoveredDeviceFromFleetNode :execrows
--- 0 rows on conflict signals rejection. A remote report must not redirect the
+-- name: UpsertDiscoveredDeviceFromFleetNode :one
+-- No returned row on conflict signals rejection. A remote report must not redirect the
 -- endpoint/credentials of a miner the cloud owns, so the update is blocked
 -- unless the row is already attributed to this fleet node or to a revoked node
 -- that can be reclaimed. Devices paired to the reporting node itself stay
--- refreshable, subject to the attribution guard. The agent synthesizes a stable
--- per-device identifier (mac:/serial:, else auto:<hash>), so a re-scan reuses
--- the same row.
+-- refreshable, subject to the attribution guard. Synthetic identifiers include
+-- the physical node id. After attribution moves to an HA peer, reconcile its
+-- new synthetic identifier to the inherited endpoint within that node and org.
+-- Exact identifiers take precedence, preserving the ownership guard. Container
+-- identity excludes the port because CT1 browser/RPC endpoints can change.
 INSERT INTO discovered_device (
     org_id,
     device_identifier,
@@ -17,25 +19,105 @@ INSERT INTO discovered_device (
     manufacturer,
     firmware_version,
     discovered_by_fleet_node_id,
-    is_active
+    is_active,
+    device_class,
+    rpc_port,
+    rpc_tls, endpoint_key, endpoints
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE)
+VALUES (sqlc.arg('org_id'), COALESCE((
+    SELECT dd.device_identifier
+    FROM discovered_device dd
+    WHERE dd.org_id = sqlc.arg('org_id')
+      AND dd.device_identifier = sqlc.arg('device_identifier')
+      AND dd.deleted_at IS NULL
+), (
+    SELECT dd.device_identifier
+    FROM discovered_device dd
+    WHERE dd.org_id = sqlc.arg('org_id')
+      AND dd.deleted_at IS NULL
+      AND dd.discovered_by_fleet_node_id = sqlc.arg('discovered_by_fleet_node_id')
+      AND dd.ip_address = sqlc.arg('ip_address')
+      AND dd.driver_name = sqlc.arg('driver_name')
+      AND (sqlc.arg('device_class') = 0 OR dd.device_class = sqlc.arg('device_class'))
+      AND COALESCE(dd.model, '') = COALESCE(sqlc.arg('model'), '')
+      AND (
+        (sqlc.arg('device_identifier') LIKE 'auto:%' AND dd.device_identifier LIKE 'auto:%'
+          AND dd.port = sqlc.arg('port'))
+        OR (sqlc.arg('device_identifier') LIKE 'container:%' AND dd.device_identifier LIKE 'container:%'
+          AND dd.device_class = 2)
+      )
+    ORDER BY dd.id ASC
+    LIMIT 1
+), sqlc.arg('device_identifier')),
+    sqlc.arg('ip_address'), sqlc.arg('port'), sqlc.arg('url_scheme'),
+    sqlc.arg('driver_name'), sqlc.arg('model'), sqlc.arg('manufacturer'),
+    sqlc.arg('firmware_version'), sqlc.arg('discovered_by_fleet_node_id'),
+    TRUE, sqlc.arg('device_class'), sqlc.arg('rpc_port'), sqlc.arg('rpc_tls'),
+    sqlc.arg(endpoint_key), sqlc.arg(endpoints))
 ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     ip_address = EXCLUDED.ip_address,
-    port = EXCLUDED.port,
-    url_scheme = EXCLUDED.url_scheme,
+    -- Native CT1 rediscovery must retain the existing browser endpoint.
+    port = CASE WHEN discovered_device.device_class = 2 AND EXCLUDED.rpc_port > 0
+                  AND discovered_device.endpoint_key = '' AND EXCLUDED.endpoint_key = ''
+                THEN discovered_device.port ELSE EXCLUDED.port END,
+    url_scheme = CASE WHEN discovered_device.device_class = 2 AND EXCLUDED.rpc_port > 0
+                  AND discovered_device.endpoint_key = '' AND EXCLUDED.endpoint_key = ''
+                      THEN discovered_device.url_scheme ELSE EXCLUDED.url_scheme END,
+    rpc_port = EXCLUDED.rpc_port,
+    rpc_tls = EXCLUDED.rpc_tls,
+    endpoint_key = EXCLUDED.endpoint_key,
+    endpoints = EXCLUDED.endpoints,
     driver_name = COALESCE(discovered_device.driver_name, EXCLUDED.driver_name),
     model = EXCLUDED.model,
+    device_class = COALESCE(NULLIF(EXCLUDED.device_class, 0), discovered_device.device_class),
     manufacturer = EXCLUDED.manufacturer,
-    firmware_version = EXCLUDED.firmware_version,
+    -- Keep the stored version only when the report has no endpoint group and the
+    -- row identity is the device's MAC, serial, or container. A row found by
+    -- address can now belong to a replaced device. Telemetry writes the version
+    -- of a device that it polls only when the version changes, and a scan report
+    -- can be older than that write. A report can also omit the version.
+    firmware_version = CASE
+        WHEN EXCLUDED.endpoint_key <> '' OR NOT (
+            discovered_device.device_identifier LIKE 'mac:%'
+            OR discovered_device.device_identifier LIKE 'serial:%'
+            OR discovered_device.device_identifier LIKE 'container:%'
+        )
+        THEN EXCLUDED.firmware_version
+        WHEN COALESCE(discovered_device.firmware_version, '') <> '' AND EXISTS (
+            SELECT 1
+            FROM device d
+            JOIN device_pairing dp ON dp.device_id = d.id
+            WHERE (d.discovered_device_id = discovered_device.id OR d.device_identifier = discovered_device.device_identifier)
+              AND d.org_id = discovered_device.org_id
+              AND d.deleted_at IS NULL
+              AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+        )
+        THEN discovered_device.firmware_version
+        WHEN EXCLUDED.firmware_version IS NULL AND (
+            discovered_device.device_identifier NOT LIKE 'container:%' OR EXISTS (
+                SELECT 1
+                FROM device d
+                WHERE (d.discovered_device_id = discovered_device.id OR d.device_identifier = discovered_device.device_identifier)
+                  AND d.org_id = discovered_device.org_id
+                  AND d.deleted_at IS NULL
+            )
+        )
+        THEN discovered_device.firmware_version
+        ELSE EXCLUDED.firmware_version
+    END,
     discovered_by_fleet_node_id = EXCLUDED.discovered_by_fleet_node_id,
     last_seen = CURRENT_TIMESTAMP,
     is_active = TRUE
-WHERE (
+WHERE (discovered_device.endpoint_key = '' OR
+    (discovered_device.endpoint_key = EXCLUDED.endpoint_key AND discovered_device.driver_name = EXCLUDED.driver_name))
+-- A web-only scan cannot erase a saved native RPC route.
+AND (EXCLUDED.endpoint_key <> '' OR EXCLUDED.rpc_port > 0
+    OR (discovered_device.rpc_port = 0 AND NOT discovered_device.rpc_tls))
+AND (
     discovered_device.discovered_by_fleet_node_id = EXCLUDED.discovered_by_fleet_node_id
     -- The attributing node was revoked (soft-deleted), so a replacement node may
     -- reclaim its rows (otherwise a re-scan of the same stable mac:/serial: device
-    -- is rejected forever). Attribution moves to the reporter ($10), staying
+    -- is rejected forever). Attribution moves to the reporter, staying
     -- non-NULL, so cloud-exclusion (discovered_by_fleet_node_id IS NULL) is never
     -- widened. Cloud-paired and live-cross-node rows remain blocked below.
     OR (
@@ -54,7 +136,7 @@ WHERE (
     -- cloud-paired device or one paired to another node; bare and own-node pass.
     SELECT 1
     FROM device d
-    WHERE d.discovered_device_id = discovered_device.id
+    WHERE (d.discovered_device_id = discovered_device.id OR d.device_identifier = discovered_device.device_identifier)
       AND d.org_id = discovered_device.org_id
       AND d.deleted_at IS NULL
       AND (
@@ -65,14 +147,14 @@ WHERE (
             WHERE dp.device_id = d.id
               AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
           )
-          -- A device paired to THIS reporting node ($10) is node-dialed, not
+          -- A device paired to THIS reporting node is node-dialed, not
           -- cloud-dialed; its paired-like row must not block its own node's re-scan.
           AND NOT EXISTS (
             SELECT 1
             FROM fleet_node_device fnd
             WHERE fnd.device_id = d.id
               AND fnd.org_id = d.org_id
-              AND fnd.fleet_node_id = $10
+              AND fnd.fleet_node_id = sqlc.arg('discovered_by_fleet_node_id')
           )
         )
         OR EXISTS (
@@ -80,15 +162,36 @@ WHERE (
           FROM fleet_node_device fnd
           WHERE fnd.device_id = d.id
             AND fnd.org_id = d.org_id
-            AND fnd.fleet_node_id <> $10
+            AND fnd.fleet_node_id <> sqlc.arg('discovered_by_fleet_node_id')
         )
       )
-);
+)
+RETURNING device_class, device_identifier, endpoints;
 
 -- name: PairDeviceToFleetNode :execrows
+-- The parent lock also protects absence of a route during dispatch. A scalar
+-- lookup keeps a missing parent an insert error rather than a successful no-op.
+WITH locked_device AS MATERIALIZED (
+    SELECT device.id FROM device
+    WHERE device.id=sqlc.arg('device_id') AND device.org_id=sqlc.arg('org_id') FOR NO KEY UPDATE
+)
 INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id, assigned_by)
-VALUES ($1, $2, $3, $4)
+VALUES (sqlc.arg('fleet_node_id'), (SELECT locked_device.id FROM locked_device), sqlc.arg('org_id'), sqlc.arg('assigned_by'))
 ON CONFLICT (device_id) DO NOTHING;
+
+-- name: DeviceHasRevokedFleetNodeStatus :one
+-- Direct binding cannot recover a miner unpaired by revocation. Check after
+-- the binding attempt so a concurrent revoke that deleted the old assignment
+-- is visible before the direct-binding transaction commits.
+SELECT EXISTS (
+    SELECT 1
+    FROM device d
+    JOIN device_status ds ON ds.device_id = d.id
+    WHERE d.id = sqlc.arg('device_id')
+      AND d.org_id = sqlc.arg('org_id')
+      AND d.deleted_at IS NULL
+      AND ds.status_details = 'fleet_node_revoked'
+);
 
 -- name: LockFleetNodePairingDevice :many
 -- Serialize ownership assignment with cloud IP-recovery authentication
@@ -154,26 +257,96 @@ WHERE device.id = sqlc.arg(device_id)
   AND discovered_device.org_id = sqlc.arg(org_id)
   AND discovered_device.deleted_at IS NULL;
 
--- name: UnpairDevice :execrows
-DELETE FROM fleet_node_device
-WHERE device_id = $1 AND org_id = $2;
+-- name: UnpairDevice :one
+-- A remaining cloud pairing or another inventory owner keeps its saved routes.
+WITH locked_device AS MATERIALIZED (
+    SELECT d.id, d.discovered_device_id
+    FROM device d
+    WHERE d.id = sqlc.arg(device_id) AND d.org_id = sqlc.arg(org_id)
+    FOR UPDATE
+), removed AS (
+    DELETE FROM fleet_node_device fnd
+    USING locked_device d
+    WHERE fnd.device_id = d.id AND fnd.org_id = sqlc.arg(org_id)
+    RETURNING fnd.device_id
+), reset_discovery AS (
+    UPDATE discovered_device dd
+    SET endpoints = '{}', endpoint_key = '', serial_number = '', mac_address = ''
+    FROM locked_device d
+    WHERE dd.id = d.discovered_device_id AND dd.org_id = sqlc.arg(org_id)
+      AND dd.endpoint_key <> ''
+      AND EXISTS (SELECT 1 FROM removed)
+      AND NOT EXISTS (
+          SELECT 1 FROM device owner
+          WHERE owner.discovered_device_id = dd.id
+            AND owner.org_id = dd.org_id AND owner.deleted_at IS NULL
+            AND (
+                EXISTS (SELECT 1 FROM device_pairing dp WHERE dp.device_id = owner.id
+                        AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED'))
+                OR EXISTS (SELECT 1 FROM fleet_node_device fnd
+                           WHERE fnd.device_id = owner.id AND fnd.org_id = owner.org_id
+                             AND fnd.device_id NOT IN (SELECT device_id FROM removed))
+            )
+      )
+    RETURNING dd.id
+), reset_identity AS (
+    UPDATE device d SET serial_number = NULL, mac_address = ''
+    WHERE d.id IN (SELECT device_id FROM removed)
+      AND d.discovered_device_id IN (SELECT id FROM reset_discovery)
+)
+SELECT count(*)::bigint FROM removed;
 
 -- name: DeletePairingsForFleetNode :execrows
 -- Revoke soft-deletes the fleet_node row, so ON DELETE CASCADE doesn't fire.
 DELETE FROM fleet_node_device
 WHERE fleet_node_id = $1 AND org_id = $2;
 
--- name: ListFleetNodeDeviceIDsForRevocation :many
-SELECT device_id
-FROM fleet_node_device
-WHERE fleet_node_id = $1 AND org_id = $2
-ORDER BY device_id ASC;
+-- name: UnpairDevicesForFleetNodeRevocation :execrows
+UPDATE device_pairing dp
+SET pairing_status = 'UNPAIRED', unpaired_at = CURRENT_TIMESTAMP
+FROM fleet_node_device fnd
+WHERE dp.device_id = fnd.device_id
+  AND fnd.fleet_node_id = $1 AND fnd.org_id = $2;
+
+-- name: OfflineDevicesForFleetNodeRevocation :execrows
+INSERT INTO device_status (device_id, status, status_timestamp, status_details)
+SELECT fnd.device_id, 'OFFLINE', CURRENT_TIMESTAMP, 'fleet_node_revoked'
+FROM fleet_node_device fnd
+WHERE fnd.fleet_node_id = $1 AND fnd.org_id = $2
+ORDER BY fnd.device_id
+ON CONFLICT (device_id) DO UPDATE SET
+    status = EXCLUDED.status,
+    status_timestamp = EXCLUDED.status_timestamp,
+    telemetry_status_at = NULL,
+    status_details = EXCLUDED.status_details,
+    reboot_required_after = NULL;
+
+-- name: ClearFleetNodeRevokedStatus :execrows
+-- Pairing has rebound this device in the same transaction, so the new owner
+-- may replace the revocation's OFFLINE status with a fresh status.
+UPDATE device_status ds
+SET status_details = NULL
+FROM fleet_node_device fnd
+WHERE ds.device_id = $1
+  AND fnd.device_id = ds.device_id
+  AND fnd.org_id = $2
+  AND fnd.fleet_node_id = $3
+  AND ds.status_details = 'fleet_node_revoked';
+
+-- name: ListFleetNodeDevicesForRevocation :many
+SELECT fnd.device_id, d.device_identifier
+FROM fleet_node_device fnd
+JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id
+WHERE fnd.fleet_node_id = $1 AND fnd.org_id = $2
+ORDER BY fnd.device_id ASC;
 
 -- name: ListFleetNodeDevices :many
 SELECT fnd.fleet_node_id,
        fnd.device_id,
        d.device_identifier,
        COALESCE(dd.driver_name, '')::text AS device_type,
+       COALESCE(dd.manufacturer, '')::text AS manufacturer,
+       COALESCE(dd.model, '')::text AS model,
        fnd.assigned_at,
        fnd.assigned_by
 FROM fleet_node_device fnd
@@ -182,6 +355,13 @@ LEFT JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.deleted_
 WHERE fnd.org_id = $1
   AND (sqlc.narg('fleet_node_id')::bigint IS NULL OR fnd.fleet_node_id = sqlc.narg('fleet_node_id')::bigint)
 ORDER BY fnd.assigned_at DESC, fnd.device_id ASC;
+
+-- name: CountFleetNodeDevicesByNode :many
+SELECT fnd.fleet_node_id, count(*)::bigint AS device_count
+FROM fleet_node_device fnd
+JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id AND d.deleted_at IS NULL
+WHERE fnd.org_id = $1
+GROUP BY fnd.fleet_node_id;
 
 -- name: GetFleetNodePairedDeviceIdentifier :one
 SELECT d.device_identifier
@@ -196,7 +376,7 @@ WHERE fnd.device_id = $1
 -- or bound to another node. A row bound to the requesting node surfaces only
 -- in AUTHENTICATION_NEEDED so recovery-triggered failures remain retryable.
 -- Other AUTHENTICATION_NEEDED rows also surface for retry. Inverse of
--- GetActiveUnpairedDiscoveredDevices, which excludes fleet-node rows.
+-- CountActiveUnpairedDiscoveredDevices, which excludes fleet-node rows.
 -- The exclusions use NOT EXISTS so a device with more than one live row is
 -- judged across all of them, not just the joined row. They match by
 -- discovered_device_id OR device_identifier: a paired device whose original
@@ -214,9 +394,10 @@ WITH candidate AS (
          dd.discovered_by_fleet_node_id,
          dd.ip_address,
          dd.port,
-         dd.url_scheme,
+         dd.url_scheme, dd.rpc_port, dd.rpc_tls, dd.endpoints,
          dd.driver_name,
          dd.model,
+         dd.device_class,
          dd.manufacturer,
          dd.firmware_version,
          dd.last_seen,
@@ -290,3 +471,12 @@ FROM candidate
 WHERE (sqlc.narg('pairing_statuses')::text[] IS NULL OR pairing_status = ANY(sqlc.narg('pairing_statuses')::text[]))
 ORDER BY id ASC
 LIMIT sqlc.narg('limit')::bigint;
+
+
+-- name: GetFleetNodePairingTarget :one
+SELECT dd.device_identifier, dd.ip_address, dd.port, dd.url_scheme,
+       dd.rpc_port, dd.rpc_tls, dd.endpoints
+FROM device d
+JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.org_id = d.org_id
+WHERE d.id = sqlc.arg(device_id) AND d.org_id = sqlc.arg(org_id)
+  AND d.deleted_at IS NULL AND dd.deleted_at IS NULL;

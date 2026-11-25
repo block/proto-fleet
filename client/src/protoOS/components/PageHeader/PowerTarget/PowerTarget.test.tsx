@@ -14,14 +14,15 @@ const { mockCheckAccess, mockSetPausedAuthAction, mockState } = vi.hoisted(() =>
     hasAccess: undefined as boolean | undefined,
     pausedAuthAction: null as string | null,
     dismissedLoginModal: false,
+    deviceType: "rig",
   },
 }));
 
 // Mock the popover to a single button that fires onUpdateStart with a target —
 // the test exercises PowerTarget's auth-gating branch, not the popover UI.
 vi.mock("./PowerTargetPopover", () => ({
-  default: ({ onUpdateStart }: { onUpdateStart: (target: number) => void }) => (
-    <button data-testid="apply-target" onClick={() => onUpdateStart(5000)} />
+  default: ({ onUpdateStart }: { onUpdateStart: (target: { valueWatts: number }) => void }) => (
+    <button data-testid="apply-target" onClick={() => onUpdateStart({ valueWatts: 5000 })} />
   ),
 }));
 
@@ -37,6 +38,7 @@ vi.mock("@/protoOS/store", async () => {
   const { AUTH_ACTIONS: actions } = await import("@/protoOS/store/types");
   return {
     AUTH_ACTIONS: actions,
+    useDeviceType: () => mockState.deviceType,
     useAccessToken: vi.fn(() => ({ checkAccess: mockCheckAccess, hasAccess: mockState.hasAccess })),
     useDismissedLoginModal: vi.fn(() => mockState.dismissedLoginModal),
     useSetDismissedLoginModal: vi.fn(() => vi.fn()),
@@ -47,12 +49,14 @@ vi.mock("@/protoOS/store", async () => {
 
 describe("PowerTarget", () => {
   const mockUpdateMiningTarget = vi.fn();
+  const mockSetPending = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
     mockState.hasAccess = undefined;
     mockState.pausedAuthAction = null;
     mockState.dismissedLoginModal = false;
+    mockState.deviceType = "rig";
     (useMinerHosting as Mock).mockReturnValue({ mode: "direct", isFleetHosted: false });
     (useMiningTarget as Mock).mockReturnValue({
       miningTarget: 4000,
@@ -60,7 +64,7 @@ describe("PowerTarget", () => {
       bounds: { min: 1000, max: 6000 },
       pending: false,
       updateMiningTarget: mockUpdateMiningTarget,
-      setPending: vi.fn(),
+      setPending: mockSetPending,
     });
   });
 
@@ -82,12 +86,27 @@ describe("PowerTarget", () => {
     expect(mockUpdateMiningTarget).not.toHaveBeenCalled();
   });
 
+  test("direct CT1 updates without a rig password challenge", () => {
+    mockState.deviceType = "container";
+    openAndApply();
+    expect(mockCheckAccess).not.toHaveBeenCalled();
+    expect(mockUpdateMiningTarget).toHaveBeenCalledWith({ valueWatts: 5000 });
+  });
+
+  test("direct mode marks the target pending immediately on Apply", () => {
+    // The Apply button's disabled/spinner state keys off pending, so it must flip
+    // on click rather than waiting for the auth gate to resolve updateMiningTarget.
+    openAndApply();
+
+    expect(mockSetPending).toHaveBeenCalledWith(true);
+  });
+
   test("fleet-hosted mode applies the target directly without the auth gate", () => {
     (useMinerHosting as Mock).mockReturnValue({ mode: "fleet", isFleetHosted: true });
 
     openAndApply();
 
-    expect(mockUpdateMiningTarget).toHaveBeenCalledWith(5000);
+    expect(mockUpdateMiningTarget).toHaveBeenCalledWith({ valueWatts: 5000 });
     expect(mockSetPausedAuthAction).not.toHaveBeenCalledWith(AUTH_ACTIONS.miningTarget);
     expect(mockCheckAccess).not.toHaveBeenCalled();
   });

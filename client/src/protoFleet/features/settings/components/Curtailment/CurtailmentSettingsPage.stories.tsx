@@ -1,8 +1,16 @@
 import type { Meta, StoryObj } from "@storybook/react";
 
 import { CurtailmentSettingsContent } from "./CurtailmentSettingsPage";
-import type { AutomationRule, CurtailmentSource, ResponseProfile } from "./types";
+import { describeCurtailmentSchedule } from "@/protoFleet/api/curtailmentSchedules";
+import type {
+  AutomationRule,
+  CurtailmentScheduleDefinition,
+  CurtailmentSource,
+  ResponseProfile,
+} from "@/protoFleet/api/curtailmentTypes";
+import { CurtailmentScheduleDayOfWeek } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { withMockedMinerSelectionApis } from "@/protoFleet/stories/MockedMinerSelectionApis";
 import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimestamp";
 
@@ -84,8 +92,32 @@ const storyResponseProfiles: ResponseProfile[] = [
     scope: "Whole fleet",
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore in batches",
-    deadlineSummary: "Within 15 min",
     isAutomationReady: true,
+    formValues: {
+      name: "Standard shed",
+      actionType: "fixedKwReduction",
+      targetKw: "50",
+      toleranceKw: "",
+      priority: "normal",
+      postEventCooldownSec: "",
+      scopeType: "wholeOrg",
+      buildingTargetIds: [],
+      rackTargetIds: [],
+      groupTargetIds: [],
+      deviceIdentifiers: [],
+      siteId: "",
+      siteName: "",
+      selectionStrategy: "leastEfficientFirst",
+      restoreBehavior: "automaticBatchRestore",
+      minDurationSec: "",
+      maxDurationSec: "900",
+      curtailBatchSize: "",
+      curtailBatchIntervalSec: "",
+      restoreBatchSize: "",
+      restoreIntervalSec: "",
+      responseDeadlineMinutes: "15",
+      includeMaintenance: false,
+    },
   },
   {
     id: "emergency-shed",
@@ -94,7 +126,6 @@ const storyResponseProfiles: ResponseProfile[] = [
     scope: "Whole fleet",
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore immediately",
-    deadlineSummary: "Within 15 min",
     isAutomationReady: true,
     formValues: {
       name: "Emergency shed",
@@ -129,7 +160,6 @@ const storyResponseProfiles: ResponseProfile[] = [
     scope: "Whole fleet",
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore in batches",
-    deadlineSummary: "Within 15 min",
     isAutomationReady: true,
     formValues: {
       name: "Partial reduction",
@@ -164,7 +194,6 @@ const storyResponseProfiles: ResponseProfile[] = [
     scope: "Whole fleet",
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore in batches",
-    deadlineSummary: "Within 15 min",
     isAutomationReady: true,
     formValues: {
       name: "Staged reduction",
@@ -193,6 +222,25 @@ const storyResponseProfiles: ResponseProfile[] = [
     },
   },
 ];
+
+const storyWeeknightSchedule: CurtailmentScheduleDefinition = {
+  scheduleType: "recurring",
+  timezone: "America/Chicago",
+  startDate: "2026-06-01",
+  startTime: "17:00",
+  endTime: "21:00",
+  endDate: "",
+  frequency: "weekly",
+  daysOfWeek: [
+    CurtailmentScheduleDayOfWeek.MONDAY,
+    CurtailmentScheduleDayOfWeek.TUESDAY,
+    CurtailmentScheduleDayOfWeek.WEDNESDAY,
+    CurtailmentScheduleDayOfWeek.THURSDAY,
+    CurtailmentScheduleDayOfWeek.FRIDAY,
+  ],
+  dayOfMonth: "",
+  untilDate: "",
+};
 
 const storyAutomationRules: AutomationRule[] = [
   {
@@ -225,6 +273,18 @@ const storyAutomationRules: AutomationRule[] = [
     responseProfileId: "targeted-miners",
     enabled: false,
   },
+  {
+    id: "weeknight-peak",
+    priority: 4,
+    name: "Weeknight peak",
+    conditionType: "schedule",
+    conditionSummary: describeCurtailmentSchedule(storyWeeknightSchedule),
+    schedule: storyWeeknightSchedule,
+    windowStartAt: new Date("2026-06-15T22:00:00Z"),
+    windowEndAt: new Date("2026-06-16T02:00:00Z"),
+    responseProfileId: "partial-reduction",
+    enabled: true,
+  },
 ];
 
 const meta = {
@@ -255,6 +315,11 @@ const meta = {
   },
   decorators: [withMockedMinerSelectionApis],
   tags: ["autodocs"],
+  beforeEach: () => {
+    const previousRole = useFleetStore.getState().auth.role;
+    useFleetStore.getState().auth.setRole("ADMIN");
+    return () => useFleetStore.getState().auth.setRole(previousRole);
+  },
 } satisfies Meta<typeof CurtailmentSettingsContent>;
 
 export default meta;
@@ -294,5 +359,38 @@ export const AddResponseProfileDialog: Story = {
       formValues: values,
     }),
     onTestResponseProfileCurtailment: async () => undefined,
+  },
+};
+
+export const OperatorRuntimeErrors: Story = {
+  beforeEach: () => {
+    useFleetStore.getState().auth.setRole("FIELD_TECH");
+  },
+  args: {
+    initialResponseProfiles: storyResponseProfiles,
+    initialSources: [
+      {
+        ...storySources[0],
+        health: "offline",
+        lastRuntimeError: "Broker authentication failed. Check the source credentials.",
+      },
+    ],
+    initialAutomationRules: [
+      { ...storyAutomationRules[0], lastError: "No eligible miners are available for this profile." },
+    ],
+  },
+};
+
+export const ProfileBindingRecovery: Story = {
+  args: {
+    initialResponseProfiles: storyResponseProfiles.map((profile, index) => ({
+      ...profile,
+      enabledAutomationRuleCount: index === 0 ? 2 : 0,
+      automationBindingStatus: index === 0 ? "enabled" : "unbound",
+    })),
+    initialSources: storySources,
+    initialAutomationRules: [
+      { ...storyAutomationRules[0], bindingStatus: "rebind_required", lastError: "rebind_required" },
+    ],
   },
 };

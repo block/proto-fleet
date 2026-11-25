@@ -225,9 +225,6 @@ func TestProtoPluginIntegration(t *testing.T) {
 				require.Error(t, err, "SetPowerTarget should fail for unspecified mode")
 				assert.Contains(t, err.Error(), "must be specified", "Error should indicate mode must be specified")
 			})
-
-			// Allow miner to stabilize after power target changes
-			time.Sleep(30 * time.Second)
 		})
 
 		// Test mining pool configuration
@@ -540,20 +537,6 @@ func TestProtoPluginIntegration(t *testing.T) {
 					})
 				}
 			})
-
-			// Test status caching behavior
-			t.Run("Status Caching", func(t *testing.T) {
-				// Get status twice in quick succession
-				metrics1, err := device.Status(ctx)
-				require.NoError(t, err)
-
-				metrics2, err := device.Status(ctx)
-				require.NoError(t, err)
-
-				// Since we disabled caching (TTL=0), timestamps should be different
-				// but if cache was working, they should be the same
-				assert.Equal(t, metrics1.DeviceID, metrics2.DeviceID, "Device ID should be consistent")
-			})
 		})
 
 		// Test reboot after telemetry test, sim miner should stay up but acknowledge the command
@@ -564,10 +547,10 @@ func TestProtoPluginIntegration(t *testing.T) {
 
 		// Test batch operations (should return not supported)
 		t.Run("Batch Operations", func(t *testing.T) {
-			deviceIDs := []string{deviceID}
+			devices := []sdk.Device{device}
 
 			// Test batch status
-			_, supported, err := device.TryBatchStatus(ctx, deviceIDs)
+			_, supported, err := device.TryBatchStatus(ctx, devices)
 			require.NoError(t, err, "TryBatchStatus should not fail")
 			require.False(t, supported, "Batch status should be supported")
 
@@ -587,20 +570,17 @@ func waitForMinerReady(ctx context.Context, t *testing.T, host, port string) {
 	require.NoError(t, err)
 
 	for {
+		_, err := d.DiscoverDevice(ctx, host, port)
+		if err == nil {
+			t.Log("Miner is ready!")
+			return
+		}
+		t.Logf("Miner not ready yet: %v", err)
+
 		select {
 		case <-timeout:
 			t.Fatal("Timeout waiting for miner to be ready")
 		case <-ticker.C:
-			_, err := d.DiscoverDevice(ctx, host, port)
-			if err == nil {
-				t.Log("Miner is ready!")
-				return
-			}
-			t.Logf("Miner not ready yet: %v", err)
 		}
 	}
-}
-
-func stringPtr(s string) *string {
-	return &s
 }

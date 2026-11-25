@@ -41,20 +41,25 @@ func TestSourceConfigFromRow_SetColumnsOverrideDefaults(t *testing.T) {
 	assert.Equal(t, 120*time.Second, cfg.StalenessThreshold)
 }
 
-// last_processed_target rehydrates independently of last_target so the dedup
-// guard survives a restart after a debounced flip (last_target=OFF while the
-// debounced ON advanced last_processed_target to ON).
-func TestSourceStateFromRow_RehydratesProcessedTarget(t *testing.T) {
+// Every worker write persists both processed representations. Rehydrating the
+// full timestamp bucket suppresses either same-second target after a restart,
+// including a debounced flip that differs from the settled target.
+func TestSourceStateFromRow_RehydratesProcessedTargets(t *testing.T) {
 	t.Parallel()
-
+	stamp := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
 	st := sourceStateFromRow(sqlc.CurtailmentMqttSourceState{
-		LastTarget:          sql.NullString{String: "OFF", Valid: true}, // settled OFF
-		LastProcessedTarget: sql.NullString{String: "ON", Valid: true},  // debounced ON
+		LastTarget:           sql.NullString{String: "OFF", Valid: true},
+		LastTargetAt:         sql.NullTime{Time: stamp, Valid: true},
+		LastProcessedTarget:  sql.NullString{String: "ON", Valid: true},
+		LastProcessedTargets: []string{"OFF", "ON"},
 	})
-
 	assert.Equal(t, TargetOff, st.LastTarget)
-	assert.Equal(t, TargetOn, st.LastProcessedTarget,
-		"processed target survives restart, distinct from the settled target")
+	assert.Equal(t, TargetOn, st.LastProcessedTarget)
+	worker := &sourceWorker{}
+	for _, target := range []Target{TargetOff, TargetOn} {
+		assert.True(t, worker.alreadyProcessedTarget(st, CanonicalState{Target: target, PublishedAt: stamp}))
+		assert.False(t, worker.alreadyProcessedTarget(st, CanonicalState{Target: target, PublishedAt: stamp.Add(time.Second)}))
+	}
 }
 
 func TestSourceStateFromRow_RehydratesReassertOffPendingEdge(t *testing.T) {

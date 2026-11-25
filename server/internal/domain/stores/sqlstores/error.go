@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sqlc-dev/pqtype"
 
@@ -20,8 +22,6 @@ import (
 const (
 	// minValidEnumValue represents the minimum valid value for enum types
 	minValidEnumValue = 0
-	// unsetDatabaseID represents an uninitialized or invalid database ID
-	unsetDatabaseID = 0
 )
 
 var _ interfaces.ErrorStore = &SQLErrorStore{}
@@ -42,144 +42,162 @@ func (s *SQLErrorStore) getQueries(ctx context.Context) sqlc.Querier {
 	return s.GetQueries(ctx)
 }
 
-// UpsertError inserts a new error or updates an existing open error with the same dedup key.
-func (s *SQLErrorStore) UpsertError(ctx context.Context, orgID int64, deviceIdentifier string, errMsg *models.ErrorMessage) (*models.ErrorMessage, error) {
-	var result *models.ErrorMessage
-	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
-		q := s.getQueries(txCtx)
+type errorBatchReport struct {
+	ErrorID           string            `json:"error_id"`
+	MinerError        int32             `json:"miner_error"`
+	Severity          int32             `json:"severity"`
+	Summary           string            `json:"summary"`
+	Impact            *string           `json:"impact"`
+	CauseSummary      *string           `json:"cause_summary"`
+	RecommendedAction *string           `json:"recommended_action"`
+	FirstSeenAt       time.Time         `json:"first_seen_at"`
+	LastSeenAt        time.Time         `json:"last_seen_at"`
+	ComponentID       *string           `json:"component_id"`
+	ComponentType     *int32            `json:"component_type"`
+	VendorCode        *string           `json:"vendor_code"`
+	Firmware          *string           `json:"firmware"`
+	Extra             map[string]string `json:"extra"`
+	ClosedAt          *time.Time        `json:"closed_at"`
+}
 
-		deviceID, err := q.GetDeviceIDByIdentifier(txCtx, sqlc.GetDeviceIDByIdentifierParams{
-			DeviceIdentifier: deviceIdentifier,
-			OrgID:            orgID,
-		})
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return fleeterror.NewNotFoundErrorf("device not found: %s", deviceIdentifier)
-			}
-			return fleeterror.NewInternalErrorf("failed to resolve device identifier: %v", err)
-		}
+type errorBatchDedupKey struct {
+	MinerError    models.MinerError
+	ComponentID   string
+	HasComponent  bool
+	ComponentType models.ComponentType
+}
 
-		componentID := sql.NullString{String: "", Valid: false}
+// UpsertErrors persists one device's error snapshot in one database round trip.
+// Error detail changes are immediate; stable rows refresh on the supplied heartbeat.
+func (s *SQLErrorStore) UpsertErrors(
+	ctx context.Context,
+	orgID int64,
+	deviceIdentifier string,
+	errorsToUpsert []models.ErrorMessage,
+	observedAt time.Time,
+	refreshHeartbeat time.Duration,
+) error {
+	reports := make([]errorBatchReport, 0, len(errorsToUpsert))
+	reportIndexes := make(map[errorBatchDedupKey]int, len(errorsToUpsert))
+	for i := range errorsToUpsert {
+		errMsg := &errorsToUpsert[i]
+		var componentID *string
 		if errMsg.ComponentID != nil {
-			componentID = sql.NullString{String: *errMsg.ComponentID, Valid: true}
+			sanitized := sanitizeBoundedText(*errMsg.ComponentID)
+			componentID = &sanitized
+		}
+		key := errorBatchDedupKey{
+			MinerError:    errMsg.MinerError,
+			ComponentType: errMsg.ComponentType,
+		}
+		if componentID != nil {
+			key.ComponentID = *componentID
+			key.HasComponent = true
 		}
 
-		componentType := sql.NullInt32{Int32: unsetDatabaseID, Valid: false}
-		if errMsg.ComponentType != models.ComponentTypeUnspecified {
-			componentType = sql.NullInt32{Int32: int32(errMsg.ComponentType), Valid: true} // #nosec G115 -- ComponentType enum values bounded (max 4), safe for int32
+		lastSeenAt := normalizeErrorTimestamp(errMsg.LastSeenAt, observedAt)
+		var closedAt *time.Time
+		if errMsg.ClosedAt != nil {
+			normalized := normalizeErrorTimestamp(*errMsg.ClosedAt, lastSeenAt)
+			closedAt = &normalized
 		}
 
-		existingError, dbErr := q.GetOpenErrorByDedupKey(txCtx, sqlc.GetOpenErrorByDedupKeyParams{
-			OrgID:         orgID,
-			DeviceID:      deviceID,
-			MinerError:    int32(errMsg.MinerError), // #nosec G115 -- MinerError enum values bounded by protobuf (max ~9000)
-			ComponentID:   componentID,
-			ComponentType: componentType,
-		})
-
-		if dbErr != nil && !errors.Is(dbErr, sql.ErrNoRows) {
-			return fleeterror.NewInternalErrorf("failed to check for existing error: %v", dbErr)
+		report := errorBatchReport{
+			ErrorID:           id.GenerateID(),
+			MinerError:        int32(errMsg.MinerError), // #nosec G115 -- MinerError enum bounded by protobuf
+			Severity:          int32(errMsg.Severity),   // #nosec G115 -- Severity enum bounded (max 4)
+			Summary:           stripNUL(errMsg.Summary),
+			Impact:            nonEmptyStringPtr(stripNUL(errMsg.Impact)),
+			CauseSummary:      nonEmptyStringPtr(stripNUL(errMsg.CauseSummary)),
+			RecommendedAction: nonEmptyStringPtr(stripNUL(errMsg.RecommendedAction)),
+			FirstSeenAt:       normalizeErrorTimestamp(errMsg.FirstSeenAt, lastSeenAt),
+			LastSeenAt:        lastSeenAt,
+			ComponentID:       componentID,
+			ComponentType:     nullableComponentType(errMsg.ComponentType),
+			VendorCode:        nonEmptyStringPtr(sanitizeBoundedText(errMsg.VendorCode)),
+			Firmware:          nonEmptyStringPtr(sanitizeBoundedText(errMsg.Firmware)),
+			Extra:             sanitizeVendorAttributes(errMsg.VendorAttributes),
+			ClosedAt:          closedAt,
 		}
-		noOpenErrorExists := errors.Is(dbErr, sql.ErrNoRows) || existingError.ID == unsetDatabaseID
-
-		extra, err := json.Marshal(errMsg.VendorAttributes)
-		if err != nil {
-			return fleeterror.NewInternalErrorf("failed to marshal vendor attributes: %v", err)
+		if index, ok := reportIndexes[key]; ok {
+			report.FirstSeenAt = reports[index].FirstSeenAt
+			reports[index] = report
+			continue
 		}
-
-		if noOpenErrorExists {
-			result, err = s.insertNewError(txCtx, q, orgID, deviceID, errMsg, componentID, componentType, extra)
-		} else {
-			result, err = s.updateExistingError(txCtx, q, orgID, &existingError, errMsg, extra)
-		}
-		return err
-	})
-	if err != nil {
-		return nil, err
+		reportIndexes[key] = len(reports)
+		reports = append(reports, report)
 	}
-	return result, nil
+
+	reportsJSON, err := json.Marshal(reports)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to marshal error reports: %v", err)
+	}
+
+	params := sqlc.UpsertDeviceErrorsParams{
+		OrgID:            orgID,
+		DeviceIdentifier: deviceIdentifier,
+		ErrorReports:     reportsJSON,
+		ObservedAt:       observedAt,
+		HeartbeatCutoff:  observedAt.Add(-refreshHeartbeat),
+	}
+	deviceFound, err := s.getQueries(ctx).UpsertDeviceErrors(ctx, params)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to upsert device errors: %w", err)
+	}
+	if !deviceFound {
+		return fleeterror.NewNotFoundErrorf("device not found: %s", deviceIdentifier)
+	}
+
+	return nil
 }
 
-func (s *SQLErrorStore) insertNewError(
-	ctx context.Context,
-	q sqlc.Querier,
-	orgID int64,
-	deviceID int64,
-	errMsg *models.ErrorMessage,
-	componentID sql.NullString,
-	componentType sql.NullInt32,
-	extra json.RawMessage,
-) (*models.ErrorMessage, error) {
-	errorID := id.GenerateID()
-
-	insertedID, err := q.InsertError(ctx, sqlc.InsertErrorParams{
-		ErrorID:           errorID,
-		OrgID:             orgID,
-		DeviceID:          deviceID,
-		MinerError:        int32(errMsg.MinerError), // #nosec G115 -- MinerError enum bounded by protobuf
-		Severity:          int32(errMsg.Severity),   // #nosec G115 -- Severity enum bounded (max 4)
-		Summary:           errMsg.Summary,
-		Impact:            toNullString(errMsg.Impact),
-		CauseSummary:      toNullString(errMsg.CauseSummary),
-		RecommendedAction: toNullString(errMsg.RecommendedAction),
-		FirstSeenAt:       errMsg.FirstSeenAt,
-		LastSeenAt:        errMsg.LastSeenAt,
-		ComponentID:       componentID,
-		ComponentType:     componentType,
-		VendorCode:        toNullString(errMsg.VendorCode),
-		Firmware:          toNullString(errMsg.Firmware),
-		Extra:             pqtype.NullRawMessage{RawMessage: extra, Valid: len(extra) > 0},
-		ClosedAt:          toNullTime(errMsg.ClosedAt),
-	})
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to insert error: %v", err)
+// normalizeErrorTimestamp keeps device timestamps inside the range accepted by
+// both JSON and PostgreSQL (which rejects year zero). Serialize in UTC so an
+// offset cannot move an otherwise valid local year outside that range.
+func normalizeErrorTimestamp(value, fallback time.Time) time.Time {
+	value = value.UTC()
+	if value.Year() < 1 || value.Year() > 9999 {
+		return fallback.UTC()
 	}
-
-	dbError, err := q.GetErrorByID(ctx, sqlc.GetErrorByIDParams{
-		ID:    insertedID,
-		OrgID: orgID,
-	})
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to fetch inserted error: %v", err)
-	}
-
-	return toErrorMessage(&dbError, errMsg.DeviceID), nil
+	return value
 }
 
-func (s *SQLErrorStore) updateExistingError(
-	ctx context.Context,
-	q sqlc.Querier,
-	orgID int64,
-	existingError *sqlc.Error,
-	errMsg *models.ErrorMessage,
-	extra json.RawMessage,
-) (*models.ErrorMessage, error) {
-	err := q.UpdateOpenError(ctx, sqlc.UpdateOpenErrorParams{
-		LastSeenAt:        errMsg.LastSeenAt,
-		Severity:          int32(errMsg.Severity), // #nosec G115 -- Severity enum values bounded (max 4)
-		Summary:           errMsg.Summary,
-		Impact:            toNullString(errMsg.Impact),
-		CauseSummary:      toNullString(errMsg.CauseSummary),
-		RecommendedAction: toNullString(errMsg.RecommendedAction),
-		VendorCode:        toNullString(errMsg.VendorCode),
-		Firmware:          toNullString(errMsg.Firmware),
-		Extra:             pqtype.NullRawMessage{RawMessage: extra, Valid: len(extra) > 0},
-		ClosedAt:          toNullTime(errMsg.ClosedAt),
-		ID:                existingError.ID,
-	})
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to update error: %v", err)
-	}
+// maxBoundedTextRunes matches the varchar(255) columns, which count characters.
+const maxBoundedTextRunes = 255
 
-	dbError, err := q.GetErrorByID(ctx, sqlc.GetErrorByIDParams{
-		ID:    existingError.ID,
-		OrgID: orgID,
-	})
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to fetch updated error: %v", err)
+// stripNUL removes NUL characters, which jsonb and text columns reject.
+func stripNUL(value string) string {
+	if !strings.ContainsRune(value, 0) {
+		return value
 	}
+	return strings.ReplaceAll(value, "\x00", "")
+}
 
-	return toErrorMessage(&dbError, errMsg.DeviceID), nil
+func sanitizeBoundedText(value string) string {
+	value = stripNUL(value)
+	if utf8.RuneCountInString(value) <= maxBoundedTextRunes {
+		return value
+	}
+	return string([]rune(value)[:maxBoundedTextRunes])
+}
+
+func sanitizeVendorAttributes(attributes map[string]string) map[string]string {
+	if attributes == nil {
+		return nil
+	}
+	sanitized := make(map[string]string, len(attributes))
+	for key, value := range attributes {
+		sanitized[stripNUL(key)] = stripNUL(value)
+	}
+	return sanitized
+}
+
+func nullableComponentType(componentType models.ComponentType) *int32 {
+	if componentType == models.ComponentTypeUnspecified {
+		return nil
+	}
+	value := int32(componentType) // #nosec G115 -- ComponentType enum values bounded (max 4)
+	return &value
 }
 
 // GetErrorByErrorID retrieves a single error by its error_id (ULID).
@@ -267,28 +285,6 @@ func buildErrorMessage(fields errorFields) *models.ErrorMessage {
 	}
 }
 
-// toErrorMessage converts a sqlc.Error to a domain models.ErrorMessage.
-func toErrorMessage(dbError *sqlc.Error, deviceIdentifier string) *models.ErrorMessage {
-	return buildErrorMessage(errorFields{
-		ErrorID:           dbError.ErrorID,
-		MinerError:        dbError.MinerError,
-		CauseSummary:      dbError.CauseSummary,
-		RecommendedAction: dbError.RecommendedAction,
-		Severity:          dbError.Severity,
-		FirstSeenAt:       dbError.FirstSeenAt,
-		LastSeenAt:        dbError.LastSeenAt,
-		ClosedAt:          dbError.ClosedAt,
-		Extra:             dbError.Extra,
-		ComponentID:       dbError.ComponentID,
-		ComponentType:     dbError.ComponentType,
-		Impact:            dbError.Impact,
-		Summary:           dbError.Summary,
-		VendorCode:        dbError.VendorCode,
-		Firmware:          dbError.Firmware,
-		DeviceIdentifier:  deviceIdentifier,
-	})
-}
-
 // toErrorMessageFromRow converts a GetErrorByErrorIDRow to a domain models.ErrorMessage.
 func toErrorMessageFromRow(row *sqlc.GetErrorByErrorIDRow) *models.ErrorMessage {
 	return buildErrorMessage(errorFields{
@@ -336,14 +332,6 @@ func safeInt32ToComponentType(val int32) models.ComponentType {
 		return models.ComponentTypeUnspecified
 	}
 	return models.ComponentType(uint(val))
-}
-
-// toNullTime converts a *time.Time to sql.NullTime for database operations.
-func toNullTime(t *time.Time) sql.NullTime {
-	if t == nil {
-		return sql.NullTime{Valid: false}
-	}
-	return sql.NullTime{Time: *t, Valid: true}
 }
 
 // nullStringToPtr converts a sql.NullString to a *string pointer.
@@ -949,6 +937,30 @@ func buildComponentCountParams(opts *models.QueryOptions) sqlc.CountComponentsWi
 // Error Lifecycle Management
 // ============================================================================
 
+// CloseStaleErrors discounts the heartbeat lag in persisted error observations,
+// while requiring device status within the original staleness threshold.
+// This is a bulk operation that operates globally across all organizations.
+func (s *SQLErrorStore) CloseStaleErrors(ctx context.Context, threshold, refreshHeartbeat time.Duration) (int64, error) {
+	q := s.getQueries(ctx)
+
+	statusCutoffTime := time.Now().Add(-threshold)
+
+	result, err := q.CloseStaleErrors(ctx, sqlc.CloseStaleErrorsParams{
+		CutoffTime:       statusCutoffTime.Add(-refreshHeartbeat),
+		StatusCutoffTime: sql.NullTime{Time: statusCutoffTime, Valid: true},
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to close stale errors: %v", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to get rows affected: %v", err)
+	}
+
+	return rowsAffected, nil
+}
+
 // RefreshOpenErrorsLastSeen updates all open errors for a device after an incomplete poll.
 func (s *SQLErrorStore) RefreshOpenErrorsLastSeen(ctx context.Context, orgID int64, deviceIdentifier string, observedAt time.Time) (int64, error) {
 	q := s.getQueries(ctx)
@@ -960,29 +972,6 @@ func (s *SQLErrorStore) RefreshOpenErrorsLastSeen(ctx context.Context, orgID int
 	})
 	if err != nil {
 		return 0, fleeterror.NewInternalErrorf("failed to refresh open errors: %v", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to get rows affected: %v", err)
-	}
-
-	return rowsAffected, nil
-}
-
-// CloseStaleErrors closes all open errors where last_seen_at is older than the threshold.
-// This is a bulk operation that operates globally across all organizations.
-func (s *SQLErrorStore) CloseStaleErrors(ctx context.Context, threshold time.Duration) (int64, error) {
-	q := s.getQueries(ctx)
-
-	cutoffTime := time.Now().Add(-threshold)
-
-	result, err := q.CloseStaleErrors(ctx, sqlc.CloseStaleErrorsParams{
-		CutoffTime:       cutoffTime,
-		StatusCutoffTime: sql.NullTime{Time: cutoffTime, Valid: true},
-	})
-	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to close stale errors: %v", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()

@@ -277,7 +277,7 @@ func TestHandler_StartCurtailmentRejectsStaleResponseProfileRevision(t *testing.
 		Mode:             models.ModeFixedKw,
 		RestoreBatchSize: 50,
 	}}
-	h := NewHandlerWithResponseProfiles(nil, curtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, curtailment.NewResponseProfileService(store))
 	req := validStartRequestBuilder()
 	req.ResponseProfileId = 201
 	req.ExpectedResponseProfileRevision = "55555555-5555-4555-8555-555555555555"
@@ -303,7 +303,7 @@ func TestHandler_StartCurtailmentRejectsValuesOutsideResponseProfile(t *testing.
 	profile := fixedKWWholeOrgExecutionProfile(1, 201, 5)
 	profile.RestoreBatchSize = 50
 	store.profiles = []*models.ResponseProfile{profile}
-	h := NewHandlerWithResponseProfiles(nil, curtailment.NewResponseProfileService(store))
+	h := newTestHandlerWithProfiles(nil, curtailment.NewResponseProfileService(store))
 	req := validStartRequestBuilder()
 	req.ResponseProfileId = 201
 	req.ExpectedResponseProfileRevision = handlerResponseProfileTestRevision
@@ -330,7 +330,7 @@ func TestHandler_StartCurtailmentUsesSavedProfileCurtailBatching(t *testing.T) {
 	store.candidates = []*models.Candidate{miner("eligible", "ACTIVE", "PAIRED", 6000, 100, 40)}
 	profileStore := newHandlerResponseProfileStore()
 	profileStore.profiles = []*models.ResponseProfile{fixedKWWholeOrgExecutionProfile(1, 201, 5)}
-	h := NewHandlerWithResponseProfiles(
+	h := newTestHandlerWithProfiles(
 		curtailment.NewService(store),
 		curtailment.NewResponseProfileService(profileStore),
 	)
@@ -411,7 +411,7 @@ func TestHandler_StartCurtailment_HappyPath(t *testing.T) {
 		miner("worst", "ACTIVE", "PAIRED", 3000, 100, 50),
 		miner("mid", "ACTIVE", "PAIRED", 3000, 100, 35),
 	}
-	h := NewHandler(curtailment.NewService(store))
+	h := newTestHandler(curtailment.NewService(store))
 
 	ctx := startSessionInfoCtxWithPerms(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
@@ -493,7 +493,7 @@ func TestHandler_StartCurtailment_FrozenTopologyScope(t *testing.T) {
 			store.candidates = []*models.Candidate{
 				miner(tc.name+"-miner", "ACTIVE", "PAIRED", 3000, 100, 40),
 			}
-			h := NewHandler(curtailment.NewService(store))
+			h := newTestHandler(curtailment.NewService(store))
 			ctx := startSessionCtxWithPerms(t, 42, "OPERATOR", authz.PermCurtailmentManage)
 			req := validStartRequestBuilder()
 			req.Scope = nil
@@ -519,7 +519,7 @@ func TestHandler_StartCurtailment_FrozenTopologyScopeRequiresOrgWideManage(t *te
 	t.Parallel()
 
 	store := newStartStubStore()
-	h := NewHandler(curtailment.NewService(store))
+	h := newTestHandler(curtailment.NewService(store))
 	req := validStartRequestBuilder()
 	req.Scope = nil
 	req.Scopes = []*pb.CurtailmentScope{{Scope: &pb.CurtailmentScope_Building{
@@ -551,7 +551,7 @@ func TestHandler_StartCurtailment_AllPairedPolicyReturnsBoundedTargetRollup(t *t
 		miner("online", "ACTIVE", "PAIRED", 3000, 100, 40),
 		miner("offline", "OFFLINE", "PAIRED", 0, 0, 0),
 	}
-	h := NewHandler(curtailment.NewService(store))
+	h := newTestHandler(curtailment.NewService(store))
 
 	ctx := startSessionInfoCtxWithPerms(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
@@ -612,7 +612,7 @@ func TestHandler_StartCurtailment_AllPairedReplayStaysCountOnly(t *testing.T) {
 	store.rollupByEventUUID = map[uuid.UUID]*models.TargetRollup{
 		eventUUID: {Pending: 4, Unavailable: 2, Total: 6},
 	}
-	h := NewHandler(curtailment.NewService(store))
+	h := newTestHandler(curtailment.NewService(store))
 
 	ctx := startSessionInfoCtxWithPerms(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
@@ -649,7 +649,7 @@ func TestHandler_StartCurtailment_PersistsCurtailBatchControls(t *testing.T) {
 		miner("worst", "ACTIVE", "PAIRED", 3000, 100, 50),
 		miner("mid", "ACTIVE", "PAIRED", 3000, 100, 35),
 	}
-	h := NewHandler(curtailment.NewService(store))
+	h := newTestHandler(curtailment.NewService(store))
 	ctx := startSessionInfoCtxWithPerms(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: 42,
@@ -677,7 +677,7 @@ func TestHandler_StartCurtailment_RejectsCurtailBatchIntervalWithoutSize(t *test
 	t.Parallel()
 
 	store := newStartStubStore()
-	h := NewHandler(curtailment.NewService(store))
+	h := newTestHandler(curtailment.NewService(store))
 	ctx := startSessionInfoCtxWithPerms(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: 42,
@@ -772,7 +772,7 @@ func TestHandler_StartCurtailment_RequiresCurtailmentManage(t *testing.T) {
 			store.candidates = []*models.Candidate{
 				miner("eligible", "ACTIVE", "PAIRED", 6000, 100, 40),
 			}
-			h := NewHandler(curtailment.NewService(store))
+			h := newTestHandler(curtailment.NewService(store))
 
 			req := validStartRequestBuilder()
 			if tc.mutateReq != nil {
@@ -809,7 +809,7 @@ func TestHandler_StartCurtailmentCarriesAuthorizedDeviceSnapshot(t *testing.T) {
 	store.candidates = []*models.Candidate{miner("eligible", "ACTIVE", "PAIRED", 6000, 100, 40)}
 	profileStore := newHandlerResponseProfileStore()
 	profileStore.deviceSites = map[string]*int64{"eligible": ptrHandlerInt64(siteID)}
-	h := NewHandlerWithResponseProfiles(
+	h := newTestHandlerWithProfiles(
 		curtailment.NewService(store),
 		curtailment.NewResponseProfileService(profileStore),
 	)
@@ -871,7 +871,7 @@ func TestHandler_StartCurtailment_IdempotentReplayRendersPersistedEvent(t *testi
 			},
 		},
 	}
-	h := NewHandler(curtailment.NewService(store))
+	h := newTestHandler(curtailment.NewService(store))
 
 	ctx := startSessionInfoCtxWithPerms(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
@@ -926,7 +926,7 @@ func TestHandler_StartCurtailment_IdempotentReplayRequiresPersistedEventPermissi
 			CreatedByUserID:         9,
 		},
 	}
-	h := NewHandler(curtailment.NewService(store))
+	h := newTestHandler(curtailment.NewService(store))
 	ctx := testSessionCtxWithAssignments(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: 42,
@@ -983,7 +983,7 @@ func TestHandler_StartCurtailment_IdempotentReplayUsesPersistedEnvelopeBeforeLiv
 		},
 	}
 	profileStore := newHandlerResponseProfileStore()
-	h := NewHandlerWithResponseProfiles(
+	h := newTestHandlerWithProfiles(
 		curtailment.NewService(store),
 		curtailment.NewResponseProfileService(profileStore),
 	)
@@ -1019,7 +1019,7 @@ func TestHandler_StartCurtailment_APIKeyDerivesAPIKeyActor(t *testing.T) {
 	store.candidates = []*models.Candidate{
 		miner("a", "ACTIVE", "PAIRED", 6000, 100, 40),
 	}
-	h := NewHandler(curtailment.NewService(store))
+	h := newTestHandler(curtailment.NewService(store))
 
 	ctx := startSessionInfoCtxWithPerms(t, &session.Info{
 		AuthMethod:     session.AuthMethodAPIKey,
@@ -1049,7 +1049,7 @@ func TestHandler_StartCurtailment_InsufficientLoadSurfacesAsInvalidArgument(t *t
 	store.candidates = []*models.Candidate{
 		miner("only", "ACTIVE", "PAIRED", 1500, 100, 40),
 	}
-	h := NewHandler(curtailment.NewService(store))
+	h := newTestHandler(curtailment.NewService(store))
 
 	ctx := startSessionInfoCtxWithPerms(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
@@ -1081,7 +1081,7 @@ func TestHandler_StartCurtailment_FullFleetAllSkippedReturnsActiveWatcher(t *tes
 		miner("offline", "OFFLINE", "PAIRED", 0, 0, 40),
 		miner("updating", "UPDATING", "PAIRED", 0, 0, 40),
 	}
-	h := NewHandler(curtailment.NewService(store))
+	h := newTestHandler(curtailment.NewService(store))
 
 	ctx := startSessionInfoCtxWithPerms(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
@@ -1110,7 +1110,7 @@ func TestHandler_StartCurtailment_RejectsMissingSession(t *testing.T) {
 	t.Parallel()
 
 	store := newStartStubStore()
-	h := NewHandler(curtailment.NewService(store))
+	h := newTestHandler(curtailment.NewService(store))
 
 	_, err := h.StartCurtailment(t.Context(), connect.NewRequest(validStartRequestBuilder()))
 	require.Error(t, err)
@@ -1130,7 +1130,7 @@ func TestHandler_StartCurtailment_OverrideRoleGateBlocksNonAdmin(t *testing.T) {
 	store.candidates = []*models.Candidate{
 		miner("a", "ACTIVE", "PAIRED", 6000, 100, 40),
 	}
-	h := NewHandler(curtailment.NewService(store))
+	h := newTestHandler(curtailment.NewService(store))
 
 	ctx := startSessionInfoCtxWithPerms(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
@@ -1151,18 +1151,16 @@ func TestHandler_StartCurtailment_OverrideRoleGateBlocksNonAdmin(t *testing.T) {
 	assert.Empty(t, store.lastTargets)
 }
 
-// TestHandler_StartCurtailment_ZeroMaxDurationUsesOrgDefault verifies the
-// "use org default" sentinel: max_duration_seconds=0 with allow_unbounded
-// false resolves to curtailment_org_config.max_duration_default_sec at
-// persistence time rather than rejecting the request.
-func TestHandler_StartCurtailment_ZeroMaxDurationUsesOrgDefault(t *testing.T) {
+// TestHandler_StartCurtailment_ZeroMaxDurationHasNoCap verifies that an
+// operator Start without max_duration_seconds persists an unbounded event.
+func TestHandler_StartCurtailment_ZeroMaxDurationHasNoCap(t *testing.T) {
 	t.Parallel()
 
 	store := newStartStubStore()
 	store.candidates = []*models.Candidate{
 		miner("a", "ACTIVE", "PAIRED", 6000, 100, 40),
 	}
-	h := NewHandler(curtailment.NewService(store))
+	h := newTestHandler(curtailment.NewService(store))
 
 	ctx := startSessionInfoCtxWithPerms(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
@@ -1173,12 +1171,12 @@ func TestHandler_StartCurtailment_ZeroMaxDurationUsesOrgDefault(t *testing.T) {
 	}, authz.PermCurtailmentManage)
 
 	req := validStartRequestBuilder()
-	req.MaxDurationSeconds = 0 // sentinel: use org default.
+	req.MaxDurationSeconds = 0
 
 	_, err := h.StartCurtailment(ctx, connect.NewRequest(req))
 	require.NoError(t, err)
-	require.NotNil(t, store.lastEvent.MaxDurationSeconds)
-	assert.Equal(t, store.orgConfig.MaxDurationDefaultSec, *store.lastEvent.MaxDurationSeconds)
+	assert.Nil(t, store.lastEvent.MaxDurationSeconds)
+	assert.True(t, store.lastEvent.AllowUnbounded)
 }
 
 // TestHandler_StartCurtailment_AllowUnboundedAdminPersistsNullDuration
@@ -1191,7 +1189,7 @@ func TestHandler_StartCurtailment_AllowUnboundedAdminPersistsNullDuration(t *tes
 	store.candidates = []*models.Candidate{
 		miner("a", "ACTIVE", "PAIRED", 6000, 100, 40),
 	}
-	h := NewHandler(curtailment.NewService(store))
+	h := newTestHandler(curtailment.NewService(store))
 
 	ctx := startSessionInfoCtxWithPerms(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
@@ -1221,7 +1219,7 @@ func TestHandler_StartCurtailment_RejectsAllowUnboundedWithMaxDuration(t *testin
 	store.candidates = []*models.Candidate{
 		miner("a", "ACTIVE", "PAIRED", 6000, 100, 40),
 	}
-	h := NewHandler(curtailment.NewService(store))
+	h := newTestHandler(curtailment.NewService(store))
 
 	ctx := startSessionInfoCtxWithPerms(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
@@ -1270,7 +1268,7 @@ func TestHandler_StartCurtailment_RejectsUint32Overflow(t *testing.T) {
 		t.Run(tc.field, func(t *testing.T) {
 			t.Parallel()
 			store := newStartStubStore()
-			h := NewHandler(curtailment.NewService(store))
+			h := newTestHandler(curtailment.NewService(store))
 			ctx := startSessionInfoCtxWithPerms(t, &session.Info{
 				AuthMethod:     session.AuthMethodSession,
 				OrganizationID: 1,
@@ -1299,7 +1297,7 @@ func TestHandler_StartCurtailment_OutcomeMirrorsInsufficientLoadShapeOnZeroPool(
 
 	store := newStartStubStore()
 	store.candidates = nil
-	h := NewHandler(curtailment.NewService(store))
+	h := newTestHandler(curtailment.NewService(store))
 
 	ctx := startSessionInfoCtxWithPerms(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,

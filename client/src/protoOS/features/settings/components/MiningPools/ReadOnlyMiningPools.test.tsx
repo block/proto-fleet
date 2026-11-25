@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 
 import ReadOnlyMiningPools from "./ReadOnlyMiningPools";
-import { PoolInfo } from "@/shared/components/MiningPools/types";
+import { PoolInfo } from "@/shared/types/pool";
 
 const pool = (overrides: Partial<PoolInfo>): PoolInfo => ({
   name: "",

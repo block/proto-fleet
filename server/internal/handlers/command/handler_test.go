@@ -23,13 +23,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
-// TODO: Rewrite the broader command handler tests using plugin-based test
-// infrastructure. The tests below are narrow to GetCommandBatchDeviceResults
-// and don't need plugin support.
-func TestCommandHandler(t *testing.T) {
-	t.Skip("Disabled pending plugin-based test infrastructure")
-}
-
 func TestHandler_FirmwareUpdateRequiresFirmwareUpdateAndRebootPermissions(t *testing.T) {
 	t.Parallel()
 	h := handler.NewHandler(nil)

@@ -7,12 +7,13 @@ import (
 	"log/slog"
 	"math"
 	"net/netip"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/block/proto-fleet/server/internal/domain/poolconfigurations"
 
 	"golang.org/x/sync/singleflight"
 
@@ -39,7 +40,6 @@ import (
 	errorsv1 "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
-	poolspb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	telemetrypb "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -108,27 +108,23 @@ type CapabilitiesProvider interface {
 	GetMinerCapabilitiesForDevice(ctx context.Context, device *pairingpb.Device) *capabilitiespb.MinerCapabilities
 }
 
-type WorkerNamePoolReapplyService interface {
-	VerifyCredentials(ctx context.Context, userUsername string, userPassword string) error
-
-	ReapplyCurrentPoolsWithWorkerNames(
-		ctx context.Context,
-		desiredWorkerNamesByDeviceIdentifier map[string]string,
-	) (batchIdentifier string, err error)
+type WorkerNamePoolReviewService interface {
+	ReviewWorkerNames(ctx context.Context, names map[string]string) ([]poolconfigurations.Review, error)
+	ReviewBoardWorkerNames(ctx context.Context, selection poolconfigurations.BoardSelection, options poolconfigurations.WorkerNameOptions) ([]poolconfigurations.Review, int, error)
 }
 
 type Service struct {
+	minerWebCapability    interface{ SupportsMinerWeb(fleetNodeID int64) bool }
 	deviceStore           interfaces.DeviceStore
 	discoveredDeviceStore interfaces.DiscoveredDeviceStore
 	telemetry             TelemetryCollector
 	minerService          *miner.Service
 	capabilitiesProvider  CapabilitiesProvider
 	capabilitiesCache     sync.Map
-	poolStore             interfaces.PoolStore
 	errorStore            interfaces.ErrorStore
 	collectionStore       interfaces.CollectionStore
 	buildingStore         interfaces.BuildingStore
-	workerNamePoolService WorkerNamePoolReapplyService
+	workerNamePoolService WorkerNamePoolReviewService
 	deviceResolver        *deviceresolver.Resolver
 	activitySvc           *activity.Service
 
@@ -157,11 +153,10 @@ func NewService(
 	t TelemetryCollector,
 	minerService *miner.Service,
 	capabilitiesProvider CapabilitiesProvider,
-	poolStore interfaces.PoolStore,
 	errorStore interfaces.ErrorStore,
 	collectionStore interfaces.CollectionStore,
 	buildingStore interfaces.BuildingStore,
-	workerNamePoolService WorkerNamePoolReapplyService,
+	workerNamePoolService WorkerNamePoolReviewService,
 	activitySvc *activity.Service,
 ) *Service {
 	return &Service{
@@ -170,7 +165,6 @@ func NewService(
 		telemetry:             t,
 		minerService:          minerService,
 		capabilitiesProvider:  capabilitiesProvider,
-		poolStore:             poolStore,
 		errorStore:            errorStore,
 		collectionStore:       collectionStore,
 		buildingStore:         buildingStore,
@@ -181,6 +175,11 @@ func NewService(
 		unpairSem:             make(chan struct{}, concurrentUnpairLimit),
 		refreshMinerSem:       make(chan struct{}, refreshMinersConcurrencyLimit),
 	}
+}
+
+// WithMinerWebCapability enables views for compatible live Fleet Nodes.
+func (s *Service) WithMinerWebCapability(provider interface{ SupportsMinerWeb(fleetNodeID int64) bool }) {
+	s.minerWebCapability = provider
 }
 
 // WithOptionsCache wires the per-org options cache used to serve
@@ -219,8 +218,9 @@ func (s *Service) resolveDeviceSetSiteScope(ctx context.Context, orgID int64, id
 }
 
 // WaitForPendingUnpairs blocks until all background Unpair goroutines
-// complete or the timeout expires. Call during graceful server shutdown.
-func (s *Service) WaitForPendingUnpairs(timeout time.Duration) {
+// complete or ctx expires. Call after request admission has drained. An error
+// means device work may still be running and HA ownership must not be released.
+func (s *Service) WaitForPendingUnpairs(ctx context.Context) error {
 	done := make(chan struct{})
 	go func() {
 		s.backgroundWg.Wait()
@@ -228,8 +228,12 @@ func (s *Service) WaitForPendingUnpairs(timeout time.Duration) {
 	}()
 	select {
 	case <-done:
-	case <-time.After(timeout):
-		slog.Warn("timed out waiting for pending Unpair operations during shutdown")
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("drain pending Unpair operations: %w", err)
+		}
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("drain pending Unpair operations: %w", ctx.Err())
 	}
 }
 
@@ -347,7 +351,7 @@ func (s *Service) RefreshMiners(ctx context.Context, req *pb.RefreshMinersReques
 			snapshotCtx, cancel := context.WithTimeout(refreshCtx, refreshMinersSnapshotTimeout)
 			defer cancel()
 
-			snapshots, err := s.getMinerStateSnapshotsByIDs(snapshotCtx, info.OrganizationID, []string{deviceID})
+			snapshots, err := s.getMinerStateSnapshotsByIDs(snapshotCtx, info.OrganizationID, []string{deviceID}, nil)
 			if err != nil {
 				results <- refreshResult{id: deviceID, errMsg: sanitizeRefreshMinerError(err)}
 				return
@@ -387,7 +391,7 @@ func (s *Service) RefreshMinerResourceContexts(ctx context.Context, req *pb.Refr
 		return nil, err
 	}
 
-	snapshots, err := s.getMinerStateSnapshotsByIDs(ctx, info.OrganizationID, deviceIDs)
+	snapshots, err := s.getMinerStateSnapshotsByIDs(ctx, info.OrganizationID, deviceIDs, nil)
 	if err != nil {
 		return nil, fleeterror.NewInternalError("failed to authorize miner refresh")
 	}
@@ -515,7 +519,7 @@ func (s *Service) LookupMinerByIdentifier(ctx context.Context, req *pb.LookupMin
 
 	// Reuse the organization-scoped hydration path for internal identifiers too.
 	// No list search or MAC/serial inference is needed for a Fleet selection.
-	snapshots, err := s.getMinerStateSnapshotsByIDs(ctx, info.OrganizationID, []string{deviceIdentifier})
+	snapshots, err := s.getMinerStateSnapshotsByIDs(ctx, info.OrganizationID, []string{deviceIdentifier}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -577,7 +581,7 @@ func (s *Service) GetMinerStateCounts(ctx context.Context, req *pb.GetMinerState
 	// Both the total and the per-state breakdown must share the same scope,
 	// otherwise the dashboard FleetHealth bar mixes a scoped breakdown with
 	// an org-wide total.
-	total, err := s.deviceStore.GetTotalPairedDevices(ctx, info.OrganizationID, filter)
+	total, err := s.deviceStore.GetTotalPairedMiners(ctx, info.OrganizationID, filter)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
 	}
@@ -699,7 +703,16 @@ func (s *Service) buildSnapshot(
 	}, nil
 }
 
-func (s *Service) getMinerStateSnapshotsByIDs(ctx context.Context, orgID int64, deviceIDs []string) ([]*pb.MinerStateSnapshot, error) {
+// InventorySnapshots reauthorizes current placement before enriching a bounded
+// inventory page: devices can move sites after the original page was selected.
+func (s *Service) InventorySnapshots(ctx context.Context, orgID int64, deviceIDs []string, canReadSite func(*int64) bool) ([]*pb.MinerStateSnapshot, error) {
+	if canReadSite == nil {
+		return nil, fleeterror.NewInternalError("inventory enrichment requires site authorization")
+	}
+	return s.getMinerStateSnapshotsByIDs(ctx, orgID, deviceIDs, canReadSite)
+}
+
+func (s *Service) getMinerStateSnapshotsByIDs(ctx context.Context, orgID int64, deviceIDs []string, canReadSite func(*int64) bool) ([]*pb.MinerStateSnapshot, error) {
 	if len(deviceIDs) == 0 {
 		return nil, nil
 	}
@@ -712,6 +725,20 @@ func (s *Service) getMinerStateSnapshotsByIDs(ctx context.Context, orgID int64, 
 	}, nil)
 	if err != nil {
 		return nil, err
+	}
+
+	if canReadSite != nil {
+		authorized := snapshots[:0]
+		for _, snapshot := range snapshots {
+			var siteID *int64
+			if site := snapshot.GetPlacement().GetSite(); site != nil {
+				siteID = &site.Id
+			}
+			if canReadSite(siteID) {
+				authorized = append(authorized, snapshot)
+			}
+		}
+		snapshots = authorized
 	}
 
 	pairedDeviceIDs := collectPairedDeviceIdentifiers(snapshots)
@@ -798,7 +825,8 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 		snapshot := &pb.MinerStateSnapshot{
 			DeviceIdentifier:         row.DeviceIdentifier,
 			DriverName:               row.DriverName,
-			EmbeddedWebViewAvailable: row.EmbeddedWebViewAvailable,
+			DeviceClass:              commonpb.DeviceClass(row.DeviceClass),
+			EmbeddedWebViewAvailable: row.EmbeddedWebViewAvailable && (!row.FleetNodeID.Valid || (s.minerWebCapability != nil && s.minerWebCapability.SupportsMinerWeb(row.FleetNodeID.Int64))),
 		}
 
 		if row.SiteID.Valid {
@@ -1069,6 +1097,12 @@ func shouldIncludeStateCounts(pairingStatuses []pb.PairingStatus) bool {
 		}
 	}
 	return false
+}
+
+// ParseListFilter validates and normalizes the miner-list contract for read APIs
+// that reuse the same filter semantics.
+func ParseListFilter(ctx context.Context, orgID int64, filter *pb.MinerListFilter, buildings interfaces.BuildingStore) (*interfaces.MinerFilter, error) {
+	return parseFilter(ctx, orgID, filter, buildings)
 }
 
 func parseFilter(
@@ -1441,66 +1475,6 @@ func convertDeviceStatusStringToProto(status string) pb.DeviceStatus {
 	}
 }
 
-// GetMinerPoolAssignments retrieves the currently configured pools from a miner
-// and matches them with fleet pool definitions to return pool IDs
-func (s *Service) GetMinerPoolAssignments(ctx context.Context, req *pb.GetMinerPoolAssignmentsRequest) (*pb.GetMinerPoolAssignmentsResponse, error) {
-	info, err := session.GetInfo(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	// Get the miner by device identifier
-	minerDevice, err := s.minerService.GetMinerFromDeviceIdentifier(ctx, mm.DeviceIdentifier(req.DeviceIdentifier))
-	if err != nil {
-		if isMinerNotFoundError(err) {
-			return nil, fleeterror.NewNotFoundErrorf("miner not found: %s", req.DeviceIdentifier)
-		}
-		return nil, fleeterror.NewInternalErrorf("failed to get miner: %v", err)
-	}
-
-	// Verify the miner belongs to the user's organization
-	if minerDevice.GetOrgID() != info.OrganizationID {
-		return nil, fleeterror.NewNotFoundErrorf("miner not found: %s", req.DeviceIdentifier)
-	}
-
-	// Get currently configured pools from the miner
-	configuredPools, err := minerDevice.GetMiningPools(ctx)
-	if err != nil {
-		slog.Error("failed to get mining pools from miner", "deviceID", req.DeviceIdentifier, "error", err)
-		return nil, fleeterror.NewInternalErrorf("failed to get mining pools from miner: %v", err)
-	}
-
-	// If no pools configured, return empty response
-	if len(configuredPools) == 0 {
-		return &pb.GetMinerPoolAssignmentsResponse{}, nil
-	}
-
-	// Get all fleet pools for matching
-	fleetPools, err := s.poolStore.ListPools(ctx, info.OrganizationID)
-	if err != nil {
-		slog.Error("failed to list fleet pools", "orgID", info.OrganizationID, "error", err)
-		return nil, fleeterror.NewInternalErrorf("failed to list fleet pools: %v", err)
-	}
-
-	// Sort pools by priority to ensure consistent ordering
-	// (miner API does not guarantee order)
-	sort.Slice(configuredPools, func(i, j int) bool {
-		return configuredPools[i].Priority < configuredPools[j].Priority
-	})
-
-	pools := make([]*pb.PoolAssignment, 0, len(configuredPools))
-	for _, configuredPool := range configuredPools {
-		assignment := &pb.PoolAssignment{
-			Url:      configuredPool.URL,
-			Username: configuredPool.Username,
-			PoolId:   findMatchingFleetPoolID(configuredPool.URL, configuredPool.Username, fleetPools),
-		}
-		pools = append(pools, assignment)
-	}
-
-	return &pb.GetMinerPoolAssignmentsResponse{Pools: pools}, nil
-}
-
 // GetMinerCoolingMode retrieves the currently configured cooling mode from a miner.
 func (s *Service) GetMinerCoolingMode(ctx context.Context, req *pb.GetMinerCoolingModeRequest) (*pb.GetMinerCoolingModeResponse, error) {
 	info, err := session.GetInfo(ctx)
@@ -1532,42 +1506,9 @@ func (s *Service) GetMinerCoolingMode(ctx context.Context, req *pb.GetMinerCooli
 	return &pb.GetMinerCoolingModeResponse{CoolingMode: coolingMode}, nil
 }
 
-// findMatchingFleetPoolID finds a fleet pool that matches the given URL and username.
-// Username matching tries the exact stored username first, then falls back to the
-// base username before the first dot so normalized Fleet pools still match miner
-// usernames that include an appended worker suffix.
-func findMatchingFleetPoolID(url, username string, fleetPools []*poolspb.Pool) *int64 {
-	for _, candidate := range poolUsernameMatchCandidates(username) {
-		for _, pool := range fleetPools {
-			if pool.Url == url && candidate == pool.Username {
-				return &pool.PoolId
-			}
-		}
-	}
-	return nil
-}
-
-func poolUsernameMatchCandidates(username string) []string {
-	trimmed := strings.TrimSpace(username)
-	if trimmed == "" {
-		return []string{""}
-	}
-
-	firstSeparator := strings.Index(trimmed, ".")
-	if firstSeparator < 0 {
-		return []string{trimmed}
-	}
-
-	baseUsername := strings.TrimSpace(trimmed[:firstSeparator])
-	if baseUsername == trimmed {
-		return []string{trimmed}
-	}
-
-	return []string{trimmed, baseUsername}
-}
-
 // DeleteMiners soft-deletes devices from the fleet and attempts best-effort Unpair on Proto devices.
-// The DB deletion always succeeds immediately. Unpair runs in background goroutines and
+// Unowned devices are deleted immediately; reserved or allocated devices are rejected.
+// Unpair runs in background goroutines and
 // failures are logged but never surfaced to the caller.
 func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest) (*pb.DeleteMinersResponse, error) {
 	info, err := session.GetInfo(ctx)
@@ -1582,6 +1523,17 @@ func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest)
 
 	if len(deviceIdentifiers) == 0 {
 		return &pb.DeleteMinersResponse{DeletedCount: 0}, nil
+	}
+
+	// Container menus unpair one controller at a time. Classify that target before
+	// deletion, without adding per-device lookups to bulk miner operations.
+	isContainer := false
+	if len(deviceIdentifiers) == 1 {
+		device, err := s.deviceStore.GetDeviceByDeviceIdentifier(ctx, deviceIdentifiers[0], info.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
+		isContainer = device.GetDeviceClass() == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER
 	}
 
 	// Collect Proto miner objects BEFORE soft-delete (lookups filter deleted_at IS NULL)
@@ -1617,6 +1569,12 @@ func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest)
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
 	}
+	if isContainer {
+		unpairEvent.Type = "unpair_container"
+		unpairEvent.Description = "Unpaired container"
+		scopeType := "container"
+		unpairEvent.ScopeType = &scopeType
+	}
 	unpairEvent.ApplySiteScope(siteScope)
 	s.logActivity(ctx, unpairEvent)
 
@@ -1640,7 +1598,7 @@ func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest)
 					s.unpairSem <- struct{}{}
 
 					clearCtx, cancel := context.WithTimeout(context.Background(), unpairTimeout)
-					err := miner.Unpair(clearCtx)
+					err := s.minerService.UnpairDeletedMiner(clearCtx, info.OrganizationID, miner)
 					cancel()
 					if err != nil {
 						slog.Warn("best-effort Unpair failed", "deviceID", miner.GetID(), "error", err)
@@ -1687,7 +1645,7 @@ func (s *Service) ResolveDeviceIdentifiers(ctx context.Context, selector *pb.Dev
 func (s *Service) collectProtoMinersForUnpair(ctx context.Context, deviceIdentifiers []string) []minerInterfaces.Miner {
 	var miners []minerInterfaces.Miner
 	for _, id := range deviceIdentifiers {
-		m, err := s.minerService.GetMinerFromDeviceIdentifier(ctx, mm.DeviceIdentifier(id))
+		m, err := s.minerService.GetMinerForDeletion(ctx, mm.DeviceIdentifier(id))
 		if err != nil {
 			slog.Debug("skipping Unpair for device", "deviceID", id, "error", err)
 			continue
@@ -1703,4 +1661,9 @@ func (s *Service) collectProtoMinersForUnpair(ctx context.Context, deviceIdentif
 // isMinerNotFoundError checks if an error from the miner service indicates the device was not found.
 func isMinerNotFoundError(err error) bool {
 	return fleeterror.IsNotFoundError(err)
+}
+
+func (s *Service) WithWorkerNameReviews(reviewer WorkerNamePoolReviewService) *Service {
+	s.workerNamePoolService = reviewer
+	return s
 }

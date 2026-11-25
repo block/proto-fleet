@@ -25,6 +25,8 @@ const MINER_FILTER_KEYS: readonly string[] = [
   "model",
   "site",
   "building",
+  "container",
+  "tank",
   "group",
   "rack",
   "firmware",
@@ -44,7 +46,15 @@ const TELEMETRY_FILTER_KEYS: readonly string[] = Object.keys(TELEMETRY_FILTER_BO
   `${key}_max`,
 ]);
 
-const RACK_FILTER_KEYS: readonly string[] = ["building", "site", "zone", "issues", "display", ...TELEMETRY_FILTER_KEYS];
+const RACK_FILTER_KEYS: readonly string[] = [
+  "building",
+  "container",
+  "site",
+  "zone",
+  "issues",
+  "display",
+  ...TELEMETRY_FILTER_KEYS,
+];
 // Buildings tab, like Racks, owns a `display` (grid/list) toggle, so its
 // view-mode is capturable into a saved view.
 const BUILDING_FILTER_KEYS: readonly string[] = ["site", "issues", "display", ...TELEMETRY_FILTER_KEYS];

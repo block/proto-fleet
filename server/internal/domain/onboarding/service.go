@@ -4,6 +4,7 @@ import (
 	"context"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/onboarding/v1"
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -11,14 +12,14 @@ import (
 
 type Service struct {
 	deviceStore interfaces.DeviceStore
-	poolStore   interfaces.PoolStore
+	queries     sqlc.Querier
 	userStore   interfaces.UserStore
 }
 
-func NewService(deviceStore interfaces.DeviceStore, poolStore interfaces.PoolStore, userStore interfaces.UserStore) *Service {
+func NewService(deviceStore interfaces.DeviceStore, queries sqlc.Querier, userStore interfaces.UserStore) *Service {
 	return &Service{
 		deviceStore: deviceStore,
-		poolStore:   poolStore,
+		queries:     queries,
 		userStore:   userStore,
 	}
 }
@@ -50,7 +51,7 @@ func (s *Service) GetFleetOnboardingStatus(ctx context.Context) (*pb.FleetOnboar
 		return nil, fleeterror.NewInternalErrorf("error getting number of devices pending auth: %v", err)
 	}
 
-	totalPools, err := s.poolStore.GetTotalPools(ctx, info.OrganizationID)
+	totalPools, err := s.queries.CountOperatorPoolConfigurations(ctx, info.OrganizationID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error getting number of configured pools: %v", err)
 	}

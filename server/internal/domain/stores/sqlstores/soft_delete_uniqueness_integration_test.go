@@ -2,15 +2,14 @@ package sqlstores_test
 
 import (
 	"testing"
+	"time"
 
-	poolspb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
-	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 func TestSQLStores_AllowKeyReuseAfterSoftDelete(t *testing.T) {
@@ -19,25 +18,26 @@ func TestSQLStores_AllowKeyReuseAfterSoftDelete(t *testing.T) {
 	}
 
 	ctx := t.Context()
-	poolStore, userStore := setupSoftDeleteUniquenessStores(t)
+	queries, userStore := setupSoftDeleteUniquenessStores(t)
 
 	t.Run("pool key", func(t *testing.T) {
-		config := &poolspb.PoolConfig{
-			PoolName: "Reusable Pool",
-			Url:      "stratum+tcp://reuse.pool.example.com:3333",
-			Username: "wallet",
-			Password: wrapperspb.String("secret"),
+		config := sqlc.CreatePoolParams{
+			OrgID:     1,
+			CreatedAt: time.Now(),
+			PoolName:  "Reusable Pool",
+			Url:       "stratum+tcp://reuse.pool.example.com:3333",
+			Username:  "wallet",
 		}
 
-		firstID, err := poolStore.CreatePool(ctx, config, 1)
+		firstID, err := queries.CreatePool(ctx, config)
 		require.NoError(t, err)
 
-		_, err = poolStore.CreatePool(ctx, config, 1)
+		_, err = queries.CreatePool(ctx, config)
 		requireUniqueViolationOn(t, err, "uk_pool_org_url_username")
 
-		require.NoError(t, poolStore.SoftDeletePool(ctx, 1, firstID))
+		require.NoError(t, queries.SoftDeletePool(ctx, sqlc.SoftDeletePoolParams{OrgID: 1, ID: firstID}))
 
-		secondID, err := poolStore.CreatePool(ctx, config, 1)
+		secondID, err := queries.CreatePool(ctx, config)
 		require.NoError(t, err)
 		require.NotEqual(t, firstID, secondID)
 	})
@@ -57,20 +57,14 @@ func TestSQLStores_AllowKeyReuseAfterSoftDelete(t *testing.T) {
 	})
 }
 
-func setupSoftDeleteUniquenessStores(t *testing.T) (*sqlstores.SQLPoolStore, *sqlstores.SQLUserStore) {
+func setupSoftDeleteUniquenessStores(t *testing.T) (*sqlc.Queries, *sqlstores.SQLUserStore) {
 	t.Helper()
 
 	db := testutil.GetTestDB(t)
-	config, err := testutil.GetTestConfig()
-	require.NoError(t, err)
-
-	encryptService, err := encrypt.NewService(&encrypt.Config{ServiceMasterKey: config.ServiceMasterKey})
-	require.NoError(t, err)
-
-	_, err = db.Exec(`INSERT INTO organization (id, org_id, name) VALUES (1, 'test-org-1', 'Test Organization 1') ON CONFLICT DO NOTHING`)
+	_, err := db.Exec(`INSERT INTO organization (id, org_id, name) VALUES (1, 'test-org-1', 'Test Organization 1') ON CONFLICT DO NOTHING`)
 	require.NoError(t, err, "Failed to create test organization")
 
-	return sqlstores.NewSQLPoolStore(db, encryptService), sqlstores.NewSQLUserStore(db)
+	return sqlc.New(db), sqlstores.NewSQLUserStore(db)
 }
 
 func requireUniqueViolationOn(t *testing.T, err error, constraintName string) {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
+import { authTokensFromSlice, authTokensView } from "../slices/authSlice";
 import useMinerStore from "../useMinerStore";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 import { isDefaultPasswordActiveError } from "@/protoOS/api/defaultPasswordContract";
@@ -11,9 +12,13 @@ import { isAuthRequiredPath } from "@/protoOS/routeAuth";
 // Auth State Selectors
 // =============================================================================
 
-export const useAuthTokens = () => useMinerStore((state) => state.auth.authTokens);
-export const useRefreshToken = () => useMinerStore((state) => state.auth.authTokens.refreshToken);
-export const useAuthLoading = () => useMinerStore((state) => state.auth.loading);
+export const useAuthTokens = () => {
+  const session = useMinerStore((state) => state.auth.session);
+  return useMemo(() => authTokensView(session), [session]);
+};
+export const useRefreshToken = () => useAuthTokens().refreshToken;
+export const useAuthLoading = () =>
+  useMinerStore((state) => state.auth.session?.status === "loading" || state.auth.session?.status === "refreshing");
 
 // =============================================================================
 // Auth Action Selectors
@@ -26,24 +31,6 @@ export const useLogout = () => useMinerStore((state) => state.auth.logout);
 // =============================================================================
 // Auth Utilities
 // =============================================================================
-
-/**
- * Hook that returns the authorization header for API requests
- * Uses the access token from the store
- * @returns Request params with Authorization header
- */
-export const useAuthHeader = () => {
-  const authTokens = useAuthTokens();
-
-  return useMemo(
-    () => ({
-      headers: {
-        Authorization: `Bearer ${authTokens.accessToken?.value || ""}`,
-      },
-    }),
-    [authTokens.accessToken?.value],
-  );
-};
 
 // =============================================================================
 // Auth Error Handling
@@ -92,7 +79,7 @@ export const useAuthErrors = () => {
         if (!refreshPromise) {
           refreshPromise = new Promise<string | null>((resolve) => {
             void refresh({
-              refreshToken: useMinerStore.getState().auth.authTokens.refreshToken?.value || "",
+              refreshToken: authTokensFromSlice(useMinerStore.getState().auth).refreshToken.value,
               onSuccess: (accessToken) => {
                 resolve(accessToken);
               },
@@ -139,7 +126,7 @@ export const useAccessToken = (shouldCheckAccess: boolean = true) => {
   const setShowLoginModal = useMinerStore((state) => state.ui.setShowLoginModal);
   const logout = useLogout();
   const pausedAuthAction = useMinerStore((state) => state.ui.pausedAuthAction);
-  const passwordSet = useMinerStore((state) => state.minerStatus.passwordSet);
+  const passwordSet = useMinerStore((state) => state.minerStatus.lifecycle.passwordSet);
 
   // returns undefined if access is not needed
   // returns true if access token is valid

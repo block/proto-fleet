@@ -3,6 +3,7 @@ import { testConfig } from "../config/test.config";
 import { expect, test } from "../fixtures/pageFixtures";
 import { installAllSitesInitScript } from "../helpers/fleetLocationsSetup";
 import {
+  cleanupRbacTeamArtifacts,
   ensureVisibleRigMinersAwake,
   provisionRoleAndLoginViaStoredAdminContext,
   selectHashingRigMinerForStopFlow,
@@ -33,6 +34,11 @@ test.describe("Proto Fleet - Miner RBAC", () => {
   test.beforeEach(async ({ page }) => {
     await installAllSitesInitScript(page);
     await page.goto("/");
+  });
+
+  test.afterAll("CLEANUP: delete RBAC roles and members", async ({ browser }, testInfo) => {
+    test.setTimeout(testConfig.testTimeout * 2);
+    await cleanupRbacTeamArtifacts(browser, testInfo);
   });
 
   test(

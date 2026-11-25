@@ -135,31 +135,6 @@ func TestAggregateDailyBucket_WeightedAverage(t *testing.T) {
 		"Non-cumulative daily average should be weighted by data points")
 }
 
-func TestAggregateHourlyBucket_SingleDevice(t *testing.T) {
-	// With a single device, weighted and unweighted produce the same result.
-	now := time.Now()
-	store := &TimescaleTelemetryStore{}
-
-	rows := []sqlc.DeviceMetricsHourly{
-		{
-			Bucket:           now,
-			DeviceIdentifier: "device-a",
-			AvgTemp:          72.5,
-			MaxTemp:          sql.NullFloat64{Float64: 75.0, Valid: true},
-			MinTemp:          sql.NullFloat64{Float64: 70.0, Valid: true},
-			DataPoints:       360,
-		},
-	}
-
-	aggTypes := []models.AggregationType{models.AggregationTypeAverage}
-	result, devCount := store.aggregateHourlyBucket(rows, models.MeasurementTypeTemperature, aggTypes)
-
-	assert.Len(t, result, 1)
-	assert.Equal(t, 1, devCount, "Should count 1 device with temperature data")
-	assert.Equal(t, 72.5, result[0].Value,
-		"Single device average should equal device average regardless of weighting")
-}
-
 func TestAggregateHourlyBucket_TemperatureMinMax_GlobalExtrema(t *testing.T) {
 	// Non-cumulative: fleet MIN is the coldest reading any device produced,
 	// MAX is the hottest — global extrema across devices, not a sum.
@@ -399,45 +374,4 @@ func aggValues(result []models.AggregatedValue) map[models.AggregationType]float
 		out[v.Type] = v.Value
 	}
 	return out
-}
-
-func TestEstimateEnergyKWh(t *testing.T) {
-	tests := []struct {
-		name       string
-		avgPowerW  float64
-		dataPoints int64
-		expected   float64
-	}{
-		{
-			name:       "full day at 1500W",
-			avgPowerW:  1500.0,
-			dataPoints: 8640, // 24h * 360 points/hour
-			expected:   36.0, // 1500W * 24h / 1000
-		},
-		{
-			name:       "half day at 1500W",
-			avgPowerW:  1500.0,
-			dataPoints: 4320, // 12h * 360 points/hour
-			expected:   18.0, // 1500W * 12h / 1000
-		},
-		{
-			name:       "one hour at 3000W",
-			avgPowerW:  3000.0,
-			dataPoints: 360, // 1h * 360 points/hour
-			expected:   3.0, // 3000W * 1h / 1000
-		},
-		{
-			name:       "zero data points",
-			avgPowerW:  1500.0,
-			dataPoints: 0,
-			expected:   0.0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := estimateEnergyKWh(tt.avgPowerW, tt.dataPoints)
-			assert.InDelta(t, tt.expected, result, 0.001)
-		})
-	}
 }

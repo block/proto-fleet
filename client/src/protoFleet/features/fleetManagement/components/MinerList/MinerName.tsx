@@ -45,7 +45,7 @@ const MinerName = ({
   const needsAttention = useNeedsAttention(actionsRestricted, needsMiningPool, errors, false, hasFirmwareStatus);
 
   return (
-    <div className="grid w-full grid-cols-[1fr_auto] items-center gap-3">
+    <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
       <div className={clsx("min-w-0 truncate text-left", { "opacity-50": needsAuthentication })} title={name}>
         {name}
       </div>
@@ -63,7 +63,6 @@ const MinerName = ({
         ) : null}
         <SingleMinerActionsMenu
           deviceIdentifier={deviceIdentifier}
-          minerUrl={miner.url || undefined}
           deviceStatus={deviceStatus}
           minerName={name}
           workerName={miner.workerName}

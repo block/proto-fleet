@@ -59,6 +59,12 @@ func (c NodeConfig) hostCertificateIdentity(address string) string {
 	}
 	return c.VirtualIP
 }
+func (c NodeConfig) peerAddress() string {
+	if c.NodeIP == c.DatabaseAIP {
+		return c.DatabaseBIP
+	}
+	return c.DatabaseAIP
+}
 func (c NodeConfig) publicTLS(serviceTLS *tls.Config) *tls.Config {
 	if c.externalEndpoint() {
 		return &tls.Config{MinVersion: tls.VersionTLS12}

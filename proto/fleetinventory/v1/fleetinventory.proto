@@ -1,0 +1,331 @@
+syntax = "proto3";
+package fleetinventory.v1;
+
+import "buf/validate/validate.proto";
+import "common/v1/fleet_list_stats.proto";
+import "common/v1/equipment_coverage.proto";
+import "common/v1/zone.proto";
+import "fleetmanagement/v1/fleetmanagement.proto";
+import "buildings/v1/buildings.proto";
+import "device_set/v1/device_set.proto";
+import "containers/v1/containers.proto";
+import "google/protobuf/timestamp.proto";
+import "errors/v1/errors.proto";
+import "telemetry/v1/telemetry.proto";
+import "google/protobuf/struct.proto";
+
+// Read-only mixed inventory. Physical entities retain their own lifecycle.
+service FleetInventoryService {
+  // Lightweight readable tank labels; does not compute mining-asset aggregates.
+  rpc ListTankOptions(ListTankOptionsRequest) returns (ListTankOptionsResponse);
+  rpc ListInventory(ListInventoryRequest) returns (ListInventoryResponse);
+  rpc GetTankHistory(GetTankHistoryRequest) returns (GetTankHistoryResponse);
+  rpc ListModuleHistory(ListModuleHistoryRequest) returns (ListModuleHistoryResponse);
+  rpc GetModuleHashboards(GetModuleHashboardsRequest) returns (GetModuleHashboardsResponse);
+  rpc ListHashboardHistory(ListHashboardHistoryRequest) returns (ListHashboardHistoryResponse);
+}
+
+message ListTankOptionsRequest {
+  int32 page_size = 1 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
+  string page_token = 2 [(buf.validate.field).string.max_len = 4096];
+}
+
+message ListTankOptionsResponse {
+  // Sorted by tank name, then stable Fleet tank ID.
+  repeated TankOption options = 1;
+  string next_page_token = 2;
+}
+
+message TankOption {
+  int64 id = 1;
+  // Includes the owning container's name and tank position.
+  string name = 2;
+  string site_name = 3;
+}
+
+enum InventoryView {
+  INVENTORY_VIEW_UNSPECIFIED = 0;
+  INVENTORY_VIEW_FACILITIES = 1; // Buildings and containers.
+  INVENTORY_VIEW_EQUIPMENT_GROUPS = 2; // Racks and tanks.
+  INVENTORY_VIEW_MINING_ASSETS = 3; // Paired miners and modules.
+}
+
+enum EntityKind {
+  ENTITY_KIND_UNSPECIFIED = 0;
+  ENTITY_KIND_BUILDING = 1;
+  ENTITY_KIND_CONTAINER = 2;
+  ENTITY_KIND_RACK = 3;
+  ENTITY_KIND_TANK = 4;
+  ENTITY_KIND_MINER = 5;
+  ENTITY_KIND_MODULE = 6;
+}
+
+message EntityRef {
+  EntityKind kind = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  int64 id = 2 [(buf.validate.field).int64.gt = 0];
+}
+
+enum InventorySort {
+  INVENTORY_SORT_UNSPECIFIED = 0;
+  INVENTORY_SORT_NAME = 1;
+  INVENTORY_SORT_HASHRATE = 2;
+  INVENTORY_SORT_POWER = 3;
+  INVENTORY_SORT_TEMPERATURE = 4;
+  INVENTORY_SORT_EFFICIENCY = 5;
+  INVENTORY_SORT_ASSET_COUNT = 6;
+  INVENTORY_SORT_ISSUE_COUNT = 7;
+  INVENTORY_SORT_MODEL = 8;
+  INVENTORY_SORT_FIRMWARE = 9;
+  INVENTORY_SORT_IP_ADDRESS = 10;
+  INVENTORY_SORT_MAC_ADDRESS = 11;
+  INVENTORY_SORT_WORKER_NAME = 12;
+  INVENTORY_SORT_ZONE = 13;
+}
+
+message ListInventoryRequest {
+  option (buf.validate.message).cel = {
+    id: "unassigned_scope_view"
+    message: "Unassigned facility and group scopes must apply to the requested inventory view"
+    expression: "(!this.include_no_facility || this.view in [2, 3]) && (!this.include_no_group || this.view == 3)"
+  };
+  InventoryView view = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
+  string page_token = 3 [(buf.validate.field).string.max_len = 4096];
+  InventorySort sort = 4 [(buf.validate.field).enum.defined_only = true];
+  bool descending = 5;
+  repeated int64 site_ids = 6 [(buf.validate.field).repeated = {max_items: 1024, items: {int64: {gt: 0}}}];
+  bool include_unassigned = 7;
+  // Match any selected facility (building/container) AND any selected group
+  // (rack/tank). Empty levels are unrestricted; site filters also compose with AND.
+  // A tank/rack selection is valid only for assets.
+  repeated EntityRef ancestors = 8 [(buf.validate.field).repeated.max_items = 1024];
+  repeated EntityKind kinds = 9 [(buf.validate.field).repeated = {max_items: 6, items: {enum: {defined_only: true, not_in: [0]}}}];
+  string search_query = 10 [(buf.validate.field).string.max_len = 255];
+  // Range values use display units (TH/s, kW, J/TH, C). Missing/stale values
+  // do not match. Power is mining equipment input power; plant power is separate.
+  repeated common.v1.FleetListTelemetryRangeFilter telemetry_ranges = 11 [(buf.validate.field).repeated.max_items = 16];
+  // Component issues are recorded for conventional miners. This filter matches
+  // miners or their building/rack ancestors; module state is not an issue record.
+  repeated errors.v1.ComponentType error_component_types = 12;
+  // Rack placement filters also apply to miner rows. They exclude tanks/modules.
+  repeated int64 building_ids = 13;
+  bool include_no_building = 14;
+  repeated common.v1.ZoneKey zone_keys = 15;
+  bool include_no_rack = 16;
+  // Explicitly restricts the mining-assets view to miners, preserving the
+  // existing miner filter contract. Common outer filters still compose with AND.
+  fleetmanagement.v1.MinerListFilter miner_filter = 17;
+  // Current module/miner health buckets. Valid only in the mining-assets view.
+  repeated string states = 18;
+  // OR with facility ancestors; matches conventional equipment without a building.
+  // Valid in equipment-groups and mining-assets views.
+  bool include_no_facility = 19;
+  // OR with group ancestors; matches conventional miners without a rack.
+  // Valid only in the mining-assets view.
+  bool include_no_group = 20;
+}
+
+message InventoryItem {
+ common.v1.EquipmentCoverage coverage = 29;
+  EntityRef ref = 1;
+  string name = 2;
+  optional int64 site_id = 3;
+  repeated EntityRef ancestors = 4;
+  // Paired endpoint identifier for a miner or container; for a child, its controller.
+  string device_identifier = 5;
+  int32 position = 6;
+  string reported_id = 7;
+  string state = 8;
+  int64 asset_count = 9;
+  int64 hashrate_reporting_count = 10;
+  int64 power_reporting_count = 11;
+  optional double hashrate_ths = 12;
+  optional double power_kw = 13;
+  optional double efficiency_jth = 14;
+  optional double min_temperature_c = 15;
+  optional double max_temperature_c = 16;
+  google.protobuf.Timestamp observed_at = 17;
+  // Whole-container reported values are not substituted for module summaries.
+  optional double reported_hashrate_ths = 18;
+  optional double reported_power_kw = 19;
+  // Existing entity payloads keep their management UI contracts. Tanks/modules
+  // use the inventory fields directly and never masquerade as racks/miners.
+  oneof details {
+    buildings.v1.BuildingWithCounts building = 20;
+    device_set.v1.DeviceSet rack = 21;
+    fleetmanagement.v1.MinerStateSnapshot miner = 22;
+    containers.v1.Container container = 23;
+  }
+  common.v1.FleetListStats list_stats = 24;
+  string site_name = 25;
+  string facility_name = 26;
+  string group_name = 27;
+  // Absent means unavailable. Aggregate evidence can be stale while individual
+  // items remain fresh; the server retains those current causes.
+  ModuleIssues module_issues = 28;
+  // Module hashboard naming summary: "MAC address", a shared custom name,
+  // "Mixed", or empty when all installed hashboards use no worker name.
+  string worker_name_summary = 30;
+}
+
+message ListInventoryResponse {
+  repeated InventoryItem items = 1;
+  string next_page_token = 2;
+  int64 total_count = 3;
+  int64 miner_count = 4;
+  repeated string models = 5;
+  repeated string firmware_versions = 6;
+}
+
+// Numeric metric history only; diagnostic polls are retained separately on the backend.
+message ListModuleHistoryRequest {
+  int64 module_id = 1 [(buf.validate.field).int64.gt = 0];
+  google.protobuf.Timestamp start_time = 2 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp end_time = 3 [(buf.validate.field).required = true];
+  int32 page_size = 4 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
+  string page_token = 5 [(buf.validate.field).string.max_len = 4096];
+}
+
+message ModuleSample {
+ optional double efficiency_jh = 6;
+ common.v1.EquipmentCoverage coverage = 7;
+  google.protobuf.Timestamp observed_at = 1;
+  google.protobuf.Timestamp collected_at = 2;
+  optional double hashrate_hs = 3;
+  optional double power_w = 4;
+  optional double temperature_c = 5;
+}
+
+message ListModuleHistoryResponse {
+  repeated ModuleSample samples = 1;
+  string next_page_token = 2;
+}
+
+// Current evidence, independently timestamped from module classification.
+message ModuleIssues {
+ google.protobuf.Timestamp observed_at = 1;
+ // The server sets this only when all required evidence and collection are fresh.
+ bool complete = 2;
+ // The server sets complete=false when stale=true. Both can be false for
+ // partial or unavailable evidence. Individually fresh items can remain present
+ // even when other required evidence is stale.
+ bool stale = 4;
+ repeated ModuleIssue items = 3;
+}
+message ModuleIssue {
+ string component = 1;
+ string component_id = 2;
+ string cause = 3;
+ string severity = 4; // fault, warning, or observation
+ errors.v1.MinerError canonical_error = 6;
+ google.protobuf.Timestamp observed_at = 5;
+}
+
+// Bounded chart history for the tank's current, non-retired modules. The server
+// averages each module within UTC/Unix-epoch-aligned buckets before summing
+// modules. Hashrate/power min/max sum per-module extrema (bounds, not coincident
+// observations); efficiency bounds use paired power/hashrate extrema. Missing/non-finite readings are excluded
+// per metric; buckets without any readings remain gaps. Efficiency uses modules
+// with both hashrate and power, weighted by hashrate. Expired history is never
+// filled. At most 1000 buckets (four metrics each).
+message GetTankHistoryRequest {
+  string container_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  int64 tank_id = 2 [(buf.validate.field).int64.gt = 0];
+  google.protobuf.Timestamp start_time = 3 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp end_time = 4 [(buf.validate.field).required = true];
+  int32 granularity_seconds = 5 [(buf.validate.field).int32 = {gte: 1, lte: 86400}];
+}
+
+message GetTankHistoryResponse {
+  // TH/s, kW, J/TH, and degrees C, matching the telemetry chart contract.
+  repeated telemetry.v1.Metric metrics = 1 [(buf.validate.field).repeated.max_items = 4000];
+}
+
+message GetModuleHashboardsRequest {
+  repeated int64 module_ids = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 100, unique: true, items: {int64: {gt: 0}}}];
+}
+
+// Returns only readable current modules. Missing or inaccessible IDs are omitted,
+// including for a single-ID request; omissions do not disclose their reason.
+message GetModuleHashboardsResponse {
+  repeated ModuleHashboards modules = 1;
+}
+
+message ModuleHashboards {
+  int64 module_id = 1;
+  repeated HashboardSlot slots = 2;
+}
+
+message HashboardSlot {
+  // invalid_observation, ambiguous_slot, missing_identity, identity_conflict,
+  // controller_conflict, or older_observation. Empty when no rejection is known.
+  string unavailable_reason = 5;
+  int32 position = 1;
+  string occupancy = 2; // occupied, empty, unknown; always three slots for CT1
+  google.protobuf.Timestamp observed_at = 3;
+  HashboardReading board = 4;
+}
+
+// Durable board identity and the installation under which it was observed.
+// The server derives state and suppresses stale current measurements.
+message HashboardReading {
+ // Current canonical issues; diagnostic observations are not part of numeric history.
+ repeated ModuleIssue issues = 25;
+ optional double power_w = 19;
+ optional double efficiency_jh = 20;
+  int64 hashboard_id = 1;
+  int64 installation_id = 2;
+  int64 module_id = 3;
+  int32 position = 4;
+  string mac_address = 5;
+  string serial = 6;
+  string state = 7;
+  string mining_state = 8;
+  optional bool isolated = 9;
+  google.protobuf.Timestamp observed_at = 10;
+  // Collection time of the health sample, or first collection in a summary.
+  // Slot observation time is HashboardSlot.observed_at.
+  google.protobuf.Timestamp collected_at = 11;
+  optional double hashrate_hs = 12;
+  optional double temperature_c = 13;
+  optional bool hashrail_ok = 14;
+  optional bool refclks_ok = 15;
+  // Complete MDK v2 board fields, excluding health. Firmware units; shared PSU
+  // metadata belongs to the module. Present on current readings only.
+  google.protobuf.Struct metadata = 16;
+  // Complete MDK v2 health diagnostics in firmware units. Current responses
+  // omit stale health. lastShutdownError is historical, not an active fault.
+  google.protobuf.Struct health = 17;
+  google.protobuf.Timestamp state_observed_at = 18;
+  // Zero for raw/current readings; 3600 or 86400 for historical averages.
+  // For summaries observed_at is the source-time bucket start. Diagnostics and
+  // instantaneous state are unavailable. Different placements/topologies remain
+  // separate entries even when their bucket starts are equal.
+  int32 resolution_seconds = 21;
+  optional int64 topology_version_id = 22;
+  // Number of source observations in a history entry. Per-metric valid counts
+  // may be smaller; null measurements are excluded from each metric's average.
+  int64 sample_count = 23;
+  google.protobuf.Timestamp last_collected_at = 24;
+  // Worker suffix saved on the physical hashboard. Current readings only;
+  // empty for no worker name or the CT1 plugin's default.
+  string worker_name = 26;
+  // Saved strategy: none, mac_address, or custom. Current readings only.
+  string worker_name_mode = 27;
+}
+
+// Unknown boards and boards with no readable historical installation return
+// NotFound. A readable board without samples in this interval returns an empty page.
+// Numeric metric history only; diagnostic polls do not add history entries.
+message ListHashboardHistoryRequest {
+  int64 hashboard_id = 1 [(buf.validate.field).int64.gt = 0];
+  google.protobuf.Timestamp start_time = 2 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp end_time = 3 [(buf.validate.field).required = true];
+  int32 page_size = 4 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
+  string page_token = 5 [(buf.validate.field).string.max_len = 4096];
+}
+
+message ListHashboardHistoryResponse {
+  repeated HashboardReading samples = 1;
+  string next_page_token = 2;
+}

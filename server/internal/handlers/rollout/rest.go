@@ -15,6 +15,7 @@ import (
 	"google.golang.org/protobuf/types/dynamicpb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/rollout/v1"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
 const (
@@ -38,6 +39,9 @@ var restRoutes = []restRoute{
 	{"DELETE /api/v1/release-channels/{channelId}", "DeleteReleaseChannel", "channel_id"},
 	{"GET /api/v1/release-channels/{channelId}/model-groups", "ListReleaseChannelModelGroups", "channel_id"},
 	{"GET /api/v1/release-channels/{channelId}/miners", "ListReleaseChannelMiners", "channel_id"},
+	{"GET /api/v1/release-channels/{channelId}/containers", "ListReleaseChannelContainers", "channel_id"},
+	{"GET /api/v1/release-channels/{channelId}/controller-software", "ListReleaseChannelControllerSoftware", "channel_id"},
+	{"PUT /api/v1/release-channels/{channelId}/controller-software", "SetReleaseChannelControllerSoftware", "channel_id"},
 	{"POST /api/v1/release-channels/{channelId}/firmware/preview", "PreviewReleaseChannelFirmware", "channel_id"},
 	{"POST /api/v1/release-channels/{channelId}/firmware/apply", "ApplyReleaseChannelFirmware", "channel_id"},
 	{"GET /api/v1/rollouts", "ListRollouts", ""},
@@ -64,6 +68,7 @@ func RegisterRESTRoutes(mux *http.ServeMux, rpc http.Handler) {
 	for _, route := range restRoutes {
 		descriptor := methods.ByName(protoreflect.Name(route.method)).Input()
 		mux.HandleFunc(route.pattern, func(w http.ResponseWriter, r *http.Request) {
+			middleware.ClassifyUnaryRequest(r.Context(), rolloutRPCPrefix+route.method)
 			message := dynamicpb.NewMessage(descriptor)
 			if err := decodeRESTRequest(w, r, message, route.idField); err != nil {
 				w.Header().Set("Content-Type", "application/json")

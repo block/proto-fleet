@@ -145,6 +145,7 @@ check_go_default TELEMETRY_METRIC_TIMEOUT server/internal/domain/telemetry/confi
 check_go_default TIMESCALEDB_QUERY_TIMEOUT server/internal/infrastructure/timescaledb/config.go QUERY_TIMEOUT
 check_go_default TIMESCALEDB_MAX_TIME_SERIES_ROWS server/internal/infrastructure/timescaledb/config.go MAX_TIME_SERIES_ROWS
 check_go_default TIMESCALEDB_ASYNC_METRIC_COMMIT server/internal/infrastructure/timescaledb/config.go ASYNC_METRIC_COMMIT
+check_go_default TIMESCALEDB_TRACK_TELEMETRY_FRESHNESS server/internal/infrastructure/timescaledb/config.go TRACK_TELEMETRY_FRESHNESS
 check_go_default FLEET_COMMAND_MAX_WORKERS server/internal/domain/command/config.go MAX_WORKERS
 pass "compose defaults checked against Go config defaults"
 
@@ -278,6 +279,8 @@ check_pairing_routes "$REPO_ROOT/deployment-files/client/nginx.http.conf" localh
 check_pairing_routes "$REPO_ROOT/deployment-files/client/nginx.https.conf" localhost
 check_pairing_routes "$REPO_ROOT/client/nginx.runner-protofleet.conf" 127.0.0.1
 pass "NGINX gives Fleet Node pairing scoped streaming timeouts"
+
+bash "$REPO_ROOT/deployment-files/tests/test-health-probe-logging.sh" || fail "NGINX health-probe logging"
 
 # ----------------------------------------------------------------------------
 # 6. Compose render smoke test (staged tarball layout)

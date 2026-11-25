@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
 
 import { create } from "@bufbuild/protobuf";
@@ -18,14 +18,22 @@ import { deepClone } from "@/shared/utils/utility";
 
 interface LoginFormProps {
   onDismiss?: () => void;
+  secondaryAction?: ReactNode;
   onSuccess: (requiresPasswordChange: boolean) => void;
+  /** Renders only the credentials and actions, for pages that supply their own logo and heading. */
+  embedded?: boolean;
 }
 
-const LoginForm = ({ onDismiss, onSuccess }: LoginFormProps) => {
+const LoginForm = ({ onDismiss, onSuccess, secondaryAction, embedded = false }: LoginFormProps) => {
   const [values, setValues] = useState<Values>(deepClone(initValues));
   const [errors, setErrors] = useState<Values>(deepClone(initValues));
   const [apiError, setApiError] = useState<string | null>(null);
   const login = useLogin();
+  const [lifetime] = useState(() => ({ controller: new AbortController() }));
+  useEffect(() => {
+    if (lifetime.controller.signal.aborted) lifetime.controller = new AbortController();
+    return () => lifetime.controller.abort();
+  }, [lifetime]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const setTemporaryPassword = useSetTemporaryPassword();
 
@@ -42,6 +50,7 @@ const LoginForm = ({ onDismiss, onSuccess }: LoginFormProps) => {
   const handleContinue = useCallback(() => {
     setIsSubmitting(true);
     login({
+      signal: lifetime.controller.signal,
       loginRequest: create(AuthenticateRequestSchema, {
         username: values.username,
         password: values.password,
@@ -55,7 +64,7 @@ const LoginForm = ({ onDismiss, onSuccess }: LoginFormProps) => {
       onError: () => setApiError("Invalid credentials entered."),
       onFinally: () => setIsSubmitting(false),
     });
-  }, [login, values.username, values.password, onSuccess, setTemporaryPassword]);
+  }, [login, lifetime, values.username, values.password, onSuccess, setTemporaryPassword]);
 
   const handleEnter = useCallback(() => {
     if (isSubmitting) {
@@ -68,13 +77,18 @@ const LoginForm = ({ onDismiss, onSuccess }: LoginFormProps) => {
   useKeyDown({ key: "Enter", onKeyDown: handleEnter });
 
   return (
-    <div data-testid="login-form" className="flex flex-col gap-10 phone:h-full phone:justify-between">
-      <Logo width="w-[86px]" />
+    <div
+      data-testid="login-form"
+      className={clsx("flex flex-col", embedded ? "gap-4" : "gap-10 phone:h-full phone:justify-between")}
+    >
+      {embedded ? null : <Logo width="w-[86px]" />}
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-6">
-          <div className="flex flex-col gap-2">
-            <div className="text-heading-300 text-text-primary">Log in</div>
-          </div>
+          {embedded ? null : (
+            <div className="flex flex-col gap-2">
+              <div className="text-heading-300 text-text-primary">Log in</div>
+            </div>
+          )}
 
           <div className="flex flex-col gap-4">
             <div
@@ -130,11 +144,14 @@ const LoginForm = ({ onDismiss, onSuccess }: LoginFormProps) => {
             ].filter((button) => !!button.text) as ButtonProps[]
           }
         />
+        {secondaryAction}
       </div>
-      <div className="flex flex-col gap-2">
-        <div className="text-300 text-text-primary-70">Powerful mining tools. Built for decentralization.</div>
-        <div className="text-300 text-text-primary-50">&copy; {new Date().getFullYear()} Block, Inc.</div>
-      </div>
+      {embedded ? null : (
+        <div className="flex flex-col gap-2">
+          <div className="text-300 text-text-primary-70">Powerful mining tools. Built for decentralization.</div>
+          <div className="text-300 text-text-primary-50">&copy; {new Date().getFullYear()} Block, Inc.</div>
+        </div>
+      )}
     </div>
   );
 };

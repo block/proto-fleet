@@ -1,7 +1,8 @@
 import { ReactNode } from "react";
 import ErrorRow from "./ErrorRow";
+import StatusModalIcon from "./StatusModalIcon";
 import { Alert } from "@/shared/assets/icons";
-import { DialogIcon } from "@/shared/components/Dialog";
+import { iconSizes } from "@/shared/assets/icons/constants";
 import Divider from "@/shared/components/Divider";
 
 export interface StatusModalLayoutError {
@@ -10,6 +11,7 @@ export interface StatusModalLayoutError {
   title: string;
   subtitle?: string;
   onClick?: () => void;
+  action?: ReactNode;
 }
 
 export interface StatusModalLayoutProps {
@@ -57,9 +59,9 @@ const StatusModalLayout = ({
           <Divider />
           {/* Secondary section - identical structure to header section */}
           <div className="flex flex-col gap-2">
-            <DialogIcon intent="critical">
-              <Alert />
-            </DialogIcon>
+            <StatusModalIcon intent="critical">
+              <Alert width={iconSizes.xLarge} />
+            </StatusModalIcon>
             <div className="text-heading-300 text-text-primary">{secondaryTitle}</div>
             {secondarySubtitle ? <div className="text-300 text-text-primary-50">{secondarySubtitle}</div> : null}
           </div>
@@ -78,6 +80,7 @@ const StatusModalLayout = ({
                 title={error.title}
                 subtitle={error.subtitle}
                 onClick={error.onClick}
+                action={error.action}
                 divider={index !== errors.length - 1}
               />
             ))}

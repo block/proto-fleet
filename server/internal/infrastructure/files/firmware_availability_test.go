@@ -61,7 +61,7 @@ func TestCachedFirmwareAvailability_DoesNotVerifyPayloadButHonorsStrictFailures(
 			requireCachedFirmwareAvailability(t, svc, checksum, "")
 
 			// Metadata repair must not erase a known payload-verification failure.
-			_, err = svc.UpdateFirmwareMetadata(id, testFirmwareMetadata())
+			_, err = svc.UpdateFirmwareMetadata(t.Context(), id, testFirmwareMetadata())
 			require.NoError(t, err)
 			requireCachedFirmwareAvailability(t, svc, checksum, "")
 
@@ -95,7 +95,7 @@ func TestCachedFirmwareAvailability_UsesUploadedAndStartupIdentityWithoutMetadat
 			case "edited":
 				metadata := testFirmwareMetadata()
 				metadata.TargetModel = "Another model"
-				_, err = svc.UpdateFirmwareMetadata(id, metadata)
+				_, err = svc.UpdateFirmwareMetadata(t.Context(), id, metadata)
 				require.NoError(t, err)
 			}
 			if sidecarState != "edited" {

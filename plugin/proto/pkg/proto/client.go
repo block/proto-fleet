@@ -49,8 +49,8 @@ const (
 var (
 	sharedHTTPClient  *http.Client
 	sharedHTTPSClient *http.Client
-	httpClientOnce    = &sync.Once{}
-	httpsClientOnce   = &sync.Once{}
+	httpClientOnce    sync.Once
+	httpsClientOnce   sync.Once
 )
 
 // Client provides communication with a Proto miner via the MDK REST API.
@@ -107,7 +107,14 @@ type Pool struct {
 	Priority   int
 	URL        string
 	WorkerName string
+	Password   string `json:"-"`
 }
+
+func (p Pool) String() string {
+	return fmt.Sprintf("Pool{Priority:%d URL:%q WorkerName:%q Password:[REDACTED]}", p.Priority, p.URL, p.WorkerName)
+}
+
+func (p Pool) GoString() string { return p.String() }
 
 // TelemetryValues represents comprehensive telemetry data from a miner.
 type TelemetryValues struct {
@@ -257,6 +264,7 @@ type systemInfoInner struct {
 	Manufacturer    string          `json:"manufacturer"`
 	Model           string          `json:"model"`
 	CBSN            string          `json:"cb_sn"`
+	UptimeSeconds   *uint64         `json:"uptime_seconds,omitempty"`
 	OS              *swInfo         `json:"os,omitempty"`
 	MiningDriverSW  *swInfo         `json:"mining_driver_sw,omitempty"`
 	WebServer       *swInfo         `json:"web_server,omitempty"`
@@ -298,7 +306,7 @@ type poolData struct {
 type poolConfigRequest struct {
 	URL      string `json:"url"`
 	Username string `json:"username"`
-	Password string `json:"password,omitempty"`
+	Password string `json:"password"`
 	Priority *int   `json:"priority,omitempty"`
 }
 
@@ -794,21 +802,31 @@ func isDefaultPasswordMessage(msg string) bool {
 		strings.Contains(lower, defaultPasswordCodeMarker)
 }
 
-func classifyForbiddenResponse(body []byte) error {
+func isDefaultPasswordForbidden(body []byte) bool {
 	var payload errorResponse
 	if err := json.Unmarshal(body, &payload); err == nil && payload.Error != nil {
 		if strings.EqualFold(payload.Error.Code, ErrCodeDefaultPasswordActive) || isDefaultPasswordMessage(payload.Error.Message) {
-			return fmt.Errorf("forbidden: %s", defaultPasswordMessageMarker)
+			return true
 		}
+		if payload.Error.Message != "" {
+			return false
+		}
+	}
+	return isDefaultPasswordMessage(strings.TrimSpace(string(body)))
+}
+
+func classifyForbiddenResponse(body []byte) error {
+	if isDefaultPasswordForbidden(body) {
+		return fmt.Errorf("forbidden: %s", defaultPasswordMessageMarker)
+	}
+	var payload errorResponse
+	if err := json.Unmarshal(body, &payload); err == nil && payload.Error != nil {
 		if payload.Error.Message != "" {
 			return fmt.Errorf("forbidden: %s", payload.Error.Message)
 		}
 	}
 
 	rawMessage := strings.TrimSpace(string(body))
-	if isDefaultPasswordMessage(rawMessage) {
-		return fmt.Errorf("forbidden: %s", defaultPasswordMessageMarker)
-	}
 	if rawMessage != "" {
 		return fmt.Errorf("forbidden: %s", rawMessage)
 	}
@@ -840,18 +858,42 @@ func checkResponse(resp *http.Response, failurePrefix string, okStatuses ...int)
 	return fmt.Errorf("%s with status %d", failurePrefix, resp.StatusCode)
 }
 
+// SystemInfo contains the firmware version, optional reboot evidence, and
+// firmware install status from a single system response. UptimeObservedAt is the
+// request start, not its end, so network latency cannot make the inferred boot
+// time later than the actual boot.
+type SystemInfo struct {
+	FirmwareVersion  string
+	UptimeSeconds    *uint64
+	UptimeObservedAt time.Time
+	// UpdateStatus tracks the swupdate lifecycle: "current", "downloading",
+	// "downloaded", "installing", "installed", "confirming", "success".
+	// On failure, the rig sets status back to "current" with the error field populated.
+	UpdateStatus *swUpdateStatus
+}
+
+// GetSystemInfo retrieves firmware, uptime, and install status together from the miner.
+func (c *Client) GetSystemInfo(ctx context.Context) (SystemInfo, error) {
+	var resp systemInfoResponse
+	observedAt := time.Now()
+	if err := c.doGet(ctx, "/api/v1/system", &resp); err != nil {
+		return SystemInfo{}, fmt.Errorf("failed to get system info: %w", err)
+	}
+
+	info := SystemInfo{UptimeSeconds: resp.SystemInfo.UptimeSeconds, UpdateStatus: resp.SystemInfo.SwUpdateStatus}
+	if resp.SystemInfo.OS != nil {
+		info.FirmwareVersion = resp.SystemInfo.OS.Version
+	}
+	if info.UptimeSeconds != nil {
+		info.UptimeObservedAt = observedAt
+	}
+	return info, nil
+}
+
 // GetSoftwareInfo retrieves the firmware (OS) version string from the miner.
 func (c *Client) GetSoftwareInfo(ctx context.Context) (string, error) {
-	var resp systemInfoResponse
-	if err := c.doGet(ctx, "/api/v1/system", &resp); err != nil {
-		return "", fmt.Errorf("failed to get system info: %w", err)
-	}
-
-	if resp.SystemInfo.OS != nil {
-		return resp.SystemInfo.OS.Version, nil
-	}
-
-	return "", nil
+	info, err := c.GetSystemInfo(ctx)
+	return info.FirmwareVersion, err
 }
 
 // GetFirmwareVersion retrieves the firmware (OS) version string from the miner.
@@ -871,18 +913,6 @@ func (c *Client) IsDefaultPasswordActive(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("failed to get system status: %w", err)
 	}
 	return resp.DefaultPasswordActive, nil
-}
-
-// GetUpdateStatus retrieves the firmware update installation status from the miner.
-// The status field tracks the swupdate lifecycle: "current", "downloading",
-// "downloaded", "installing", "installed", "confirming", "success".
-// On failure, the rig sets status back to "current" with the error field populated.
-func (c *Client) GetUpdateStatus(ctx context.Context) (*swUpdateStatus, error) {
-	var resp systemInfoResponse
-	if err := c.doGet(ctx, "/api/v1/system", &resp); err != nil {
-		return nil, fmt.Errorf("failed to get system info: %w", err)
-	}
-	return resp.SystemInfo.SwUpdateStatus, nil
 }
 
 // GetDeviceInfo retrieves basic device information via the pairing info endpoint.
@@ -1366,14 +1396,18 @@ func safeIntToUint32(v int) uint32 {
 	return uint32(v) // #nosec G115 -- Range checked above
 }
 
-// UpdatePools configures mining pools atomically via POST /api/v1/pools.
+// UpdatePools replaces nonempty stacks via MDKv1 and clears via durable MDKv2 deletion.
 func (c *Client) UpdatePools(ctx context.Context, pools []Pool) error {
+	if len(pools) == 0 {
+		return c.ClearPools(ctx)
+	}
 	apiPools := make([]poolConfigRequest, len(pools))
 	for i, pool := range pools {
 		priority := pool.Priority
 		apiPools[i] = poolConfigRequest{
 			URL:      pool.URL,
 			Username: pool.WorkerName,
+			Password: pool.Password,
 			Priority: &priority,
 		}
 	}
@@ -1383,6 +1417,18 @@ func (c *Client) UpdatePools(ctx context.Context, pools []Pool) error {
 		return fmt.Errorf("failed to update pools: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusForbidden {
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return fmt.Errorf("failed to read forbidden response: %w", readErr)
+		}
+		// Pool errors can echo submitted credentials. Keep the firmware's
+		// default-password classification without returning its response text.
+		if isDefaultPasswordForbidden(body) {
+			return fmt.Errorf("forbidden: %s", defaultPasswordMessageMarker)
+		}
+		return errors.New("forbidden: access denied")
+	}
 	return checkResponse(resp, "update pools failed", http.StatusOK, http.StatusCreated)
 }
 

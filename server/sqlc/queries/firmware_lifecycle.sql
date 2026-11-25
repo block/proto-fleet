@@ -17,8 +17,9 @@ SELECT (
 )::boolean AS in_use;
 
 -- name: ListManagedFirmwareUpdateDevices :many
--- A direct firmware command must not compete with release-channel enforcement,
--- including a command that happens to report the assigned version. Firmware
+-- A direct firmware command must not compete with release-channel enforcement
+-- of the component it updates, including a command that happens to report the
+-- assigned version. An assignment of another component does not own it. Firmware
 -- can rename a target's reported hardware; active enrollment remains owned by
 -- its current assignment until that paired device settles or leaves scope.
 SELECT DISTINCT d.device_identifier, channel.name AS channel_name
@@ -28,6 +29,7 @@ JOIN release_channel_member member ON member.device_id = d.id AND member.org_id 
 JOIN release_channel channel ON channel.id = member.channel_id AND channel.org_id = d.org_id
 JOIN release_channel_firmware assignment ON assignment.channel_id = channel.id
     AND assignment.firmware_checksum <> ''
+    AND assignment.component = sqlc.arg('component')::text
     AND (
         (release_channel_pair_key(assignment.manufacturer) = release_channel_pair_key(discovered.manufacturer)
          AND release_channel_pair_key(assignment.model) = release_channel_pair_key(discovered.model))
@@ -40,6 +42,7 @@ JOIN release_channel_firmware assignment ON assignment.channel_id = channel.id
               AND rollout.firmware_checksum = assignment.firmware_checksum
               AND release_channel_pair_key(rollout.manufacturer) = release_channel_pair_key(assignment.manufacturer)
               AND release_channel_pair_key(rollout.model) = release_channel_pair_key(assignment.model)
+              AND rollout.component = assignment.component
         )
     )
 WHERE d.org_id = sqlc.arg('org_id') AND d.deleted_at IS NULL

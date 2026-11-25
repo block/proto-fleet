@@ -1,9 +1,8 @@
 import { type ComponentProps, type ReactElement, useEffect, useMemo, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import ActiveCurtailmentStatus, {
-  type ActiveCurtailmentEvent,
-} from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
+import type { ActiveCurtailmentEvent } from "@/protoFleet/api/curtailmentTypes";
+import ActiveCurtailmentStatus from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
 import {
   curtailedCurtailmentEvent,
   curtailingCurtailmentEvent,
@@ -372,4 +371,9 @@ export const AnimatedCurtailmentLifecycle: Story = {
   render: function renderAnimatedCurtailmentLifecycle(): ReactElement {
     return <AnimatedCurtailmentLifecycleStory />;
   },
+};
+
+export const UnknownState: Story = {
+  args: { event: { ...curtailingCurtailmentEvent, state: "unknown" } },
+  render: (args) => <ActiveCurtailmentStatusStory {...args} />,
 };

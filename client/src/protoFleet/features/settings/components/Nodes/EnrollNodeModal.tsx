@@ -1,15 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { buildFleetNodeEnrollCommand, shouldAppendInsecureTransportFlag } from "./enrollNodeCommand";
-import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
+import {
+  FleetNodeEnrollmentStatus,
+  FleetNodeHARole,
+} from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { EnrollmentCode, FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 import { useFleetNodes } from "@/protoFleet/api/useFleetNodes";
 import { Alert, Copy, Success } from "@/shared/assets/icons";
 import Button, { variants } from "@/shared/components/Button";
 import { groupVariants } from "@/shared/components/ButtonGroup";
 import Callout from "@/shared/components/Callout";
+import Checkbox from "@/shared/components/Checkbox";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 import Modal from "@/shared/components/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import Select from "@/shared/components/Select";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { formatTimestamp } from "@/shared/utils/formatTimestamp";
 import { copyToClipboard } from "@/shared/utils/utility";
@@ -24,7 +29,11 @@ interface EnrollNodeModalProps {
   onUpdated: () => void;
 }
 
-type Step = "code" | "confirm" | "apiKey";
+type Step = "options" | "code" | "confirm" | "apiKey";
+
+const isStandbyTarget = (node: FleetNodeItem) =>
+  node.enrollmentStatus === FleetNodeEnrollmentStatus.CONFIRMED &&
+  node.haRole === FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED;
 
 const CopyableValue = ({ value, copyLabel }: { value: string; copyLabel: string }) => {
   const handleCopy = useCallback(() => {
@@ -49,7 +58,11 @@ const CopyableValue = ({ value, copyLabel }: { value: string; copyLabel: string 
 
 const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: EnrollNodeModalProps) => {
   const { listFleetNodes, createEnrollmentCode, confirmFleetNode, revokeFleetNode } = useFleetNodes();
-  const [step, setStep] = useState<Step>(open && resumeNode ? "confirm" : "code");
+  const [step, setStep] = useState<Step>(open && resumeNode ? "confirm" : "options");
+  const [enrollAsStandby, setEnrollAsStandby] = useState(false);
+  const [standbyForNodeId, setStandbyForNodeId] = useState("");
+  const [eligibleTargets, setEligibleTargets] = useState<FleetNodeItem[]>([]);
+  const [targetsLoading, setTargetsLoading] = useState(true);
   const [enrollmentCode, setEnrollmentCode] = useState<EnrollmentCode | null>(null);
   const [foundNode, setFoundNode] = useState<FleetNodeItem | null>(open && resumeNode ? resumeNode : null);
   const [apiKey, setApiKey] = useState("");
@@ -67,19 +80,47 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
   }, []);
 
   useEffect(() => {
-    if (!open || resumeNode || codeRequestedRef.current) return;
+    if (!open || resumeNode || step !== "options") return;
+    let cancelled = false;
+    void listFleetNodes()
+      .then((nodes) => {
+        if (!cancelled) {
+          setEligibleTargets(nodes.filter(isStandbyTarget));
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) setErrorMsg(error instanceof Error ? error.message : "Failed to load standby targets.");
+      })
+      .finally(() => {
+        if (!cancelled) setTargetsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, resumeNode, step, listFleetNodes]);
+
+  const standbyTargetInvalid =
+    enrollAsStandby && !eligibleTargets.some((node) => node.fleetNodeId === standbyForNodeId);
+
+  const handleCreateCode = () => {
+    if (codeRequestedRef.current || standbyTargetInvalid) return;
     codeRequestedRef.current = true;
+    setErrorMsg("");
+    setStep("code");
     void (async () => {
       try {
-        const created = await createEnrollmentCode();
+        const created = enrollAsStandby ? await createEnrollmentCode(standbyForNodeId) : await createEnrollmentCode();
         if (!isMountedRef.current) return;
         setEnrollmentCode(created);
       } catch (error) {
         if (!isMountedRef.current) return;
+        codeRequestedRef.current = false;
+        setTargetsLoading(true);
+        setStep("options");
         setErrorMsg(error instanceof Error ? error.message : "Failed to create an enrollment code.");
       }
     })();
-  }, [open, resumeNode, createEnrollmentCode]);
+  };
 
   useEffect(() => {
     if (!open || step !== "code" || !enrollmentCode) return;
@@ -192,51 +233,96 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
   const fleetNodeEnrollCommand = buildFleetNodeEnrollCommand(window.location);
   const includesInsecureTransportFlag = shouldAppendInsecureTransportFlag(window.location);
 
-  if (step === "code") {
-    return (
-      <Modal open={open} onDismiss={handleDismiss} title="Enroll a node" divider={false}>
-        <div className="mb-6">
-          Nodes are hosts that run the <span className="font-mono">fleet-node</span> daemon and manage the miners on
-          their network.
-        </div>
+  const noEligibleTargets = !targetsLoading && eligibleTargets.length === 0;
+  const standbyOptionDisabled = noEligibleTargets && !enrollAsStandby;
 
-        {errorMsg ? (
-          <Callout className="mb-6" intent="danger" prefixIcon={<Alert />} title={errorMsg} />
-        ) : enrollmentCode ? (
-          <div className="flex flex-col gap-4">
-            <div>
-              <div className="mb-2">1. On the host you want to enroll, run:</div>
-              <CopyableValue value={fleetNodeEnrollCommand} copyLabel="Command" />
-              {includesInsecureTransportFlag ? (
-                <Callout
-                  className="mt-3"
-                  intent="warning"
-                  prefixIcon={<Alert />}
-                  title="HTTP LAN enrollment uses insecure transport"
-                  subtitle="Only use this copied command on a trusted local network. Configure HTTPS on the Fleet server for production enrollment."
-                />
-              ) : null}
+  if (step === "options" || step === "code") {
+    return (
+      <Modal open={open} onDismiss={handleDismiss} title="Set up a node" divider={false}>
+        <div className="mb-6">
+          Install Fleet Node on a Linux machine that can reach your miners and this Fleet server.{" "}
+          <a
+            href="https://docs.proto.xyz/fleet/fleet-node"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline"
+          >
+            Installation instructions
+          </a>
+        </div>
+        <div className="flex flex-col gap-4">
+          {errorMsg ? <Callout intent="danger" prefixIcon={<Alert />} title={errorMsg} /> : null}
+          <label className="flex items-center gap-3 text-300">
+            <Checkbox
+              checked={enrollAsStandby}
+              onChange={(event) => setEnrollAsStandby(event.target.checked)}
+              disabled={standbyOptionDisabled || step === "code"}
+              ariaLabel="Enroll as a standby"
+            />
+            Enroll as a standby
+          </label>
+          {noEligibleTargets ? (
+            <div className="text-200 text-text-primary-50">
+              No node can take a standby. A confirmed node that is not in an HA pair is required.
             </div>
-            <div>
-              <div className="mb-2">2. Paste this one-time enrollment code when prompted:</div>
+          ) : null}
+          {enrollAsStandby ? (
+            <Select
+              id="standby-for-node"
+              label="Standby for"
+              options={eligibleTargets.map((node) => ({ value: node.fleetNodeId, label: node.name }))}
+              value={standbyForNodeId}
+              onChange={setStandbyForNodeId}
+              disabled={targetsLoading || step === "code"}
+              placeholder={targetsLoading ? "Loading nodes…" : "Select a node"}
+              emptyMessage="No nodes are eligible for standby enrollment."
+            />
+          ) : null}
+          <div>
+            <div className="mb-2">1. Run this command on the machine:</div>
+            <CopyableValue value={fleetNodeEnrollCommand} copyLabel="Command" />
+            {includesInsecureTransportFlag ? (
+              <Callout
+                className="mt-3"
+                intent="warning"
+                prefixIcon={<Alert />}
+                title="HTTP LAN enrollment uses insecure transport"
+                subtitle="Only use this copied command on a trusted local network. Configure HTTPS on the Fleet server for production enrollment."
+              />
+            ) : null}
+          </div>
+          <div>
+            <div className="mb-2">
+              {enrollmentCode ? "2. Enter this code when prompted:" : "2. Generate a one-time enrollment code:"}
+            </div>
+            {enrollmentCode ? (
               <CopyableValue value={enrollmentCode.code} copyLabel="Enrollment code" />
-              {enrollmentCode.expiresAt ? (
-                <div className="mt-2 text-200 text-text-primary-50">
-                  Single use. Expires {formatTimestamp(Math.floor(enrollmentCode.expiresAt.getTime() / 1000))}.
-                </div>
-              ) : null}
-            </div>
+            ) : step === "code" ? (
+              <div className="flex items-center gap-3 py-2">
+                <ProgressCircular indeterminate size={16} />
+                <span>Creating an enrollment code…</span>
+              </div>
+            ) : (
+              <Button
+                text="Generate code"
+                variant={variants.primary}
+                onClick={handleCreateCode}
+                disabled={standbyTargetInvalid}
+              />
+            )}
+            {enrollmentCode?.expiresAt ? (
+              <div className="mt-2 text-200 text-text-primary-50">
+                Single use. Expires {formatTimestamp(Math.floor(enrollmentCode.expiresAt.getTime() / 1000))}.
+              </div>
+            ) : null}
+          </div>
+          {enrollmentCode ? (
             <div className="flex items-center gap-3 rounded-xl bg-surface-5 px-4 py-3">
               <ProgressCircular indeterminate size={16} />
               <span>Waiting for the node to register…</span>
             </div>
-          </div>
-        ) : (
-          <div className="flex items-center gap-3 py-2">
-            <ProgressCircular indeterminate size={16} />
-            <span>Creating an enrollment code…</span>
-          </div>
-        )}
+          ) : null}
+        </div>
       </Modal>
     );
   }
@@ -267,6 +353,9 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
         {errorMsg ? <Callout className="mb-6" intent="danger" prefixIcon={<Alert />} title={errorMsg} /> : null}
 
         <div className="mb-6">A node registered and is awaiting confirmation.</div>
+        {foundNode?.haRole === FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY ? (
+          <div className="mb-6 text-300">Standby for {foundNode.haPeerNodeName || foundNode.haPeerNodeId}</div>
+        ) : null}
 
         <div className="mb-6 flex flex-col gap-4">
           <div>
@@ -284,8 +373,8 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
         <Callout
           intent="warning"
           prefixIcon={<Alert />}
-          title="Check this is really your host"
-          subtitle="The CLI printed the same fingerprint after registering. Only confirm if it matches — a different fingerprint means another host used your enrollment code."
+          title="Check this is really your machine"
+          subtitle="The CLI printed the same fingerprint after registering. Only confirm if it matches — a different fingerprint means another machine used your enrollment code."
         />
       </Modal>
     );
@@ -296,7 +385,7 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
     <Dialog
       open={open}
       title="Node confirmed"
-      subtitle={`Paste this API key into the fleet-node prompt on ${foundNode?.name ?? "the host"} to finish enrollment. It won't be shown again.`}
+      subtitle={`Enter this API key on ${foundNode?.name ?? "the machine"} to finish enrollment. It won't be shown again.`}
       subtitleSize="text-300"
       icon={
         <DialogIcon intent="success">
@@ -313,6 +402,9 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
       ]}
     >
       <CopyableValue value={apiKey} copyLabel="API key" />
+      <p className="mt-4 text-300 text-text-primary-70">
+        The service starts after enrollment. Check that the node is connected in Nodes before adding miners.
+      </p>
     </Dialog>
   );
 };

@@ -47,6 +47,7 @@ const renderPicker = (props: Parameters<typeof SitePicker>[0], initialEntries = 
 describe("SitePicker", () => {
   it("renders a skeleton while sites are loading", () => {
     const { container } = renderPicker({ sites: undefined });
+    expect(screen.getByTestId("skeleton-bar")).toBeInTheDocument();
     expect(container.querySelector("[data-testid='site-picker-trigger']")).toBeNull();
   });
 

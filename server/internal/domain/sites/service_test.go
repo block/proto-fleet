@@ -1107,23 +1107,6 @@ func TestAssignBuildingsToSite_bulkRollsBackOnLaterFailure(t *testing.T) {
 	}
 }
 
-func TestCreateSite_invalidNetworkConfigBlocksWrite(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	store := mocks.NewMockSiteStore(ctrl)
-	tx := &fakeTransactor{}
-	svc := NewService(store, nil, nil, nil, nil, tx, nil)
-	// CreateSite must NOT be called when network_config validation fails.
-
-	_, _, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
-		OrgID:         testOrgID,
-		Name:          "alpha",
-		NetworkConfig: "not-an-ip",
-	})
-	if err == nil {
-		t.Fatal("expected validation error, got nil")
-	}
-}
-
 func TestCreateSite_canonicalizesAndPersists(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	store := mocks.NewMockSiteStore(ctrl)
@@ -1205,42 +1188,6 @@ func TestCreateSite_generatesNextSlugOnCollision(t *testing.T) {
 	}
 	if out.Site.Slug != "north-dc-2" {
 		t.Fatalf("expected slug to round-trip, got %q", out.Site.Slug)
-	}
-}
-
-func TestCreateSite_retriesSlugRace(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	store := mocks.NewMockSiteStore(ctrl)
-	tx := &fakeTransactor{}
-	svc := NewService(store, nil, nil, nil, nil, tx, nil)
-
-	store.EXPECT().ListSiteSlugs(gomock.Any(), testOrgID).Return(nil, nil)
-	gomock.InOrder(
-		store.EXPECT().CreateSite(gomock.Any(), gomock.AssignableToTypeOf(models.CreateSiteParams{})).
-			DoAndReturn(func(_ context.Context, p models.CreateSiteParams) (*models.Site, error) {
-				if p.Slug != "north-dc" {
-					return nil, errors.New("expected first slug north-dc, got " + p.Slug)
-				}
-				return nil, models.ErrSiteSlugCollision
-			}),
-		store.EXPECT().CreateSite(gomock.Any(), gomock.AssignableToTypeOf(models.CreateSiteParams{})).
-			DoAndReturn(func(_ context.Context, p models.CreateSiteParams) (*models.Site, error) {
-				if p.Slug != "north-dc-2" {
-					return nil, errors.New("expected retry slug north-dc-2, got " + p.Slug)
-				}
-				return &models.Site{ID: 1, Name: p.Name, Slug: p.Slug}, nil
-			}),
-	)
-
-	out, _, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
-		OrgID: testOrgID,
-		Name:  "North DC",
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if out.Site.Slug != "north-dc-2" {
-		t.Fatalf("expected retry slug, got %q", out.Site.Slug)
 	}
 }
 

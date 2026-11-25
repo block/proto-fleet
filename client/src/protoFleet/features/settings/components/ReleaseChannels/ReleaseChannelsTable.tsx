@@ -4,10 +4,14 @@ import clsx from "clsx";
 import { ModelStatusCell, StatusCell } from "./channelStatus";
 import {
   activeRolloutForGroup,
+  capitalize,
   channelAssignmentKey,
   channelUpdateStatus,
+  groupTestId,
   hasUnavailableAssignedFirmware,
   lastFinishedByChannelAssignment,
+  mixedDeviceNouns,
+  modelCount,
   modelFirmwareLabel,
   pairKey,
   pairLabel,
@@ -46,13 +50,15 @@ type ChannelColumn = "name" | "miners" | "firmware" | "status" | "actions";
 
 const channelColumns: ChannelColumn[] = ["name", "miners", "firmware", "status", "actions"];
 
-const channelColTitles: ColTitles<ChannelColumn> = {
+// The count column is headed by what the listed channels hold: miners,
+// containers, or devices when both appear.
+const channelColTitles = (channels: ChannelView[]): ColTitles<ChannelColumn> => ({
   name: "Release channel",
-  miners: "Miners",
+  miners: capitalize(mixedDeviceNouns(channels.flatMap((channel) => channel.modelGroups)).plural),
   firmware: "Firmware",
   status: "Update status",
   actions: "",
-};
+});
 
 // The release channels overview on the shared List: one disclosure row per
 // channel with aggregate counts, and per-model rows carrying firmware targets
@@ -83,7 +89,7 @@ const ReleaseChannelsTable = ({
           { id: channelKey, kind: "channel" as const, channel },
           ...(expandedChannelIds.has(channelKey)
             ? channel.modelGroups.map((group) => ({
-                id: JSON.stringify([channelKey, group.manufacturer, group.model]),
+                id: JSON.stringify([channelKey, group.manufacturer, group.model, group.component]),
                 kind: "model" as const,
                 channel,
                 group,
@@ -154,7 +160,7 @@ const ReleaseChannelsTable = ({
         return (
           <span
             className="ml-5 block min-w-0 truncate border-l border-border-5 pl-5 text-300 text-text-primary"
-            data-testid={`model-row-${row.channel.name}-${row.group.model}`}
+            data-testid={`model-row-${row.channel.name}-${groupTestId(row.group)}`}
           >
             {pairLabel(row.group)}
           </span>
@@ -174,7 +180,7 @@ const ReleaseChannelsTable = ({
     firmware: {
       component: (row) =>
         row.kind === "channel"
-          ? `${row.channel.modelGroups.length} ${row.channel.modelGroups.length === 1 ? "model" : "models"}`
+          ? `${modelCount(row.channel.modelGroups)} ${modelCount(row.channel.modelGroups) === 1 ? "model" : "models"}`
           : modelFirmwareLabel(row.group),
       width: "w-64",
     },
@@ -188,7 +194,7 @@ const ReleaseChannelsTable = ({
             activeRollout={activeRolloutForGroup(row.channel.id, row.group, rolloutsById)}
             lastFinished={lastFinished.get(channelAssignmentKey(row.channel.id, row.group))}
             historyState={historyStates ? (historyStates.get(row.channel.id) ?? { status: "loading" }) : undefined}
-            testId={`model-status-${row.channel.name}-${row.group.model}`}
+            testId={`model-status-${row.channel.name}-${groupTestId(row.group)}`}
           />
         ),
       width: "w-64",
@@ -215,7 +221,7 @@ const ReleaseChannelsTable = ({
     <div className="flex flex-col gap-6" data-testid="channels-table">
       <List<ChannelTableRow, string, ChannelColumn>
         activeCols={channelColumns}
-        colTitles={channelColTitles}
+        colTitles={channelColTitles(channels)}
         colConfig={colConfig}
         items={rows}
         itemKey="id"

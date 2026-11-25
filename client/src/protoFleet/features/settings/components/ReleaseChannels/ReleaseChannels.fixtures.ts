@@ -1,11 +1,15 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 
+import type { ControllerSoftwareApi } from "./controllerSoftwareUtils";
 import {
   AggregateMetricComparisonSchema,
+  FirmwareVersionState,
   MetricComparisonSchema,
   type PreviewReleaseChannelScopeResponse,
   PreviewReleaseChannelScopeResponseSchema,
+  ReleaseChannelContainerSchema,
+  ReleaseChannelControllerSoftwareSchema,
   type ReleaseChannelMiner,
   ReleaseChannelMinerSchema,
   type ReleaseChannelModelGroup,
@@ -49,6 +53,21 @@ export const checksums = {
   rig143: "1431431431431431431431431431431431431431431431431431431431431431",
   rig144: "1441441441441441441441441441441441441441441441441441441441441441",
   s21301: "3013013013013013013013013013013013013013013013013013013013013013",
+  hashboard1390: "1390139013901390139013901390139013901390139013901390139013901390",
+};
+
+// Hashboard firmware for a Proto Container. Kept out of firmwareFiles so the
+// miner-only stories and tests keep their catalog.
+export const hashboardFirmwareFile: FirmwareFileInfo = {
+  id: "fw-hashboard-1390",
+  filename: "hashboard-firmware-1.39.0-prod.zip",
+  size: 9_437_184,
+  uploaded_at: "2026-11-12T15:45:00Z",
+  target_manufacturer: "Proto",
+  target_model: "CT1",
+  firmware_version: "1.39.0",
+  hashboard_build: "prod",
+  sha256: checksums.hashboard1390,
 };
 
 export const firmwareFiles: FirmwareFileInfo[] = [
@@ -93,6 +112,8 @@ export const minerNames: Record<string, string> = {
   "rig-006": "Rig B03",
   "s21-001": "S21 Rack 4-1",
   "s21-002": "S21 Rack 4-2",
+  "ct1:north-a": "Container North A",
+  "ct1:north-b": "Container North B",
 };
 
 export const singleBatchBehavior: RolloutBehavior = create(RolloutBehaviorSchema, {
@@ -356,6 +377,88 @@ export const emptyChannel: ChannelView = {
   modelGroups: [],
 };
 
+// "Site North" mixes rigs with two Proto Containers. A container is one
+// channel member; its version is the firmware its hashboards report, and one
+// here has boards on differing versions.
+const containerChannelId = 5n;
+export const containerChannel: ChannelView = {
+  ...create(ReleaseChannelSchema, {
+    id: containerChannelId,
+    name: "Site North",
+    description: "Rigs and Proto Containers at the north site.",
+    scope: { siteIds: [BigInt(2)] },
+    behavior: singleBatchBehavior,
+    modelGroupCount: 2,
+    minerCount: 8,
+    createdAt: minutesAgo(60 * 24 * 2),
+    updatedAt: minutesAgo(60 * 24),
+  }),
+  modelGroups: [
+    modelGroup(
+      containerChannelId,
+      { ...settledRigGroup },
+      [1, 2, 3, 4, 5, 6].map((n) => rigMiner(n, "1.4.4")),
+    ),
+    modelGroup(
+      containerChannelId,
+      {
+        manufacturer: "Proto",
+        model: "CT1",
+        firmwareFileId: hashboardFirmwareFile.id,
+        firmwareVersion: "1.39.0",
+        firmwareChecksum: checksums.hashboard1390,
+        activeRolloutId: BigInt(0),
+        assignmentGeneration: 1n,
+      },
+      [
+        create(ReleaseChannelMinerSchema, {
+          deviceId: BigInt(301),
+          deviceIdentifier: "ct1:north-a",
+          manufacturer: "Proto",
+          model: "CT1",
+          firmwareVersion: "1.39.0",
+          firmwareVersionState: FirmwareVersionState.KNOWN,
+          lastDeployedFirmwareChecksum: checksums.hashboard1390,
+        }),
+        create(ReleaseChannelMinerSchema, {
+          deviceId: BigInt(302),
+          deviceIdentifier: "ct1:north-b",
+          manufacturer: "Proto",
+          model: "CT1",
+          firmwareVersionState: FirmwareVersionState.MIXED,
+        }),
+      ],
+    ),
+  ],
+};
+
+// The container channel names controller software 1.6.0. One container is on
+// it; the other is behind, so its hashboard firmware waits.
+export const containerControllerSoftware: ControllerSoftwareApi = {
+  canSet: true,
+  list: () =>
+    Promise.resolve([
+      create(ReleaseChannelControllerSoftwareSchema, {
+        manufacturer: "Proto",
+        model: "CT1",
+        targetVersion: "1.6.0",
+        containerCount: 2,
+        onTargetCount: 1,
+      }),
+    ]),
+  listContainers: () =>
+    Promise.resolve([
+      create(ReleaseChannelContainerSchema, {
+        deviceIdentifier: "ct1:north-a",
+        controllerSoftwareVersion: "1.6.0",
+        onTarget: true,
+      }),
+      create(ReleaseChannelContainerSchema, { deviceIdentifier: "ct1:north-b", controllerSoftwareVersion: "1.5.2" }),
+    ]),
+  set: () => Promise.resolve(undefined),
+  listVersions: () => Promise.resolve(["1.6.0", "1.5.2"]),
+};
+
 // A settled channel with a distinct id, for stories listing several channels.
 export const productionChannel: ChannelView = {
   ...canaryChannelSettled,
@@ -556,7 +659,7 @@ export const batchedRigRollout: Rollout = rolloutWithDevices(
       hashRateHs: aggregate(112 * TH, 112 * TH, 1),
       hashrateChangePercent: 0,
       newErrors: 2,
-      holdReason: "1 miners failed to update",
+      holdReason: "1 miner failed to update",
       powerW: aggregate(112 * 30, 112 * 30 + 40, 1),
       efficiencyJh: aggregate(30, 30.4, 1),
       efficiencyChangePercent: 1.3,
@@ -687,3 +790,73 @@ export const canaryHistory: Rollout[] = [
   canceledRigRollout,
   canceledRemainingRigRollout,
 ];
+
+// A channel of CT1 containers. A container has two firmware components: its
+// hashboard firmware, which is the model's main firmware, and its PSU
+// firmware. Each has its own assignment and update status.
+export const containerFirmwareFiles: FirmwareFileInfo[] = [
+  {
+    id: "fw-ct1-139",
+    filename: "hashboard-firmware-1.39.0-prod.zip",
+    size: 41_943_040,
+    uploaded_at: "2026-10-02T09:00:00Z",
+    target_manufacturer: "Proto",
+    target_model: "CT1",
+    firmware_version: "1.39.0",
+    hashboard_build: "prod",
+  },
+  {
+    id: "fw-ct1-psu-1410",
+    filename: "boco-ha1200000-0123456789ab.psucap",
+    size: 262_144,
+    uploaded_at: "2026-10-20T09:00:00Z",
+    target_manufacturer: "Proto",
+    target_model: "CT1",
+    firmware_version: "app=1410;bl=1110",
+    component: "psu",
+  },
+];
+
+const containerGroup = {
+  manufacturer: "Proto",
+  model: "CT1",
+  minerCount: 12,
+  firmwareTargetManufacturer: "Proto",
+  firmwareTargetModel: "CT1",
+  firmwareAvailable: true,
+};
+
+export const psuContainerChannel: ChannelView = {
+  ...create(ReleaseChannelSchema, {
+    id: BigInt(7),
+    name: "Containers",
+    description: "CT1 containers at the north site.",
+    scope: create(ReleaseChannelScopeSchema, { siteIds: [BigInt(1)] }),
+    behavior: singleBatchBehavior,
+    minerCount: 12,
+    modelGroupCount: 2,
+  }),
+  modelGroups: [
+    create(ReleaseChannelModelGroupSchema, {
+      ...containerGroup,
+      firmwareFileId: "fw-ct1-139",
+      firmwareChecksum: "1391391391391391391391391391391391391391391391391391391391391391",
+      firmwareVersion: "1.39.0",
+      assignmentGeneration: BigInt(2),
+      onTargetCount: 12,
+      reportedVersions: ["1.39.0"],
+      reportedVersionCount: 1,
+    }),
+    create(ReleaseChannelModelGroupSchema, {
+      ...containerGroup,
+      component: "psu",
+      firmwareFileId: "fw-ct1-psu-1410",
+      firmwareChecksum: "1410141014101410141014101410141014101410141014101410141014101410",
+      firmwareVersion: "app=1410;bl=1110",
+      assignmentGeneration: BigInt(1),
+      onTargetCount: 3,
+      reportedVersions: ["app=1310;bl=1110", "app=1410;bl=1110"],
+      reportedVersionCount: 2,
+    }),
+  ],
+};

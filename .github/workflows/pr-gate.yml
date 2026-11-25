@@ -32,6 +32,7 @@ jobs:
       rust_sdk: ${{ github.event_name != 'pull_request' || steps.filter.outputs.rust_sdk == 'true' }}
       windows: ${{ github.event_name != 'pull_request' || steps.filter.outputs.windows == 'true' }}
       powershell: ${{ github.event_name != 'pull_request' || steps.filter.outputs.powershell == 'true' }}
+      dependencies: ${{ github.event_name != 'pull_request' || steps.filter.outputs.dependencies == 'true' }}
       developer_workflows: ${{ github.event_name != 'pull_request' || steps.filter.outputs.developer_workflows == 'true' }}
       protofleet_e2e: ${{ github.event_name != 'pull_request' || steps.filter.outputs.protofleet_e2e == 'true' }}
       protoos_e2e: ${{ github.event_name != 'pull_request' || steps.filter.outputs.protoos_e2e == 'true' }}
@@ -45,6 +46,8 @@ jobs:
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
           filters: .github/path-filters.yml
+          # A pattern with a leading `!` removes files from its filter.
+          predicate-quantifier: some-with-excludes
 
   generated-code:
     name: Generated Code Check
@@ -58,6 +61,12 @@ jobs:
     if: github.event_name == 'pull_request'
     uses: ./.github/workflows/dependency-review.yml
     secrets: inherit
+
+  vulnerability-scan:
+    name: Vulnerability Scan
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.dependencies == 'true'
+    uses: ./.github/workflows/vulnerability-scan.yml
 
   deployment-config-checks:
     name: Deployment Config Checks
@@ -202,10 +211,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Run review policy and Codex sharding tests
+      - name: Run review policy and benchmark tests
         run: |
           python3 .github/scripts/evaluate_review_policy_test.py
-          python3 .github/scripts/codex_sharding_test.py
 
   gate:
     name: Gate
@@ -215,6 +223,7 @@ jobs:
       - changes
       - generated-code
       - dependency-review
+      - vulnerability-scan
       - deployment-config-checks
       - proto-checks
       - client-checks

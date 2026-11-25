@@ -39,16 +39,16 @@ func TestCloser_WhenCloseStaleErrorsFails_ShouldContinuePolling(t *testing.T) {
 	retried := make(chan struct{})
 	gomock.InOrder(
 		mockStore.EXPECT().
-			CloseStaleErrors(gomock.Any(), 2*time.Minute).
+			CloseStaleErrors(gomock.Any(), 2*time.Minute, 30*time.Second).
 			Return(int64(0), assert.AnError),
 		mockStore.EXPECT().
-			CloseStaleErrors(gomock.Any(), 2*time.Minute).
-			DoAndReturn(func(context.Context, time.Duration) (int64, error) {
+			CloseStaleErrors(gomock.Any(), 2*time.Minute, 30*time.Second).
+			DoAndReturn(func(context.Context, time.Duration, time.Duration) (int64, error) {
 				close(retried)
 				return 3, nil
 			}),
 		mockStore.EXPECT().
-			CloseStaleErrors(gomock.Any(), 2*time.Minute).
+			CloseStaleErrors(gomock.Any(), 2*time.Minute, 30*time.Second).
 			Return(int64(0), nil).
 			AnyTimes(),
 	)
@@ -78,8 +78,8 @@ func TestCloser_CanRestartAfterStop(t *testing.T) {
 
 	var calls atomic.Int32
 	mockStore.EXPECT().
-		CloseStaleErrors(gomock.Any(), 2*time.Minute).
-		DoAndReturn(func(context.Context, time.Duration) (int64, error) {
+		CloseStaleErrors(gomock.Any(), 2*time.Minute, 30*time.Second).
+		DoAndReturn(func(context.Context, time.Duration, time.Duration) (int64, error) {
 			calls.Add(1)
 			return 0, nil
 		}).
@@ -111,8 +111,8 @@ func TestCloser_CanRestartAfterStartContextCancellation(t *testing.T) {
 
 	var calls atomic.Int32
 	mockStore.EXPECT().
-		CloseStaleErrors(gomock.Any(), 2*time.Minute).
-		DoAndReturn(func(context.Context, time.Duration) (int64, error) {
+		CloseStaleErrors(gomock.Any(), 2*time.Minute, 30*time.Second).
+		DoAndReturn(func(context.Context, time.Duration, time.Duration) (int64, error) {
 			calls.Add(1)
 			return 0, nil
 		}).
@@ -159,8 +159,8 @@ func TestCloser_StopTimeoutAllowsRestartAfterRunExits(t *testing.T) {
 	release := make(chan struct{})
 	var calls atomic.Int32
 	mockStore.EXPECT().
-		CloseStaleErrors(gomock.Any(), 2*time.Minute).
-		DoAndReturn(func(context.Context, time.Duration) (int64, error) {
+		CloseStaleErrors(gomock.Any(), 2*time.Minute, 30*time.Second).
+		DoAndReturn(func(context.Context, time.Duration, time.Duration) (int64, error) {
 			if calls.Add(1) == 1 {
 				close(entered)
 				<-release
@@ -215,7 +215,7 @@ func TestCloseStaleErrors_WithZeroClosed_ShouldNotLog(t *testing.T) {
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
 
 	mockStore.EXPECT().
-		CloseStaleErrors(gomock.Any(), 2*time.Minute).
+		CloseStaleErrors(gomock.Any(), 2*time.Minute, 30*time.Second).
 		Return(int64(0), nil)
 
 	svc := &Service{
@@ -231,7 +231,7 @@ func TestCloseStaleErrors_WithErrorsClosed_ShouldLogCount(t *testing.T) {
 	mockStore := storeMocks.NewMockErrorStore(ctrl)
 
 	mockStore.EXPECT().
-		CloseStaleErrors(gomock.Any(), 2*time.Minute).
+		CloseStaleErrors(gomock.Any(), 2*time.Minute, 30*time.Second).
 		Return(int64(10), nil)
 
 	svc := &Service{
@@ -240,4 +240,12 @@ func TestCloseStaleErrors_WithErrorsClosed_ShouldLogCount(t *testing.T) {
 	}
 
 	svc.closeStaleErrors(t.Context(), 2*time.Minute)
+}
+
+func TestCloseStaleErrors_WithShortThreshold_ShouldUseMatchingRefreshHeartbeat(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := storeMocks.NewMockErrorStore(ctrl)
+	mockStore.EXPECT().CloseStaleErrors(gomock.Any(), 20*time.Second, 5*time.Second).Return(int64(0), nil)
+	svc := &Service{errorStore: mockStore}
+	svc.closeStaleErrors(t.Context(), 20*time.Second)
 }

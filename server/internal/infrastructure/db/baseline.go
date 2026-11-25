@@ -302,12 +302,7 @@ func ApplyBaseline(ctx context.Context, pool *sql.DB, source string, version int
 			return err
 		}
 		recipe := assertions.Sources[source+"-"+strconv.Itoa(version)]
-		tables := make([]string, 0, len(assertions.Preserve))
-		for _, table := range assertions.Preserve {
-			tables = append(tables, `public."`+strings.ReplaceAll(table, `"`, `""`)+`"`)
-		}
-		sort.Strings(tables)
-		if _, err = tx.ExecContext(ctx, `LOCK TABLE `+strings.Join(tables, ",")+` IN SHARE MODE`); err != nil {
+		if _, err = tx.ExecContext(ctx, `LOCK TABLE "user",role,permission,role_permission,user_organization,user_organization_role,api_key,fleet_node,fleet_node_device,fleet_node_session,fleet_node_auth_challenge,pending_enrollment,miner_credentials,device_pairing,device,discovered_device IN SHARE MODE`); err != nil {
 			return fmt.Errorf("lock protected application tables: %w", err)
 		}
 		settings, err := baselineSettings(ctx, tx)
@@ -423,7 +418,7 @@ func checkBaselineStartup(ctx context.Context, q baselineQuerier, files fs.FS) (
 	if rows == 0 {
 		var count int
 		if err := q.QueryRowContext(ctx, `SELECT
-   (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname<>'schema_migrations' AND c.relkind IN ('r','p','v','m','S') AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid='pg_class'::regclass AND d.objid=c.oid AND d.deptype='e')) +
+   (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname<>'schema_migrations' AND c.relkind IN ('r','p','v','m','S','c') AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid='pg_class'::regclass AND d.objid=c.oid AND d.deptype='e')) +
    (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid='pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e')) +
    (SELECT count(*) FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname='public' AND t.typtype IN ('e','d') AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid='pg_type'::regclass AND d.objid=t.oid AND d.deptype='e'))`).Scan(&count); err != nil {
 			return status, fmt.Errorf("inspect untracked application objects: %w", err)
@@ -450,11 +445,12 @@ func checkBaselineStartup(ctx context.Context, q baselineQuerier, files fs.FS) (
 	}
 	// Exact catalog validation belongs to baseline adoption only. Future
 	// migrations use the stock runner and repository-owned checkpoints.
-	assertions, err := loadBaselineAssertions()
-	if err != nil {
-		return status, err
+	if status.Version == 1000 {
+		if _, err := fs.Stat(files, migrations.ConsolidationUpPath); err == nil {
+			return checkBaselineState(ctx, q, "source", "public", 1000)
+		}
 	}
-	if status.Version == assertions.Target {
+	if status.Version <= 1001 {
 		return checkBaselineState(ctx, q, "target", "", 0)
 	}
 	return status, nil

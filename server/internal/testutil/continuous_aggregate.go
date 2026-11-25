@@ -3,12 +3,30 @@ package testutil
 import (
 	"database/sql"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/block/proto-fleet/server/migrations"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 )
+
+// RestoreLegacySummaryBootstraps reinstalls bootstraps superseded by telemetry
+// recovery so disposable databases can still test the historical migrations.
+func RestoreLegacySummaryBootstraps(t *testing.T, db *sql.DB, names ...string) {
+	t.Helper()
+	for _, name := range names {
+		raw, err := migrations.Current.ReadFile("current/" + name + ".up.sql")
+		require.NoError(t, err)
+		script := string(raw)
+		start := strings.Index(script, "CREATE PROCEDURE initialize_")
+		require.NotEqual(t, -1, start, "bootstrap missing from %s", name)
+		_, err = db.ExecContext(t.Context(), script[start:]+`
+	 SELECT alter_job(job_id,scheduled=>false) FROM timescaledb_information.jobs WHERE scheduled;`)
+		require.NoError(t, err)
+	}
+}
 
 // RefreshContinuousAggregate materializes a test fixture, allowing a scheduled
 // policy refresh already running in the test database to finish first. Nil bounds

@@ -38,12 +38,13 @@ test.describe("Miners UNPAIR - ADD actions", () => {
         await authPage.clickGetStarted();
       }
       await addMinersPage.clickFindMinersInNetwork();
-      await addMinersPage.waitForFoundMinersList();
+      await addMinersPage.waitForNetworkScanToFinish();
       const foundMinerCount = await addMinersPage.getFoundMinersCount();
 
       if (foundMinerCount === 0) {
         await addMinersPage.clickHeaderIconButton();
       } else {
+        await addMinersPage.selectOnlyMiners(foundMinerCount);
         await addMinersPage.clickContinueWithSelectedMiners();
       }
       await minersPage.waitForMinersListToLoad();
@@ -100,6 +101,8 @@ test.describe("Miners UNPAIR - ADD actions", () => {
     await test.step("Add a single miner", async () => {
       await minersPage.clickAddMinersButton();
       await addMinersPage.clickFindMinersInNetwork();
+      await addMinersPage.waitForExpectedNetworkMinerCount(1);
+      await addMinersPage.selectOnlyMiners(1);
       await addMinersPage.clickContinueWithXMiners(1);
     });
 
@@ -205,6 +208,8 @@ test.describe("Miners UNPAIR - ADD actions", () => {
     await test.step("Add all miners back using onboarding flow", async () => {
       await minersPage.clickGetStarted();
       await addMinersPage.clickFindMinersInNetwork();
+      await addMinersPage.waitForExpectedNetworkMinerCount(originalMinerCount);
+      await addMinersPage.selectOnlyMiners(originalMinerCount);
       await addMinersPage.clickContinueWithSelectedMiners();
     });
 

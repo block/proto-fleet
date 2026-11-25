@@ -438,7 +438,7 @@ func (d *Device) TryGetWebViewURL(ctx context.Context) (string, bool, error) {
     return url, true, nil // Supported and successful
 }
 
-func (d *Device) TryBatchStatus(ctx context.Context, ids []string) (map[string]sdk.DeviceStatusResponse, bool, error) {
+func (d *Device) TryBatchStatus(ctx context.Context, devices []sdk.Device) (map[string]sdk.DeviceStatusResponse, bool, error) {
     // This device doesn't support batch operations
     return nil, false, nil
 }

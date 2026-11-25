@@ -12,9 +12,14 @@ import {
   PlusFilled,
   Settings,
   Speedometer,
+  Unpair,
 } from "@/shared/assets/icons";
 
 describe("activityIcons", () => {
+  it("uses the unpair icon for containers", () => {
+    expect(getActivityIcon("unpair_container")).toBe(Unpair);
+    expect(getActivityIconTone("unpair_container")).toBe("critical");
+  });
   it("uses shared filled icons for create, delete, and logout events", () => {
     expect(getActivityIcon("create_pool")).toBe(PlusFilled);
     expect(getActivityIcon("create_user")).toBe(PlusFilled);

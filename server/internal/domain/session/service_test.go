@@ -7,9 +7,34 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCreatePreservesPostgresStoreErrorCause(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		code      string
+		retryable bool
+	}{{"40P01", true}, {"40001", true}, {"23505", false}} {
+		t.Run(tc.code, func(t *testing.T) {
+			t.Parallel()
+			cause := &pgconn.PgError{Code: tc.code, Message: "session store failure"}
+			store := &validateSessionStore{createErr: cause}
+			svc := NewService(Config{Duration: time.Hour, IDBytes: 32}, store)
+			created, err := svc.Create(t.Context(), 1, 2, "", "")
+			require.Error(t, err)
+			require.Nil(t, created)
+			require.ErrorIs(t, err, cause)
+			var pgErr *pgconn.PgError
+			require.ErrorAs(t, err, &pgErr)
+			require.Same(t, cause, pgErr)
+			require.Equal(t, tc.retryable, db.IsRetryablePostgresError(err))
+		})
+	}
+}
 
 func TestValidateKeepsBestEffortActivityUpdateForUnclassifiedError(t *testing.T) {
 	t.Parallel()
@@ -97,13 +122,14 @@ func assertSanitizedSessionUnavailable(t *testing.T, err error, rawCause error) 
 
 type validateSessionStore struct {
 	session     *Session
+	createErr   error
 	getErr      error
 	updateErr   error
 	updateCalls int
 }
 
 func (s *validateSessionStore) CreateSession(context.Context, *Session) error {
-	return nil
+	return s.createErr
 }
 
 func (s *validateSessionStore) GetSessionByID(context.Context, string) (*Session, error) {

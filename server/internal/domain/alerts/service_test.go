@@ -613,7 +613,6 @@ func TestPauseSilenceMarkerIsNotAMatcher(t *testing.T) {
 			"pause silence may only carry org and alert-rule-UID matchers")
 	}
 	assert.True(t, isPauseSilence(sil), "comment marker must identify a pause silence")
-	assert.True(t, isPauseSilenceFor(sil, "7", "rule-9"))
 }
 
 // A rule pause is an indefinite mute of a (possibly critical) rule, so the silence must

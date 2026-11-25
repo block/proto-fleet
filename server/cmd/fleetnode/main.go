@@ -1,18 +1,40 @@
 package main
 
 import (
+	"context"
+	"fmt"
+	"log/slog"
+	"os"
+	"time"
+
 	"github.com/alecthomas/kong"
 	kongyaml "github.com/alecthomas/kong-yaml"
 
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
+	fleet_telemetry "github.com/block/proto-fleet/server/internal/infrastructure/fleet-telemetry"
+	"github.com/block/proto-fleet/server/internal/infrastructure/logging"
+	"github.com/block/proto-fleet/server/internal/infrastructure/runtimemetrics"
+	"github.com/block/proto-fleet/server/internal/releaseinfo"
 )
+
+const tracerShutdownTimeout = 5 * time.Second
+
+var version = "dev"
 
 type Context struct {
 	StateDir string
 }
 
 type CLI struct {
-	StateDir string `help:"override state directory; defaults to $XDG_STATE_HOME/fleetnode or ~/.local/state/fleetnode" type:"path"`
+	RuntimeMetrics         runtimemetrics.Config      `embed:"" prefix:"runtime-metrics-" envprefix:"FLEETNODE_RUNTIME_METRICS_"`
+	Version                kong.VersionFlag           `help:"print running binary version"`
+	PrintReleaseRepository printReleaseRepositoryFlag `help:"print the embedded publishing repository and exit"`
+	StateDir               string                     `help:"override state directory; defaults to $XDG_STATE_HOME/fleetnode or ~/.local/state/fleetnode" type:"path"`
+	TracingEnabled         bool                       `name:"tracing-enabled" help:"enable OpenTelemetry command traces" env:"FLEETNODE_TRACING_ENABLED"`
+	TracingEndpoint        string                     `name:"tracing-endpoint" help:"OTLP HTTP endpoint for command traces" default:"http://localhost:4318" env:"FLEETNODE_TRACING_ENDPOINT"`
+	TracingSampleRate      float64                    `name:"tracing-sample-rate" help:"fraction of command traces to sample (0.0-1.0)" default:"1.0" env:"FLEETNODE_TRACING_SAMPLE_RATE"`
+	LogLevel               slog.Level                 `name:"log-level" env:"FLEETNODE_LOG_LEVEL" default:"info" help:"minimum log level (debug, info, warn, error)"`
+	LogOutput              string                     `name:"log-output" env:"FLEETNODE_LOG_OUTPUT" default:"auto" enum:"auto,stdout,journal" help:"log sink: auto, stdout, or journal"`
 
 	Enroll  EnrollCmd  `cmd:"" help:"register this fleet node with a fleet server"`
 	Status  StatusCmd  `cmd:"" help:"print local fleet node state"`
@@ -20,14 +42,52 @@ type CLI struct {
 	Run     RunCmd     `cmd:"" help:"run as a long-running daemon; maintain session and post heartbeats"`
 }
 
+type printReleaseRepositoryFlag bool
+
+func (printReleaseRepositoryFlag) BeforeReset(app *kong.Kong) error {
+	if err := releaseinfo.ValidateRepository(releaseinfo.Repository); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintln(app.Stdout, releaseinfo.Repository)
+	app.Exit(0)
+	return nil
+}
+
 func main() {
 	var cli CLI
 	kctx := kong.Parse(&cli,
 		kong.Name("fleetnode"),
+		kong.Vars{"version": version},
 		kong.Description("Fleet node CLI: enroll, authenticate, refresh."),
 		kong.Configuration(kongyaml.Loader, "/etc/fleetnode/config.yaml"),
 	)
+	slog.SetDefault(slog.New(logging.NewHandler(os.Stdout, cli.LogLevel, cli.LogOutput, "fleetnode")))
 	stateDir, err := bootstrap.ResolveStateDir(cli.StateDir)
 	kctx.FatalIfErrorf(err)
-	kctx.FatalIfErrorf(kctx.Run(&Context{StateDir: stateDir}))
+	shutdownTracer, err := fleet_telemetry.Setup(context.Background(), version, fleet_telemetry.Config{
+		Enabled:     cli.TracingEnabled,
+		Endpoint:    cli.TracingEndpoint,
+		ServiceName: "fleetnode",
+		SampleRate:  cli.TracingSampleRate,
+	})
+	kctx.FatalIfErrorf(err)
+
+	// One-shot status/enroll commands must not contend with the daemon listener.
+	metricsConfig := cli.RuntimeMetrics
+	metricsConfig.Enabled = metricsConfig.Enabled && kctx.Command() == "run"
+	metrics, err := runtimemetrics.Start(metricsConfig)
+	kctx.FatalIfErrorf(err)
+	cli.Run.operationMetrics, err = metrics.NewNodeMetrics()
+	kctx.FatalIfErrorf(err)
+	runErr := kctx.Run(&Context{StateDir: stateDir})
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), tracerShutdownTimeout)
+	shutdownErr := shutdownTracer(shutdownCtx)
+	if err := metrics.Shutdown(shutdownCtx); err != nil {
+		slog.Error("Failed to shutdown metrics", "error", err)
+	}
+	cancel()
+	if shutdownErr != nil {
+		slog.Error("Failed to shutdown tracer", "error", shutdownErr)
+	}
+	kctx.FatalIfErrorf(runErr)
 }

@@ -9,16 +9,17 @@ const mocks = vi.hoisted(() => ({
   useMinerHosting: vi.fn(),
   AuthenticatedShell: vi.fn(),
   LoginModal: vi.fn(),
+  useHardware: vi.fn(),
   useMiningStart: vi.fn(),
   useMiningStatus: vi.fn(),
   useSystemInfo: vi.fn(),
   useSystemStatus: vi.fn(),
   useAccessToken: vi.fn(),
   useDefaultPasswordActive: vi.fn(),
+  useDeviceType: vi.fn(),
   useDeviceTheme: vi.fn(),
   useFirmwareUpdateInstalling: vi.fn(),
   useFwUpdateStatus: vi.fn(),
-  useHashboardSerials: vi.fn(),
   useIsMining: vi.fn(),
   useIsMiningDriverRunning: vi.fn(),
   useIsSleeping: vi.fn(),
@@ -71,6 +72,10 @@ vi.mock("@/protoOS/api/hooks/useMiningStart", () => ({
   useMiningStart: () => mocks.useMiningStart(),
 }));
 
+vi.mock("@/protoOS/api/hooks/useHardware", () => ({
+  useHardware: () => mocks.useHardware(),
+}));
+
 vi.mock("@/protoOS/api/hooks/useMiningStatus", () => ({
   useMiningStatus: (params: unknown) => mocks.useMiningStatus(params),
 }));
@@ -109,6 +114,10 @@ vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({
   useMinerHosting: () => mocks.useMinerHosting(),
 }));
 
+vi.mock("@/protoOS/features/firmwareUpdate/components/ContainerFrigateUpdateDowntime", () => ({
+  default: () => <div>update during downtime</div>,
+}));
+
 vi.mock("@/protoOS/features/auth/components/LoginModal", () => ({
   default: (props: { onDismiss: () => void; onSuccess: () => void }) => {
     mocks.LoginModal(props);
@@ -119,10 +128,10 @@ vi.mock("@/protoOS/features/auth/components/LoginModal", () => ({
 vi.mock("@/protoOS/store", () => ({
   useAccessToken: () => mocks.useAccessToken(),
   useDefaultPasswordActive: () => mocks.useDefaultPasswordActive(),
+  useDeviceType: () => mocks.useDeviceType(),
   useDeviceTheme: () => mocks.useDeviceTheme(),
   useFirmwareUpdateInstalling: () => mocks.useFirmwareUpdateInstalling(),
   useFwUpdateStatus: () => mocks.useFwUpdateStatus(),
-  useHashboardSerials: () => mocks.useHashboardSerials(),
   useIsMining: () => mocks.useIsMining(),
   useIsMiningDriverRunning: () => mocks.useIsMiningDriverRunning(),
   useIsSleeping: () => mocks.useIsSleeping(),
@@ -178,16 +187,20 @@ describe("App auth gating", () => {
     vi.clearAllMocks();
 
     mocks.useLocation.mockReturnValue({ pathname: "/", state: null });
-    mocks.useMinerHosting.mockReturnValue({ mode: "direct", isFleetHosted: false });
+    mocks.useMinerHosting.mockReturnValue({
+      mode: "direct",
+      isFleetHosted: false,
+      resolution: { status: "ready", adapterId: "mdk-v1", adapter: {} },
+    });
     mocks.useMiningStart.mockReturnValue({ startMining: mocks.startMining });
     mocks.useMiningStatus.mockReturnValue({ data: {}, fetchData: mocks.fetchMiningStatus });
     mocks.useSystemInfo.mockReturnValue({ reload: mocks.reloadSystemInfo });
     mocks.useAccessToken.mockReturnValue({ hasAccess: true });
     mocks.useDefaultPasswordActive.mockReturnValue(false);
+    mocks.useDeviceType.mockReturnValue("rig");
     mocks.useDeviceTheme.mockReturnValue("light");
     mocks.useFirmwareUpdateInstalling.mockReturnValue(false);
     mocks.useFwUpdateStatus.mockReturnValue(undefined);
-    mocks.useHashboardSerials.mockReturnValue([]);
     mocks.useIsMining.mockReturnValue(false);
     mocks.useIsMiningDriverRunning.mockReturnValue(true);
     mocks.useIsSleeping.mockReturnValue(false);
@@ -278,6 +291,18 @@ describe("App auth gating", () => {
     expect(screen.getByTestId("route-children")).toBeInTheDocument();
   });
 
+  it("fetches public hardware during onboarding before access is available", () => {
+    mocks.useLocation.mockReturnValue({ pathname: "/onboarding/welcome", state: null });
+    mocks.useAccessToken.mockReturnValue({ hasAccess: false });
+    mocks.useOnboarded.mockReturnValue(false);
+    mocks.usePasswordSet.mockReturnValue(false);
+
+    render(<App title="App" />);
+
+    expect(mocks.useHardware).toHaveBeenCalled();
+    expect(mocks.AuthenticatedShell).not.toHaveBeenCalled();
+  });
+
   it.each(["/", "/hashrate", "/settings/general", "/settings/hardware", "/settings/mining-pools"])(
     "dismissing the login modal from %s routes to the public authentication page",
     (pathname) => {
@@ -316,7 +341,11 @@ describe("App auth gating", () => {
 
   it("does not render a direct ProtoOS login modal while fleet-hosted", () => {
     const setShowLoginModal = vi.fn();
-    mocks.useMinerHosting.mockReturnValue({ mode: "fleet", isFleetHosted: true });
+    mocks.useMinerHosting.mockReturnValue({
+      mode: "fleet",
+      isFleetHosted: true,
+      resolution: { status: "ready", adapterId: "mdk-v1", adapter: {} },
+    });
     mocks.useShowLoginModal.mockReturnValue(true);
     mocks.useSetShowLoginModal.mockReturnValue(setShowLoginModal);
 
@@ -371,6 +400,8 @@ describe("App auth gating", () => {
       render(<App title="App" />);
 
       expect(mocks.prefetchRoutes).not.toHaveBeenCalled();
+      // A controller software update stays reachable behind the booting screen.
+      expect(screen.getByText("update during downtime")).toBeInTheDocument();
     });
 
     it("does not call prefetchRoutes while isMiningDriverRunning is false", () => {
@@ -379,6 +410,7 @@ describe("App auth gating", () => {
       render(<App title="App" />);
 
       expect(mocks.prefetchRoutes).not.toHaveBeenCalled();
+      expect(screen.getByText("update during downtime")).toBeInTheDocument();
     });
 
     it("calls prefetchRoutes once both flags are true", () => {
@@ -387,6 +419,7 @@ describe("App auth gating", () => {
       render(<App title="App" />);
 
       expect(mocks.prefetchRoutes).toHaveBeenCalledTimes(1);
+      expect(screen.queryByText("update during downtime")).not.toBeInTheDocument();
     });
 
     it("schedules prefetch once flags transition from false to true", () => {

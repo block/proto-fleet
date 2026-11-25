@@ -109,12 +109,23 @@ func (c *Client) Acknowledge(
 }
 
 func (c *Client) trigger(ctx context.Context, operationID, targetVersion string, complete bool) (Operation, error) {
-	request := TriggerRequest{OperationID: operationID, TargetVersion: targetVersion, Complete: complete}
+	return c.triggerRequest(ctx, TriggerRequest{OperationID: operationID, TargetVersion: targetVersion, Complete: complete})
+}
+
+func (c *Client) Prepare(ctx context.Context, operationID, targetVersion string) (Operation, error) {
+	return c.triggerRequest(ctx, TriggerRequest{OperationID: operationID, TargetVersion: targetVersion, PrepareOnly: true})
+}
+
+func (c *Client) TriggerPrepared(ctx context.Context, operationID, targetVersion string, complete bool) (Operation, error) {
+	return c.triggerRequest(ctx, TriggerRequest{OperationID: operationID, TargetVersion: targetVersion, Prepared: true, Complete: complete})
+}
+
+func (c *Client) triggerRequest(ctx context.Context, request TriggerRequest) (Operation, error) {
 	var response TriggerResponse
 	if err := c.do(ctx, http.MethodPost, "/v1/upgrade", request, &response); err != nil {
 		return Operation{}, err
 	}
-	if response.Operation.ID != operationID || response.Operation.TargetVersion != targetVersion || response.Operation.Complete != complete {
+	if response.Operation.ID != request.OperationID || response.Operation.TargetVersion != request.TargetVersion || response.Operation.Complete != request.Complete || response.Operation.PrepareOnly != request.PrepareOnly || response.Operation.Prepared != request.Prepared {
 		return Operation{}, &ProtocolError{Cause: fmt.Errorf(
 			"operation identity mismatch: got id %q target %q complete %t",
 			response.Operation.ID,

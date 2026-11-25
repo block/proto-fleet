@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -265,23 +264,6 @@ func TestService_Start_RejectsAllowUnboundedWithMaxDuration(t *testing.T) {
 	assert.Contains(t, err.Error(), "allow_unbounded")
 }
 
-func TestService_Start_AllowUnboundedRequiresNilMaxDuration(t *testing.T) {
-	t.Parallel()
-	const orgID = int64(1)
-	store := newFakeStore()
-	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
-	store.candidatesByOrg[orgID] = []*models.Candidate{
-		minerWithEff("miner", 6000, 100, 40),
-	}
-	svc := NewService(store)
-	req := validStartRequest(orgID)
-	req.AllowUnbounded = true
-	req.MaxDurationSeconds = nil
-	req.CanUseAdminControls = true
-	_, err := svc.Start(t.Context(), req)
-	require.NoError(t, err, "allow_unbounded + nil max_duration is the valid admin shape")
-}
-
 func TestService_Start_RejectsNonAdminForceIncludeMaintenance(t *testing.T) {
 	t.Parallel()
 	svc := NewService(newFakeStore())
@@ -363,7 +345,7 @@ func TestService_Start_RejectsCurtailIntervalWithoutBatchSize(t *testing.T) {
 	assert.Contains(t, err.Error(), "curtail_batch_interval_sec")
 }
 
-func TestService_Start_NilMaxDurationUsesOrgDefault(t *testing.T) {
+func TestService_Start_NilMaxDurationHasNoCap(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)
 	store := newFakeStore()
@@ -373,62 +355,14 @@ func TestService_Start_NilMaxDurationUsesOrgDefault(t *testing.T) {
 	}
 	svc := NewService(store)
 	req := validStartRequest(orgID)
-	req.MaxDurationSeconds = nil // sentinel: use org default
+	req.MaxDurationSeconds = nil
 	_, err := svc.Start(t.Context(), req)
 	require.NoError(t, err)
-	require.NotNil(t, store.lastInsertEvent.MaxDurationSeconds)
-	assert.Equal(t, store.orgConfigByOrg[orgID].MaxDurationDefaultSec, *store.lastInsertEvent.MaxDurationSeconds)
+	assert.Nil(t, store.lastInsertEvent.MaxDurationSeconds)
+	assert.True(t, store.lastInsertEvent.AllowUnbounded)
 }
 
-// TestService_Start_RejectsOrgDefaultAboveAbsoluteCeiling pins the
-// post-normalization upper-bound guard: when the caller leaves
-// max_duration_seconds unset and !allow_unbounded, Service.Start fills it
-// from orgConfig.MaxDurationDefaultSec. validateStartRequest ran before the
-// fill and saw nil, so a misconfigured org default above maxFiniteDurationSeconds
-// would otherwise tunnel into the DB and trip ck_curtailment_event_max_duration_bounds
-// as an Internal error. Re-checking here keeps the failure a clean
-// InvalidArgument with a config-level message.
-func TestService_Start_RejectsOrgDefaultAboveAbsoluteCeiling(t *testing.T) {
-	t.Parallel()
-	const orgID = int64(1)
-	store := newFakeStore()
-	cfg := defaultOrgConfig(orgID)
-	cfg.MaxDurationDefaultSec = maxFiniteDurationSeconds + 1
-	store.orgConfigByOrg[orgID] = cfg
-	store.candidatesByOrg[orgID] = []*models.Candidate{
-		minerWithEff("miner", 6000, 100, 40),
-	}
-	svc := NewService(store)
-	req := validStartRequest(orgID)
-	req.MaxDurationSeconds = nil // sentinel: use org default
-
-	_, err := svc.Start(t.Context(), req)
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-	assert.Contains(t, err.Error(), "max_duration_default_sec")
-	assert.Contains(t, err.Error(), "must be <=")
-}
-
-func TestService_Start_RejectsNonAdminDurationAboveOrgDefault(t *testing.T) {
-	t.Parallel()
-	const orgID = int64(1)
-	store := newFakeStore()
-	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
-	store.candidatesByOrg[orgID] = []*models.Candidate{
-		minerWithEff("miner", 6000, 100, 40),
-	}
-	svc := NewService(store)
-	req := validStartRequest(orgID)
-	tooLong := store.orgConfigByOrg[orgID].MaxDurationDefaultSec + 1
-	req.MaxDurationSeconds = &tooLong
-
-	_, err := svc.Start(t.Context(), req)
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsForbiddenError(err))
-	assert.Contains(t, err.Error(), "max_duration_seconds")
-}
-
-func TestService_Start_AllowsAdminDurationAboveOrgDefaultWithinCap(t *testing.T) {
+func TestService_Start_AllowsOperatorCapAboveOrgDefault(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)
 	store := newFakeStore()
@@ -440,12 +374,12 @@ func TestService_Start_AllowsAdminDurationAboveOrgDefaultWithinCap(t *testing.T)
 	req := validStartRequest(orgID)
 	custom := store.orgConfigByOrg[orgID].MaxDurationDefaultSec + 1
 	req.MaxDurationSeconds = &custom
-	req.CanUseAdminControls = true
 
 	_, err := svc.Start(t.Context(), req)
 	require.NoError(t, err)
 	require.NotNil(t, store.lastInsertEvent.MaxDurationSeconds)
 	assert.Equal(t, custom, *store.lastInsertEvent.MaxDurationSeconds)
+	assert.False(t, store.lastInsertEvent.AllowUnbounded)
 }
 
 func TestService_Start_RejectsZeroMaxDuration(t *testing.T) {
@@ -508,7 +442,7 @@ func TestService_Start_RejectsNonAdminLargeRestoreBatchInterval(t *testing.T) {
 	}
 	svc := NewService(store)
 	req := validStartRequest(orgID)
-	req.RestoreBatchIntervalSec = nonAdminRestoreBatchIntervalMax + 1
+	req.RestoreBatchIntervalSec = nonAdminBatchIntervalMax + 1
 
 	_, err := svc.Start(t.Context(), req)
 	require.Error(t, err)
@@ -526,18 +460,18 @@ func TestService_Start_AllowsAdminLargeRestoreBatchInterval(t *testing.T) {
 	}
 	svc := NewService(store)
 	req := validStartRequest(orgID)
-	req.RestoreBatchIntervalSec = nonAdminRestoreBatchIntervalMax + 1
+	req.RestoreBatchIntervalSec = nonAdminBatchIntervalMax + 1
 	req.CanUseAdminControls = true
 
 	_, err := svc.Start(t.Context(), req)
 	require.NoError(t, err)
-	assert.Equal(t, nonAdminRestoreBatchIntervalMax+1, store.lastInsertEvent.RestoreBatchIntervalSec)
+	assert.Equal(t, nonAdminBatchIntervalMax+1, store.lastInsertEvent.RestoreBatchIntervalSec)
 }
 
 // TestService_Start_RejectsAdminRestoreBatchIntervalAboveAbsoluteCeiling pins
 // the absolute upper bound: the admin role bypasses the non-admin cap
-// (nonAdminRestoreBatchIntervalMax) but still cannot exceed the absolute
-// ceiling (restoreBatchIntervalUpperBoundSec). A refactor that drops the
+// (nonAdminBatchIntervalMax) but still cannot exceed the absolute
+// ceiling (batchIntervalUpperBoundSec). A refactor that drops the
 // validateStartRequest upper-bound check would otherwise hit the DB CHECK
 // constraint instead of the friendly service-layer error.
 func TestService_Start_RejectsAdminRestoreBatchIntervalAboveAbsoluteCeiling(t *testing.T) {
@@ -550,7 +484,7 @@ func TestService_Start_RejectsAdminRestoreBatchIntervalAboveAbsoluteCeiling(t *t
 	}
 	svc := NewService(store)
 	req := validStartRequest(orgID)
-	req.RestoreBatchIntervalSec = restoreBatchIntervalUpperBoundSec + 1
+	req.RestoreBatchIntervalSec = batchIntervalUpperBoundSec + 1
 	req.CanUseAdminControls = true
 
 	_, err := svc.Start(t.Context(), req)
@@ -1036,30 +970,28 @@ func TestService_Start_AllowUnboundedPersistsNullMaxDuration(t *testing.T) {
 		"allow_unbounded events must persist max_duration_seconds = NULL")
 }
 
-func TestStartRequiresAdminControls(t *testing.T) {
+func TestAdminControlsRequirement_StartControls(t *testing.T) {
 	t.Parallel()
 
-	orgConfig := &models.OrgConfig{MaxDurationDefaultSec: 100}
 	tests := []struct {
 		name string
 		req  StartRequest
 		want bool
 	}{
 		{name: "ordinary settings"},
-		{name: "allow unbounded", req: StartRequest{AllowUnbounded: true}, want: true},
+		{name: "no cap", req: StartRequest{AllowUnbounded: true}},
+		{name: "explicit cap", req: StartRequest{MaxDurationSeconds: int32Ptr(maxFiniteDurationSeconds)}},
 		{name: "candidate power override", req: StartRequest{PreviewRequest: PreviewRequest{CandidateMinPowerWOverride: int32Ptr(1)}}, want: true},
 		{name: "force maintenance", req: StartRequest{PreviewRequest: PreviewRequest{ForceIncludeMaintenance: true}}, want: true},
 		{name: "force all paired", req: StartRequest{PreviewRequest: PreviewRequest{ForceIncludeAllPairedMiners: true}}, want: true},
-		{name: "curtail pacing above operator limit", req: StartRequest{CurtailBatchIntervalSec: nonAdminRestoreBatchIntervalMax + 1}, want: true},
-		{name: "restore pacing above operator limit", req: StartRequest{RestoreBatchIntervalSec: nonAdminRestoreBatchIntervalMax + 1}, want: true},
-		{name: "duration above org default", req: StartRequest{MaxDurationSeconds: int32Ptr(101)}, want: true},
-		{name: "duration at org default", req: StartRequest{MaxDurationSeconds: int32Ptr(100)}},
+		{name: "curtail pacing above operator limit", req: StartRequest{CurtailBatchIntervalSec: nonAdminBatchIntervalMax + 1}, want: true},
+		{name: "restore pacing above operator limit", req: StartRequest{RestoreBatchIntervalSec: nonAdminBatchIntervalMax + 1}, want: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equal(t, tt.want, startRequiresAdminControls(tt.req, orgConfig))
+			assert.Equal(t, tt.want, adminControlsRequirement(startAdminControls(tt.req)) != "")
 		})
 	}
 }
@@ -1096,41 +1028,36 @@ func TestService_Start_ForwardsIdempotencyAndExternalAttribution(t *testing.T) {
 }
 
 // TestService_Start_EmitsCandidateExclusionMetrics pins the fleet-health
-// signal: each selector-excluded candidate increments
-// IncCandidateExcluded(reason) so dashboards can graph why miners are
-// dropping out (phantom load, dead AC monitor, below threshold, etc.).
+// signal: exclusions are counted per reason in one sample so a large fleet
+// cannot evict other operational signals from the shared metric buffer.
 // Start-only emission keeps Preview spam off the counter.
 func TestService_Start_EmitsCandidateExclusionMetrics(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)
 	store := newFakeStore()
 	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
-	// One eligible miner (passes the dual-signal filter) plus one
-	// phantom-load miner (power above threshold, hash rate zero).
-	power := 6000.0
-	zeroHR := 0.0
-	now := time.Now()
-	driver := "antminer"
+	const phantomCount = 5000 // Larger than the shared metric buffer.
 	store.candidatesByOrg[orgID] = []*models.Candidate{
 		minerWithEff("ok", 6000, 100, 40),
-		{
-			DeviceIdentifier: "ghost",
-			DriverName:       &driver,
-			DeviceStatus:     "ACTIVE",
-			PairingStatus:    "PAIRED",
-			LatestMetricsAt:  &now,
-			LatestPowerW:     &power,
-			LatestHashRateHS: &zeroHR,
-		},
+		staleMiner("stale"),
+	}
+	for i := range phantomCount {
+		store.candidatesByOrg[orgID] = append(store.candidatesByOrg[orgID],
+			minerWithEff(fmt.Sprintf("ghost-%d", i), 6000, 0, 40))
 	}
 	metrics := newRecordingMetrics()
 	svc := NewService(store, WithServiceMetrics(metrics))
 
-	_, err := svc.Start(t.Context(), validStartRequest(orgID))
+	_, err := svc.Preview(t.Context(), validRequest(orgID))
+	require.NoError(t, err)
+	assert.Zero(t, metrics.candidateExcludedSamples, "Preview does not count exclusions")
+
+	_, err = svc.Start(t.Context(), validStartRequest(orgID))
 	require.NoError(t, err)
 
-	assert.Equal(t, 1, metrics.CandidateExcludedCount(string(SkipPhantomLoadNoHash)),
-		"phantom-load miner increments the labeled exclusion counter exactly once")
+	assert.Equal(t, phantomCount, metrics.CandidateExcludedCount(string(SkipPhantomLoadNoHash)))
+	assert.Equal(t, 1, metrics.CandidateExcludedCount(string(SkipStaleTelemetry)))
+	assert.Equal(t, 2, metrics.candidateExcludedSamples, "one sample per exclusion reason")
 	assert.Equal(t, 0, metrics.CandidateExcludedCount(string(SkipBelowThreshold)),
 		"unrelated reasons are not incremented for this fixture")
 }

@@ -120,6 +120,27 @@ export class AuthPage extends BasePage {
     await expect(loginForm).toBeVisible();
   }
 
+  async openInvitationEntry() {
+    await this.page.getByRole("link", { name: "Use an invitation code", exact: true }).click();
+    await expect(this.page).toHaveURL(/.*\/account-invitation/);
+  }
+
+  async enterInvitationCode(invitationCode: string) {
+    // Filling the first box spreads the whole code across the boxes, like a paste.
+    await this.page.getByLabel("Invitation code character 1", { exact: true }).fill(invitationCode);
+    await this.page.getByRole("button", { name: "Continue", exact: true }).click();
+  }
+
+  async validateTeamInvitationRole(roleLabel: string) {
+    await expect(this.page.getByText(`You’re invited as ${roleLabel}.`, { exact: true })).toBeVisible();
+  }
+
+  async registerInvitedLogin(username: string, password: string) {
+    await this.page.locator("#invited-username").fill(username);
+    await this.page.locator("#invited-password").fill(password);
+    await this.page.getByRole("button", { name: "Create login and join", exact: true }).click();
+  }
+
   async inputNewPassword(password: string) {
     await this.page.locator(`//input[@id='newPassword']`).fill(password);
   }
@@ -175,10 +196,6 @@ export class AuthPage extends BasePage {
 
   async validatePasswordSaved() {
     await this.validateTitle("Password saved");
-  }
-
-  async clickCreateAccount() {
-    await this.clickButton("Create an account");
   }
 
   getCreateCredentialsForm() {

@@ -6,10 +6,7 @@ import { type BatchSlice, createBatchSlice } from "./slices/batchSlice";
 import { createOnboardingSlice, type OnboardingSlice } from "./slices/onboardingSlice";
 import { createUISlice, type UISlice } from "./slices/uiSlice";
 import { isActiveSite } from "./types/activeSite";
-import {
-  bulkRenameModes,
-  normalizeBulkRenamePreferences,
-} from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/bulkRenameDefinitions";
+import { bulkRenameModes, normalizeBulkRenamePreferences } from "@/shared/components/BulkRename/bulkRenameDefinitions";
 import { isFleetDuration } from "@/shared/components/DurationSelector";
 
 // =============================================================================

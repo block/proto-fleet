@@ -153,6 +153,46 @@ func TestIsRetryableCreateError(t *testing.T) {
 	}
 }
 
+// TestIsDatabaseInUseError guards what publication retries on. A database in use
+// can be cleared from the session that saw it. A restarting server cannot: that
+// session is gone, and retrying on it would spin until the publish deadline.
+func TestIsDatabaseInUseError(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  string
+		want bool
+	}{
+		{
+			name: "rename refused with sqlstate",
+			msg:  `ERROR: database "fleet_test_bld_abc" is being accessed by other users (SQLSTATE 55006)`,
+			want: true,
+		},
+		{
+			name: "in-use text without sqlstate",
+			msg:  "ERROR: database is being accessed by other users",
+			want: true,
+		},
+		{
+			name: "transient server restart is not a database in use",
+			msg:  "the database system is starting up",
+			want: false,
+		},
+		{
+			name: "duplicate published name is not a database in use",
+			msg:  `ERROR: database "fleet_test_tmpl_abc" already exists (SQLSTATE 42P04)`,
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isDatabaseInUseError(tt.msg); got != tt.want {
+				t.Errorf("isDatabaseInUseError(%q) = %v, want %v", tt.msg, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestMigrationSetFingerprintIsStableAndNamesAValidIdentifier guards the two
 // properties the template name depends on: repeated calls in a run must agree
 // (otherwise every test binary builds its own template) and the resulting
@@ -811,4 +851,65 @@ func TestTemplatePublicationIsAtomic(t *testing.T) {
 	reusable, err := templateIsReusable(ctx, adminConn, name)
 	assert.NoError(t, err)
 	assert.True(t, reusable, "the published template should be immediately reusable")
+}
+
+// TestPublishTemplateDatabaseRenamesDespiteAnAttachedSession covers the rename
+// that publishes a template finding the staging database in use. From
+// TimescaleDB 2.32 the rename statement makes the launcher start a scheduler for
+// the database, and when that worker attaches first PostgreSQL fails the rename
+// with SQLSTATE 55006 after waiting five seconds. An ordinary session held open
+// across sealing stands in for the worker, because it is attached on every run
+// rather than only when the timing lines up.
+func TestPublishTemplateDatabaseRenamesDespiteAnAttachedSession(t *testing.T) {
+	name := fixtureTemplateName(t)
+	staging := templateBuildPrefix + strings.TrimPrefix(name, templateDBPrefix)
+
+	adminConfig := adminConfigForTest(t)
+	ctx := t.Context()
+
+	adminDB, err := db.ConnectToDatabase(adminConfig)
+	assert.NoError(t, err)
+	defer adminDB.Close()
+
+	_, err = adminDB.ExecContext(ctx, "CREATE DATABASE "+quoteIdentifier(staging))
+	assert.NoError(t, err)
+	t.Cleanup(func() {
+		// nolint: usetesting
+		cleanupCtx := context.Background()
+		for _, database := range []string{staging, name} {
+			assert.NoError(t, tryDropTestDatabase(cleanupCtx, adminConfig, database))
+		}
+	})
+
+	// Attach before sealing: sealing refuses new sessions but keeps this one.
+	attachedConfig := *adminConfig
+	attachedConfig.Name = staging
+	attachedDB, err := db.ConnectToDatabase(&attachedConfig)
+	assert.NoError(t, err)
+	defer attachedDB.Close()
+
+	attachedConn, err := attachedDB.Conn(ctx)
+	assert.NoError(t, err)
+	defer attachedConn.Close()
+
+	var alive int
+	assert.NoError(t, attachedConn.QueryRowContext(ctx, "SELECT 1").Scan(&alive))
+
+	_, err = adminDB.ExecContext(ctx,
+		"ALTER DATABASE "+quoteIdentifier(staging)+" WITH ALLOW_CONNECTIONS false")
+	assert.NoError(t, err)
+
+	adminConn, err := adminDB.Conn(ctx)
+	assert.NoError(t, err)
+	defer adminConn.Close()
+
+	assert.NoError(t, publishTemplateDatabase(ctx, adminConn, staging, name),
+		"publication should evict the attached session and rename again")
+
+	assert.True(t, databaseExists(t, adminConn, name),
+		"the template should be published under its final name")
+	assert.False(t, databaseExists(t, adminConn, staging),
+		"the staging database should have been renamed away, not left behind")
+	assert.Error(t, attachedConn.QueryRowContext(ctx, "SELECT 1").Scan(&alive),
+		"the session that blocked the first rename should have been evicted")
 }

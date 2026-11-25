@@ -1,7 +1,8 @@
 import type { ReactElement } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import CurtailmentHistory, { type CurtailmentHistoryEvent } from "@/protoFleet/features/energy/CurtailmentHistory";
+import type { CurtailmentHistoryEvent } from "@/protoFleet/api/curtailmentTypes";
+import CurtailmentHistory from "@/protoFleet/features/energy/CurtailmentHistory";
 import { mockCurtailmentHistoryEvents } from "@/protoFleet/features/energy/CurtailmentHistory.fixtures";
 
 const meta = {

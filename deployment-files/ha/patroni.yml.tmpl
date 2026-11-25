@@ -2,6 +2,13 @@ scope: proto-fleet
 namespace: /service/
 name: ${HA_NODE_NAME}
 
+log:
+  type: json
+  format:
+    - asctime: timestamp
+    - levelname: level
+    - message
+
 restapi:
   listen: ${HA_NODE_IP}:8008
   connect_address: ${HA_NODE_IP}:8008
@@ -49,8 +56,12 @@ bootstrap:
       use_slots: true
       parameters:
         hot_standby: "on"
+        # Patroni only accepts these shared-memory limits from cluster configuration.
+        # Two 500-connection API pools plus 200 slots for other work.
+        max_connections: 1200
         max_replication_slots: 10
         max_wal_senders: 10
+        max_worker_processes: 19
         wal_level: replica
   initdb:
     - data-checksums
@@ -80,10 +91,8 @@ postgresql:
       sslrootcert: /run/proto-fleet-ha/service-ca.crt
   parameters:
     hot_standby: "on"
-    max_connections: 300
     max_replication_slots: 10
     max_wal_senders: 10
-    max_worker_processes: 19
     shared_buffers: 256MB
     shared_preload_libraries: timescaledb,pg_stat_statements
     ssl: "on"
@@ -103,3 +112,6 @@ postgresql:
     - hostssl all fleet ${HA_DB_B_IP}/32 scram-sha-256
     - hostssl fleet grafana_ha_ro ${HA_DB_A_IP}/32 scram-sha-256
     - hostssl fleet grafana_ha_ro ${HA_DB_B_IP}/32 scram-sha-256
+    # Vendor-neutral monitoring views; credentials/grants are provisioned externally.
+    - hostssl fleet fleet_metrics_ro ${HA_DB_A_IP}/32 scram-sha-256
+    - hostssl fleet fleet_metrics_ro ${HA_DB_B_IP}/32 scram-sha-256

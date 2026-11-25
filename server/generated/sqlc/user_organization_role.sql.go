@@ -374,6 +374,72 @@ func (q *Queries) ListEffectivePermissionsForUser(ctx context.Context, arg ListE
 	return items, nil
 }
 
+const listEffectivePermissionsForUserForShare = `-- name: ListEffectivePermissionsForUserForShare :many
+SELECT
+    uor.id          AS assignment_id,
+    uor.role_id     AS role_id,
+    uor.scope_type  AS scope_type,
+    uor.scope_id    AS scope_id,
+    p.key           AS permission_key
+FROM user_organization_role uor
+JOIN role r              ON r.id = uor.role_id
+                        AND r.organization_id = uor.organization_id
+JOIN "user" u            ON u.id = uor.user_id
+LEFT JOIN role_permission rp ON rp.role_id = r.id
+LEFT JOIN permission p       ON p.id = rp.permission_id
+WHERE uor.user_id = $1
+  AND uor.organization_id = $2
+  AND uor.deleted_at IS NULL
+  AND r.deleted_at IS NULL
+  AND u.deleted_at IS NULL
+ORDER BY uor.id, p.key NULLS FIRST
+FOR SHARE OF uor, u, r
+`
+
+type ListEffectivePermissionsForUserForShareParams struct {
+	UserID         int64
+	OrganizationID int64
+}
+
+type ListEffectivePermissionsForUserForShareRow struct {
+	AssignmentID  int64
+	RoleID        int64
+	ScopeType     string
+	ScopeID       sql.NullInt64
+	PermissionKey sql.NullString
+}
+
+// Reporting rechecks may overlap while still excluding assignment revocation,
+// user deactivation and role-permission edits until the report commits.
+func (q *Queries) ListEffectivePermissionsForUserForShare(ctx context.Context, arg ListEffectivePermissionsForUserForShareParams) ([]ListEffectivePermissionsForUserForShareRow, error) {
+	rows, err := q.query(ctx, q.listEffectivePermissionsForUserForShareStmt, listEffectivePermissionsForUserForShare, arg.UserID, arg.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEffectivePermissionsForUserForShareRow
+	for rows.Next() {
+		var i ListEffectivePermissionsForUserForShareRow
+		if err := rows.Scan(
+			&i.AssignmentID,
+			&i.RoleID,
+			&i.ScopeType,
+			&i.ScopeID,
+			&i.PermissionKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEffectivePermissionsForUserForUpdate = `-- name: ListEffectivePermissionsForUserForUpdate :many
 SELECT
     uor.id          AS assignment_id,

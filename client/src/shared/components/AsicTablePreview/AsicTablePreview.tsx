@@ -11,6 +11,7 @@ const AsicCell = ({
   warningThreshold,
   criticalThreshold,
   dangerThreshold,
+  rowHeight,
   colors,
 }: AsicCellProps) => {
   // Calculate opacity based on temperature ranges
@@ -42,10 +43,11 @@ const AsicCell = ({
 
   return (
     <div
-      className="h-1.5 flex-1 rounded-sm"
+      className={`flex-1 rounded-sm ${rowHeight === undefined ? "h-1.5" : ""}`}
       style={{
         backgroundColor: color,
         opacity,
+        ...(rowHeight === undefined ? {} : { height: rowHeight }),
       }}
       data-testid={`asic-${row}-${col}`}
       data-value={value}
@@ -65,6 +67,7 @@ const AsicTablePreview = ({
     critical: "var(--color-intent-critical-fill)",
     empty: "var(--color-surface-5)",
   },
+  rowHeight,
   className = "",
 }: AsicTablePreviewProps) => {
   // Calculate grid dimensions and populate values
@@ -73,8 +76,9 @@ const AsicTablePreview = ({
       return [];
     }
 
-    const maxRow = Math.max(...asics.map((a) => a.row), 0) + 1;
-    const maxCol = Math.max(...asics.map((a) => a.col), 0) + 1;
+    // reduce, not a spread: a large enough list would exceed the argument limit.
+    const maxRow = asics.reduce((max, a) => Math.max(max, a.row), 0) + 1;
+    const maxCol = asics.reduce((max, a) => Math.max(max, a.col), 0) + 1;
 
     // Create a 2D array for the grid
     const gridArray: Array<Array<number | null>> = Array(maxRow)
@@ -105,6 +109,7 @@ const AsicTablePreview = ({
               warningThreshold={warningThreshold}
               criticalThreshold={criticalThreshold}
               dangerThreshold={dangerThreshold}
+              rowHeight={rowHeight}
               colors={colors}
             />
           ))}

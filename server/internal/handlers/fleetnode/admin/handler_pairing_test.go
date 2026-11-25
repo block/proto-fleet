@@ -16,13 +16,16 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/discovery"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/ha"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
+	domainpairing "github.com/block/proto-fleet/server/internal/domain/pairing"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/admin"
@@ -39,7 +42,15 @@ type pairingHarness struct {
 	pairing    *pairing.Service
 }
 
+type pairingStateAnnotator interface {
+	AnnotateAlreadyPaired(ctx context.Context, orgID int64, devices []*pairingpb.Device) error
+}
+
 func newPairingHarness(t *testing.T) *pairingHarness {
+	return newPairingHarnessWithPairingState(t, nil)
+}
+
+func newPairingHarnessWithPairingState(t *testing.T, pairingState pairingStateAnnotator) *pairingHarness {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -62,8 +73,12 @@ func newPairingHarness(t *testing.T) *pairingHarness {
 		WithProvisioning(sqlstores.NewSQLDeviceStore(db), sqlstores.NewSQLDiscoveredDeviceStore(db), registry)
 
 	discoverySvc := discovery.NewService(registry, enrollmentSvc)
+	haSvc := ha.NewService(db, transactor, registry, nil, nil)
+	if pairingState == nil {
+		pairingState = domainpairing.NewService(nil, sqlstores.NewSQLDeviceStore(db), nil, nil, nil, nil, nil, nil, nil)
+	}
 	return &pairingHarness{
-		handler:    admin.NewHandler(enrollmentSvc, pairingSvc, discoverySvc, registry),
+		handler:    admin.NewHandler(enrollmentSvc, pairingSvc, discoverySvc, registry, haSvc, pairingState),
 		db:         db,
 		orgID:      1,
 		enrollment: enrollmentSvc,
@@ -101,7 +116,7 @@ func (h *pairingHarness) createFleetNode(t *testing.T, name string) int64 {
 	require.NoError(t, err)
 	node, _, err := h.enrollment.RegisterFleetNode(context.Background(), code, name, pubKey, []byte("01234567890123456789012345678901"))
 	require.NoError(t, err)
-	_, _, err = h.enrollment.ConfirmExpected(context.Background(), node.ID, h.orgID, pendingEnrollmentID)
+	_, _, err = h.enrollment.ConfirmExpected(context.Background(), node.ID, h.orgID, pendingEnrollmentID, 1)
 	require.NoError(t, err)
 	return node.ID
 }
@@ -125,21 +140,52 @@ func (h *pairingHarness) insertDevice(t *testing.T) int64 {
 	return devID
 }
 
+func (h *pairingHarness) insertDeviceWithIdentifier(t *testing.T, identifier string) int64 {
+	t.Helper()
+	var discoveredDeviceID int64
+	err := h.db.QueryRow(`INSERT INTO discovered_device (org_id, device_identifier, ip_address, port, url_scheme, driver_name, is_active)
+		VALUES ($1, $2, '10.0.0.1', '80', 'http', 'virtual', TRUE) RETURNING id`, h.orgID, identifier).Scan(&discoveredDeviceID)
+	require.NoError(t, err)
+	var deviceID int64
+	err = h.db.QueryRow(`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
+		VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+		identifier,
+		fmt.Sprintf("aa:bb:cc:00:02:%02x", discoveredDeviceID%256),
+		fmt.Sprintf("sn-matched-%d", discoveredDeviceID),
+		h.orgID,
+		discoveredDeviceID,
+	).Scan(&deviceID)
+	require.NoError(t, err)
+	return deviceID
+}
+
 func TestListFleetNodes_ReportsProtocolStateAndRedactsPairingOnlyCallers(t *testing.T) {
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-list-legacy")
+	readyStream := h.registry.Register(fleetNodeID)
+	readyStream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
+	defer readyStream.Unregister()
+	deviceID := h.insertDevice(t)
+	_, err := h.handler.PairDeviceToFleetNode(h.adminCtx(), connect.NewRequest(&pb.PairDeviceToFleetNodeRequest{
+		FleetNodeId: fleetNodeID,
+		DeviceId:    deviceID,
+	}))
+	require.NoError(t, err)
 	stream, err := h.registry.RegisterAuthenticated(
 		fleetNodeID,
 		"legacy",
 		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED,
 	)
 	require.NoError(t, err)
+	stream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
 
 	resp, err := h.handler.ListFleetNodes(h.ctxWithPerms(authz.PermFleetnodeManage), connect.NewRequest(&pb.ListFleetNodesRequest{}))
 	require.NoError(t, err)
 	require.Len(t, resp.Msg.GetFleetNodes(), 1)
 	assert.True(t, resp.Msg.GetFleetNodes()[0].GetCommandProtocolUpgradeRequired())
 	assert.True(t, resp.Msg.GetFleetNodes()[0].GetControlStreamConnected())
+	assert.True(t, resp.Msg.GetFleetNodes()[0].GetDiscoveryCoverageDegraded())
+	assert.EqualValues(t, 1, resp.Msg.GetFleetNodes()[0].GetPairedDeviceCount())
 
 	resp, err = h.handler.ListFleetNodes(h.ctxWithPerms(authz.PermMinerPair), connect.NewRequest(&pb.ListFleetNodesRequest{}))
 	require.NoError(t, err)
@@ -154,6 +200,8 @@ func TestListFleetNodes_ReportsProtocolStateAndRedactsPairingOnlyCallers(t *test
 	assert.Equal(t, pb.FleetNodeEnrollmentStatus_FLEET_NODE_ENROLLMENT_STATUS_CONFIRMED, pairingSummary.GetEnrollmentStatus())
 	assert.True(t, pairingSummary.GetCommandProtocolUpgradeRequired())
 	assert.True(t, pairingSummary.GetControlStreamConnected())
+	assert.True(t, pairingSummary.GetDiscoveryCoverageDegraded())
+	assert.Zero(t, pairingSummary.GetPairedDeviceCount())
 
 	stream.Unregister()
 	resp, err = h.handler.ListFleetNodes(h.adminCtx(), connect.NewRequest(&pb.ListFleetNodesRequest{}))
@@ -161,12 +209,91 @@ func TestListFleetNodes_ReportsProtocolStateAndRedactsPairingOnlyCallers(t *test
 	require.Len(t, resp.Msg.GetFleetNodes(), 1)
 	assert.False(t, resp.Msg.GetFleetNodes()[0].GetCommandProtocolUpgradeRequired())
 	assert.False(t, resp.Msg.GetFleetNodes()[0].GetControlStreamConnected())
+	assert.True(t, resp.Msg.GetFleetNodes()[0].GetDiscoveryCoverageDegraded())
+}
+
+func TestListFleetNodes_ReportsDiscoveryConfig(t *testing.T) {
+	tests := []struct {
+		name         string
+		config       *gatewaypb.DiscoveryConfig
+		connected    bool
+		redacted     bool
+		wantReported bool
+		wantRanges   []string
+	}{
+		{
+			name:         "connected node with ranges",
+			config:       &gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0-10.0.0.255", "192.168.1.1"}},
+			connected:    true,
+			wantReported: true,
+			wantRanges:   []string{"10.0.0.0-10.0.0.255", "192.168.1.1"},
+		},
+		{
+			name:         "connected node reporting an empty config",
+			config:       &gatewaypb.DiscoveryConfig{},
+			connected:    true,
+			wantReported: true,
+		},
+		{
+			name:      "connected legacy node that reported nothing",
+			connected: true,
+		},
+		{
+			name:   "disconnected node",
+			config: &gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.1"}},
+		},
+		{
+			name:      "caller without administrative details",
+			config:    &gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.1"}},
+			connected: true,
+			redacted:  true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			h := newPairingHarness(t)
+			fleetNodeID := h.createFleetNode(t, "discovery-config")
+			stream, err := h.registry.RegisterAuthenticated(
+				fleetNodeID,
+				"",
+				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7,
+				control.WithDiscoveryConfig(tt.config),
+			)
+			require.NoError(t, err)
+			if !tt.connected {
+				stream.Unregister()
+			}
+			ctx := h.adminCtx()
+			if tt.redacted {
+				ctx = h.ctxWithPerms(authz.PermMinerPair)
+			}
+
+			// Act
+			resp, err := h.handler.ListFleetNodes(ctx, connect.NewRequest(&pb.ListFleetNodesRequest{}))
+
+			// Assert
+			require.NoError(t, err)
+			require.Len(t, resp.Msg.GetFleetNodes(), 1)
+			summary := resp.Msg.GetFleetNodes()[0]
+			assert.Equal(t, tt.connected, summary.GetControlStreamConnected())
+			assert.Equal(t, tt.wantReported, summary.GetDiscoveryConfigReported())
+			if tt.wantRanges == nil {
+				assert.Empty(t, summary.GetDiscoveryRanges())
+				return
+			}
+			assert.Equal(t, tt.wantRanges, summary.GetDiscoveryRanges())
+		})
+	}
 }
 
 func TestPairDeviceToFleetNode_HappyPath(t *testing.T) {
 	// Arrange
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-pair-1")
+	readyStream := h.registry.Register(fleetNodeID)
+	readyStream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
+	defer readyStream.Unregister()
 	deviceID := h.insertDevice(t)
 
 	// Act
@@ -215,6 +342,9 @@ func TestUnpairDevice_HappyPath(t *testing.T) {
 	// Arrange
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-unpair-1")
+	readyStream := h.registry.Register(fleetNodeID)
+	readyStream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
+	defer readyStream.Unregister()
 	deviceID := h.insertDevice(t)
 	_, err := h.handler.PairDeviceToFleetNode(h.adminCtx(), connect.NewRequest(&pb.PairDeviceToFleetNodeRequest{FleetNodeId: fleetNodeID, DeviceId: deviceID}))
 	require.NoError(t, err)
@@ -247,8 +377,14 @@ func TestListFleetNodeDevices_HappyPath(t *testing.T) {
 	// Arrange
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-list-1")
+	readyStream := h.registry.Register(fleetNodeID)
+	readyStream.SetDiscoveryConfig(&gatewaypb.DiscoveryConfig{Ranges: []string{"10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"}})
+	defer readyStream.Unregister()
 	deviceID := h.insertDevice(t)
-	_, err := h.handler.PairDeviceToFleetNode(h.adminCtx(), connect.NewRequest(&pb.PairDeviceToFleetNodeRequest{FleetNodeId: fleetNodeID, DeviceId: deviceID}))
+	_, err := h.db.Exec(`UPDATE discovered_device SET driver_name = 'asicrs', manufacturer = 'Bitmain', model = 'S19'
+		WHERE id = (SELECT discovered_device_id FROM device WHERE id = $1)`, deviceID)
+	require.NoError(t, err)
+	_, err = h.handler.PairDeviceToFleetNode(h.adminCtx(), connect.NewRequest(&pb.PairDeviceToFleetNodeRequest{FleetNodeId: fleetNodeID, DeviceId: deviceID}))
 	require.NoError(t, err)
 
 	// Act
@@ -259,6 +395,9 @@ func TestListFleetNodeDevices_HappyPath(t *testing.T) {
 	require.Len(t, resp.Msg.GetPairs(), 1)
 	assert.Equal(t, fleetNodeID, resp.Msg.GetPairs()[0].GetFleetNodeId())
 	assert.Equal(t, deviceID, resp.Msg.GetPairs()[0].GetDeviceId())
+	assert.Equal(t, "asicrs", resp.Msg.GetPairs()[0].GetDeviceType())
+	assert.Equal(t, "Bitmain", resp.Msg.GetPairs()[0].GetManufacturer())
+	assert.Equal(t, "S19", resp.Msg.GetPairs()[0].GetModel())
 }
 
 func TestListFleetNodeDevices_RequiresAdminSession(t *testing.T) {

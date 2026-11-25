@@ -1,12 +1,31 @@
 import { Link, MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
 
 import FleetBuildingsPage from "./FleetBuildingsPage";
-import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import {
+  type BuildingWithCounts,
+  BuildingWithCountsSchema,
+} from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { ContainerSchema } from "@/protoFleet/api/generated/containers/v1/containers_pb";
+import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import type { FleetOutletContext } from "@/protoFleet/features/fleetManagement/components/FleetLayout";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
+
+vi.mock("@/shared/components/Popover/usePopoverPosition", () => ({
+  default: () => ({ popoverRef: { current: null }, popoverStyle: {}, popoverAnimation: "" }),
+}));
+vi.mock("@/protoFleet/api/clients", async (importActual) => ({
+  ...(await importActual<typeof import("@/protoFleet/api/clients")>()),
+  fleetManagementClient: { deleteMiners: vi.fn().mockResolvedValue({ deletedCount: 1 }) },
+}));
+
+const inventoryMock = vi.hoisted(() => vi.fn());
+vi.mock("@/protoFleet/api/useFleetInventory", () => ({ useFleetInventory: inventoryMock }));
+const containersMock = vi.hoisted(() => vi.fn());
+vi.mock("@/protoFleet/api/useContainers", () => ({ useContainers: containersMock }));
 
 const listBuildingsMock = vi.hoisted(() => vi.fn());
 const useActiveSiteMock = vi.hoisted(() => vi.fn());
@@ -89,9 +108,36 @@ vi.mock("@/protoFleet/features/fleetManagement/hooks/useQrScanner", () => ({
 }));
 
 const buildings = [
-  { building: { id: 1n, name: "Building 1" } },
-  { building: { id: 2n, name: "Building 2" } },
-] as unknown as BuildingWithCounts[];
+  create(BuildingWithCountsSchema, { building: { id: 1n, name: "Building 1" } }),
+  create(BuildingWithCountsSchema, { building: { id: 2n, name: "Building 2" } }),
+];
+
+const inventoryResult = (containers: ReturnType<typeof create<typeof ContainerSchema>>[] = []) => ({
+  items: [
+    ...buildings.map((building) =>
+      create(InventoryItemSchema, {
+        ref: { kind: EntityKind.BUILDING, id: building.building!.id },
+        details: { case: "building", value: building },
+      }),
+    ),
+    ...containers.map((container) =>
+      create(InventoryItemSchema, {
+        ref: { kind: EntityKind.CONTAINER, id: 3n },
+        deviceIdentifier: container.deviceIdentifier,
+        details: { case: "container", value: container },
+      }),
+    ),
+  ],
+  total: buildings.length + containers.length,
+  loading: false,
+  currentPage: 0,
+  hasNextPage: false,
+  hasPreviousPage: false,
+  refresh: vi.fn(),
+  reset: vi.fn(),
+  nextPage: vi.fn(),
+  previousPage: vi.fn(),
+});
 
 const fleetContext = {
   sites: [{ site: { id: 8n, name: "Austin" } }],
@@ -120,6 +166,8 @@ const renderPage = (initialEntry = "/fleet/buildings", outletContext: FleetOutle
 
 describe("FleetBuildingsPage view toggle", () => {
   beforeEach(() => {
+    containersMock.mockReturnValue({ containers: [], loading: false });
+    inventoryMock.mockReturnValue(inventoryResult());
     listBuildingsMock.mockReset();
     // Resolve the list synchronously so the page leaves its loading state.
     listBuildingsMock.mockImplementation(({ onSuccess }: { onSuccess?: (rows: BuildingWithCounts[]) => void }) => {
@@ -134,6 +182,73 @@ describe("FleetBuildingsPage view toggle", () => {
     hasPermissionMock.mockImplementation(() => true);
     // Reset the persisted preference to the default before each case.
     useFleetStore.getState().ui.setBuildingsViewMode("list");
+  });
+
+  test("renders containers alongside buildings in grid mode", () => {
+    containersMock.mockReturnValue({
+      containers: [create(ContainerSchema, { deviceIdentifier: "ct1", name: "Container 1", stale: true })],
+      loading: false,
+    });
+    inventoryMock.mockReturnValue(
+      inventoryResult([create(ContainerSchema, { deviceIdentifier: "ct1", name: "Container 1", stale: true })]),
+    );
+    renderPage("/fleet/buildings?display=grid");
+    expect(screen.getByTestId("container-card-ct1")).toBeInTheDocument();
+    expect(screen.getAllByTestId("building-card")).toHaveLength(2);
+    expect(screen.getByTestId("fleet-buildings-count-label")).toHaveTextContent("3 facilities");
+  });
+
+  test("passes containers into the same list instead of rendering a separate table", () => {
+    const container = create(ContainerSchema, { deviceIdentifier: "ct1", name: "Container 1" });
+    containersMock.mockReturnValue({ containers: [container], loading: false });
+    inventoryMock.mockReturnValue(inventoryResult([container]));
+    renderPage();
+    expect(buildingListSpy).toHaveBeenLastCalledWith(expect.objectContaining({ buildings, containers: [container] }));
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.queryByText("Containers (1)")).not.toBeInTheDocument();
+  });
+
+  test.each(["list", "grid"])(
+    "removes an unpaired container immediately from %s, even with stale inventory",
+    async (display) => {
+      const container = create(ContainerSchema, { deviceIdentifier: "ct1", name: "Container 1" });
+      const result = inventoryResult([container]);
+      inventoryMock.mockReturnValue(result);
+      useFleetStore.getState().auth.setPermissions(["miner:read", "miner:delete"]);
+      const user = userEvent.setup();
+      renderPage(`/fleet/buildings?display=${display}`);
+      if (display === "list") {
+        const props = buildingListSpy.mock.lastCall![0];
+        act(() => props.onContainerUnpaired("ct1"));
+        expect(buildingListSpy).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            containers: [],
+            inventoryItems: expect.not.arrayContaining([result.items[2]]),
+            total: 2,
+          }),
+        );
+      } else {
+        await user.click(screen.getByRole("button", { name: "Actions for Container 1" }));
+        await user.click(screen.getByRole("button", { name: "Unpair" }));
+        await user.click(screen.getByRole("button", { name: "Unpair" }));
+        expect(await screen.findByTestId("fleet-buildings-count-label")).toHaveTextContent("2 facilities");
+        expect(screen.queryByTestId("container-card-ct1")).not.toBeInTheDocument();
+      }
+      expect(result.refresh).toHaveBeenCalled();
+      // The mocked request still returns the deleted container; switching views must not resurrect it.
+      await user.click(screen.getAllByRole("button", { name: display === "list" ? "View grid" : "View list" })[0]);
+      expect(screen.queryByTestId("container-card-ct1")).not.toBeInTheDocument();
+      if (display === "grid") expect(buildingListSpy.mock.lastCall![0].containers).toEqual([]);
+    },
+  );
+
+  test("removes an unpaired container from the legacy list", () => {
+    hasPermissionMock.mockImplementation((permission) => permission !== "miner:read");
+    const container = create(ContainerSchema, { deviceIdentifier: "ct1", name: "Container 1" });
+    containersMock.mockReturnValue({ containers: [container], loading: false });
+    renderPage();
+    act(() => buildingListSpy.mock.lastCall![0].onContainerUnpaired("ct1"));
+    expect(buildingListSpy.mock.lastCall![0].containers).toEqual([]);
   });
 
   test("defaults to the list view, rendering the BuildingList table", () => {
@@ -152,7 +267,7 @@ describe("FleetBuildingsPage view toggle", () => {
 
     expect(screen.getAllByTestId("building-card")).toHaveLength(2);
     expect(screen.queryByTestId("building-list")).not.toBeInTheDocument();
-    expect(screen.getByTestId("fleet-buildings-count-label")).toHaveTextContent("2 buildings");
+    expect(screen.getByTestId("fleet-buildings-count-label")).toHaveTextContent("2 facilities");
     expect(useFleetStore.getState().ui.buildingsViewMode).toBe("grid");
   });
 

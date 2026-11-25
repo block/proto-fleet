@@ -34,6 +34,7 @@ import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 const FILTER_UNSUPPORTED_ALL_MODE_ACTIONS = new Set<SupportedAction>([settingsActions.security]);
 
 interface MinerActionsMenuProps {
+  additionalActions?: BulkAction<string>[];
   selectedMiners: string[];
   selectionMode: SelectionMode;
   /**
@@ -75,6 +76,7 @@ type BulkWorkerNameTarget = {
 
 const MinerActionsMenu = ({
   selectedMiners,
+  additionalActions = [],
   selectionMode,
   totalCount,
   currentFilter,
@@ -124,12 +126,8 @@ const MinerActionsMenu = ({
     popoverActions,
     handleConfirmation,
     handleCancel,
-    handleMiningPoolSuccess,
-    handleMiningPoolError,
-    handleMiningPoolWarning,
     showPoolSelectionPage,
     poolFilteredDeviceIds,
-    fleetCredentials,
     withCapabilityCheck,
     unsupportedMinersInfo,
     handleUnsupportedMinersContinue,
@@ -278,6 +276,8 @@ const MinerActionsMenu = ({
     return selectedMinersWithStatus;
   }, [poolFilteredDeviceIds, selectedMinersWithStatus]);
 
+  const menuActions: BulkAction<string>[] = [...visibleActions, ...additionalActions];
+
   const showQuickActions = !isPhone && !isTablet;
   const quickActions = useMemo(() => {
     const quickActionOrder: SupportedAction[] = [
@@ -297,10 +297,10 @@ const MinerActionsMenu = ({
   return (
     <PopoverProvider>
       <div className="flex flex-wrap justify-start gap-3">
-        <BulkActionsWidget<SupportedAction>
+        <BulkActionsWidget<string>
           buttonIconSuffix={<ChevronDown width={iconSizes.xSmall} />}
           buttonTitle={showQuickActions ? "More" : "Actions"}
-          actions={visibleActions}
+          actions={menuActions}
           onConfirmation={handleConfirmation}
           onCancel={handleCancel}
           currentAction={currentAction}
@@ -330,8 +330,8 @@ const MinerActionsMenu = ({
               : null
           }
           renderPopover={(beforeEach, closePopover) => (
-            <BulkActionsPopover<SupportedAction>
-              actions={visibleActions}
+            <BulkActionsPopover<string>
+              actions={menuActions}
               beforeEach={beforeEach}
               testId="actions-menu-popover"
               closePopover={closePopover}
@@ -344,7 +344,7 @@ const MinerActionsMenu = ({
         />
       </div>
       <PoolSelectionPageWrapper
-        open={showPoolSelectionPage ? !!fleetCredentials : false}
+        open={showPoolSelectionPage}
         selectedMiners={poolMiners}
         // Once capability filtering narrows to explicit supported ids, dispatch
         // to exactly those (subset) rather than re-expanding via the selector.
@@ -353,11 +353,6 @@ const MinerActionsMenu = ({
         // (all_matching_filter); only when not already narrowed to explicit ids.
         minerListFilter={selectionMode === "all" && !poolFilteredDeviceIds ? currentFilter : undefined}
         poolNeededCount={poolFilteredDeviceIds ? poolFilteredDeviceIds.length : totalCount}
-        userUsername={fleetCredentials?.username}
-        userPassword={fleetCredentials?.password}
-        onSuccess={handleMiningPoolSuccess}
-        onError={handleMiningPoolError}
-        onWarning={handleMiningPoolWarning}
         onDismiss={handleCancel}
       />
       <MinerActionModalStack

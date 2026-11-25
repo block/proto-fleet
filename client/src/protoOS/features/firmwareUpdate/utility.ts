@@ -1,27 +1,25 @@
-import type { UpdateStatus } from "@/protoOS/api/generatedApi";
+import type { FirmwareUpdateInfo } from "@/protoOS/store/contract";
 
-export const statusLabelFromUpdateStatus = (updateStatus?: UpdateStatus, verbose: boolean = false) => {
+export const statusLabelFromUpdateStatus = (updateStatus?: FirmwareUpdateInfo, verbose: boolean = false) => {
   if (!updateStatus) return undefined;
   switch (updateStatus?.status) {
     case "available":
-      return verbose && updateStatus?.new_version
-        ? `Update available: ${updateStatus.new_version}`
-        : "Update available";
+      return verbose && updateStatus?.newVersion ? `Update available: ${updateStatus.newVersion}` : "Update available";
     case "downloading":
-      return verbose && updateStatus?.new_version ? `Downloading: ${updateStatus.new_version}` : "Downloading";
+      return verbose && updateStatus?.newVersion ? `Downloading: ${updateStatus.newVersion}` : "Downloading";
     case "downloaded":
       return "Ready to install";
     case "installing":
-      return verbose && updateStatus?.new_version ? `Installing: ${updateStatus.new_version}` : "Installing";
-    case "installed":
+      return verbose && updateStatus?.newVersion ? `Installing: ${updateStatus.newVersion}` : "Installing";
+    case "rebootRequired":
       return "Reboot required";
-    case "success":
+    case "complete":
       return "Update complete";
     case "current":
       return "Firmware up to date";
     case "confirming":
       return "Confirming";
-    case "error":
+    case "failed":
       return "Update failed";
     default:
       return undefined;

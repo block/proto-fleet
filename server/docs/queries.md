@@ -12,23 +12,22 @@ This document explains the SQL queries in `sqlc/queries/errors.sql` for reviewer
 
 ## Deduplication & CRUD
 
-### GetOpenErrorByDedupKey
+### UpsertDeviceErrors
 
-Finds an existing open error by its deduplication key.
+Persists one device's error snapshot in a single `INSERT ... ON CONFLICT` statement. The partial unique index `idx_errors_open_dedup` (`NULLS NOT DISTINCT`, `WHERE closed_at IS NULL`) allows one open occurrence per key:
 
 ```
 Dedup Key = (org_id, device_id, miner_error, component_id, component_type)
 ```
 
-**Key point**: Uses `<=>` (NULL-safe equals) for `component_id` and `component_type` because these can be NULL for device-level errors.
-
-```sql
-WHERE component_id <=> ?   -- TRUE when both are NULL or both equal
-```
-
-### InsertError / UpdateOpenError
-
-Standard insert and update. Note that `UpdateOpenError` includes `AND closed_at IS NULL` to prevent accidentally updating closed errors.
+- Open reports insert or update the open row. Unchanged rows are rewritten only once `last_seen_at` is older than the heartbeat cutoff; `last_seen_at` never moves backwards.
+- Detail changes, including `summary` and vendor attributes in `extra`, write immediately. Reports containing changing live readings may still write every poll; heartbeat coalescing saves writes only while all compared details stay unchanged.
+- If `CloseStaleErrors` closes the row first, the conflict disappears and the report inserts a new occurrence.
+- Reports carrying `closed_at` close the matching open row and write its latest details, or insert a closed row when none is open.
+- Partial polls call `RefreshOpenErrorsLastSeenByDevice` separately so omitted open rows stay fresh.
+- The stale closer requires error age beyond the staleness threshold plus the refresh heartbeat, while device status must still fall within the original staleness threshold. A skipped heartbeat cannot turn a still-reported error into evidence of absence when polling stops.
+- Callers must deduplicate reports by key first: `ON CONFLICT` cannot update one row twice in a statement.
+- Returns whether the device exists in the organization. The statement is not retried; the next poll replays it.
 
 ### GetErrorByErrorID
 

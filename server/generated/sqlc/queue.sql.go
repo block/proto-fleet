@@ -17,6 +17,7 @@ import (
 const claimMessageForProcessing = `-- name: ClaimMessageForProcessing :execresult
 UPDATE queue_message
 SET status = 'PROCESSING'::queue_status_enum,
+    processing_started_at = CURRENT_TIMESTAMP,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $1
   AND status = 'PENDING'
@@ -24,6 +25,28 @@ WHERE id = $1
 
 func (q *Queries) ClaimMessageForProcessing(ctx context.Context, id int64) (sql.Result, error) {
 	return q.exec(ctx, q.claimMessageForProcessingStmt, claimMessageForProcessing, id)
+}
+
+const claimReapedRigConfigRetry = `-- name: ClaimReapedRigConfigRetry :execrows
+UPDATE queue_message
+SET retry_count = retry_count + 1
+WHERE id = $1 AND retry_count = $2
+  AND status = 'FAILED' AND command_type = 'ApplyCurtailmentConfig'
+`
+
+type ClaimReapedRigConfigRetryParams struct {
+	MessageID  int64
+	RetryCount int32
+}
+
+// The reaper and a late worker share the dequeued retry count. Count the
+// reaped failure once so only one transaction requests reconciliation.
+func (q *Queries) ClaimReapedRigConfigRetry(ctx context.Context, arg ClaimReapedRigConfigRetryParams) (int64, error) {
+	result, err := q.exec(ctx, q.claimReapedRigConfigRetryStmt, claimReapedRigConfigRetry, arg.MessageID, arg.RetryCount)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const countQueueMessagesByBatch = `-- name: CountQueueMessagesByBatch :one
@@ -46,14 +69,16 @@ INSERT INTO queue_message (
     device_id,
     status,
     retry_count,
-    payload
+    payload,
+    write_epoch
 ) VALUES (
      $1,
      $2,
      $3,
      $4,
      $5,
-     $6
+     $6,
+     COALESCE((SELECT epoch FROM device_write_fence WHERE device_id=$3),0)
 )
 `
 
@@ -85,7 +110,8 @@ INSERT INTO queue_message (
     device_id,
     status,
     retry_count,
-    payload
+    payload,
+    write_epoch
 )
 SELECT
     $1,
@@ -93,9 +119,11 @@ SELECT
     devices.device_id,
     'PENDING'::queue_status_enum,
     0,
-    payloads.payload::JSONB
+    payloads.payload::JSONB,
+    epochs.write_epoch
 FROM unnest($3::BIGINT[]) WITH ORDINALITY AS devices(device_id, ord)
 JOIN unnest($4::TEXT[]) WITH ORDINALITY AS payloads(payload, ord) USING (ord)
+JOIN unnest($5::BIGINT[]) WITH ORDINALITY AS epochs(write_epoch, ord) USING (ord)
 `
 
 type CreateQueueMessagesParams struct {
@@ -103,6 +131,7 @@ type CreateQueueMessagesParams struct {
 	CommandType         string
 	DeviceIds           []int64
 	Payloads            []string
+	WriteEpochs         []int64
 }
 
 func (q *Queries) CreateQueueMessages(ctx context.Context, arg CreateQueueMessagesParams) error {
@@ -111,6 +140,7 @@ func (q *Queries) CreateQueueMessages(ctx context.Context, arg CreateQueueMessag
 		arg.CommandType,
 		pq.Array(arg.DeviceIds),
 		pq.Array(arg.Payloads),
+		pq.Array(arg.WriteEpochs),
 	)
 	return err
 }
@@ -155,7 +185,7 @@ func (q *Queries) FinishTerminalCommandBatches(ctx context.Context, finishLimit 
 const getMessagesToProcess = `-- name: GetMessagesToProcess :many
 SELECT m.id, m.command_batch_log_uuid, m.device_id, m.command_type, m.status,
        m.retry_count, m.error_info, m.payload, m.created_at, m.updated_at,
-       d.org_id
+       d.org_id, m.write_epoch
 FROM queue_message m
 JOIN device d ON m.device_id = d.id
 WHERE m.status = 'PENDING'
@@ -165,9 +195,9 @@ WHERE m.status = 'PENDING'
     FROM queue_message earlier
     WHERE earlier.device_id = m.device_id
       AND (earlier.status = 'PENDING' OR earlier.status = 'PROCESSING')
-      AND earlier.created_at < m.created_at
+      AND (earlier.created_at,earlier.id) < (m.created_at,m.id)
 )
-ORDER BY m.created_at
+ORDER BY m.created_at,m.id
 LIMIT $2
 `
 
@@ -188,6 +218,7 @@ type GetMessagesToProcessRow struct {
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 	OrgID               int64
+	WriteEpoch          int64
 }
 
 func (q *Queries) GetMessagesToProcess(ctx context.Context, arg GetMessagesToProcessParams) ([]GetMessagesToProcessRow, error) {
@@ -211,6 +242,7 @@ func (q *Queries) GetMessagesToProcess(ctx context.Context, arg GetMessagesToPro
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.OrgID,
+			&i.WriteEpoch,
 		); err != nil {
 			return nil, err
 		}
@@ -286,6 +318,45 @@ func (q *Queries) IsBatchFinished(ctx context.Context, commandBatchLogUuid strin
 	return is_finished, err
 }
 
+const listRetryableReapedRigConfigMessages = `-- name: ListRetryableReapedRigConfigMessages :many
+SELECT message.id FROM queue_message AS message
+WHERE message.id = ANY($1::BIGINT[])
+  AND message.status = 'FAILED'
+  AND message.command_type = 'ApplyCurtailmentConfig'
+  AND NOT EXISTS (
+      SELECT 1 FROM device_write_attempt AS attempt
+      WHERE attempt.queue_message_id = message.id
+        AND attempt.status IN ('running', 'unknown')
+  )
+ORDER BY message.id
+`
+
+// Run after ReapMessages establishes FAILED status. A separate statement sees
+// admissions committed before the reaper obtained its queue locks. FAILED
+// entries cannot admit new attempts; a later retry claim arbitrates recovery.
+func (q *Queries) ListRetryableReapedRigConfigMessages(ctx context.Context, messageIds []int64) ([]int64, error) {
+	rows, err := q.query(ctx, q.listRetryableReapedRigConfigMessagesStmt, listRetryableReapedRigConfigMessages, pq.Array(messageIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const reapMessages = `-- name: ReapMessages :many
 WITH candidates AS (
     SELECT message.id
@@ -318,6 +389,7 @@ WHERE message.id = candidates.id
   AND message.device_id = device.id
 RETURNING
     message.id,
+    message.retry_count,
     message.device_id,
     message.command_batch_log_uuid,
     message.error_info,
@@ -337,6 +409,7 @@ type ReapMessagesParams struct {
 
 type ReapMessagesRow struct {
 	ID                  int64
+	RetryCount          int32
 	DeviceID            int64
 	CommandBatchLogUuid string
 	ErrorInfo           sql.NullString
@@ -365,6 +438,7 @@ func (q *Queries) ReapMessages(ctx context.Context, arg ReapMessagesParams) ([]R
 		var i ReapMessagesRow
 		if err := rows.Scan(
 			&i.ID,
+			&i.RetryCount,
 			&i.DeviceID,
 			&i.CommandBatchLogUuid,
 			&i.ErrorInfo,
@@ -390,7 +464,9 @@ UPDATE device_status
 SET
     status = 'ACTIVE'::device_status_enum,
     status_timestamp = CURRENT_TIMESTAMP,
-    status_details = NULL
+    telemetry_status_at = NULL,
+    status_details = NULL,
+    reboot_required_after = NULL
 WHERE device_id = ANY($1::BIGINT[])
   AND status IN ('UPDATING', 'REBOOT_REQUIRED')
 `
@@ -410,6 +486,20 @@ SELECT set_config(
 
 func (q *Queries) SetLocalTransactionTimeout(ctx context.Context, timeoutMilliseconds int64) error {
 	_, err := q.exec(ctx, q.setLocalTransactionTimeoutStmt, setLocalTransactionTimeout, timeoutMilliseconds)
+	return err
+}
+
+const touchProcessingMessage = `-- name: TouchProcessingMessage :exec
+UPDATE queue_message
+SET updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+  AND status = 'PROCESSING'
+`
+
+// Records that a PROCESSING command's device reported progress, so periodic
+// reaping measures its idle time from that report.
+func (q *Queries) TouchProcessingMessage(ctx context.Context, id int64) error {
+	_, err := q.exec(ctx, q.touchProcessingMessageStmt, touchProcessingMessage, id)
 	return err
 }
 

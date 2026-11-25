@@ -5,9 +5,13 @@ import { createBrowserRouter, LoaderFunction, LoaderFunctionArgs, Navigate, Outl
 import App from "./components/App";
 import SingleMinerWrapper from "./components/SingleMinerWrapper";
 import {
+  importAccountInvitation,
+  importAccountRoutes,
   importActivityPage,
   importAuth,
   importBuildingPage,
+  importContainerPage,
+  importControllerLogsPage,
   importDashboard,
   importEnergyPage,
   importFleetBuildingsPage,
@@ -20,6 +24,7 @@ import {
   importMaintenancePage,
   importMiners,
   importMinersPage,
+  importModulePage,
   importOnboardingSettingsPage,
   importRackOverviewPage,
   importRacksPage,
@@ -39,6 +44,7 @@ import {
   importSettingsTeam,
   importSettingsUpdates,
   importSiteDetailPage,
+  importTankPage,
   importUpdatePassword,
   importWelcomePage,
 } from "./routePrefetch";
@@ -64,6 +70,9 @@ import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
 // Route import factories and prefetch tier arrays live in
 // `routePrefetch.ts` so consumers can import the tiers without a cycle
 // through this file. Auth metadata for the router lives in `routeAuth.ts`.
+
+const AccountRoutes = lazy(importAccountRoutes);
+const AccountInvitation = lazy(importAccountInvitation);
 
 const Dashboard = lazy(importDashboard);
 const Miners = lazy(importMiners);
@@ -95,6 +104,10 @@ const SettingsIntegrations = lazy(importSettingsIntegrations);
 const SettingsUpdates = lazy(importSettingsUpdates);
 const SiteDetailPage = lazy(importSiteDetailPage);
 const BuildingPage = lazy(importBuildingPage);
+const TankPage = lazy(importTankPage);
+const ModulePage = lazy(importModulePage);
+const ContainerPage = lazy(importContainerPage);
+const ControllerLogsPage = lazy(importControllerLogsPage);
 const FleetLayout = lazy(importFleetLayout);
 const FleetBuildingsPage = lazy(importFleetBuildingsPage);
 const FleetSitesPage = lazy(importFleetSitesPage);
@@ -255,6 +268,10 @@ const router = createBrowserRouter([
   { path: "/sites", loader: sitesRedirectLoader },
   createRoute("/sites/:id", <SiteDetailPage />, { hideShellHeader: true }),
   createRoute("/buildings/:id", <BuildingPage />, { hideShellHeader: true }),
+  createRoute("/containers/:identifier/tanks/:tankId", <TankPage />, { hideShellHeader: true }),
+  createRoute("/containers/:identifier/tanks/:tankId/modules/:moduleId", <ModulePage />, { hideShellHeader: true }),
+  createRoute("/containers/:identifier", <ContainerPage />, { hideShellHeader: true }),
+  createRoute("/containers/:identifier/controller-logs", <ControllerLogsPage />, { hideShellHeader: true }),
 
   createRoute("/maintenance", <MaintenancePage />),
 
@@ -272,6 +289,9 @@ const router = createBrowserRouter([
     ),
     children: singleMinerRoutes,
   },
+
+  createRoute("/accounts/*", <AccountRoutes />, { fullscreen: true }),
+  createRoute("/account-invitation", <AccountInvitation />, { fullscreen: true }),
 
   // Settings routes
   {

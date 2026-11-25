@@ -1,23 +1,6 @@
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 
 import {
-  curtailmentScopeSchemaVersion,
-  getCurtailmentScopeFormFields,
-  getCurtailmentScopeSummary,
-  parseCurtailmentTerminalScopes,
-} from "@/protoFleet/api/curtailmentScopes";
-import {
-  type CurtailmentEvent as ProtoCurtailmentEvent,
-  CurtailmentMode as ProtoCurtailmentMode,
-  CurtailmentPriority as ProtoCurtailmentPriority,
-} from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
-import { getSiteDisplayName, type SiteNameById } from "@/protoFleet/api/siteNames";
-import type {
-  ActiveCurtailmentEvent,
-  ActiveCurtailmentTargetSiteCoverage,
-  ActiveCurtailmentUnavailableReasonCount,
-} from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
-import {
   getActiveCurtailmentDisplayState,
   getCurtailmentEventEstimatedReductionKw,
   getCurtailmentEventLiveTargetCount,
@@ -27,15 +10,40 @@ import {
   getCurtailmentTargetRollups,
   isActiveCurtailmentEventState,
   mapCurtailmentEventState,
-} from "@/protoFleet/features/energy/curtailmentDisplayUtils";
-import type { CurtailmentHistoryEvent, CurtailmentPriority } from "@/protoFleet/features/energy/CurtailmentHistory";
-import type { CurtailmentMode, CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
+} from "@/protoFleet/api/curtailmentDisplayUtils";
+import {
+  curtailmentScopeSchemaVersion,
+  getCurtailmentScopeFormFields,
+  getCurtailmentScopeSummary,
+  parseCurtailmentTerminalScopes,
+} from "@/protoFleet/api/curtailmentScopes";
+import {
+  type ActiveCurtailmentEvent,
+  type ActiveCurtailmentTargetSiteCoverage,
+  type ActiveCurtailmentUnavailableReasonCount,
+  type CurtailmentHistoryEvent,
+  type CurtailmentMode,
+  type CurtailmentSubmitValues,
+} from "@/protoFleet/api/curtailmentTypes";
 
-const wattsPerKilowatt = 1000;
+import {
+  estimatedReductionKwSnapshotKeys,
+  hasSnapshotNumber,
+  mapCurtailmentPriority,
+  mapEditableCurtailmentPriority,
+  selectedCountSnapshotKeys,
+  wattsPerKilowatt,
+} from "@/protoFleet/api/curtailmentUtils";
+import {
+  CurtailmentSourceActorType,
+  type CurtailmentEvent as ProtoCurtailmentEvent,
+  CurtailmentMode as ProtoCurtailmentMode,
+} from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
+import { getSiteDisplayName, type SiteNameById } from "@/protoFleet/api/siteNames";
+
 const automationExternalSource = "curtailment_automation";
 const automationSourceLabel = "Curtailment automation";
-const estimatedReductionKwSnapshotKeys = ["estimated_reduction_kw", "estimatedReductionKw"] as const;
-const selectedCountSnapshotKeys = ["selected_count", "selectedCount"] as const;
+const scheduleSourceLabel = "Schedule";
 const unavailableReasonLabels: Record<string, string> = {
   active_event: "in another event",
   authentication_needed: "needs authentication",
@@ -117,7 +125,6 @@ function mapCurtailmentEventScopeToFormValues(
       | "buildingTargetIds"
       | "rackTargetIds"
       | "groupTargetIds"
-      | "deviceSetIds"
       | "deviceIdentifiers"
     >
   | undefined {
@@ -154,7 +161,6 @@ function mapCurtailmentEventScopeToFormValues(
       siteSelection: scope.type === "wholeOrg" ? "allSites" : scope.type === "site" ? "site" : "none",
       siteId,
       siteNamesById,
-      deviceSetIds: [],
     };
   }
 
@@ -171,7 +177,6 @@ function mapCurtailmentEventScopeToFormValues(
         buildingTargetIds: [],
         rackTargetIds: [],
         groupTargetIds: [],
-        deviceSetIds: [],
         deviceIdentifiers: [],
       };
     }
@@ -186,7 +191,6 @@ function mapCurtailmentEventScopeToFormValues(
         buildingTargetIds: [],
         rackTargetIds: [],
         groupTargetIds: [],
-        deviceSetIds: [],
         deviceIdentifiers: [...event.scope.value.deviceIdentifiers],
       };
     case "wholeOrg":
@@ -201,7 +205,6 @@ function mapCurtailmentEventScopeToFormValues(
         buildingTargetIds: [],
         rackTargetIds: [],
         groupTargetIds: [],
-        deviceSetIds: [],
         deviceIdentifiers: [],
       };
   }
@@ -226,7 +229,7 @@ export function mapCurtailmentEventToFormValues(
     minerSelectionStrategy: "leastEfficientFirst",
     targetKw: fixedKwTarget !== undefined ? String(fixedKwTarget) : "",
     toleranceKw: fixedKwTolerance !== undefined ? String(fixedKwTolerance) : "",
-    priority: event.priority === ProtoCurtailmentPriority.EMERGENCY ? "emergency" : "normal",
+    priority: mapEditableCurtailmentPriority(event.priority),
     minDurationSec: formatPositiveNumberField(event.minCurtailedDurationSec),
     maxDurationSec: formatPositiveNumberField(event.maxDurationSeconds),
     curtailBatchSize: hasCurtailBatchSize ? formatPositiveNumberField(event.curtailBatchSize) : "",
@@ -242,25 +245,18 @@ export function mapCurtailmentEventToFormValues(
   };
 }
 
-export function mapCurtailmentPriority(priority: ProtoCurtailmentPriority): CurtailmentPriority {
-  switch (priority) {
-    case ProtoCurtailmentPriority.EMERGENCY:
-      return "emergency";
-    case ProtoCurtailmentPriority.HIGH:
-      return "high";
-    case ProtoCurtailmentPriority.NORMAL:
-    case ProtoCurtailmentPriority.UNSPECIFIED:
-    default:
-      return "normal";
-  }
-}
-
 function isAutomationExternalSource(externalSource: string): boolean {
   return externalSource === automationExternalSource;
 }
 
-function getSourceLabel(externalSource: string): string {
-  if (isAutomationExternalSource(externalSource)) {
+// History lists omit external_source, so the actor type is what identifies
+// automation and scheduled events there.
+function getSourceLabel(event: ProtoCurtailmentEvent): string {
+  if (event.sourceActorType === CurtailmentSourceActorType.SCHEDULER) {
+    return scheduleSourceLabel;
+  }
+  const externalSource = event.externalSource.trim();
+  if (event.sourceActorType === CurtailmentSourceActorType.AUTOMATION || isAutomationExternalSource(externalSource)) {
     return automationSourceLabel;
   }
 
@@ -279,10 +275,6 @@ function mapTargetSiteCoverage(event: ProtoCurtailmentEvent): ActiveCurtailmentT
     mappedTargetCount: coverage.mappedTargetCount,
     unknownTargetCount: coverage.unknownTargetCount,
   };
-}
-
-function hasSnapshotNumber(event: ProtoCurtailmentEvent, keys: readonly string[]): boolean {
-  return keys.some((key) => typeof event.decisionSnapshot?.[key] === "number");
 }
 
 export function hasCurtailmentTargetMetrics(event: ProtoCurtailmentEvent): boolean {
@@ -355,14 +347,15 @@ export function mapActiveCurtailmentEvent(
 ): ActiveCurtailmentEvent {
   const estimatedReductionKw = getCurtailmentEventEstimatedReductionKw(event);
   const observedPowerSummary = getObservedPowerSummary(event, estimatedReductionKw);
-  const externalSource = event.externalSource.trim();
+  const isAutomationOwned = isAutomationExternalSource(event.externalSource.trim());
 
   return {
     reason: event.reason || "Curtailment",
     state: mapCurtailmentEventState(event.state),
     scopeLabel: getCurtailmentEventScopeLabel(event, options.siteNameById),
-    sourceLabel: getSourceLabel(externalSource),
-    isAutomationOwned: isAutomationExternalSource(externalSource),
+    sourceLabel: getSourceLabel(event),
+    isAutomationOwned,
+    isScheduleOwned: isAutomationOwned && event.sourceActorType === CurtailmentSourceActorType.SCHEDULER,
     targetSiteCoverage: mapTargetSiteCoverage(event),
     createdAt: timestampToIsoString(event.createdAt),
     scheduledStartAt: timestampToIsoString(event.scheduledStartAt),
@@ -397,10 +390,9 @@ export function mapCurtailmentHistoryEvent(
   event: ProtoCurtailmentEvent,
   options: CurtailmentMapperOptions = {},
 ): CurtailmentHistoryEvent {
-  const externalSource = event.externalSource.trim();
-
   return {
     id: event.eventUuid,
+    isManageable: mapCurtailmentEventToFormValues(event, options) !== undefined,
     reason: event.reason || "Curtailment",
     state: mapCurtailmentEventState(event.state),
     priority: mapCurtailmentPriority(event.priority),
@@ -411,7 +403,7 @@ export function mapCurtailmentHistoryEvent(
     targetMetricsAvailable: hasCurtailmentTargetMetrics(event),
     estimatedReductionAvailable: hasCurtailmentEstimatedReductionKw(event),
     targetKw: getFixedKwTarget(event),
-    sourceLabel: getSourceLabel(externalSource),
+    sourceLabel: getSourceLabel(event),
     startedAt: timestampToIsoString(event.startedAt),
     endedAt: timestampToIsoString(event.endedAt),
     scheduledAt: timestampToIsoString(event.scheduledStartAt),

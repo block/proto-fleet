@@ -1,25 +1,10 @@
 package token
 
 import (
-	"context"
-	"time"
-
-	"connectrpc.com/authn"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-
-	"github.com/golang-jwt/jwt/v5"
 )
 
-var clientSigningMethod = jwt.SigningMethodHS256
-
 const minClientSecretKeyLength = 32 // 32 bytes for HS256 security
-
-// ClientAuthClaims struct for JWT payload
-type ClientAuthClaims struct {
-	UserID int64 `json:"user_id"`
-	OrgID  int64 `json:"org_id"`
-	jwt.RegisteredClaims
-}
 
 type Service struct {
 	cfg Config
@@ -35,52 +20,4 @@ func NewService(cfg Config) (*Service, error) {
 	}
 
 	return &Service{cfg: cfg}, nil
-}
-
-// GenerateClientAuthJWT creates a JWT for a client
-func (ts *Service) GenerateClientAuthJWT(userID, orgID int64) (string, int64, error) {
-	exp := jwt.NewNumericDate(time.Now().Add(ts.cfg.ClientToken.ExpirationPeriod))
-	claims := ClientAuthClaims{
-		UserID: userID,
-		OrgID:  orgID,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: exp,
-		},
-	}
-
-	token := jwt.NewWithClaims(clientSigningMethod, claims)
-	signedToken, err := token.SignedString([]byte(ts.cfg.ClientToken.SecretKey))
-	if err != nil {
-		return "", 0, fleeterror.NewInternalErrorf("error signing token: %v", err)
-	}
-	return signedToken, exp.Unix(), nil
-}
-
-// VerifyClientAuthJWT validates the token and extracts claims
-func (ts *Service) VerifyClientAuthJWT(tokenString string) (*ClientAuthClaims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &ClientAuthClaims{}, func(_ *jwt.Token) (any, error) {
-		return []byte(ts.cfg.ClientToken.SecretKey), nil
-	}, jwt.WithValidMethods([]string{clientSigningMethod.Alg()}))
-
-	if err != nil {
-		return nil, fleeterror.NewUnauthenticatedErrorf("JWT is invalid: %v", err)
-	}
-
-	// Extract claims
-	if claims, ok := token.Claims.(*ClientAuthClaims); ok && token.Valid {
-		return claims, nil
-	}
-
-	return nil, fleeterror.NewUnauthenticatedError("JWT is invalid: cannot extract claims")
-}
-
-func GetClientAuthJWTClaims(ctx context.Context) (*ClientAuthClaims, error) {
-	claims, ok := authn.GetInfo(ctx).(*ClientAuthClaims)
-	if !ok {
-		return nil, fleeterror.NewInternalError(
-			"Context does not have JWT claims. Likely cause is usage of GetClientAuthJWTClaims from an Endpoint without authentication.",
-		)
-	}
-
-	return claims, nil
 }

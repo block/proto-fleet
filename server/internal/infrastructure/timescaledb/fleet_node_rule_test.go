@@ -47,7 +47,7 @@ func TestFleetNodeUnavailableRuleUsesHeartbeatStaleness(t *testing.T) {
 					require.NotContains(t, rule.Annotations["summary"], "fleet_node_name")
 					require.NotEmpty(t, rule.Data)
 					sql := rule.Data[0].Model.RawSQL
-					require.Contains(t, sql, "FROM fleet_node")
+					require.Contains(t, sql, "FROM fleet_node_live")
 					require.Contains(t, sql, "org_id::text AS organization_id")
 					require.Contains(t, sql, "id::text AS fleet_node_id")
 					require.Contains(t, sql, "enrollment_status = 'CONFIRMED'")
@@ -75,19 +75,18 @@ func TestFleetNodeUnavailableUsesColumnLevelGrafanaGrants(t *testing.T) {
 	require.NoError(t, err)
 
 	requiredColumns := []string{"org_id", "id", "last_seen_at", "enrollment_status", "deleted_at"}
-	for _, sql := range []string{string(upSQL), string(runFleet)} {
-		require.ElementsMatch(t, requiredColumns, fleetNodeSelectColumns(t, sql, "GRANT"))
-	}
-	require.ElementsMatch(t, requiredColumns, fleetNodeSelectColumns(t, string(downSQL), "REVOKE"))
+	require.ElementsMatch(t, requiredColumns, fleetNodeSelectColumns(t, string(upSQL), "GRANT", "fleet_node"))
+	require.ElementsMatch(t, requiredColumns, fleetNodeSelectColumns(t, string(downSQL), "REVOKE", "fleet_node"))
 
 	require.Contains(t, string(upSQL), "ON fleet_node TO grafana_ha_ro")
 	require.Contains(t, string(downSQL), "ON fleet_node FROM grafana_ha_ro")
-	require.NotContains(t, string(runFleet), "GRANT SELECT ON fleet_node")
+	require.NotContains(t, string(runFleet), "GRANT SELECT ON fleet_node_live")
+	require.ElementsMatch(t, requiredColumns, fleetNodeSelectColumns(t, string(runFleet), "GRANT", "fleet_node_live"))
 }
 
-func fleetNodeSelectColumns(t *testing.T, sql, operation string) []string {
+func fleetNodeSelectColumns(t *testing.T, sql, operation, relation string) []string {
 	t.Helper()
-	pattern := regexp.MustCompile(`(?is)\b` + operation + `\s+SELECT\s*\(([^)]*)\)\s*ON\s+fleet_node\b`)
+	pattern := regexp.MustCompile(`(?is)\b` + operation + `\s+SELECT\s*\(([^)]*)\)\s*ON\s+` + regexp.QuoteMeta(relation) + `\b`)
 	matches := pattern.FindAllStringSubmatch(sql, -1)
 	require.Len(t, matches, 1)
 

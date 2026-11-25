@@ -29,7 +29,7 @@ func TestFirmwareAssignmentPinsProtectThroughCommitWithoutHoldingLifecycleLock(t
 	// A pin must not deadlock those reads behind a waiting metadata writer.
 	updated := make(chan error, 1)
 	go func() {
-		_, err := svc.UpdateFirmwareMetadata(fileID, testFirmwareMetadata())
+		_, err := svc.UpdateFirmwareMetadata(t.Context(), fileID, testFirmwareMetadata())
 		updated <- err
 	}()
 	select {

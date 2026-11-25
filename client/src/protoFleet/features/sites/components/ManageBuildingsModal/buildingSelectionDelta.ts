@@ -31,24 +31,23 @@ export const computeBuildingSelectionDelta = (
   initialSelectedBuildingIds: bigint[],
   selectedItemIds: string[],
 ): BuildingSelectionDelta => {
-  const initialSet = new Set(initialSelectedBuildingIds.map((id) => id.toString()));
-  const selectedSet = new Set(selectedItemIds);
+  const delta = computeSelectionDelta(items, initialSelectedBuildingIds.map(String), selectedItemIds);
+  return {
+    added: delta.added.map((item) => ({ buildingId: BigInt(item.id), label: item.label })),
+    removed: delta.removed.map(BigInt),
+  };
+};
 
-  const added: { buildingId: bigint; label: string }[] = [];
-  for (const id of selectedItemIds) {
-    if (initialSet.has(id)) continue;
-    const item = items.find((b) => b.id === id);
-    if (!item || item.disabled) continue;
-    added.push({ buildingId: BigInt(id), label: item.label });
-  }
-
-  const removed: bigint[] = [];
-  for (const id of initialSelectedBuildingIds) {
-    if (selectedSet.has(id.toString())) continue;
-    const seedItem = items.find((b) => b.id === id.toString());
-    if (!seedItem || seedItem.disabled) continue;
-    removed.push(id);
-  }
-
-  return { added, removed };
+// Shared by both kinds of building rows; absent and ineligible seeds stay put.
+export const computeSelectionDelta = (items: BuildingPickerItem[], initialIds: string[], selectedIds: string[]) => {
+  const initial = new Set(initialIds);
+  const selected = new Set(selectedIds);
+  const eligible = new Map(items.filter((item) => !item.disabled).map((item) => [item.id, item]));
+  return {
+    added: selectedIds.flatMap((id) => {
+      const item = eligible.get(id);
+      return !initial.has(id) && item ? [item] : [];
+    }),
+    removed: initialIds.filter((id) => !selected.has(id) && eligible.has(id)),
+  };
 };

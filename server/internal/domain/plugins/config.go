@@ -13,7 +13,7 @@ type Config struct {
 
 	MaxStartupTimeSeconds int `help:"Maximum plugin startup time in seconds" default:"30" env:"MAX_STARTUP_TIME"`
 
-	ShutdownTimeoutSeconds int `help:"Maximum plugin shutdown time in seconds" default:"10" env:"SHUTDOWN_TIMEOUT"`
+	ShutdownTimeoutSeconds int `help:"Maximum graceful plugin shutdown time in seconds, followed by up to 2 seconds for forced cleanup" default:"10" env:"SHUTDOWN_TIMEOUT"`
 
 	ShutdownGracePeriodSeconds int `help:"Grace period for each plugin to exit cleanly in seconds" default:"5" env:"SHUTDOWN_GRACE_PERIOD"`
 

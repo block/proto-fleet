@@ -1,6 +1,15 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { renderHook, waitFor as waitForDefault } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { _resetConfigCache, useFirmwareApi, validateFirmwareFile } from "./useFirmwareApi";
+import {
+  _resetConfigCache,
+  firmwareComponentForFile,
+  hasCompleteFirmwareTarget,
+  useFirmwareApi,
+  validateFirmwareFile,
+} from "./useFirmwareApi";
+
+// The default poll interval is 50 ms. That interval is most of the run time of this file.
+const waitFor: typeof waitForDefault = (callback, options) => waitForDefault(callback, { interval: 1, ...options });
 
 const mockLogout = vi.fn();
 const mockUpload = vi.fn();
@@ -70,6 +79,44 @@ describe("validateFirmwareFile", () => {
   it("accepts files within maxFileSizeBytes", () => {
     const file = new File(["x".repeat(50)], "firmware.swu");
     expect(validateFirmwareFile(file, { ...defaultConfig, maxFileSizeBytes: 100 })).toBeNull();
+  });
+});
+
+describe("CT1 PSU firmware", () => {
+  const ct1 = { targetManufacturer: "Proto", targetModel: "CT1", firmwareVersion: "app=1410;bl=1110" };
+
+  it("recognizes a capsule by its file name", () => {
+    expect(firmwareComponentForFile("BOCO-1.4.PSUCAP")).toBe("psu");
+    expect(firmwareComponentForFile("hashboard-firmware-2.0.0.zip")).toBeUndefined();
+    expect(firmwareComponentForFile(undefined)).toBeUndefined();
+  });
+
+  it("needs a hashboard build only for hashboard firmware", () => {
+    expect(hasCompleteFirmwareTarget(ct1)).toBe(false);
+    expect(hasCompleteFirmwareTarget({ ...ct1, hashboardBuild: "prod" })).toBe(true);
+    expect(hasCompleteFirmwareTarget({ ...ct1, component: "psu" })).toBe(true);
+    expect(hasCompleteFirmwareTarget({ ...ct1, component: "psu", firmwareVersion: " " })).toBe(false);
+  });
+
+  it("sends the component instead of a hashboard build", async () => {
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ exists: false }) });
+    vi.stubGlobal("fetch", mockFetch);
+    const { result } = renderHook(() => useFirmwareApi());
+
+    await result.current.checkFirmwareFile("abc123", { ...ct1, component: "psu", hashboardBuild: "prod" });
+    await result.current.updateFirmwareMetadata("fw-psu", { ...ct1, component: "psu" });
+
+    const fields = {
+      target_manufacturer: "Proto",
+      target_model: "CT1",
+      firmware_version: "app=1410;bl=1110",
+      component: "psu",
+    };
+    expect(mockFetch.mock.calls[0][1].body).toBe(JSON.stringify({ sha256: "abc123", ...fields }));
+    expect(mockFetch.mock.calls[1][1].body).toBe(JSON.stringify(fields));
+    vi.unstubAllGlobals();
   });
 });
 
@@ -285,31 +332,6 @@ describe("useFirmwareApi", () => {
       );
 
       const file = new File(["data"], "proto-rig.swu");
-      const { result } = renderHook(() => useFirmwareApi());
-
-      // @ts-expect-error Runtime validation still protects untyped callers.
-      await expect(result.current.uploadFirmwareFile(file)).rejects.toThrow(
-        "Manufacturer, model, and firmware version are required.",
-      );
-      expect(mockUpload).not.toHaveBeenCalled();
-    });
-
-    it("requires metadata for non-swu upload", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue({
-          ok: true,
-          status: 200,
-          json: () =>
-            Promise.resolve({
-              allowed_extensions: [".zip"],
-              max_file_size_bytes: 500 * 1024 * 1024,
-              chunk_size_bytes: 1 * 1024 * 1024,
-            }),
-        }),
-      );
-
-      const file = new File(["data"], "firmware.zip");
       const { result } = renderHook(() => useFirmwareApi());
 
       // @ts-expect-error Runtime validation still protects untyped callers.

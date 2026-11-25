@@ -120,22 +120,6 @@ func TestDeviceMetrics_ExtractRawMeasurement(t *testing.T) {
 			expectedOK:      false,
 		},
 		{
-			name: "returns false for unsupported type voltage",
-			metrics: &DeviceMetrics{
-				Timestamp: timestamp,
-			},
-			measurementType: models.MeasurementTypeVoltage,
-			expectedOK:      false,
-		},
-		{
-			name: "returns false for unsupported type current",
-			metrics: &DeviceMetrics{
-				Timestamp: timestamp,
-			},
-			measurementType: models.MeasurementTypeCurrent,
-			expectedOK:      false,
-		},
-		{
 			name: "returns false for unknown measurement type",
 			metrics: &DeviceMetrics{
 				Timestamp: timestamp,

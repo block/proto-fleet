@@ -8,6 +8,7 @@ type CheckboxProps = {
   partiallyChecked?: boolean;
   className?: string;
   disabled?: boolean;
+  ariaLabel?: string;
 };
 
 function Checkbox({
@@ -16,11 +17,14 @@ function Checkbox({
   partiallyChecked = false,
   className = "",
   disabled = false,
+  ariaLabel,
 }: CheckboxProps): ReactElement {
   return (
     <div className={clsx(className, "relative h-[20px] w-[20px]")}>
       <input
         type="checkbox"
+        aria-label={ariaLabel}
+        aria-checked={partiallyChecked ? "mixed" : checked}
         checked={checked}
         onChange={onChange}
         disabled={disabled}

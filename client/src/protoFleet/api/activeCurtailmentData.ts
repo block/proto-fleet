@@ -3,6 +3,11 @@ import { create as createStore } from "zustand";
 
 import { curtailmentClient } from "@/protoFleet/api/clients";
 import {
+  estimatedReductionKwSnapshotKeys,
+  hasSnapshotNumber,
+  selectedCountSnapshotKeys,
+} from "@/protoFleet/api/curtailmentUtils";
+import {
   CurtailmentEventSchema,
   CurtailmentEventState,
   GetCurtailmentEventRequestSchema,
@@ -56,8 +61,6 @@ interface SetActiveCurtailmentSnapshotOptions {
 const activeCurtailmentDetailTargetPageSize = 1000;
 const activeCurtailmentDetailMaxTargetPages = 25;
 const mutationBackedMissingRefreshPreserveMs = 30_000;
-const detailReductionSnapshotKeys = ["estimated_reduction_kw", "estimatedReductionKw"] as const;
-const detailSelectedCountSnapshotKeys = ["selected_count", "selectedCount"] as const;
 
 const initialSnapshot: ActiveCurtailmentSnapshot = { event: undefined, events: [] };
 
@@ -156,10 +159,6 @@ function removeActiveCurtailmentEventFromList(
   return events.filter((event) => event.eventUuid !== eventUuid);
 }
 
-function hasSnapshotNumber(event: ProtoCurtailmentEvent, keys: readonly string[]): boolean {
-  return keys.some((key) => typeof event.decisionSnapshot?.[key] === "number");
-}
-
 // Live rollups now ride on every active-list row, so rollup presence no
 // longer distinguishes hydrated detail from a summary row; auto-selection
 // still requires snapshot numbers or target rows so the active card never
@@ -167,8 +166,8 @@ function hasSnapshotNumber(event: ProtoCurtailmentEvent, keys: readonly string[]
 function hasActiveCurtailmentDetail(event: ProtoCurtailmentEvent): boolean {
   return (
     event.targets.length > 0 ||
-    hasSnapshotNumber(event, detailReductionSnapshotKeys) ||
-    hasSnapshotNumber(event, detailSelectedCountSnapshotKeys)
+    hasSnapshotNumber(event, estimatedReductionKwSnapshotKeys) ||
+    hasSnapshotNumber(event, selectedCountSnapshotKeys)
   );
 }
 

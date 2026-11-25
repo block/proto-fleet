@@ -51,9 +51,15 @@ jobs:
       - name: Run TypeScript type check
         run: npx tsc --noEmit
 
-  test:
-    name: Test
+  # The runner executes the test files one at a time, so one job takes more
+  # than 20 minutes. Each shard runs a quarter of the files on its own runner.
+  test-shards:
+    name: Test (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     defaults:
       run:
         working-directory: client
@@ -76,7 +82,21 @@ jobs:
         run: npm ci
 
       - name: Run tests
-        run: npm test -- --run --reporter=verbose
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: npm test -- --run --reporter=verbose --shard="${SHARD}/4"
+
+  # Preserve the existing check name for branch rules and other consumers.
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    if: always()
+    needs: test-shards
+    steps:
+      - name: Check all test shards
+        env:
+          RESULT: ${{ needs.test-shards.result }}
+        run: test "$RESULT" = success
 
   build:
     name: Build

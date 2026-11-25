@@ -26,14 +26,14 @@ func TestDeleteSite_ClearsAllDeviceSitePointers(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	orgID := user.OrganizationID
 
-	deviceIDs := testContext.DatabaseService.CreateTestMiners(orgID, 3, "https://172.17.0.1:80")
+	deviceIDs := testContext.CreateTestMiners(orgID, 3, "https://172.17.0.1:80")
 
-	siteStore := sqlstores.NewSQLSiteStore(testContext.ServiceProvider.DB)
-	transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
+	siteStore := sqlstores.NewSQLSiteStore(testContext.DB)
+	transactor := sqlstores.NewSQLTransactor(testContext.DB)
 
 	// Create a site and reassign 2 of the 3 devices to it.
 	site, err := siteStore.CreateSite(t.Context(), sitesmodels.CreateSiteParams{
@@ -46,7 +46,7 @@ func TestDeleteSite_ClearsAllDeviceSitePointers(t *testing.T) {
 	require.NoError(t, err)
 
 	// Sanity: the two reassigned devices now point at the site.
-	row := testContext.ServiceProvider.DB.QueryRowContext(t.Context(),
+	row := testContext.DB.QueryRowContext(t.Context(),
 		`SELECT COUNT(*) FROM device WHERE org_id = $1 AND site_id = $2`, orgID, site.ID)
 	var beforeCount int
 	require.NoError(t, row.Scan(&beforeCount))
@@ -80,7 +80,7 @@ func TestDeleteSite_ClearsAllDeviceSitePointers(t *testing.T) {
 	require.NoError(t, err)
 
 	// Invariant: no live device.site_id may reference a soft-deleted site.
-	row = testContext.ServiceProvider.DB.QueryRowContext(t.Context(),
+	row = testContext.DB.QueryRowContext(t.Context(),
 		`SELECT COUNT(*) FROM device d
 		 WHERE d.org_id = $1
 		   AND d.site_id IS NOT NULL
@@ -96,7 +96,7 @@ func TestDeleteSite_ClearsAllDeviceSitePointers(t *testing.T) {
 		"no live device.site_id should reference a soft-deleted site after DeleteSite")
 
 	// And the formerly-assigned devices land in the Unassigned bucket.
-	row = testContext.ServiceProvider.DB.QueryRowContext(t.Context(),
+	row = testContext.DB.QueryRowContext(t.Context(),
 		`SELECT COUNT(*) FROM device WHERE org_id = $1 AND site_id IS NULL AND deleted_at IS NULL`, orgID)
 	var unassignedCount int
 	require.NoError(t, row.Scan(&unassignedCount))
@@ -108,11 +108,11 @@ func TestDeleteSite_BlocksWholeOrgProfileInfrastructureReferences(t *testing.T) 
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	orgID := user.OrganizationID
 	ctx := t.Context()
-	db := testContext.ServiceProvider.DB
+	db := testContext.DB
 	siteStore := sqlstores.NewSQLSiteStore(db)
 	buildingStore := sqlstores.NewSQLBuildingStore(db)
 	transactor := sqlstores.NewSQLTransactor(db)
@@ -165,11 +165,11 @@ func TestDeleteCurtailmentResponseProfilesBySite_RemovesScopedProfiles(t *testin
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	orgID := user.OrganizationID
 	ctx := t.Context()
-	db := testContext.ServiceProvider.DB
+	db := testContext.DB
 	siteStore := sqlstores.NewSQLSiteStore(db)
 
 	siteA, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Calgary"})
@@ -224,11 +224,11 @@ func TestDeleteCurtailmentResponseProfilesBySite_BlocksAutomationBoundScopedProf
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
+	testContext := testutil.NewDatabaseService(t, nil)
+	user := testContext.CreateSuperAdminUser()
 	orgID := user.OrganizationID
 	ctx := t.Context()
-	db := testContext.ServiceProvider.DB
+	db := testContext.DB
 	siteStore := sqlstores.NewSQLSiteStore(db)
 
 	site, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Toronto"})

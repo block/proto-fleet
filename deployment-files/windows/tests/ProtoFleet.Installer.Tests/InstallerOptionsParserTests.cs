@@ -41,14 +41,6 @@ public sealed class InstallerOptionsParserTests
         options.ProtocolMode.Should().Be(ProtocolMode.Auto);
     }
 
-    [Fact]
-    public void Parse_GuidedParsesSuccessfully()
-    {
-        var options = InstallerOptionsParser.Parse(new[] { "-Guided", "true" });
-
-        options.SetupMode.Should().Be(SetupMode.Guided);
-    }
-
     [Theory]
     [InlineData("-LinuxUserMode", "prompt")]
     [InlineData("-LinuxUsername", "fleetadmin")]

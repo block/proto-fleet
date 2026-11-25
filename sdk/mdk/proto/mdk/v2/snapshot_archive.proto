@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package mdk.v2;
+
+import "google/protobuf/timestamp.proto";
+import "mdk/v2/options.proto";
+
+option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
+
+// SnapshotArchiveService prepares and uploads one immutable closed-hour
+// telemetry archive on an exact Frigate instance.
+service SnapshotArchiveService {
+  rpc PrepareSnapshotArchive(PrepareSnapshotArchiveRequest) returns (PrepareSnapshotArchiveResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+  }
+  rpc UploadPreparedSnapshotArchive(UploadPreparedSnapshotArchiveRequest) returns (UploadPreparedSnapshotArchiveResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+  }
+}
+
+message PrepareSnapshotArchiveRequest {
+  google.protobuf.Timestamp hour_start = 1;
+}
+
+message SnapshotArchiveTableCount {
+  string table = 1;
+  uint64 rows = 2;
+}
+
+message SnapshotArchiveCoverage {
+  uint32 expected_boards = 1;
+  uint32 reporting_boards = 2;
+  uint32 expected_board_minutes = 3;
+  uint32 reporting_board_minutes = 4;
+  uint64 asic_frames = 5;
+}
+
+message PreparedSnapshotArchive {
+  string preparation_id = 1;
+  string source_instance_id = 2;
+  google.protobuf.Timestamp hour_start = 3;
+  google.protobuf.Timestamp hour_end = 4;
+  google.protobuf.Timestamp prepared_at = 5;
+  google.protobuf.Timestamp expires_at = 6;
+  uint64 compressed_size_bytes = 7;
+  uint64 uncompressed_size_bytes = 8;
+  string sha256_hex = 9;
+  string sha256_base64 = 10;
+  repeated SnapshotArchiveTableCount table_counts = 11;
+  SnapshotArchiveCoverage coverage = 12;
+}
+
+message PrepareSnapshotArchiveResponse {
+  PreparedSnapshotArchive archive = 1;
+}
+
+message UploadPreparedSnapshotArchiveRequest {
+  string preparation_id = 1;
+  string object_key = 2;
+  string upload_url = 3;
+  map<string, string> required_headers = 4;
+}
+
+message UploadPreparedSnapshotArchiveResponse {
+  string source_instance_id = 1;
+  string object_key = 2;
+  uint64 uploaded_size_bytes = 3;
+  string sha256_hex = 4;
+  string sha256_base64 = 5;
+  string etag = 6;
+  google.protobuf.Timestamp completed_at = 7;
+}

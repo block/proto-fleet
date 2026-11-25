@@ -328,6 +328,13 @@ func newReleaseChannelQueryFixture(t *testing.T) *releaseChannelQueryFixture {
 	return f
 }
 
+// useNewSite adds a site. The devices that the fixture adds after this call
+// are in that site.
+func (f *releaseChannelQueryFixture) useNewSite(slug string) {
+	f.t.Helper()
+	f.site = f.scanID(`INSERT INTO site (org_id, name, slug) VALUES ($1, $2, $2) RETURNING id`, f.org, slug)
+}
+
 func (f *releaseChannelQueryFixture) exec(query string, args ...any) {
 	f.t.Helper()
 	_, err := f.db.ExecContext(f.t.Context(), query, args...)

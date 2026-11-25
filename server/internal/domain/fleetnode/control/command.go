@@ -33,7 +33,10 @@ func (r *Registry) SendCommandWithArtifacts(ctx context.Context, fleetNodeID int
 // SendCommandWithArtifactResults dispatches an ack-only command with optional
 // artifact-transfer expectations and returns any completed upload refs alongside
 // the terminal ack. Refs are snapshotted before the in-flight command is removed.
-func (r *Registry) SendCommandWithArtifactResults(ctx context.Context, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, artifacts []ArtifactExpectation) (*gatewaypb.ControlAck, []*gatewaypb.CommandArtifactRef, error) {
+func (r *Registry) SendCommandWithArtifactResults(ctx context.Context, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, artifacts []ArtifactExpectation) (resultAck *gatewaypb.ControlAck, resultRefs []*gatewaypb.CommandArtifactRef, resultErr error) {
+	ctx, span := startCommandDispatchSpan(ctx, fleetNodeID, "", cmd)
+	defer func() { finishCommandDispatchSpan(span, resultErr) }()
+
 	c := &inflightCommand{
 		id:        cmd.GetCommandId(),
 		ack:       make(chan *gatewaypb.ControlAck, 1), // never closed
@@ -43,19 +46,20 @@ func (r *Registry) SendCommandWithArtifactResults(ctx context.Context, fleetNode
 	outgoing, connDone, err := r.addCmd(fleetNodeID, minimumCommandProtocolVersion, c)
 	if err != nil {
 		if errors.Is(err, errDuplicateCommandID) {
-			return nil, nil, fleeterror.NewInternalError(err.Error())
+			err = fleeterror.NewInternalError(err.Error())
 		}
-		return nil, nil, err
+		return nil, nil, commandNotEnqueued(err)
 	}
 	// Always free the slot: on ack, disconnect, or ctx expiry.
 	defer r.removeCmd(fleetNodeID, c)
 
 	if err := r.enqueue(ctx, outgoing, connDone, cmd); err != nil {
-		return nil, nil, err
+		return nil, nil, commandNotEnqueued(err)
 	}
 
 	select {
 	case ack := <-c.ack:
+		recordCommandAck(span, ack)
 		refs, resultErr := r.completedUploadRefs(ack, c)
 		return ack, refs, resultErr
 	case <-c.done:
@@ -63,6 +67,7 @@ func (r *Registry) SendCommandWithArtifactResults(ctx context.Context, fleetNode
 		// randomness can't drop a terminal result that landed with the teardown.
 		select {
 		case ack := <-c.ack:
+			recordCommandAck(span, ack)
 			refs, resultErr := r.completedUploadRefs(ack, c)
 			return ack, refs, resultErr
 		default:

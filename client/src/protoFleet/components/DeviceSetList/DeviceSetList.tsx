@@ -5,13 +5,18 @@ import { DEFAULT_PAGE_SIZE, deviceSetColTitles, type DeviceSetColumn } from "./c
 import { createDeviceSetColConfig } from "./deviceSetColConfig";
 import { getDefaultSortDirection, SORTABLE_COLUMNS } from "./sortConfig";
 import type { DeviceSet, DeviceSetStats } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import { EntityKind, type InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
+import { InventoryCell } from "@/protoFleet/features/containers/InventoryCell";
 import { useTemperatureUnit } from "@/protoFleet/store";
 import { ChevronDown } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import List, { type SelectionMode } from "@/shared/components/List";
 import { type SortDirection } from "@/shared/components/List/types";
+import type { ColConfig } from "@/shared/components/List/types";
 import { type Breakpoint } from "@/shared/constants/breakpoints";
+
+type EquipmentItem = { id: string } & ({ kind: "rack"; row: DeviceSetListItem } | { kind: "tank"; row: InventoryItem });
 
 export type DeviceSetListItem = {
   id: string;
@@ -31,6 +36,11 @@ const DEFAULT_ACTIVE_COLS: DeviceSetColumn[] = [
 ];
 
 type DeviceSetListProps = {
+  inventoryItems?: InventoryItem[];
+  renderTankActions?: (item: InventoryItem) => ReactNode;
+  selectedTankIds?: string[];
+  onSelectedTankIdsChange?: (ids: string[]) => void;
+  onTankClick?: (item: InventoryItem) => void;
   deviceSets: DeviceSet[];
   statsMap: Map<bigint, DeviceSetStats>;
   renderName: (item: DeviceSetListItem) => ReactNode;
@@ -68,6 +78,11 @@ type DeviceSetListProps = {
 };
 
 const DeviceSetList = ({
+  inventoryItems,
+  onTankClick,
+  renderTankActions,
+  selectedTankIds = [],
+  onSelectedTankIdsChange,
   deviceSets,
   statsMap,
   renderName,
@@ -106,6 +121,36 @@ const DeviceSetList = ({
     [renderName, renderMiners, renderSite, renderBuilding, temperatureUnit],
   );
 
+  const equipmentItems = useMemo<EquipmentItem[]>(() => {
+    const byID = new Map(items.map((item) => [item.id, item]));
+    if (!inventoryItems) return items.map((row) => ({ id: row.id, kind: "rack", row }));
+    return inventoryItems.flatMap<EquipmentItem>((item) => {
+      if (item.ref?.kind === EntityKind.TANK) return [{ id: `tank:${item.ref.id}`, kind: "tank", row: item }];
+      const row = byID.get(item.ref?.id.toString() ?? "");
+      return row ? [{ id: row.id, kind: "rack", row }] : [];
+    });
+  }, [items, inventoryItems]);
+  const equipmentColumns = useMemo<ColConfig<EquipmentItem, string, DeviceSetColumn>>(() => {
+    const result: ColConfig<EquipmentItem, string, DeviceSetColumn> = {};
+    for (const column of Object.keys(colConfig) as DeviceSetColumn[]) {
+      const config = colConfig[column];
+      if (!config) continue;
+      result[column] = {
+        ...config,
+        component: (item, selected) =>
+          item.kind === "rack" ? (
+            config.component?.(item.row, selected)
+          ) : (
+            <div className="flex items-center justify-between gap-3">
+              <InventoryCell item={item.row} column={column} />
+              {column === "name" ? renderTankActions?.(item.row) : null}
+            </div>
+          ),
+      };
+    }
+    return result;
+  }, [colConfig, renderTankActions]);
+
   const handleNextPage = useCallback(() => {
     onNextPage?.();
     topRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -117,23 +162,27 @@ const DeviceSetList = ({
   }, [onPrevPage]);
 
   const firstItemIndex = currentPage * pageSize + 1;
-  const lastItemIndex = currentPage * pageSize + deviceSets.length;
+  const lastItemIndex = currentPage * pageSize + equipmentItems.length;
   const shouldRenderPagination = !loading && total !== undefined && total > 0;
   const handleSelectionModeChange = useCallback(() => undefined, []);
-  const isRowSelectable = useCallback((item: DeviceSetListItem) => item.deviceSet.id !== 0n, []);
+  const isRowSelectable = useCallback(
+    (item: EquipmentItem) => (item.kind === "tank" ? !!onSelectedTankIdsChange : item.row.deviceSet.id !== 0n),
+    [onSelectedTankIdsChange],
+  );
 
   const commonListProps = {
     activeCols: columns,
     colTitles: deviceSetColTitles,
-    colConfig,
-    items,
+    colConfig: equipmentColumns,
+    items: equipmentItems,
     itemKey: "id" as const,
     hideTotal: true,
     sortableColumns: SORTABLE_COLUMNS,
     currentSort,
     onSort,
     getDefaultSortDirection,
-    onRowClick,
+    onRowClick: (item: EquipmentItem, index: number) =>
+      item.kind === "rack" ? onRowClick?.(item.row, index) : onTankClick?.(item.row),
     emptyStateRow,
     paddingLeft,
     overflowContainer,
@@ -172,15 +221,18 @@ const DeviceSetList = ({
   ) : null;
 
   if (selectedIds !== undefined && onSelectedIdsChange !== undefined) {
-    const selectionMode: SelectionMode = selectedIds.length > 0 ? "subset" : "none";
+    const selectionMode: SelectionMode = selectedIds.length + selectedTankIds.length > 0 ? "subset" : "none";
     return (
       <>
         <div ref={topRef} />
-        <List<DeviceSetListItem, string, DeviceSetColumn>
+        <List<EquipmentItem, string, DeviceSetColumn>
           {...commonListProps}
           itemSelectable
-          customSelectedItems={selectedIds}
-          customSetSelectedItems={onSelectedIdsChange}
+          customSelectedItems={[...selectedIds, ...selectedTankIds.map((id) => `tank:${id}`)]}
+          customSetSelectedItems={(ids) => {
+            onSelectedIdsChange(ids.filter((id) => !id.startsWith("tank:")));
+            onSelectedTankIdsChange?.(ids.filter((id) => id.startsWith("tank:")).map((id) => id.slice(5)));
+          }}
           customSelectionMode={selectionMode}
           onSelectionModeChange={handleSelectionModeChange}
           pageScopedSelection
@@ -194,7 +246,7 @@ const DeviceSetList = ({
   return (
     <>
       <div ref={topRef} />
-      <List<DeviceSetListItem, string, DeviceSetColumn> {...commonListProps} />
+      <List<EquipmentItem, string, DeviceSetColumn> {...commonListProps} />
       {pagination}
     </>
   );

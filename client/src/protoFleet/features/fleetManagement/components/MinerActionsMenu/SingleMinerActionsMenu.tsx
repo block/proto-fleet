@@ -1,9 +1,9 @@
 import { useCallback, useMemo, useRef, useState } from "react";
+import { Code, ConnectError } from "@connectrpc/connect";
 import PoolSelectionPageWrapper from "../ActionBar/SettingsWidget/PoolSelectionPage";
 import BulkActionConfirmDialog from "../BulkActions/BulkActionConfirmDialog";
 import { BulkAction } from "../BulkActions/types";
 import UnsupportedMinersModal from "../BulkActions/UnsupportedMinersModal";
-import RowActionsMenu, { type RowAction } from "../RowActionsMenu";
 import { insertActionAfter, insertActionBefore } from "./actionMenuUtils";
 import { usePermittedActions } from "./actionPermissions";
 import { deviceActions, groupActions, settingsActions, SupportedAction } from "./constants";
@@ -12,20 +12,18 @@ import MinerReparentPicker from "./MinerReparentPicker";
 import RenameMinerDialog from "./RenameMinerDialog";
 import UpdateWorkerNameDialog from "./UpdateWorkerNameDialog";
 import { useMinerActions } from "./useMinerActions";
-import { waitForWorkerNameBatchResult } from "./waitForWorkerNameBatchResult";
-import type {
-  MinerStateSnapshot,
-  UpdateWorkerNamesResponse,
-} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import type { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import useRefreshMiners from "@/protoFleet/api/useRefreshMiners";
 import useUpdateWorkerNames from "@/protoFleet/api/useUpdateWorkerNames";
 import { useOpenMinerView } from "@/protoFleet/components/SingleMinerWrapper/useOpenMinerView";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { useBatchActions } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
+import type { WorkerNameUpdateResult } from "@/protoFleet/features/poolConfigurations/WorkerNameReview";
+import { useFleetStore } from "@/protoFleet/store";
 import { ArrowRight, Edit, MiningPools, Plus, Reboot } from "@/shared/assets/icons";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import RowActionsMenu, { type RowAction } from "@/shared/components/RowActionsMenu";
 import { pushToast, removeToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
 
 type SingleMinerAction = SupportedAction | "viewMiner" | "refreshStatus";
@@ -34,7 +32,6 @@ const unauthenticatedActions = new Set<SingleMinerAction>([deviceActions.unpair,
 
 interface SingleMinerActionsMenuProps {
   deviceIdentifier: string;
-  minerUrl?: string;
   deviceStatus?: DeviceStatus;
   minerName?: string;
   workerName?: string;
@@ -67,9 +64,8 @@ const SingleMinerActionsMenu = ({
   onMinerRefreshStateChange,
 }: SingleMinerActionsMenuProps) => {
   const { startBatchOperation, completeBatchOperation, removeDevicesFromBatch } = useBatchActions();
-  const { streamCommandBatchUpdates } = useMinerCommand();
   const { refreshMiners, refreshing } = useRefreshMiners();
-  const { updateSingleWorkerName } = useUpdateWorkerNames();
+  const { updateSingleWorkerName, workerNameReview } = useUpdateWorkerNames();
   const selectedMiners = useMemo(() => [{ deviceIdentifier, deviceStatus }], [deviceIdentifier, deviceStatus]);
   const [showWorkerNameAuthenticateModal, setShowWorkerNameAuthenticateModal] = useState(false);
   const [showUpdateWorkerNameDialog, setShowUpdateWorkerNameDialog] = useState(false);
@@ -95,11 +91,7 @@ const SingleMinerActionsMenu = ({
     popoverActions,
     handleConfirmation,
     handleCancel,
-    handleMiningPoolSuccess,
-    handleMiningPoolError,
-    handleMiningPoolWarning,
     showPoolSelectionPage,
-    fleetCredentials,
     withCapabilityCheck,
     unsupportedMinersInfo,
     handleUnsupportedMinersContinue,
@@ -216,7 +208,16 @@ const SingleMinerActionsMenu = ({
   );
 
   const handleDirectWorkerNameResponse = useCallback(
-    (toastId: number, name: string, response: UpdateWorkerNamesResponse) => {
+    (toastId: number, name: string, response: WorkerNameUpdateResult) => {
+      if (response.unknownCount) {
+        onRefetchMiners?.();
+        removeToast(toastId); // The persistent confirmation recovery toast owns the next action.
+        return;
+      }
+      if (response.notSubmittedCount) {
+        updateToast(toastId, { message: "Worker name update was not submitted.", status: TOAST_STATUSES.error });
+        return;
+      }
       if (response.failedCount > 0) {
         showWorkerNameErrorToast(toastId);
         return;
@@ -234,34 +235,7 @@ const SingleMinerActionsMenu = ({
 
       removeToast(toastId);
     },
-    [showWorkerNameErrorToast, showWorkerNameUnchangedToast, showWorkerNameUpdatedToast],
-  );
-
-  const handleStreamedWorkerNameResponse = useCallback(
-    (
-      toastId: number,
-      name: string,
-      response: UpdateWorkerNamesResponse,
-      batchResult: Awaited<ReturnType<typeof waitForWorkerNameBatchResult>>,
-    ) => {
-      if (batchResult.streamFailed || response.failedCount > 0 || batchResult.failedCount > 0) {
-        showWorkerNameErrorToast(toastId);
-        return;
-      }
-
-      if (batchResult.successCount > 0) {
-        showWorkerNameUpdatedToast(toastId, name);
-        return;
-      }
-
-      if (response.unchangedCount > 0) {
-        showWorkerNameUnchangedToast(toastId);
-        return;
-      }
-
-      removeToast(toastId);
-    },
-    [showWorkerNameErrorToast, showWorkerNameUnchangedToast, showWorkerNameUpdatedToast],
+    [onRefetchMiners, showWorkerNameErrorToast, showWorkerNameUnchangedToast, showWorkerNameUpdatedToast],
   );
 
   const handleUpdateWorkerNameConfirm = useCallback(
@@ -280,6 +254,8 @@ const SingleMinerActionsMenu = ({
         longRunning: true,
       });
 
+      const generation = useFleetStore.getState().auth.sessionGeneration;
+      const current = () => useFleetStore.getState().auth.sessionGeneration === generation;
       try {
         const response = await updateSingleWorkerName(
           deviceIdentifier,
@@ -288,39 +264,23 @@ const SingleMinerActionsMenu = ({
           workerNameCredentials.password,
         );
 
-        if (response.batchIdentifier) {
-          startBatchOperation({
-            batchIdentifier: response.batchIdentifier,
-            action: settingsActions.updateWorkerNames,
-            deviceIdentifiers: [deviceIdentifier],
-          });
-
-          try {
-            const batchResult = await waitForWorkerNameBatchResult(streamCommandBatchUpdates, response.batchIdentifier);
-            handleStreamedWorkerNameResponse(toastId, name, response, batchResult);
-          } finally {
-            completeBatchOperation(response.batchIdentifier);
-          }
-        } else {
-          handleDirectWorkerNameResponse(toastId, name, response);
-        }
-      } catch {
-        showWorkerNameErrorToast(toastId);
+        if (current()) handleDirectWorkerNameResponse(toastId, name, response);
+      } catch (error) {
+        if (ConnectError.from(error).code === Code.Canceled) removeToast(toastId);
+        else if (current()) showWorkerNameErrorToast(toastId);
       } finally {
-        resetWorkerNameFlow();
-        onActionComplete?.();
+        if (current()) {
+          resetWorkerNameFlow();
+          onActionComplete?.();
+        } else removeToast(toastId);
       }
     },
     [
-      completeBatchOperation,
       deviceIdentifier,
       handleDirectWorkerNameResponse,
-      handleStreamedWorkerNameResponse,
       onActionComplete,
       resetWorkerNameFlow,
       showWorkerNameErrorToast,
-      startBatchOperation,
-      streamCommandBatchUpdates,
       updateSingleWorkerName,
     ],
   );
@@ -467,6 +427,7 @@ const SingleMinerActionsMenu = ({
 
   return (
     <>
+      {workerNameReview}
       <RowActionsMenu
         actions={rowActions}
         ariaLabel="Miner actions"
@@ -498,14 +459,9 @@ const SingleMinerActionsMenu = ({
           );
         })}
       <PoolSelectionPageWrapper
-        open={showPoolSelectionPage ? !!fleetCredentials : false}
+        open={showPoolSelectionPage}
         selectedMiners={selectedMiners}
         selectionMode="subset"
-        userUsername={fleetCredentials?.username}
-        userPassword={fleetCredentials?.password}
-        onSuccess={handleMiningPoolSuccess}
-        onError={handleMiningPoolError}
-        onWarning={handleMiningPoolWarning}
         onDismiss={handleCancel}
       />
       <RenameMinerDialog

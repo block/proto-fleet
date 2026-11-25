@@ -69,6 +69,20 @@ func getAllDefinedErrorCodes() []MinerError {
 		HashboardWarnCRCHigh,
 		ThermalMarginLow,
 
+		ASICOvervoltage,
+		ASICUndervoltage,
+		ASICEnumerationFailed,
+		ASICECCError,
+		ASICTemperatureImbalance,
+		HashboardStartupFailed,
+		HashboardNoStackRunning,
+		HashboardStackEnumerationFailed,
+		BoardBusbarVoltageDrop,
+		BoardPowerRailFault,
+		ReferenceClockFault,
+		DiagnosticStorageFault,
+		FirmwareRuntimeError,
+		ASICThermalThrottling,
 		// Catch-all (9000-9999)
 		VendorErrorUnmapped,
 	}

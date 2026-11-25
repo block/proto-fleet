@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 
 import { getSettingsLandingPath, isNavItemAllowedByPermissions, primaryNavItems, secondaryNavItems } from "./navItems";
@@ -80,7 +81,7 @@ describe("secondaryNavItems", () => {
         label: "Firmware",
         parent: "/settings",
         section: "Fleet",
-        requiredPermission: "miner:firmware_update",
+        requiredAnyPermission: ["miner:firmware_update", "controller:software_update"],
       }),
     );
     expect(labels.indexOf("Network")).toBeLessThan(labels.indexOf("Schedules"));

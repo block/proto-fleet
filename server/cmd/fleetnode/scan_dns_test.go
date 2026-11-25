@@ -52,7 +52,7 @@ func TestControlLoopDNSFailuresRetainReports(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			r := &RunCmd{
+			r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
 				discoverer: &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
 					"10.0.0.5|4028": {DeviceIdentifier: "identified", DriverName: "antminer", UrlScheme: "http"},
 				}},
@@ -87,7 +87,7 @@ func TestControlLoopDNSFailuresRetainReports(t *testing.T) {
 
 func TestIPListDNSFailureWinsOverCommandDeadline(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		r := &RunCmd{
+		r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
 			discoverer: &delayingStubDiscoverer{blockingIPs: map[string]bool{"10.0.0.5": true}},
 			resolver: resolverFunc(func(_ context.Context, host string) ([]net.IPAddr, error) {
 				return nil, &net.DNSError{Name: host, Err: "i/o timeout", IsTimeout: true}
@@ -107,7 +107,7 @@ func TestIPListDNSFailureWinsOverCommandDeadline(t *testing.T) {
 func TestNetworkDNSFailureClassificationPreservesTargetPolicy(t *testing.T) {
 	for _, target := range []string{"bad/target", "8.8.8.8", "public.lan"} {
 		t.Run(target, func(t *testing.T) {
-			r := &RunCmd{resolver: stubResolver{"public.lan": {{IP: net.ParseIP("8.8.8.8")}}}}
+			r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, resolver: stubResolver{"public.lan": {{IP: net.ParseIP("8.8.8.8")}}}}
 			_, err := r.networkScanTargets(t.Context(), &pairingpb.NetworkScanModeRequest{Target: target})
 			var ce *commandError
 			require.ErrorAs(t, err, &ce)
@@ -122,7 +122,7 @@ func TestDNSFailureDoesNotReplaceCallerCancellation(t *testing.T) {
 		{Mode: &pairingpb.DiscoverRequest_NetworkScan{NetworkScan: &pairingpb.NetworkScanModeRequest{Target: "miner.lan", Ports: []string{"4028"}}}},
 	}
 	for _, req := range requests {
-		r := &RunCmd{
+		r := &RunCmd{DiscoveryRanges: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
 			discoverer: &stubDiscoverer{},
 			resolver: resolverFunc(func(_ context.Context, host string) ([]net.IPAddr, error) {
 				return nil, &net.DNSError{Name: host, Err: "request canceled"}

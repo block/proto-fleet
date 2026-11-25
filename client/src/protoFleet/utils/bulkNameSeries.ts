@@ -9,10 +9,7 @@
 // zero-pad WIDTH, not a multiplier, so start 1 at scale 3 reads "001". An
 // operator who has used bulk rename already knows what these three fields do.
 
-import {
-  counterScaleMaximum,
-  counterScaleMinimum,
-} from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/RenameOptionsModals/constants";
+import { counterScaleMaximum, counterScaleMinimum } from "@/shared/components/BulkRename/RenameOptionsModals/constants";
 
 export interface BulkNameOptions {
   namePrefix: string;

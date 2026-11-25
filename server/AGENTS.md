@@ -5,6 +5,8 @@
   [generation skill](../.agents/skills/code-generation/SKILL.md) at the repo root.
 - Before editing existing migrations, use the
   [migration skill](../.agents/skills/migration-immutability/SKILL.md).
+- Name new unique constraints and indexes using the
+  [migration naming convention](../docs/development/migrations.md#constraint-and-index-names).
 - SDK proto changes follow [proto contract guidance](../proto/AGENTS.md).
 - Every `uid:` under `monitoring/grafana/` must be at most 40 characters.
   One overlong UID aborts provisioning of all alerting files. Keep each

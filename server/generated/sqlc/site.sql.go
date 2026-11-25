@@ -13,6 +13,28 @@ import (
 	"github.com/lib/pq"
 )
 
+const assignContainersToSite = `-- name: AssignContainersToSite :execrows
+UPDATE device d SET site_id=$1::bigint, updated_at=CURRENT_TIMESTAMP
+FROM discovered_device dd
+WHERE dd.id=d.discovered_device_id AND dd.org_id=d.org_id AND dd.device_class=2
+  AND d.org_id=$2 AND d.device_identifier=ANY($3::text[])
+  AND d.deleted_at IS NULL AND dd.deleted_at IS NULL
+`
+
+type AssignContainersToSiteParams struct {
+	TargetSiteID sql.NullInt64
+	OrgID        int64
+	Identifiers  []string
+}
+
+func (q *Queries) AssignContainersToSite(ctx context.Context, arg AssignContainersToSiteParams) (int64, error) {
+	result, err := q.exec(ctx, q.assignContainersToSiteStmt, assignContainersToSite, arg.TargetSiteID, arg.OrgID, pq.Array(arg.Identifiers))
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const assignDevicesToSite = `-- name: AssignDevicesToSite :execrows
 UPDATE device
 SET site_id = $1,
@@ -38,6 +60,26 @@ func (q *Queries) AssignDevicesToSite(ctx context.Context, arg AssignDevicesToSi
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const containsContainerIdentifiers = `-- name: ContainsContainerIdentifiers :one
+SELECT EXISTS (
+ SELECT 1 FROM device d JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=d.org_id
+ WHERE d.org_id=$1 AND d.device_identifier=ANY($2::text[])
+ AND d.deleted_at IS NULL AND dd.device_class=2
+)::boolean
+`
+
+type ContainsContainerIdentifiersParams struct {
+	OrgID       int64
+	Identifiers []string
+}
+
+func (q *Queries) ContainsContainerIdentifiers(ctx context.Context, arg ContainsContainerIdentifiersParams) (bool, error) {
+	row := q.queryRow(ctx, q.containsContainerIdentifiersStmt, containsContainerIdentifiers, arg.OrgID, pq.Array(arg.Identifiers))
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const countBuildingsBySite = `-- name: CountBuildingsBySite :one
@@ -180,25 +222,6 @@ func (q *Queries) CountRepairTicketsBySite(ctx context.Context, arg CountRepairT
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
-}
-
-const countResponseProfilesByInfrastructureDevices = `-- name: CountResponseProfilesByInfrastructureDevices :one
-SELECT COUNT(*)
-FROM curtailment_response_profile
-WHERE org_id = $1
-  AND facility_fan_device_ids && $2::bigint[]
-`
-
-type CountResponseProfilesByInfrastructureDevicesParams struct {
-	OrgID                   int64
-	InfrastructureDeviceIds []int64
-}
-
-func (q *Queries) CountResponseProfilesByInfrastructureDevices(ctx context.Context, arg CountResponseProfilesByInfrastructureDevicesParams) (int64, error) {
-	row := q.queryRow(ctx, q.countResponseProfilesByInfrastructureDevicesStmt, countResponseProfilesByInfrastructureDevices, arg.OrgID, pq.Array(arg.InfrastructureDeviceIds))
-	var count int64
-	err := row.Scan(&count)
-	return count, err
 }
 
 const createSite = `-- name: CreateSite :one
@@ -563,6 +586,101 @@ func (q *Queries) GetSiteBySlug(ctx context.Context, arg GetSiteBySlugParams) (S
 	return i, err
 }
 
+const listContainerSiteStats = `-- name: ListContainerSiteStats :many
+SELECT s.id AS site_id,
+ (SELECT count(*)::int FROM device d JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=d.org_id
+  WHERE d.site_id=s.id AND d.org_id=s.org_id AND d.deleted_at IS NULL AND dd.deleted_at IS NULL AND dd.device_class=2) AS container_count,
+ (SELECT count(*)::int FROM container_tank t JOIN container_scope d ON d.id=t.device_id
+  WHERE d.site_id=s.id AND d.org_id=s.org_id AND d.deleted_at IS NULL AND t.present) AS tank_count,
+ count(a.id)::int AS module_count,
+ count(*) FILTER (WHERE a.state='active')::int AS hashing_count,
+ count(*) FILTER (WHERE a.state IN ('error','needs_mining_pool','updating','reboot_required'))::int AS broken_count,
+ count(*) FILTER (WHERE a.state='offline')::int AS offline_count,
+ count(*) FILTER (WHERE a.state IN ('inactive','maintenance'))::int AS sleeping_count,
+ count(*) FILTER (WHERE a.hashrate_hs IS NOT NULL OR a.power_w IS NOT NULL OR a.temperature_c IS NOT NULL)::int AS reporting_count,
+ count(a.hashrate_hs)::int AS hashrate_reporting_count,
+ count(a.power_w)::int AS power_reporting_count,
+ count(a.miner_efficiency_jth)::int AS efficiency_reporting_count,
+ count(a.temperature_c)::int AS temperature_reporting_count,
+ COALESCE(sum(a.hashrate_hs)/1e12,0)::float8 AS total_hashrate_ths,
+ COALESCE(sum(a.power_w)/1000,0)::float8 AS total_power_kw,
+ COALESCE(avg(a.miner_efficiency_jth),0)::float8 AS avg_efficiency_jth,
+ COALESCE(min(a.temperature_c),0)::float8 AS min_temperature_c,
+ COALESCE(max(a.temperature_c),0)::float8 AS max_temperature_c
+FROM site s LEFT JOIN fleet_mining_asset a ON a.kind=6 AND a.org_id=s.org_id AND a.site_id=s.id
+WHERE s.org_id=$1 AND s.id=ANY($2::bigint[]) AND s.deleted_at IS NULL
+GROUP BY s.id,s.org_id
+`
+
+type ListContainerSiteStatsParams struct {
+	OrgID   int64
+	SiteIds []int64
+}
+
+type ListContainerSiteStatsRow struct {
+	SiteID                    int64
+	ContainerCount            int32
+	TankCount                 int32
+	ModuleCount               int32
+	HashingCount              int32
+	BrokenCount               int32
+	OfflineCount              int32
+	SleepingCount             int32
+	ReportingCount            int32
+	HashrateReportingCount    int32
+	PowerReportingCount       int32
+	EfficiencyReportingCount  int32
+	TemperatureReportingCount int32
+	TotalHashrateThs          float64
+	TotalPowerKw              float64
+	AvgEfficiencyJth          float64
+	MinTemperatureC           float64
+	MaxTemperatureC           float64
+}
+
+// Match the unified Miners list: count observed modules, not controllers as miners.
+func (q *Queries) ListContainerSiteStats(ctx context.Context, arg ListContainerSiteStatsParams) ([]ListContainerSiteStatsRow, error) {
+	rows, err := q.query(ctx, q.listContainerSiteStatsStmt, listContainerSiteStats, arg.OrgID, pq.Array(arg.SiteIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListContainerSiteStatsRow
+	for rows.Next() {
+		var i ListContainerSiteStatsRow
+		if err := rows.Scan(
+			&i.SiteID,
+			&i.ContainerCount,
+			&i.TankCount,
+			&i.ModuleCount,
+			&i.HashingCount,
+			&i.BrokenCount,
+			&i.OfflineCount,
+			&i.SleepingCount,
+			&i.ReportingCount,
+			&i.HashrateReportingCount,
+			&i.PowerReportingCount,
+			&i.EfficiencyReportingCount,
+			&i.TemperatureReportingCount,
+			&i.TotalHashrateThs,
+			&i.TotalPowerKw,
+			&i.AvgEfficiencyJth,
+			&i.MinTemperatureC,
+			&i.MaxTemperatureC,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listExistingDeviceIdentifiers = `-- name: ListExistingDeviceIdentifiers :many
 SELECT device_identifier
 FROM device
@@ -682,14 +800,15 @@ func (q *Queries) ListSiteSlugs(ctx context.Context, orgID int64) ([]string, err
 const listSites = `-- name: ListSites :many
 SELECT
     s.id, s.org_id, s.name, s.location_city, s.location_state, s.power_capacity_mw, s.network_config, s.created_at, s.updated_at, s.deleted_at, s.address, s.postal_code, s.country, s.notes, s.timezone, s.slug, s.infrastructure_control_subnets,
-    COALESCE(d.device_count, 0)::bigint AS device_count,
-    COALESCE(b.building_count, 0)::bigint AS building_count,
-    COALESCE(r.rack_count, 0)::bigint AS rack_count,
+    (COALESCE(d.device_count, 0) + COALESCE(c.module_count, 0))::bigint AS device_count,
+    (COALESCE(b.building_count, 0) + COALESCE(c.container_count, 0))::bigint AS building_count,
+    (COALESCE(r.rack_count, 0) + COALESCE(c.tank_count, 0))::bigint AS rack_count,
     COALESCE(i.infrastructure_device_count, 0)::bigint AS infrastructure_device_count
 FROM site s
 LEFT JOIN (
     SELECT device.site_id, COUNT(*) AS device_count
     FROM device
+    JOIN discovered_device dd ON dd.id = device.discovered_device_id AND dd.device_class <> 2
     WHERE device.org_id = $1
       AND device.deleted_at IS NULL
       AND device.site_id IS NOT NULL
@@ -712,6 +831,22 @@ LEFT JOIN (
       AND ds.deleted_at IS NULL
     GROUP BY dsr.site_id
 ) r ON r.site_id = s.id
+LEFT JOIN (
+    SELECT controller.site_id,
+        COUNT(DISTINCT controller.id) AS container_count,
+        COUNT(DISTINCT tank.id) AS tank_count,
+        COUNT(module.id) AS module_count
+    FROM device controller
+    JOIN discovered_device dd ON dd.id = controller.discovered_device_id AND dd.org_id = controller.org_id
+    LEFT JOIN container_tank tank ON tank.device_id = controller.id AND tank.present
+    LEFT JOIN container_module module ON module.tank_id = tank.id AND module.retired_at IS NULL
+    WHERE controller.org_id = $1
+      AND controller.site_id IS NOT NULL
+      AND controller.deleted_at IS NULL
+      AND dd.deleted_at IS NULL
+      AND dd.device_class = 2
+    GROUP BY controller.site_id
+) c ON c.site_id = s.id
 LEFT JOIN (
     SELECT infrastructure_device.site_id, COUNT(*) AS infrastructure_device_count
     FROM infrastructure_device
@@ -750,7 +885,8 @@ type ListSitesRow struct {
 
 // Returns each site with attachment counts so the delete-confirm dialog
 // can show "N miners, M buildings, K racks, J infrastructure devices"
-// without an extra round trip.
+// without an extra round trip. These UI categories include CT1 modules,
+// containers, and present tanks respectively.
 func (q *Queries) ListSites(ctx context.Context, orgID int64) ([]ListSitesRow, error) {
 	rows, err := q.query(ctx, q.listSitesStmt, listSites, orgID)
 	if err != nil {
@@ -851,6 +987,49 @@ func (q *Queries) LockBuildingsBySiteForWrite(ctx context.Context, arg LockBuild
 			return nil, err
 		}
 		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockContainersForSiteAssignment = `-- name: LockContainersForSiteAssignment :many
+SELECT d.device_identifier, d.site_id
+FROM device d
+JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=d.org_id
+WHERE d.org_id=$1 AND d.device_identifier=ANY($2::text[])
+  AND d.deleted_at IS NULL AND dd.deleted_at IS NULL AND dd.device_class=2
+ORDER BY d.id
+FOR UPDATE OF d
+`
+
+type LockContainersForSiteAssignmentParams struct {
+	OrgID       int64
+	Identifiers []string
+}
+
+type LockContainersForSiteAssignmentRow struct {
+	DeviceIdentifier string
+	SiteID           sql.NullInt64
+}
+
+func (q *Queries) LockContainersForSiteAssignment(ctx context.Context, arg LockContainersForSiteAssignmentParams) ([]LockContainersForSiteAssignmentRow, error) {
+	rows, err := q.query(ctx, q.lockContainersForSiteAssignmentStmt, lockContainersForSiteAssignment, arg.OrgID, pq.Array(arg.Identifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LockContainersForSiteAssignmentRow
+	for rows.Next() {
+		var i LockContainersForSiteAssignmentRow
+		if err := rows.Scan(&i.DeviceIdentifier, &i.SiteID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

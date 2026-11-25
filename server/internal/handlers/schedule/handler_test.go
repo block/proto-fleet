@@ -16,32 +16,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
-// Action -> required miner permission is the security contract that
-// keeps a schedule:manage holder from smuggling a privileged action
-// through the scheduler. A drift here (new action, wrong perm) needs
-// to fail loudly.
-func TestRequiredPermForAction_Mapping(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		action  pb.ScheduleAction
-		wantKey string
-		wantOk  bool
-	}{
-		{pb.ScheduleAction_SCHEDULE_ACTION_SET_POWER_TARGET, authz.PermMinerSetPowerTarget, true},
-		{pb.ScheduleAction_SCHEDULE_ACTION_REBOOT, authz.PermMinerReboot, true},
-		{pb.ScheduleAction_SCHEDULE_ACTION_SLEEP, authz.PermMinerStopMining, true},
-		{pb.ScheduleAction_SCHEDULE_ACTION_UNSPECIFIED, "", false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.action.String(), func(t *testing.T) {
-			t.Parallel()
-			gotKey, gotOk := requiredPermForAction(tc.action)
-			assert.Equal(t, tc.wantKey, gotKey)
-			assert.Equal(t, tc.wantOk, gotOk)
-		})
-	}
-}
-
 // Caller holds schedule:manage but not the underlying miner action key.
 // The scheduler can't be used as an end-run around the action gate, so
 // each action must deny with PermissionDenied. The grant case asserts

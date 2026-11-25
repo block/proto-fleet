@@ -1,4 +1,4 @@
-import { MouseEvent, useEffect, useLayoutEffect, useRef } from "react";
+import { type KeyboardEvent, MouseEvent, useEffect, useLayoutEffect, useRef } from "react";
 import clsx from "clsx";
 import ButtonGroup, { groupVariants, sizes } from "@/shared/components/ButtonGroup";
 import Header from "@/shared/components/Header";
@@ -25,7 +25,8 @@ const PopoverContent = ({
   titleSize = "text-heading-200",
   closeIgnoreSelectors,
   closeShouldIgnore,
-}: PopoverContentProps) => {
+  isPositioned = true,
+}: PopoverContentProps & { isPositioned?: boolean }) => {
   const popoverRef = useRef<HTMLDivElement>(null);
   const { triggerRef, renderMode } = usePopover();
 
@@ -38,7 +39,7 @@ const PopoverContent = ({
   useEscapeDismiss(closePopover);
 
   useLayoutEffect(() => {
-    if (renderMode !== "portal-scrolling") {
+    if (renderMode !== "portal-scrolling" || !isPositioned) {
       return;
     }
 
@@ -48,7 +49,7 @@ const PopoverContent = ({
 
     const firstFocusableElement = popoverRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
     firstFocusableElement?.focus();
-  }, [renderMode]);
+  }, [renderMode, isPositioned]);
 
   useEffect(() => {
     const handleFocusIn = (event: FocusEvent) => {
@@ -76,6 +77,36 @@ const PopoverContent = ({
     e.stopPropagation();
   };
 
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Tab") return;
+    const popover = popoverRef.current;
+    const trigger = triggerRef.current;
+    const dialog = trigger?.closest<HTMLElement>('[role="dialog"]');
+    if (!popover || !trigger || !dialog || dialog.contains(popover)) return;
+    const dialogs = document.querySelectorAll('[role="dialog"]');
+    if (dialogs[dialogs.length - 1] !== dialog) return;
+
+    const focusableElements = (root: HTMLElement) =>
+      [...root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)].filter(
+        (element) =>
+          !element.matches(':disabled, [tabindex="-1"]') &&
+          !element.closest("[inert]") &&
+          element.getClientRects().length > 0,
+      );
+    // A body portal belongs immediately after its trigger in the dialog's Tab order.
+    const targets = focusableElements(dialog);
+    const triggerIndex = targets.reduce((last, element, index) => (trigger.contains(element) ? index : last), -1);
+    if (triggerIndex < 0) return;
+    targets.splice(triggerIndex + 1, 0, ...focusableElements(popover));
+    const current = targets.findIndex((element) => element === document.activeElement);
+    if (current < 0) return;
+    const next = targets[(current + (event.shiftKey ? -1 : 1) + targets.length) % targets.length];
+    event.preventDefault();
+    event.stopPropagation();
+    next.focus();
+    if (!popover.contains(next)) closePopover?.();
+  };
+
   return (
     <div
       ref={popoverRef}
@@ -93,6 +124,7 @@ const PopoverContent = ({
       )}
       data-testid={testId}
       onClick={handleClick}
+      onKeyDownCapture={handleKeyDown}
     >
       {title || subtitle ? (
         <Header title={title} titleSize={titleSize} subtitle={subtitle} subtitleSize="text-300" />

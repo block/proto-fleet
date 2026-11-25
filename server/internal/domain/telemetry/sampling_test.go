@@ -237,7 +237,7 @@ func TestSampleDeviceMetrics_RetainedSampleClearedAndGenerationSurvivesRestart(t
 
 	// Keep Start's unrelated background routines quiet while exercising the
 	// real lifecycle, matching the setup used by the service restart tests.
-	scheduler.EXPECT().FetchDevices(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	scheduler.EXPECT().FetchDue(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	deviceStore.EXPECT().GetAllPairedDeviceIdentifiers(gomock.Any()).Return(nil, nil).AnyTimes()
 	dataStore.EXPECT().InsertMinerStateSnapshot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
@@ -278,6 +278,7 @@ func TestSampleDeviceMetrics_RetainedSampleClearedAndGenerationSurvivesRestart(t
 	require.NoError(t, first[0].Err)
 	assert.Equal(t, SampleSourceDirect, first[0].Source)
 	assert.Equal(t, firstMetrics, first[0].Metrics)
+	requireEventuallyReleased(t, service, deviceID)
 	_, retained := service.retainedSamples.Load(deviceID)
 	require.True(t, retained)
 	generationState := service.sampleGenerationState(deviceID)
@@ -465,6 +466,7 @@ func TestSampleDeviceMetrics_ExpiredRetainedSampleTriggersFreshDirectRead(t *tes
 	assert.Equal(t, SampleSourceDirect, results[0].Source)
 	assert.Equal(t, freshMetrics, results[0].Metrics)
 
+	requireEventuallyReleased(t, h.service, deviceID)
 	value, retained := h.service.retainedSamples.Load(deviceID)
 	require.True(t, retained)
 	assert.NotSame(t, expired, value, "the expired identity must not remain retained")
@@ -951,6 +953,7 @@ func TestSampleDeviceMetrics_RaceWithScheduledAndRefresh(t *testing.T) {
 	h.minerGetter.EXPECT().GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).Return(h.miner, nil).AnyTimes()
 	h.miner.EXPECT().GetDeviceMetrics(gomock.Any()).Return(sampleMetricsFixture(deviceID, 3200), nil).AnyTimes()
 	h.scheduler.EXPECT().AddDevices(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	h.scheduler.EXPECT().DeferDevices(gomock.Any(), models.Device{ID: deviceID}).Return(nil).AnyTimes()
 	h.errorPoller.EXPECT().PollErrors(gomock.Any(), h.miner).Return(diagnostics.PollResult{}).AnyTimes()
 
 	drainCtx, stopDrain := context.WithCancel(context.Background())

@@ -1,23 +1,37 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
+import { CURTAILMENT_PROFILES_STALE_EVENT } from "./curtailmentProfileErrors";
+import { sessionFormValuesByProfileId } from "./curtailmentProfileSession";
+import { normalizeResponseProfileSiteFields } from "./curtailmentResponseProfileUtils";
 
 import { curtailmentClient } from "@/protoFleet/api/clients";
+import {
+  getResponseProfileScopeSummary,
+  getSelectedResponseProfileSiteIds,
+} from "@/protoFleet/api/curtailmentResponseProfileUtils";
 import {
   buildCurtailmentScopes,
   curtailmentScopeSchemaVersion,
   getCurtailmentScopeFormFields,
-  getCurtailmentScopeSummary,
   getCurtailmentTerminalScope,
-  normalizeCurtailmentSelectionValues,
   parseCurtailmentTerminalScopes,
 } from "@/protoFleet/api/curtailmentScopes";
+import {
+  isResponseProfileAutomationReady,
+  type ResponseProfile,
+  type ResponseProfileFormValues,
+} from "@/protoFleet/api/curtailmentTypes";
+import {
+  formatCurtailmentKw,
+  mapEditableCurtailmentPriority,
+  toApiCurtailmentPriority,
+} from "@/protoFleet/api/curtailmentUtils";
 import {
   type CurtailmentResponseProfile as ApiCurtailmentResponseProfile,
   CreateCurtailmentResponseProfileRequestSchema,
   CurtailmentLevel,
   CurtailmentMode,
-  CurtailmentPriority,
   CurtailmentStrategy,
   DeleteCurtailmentResponseProfileRequestSchema,
   FixedKwParamsSchema,
@@ -33,16 +47,11 @@ import {
   immediateRestoreBatchSize,
   parseOptionalUint32Field,
 } from "@/protoFleet/features/energy/curtailmentNumericFields";
-import {
-  isResponseProfileAutomationReady,
-  type ResponseProfile,
-  type ResponseProfileFormValues,
-} from "@/protoFleet/features/settings/components/Curtailment/types";
 import { useAuthErrors } from "@/protoFleet/store";
 
-const defaultResponseDeadlineMinutes: string = "15";
+const defaultResponseDeadlineMinutes: string = "";
 const responseProfileUpdateConflictMessage = "curtailment response profile changed before update; retry";
-const sessionFormValuesByProfileId = new Map<string, ResponseProfileFormValues>();
+
 const restoreBatchSizeOptions = {
   label: "restore batch size",
   max: curtailmentNumericFieldLimits.restoreBatchSize,
@@ -122,54 +131,8 @@ function curtailBatchIntervalInputValue(profile: ApiCurtailmentResponseProfile):
   return (profile.curtailBatchSize ?? 0) > 0 ? numberToNonNegativeInputValue(profile.curtailBatchIntervalSec) : "";
 }
 
-function formatKw(value: number): string {
-  return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
-}
-
-const responseProfileScopeLabelByMode: Partial<Record<CurtailmentMode, string>> = {
-  [CurtailmentMode.FIXED_KW]: "Whole fleet",
-  [CurtailmentMode.FULL_FLEET]: "Whole fleet",
-};
-
-export function getResponseProfileScopeLabel(mode: CurtailmentMode): string {
-  return responseProfileScopeLabelByMode[mode] ?? "Unknown scope";
-}
-
-export function getResponseProfileScopeLabelForActionType(actionType: ResponseProfileFormValues["actionType"]): string {
-  return getResponseProfileScopeLabel(
-    actionType === "fixedKwReduction" ? CurtailmentMode.FIXED_KW : CurtailmentMode.FULL_FLEET,
-  );
-}
-
 function hasSameStringSet(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((value) => right.includes(value));
-}
-
-function getSelectedResponseProfileSiteIds(
-  values: Pick<ResponseProfileFormValues, "siteSelection" | "siteId" | "siteIds">,
-): string[] {
-  const siteIds = normalizeCurtailmentSelectionValues(
-    values.siteIds !== undefined && values.siteIds.length > 0 ? values.siteIds : values.siteId ? [values.siteId] : [],
-  );
-
-  return values.siteSelection === "site" ||
-    values.siteSelection === "allSites" ||
-    (values.siteSelection === undefined && siteIds.length > 0)
-    ? siteIds
-    : [];
-}
-
-function getResponseProfileSiteNameForId(values: Partial<ResponseProfileFormValues>, siteId: string): string {
-  return values.siteNamesById?.[siteId]?.trim() || (values.siteId === siteId ? values.siteName?.trim() : "") || "";
-}
-
-function getResponseProfileSiteNamesById(
-  values: ResponseProfileFormValues,
-  siteIds: readonly string[],
-): Record<string, string> {
-  return Object.fromEntries(
-    siteIds.map((siteId) => [siteId, getResponseProfileSiteNameForId(values, siteId) || getSiteDisplayName(siteId)]),
-  );
 }
 
 function getPersistedResponseProfileFormValues(values: ResponseProfileFormValues): ResponseProfileFormValues {
@@ -178,16 +141,19 @@ function getPersistedResponseProfileFormValues(values: ResponseProfileFormValues
     throw new Error("Select a curtailment target scope.");
   }
   const scopeFields = getCurtailmentScopeFormFields(terminalScope);
-  const siteIds = scopeFields.siteIds;
-  const siteId = siteIds[0] ?? "";
-  const siteSelection =
-    scopeFields.scopeType === "wholeOrg"
-      ? "allSites"
-      : values.siteSelection === "allSites" && scopeFields.scopeType === "site"
+  const siteFields = normalizeResponseProfileSiteFields({
+    ...values,
+    ...scopeFields,
+    minerSelectionMode: scopeFields.scopeType === "wholeOrg" ? "all" : "subset",
+    siteSelection:
+      scopeFields.scopeType === "wholeOrg"
         ? "allSites"
-        : siteIds.length > 0
-          ? "site"
-          : "none";
+        : values.siteSelection === "allSites" && scopeFields.scopeType === "site"
+          ? "allSites"
+          : scopeFields.siteIds.length > 0
+            ? "site"
+            : "none",
+  });
 
   return {
     ...values,
@@ -195,12 +161,7 @@ function getPersistedResponseProfileFormValues(values: ResponseProfileFormValues
     fanOffDelaySec: values.fanOffDelaySec?.trim() ?? "",
     fanRestoreDelaySec: values.fanRestoreDelaySec?.trim() ?? "",
     ...scopeFields,
-    minerSelectionMode: scopeFields.scopeType === "wholeOrg" ? "all" : "subset",
-    siteSelection,
-    siteId,
-    siteIds,
-    siteName: siteId ? getResponseProfileSiteNameForId(values, siteId) : "",
-    siteNamesById: getResponseProfileSiteNamesById(values, siteIds),
+    ...siteFields,
   };
 }
 
@@ -234,7 +195,9 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
       ? "automaticImmediateRestore"
       : "automaticBatchRestore";
   const targetSummary =
-    actionType === "fixedKwReduction" && fixedKw !== undefined ? `${formatKw(fixedKw)} kW target` : "100% reduction";
+    actionType === "fixedKwReduction" && fixedKw !== undefined
+      ? `${formatCurtailmentKw(fixedKw, { maximumFractionDigits: 2, minimumFractionDigits: 0, normalizeNonFinite: false })} target`
+      : "100% reduction";
 
   const formValues: ResponseProfileFormValues | undefined = scopeFormValues.scopeType
     ? {
@@ -244,7 +207,7 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
         scopeType: scopeFormValues.scopeType,
         targetKw,
         toleranceKw: numberToNonNegativeInputValue(fixedKwParams?.toleranceKw),
-        priority: profile.priority === CurtailmentPriority.EMERGENCY ? "emergency" : "normal",
+        priority: mapEditableCurtailmentPriority(profile.priority),
         postEventCooldownSec: numberToNonNegativeInputValue(profile.postEventCooldownSec),
         selectionStrategy: "leastEfficientFirst",
         restoreBehavior,
@@ -284,12 +247,13 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
   return {
     id: profile.profileId.toString(),
     revision: profile.revision,
+    enabledAutomationRuleCount: profile.enabledAutomationRuleCount,
+    automationBindingStatus: profile.automationBindingStatus,
     name: profile.profileName,
     targetSummary,
     scope,
     selectionStrategy: "Least efficient first",
     restoreBehavior: restoreBehavior === "automaticImmediateRestore" ? "Restore immediately" : "Restore in batches",
-    deadlineSummary: responseDeadlineMinutes === "1" ? "Within 1 min" : `Within ${responseDeadlineMinutes} min`,
     formValues: readOnlyScopeSummary ? undefined : mergedFormValues,
     isReadOnly: Boolean(readOnlyScopeSummary),
     isAutomationReady: isResponseProfileAutomationReady(scopeFormValues.scopeType),
@@ -348,17 +312,6 @@ function getApiResponseProfileScopeValues(
   };
 }
 
-function getResponseProfileScopeSummary(values: ResponseProfileFormValues, mode: CurtailmentMode): string {
-  return getCurtailmentScopeSummary(values, {
-    fallbackLabel: getResponseProfileScopeLabel(mode),
-    getSiteLabel: (siteId) => getResponseProfileSiteNameForId(values, siteId),
-  });
-}
-
-export function clearCurtailmentResponseProfileSessionCacheForTest(): void {
-  sessionFormValuesByProfileId.clear();
-}
-
 function getModeParams(values: ResponseProfileFormValues): UpdateCurtailmentResponseProfileRequest["modeParams"] {
   if (values.actionType !== "fixedKwReduction") {
     return { case: undefined };
@@ -381,11 +334,7 @@ function getRestoreBatchSize(values: ResponseProfileFormValues): number | undefi
   if (values.restoreBehavior === "automaticImmediateRestore") {
     return immediateRestoreBatchSize;
   }
-  if (parsedField.parsed === undefined || parsedField.parsed === 0) {
-    throw new Error("Enter restore batch size greater than 0 for batch restore.");
-  }
-
-  return parsedField.parsed;
+  return parsedField.parsed ?? 0;
 }
 
 function getRestoreBatchIntervalSec(values: ResponseProfileFormValues): number | undefined {
@@ -443,7 +392,7 @@ function buildResponseProfilePayload(values: ResponseProfileFormValues, preserve
     mode: values.actionType === "fixedKwReduction" ? CurtailmentMode.FIXED_KW : CurtailmentMode.FULL_FLEET,
     strategy: CurtailmentStrategy.LEAST_EFFICIENT_FIRST,
     level: CurtailmentLevel.FULL,
-    priority: values.priority === "emergency" ? CurtailmentPriority.EMERGENCY : CurtailmentPriority.NORMAL,
+    priority: toApiCurtailmentPriority(values.priority),
     modeParams: getModeParams(values),
     curtailBatchSize: getOptionalPositiveNumber(values.curtailBatchSize),
     curtailBatchIntervalSec: getOptionalNonNegativeNumber(values.curtailBatchIntervalSec),
@@ -544,6 +493,19 @@ export default function useCurtailmentResponseProfiles(
     };
   }, [enabled, listResponseProfiles]);
 
+  useEffect(() => {
+    if (!enabled) return;
+    const controller = new AbortController();
+    const reload = () => {
+      void listResponseProfiles(controller.signal).catch(() => {});
+    };
+    window.addEventListener(CURTAILMENT_PROFILES_STALE_EVENT, reload);
+    return () => {
+      window.removeEventListener(CURTAILMENT_PROFILES_STALE_EVENT, reload);
+      controller.abort();
+    };
+  }, [enabled, listResponseProfiles]);
+
   const createResponseProfile = useCallback(
     async (values: ResponseProfileFormValues): Promise<ResponseProfile> => {
       setIsCreating(true);
@@ -614,6 +576,15 @@ export default function useCurtailmentResponseProfiles(
         );
         return mapProfile(updatedProfile);
       } catch (error) {
+        if (
+          error instanceof ConnectError &&
+          error.code === Code.FailedPrecondition &&
+          error.rawMessage ===
+            "curtailment response profile is bound to enabled automation rules; disable those rules before editing"
+        ) {
+          await listResponseProfiles().catch(() => {});
+          throw createErrorWithCause("Disable the automation rules using this profile before editing it.", error);
+        }
         if (!isResponseProfileUpdateConflict(error)) {
           throw handleFailure(error, "Failed to update response profile.");
         }

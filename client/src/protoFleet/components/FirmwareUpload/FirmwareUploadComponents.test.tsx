@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { FileDropZone, FileSelectedStatus } from "./FirmwareUploadComponents";
+import { FileDropZone } from "./FirmwareUploadComponents";
 
 describe("FileDropZone", () => {
   it("opens the file picker with Enter or Space", () => {
@@ -41,17 +41,5 @@ describe("FileDropZone", () => {
     fireEvent.change(input, { target: { files: [new File(["firmware"], "update.swu")] } });
     expect(clickSpy).not.toHaveBeenCalled();
     expect(onFileSelect).not.toHaveBeenCalled();
-  });
-});
-
-describe("FileSelectedStatus", () => {
-  it("shows the selected file and allows it to be removed", () => {
-    const onRemove = vi.fn();
-    render(<FileSelectedStatus fileName="firmware-2.0.0.swu" fileSize={8} onRemove={onRemove} />);
-
-    expect(screen.getByText("firmware-2.0.0.swu")).toHaveAttribute("title", "firmware-2.0.0.swu");
-    fireEvent.click(screen.getByText("Remove"));
-
-    expect(onRemove).toHaveBeenCalledOnce();
   });
 });

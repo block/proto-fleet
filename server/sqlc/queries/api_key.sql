@@ -1,6 +1,6 @@
 -- name: CreateApiKey :exec
 INSERT INTO api_key (key_id, name, prefix, key_hash, user_id, organization_id, subject_kind, created_at, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, 'user', $7, $8);
+VALUES ($1, $2, $3, $4, $5, $6, $9, $7, $8);
 
 -- name: CreateFleetNodeApiKey :exec
 INSERT INTO api_key (key_id, name, prefix, key_hash, fleet_node_id, organization_id, subject_kind, created_at, expires_at)
@@ -29,7 +29,7 @@ ORDER BY ak.created_at DESC;
 -- name: RevokeApiKey :execrows
 UPDATE api_key
 SET revoked_at = $1
-WHERE key_id = $2 AND organization_id = $3 AND revoked_at IS NULL;
+WHERE key_id = $2 AND organization_id = $3 AND revoked_at IS NULL AND subject_kind <> 'account';
 
 -- name: RevokeApiKeysByFleetNodeID :many
 UPDATE api_key

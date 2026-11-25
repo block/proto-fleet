@@ -1,9 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
+import { timestampDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
+import { notifyCurtailmentProfilesStale } from "./curtailmentProfileErrors";
 
 import { AutomationResponseProfileRevisionConflictError } from "@/protoFleet/api/automationResponseProfileRevisionConflict";
 import { curtailmentClient } from "@/protoFleet/api/clients";
+import {
+  curtailmentScheduleFromApi,
+  curtailmentScheduleToApi,
+  describeCurtailmentSchedule,
+} from "@/protoFleet/api/curtailmentSchedules";
+import type {
+  AutomationRule,
+  AutomationRuleFormValues,
+  ResponseProfile,
+  ScheduleRuleFormValues,
+} from "@/protoFleet/api/curtailmentTypes";
 import {
   type CurtailmentAutomationRule as ApiCurtailmentAutomationRule,
   CreateCurtailmentAutomationRuleRequestSchema,
@@ -14,11 +27,6 @@ import {
   UpdateCurtailmentAutomationRuleRequestSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { assertNotAborted, isAbortError, toError } from "@/protoFleet/api/requestErrors";
-import type {
-  AutomationRule,
-  AutomationRuleFormValues,
-  ResponseProfile,
-} from "@/protoFleet/features/settings/components/Curtailment/types";
 import { useAuthErrors } from "@/protoFleet/store";
 
 const responseProfileRevisionConflictMessage =
@@ -38,6 +46,8 @@ export type UseCurtailmentAutomationRulesResult = {
   listAutomationRules: (signal?: AbortSignal) => Promise<AutomationRule[]>;
   createAutomationRule: (values: AutomationRuleFormValues) => Promise<AutomationRule>;
   updateAutomationRule: (ruleId: string, values: AutomationRuleFormValues) => Promise<AutomationRule>;
+  createScheduleRule: (values: ScheduleRuleFormValues) => Promise<AutomationRule>;
+  updateScheduleRule: (ruleId: string, values: ScheduleRuleFormValues) => Promise<AutomationRule>;
   setAutomationRuleEnabled: (
     ruleId: string,
     enabled: boolean,
@@ -51,16 +61,33 @@ function getAutomationConditionSummary(sourceName: string): string {
 }
 
 function mapApiAutomationRule(rule: ApiCurtailmentAutomationRule, priority: number): AutomationRule {
-  return {
+  const common = {
     id: rule.ruleId.toString(),
     priority,
     name: rule.ruleName,
-    conditionType: "mqttTriggerTargetOff",
-    conditionSummary: getAutomationConditionSummary(rule.mqttSourceName),
-    sourceId: rule.mqttSourceId.toString(),
     responseProfileId: rule.responseProfileId.toString(),
     responseProfileName: rule.responseProfileName,
     enabled: rule.enabled,
+    lastError: rule.lastError || undefined,
+    bindingStatus: rule.bindingStatus || undefined,
+    executionStatus: rule.executionStatus || undefined,
+  };
+  if (rule.triggerType === CurtailmentAutomationTriggerType.SCHEDULE && rule.schedule) {
+    const schedule = curtailmentScheduleFromApi(rule.schedule);
+    return {
+      ...common,
+      conditionType: "schedule",
+      conditionSummary: describeCurtailmentSchedule(schedule),
+      schedule,
+      windowStartAt: rule.windowStartAt ? timestampDate(rule.windowStartAt) : undefined,
+      windowEndAt: rule.windowEndAt ? timestampDate(rule.windowEndAt) : undefined,
+    };
+  }
+  return {
+    ...common,
+    conditionType: "mqttTriggerTargetOff",
+    conditionSummary: getAutomationConditionSummary(rule.mqttSourceName),
+    sourceId: rule.mqttSourceId.toString(),
   };
 }
 
@@ -102,6 +129,18 @@ function buildAutomationRulePayload(values: AutomationRuleFormValues) {
     expectedResponseProfileRevision: requireResponseProfileRevision(values.responseProfileRevision),
   };
 }
+
+function buildScheduleRulePayload(values: ScheduleRuleFormValues) {
+  return {
+    ruleName: values.name.trim(),
+    triggerType: CurtailmentAutomationTriggerType.SCHEDULE,
+    schedule: curtailmentScheduleToApi(values.schedule),
+    responseProfileId: parsePositiveBigIntId(values.responseProfileId, "response profile"),
+    expectedResponseProfileRevision: requireResponseProfileRevision(values.responseProfileRevision),
+  };
+}
+
+type AutomationRulePayload = ReturnType<typeof buildAutomationRulePayload | typeof buildScheduleRulePayload>;
 
 export default function useCurtailmentAutomationRules(
   enabled = true,
@@ -203,15 +242,15 @@ export default function useCurtailmentAutomationRules(
     };
   }, [enabled, listAutomationRules]);
 
-  const createAutomationRule = useCallback(
-    async (values: AutomationRuleFormValues): Promise<AutomationRule> => {
+  const createRule = useCallback(
+    async (buildPayload: () => AutomationRulePayload): Promise<AutomationRule> => {
       setIsCreating(true);
       setCreateError(null);
 
       try {
         const response = await curtailmentClient.createCurtailmentAutomationRule(
           create(CreateCurtailmentAutomationRuleRequestSchema, {
-            ...buildAutomationRulePayload(values),
+            ...buildPayload(),
             enabled: true,
           }),
         );
@@ -224,6 +263,7 @@ export default function useCurtailmentAutomationRules(
           ...currentRules.filter((currentRule) => currentRule.ruleId !== createdRule.ruleId),
           createdRule,
         ]);
+        notifyCurtailmentProfilesStale();
         return mapApiAutomationRule(createdRule, apiRules.length + 1);
       } catch (error) {
         const resolvedError = await handleMutationFailure(error, "Failed to create automation rule.");
@@ -236,15 +276,15 @@ export default function useCurtailmentAutomationRules(
     [apiRules.length, handleMutationFailure],
   );
 
-  const updateAutomationRule = useCallback(
-    async (ruleId: string, values: AutomationRuleFormValues): Promise<AutomationRule> => {
+  const updateRule = useCallback(
+    async (ruleId: string, buildPayload: () => AutomationRulePayload): Promise<AutomationRule> => {
       setUpdatingRuleIds((currentIds) => new Set(currentIds).add(ruleId));
 
       try {
         const response = await curtailmentClient.updateCurtailmentAutomationRule(
           create(UpdateCurtailmentAutomationRuleRequestSchema, {
             ruleId: parsePositiveBigIntId(ruleId, "automation rule"),
-            ...buildAutomationRulePayload(values),
+            ...buildPayload(),
           }),
         );
         if (!response.rule) {
@@ -256,6 +296,7 @@ export default function useCurtailmentAutomationRules(
           currentRules.map((currentRule) => (currentRule.ruleId === updatedRule.ruleId ? updatedRule : currentRule)),
         );
         const priority = automationRules.find((rule) => rule.id === ruleId)?.priority ?? 0;
+        notifyCurtailmentProfilesStale();
         return mapApiAutomationRule(updatedRule, priority);
       } catch (error) {
         const resolvedError = await handleMutationFailure(error, "Failed to update automation rule.");
@@ -269,6 +310,26 @@ export default function useCurtailmentAutomationRules(
       }
     },
     [automationRules, handleMutationFailure],
+  );
+
+  const createAutomationRule = useCallback(
+    (values: AutomationRuleFormValues) => createRule(() => buildAutomationRulePayload(values)),
+    [createRule],
+  );
+
+  const updateAutomationRule = useCallback(
+    (ruleId: string, values: AutomationRuleFormValues) => updateRule(ruleId, () => buildAutomationRulePayload(values)),
+    [updateRule],
+  );
+
+  const createScheduleRule = useCallback(
+    (values: ScheduleRuleFormValues) => createRule(() => buildScheduleRulePayload(values)),
+    [createRule],
+  );
+
+  const updateScheduleRule = useCallback(
+    (ruleId: string, values: ScheduleRuleFormValues) => updateRule(ruleId, () => buildScheduleRulePayload(values)),
+    [updateRule],
   );
 
   const setAutomationRuleEnabled = useCallback(
@@ -294,6 +355,7 @@ export default function useCurtailmentAutomationRules(
           currentRules.map((currentRule) => (currentRule.ruleId === updatedRule.ruleId ? updatedRule : currentRule)),
         );
         const priority = automationRules.find((rule) => rule.id === ruleId)?.priority ?? 0;
+        notifyCurtailmentProfilesStale();
         return mapApiAutomationRule(updatedRule, priority);
       } catch (error) {
         const resolvedError = await handleMutationFailure(error, "Failed to update automation rule.");
@@ -320,6 +382,7 @@ export default function useCurtailmentAutomationRules(
           }),
         );
         setApiRules((currentRules) => currentRules.filter((currentRule) => currentRule.ruleId.toString() !== ruleId));
+        notifyCurtailmentProfilesStale();
       } catch (error) {
         throw handleFailure(error, "Failed to delete automation rule.");
       } finally {
@@ -344,6 +407,8 @@ export default function useCurtailmentAutomationRules(
       listAutomationRules,
       createAutomationRule,
       updateAutomationRule,
+      createScheduleRule,
+      updateScheduleRule,
       setAutomationRuleEnabled,
       deleteAutomationRule,
     }),
@@ -358,6 +423,8 @@ export default function useCurtailmentAutomationRules(
       listAutomationRules,
       createAutomationRule,
       updateAutomationRule,
+      createScheduleRule,
+      updateScheduleRule,
       setAutomationRuleEnabled,
       deleteAutomationRule,
     ],

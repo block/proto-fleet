@@ -76,6 +76,10 @@ type AggregatedValue struct {
 }
 
 type Metric struct {
+	ReportingCount   *int32            `json:"reporting_count,omitempty"`
+	ExpectedCount    *int32            `json:"expected_count,omitempty"`
+	CoverageComplete *bool             `json:"coverage_complete,omitempty"`
+	MetricSemantics  *int32            `json:"metric_semantics,omitempty"`
 	MeasurementType  MeasurementType   `json:"measurement_type"`
 	AggregatedValues []AggregatedValue `json:"aggregated_values"`
 	OpenTime         time.Time         `json:"open_time"`

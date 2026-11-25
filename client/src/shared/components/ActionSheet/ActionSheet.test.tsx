@@ -1,9 +1,9 @@
 import { type ReactNode, useRef } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import ActionSheet from "./ActionSheet";
-import { __resetClickOutsideStackForTests, useClickOutsideDismiss } from "@/shared/hooks/useClickOutsideDismiss";
+import { useClickOutsideDismiss } from "@/shared/hooks/useClickOutsideDismiss";
 
 const ParentDismissLayer = ({ children, onDismiss }: { children?: ReactNode; onDismiss: () => void }) => {
   const ref = useRef<HTMLDivElement>(null);
@@ -13,14 +13,6 @@ const ParentDismissLayer = ({ children, onDismiss }: { children?: ReactNode; onD
 };
 
 describe("ActionSheet", () => {
-  beforeEach(() => {
-    __resetClickOutsideStackForTests();
-  });
-
-  afterEach(() => {
-    __resetClickOutsideStackForTests();
-  });
-
   it("dismisses as the top outside-click layer without dismissing its parent layer", () => {
     const parentDismiss = vi.fn();
     const sheetDismiss = vi.fn();

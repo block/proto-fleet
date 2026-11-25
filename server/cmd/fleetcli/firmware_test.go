@@ -208,6 +208,80 @@ func TestFirmwareCheckSendsSHA256(t *testing.T) {
 	}
 }
 
+func TestFirmwareCT1RequestsCarryHashboardBuild(t *testing.T) {
+	target := firmwareTarget{Manufacturer: "Proto", Model: "CT1", Version: "2.0.0", Build: "mfgtest"}
+	mux := http.NewServeMux()
+	var checkBody []byte
+	mux.HandleFunc("POST /api/v1/firmware/check", func(w http.ResponseWriter, r *http.Request) {
+		checkBody, _ = io.ReadAll(r.Body)
+		writeFirmwareJSON(t, w, firmwareCheckResponse{})
+	})
+	var uploadedBuild string
+	mux.HandleFunc("POST /api/v1/firmware/upload", func(w http.ResponseWriter, r *http.Request) {
+		uploadedBuild = r.FormValue("hashboard_build")
+		writeFirmwareJSON(t, w, firmwareUploadResponse{FirmwareFileID: "ct1-id"})
+	})
+	client := newFirmwareTestServer(t, mux)
+	if _, err := client.FirmwareCheck(context.Background(), strings.Repeat("ab", 32), target); err != nil {
+		t.Fatalf("FirmwareCheck() error = %v", err)
+	}
+	if !strings.Contains(string(checkBody), `"hashboard_build":"mfgtest"`) {
+		t.Errorf("check body = %s, want hashboard_build", checkBody)
+	}
+	if _, err := client.FirmwareUploadDirect(context.Background(), "release.zip", strings.NewReader("zip"), target, false, nil); err != nil {
+		t.Fatalf("FirmwareUploadDirect() error = %v", err)
+	}
+	if uploadedBuild != "mfgtest" {
+		t.Errorf("multipart hashboard_build = %q, want mfgtest", uploadedBuild)
+	}
+}
+
+func TestFirmwareCT1PSURequestsCarryComponent(t *testing.T) {
+	target := firmwareTarget{Manufacturer: "Proto", Model: "CT1", Version: "app=1410;bl=1110", Component: "psu"}
+	mux := http.NewServeMux()
+	bodies := map[string][]byte{}
+	record := func(name string, respond func(http.ResponseWriter)) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			bodies[name], _ = io.ReadAll(r.Body)
+			respond(w)
+		}
+	}
+	mux.HandleFunc("POST /api/v1/firmware/check", record("check", func(w http.ResponseWriter) { writeFirmwareJSON(t, w, firmwareCheckResponse{}) }))
+	mux.HandleFunc("PATCH /api/v1/firmware/files/{id}", record("metadata", func(w http.ResponseWriter) { w.WriteHeader(http.StatusNoContent) }))
+	var uploaded url.Values
+	mux.HandleFunc("POST /api/v1/firmware/upload", func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Errorf("parse upload: %v", err)
+		}
+		uploaded = r.MultipartForm.Value
+		writeFirmwareJSON(t, w, firmwareUploadResponse{FirmwareFileID: "psu-id"})
+	})
+	client := newFirmwareTestServer(t, mux)
+	if _, err := client.FirmwareCheck(context.Background(), strings.Repeat("ab", 32), target); err != nil {
+		t.Fatalf("FirmwareCheck() error = %v", err)
+	}
+	if err := client.FirmwareUpdateMetadata(context.Background(), "psu-id", target); err != nil {
+		t.Fatalf("FirmwareUpdateMetadata() error = %v", err)
+	}
+	for name, body := range bodies {
+		if !strings.Contains(string(body), `"component":"psu"`) || strings.Contains(string(body), "hashboard_build") {
+			t.Errorf("%s body = %s, want component psu and no hashboard build", name, body)
+		}
+	}
+	if len(bodies) != 2 {
+		t.Fatalf("recorded %d requests, want check and metadata", len(bodies))
+	}
+	if _, err := client.FirmwareUploadDirect(context.Background(), "boco.psucap", strings.NewReader("capsule"), target, false, nil); err != nil {
+		t.Fatalf("FirmwareUploadDirect() error = %v", err)
+	}
+	if got := uploaded["component"]; len(got) != 1 || got[0] != "psu" {
+		t.Errorf("multipart component = %q, want psu", got)
+	}
+	if _, sent := uploaded["hashboard_build"]; sent {
+		t.Error("a PSU capsule upload must not send a hashboard build")
+	}
+}
+
 func TestFirmwareConfigAppliesDefaults(t *testing.T) {
 	t.Run("fallback sizes when omitted", func(t *testing.T) {
 		mux := http.NewServeMux()

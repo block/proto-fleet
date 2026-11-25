@@ -31,7 +31,7 @@ func (d *queuedBudgetDispatcher) FirmwareUpdateArtifact(ctx context.Context, sel
 	if err != nil {
 		return nil, err
 	}
-	if err := d.f.recordDispatchedFirmwareBatch(ctx, result, checksum, sqlc.BatchStatusEnumPENDING); err != nil {
+	if err := d.f.recordDispatchedFirmwareBatch(ctx, result, checksum, metadata, sqlc.BatchStatusEnumPENDING); err != nil {
 		return nil, err
 	}
 	payload, err := json.Marshal(map[string]string{"firmware_checksum": checksum})
@@ -77,6 +77,49 @@ func (f *fixture) finishQueuedBudgetCommand(t *testing.T, identifier, status str
 		}
 	}
 	require.NoError(t, tx.Commit())
+}
+
+func TestOfflineCapacityHoldNamesDevicesAcrossModels(t *testing.T) {
+	rig := rigAssignment("fw-2")
+	container := Assignment{Manufacturer: "Proto", Model: "CT1", FirmwareFileID: "fw-ct1"}
+	for _, tc := range []struct {
+		name       string
+		occupying  Assignment
+		waiting    Assignment
+		identifier string
+	}{
+		{"miner holds container", rig, container, "miner-0"},
+		{"container holds miner", container, rig, "ct1-a"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t, 1)
+			f.addContainer(t, "ct1-a", "1.5.0")
+			useQueuedBudgetDispatcher(f)
+			f.files.artifacts["fw-ct1"] = files.FirmwareArtifact{
+				FileID: "fw-ct1", Checksum: "3333333333333333333333333333333333333333333333333333333333333333",
+				Metadata: files.FirmwareMetadata{TargetManufacturer: "Proto", TargetModel: "CT1", FirmwareVersion: "2.0.0", HashboardBuild: "dev"},
+			}
+			f.channel(t, Behavior{Method: MethodAllAtOnce, MaxConcurrentOffline: 1}, "miner-0", "ct1-a")
+			ctx := t.Context()
+			_, err := f.svc.ApplyFirmware(ctx, f.orgID, testActor, f.channelID, []Assignment{tc.occupying}, nil)
+			require.NoError(t, err)
+			f.svc.EnforceTick(ctx)
+			require.Equal(t, []string{tc.identifier}, f.dispatcher.sentIdentifiers())
+
+			// The other model holds the channel's only slot.
+			slots, err := sqlc.New(f.conn).ListFirmwareRolloutOfflineSlots(ctx, f.channelID)
+			require.NoError(t, err)
+			require.Equal(t, []int64{f.deviceIDs[tc.identifier]}, slots)
+			started, err := f.svc.ApplyFirmware(ctx, f.orgID, testActor, f.channelID, []Assignment{tc.waiting}, nil)
+			require.NoError(t, err)
+			require.Len(t, started, 1)
+			f.svc.EnforceTick(ctx)
+			require.Equal(t, []string{tc.identifier}, f.dispatcher.sentIdentifiers())
+			require.Equal(t,
+				"Waiting for offline capacity: 1 of 1 slots are in use. Wait for devices to recover or change the channel's offline limit.",
+				f.rollout(t, started[0].ID).Evidence.HoldReason)
+		})
+	}
 }
 
 func TestOfflineBudgetRetainsLongRunningCommand(t *testing.T) {

@@ -1,11 +1,16 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import FirmwareUpdateStatus from "./FirmwareUpdateStatus";
+import { toCanonicalSystemInfo } from "@/protoOS/api/adapters/mdkV1/normalize";
 
 describe("FirmwareUpdateStatus", () => {
   it("hides the widget when firmware is current without an error", () => {
     const { container } = render(
-      <FirmwareUpdateStatus updateStatus={{ status: "current", current_version: "1.0.0" }} />,
+      <FirmwareUpdateStatus
+        updateStatus={
+          toCanonicalSystemInfo({ sw_update_status: { status: "current", current_version: "1.0.0" } }).firmwareUpdate
+        }
+      />,
     );
 
     expect(container.firstChild).toHaveClass("hidden");
@@ -14,12 +19,16 @@ describe("FirmwareUpdateStatus", () => {
   it("shows a failure reported with a current status", () => {
     const { container } = render(
       <FirmwareUpdateStatus
-        updateStatus={{
-          status: "current",
-          current_version: "1.0.0",
-          error: "Download failed: connection reset",
-          message: "Last update attempt failed: Download failed: connection reset",
-        }}
+        updateStatus={
+          toCanonicalSystemInfo({
+            sw_update_status: {
+              status: "current",
+              current_version: "1.0.0",
+              error: "Download failed: connection reset",
+              message: "Last update attempt failed: Download failed: connection reset",
+            },
+          }).firmwareUpdate
+        }
       />,
     );
 
@@ -40,13 +49,17 @@ describe("FirmwareUpdateStatus", () => {
   it("keeps offering install when a failure is reported with an available update", () => {
     render(
       <FirmwareUpdateStatus
-        updateStatus={{
-          status: "available",
-          current_version: "1.0.0",
-          new_version: "1.1.0",
-          error: "Download failed",
-          message: "Last update attempt failed: Download failed",
-        }}
+        updateStatus={
+          toCanonicalSystemInfo({
+            sw_update_status: {
+              status: "available",
+              current_version: "1.0.0",
+              new_version: "1.1.0",
+              error: "Download failed",
+              message: "Last update attempt failed: Download failed",
+            },
+          }).firmwareUpdate
+        }
       />,
     );
 

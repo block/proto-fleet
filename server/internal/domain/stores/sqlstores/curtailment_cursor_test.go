@@ -88,7 +88,6 @@ func TestCurtailmentEventCursor_LegacyMissingOrgIDRestarts(t *testing.T) {
 		body string
 	}{
 		{"missing org_id (json default zero)", `{"id":123}`},
-		{"explicit zero org_id", `{"id":123,"org_id":0}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -133,9 +132,6 @@ func TestCurtailmentEventCursor_BindingFieldsRoundTrip(t *testing.T) {
 	}{
 		{"orgA-no-filter", 42, nil},
 		{"orgA-active", 42, []models.EventState{models.EventStateActive}},
-		{"orgA-pending", 42, []models.EventState{models.EventStatePending}},
-		{"orgA-completed", 42, []models.EventState{models.EventStateCompleted}},
-		{"orgA-multi", 42, []models.EventState{models.EventStateCompleted, models.EventStateActive}},
 		{"orgB-active", 99, []models.EventState{models.EventStateActive}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

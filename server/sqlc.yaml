@@ -11,6 +11,52 @@ sql:
         emit_interface: true
         sql_package: "database/sql"
         overrides:
+          # Lateral joins leave these status fields NULL for never-observed streams,
+          # never-closed intervals and intervals without gaps.
+          - column: "hosted_account_reporting_capture_status.last_observation_bucket"
+            go_type:
+              import: "database/sql"
+              type: "NullTime"
+          - column: "hosted_account_reporting_capture_status.last_observation_revision"
+            go_type:
+              import: "database/sql"
+              type: "NullInt32"
+          - column: "hosted_account_reporting_capture_status.last_observation_captured_at"
+            go_type:
+              import: "database/sql"
+              type: "NullTime"
+          - column: "hosted_account_reporting_capture_status.last_observation_source_newest_at"
+            go_type:
+              import: "database/sql"
+              type: "NullTime"
+          - column: "hosted_account_reporting_capture_status.last_closed_bucket"
+            go_type:
+              import: "database/sql"
+              type: "NullTime"
+          - column: "hosted_account_reporting_capture_status.last_closed_revision"
+            go_type:
+              import: "database/sql"
+              type: "NullInt32"
+          - column: "hosted_account_reporting_capture_status.last_closed_no_source_data"
+            go_type:
+              import: "database/sql"
+              type: "NullBool"
+          - column: "hosted_account_reporting_capture_status.last_gap_from_bucket"
+            go_type:
+              import: "database/sql"
+              type: "NullTime"
+          - column: "hosted_account_reporting_capture_status.last_gap_to_bucket"
+            go_type:
+              import: "database/sql"
+              type: "NullTime"
+          - column: "hosted_account_reporting_capture_status.last_gap_reason"
+            go_type:
+              import: "database/sql"
+              type: "NullString"
+          - column: "hosted_account_reporting_capture_status.last_gap_recorded_at"
+            go_type:
+              import: "database/sql"
+              type: "NullTime"
           - column: "firmware_rollout.behavior_snapshot"
             go_type:
               import: "github.com/block/proto-fleet/server/internal/infrastructure/dbtypes"
@@ -76,3 +122,7 @@ sql:
             go_type:
               import: "database/sql"
               type: "NullString"
+          - column: "curtailment_automation_schedule.start_time"
+            go_type: "string"
+          - column: "curtailment_automation_schedule.end_time"
+            go_type: "string"

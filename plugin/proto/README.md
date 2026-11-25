@@ -33,12 +33,13 @@ plugin/proto/                  # Plugin root
 │
 ├── internal/                  # Internal implementation
 │   ├── driver/               # Driver implementation
-│   │   └── driver.go         # SDK Driver interface
-│   └── device/               # Device implementation
-│       └── device.go         # SDK Device interface
+│   │   └── driver.go         # SDK Driver interface, rig and CT1 discovery
+│   ├── device/               # Proto rig device implementation
+│   │   └── device.go         # SDK Device interface
+│   └── ct1/                  # CT1 container implementation (MDK v2 gRPC)
 │
 ├── pkg/                      # Reusable packages
-│   └── proto/                # Proto-specific API client
+│   └── proto/                # Proto rig API client (MDK v1 REST)
 │       └── client.go         # Miner communication with auth
 │
 ├── docs/                     # Documentation
@@ -48,10 +49,11 @@ plugin/proto/                  # Plugin root
 │
 └── tests/                    # Test files
     ├── unit/                 # Unit tests
-    │   ├── plugin_test.go    # Core functionality tests
-    │   └── auth_persistence_test.go  # Authentication tests
-    └── integration_test.go   # Full integration tests with containers
+    │   └── plugin_test.go    # Core functionality tests
+    └── integration_test.go   # Rig lifecycle test with a simulator container
 ```
+
+Each package in `internal/` and `pkg/` also has its own `*_test.go` files.
 
 ## Key Features
 
@@ -64,20 +66,28 @@ plugin/proto/                  # Plugin root
 - Device management (reboot, firmware updates, LED identification)
 - Log retrieval with filtering and pagination
 - Web view URL generation for device management interfaces
-- TLS/HTTP2 support with configurable security settings
+- HTTPS and HTTP/2 support for rigs; optional TLS for CT1 gRPC
+
+R2 status polling reads firmware version and optional system uptime together on
+the first poll, on the first successful poll after an unreachable one, and every
+five minutes afterward. Firmware install-status polls read the same system
+response and refresh that cache, so the next status reports the uptime sampled
+with the install state. Uptime retains the original
+request-start timestamp between probes so Fleet can safely recognize an external
+reboot without treating cached uptime as a new observation. A missing, invalid,
+or failed uptime read supplies no reboot evidence.
 
 ### 🔐 **Authentication & Security**
 - Username/password login with factory-default auto-pairing (`admin`/`proto`)
 - Cached access tokens with automatic re-login when the rig rejects a token
 - Default-password lockout handling via the `UpdateMinerPassword` flow
-- TLS certificate verification with configurable bypass for development
+- Encrypted rig HTTPS without certificate verification, because rigs commonly
+  present self-signed certificates
 - Secure credential handling through SDK SecretBundle interface
 
 ### 🧪 **Testing & Quality**
 - Unit tests for authentication, client operations, and core functionality
-- Integration tests with containerized Proto sim-miners using testcontainers
-- Real miner testing support with environment variable configuration
-- Authentication persistence testing for credential management
+- Integration tests against the `fake-proto-rig` and `fake-ct1` simulators
 - Error handling and edge case coverage
 
 ### 📚 **Documentation**
@@ -111,7 +121,7 @@ plugin/proto/                  # Plugin root
 ### For Production
 
 1. **Build the plugin**: `go build -o proto-plugin`
-2. **Configure environment**: Set `SKIP_TLS_VERIFY`, `LOG_LEVEL`, etc.
+2. **Configure environment**: Set the [environment variables](#environment-variables) that the deployment needs
 3. **Deploy with Fleet**: Reference the binary in Fleet configuration
 4. **Monitor logs**: Check for authentication and connectivity issues
 
@@ -119,15 +129,19 @@ plugin/proto/                  # Plugin root
 
 ### Environment Variables
 
-- `SKIP_TLS_VERIFY=true` - Skip TLS certificate verification
-- `INSECURE_TLS=true` - Allow insecure TLS connections
-- `LOG_LEVEL=debug` - Set logging level (debug, info, warn, error)
-- `PLUGIN_TIMEOUT=30s` - Set operation timeout
-- `PLUGIN_MAX_RETRIES=3` - Set retry attempts
+All variables are optional.
+
+- `PROTO_MINER_PORT` - Restrict discovery to one port (see [Device Discovery](#device-discovery))
+- `PROTO_STATUS_CACHE_TTL` - Rig status cache lifetime as a Go duration; default `5s`
+- `CT1_WEB_PORT` - Web port for newly discovered CT1s; default `8080`
+- `CT1_WEB_SCHEME` - `http` or `https` for newly discovered CT1s; default `http`
+- `CT1_RPC_TLS` - Boolean; use TLS for CT1 gRPC discovery
+
+A nonempty `CT1_RPC_TOKEN_FILE` is rejected. Enter each controller's token in Fleet.
 
 ### Device Discovery
 
-The plugin discovers Proto miners on its configured port, which defaults to `443` and can be overridden with `PROTO_MINER_PORT`. Discovery tries HTTPS first, then HTTP:
+The plugin discovers Proto rigs over HTTP(S) on ports `443`, `80`, and `8080`, and Frigate CT1 controllers over native gRPC on port `9095`. A positive `PROTO_MINER_PORT` restricts discovery to that single port; leave it unset or set it to `0` to use all defaults. The development stack uses these defaults. R2 discovery tries HTTPS first, then HTTP. CT1 configuration and credentials are described in [the gRPC transport guide](../../docs/development/ct1-grpc.md).
 
 ```go
 // Automatic discovery on the configured Proto port
@@ -173,57 +187,29 @@ and do not provide cryptographic endpoint authentication.
 
 ## Testing
 
-### Unit Tests
-
-Run unit tests for core functionality and authentication:
-
-```bash
-# Run all unit tests
-go test ./tests/unit -v
-
-# Run specific authentication tests
-go test ./tests/unit -run TestSecretBundleExtraction -v
-go test ./tests/unit -run TestClientAuthInterceptor -v
-```
-
-### Integration Tests
-
-The plugin includes comprehensive integration tests using testcontainers:
+The tests run against the `fake-proto-rig` and `fake-ct1` simulators in this
+repository. The rig integration tests need Docker. See the
+[integration testing guide](docs/integration-testing.md) for the requirements
+of each test.
 
 ```bash
-# Run full integration tests with containerized sim-miner
+# Unit tests in tests/unit
+go test ./tests/unit/... -v
+
+# All tests, without the tests that need Docker
+go test -short ./...
+
+# All tests
+go test -timeout=30m ./...
+
+# The rig lifecycle test with a simulator container
 go test ./tests -run TestProtoPluginIntegration -v
 
-# Run additional integration test coverage
-go test ./tests -run TestProtoPluginWithRealSimMiner -v
-
-# Run all integration tests
-go test ./tests -v
-
-# Skip integration tests (run only unit tests)
-go test -short ./...
+# With coverage
+go test -short -cover ./...
 ```
 
 ## Development
-
-### Running Tests
-
-```bash
-# Unit tests only
-go test ./tests/unit/...
-
-# All tests including integration
-go test ./...
-
-# With coverage
-go test -cover ./...
-
-# Benchmarks
-go test -bench=. ./tests/unit/
-
-# Specific test patterns
-go test ./tests -run TestProtoPluginIntegration -v
-```
 
 ### Building
 
@@ -238,22 +224,17 @@ go build -ldflags="-s -w" -o proto-plugin
 GOOS=linux GOARCH=amd64 go build -o proto-plugin-linux
 ```
 
-### Using Justfile (Optional)
+### Using the Justfile
 
-The project includes a `justfile` for common development tasks:
+The `justfile` has recipes for common development tasks. The repository
+provides `just` through Hermit.
 
 ```bash
-# Install just if not already installed
-# brew install just  # macOS
-# cargo install just  # Rust/Cargo
-
-# View available commands
-just --list
-
-# Example usage (if justfile commands are defined)
-just test
+just --list   # show all recipes
 just build
 just lint
+just test     # all tests
+just check    # lint and all tests with the CI timeout
 ```
 
 ### Adding Features
@@ -261,31 +242,36 @@ just lint
 1. **Update capabilities** in `internal/driver/driver.go`
 2. **Implement methods** in `internal/device/device.go`
 3. **Add API calls** in `pkg/proto/client.go`
-4. **Write tests** in `tests/unit/` and update integration tests
-5. **Update authentication** if needed in client auth interceptors
+4. **Write tests** next to the changed package or in `tests/unit/`, and update integration tests
+5. **Update authentication** if needed in `pkg/proto/client.go` (rigs) or `internal/ct1/auth.go` (CT1)
 6. **Update documentation** including this README
 
 ## API Compatibility
 
 - **Fleet SDK v1**: Full compatibility with current interface
-- **Proto Miner API**: Connect-RPC over HTTP/2 with gRPC compatibility
-- **Go 1.24.2+**: Modern Go features and performance optimizations
+- **Proto rigs**: MDK v1 REST API over HTTP or HTTPS
+- **CT1 containers**: MDK v2 over native gRPC
+- **Go**: The version in `go.mod`
 - **Credential Authentication**: Username/password pairing with token refresh for miner sessions
+
+The vendored MDK contracts and their sources are recorded in
+[`proto-rig-api`](../../proto-rig-api/README.md) and
+[`sdk/mdk`](../../sdk/mdk/README.md).
 
 ## Dependencies
 
 Core dependencies for the plugin:
 
 - `github.com/block/proto-fleet/server` - Fleet server SDK
-- `connectrpc.com/connect` - Connect-RPC client library for API communication
+- `github.com/block/proto-fleet/sdk/mdk` - Generated MDK v2 bindings
 - `github.com/hashicorp/go-plugin` - Go plugin framework
-- `golang.org/x/net` - HTTP/2 support and network utilities
+- `google.golang.org/grpc` - gRPC client for CT1 containers
 
 Testing dependencies:
 
 - `github.com/stretchr/testify` - Testing assertions and utilities
 - `github.com/testcontainers/testcontainers-go` - Container-based integration testing
-- `github.com/docker/docker` - Docker integration for containerized tests
+- `github.com/moby/moby/client` - Docker client for test image cleanup
 
 ## Contributing
 
@@ -295,15 +281,15 @@ This plugin serves as a reference implementation for the community. When making 
 2. Add tests: Cover new functionality with both unit and integration tests
 3. Document patterns: Update docs for new authentication or API patterns
 4. Consider beginners: Think about the learning experience for new developers
-5. Test thoroughly: Verify changes work with both containerized and real miners
+5. Test thoroughly: Verify changes against the simulators and, where possible, real miners
 6. Security first: Ensure authentication and cryptographic implementations follow best practices
 
 ## Security Considerations
 
 When working with this plugin:
 
-- JWT tokens: Tokens should have appropriate expiration times
-- TLS verification: Only disable for development/testing environments
+- Access tokens: The client caches the rig access token in memory and logs in again when the rig rejects it
+- TLS verification: Rig HTTPS is encrypted but the rig certificate is not verified, so it does not protect against an active attacker on the miner LAN
 - Credential storage: Use secure methods for storing authentication materials
 - Network security: Prefer HTTPS over HTTP in production deployments
 

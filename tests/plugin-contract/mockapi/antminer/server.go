@@ -32,14 +32,11 @@ type Server struct {
 	httpServer   *http.Server
 
 	mu              sync.Mutex
-	commands        []string
 	wg              sync.WaitGroup
 	closed          chan struct{}
 	rpcResponses    map[string][]byte
 	webResponses    map[string][]byte
 	rpcOverrides    map[string][]byte
-	webOverrides    map[string][]byte
-	behaviors       map[string]mockapi.ConnBehavior
 	defaultBehavior mockapi.ConnBehavior
 }
 
@@ -72,8 +69,6 @@ func NewServer(t testing.TB, dataDir string) *Server {
 		rpcResponses: loadResponses(t, filepath.Join(dataDir, "rpc"), ".json"),
 		webResponses: loadResponses(t, filepath.Join(dataDir, "web"), ""),
 		rpcOverrides: make(map[string][]byte),
-		webOverrides: make(map[string][]byte),
-		behaviors:    make(map[string]mockapi.ConnBehavior),
 	}
 
 	// Start RPC server
@@ -109,12 +104,6 @@ func NewServer(t testing.TB, dataDir string) *Server {
 func (s *Server) Host() string { return "127.0.0.1" }
 func (s *Server) WebPort() int { return s.webPort }
 
-func (s *Server) Commands() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]string(nil), s.commands...)
-}
-
 // SetResponse overrides the RPC response for a specific command.
 func (s *Server) SetResponse(cmd string, data []byte) {
 	s.mu.Lock()
@@ -122,21 +111,7 @@ func (s *Server) SetResponse(cmd string, data []byte) {
 	s.rpcOverrides[cmd] = data
 }
 
-// SetWebResponse overrides the HTTP response for a specific endpoint key.
-func (s *Server) SetWebResponse(endpoint string, data []byte) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.webOverrides[endpoint] = data
-}
-
-// SetConnBehavior changes how the mock handles connections for a specific RPC command.
-func (s *Server) SetConnBehavior(cmd string, behavior mockapi.ConnBehavior) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.behaviors[cmd] = behavior
-}
-
-// SetDefaultConnBehavior sets the fallback behavior for all RPC commands without a specific override.
+// SetDefaultConnBehavior sets the behavior for all RPC commands.
 func (s *Server) SetDefaultConnBehavior(behavior mockapi.ConnBehavior) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -148,8 +123,6 @@ func (s *Server) ResetOverrides() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.rpcOverrides = make(map[string][]byte)
-	s.webOverrides = make(map[string][]byte)
-	s.behaviors = make(map[string]mockapi.ConnBehavior)
 	s.defaultBehavior = mockapi.BehaviorNormal
 }
 
@@ -194,18 +167,10 @@ func (s *Server) handleRPCConn(conn net.Conn) {
 	cmd := extractRPCCommand(req)
 
 	s.mu.Lock()
-	s.commands = append(s.commands, cmd)
-	behavior, ok := s.behaviors[cmd]
-	if !ok {
-		behavior = s.defaultBehavior
-	}
+	behavior := s.defaultBehavior
 	s.mu.Unlock()
 
-	switch behavior {
-	case mockapi.BehaviorTimeout:
-		<-s.closed
-		return
-	case mockapi.BehaviorCloseConn:
+	if behavior == mockapi.BehaviorCloseConn {
 		return
 	}
 
@@ -256,10 +221,6 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	// Extract endpoint key from path: /cgi-bin/stats.cgi -> stats
 	endpoint := endpointKey(r.URL.Path)
 
-	s.mu.Lock()
-	s.commands = append(s.commands, "web:"+endpoint)
-	s.mu.Unlock()
-
 	resp := s.loadWebResponse(endpoint)
 	if resp == nil {
 		http.NotFound(w, r)
@@ -271,13 +232,6 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) loadWebResponse(endpoint string) []byte {
-	s.mu.Lock()
-	override, hasOverride := s.webOverrides[endpoint]
-	s.mu.Unlock()
-
-	if hasOverride {
-		return override
-	}
 	if data, ok := s.webResponses[endpoint]; ok {
 		return data
 	}

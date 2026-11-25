@@ -37,11 +37,6 @@ func TestFleetErrorUnwrap(t *testing.T) {
 		require.True(t, errors.As(fe, &got))
 		assert.Equal(t, "serialization_failure", got.Error())
 	})
-
-	t.Run("Unwrap is nil for non-Errorf constructors", func(t *testing.T) {
-		fe := NewInternalError("static message")
-		assert.Nil(t, errors.Unwrap(fe))
-	})
 }
 
 func TestNotActiveErrorIsMachineReadableAndRetryable(t *testing.T) {
@@ -73,14 +68,6 @@ func TestConnectionError(t *testing.T) {
 
 		unwrapped := errors.Unwrap(connErr)
 		assert.Equal(t, baseErr, unwrapped)
-	})
-
-	t.Run("can be wrapped and detected", func(t *testing.T) {
-		baseErr := errors.New("dial tcp failed")
-		connErr := NewConnectionError("device-789", baseErr)
-		wrappedErr := fmt.Errorf("failed to get status: %w", connErr)
-
-		assert.True(t, IsConnectionError(wrappedErr))
 	})
 }
 
@@ -135,313 +122,86 @@ func TestIsConnectionError(t *testing.T) {
 	}
 }
 
-func TestConnectionErrorWithErrorsAs(t *testing.T) {
-	t.Run("errors.As can extract ConnectionError", func(t *testing.T) {
-		// Arrange
-		baseErr := errors.New("connection refused")
-		connErr := NewConnectionError("device-123", baseErr)
-		wrappedErr := fmt.Errorf("failed to connect: %w", connErr)
-
-		// Act
-		var extractedErr ConnectionError
-		require.True(t, errors.As(wrappedErr, &extractedErr))
-
-		// Assert
-		assert.Equal(t, "device-123", extractedErr.DeviceIdentifier)
-		assert.Equal(t, baseErr, extractedErr.Err)
-	})
-
-	t.Run("errors.As returns false for non-ConnectionError", func(t *testing.T) {
-		genericErr := errors.New("generic error")
-
-		var connErr ConnectionError
-		assert.False(t, errors.As(genericErr, &connErr))
-	})
-}
-
-func TestIsUnimplementedError(t *testing.T) {
-	tests := []struct {
-		name     string
-		err      error
-		expected bool
-	}{
-		{
-			name:     "nil error",
-			err:      nil,
-			expected: false,
-		},
-		{
-			name:     "FleetError with CodeUnimplemented",
-			err:      NewUnimplementedError("not supported"),
-			expected: true,
-		},
-		{
-			name:     "FleetError with CodeUnimplemented via format",
-			err:      NewUnimplementedErrorf("capability %s not supported", "reboot"),
-			expected: true,
-		},
-		{
-			name:     "wrapped FleetError with CodeUnimplemented",
-			err:      fmt.Errorf("plugin error: %w", NewUnimplementedError("not supported")),
-			expected: true,
-		},
-		{
-			name:     "connect.Error with CodeUnimplemented",
-			err:      connect.NewError(connect.CodeUnimplemented, errors.New("unimplemented")),
-			expected: true,
-		},
-		{
-			name:     "wrapped connect.Error with CodeUnimplemented",
-			err:      fmt.Errorf("rpc failed: %w", connect.NewError(connect.CodeUnimplemented, errors.New("unimplemented"))),
-			expected: true,
-		},
-		{
-			name:     "FleetError with CodeInternal is not unimplemented",
-			err:      NewInternalError("internal error"),
-			expected: false,
-		},
-		{
-			name:     "FleetError with CodeNotFound is not unimplemented",
-			err:      NewNotFoundError("not found"),
-			expected: false,
-		},
-		{
-			name:     "connect.Error with CodeInternal is not unimplemented",
-			err:      connect.NewError(connect.CodeInternal, errors.New("internal")),
-			expected: false,
-		},
-		{
-			name:     "generic error is not unimplemented",
-			err:      errors.New("something went wrong"),
-			expected: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Act
-			result := IsUnimplementedError(tt.err)
-
-			// Assert
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestIsUnavailableError(t *testing.T) {
-	tests := []struct {
-		name     string
-		err      error
-		expected bool
-	}{
-		{
-			name:     "nil error",
-			err:      nil,
-			expected: false,
-		},
-		{
-			name:     "FleetError with CodeUnavailable via format",
-			err:      NewUnavailableErrorf("device %s unavailable", "miner-1"),
-			expected: true,
-		},
-		{
-			name:     "wrapped FleetError with CodeUnavailable",
-			err:      fmt.Errorf("plugin error: %w", NewUnavailableErrorf("device unavailable")),
-			expected: true,
-		},
-		{
-			name:     "connect.Error with CodeUnavailable",
-			err:      connect.NewError(connect.CodeUnavailable, errors.New("unavailable")),
-			expected: true,
-		},
-		{
-			name:     "wrapped connect.Error with CodeUnavailable",
-			err:      fmt.Errorf("rpc failed: %w", connect.NewError(connect.CodeUnavailable, errors.New("unavailable"))),
-			expected: true,
-		},
-		{
-			name:     "FleetError with CodeInternal is not unavailable",
-			err:      NewInternalError("internal error"),
-			expected: false,
-		},
-		{
-			name:     "FleetError with CodeUnimplemented is not unavailable",
-			err:      NewUnimplementedError("unimplemented"),
-			expected: false,
-		},
-		{
-			name:     "connect.Error with CodeInternal is not unavailable",
-			err:      connect.NewError(connect.CodeInternal, errors.New("internal")),
-			expected: false,
-		},
-		{
-			name:     "generic error is not unavailable",
-			err:      errors.New("something went wrong"),
-			expected: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := IsUnavailableError(tt.err)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestIsFailedPreconditionError(t *testing.T) {
-	tests := []struct {
-		name     string
-		err      error
-		expected bool
-	}{
-		{
-			name:     "nil error",
-			err:      nil,
-			expected: false,
-		},
-		{
-			name:     "FleetError with CodeFailedPrecondition",
-			err:      NewFailedPreconditionErrorf("payload too large"),
-			expected: true,
-		},
-		{
-			name:     "wrapped FleetError with CodeFailedPrecondition",
-			err:      fmt.Errorf("plugin error: %w", NewFailedPreconditionErrorf("payload too large")),
-			expected: true,
-		},
-		{
-			name:     "connect.Error with CodeFailedPrecondition",
-			err:      connect.NewError(connect.CodeFailedPrecondition, errors.New("precondition failed")),
-			expected: true,
-		},
-		{
-			name:     "wrapped connect.Error with CodeFailedPrecondition",
-			err:      fmt.Errorf("rpc failed: %w", connect.NewError(connect.CodeFailedPrecondition, errors.New("precondition failed"))),
-			expected: true,
-		},
-		{
-			name:     "FleetError with CodeInternal is not failed precondition",
-			err:      NewInternalError("internal error"),
-			expected: false,
-		},
-		{
-			name:     "FleetError with CodeUnimplemented is not failed precondition",
-			err:      NewUnimplementedError("unimplemented"),
-			expected: false,
-		},
-		{
-			name:     "connect.Error with CodeUnknown is not failed precondition",
-			err:      connect.NewError(connect.CodeUnknown, errors.New("unknown")),
-			expected: false,
-		},
-		{
-			name:     "generic error is not failed precondition",
-			err:      errors.New("something went wrong"),
-			expected: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := IsFailedPreconditionError(tt.err)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestIsResourceExhaustedError(t *testing.T) {
-	tests := []struct {
+func TestErrorCodePredicates(t *testing.T) {
+	type row struct {
 		name string
 		err  error
 		want bool
-	}{
-		{name: "nil", err: nil},
-		{name: "fleet error", err: NewResourceExhaustedErrorf("too many miners"), want: true},
-		{name: "wrapped fleet error", err: fmt.Errorf("resolve scope: %w", NewResourceExhaustedErrorf("too many miners")), want: true},
-		{name: "connect error", err: connect.NewError(connect.CodeResourceExhausted, errors.New("too many miners")), want: true},
-		{name: "different error", err: NewInvalidArgumentError("invalid scope")},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, IsResourceExhaustedError(tt.err))
-		})
-	}
-}
-
-func TestIsCanceledError(t *testing.T) {
-	tests := []struct {
+	predicates := []struct {
 		name     string
-		err      error
-		expected bool
+		is       func(error) bool
+		code     connect.Code
+		fleetErr error
+		extra    []row
 	}{
 		{
-			name:     "nil error",
-			err:      nil,
-			expected: false,
+			name:     "IsUnimplementedError",
+			is:       IsUnimplementedError,
+			code:     connect.CodeUnimplemented,
+			fleetErr: NewUnimplementedError("not supported"),
+			extra: []row{
+				{name: "FleetError from the format constructor", err: NewUnimplementedErrorf("capability %s not supported", "reboot"), want: true},
+			},
 		},
 		{
-			name:     "context.Canceled",
-			err:      context.Canceled,
-			expected: true,
+			name:     "IsUnavailableError",
+			is:       IsUnavailableError,
+			code:     connect.CodeUnavailable,
+			fleetErr: NewUnavailableErrorf("device %s unavailable", "miner-1"),
 		},
 		{
-			name:     "wrapped context.Canceled",
-			err:      fmt.Errorf("operation failed: %w", context.Canceled),
-			expected: true,
+			name:     "IsFailedPreconditionError",
+			is:       IsFailedPreconditionError,
+			code:     connect.CodeFailedPrecondition,
+			fleetErr: NewFailedPreconditionErrorf("payload too large"),
 		},
 		{
-			name:     "FleetError with CodeCanceled",
-			err:      NewCanceledError(),
-			expected: true,
+			name:     "IsResourceExhaustedError",
+			is:       IsResourceExhaustedError,
+			code:     connect.CodeResourceExhausted,
+			fleetErr: NewResourceExhaustedErrorf("too many miners"),
 		},
 		{
-			name:     "wrapped FleetError with CodeCanceled",
-			err:      fmt.Errorf("stream error: %w", NewCanceledError()),
-			expected: true,
-		},
-		{
-			name:     "connect.Error with CodeCanceled",
-			err:      connect.NewError(connect.CodeCanceled, errors.New("canceled")),
-			expected: true,
-		},
-		{
-			name:     "wrapped connect.Error with CodeCanceled",
-			err:      fmt.Errorf("rpc failed: %w", connect.NewError(connect.CodeCanceled, errors.New("canceled"))),
-			expected: true,
-		},
-		{
-			name:     "FleetError with CodeInternal is not canceled",
-			err:      NewInternalError("internal error"),
-			expected: false,
-		},
-		{
-			name:     "FleetError with CodeNotFound is not canceled",
-			err:      NewNotFoundError("not found"),
-			expected: false,
-		},
-		{
-			name:     "connect.Error with CodeInternal is not canceled",
-			err:      connect.NewError(connect.CodeInternal, errors.New("internal")),
-			expected: false,
-		},
-		{
-			name:     "generic error is not canceled",
-			err:      errors.New("something went wrong"),
-			expected: false,
-		},
-		{
-			name:     "context.DeadlineExceeded is not canceled",
-			err:      context.DeadlineExceeded,
-			expected: false,
+			name:     "IsCanceledError",
+			is:       IsCanceledError,
+			code:     connect.CodeCanceled,
+			fleetErr: NewCanceledError(),
+			extra: []row{
+				{name: "context.Canceled", err: context.Canceled, want: true},
+				{name: "wrapped context.Canceled", err: fmt.Errorf("operation failed: %w", context.Canceled), want: true},
+				{name: "context.DeadlineExceeded", err: context.DeadlineExceeded},
+			},
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := IsCanceledError(tt.err)
-			assert.Equal(t, tt.expected, result)
-		})
+	for _, p := range predicates {
+		rows := []row{
+			{name: "nil error", err: nil},
+			{name: "FleetError with the matching code", err: p.fleetErr, want: true},
+			{name: "wrapped FleetError with the matching code", err: fmt.Errorf("plugin error: %w", p.fleetErr), want: true},
+			{name: "connect.Error with the matching code", err: connect.NewError(p.code, errors.New("matching")), want: true},
+			{name: "wrapped connect.Error with the matching code", err: fmt.Errorf("rpc failed: %w", connect.NewError(p.code, errors.New("matching"))), want: true},
+			{name: "FleetError with CodeNotFound", err: NewNotFoundError("not found")},
+			{name: "FleetError with CodeInvalidArgument", err: NewInvalidArgumentError("invalid scope")},
+			{name: "generic error", err: errors.New("something went wrong")},
+		}
+		for _, other := range predicates {
+			if other.code == p.code {
+				continue
+			}
+			rows = append(rows,
+				row{name: "FleetError for " + other.name, err: other.fleetErr},
+				row{name: "connect.Error for " + other.name, err: connect.NewError(other.code, errors.New("other"))},
+			)
+		}
+		rows = append(rows, p.extra...)
+
+		for _, tt := range rows {
+			t.Run(p.name+"/"+tt.name, func(t *testing.T) {
+				assert.Equal(t, tt.want, p.is(tt.err))
+			})
+		}
 	}
 }

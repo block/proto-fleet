@@ -18,6 +18,10 @@ export const importHashboardTemperature = () => import("@/protoOS/features/diagn
 export const importDiagnosticView = () =>
   import("@/protoOS/features/diagnostic/components/DiagnosticView/DiagnosticView");
 export const importLogs = () => import("@/protoOS/pages/MinerLogs");
+export const importContainerModules = () => import("@/protoOS/features/modules");
+export const importModuleHashboardOverlay = () => import("@/protoOS/features/modules/ModuleHashboardOverlay");
+export const importContainerPools = () => import("@/protoOS/features/pools/PoolStatisticsPage");
+export const importContainerHome = () => import("@/protoOS/features/containerHome/ContainerHomePage");
 export const importOnboarding = () => import("@/protoOS/features/onboarding/components/Onboarding");
 export const importOnboardingWelcome = () => import("@/protoOS/features/onboarding/components/Welcome");
 export const importOnboardingVerify = () => import("@/protoOS/features/onboarding/components/Verify");
@@ -52,12 +56,20 @@ export const settingsRoutePrefetch: readonly RouteImporter[] = [
   importSettingsCooling,
 ];
 
+export const containerRoutePrefetch: readonly RouteImporter[] = [
+  importContainerHome,
+  importContainerModules,
+  importContainerPools,
+  importModuleHashboardOverlay,
+];
+
 // Section tier for protoFleet — embeds this router under /miners/:id/*.
 // SingleMinerWrapper triggers this on mount so KPI tabs, Logs,
-// Diagnostics, and per-miner Settings are warm. Composes global +
+// Systems, and per-miner Settings are warm. Composes global +
 // settings tiers so new entries flow through automatically.
 export const singleMinerRoutePrefetch: readonly RouteImporter[] = [
   ...globalRoutePrefetch,
+  ...containerRoutePrefetch,
   importHashboardTemperature,
   ...settingsRoutePrefetch,
 ];

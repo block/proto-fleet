@@ -41,6 +41,20 @@ func (m *MockMaintenanceStore) EXPECT() *MockMaintenanceStoreMockRecorder {
 	return m.recorder
 }
 
+// AddRepairTicketBoard mocks base method.
+func (m *MockMaintenanceStore) AddRepairTicketBoard(ctx context.Context, orgID, ticketID, boardID, parentModuleID int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AddRepairTicketBoard", ctx, orgID, ticketID, boardID, parentModuleID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AddRepairTicketBoard indicates an expected call of AddRepairTicketBoard.
+func (mr *MockMaintenanceStoreMockRecorder) AddRepairTicketBoard(ctx, orgID, ticketID, boardID, parentModuleID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddRepairTicketBoard", reflect.TypeOf((*MockMaintenanceStore)(nil).AddRepairTicketBoard), ctx, orgID, ticketID, boardID, parentModuleID)
+}
+
 // BulkAssignTickets mocks base method.
 func (m *MockMaintenanceStore) BulkAssignTickets(ctx context.Context, orgID int64, ticketIDs []int64, assigneeUserID *int64) (int64, error) {
 	m.ctrl.T.Helper()
@@ -57,18 +71,18 @@ func (mr *MockMaintenanceStoreMockRecorder) BulkAssignTickets(ctx, orgID, ticket
 }
 
 // BulkCloseTickets mocks base method.
-func (m *MockMaintenanceStore) BulkCloseTickets(ctx context.Context, orgID int64, ticketIDs []int64, resolution, repairLocation int16, notes *string) (int64, error) {
+func (m *MockMaintenanceStore) BulkCloseTickets(ctx context.Context, orgID int64, ticketIDs []int64, resolution, repairLocation int16, resolutionNote *string) (int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "BulkCloseTickets", ctx, orgID, ticketIDs, resolution, repairLocation, notes)
+	ret := m.ctrl.Call(m, "BulkCloseTickets", ctx, orgID, ticketIDs, resolution, repairLocation, resolutionNote)
 	ret0, _ := ret[0].(int64)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // BulkCloseTickets indicates an expected call of BulkCloseTickets.
-func (mr *MockMaintenanceStoreMockRecorder) BulkCloseTickets(ctx, orgID, ticketIDs, resolution, repairLocation, notes any) *gomock.Call {
+func (mr *MockMaintenanceStoreMockRecorder) BulkCloseTickets(ctx, orgID, ticketIDs, resolution, repairLocation, resolutionNote any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BulkCloseTickets", reflect.TypeOf((*MockMaintenanceStore)(nil).BulkCloseTickets), ctx, orgID, ticketIDs, resolution, repairLocation, notes)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BulkCloseTickets", reflect.TypeOf((*MockMaintenanceStore)(nil).BulkCloseTickets), ctx, orgID, ticketIDs, resolution, repairLocation, resolutionNote)
 }
 
 // BulkMarkUrgent mocks base method.
@@ -147,18 +161,23 @@ func (mr *MockMaintenanceStoreMockRecorder) CreateRepairTicket(ctx, params, tick
 }
 
 // CreateTicketComment mocks base method.
-func (m *MockMaintenanceStore) CreateTicketComment(ctx context.Context, orgID, ticketID, userID int64, text, idempotencyKey, requestHash string) (*models.TicketComment, error) {
+func (m *MockMaintenanceStore) CreateTicketComment(ctx context.Context, orgID, ticketID, userID int64, text, idempotencyKey, requestHash string, scopes ...models.CommentScope) (*models.TicketComment, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateTicketComment", ctx, orgID, ticketID, userID, text, idempotencyKey, requestHash)
+	varargs := []any{ctx, orgID, ticketID, userID, text, idempotencyKey, requestHash}
+	for _, a := range scopes {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "CreateTicketComment", varargs...)
 	ret0, _ := ret[0].(*models.TicketComment)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CreateTicketComment indicates an expected call of CreateTicketComment.
-func (mr *MockMaintenanceStoreMockRecorder) CreateTicketComment(ctx, orgID, ticketID, userID, text, idempotencyKey, requestHash any) *gomock.Call {
+func (mr *MockMaintenanceStoreMockRecorder) CreateTicketComment(ctx, orgID, ticketID, userID, text, idempotencyKey, requestHash any, scopes ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateTicketComment", reflect.TypeOf((*MockMaintenanceStore)(nil).CreateTicketComment), ctx, orgID, ticketID, userID, text, idempotencyKey, requestHash)
+	varargs := append([]any{ctx, orgID, ticketID, userID, text, idempotencyKey, requestHash}, scopes...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateTicketComment", reflect.TypeOf((*MockMaintenanceStore)(nil).CreateTicketComment), varargs...)
 }
 
 // GetRepairTicket mocks base method.
@@ -221,6 +240,21 @@ func (m *MockMaintenanceStore) GetTicketCommentByIdempotencyKey(ctx context.Cont
 func (mr *MockMaintenanceStoreMockRecorder) GetTicketCommentByIdempotencyKey(ctx, orgID, idempotencyKey any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTicketCommentByIdempotencyKey", reflect.TypeOf((*MockMaintenanceStore)(nil).GetTicketCommentByIdempotencyKey), ctx, orgID, idempotencyKey)
+}
+
+// GetTicketCommentForVisibility mocks base method.
+func (m *MockMaintenanceStore) GetTicketCommentForVisibility(ctx context.Context, orgID, ticketID, commentID int64) (*models.TicketComment, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetTicketCommentForVisibility", ctx, orgID, ticketID, commentID)
+	ret0, _ := ret[0].(*models.TicketComment)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetTicketCommentForVisibility indicates an expected call of GetTicketCommentForVisibility.
+func (mr *MockMaintenanceStoreMockRecorder) GetTicketCommentForVisibility(ctx, orgID, ticketID, commentID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTicketCommentForVisibility", reflect.TypeOf((*MockMaintenanceStore)(nil).GetTicketCommentForVisibility), ctx, orgID, ticketID, commentID)
 }
 
 // GetTicketCommentSiteForUpdate mocks base method.
@@ -399,6 +433,20 @@ func (mr *MockMaintenanceStoreMockRecorder) NextTicketNumber(ctx, orgID any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NextTicketNumber", reflect.TypeOf((*MockMaintenanceStore)(nil).NextTicketNumber), ctx, orgID)
 }
 
+// SetTicketCommentVisibility mocks base method.
+func (m *MockMaintenanceStore) SetTicketCommentVisibility(ctx context.Context, orgID, ticketID, commentID int64, internal bool) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetTicketCommentVisibility", ctx, orgID, ticketID, commentID, internal)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetTicketCommentVisibility indicates an expected call of SetTicketCommentVisibility.
+func (mr *MockMaintenanceStoreMockRecorder) SetTicketCommentVisibility(ctx, orgID, ticketID, commentID, internal any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetTicketCommentVisibility", reflect.TypeOf((*MockMaintenanceStore)(nil).SetTicketCommentVisibility), ctx, orgID, ticketID, commentID, internal)
+}
+
 // SetTicketParts mocks base method.
 func (m *MockMaintenanceStore) SetTicketParts(ctx context.Context, orgID, ticketID int64) error {
 	m.ctrl.T.Helper()
@@ -411,6 +459,20 @@ func (m *MockMaintenanceStore) SetTicketParts(ctx context.Context, orgID, ticket
 func (mr *MockMaintenanceStoreMockRecorder) SetTicketParts(ctx, orgID, ticketID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetTicketParts", reflect.TypeOf((*MockMaintenanceStore)(nil).SetTicketParts), ctx, orgID, ticketID)
+}
+
+// ShareRepairTicket mocks base method.
+func (m *MockMaintenanceStore) ShareRepairTicket(ctx context.Context, orgID, ticketID int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ShareRepairTicket", ctx, orgID, ticketID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ShareRepairTicket indicates an expected call of ShareRepairTicket.
+func (mr *MockMaintenanceStoreMockRecorder) ShareRepairTicket(ctx, orgID, ticketID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ShareRepairTicket", reflect.TypeOf((*MockMaintenanceStore)(nil).ShareRepairTicket), ctx, orgID, ticketID)
 }
 
 // SoftDeleteTicketComment mocks base method.
@@ -443,6 +505,20 @@ func (mr *MockMaintenanceStoreMockRecorder) UpdateRepairTicket(ctx, params any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateRepairTicket", reflect.TypeOf((*MockMaintenanceStore)(nil).UpdateRepairTicket), ctx, params)
 }
 
+// UpdateTicketTarget mocks base method.
+func (m *MockMaintenanceStore) UpdateTicketTarget(ctx context.Context, params models.UpdateTargetParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateTicketTarget", ctx, params)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateTicketTarget indicates an expected call of UpdateTicketTarget.
+func (mr *MockMaintenanceStoreMockRecorder) UpdateTicketTarget(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateTicketTarget", reflect.TypeOf((*MockMaintenanceStore)(nil).UpdateTicketTarget), ctx, params)
+}
+
 // MockMaintenanceReferenceStore is a mock of MaintenanceReferenceStore interface.
 type MockMaintenanceReferenceStore struct {
 	ctrl     *gomock.Controller
@@ -467,6 +543,21 @@ func (m *MockMaintenanceReferenceStore) EXPECT() *MockMaintenanceReferenceStoreM
 	return m.recorder
 }
 
+// CanAccountCloseTicket mocks base method.
+func (m *MockMaintenanceReferenceStore) CanAccountCloseTicket(ctx context.Context, orgID, ticketID, accountID int64) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CanAccountCloseTicket", ctx, orgID, ticketID, accountID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CanAccountCloseTicket indicates an expected call of CanAccountCloseTicket.
+func (mr *MockMaintenanceReferenceStoreMockRecorder) CanAccountCloseTicket(ctx, orgID, ticketID, accountID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CanAccountCloseTicket", reflect.TypeOf((*MockMaintenanceReferenceStore)(nil).CanAccountCloseTicket), ctx, orgID, ticketID, accountID)
+}
+
 // ListAssignees mocks base method.
 func (m *MockMaintenanceReferenceStore) ListAssignees(ctx context.Context, orgID int64) ([]models.Assignee, error) {
 	m.ctrl.T.Helper()
@@ -480,6 +571,36 @@ func (m *MockMaintenanceReferenceStore) ListAssignees(ctx context.Context, orgID
 func (mr *MockMaintenanceReferenceStoreMockRecorder) ListAssignees(ctx, orgID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAssignees", reflect.TypeOf((*MockMaintenanceReferenceStore)(nil).ListAssignees), ctx, orgID)
+}
+
+// ListTicketAssetOptions mocks base method.
+func (m *MockMaintenanceReferenceStore) ListTicketAssetOptions(ctx context.Context, p models.TicketAssetOptionsParams) (*models.TicketAssetPage, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListTicketAssetOptions", ctx, p)
+	ret0, _ := ret[0].(*models.TicketAssetPage)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListTicketAssetOptions indicates an expected call of ListTicketAssetOptions.
+func (mr *MockMaintenanceReferenceStoreMockRecorder) ListTicketAssetOptions(ctx, p any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTicketAssetOptions", reflect.TypeOf((*MockMaintenanceReferenceStore)(nil).ListTicketAssetOptions), ctx, p)
+}
+
+// ListTicketBoardOptions mocks base method.
+func (m *MockMaintenanceReferenceStore) ListTicketBoardOptions(ctx context.Context, p models.TicketAssetOptionsParams) (*models.TicketAssetPage, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListTicketBoardOptions", ctx, p)
+	ret0, _ := ret[0].(*models.TicketAssetPage)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListTicketBoardOptions indicates an expected call of ListTicketBoardOptions.
+func (mr *MockMaintenanceReferenceStoreMockRecorder) ListTicketBoardOptions(ctx, p any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTicketBoardOptions", reflect.TypeOf((*MockMaintenanceReferenceStore)(nil).ListTicketBoardOptions), ctx, p)
 }
 
 // LockBuildingForTicket mocks base method.
@@ -510,6 +631,21 @@ func (mr *MockMaintenanceReferenceStoreMockRecorder) LockMinerForTicket(ctx, org
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockMinerForTicket", reflect.TypeOf((*MockMaintenanceReferenceStore)(nil).LockMinerForTicket), ctx, orgID, minerIdentifier)
 }
 
+// LockModuleModelSite mocks base method.
+func (m *MockMaintenanceReferenceStore) LockModuleModelSite(ctx context.Context, orgID, moduleID int64) (*int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockModuleModelSite", ctx, orgID, moduleID)
+	ret0, _ := ret[0].(*int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LockModuleModelSite indicates an expected call of LockModuleModelSite.
+func (mr *MockMaintenanceReferenceStoreMockRecorder) LockModuleModelSite(ctx, orgID, moduleID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockModuleModelSite", reflect.TypeOf((*MockMaintenanceReferenceStore)(nil).LockModuleModelSite), ctx, orgID, moduleID)
+}
+
 // LockRackForTicket mocks base method.
 func (m *MockMaintenanceReferenceStore) LockRackForTicket(ctx context.Context, orgID, rackID int64) error {
 	m.ctrl.T.Helper()
@@ -536,6 +672,20 @@ func (m *MockMaintenanceReferenceStore) LockSiteForTicket(ctx context.Context, o
 func (mr *MockMaintenanceReferenceStoreMockRecorder) LockSiteForTicket(ctx, orgID, siteID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockSiteForTicket", reflect.TypeOf((*MockMaintenanceReferenceStore)(nil).LockSiteForTicket), ctx, orgID, siteID)
+}
+
+// LockTicketAssetPlacements mocks base method.
+func (m *MockMaintenanceReferenceStore) LockTicketAssetPlacements(ctx context.Context, orgID int64, selections []models.TicketAssetSelection) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockTicketAssetPlacements", ctx, orgID, selections)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// LockTicketAssetPlacements indicates an expected call of LockTicketAssetPlacements.
+func (mr *MockMaintenanceReferenceStoreMockRecorder) LockTicketAssetPlacements(ctx, orgID, selections any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockTicketAssetPlacements", reflect.TypeOf((*MockMaintenanceReferenceStore)(nil).LockTicketAssetPlacements), ctx, orgID, selections)
 }
 
 // ResolveAssignee mocks base method.
@@ -581,4 +731,34 @@ func (m *MockMaintenanceReferenceStore) ResolveMinerContext(ctx context.Context,
 func (mr *MockMaintenanceReferenceStoreMockRecorder) ResolveMinerContext(ctx, orgID, minerIdentifier any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveMinerContext", reflect.TypeOf((*MockMaintenanceReferenceStore)(nil).ResolveMinerContext), ctx, orgID, minerIdentifier)
+}
+
+// ResolveMinerContextByID mocks base method.
+func (m *MockMaintenanceReferenceStore) ResolveMinerContextByID(ctx context.Context, orgID, minerID int64) (*models.AssetContext, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResolveMinerContextByID", ctx, orgID, minerID)
+	ret0, _ := ret[0].(*models.AssetContext)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ResolveMinerContextByID indicates an expected call of ResolveMinerContextByID.
+func (mr *MockMaintenanceReferenceStoreMockRecorder) ResolveMinerContextByID(ctx, orgID, minerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveMinerContextByID", reflect.TypeOf((*MockMaintenanceReferenceStore)(nil).ResolveMinerContextByID), ctx, orgID, minerID)
+}
+
+// ResolveTicketAsset mocks base method.
+func (m *MockMaintenanceReferenceStore) ResolveTicketAsset(ctx context.Context, orgID int64, kind models.TicketCategory, id int64) (*models.TicketAsset, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResolveTicketAsset", ctx, orgID, kind, id)
+	ret0, _ := ret[0].(*models.TicketAsset)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ResolveTicketAsset indicates an expected call of ResolveTicketAsset.
+func (mr *MockMaintenanceReferenceStoreMockRecorder) ResolveTicketAsset(ctx, orgID, kind, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveTicketAsset", reflect.TypeOf((*MockMaintenanceReferenceStore)(nil).ResolveTicketAsset), ctx, orgID, kind, id)
 }

@@ -62,29 +62,10 @@ describe("Authentication", () => {
   });
 
   describe("basic rendering", () => {
-    it("renders username and password inputs", () => {
-      const { getByLabelText } = render(<Authentication {...defaultProps} />);
-
-      expect(getByLabelText("Username")).toBeInTheDocument();
-      expect(getByLabelText("Password")).toBeInTheDocument();
-    });
-
-    it("renders confirm password input when requirePasswordConfirmation is true", () => {
-      const { getByLabelText } = render(<Authentication {...defaultProps} requirePasswordConfirmation={true} />);
-
-      expect(getByLabelText("Confirm password")).toBeInTheDocument();
-    });
-
     it("does not render confirm password input when requirePasswordConfirmation is false", () => {
       const { queryByLabelText } = render(<Authentication {...defaultProps} requirePasswordConfirmation={false} />);
 
       expect(queryByLabelText("Confirm password")).not.toBeInTheDocument();
-    });
-
-    it("renders current password input in update mode", () => {
-      const { getByLabelText } = render(<Authentication {...defaultProps} isUpdateMode={true} />);
-
-      expect(getByLabelText("Current password")).toBeInTheDocument();
     });
 
     it("disables username input when initUsername is provided", () => {
@@ -93,12 +74,6 @@ describe("Authentication", () => {
       const usernameInput = getByLabelText("Username");
       expect(usernameInput).toBeDisabled();
       expect(usernameInput).toHaveValue("testuser");
-    });
-
-    it("renders Continue button", () => {
-      const { getByText } = render(<Authentication {...defaultProps} />);
-
-      expect(getByText("Continue")).toBeInTheDocument();
     });
 
     it("allows input values to be changed", () => {

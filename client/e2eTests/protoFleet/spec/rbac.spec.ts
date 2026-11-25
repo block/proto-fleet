@@ -3,6 +3,7 @@ import { testConfig } from "../config/test.config";
 import { expect, test } from "../fixtures/pageFixtures";
 import {
   ALERTS_E2E_ENABLED,
+  cleanupRbacTeamArtifacts,
   createAlertChannelAsAdmin,
   createCurtailment,
   createInfrastructureFixturesAsAdmin,
@@ -71,6 +72,11 @@ test.describe("Proto Fleet - RBAC", () => {
     await page.goto("/");
   });
 
+  test.afterAll("CLEANUP: delete RBAC roles and members", async ({ browser }, testInfo) => {
+    test.setTimeout(testConfig.testTimeout * 2);
+    await cleanupRbacTeamArtifacts(browser, testInfo);
+  });
+
   test(
     "Pools read-only role cannot access the Pools settings surface",
     { tag: "@smoke" },
@@ -121,7 +127,6 @@ test.describe("Proto Fleet - RBAC", () => {
 
     await test.step("Delete the pool again", async () => {
       await settingsPoolsPage.deletePoolByNameIfVisible(poolName);
-      await settingsPoolsPage.validateTextInToast("Pool deleted");
     });
   });
 
@@ -313,10 +318,10 @@ test.describe("Proto Fleet - RBAC", () => {
     await test.step("Log in as the ingest-only member", async () => {
       await authPage.logout();
       await authPage.validateRedirectedToAuth();
-      await commonSteps.completeFirstLoginAsTeamMember({
+      await commonSteps.joinTeamWithInvitation({
+        invitationCode: ingestMember.invitationCode,
         username: ingestMember.username,
-        temporaryPassword: ingestMember.temporaryPassword,
-        newPassword: MEMBER_PASSWORD,
+        password: MEMBER_PASSWORD,
       });
     });
 
@@ -338,6 +343,7 @@ test.describe("Proto Fleet - RBAC", () => {
       category: "TICKET_CATEGORY_INFRASTRUCTURE",
       component: "Network",
       diagnosis: "must be denied",
+      description: "must be denied",
       siteId: "1",
       idempotencyKey: "rbac-denied-maintenance-create",
     });

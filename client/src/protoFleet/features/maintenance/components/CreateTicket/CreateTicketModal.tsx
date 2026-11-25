@@ -1,10 +1,14 @@
-import { useCallback, useMemo, useRef, useState } from "react";
-import { INFRA_COMPONENTS, MINER_COMPONENTS } from "../../componentOptions";
-import MinerTicketPicker from "./MinerTicketPicker";
-import { TicketCategory } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
-import { useMaintenanceApi } from "@/protoFleet/api/maintenance";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { getComponentOptions } from "../../componentOptions";
+import { useTicketOperationKey } from "../../idempotency";
+import { ticketAssetKey, ticketAssetLabel, ticketAssetSelection, ticketCategoryForAssets } from "../../ticketAssets";
+import TicketAssetPicker from "../TicketAssetPicker";
+import { type TicketAsset, TicketCategory } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
+import { type TicketAssetPage, useMaintenanceApi } from "@/protoFleet/api/maintenance";
+import { createAccountConnection } from "@/protoFleet/features/hostedAccounts/api";
+import { useHostedAccounts } from "@/protoFleet/features/hostedAccounts/HostedAccountsContext";
+import { useAccountQuery } from "@/protoFleet/features/hostedAccounts/useAccountQuery";
 import { useMaintenanceOptions } from "@/protoFleet/features/maintenance/hooks/useMaintenanceOptions";
-import { useHasPermission } from "@/protoFleet/store";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
@@ -16,39 +20,53 @@ import Textarea from "@/shared/components/Textarea";
 interface CreateTicketModalProps {
   onDismiss: () => void;
   onSuccess: () => void;
-  prefill?: { alertId?: string; minerIdentifier?: string; component?: string; diagnosis?: string; siteId?: string };
+  prefill?: { alertId?: string; minerIdentifier?: string; component?: string; description?: string; siteId?: string };
 }
 const CATEGORY_OPTIONS = [
   { value: "miner", label: "Miner" },
   { value: "infrastructure", label: "Infrastructure" },
+  { value: "other", label: "Other" },
 ];
-type Category = "miner" | "infrastructure";
-
-const createIdempotencyKey = () => {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  bytes[6] = (bytes[6] & 0x0f) | 0x40;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+type Category = "miner" | "infrastructure" | "other";
+const CATEGORY_ENUMS = {
+  miner: TicketCategory.MINER,
+  infrastructure: TicketCategory.INFRASTRUCTURE,
+  other: TicketCategory.OTHER,
 };
 
 const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalProps) => {
   const activeSite = useFleetStore((state) => state.ui.activeSite);
-  const canReadMiners = useHasPermission("miner:read");
-  const { createTicket } = useMaintenanceApi();
+  const { createTicket, listTicketAssets } = useMaintenanceApi();
+  const directory = useHostedAccounts();
+  const rootId = directory?.accounts.find((account) => account.depth === 0)?.accountId;
+  const connection = useMemo(() => (rootId ? createAccountConnection(rootId) : null), [rootId]);
+  useEffect(() => {
+    connection?.activate();
+    return () => connection?.dispose();
+  }, [connection]);
+  const loadClients = useCallback(
+    async (signal: AbortSignal) =>
+      connection && rootId ? connection.client.listChildren({ accountId: rootId }, { signal }) : { accounts: [] },
+    [connection, rootId],
+  );
+  const clients = useAccountQuery(loadClients, !!rootId);
+  const [clientAccountIds, setClientAccountIds] = useState<string[]>([]);
+  const [clientIdsText, setClientIdsText] = useState("");
+  const [targets, setTargets] = useState<TicketAsset[]>([]);
+  const [assetPicker, setAssetPicker] = useState(false);
+  const { keyFor: operationKey } = useTicketOperationKey();
   const options = useMaintenanceOptions();
-  const idempotencyKey = useRef(createIdempotencyKey());
   const [category, setCategory] = useState<Category>("miner");
-  const [component, setComponent] = useState(prefill?.component ?? "");
+  const [component, setComponent] = useState(prefill?.component || "Unknown");
   const [minerIdentifier, setMinerIdentifier] = useState(prefill?.minerIdentifier ?? "");
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [diagnosis, setDiagnosis] = useState(prefill?.diagnosis ?? "");
+  const [description, setDescription] = useState(prefill?.description ?? "");
   const [siteId, setSiteId] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
   const [urgent, setUrgent] = useState(false);
+  const [shareWithClients, setShareWithClients] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const components = category === "miner" ? MINER_COMPONENTS : INFRA_COMPONENTS;
+  const components = getComponentOptions(category, component);
   const siteOptions = useMemo(
     () => options.manageableSites.map((site) => ({ value: site.id, label: site.name })),
     [options.manageableSites],
@@ -60,8 +78,28 @@ const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalP
     );
   }, [activeSite, options.manageableSites, prefill?.siteId]);
   const resolvedSiteId = options.manageableSites.some((site) => site.id === siteId) ? siteId : defaultSiteId;
+  const loadAssets = useCallback(
+    async (search: string, signal: AbortSignal, pageToken: string) =>
+      new Promise<TicketAssetPage>((resolve, reject) => {
+        void listTicketAssets({
+          siteIds: options.manageableSites.map((site) => BigInt(site.id)),
+          includeUnassigned: true,
+          search,
+          pageToken,
+          signal,
+          onSuccess: resolve,
+          onError: (message) => reject(new Error(message)),
+        });
+      }),
+    [listTicketAssets, options.manageableSites],
+  );
+  const explicitClientIds = rootId ? clientAccountIds : clientIdsText.split(/[,\s]+/).filter(Boolean);
+  const assetFree = category !== "miner";
   const canSubmit = Boolean(
-    component && diagnosis.trim() && (category === "miner" ? minerIdentifier : resolvedSiteId) && !submitting,
+    description.trim() &&
+    (assetFree ? resolvedSiteId : targets.length || minerIdentifier.trim()) &&
+    (!shareWithClients || category !== "other" || explicitClientIds.length) &&
+    !submitting,
   );
   const assigneeOptions = useMemo(
     () => [
@@ -77,16 +115,22 @@ const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalP
     if (!canSubmit) return;
     setSubmitting(true);
     setError(null);
-    await createTicket({
-      category: category === "miner" ? TicketCategory.MINER : TicketCategory.INFRASTRUCTURE,
+    const payload = {
+      shareWithClients,
+      description: description.trim(),
+      category: category === "miner" && targets.length ? ticketCategoryForAssets(targets) : CATEGORY_ENUMS[category],
       component,
-      idempotencyKey: idempotencyKey.current,
-      diagnosis,
       urgent,
-      minerIdentifier: category === "miner" ? minerIdentifier : undefined,
-      alertId: prefill?.alertId,
+      minerIdentifier: category === "miner" && !targets.length ? minerIdentifier.trim() : undefined,
+      targets: targets.map(ticketAssetSelection),
+      clientAccountIds: assetFree ? explicitClientIds : [],
+      siteId: assetFree && resolvedSiteId ? BigInt(resolvedSiteId) : undefined,
       assigneeUserId: assigneeId ? BigInt(assigneeId) : undefined,
-      siteId: category === "infrastructure" && resolvedSiteId ? BigInt(resolvedSiteId) : undefined,
+      alertId: prefill?.alertId,
+    };
+    await createTicket({
+      ...payload,
+      idempotencyKey: operationKey(payload),
       onSuccess: () => onSuccess(),
       onError: setError,
       onFinally: () => setSubmitting(false),
@@ -97,12 +141,17 @@ const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalP
     category,
     component,
     createTicket,
-    diagnosis,
+    description,
     minerIdentifier,
     onSuccess,
     prefill?.alertId,
     resolvedSiteId,
     urgent,
+    shareWithClients,
+    targets,
+    assetFree,
+    explicitClientIds,
+    operationKey,
   ]);
   return (
     <>
@@ -130,7 +179,9 @@ const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalP
               value={category}
               onChange={(value) => {
                 setCategory(value as Category);
-                setComponent("");
+                setComponent("Unknown");
+                setTargets([]);
+                setMinerIdentifier("");
               }}
               forceBelow
             />
@@ -144,13 +195,15 @@ const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalP
             />
           </div>
           {category === "miner" ? (
-            <div>
-              <Input id="miner-id" label="Miner ID" initValue={minerIdentifier} onChange={setMinerIdentifier} />
-              {canReadMiners ? (
-                <button type="button" className="mt-2 text-300 underline" onClick={() => setPickerOpen(true)}>
-                  Select miner
-                </button>
-              ) : null}
+            <div className="flex flex-col gap-2">
+              {targets.length ? (
+                targets.map((asset) => <p key={ticketAssetKey(asset)}>{ticketAssetLabel(asset)}</p>)
+              ) : (
+                <Input id="miner-id" label="Miner ID" initValue={minerIdentifier} onChange={setMinerIdentifier} />
+              )}
+              <button type="button" className="text-left text-300 underline" onClick={() => setAssetPicker(true)}>
+                Select affected equipment
+              </button>
             </div>
           ) : (
             <Select
@@ -162,7 +215,55 @@ const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalP
               forceBelow
             />
           )}
-          <Textarea id="diagnosis" label="Issue description" onChange={setDiagnosis} rows={3} />
+          {assetFree ? (
+            rootId ? (
+              <fieldset className="flex flex-col gap-2">
+                <legend className="text-300">Affected clients (optional)</legend>
+                {clients.error ? <div role="alert">{clients.error}</div> : null}
+                {clients.data?.accounts.map((account) => (
+                  <label key={account.accountId} className="flex items-center gap-3">
+                    <Checkbox
+                      checked={clientAccountIds.includes(account.accountId)}
+                      onChange={(event) =>
+                        setClientAccountIds((ids) =>
+                          event.target.checked
+                            ? [...ids, account.accountId]
+                            : ids.filter((id) => id !== account.accountId),
+                        )
+                      }
+                    />
+                    {account.name}
+                  </label>
+                ))}
+              </fieldset>
+            ) : (
+              <Input
+                id="infra-client-ids"
+                label="Affected client account IDs (optional, comma-separated)"
+                initValue={clientIdsText}
+                onChange={setClientIdsText}
+              />
+            )
+          ) : null}
+          <Select
+            id="ticket-visibility"
+            label="Visibility"
+            value={shareWithClients ? "shared" : "internal"}
+            options={[
+              { value: "internal", label: "Internal — host team only" },
+              { value: "shared", label: "Shared with affected clients" },
+            ]}
+            onChange={(value) => setShareWithClients(value === "shared")}
+          />
+          <Textarea
+            id="host-ticket-description"
+            label="Description"
+            required
+            maxLength={4096}
+            initValue={description}
+            onChange={setDescription}
+            rows={3}
+          />
           <Select
             id="assignee"
             label="Assignee"
@@ -178,14 +279,16 @@ const CreateTicketModal = ({ onDismiss, onSuccess, prefill }: CreateTicketModalP
           {error ? <div role="alert">{error}</div> : null}
         </div>
       </Modal>
-      {pickerOpen && canReadMiners ? (
-        <MinerTicketPicker
-          selected={minerIdentifier}
-          manageableSiteIds={options.manageableSites.map((site) => site.id)}
-          onDismiss={() => setPickerOpen(false)}
-          onSelect={(identifier) => {
-            setMinerIdentifier(identifier);
-            setPickerOpen(false);
+      {assetPicker ? (
+        <TicketAssetPicker
+          singleParent
+          initialSelected={targets}
+          load={loadAssets}
+          onDismiss={() => setAssetPicker(false)}
+          onSelect={(assets) => {
+            setTargets(assets);
+            setMinerIdentifier("");
+            setAssetPicker(false);
           }}
         />
       ) : null}

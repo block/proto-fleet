@@ -73,8 +73,8 @@ describe("SchedulePreview", () => {
 
     render(<SchedulePreview values={values} />);
 
-    expect(screen.getAllByText(/7:00 AM/i)).not.toHaveLength(0);
-    expect(screen.queryByText(/12:00 PM/i)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/7:00\s+(?:AM|a\.m\.)/i)).not.toHaveLength(0);
+    expect(screen.queryByText(/12:00\s+(?:PM|p\.m\.)/i)).not.toBeInTheDocument();
   });
 
   it("keeps recurring start and end dates on the schedule's calendar day", () => {

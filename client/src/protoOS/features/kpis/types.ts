@@ -1,5 +1,15 @@
-import { Aggregates, TimeSeriesData } from "@/protoOS/api/generatedApi";
 import { Duration } from "@/shared/components/DurationSelector";
+
+export interface TimeSeriesData {
+  datetime?: number;
+  value?: number | null;
+}
+
+export interface Aggregates {
+  avg?: number | null;
+  max?: number | null;
+  min?: number;
+}
 
 export type KpiOutletContext = {
   duration: Duration;

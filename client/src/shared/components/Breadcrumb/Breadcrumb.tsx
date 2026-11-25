@@ -25,15 +25,17 @@ export interface BreadcrumbSibling {
 export interface BreadcrumbSegment {
   label: string;
   to?: string;
+  onSelect?: () => void;
   siblings?: BreadcrumbSibling[];
 }
 
 export interface BreadcrumbProps {
   segments: BreadcrumbSegment[];
   testId?: string;
+  className?: string;
 }
 
-const Breadcrumb = ({ segments, testId = "breadcrumb" }: BreadcrumbProps) => {
+const Breadcrumb = ({ segments, testId = "breadcrumb", className }: BreadcrumbProps) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -91,7 +93,7 @@ const Breadcrumb = ({ segments, testId = "breadcrumb" }: BreadcrumbProps) => {
   }, []);
 
   return (
-    <nav className="flex items-center gap-2 text-300" data-testid={testId} aria-label="Breadcrumb">
+    <nav className={clsx("flex items-center gap-2 text-300", className)} data-testid={testId} aria-label="Breadcrumb">
       {segments.map((seg, i) => {
         const isLast = i === segments.length - 1;
         const hasSiblings = isLast && seg.siblings && seg.siblings.length > 0;
@@ -102,6 +104,7 @@ const Breadcrumb = ({ segments, testId = "breadcrumb" }: BreadcrumbProps) => {
             {!isLast && seg.to ? (
               <Link
                 to={seg.to}
+                onClick={seg.onSelect}
                 className="text-text-primary underline hover:opacity-80"
                 data-testid={`${testId}-link-${i}`}
               >

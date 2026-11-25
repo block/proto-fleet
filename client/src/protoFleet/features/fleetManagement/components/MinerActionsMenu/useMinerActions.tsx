@@ -727,53 +727,6 @@ export const useMinerActions = ({
     [handleSuccess, handleError, onActionComplete, startBatchOperation],
   );
 
-  const handleMiningPoolSuccess = useCallback(
-    (batchIdentifier: string, dispatchedDeviceIdentifiers: string[]) => {
-      // Priority: SV2-vetted > capability-filtered > original selection.
-      const batchIdentifiers =
-        dispatchedDeviceIdentifiers.length > 0
-          ? dispatchedDeviceIdentifiers
-          : (poolFilteredDeviceIds ?? deviceIdentifiers);
-      startBatchOperation({
-        batchIdentifier: batchIdentifier,
-        action: settingsActions.miningPool,
-        deviceIdentifiers: batchIdentifiers,
-      });
-
-      const toastId = pushToast({
-        message: `${loadingMessages[settingsActions.miningPool]} ${minersMessage}`,
-        status: TOAST_STATUSES.loading,
-        longRunning: true,
-        onClose: () => onActionComplete?.(),
-      });
-      handleSuccess(settingsActions.miningPool, toastId, batchIdentifier);
-      setCurrentAction(null);
-      onActionComplete?.();
-    },
-    [handleSuccess, onActionComplete, startBatchOperation, deviceIdentifiers, poolFilteredDeviceIds],
-  );
-
-  const handleMiningPoolError = useCallback(
-    (error: string) => {
-      pushToast({
-        message: error,
-        status: TOAST_STATUSES.error,
-        longRunning: true,
-      });
-      setCurrentAction(null);
-      onActionComplete?.();
-    },
-    [onActionComplete],
-  );
-
-  const handleMiningPoolWarning = useCallback((warning: string) => {
-    pushToast({
-      message: warning,
-      status: TOAST_STATUSES.success,
-      longRunning: true,
-    });
-  }, []);
-
   const handleManagePowerConfirm = useCallback(
     (performanceMode: PerformanceMode) => {
       const selectorToUse = filteredSelectorForPowerModal ?? deviceSelector;
@@ -1467,13 +1420,11 @@ export const useMinerActions = ({
     };
 
     // Settings actions handlers
-    const handleMiningPool = async () => {
+    const handleMiningPool = () => {
       onActionStart?.();
-      await withCapabilityCheck(settingsActions.miningPool, (_filteredSelector, filteredDeviceIds) => {
-        setPoolFilteredDeviceIds(filteredDeviceIds);
-        setCurrentAction(settingsActions.miningPool);
-        startAuthentication("pool");
-      });
+      setPoolFilteredDeviceIds(undefined);
+      setCurrentAction(settingsActions.miningPool);
+      setShowPoolSelectionPage(true);
     };
 
     const handleCoolingMode = async () => {
@@ -1756,9 +1707,6 @@ export const useMinerActions = ({
     handleCancel,
     numberOfMiners,
     displayCount,
-    handleMiningPoolSuccess,
-    handleMiningPoolError,
-    handleMiningPoolWarning,
     showPoolSelectionPage,
     poolFilteredDeviceIds,
     fleetCredentials,

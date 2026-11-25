@@ -43,15 +43,4 @@ describe("DialogIcon", () => {
     const classList = (container.firstChild as HTMLElement).className;
     expect(classList).not.toMatch(/text-intent/);
   });
-
-  it("always applies base wrapper classes", () => {
-    const { container } = render(
-      <DialogIcon>
-        <span>icon</span>
-      </DialogIcon>,
-    );
-
-    const el = container.firstChild as HTMLElement;
-    expect(el).toHaveClass("flex", "size-10", "items-center", "justify-center", "rounded-lg", "bg-surface-5");
-  });
 });

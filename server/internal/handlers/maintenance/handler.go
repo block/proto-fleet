@@ -50,6 +50,18 @@ func intersectSiteIDs(requested, allowed []int64) []int64 {
 	return intersection
 }
 
+// ticketAssetSiteFilter resolves the effective picker site filter from the
+// caller's maintenance read scope. Org-wide callers see every site except those
+// the scope carves out, and may also see site-less assets. Site-scoped callers
+// are limited to their own sites and never see site-less assets, so
+// includeUnassigned is dropped for them.
+func ticketAssetSiteFilter(orgWide bool, scopedSites, requested []int64, includeUnassigned bool) (sites, excluded []int64, unassigned bool) {
+	if orgWide {
+		return requested, scopedSites, includeUnassigned
+	}
+	return intersectSiteIDs(requested, scopedSites), nil, false
+}
+
 // ---------------------------------------------------------------
 // Ticket CRUD
 // ---------------------------------------------------------------
@@ -67,7 +79,7 @@ func (h *Handler) CreateRepairTicket(ctx context.Context, req *connect.Request[p
 	if err != nil {
 		return nil, err
 	}
-	ticket, err := h.service.CreateRepairTicket(ctx, params)
+	ticket, _, err := h.service.CreateRepairTicket(ctx, params)
 	if err != nil {
 		return nil, err
 	}
@@ -287,7 +299,7 @@ func (h *Handler) CreateTicketComment(ctx context.Context, req *connect.Request[
 	if err != nil {
 		return nil, err
 	}
-	comment, err := h.service.CreateComment(
+	comment, _, err := h.service.CreateComment(
 		ctx,
 		info.OrganizationID,
 		req.Msg.GetTicketId(),
@@ -295,6 +307,7 @@ func (h *Handler) CreateTicketComment(ctx context.Context, req *connect.Request[
 		info.Username,
 		req.Msg.GetText(),
 		req.Msg.GetIdempotencyKey(),
+		models.CommentScope{Internal: req.Msg.Internal == nil || req.Msg.GetInternal()},
 	)
 	if err != nil {
 		return nil, err
@@ -367,4 +380,77 @@ func (h *Handler) ListAssignees(ctx context.Context, _ *connect.Request[pb.ListA
 		return nil, err
 	}
 	return connect.NewResponse(&pb.ListAssigneesResponse{Assignees: toProtoAssignees(assignees)}), nil
+}
+
+func (h *Handler) ListTicketAssetOptions(ctx context.Context, req *connect.Request[pb.ListTicketAssetOptionsRequest]) (*connect.Response[pb.ListTicketAssetOptionsResponse], error) {
+	info, err := middleware.RequirePermissionAtAnySite(ctx, authz.PermMaintenanceRead)
+	if err != nil {
+		return nil, err
+	}
+	if req.Msg.TicketId != nil {
+		if len(req.Msg.SiteIds) > 0 || req.Msg.Kind != nil || req.Msg.GetIncludeUnassigned() {
+			return nil, fleeterror.NewInvalidArgumentError("ticket history cannot use picker filters")
+		}
+		scopedCtx, err := bindMaintenanceScope(ctx, authz.PermMaintenanceRead)
+		if err != nil {
+			return nil, err
+		}
+		assets, err := h.service.ListTicketBoardOptions(scopedCtx, models.TicketAssetOptionsParams{OrgID: info.OrganizationID, TicketID: req.Msg.GetTicketId(), Search: req.Msg.GetSearch(), PageSize: req.Msg.GetPageSize(), PageToken: req.Msg.GetPageToken()})
+		if err != nil {
+			return nil, err
+		}
+		out := &pb.ListTicketAssetOptionsResponse{NextPageToken: assets.NextPageToken}
+		for _, asset := range assets.Assets {
+			out.Assets = append(out.Assets, toProtoTicketAsset(asset))
+		}
+		return connect.NewResponse(out), nil
+	}
+	orgWide, scopedSites, err := middleware.SiteScopeForPermission(ctx, authz.PermMaintenanceRead)
+	if err != nil {
+		return nil, err
+	}
+	sites, excluded, includeUnassigned := ticketAssetSiteFilter(orgWide, scopedSites, req.Msg.GetSiteIds(), req.Msg.GetIncludeUnassigned())
+	if !orgWide && len(sites) == 0 {
+		return connect.NewResponse(&pb.ListTicketAssetOptionsResponse{}), nil
+	}
+	kind := models.TicketCategoryUnspecified
+	if req.Msg.Kind != nil {
+		var valid bool
+		kind, valid = models.PhysicalTicketCategory(int32(*req.Msg.Kind))
+		if !valid {
+			return nil, fleeterror.NewInvalidArgumentError("kind must identify physical equipment")
+		}
+	}
+	assets, err := h.service.ListTicketAssetOptions(ctx, models.TicketAssetOptionsParams{OrgID: info.OrganizationID, SiteIDs: sites, ExcludedSiteIDs: excluded, IncludeUnassigned: includeUnassigned, Kind: kind, Search: req.Msg.GetSearch(), PageSize: req.Msg.GetPageSize(), PageToken: req.Msg.GetPageToken()})
+	if err != nil {
+		return nil, err
+	}
+	out := &pb.ListTicketAssetOptionsResponse{NextPageToken: assets.NextPageToken}
+	for _, asset := range assets.Assets {
+		out.Assets = append(out.Assets, toProtoTicketAsset(asset))
+	}
+	return connect.NewResponse(out), nil
+}
+func (h *Handler) UpdateTicketTarget(ctx context.Context, req *connect.Request[pb.UpdateTicketTargetRequest]) (*connect.Response[pb.UpdateTicketTargetResponse], error) {
+	info, err := middleware.RequirePermissionAtAnySite(ctx, authz.PermMaintenanceManage)
+	if err != nil {
+		return nil, err
+	}
+	ctx, err = bindMaintenanceScope(ctx, authz.PermMaintenanceManage)
+	if err != nil {
+		return nil, err
+	}
+	r := req.Msg
+	if r.GetExpectedUpdatedAt() == nil || r.GetExpectedUpdatedAt().CheckValid() != nil {
+		return nil, fleeterror.NewInvalidArgumentError("expected_updated_at is required and must be valid")
+	}
+	kind, validKind := models.PhysicalTicketCategory(int32(r.GetKind()))
+	if !validKind {
+		return nil, fleeterror.NewInvalidArgumentError("invalid physical ticket category")
+	}
+	ticket, err := h.service.UpdateTicketTarget(ctx, models.UpdateTargetParams{OrgID: info.OrganizationID, TicketID: r.GetTicketId(), Kind: kind, AssetID: r.GetAssetId(), ExpectedUpdatedAt: r.GetExpectedUpdatedAt().AsTime(), Diagnosis: r.Diagnosis, WarrantyEvidence: r.WarrantyEvidence, RepairOutcome: r.RepairOutcome, RMAOutcome: r.RmaOutcome, ModuleModel: r.ModuleModel, ReplacementModuleID: r.ReplacementModuleId, ReplacementModuleModel: r.ReplacementModuleModel, ReplacementHashboardID: r.ReplacementHashboardId, ClearReplacementModule: r.GetClearReplacementModule(), ClearReplacementHashboard: r.GetClearReplacementHashboard()})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.UpdateTicketTargetResponse{Ticket: toProtoTicket(ticket)}), nil
 }

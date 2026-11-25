@@ -49,6 +49,15 @@ const (
 	// RolloutServiceListReleaseChannelMembershipConflictsProcedure is the fully-qualified name of the
 	// RolloutService's ListReleaseChannelMembershipConflicts RPC.
 	RolloutServiceListReleaseChannelMembershipConflictsProcedure = "/rollout.v1.RolloutService/ListReleaseChannelMembershipConflicts"
+	// RolloutServiceListReleaseChannelControllerSoftwareProcedure is the fully-qualified name of the
+	// RolloutService's ListReleaseChannelControllerSoftware RPC.
+	RolloutServiceListReleaseChannelControllerSoftwareProcedure = "/rollout.v1.RolloutService/ListReleaseChannelControllerSoftware"
+	// RolloutServiceListReleaseChannelContainersProcedure is the fully-qualified name of the
+	// RolloutService's ListReleaseChannelContainers RPC.
+	RolloutServiceListReleaseChannelContainersProcedure = "/rollout.v1.RolloutService/ListReleaseChannelContainers"
+	// RolloutServiceSetReleaseChannelControllerSoftwareProcedure is the fully-qualified name of the
+	// RolloutService's SetReleaseChannelControllerSoftware RPC.
+	RolloutServiceSetReleaseChannelControllerSoftwareProcedure = "/rollout.v1.RolloutService/SetReleaseChannelControllerSoftware"
 	// RolloutServiceCreateReleaseChannelProcedure is the fully-qualified name of the RolloutService's
 	// CreateReleaseChannel RPC.
 	RolloutServiceCreateReleaseChannelProcedure = "/rollout.v1.RolloutService/CreateReleaseChannel"
@@ -132,6 +141,19 @@ type RolloutServiceClient interface {
 	// include every relation unless filtered by channel id, with bounded cursor
 	// pagination.
 	ListReleaseChannelMembershipConflicts(context.Context, *connect.Request[v1.ListReleaseChannelMembershipConflictsRequest]) (*connect.Response[v1.ListReleaseChannelMembershipConflictsResponse], error)
+	// Lists a channel's container models with each one's controller software
+	// target and counts, under the RolloutService
+	// controller software rule.
+	ListReleaseChannelControllerSoftware(context.Context, *connect.Request[v1.ListReleaseChannelControllerSoftwareRequest]) (*connect.Response[v1.ListReleaseChannelControllerSoftwareResponse], error)
+	// Lists one page of containers for an exact observed manufacturer/model
+	// pair. Container details are separate from the channel summary.
+	ListReleaseChannelContainers(context.Context, *connect.Request[v1.ListReleaseChannelContainersRequest]) (*connect.Response[v1.ListReleaseChannelContainersResponse], error)
+	// Sets or clears a container model's controller software target under the
+	// RolloutService controller software rule. Requires
+	// controller:software_update in addition to the permission every
+	// RolloutService method needs. It starts no update. A version no uploaded
+	// controller software package carries fails with FAILED_PRECONDITION.
+	SetReleaseChannelControllerSoftware(context.Context, *connect.Request[v1.SetReleaseChannelControllerSoftwareRequest]) (*connect.Response[v1.SetReleaseChannelControllerSoftwareResponse], error)
 	// Creates a release channel. Fails when the scope overlaps another
 	// channel's.
 	CreateReleaseChannel(context.Context, *connect.Request[v1.CreateReleaseChannelRequest]) (*connect.Response[v1.CreateReleaseChannelResponse], error)
@@ -317,6 +339,23 @@ func NewRolloutServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 			connect.WithClientOptions(opts...),
 		),
+		listReleaseChannelControllerSoftware: connect.NewClient[v1.ListReleaseChannelControllerSoftwareRequest, v1.ListReleaseChannelControllerSoftwareResponse](
+			httpClient,
+			baseURL+RolloutServiceListReleaseChannelControllerSoftwareProcedure,
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
+		listReleaseChannelContainers: connect.NewClient[v1.ListReleaseChannelContainersRequest, v1.ListReleaseChannelContainersResponse](
+			httpClient,
+			baseURL+RolloutServiceListReleaseChannelContainersProcedure,
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
+		setReleaseChannelControllerSoftware: connect.NewClient[v1.SetReleaseChannelControllerSoftwareRequest, v1.SetReleaseChannelControllerSoftwareResponse](
+			httpClient,
+			baseURL+RolloutServiceSetReleaseChannelControllerSoftwareProcedure,
+			opts...,
+		),
 		createReleaseChannel: connect.NewClient[v1.CreateReleaseChannelRequest, v1.CreateReleaseChannelResponse](
 			httpClient,
 			baseURL+RolloutServiceCreateReleaseChannelProcedure,
@@ -434,6 +473,9 @@ type rolloutServiceClient struct {
 	listReleaseChannelModelGroups         *connect.Client[v1.ListReleaseChannelModelGroupsRequest, v1.ListReleaseChannelModelGroupsResponse]
 	listReleaseChannelMiners              *connect.Client[v1.ListReleaseChannelMinersRequest, v1.ListReleaseChannelMinersResponse]
 	listReleaseChannelMembershipConflicts *connect.Client[v1.ListReleaseChannelMembershipConflictsRequest, v1.ListReleaseChannelMembershipConflictsResponse]
+	listReleaseChannelControllerSoftware  *connect.Client[v1.ListReleaseChannelControllerSoftwareRequest, v1.ListReleaseChannelControllerSoftwareResponse]
+	listReleaseChannelContainers          *connect.Client[v1.ListReleaseChannelContainersRequest, v1.ListReleaseChannelContainersResponse]
+	setReleaseChannelControllerSoftware   *connect.Client[v1.SetReleaseChannelControllerSoftwareRequest, v1.SetReleaseChannelControllerSoftwareResponse]
 	createReleaseChannel                  *connect.Client[v1.CreateReleaseChannelRequest, v1.CreateReleaseChannelResponse]
 	updateReleaseChannel                  *connect.Client[v1.UpdateReleaseChannelRequest, v1.UpdateReleaseChannelResponse]
 	deleteReleaseChannel                  *connect.Client[v1.DeleteReleaseChannelRequest, v1.DeleteReleaseChannelResponse]
@@ -480,6 +522,23 @@ func (c *rolloutServiceClient) ListReleaseChannelMiners(ctx context.Context, req
 // rollout.v1.RolloutService.ListReleaseChannelMembershipConflicts.
 func (c *rolloutServiceClient) ListReleaseChannelMembershipConflicts(ctx context.Context, req *connect.Request[v1.ListReleaseChannelMembershipConflictsRequest]) (*connect.Response[v1.ListReleaseChannelMembershipConflictsResponse], error) {
 	return c.listReleaseChannelMembershipConflicts.CallUnary(ctx, req)
+}
+
+// ListReleaseChannelControllerSoftware calls
+// rollout.v1.RolloutService.ListReleaseChannelControllerSoftware.
+func (c *rolloutServiceClient) ListReleaseChannelControllerSoftware(ctx context.Context, req *connect.Request[v1.ListReleaseChannelControllerSoftwareRequest]) (*connect.Response[v1.ListReleaseChannelControllerSoftwareResponse], error) {
+	return c.listReleaseChannelControllerSoftware.CallUnary(ctx, req)
+}
+
+// ListReleaseChannelContainers calls rollout.v1.RolloutService.ListReleaseChannelContainers.
+func (c *rolloutServiceClient) ListReleaseChannelContainers(ctx context.Context, req *connect.Request[v1.ListReleaseChannelContainersRequest]) (*connect.Response[v1.ListReleaseChannelContainersResponse], error) {
+	return c.listReleaseChannelContainers.CallUnary(ctx, req)
+}
+
+// SetReleaseChannelControllerSoftware calls
+// rollout.v1.RolloutService.SetReleaseChannelControllerSoftware.
+func (c *rolloutServiceClient) SetReleaseChannelControllerSoftware(ctx context.Context, req *connect.Request[v1.SetReleaseChannelControllerSoftwareRequest]) (*connect.Response[v1.SetReleaseChannelControllerSoftwareResponse], error) {
+	return c.setReleaseChannelControllerSoftware.CallUnary(ctx, req)
 }
 
 // CreateReleaseChannel calls rollout.v1.RolloutService.CreateReleaseChannel.
@@ -603,6 +662,19 @@ type RolloutServiceHandler interface {
 	// include every relation unless filtered by channel id, with bounded cursor
 	// pagination.
 	ListReleaseChannelMembershipConflicts(context.Context, *connect.Request[v1.ListReleaseChannelMembershipConflictsRequest]) (*connect.Response[v1.ListReleaseChannelMembershipConflictsResponse], error)
+	// Lists a channel's container models with each one's controller software
+	// target and counts, under the RolloutService
+	// controller software rule.
+	ListReleaseChannelControllerSoftware(context.Context, *connect.Request[v1.ListReleaseChannelControllerSoftwareRequest]) (*connect.Response[v1.ListReleaseChannelControllerSoftwareResponse], error)
+	// Lists one page of containers for an exact observed manufacturer/model
+	// pair. Container details are separate from the channel summary.
+	ListReleaseChannelContainers(context.Context, *connect.Request[v1.ListReleaseChannelContainersRequest]) (*connect.Response[v1.ListReleaseChannelContainersResponse], error)
+	// Sets or clears a container model's controller software target under the
+	// RolloutService controller software rule. Requires
+	// controller:software_update in addition to the permission every
+	// RolloutService method needs. It starts no update. A version no uploaded
+	// controller software package carries fails with FAILED_PRECONDITION.
+	SetReleaseChannelControllerSoftware(context.Context, *connect.Request[v1.SetReleaseChannelControllerSoftwareRequest]) (*connect.Response[v1.SetReleaseChannelControllerSoftwareResponse], error)
 	// Creates a release channel. Fails when the scope overlaps another
 	// channel's.
 	CreateReleaseChannel(context.Context, *connect.Request[v1.CreateReleaseChannelRequest]) (*connect.Response[v1.CreateReleaseChannelResponse], error)
@@ -784,6 +856,23 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 		connect.WithHandlerOptions(opts...),
 	)
+	rolloutServiceListReleaseChannelControllerSoftwareHandler := connect.NewUnaryHandler(
+		RolloutServiceListReleaseChannelControllerSoftwareProcedure,
+		svc.ListReleaseChannelControllerSoftware,
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
+	rolloutServiceListReleaseChannelContainersHandler := connect.NewUnaryHandler(
+		RolloutServiceListReleaseChannelContainersProcedure,
+		svc.ListReleaseChannelContainers,
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
+	rolloutServiceSetReleaseChannelControllerSoftwareHandler := connect.NewUnaryHandler(
+		RolloutServiceSetReleaseChannelControllerSoftwareProcedure,
+		svc.SetReleaseChannelControllerSoftware,
+		opts...,
+	)
 	rolloutServiceCreateReleaseChannelHandler := connect.NewUnaryHandler(
 		RolloutServiceCreateReleaseChannelProcedure,
 		svc.CreateReleaseChannel,
@@ -903,6 +992,12 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 			rolloutServiceListReleaseChannelMinersHandler.ServeHTTP(w, r)
 		case RolloutServiceListReleaseChannelMembershipConflictsProcedure:
 			rolloutServiceListReleaseChannelMembershipConflictsHandler.ServeHTTP(w, r)
+		case RolloutServiceListReleaseChannelControllerSoftwareProcedure:
+			rolloutServiceListReleaseChannelControllerSoftwareHandler.ServeHTTP(w, r)
+		case RolloutServiceListReleaseChannelContainersProcedure:
+			rolloutServiceListReleaseChannelContainersHandler.ServeHTTP(w, r)
+		case RolloutServiceSetReleaseChannelControllerSoftwareProcedure:
+			rolloutServiceSetReleaseChannelControllerSoftwareHandler.ServeHTTP(w, r)
 		case RolloutServiceCreateReleaseChannelProcedure:
 			rolloutServiceCreateReleaseChannelHandler.ServeHTTP(w, r)
 		case RolloutServiceUpdateReleaseChannelProcedure:
@@ -970,6 +1065,18 @@ func (UnimplementedRolloutServiceHandler) ListReleaseChannelMiners(context.Conte
 
 func (UnimplementedRolloutServiceHandler) ListReleaseChannelMembershipConflicts(context.Context, *connect.Request[v1.ListReleaseChannelMembershipConflictsRequest]) (*connect.Response[v1.ListReleaseChannelMembershipConflictsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.ListReleaseChannelMembershipConflicts is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) ListReleaseChannelControllerSoftware(context.Context, *connect.Request[v1.ListReleaseChannelControllerSoftwareRequest]) (*connect.Response[v1.ListReleaseChannelControllerSoftwareResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.ListReleaseChannelControllerSoftware is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) ListReleaseChannelContainers(context.Context, *connect.Request[v1.ListReleaseChannelContainersRequest]) (*connect.Response[v1.ListReleaseChannelContainersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.ListReleaseChannelContainers is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) SetReleaseChannelControllerSoftware(context.Context, *connect.Request[v1.SetReleaseChannelControllerSoftwareRequest]) (*connect.Response[v1.SetReleaseChannelControllerSoftwareResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.SetReleaseChannelControllerSoftware is not implemented"))
 }
 
 func (UnimplementedRolloutServiceHandler) CreateReleaseChannel(context.Context, *connect.Request[v1.CreateReleaseChannelRequest]) (*connect.Response[v1.CreateReleaseChannelResponse], error) {

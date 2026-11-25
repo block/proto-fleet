@@ -37,18 +37,14 @@ const StoreDecorator = (Story: any, context: any) => {
         latest: { value: config.rpm, units: "RPM" },
         timeSeries: {
           units: "RPM",
-          values: [],
-          startTime: Date.now(),
-          endTime: Date.now(),
+          points: [],
         },
       },
-      percentage: {
+      speedPercent: {
         latest: { value: config.pwm, units: "%" },
         timeSeries: {
           units: "%",
-          values: [],
-          startTime: Date.now(),
-          endTime: Date.now(),
+          points: [],
         },
       },
     });

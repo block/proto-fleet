@@ -1,9 +1,9 @@
 import { type ReactNode, useCallback, useMemo } from "react";
 
 import type { EventTypeOption, UserOption } from "@/protoFleet/api/generated/activity/v1/activity_pb";
+import ListSearchInput from "@/protoFleet/components/ListSearchInput";
 import { baseEventType } from "@/protoFleet/features/activity/utils/eventType";
 import { formatActivityFilterLabel, formatLabel } from "@/protoFleet/features/activity/utils/formatLabel";
-import Input from "@/shared/components/Input";
 import FilterChipsBar, { type FilterChipsBarFilter } from "@/shared/components/List/Filters/FilterChipsBar";
 
 const EVENT_TYPE_CATEGORY_ORDER = [
@@ -177,35 +177,13 @@ const ActivityFilters = ({
     onUsersChange([]);
   }, [onScopesChange, onTypesChange, onUsersChange]);
 
-  const handleClearSearch = useCallback(
-    (key: string) => {
-      if (key === "Escape") {
-        onSearchChange("");
-      }
-    },
-    [onSearchChange],
-  );
-
   return (
     <div className="flex w-full min-w-0 flex-col gap-2">
-      {hideSearch ? null : (
-        <div className="w-full min-w-0" data-testid="activity-search-row">
-          <Input
-            id="activity-search"
-            label="Search activity"
-            hideLabelOnFocus
-            className="!h-8 !rounded-3xl"
-            initValue={searchValue}
-            onChange={(value) => onSearchChange(value)}
-            onKeyDown={handleClearSearch}
-          />
-        </div>
-      )}
       <div
         className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2"
         data-testid="activity-toolbar-row"
       >
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 phone:w-full">
           {filterChipsBarFilters.length > 0 ? (
             <FilterChipsBar
               filters={filterChipsBarFilters}
@@ -213,6 +191,16 @@ const ActivityFilters = ({
               onClearAll={handleClearAllFilters}
             />
           ) : null}
+          {hideSearch ? null : (
+            <ListSearchInput
+              id="activity-search"
+              label="Search activity"
+              initialValue={searchValue}
+              onQueryChange={onSearchChange}
+              collapsible
+              className="phone:w-full"
+            />
+          )}
         </div>
         {actions ? <div className="ml-auto shrink-0">{actions}</div> : null}
       </div>

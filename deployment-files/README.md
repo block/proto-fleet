@@ -116,7 +116,7 @@ Omitting it retains the `/tmp` default; `TMPDIR` does not select this location.
 
 ## Database admission and retained artifacts
 
-Existing databases require [explicit reconciliation](../docs/development/migrations.md#existing-databases)
+Existing databases need [baseline reconciliation](../docs/development/migrations.md#existing-databases)
 before switching histories or repositories. Standalone replacement checks startup
 admission before replacing containers; ordinary pending migrations run at startup.
 HA replacement/recovery requires the exact target schema. Deployment failure does
@@ -129,7 +129,8 @@ three artifact directories.
 Configuration and auth keys keep their existing preservation paths; HA retains
 its `HA_DATA_DIR/artifacts` mounts.
 
-Copy failure stops replacement and retains the old container. Identical copies
+Copy failure stops replacement and retains the old container. Before attempting to commit
+the copy, failure restarts it only if it was previously running. Identical copies
 allow retry; conflicting files, symlinks or unexpected mounts require review.
 
 ## Release repositories and forks
@@ -193,11 +194,14 @@ RC releases, while the shell installer also resolves nightly builds.
 Both release and nightly workflows explicitly pass `github.repository` into
 the reusable artifact workflow's required `release_repository` input. The build
 validates it before interpolating linker arguments or metadata, embeds it in
-fleetd, fleet-ha, and fleet-updater, and records it in deployment, server, and
-Fleet Node `version.txt` files. The publishing jobs download staged installer
-assets from `proto-fleet-release-installers`; they do not upload source-default
-installer scripts. Windows uses the selected bundle metadata and does not
-perform release discovery itself.
+fleetd, fleet-ha, fleet-updater, and the Fleet Node binary, and records it in
+deployment, server, and Fleet Node `version.txt` files. The Fleet Node build
+also embeds the release version and fails unless `fleetnode --version` and
+`fleetnode --print-release-repository` report the expected values. The
+publishing jobs download staged installer assets from
+`proto-fleet-release-installers`; they do not upload source-default installer
+scripts. Windows uses the selected bundle metadata and does not perform release
+discovery itself.
 
 For custom source builds, use the same validated identity in the Go linker
 setting `github.com/block/proto-fleet/server/internal/releaseinfo.Repository`,
@@ -525,10 +529,20 @@ passed. To run a fleet with the beta alerts stack:
 On the first run with alerts enabled, `run-fleet.sh` rotates the
 Grafana admin password and writes it into `.env` as
 `GRAFANA_ADMIN_PASSWORD`. It also creates a dedicated read-only
-PostgreSQL role for Grafana (`grafana_ro` by default) with `SELECT`
-only on `notification_metric_sample`, and persists those credentials
-to `.env` as `GRAFANA_DB_USERNAME` / `GRAFANA_DB_PASSWORD`. Grafana
-authenticates as this role rather than the broader fleet-api app role.
+PostgreSQL role for Grafana (`grafana_ro` by default) and persists
+those credentials to `.env` as `GRAFANA_DB_USERNAME` /
+`GRAFANA_DB_PASSWORD`. Grafana authenticates as this role rather than
+the broader fleet-api app role.
+
+The role can read only what the packaged alert rules query:
+`notification_metric_sample` and the `fleet_telemetry_poll_heartbeat`
+aggregate; owner-privilege views that expose live organization IDs,
+device presence, and device placement without grants on the underlying
+tables; and only the liveness columns of `fleet_node_live` and
+`curtailment_reconciler_heartbeat`. `provision_grafana_db_role` in
+`run-fleet.sh` defines the exact grants, and a server test runs every
+packaged rule under them, so a rule that needs a new table fails in CI
+until the grant is added.
 
 ### Configuration files
 

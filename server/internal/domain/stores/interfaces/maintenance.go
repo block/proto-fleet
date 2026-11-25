@@ -13,6 +13,11 @@ import (
 //
 //nolint:interfacebloat // complete CRUD for tickets + comments + parts + stats
 type MaintenanceStore interface {
+	GetTicketCommentForVisibility(ctx context.Context, orgID, ticketID, commentID int64) (*models.TicketComment, error)
+	ShareRepairTicket(ctx context.Context, orgID, ticketID int64) error
+	SetTicketCommentVisibility(ctx context.Context, orgID, ticketID, commentID int64, internal bool) error
+	UpdateTicketTarget(ctx context.Context, params models.UpdateTargetParams) error
+	AddRepairTicketBoard(ctx context.Context, orgID, ticketID, boardID, parentModuleID int64) error
 	// ---------------------------------------------------------------
 	// Ticket CRUD
 	// ---------------------------------------------------------------
@@ -69,8 +74,8 @@ type MaintenanceStore interface {
 	BulkMarkUrgent(ctx context.Context, orgID int64, ticketIDs []int64) (int64, error)
 
 	// BulkCloseTickets closes multiple tickets with the supplied
-	// resolution and repair location. Returns rows affected.
-	BulkCloseTickets(ctx context.Context, orgID int64, ticketIDs []int64, resolution int16, repairLocation int16, notes *string) (int64, error)
+	// resolution, client-visible resolution note, and repair location. Returns rows affected.
+	BulkCloseTickets(ctx context.Context, orgID int64, ticketIDs []int64, resolution int16, repairLocation int16, resolutionNote *string) (int64, error)
 
 	// ---------------------------------------------------------------
 	// Stats
@@ -102,7 +107,7 @@ type MaintenanceStore interface {
 	GetTicketCommentByIdempotencyKey(ctx context.Context, orgID int64, idempotencyKey string) (*models.TicketComment, string, error)
 
 	// CreateTicketComment inserts a new comment and returns the created row.
-	CreateTicketComment(ctx context.Context, orgID, ticketID, userID int64, text, idempotencyKey, requestHash string) (*models.TicketComment, error)
+	CreateTicketComment(ctx context.Context, orgID, ticketID, userID int64, text, idempotencyKey, requestHash string, scopes ...models.CommentScope) (*models.TicketComment, error)
 
 	// ListTicketComments returns live comments for a ticket ordered
 	// by created_at ascending.
@@ -136,7 +141,18 @@ type MaintenanceStore interface {
 
 // MaintenanceReferenceStore resolves live tenant-scoped references for ticket
 // validation and hydration.
+//
+//nolint:interfacebloat // ticket reference resolution and locking share one transaction-bound store
 type MaintenanceReferenceStore interface {
+	// LockTicketAssetPlacements freezes devices and current module/board placement
+	// until the transaction commits. Callers re-resolve and authorize afterwards.
+	LockTicketAssetPlacements(ctx context.Context, orgID int64, selections []models.TicketAssetSelection) error
+	// CanAccountCloseTicket is checked while the caller holds the ticket row lock.
+	CanAccountCloseTicket(ctx context.Context, orgID, ticketID, accountID int64) (bool, error)
+	ResolveTicketAsset(ctx context.Context, orgID int64, kind models.TicketCategory, id int64) (*models.TicketAsset, error)
+	ListTicketAssetOptions(ctx context.Context, p models.TicketAssetOptionsParams) (*models.TicketAssetPage, error)
+	ListTicketBoardOptions(ctx context.Context, p models.TicketAssetOptionsParams) (*models.TicketAssetPage, error)
+	LockModuleModelSite(ctx context.Context, orgID, moduleID int64) (*int64, error)
 	// LockSiteForTicket and LockBuildingForTicket take shared locks on live
 	// locations while a ticket is created so location deletion cannot race the
 	// new reference. Miner tickets also lock their rack and device before
@@ -147,6 +163,7 @@ type MaintenanceReferenceStore interface {
 	LockRackForTicket(ctx context.Context, orgID, rackID int64) error
 	LockMinerForTicket(ctx context.Context, orgID int64, minerIdentifier string) error
 	ResolveMinerContext(ctx context.Context, orgID int64, minerIdentifier string) (*models.AssetContext, error)
+	ResolveMinerContextByID(ctx context.Context, orgID, minerID int64) (*models.AssetContext, error)
 	ResolveLocationContext(ctx context.Context, orgID int64, siteID, buildingID *int64) (*models.AssetContext, error)
 	ResolveAssignee(ctx context.Context, orgID, userID int64) (*models.Assignee, error)
 	ListAssignees(ctx context.Context, orgID int64) ([]models.Assignee, error)

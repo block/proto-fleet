@@ -4,6 +4,7 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import { instanceUpdateClient } from "@/protoFleet/api/clients";
 import { type UpgradeOperation, UpgradePhase } from "@/protoFleet/api/generated/instance/v1/updates_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import { createOperationID } from "@/protoFleet/utils/crypto";
 
 const ACTIVE_POLL_INTERVAL_MS = 2_000;
 const IDLE_POLL_INTERVAL_MS = 60_000;
@@ -17,16 +18,6 @@ const MAX_TARGET_VERSION_LENGTH = 256;
 const MIN_PROTOBUF_TIMESTAMP_SECONDS = -62_135_596_800n;
 const MAX_PROTOBUF_TIMESTAMP_SECONDS = 253_402_300_799n;
 const MAX_PROTOBUF_TIMESTAMP_NANOS = 999_999_999;
-
-const createOperationID = () => {
-  // getRandomValues is available in the plain-HTTP deployments Fleet supports,
-  // while crypto.randomUUID() is restricted to secure contexts.
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  bytes[6] = (bytes[6] & 0x0f) | 0x40;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-};
 
 const DEFINITIVE_TRIGGER_REJECTION_CODES = new Set<Code>([
   Code.InvalidArgument,

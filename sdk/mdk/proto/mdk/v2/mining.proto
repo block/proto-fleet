@@ -1,0 +1,506 @@
+syntax = "proto3";
+
+package mdk.v2;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "mdk/v2/common.proto";
+import "mdk/v2/options.proto";
+import "mdk/v2/runin.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
+
+// MiningService manages mining operations and configuration.
+service MiningService {
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_tag) = {
+    name: "Mining"
+    description: "Mining operations, target power, tuning, and start/stop controls."
+  };
+  // GetMiningStatus returns aggregate mining status across all hashboards.
+  rpc GetMiningStatus(GetMiningStatusRequest) returns (GetMiningStatusResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/mining/status"};
+  }
+
+  // GetTargetPower returns the current target power setting.
+  rpc GetTargetPower(GetTargetPowerRequest) returns (GetTargetPowerResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/mining/target-power"};
+  }
+
+  // SetTargetPower sets the target power for mining operations.
+  rpc SetTargetPower(SetTargetPowerRequest) returns (SetTargetPowerResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (mdk.v2.tunnel_mutation_route) = TUNNEL_MUTATION_ROUTE_SHARED_STATE;
+    option (google.api.http) = {
+      put: "/api/v2/mining/target-power"
+      body: "*"
+    };
+  }
+
+  // GetTuning returns the active product-specific tuning algorithm.
+  rpc GetTuning(GetTuningRequest) returns (GetTuningResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/mining/tuning"};
+  }
+
+  // SetTuning configures the exact product-specific tuning algorithm.
+  rpc SetTuning(SetTuningRequest) returns (SetTuningResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (mdk.v2.tunnel_mutation_route) = TUNNEL_MUTATION_ROUTE_SHARED_STATE;
+    option (google.api.http) = {
+      put: "/api/v2/mining/tuning"
+      body: "*"
+    };
+  }
+
+  // EnableVoltageTuning enables automatic PSU voltage tuning on local hashboards.
+  rpc EnableVoltageTuning(EnableVoltageTuningRequest) returns (EnableVoltageTuningResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {post: "/api/v2/mining/voltage-tuning/enable"};
+  }
+
+  // SetFixedVoltage disables automatic PSU voltage tuning and requests one
+  // fleet-wide fixed voltage from 26,000 through 30,000 millivolts inclusive.
+  rpc SetFixedVoltage(SetFixedVoltageRequest) returns (SetFixedVoltageResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {
+      post: "/api/v2/mining/voltage/fixed"
+      body: "*"
+    };
+  }
+
+  // ListModuleVoltageSettings returns durable fixed/AUTO settings and the
+  // firmware-supported voltage range for every known module ID.
+  rpc ListModuleVoltageSettings(ListModuleVoltageSettingsRequest) returns (ListModuleVoltageSettingsResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/mining/modules/voltage"};
+  }
+
+  // SetModuleFixedVoltage persists and applies one module-wide fixed voltage.
+  rpc SetModuleFixedVoltage(SetModuleFixedVoltageRequest) returns (SetModuleFixedVoltageResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {
+      put: "/api/v2/mining/modules/{module_id}/voltage/fixed"
+      body: "*"
+    };
+  }
+
+  // ClearModuleFixedVoltage persists and applies automatic voltage tuning for
+  // one module.
+  rpc ClearModuleFixedVoltage(ClearModuleFixedVoltageRequest) returns (ClearModuleFixedVoltageResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {delete: "/api/v2/mining/modules/{module_id}/voltage/fixed"};
+  }
+
+  // StartMining begins mining operations.
+  rpc StartMining(StartMiningRequest) returns (StartMiningResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (mdk.v2.tunnel_mutation_route) = TUNNEL_MUTATION_ROUTE_SHARED_STATE;
+    option (google.api.http) = {post: "/api/v2/mining/start"};
+  }
+
+  // StopMining halts mining operations.
+  rpc StopMining(StopMiningRequest) returns (StopMiningResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (mdk.v2.tunnel_mutation_route) = TUNNEL_MUTATION_ROUTE_SHARED_STATE;
+    option (google.api.http) = {post: "/api/v2/mining/stop"};
+  }
+
+  // StartMiningScoped begins mining for an explicit set of hashboards. Isolated
+  // boards are eligible (this is how operators drive them). Cluster intent is
+  // not changed.
+  rpc StartMiningScoped(StartMiningScopedRequest) returns (StartMiningScopedResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {
+      post: "/api/v2/mining/scoped/start"
+      body: "*"
+    };
+  }
+
+  // StopMiningScoped halts mining for an explicit set of hashboards. Cluster
+  // intent is not changed.
+  rpc StopMiningScoped(StopMiningScopedRequest) returns (StopMiningScopedResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {
+      post: "/api/v2/mining/scoped/stop"
+      body: "*"
+    };
+  }
+
+  // SetPowerTargetScoped sets a manual per-board power target on an explicit set
+  // of ISOLATED hashboards. Isolation is required so the fleet power reconciler
+  // does not fight the manual target; it is validated per board.
+  rpc SetPowerTargetScoped(SetPowerTargetScopedRequest) returns (SetPowerTargetScopedResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {
+      post: "/api/v2/mining/scoped/power"
+      body: "*"
+    };
+  }
+
+  // ClearPowerTargetScoped removes manual per-board power targets from an
+  // explicit set of isolated hashboards, restoring automatic tuning.
+  rpc ClearPowerTargetScoped(ClearPowerTargetScopedRequest) returns (ClearPowerTargetScopedResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {
+      post: "/api/v2/mining/scoped/power/clear"
+      body: "*"
+    };
+  }
+
+  // SetIsolation marks or clears isolation for an explicit set of hashboards.
+  // Isolated boards are excluded from cluster start/stop and from the
+  // mining-intent reconciler. On clear, the server re-aligns the boards to the
+  // current cluster mining intent.
+  rpc SetIsolation(SetIsolationRequest) returns (SetIsolationResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (mdk.v2.tunnel_mutation_route) = TUNNEL_MUTATION_ROUTE_SHARED_STATE;
+    option (google.api.http) = {
+      post: "/api/v2/mining/isolation"
+      body: "*"
+    };
+  }
+
+  // ListIsolation returns the current set of isolated hashboards.
+  rpc ListIsolation(ListIsolationRequest) returns (ListIsolationResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/mining/isolation"};
+  }
+}
+
+message GetMiningStatusRequest {}
+
+// MiningOperatingState identifies the device-level mining outcome. This is
+// intentionally separate from the per-hashboard MiningState state machine.
+enum MiningOperatingState {
+  MINING_OPERATING_STATE_UNSPECIFIED = 0;
+  MINING_OPERATING_STATE_UNINITIALIZED = 1;
+  MINING_OPERATING_STATE_POWERING_ON = 2;
+  MINING_OPERATING_STATE_MINING = 3;
+  MINING_OPERATING_STATE_DEGRADED_MINING = 4;
+  MINING_OPERATING_STATE_POWERING_OFF = 5;
+  MINING_OPERATING_STATE_STOPPED = 6;
+  MINING_OPERATING_STATE_NO_POOLS = 7;
+  MINING_OPERATING_STATE_ERROR = 8;
+}
+
+// GetMiningStatusResponse contains aggregate mining status.
+message GetMiningStatusResponse {
+  // hashrate retains accepted-share-derived TH/s over the trailing hour.
+  double hashrate = 1;
+  double hashrate_ideal = 2;
+  // CT1 populates power only with complete shared-assignment board coverage.
+  // This is hashboard output watts, not facility or PSU input power. Consumers
+  // must use current_measurements to distinguish unavailable from real zero.
+  double power = 3;
+  int32 active_boards = 4;
+  int32 total_boards = 5;
+  string active_pool = 6;
+  int64 uptime_seconds = 7;
+  double efficiency = 8;
+  bool mining = 9;
+  map<string, int32> boards_by_state = 10;
+  double share_acceptance_rate = 11;
+  MiningOperatingState operating_state = 12;
+  optional double average_asic_temperature_c = 13;
+  optional double average_hashboard_temperature_c = 14;
+  // Current CT1 persisted board measurements with independent coverage and
+  // freshness. Partial values cover reporting boards only; legacy numeric
+  // fields are populated only with complete shared-assignment coverage.
+  MiningCurrentMeasurements current_measurements = 15;
+}
+
+enum MiningMeasurementSource {
+  MINING_MEASUREMENT_SOURCE_UNSPECIFIED = 0;
+  MINING_MEASUREMENT_SOURCE_PERSISTED_BOARD_HEALTH = 1;
+}
+
+enum MiningMeasurementScope {
+  MINING_MEASUREMENT_SCOPE_UNSPECIFIED = 0;
+  MINING_MEASUREMENT_SCOPE_SHARED_ASSIGNMENTS = 1;
+  // The fallback roster is process-local and cannot establish HA-wide coverage.
+  MINING_MEASUREMENT_SCOPE_LOCAL_SNAPSHOTS = 2;
+}
+
+// MiningCurrentMeasurements reuses the health read used for board counts.
+// Temperatures weight reporting boards equally; board temperature first takes
+// the mean of its finite sensors. ASIC temperature uses each board's persisted
+// ASIC-frame mean and its independent observation time.
+message MiningCurrentMeasurements {
+  MiningCurrentMeasurement hashboard_power_w = 1;
+  MiningCurrentMeasurement average_hashboard_temperature_c = 2;
+  MiningCurrentMeasurement average_asic_temperature_c = 3;
+  MiningMeasurementSource source = 4;
+  MiningMeasurementScope scope = 5;
+  google.protobuf.Timestamp evaluated_at = 6;
+  uint32 max_age_seconds = 7;
+}
+
+// MiningCurrentMeasurement distinguishes missing readings from measured zero.
+// complete means every board in the indicated roster has a current valid value.
+message MiningCurrentMeasurement {
+  optional double value = 1;
+  uint32 expected_boards = 2;
+  uint32 reporting_boards = 3;
+  bool complete = 4;
+  google.protobuf.Timestamp oldest_observed_at = 5;
+  google.protobuf.Timestamp newest_observed_at = 6;
+}
+
+message GetTargetPowerRequest {}
+
+// PerformanceMode selects whether the miner prioritizes maximum hashrate or
+// efficiency within its power target. It is distinct from TuningAlgorithm.
+enum PerformanceMode {
+  PERFORMANCE_MODE_UNSPECIFIED = 0;
+  PERFORMANCE_MODE_MAXIMUM_HASHRATE = 1;
+  PERFORMANCE_MODE_EFFICIENCY = 2;
+}
+
+message GetTargetPowerResponse {
+  // watts is the current applied target.
+  double watts = 1;
+  optional double minimum_watts = 2;
+  optional double maximum_watts = 3;
+  optional double default_watts = 4;
+  PerformanceMode performance_mode = 5;
+  optional bool balance_bays = 6;
+  optional bool hash_on_disconnect = 7;
+}
+
+message SetTargetPowerRequest {
+  double watts = 1;
+  PerformanceMode performance_mode = 2;
+  optional bool balance_bays = 3;
+  optional bool hash_on_disconnect = 4;
+}
+
+message SetTargetPowerResponse {
+  // watts is the applied target after validation and clamping.
+  double watts = 1;
+  PerformanceMode performance_mode = 2;
+  optional bool balance_bays = 3;
+  optional bool hash_on_disconnect = 4;
+}
+
+message GetTuningRequest {}
+
+// GetTuningResponse reports the canonical tuning algorithm currently applied.
+message GetTuningResponse {
+  TuningAlgorithm mode = 1;
+  reserved 2, 3;
+  reserved "r2_algorithm", "ct1_algorithm";
+}
+
+message SetTuningRequest {
+  // mode selects one explicit canonical algorithm. Unspecified is invalid.
+  TuningAlgorithm mode = 1;
+  reserved 2, 3;
+  reserved "r2_algorithm", "ct1_algorithm";
+}
+
+message SetTuningResponse {
+  // mode is the authoritative canonical algorithm after application.
+  TuningAlgorithm mode = 1;
+  reserved 2, 3;
+  reserved "r2_algorithm", "ct1_algorithm";
+}
+
+message EnableVoltageTuningRequest {}
+
+message EnableVoltageTuningResponse {
+  int32 boards_updated = 1;
+}
+
+message SetFixedVoltageRequest {
+  // millivolts must be between 26,000 and 30,000 inclusive.
+  uint32 millivolts = 1;
+}
+
+message SetFixedVoltageResponse {
+  int32 boards_updated = 1;
+  uint32 millivolts = 2;
+}
+
+enum ModuleVoltageReadiness {
+  MODULE_VOLTAGE_READINESS_UNSPECIFIED = 0;
+  MODULE_VOLTAGE_READINESS_READY = 1;
+  MODULE_VOLTAGE_READINESS_LIMITS_UNAVAILABLE = 2;
+  MODULE_VOLTAGE_READINESS_NO_MEMBERS = 3;
+  MODULE_VOLTAGE_READINESS_TARGET_OUTSIDE_LIMITS = 4;
+  MODULE_VOLTAGE_READINESS_NO_COMMON_RANGE = 5;
+}
+
+// ModuleVoltageSetting is one durable module voltage setting. An absent
+// fixed_millivolts field means firmware automatic voltage tuning.
+message ModuleVoltageSetting {
+  string module_id = 1;
+  optional uint32 fixed_millivolts = 2;
+  uint32 supported_minimum_millivolts = 3;
+  uint32 supported_maximum_millivolts = 4;
+  int32 board_count = 5;
+  ModuleVoltageReadiness readiness = 6;
+  string readiness_message = 7;
+  string updated_by = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+message ListModuleVoltageSettingsRequest {}
+
+message ListModuleVoltageSettingsResponse {
+  repeated ModuleVoltageSetting settings = 1;
+}
+
+message SetModuleFixedVoltageRequest {
+  string module_id = 1;
+  uint32 millivolts = 2;
+}
+
+message SetModuleFixedVoltageResponse {
+  ModuleVoltageSetting setting = 1;
+  int32 boards_updated = 2;
+  repeated BoardResult results = 3;
+}
+
+message ClearModuleFixedVoltageRequest {
+  string module_id = 1;
+}
+
+message ClearModuleFixedVoltageResponse {
+  ModuleVoltageSetting setting = 1;
+  int32 boards_updated = 2;
+  repeated BoardResult results = 3;
+}
+
+message StartMiningRequest {}
+
+message StartMiningResponse {}
+
+message StopMiningRequest {}
+
+message StopMiningResponse {}
+
+// BoardScope selects hashboards. identifiers are MAC addresses or serials; modules
+// selects whole container modules by tank/module. The selections union (OR); at
+// least one is required.
+message BoardScope {
+  repeated string identifiers = 1;
+  repeated ModuleSelector modules = 2;
+}
+
+// ModuleSelector selects a container module by tank and module number.
+message ModuleSelector {
+  int32 tank = 1;
+  int32 module = 2;
+}
+
+// BoardResult reports the per-board outcome of a scoped operation.
+message BoardResult {
+  string mac_address = 1;
+  bool applied = 2; // True if the operation reached this board.
+  string message = 3; // Reason when applied is false (not-managed/reserved/disconnected).
+}
+
+message StartMiningScopedRequest {
+  BoardScope scope = 1;
+}
+
+message StartMiningScopedResponse {
+  int32 boards_started = 1;
+  repeated BoardResult results = 2;
+}
+
+message StopMiningScopedRequest {
+  BoardScope scope = 1;
+}
+
+message StopMiningScopedResponse {
+  int32 boards_stopped = 1;
+  repeated BoardResult results = 2;
+}
+
+message SetPowerTargetScopedRequest {
+  BoardScope scope = 1;
+  // watts is the manual per-board power target.
+  double watts = 2;
+  // pll_algorithm selects the firmware PLL tuning algorithm used with watts.
+  // Unspecified preserves the historical behavior and selects NONE.
+  PLLAlgorithm pll_algorithm = 3;
+}
+
+message SetPowerTargetScopedResponse {
+  int32 boards_updated = 1;
+  repeated BoardResult results = 2;
+}
+
+message ClearPowerTargetScopedRequest {
+  BoardScope scope = 1;
+}
+
+message ClearPowerTargetScopedResponse {
+  int32 boards_updated = 1;
+  repeated BoardResult results = 2;
+}
+
+message SetIsolationRequest {
+  BoardScope scope = 1;
+  bool isolated = 2; // true = isolate, false = clear.
+  // reason is an operator note (e.g. who has claimed the unit and why). It is
+  // stored in the shared isolation ledger and returned by ListIsolation.
+  string reason = 3;
+}
+
+message SetIsolationResponse {
+  int32 boards_changed = 1;
+  repeated BoardResult results = 2;
+}
+
+message ListIsolationRequest {}
+
+// IsolatedBoard describes one isolated hashboard.
+message IsolatedBoard {
+  string mac_address = 1;
+  int32 tank = 2; // 0 if unknown.
+  int32 module = 3; // 0 if unknown.
+  string serial = 4; // Empty if unknown.
+  // reason is the operator-entered note recorded when the board was isolated
+  // (e.g. who has claimed the unit and why).
+  string reason = 6;
+  // isolated_by is the server that recorded the isolation.
+  string isolated_by = 7;
+  // isolated_at is when the isolation was recorded.
+  google.protobuf.Timestamp isolated_at = 8;
+  // desired_watts, when present, is the scoped manual per-board target recorded
+  // in the shared isolation ledger.
+  optional double desired_watts = 9;
+  // desired_pll_algorithm is the requested PLL algorithm recorded alongside
+  // desired_watts. It is not firmware readback of the effective algorithm.
+  PLLAlgorithm desired_pll_algorithm = 10;
+  // enforced reports whether this node is actively enforcing the isolation.
+  // It is false when no current node manages or owns the ledger-isolated board.
+  bool enforced = 5;
+}
+
+message ListIsolationResponse {
+  repeated IsolatedBoard boards = 1;
+}

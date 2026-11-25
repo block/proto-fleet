@@ -3,30 +3,38 @@ export { default as useMinerStore } from "./useMinerStore";
 export type {
   ChartDataPoint,
   Measurement,
-  MetricUnit,
+  DisplayMetricUnit,
   AsicHardwareData,
   HashboardHardwareData,
   MinerHardwareData,
   ControlBoardHardwareData,
-  AsicTelemetryData,
-  HashboardTelemetryData,
-  MinerTelemetryData,
   AsicData,
   HashboardData,
   MinerData,
-  MetricTimeSeries,
   PsuHardwareData,
-  PsuTelemetryData,
   PsuData,
   FanHardwareData,
-  FanTelemetryData,
   FanData,
 } from "./types";
 
-export { convertValueUnits, formatValue, convertAndFormatMeasurement } from "./utils/telemetryUtils";
+export type { MetricTimeSeries, MetricTelemetry } from "./contract";
+
+export {
+  convertValueUnits,
+  formatValue,
+  convertAndFormatMeasurement,
+  temperatureDisplayUnit,
+} from "./utils/telemetryUtils";
 
 export { getAsicId } from "./utils/getAsicId";
+export { getFanId, getHashboardId, getPsuId } from "./utils/entityIds";
 export { getAsicName } from "./utils/getAsicName";
+export {
+  getContainerAsicLabel,
+  CONTAINER_HASHBOARD_COLUMNS,
+  CONTAINER_HASHBOARD_ROWS,
+  CONTAINER_HASHBOARD_ROW_LETTERS,
+} from "./utils/containerHashboardLayout";
 
 export {
   useMiner,
@@ -35,15 +43,16 @@ export {
   useMinerAsic,
   useMinerHashboardAsics,
   useMinerPsu,
+  useMinerPsuById,
   useMinerPsus,
   useMinerFan,
   useMinerFans,
   useChartDataForMetric,
   useAsicDataTransform,
 } from "./hooks/useMiner";
+export type { KpiChartSeries, KpiMetricName } from "./hooks/kpiChartData";
 
 export {
-  useMinerTelemetry,
   useHashboardsTelemetry,
   useHashboardTelemetry,
   useAsicsTelemetry,
@@ -53,7 +62,6 @@ export {
   useFansTelemetry,
   useFanTelemetry,
   useCoolingMode,
-  useIntervalMs,
 } from "./hooks/useTelemetry";
 
 export {
@@ -68,6 +76,8 @@ export {
   useSetDeviceTheme,
   useTemperatureUnit,
   useSetTemperatureUnit,
+  useFlowUnit,
+  useSetFlowUnit,
   useFirmwareUpdateDismissed,
   useSetFirmwareUpdateDismissed,
   useShowLoginModal,
@@ -83,7 +93,6 @@ export type { Theme, ThemeColor, TemperatureUnit } from "./types";
 export {
   useMinerHardware,
   useHashboardsHardware,
-  useHashboardSerials,
   useHashboardSerialsByBay,
   useHashboardHardware,
   useHashboardsByBay,
@@ -142,17 +151,23 @@ export {
   useSerialNumber,
   useOSVersion,
   useFwUpdateStatus,
+  useSystemTagValue,
   useSystemInfoPending,
   useSystemInfoError,
   useIsProtoRig,
+  useDeviceType,
+  useModuleModel,
   useIsWebServerRunning,
   useIsMiningDriverRunning,
   useHasFirmwareUpdate,
   useFirmwareUpdateInstalling,
   useSetSystemInfo,
+  useSetSystemTag,
   useSetSystemInfoError,
   useSetSystemInfoPending,
 } from "./hooks/useSystemInfo";
+
+export type { DeviceType } from "./slices/systemInfoSlice";
 
 export {
   useNetworkInfo,
@@ -169,7 +184,7 @@ export {
   useSetNetworkInfoPending,
 } from "./hooks/useNetworkInfo";
 
-export type { MiningStatus } from "./slices/minerStatusSlice";
+export type { MiningStatus } from "./contract";
 export type { MinerError, ErrorSource } from "./types";
 
 export {
@@ -179,7 +194,6 @@ export {
   useSetAuthTokens,
   useSetAuthLoading,
   useLogout,
-  useAuthHeader,
   useAuthErrors,
   useAccessToken,
 } from "./hooks/useAuth";
@@ -195,6 +209,7 @@ export {
   useMiningTargetDefault,
   useMiningTargetPerformanceMode,
   useMiningTargetBounds,
+  useMiningTargetStatus,
   useMiningTargetPending,
   useMiningTargetError,
   useSetMiningTargetValue,

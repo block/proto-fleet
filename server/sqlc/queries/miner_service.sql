@@ -2,6 +2,7 @@
 SELECT
     d.id,
     d.device_identifier,
+    dd.device_class,
     dd.model,
     dd.manufacturer,
     dd.driver_name,
@@ -13,11 +14,19 @@ SELECT
     dd.ip_address,
     dd.port,
     dd.url_scheme,
-    d.site_id
+    dd.rpc_port,
+    dd.rpc_tls,
+    dd.endpoints::text AS endpoints,
+    d.site_id,
+    d.discovered_device_id,
+    dp.paired_at,
+    mc.updated_at AS credential_version,
+    COALESCE(f.epoch,0)::bigint AS write_epoch
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN miner_credentials mc ON d.id = mc.device_id
+LEFT JOIN device_write_fence f ON f.device_id=d.id AND f.organization_id=d.org_id
 WHERE d.device_identifier = $1
     AND d.deleted_at IS NULL
     AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
@@ -29,52 +38,11 @@ WHERE d.device_identifier = $1
     )
 LIMIT 1;
 
--- name: GetDirectProtoMinerProxyTarget :one
+-- name: GetDeviceWriteDeletionBindings :many
 SELECT
     d.id,
     d.device_identifier,
-    d.org_id,
-    d.site_id,
-    d.serial_number,
-    d.mac_address,
-    dd.ip_address,
-    dd.port,
-    dd.url_scheme,
-    dd.driver_name,
-    mc.username_enc,
-    mc.password_enc
-FROM device d
-JOIN discovered_device dd ON d.discovered_device_id = dd.id
-JOIN device_pairing dp ON d.id = dp.device_id
-LEFT JOIN miner_credentials mc ON d.id = mc.device_id
-WHERE d.device_identifier = $1
-    AND d.org_id = $2
-    AND d.deleted_at IS NULL
-    -- Match the miner-list eligibility: a soft-deleted or inactive discovery
-    -- row must not be proxyable via a bookmarked /miners/:id URL, or the proxy
-    -- could keep dialing a stale/reassigned address with stored credentials.
-    AND dd.is_active = TRUE
-    AND dd.deleted_at IS NULL
-    AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
-    AND dd.driver_name = 'proto'
-    -- This HTTP proxy dials the miner from fleet-api. Fleet-node-owned
-    -- devices need a result-capable typed control command instead.
-    AND NOT EXISTS (
-        SELECT 1 FROM fleet_node_device fnd
-        WHERE fnd.device_id = d.id AND fnd.org_id = d.org_id
-    )
-LIMIT 1;
-
--- name: GetFleetNodeTelemetryRouteByDeviceIdentifier :one
--- Resolve the active fleet node and all connection metadata needed for a
--- telemetry sample and remote miner command routing. The server sends this to
--- the node because the node has no database, then validates that the returned
--- telemetry matches this trusted device identifier before storing it.
-SELECT
-    fnd.fleet_node_id,
-    d.id,
-    d.device_identifier,
-    d.site_id,
+    dd.device_class,
     dd.model,
     dd.manufacturer,
     dd.driver_name,
@@ -86,15 +54,125 @@ SELECT
     dd.ip_address,
     dd.port,
     dd.url_scheme,
-    dd.firmware_version
-FROM fleet_node_device fnd
-JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id AND d.deleted_at IS NULL
-JOIN device_pairing dp ON dp.device_id = d.id
-JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
-JOIN discovered_device dd ON dd.id = d.discovered_device_id
+    dd.rpc_port,
+    dd.rpc_tls,
+    dd.endpoints::text AS endpoints,
+    d.site_id,
+    d.discovered_device_id,
+    dp.paired_at,
+    mc.updated_at AS credential_version,
+    COALESCE(f.epoch,0)::bigint AS write_epoch
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN miner_credentials mc ON d.id = mc.device_id
-WHERE d.device_identifier = $1
+LEFT JOIN device_write_fence f ON f.device_id=d.id AND f.organization_id=d.org_id
+WHERE d.id = ANY(sqlc.arg(device_ids)::bigint[])
+    AND d.org_id = sqlc.arg(organization_id)
+    AND dd.driver_name = 'proto'
+    AND d.deleted_at IS NULL
     AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
-    AND fn.deleted_at IS NULL
-    AND fn.enrollment_status = 'CONFIRMED'
+    -- Cloud dials this device directly, so exclude fleet-node-owned devices:
+    -- the node owns their I/O and the cloud has no route to them.
+    AND NOT EXISTS (
+        SELECT 1 FROM fleet_node_device fnd
+        WHERE fnd.device_id = d.id AND fnd.org_id = d.org_id
+    )
+ORDER BY d.id;
+
+-- name: GetProtoMinerProxyTarget :one
+SELECT
+    d.id,
+    d.device_identifier,
+    d.org_id,
+    d.site_id,
+    d.serial_number,
+    d.mac_address,
+    dd.ip_address,
+    dd.port,
+    dd.url_scheme,
+    dd.rpc_port,
+    dd.rpc_tls,
+    dd.endpoints::text AS endpoints,
+    dd.driver_name,
+    dd.device_class,
+    fnd.fleet_node_id,
+    mc.username_enc,
+    mc.password_enc,
+    d.discovered_device_id,
+    dp.paired_at,
+    mc.updated_at AS credential_version,
+    COALESCE(f.epoch,0)::bigint AS write_epoch
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN miner_credentials mc ON d.id = mc.device_id
+LEFT JOIN device_write_fence f ON f.device_id=d.id AND f.organization_id=d.org_id
+LEFT JOIN fleet_node_device fnd ON fnd.device_id=d.id AND fnd.org_id=d.org_id
+LEFT JOIN fleet_node fn ON fn.id=fnd.fleet_node_id AND fn.org_id=fnd.org_id
+WHERE d.device_identifier = $1
+    AND d.org_id = $2
+    AND d.deleted_at IS NULL
+    -- Match the miner-list eligibility: a soft-deleted or inactive discovery
+    -- row must not be proxyable via a bookmarked /miners/:id URL, or the proxy
+    -- could keep dialing a stale/reassigned address with stored credentials.
+    AND dd.is_active = TRUE
+    AND dd.deleted_at IS NULL
+    AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+    AND dd.driver_name = 'proto'
+    AND (fnd.device_id IS NULL OR (
+        dd.device_class = 1
+        AND fn.deleted_at IS NULL AND fn.enrollment_status = 'CONFIRMED'
+        AND dd.discovered_by_fleet_node_id = fnd.fleet_node_id
+    ))
+LIMIT 1;
+
+-- name: GetFleetNodeTelemetryRouteByDeviceIdentifier :one
+-- Resolve the active fleet node and all connection metadata needed for a
+-- telemetry sample and remote miner command routing. The server sends this to
+-- the node because the node has no database, then validates that the returned
+-- telemetry matches this trusted device identifier before storing it.
+-- MATERIALIZED keeps the planner from flattening this back into a seven-table
+-- join: ownership resolves first, then metadata, credentials and fence.
+WITH route AS MATERIALIZED (
+    SELECT d.id, d.device_identifier, d.site_id, d.org_id, d.serial_number,
+        d.mac_address, d.discovered_device_id, fnd.fleet_node_id, dp.paired_at
+    FROM fleet_node_device fnd
+    JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id AND d.deleted_at IS NULL
+    JOIN device_pairing dp ON dp.device_id = d.id
+    JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+    WHERE d.device_identifier = $1
+        AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+        AND fn.deleted_at IS NULL
+        AND fn.enrollment_status = 'CONFIRMED'
+)
+SELECT
+    r.fleet_node_id,
+    r.id,
+    r.device_identifier,
+    r.site_id,
+    dd.device_class,
+    dd.model,
+    dd.manufacturer,
+    dd.driver_name,
+    r.org_id,
+    r.serial_number,
+    r.mac_address,
+    mc.username_enc,
+    mc.password_enc,
+    dd.ip_address,
+    dd.port,
+    dd.url_scheme,
+    dd.rpc_port,
+    dd.rpc_tls,
+    dd.endpoints::text AS endpoints,
+    dd.firmware_version,
+    r.discovered_device_id,
+    r.paired_at,
+    mc.updated_at AS credential_version,
+    COALESCE(f.epoch,0)::bigint AS write_epoch
+FROM route r
+JOIN discovered_device dd ON dd.id = r.discovered_device_id
+LEFT JOIN miner_credentials mc ON r.id = mc.device_id
+LEFT JOIN device_write_fence f ON f.device_id=r.id AND f.organization_id=r.org_id
 LIMIT 1;

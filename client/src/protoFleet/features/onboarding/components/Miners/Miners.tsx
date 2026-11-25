@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import clsx from "clsx";
 import FoundMiners from "./FoundMiners";
 import FoundMinersModal from "./FoundMinersModal";
-import { MinerDiscoveryMode } from "./types";
+import { type MinerDiscoveryMode, type RemoteDiscoveryReadiness } from "./types";
 import ValidationErrorDialog from "./ValidationErrorDialog";
 import { Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
+import { type FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 import FullScreenModalHeaderActions from "@/protoFleet/components/FullScreenModalHeaderActions";
 import NullState from "@/protoFleet/components/NullState";
 import { useHasPermission } from "@/protoFleet/store";
-import { Alert, Dismiss, LogoAlt } from "@/shared/assets/icons";
+import { Alert, Dismiss, Info, LogoAlt } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { type ButtonProps } from "@/shared/components/ButtonGroup";
 import Callout from "@/shared/components/Callout";
@@ -22,6 +23,37 @@ import Textarea from "@/shared/components/Textarea";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 import { CategorizedInvalidEntries, ManualDiscoveryTargets, parseManualTargets } from "@/shared/utils/ipParsing";
 
+const REMOTE_DISCOVERY_GUIDANCE: Record<
+  Exclude<RemoteDiscoveryReadiness, "none">,
+  { message: string; intent: "information" | "warning"; adminAction: string }
+> = {
+  noNodes: {
+    message: "No Fleet Nodes set up",
+    intent: "information",
+    adminAction: "Ask an administrator to set up a node.",
+  },
+  enrollmentIncomplete: {
+    message: "Complete Fleet Node enrollment",
+    intent: "information",
+    adminAction: "Ask an administrator to finish enrolling the node.",
+  },
+  partialCoverage: {
+    message: "Some Fleet Nodes can't scan. Results may be incomplete.",
+    intent: "warning",
+    adminAction: "Ask an administrator to check Fleet Nodes.",
+  },
+  discoveryNotConfigured: {
+    message: "Configure Fleet Node discovery ranges",
+    intent: "information",
+    adminAction: "Ask an administrator to configure discovery ranges on the node.",
+  },
+  checkFailed: {
+    message: "Couldn't check Fleet Nodes. Results may be incomplete.",
+    intent: "warning",
+    adminAction: "Ask an administrator to check Fleet Nodes.",
+  },
+};
+
 interface MinersProps {
   scanDiscoveryPending: boolean;
   manualDiscoveryPending: boolean;
@@ -29,14 +61,21 @@ interface MinersProps {
   networkInfoPending: boolean;
   scanAvailable: boolean;
   foundMiners: Device[];
+  fleetNodes?: FleetNodeItem[];
   onCancelScan: () => void;
   onManualDiscover: (targets: ManualDiscoveryTargets) => void;
   onContinue: (selectedMinerIdentifiers: string[]) => void;
   onRescan: () => void;
   onForemanImport?: (apiKey: string, clientId: string) => void;
   foremanImportPending?: boolean;
-  remoteDiscoveryWarning?: string;
+  remoteDiscoveryReadiness?: RemoteDiscoveryReadiness;
   mode?: MinerDiscoveryMode;
+  initialStep?: "findMiners" | "pairing";
+  canAddMiners?: boolean;
+  maxSelectedMiners?: number;
+  notice?: ReactNode;
+  children?: ReactNode;
+  allowDismissWhilePairing?: boolean;
 }
 
 // Minimum time to show the loading animation in milliseconds (only for network scan)
@@ -49,14 +88,21 @@ const Miners = ({
   networkInfoPending,
   scanAvailable,
   foundMiners,
+  fleetNodes,
   onCancelScan,
   onManualDiscover,
   onContinue,
   onRescan,
   onForemanImport,
   foremanImportPending = false,
-  remoteDiscoveryWarning,
+  remoteDiscoveryReadiness,
   mode = "onboarding",
+  initialStep = "findMiners",
+  canAddMiners = true,
+  maxSelectedMiners,
+  notice,
+  children,
+  allowDismissWhilePairing = false,
 }: MinersProps) => {
   const [deselectedMiners, setDeselectedMiners] = useState<Device["deviceIdentifier"][]>([]);
   const loadingTimeoutId = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -65,7 +111,7 @@ const Miners = ({
   const [ipListError, setIpListError] = useState<string | boolean>(false);
   const [showModal, setShowModal] = useState(false);
   const [showFoundMinersModal, setShowFoundMinersModal] = useState(false);
-  const [activeStep, setActiveStep] = useState<"findMiners" | "pairing">("findMiners");
+  const [activeStep, setActiveStep] = useState<"findMiners" | "pairing">(initialStep);
   const [showValidationErrorDialog, setShowValidationErrorDialog] = useState(false);
   const [categorizedInvalidEntries, setCategorizedInvalidEntries] = useState<CategorizedInvalidEntries | null>(null);
   const [pendingValidTargets, setPendingValidTargets] = useState<ManualDiscoveryTargets | null>(null);
@@ -91,25 +137,48 @@ const Miners = ({
       return true;
     });
   }, [foundMiners]);
-  const selectedDisplayMiners = displayMiners.filter((miner) => !deselectedMiners.includes(miner.deviceIdentifier));
+  const deselectedMinerIds = useMemo(() => new Set(deselectedMiners), [deselectedMiners]);
+  const selectedDisplayMiners = useMemo(
+    () => displayMiners.filter((miner) => !deselectedMinerIds.has(miner.deviceIdentifier)),
+    [displayMiners, deselectedMinerIds],
+  );
   const useCompactHeaderActions = isPhone;
   const canReadFleetNodes = useHasPermission("fleetnode:read");
-  const coverageWarning = remoteDiscoveryWarning ? (
-    <Callout
-      className={activeStep === "findMiners" ? "mt-6" : "mb-6"}
-      intent="warning"
-      prefixIcon={<Alert />}
-      title={remoteDiscoveryWarning}
-      subtitle={
-        canReadFleetNodes ? (
-          <Link to="/settings/nodes" className="underline">
-            View Fleet Node settings
-          </Link>
-        ) : undefined
-      }
-      testId="remote-discovery-warning"
-    />
-  ) : null;
+  const canManageFleetNodes = useHasPermission("fleetnode:manage");
+  const visibleFleetNodes = useMemo(
+    () => fleetNodes && (canReadFleetNodes ? fleetNodes : []),
+    [fleetNodes, canReadFleetNodes],
+  );
+  const guidance =
+    remoteDiscoveryReadiness && remoteDiscoveryReadiness !== "none"
+      ? REMOTE_DISCOVERY_GUIDANCE[remoteDiscoveryReadiness]
+      : undefined;
+  const remoteNetworkPrerequisite =
+    remoteDiscoveryReadiness && (activeStep === "findMiners" || guidance?.intent === "warning") ? (
+      <Callout
+        className={activeStep === "findMiners" ? "mt-6" : undefined}
+        intent={guidance?.intent ?? "information"}
+        prefixIcon={guidance?.intent === "warning" ? <Alert /> : <Info />}
+        title={guidance ? <span data-testid="remote-discovery-guidance">{guidance.message}</span> : "Remote networks"}
+        subtitle={
+          <>
+            {activeStep === "findMiners" ? (
+              <p>
+                To find miners on a network Fleet can't reach directly, install and enroll Fleet Node on a Linux machine
+                connected to that network.
+              </p>
+            ) : null}
+            {guidance && (!canReadFleetNodes || !canManageFleetNodes) ? <p>{guidance.adminAction}</p> : null}
+            {canReadFleetNodes ? (
+              <Link to="/settings/nodes" className="underline">
+                Manage Nodes
+              </Link>
+            ) : null}
+          </>
+        }
+        testId="remote-network-prerequisite"
+      />
+    ) : null;
 
   // Handle loading state with minimum display time
   useEffect(() => {
@@ -230,7 +299,7 @@ const Miners = ({
                 },
               ]
             : []),
-          ...(activeStep === "pairing" && displayMiners.length > 1
+          ...(activeStep === "pairing" && canAddMiners && displayMiners.length > 1
             ? [
                 {
                   variant: variants.secondary,
@@ -243,7 +312,7 @@ const Miners = ({
                 },
               ]
             : []),
-          ...(activeStep === "pairing" && displayMiners.length > 0
+          ...(activeStep === "pairing" && canAddMiners && displayMiners.length > 0
             ? [
                 {
                   variant: variants.primary,
@@ -257,7 +326,10 @@ const Miners = ({
                     const selectedMinerIdentifiers = selectedDisplayMiners.map((miner) => miner.deviceIdentifier);
                     onContinue(selectedMinerIdentifiers);
                   },
-                  disabled: pairingPending || selectedDisplayMiners.length === 0,
+                  disabled:
+                    pairingPending ||
+                    selectedDisplayMiners.length === 0 ||
+                    (maxSelectedMiners !== undefined && selectedDisplayMiners.length > maxSelectedMiners),
                   testId: "add-miners-continue",
                   text: pairingPending
                     ? useCompactHeaderActions
@@ -273,7 +345,12 @@ const Miners = ({
 
   return (
     <div className="h-[calc(100dvh-theme(spacing.1)*15)]">
-      <Dialog open={pairingPending} title="Pairing the found miners" subtitle="This may take a few seconds" loading />
+      <Dialog
+        open={Boolean(pairingPending && !allowDismissWhilePairing)}
+        title="Pairing the found miners"
+        subtitle="This may take a few seconds"
+        loading
+      />
 
       {mode === "onboarding" ? (
         <NullState
@@ -294,7 +371,7 @@ const Miners = ({
             className="sticky top-0 z-10 bg-surface-base px-6 pt-6 pb-4"
             title="Add miners"
             titleSize="text-heading-200 truncate"
-            {...(pairingPending
+            {...(pairingPending && !allowDismissWhilePairing
               ? {
                   icon: <Dismiss />,
                 }
@@ -329,7 +406,7 @@ const Miners = ({
                 inline
               />
 
-              {coverageWarning}
+              {remoteNetworkPrerequisite}
 
               <div className={clsx("my-6 grid grid-cols-1 gap-4", onForemanImport && "tablet:grid-cols-2")}>
                 <div
@@ -340,7 +417,7 @@ const Miners = ({
                     inline
                     title="Scan your network"
                     titleSize="text-heading-200"
-                    description="Scan your network to find miners to add to your fleet or provide miner IP addresses and hostnames to find miners to add to your fleet."
+                    description="Find miners on networks reachable by Fleet or your Fleet Nodes."
                   />
                   <div>
                     <Button
@@ -368,7 +445,7 @@ const Miners = ({
                       inline
                       title="Import from Foreman"
                       titleSize="text-heading-200"
-                      description="Connect your Foreman account to import your existing miners, including pool configuration and group assignments."
+                      description="Import miners, groups, racks, and names from Foreman."
                     />
                     <div>
                       <Button variant={variants.primary} size={sizes.base} onClick={() => setShowForemanModal(true)}>
@@ -384,7 +461,7 @@ const Miners = ({
                   inline
                   title="Enter network info manually"
                   titleSize="text-heading-200"
-                  description="Add your IP addresses and/or hostnames, IP ranges, or subnets. Separate entries with commas or line breaks. Examples: 10.32.1.100, 192.168.1.0/24, 10.32.1.100 - 10.32.1.150"
+                  description="Enter IP addresses, hostnames, IP ranges, or subnets, separated by commas or line breaks."
                 />
                 <div>
                   <div className="space-y-4">
@@ -393,7 +470,7 @@ const Miners = ({
                       initValue={textareaValue}
                       id="ipAddresses"
                       testId="ipAddresses"
-                      label="IP Addresses"
+                      label="IP addresses"
                       error={ipListError}
                     />
                   </div>
@@ -420,7 +497,8 @@ const Miners = ({
           ) : null}
           {activeStep === "pairing" ? (
             <div className="mx-auto w-full max-w-4xl px-6 pt-10">
-              {coverageWarning}
+              {remoteNetworkPrerequisite ? <div className="mb-6">{remoteNetworkPrerequisite}</div> : null}
+              {notice}
               <FoundMiners
                 miners={displayMiners}
                 deselectedMiners={deselectedMiners}
@@ -428,15 +506,19 @@ const Miners = ({
                 isScanning={discoveryPending}
                 showSkeleton={showLoadingSkeleton}
               />
-              {displayMiners.length > 0 ? (
+              {maxSelectedMiners !== undefined && selectedDisplayMiners.length > maxSelectedMiners ? (
+                <p role="status" className="mt-4 text-300 text-intent-warning-fill">
+                  Select at most {maxSelectedMiners} miners per request.
+                </p>
+              ) : null}
+              {children}
+              {showFoundMinersModal && displayMiners.length > 0 ? (
                 <FoundMinersModal
-                  open={showFoundMinersModal}
+                  open
                   setDeselectedMiners={setDeselectedMiners}
-                  miners={displayMiners.map((miner) => ({
-                    ...miner,
-                    selected: !deselectedMiners.includes(miner.deviceIdentifier),
-                  }))}
-                  models={Array.from(new Set(displayMiners.map((miner) => miner.model)))}
+                  fleetNodes={visibleFleetNodes}
+                  miners={displayMiners}
+                  deselectedMinerIds={deselectedMinerIds}
                   onDismiss={() => setShowFoundMinersModal(false)}
                 />
               ) : null}
@@ -448,7 +530,7 @@ const Miners = ({
       <Modal
         open={showForemanModal}
         title="Import from Foreman"
-        description="Connect your Foreman account to import miners"
+        description="Import miners and their details. Configure pools separately in Fleet; Foreman does not provide pool passwords."
         onDismiss={() => setShowForemanModal(false)}
         buttons={[
           {

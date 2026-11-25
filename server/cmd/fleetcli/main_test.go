@@ -87,8 +87,8 @@ func TestGeneratedLeafCommandsMatchManifest(t *testing.T) {
 		want[strings.Join(parts, " ")] = true
 	}
 	got := leafCommandPaths(generatedCommands())
-	if len(got) != 118 || len(want) != 118 {
-		t.Fatalf("generated leaves = %d, manifest leaves = %d, want 118 each", len(got), len(want))
+	if len(got) != 127 || len(want) != 127 {
+		t.Fatalf("generated leaves = %d, manifest leaves = %d, want 127 each", len(got), len(want))
 	}
 	for path := range want {
 		if !got[path] {
@@ -100,8 +100,8 @@ func TestGeneratedLeafCommandsMatchManifest(t *testing.T) {
 			t.Errorf("generated command %q missing from manifest", path)
 		}
 	}
-	if gotAll := leafCommandPaths(allCommands()); len(gotAll) != 133 {
-		t.Fatalf("all command leaves = %d, want 133", len(gotAll))
+	if gotAll := leafCommandPaths(allCommands()); len(gotAll) != 142 {
+		t.Fatalf("all command leaves = %d, want 142", len(gotAll))
 	}
 }
 
@@ -148,6 +148,53 @@ func TestGeneratedRequiredFieldsAcceptJSONOrFlags(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), `required field "action" must be provided with --action or --json`) {
 		t.Fatalf("schedule create missing fields error = %v, want merged-input validation", err)
+	}
+}
+
+func TestCurtailmentScheduleRuleCreateFromJSON(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+
+	var request map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /curtailment.v1.CurtailmentService/CreateCurtailmentAutomationRule", func(w http.ResponseWriter, r *http.Request) {
+		request = requestBodyMap(t, r)
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte(`{}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	// The example in docs/architecture/curtailment-schema.md.
+	requestPath := filepath.Join(t.TempDir(), "weeknight.json")
+	requestJSON := []byte(`{
+		"rule_name": "Weeknight peak",
+		"trigger_type": "CURTAILMENT_AUTOMATION_TRIGGER_TYPE_SCHEDULE",
+		"response_profile_id": 3001,
+		"expected_response_profile_revision": "11111111-1111-4111-8111-111111111111",
+		"schedule": {
+			"schedule_type": "CURTAILMENT_SCHEDULE_TYPE_RECURRING",
+			"timezone": "America/Chicago",
+			"start_date": "2026-06-01",
+			"start_time": "22:00",
+			"end_time": "06:00",
+			"frequency": "CURTAILMENT_SCHEDULE_FREQUENCY_WEEKLY",
+			"days_of_week": ["CURTAILMENT_SCHEDULE_DAY_OF_WEEK_MONDAY", "CURTAILMENT_SCHEDULE_DAY_OF_WEEK_FRIDAY"]
+		}
+	}`)
+	if err := os.WriteFile(requestPath, requestJSON, 0o600); err != nil {
+		t.Fatalf("write schedule rule request: %v", err)
+	}
+
+	err := newRootCommand().Run(context.Background(), []string{
+		"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+		"curtailment", "automation-rules", "create", "--json", requestPath,
+	})
+	if err != nil {
+		t.Fatalf("schedule rule create from JSON: %v", err)
+	}
+	schedule, ok := request["schedule"].(map[string]any)
+	if request["trigger_type"] != "CURTAILMENT_AUTOMATION_TRIGGER_TYPE_SCHEDULE" || !ok || schedule["timezone"] != "America/Chicago" {
+		t.Fatalf("schedule rule request = %#v, want the JSON trigger and schedule", request)
 	}
 }
 
@@ -310,6 +357,41 @@ func TestGeneratedComplexMutationsRequireJSON(t *testing.T) {
 	}
 }
 
+func TestGeneratedContainerAssignmentAllowsUnassignment(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+	var requests []map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /sites.v1.SiteService/AssignContainersToSite", func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, requestBodyMap(t, r))
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte(`{"reassigned_count":"1"}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	args := []string{"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key", "sites", "assign-containers", "--container-identifiers", "ct1"}
+	if err := newRootCommand().Run(t.Context(), append(append([]string{}, args...), "--target-site-id", "42")); err != nil {
+		t.Fatalf("assign container: %v", err)
+	}
+	if err := newRootCommand().Run(t.Context(), args); err != nil {
+		t.Fatalf("unassign container: %v", err)
+	}
+	if len(requests) != 2 {
+		t.Fatalf("got %d requests, want assign and unassign", len(requests))
+	}
+	if requests[0]["target_site_id"] != "42" {
+		t.Fatalf("assign body = %#v, want target site 42", requests[0])
+	}
+	if _, present := requests[1]["target_site_id"]; present {
+		t.Fatalf("unassign body = %#v, want omitted target", requests[1])
+	}
+	for _, request := range requests {
+		members, ok := request["container_identifiers"].([]any)
+		if !ok || len(members) != 1 || members[0] != "ct1" {
+			t.Fatalf("body = %#v, want container identifier ct1", request)
+		}
+	}
+}
+
 func TestGeneratedAssignmentsRequireTargetsAndMembers(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -318,6 +400,7 @@ func TestGeneratedAssignmentsRequireTargetsAndMembers(t *testing.T) {
 	}{
 		{name: "sites assign devices", command: findSubcommand(t, generatedSitesCommand(), "assign-devices"), requiredFlags: []string{"target-site-id", "device-identifiers"}},
 		{name: "sites assign buildings", command: findSubcommand(t, generatedSitesCommand(), "assign-buildings"), requiredFlags: []string{"target-site-id", "building-ids"}},
+		{name: "sites assign containers", command: findSubcommand(t, generatedSitesCommand(), "assign-containers"), requiredFlags: []string{"container-identifiers"}},
 		{name: "sites assign racks", command: findSubcommand(t, generatedSitesCommand(), "assign-racks"), requiredFlags: []string{"target-site-id", "rack-ids"}},
 		{name: "buildings assign devices", command: findSubcommand(t, generatedBuildingsCommand(), "assign-devices"), requiredFlags: []string{"target-building-id", "device-identifiers"}},
 	}
@@ -384,7 +467,17 @@ func TestGeneratedReviewedCommandsRejectIncompleteRequestsLocally(t *testing.T) 
 		{
 			name: "automation create",
 			args: []string{"curtailment", "automation-rules", "create"},
-			want: "rule-name",
+			want: `required field "expected_response_profile_revision"`,
+		},
+		{
+			name: "automation create without a trigger source",
+			args: []string{
+				"curtailment", "automation-rules", "create",
+				"--rule-name", "Evening peak",
+				"--response-profile-id", "1",
+				"--expected-response-profile-revision", "00000000-0000-0000-0000-000000000001",
+			},
+			want: "MQTT rules require mqtt_source_id and no schedule",
 		},
 		{
 			name: "response profile partial fan settings update",
@@ -418,9 +511,9 @@ func TestGeneratedReviewedCommandsRejectIncompleteRequestsLocally(t *testing.T) 
 			want: "invalid value for --fan-restore-delay-sec: 4294967296 exceeds maximum 4294967295",
 		},
 		{
-			name: "pool validate",
-			args: []string{"pools", "validate", "--pool-password-stdin"},
-			want: `required field "url"`,
+			name: "pool connection",
+			args: []string{"pools", "test-connection"},
+			want: "pool",
 		},
 	}
 
@@ -1297,107 +1390,60 @@ func TestBoundedMinerSelectorVerifiesDeviceSetIDs(t *testing.T) {
 	})
 }
 
-func TestDeviceSetStatsVerifyType(t *testing.T) {
+func TestDeviceSetStatsAndMembersVerifyType(t *testing.T) {
+	const (
+		statsRoute   = "POST /device_set.v1.DeviceSetService/GetDeviceSetStats"
+		membersRoute = "POST /device_set.v1.DeviceSetService/ListDeviceSetMembers"
+	)
 	tests := []struct {
 		name       string
 		args       []string
 		actualType string
+		route      string
+		response   string
 		wantError  string
 	}{
 		{
 			name:       "groups stats rejects rack id",
 			args:       []string{"groups", "stats", "--device-set-ids", "42"},
 			actualType: "DEVICE_SET_TYPE_RACK",
+			route:      statsRoute,
 			wantError:  "device set 42 is a rack, not a group",
 		},
 		{
 			name:       "racks stats rejects group id",
 			args:       []string{"racks", "stats", "--device-set-ids", "42"},
 			actualType: "DEVICE_SET_TYPE_GROUP",
+			route:      statsRoute,
 			wantError:  "device set 42 is a group, not a rack",
 		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			pinFleetAuthEnv(t, nil)
-
-			statsCount := 0
-			mux := http.NewServeMux()
-			mux.HandleFunc("POST /device_set.v1.DeviceSetService/GetDeviceSet", func(w http.ResponseWriter, _ *http.Request) {
-				w.Header().Set("Content-Type", contentTypeJSON)
-				_, _ = w.Write([]byte(`{"device_set":{"id":"42","type":"` + tt.actualType + `","label":"wrong-type"}}`))
-			})
-			mux.HandleFunc("POST /device_set.v1.DeviceSetService/GetDeviceSetStats", func(w http.ResponseWriter, r *http.Request) {
-				statsCount++
-				t.Errorf("unexpected stats request: %s %s", r.Method, r.URL.Path)
-				http.Error(w, "stats should not be called", http.StatusTeapot)
-			})
-			srv := httptest.NewServer(mux)
-			t.Cleanup(srv.Close)
-
-			err := newRootCommand().Run(context.Background(), append([]string{
-				"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
-			}, tt.args...))
-			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
-				t.Fatalf("fleetcli %s error = %v, want %q", strings.Join(tt.args, " "), err, tt.wantError)
-			}
-			if statsCount != 0 {
-				t.Fatalf("stats count = %d, want 0", statsCount)
-			}
-		})
-	}
-
-	t.Run("matching group id proceeds", func(t *testing.T) {
-		pinFleetAuthEnv(t, nil)
-
-		var calls []string
-		mux := http.NewServeMux()
-		mux.HandleFunc("POST /device_set.v1.DeviceSetService/GetDeviceSet", func(w http.ResponseWriter, _ *http.Request) {
-			calls = append(calls, "get")
-			w.Header().Set("Content-Type", contentTypeJSON)
-			_, _ = w.Write([]byte(`{"device_set":{"id":"42","type":"DEVICE_SET_TYPE_GROUP","label":"group-42"}}`))
-		})
-		mux.HandleFunc("POST /device_set.v1.DeviceSetService/GetDeviceSetStats", func(w http.ResponseWriter, _ *http.Request) {
-			calls = append(calls, "stats")
-			w.Header().Set("Content-Type", contentTypeJSON)
-			_, _ = w.Write([]byte(`{"stats":[]}`))
-		})
-		srv := httptest.NewServer(mux)
-		t.Cleanup(srv.Close)
-
-		err := newRootCommand().Run(context.Background(), []string{
-			"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
-			"groups", "stats", "--device-set-ids", "42",
-		})
-		if err != nil {
-			t.Fatalf("groups stats error = %v, want success", err)
-		}
-		want := []string{"get", "stats"}
-		if strings.Join(calls, ",") != strings.Join(want, ",") {
-			t.Fatalf("calls = %v, want %v", calls, want)
-		}
-	})
-}
-
-func TestDeviceSetMembersVerifyType(t *testing.T) {
-	tests := []struct {
-		name       string
-		args       []string
-		actualType string
-		wantError  string
-	}{
+		{
+			name:       "groups stats proceeds for group id",
+			args:       []string{"groups", "stats", "--device-set-ids", "42"},
+			actualType: "DEVICE_SET_TYPE_GROUP",
+			route:      statsRoute,
+			response:   `{"stats":[]}`,
+		},
 		{
 			name:       "groups members rejects rack id",
 			args:       []string{"groups", "members", "--device-set-id", "42"},
 			actualType: "DEVICE_SET_TYPE_RACK",
+			route:      membersRoute,
 			wantError:  "device set 42 is a rack, not a group",
 		},
 		{
 			name:       "racks members rejects group id",
 			args:       []string{"racks", "members", "--device-set-id", "42"},
 			actualType: "DEVICE_SET_TYPE_GROUP",
+			route:      membersRoute,
 			wantError:  "device set 42 is a group, not a rack",
+		},
+		{
+			name:       "groups members proceeds for group id",
+			args:       []string{"groups", "members", "--device-set-id", "42"},
+			actualType: "DEVICE_SET_TYPE_GROUP",
+			route:      membersRoute,
+			response:   `{"members":[]}`,
 		},
 	}
 
@@ -1405,16 +1451,23 @@ func TestDeviceSetMembersVerifyType(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			pinFleetAuthEnv(t, nil)
 
-			membersCount := 0
+			subcommand := tt.args[1]
+			var calls []string
 			mux := http.NewServeMux()
 			mux.HandleFunc("POST /device_set.v1.DeviceSetService/GetDeviceSet", func(w http.ResponseWriter, _ *http.Request) {
+				calls = append(calls, "get")
 				w.Header().Set("Content-Type", contentTypeJSON)
-				_, _ = w.Write([]byte(`{"device_set":{"id":"42","type":"` + tt.actualType + `","label":"wrong-type"}}`))
+				_, _ = w.Write([]byte(`{"device_set":{"id":"42","type":"` + tt.actualType + `","label":"set-42"}}`))
 			})
-			mux.HandleFunc("POST /device_set.v1.DeviceSetService/ListDeviceSetMembers", func(w http.ResponseWriter, r *http.Request) {
-				membersCount++
-				t.Errorf("unexpected members request: %s %s", r.Method, r.URL.Path)
-				http.Error(w, "members should not be called", http.StatusTeapot)
+			mux.HandleFunc(tt.route, func(w http.ResponseWriter, r *http.Request) {
+				calls = append(calls, subcommand)
+				if tt.wantError != "" {
+					t.Errorf("unexpected %s request: %s %s", subcommand, r.Method, r.URL.Path)
+					http.Error(w, subcommand+" should not be called", http.StatusTeapot)
+					return
+				}
+				w.Header().Set("Content-Type", contentTypeJSON)
+				_, _ = w.Write([]byte(tt.response))
 			})
 			srv := httptest.NewServer(mux)
 			t.Cleanup(srv.Close)
@@ -1422,45 +1475,22 @@ func TestDeviceSetMembersVerifyType(t *testing.T) {
 			err := newRootCommand().Run(context.Background(), append([]string{
 				"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
 			}, tt.args...))
-			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+
+			// A set of the wrong type stops the command after the type check.
+			wantCalls := []string{"get"}
+			if tt.wantError == "" {
+				wantCalls = append(wantCalls, subcommand)
+				if err != nil {
+					t.Fatalf("fleetcli %s error = %v, want success", strings.Join(tt.args, " "), err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), tt.wantError) {
 				t.Fatalf("fleetcli %s error = %v, want %q", strings.Join(tt.args, " "), err, tt.wantError)
 			}
-			if membersCount != 0 {
-				t.Fatalf("members count = %d, want 0", membersCount)
+			if strings.Join(calls, ",") != strings.Join(wantCalls, ",") {
+				t.Fatalf("calls = %v, want %v", calls, wantCalls)
 			}
 		})
 	}
-
-	t.Run("matching group id proceeds", func(t *testing.T) {
-		pinFleetAuthEnv(t, nil)
-
-		var calls []string
-		mux := http.NewServeMux()
-		mux.HandleFunc("POST /device_set.v1.DeviceSetService/GetDeviceSet", func(w http.ResponseWriter, _ *http.Request) {
-			calls = append(calls, "get")
-			w.Header().Set("Content-Type", contentTypeJSON)
-			_, _ = w.Write([]byte(`{"device_set":{"id":"42","type":"DEVICE_SET_TYPE_GROUP","label":"group-42"}}`))
-		})
-		mux.HandleFunc("POST /device_set.v1.DeviceSetService/ListDeviceSetMembers", func(w http.ResponseWriter, _ *http.Request) {
-			calls = append(calls, "members")
-			w.Header().Set("Content-Type", contentTypeJSON)
-			_, _ = w.Write([]byte(`{"members":[]}`))
-		})
-		srv := httptest.NewServer(mux)
-		t.Cleanup(srv.Close)
-
-		err := newRootCommand().Run(context.Background(), []string{
-			"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
-			"groups", "members", "--device-set-id", "42",
-		})
-		if err != nil {
-			t.Fatalf("groups members error = %v, want success", err)
-		}
-		want := []string{"get", "members"}
-		if strings.Join(calls, ",") != strings.Join(want, ",") {
-			t.Fatalf("calls = %v, want %v", calls, want)
-		}
-	})
 }
 
 func TestResolvedAuthInputs(t *testing.T) {
@@ -1522,18 +1552,21 @@ func TestResolvedAuthInputs(t *testing.T) {
 			wantPass: "p",
 		},
 		{
-			name:    "pools update local username does not leak into auth",
-			env:     map[string]string{envFleetAPIKey: "k"},
-			path:    []string{"pools", "update"},
-			argv:    []string{"pools", "update", "--username", "pooluser"},
-			wantKey: "k",
+			name:     "pool confirmation secret flag preserves Fleet auth identity",
+			env:      map[string]string{envFleetAPIKey: "k", envFleetUsername: "admin", envFleetPassword: "fleet-secret"},
+			path:     []string{"pools", "confirm"},
+			argv:     []string{"pools", "confirm", "--review-id", "11111111-1111-4111-8111-111111111111", "--password-stdin"},
+			wantKey:  "k",
+			wantUser: "admin",
+			wantPass: "fleet-secret",
 		},
 		{
-			name:    "pools validate local username does not leak into auth",
-			env:     map[string]string{envFleetAPIKey: "k"},
-			path:    []string{"pools", "validate"},
-			argv:    []string{"pools", "validate", "--username", "pooluser"},
-			wantKey: "k",
+			name:     "pool account selection does not become Fleet login identity",
+			env:      map[string]string{envFleetAPIKey: "k", envFleetUsername: "admin"},
+			path:     []string{"pools", "create"},
+			argv:     []string{"pools", "create", "--account-id", "pool-account"},
+			wantKey:  "k",
+			wantUser: "admin",
 		},
 		{
 			name: "onboarding create-admin credentials do not leak into auth",
@@ -1833,274 +1866,192 @@ func TestApiKeyCommandsRejectAPIKeyOnly(t *testing.T) {
 	}
 }
 
-// TestPoolsValidateBearerWithLocalUsername covers the bug where the
-// subcommand-local --username flag hijacked Fleet auth and discarded the API
-// key: the pool username must reach the request body while auth stays authenticated.
-func TestPoolsValidateAuthenticatedWithLocalUsername(t *testing.T) {
+func TestPoolsTestConnectionAuthenticatedWithJSONUsername(t *testing.T) {
 	pinFleetAuthEnv(t, map[string]string{envFleetAPIKey: "k"})
-
+	requestPath := filepath.Join(t.TempDir(), "connection.json")
+	if err := os.WriteFile(requestPath, []byte(`{"pool":{"url":"stratum+tcp://pool.example.com:3333","username":"pooluser","password":"pool-secret"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	var gotAuth string
 	var gotBody map[string]any
 	mux := http.NewServeMux()
 	forbidFirmwareEndpoint(t, mux, "POST /auth.v1.AuthService/Authenticate")
-	mux.HandleFunc("POST /pools.v1.PoolsService/ValidatePool", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /poolconfigurations.v1.PoolConfigurationService/TestConnection", func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
-		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
-			t.Errorf("decode validate request: %v", err)
-		}
+		gotBody = requestBodyMap(t, r)
 		w.Header().Set("Content-Type", contentTypeJSON)
-		_, _ = w.Write([]byte("{}"))
+		_, _ = w.Write([]byte(`{"connected":true}`))
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-
-	err := newRootCommand().Run(context.Background(), []string{
-		"fleetcli", "--server", srv.URL + "/",
-		"pools", "validate", "--url", "stratum+tcp://pool.example.com:3333", "--username", "pooluser",
-	})
-	if err != nil {
-		t.Fatalf("pools validate with env api key should succeed, got: %v", err)
+	if err := newRootCommand().Run(context.Background(), []string{"fleetcli", "--server", srv.URL + "/", "pools", "test-connection", "--json", requestPath}); err != nil {
+		t.Fatalf("test-connection with env API key: %v", err)
 	}
 	if gotAuth != "Bearer k" {
-		t.Errorf("Authorization = %q, want %q", gotAuth, "Bearer k")
+		t.Errorf("Authorization = %q, want Bearer k", gotAuth)
 	}
-	if gotBody["username"] != "pooluser" {
-		t.Errorf("request username = %v, want pooluser", gotBody["username"])
-	}
-	if gotBody["url"] != "stratum+tcp://pool.example.com:3333" {
-		t.Errorf("request url = %v, want the pool url", gotBody["url"])
+	pool, _ := gotBody["pool"].(map[string]any)
+	if pool["username"] != "pooluser" || pool["url"] != "stratum+tcp://pool.example.com:3333" || pool["password"] != "pool-secret" {
+		t.Fatalf("connection pool = %#v, want supplied connection details", pool)
 	}
 }
 
-func TestPoolsCreateRequiresCompletePoolDetails(t *testing.T) {
+func TestPoolsCreateRequiresCompleteConfiguration(t *testing.T) {
 	pinFleetAuthEnv(t, nil)
-
-	requestCount := 0
+	requests := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount++
+		requests++
 		http.Error(w, "unexpected request", http.StatusTeapot)
 	}))
 	t.Cleanup(srv.Close)
-
-	emptyJSONPath := filepath.Join(t.TempDir(), "empty-pool.json")
-	if err := os.WriteFile(emptyJSONPath, []byte(`{}`), 0o600); err != nil {
-		t.Fatalf("write empty pool json: %v", err)
-	}
-
-	tests := []struct {
-		name string
-		args []string
-	}{
-		{name: "no inputs"},
-		{name: "empty JSON", args: []string{"--json", emptyJSONPath}},
-		{name: "partial flags", args: []string{"--pool-name", "incomplete"}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := newRootCommand().Run(context.Background(), append([]string{
-				"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
-				"pools", "create",
-			}, tt.args...))
-			if err == nil || !strings.Contains(err.Error(), "pool_config.") {
-				t.Fatalf("pools create error = %v, want missing nested pool field", err)
+	for _, test := range []struct{ name, payload string }{
+		{"no inputs", ""},
+		{"empty JSON", `{}`},
+		{"no pools", `{"configuration":{"name":"Incomplete"}}`},
+		{"missing username", `{"configuration":{"name":"Incomplete","pools":[{"url":"stratum+tcp://pool.example"}]}}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			args := []string{"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key", "pools", "create"}
+			if test.payload != "" {
+				path := filepath.Join(t.TempDir(), "configuration.json")
+				if err := os.WriteFile(path, []byte(test.payload), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				args = append(args, "--json", path)
+			}
+			if err := newRootCommand().Run(context.Background(), args); err == nil || !strings.Contains(err.Error(), "configuration") {
+				t.Fatalf("create error = %v, want invalid configuration", err)
 			}
 		})
 	}
-	if requestCount != 0 {
-		t.Fatalf("request count = %d, want no requests for incomplete pool details", requestCount)
+	if requests != 0 {
+		t.Fatalf("requests = %d, want zero for invalid configuration", requests)
 	}
 }
 
-func TestPoolsCreateJSONPoolConfigFlagOverridePreservesFields(t *testing.T) {
+func TestPoolsCreateJSONAccountOverridePreservesConfiguration(t *testing.T) {
 	pinFleetAuthEnv(t, nil)
-
-	jsonPath := filepath.Join(t.TempDir(), "pool.json")
-	if err := os.WriteFile(jsonPath, []byte(`{
-		"pool_config": {
-			"pool_name": "old-name",
-			"url": "stratum+tcp://pool.example.com:3333",
-			"username": "pool-user",
-			"password": "pool-pass"
-		}
-	}`), 0o600); err != nil {
-		t.Fatalf("write pool json: %v", err)
+	requestPath := filepath.Join(t.TempDir(), "configuration.json")
+	if err := os.WriteFile(requestPath, []byte(`{"account_id":"old-account","configuration":{"name":"Shared stack","pools":[{"url":"stratum+tcp://primary.example:3333","username":"payout","password":"primary-secret","worker_template":"{miner_name}"},{"url":"stratum+tcp://backup.example:3333","username":"backup","password":""}]}}`), 0o600); err != nil {
+		t.Fatal(err)
 	}
-
 	var gotAuth string
 	var gotBody map[string]any
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /pools.v1.PoolsService/CreatePool", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /poolconfigurations.v1.PoolConfigurationService/CreateConfiguration", func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
-		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
-			t.Errorf("decode create pool request: %v", err)
-		}
+		gotBody = requestBodyMap(t, r)
 		w.Header().Set("Content-Type", contentTypeJSON)
-		_, _ = w.Write([]byte("{}"))
+		_, _ = w.Write([]byte(`{}`))
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
+	if err := newRootCommand().Run(context.Background(), []string{"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key", "pools", "create", "--json", requestPath, "--account-id", "new-account"}); err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer test-key" || gotBody["account_id"] != "new-account" {
+		t.Fatalf("auth = %q, request = %#v", gotAuth, gotBody)
+	}
+	configuration, _ := gotBody["configuration"].(map[string]any)
+	if configuration["name"] != "Shared stack" {
+		t.Fatalf("configuration = %#v", configuration)
+	}
+	pools, _ := configuration["pools"].([]any)
+	if len(pools) != 2 {
+		t.Fatalf("pools = %#v, want ordered primary and backup", pools)
+	}
+	primary, _ := pools[0].(map[string]any)
+	backup, _ := pools[1].(map[string]any)
+	if primary["url"] != "stratum+tcp://primary.example:3333" || primary["password"] != "primary-secret" || primary["worker_template"] != "{miner_name}" || backup["url"] != "stratum+tcp://backup.example:3333" || backup["password"] != "" {
+		t.Fatalf("pools = %#v, want intact ordered settings and explicit empty backup password", pools)
+	}
+}
 
-	err := newRootCommand().Run(context.Background(), []string{
-		"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
-		"pools", "create", "--json", jsonPath, "--pool-name", "new-name",
-	})
-	if err != nil {
-		t.Fatalf("pools create with json override should succeed, got: %v", err)
-	}
-	if gotAuth != "Bearer test-key" {
-		t.Errorf("Authorization = %q, want %q", gotAuth, "Bearer test-key")
-	}
-	poolConfig, ok := gotBody["pool_config"].(map[string]any)
-	if !ok {
-		t.Fatalf("pool_config = %#v, want object", gotBody["pool_config"])
-	}
-	want := map[string]string{
-		"pool_name": "new-name",
-		"url":       "stratum+tcp://pool.example.com:3333",
-		"username":  "pool-user",
-		"password":  "pool-pass",
-	}
-	for field, wantValue := range want {
-		if got := poolConfig[field]; got != wantValue {
-			t.Errorf("pool_config.%s = %v, want %q", field, got, wantValue)
+func TestPoolsArchiveRequiresConfigurationAndVersion(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+	for _, test := range []struct {
+		args    []string
+		missing string
+	}{
+		{nil, "configuration-id"},
+		{[]string{"--configuration-id", "11111111-1111-4111-8111-111111111111"}, "expected-version"},
+	} {
+		args := append([]string{"fleetcli", "pools", "archive"}, test.args...)
+		if err := newRootCommand().Run(context.Background(), args); err == nil || !strings.Contains(err.Error(), test.missing) {
+			t.Fatalf("archive error = %v, want required %s", err, test.missing)
 		}
 	}
 }
 
-func TestPoolsDeleteRequiresPoolID(t *testing.T) {
-	pinFleetAuthEnv(t, nil)
-
-	err := newRootCommand().Run(context.Background(), []string{"fleetcli", "pools", "delete"})
-	if err == nil || !strings.Contains(err.Error(), "pool-id") {
-		t.Fatalf("pools delete without pool-id error = %v, want required pool-id error", err)
-	}
-}
-
-func TestPoolsReadPasswordFromStdin(t *testing.T) {
-	tests := []struct {
-		name     string
-		route    string
-		args     []string
-		password func(map[string]any) any
+func TestPoolsReadSecretsAndJSONFromStdin(t *testing.T) {
+	for _, test := range []struct {
+		name, route, input string
+		args               []string
+		password           func(map[string]any) any
 	}{
-		{
-			name:  "create",
-			route: "POST /pools.v1.PoolsService/CreatePool",
-			args: []string{
-				"pools", "create",
-				"--pool-name", "pool-name",
-				"--url", "stratum+tcp://pool.example.com:3333",
-				"--username", "pool-user",
-				"--pool-password-stdin",
-			},
-			password: func(body map[string]any) any {
-				poolConfig, _ := body["pool_config"].(map[string]any)
-				return poolConfig["password"]
-			},
-		},
-		{
-			name:  "update",
-			route: "POST /pools.v1.PoolsService/UpdatePool",
-			args: []string{
-				"pools", "update",
-				"--pool-id", "12",
-				"--pool-password-stdin",
-			},
-			password: func(body map[string]any) any {
-				return body["password"]
-			},
-		},
-		{
-			name:  "validate",
-			route: "POST /pools.v1.PoolsService/ValidatePool",
-			args: []string{
-				"pools", "validate",
-				"--url", "stratum+tcp://pool.example.com:3333",
-				"--username", "pool-user",
-				"--pool-password-stdin",
-			},
-			password: func(body map[string]any) any {
-				return body["password"]
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		{"create", "CreateConfiguration", `{"configuration":{"name":"Shared","pools":[{"url":"stratum+tcp://pool.example:3333","username":"worker","password":"pool-secret"}]}}`, []string{"create", "--json", "-"}, func(body map[string]any) any {
+			c, _ := body["configuration"].(map[string]any)
+			pools, _ := c["pools"].([]any)
+			if len(pools) != 1 {
+				return nil
+			}
+			p, _ := pools[0].(map[string]any)
+			return p["password"]
+		}},
+		{"test connection", "TestConnection", `{"pool":{"url":"stratum+tcp://pool.example:3333","username":"worker","password":"pool-secret"}}`, []string{"test-connection", "--json", "-"}, func(body map[string]any) any { p, _ := body["pool"].(map[string]any); return p["password"] }},
+		{"confirmation", "ConfirmReview", "pool-secret\n", []string{"confirm", "--review-id", "11111111-1111-4111-8111-111111111111", "--password-stdin"}, func(body map[string]any) any { return body["password"] }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			pinFleetAuthEnv(t, nil)
-
-			var gotBody map[string]any
+			var body map[string]any
 			mux := http.NewServeMux()
-			mux.HandleFunc(tt.route, func(w http.ResponseWriter, r *http.Request) {
-				if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
-					t.Errorf("decode pool request: %v", err)
-				}
+			mux.HandleFunc("POST /poolconfigurations.v1.PoolConfigurationService/"+test.route, func(w http.ResponseWriter, r *http.Request) {
+				body = requestBodyMap(t, r)
 				w.Header().Set("Content-Type", contentTypeJSON)
-				_, _ = w.Write([]byte("{}"))
+				_, _ = w.Write([]byte(`{}`))
 			})
 			srv := httptest.NewServer(mux)
 			t.Cleanup(srv.Close)
-
-			withStdin(t, "pool-secret\n", func() {
-				err := newRootCommand().Run(context.Background(), append([]string{
-					"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
-				}, tt.args...))
-				if err != nil {
-					t.Fatalf("fleetcli %s error = %v, want success", strings.Join(tt.args, " "), err)
+			withStdin(t, test.input, func() {
+				args := append([]string{"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key", "pools"}, test.args...)
+				if err := newRootCommand().Run(context.Background(), args); err != nil {
+					t.Fatal(err)
 				}
 			})
-
-			if got := tt.password(gotBody); got != "pool-secret" {
-				t.Fatalf("pool password = %v, want pool-secret; body = %#v", got, gotBody)
+			if got := test.password(body); got != "pool-secret" {
+				t.Fatalf("password = %v, want stdin secret", got)
 			}
 		})
 	}
 }
 
-func TestPoolsReadFleetAndPoolPasswordsFromSeparateStdinLines(t *testing.T) {
+func TestPoolsReadFleetAndConfirmationPasswordsFromSeparateStdinLines(t *testing.T) {
 	pinFleetAuthEnv(t, nil)
-
-	var authBody map[string]any
-	var createBody map[string]any
+	var authBody, confirmBody map[string]any
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /auth.v1.AuthService/Authenticate", func(w http.ResponseWriter, r *http.Request) {
-		if err := json.NewDecoder(r.Body).Decode(&authBody); err != nil {
-			t.Errorf("decode authenticate request: %v", err)
-		}
+		authBody = requestBodyMap(t, r)
 		http.SetCookie(w, &http.Cookie{Name: "fleet_session", Value: "sess", Path: "/", Secure: true})
 		w.Header().Set("Content-Type", contentTypeJSON)
-		_, _ = w.Write([]byte("{}"))
+		_, _ = w.Write([]byte(`{}`))
 	})
-	mux.HandleFunc("POST /pools.v1.PoolsService/CreatePool", func(w http.ResponseWriter, r *http.Request) {
-		if err := json.NewDecoder(r.Body).Decode(&createBody); err != nil {
-			t.Errorf("decode pool create request: %v", err)
-		}
+	mux.HandleFunc("POST /poolconfigurations.v1.PoolConfigurationService/ConfirmReview", func(w http.ResponseWriter, r *http.Request) {
+		confirmBody = requestBodyMap(t, r)
 		w.Header().Set("Content-Type", contentTypeJSON)
-		_, _ = w.Write([]byte("{}"))
+		_, _ = w.Write([]byte(`{}`))
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-
-	withStdin(t, "fleet-secret\npool-secret\n", func() {
-		err := newRootCommand().Run(context.Background(), []string{
-			"fleetcli", "--server", srv.URL + "/", "--username", "admin", "--password-stdin",
-			"pools", "create",
-			"--pool-name", "pool-name",
-			"--url", "stratum+tcp://pool.example.com:3333",
-			"--username", "pool-user",
-			"--pool-password-stdin",
-		})
-		if err != nil {
-			t.Fatalf("pools create with Fleet and pool password stdin error = %v", err)
+	withStdin(t, "fleet-secret\nconfirmation-secret\n", func() {
+		if err := newRootCommand().Run(context.Background(), []string{"fleetcli", "--server", srv.URL + "/", "--username", "admin", "--password-stdin", "pools", "confirm", "--review-id", "11111111-1111-4111-8111-111111111111", "--password-stdin"}); err != nil {
+			t.Fatal(err)
 		}
 	})
-
 	if authBody["username"] != "admin" || authBody["password"] != "fleet-secret" {
-		t.Errorf("authenticate body = %v, want first stdin line as Fleet password", authBody)
+		t.Errorf("authenticate body = %#v, want first stdin line", authBody)
 	}
-	poolConfig, _ := createBody["pool_config"].(map[string]any)
-	if poolConfig["password"] != "pool-secret" {
-		t.Errorf("pool create body = %v, want second stdin line as pool password", createBody)
+	if confirmBody["password"] != "confirmation-secret" {
+		t.Errorf("confirm body = %#v, want second stdin line", confirmBody)
 	}
 }
 
@@ -2153,8 +2104,8 @@ func TestGeneratedSecretsReadFleetPasswordBeforeCommandSecret(t *testing.T) {
 func TestPoolsRejectPasswordFlag(t *testing.T) {
 	tests := [][]string{
 		{"pools", "create", "--password", "pool-secret"},
-		{"pools", "update", "--password", "pool-secret"},
-		{"pools", "validate", "--password", "pool-secret"},
+		{"pools", "confirm", "--review-id", "11111111-1111-4111-8111-111111111111", "--password", "pool-secret"},
+		{"pools", "test-connection", "--password", "pool-secret"},
 	}
 
 	for _, args := range tests {

@@ -362,7 +362,7 @@ func TestAuthInterceptor(t *testing.T) {
 		}}
 
 		interceptorsOption := connect.WithInterceptors(
-			interceptors.NewAuthInterceptor(serviceProvider.SessionService, serviceProvider.UserStore, serviceProvider.UserStore, serviceProvider.ApiKeyService, serviceProvider.PermissionResolver, allowList, nil, nil),
+			interceptors.NewAuthInterceptor(serviceProvider.SessionService, serviceProvider.UserStore, serviceProvider.UserStore, serviceProvider.ApiKeyService, serviceProvider.PermissionResolver, nil, allowList, nil, nil),
 			capturer,
 		)
 
@@ -411,7 +411,7 @@ func TestAuthInterceptor(t *testing.T) {
 		}}
 
 		interceptorsOption := connect.WithInterceptors(
-			interceptors.NewAuthInterceptor(serviceProvider.SessionService, serviceProvider.UserStore, serviceProvider.UserStore, serviceProvider.ApiKeyService, serviceProvider.PermissionResolver, allowList, nil, nil),
+			interceptors.NewAuthInterceptor(serviceProvider.SessionService, serviceProvider.UserStore, serviceProvider.UserStore, serviceProvider.ApiKeyService, serviceProvider.PermissionResolver, nil, allowList, nil, nil),
 			capturer,
 		)
 

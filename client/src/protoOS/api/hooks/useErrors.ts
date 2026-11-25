@@ -1,62 +1,57 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
-import { ErrorListResponse } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useSetErrors } from "@/protoOS/store";
 import { useAuthErrors } from "@/protoOS/store/hooks/useAuth";
-import type { MinerError } from "@/protoOS/store/types";
-import { transformErrors } from "@/protoOS/store/utils/errorTransformer";
+import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
+import useMinerStore from "@/protoOS/store/useMinerStore";
 import { usePoll } from "@/shared/hooks/usePoll";
+import { isAbortError } from "@/shared/utils/abort";
 
 type UseErrorsProps = {
+  enabled?: boolean;
   poll?: boolean;
   pollIntervalMs?: number;
 };
 
-const useErrors = ({ poll = false, pollIntervalMs }: UseErrorsProps = {}) => {
-  const { api } = useMinerHosting();
+const useErrors = ({ enabled = true, poll = false, pollIntervalMs }: UseErrorsProps = {}) => {
+  const { adapter } = useMinerHosting();
   const { handleAuthErrors } = useAuthErrors();
-
-  const [data, setData] = useState<ErrorListResponse>();
+  const byOwner = useMinerStore((state) => state.minerStatus.errorsByOwner);
+  const data = useMemo(() => [...byOwner.values()].flat(), [byOwner]);
   const [error, setError] = useState<string>();
-  const [pending, setPending] = useState<boolean>(false);
+  const [pending, setPending] = useState(false);
   const setErrors = useSetErrors();
 
-  const fetchData = useCallback(() => {
-    if (!api) return;
+  const fetchData = useCallback(
+    (signal: AbortSignal) => {
+      if (!adapter) return;
 
-    setPending(true);
-    api
-      .getErrors()
-      .then((res) => {
-        setData(res?.data);
-      })
-      .catch((err) => {
-        handleAuthErrors({
-          error: err,
-          onError: (e) => setError(e?.error?.message ?? "An error occurred"),
-        });
-      })
-      .finally(() => {
-        setPending(false);
-      });
-  }, [api, handleAuthErrors]);
+      setPending(true);
+      const accept = beginStoreWrite("errors:current");
+      setError(undefined);
+      return adapter
+        .getErrors({ signal })
+        .then((errors) => {
+          if (accept()) setErrors(errors);
+        })
+        .catch((err) => {
+          // A cancel from navigation/unmount is teardown, not an auth failure.
+          if (isAbortError(err)) return;
+          handleAuthErrors({
+            error: err,
+            onError: (response) => setError(response?.error?.message ?? "An error occurred"),
+          });
+        })
+        .finally(() => setPending(false));
+    },
+    [adapter, handleAuthErrors, setErrors],
+  );
 
-  usePoll({
-    fetchData,
-    poll,
-    pollIntervalMs,
-  });
+  // Start the initial fetch once device discovery has supplied an adapter.
+  usePoll({ fetchData, enabled: enabled && Boolean(adapter), poll, pollIntervalMs });
 
-  // Transform and update store whenever errors change
-  useEffect(() => {
-    const transformedErrors: MinerError[] = transformErrors(data);
-    setErrors(transformedErrors);
-  }, [data, setErrors]);
-
-  const response = useMemo(() => ({ fetchData, pending, error, data }), [fetchData, pending, error, data]);
-
-  return response;
+  return useMemo(() => ({ fetchData, pending, error, data }), [fetchData, pending, error, data]);
 };
 
 export { useErrors };

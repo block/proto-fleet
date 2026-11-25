@@ -1,6 +1,8 @@
 package curtailment
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -10,6 +12,31 @@ import (
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 )
+
+type committedAdminTerminateStore struct {
+	*fakeStore
+	event         *models.Event
+	recoveryError error
+}
+
+func (s *committedAdminTerminateStore) AdminTerminateEventWithFanRecovery(context.Context, int64, uuid.UUID, models.EventState, string, func(context.Context, *models.Event) *string) (*models.Event, bool, error) {
+	return s.event, true, s.recoveryError
+}
+
+func TestService_AdminTerminate_AuditsCommittedTransitionWhenFanRecoveryFails(t *testing.T) {
+	t.Parallel()
+	event := &models.Event{ID: 1, EventUUID: uuid.New(), OrgID: 42, State: models.EventStateCancelled, FacilityFanDeviceIDs: []int64{501}}
+	store := &committedAdminTerminateStore{fakeStore: newFakeStore(), event: event, recoveryError: errors.New("persist fan recovery result failed")}
+	store.eventsByUUID[event.EventUUID] = event
+	audit := &recordingAuditLogger{}
+	svc := NewService(store, WithAuditLogger(audit), WithFacilityFanController(&fakeTerminalFanController{}))
+	_, err := svc.AdminTerminate(t.Context(), AdminTerminateRequest{OrgID: event.OrgID, EventUUID: event.EventUUID, TargetState: event.State, Reason: "operator recovery"})
+	require.ErrorIs(t, err, store.recoveryError)
+	events := audit.snapshot()
+	require.Len(t, events, 1)
+	assert.Equal(t, ActivityTypeAdminTerminated, events[0].Type)
+	assert.Equal(t, "operator recovery", events[0].Metadata["reason"])
+}
 
 // End-to-end operator-surface walk against the in-memory fake.
 // Reconciler ticks are covered piecewise in reconciler_test.go /
@@ -272,43 +299,4 @@ func TestService_AdminTerminate_RaceLoserAttributionPreserved(t *testing.T) {
 		"second call races → replay row preserves the loser's attribution")
 	assert.Equal(t, "operational fatfinger", events[1].Metadata["reason"],
 		"replay row must capture the loser's distinct reason; without this the audit feed would only show the winner")
-}
-
-// TestService_Lifecycle_ListEventsReturnsTerminalRow demonstrates the
-// read path: after a Start + AdminTerminate cycle, the operator's
-// history-view query returns the terminal event with the expected
-// state filter applied.
-func TestService_Lifecycle_ListEventsReturnsTerminalRow(t *testing.T) {
-	t.Parallel()
-	const orgID = int64(42)
-
-	store := newFakeStore()
-	// Seed a finished event into the history slice directly (the fake's
-	// ListEvents reads from this slice; the lifecycle above already
-	// covers the persistence-side wiring).
-	terminalUUID := uuid.New()
-	store.eventsHistory = []*models.Event{
-		{
-			ID:        1,
-			EventUUID: terminalUUID,
-			OrgID:     orgID,
-			State:     models.EventStateFailed,
-			Mode:      models.ModeFixedKw,
-			Strategy:  models.StrategyLeastEfficientFirst,
-			Level:     models.LevelFull,
-			Priority:  models.PriorityNormal,
-			Reason:    "lifecycle test — operator force terminate",
-		},
-	}
-	svc := NewService(store)
-
-	got, _, err := svc.ListEvents(t.Context(), ListEventsRequest{
-		OrgID:        orgID,
-		PageSize:     20,
-		StateFilters: []models.EventState{models.EventStateFailed},
-	})
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	assert.Equal(t, terminalUUID, got[0].EventUUID)
-	assert.Equal(t, models.EventStateFailed, got[0].State)
 }

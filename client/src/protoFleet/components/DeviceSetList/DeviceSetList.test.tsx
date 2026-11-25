@@ -7,6 +7,7 @@ import DeviceSetList from "./DeviceSetList";
 import type { DeviceSetListItem } from "./DeviceSetList";
 import { DeviceSetSchema, DeviceSetStatsSchema } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import type { DeviceSet, DeviceSetStats } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 
 vi.mock("recharts", () => ({
@@ -57,6 +58,91 @@ const defaultProps = {
 };
 
 describe("DeviceSetList", () => {
+  it("keeps mixed server order and excludes tanks from rack selection", () => {
+    const rack = createMockDeviceSet(1n, "A rack");
+    const tank = create(InventoryItemSchema, {
+      ref: { kind: EntityKind.TANK, id: 1n },
+      name: "Z tank",
+      assetCount: 3n,
+    });
+    const onSelectedIdsChange = vi.fn();
+    const onTankClick = vi.fn();
+    render(
+      <DeviceSetList
+        {...defaultProps}
+        deviceSets={[rack]}
+        statsMap={new Map()}
+        inventoryItems={[
+          tank,
+          create(InventoryItemSchema, {
+            ref: { kind: EntityKind.RACK, id: 1n },
+            details: { case: "rack", value: rack },
+          }),
+        ]}
+        selectedIds={[]}
+        onSelectedIdsChange={onSelectedIdsChange}
+        onTankClick={onTankClick}
+      />,
+    );
+    const body = screen.getByTestId("list-body");
+    expect(body.textContent!.indexOf("Z tank")).toBeLessThan(body.textContent!.indexOf("A rack"));
+    expect(body.querySelectorAll('input[type="checkbox"]:not(:disabled)')).toHaveLength(1);
+    expect(body.querySelectorAll('input[type="checkbox"]:disabled')).toHaveLength(1);
+    fireEvent.click(body.querySelector('input[type="checkbox"]:not(:disabled)')!);
+    expect(onSelectedIdsChange).toHaveBeenCalledWith(["1"]);
+    fireEvent.click(screen.getByText("Z tank"));
+    expect(onTankClick).toHaveBeenCalledWith(tank);
+  });
+
+  it("keeps tank selection separate when a rack has the same numeric ID", () => {
+    const rack = createMockDeviceSet(1n, "A rack");
+    const tank = create(InventoryItemSchema, { ref: { kind: EntityKind.TANK, id: 1n }, name: "Tank 1" });
+    const selectRack = vi.fn();
+    const selectTank = vi.fn();
+    render(
+      <DeviceSetList
+        {...defaultProps}
+        deviceSets={[rack]}
+        statsMap={new Map()}
+        inventoryItems={[
+          tank,
+          create(InventoryItemSchema, {
+            ref: { kind: EntityKind.RACK, id: 1n },
+            details: { case: "rack", value: rack },
+          }),
+        ]}
+        selectedIds={[]}
+        onSelectedIdsChange={selectRack}
+        selectedTankIds={[]}
+        onSelectedTankIdsChange={selectTank}
+      />,
+    );
+    const body = screen.getByTestId("list-body");
+    fireEvent.click(body.querySelector('input[type="checkbox"]')!);
+    expect(selectTank).toHaveBeenCalledWith(["1"]);
+    expect(selectRack).toHaveBeenCalledWith([]);
+  });
+
+  it("includes tanks in the pagination range", () => {
+    const tanks = Array.from({ length: 10 }, (_, i) =>
+      create(InventoryItemSchema, {
+        ref: { kind: EntityKind.TANK, id: BigInt(i + 1) },
+        name: `Tank ${i + 1}`,
+      }),
+    );
+    render(
+      <DeviceSetList
+        {...defaultProps}
+        deviceSets={[]}
+        inventoryItems={tanks}
+        statsMap={new Map()}
+        total={10}
+        itemName={{ singular: "equipment group", plural: "equipment groups" }}
+      />,
+    );
+    expect(screen.getByText("Showing 1–10 of 10 equipment groups")).toBeInTheDocument();
+  });
+
   it("uses descending sort when the issues header is selected", () => {
     const deviceSet = createMockDeviceSet(1n, "Group A");
     const stats = createMockStats(1n);
@@ -68,6 +154,18 @@ describe("DeviceSetList", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Issues" }));
     expect(onSort).toHaveBeenCalledWith("issues", "desc");
+  });
+
+  it("shows the reporting tooltip when the stat cell info button has focus", () => {
+    const deviceSet = createMockDeviceSet(1n, "Group A");
+    const stats = { ...createMockStats(1n), efficiencyReportingCount: 3 };
+    render(<DeviceSetList {...defaultProps} deviceSets={[deviceSet]} statsMap={new Map([[1n, stats]])} />);
+
+    const info = screen.getByRole("button", { name: "3 of 5 miners reporting" });
+    fireEvent.focus(info);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Some devices do not make this data available.");
+    fireEvent.keyDown(info, { key: "Escape" });
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 
   it("shows controlled row checkboxes when selection props are supplied", () => {
@@ -149,7 +247,7 @@ describe("DeviceSetList", () => {
       <NoFilterResultsEmptyState hasActiveFilters onClearFilters={onClearFilters} />
     );
 
-    it("renders 'No results' heading in the empty state", () => {
+    it("renders the heading, the description and a 'Clear all filters' button that calls the handler", () => {
       const handleClearFilters = vi.fn();
 
       render(
@@ -162,50 +260,9 @@ describe("DeviceSetList", () => {
       );
 
       expect(screen.getByText("No results")).toBeInTheDocument();
-    });
-
-    it("renders description text in the empty state", () => {
-      const handleClearFilters = vi.fn();
-
-      render(
-        <DeviceSetList
-          {...defaultProps}
-          deviceSets={[]}
-          statsMap={new Map()}
-          emptyStateRow={renderEmptyState(handleClearFilters)}
-        />,
-      );
-
       expect(screen.getByText("Try adjusting or clearing your filters.")).toBeInTheDocument();
-    });
-
-    it("renders the 'Clear all filters' button in the empty state", () => {
-      const handleClearFilters = vi.fn();
-
-      render(
-        <DeviceSetList
-          {...defaultProps}
-          deviceSets={[]}
-          statsMap={new Map()}
-          emptyStateRow={renderEmptyState(handleClearFilters)}
-        />,
-      );
-
       expect(screen.getByTestId("clear-all-filters-button")).toBeInTheDocument();
       expect(screen.getByText("Clear all filters")).toBeInTheDocument();
-    });
-
-    it("calls the clear filters handler when 'Clear all filters' button is clicked", () => {
-      const handleClearFilters = vi.fn();
-
-      render(
-        <DeviceSetList
-          {...defaultProps}
-          deviceSets={[]}
-          statsMap={new Map()}
-          emptyStateRow={renderEmptyState(handleClearFilters)}
-        />,
-      );
 
       fireEvent.click(screen.getByTestId("clear-all-filters-button"));
       expect(handleClearFilters).toHaveBeenCalledTimes(1);

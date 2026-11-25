@@ -1,7 +1,8 @@
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
 import { ChevronDown } from "@/shared/assets/icons";
+import Button from "@/shared/components/Button";
 import Popover, { PopoverProvider, usePopover } from "@/shared/components/Popover";
 import { minimalMargin } from "@/shared/components/Popover/constants";
 import Radio from "@/shared/components/Radio";
@@ -30,6 +31,13 @@ interface SelectProps {
   variant?: "field" | "filter";
   showSelectedIndicator?: boolean;
   suffixAction?: ReactNode;
+  /** Search control rendered above the options. The caller owns filtering. */
+  search?: ReactNode;
+  isLoading?: boolean;
+  hasMore?: boolean;
+  onLoadMore?: () => void;
+  loadError?: string | null;
+  onRetry?: () => void;
   // Default behavior flips the popover above the trigger when more space is
   // available there. Set forceBelow when the caller knows the dropdown must
   // open downward (e.g. inside a modal whose footer would otherwise hide it).
@@ -51,12 +59,83 @@ const SelectContent = ({
   variant = "field",
   showSelectedIndicator = true,
   suffixAction,
+  search,
+  isLoading = false,
+  hasMore = false,
+  onLoadMore,
+  loadError,
+  onRetry,
   forceBelow,
 }: SelectProps) => {
   const [open, setOpen] = useState(false);
   const { triggerRef, setPopoverRenderMode } = usePopover();
   const [popoverPosition, setPopoverPosition] = useState<Position>(positions["bottom right"]);
   const listboxRef = useRef<HTMLDivElement>(null);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLDivElement>(null);
+
+  const close = () => {
+    setOpen(false);
+    triggerRef.current?.querySelector("button")?.focus({ preventScroll: true });
+  };
+
+  const selectOption = (value: string) => {
+    onChange(value);
+    close();
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+      return;
+    }
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    const items = Array.from(listboxRef.current?.querySelectorAll<HTMLElement>('[role="option"]') ?? []);
+    if (!items.length) return;
+    const current = items.findIndex((item) => item === document.activeElement);
+    // Home and End keep their text-editing behavior in the search field.
+    if (current < 0 && (event.key === "Home" || event.key === "End")) return;
+    event.preventDefault();
+    const lastIndex = items.length - 1;
+    let nextIndex = current;
+    switch (event.key) {
+      case "Home":
+        nextIndex = 0;
+        break;
+      case "End":
+        nextIndex = lastIndex;
+        break;
+      case "ArrowDown":
+        nextIndex = Math.min(current + 1, lastIndex);
+        break;
+      case "ArrowUp":
+        nextIndex = current < 0 ? lastIndex : Math.max(current - 1, 0);
+        break;
+    }
+    items[nextIndex].focus({ preventScroll: true });
+    items[nextIndex].scrollIntoView?.({ block: "nearest" });
+  };
+
+  useEffect(() => {
+    if (!open || !hasMore || isLoading || loadError || !onLoadMore || !loadMoreRef.current) return;
+    let active = true;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (active && entry?.isIntersecting) {
+          active = false;
+          onLoadMore();
+        }
+      },
+      { root: listboxRef.current, rootMargin: "0px 0px 80px 0px" },
+    );
+    observer.observe(loadMoreRef.current);
+    return () => {
+      active = false;
+      observer.disconnect();
+    };
+  }, [open, hasMore, isLoading, loadError, onLoadMore]);
 
   // Portal to body so the dropdown escapes overflow-hidden/auto containers (e.g. modals)
   useEffect(() => {
@@ -140,6 +219,7 @@ const SelectContent = ({
           aria-label={label}
           aria-haspopup="listbox"
           aria-expanded={open}
+          aria-controls={open ? `${id}-options` : undefined}
           disabled={disabled}
           onClick={() => !disabled && setOpen((prev) => !prev)}
           className={clsx(
@@ -200,42 +280,94 @@ const SelectContent = ({
           disableAutoFlip={forceBelow}
         >
           <div
-            ref={listboxRef}
-            className="max-h-[calc(100vh-2rem)] overflow-y-auto overscroll-contain p-1.5"
-            role="listbox"
-            aria-label={`${label} options`}
+            className="flex min-h-0 flex-col"
+            onKeyDownCapture={handleKeyDown}
             style={{
               minWidth: triggerWidth,
+              width: search ? triggerWidth : undefined,
               maxHeight: popoverMaxHeight,
             }}
           >
-            {options.length === 0 ? (
-              <div className="rounded-xl p-3 text-300 text-text-primary-50">{emptyMessage}</div>
-            ) : (
-              options.map((opt) => (
-                <div
-                  key={opt.value}
-                  role="option"
-                  aria-selected={value === opt.value ? "true" : "false"}
-                  className={clsx(
-                    "flex cursor-pointer items-center rounded-xl p-3 text-left select-none",
-                    "transition-[background-color] duration-200 ease-in-out",
-                    "text-text-primary hover:bg-core-primary-5",
-                    { "gap-3": showSelectedIndicator },
-                  )}
-                  onClick={() => {
-                    onChange(opt.value);
-                    setOpen(false);
-                  }}
-                >
-                  {showSelectedIndicator ? <Radio selected={value === opt.value} /> : null}
-                  <div className="min-w-0 grow">
-                    <div className="truncate text-emphasis-300">{opt.label}</div>
-                    {opt.description ? <div className="text-200 text-text-primary-70">{opt.description}</div> : null}
+            {search ? (
+              <div ref={searchRef} className="shrink-0 border-b border-border-5 p-3">
+                {search}
+              </div>
+            ) : null}
+            <div
+              id={`${id}-options`}
+              ref={listboxRef}
+              className={clsx("relative min-h-0 overflow-y-auto overscroll-contain p-1.5", {
+                "max-h-80": search || onLoadMore,
+              })}
+              role="listbox"
+              aria-label={`${label} options`}
+              aria-busy={isLoading || undefined}
+            >
+              {options.length === 0 && !isLoading && !loadError ? (
+                <div className="rounded-xl p-3 text-300 text-text-primary-50">{emptyMessage}</div>
+              ) : (
+                options.map((opt) => (
+                  <div
+                    key={opt.value}
+                    role="option"
+                    tabIndex={0}
+                    aria-selected={value === opt.value ? "true" : "false"}
+                    className={clsx(
+                      "flex w-full cursor-pointer items-center rounded-xl p-3 text-left select-none focus-visible:bg-core-primary-5 focus-visible:outline-none",
+                      "transition-[background-color] duration-200 ease-in-out",
+                      "text-text-primary hover:bg-core-primary-5",
+                      { "gap-3": showSelectedIndicator },
+                    )}
+                    onClick={() => selectOption(opt.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        selectOption(opt.value);
+                      }
+                    }}
+                  >
+                    {showSelectedIndicator ? (
+                      <div aria-hidden="true" inert className="pointer-events-none">
+                        <Radio selected={value === opt.value} />
+                      </div>
+                    ) : null}
+                    <div className="min-w-0 grow">
+                      <div className="truncate text-emphasis-300">{opt.label}</div>
+                      {opt.description ? <div className="text-200 text-text-primary-70">{opt.description}</div> : null}
+                    </div>
                   </div>
-                </div>
-              ))
-            )}
+                ))
+              )}
+              {hasMore && !loadError ? <div ref={loadMoreRef} className="h-px" /> : null}
+            </div>
+            {isLoading ? (
+              <div role="status" className="shrink-0 p-3 text-300 text-text-primary-50">
+                Loading…
+              </div>
+            ) : null}
+            {loadError ? (
+              <div className="flex shrink-0 items-center gap-3 p-3">
+                <p role="alert" className="text-200 text-text-critical">
+                  {loadError}
+                </p>
+                {onRetry ? (
+                  <Button
+                    variant="secondary"
+                    size="compact"
+                    text="Retry"
+                    onClick={() => {
+                      // Retry disappears while loading, so move focus to a stable control first.
+                      const target =
+                        searchRef.current?.querySelector("input") ??
+                        listboxRef.current?.querySelector<HTMLElement>('[role="option"]') ??
+                        triggerRef.current?.querySelector("button");
+                      target?.focus({ preventScroll: true });
+                      onRetry();
+                    }}
+                  />
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </Popover>
       ) : null}

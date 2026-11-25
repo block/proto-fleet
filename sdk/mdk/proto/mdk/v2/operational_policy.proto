@@ -1,0 +1,149 @@
+syntax = "proto3";
+
+package mdk.v2;
+
+import "google/api/annotations.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "mdk/v2/hashboard.proto";
+import "mdk/v2/options.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
+
+// OperationalPolicyService exposes the narrow runtime policy surface that a
+// control Flotilla destination may manage without changing tunnel/bootstrap
+// configuration.
+service OperationalPolicyService {
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_tag) = {
+    name: "Operational policy"
+    description: "Allowlisted live Frigate guardrail and recovery policy."
+  };
+
+  rpc GetManagedOperationalPolicy(GetManagedOperationalPolicyRequest) returns (GetManagedOperationalPolicyResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/operational-policy"};
+  }
+
+  rpc ApplyManagedOperationalPolicy(ApplyManagedOperationalPolicyRequest) returns (ApplyManagedOperationalPolicyResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {
+      put: "/api/v2/operational-policy"
+      body: "*"
+    };
+  }
+}
+
+message ManagedDouble {
+  bool managed = 1;
+  double value = 2;
+}
+
+message ManagedBool {
+  bool managed = 1;
+  bool value = 2;
+}
+
+message ManagedDuration {
+  bool managed = 1;
+  google.protobuf.Duration value = 2;
+}
+
+message ManagedErrorCauses {
+  bool managed = 1;
+  // Legacy numeric values retained for mixed-version Frigate deployments.
+  repeated int32 values = 2 [deprecated = true];
+  repeated HashboardErrorCause causes = 3;
+}
+
+message ManagedOperationalPolicy {
+  reserved 1, 2, 3;
+  ManagedDouble safety_margin = 4;
+  ManagedDouble min_board_watts = 5;
+  ManagedDouble max_board_watts = 6;
+  ManagedBool recovery_enabled = 7;
+  ManagedErrorCauses recovery_causes = 8;
+  ManagedDuration recovery_holdoff = 9;
+  ManagedDuration recovery_off_duration = 10;
+  // Container thermal alarm thresholds. Older Frigate releases ignore these
+  // fields and report thermal_alarms_active false, so Flotilla shows the
+  // profile as inactive rather than silently applied.
+  ManagedDouble inside_ambient_warning_c = 11;
+  ManagedDouble inside_ambient_critical_c = 12;
+  ManagedDouble inside_ambient_hysteresis_c = 13;
+  ManagedDouble ac_disabled_load_threshold_kw = 14;
+}
+
+message EffectiveOperationalPolicy {
+  reserved 1, 2, 3;
+  double safety_margin = 4;
+  double min_board_watts = 5;
+  double max_board_watts = 6;
+  bool recovery_enabled = 7;
+  // Legacy numeric values retained for mixed-version Flotilla deployments.
+  repeated int32 recovery_causes = 8 [deprecated = true];
+  google.protobuf.Duration recovery_holdoff = 9;
+  google.protobuf.Duration recovery_off_duration = 10;
+  // Recovery scope is intentionally fixed and reported for operator clarity.
+  string recovery_scope = 11;
+  repeated HashboardErrorCause recovery_error_causes = 12;
+  double inside_ambient_warning_c = 13;
+  double inside_ambient_critical_c = 14;
+  double inside_ambient_hysteresis_c = 15;
+  double ac_disabled_load_threshold_kw = 16;
+}
+
+message OperationalPolicyCapabilities {
+  reserved 1;
+  bool power_controller_active = 2;
+  bool recovery_active = 3;
+  bool mapped_feeds_available = 4;
+  // True when this Frigate evaluates container thermal alarms.
+  bool thermal_alarms_active = 5;
+}
+
+// MQTTSourceConnectionConfig reports nonsecret MQTT source settings. The
+// password value is never returned through this API.
+message MQTTSourceConnectionConfig {
+  message Broker {
+    string host = 1;
+    uint32 port = 2;
+  }
+
+  bool enabled = 1;
+  repeated Broker brokers = 2;
+  string username = 3;
+  bool password_configured = 4;
+  string topic = 5;
+  uint32 qos = 6;
+}
+
+message OperationalPolicyState {
+  uint64 profile_revision = 1;
+  uint64 generation = 2;
+  ManagedOperationalPolicy managed = 3;
+  EffectiveOperationalPolicy effective = 4;
+  OperationalPolicyCapabilities capabilities = 5;
+  google.protobuf.Timestamp updated_at = 6;
+  string updated_by = 7;
+  string fingerprint = 8;
+  MQTTSourceConnectionConfig mqtt_source_connection = 9;
+}
+
+message GetManagedOperationalPolicyRequest {}
+
+message GetManagedOperationalPolicyResponse {
+  OperationalPolicyState state = 1;
+}
+
+message ApplyManagedOperationalPolicyRequest {
+  uint64 profile_revision = 1;
+  ManagedOperationalPolicy policy = 2;
+  string fingerprint = 3;
+}
+
+message ApplyManagedOperationalPolicyResponse {
+  OperationalPolicyState state = 1;
+}

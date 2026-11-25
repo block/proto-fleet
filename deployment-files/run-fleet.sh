@@ -1254,19 +1254,24 @@ compose_config_hash() {
         return 1
     fi
 
-    # Compose resolves bind/build paths to the staging directory. The updater
-    # renames that directory into place between preflight and activation, so
-    # redact only that literal prefix before hashing the normalized model.
-    hash=$(awk -v root="$PROJECT_ROOT" '
-        {
-            line = $0
-            normalized = ""
-            while ((position = index(line, root)) > 0) {
-                normalized = normalized substr(line, 1, position - 1) "<PROJECT_ROOT>"
-                line = substr(line, position + length(root))
+    # Deployment-local paths and the sibling artifact directory relocate together
+    # in Compose's model when the updater activates the staged deployment.
+    hash=$(awk -v root="$PROJECT_ROOT" -v artifacts="$(dirname "$PROJECT_ROOT")/artifacts" '
+        function normalize(line, path, label,    result, position, tail, boundary) {
+            result = ""
+            while ((position = index(line, path)) > 0) {
+                tail = substr(line, position + length(path))
+                boundary = substr(tail, 1, 1)
+                result = result substr(line, 1, position - 1)
+                if (boundary == "" || boundary ~ /[\/"\047]/)
+                    result = result label
+                else
+                    result = result path
+                line = tail
             }
-            print normalized line
+            return result line
         }
+        { print normalize(normalize($0, artifacts, "<ARTIFACT_ROOT>"), root, "<PROJECT_ROOT>") }
     ' "$rendered" | sha256)
     status=$?
     rm -f "$rendered"
@@ -2676,7 +2681,7 @@ if [ -n "$existing_api" ]; then
     fi
     # Avoid creating the artifact bind paths before preservation has adopted them.
     if ! compose run --rm --no-deps \
-        -v /app/firmware -v /app/command-artifacts -v /app/logs \
+        -v /app/firmware -v /app/command-artifacts -v /app/logs -v /app/frigate-release-keys \
         --entrypoint /app/fleet-db-transition fleet-api check --state startup; then
         echo "Error: database is not ready for this release; complete offline reconciliation before retrying. Existing containers were not removed." >&2
         exit 1
@@ -2776,6 +2781,7 @@ DECLARE
     r RECORD;
     n integer := 0;
 BEGIN
+    -- Telemetry maintenance keeps its adaptive schedule and migration stagger.
     FOR r IN SELECT job_id FROM timescaledb_information.jobs
              WHERE proc_name IN ('policy_compression',
                                  'policy_refresh_continuous_aggregate',
@@ -2842,8 +2848,8 @@ provision_grafana_db_role() {
 
     # `up --wait` only confirms containers are running, not that fleet-api's migrations finished.
     # The GRANT block below references each object under ON_ERROR_STOP, so poll until every one exists.
-    echo "Waiting for notification_metric_sample, fleet_telemetry_poll_heartbeat, fleet_pollable_device_presence, fleet_active_organization, fleet_device_placement and fleet_node to be available…"
-    if ! wait_for_psql_true "SELECT to_regclass('public.notification_metric_sample') IS NOT NULL AND to_regclass('public.fleet_telemetry_poll_heartbeat') IS NOT NULL AND to_regclass('public.fleet_pollable_device_presence') IS NOT NULL AND to_regclass('public.fleet_active_organization') IS NOT NULL AND to_regclass('public.fleet_device_placement') IS NOT NULL AND to_regclass('public.fleet_node') IS NOT NULL"; then
+    echo "Waiting for notification_metric_sample, fleet_telemetry_poll_heartbeat, fleet_pollable_device_presence, fleet_active_organization, fleet_device_placement, fleet_node_live and curtailment_reconciler_heartbeat to be available…"
+    if ! wait_for_psql_true "SELECT to_regclass('public.notification_metric_sample') IS NOT NULL AND to_regclass('public.fleet_telemetry_poll_heartbeat') IS NOT NULL AND to_regclass('public.fleet_pollable_device_presence') IS NOT NULL AND to_regclass('public.fleet_active_organization') IS NOT NULL AND to_regclass('public.fleet_device_placement') IS NOT NULL AND to_regclass('public.fleet_node_live') IS NOT NULL AND to_regclass('public.curtailment_reconciler_heartbeat') IS NOT NULL"; then
         echo "Warning: required Grafana alert objects did not appear; Grafana role not provisioned (datasource will fail until fleet-api migrations finish)." >&2
         return 1
     fi
@@ -2954,7 +2960,9 @@ GRANT SELECT ON fleet_active_organization TO "${grafana_user}";
 GRANT SELECT ON fleet_device_placement TO "${grafana_user}";
 -- Column-level access exposes heartbeat state without granting access to Fleet Node keys or names.
 GRANT SELECT (org_id, id, last_seen_at, enrollment_status, deleted_at)
-    ON fleet_node TO "${grafana_user}";
+    ON fleet_node_live TO "${grafana_user}";
+-- Column-level access exposes only the reconciler's liveness timestamp.
+GRANT SELECT (id, last_tick_at) ON curtailment_reconciler_heartbeat TO "${grafana_user}";
 ${stats_grant}
 
 -- smoke check
@@ -2965,9 +2973,10 @@ SELECT 1 FROM fleet_pollable_device_presence LIMIT 0;
 SELECT 1 FROM fleet_active_organization LIMIT 0;
 SELECT 1 FROM fleet_device_placement LIMIT 0;
 SELECT org_id, id, last_seen_at
-FROM fleet_node
+FROM fleet_node_live
 WHERE enrollment_status = 'CONFIRMED' AND deleted_at IS NULL
 LIMIT 0;
+SELECT id, last_tick_at FROM curtailment_reconciler_heartbeat LIMIT 0;
 ${stats_smoke}
 RESET ROLE;
 SQL

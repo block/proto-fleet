@@ -73,6 +73,8 @@ export type FilterSummaryContext = {
   availableRacks: DeviceSet[];
   availableBuildings: FilterLabelSource[];
   availableSites: FilterLabelSource[];
+  availableContainers?: FilterLabelSource[];
+  availableTanks?: FilterLabelSource[];
 };
 
 const lookupDeviceSetLabels = (ids: string[], deviceSets: DeviceSet[]): string[] => {
@@ -120,6 +122,22 @@ const summarizeTelemetryFilters = (params: URLSearchParams): FilterSummaryEntry[
   return entries;
 };
 
+const summarizeFacilityFilters = (params: URLSearchParams, context: FilterSummaryContext): FilterSummaryEntry[] => {
+  const buildingValues = dedupedSorted(params, "building");
+  const containerValues = dedupedSorted(params, "container");
+  if (!buildingValues.length && !containerValues.length) return [];
+  return [
+    {
+      key: "building",
+      label: "Buildings",
+      values: [
+        ...lookupNamedLabels(buildingValues, context.availableBuildings),
+        ...lookupNamedLabels(containerValues, context.availableContainers ?? []).map((label) => label + " (Container)"),
+      ],
+    },
+  ];
+};
+
 const summarizeMinerFilters = (params: URLSearchParams, context: FilterSummaryContext): FilterSummaryEntry[] => {
   const entries: FilterSummaryEntry[] = [];
 
@@ -142,19 +160,18 @@ const summarizeMinerFilters = (params: URLSearchParams, context: FilterSummaryCo
     entries.push({ key: "site", label: "Sites", values: lookupNamedLabels(siteValues, context.availableSites) });
   }
 
-  const buildingValues = dedupedSorted(params, "building");
-  if (buildingValues.length) {
-    entries.push({
-      key: "building",
-      label: "Buildings",
-      values: lookupNamedLabels(buildingValues, context.availableBuildings),
-    });
-  }
-
+  entries.push(...summarizeFacilityFilters(params, context));
   const rackValues = dedupedSorted(params, "rack");
-  if (rackValues.length) {
-    entries.push({ key: "rack", label: "Racks", values: lookupDeviceSetLabels(rackValues, context.availableRacks) });
-  }
+  const tankValues = dedupedSorted(params, "tank");
+  if (rackValues.length || tankValues.length)
+    entries.push({
+      key: "rack",
+      label: "Racks",
+      values: [
+        ...lookupDeviceSetLabels(rackValues, context.availableRacks),
+        ...lookupNamedLabels(tankValues, context.availableTanks ?? []).map((label) => label + " (Tank)"),
+      ],
+    });
 
   const zoneValues = dedupedSorted(params, "zone");
   if (zoneValues.length) entries.push({ key: "zone", label: "Zone", values: zoneValues });
@@ -194,14 +211,7 @@ const summarizeRackFilters = (params: URLSearchParams, context: FilterSummaryCon
     entries.push({ key: "site", label: "Sites", values: lookupNamedLabels(siteValues, context.availableSites) });
   }
 
-  const buildingValues = dedupedSorted(params, "building");
-  if (buildingValues.length) {
-    entries.push({
-      key: "building",
-      label: "Buildings",
-      values: lookupNamedLabels(buildingValues, context.availableBuildings),
-    });
-  }
+  entries.push(...summarizeFacilityFilters(params, context));
 
   const zoneValues = dedupedSorted(params, "zone");
   if (zoneValues.length) entries.push({ key: "zone", label: "Zone", values: zoneValues });

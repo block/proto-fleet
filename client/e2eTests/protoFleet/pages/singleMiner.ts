@@ -21,15 +21,18 @@ export class SingleMinerPage extends BasePage {
   }
 
   private async ensureNavigationVisible() {
-    const navigation = this.page.getByTestId("navigation");
-    if (await navigation.isVisible().catch(() => false)) {
+    const surface = this.page.getByTestId("single-miner-surface");
+    await expect(surface).toBeVisible();
+    const navigation = surface.getByTestId("navigation");
+    if (!this.isMobile) {
+      await expect(navigation).toBeVisible();
       return;
     }
-
-    if (this.isMobile) {
-      await this.page.getByTestId("navigation-menu-button").click();
-      await expect(navigation).toBeVisible();
-    }
+    await expect(async () => {
+      if (await navigation.isVisible().catch(() => false)) return;
+      await surface.getByTestId("navigation-menu-button").click({ timeout: DEFAULT_INTERVAL });
+      await expect(navigation).toBeVisible({ timeout: DEFAULT_INTERVAL });
+    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
   }
 
   async validateSingleMinerSurfaceOpened() {
@@ -75,7 +78,11 @@ export class SingleMinerPage extends BasePage {
 
   async navigateToLogs() {
     await this.ensureNavigationVisible();
-    await this.page.getByTestId("navigation").getByRole("button", { name: "Logs" }).click();
+    await this.page
+      .getByTestId("single-miner-surface")
+      .getByTestId("navigation")
+      .getByRole("button", { name: "Logs" })
+      .click();
     await expect(this.page).toHaveURL(/.*\/logs/);
     await this.waitForLogsListToBeReady();
   }

@@ -5,17 +5,16 @@ import { MinersPage } from "../pages/miners";
 import { SettingsPage } from "../pages/settings";
 import { SettingsTeamPage } from "../pages/settingsTeam";
 
-type CreateRoleAndMemberOptions = {
+type CreateRoleAndInvitationOptions = {
   roleName: string;
   roleDescription: string;
   permissionKeys: string[];
-  username: string;
 };
 
-type FirstLoginOptions = {
+type JoinTeamOptions = {
+  invitationCode: string;
   username: string;
-  temporaryPassword: string;
-  newPassword: string;
+  password: string;
 };
 
 export class CommonSteps {
@@ -62,40 +61,34 @@ export class CommonSteps {
     });
   }
 
-  async createRoleAndTeamMember({
+  async createRoleAndTeamInvitation({
     roleName,
     roleDescription,
     permissionKeys,
-    username,
-  }: CreateRoleAndMemberOptions): Promise<string> {
+  }: CreateRoleAndInvitationOptions): Promise<string> {
     const { settingsPage, settingsTeamPage } = this.requireTeamHelpers();
 
-    return await test.step("Create a custom role and team member as admin", async () => {
+    return await test.step("Create a custom role and team invitation as admin", async () => {
       await this.loginAsAdmin({ forceReauth: true });
       await settingsPage.navigateToTeamSettings();
       await settingsTeamPage.validateTeamSettingsPageOpened();
       await settingsTeamPage.openRolesTab();
       await settingsTeamPage.createCustomRole(roleName, roleDescription, permissionKeys);
       await settingsTeamPage.openMembersTab();
-      return await settingsTeamPage.createTeamMemberAndGetTemporaryPassword(username, roleName);
+      return await settingsTeamPage.createInvitationAndGetCode(roleName);
     });
   }
 
-  async completeFirstLoginAsTeamMember({ username, temporaryPassword, newPassword }: FirstLoginOptions) {
-    await test.step("Log in as the new team member and set a permanent password", async () => {
+  async joinTeamWithInvitation({ invitationCode, username, password }: JoinTeamOptions) {
+    await test.step("Redeem the invitation with a new login", async () => {
       // eslint-disable-next-line playwright/no-conditional-in-test
       if (await this.authPage.isAlreadyLoggedIn()) {
         await this.authPage.logout();
       }
       await this.authPage.gotoAuthPage();
-      await this.authPage.inputUsername(username);
-      await this.authPage.inputPassword(temporaryPassword);
-      await this.authPage.clickLogin();
-      await this.authPage.validateUpdatePasswordTitle();
-      await this.authPage.inputNewPassword(newPassword);
-      await this.authPage.inputConfirmPassword(newPassword);
-      await this.authPage.clickContinue();
-      await this.authPage.clickLoginButton();
+      await this.authPage.openInvitationEntry();
+      await this.authPage.enterInvitationCode(invitationCode);
+      await this.authPage.registerInvitedLogin(username, password);
       await this.authPage.validateLoggedIn();
     });
   }

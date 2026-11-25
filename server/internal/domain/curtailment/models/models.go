@@ -6,11 +6,15 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/schedulewindow"
 )
 
-// OrgConfig is the per-org default duration and candidate-power floor.
+// OrgConfig is the per-org candidate-power floor.
 type OrgConfig struct {
-	OrgID                 int64
+	OrgID int64
+	// MaxDurationDefaultSec is stored but not applied: events have no cap
+	// unless their Start sets one.
 	MaxDurationDefaultSec int32
 	CandidateMinPowerW    int32
 }
@@ -18,6 +22,7 @@ type OrgConfig struct {
 // ResponseProfile is reusable curtailment response behavior. Automation rules
 // bind source triggers to these profiles; profiles themselves do not execute.
 type ResponseProfile struct {
+	EnabledAutomationRuleCount  int64
 	ID                          int64
 	OrgID                       int64
 	Revision                    uuid.UUID
@@ -63,13 +68,30 @@ type ResponseProfileInfrastructureDevice struct {
 	Enabled bool
 }
 
-// AutomationTriggerType identifies the kind of signal an automation rule
-// listens to. MQTT is the only supported v1 trigger.
+// AutomationTriggerType identifies what drives an automation rule: an MQTT
+// source's signal, or the windows of a time schedule.
 type AutomationTriggerType string
 
 const (
-	AutomationTriggerTypeMQTT AutomationTriggerType = "MQTT"
+	AutomationTriggerTypeMQTT     AutomationTriggerType = "MQTT"
+	AutomationTriggerTypeSchedule AutomationTriggerType = "SCHEDULE"
 )
+
+// AutomationSchedule is a SCHEDULE rule's window definition. ServiceUserID is
+// the user who last saved the schedule; it attributes scheduled events.
+// Revision changes on every save and fences window execution.
+type AutomationSchedule struct {
+	Definition    schedulewindow.Definition
+	ServiceUserID int64
+	Revision      uuid.UUID
+}
+
+// ScheduledAutomationRule is an enabled SCHEDULE rule as the window producer
+// reads it.
+type ScheduledAutomationRule struct {
+	RuleID   int64
+	Schedule AutomationSchedule
+}
 
 // AutomationSignal is the latest normalized trigger state for a rule.
 type AutomationSignal string
@@ -81,12 +103,16 @@ const (
 
 // AutomationRule binds an external trigger source to a response profile.
 type AutomationRule struct {
+	AdminControlsGranted     bool
+	BindingStatus            string
+	ExecutionStatus          string
 	ID                       int64
 	OrgID                    int64
 	RuleName                 string
 	TriggerType              AutomationTriggerType
 	MQTTSourceID             int64
 	MQTTSourceName           string
+	Schedule                 *AutomationSchedule
 	ResponseProfileID        int64
 	ResponseProfileRevision  uuid.UUID
 	ResponseProfileName      string
@@ -275,6 +301,7 @@ type Event struct {
 	SupersedesEventID            *int64
 	Reason                       string
 	ScheduledStartAt             *time.Time
+	ScheduleRevision             uuid.UUID
 	StartedAt                    *time.Time
 	EndedAt                      *time.Time
 	CreatedByUserID              int64
@@ -325,8 +352,8 @@ func (c TargetSiteCoverage) UnknownTargetCount() int64 {
 }
 
 // InsertEventParams is the caller-supplied fields; id / created_at /
-// updated_at come from the DB. EffectiveBatchSize is computed at Start
-// from the selected-target count and stamped here.
+// updated_at come from the DB. EffectiveBatchSize is stamped at Start from
+// the explicit restore wave size or the bounded selected-target count.
 type InsertEventParams struct {
 	EventUUID                   uuid.UUID
 	OrgID                       int64
@@ -360,19 +387,23 @@ type InsertEventParams struct {
 	FanRestoreDelaySec       int32
 	// Execution-fence fields are consumed by the store and are not persisted on
 	// the event.
-	ResponseProfileID       int64
-	ResponseProfileRevision uuid.UUID
-	AutomationRuleID        int64
-	AutomationMQTTSourceID  int64
-	DecisionSnapshotJSON    []byte
-	SourceActorType         SourceActorType
-	SourceActorID           *string
-	ExternalSource          *string
-	ExternalReference       *string
-	IdempotencyKey          *string
-	Reason                  string
-	ScheduledStartAt        *time.Time
-	StartedAt               *time.Time
+	ResponseProfileID          int64
+	ResponseProfileRevision    uuid.UUID
+	AutomationRuleID           int64
+	AutomationMQTTSourceID     int64
+	AutomationScheduleRevision uuid.UUID
+	// AutomationWindowEndAt is a scheduled event's window end; the store
+	// rejects the insert once it passes and caps the event at it.
+	AutomationWindowEndAt time.Time
+	DecisionSnapshotJSON  []byte
+	SourceActorType       SourceActorType
+	SourceActorID         *string
+	ExternalSource        *string
+	ExternalReference     *string
+	IdempotencyKey        *string
+	Reason                string
+	ScheduledStartAt      *time.Time
+	StartedAt             *time.Time
 	// EndedAt is set only when an event is inserted already terminal — a
 	// vacuously-COMPLETED FULL_FLEET start with no eligible targets — so the
 	// completion time is recorded; the reconciler/restorer set it otherwise.
@@ -421,8 +452,11 @@ type Target struct {
 	RetryCount            int32
 	LastError             *string
 	SelectorRationaleJSON []byte
-	CurtailPhase          TargetPhaseSummary
-	RestorePhase          *TargetPhaseSummary
+	// CurtailPossiblySent reports a Curtail attempt whose send is ambiguous.
+	// Retry history alone does not imply a send.
+	CurtailPossiblySent bool
+	CurtailPhase        TargetPhaseSummary
+	RestorePhase        *TargetPhaseSummary
 }
 
 // TargetPhase identifies the durable per-phase target summary that backs
@@ -476,6 +510,7 @@ type Heartbeat struct {
 // fields mean "no row joined" and map to the natural skip reason (e.g.,
 // absent telemetry → stale).
 type Candidate struct {
+	DeviceDatabaseID int64
 	DeviceIdentifier string
 	DriverName       *string
 	Model            string
@@ -531,4 +566,18 @@ type ConfirmationTarget struct {
 	BatchUUID                   string
 	PairingStatus               string
 	ForceIncludeAllPairedMiners bool
+}
+
+// AutomationExecution is one leased desired-state assertion for a rule.
+// Generation fences completion when a newer signal replaces in-flight work.
+// ScheduleRevision is the schedule revision a window boundary was produced
+// from; it is nil for MQTT work.
+type AutomationExecution struct {
+	LeaseExpiresAt                          time.Time
+	RuleID, OrgID, MQTTSourceID, Generation int64
+	Direction                               string
+	Target                                  AutomationSignal
+	TargetAt, ReceivedAt, PriorEdgeAt       time.Time
+	ReceivedBroker                          string
+	ScheduleRevision                        uuid.UUID
 }

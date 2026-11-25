@@ -7,7 +7,10 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/ha"
@@ -108,66 +111,229 @@ func (l *backgroundLoop) Stop(ctx context.Context) error {
 	}
 }
 
+// stopOnlyLifecycle includes already-created resources and request-spawned work
+// in the runtime's ordered cleanup proof before voluntary HA lease release.
+// A timeout keeps one participant from starving later ones of the shared group
+// budget; detached participants keep their own budget even after earlier
+// participants have used the group's.
+type stopOnlyLifecycle struct {
+	stop     func(context.Context) error
+	timeout  time.Duration
+	detached bool
+}
+
+func (l stopOnlyLifecycle) Start(context.Context) error { return nil }
+
+func (l stopOnlyLifecycle) Stop(ctx context.Context) error {
+	if l.detached {
+		ctx = context.WithoutCancel(ctx)
+	}
+	if l.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, l.timeout)
+		defer cancel()
+	}
+	return l.stop(ctx)
+}
+
 type runtimeJobGroupStopper interface {
 	Stop(ctx context.Context) error
 }
 
 type fleetRuntimeRunner interface {
 	Run(ctx context.Context) error
+	BeginPlannedDrain(deadline time.Time)
+}
+
+// httpRequestDrain rejects new requests once shutdown begins and tracks handler
+// completion, including HTTP/2 handlers on connections hijacked by h2c.
+type httpRequestDrain struct {
+	handler http.Handler
+	mu      sync.Mutex
+	stopped bool
+	active  sync.WaitGroup
+}
+
+func (d *httpRequestDrain) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	d.mu.Lock()
+	if d.stopped {
+		d.mu.Unlock()
+		http.Error(w, "Fleet is shutting down", http.StatusServiceUnavailable)
+		return
+	}
+	d.active.Add(1)
+	d.mu.Unlock()
+	defer d.active.Done()
+	d.handler.ServeHTTP(w, r)
+}
+
+func (d *httpRequestDrain) stop() {
+	d.mu.Lock()
+	d.stopped = true
+	d.mu.Unlock()
+}
+
+// httpConnectionListener retains ownership of accepted sockets after h2c
+// hijacks them, when net/http no longer closes them during shutdown.
+type httpConnectionListener struct {
+	net.Listener
+	mu      sync.Mutex
+	conns   map[*httpConnection]struct{}
+	stopped bool
+}
+
+func (l *httpConnectionListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err != nil {
+		return nil, fmt.Errorf("accept HTTP connection: %w", err)
+	}
+	l.mu.Lock()
+	if l.stopped {
+		l.mu.Unlock()
+		_ = conn.Close()
+		return nil, net.ErrClosed
+	}
+	tracked := &httpConnection{Conn: conn, listener: l}
+	l.conns[tracked] = struct{}{}
+	l.mu.Unlock()
+	return tracked, nil
+}
+
+func (l *httpConnectionListener) closeConnections() {
+	l.mu.Lock()
+	l.stopped = true
+	conns := make([]*httpConnection, 0, len(l.conns))
+	for conn := range l.conns {
+		conns = append(conns, conn)
+	}
+	l.mu.Unlock()
+	// Close outside the mutex: each connection removes itself from the registry.
+	for _, conn := range conns {
+		_ = conn.Close()
+	}
+}
+
+type httpConnection struct {
+	net.Conn
+	listener *httpConnectionListener
+}
+
+func (c *httpConnection) Close() error {
+	err := c.Conn.Close()
+	c.listener.mu.Lock()
+	delete(c.listener.conns, c)
+	c.listener.mu.Unlock()
+	if err != nil {
+		return fmt.Errorf("close HTTP connection: %w", err)
+	}
+	return nil
 }
 
 // serveFleetRuntime starts serving always-on health before runtime activation.
-// If either side exits, it stops the other before returning.
+// Process shutdown cancels requests before stopping their runtime dependencies.
 func serveFleetRuntime(
 	server *http.Server,
 	listener net.Listener,
 	runtime fleetRuntimeRunner,
 	timeout time.Duration,
+	drain *httpRequestDrain,
 ) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+	return serveFleetRuntimeWithContext(ctx, server, listener, runtime, timeout, drain)
+}
 
+func serveFleetRuntimeWithContext(
+	ctx context.Context,
+	server *http.Server,
+	listener net.Listener,
+	runtime fleetRuntimeRunner,
+	timeout time.Duration,
+	drain *httpRequestDrain,
+) error {
+	runtimeCtx, cancelRuntime := context.WithCancelCause(context.Background())
+	defer cancelRuntime(context.Canceled)
+	requestCtx, cancelRequests := context.WithCancel(context.Background())
+	defer cancelRequests()
+	server.BaseContext = func(net.Listener) context.Context { return requestCtx }
+	if drain == nil {
+		drain = &httpRequestDrain{handler: server.Handler}
+		server.Handler = drain
+	}
+
+	connections := &httpConnectionListener{Listener: listener, conns: make(map[*httpConnection]struct{})}
 	serverResult := make(chan error, 1)
 	go func() {
-		serverResult <- server.Serve(listener)
+		serverResult <- server.Serve(connections)
 	}()
 	runtimeResult := make(chan error, 1)
 	go func() {
-		runtimeResult <- runtime.Run(ctx)
+		runtimeResult <- runtime.Run(runtimeCtx)
 	}()
 
+	var serverErr, runtimeErr error
+	var serverStopped, runtimeStopped bool
+	plannedDrain := false
 	select {
-	case runtimeErr := <-runtimeResult:
-		cancel()
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), timeout)
-		shutdownErr := server.Shutdown(shutdownCtx)
-		shutdownCancel()
-		serverErr := <-serverResult
+	case <-ctx.Done():
+		plannedDrain = true
+	case runtimeErr = <-runtimeResult:
+		runtimeStopped = true
 		if runtimeErr == nil {
 			runtimeErr = errors.New("Fleet runtime stopped unexpectedly")
 		}
-		if shutdownErr != nil {
-			return errors.Join(runtimeErr, fmt.Errorf("shutdown HTTP server: %w", shutdownErr))
-		}
-		if serverErr != nil && !errors.Is(serverErr, http.ErrServerClosed) {
-			return errors.Join(runtimeErr, fmt.Errorf("serve HTTP: %w", serverErr))
-		}
-		return runtimeErr
-
-	case serverErr := <-serverResult:
-		cancel()
-		runtimeErr := <-runtimeResult
-		if serverErr == nil || errors.Is(serverErr, http.ErrServerClosed) {
-			return runtimeErr
-		}
-		if runtimeErr != nil {
-			return errors.Join(
-				fmt.Errorf("serve HTTP: %w", serverErr),
-				fmt.Errorf("stop Fleet runtime: %w", runtimeErr),
-			)
-		}
-		return fmt.Errorf("serve HTTP: %w", serverErr)
+	case serverErr = <-serverResult:
+		serverStopped = true
 	}
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), timeout)
+	shutdownDeadline, _ := shutdownCtx.Deadline()
+	if plannedDrain {
+		runtime.BeginPlannedDrain(shutdownDeadline)
+	}
+	// Closing admission before cancellation prevents keep-alive and h2c requests
+	// from starting work after the drain has begun.
+	drain.stop()
+	cancelRequests()
+	shutdownErr := server.Shutdown(shutdownCtx)
+	shutdownCancel()
+	if shutdownErr != nil {
+		// Closing sockets cancels transports, but does not prove handlers ended.
+		_ = server.Close()
+	}
+	// Shutdown and Close exclude hijacked h2c connections. Interrupt their I/O
+	// before waiting for handlers, while retaining dependencies through cleanup.
+	connections.closeConnections()
+	// A handler that ignores cancellation must keep its dependencies and binding
+	// locks until it actually returns; a timeout cannot establish completion.
+	drain.active.Wait()
+	drainedBeforeDeadline := time.Now().Before(shutdownDeadline)
+	if !serverStopped {
+		serverErr = <-serverResult
+	}
+	// Only signal-driven shutdown with an HTTP drain completed before its deadline
+	// may voluntarily release HA ownership. Late drains retain the TTL fallback.
+	stopCause := context.Canceled
+	if ctx.Err() != nil && shutdownErr == nil && drainedBeforeDeadline && !runtimeStopped &&
+		(serverErr == nil || errors.Is(serverErr, http.ErrServerClosed)) {
+		stopCause = ha.ErrPlannedStop
+	}
+	cancelRuntime(stopCause)
+	if !runtimeStopped {
+		runtimeErr = <-runtimeResult
+	}
+
+	var result error
+	if runtimeErr != nil {
+		result = runtimeErr
+	}
+	if shutdownErr != nil {
+		result = errors.Join(result, fmt.Errorf("shutdown HTTP server: %w", shutdownErr))
+	}
+	if serverErr != nil && !errors.Is(serverErr, http.ErrServerClosed) {
+		result = errors.Join(result, fmt.Errorf("serve HTTP: %w", serverErr))
+	}
+	return result
 }
 
 // stopRuntimeJobGroupAfterRun avoids repeating cleanup already completed by a fatal HA abort.
@@ -203,22 +369,31 @@ func stopRuntimeJobGroup(group runtimeJobGroupStopper, commandExecution runtimej
 }
 
 type runtimeJobLifecycles struct {
+	plugins                   runtimejobs.Lifecycle
+	pendingUnpairs            runtimejobs.Lifecycle
 	identityStateCleanup      runtimejobs.Lifecycle
 	commandArtifactCleanup    runtimejobs.Lifecycle
 	diagnosticsErrorCloser    runtimejobs.Lifecycle
 	telemetry                 runtimejobs.Lifecycle
 	ipScanner                 runtimejobs.Lifecycle
 	commandExecution          runtimejobs.Lifecycle
+	miningGroupReconciliation runtimejobs.Lifecycle
+	poolConfigurationUpdates  runtimejobs.Lifecycle
 	scheduleProcessor         runtimejobs.Lifecycle
 	rolloutEnforcement        runtimejobs.Lifecycle
 	curtailmentReconciler     runtimejobs.Lifecycle
 	curtailmentMQTTSubscriber runtimejobs.Lifecycle
+	curtailmentAutomation     runtimejobs.Lifecycle
 	curtailmentRigConfig      runtimejobs.Lifecycle
 	curtailmentAlertMetrics   runtimejobs.Lifecycle
 	chunkedUploadCleanup      runtimejobs.Lifecycle
+	frigateUpdateRunner       runtimejobs.Lifecycle
+	frigatePackageCleanup     runtimejobs.Lifecycle
+	fleetNodeFailover         runtimejobs.Lifecycle
 	systemMonitoring          runtimejobs.Lifecycle
 	haReadiness               runtimejobs.Lifecycle
 	releaseChecker            runtimejobs.Lifecycle
+	hostedReporting           runtimejobs.Lifecycle
 }
 
 func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) {
@@ -240,15 +415,19 @@ func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) 
 		name      string
 		lifecycle runtimejobs.Lifecycle
 	}{
+		{name: "plugins", lifecycle: lifecycles.plugins},
 		{name: "identity-state-cleanup", lifecycle: lifecycles.identityStateCleanup},
 		{name: "command-artifact-cleanup", lifecycle: lifecycles.commandArtifactCleanup},
 		{name: "diagnostics-error-closer", lifecycle: lifecycles.diagnosticsErrorCloser},
 		{name: "telemetry", lifecycle: lifecycles.telemetry},
 		{name: "ip-scanner", lifecycle: lifecycles.ipScanner},
 		{name: "command-execution", lifecycle: commandExecution},
+		{name: "mining-group-reconciliation", lifecycle: lifecycles.miningGroupReconciliation},
+		{name: "pool-configuration-updates", lifecycle: lifecycles.poolConfigurationUpdates},
 		{name: "schedule-processor", lifecycle: lifecycles.scheduleProcessor},
 		{name: "rollout-enforcement", lifecycle: lifecycles.rolloutEnforcement},
 		{name: "curtailment-reconciler", lifecycle: lifecycles.curtailmentReconciler},
+		{name: "curtailment-automation", lifecycle: lifecycles.curtailmentAutomation},
 		{name: "curtailment-mqtt-subscriber", lifecycle: lifecycles.curtailmentMQTTSubscriber},
 		{name: "curtailment-rig-config", lifecycle: lifecycles.curtailmentRigConfig},
 	}
@@ -265,6 +444,17 @@ func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) 
 	if err := add("chunked-upload-cleanup", lifecycles.chunkedUploadCleanup); err != nil {
 		return nil, err
 	}
+	if err := add("frigate-update-runner", lifecycles.frigateUpdateRunner); err != nil {
+		return nil, err
+	}
+	if err := add("frigate-package-cleanup", lifecycles.frigatePackageCleanup); err != nil {
+		return nil, err
+	}
+	if lifecycles.fleetNodeFailover != nil {
+		if err := add("fleet-node-failover", lifecycles.fleetNodeFailover); err != nil {
+			return nil, err
+		}
+	}
 	if lifecycles.systemMonitoring != nil {
 		if err := add("system-monitoring", lifecycles.systemMonitoring); err != nil {
 			return nil, err
@@ -275,11 +465,21 @@ func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) 
 			return nil, err
 		}
 	}
+	if lifecycles.hostedReporting != nil {
+		if err := add("hosted-reporting", lifecycles.hostedReporting); err != nil {
+			return nil, err
+		}
+	}
 	if lifecycles.releaseChecker != nil {
 		if err := add("release-checker", lifecycles.releaseChecker); err != nil {
 			return nil, err
 		}
 	}
 
+	// Stop background unpairs before their telemetry/plugin dependencies. All
+	// HTTP handlers have drained before a planned stop reaches this participant.
+	if err := add("pending-unpairs", lifecycles.pendingUnpairs); err != nil {
+		return nil, err
+	}
 	return jobs, nil
 }

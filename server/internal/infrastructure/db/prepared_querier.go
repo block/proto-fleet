@@ -15,7 +15,7 @@ type PreparedQuerier struct {
 
 // NewPreparedQuerier prepares every sqlc query and wraps the resulting handle with retries.
 func NewPreparedQuerier(ctx context.Context, conn *sql.DB) (*PreparedQuerier, error) {
-	prepared, err := sqlc.Prepare(ctx, conn)
+	prepared, err := sqlc.Prepare(ctx, NewRetryDB(conn))
 	if err != nil {
 		return nil, err
 	}

@@ -1,6 +1,7 @@
 package pairing
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -19,11 +20,11 @@ func dev(id, ip, port string) *pb.Device {
 func TestDedupForwarder_DedupesAcrossSources(t *testing.T) {
 	// Arrange
 	var sent []*pb.DiscoverResponse
-	fwd := newDedupForwarder(func(r *pb.DiscoverResponse) error { sent = append(sent, r); return nil }, nil)
+	fwd := newDedupForwarder(nil, func(r *pb.DiscoverResponse) error { sent = append(sent, r); return nil }, nil)
 
 	// Act: two sources report a shared device (mac:a) plus distinct ones.
-	require.NoError(t, fwd.forward(&pb.DiscoverResponse{Devices: []*pb.Device{dev("mac:a", "10.0.0.1", "80"), dev("mac:b", "10.0.0.2", "80")}}))
-	require.NoError(t, fwd.forward(&pb.DiscoverResponse{Devices: []*pb.Device{dev("mac:a", "10.0.0.1", "80"), dev("mac:c", "10.0.0.3", "80")}}))
+	require.NoError(t, fwd.forward(t.Context(), &pb.DiscoverResponse{Devices: []*pb.Device{dev("mac:a", "10.0.0.1", "80"), dev("mac:b", "10.0.0.2", "80")}}))
+	require.NoError(t, fwd.forward(t.Context(), &pb.DiscoverResponse{Devices: []*pb.Device{dev("mac:a", "10.0.0.1", "80"), dev("mac:c", "10.0.0.3", "80")}}))
 
 	// Assert: mac:a forwarded once; the second batch is reduced to just mac:c.
 	require.Len(t, sent, 2)
@@ -35,11 +36,11 @@ func TestDedupForwarder_DedupesAcrossSources(t *testing.T) {
 func TestDedupForwarder_IPPortFallbackKey(t *testing.T) {
 	// Arrange: devices without an identifier dedupe by ip:port.
 	var sent []*pb.DiscoverResponse
-	fwd := newDedupForwarder(func(r *pb.DiscoverResponse) error { sent = append(sent, r); return nil }, nil)
+	fwd := newDedupForwarder(nil, func(r *pb.DiscoverResponse) error { sent = append(sent, r); return nil }, nil)
 
 	// Act
-	require.NoError(t, fwd.forward(&pb.DiscoverResponse{Devices: []*pb.Device{dev("", "10.0.0.5", "4028")}}))
-	require.NoError(t, fwd.forward(&pb.DiscoverResponse{Devices: []*pb.Device{dev("", "10.0.0.5", "4028")}}))
+	require.NoError(t, fwd.forward(t.Context(), &pb.DiscoverResponse{Devices: []*pb.Device{dev("", "10.0.0.5", "4028")}}))
+	require.NoError(t, fwd.forward(t.Context(), &pb.DiscoverResponse{Devices: []*pb.Device{dev("", "10.0.0.5", "4028")}}))
 
 	// Assert: the second (all-duplicate) batch is dropped.
 	require.Len(t, sent, 1)
@@ -48,13 +49,13 @@ func TestDedupForwarder_IPPortFallbackKey(t *testing.T) {
 func TestDedupForwarder_DropsAllDuplicateBatchButKeepsWarningResponse(t *testing.T) {
 	// Arrange
 	var sent []*pb.DiscoverResponse
-	fwd := newDedupForwarder(func(r *pb.DiscoverResponse) error { sent = append(sent, r); return nil }, nil)
-	require.NoError(t, fwd.forward(&pb.DiscoverResponse{Devices: []*pb.Device{dev("mac:a", "10.0.0.1", "80")}}))
+	fwd := newDedupForwarder(nil, func(r *pb.DiscoverResponse) error { sent = append(sent, r); return nil }, nil)
+	require.NoError(t, fwd.forward(t.Context(), &pb.DiscoverResponse{Devices: []*pb.Device{dev("mac:a", "10.0.0.1", "80")}}))
 
 	// Act: a fully-duplicate batch is dropped; a warning-only response is forwarded.
-	require.NoError(t, fwd.forward(&pb.DiscoverResponse{Devices: []*pb.Device{dev("mac:a", "10.0.0.1", "80")}}))
-	require.NoError(t, fwd.forward(&pb.DiscoverResponse{Warning: "scan failed"}))
-	require.NoError(t, fwd.forward(&pb.DiscoverResponse{Devices: []*pb.Device{dev("mac:a", "10.0.0.1", "80")}, Warning: "stopped early"}))
+	require.NoError(t, fwd.forward(t.Context(), &pb.DiscoverResponse{Devices: []*pb.Device{dev("mac:a", "10.0.0.1", "80")}}))
+	require.NoError(t, fwd.forward(t.Context(), &pb.DiscoverResponse{Warning: "scan failed"}))
+	require.NoError(t, fwd.forward(t.Context(), &pb.DiscoverResponse{Devices: []*pb.Device{dev("mac:a", "10.0.0.1", "80")}, Warning: "stopped early"}))
 
 	// Assert
 	require.Len(t, sent, 3)
@@ -67,11 +68,11 @@ func TestDedupForwarder_SendErrorRecordedAndCancels(t *testing.T) {
 	// Arrange
 	sendErr := errors.New("stream gone")
 	var cancelled bool
-	fwd := newDedupForwarder(func(*pb.DiscoverResponse) error { return sendErr }, func() { cancelled = true })
+	fwd := newDedupForwarder(nil, func(*pb.DiscoverResponse) error { return sendErr }, func() { cancelled = true })
 
 	// Act
-	err1 := fwd.forward(&pb.DiscoverResponse{Devices: []*pb.Device{dev("mac:a", "10.0.0.1", "80")}})
-	err2 := fwd.forward(&pb.DiscoverResponse{Devices: []*pb.Device{dev("mac:b", "10.0.0.2", "80")}})
+	err1 := fwd.forward(t.Context(), &pb.DiscoverResponse{Devices: []*pb.Device{dev("mac:a", "10.0.0.1", "80")}})
+	err2 := fwd.forward(t.Context(), &pb.DiscoverResponse{Devices: []*pb.Device{dev("mac:b", "10.0.0.2", "80")}})
 
 	// Assert: the first failure records the error and cancels; the second short-circuits.
 	require.ErrorIs(t, err1, sendErr)
@@ -80,11 +81,48 @@ func TestDedupForwarder_SendErrorRecordedAndCancels(t *testing.T) {
 	require.ErrorIs(t, fwd.failure(), sendErr)
 }
 
+func TestDedupForwarder_PrepareFailureDoesNotSend(t *testing.T) {
+	prepareErr := errors.New("pairing lookup failed")
+	sent := false
+	cancelled := false
+	fwd := newDedupForwarder(
+		func(context.Context, []*pb.Device) error { return prepareErr },
+		func(*pb.DiscoverResponse) error { sent = true; return nil },
+		func() { cancelled = true },
+	)
+
+	err := fwd.forward(t.Context(), &pb.DiscoverResponse{Devices: []*pb.Device{dev("mac:a", "10.0.0.1", "80")}})
+
+	require.ErrorIs(t, err, prepareErr)
+	require.ErrorIs(t, fwd.failure(), prepareErr)
+	assert.False(t, sent)
+	assert.True(t, cancelled)
+}
+
+func TestDedupForwarder_DedupesBeforePrepare(t *testing.T) {
+	prepareCalls := 0
+	fwd := newDedupForwarder(
+		func(_ context.Context, devices []*pb.Device) error {
+			prepareCalls++
+			require.Len(t, devices, 1)
+			return nil
+		},
+		func(*pb.DiscoverResponse) error { return nil },
+		nil,
+	)
+	device := dev("mac:a", "10.0.0.1", "80")
+
+	require.NoError(t, fwd.forward(t.Context(), &pb.DiscoverResponse{Devices: []*pb.Device{device}}))
+	require.NoError(t, fwd.forward(t.Context(), &pb.DiscoverResponse{Devices: []*pb.Device{device}}))
+
+	assert.Equal(t, 1, prepareCalls)
+}
+
 func TestDedupForwarder_ConcurrentForwardIsSerialized(t *testing.T) {
 	// Arrange: many goroutines forward distinct devices; -race verifies safety.
 	var mu sync.Mutex
 	count := 0
-	fwd := newDedupForwarder(func(r *pb.DiscoverResponse) error {
+	fwd := newDedupForwarder(nil, func(r *pb.DiscoverResponse) error {
 		mu.Lock()
 		count += len(r.GetDevices())
 		mu.Unlock()
@@ -97,7 +135,7 @@ func TestDedupForwarder_ConcurrentForwardIsSerialized(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_ = fwd.forward(&pb.DiscoverResponse{Devices: []*pb.Device{dev(fmt.Sprintf("mac:%d", i), "10.0.0.1", "80")}})
+			_ = fwd.forward(context.Background(), &pb.DiscoverResponse{Devices: []*pb.Device{dev(fmt.Sprintf("mac:%d", i), "10.0.0.1", "80")}})
 		}(i)
 	}
 	wg.Wait()

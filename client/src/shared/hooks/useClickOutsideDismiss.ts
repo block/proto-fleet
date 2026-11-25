@@ -78,8 +78,4 @@ const useClickOutsideDismiss = ({ ref, onDismiss, ignoreSelectors = [], shouldIg
   }, [registered]);
 };
 
-export const __resetClickOutsideStackForTests = () => {
-  stack.length = 0;
-};
-
 export { useClickOutsideDismiss };

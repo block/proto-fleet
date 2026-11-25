@@ -1,17 +1,20 @@
 import { type KeyboardEvent, type MouseEvent, type ReactElement, useMemo, useState } from "react";
 import clsx from "clsx";
 
-import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import {
-  type ActiveCurtailmentDisplayState,
   activeCurtailmentDisplayStateConfigs,
-  type CurtailmentEventState,
   curtailmentEventStateConfigs,
   curtailmentEventStates,
   formatCurtailmentAppliesToSummary,
   formatCurtailmentFacilityFanCount,
   formatCurtailmentTargetVsActual as formatTargetVsActual,
-} from "@/protoFleet/features/energy/curtailmentDisplayUtils";
+} from "@/protoFleet/api/curtailmentDisplayUtils";
+import type {
+  CurtailmentEventState,
+  CurtailmentHistoryEvent,
+  CurtailmentPriority,
+} from "@/protoFleet/api/curtailmentTypes";
+import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import CurtailmentStopConfirmationDialog from "@/protoFleet/features/energy/CurtailmentStopConfirmationDialog";
 import { ChevronDown } from "@/shared/assets/icons";
 import Button, { type ButtonVariant, sizes, variants } from "@/shared/components/Button";
@@ -19,32 +22,6 @@ import Header from "@/shared/components/Header";
 import DropdownFilter from "@/shared/components/List/Filters/DropdownFilter";
 import FilterChip from "@/shared/components/List/Filters/FilterChip";
 import Modal, { sizes as modalSizes } from "@/shared/components/Modal";
-
-export type CurtailmentPriority = "normal" | "high" | "emergency";
-
-export interface CurtailmentHistoryEvent {
-  id: string;
-  reason: string;
-  state: CurtailmentEventState;
-  displayState?: ActiveCurtailmentDisplayState;
-  injectedActive?: boolean;
-  priority: CurtailmentPriority;
-  scopeLabel: string;
-  selectedMiners: number;
-  facilityFanDeviceCount?: number;
-  estimatedReductionKw: number;
-  targetMetricsAvailable: boolean;
-  // Distinct from targetMetricsAvailable: live rollups prove counts without
-  // proving a kW estimate (active-list rows scrub the decision snapshot).
-  // Optional so fixture-driven surfaces default to the count signal.
-  estimatedReductionAvailable?: boolean;
-  targetKw?: number;
-  sourceLabel: string;
-  startedAt?: string;
-  endedAt?: string;
-  scheduledAt?: string;
-  createdAt?: string;
-}
 
 interface CurtailmentHistoryProps {
   events: CurtailmentHistoryEvent[];
@@ -275,7 +252,7 @@ function isActiveStoppableEvent(event: CurtailmentHistoryEvent, activeEventIds: 
 }
 
 function isActiveManageableEvent(event: CurtailmentHistoryEvent, activeEventIds: Set<string>): boolean {
-  return activeEventIds.has(event.id) && manageableEventStates.has(event.state);
+  return event.isManageable !== false && activeEventIds.has(event.id) && manageableEventStates.has(event.state);
 }
 
 function isActiveSelectableEvent(event: CurtailmentHistoryEvent, activeEventIds: Set<string>): boolean {
@@ -634,29 +611,27 @@ function CurtailmentHistory({
     setSelectedStopEventId(undefined);
     setPendingStopEventIds((currentEventIds) => new Set(currentEventIds).add(event.id));
 
+    const clearPendingStop = () => {
+      setPendingStopEventIds((currentEventIds) => {
+        const nextEventIds = new Set(currentEventIds);
+        nextEventIds.delete(event.id);
+        return nextEventIds;
+      });
+    };
     let stopRequest: void | PromiseLike<unknown>;
     try {
       stopRequest = onStopActiveEvent(event);
     } catch {
-      setPendingStopEventIds((currentEventIds) => {
-        const nextEventIds = new Set(currentEventIds);
-        nextEventIds.delete(event.id);
-        return nextEventIds;
-      });
+      clearPendingStop();
       return;
     }
 
     if (!isPromiseLike(stopRequest)) {
+      clearPendingStop();
       return;
     }
 
-    void Promise.resolve(stopRequest).catch(() => {
-      setPendingStopEventIds((currentEventIds) => {
-        const nextEventIds = new Set(currentEventIds);
-        nextEventIds.delete(event.id);
-        return nextEventIds;
-      });
-    });
+    void Promise.resolve(stopRequest).then(clearPendingStop, clearPendingStop);
   };
 
   const handleManageSelectedDetailEvent =

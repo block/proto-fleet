@@ -9,6 +9,9 @@ const (
 
 // Config holds configuration for the TimescaleDB telemetry store.
 type Config struct {
+	// TrackTelemetryFreshness adds bounded compact watermarks in the telemetry
+	// transaction. Enable only after the freshness migration and qualification.
+	TrackTelemetryFreshness bool `json:"track_telemetry_freshness" default:"false" env:"TRACK_TELEMETRY_FRESHNESS"`
 	// MaxAge is the maximum age of metrics to query by default
 	MaxAge time.Duration `json:"max_age" default:"24h" env:"MAX_AGE"`
 

@@ -1,14 +1,10 @@
 import { fireEvent, renderHook } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { __resetEscapeStackForTests, useEscapeDismiss } from "./useEscapeDismiss";
+import { describe, expect, it, vi } from "vitest";
+import { useEscapeDismiss } from "./useEscapeDismiss";
 
 const pressEscape = () => fireEvent.keyDown(document, { key: "Escape" });
 
 describe("useEscapeDismiss", () => {
-  afterEach(() => {
-    __resetEscapeStackForTests();
-  });
-
   it("fires the handler on Escape", () => {
     const onDismiss = vi.fn();
     renderHook(() => useEscapeDismiss(onDismiss));

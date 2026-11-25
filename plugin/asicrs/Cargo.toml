@@ -14,6 +14,8 @@ tonic = "0.13"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
 prost-types = "0.13"
+prost = "0.13"
+sha2 = "0.10"
 
 # asic-rs miner library
 asic-rs = "0.5.4"

@@ -12,6 +12,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net"
@@ -20,6 +21,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -32,22 +34,10 @@ const (
 )
 
 func main() {
-	// Generate unique identifiers for this instance
-	instanceID := uuid.New().String()[:8]
-	serialNumber := getEnv("SERIAL_NUMBER", "PROTO-SIM-"+instanceID)
-	macAddress := getEnv("MAC_ADDRESS", generateMACAddress(instanceID))
-
-	log.Printf("Starting fake Proto miner: SN=%s MAC=%s", serialNumber, macAddress)
-
-	// Create miner state
-	state := NewMinerState(serialNumber, macAddress)
-	configureStartupAuthState(state)
-
-	// Apply error configuration from environment
-	applyErrorConfig(state)
-
-	// Set IP address based on outbound interface
-	state.IPAddress = getOutboundIP().String()
+	handler, err := configuredMinerHandler()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -61,59 +51,106 @@ func main() {
 			port = p
 		}
 	}
-	if err := startHTTPServer(ctx, state, port); err != nil {
+	if err := startHTTPServer(ctx, handler, port); err != nil {
 		log.Fatalf("Failed to start HTTP server: %v", err)
 	}
 }
 
-func startHTTPServer(ctx context.Context, state *MinerState, port int) error {
-	mux := http.NewServeMux()
-
-	// Create REST API handler
-	restHandler := NewRESTApiHandler(state)
-	restHandler.RegisterRoutes(mux)
-
-	// Add health check endpoint
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	})
-
-	server := &http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
-		Handler: mux,
+func configuredMinerHandler() (http.Handler, error) {
+	if path := os.Getenv("FAKE_MINER_ADDRESSES_FILE"); path != "" {
+		handler, err := newMultiMinerHandler(path)
+		if err != nil {
+			return nil, err
+		}
+		log.Printf("Starting fake Proto miner fleet: destinations=%d", len(handler.miners))
+		return handler, nil
 	}
 
-	// Start listening
-	listener, err := net.Listen("tcp", server.Addr)
+	instanceID := uuid.New().String()[:8]
+	serialNumber := getEnv("SERIAL_NUMBER", "PROTO-SIM-"+instanceID)
+	macAddress := getEnv("MAC_ADDRESS", generateMACAddress(instanceID))
+	state := NewMinerState(serialNumber, macAddress)
+	configureStartupAuthState(state)
+	applyErrorConfig(state)
+	state.IPAddress = getOutboundIP().String()
+	log.Printf("Starting fake Proto miner: SN=%s MAC=%s", serialNumber, macAddress)
+	return newRESTAPIHandler(state), nil
+}
+
+func startHTTPServer(ctx context.Context, handler http.Handler, port int) error {
+	delay, err := time.ParseDuration(getEnv("FAKE_MINER_RESPONSE_DELAY", "0s"))
+	if err != nil || delay < 0 {
+		return fmt.Errorf("FAKE_MINER_RESPONSE_DELAY must be a nonnegative Go duration")
+	}
+	metrics, err := newMinerMetrics(os.Getenv("FAKE_MINER_METRICS_FILE"))
+	if err != nil {
+		return err
+	}
+	defer metrics.close()
+	handler = instrumentMinerHandler(handler, delay, metrics)
+
+	certPath, keyPath := os.Getenv("TLS_CERT_FILE"), os.Getenv("TLS_KEY_FILE")
+	var tlsConfig *tls.Config
+	if certPath != "" || keyPath != "" {
+		certificate, err := tls.LoadX509KeyPair(certPath, keyPath)
+		if err != nil {
+			return fmt.Errorf("load TLS certificate/key: %w", err)
+		}
+		tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}}
+	}
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return fmt.Errorf("failed to listen on port %d: %w", port, err)
 	}
-
-	// Handle graceful shutdown
-	go func() {
-		sigs := make(chan os.Signal, 1)
-		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-
-		select {
-		case <-sigs:
-			log.Println("Shutting down fake Proto miner...")
-		case <-ctx.Done():
-		}
-
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
-		defer shutdownCancel()
-
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			log.Printf("Server shutdown error: %v", err)
-		}
-	}()
-
-	log.Printf("HTTP server listening on :%d", port)
-	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
-		return fmt.Errorf("server error: %w", err)
+	if tlsConfig != nil {
+		listener = tls.NewListener(listener, tlsConfig)
 	}
 
+	serverCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	log.Printf("Proto REST server listening on :%d (TLS=%t)", port, tlsConfig != nil)
+	return serveHTTPServer(serverCtx, handler, listener, serverShutdownTimeout)
+}
+
+func serveHTTPServer(ctx context.Context, handler http.Handler, listener net.Listener, shutdownTimeout time.Duration) error {
+	var workers sync.WaitGroup
+	server := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			workers.Add(1)
+			defer workers.Done()
+			handler.ServeHTTP(w, r)
+		}),
+		// Connections keep the count nonzero until their handlers enter. Track
+		// handlers too: hijacking detaches a connection before metrics are recorded.
+		ConnState: func(_ net.Conn, state http.ConnState) {
+			switch state {
+			case http.StateNew:
+				workers.Add(1)
+			case http.StateClosed, http.StateHijacked:
+				workers.Done()
+			}
+		},
+	}
+	serverCtx, stop := context.WithCancel(ctx)
+	defer stop()
+	shutdownDone := make(chan struct{})
+	go func() {
+		defer close(shutdownDone)
+		<-serverCtx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Printf("Server shutdown error: %v", err)
+			_ = server.Close()
+		}
+	}()
+	err := server.Serve(listener)
+	stop()
+	<-shutdownDone
+	workers.Wait()
+	if err != nil && err != http.ErrServerClosed {
+		return fmt.Errorf("server error: %w", err)
+	}
 	return nil
 }
 

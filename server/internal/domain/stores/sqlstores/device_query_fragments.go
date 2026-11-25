@@ -24,7 +24,11 @@ const embeddedWebViewAvailableExpr = `(
     device.id IS NOT NULL
     AND COALESCE(device_pairing.pairing_status::text, 'UNPAIRED') IN ('PAIRED', 'DEFAULT_PASSWORD')
     AND discovered_device.driver_name = 'proto'
-    AND fleet_node_assignment.device_id IS NULL
+    AND (fleet_node_assignment.device_id IS NULL OR (
+        assigned_fleet_node.id IS NOT NULL
+        AND assigned_fleet_node.enrollment_status = 'CONFIRMED'
+        AND COALESCE(discovered_device.discovered_by_fleet_node_id = fleet_node_assignment.fleet_node_id, FALSE)
+    ))
 )`
 
 // Four missed 30-second heartbeats marks a Fleet Node unavailable.
@@ -62,13 +66,15 @@ const minerSelectColumns = `SELECT
     discovered_device.id as cursor_id,
     COALESCE(device.id, 0) as device_id,
     discovered_device.driver_name,
+    discovered_device.device_class,
     device.custom_name,
     device.site_id,
     COALESCE(site.name, '') as site_label,
     device.building_id,
     COALESCE(building.name, '') as building_label,
     effective_status.fleet_node_unavailable,
-    ` + embeddedWebViewAvailableExpr + ` as embedded_web_view_available`
+    ` + embeddedWebViewAvailableExpr + ` as embedded_web_view_available,
+    fleet_node_assignment.fleet_node_id`
 
 // minerFromJoins contains the FROM clause and LEFT JOINs for miner state queries.
 // Parameter: $1 = org_id (used in device join condition)
@@ -86,7 +92,7 @@ LEFT JOIN device_pairing ON device.id = device_pairing.device_id
 LEFT JOIN device_status ON device.id = device_status.device_id
 LEFT JOIN fleet_node_device fleet_node_assignment ON fleet_node_assignment.device_id = device.id
     AND fleet_node_assignment.org_id = device.org_id
-LEFT JOIN fleet_node assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
+LEFT JOIN fleet_node_live assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
     AND assigned_fleet_node.org_id = fleet_node_assignment.org_id
 LEFT JOIN LATERAL (
     SELECT
@@ -105,7 +111,8 @@ LEFT JOIN building ON building.id = device.building_id
 const minerWhereClause = `
 WHERE discovered_device.org_id = $1
     AND discovered_device.is_active = TRUE
-    AND discovered_device.deleted_at IS NULL`
+    AND discovered_device.deleted_at IS NULL
+    AND discovered_device.device_class <> 2`
 
 // minerBaseQuery is the base SELECT/FROM/JOIN/WHERE for miner state queries.
 // Uses discovered_device as the base table since it contains all devices (paired and unpaired).

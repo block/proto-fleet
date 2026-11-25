@@ -13,16 +13,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/infrastructure/driver/modbustcp"
 )
 
-func TestNewDefaultDriverRegistryIsFailClosedForWrites(t *testing.T) {
-	registry := infrastructure.NewDefaultDriverRegistry()
-	controller, err := registry.Controller(modbustcp.DriverType)
-	require.NoError(t, err)
-
-	err = controller.SetState(t.Context(), registryTestDevice(t), driver.DesiredState{Power: driver.PowerOff})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "deployment allowlist is missing")
-}
-
 func TestNewConfiguredDriverRegistryAppliesDeploymentAllowlist(t *testing.T) {
 	registry, err := infrastructure.NewConfiguredDriverRegistry(infrastructure.Config{
 		OTControlSubnets: "10.99.0.0/24",

@@ -84,31 +84,36 @@ const BulkActionsWidget = <ActionType extends Key>({
     onUnsupportedMinersContinue?.();
   }, [onUnsupportedMinersContinue]);
 
+  const hasActions = actions.length > 0;
+  if (!hasActions && isOpen) setIsOpen(false);
+
   return (
     <div className="relative flex flex-wrap justify-start gap-3" ref={triggerRef}>
       {renderQuickActions?.(handleQuickAction)}
-      <Button
-        className="bg-grayscale-white-10! text-grayscale-white-90!"
-        size={sizes.compact}
-        variant={variants.secondary}
-        prefixIcon={buttonIcon}
-        suffixIcon={
-          buttonIconSuffix ? (
-            <div
-              className={clsx("transition-transform duration-200", {
-                "rotate-180": isOpen,
-              })}
-            >
-              {buttonIconSuffix}
-            </div>
-          ) : undefined
-        }
-        testId={testId + "-button"}
-        onClick={() => setIsOpen((prev) => !prev)}
-      >
-        {buttonTitle}
-      </Button>
-      {isOpen ? renderPopover(handleAction, () => setIsOpen(false)) : null}
+      {hasActions ? (
+        <Button
+          className="bg-grayscale-white-10! text-grayscale-white-90!"
+          size={sizes.compact}
+          variant={variants.secondary}
+          prefixIcon={buttonIcon}
+          suffixIcon={
+            buttonIconSuffix ? (
+              <div
+                className={clsx("transition-transform duration-200", {
+                  "rotate-180": isOpen,
+                })}
+              >
+                {buttonIconSuffix}
+              </div>
+            ) : undefined
+          }
+          testId={testId + "-button"}
+          onClick={() => setIsOpen((prev) => !prev)}
+        >
+          {buttonTitle}
+        </Button>
+      ) : null}
+      {hasActions && isOpen ? renderPopover(handleAction, () => setIsOpen(false)) : null}
       <UnsupportedMinersModal
         open={onUnsupportedMinersDismiss ? (unsupportedMinersInfo?.visible ?? false) : false}
         unsupportedGroups={unsupportedMinersInfo?.unsupportedGroups ?? []}

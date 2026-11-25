@@ -317,6 +317,11 @@ func (s *SQLBuildingStore) SetRackBuildingPositionBulkPlace(ctx context.Context,
 }
 
 func (s *SQLBuildingStore) AssignDevicesToBuilding(ctx context.Context, orgID int64, targetBuildingID *int64, deviceIdentifiers []string) (int64, error) {
+	if targetBuildingID != nil {
+		if err := rejectContainerPlacement(ctx, s.GetQueries(ctx), orgID, deviceIdentifiers); err != nil {
+			return 0, err
+		}
+	}
 	rowsAffected, err := s.GetQueries(ctx).AssignDevicesToBuilding(ctx, sqlc.AssignDevicesToBuildingParams{
 		OrgID:             orgID,
 		TargetBuildingID:  ptrToNullInt64(targetBuildingID),

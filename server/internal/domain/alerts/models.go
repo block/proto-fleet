@@ -67,6 +67,9 @@ const (
 	// summary-visibility gate can recognize it as device-less.
 	RuleTemplateCurtailmentFanRestore RuleTemplate = "curtailment-fan-restore"
 
+	// Reconciler heartbeat staleness is fleet-wide and carries no miner identity.
+	RuleTemplateCurtailmentHeartbeat RuleTemplate = "curtailment-heartbeat"
+
 	// Self-monitoring: metric ingest has stalled. Operator-owned but fanned out
 	// to every org's history, so it needs the same device-less recognition.
 	RuleTemplateMetricIngest RuleTemplate = "metric-ingest"

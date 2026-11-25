@@ -65,6 +65,7 @@ type Info struct {
 	APIKeyID         string
 	APIKeyDatabaseID int64
 	APIKeyName       string
+	AccountKey       bool
 
 	// Common fields, always populated regardless of auth method.
 	UserID         int64

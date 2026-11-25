@@ -15,6 +15,8 @@ import (
 //
 //nolint:interfacebloat // see comment above
 type SiteStore interface {
+	LockContainersForSiteAssignment(ctx context.Context, orgID int64, identifiers []string) ([]models.ContainerSitePlacement, error)
+	AssignContainersToSite(ctx context.Context, orgID int64, targetSiteID *int64, identifiers []string) (int64, error)
 	// CreateSite inserts a new site row and returns it. Maps a
 	// unique-violation on (org_id, name) to AlreadyExists; maps a
 	// slug unique-violation to models.ErrSiteSlugCollision so the

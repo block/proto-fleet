@@ -2,7 +2,6 @@ package foremanimport
 
 import (
 	"fmt"
-	"net"
 	"strings"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleetimport"
@@ -32,41 +31,9 @@ func parseModel(typeName string) string {
 	return rest
 }
 
-// poolNameFromURL generates a human-readable pool name from a stratum URL.
-// Examples: "mine.ocean.xyz:3334" → "mine.ocean.xyz"
-//
-//	"stratum+tcp://ca.stratum.braiins.com:3333" → "ca.stratum.braiins.com"
-func poolNameFromURL(url string) string {
-	// Strip scheme (stratum+tcp://, stratum+ssl://, etc.)
-	if idx := strings.Index(url, "://"); idx >= 0 {
-		url = url[idx+3:]
-	}
-	// Strip port using net.SplitHostPort (handles IPv6 correctly)
-	if host, _, err := net.SplitHostPort(url); err == nil {
-		return host
-	}
-	return url
-}
-
-// basePoolUsername extracts the fleet-level username from a Foreman worker string
-// by splitting on the first dot. "wallet.worker1" → "wallet", "wallet" → "wallet".
-func basePoolUsername(worker string) string {
-	if idx := strings.Index(worker, "."); idx > 0 {
-		return worker[:idx]
-	}
-	return worker
-}
-
-// workerNameFromPool extracts the per-miner worker name from a Foreman worker string.
-// "wallet.worker1" → "worker1", "wallet" → "".
-func workerNameFromPool(worker string) string {
-	if idx := strings.Index(worker, "."); idx > 0 && idx < len(worker)-1 {
-		return worker[idx+1:]
-	}
-	return ""
-}
-
-// normalizeForemanData converts Foreman-specific types to the source-agnostic import format.
+// normalizeForemanData normalizes equipment metadata only. Foreman cannot supply
+// complete pool credentials, so observed pools never become Fleet configurations.
+// Existing miner settings and Fleet configuration assignments remain untouched.
 func normalizeForemanData(
 	miners []foreman.Miner,
 	groups []foreman.SiteMapGroup,
@@ -78,10 +45,9 @@ func normalizeForemanData(
 	}
 
 	importMiners := make([]fleetimport.ImportMiner, 0, len(miners))
-	seenPools := make(map[string]bool)
-	var importPools []fleetimport.ImportPool
 
 	for _, m := range miners {
+		// Leave WorkerName unset: Foreman reports full pool usernames, not explicit Fleet worker names.
 		im := fleetimport.ImportMiner{
 			SourceID: fmt.Sprintf("%d", m.ID),
 			IP:       m.IP,
@@ -95,33 +61,7 @@ func normalizeForemanData(
 			im.Column = int32(m.Location.Index) //nolint:gosec // Foreman rack positions are small integers
 		}
 
-		// Extract worker name from the first non-devfee pool
-		for _, pool := range m.Pools {
-			if pool.URL == "devfee" || pool.URL == "" || pool.Worker == "" {
-				continue
-			}
-			im.WorkerName = workerNameFromPool(pool.Worker)
-			break
-		}
-
 		importMiners = append(importMiners, im)
-
-		for _, pool := range m.Pools {
-			if pool.URL == "devfee" || pool.URL == "" {
-				continue
-			}
-			username := basePoolUsername(pool.Worker)
-			key := pool.URL + "|" + username
-			if seenPools[key] {
-				continue
-			}
-			seenPools[key] = true
-			importPools = append(importPools, fleetimport.ImportPool{
-				URL:      pool.URL,
-				Username: username,
-				Name:     poolNameFromURL(pool.URL),
-			})
-		}
 	}
 
 	importGroups := make([]fleetimport.ImportGroup, 0, len(groups))
@@ -149,7 +89,6 @@ func normalizeForemanData(
 
 	return &fleetimport.ImportData{
 		Miners: importMiners,
-		Pools:  importPools,
 		Groups: importGroups,
 		Racks:  importRacks,
 	}

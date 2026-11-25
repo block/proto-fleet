@@ -271,19 +271,6 @@ describe("StatusModal", () => {
       // Functions should still be called even when modal is hidden
       expect(getMinerStatus).toHaveBeenCalledTimes(1);
     });
-
-    it("should render when open is true", () => {
-      render(
-        <StatusModal
-          componentAddress={undefined}
-          getMinerStatus={getMinerStatus}
-          getComponentStatus={getComponentStatus}
-          open={true}
-        />,
-      );
-
-      expect(screen.getByTestId("modal")).toBeInTheDocument();
-    });
   });
 
   describe("Button Actions", () => {

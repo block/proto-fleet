@@ -4,6 +4,12 @@ import type { Timestamp } from "@bufbuild/protobuf/wkt";
 
 import { curtailmentClient } from "@/protoFleet/api/clients";
 import {
+  type CurtailmentHealth,
+  type CurtailmentSource,
+  type CurtailmentSourceFormValues,
+  DEFAULT_SOURCE_STALENESS_THRESHOLD_SEC,
+} from "@/protoFleet/api/curtailmentTypes";
+import {
   type CreateMqttCurtailmentSourceRequest,
   CreateMqttCurtailmentSourceRequestSchema,
   DeleteMqttCurtailmentSourceRequestSchema,
@@ -17,12 +23,6 @@ import {
   UpdateMqttCurtailmentSourceRequestSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { assertNotAborted, isAbortError, toError } from "@/protoFleet/api/requestErrors";
-import {
-  type CurtailmentHealth,
-  type CurtailmentSource,
-  type CurtailmentSourceFormValues,
-  DEFAULT_SOURCE_STALENESS_THRESHOLD_SEC,
-} from "@/protoFleet/features/settings/components/Curtailment/types";
 import { useAuthErrors } from "@/protoFleet/store";
 import { formatTimestamp } from "@/shared/utils/formatTimestamp";
 
@@ -114,6 +114,7 @@ function mapMqttCurtailmentSource(source: MqttCurtailmentSource): CurtailmentSou
     qos: 1,
     username: source.mqttUsername,
     hasPassword: source.hasPassword,
+    lastRuntimeError: source.status?.lastRuntimeError || undefined,
     lastTarget: source.status?.lastTarget || unsetDisplayValue,
     lastSeen: formatSignalUpdate(source.status?.lastReceivedAt ?? source.status?.lastTargetAt),
     health: mapRuntimeHealth(source),

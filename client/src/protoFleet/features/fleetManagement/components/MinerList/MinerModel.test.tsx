@@ -43,12 +43,4 @@ describe("MinerModel", () => {
 
     expect(screen.getByText("—")).toBeInTheDocument();
   });
-
-  it("renders Bitmain model names", () => {
-    const miner = createMockMiner({ model: "Antminer S19" });
-
-    render(<MinerModel miner={miner} />);
-
-    expect(screen.getByText("Antminer S19")).toBeInTheDocument();
-  });
 });

@@ -6,7 +6,6 @@ import "google/protobuf/timestamp.proto";
 import "fleetmanagement/v1/fleetmanagement.proto";
 import "common/v1/device_selector.proto";
 import "common/v1/cooling.proto";
-import "buf/validate/validate.proto";
 
 message DeviceFilter {
   repeated fleetmanagement.v1.DeviceStatus device_status = 1;
@@ -80,60 +79,6 @@ message SetPowerTargetRequest {
 
 message SetPowerTargetResponse {
   string batch_identifier = 1;
-}
-
-// Configuration for a single pool slot
-// Can specify either a Fleet pool ID (for known pools) or raw pool info (for unknown pools)
-message PoolSlotConfig {
-  oneof pool_source {
-    // Fleet pool ID - used when the pool exists in Fleet's database
-    int64 pool_id = 1;
-    // Raw pool info - used when the pool is configured on the miner but not in Fleet
-    RawPoolInfo raw_pool = 2;
-  }
-}
-
-// Raw pool configuration for pools not stored in Fleet
-message RawPoolInfo {
-  // Same scheme rules as pools.v1.PoolConfig.url.
-  string url = 1 [(buf.validate.field) = {
-    string: {
-      pattern: "^(stratum\\+(tcp|ssl|ws):\\/\\/(([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\\.[a-zA-Z]{2,})|(\\d{1,3}\\.){3}\\d{1,3}|\\[([0-9a-fA-F:]+)\\])(:\\d{1,5})?|stratum2\\+tcp:\\/\\/(([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\\.[a-zA-Z]{2,})|(\\d{1,3}\\.){3}\\d{1,3}|\\[([0-9a-fA-F:]+)\\]):\\d{1,5}\\/[A-Za-z0-9_+\\/=:.-]+)$"
-      min_len: 12
-      max_len: 256
-    }
-    required: true
-  }];
-  string username = 2;
-  // Password is optional since miners don't expose it
-  optional string password = 3;
-}
-
-message UpdateMiningPoolsRequest {
-  DeviceSelector device_selector = 1;
-  // Default pool (priority 0) - required
-  PoolSlotConfig default_pool = 2;
-  // Backup pool 1 (priority 1) - optional
-  optional PoolSlotConfig backup_1_pool = 3;
-  // Backup pool 2 (priority 2) - optional
-  optional PoolSlotConfig backup_2_pool = 4;
-  // Fleet user's username for authorization
-  string user_username = 5;
-  // Fleet user's password for authorization
-  string user_password = 6;
-}
-
-message UpdateMiningPoolsResponse {
-  string batch_identifier = 1;
-  PoolAssignmentSkips skips = 2;
-  // Empty when no SV2 gate ran; clients fall back to the original selection.
-  repeated string dispatched_device_identifiers = 3;
-}
-
-message PoolAssignmentSkips {
-  int32 skipped_count = 1;
-  int32 selected_count = 2;
-  repeated string incompatible_types = 3;
 }
 
 message DownloadLogsRequest {
@@ -346,8 +291,6 @@ service MinerCommandService {
   rpc SetCoolingMode(SetCoolingModeRequest) returns (SetCoolingModeResponse);
 
   rpc SetPowerTarget(SetPowerTargetRequest) returns (SetPowerTargetResponse);
-
-  rpc UpdateMiningPools(UpdateMiningPoolsRequest) returns (UpdateMiningPoolsResponse);
 
   rpc DownloadLogs(DownloadLogsRequest) returns (DownloadLogsResponse);
 

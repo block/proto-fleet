@@ -33,7 +33,8 @@ const { mockUseReleaseChannels, mockListFirmwareFiles } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/protoFleet/api/useReleaseChannels", () => ({ useReleaseChannels: mockUseReleaseChannels }));
-vi.mock("@/protoFleet/api/useFirmwareApi", () => ({
+vi.mock("@/protoFleet/api/useFirmwareApi", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/protoFleet/api/useFirmwareApi")>()),
   useFirmwareApi: () => ({ listFirmwareFiles: mockListFirmwareFiles }),
 }));
 vi.mock("@/shared/features/toaster", () => ({
