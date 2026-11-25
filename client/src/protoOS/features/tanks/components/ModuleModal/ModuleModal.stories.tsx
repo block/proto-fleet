@@ -5,6 +5,7 @@ import { moduleFixture, type ModuleFixtureState } from "@/protoOS/api/adapters/m
 import { toCanonicalSystemInfo } from "@/protoOS/api/adapters/mdkV2/normalize";
 import HashboardTemperatureWrapper from "@/protoOS/features/diagnostic/components/HashboardTemperature/HashboardTemperatureWrapper";
 import Modules from "@/protoOS/features/modules/Modules";
+import ModulesStoryLayout from "@/protoOS/features/modules/ModulesStoryLayout";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
 const ModuleStory = ({
@@ -30,11 +31,16 @@ const ModuleStory = ({
     return () => useMinerStore.getState().resetDeviceData();
   }, [state, tankLabel]);
   if (!ready) return null;
+  const modulesPage = (
+    <ModulesStoryLayout>
+      <Modules />
+    </ModulesStoryLayout>
+  );
   return (
     <MemoryRouter initialEntries={[`/modules/1/1${table ? "/T1-M1-HB1" : ""}`]}>
       <Routes>
-        <Route path="/modules" element={<Modules />} />
-        <Route path="/modules/:tankId/:moduleId" element={<Modules />} />
+        <Route path="/modules" element={modulesPage} />
+        <Route path="/modules/:tankId/:moduleId" element={modulesPage} />
         <Route path="/modules/:tankId/:moduleId/:serial" element={<HashboardTemperatureWrapper />} />
       </Routes>
     </MemoryRouter>

@@ -119,7 +119,7 @@ const Modules = () => {
         inert={!!moduleId || !!actions.request || poolActions.open}
         className="w-max min-w-full pt-6 pb-28 laptop:pt-10"
       >
-        <div className="sticky left-0 w-[100cqw] px-6 tablet:px-10 laptop:px-14">
+        <div className="protoos-list-inset">
           <h1 ref={heading} tabIndex={-1} className="mb-4 text-heading-300">
             Modules
           </h1>

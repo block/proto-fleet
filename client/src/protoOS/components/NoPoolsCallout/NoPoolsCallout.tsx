@@ -13,7 +13,7 @@ const NoPoolsCallout = ({ arePoolsConfigured }: NoPoolsCalloutProps) => {
   const { minerRoot, isFleetHosted } = useMinerHosting();
 
   return (
-    <div className="mb-10">
+    <div className="protoos-list-inset mb-10">
       <Callout
         intent={intents.danger}
         prefixIcon={<Alert />}
