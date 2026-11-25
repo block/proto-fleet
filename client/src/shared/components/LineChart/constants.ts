@@ -12,8 +12,3 @@ export const lineProps = {
   isAnimationActive: false, // Disabled due to Recharts JavascriptAnimate infinite loop bug
   connectNulls: false,
 };
-
-export const nullLineProps = {
-  connectNulls: true,
-  strokeDasharray: "1 5",
-};

@@ -1,8 +1,0 @@
-// Dashboard pages
-export { default as Dashboard } from "./pages/Dashboard";
-
-// Dashboard components
-export { default as SectionHeading } from "./components/SectionHeading";
-
-// Types
-export type { AggregateStats, StatsArgs, TimeSeriesDataPoint, Value } from "./types";

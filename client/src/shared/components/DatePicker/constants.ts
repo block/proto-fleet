@@ -30,8 +30,6 @@ export const MONTH_NAMES_SHORT = [
   "Dec",
 ] as const;
 
-export const DAY_NAMES_SHORT = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"] as const;
-
 export const CALENDAR_ROWS = 6;
 export const DAYS_IN_WEEK = 7;
 

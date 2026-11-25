@@ -1,11 +1,5 @@
 import { timestampMs } from "@bufbuild/protobuf/wkt";
-import {
-  COMPONENT_NAMES,
-  COMPONENT_TITLES,
-  ERROR_COMPONENT_TO_SHARED,
-  SHARED_TO_ERROR_COMPONENT,
-  SUPPORTED_COMPONENT_TYPES,
-} from "./constants";
+import { COMPONENT_NAMES, COMPONENT_TITLES, ERROR_COMPONENT_TO_SHARED, SUPPORTED_COMPONENT_TYPES } from "./constants";
 import { ComponentType as ErrorComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import type { ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
@@ -41,13 +35,6 @@ export const getComponentName = (type: ComponentType): string => {
  */
 export function mapErrorComponentTypeToShared(type: ErrorComponentType): ComponentType | null {
   return ERROR_COMPONENT_TO_SHARED[type] ?? null;
-}
-
-/**
- * Maps shared component type to error API component type
- */
-export function mapSharedToErrorComponentType(type: ComponentType): ErrorComponentType {
-  return SHARED_TO_ERROR_COMPONENT[type];
 }
 
 /**

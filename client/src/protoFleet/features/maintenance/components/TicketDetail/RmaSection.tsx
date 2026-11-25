@@ -1,10 +1,5 @@
 import Input from "@/shared/components/Input";
 
-const RmaSection = () => {
-  // TODO: wire to ticket data — only shown when status is SENT_TO_VENDOR
-  return null;
-};
-
 export const RmaSectionContent = ({
   vendor,
   tracking,
@@ -29,5 +24,3 @@ export const RmaSectionContent = ({
     </div>
   </div>
 );
-
-export default RmaSection;

@@ -375,13 +375,3 @@ export const getCurrentBreakdown = (
 
   return breakdown;
 };
-
-/**
- * Format miner count with proper singular/plural
- */
-export const formatMinerCount = (count: number): string => {
-  if (count >= 1000) {
-    return `${(count / 1000).toFixed(1)}k`;
-  }
-  return count.toString();
-};

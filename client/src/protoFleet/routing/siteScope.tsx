@@ -22,12 +22,6 @@ export const SiteScopeProvider = ({ value, children }: { value: ActiveSite; chil
   <SiteScopeContext.Provider value={value}>{children}</SiteScopeContext.Provider>
 );
 
-export const AllSitesScopeLayout = () => (
-  <SiteScopeProvider value={{ kind: "all" }}>
-    <Outlet />
-  </SiteScopeProvider>
-);
-
 export const SiteScopeLayout = () => {
   const { siteScope } = useParams();
   const { resolveSiteBySlug } = useSites();

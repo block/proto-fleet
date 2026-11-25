@@ -140,8 +140,3 @@ export const formatTempRange = (minC: number, maxC: number, temperatureUnit: Tem
   const max = temperatureUnit === "F" ? convertCtoF(maxC) : maxC;
   return `${getDisplayValue(min)} °${temperatureUnit} – ${getDisplayValue(max)} °${temperatureUnit}`;
 };
-
-export const getAsicTempValue = (avgAsicTemp: number | undefined, isFahrenheit: boolean) => {
-  if (!avgAsicTemp) return "N/A"; // TODO: why not return undefined, so we can show skeleton, also 0 cound be falsey
-  return isFahrenheit ? convertCtoF(avgAsicTemp) : avgAsicTemp;
-};
