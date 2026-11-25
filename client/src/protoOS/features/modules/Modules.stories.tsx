@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 import ModuleHashboardOverlay from "./ModuleHashboardOverlay";
 import Modules from "./Modules";
+import ListContentLayout from "@/protoOS/components/ContentLayout/ListContentLayout";
 import { tanksFixture } from "@/protoOS/features/tanks/Tanks.fixtures";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
@@ -27,7 +28,7 @@ const ModulesStory = ({
   }, [tanks, modules]);
   return ready ? (
     <MemoryRouter initialEntries={[path]}>
-      <div className="[container-type:inline-size] h-screen overflow-auto bg-surface-base text-text-primary">
+      <ListContentLayout className="h-screen bg-surface-base text-text-primary">
         <Routes>
           <Route path="/modules" element={<Modules />}>
             <Route path=":tankId/:moduleId" element={<Outlet />}>
@@ -35,7 +36,7 @@ const ModulesStory = ({
             </Route>
           </Route>
         </Routes>
-      </div>
+      </ListContentLayout>
     </MemoryRouter>
   ) : null;
 };

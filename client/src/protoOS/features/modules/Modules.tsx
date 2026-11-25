@@ -17,6 +17,7 @@ import ModuleName from "./ModuleName";
 import { useModuleActions } from "./useModuleActions";
 import type { TelemetryLevel } from "@/protoOS/api/adapters/types";
 import { useTelemetry } from "@/protoOS/api/hooks/useTelemetry";
+import ListContentInset from "@/protoOS/components/ContentLayout/ListContentInset";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { modulePoolTarget } from "@/protoOS/features/poolAssignment/targets";
 import { usePoolAssignmentActions } from "@/protoOS/features/poolAssignment/usePoolAssignmentActions";
@@ -119,7 +120,7 @@ const Modules = () => {
         inert={!!moduleId || !!actions.request || poolActions.open}
         className="w-max min-w-full pt-6 pb-28 laptop:pt-10"
       >
-        <div className="sticky left-0 w-[100cqw] px-6 tablet:px-10 laptop:px-14">
+        <ListContentInset>
           <h1 ref={heading} tabIndex={-1} className="mb-4 text-heading-300">
             Modules
           </h1>
@@ -128,7 +129,7 @@ const Modules = () => {
               Could not refresh module readings. Displayed values may be out of date.
             </p>
           ) : null}
-        </div>
+        </ListContentInset>
         <List
           key={generation}
           itemSelectable

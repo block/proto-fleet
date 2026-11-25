@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { moduleFixture, type ModuleFixtureState } from "@/protoOS/api/adapters/mdkV2/moduleFixtures";
 import { toCanonicalSystemInfo } from "@/protoOS/api/adapters/mdkV2/normalize";
+import ListContentLayout from "@/protoOS/components/ContentLayout/ListContentLayout";
 import HashboardTemperatureWrapper from "@/protoOS/features/diagnostic/components/HashboardTemperature/HashboardTemperatureWrapper";
 import Modules from "@/protoOS/features/modules/Modules";
 import useMinerStore from "@/protoOS/store/useMinerStore";
@@ -30,11 +31,16 @@ const ModuleStory = ({
     return () => useMinerStore.getState().resetDeviceData();
   }, [state, tankLabel]);
   if (!ready) return null;
+  const modulesPage = (
+    <ListContentLayout className="h-screen bg-surface-base text-text-primary">
+      <Modules />
+    </ListContentLayout>
+  );
   return (
     <MemoryRouter initialEntries={[`/modules/1/1${table ? "/T1-M1-HB1" : ""}`]}>
       <Routes>
-        <Route path="/modules" element={<Modules />} />
-        <Route path="/modules/:tankId/:moduleId" element={<Modules />} />
+        <Route path="/modules" element={modulesPage} />
+        <Route path="/modules/:tankId/:moduleId" element={modulesPage} />
         <Route path="/modules/:tankId/:moduleId/:serial" element={<HashboardTemperatureWrapper />} />
       </Routes>
     </MemoryRouter>
