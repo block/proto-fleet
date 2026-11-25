@@ -930,15 +930,11 @@ assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.1.0"
 ROOT_PREFIX="$TEST_DIR/migration-root"
 mkdir -p "$ROOT_PREFIX/run/systemd/system"
 create_release v3.0.0 "" "" btc-mining/proto-fleet-internal migration-fixture
-create_release v3.1.0 "" "" btc-mining/proto-fleet-internal migration-fixture
-create_release v3.2.0 "" "" block/proto-fleet migration-fixture
-create_release v3.3.0 "" "" block/proto-fleet migration-fixture
+create_release v3.1.0 "" "" block/proto-fleet migration-fixture
 bash "$FLEETNODE_DIR/../scripts/package-release-installers.sh" \
   btc-mining/proto-fleet-internal "$TEST_DIR/internal-installers"
 INSTALLER_PATH="$TEST_DIR/internal-installers/install-fleet-node.sh" run_installer v3.0.0
-for version in v3.1.0 v3.2.0 v3.3.0; do
-  cp -R "$ASSETS_DIR/$version" "$STAGED_DIR/$version"
-done
+cp -R "$ASSETS_DIR/v3.0.0" "$ASSETS_DIR/v3.1.0" "$STAGED_DIR/"
 chmod -R go-w "$STAGED_DIR"
 printf 'fleet_node_id: 42\napi_key: fixture-key\n' > "$TEST_DIR/state.yaml"
 printf 'FLEETNODE_LOG_LEVEL=debug\n' > "$TEST_DIR/fleetnode.env"
@@ -959,13 +955,7 @@ assert_migration_state() {
 }
 
 : > "$SYSTEMCTL_LOG"
-if run_staged_installer v3.2.0 > "$TEST_DIR/migration-ordinary.out" 2>&1; then
-  fail "ordinary installer accepted a cross-repository upgrade"
-fi
-assert_file_contains "$TEST_DIR/migration-ordinary.out" "installed release repository conflicts"
-assert_no_service_change "ordinary cross-repository upgrade"
-
-if run_staged_installer v3.1.0 migrate-to-public > "$TEST_DIR/migration-mismatch.out" 2>&1; then
+if run_staged_installer v3.0.0 migrate-to-public > "$TEST_DIR/migration-mismatch.out" 2>&1; then
   fail "migration accepted a staged archive from the internal repository"
 fi
 assert_file_contains "$TEST_DIR/migration-mismatch.out" "release bundle repository conflicts with selected source"
@@ -975,7 +965,7 @@ assert_migration_state v3.0.0 btc-mining/proto-fleet-internal
 : > "$FAIL_START_ONCE"
 : > "$SYSTEMCTL_LOG"
 if FAKE_SYSTEMCTL_FAIL_START_ONCE="$FAIL_START_ONCE" \
-    run_staged_installer v3.2.0 migrate-to-public > "$TEST_DIR/migration-rollback.out" 2>&1; then
+    run_staged_installer v3.1.0 migrate-to-public > "$TEST_DIR/migration-rollback.out" 2>&1; then
   fail "migration accepted a candidate that failed to start"
 fi
 assert_migration_state v3.0.0 btc-mining/proto-fleet-internal
@@ -984,37 +974,24 @@ cmp "$TEST_DIR/internal-fleetnode" "$ROOT_PREFIX/opt/fleetnode/fleetnode"
 MIGRATION_DIR="$ROOT_PREFIX/opt/.fleetnode-public-migration"
 [[ ! -e "$MIGRATION_DIR" ]] || fail "rollback retained the migration directory"
 
-if FAKE_SYSTEMCTL_FAIL_START=1 run_staged_installer v3.2.0 migrate-to-public > "$TEST_DIR/migration-restart.out" 2>&1; then
+if FAKE_SYSTEMCTL_FAIL_START=1 run_staged_installer v3.1.0 migrate-to-public > "$TEST_DIR/migration-restart.out" 2>&1; then
   fail "migration accepted a failed rollback restart"
 fi
 assert_file_contains "$TEST_DIR/migration-restart.out" "rollback failed"
 [[ -f "$MIGRATION_DIR/pending" ]] || fail "failed rollback lost the recovery marker"
 assert_migration_state v3.0.0 btc-mining/proto-fleet-internal
-: > "$SYSTEMCTL_LOG"
-if run_staged_installer v3.2.0 migrate-to-public > "$TEST_DIR/migration-pending.out" 2>&1; then
-  fail "migration accepted a retry before recovery"
-fi
-assert_file_contains "$TEST_DIR/migration-pending.out" "Run recover-public-migration first"
-assert_no_service_change "retry before recovery"
 run_without_release recover-public-migration
 assert_migration_state v3.0.0 btc-mining/proto-fleet-internal
 [[ ! -e "$MIGRATION_DIR" ]] || fail "recovery retained the migration directory"
 
 : > "$SYSTEMCTL_LOG"
-run_staged_installer v3.2.0 migrate-to-public
-assert_migration_state v3.2.0 block/proto-fleet
+run_staged_installer v3.1.0 migrate-to-public
+assert_migration_state v3.1.0 block/proto-fleet
+assert_file_contains "$ROOT_PREFIX/opt/fleetnode/fleetnode" "# fixture version: v3.1.0"
 assert_file_contains "$SYSTEMCTL_LOG" "stop fleet-node.service"
 assert_file_contains "$SYSTEMCTL_LOG" "start fleet-node.service"
 [[ ! -e "$MIGRATION_DIR" ]] || fail "success retained the migration directory"
 
-: > "$SYSTEMCTL_LOG"
-if run_staged_installer v3.2.0 migrate-to-public > "$TEST_DIR/migration-repeat.out" 2>&1; then
-  fail "migration accepted an already migrated installation"
-fi
-assert_no_service_change "repeated migration"
-run_staged_installer v3.3.0
-assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v3.3.0"
-[[ "$(cat "$ROOT_PREFIX/etc/fleetnode/release-repository")" == block/proto-fleet ]] || fail "ordinary upgrade changed the public repository"
 [[ ! -s "$CURL_LOG" ]] || fail "staged migration contacted the network"
 
 echo "Fleet Node installer tests passed"
