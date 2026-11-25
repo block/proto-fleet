@@ -313,6 +313,7 @@ SELECT d.id, d.device_identifier, d.site_id, d.serial_number,
        COALESCE(fans.readings, '[]'::jsonb)::jsonb AS fans,
        COALESCE(plant.metrics, 'null'::jsonb)::jsonb AS plant,
        COALESCE(to_jsonb(controls) || jsonb_build_object('controls', COALESCE(control_states.readings, '[]'::jsonb), 'setpoints', COALESCE(setpoints.readings, '[]'::jsonb)), 'null'::jsonb)::jsonb AS controls,
+       COALESCE(ci.unlocated_hashboards, '[]'::jsonb)::jsonb AS unlocated_boards,
        ci.observed_at, COALESCE(health.tanks, '[]'::jsonb)::jsonb AS tank_health,
        COALESCE(dm.time, 'epoch'::timestamptz)::timestamptz AS metrics_at, dm.hashrate_hs AS hash_rate_hs, dm.power_w, dm.temperature_c AS temp_c, dm.efficiency_jh, dm.min_temperature_c, dm.max_temperature_c, dm.coverage
 FROM device d
@@ -386,6 +387,7 @@ type ListContainersRow struct {
 	Fans             json.RawMessage
 	Plant            json.RawMessage
 	Controls         json.RawMessage
+	UnlocatedBoards  json.RawMessage
 	ObservedAt       sql.NullTime
 	TankHealth       json.RawMessage
 	MetricsAt        time.Time
@@ -426,6 +428,7 @@ func (q *Queries) ListContainers(ctx context.Context, arg ListContainersParams) 
 			&i.Fans,
 			&i.Plant,
 			&i.Controls,
+			&i.UnlocatedBoards,
 			&i.ObservedAt,
 			&i.TankHealth,
 			&i.MetricsAt,

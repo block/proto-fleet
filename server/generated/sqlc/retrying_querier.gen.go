@@ -14108,6 +14108,12 @@ func (q *retryingQuerier) UpdateSite(ctx context.Context, arg UpdateSiteParams) 
 	})
 }
 
+func (q *retryingQuerier) UpdateUnlocatedHashboards(ctx context.Context, arg UpdateUnlocatedHashboardsParams) error {
+	return q.retrier.RetryQuery(ctx, "UpdateUnlocatedHashboards", func() error {
+		return q.next.UpdateUnlocatedHashboards(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
 	return q.retrier.RetryQuery(ctx, "UpdateUserPassword", func() error {
 		return q.next.UpdateUserPassword(ctx, arg)

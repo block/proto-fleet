@@ -3193,6 +3193,7 @@ type Querier interface {
 	// unique-violation (uk_site_org_slug) maps to a collision sentinel so the
 	// service can retry with the next suffix, mirroring CreateSite.
 	UpdateSite(ctx context.Context, arg UpdateSiteParams) error
+	UpdateUnlocatedHashboards(ctx context.Context, arg UpdateUnlocatedHashboardsParams) error
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
 	UpdateUserPasswordAndFlag(ctx context.Context, arg UpdateUserPasswordAndFlagParams) error
 	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) error

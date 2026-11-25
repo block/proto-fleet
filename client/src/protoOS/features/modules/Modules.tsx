@@ -17,7 +17,7 @@ import ModuleName from "./ModuleName";
 import { useModuleActions } from "./useModuleActions";
 import type { TelemetryLevel } from "@/protoOS/api/adapters/types";
 import { useTelemetry } from "@/protoOS/api/hooks/useTelemetry";
-import ListContentInset from "@/protoOS/components/ContentLayout/ListContentInset";
+import { PAGE_GUTTERS, PAGE_LIST_PADDING, PAGE_TOP_PADDING } from "@/protoOS/components/ContentLayout/spacing";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { modulePoolTarget } from "@/protoOS/features/poolAssignment/targets";
 import { usePoolAssignmentActions } from "@/protoOS/features/poolAssignment/usePoolAssignmentActions";
@@ -32,8 +32,6 @@ import {
 import Button from "@/shared/components/Button";
 import List from "@/shared/components/List";
 import type { ActiveFilters } from "@/shared/components/List/Filters/types";
-
-const LIST_PADDING = { phone: "24px", tablet: "40px", laptop: "56px", desktop: "56px" };
 
 const TELEMETRY_LEVELS: TelemetryLevel[] = ["hashboard", "miner"];
 
@@ -118,9 +116,9 @@ const Modules = () => {
       <section
         aria-label="Module inventory"
         inert={!!moduleId || !!actions.request || poolActions.open}
-        className="w-max min-w-full pt-6 pb-28 laptop:pt-10"
+        className={`w-max min-w-full pb-28 ${PAGE_TOP_PADDING}`}
       >
-        <ListContentInset>
+        <div className={`sticky left-0 w-[100cqw] ${PAGE_GUTTERS}`}>
           <h1 ref={heading} tabIndex={-1} className="mb-4 text-heading-300">
             Modules
           </h1>
@@ -129,17 +127,17 @@ const Modules = () => {
               Could not refresh module readings. Displayed values may be out of date.
             </p>
           ) : null}
-        </ListContentInset>
+        </div>
         <List
           key={generation}
           itemSelectable
           pageScopedSelection
           rowSelectionLabel={(row) => `Select ${row.name}`}
-          paddingLeft={LIST_PADDING}
-          paddingRight={LIST_PADDING}
+          paddingLeft={PAGE_LIST_PADDING}
+          paddingRight={PAGE_LIST_PADDING}
           overflowContainer="page"
           scrollLeadingPadding
-          stickyChromeClassName="w-[100cqw] pr-6 tablet:pr-10 laptop:pr-14"
+          stickyChromeClassName="w-[100cqw] pr-4 tablet:pr-10"
           activeCols={moduleColumns}
           colTitles={moduleColTitles}
           colConfig={{

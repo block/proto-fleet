@@ -314,7 +314,7 @@ type BoardEntry = {
   module: number;
   slot?: number;
   tankId: TankId;
-  moduleId: ModuleId;
+  moduleId?: ModuleId;
   hashboardId: HashboardId;
   powerFeedId?: string;
 };
@@ -332,7 +332,8 @@ const flattenBoards = (wire: V2GetContainerMapResponse, containerId: string): Bo
     for (const module of tank.modules ?? []) {
       const moduleNumber = module.id;
       if (moduleNumber === undefined) continue;
-      const normalizedModuleId = canonicalModuleId(containerId, tankNumber, module);
+      const located = tankNumber > 0 && moduleNumber > 0;
+      const normalizedModuleId = located ? canonicalModuleId(containerId, tankNumber, module) : undefined;
       for (const slot of module.slots ?? []) {
         const board = slot.hashboard;
         if (!board || (!board.macAddress && !board.serial)) continue;
@@ -340,7 +341,7 @@ const flattenBoards = (wire: V2GetContainerMapResponse, containerId: string): Bo
           board,
           tank: tankNumber,
           module: moduleNumber,
-          slot: numeric(board.location?.hashboardPosition),
+          slot: located ? numeric(board.location?.hashboardPosition) : undefined,
           tankId: tankId(containerId, tankNumber),
           moduleId: normalizedModuleId,
           hashboardId: hashboardId(board),
@@ -678,11 +679,11 @@ export const toCanonicalContainer = (
   const tanks = new Map<TankId, TankNode>();
 
   for (const wireTank of mapWire?.containerMap?.tanks ?? []) {
-    if (wireTank.id === undefined) continue;
+    if (wireTank.id === undefined || wireTank.id <= 0) continue;
     const id = tankId(containerId, wireTank.id);
     const tankModuleIds: ModuleId[] = [];
     for (const wireModule of wireTank.modules ?? []) {
-      if (wireModule.id === undefined) continue;
+      if (wireModule.id === undefined || wireModule.id <= 0) continue;
       const normalizedModuleId = canonicalModuleId(containerId, wireTank.id, wireModule);
       tankModuleIds.push(normalizedModuleId);
       modules.set(normalizedModuleId, {
@@ -715,7 +716,9 @@ export const toCanonicalContainer = (
   }
 
   for (const entry of boards) {
-    const owner = { kind: "module" as const, id: entry.moduleId };
+    const owner = entry.moduleId
+      ? { kind: "module" as const, id: entry.moduleId }
+      : { kind: "container" as const, id: containerId };
     const identity = entry.board.macAddress
       ? ({ kind: "mac", value: entry.board.macAddress } as const)
       : ({ kind: "serial", value: entry.board.serial! } as const);
@@ -738,7 +741,7 @@ export const toCanonicalContainer = (
       location: { slot: entry.slot },
       powerFeedId: entry.powerFeedId,
     });
-    modules.get(entry.moduleId)?.hashboardIds.push(entry.hashboardId);
+    if (entry.moduleId) modules.get(entry.moduleId)?.hashboardIds.push(entry.hashboardId);
   }
 
   const plant = plantComponents(containerId, telemetryWire);
@@ -772,6 +775,7 @@ export const toCanonicalContainer = (
 
   const telemetry: TelemetrySnapshot = createEmptyTelemetryState();
   for (const [id, moduleBoards] of boardsByModule) {
+    if (!id) continue;
     const psu = normalizeModulePsu(
       id,
       moduleBoards.map((entry) => entry.board),
@@ -782,6 +786,8 @@ export const toCanonicalContainer = (
     modules.get(id)?.psuIds.push(psu.id);
   }
   if (mapWire !== undefined) {
+    if (hardware.topology?.kind === "container")
+      telemetry.containerInventory = { topology: hardware.topology, hashboards };
     telemetry.containerModuleRollups = { containerId };
     telemetry.modulePsus = { moduleIds: [...modules.keys()], hardware: hardware.psus };
   }
@@ -859,7 +865,9 @@ export const toCanonicalErrors = (
   const boards = flattenBoards(wire, containerId);
   const errors: MinerError[] = [];
   for (const entry of boards) {
-    const owner = { kind: "module" as const, id: entry.moduleId };
+    const owner = entry.moduleId
+      ? { kind: "module" as const, id: entry.moduleId }
+      : { kind: "container" as const, id: containerId };
     const component = { kind: "hashboard" as const, id: entry.hashboardId, owner };
     for (const [severity, issues] of [
       ["critical", entry.board.health?.errors],
@@ -867,7 +875,7 @@ export const toCanonicalErrors = (
     ] as const) {
       for (const [index, issue] of (issues ?? []).entries()) {
         const code = issue.cause ?? "HASHBOARD_ERROR_CAUSE_UNKNOWN_ERROR";
-        const psuFault = isPsuFaultCause(code);
+        const psuFault = !!entry.moduleId && isPsuFaultCause(code);
         const cause = code
           .replace(/^HASHBOARD_ERROR_CAUSE_/, "")
           .replaceAll("_", " ")
@@ -914,6 +922,7 @@ export const toCanonicalErrors = (
     }
   }
   for (const [moduleId, entries] of groupBoards(boards, (entry) => entry.moduleId)) {
+    if (!moduleId) continue;
     const psu = normalizeModulePsu(
       moduleId,
       entries.map((entry) => entry.board),
@@ -961,7 +970,7 @@ export const toCanonicalHashboards = (wire: V2GetContainerMapResponse): Hashboar
   flattenBoards(wire, "container:ct1").map(({ board, slot, module, hashboardId: id }) => ({
     serial: board.macAddress ?? board.serial ?? id,
     slot,
-    bay: module,
+    bay: module > 0 ? module : undefined,
     board: board.hwRevision,
     chipId: board.chipId,
     miningAsicCount: numeric(board.observedAsicCount ?? board.expectedAsicCount),

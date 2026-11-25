@@ -74,6 +74,8 @@ message ContainerHA {
  bool stale = 3;
 }
 message Container {
+ // Latest accepted board inventory without physical placement.
+ repeated UnlocatedHashboard unlocated_boards = 23;
  // Missing or stale HA evidence must be shown as degraded redundancy.
  ContainerHA ha = 22;
  // Current caller can manage placement at this controller's current site.
@@ -607,4 +609,21 @@ message ListControllerAuditEventsResponse {
   string controller_id = 4;
   repeated string controller_ids = 5;
   google.protobuf.Timestamp read_at = 6;
+}
+
+// A board observation is not a module or an installation. The server suppresses
+// stale readings and never derives physical placement from this inventory.
+message UnlocatedHashboard {
+ string mac_address = 1;
+ string serial = 2;
+ string firmware_version = 3;
+ string state = 4;
+ google.protobuf.Timestamp observed_at = 5;
+ bool stale = 6;
+ optional double hashrate_hs = 7;
+ optional double temperature_c = 8;
+ repeated string issues = 9;
+ bool issues_known = 10;
+ optional double power_w = 11;
+ optional double efficiency_jh = 12;
 }

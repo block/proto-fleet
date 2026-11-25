@@ -507,7 +507,7 @@ describe("useMiner", () => {
         [...hashboards.values()].map((board) => [
           board.id,
           {
-            ref: { id: board.id, kind: "hashboard", owner: { kind: "module", id: board.moduleId } },
+            ref: { id: board.id, kind: "hashboard", owner: { kind: "module", id: board.moduleId! } },
             identity: board.identity,
           },
         ]),

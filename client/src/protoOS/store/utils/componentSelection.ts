@@ -17,7 +17,9 @@ export function resolveComponentAddress(
     const node = [...(hardware.topology?.hashboards.values() ?? [])].find(
       (board) => board.moduleId === moduleId && board.location?.slot === slot,
     );
-    return node ? { kind: "hashboard", id: node.id, owner: { kind: "module", id: node.moduleId } } : undefined;
+    return node?.moduleId
+      ? { kind: "hashboard", id: node.id, owner: { kind: "module", id: node.moduleId } }
+      : undefined;
   }
   const components = source === "PSU" ? hardware.psus : source === "FAN" ? hardware.fans : hardware.controlBoards;
   return [...components.values()].find(
@@ -30,6 +32,8 @@ export function resolveComponentAddress(
 
 export function componentName(ref: ComponentRef, hardware: HardwareState): string {
   const node = ref.kind === "hashboard" ? hardware.topology?.hashboards.get(ref.id) : undefined;
+  if (node && !node.moduleId && hardware.topology?.kind === "container")
+    return `${node.identity.value} · Location unknown`;
   const module = ref.owner.kind === "module" ? hardware.topology?.modules.get(ref.owner.id) : undefined;
   const slot =
     node?.location?.slot ??

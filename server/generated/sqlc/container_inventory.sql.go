@@ -306,3 +306,19 @@ func (q *Queries) RetireContainerModules(ctx context.Context, arg RetireContaine
 	)
 	return err
 }
+
+const updateUnlocatedHashboards = `-- name: UpdateUnlocatedHashboards :exec
+UPDATE container_inventory SET unlocated_hashboards = $1::jsonb
+WHERE device_id = $2 AND observed_at = $3::timestamptz
+`
+
+type UpdateUnlocatedHashboardsParams struct {
+	Boards     json.RawMessage
+	DeviceID   int64
+	ObservedAt time.Time
+}
+
+func (q *Queries) UpdateUnlocatedHashboards(ctx context.Context, arg UpdateUnlocatedHashboardsParams) error {
+	_, err := q.exec(ctx, q.updateUnlocatedHashboardsStmt, updateUnlocatedHashboards, arg.Boards, arg.DeviceID, arg.ObservedAt)
+	return err
+}

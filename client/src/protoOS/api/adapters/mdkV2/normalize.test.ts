@@ -14,6 +14,7 @@ import {
 import {
   toCanonicalContainer,
   toCanonicalContainerTimeSeries,
+  toCanonicalErrors,
   toCanonicalHashboardStatus,
   toCanonicalOperationalStatus,
   toCanonicalPools,
@@ -73,6 +74,134 @@ const map = {
     ],
   },
 };
+
+describe("CT1 hashboards without a location", () => {
+  const unlocatedBoards: V2Hashboard[] = Array.from({ length: 5 }, (_, index) => ({
+    macAddress: `02:00:00:00:00:0${index + 1}`,
+    serial: `UNLOCATED-${index + 1}`,
+    location: { tank: 0, module: 0, hashboardPosition: 0 },
+    miningState: V2MiningState.MINING_STATE_MINING,
+    health: {
+      hashrate: index + 1,
+      power: (index + 1) * 10,
+      temperatures: [40 + index],
+      errors: index === 0 ? [{ cause: V2HashboardErrorCause.HASHBOARD_ERROR_CAUSE_BOARD_OVER_VOLTAGE }] : [],
+      warnings: index === 1 ? [{ cause: V2HashboardErrorCause.HASHBOARD_ERROR_CAUSE_BOARD_OVER_CURRENT }] : [],
+    },
+  }));
+  const mixedMap = {
+    containerMap: {
+      tanks: [
+        { id: 0, modules: [{ id: 0, slots: unlocatedBoards.map((hashboard) => ({ hashboard })) }] },
+        ...map.containerMap.tanks,
+      ],
+    },
+  };
+
+  test("does not create a tank or module for zero location numbers", () => {
+    const { hardware, telemetry } = toCanonicalContainer(mixedMap, {}, {}, "ct1-a");
+    if (hardware.topology?.kind !== "container") throw new Error("expected container topology");
+
+    expect([...hardware.topology.tanks.keys()]).toEqual(["container:ct1-a:tank:1"]);
+    expect([...hardware.topology.modules.keys()]).toEqual([
+      "container:ct1-a:module:T1-M02",
+      "container:ct1-a:tank:1:module:3",
+    ]);
+    expect(hardware.topology.container.tankIds).toEqual(["container:ct1-a:tank:1"]);
+    expect(telemetry.rollupsByEntity.has("container:ct1-a:tank:0" as never)).toBe(false);
+    expect(telemetry.rollupsByEntity.has("container:ct1-a:tank:0:module:0" as never)).toBe(false);
+  });
+
+  test("retains every unlocated board with its identity and telemetry", () => {
+    const { hardware, telemetry } = toCanonicalContainer(mixedMap, {}, {}, "ct1-a");
+    if (hardware.topology?.kind !== "container") throw new Error("expected container topology");
+
+    expect(hardware.hashboards.size).toBe(6);
+    expect(hardware.topology.hashboards.size).toBe(6);
+    expect(telemetry.hashboards.size).toBe(6);
+    for (const [index, board] of unlocatedBoards.entries()) {
+      const id = `mac:${board.macAddress}` as never;
+      expect(hardware.hashboards.get(id)).toMatchObject({
+        identity: { kind: "mac", value: board.macAddress },
+        serialNumber: board.serial,
+        ref: { id, kind: "hashboard", owner: { kind: "container", id: "container:ct1-a" } },
+      });
+      const node = hardware.topology.hashboards.get(id);
+      expect(node).toMatchObject({ id, identity: { kind: "mac", value: board.macAddress } });
+      expect(node?.moduleId).toBeUndefined();
+      expect(node?.location?.slot).toBeUndefined();
+      expect(telemetry.hashboards.get(id)).toMatchObject({
+        hashrate: { latest: { value: index + 1, units: "TH/s" } },
+        power: { latest: { value: (index + 1) * 10, units: "W" } },
+        reportedIssueCount: index < 2 ? 1 : 0,
+        health: index === 0 ? "fault" : index === 1 ? "degraded" : "ok",
+      });
+    }
+  });
+
+  test("includes unlocated boards in container totals and health", () => {
+    const { telemetry } = toCanonicalContainer(mixedMap, {}, {}, "ct1-a");
+
+    for (const id of ["container:ct1-a", ROOT_MODULE_KEY]) {
+      expect(telemetry.rollupsByEntity.get(id as never)).toMatchObject({
+        hashrate: { latest: { value: 17.5, units: "TH/s" } },
+        boardCount: 6,
+        onlineBoardCount: 6,
+        health: "fault",
+      });
+    }
+  });
+
+  test("retains unlocated board errors under the container", () => {
+    const errors = toCanonicalErrors(mixedMap, "ct1-a");
+
+    expect(errors).toHaveLength(2);
+    expect(errors).toEqual([
+      expect.objectContaining({
+        severity: "critical",
+        owner: { kind: "container", id: "container:ct1-a" },
+        component: {
+          kind: "hashboard",
+          id: "mac:02:00:00:00:00:01",
+          owner: { kind: "container", id: "container:ct1-a" },
+        },
+      }),
+      expect.objectContaining({
+        severity: "warning",
+        owner: { kind: "container", id: "container:ct1-a" },
+        component: {
+          kind: "hashboard",
+          id: "mac:02:00:00:00:00:02",
+          owner: { kind: "container", id: "container:ct1-a" },
+        },
+      }),
+    ]);
+  });
+
+  test("preserves real modules and excludes unlocated boards from their totals", () => {
+    const { hardware, telemetry } = toCanonicalContainer(mixedMap, {}, {}, "ct1-a");
+    if (hardware.topology?.kind !== "container") throw new Error("expected container topology");
+
+    expect(hardware.topology.modules.get("container:ct1-a:module:T1-M02" as never)).toMatchObject({
+      tankId: "container:ct1-a:tank:1",
+      hashboardIds: ["mac:26:B0:3F:F0:D7:92"],
+      location: { tankLabel: "Tank 1", moduleSlot: 2 },
+    });
+    expect(hardware.topology.hashboards.get("mac:26:B0:3F:F0:D7:92" as never)).toMatchObject({
+      moduleId: "container:ct1-a:module:T1-M02",
+      location: { slot: 3 },
+      powerFeedId: "P1",
+    });
+    for (const id of ["container:ct1-a:tank:1", "container:ct1-a:module:T1-M02"]) {
+      expect(telemetry.rollupsByEntity.get(id as never)).toMatchObject({
+        hashrate: { latest: { value: 2.5, units: "TH/s" } },
+        boardCount: 1,
+        onlineBoardCount: 1,
+        health: "ok",
+      });
+    }
+  });
+});
 
 describe("MDK v2 CT1 normalization", () => {
   test.each([

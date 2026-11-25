@@ -111,13 +111,36 @@ export function getScopeHealth(
       status = "attention";
     moduleStatuses.set(module.id, status);
   }
+  // Unlocated boards have container ownership; their faults must not disappear
+  // when they are removed from physical module summaries.
+  let unlocatedUnknown = false;
+  if (scope.kind === "container") {
+    for (const board of topology.hashboards.values()) {
+      if (board.moduleId) continue;
+      const reading = telemetry.hashboards.get(board.id);
+      const status =
+        reading?.health === "fault" || reading?.health === "degraded" || reading?.miningStatus === "error"
+          ? "attention"
+          : boardStatus(reading);
+      unlocatedUnknown ||= status === "unknown";
+      observe(
+        { kind: "hashboard", id: board.id, owner: { kind: "container", id: topology.containerId } },
+        status,
+        reading ? "Location unknown" : "Readings unavailable",
+      );
+    }
+  }
   const parentTank = selectedModule?.tankId ? topology.tanks.get(selectedModule.tankId) : tank;
   const label = selectedModule
     ? `${parentTank?.label ?? "Tank"} · Module ${selectedModule.location?.moduleSlot ?? selectedModule.id}`
     : (tank?.label ?? (tank ? `Tank ${tank.slot ?? tank.id}` : "Container"));
   const states = [...moduleStatuses.values()];
   const needsAttention = affected.size > 0 || scopedErrors.length > 0 || states.includes("attention");
-  const unknown = !states.length || states.includes("unknown") || (tank && modules.length !== tank.moduleIds.length);
+  const unknown =
+    unlocatedUnknown ||
+    !states.length ||
+    states.includes("unknown") ||
+    (tank && modules.length !== tank.moduleIds.length);
   const title = needsAttention
     ? "Needs attention"
     : unknown
@@ -130,7 +153,7 @@ export function getScopeHealth(
   const affectedModules = states.filter((state) => state === "attention" || state === "offline").length;
   const count = (value: number, word: string) => `${value} ${word}${value === 1 ? "" : "s"}`;
   const subtitle = needsAttention
-    ? `${count(affected.size, "component")} affected${scope.kind === "module" ? "" : ` across ${count(affectedModules, "module")}`} · ${count(scopedErrors.length, "reported issue")}`
+    ? `${count(affected.size, "component")} affected${scope.kind === "module" || affectedModules === 0 ? "" : ` across ${count(affectedModules, "module")}`} · ${count(scopedErrors.length, "reported issue")}`
     : unknown
       ? "Some component readings are unavailable"
       : "No active component errors reported";

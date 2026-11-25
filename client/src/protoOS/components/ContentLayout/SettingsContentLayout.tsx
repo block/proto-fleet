@@ -1,12 +1,13 @@
 import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import clsx from "clsx";
+import { PAGE_PADDING } from "./spacing";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import { settingsRoutePrefetch } from "@/protoOS/routePrefetch";
 import { useDeviceType } from "@/protoOS/store";
 import { prefetchRoutes } from "@/shared/utils/prefetchRoutes";
 
-const SettingsContentLayout = ({ children }: ContentLayoutProps) => {
+const SettingsContentLayout = ({ children, callout }: ContentLayoutProps) => {
   const { pathname } = useLocation();
   const wide = useDeviceType() === "container" && /\/settings\/(hardware|mining-pools)\/?$/.test(pathname);
   // Warm sibling /settings/* tab chunks at idle.
@@ -15,7 +16,8 @@ const SettingsContentLayout = ({ children }: ContentLayoutProps) => {
   }, []);
 
   return (
-    <div className="m-6 flex justify-center laptop:m-14">
+    <div className={PAGE_PADDING}>
+      <div className="mb-6 empty:hidden">{callout}</div>
       <div
         className={clsx(
           "container mx-auto h-full w-full",

@@ -215,6 +215,15 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 	if err := storeHashboards(ctx, q, orgID, id, snapshot); err != nil {
 		return err
 	}
+	// Only accepted observations are retained. This replaces the previous list,
+	// including an empty list when boards acquire physical locations.
+	unlocated, err := json.Marshal(snapshot.UnlocatedHashboards)
+	if err != nil {
+		return fmt.Errorf("encode unlocated hashboards: %w", err)
+	}
+	if err := q.UpdateUnlocatedHashboards(ctx, sqlc.UpdateUnlocatedHashboardsParams{DeviceID: id, ObservedAt: snapshot.ObservedAt, Boards: unlocated}); err != nil {
+		return err
+	}
 	if snapshot.Metrics != nil {
 		samples = []moduleSample{}
 		for _, t := range snapshot.Tanks {

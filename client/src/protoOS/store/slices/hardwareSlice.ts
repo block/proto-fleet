@@ -165,7 +165,7 @@ const upsertHashboard = (state: HardwareSlice, input: HashboardHardwareData) => 
     ...prior,
     id,
     identity: prior?.identity ?? { kind: "serial", value: input.serial },
-    moduleId: prior?.moduleId ?? ROOT_MODULE_ID,
+    moduleId: topology.kind === "container" ? prior?.moduleId : (prior?.moduleId ?? ROOT_MODULE_ID),
     asicIds: (input.asicIds ?? prior?.asicIds ?? []).map(asAsicId),
     location: {
       slot: input.slot ?? prior?.location?.slot,
