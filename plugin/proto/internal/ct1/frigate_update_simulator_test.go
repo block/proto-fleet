@@ -353,7 +353,7 @@ func protoOSRelease(t *testing.T, key *ecdsa.PrivateKey, tag string, size int) s
 	sum := sha256.Sum256(pkg)
 	statement, err := json.Marshal(map[string]any{
 		"schema": "frigate-release-statement/v1", "package": "proto-os", "version": sdk.ProtoOSDebianVersion(tag), "architecture": "all",
-		"repository": "btc-mining/proto-fleet-internal", "sha256": hex.EncodeToString(sum[:]), "size": size, "min_installed_version": "", "issued_at": "2026-01-01T00:00:00Z",
+		"repository": "block/proto-fleet", "sha256": hex.EncodeToString(sum[:]), "size": size, "min_installed_version": "", "issued_at": "2026-01-01T00:00:00Z",
 	})
 	require.NoError(t, err)
 	digest := sha256.Sum256(statement)
@@ -394,7 +394,7 @@ func TestFrigateUpdateSimulatorProtoOSPackage(t *testing.T) {
 	require.NoError(t, err)
 	for _, s := range supports {
 		require.True(t, s.ProtoOS.SelfSupported && s.RemoteTriggerAllowed, s.InstanceID)
-		require.Contains(t, s.ProtoOS.ReleaseRepositories, "btc-mining/proto-fleet-internal")
+		require.Contains(t, s.ProtoOS.ReleaseRepositories, "block/proto-fleet")
 		require.Equal(t, sdk.FrigateProtoOSBundleBundled, s.ProtoOS.Served.Source)
 		require.Empty(t, s.ProtoOS.InstalledVersion)
 	}

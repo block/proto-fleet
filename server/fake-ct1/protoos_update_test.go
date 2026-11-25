@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -48,7 +49,7 @@ func protoOSManifest(t *testing.T, key *ecdsa.PrivateKey, job, instance, tag str
 	sum := sha256.Sum256(pkg)
 	version := protoOSDebianVersion(tag)
 	s := releaseStatement{
-		Schema: releaseStatementSchema, Package: "proto-os", Version: version, Architecture: "all", Repository: "btc-mining/proto-fleet-internal",
+		Schema: releaseStatementSchema, Package: "proto-os", Version: version, Architecture: "all", Repository: "block/proto-fleet",
 		SHA256: hex.EncodeToString(sum[:]), Size: int64(len(pkg)), IssuedAt: "2026-01-01T00:00:00Z",
 	}
 	if edit != nil {
@@ -118,7 +119,7 @@ func TestProtoOSPackageInstallsOnTheCommittedController(t *testing.T) {
 		before.GetProtoOsServed().GetSource() != mdk.ProtoOSBundleSource_PROTO_OS_BUNDLE_SOURCE_BUNDLED || before.GetProtoOsJob() != nil {
 		t.Fatalf("unexpected initial proto-os support: %v", before)
 	}
-	if got := before.GetProtoOsReleaseRepositories(); len(got) == 0 || got[0] != "btc-mining/proto-fleet-internal" {
+	if got := before.GetProtoOsReleaseRepositories(); !slices.Contains(got, "block/proto-fleet") {
 		t.Fatalf("release repositories = %v", got)
 	}
 

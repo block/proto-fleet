@@ -445,7 +445,7 @@ func TestCT1SimulatorProtoOSPackageUpdateThroughNode(t *testing.T) {
 	}, 20*time.Second, 100*time.Millisecond, "the controllers did not report update support: %v", err)
 	for _, s := range supports {
 		require.True(t, s.ProtoOS.SelfSupported && s.RemoteTriggerAllowed, s.InstanceID)
-		require.Contains(t, s.ProtoOS.ReleaseRepositories, "btc-mining/proto-fleet-internal")
+		require.Contains(t, s.ProtoOS.ReleaseRepositories, "block/proto-fleet")
 	}
 
 	// stage begins a copy on each controller and then copies the package to
@@ -454,7 +454,7 @@ func TestCT1SimulatorProtoOSPackageUpdateThroughNode(t *testing.T) {
 		t.Helper()
 		pkg, digest, statement, signature := ct1SignedPackage(t, key, 1<<20+777, map[string]any{
 			"package": "proto-os", "version": sdk.ProtoOSDebianVersion(tag), "architecture": "all",
-			"repository": "btc-mining/proto-fleet-internal", "min_installed_version": "",
+			"repository": "block/proto-fleet", "min_installed_version": "",
 		})
 		ref := interfaces.FrigatePackageRef{ID: "pkg-" + job, Filename: sdk.ProtoOSAssetName(tag), SizeBytes: int64(len(pkg)), SHA256: digest}
 		container.artifacts.files[ref.ID] = pkg

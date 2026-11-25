@@ -386,7 +386,7 @@ func TestFrigateSupportReportsProtoOSState(t *testing.T) {
 	a.mu.Lock()
 	a.support.ProtoOsSelfSupported = true
 	a.support.ProtoOsInstalledVersion = "0.6.2~internal.14"
-	a.support.ProtoOsReleaseRepositories = []string{"btc-mining/proto-fleet-internal"}
+	a.support.ProtoOsReleaseRepositories = []string{"block/proto-fleet"}
 	a.support.ProtoOsServed = &mdk.ProtoOSBundleStatus{Source: mdk.ProtoOSBundleSource_PROTO_OS_BUNDLE_SOURCE_PACKAGE, ReleaseTag: "v0.6.2-internal.14"}
 	a.support.ProtoOsJob = &mdk.ProtoOSPackageJob{
 		JobId: testJobID, ReleaseTag: "v0.6.2-internal.14", TargetVersion: "0.6.2~internal.14",
@@ -402,7 +402,7 @@ func TestFrigateSupportReportsProtoOSState(t *testing.T) {
 	supports, err := d.FrigateUpdateSupport(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, sdk.FrigateProtoOSSupport{
-		SelfSupported: true, InstalledVersion: "0.6.2~internal.14", ReleaseRepositories: []string{"btc-mining/proto-fleet-internal"},
+		SelfSupported: true, InstalledVersion: "0.6.2~internal.14", ReleaseRepositories: []string{"block/proto-fleet"},
 		Served: sdk.FrigateProtoOSBundle{Source: sdk.FrigateProtoOSBundlePackage, ReleaseTag: "v0.6.2-internal.14"},
 		Job: sdk.FrigateProtoOSJob{
 			JobID: testJobID, ReleaseTag: "v0.6.2-internal.14", TargetVersion: "0.6.2~internal.14",
