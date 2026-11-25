@@ -75,6 +75,12 @@ const (
 	CodeRolloutLost             = "FLEET_ROLLOUT_NOT_FOUND"
 	CodeStartTimeout            = "FLEET_START_TIMEOUT"
 	CodeControllersLost         = "FLEET_CONTROLLERS_LOST"
+
+	CodeProtoOSUnsupported         = "FLEET_PROTOOS_UNSUPPORTED"
+	CodeProtoOSRepositoryUntrusted = "FLEET_PROTOOS_REPOSITORY_UNTRUSTED"
+	CodeProtoOSInstallFailed       = "FLEET_PROTOOS_INSTALL_FAILED"
+	CodeProtoOSJobNotReported      = "FLEET_PROTOOS_JOB_NOT_REPORTED"
+	CodeProtoOSInstallTimeout      = "FLEET_PROTOOS_INSTALL_TIMEOUT"
 )
 
 const (

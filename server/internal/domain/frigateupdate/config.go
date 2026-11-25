@@ -10,7 +10,7 @@ type Config struct {
 	ProtoOSReleaseKeysDir string        `help:"Directory of PEM-encoded ProtoOS release public keys (ECDSA P-256) used to check proto-os package signatures at upload, with the same rules as the Frigate release key directory. A Frigate release key never verifies a proto-os package, and a ProtoOS release key never verifies a Frigate package." default:"" env:"PROTOOS_RELEASE_KEYS_DIR"`
 	PollInterval          time.Duration `help:"How often the update runner advances jobs and reads rollout status from the controllers." default:"5s" env:"POLL_INTERVAL"`
 	StageStallTimeout     time.Duration `help:"How long package staging may make no progress before the job fails." default:"10m" env:"STAGE_STALL_TIMEOUT"`
-	StartTimeout          time.Duration `help:"How long Fleet keeps retrying Start for a job that Frigate does not know before it gives up and fails the job." default:"10m" env:"START_TIMEOUT"`
+	StartTimeout          time.Duration `help:"How long Fleet keeps retrying Start for a job that Frigate does not know before it gives up and fails the job. For a ProtoOS job, how long each controller may take to report its install as finished after the last copy was committed." default:"10m" env:"START_TIMEOUT"`
 	CallTimeout           time.Duration `help:"Timeout for one controller update call that does not carry package bytes." default:"30s" env:"CALL_TIMEOUT"`
 	ChunkTimeout          time.Duration `help:"Timeout for staging one 1 MiB package chunk." default:"60s" env:"CHUNK_TIMEOUT"`
 }

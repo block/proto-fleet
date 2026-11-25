@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -104,6 +105,9 @@ func (s *Service) StartUpdate(ctx context.Context, in StartInput) (Job, error) {
 	if pkg.Deleted {
 		return Job{}, fleeterror.NewNotFoundError("package not found")
 	}
+	if in.StageOnly && pkg.Kind.rules().commitInstalls {
+		return Job{}, fleeterror.NewInvalidArgumentErrorf("stage_only is not available for a %s package: each controller installs its copy as soon as the copy is committed", pkg.Kind.rules().noun)
+	}
 	if !s.store.Exists(pkg.ID, pkg.SizeBytes) {
 		return Job{}, fleeterror.NewFailedPreconditionErrorf("%s: the package is not stored on this Fleet host; upload it again", CodePackageMissing)
 	}
@@ -198,8 +202,8 @@ func (s *Service) StartUpdate(ctx context.Context, in StartInput) (Job, error) {
 	if replayed {
 		return s.loadJob(ctx, row)
 	}
-	s.logJobEvent(ctx, row, "frigate_update_started",
-		fmt.Sprintf("Started controller software update to %s", row.TargetVersion), activitymodels.ResultSuccess, "")
+	s.logJobEvent(ctx, row, pkg.Kind, "frigate_update_started",
+		fmt.Sprintf("Started %s update to %s", pkg.Kind.rules().noun, row.TargetVersion), activitymodels.ResultSuccess, "")
 	return s.loadJob(ctx, row)
 }
 
@@ -399,7 +403,11 @@ func (s *Service) act(ctx context.Context, id uuid.UUID, key, kind string) (Job,
 		case !errors.Is(err, sql.ErrNoRows):
 			return actionPlan{}, err
 		}
-		if err := checkActionAllowed(cur, kind); err != nil {
+		pkgKind, err := q.GetFrigateUpdateJobPackageKind(ctx, cur.ID)
+		if err != nil {
+			return actionPlan{}, err
+		}
+		if err := checkActionAllowed(cur, PackageKind(pkgKind), kind); err != nil {
 			return actionPlan{}, err
 		}
 		recorded, err := q.CountFrigateUpdateActions(ctx, cur.ID)
@@ -586,7 +594,10 @@ func completeCancelLocally(ctx context.Context, q sqlc.Querier, cur sqlc.Frigate
 	return q.LockFrigateUpdateJob(ctx, cur.ID)
 }
 
-func checkActionAllowed(j sqlc.FrigateUpdateJob, kind string) error {
+func checkActionAllowed(j sqlc.FrigateUpdateJob, pkgKind PackageKind, kind string) error {
+	if pkgKind == PackageKindProtoOS {
+		return checkProtoOSAction(j, kind)
+	}
 	switch kind {
 	case actionRetry:
 		if j.State != StateFailed || !j.Retryable {
@@ -606,9 +617,15 @@ func checkActionAllowed(j sqlc.FrigateUpdateJob, kind string) error {
 	return nil
 }
 
+// jobKind returns the kind of a job's package.
+func (s *Service) jobKind(ctx context.Context, id uuid.UUID) (PackageKind, error) {
+	kind, err := s.queries.GetFrigateUpdateJobPackageKind(ctx, id)
+	return PackageKind(kind), err
+}
+
 // logJobEvent records an activity entry for a job. The activity log is
 // best-effort: a failure here never affects the update.
-func (s *Service) logJobEvent(ctx context.Context, job sqlc.FrigateUpdateJob, eventType, description string, result activitymodels.ResultType, errMsg string) {
+func (s *Service) logJobEvent(ctx context.Context, job sqlc.FrigateUpdateJob, kind PackageKind, eventType, description string, result activitymodels.ResultType, errMsg string) {
 	if s.activity == nil {
 		return
 	}
@@ -638,6 +655,7 @@ func (s *Service) logJobEvent(ctx context.Context, job sqlc.FrigateUpdateJob, ev
 		SiteID:         siteID,
 		Metadata: map[string]any{
 			"job_id":            job.ID.String(),
+			"package_kind":      string(kind),
 			"device_identifier": identifier,
 			"target_version":    job.TargetVersion,
 			"from_version":      job.FromVersion,
@@ -656,29 +674,44 @@ func (s *Service) logJobEvent(ctx context.Context, job sqlc.FrigateUpdateJob, ev
 
 // logTransition records the activity entry for a state change.
 func (s *Service) logTransition(ctx context.Context, before, after sqlc.FrigateUpdateJob) {
-	if before.State == after.State {
+	if before.State == after.State || s.activity == nil {
 		return
 	}
+	kind, err := s.jobKind(ctx, after.ID)
+	if err != nil {
+		slog.Warn("frigate update activity lookup failed", "job_id", after.ID, "error", err)
+		kind = PackageKindFrigate
+	}
+	noun := kind.rules().noun
 	switch after.State {
 	case StateRunning:
-		s.logJobEvent(ctx, after, "frigate_update_running",
+		s.logJobEvent(ctx, after, kind, "frigate_update_running",
 			fmt.Sprintf("The controller accepted the update to %s", after.TargetVersion), activitymodels.ResultSuccess, "")
 	case StateSucceeded:
-		s.logJobEvent(ctx, after, "frigate_update_succeeded",
-			fmt.Sprintf("Controller software updated to %s", after.TargetVersion), activitymodels.ResultSuccess, "")
+		s.logJobEvent(ctx, after, kind, "frigate_update_succeeded",
+			fmt.Sprintf("%s updated to %s", sentenceCase(noun), after.TargetVersion), activitymodels.ResultSuccess, "")
 	case StateVerified:
-		s.logJobEvent(ctx, after, "frigate_update_verified",
+		s.logJobEvent(ctx, after, kind, "frigate_update_verified",
 			fmt.Sprintf("Verified the package for %s on every controller", after.TargetVersion), activitymodels.ResultSuccess, "")
 	case StateFailed:
-		s.logJobEvent(ctx, after, "frigate_update_failed",
-			fmt.Sprintf("Controller software update to %s failed", after.TargetVersion), activitymodels.ResultFailure, after.ErrorMessage)
+		s.logJobEvent(ctx, after, kind, "frigate_update_failed",
+			fmt.Sprintf("%s update to %s failed", sentenceCase(noun), after.TargetVersion), activitymodels.ResultFailure, after.ErrorMessage)
 	case StateCancelled:
-		s.logJobEvent(ctx, after, "frigate_update_cancelled",
-			fmt.Sprintf("Cancelled the controller software update to %s", after.TargetVersion), activitymodels.ResultSuccess, "")
+		s.logJobEvent(ctx, after, kind, "frigate_update_cancelled",
+			fmt.Sprintf("Cancelled the %s update to %s", noun, after.TargetVersion), activitymodels.ResultSuccess, "")
 	case StateAbandoned:
-		s.logJobEvent(ctx, after, "frigate_update_abandoned",
-			fmt.Sprintf("The controller software update to %s was abandoned", after.TargetVersion), activitymodels.ResultFailure, after.ErrorMessage)
+		s.logJobEvent(ctx, after, kind, "frigate_update_abandoned",
+			fmt.Sprintf("The %s update to %s was abandoned", noun, after.TargetVersion), activitymodels.ResultFailure, after.ErrorMessage)
 	}
+}
+
+// sentenceCase makes the first letter of a noun upper case, for a noun that
+// starts a sentence.
+func sentenceCase(noun string) string {
+	if noun == "" {
+		return noun
+	}
+	return strings.ToUpper(noun[:1]) + noun[1:]
 }
 
 // paramsFromJob copies a job into update parameters so callers change only the

@@ -279,6 +279,10 @@ type FrigateStageCopy struct {
 	// OnChunk, if set, gets the acknowledged offset after each chunk. An error
 	// from it stops the copy and CopyFrigateStage returns it unchanged.
 	OnChunk func(next int64) error
+	// BeforeCommit, if set, runs once every byte is appended, before the
+	// commit. An error from it stops the copy and CopyFrigateStage returns it
+	// unchanged.
+	BeforeCommit func() error
 }
 
 // CopyFrigateStage appends the package from c.Offset to its end, one chunk at a
@@ -311,6 +315,11 @@ func CopyFrigateStage(ctx context.Context, u DeviceFrigateUpdater, c FrigateStag
 			if err := c.OnChunk(next); err != nil {
 				return FrigateStageCommit{}, next, err
 			}
+		}
+	}
+	if c.BeforeCommit != nil {
+		if err := c.BeforeCommit(); err != nil {
+			return FrigateStageCommit{}, next, err
 		}
 	}
 	callCtx, cancel := context.WithTimeout(ctx, c.CallTimeout)

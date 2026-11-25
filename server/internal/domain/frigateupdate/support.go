@@ -13,6 +13,7 @@ import (
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
@@ -77,6 +78,11 @@ func (s *Service) readSupport(ctx context.Context, deviceID int64, pkg *Package)
 	if err != nil {
 		return Support{}, err
 	}
+	if checker, ok := updater.(interfaces.ProtoOSUpdateChecker); ok && pkg != nil && pkg.Kind == PackageKindProtoOS {
+		if err := checker.CheckProtoOSUpdates(ctx); err != nil {
+			return Support{}, err
+		}
+	}
 	callCtx, cancel := context.WithTimeout(ctx, s.cfg.CallTimeout)
 	defer cancel()
 	instances, err := updater.FrigateUpdateSupport(callCtx)
@@ -114,6 +120,13 @@ func evaluateSupport(instances []sdk.FrigateInstanceSupport, pkg *Package) (elig
 		if in.ActiveJobID != "" {
 			return false, CodeUpdateInProgress, fmt.Sprintf("controller %s is already running update %s", in.InstanceID, in.ActiveJobID)
 		}
+		// A controller holds one update job at a time, of either kind.
+		if protoOSJobActive(in.ProtoOS.Job) {
+			return false, CodeUpdateInProgress, fmt.Sprintf("controller %s is already installing ProtoOS update %s", in.InstanceID, in.ProtoOS.Job.JobID)
+		}
+	}
+	if pkg != nil && pkg.Kind == PackageKindProtoOS {
+		return evaluateProtoOSSupport(instances, pkg)
 	}
 	for _, in := range instances {
 		switch {
@@ -124,17 +137,11 @@ func evaluateSupport(instances []sdk.FrigateInstanceSupport, pkg *Package) (elig
 		case !in.SelfCoordinationSupported:
 			return false, CodeSelfCoordination, fmt.Sprintf("controller %s does not support Fleet-coordinated updates; upgrade it first", in.InstanceID)
 		case !in.RemoteTriggerAllowed:
-			return false, CodeRemoteTriggerDisabled, fmt.Sprintf("controller %s does not allow remote update triggers; enable update.allow_remote_trigger on the controller", in.InstanceID)
+			return false, CodeRemoteTriggerDisabled, remoteTriggerDisabledReason(in.InstanceID)
 		}
 	}
-	// The controllers refuse Start unless Fleet names each member of the HA
-	// pair. Fleet knows only one of them when discovery found only one.
-	for _, in := range instances {
-		if in.PeerInstanceID != "" && !slices.ContainsFunc(instances, func(other sdk.FrigateInstanceSupport) bool {
-			return other.InstanceID == in.PeerInstanceID
-		}) {
-			return false, CodeInstanceUnreachable, fmt.Sprintf("controller %s reports the HA peer %s, but Fleet does not know that controller", in.InstanceID, in.PeerInstanceID)
-		}
+	if reason := unknownPeerReason(instances); reason != "" {
+		return false, CodeInstanceUnreachable, reason
 	}
 	if len(instances) > 1 {
 		// The CT1 plugin refuses Start unless the controllers share one non-empty
@@ -171,6 +178,25 @@ func evaluateSupport(instances []sdk.FrigateInstanceSupport, pkg *Package) (elig
 		}
 	}
 	return true, "", ""
+}
+
+func remoteTriggerDisabledReason(instanceID string) string {
+	return fmt.Sprintf("controller %s does not allow remote update triggers; enable update.allow_remote_trigger on the controller", instanceID)
+}
+
+// unknownPeerReason explains an HA peer that a controller reports but Fleet
+// does not know, or returns "". The controllers refuse a manifest unless Fleet
+// names each member of the HA pair, and Fleet knows only one of them when
+// discovery found only one.
+func unknownPeerReason(instances []sdk.FrigateInstanceSupport) string {
+	for _, in := range instances {
+		if in.PeerInstanceID != "" && !slices.ContainsFunc(instances, func(other sdk.FrigateInstanceSupport) bool {
+			return other.InstanceID == in.PeerInstanceID
+		}) {
+			return fmt.Sprintf("controller %s reports the HA peer %s, but Fleet does not know that controller", in.InstanceID, in.PeerInstanceID)
+		}
+	}
+	return ""
 }
 
 func withDetail(msg, detail string) string {

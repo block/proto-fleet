@@ -198,10 +198,24 @@ func (s *Service) release(id uuid.UUID) {
 	s.mu.Unlock()
 }
 
+// processJob advances one job by the state machine of its package kind.
 func (s *Service) processJob(ctx context.Context, job sqlc.FrigateUpdateJob) {
+	kind, err := s.jobKind(ctx, job.ID)
+	if err != nil {
+		if ctx.Err() == nil {
+			slog.ErrorContext(ctx, "read frigate update package kind", "job_id", job.ID, "error", err)
+		}
+		return
+	}
+	if kind == PackageKindProtoOS {
+		s.processProtoOSJob(ctx, job)
+		return
+	}
 	switch job.State {
 	case StateStaging:
-		s.stageJob(ctx, job)
+		if s.stageJob(ctx, job) {
+			s.markStaged(ctx, job.ID)
+		}
 	case StateStaged, StateStarting:
 		s.startJob(ctx, job)
 	case StateRunning, StateFailed:
@@ -387,10 +401,15 @@ func (s *Service) forget(id uuid.UUID) {
 func manifestFor(job sqlc.FrigateUpdateJob, pkg sqlc.GetFrigateUpdatePackageRow, instanceID string) sdk.FrigateManifest {
 	expected := append([]string(nil), job.ExpectedInstanceIds...)
 	sort.Strings(expected)
+	rules := PackageKind(pkg.Kind).rules()
+	tag, asset := rules.releaseTag(pkg.Version)
 	return sdk.FrigateManifest{
 		JobID:               job.ID.String(),
 		InstanceID:          instanceID,
 		ExpectedInstanceIDs: expected,
+		ReleaseTag:          tag,
+		AssetName:           asset,
+		Package:             rules.manifest,
 		TargetVersion:       pkg.Version,
 		SHA256:              pkg.Sha256,
 		SizeBytes:           pkg.SizeBytes,
@@ -401,11 +420,13 @@ func manifestFor(job sqlc.FrigateUpdateJob, pkg sqlc.GetFrigateUpdatePackageRow,
 	}
 }
 
-func (s *Service) stageJob(ctx context.Context, job sqlc.FrigateUpdateJob) {
+// stageJob copies the package to every controller that does not have it yet.
+// It reports whether every copy is staged and the job is still staging.
+func (s *Service) stageJob(ctx context.Context, job sqlc.FrigateUpdateJob) bool {
 	pkg, err := s.queries.GetFrigateUpdatePackage(ctx, sqlc.GetFrigateUpdatePackageParams{OrgID: job.OrgID, ID: job.PackageID})
 	if err != nil {
 		slog.ErrorContext(ctx, "load frigate package for staging", "job_id", job.ID, "error", err)
-		return
+		return false
 	}
 	// A blob that is missing here (Fleet failed over to a replica that never
 	// received the upload) fails the job before anything reaches a controller.
@@ -416,19 +437,19 @@ func (s *Service) stageJob(ctx context.Context, job sqlc.FrigateUpdateJob) {
 		}
 		s.failJob(ctx, job.ID, CodePackageMissing,
 			"The package is not available on this Fleet host. Upload it again and restart the update.", true)
-		return
+		return false
 	}
 	defer file.Close()
 
 	updater, err := s.updaterFor(ctx, job.DeviceID)
 	if err != nil {
 		s.stageTransient(ctx, job.ID, err)
-		return
+		return false
 	}
 	instances, err := s.queries.ListFrigateUpdateInstances(ctx, job.ID)
 	if err != nil {
 		slog.ErrorContext(ctx, "list frigate update instances", "job_id", job.ID, "error", err)
-		return
+		return false
 	}
 
 	var transient error
@@ -438,33 +459,39 @@ func (s *Service) stageJob(ctx context.Context, job sqlc.FrigateUpdateJob) {
 		transient = s.stageDirect(ctx, updater, job, pkg, file, instances)
 	}
 	if ctx.Err() != nil {
-		return
+		return false
 	}
 
 	fresh, err := s.queries.GetFrigateUpdateJob(ctx, sqlc.GetFrigateUpdateJobParams{OrgID: job.OrgID, ID: job.ID})
 	if err != nil {
-		return
+		return false
 	}
 	if fresh.State != StateStaging {
 		// Cancelled or failed while uploading. A sibling upload may have noted
 		// progress after the transition cleared it, so clear it again.
 		s.forget(job.ID)
-		return
+		return false
 	}
 	rows, err := s.queries.ListFrigateUpdateInstances(ctx, job.ID)
 	if err != nil {
 		slog.ErrorContext(ctx, "list frigate update instances", "job_id", job.ID, "error", err)
-		return
+		return false
 	}
 	for _, r := range rows {
 		if r.StageState != StageStaged {
 			if transient != nil {
 				s.stageTransient(ctx, job.ID, transient)
 			}
-			return
+			return false
 		}
 	}
-	_, after, changed, err := s.mutate(ctx, job.ID, func(cur sqlc.FrigateUpdateJob, p *sqlc.UpdateFrigateUpdateJobParams) bool {
+	return true
+}
+
+// markStaged moves a controller software job whose copies are all staged to
+// staged, and starts the rollout.
+func (s *Service) markStaged(ctx context.Context, id uuid.UUID) {
+	_, after, changed, err := s.mutate(ctx, id, func(cur sqlc.FrigateUpdateJob, p *sqlc.UpdateFrigateUpdateJobParams) bool {
 		if cur.State != StateStaging {
 			return false
 		}
@@ -474,12 +501,12 @@ func (s *Service) stageJob(ctx context.Context, job sqlc.FrigateUpdateJob) {
 	})
 	if err != nil {
 		if ctx.Err() == nil {
-			slog.ErrorContext(ctx, "mark frigate update staged", "job_id", job.ID, "error", err)
+			slog.ErrorContext(ctx, "mark frigate update staged", "job_id", id, "error", err)
 		}
 		return
 	}
 	if changed {
-		s.forget(job.ID)
+		s.forget(id)
 		s.startJob(ctx, after)
 	}
 }
@@ -572,6 +599,16 @@ func (s *Service) stageThroughRelay(ctx context.Context, updater interfaces.Frig
 	}
 	if len(copies) == 0 {
 		return transient
+	}
+	// The relay commits each copy that it completes, so the stage command is
+	// the first call that may commit one.
+	if PackageKind(pkg.Kind).rules().commitInstalls {
+		if err := s.closeCancelWindow(ctx, job.ID); err != nil {
+			if errors.Is(err, errStopStaging) {
+				return nil
+			}
+			return err
+		}
 	}
 
 	sent := s.now()
@@ -750,6 +787,16 @@ func (s *Service) stageInstance(ctx context.Context, updater interfaces.FrigateU
 				return err
 			}
 			s.noteProgress(job.ID)
+			return nil
+		},
+		BeforeCommit: func() error {
+			if !PackageKind(pkg.Kind).rules().commitInstalls {
+				return nil
+			}
+			if err := s.closeCancelWindow(ctx, job.ID); err != nil {
+				stopped = err
+				return err
+			}
 			return nil
 		},
 	})
@@ -1081,7 +1128,7 @@ func (s *Service) forwardCancel(ctx context.Context, updater interfaces.FrigateU
 		refusal := sdk.AsFrigateRefusal(err)
 		slog.WarnContext(ctx, "frigate refused a pending cancel", "job_id", job.ID, "error", err)
 		after := apply(ro, maintenance)
-		s.logJobEvent(ctx, after, "frigate_update_cancel_refused",
+		s.logJobEvent(ctx, after, PackageKindFrigate, "frigate_update_cancel_refused",
 			fmt.Sprintf("The controller refused to cancel the update to %s", after.TargetVersion), activitymodels.ResultFailure,
 			withDetail(refusal.Reason, refusal.Message))
 	default:
