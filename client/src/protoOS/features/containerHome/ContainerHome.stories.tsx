@@ -218,7 +218,7 @@ const overviewGrid: ModuleGrid = {
       return {
         id: `${tank}-${index}`,
         label: String(index + 1).padStart(2, "0"),
-        position: { column: Math.floor(index / 2) + 1, row: 2 - (index % 2) },
+        position: { column: Math.floor(index / 2) + 1, row: (index % 2) + 1 },
         name: `Tank ${tank} module ${index + 1}`,
         to: `/modules/${tank}/${index + 1}`,
         state,

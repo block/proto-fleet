@@ -46,7 +46,7 @@ export function buildModuleGrid(
       // Retain scoped PSU/fault checks; the overview icon follows the miner status pill priority.
       const health = getScopeHealth({ kind: "tank", id: tank.id }, hardware, telemetry, errors, now);
       const members = tankModules(tank, topology);
-      // Container overview follows the physical pairs: even slots above odd slots.
+      // Container overview follows the physical pairs: odd slots above even slots.
       const layout = tankGrid({ ...tank, moduleLayout: { columns: 8, rows: 2, numbering: "columnMajor" } }, members);
       const modules = members.map((module, index) => {
         const slot = module.location?.moduleSlot;
@@ -91,7 +91,9 @@ export function buildModuleGrid(
         return {
           id: String(module.id),
           label: slot === undefined ? String(module.id) : String(slot).padStart(2, "0"),
-          position: layout.positions[index],
+          position: layout.positions[index]
+            ? { ...layout.positions[index], row: layout.rows + 1 - layout.positions[index].row }
+            : undefined,
           name: `${label} module ${slot ?? module.id}`,
           to: `${minerRoot}/modules/${tankRouteValue(tank)}/${moduleRouteValue(module, tank.moduleIds.indexOf(module.id) + 1)}`,
           state,

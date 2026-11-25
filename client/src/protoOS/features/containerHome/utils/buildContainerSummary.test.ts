@@ -69,11 +69,11 @@ describe("container summary", () => {
     expect(grid?.tanks.map((tank) => tank.slot)).toEqual([1, 3, 6]);
     expect(grid?.tanks[0]).toMatchObject({ columns: 8, rows: 2 });
     expect(grid?.tanks[0].modules.map((module) => ({ label: module.label, position: module.position }))).toEqual([
-      { label: "01", position: { row: 2, column: 1 } },
-      { label: "02", position: { row: 1, column: 1 } },
-      { label: "03", position: { row: 2, column: 2 } },
-      { label: "09", position: { row: 2, column: 5 } },
-      { label: "16", position: { row: 1, column: 8 } },
+      { label: "01", position: { row: 1, column: 1 } },
+      { label: "02", position: { row: 2, column: 1 } },
+      { label: "03", position: { row: 1, column: 2 } },
+      { label: "09", position: { row: 1, column: 5 } },
+      { label: "16", position: { row: 2, column: 8 } },
     ]);
     expect(grid?.tanks[0].modules[0].boards).toHaveLength(3);
   });
