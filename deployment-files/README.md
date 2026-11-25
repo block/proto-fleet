@@ -264,6 +264,7 @@ Use a public [installer](fleetnode/install-fleet-node.sh) that lists
 `migrate-to-public` in its help. Get it from an approved revision of
 `block/proto-fleet` or a later public release that includes the command.
 The installer attached to `v0.7.0-rc.1` predates this command.
+The host's `sync` command must support `-f` for migration and recovery.
 
 1. Confirm that the enrolled Node is active in Fleet. Record its Node ID
    and the last telemetry time for one assigned miner.

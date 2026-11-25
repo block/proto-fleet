@@ -202,7 +202,11 @@ if [[ "$INSTALL_RELEASE" == "1" ]]; then
   ARCHIVE_NAME="${ARCHIVE_ROOT}.tar.gz"
 fi
 
-for command in install flock "$SYSTEMCTL"; do
+required_commands=(install flock "$SYSTEMCTL")
+if [[ "$ACTION" == migrate-to-public || "$ACTION" == recover-public-migration ]]; then
+  required_commands+=(sync)
+fi
+for command in "${required_commands[@]}"; do
   command -v "$command" >/dev/null 2>&1 || { echo "required command not found: $command" >&2; exit 1; }
 done
 if [[ "$INSTALL_RELEASE" == "1" ]]; then
@@ -474,6 +478,9 @@ recover_public_migration() {
 
 cleanup() {
   status=$?
+  if [[ "$ACTION" == migrate-to-public || "$ACTION" == recover-public-migration ]]; then
+    trap '' HUP INT TERM
+  fi
   set +e
   rollback_failed=0
   rollback_error() {
@@ -827,6 +834,10 @@ migrate_to_public() {
     return 1
   fi
 
+  if ! flush_migration_paths "${PROGRAM_DIR%/*}" "$CONFIG_DIR"; then
+    echo "repository migration requires sync -f to work on the program and configuration filesystems" >&2
+    return 1
+  fi
   as_root mkdir -m 0700 "$migration_dir"
   migration_phase=preparing
   stage_program "$migration_dir/candidate"

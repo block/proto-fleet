@@ -109,7 +109,7 @@ if [[ "${1:-}" == "show" && "${2:-}" == "--property=LoadState" ]]; then
   exit 0
 fi
 if [[ "${1:-}" == "show" && "${2:-}" == "--property=Type" ]]; then
-  echo notify
+  printf '%s\n' "${FAKE_FLEETNODE_SERVICE_TYPE:-notify}"
   exit 0
 fi
 if [[ "${1:-}" == "show" && "${2:-}" == "--property=ActiveState" ]]; then
@@ -122,14 +122,24 @@ if [[ "${1:-}" == "stop" && -n "${FAKE_FLEETNODE_LOCK_READY:-}" ]]; then
     sleep 0.05
   done
 fi
+if [[ "$1" == stop && -f "${FAKE_SYSTEMCTL_TERM_DURING_ROLLBACK:-}" &&
+    "$(grep -Fxc 'stop fleet-node.service' "$SYSTEMCTL_LOG")" == 2 ]]; then
+  kill -TERM "$PPID"
+  rm -f "$FAKE_SYSTEMCTL_TERM_DURING_ROLLBACK"
+fi
 if [[ "${1:-}" == "is-enabled" ]]; then
   [[ "${FAKE_FLEETNODE_ENABLED:-0}" == "1" ]]
   exit
 fi
-if [[ -n "${FAKE_SYSTEMCTL_RECOVERY_PROBE:-}" && ( "$1" == "start" || "$1" == "is-active" ) ]]; then
+if [[ -n "${FAKE_SYSTEMCTL_RECOVERY_PROBE:-}" && ( "$1" == "start" || "$1" == "is-active" ) ]] &&
+    grep -Fxq 'stop fleet-node.service' "$SYSTEMCTL_LOG"; then
   [[ -f "$FLEETNODE_ROOT_PREFIX/opt/.fleetnode-public-migration/pending" ]]
   cat "$FLEETNODE_ROOT_PREFIX/etc/fleetnode/release-repository" \
     "$FLEETNODE_ROOT_PREFIX/opt/fleetnode/fleetnode" > "$FAKE_SYSTEMCTL_RECOVERY_PROBE.$1"
+fi
+if [[ "$1" == is-active ]]; then
+  [[ "${FAKE_SYSTEMCTL_FAIL_IS_ACTIVE:-0}" == 0 ]]
+  exit
 fi
 if [[ "${1:-}" == "reset-failed" && "${FAKE_SYSTEMCTL_UNLOADED_AFTER_STOP:-0}" == "1" ]]; then
   exit 1
@@ -150,6 +160,10 @@ chmod 0755 "$TEST_DIR/bin/systemctl"
 cat > "$TEST_DIR/bin/sync" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "${FAKE_SYNC_UNSUPPORTED:-0}" == 1 && "$1" == -f ]]; then
+  echo 'sync: invalid option -- f' >&2
+  exit 1
+fi
 if [[ -f "${MIGRATION_TERM_BEFORE_STOP:-}" && -f "$2/pending" ]]; then
   rm -f "$MIGRATION_TERM_BEFORE_STOP"
   kill -TERM "$PPID"
@@ -976,46 +990,79 @@ assert_migration_state() {
   cmp "$TEST_DIR/local-unit" "$ROOT_PREFIX/etc/systemd/system/fleet-node.service"
 }
 
-: > "$SYSTEMCTL_LOG"
-if run_staged_installer v3.0.0 migrate-to-public > "$TEST_DIR/migration-mismatch.out" 2>&1; then
-  fail "migration accepted a staged archive from the internal repository"
-fi
-assert_file_contains "$TEST_DIR/migration-mismatch.out" "release bundle repository conflicts with selected source"
-assert_no_service_change "a mismatched migration archive"
-assert_migration_state v3.0.0 btc-mining/proto-fleet-internal
-
-: > "$FAIL_START_ONCE"
-: > "$SYSTEMCTL_LOG"
-if FAKE_SYSTEMCTL_FAIL_START_ONCE="$FAIL_START_ONCE" \
-    run_staged_installer v3.1.0 migrate-to-public > "$TEST_DIR/migration-rollback.out" 2>&1; then
-  fail "migration accepted a candidate that failed to start"
-fi
-assert_migration_state v3.0.0 btc-mining/proto-fleet-internal
-cmp "$TEST_DIR/internal-fleetnode" "$ROOT_PREFIX/opt/fleetnode/fleetnode"
-[[ "$(grep -Fxc 'start fleet-node.service' "$SYSTEMCTL_LOG")" == 2 ]] || fail "rollback did not restart the previous program"
 MIGRATION_DIR="$ROOT_PREFIX/opt/.fleetnode-public-migration"
+assert_migration_refused() {
+  local name="$1" version="$2" expected_error="$3"
+  : > "$SYSTEMCTL_LOG"
+  if run_staged_installer "$version" migrate-to-public > "$TEST_DIR/migration-$name.out" 2>&1; then
+    fail "migration accepted $name"
+  fi
+  assert_file_contains "$TEST_DIR/migration-$name.out" "$expected_error"
+  assert_no_service_change "$name"
+  assert_migration_state v3.0.0 btc-mining/proto-fleet-internal
+  [[ ! -e "$MIGRATION_DIR" ]] || fail "$name left a migration directory"
+}
+
+assert_migration_refused mismatched-archive v3.0.0 "release bundle repository conflicts with selected source"
+FAKE_FLEETNODE_SERVICE_TYPE=simple \
+  assert_migration_refused service-type v3.1.0 "repository migration requires a Fleet Node service with Type=notify"
+FAKE_SYSTEMCTL_FAIL_IS_ACTIVE=1 \
+  assert_migration_refused inactive-service v3.1.0 "start the enrolled Fleet Node before repository migration"
+FAKE_SYNC_UNSUPPORTED=1 \
+  assert_migration_refused unsupported-sync v3.1.0 "repository migration requires sync -f"
+
+cat "$ROOT_PREFIX/etc/fleetnode/release-repository" "$TEST_DIR/internal-fleetnode" > "$TEST_DIR/expected-recovery"
+: > "$FAIL_START_ONCE"
+: > "$TEST_DIR/term-during-rollback"
+: > "$SYSTEMCTL_LOG"
+rollback_status=0
+FAKE_SYSTEMCTL_FAIL_START_ONCE="$FAIL_START_ONCE" \
+  FAKE_SYSTEMCTL_TERM_DURING_ROLLBACK="$TEST_DIR/term-during-rollback" \
+  FAKE_SYSTEMCTL_RECOVERY_PROBE="$TEST_DIR/rollback" \
+  run_staged_installer v3.1.0 migrate-to-public > "$TEST_DIR/migration-rollback.out" 2>&1 || rollback_status=$?
+[[ ! -e "$TEST_DIR/term-during-rollback" ]] || fail "installer did not receive TERM during rollback"
+[[ "$rollback_status" == 1 && ! -e "$FAIL_START_ONCE" ]] || fail "rollback did not preserve the candidate start failure"
+assert_migration_state v3.0.0 btc-mining/proto-fleet-internal
+[[ "$(grep -Fxc 'start fleet-node.service' "$SYSTEMCTL_LOG")" == 2 ]] || fail "rollback did not restart the previous program"
+cmp "$TEST_DIR/expected-recovery" "$TEST_DIR/rollback.start" || fail "rollback did not start with the previous program and pin"
+cmp "$TEST_DIR/expected-recovery" "$TEST_DIR/rollback.is-active" || fail "rollback did not confirm the previous service was active"
 [[ ! -e "$MIGRATION_DIR" ]] || fail "rollback retained the migration directory"
 
-mkdir "$MIGRATION_DIR"
-cp "$ROOT_PREFIX/etc/fleetnode/release-repository" "$MIGRATION_DIR/release-repository"
-mv "$ROOT_PREFIX/opt/fleetnode" "$MIGRATION_DIR/previous"
-candidate_archive_root=fleetnode-v3.1.0-linux-amd64
-tar -xzf "$STAGED_DIR/v3.1.0/$candidate_archive_root.tar.gz" -C "$MIGRATION_DIR"
-mv "$MIGRATION_DIR/$candidate_archive_root" "$ROOT_PREFIX/opt/fleetnode"
-printf '%s\n' block/proto-fleet > "$ROOT_PREFIX/etc/fleetnode/release-repository"
-touch "$MIGRATION_DIR/pending"
+for phase in after-stop after-save after-swap; do
+  mkdir "$MIGRATION_DIR"
+  cp "$ROOT_PREFIX/etc/fleetnode/release-repository" "$MIGRATION_DIR/release-repository"
+  touch "$MIGRATION_DIR/pending"
+  if [[ "$phase" != after-stop ]]; then
+    mv "$ROOT_PREFIX/opt/fleetnode" "$MIGRATION_DIR/previous"
+  fi
+  if [[ "$phase" == after-swap ]]; then
+    candidate_archive_root=fleetnode-v3.1.0-linux-amd64
+    tar -xzf "$STAGED_DIR/v3.1.0/$candidate_archive_root.tar.gz" -C "$MIGRATION_DIR"
+    mv "$MIGRATION_DIR/$candidate_archive_root" "$ROOT_PREFIX/opt/fleetnode"
+    printf '%s\n' block/proto-fleet > "$ROOT_PREFIX/etc/fleetnode/release-repository"
+  fi
 
-cat "$MIGRATION_DIR/release-repository" "$TEST_DIR/internal-fleetnode" > "$TEST_DIR/expected-recovery"
-: > "$SYSTEMCTL_LOG"
-FAKE_SYSTEMCTL_RECOVERY_PROBE="$TEST_DIR/recovery" run_without_release recover-public-migration
-assert_migration_state v3.0.0 btc-mining/proto-fleet-internal
-cmp "$TEST_DIR/internal-fleetnode" "$ROOT_PREFIX/opt/fleetnode/fleetnode"
-cmp "$TEST_DIR/expected-recovery" "$TEST_DIR/recovery.start" || fail "recovery did not start with the old program and pin"
-cmp "$TEST_DIR/expected-recovery" "$TEST_DIR/recovery.is-active" || fail "recovery did not check whether the old service was active"
-recovery_service_checks=$(grep -Fx -e 'start fleet-node.service' -e 'is-active --quiet fleet-node.service' "$SYSTEMCTL_LOG")
-[[ "$recovery_service_checks" == $'start fleet-node.service\nis-active --quiet fleet-node.service' ]] || \
-  fail "recovery did not check the service after starting it"
-[[ ! -e "$MIGRATION_DIR" ]] || fail "recovery retained the migration directory"
+  if [[ "$phase" == after-save ]]; then
+    : > "$FAIL_START_ONCE"
+    recovery_status=0
+    FAKE_SYSTEMCTL_FAIL_START_ONCE="$FAIL_START_ONCE" \
+      run_without_release recover-public-migration > "$TEST_DIR/migration-recovery-retry.out" 2>&1 || recovery_status=$?
+    [[ "$recovery_status" == 1 && ! -e "$FAIL_START_ONCE" ]] || fail "recovery did not report the failed restart"
+    assert_file_contains "$TEST_DIR/migration-recovery-retry.out" "Fleet Node recovery failed."
+    [[ -f "$MIGRATION_DIR/pending" ]] || fail "failed recovery removed the pending marker"
+  fi
+
+  : > "$SYSTEMCTL_LOG"
+  recovery_probe="$TEST_DIR/recovery-$phase"
+  FAKE_SYSTEMCTL_RECOVERY_PROBE="$recovery_probe" run_without_release recover-public-migration
+  assert_migration_state v3.0.0 btc-mining/proto-fleet-internal
+  cmp "$TEST_DIR/expected-recovery" "$recovery_probe.start" || fail "$phase recovery did not start with the previous program and pin"
+  cmp "$TEST_DIR/expected-recovery" "$recovery_probe.is-active" || fail "$phase recovery did not confirm the previous service was active"
+  recovery_service_checks=$(grep -Fx -e 'start fleet-node.service' -e 'is-active --quiet fleet-node.service' "$SYSTEMCTL_LOG")
+  [[ "$recovery_service_checks" == $'start fleet-node.service\nis-active --quiet fleet-node.service' ]] || \
+    fail "$phase recovery did not check the service after starting it"
+  [[ ! -e "$MIGRATION_DIR" ]] || fail "$phase recovery retained the migration directory"
+done
 
 : > "$SYSTEMCTL_LOG"
 : > "$TEST_DIR/term-before-stop"
