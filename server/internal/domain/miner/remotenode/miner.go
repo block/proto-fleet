@@ -374,8 +374,8 @@ func minimumCommandProtocolVersion(mc *gatewaypb.MinerCommand) (gatewaypb.Comman
 		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3
 	} else if mc.GetSetContainerControl() != nil {
 		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2
-	} else if mc.GetFrigateUpdate() != nil {
-		version = FrigateUpdateCommandProtocolVersion
+	} else if update := mc.GetFrigateUpdate(); update != nil {
+		version, _ = frigateUpdateCommandVersion(update)
 	}
 	return version, nil
 }

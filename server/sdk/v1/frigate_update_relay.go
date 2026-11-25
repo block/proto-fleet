@@ -138,6 +138,18 @@ func FrigateRelayReadOnly(request []byte) bool {
 	}
 }
 
+// FrigateRelayStagesProtoOS reports whether an encoded request begins a copy of
+// the ProtoOS package. A request that does not decode counts as one, so that a
+// caller that picks a command protocol version from the answer picks the newer
+// one.
+func FrigateRelayStagesProtoOS(request []byte) bool {
+	req, err := decodeFrigateRelayRequest(request)
+	if err != nil {
+		return true
+	}
+	return FrigatePackageKind(req.GetStageBegin().GetManifest().GetPackage()) == FrigatePackageProtoOS
+}
+
 // ServeFrigateRelay runs one relayed call on u and returns the encoded
 // response. A stage append is refused with ErrFrigateRelayAppend. Other errors
 // come from u unchanged, so a refusal stays a *FrigateRefusal.

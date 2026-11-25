@@ -24,6 +24,46 @@ const FrigateUpdateCommandProtocolVersion = gatewaypb.CommandProtocolVersion_COM
 // FrigateUpdateUpgradeReason tells the operator why an older node is refused.
 const FrigateUpdateUpgradeReason = "The Fleet Node that manages this container does not support controller software updates. Upgrade the Fleet Node, then try again."
 
+// ProtoOSUpdateCommandProtocolVersion is the oldest command protocol whose
+// nodes stage the ProtoOS package. An older node ignores the manifest's package
+// selector and would stage the package as controller software.
+const ProtoOSUpdateCommandProtocolVersion = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V21
+
+// ProtoOSUpdateUpgradeReason tells the operator why a node older than
+// ProtoOSUpdateCommandProtocolVersion is refused.
+const ProtoOSUpdateUpgradeReason = "The Fleet Node that manages this container does not support ProtoOS updates. Upgrade the Fleet Node, then try again."
+
+// frigateUpdateCommandVersion returns the oldest command protocol whose nodes
+// run action, and the operator text for an older node.
+func frigateUpdateCommandVersion(action *gatewaypb.FrigateUpdateAction) (gatewaypb.CommandProtocolVersion, string) {
+	requests := [][]byte{action.GetRequest()}
+	if stage := action.GetStage(); stage != nil {
+		requests = requests[:0]
+		for _, target := range stage.GetTargets() {
+			requests = append(requests, target.GetBeginRequest())
+		}
+	}
+	for _, request := range requests {
+		if sdk.FrigateRelayStagesProtoOS(request) {
+			return ProtoOSUpdateCommandProtocolVersion, ProtoOSUpdateUpgradeReason
+		}
+	}
+	return FrigateUpdateCommandProtocolVersion, FrigateUpdateUpgradeReason
+}
+
+// CheckProtoOSUpdates refuses a ProtoOS update before Fleet reads or stages
+// anything, when the connected node cannot stage the ProtoOS package. A node
+// that is not connected keeps the usual handling of each call.
+func (m *Miner) CheckProtoOSUpdates(context.Context) error {
+	checker, ok := m.sender.(interface {
+		CommandProtocolUpgradeRequiredForDispatch(fleetNodeID int64, minimum gatewaypb.CommandProtocolVersion) bool
+	})
+	if ok && checker.CommandProtocolUpgradeRequiredForDispatch(m.fleetNodeID, ProtoOSUpdateCommandProtocolVersion) {
+		return fleeterror.NewFailedPreconditionError(ProtoOSUpdateUpgradeReason)
+	}
+	return nil
+}
+
 // The node bounds a package copy with its firmware command budget of 10
 // minutes. Fleet waits a little longer, so a new attempt never overlaps one
 // that the node still runs.
@@ -37,8 +77,9 @@ var _ interfaces.FrigatePackageStager = (*Miner)(nil)
 // stream. Use FrigateStagePackage.
 func (m *Miner) FrigateRelay() sdk.FrigateRelay {
 	return sdk.NewFrigateRelay(func(ctx context.Context, request []byte) ([]byte, error) {
-		ack, err := m.send(ctx, frigateUpdateCommand(&gatewaypb.FrigateUpdateAction{Call: &gatewaypb.FrigateUpdateAction_Request{Request: request}}))
-		outcomes, err := frigateUpdateOutcomes(ack, err, 1)
+		action := &gatewaypb.FrigateUpdateAction{Call: &gatewaypb.FrigateUpdateAction_Request{Request: request}}
+		ack, err := m.send(ctx, frigateUpdateCommand(action))
+		outcomes, err := frigateUpdateOutcomes(action, ack, err, 1)
 		if err != nil {
 			return nil, err
 		}
@@ -60,10 +101,11 @@ type frigateUpdateOutcome struct {
 
 // frigateUpdateOutcomes reads the outcomes of one update command. A refusal
 // from the controller becomes a *sdk.FrigateRefusal, as on a direct connection.
-func frigateUpdateOutcomes(ack *gatewaypb.ControlAck, err error, want int) ([]frigateUpdateOutcome, error) {
+func frigateUpdateOutcomes(action *gatewaypb.FrigateUpdateAction, ack *gatewaypb.ControlAck, err error, want int) ([]frigateUpdateOutcome, error) {
 	if err != nil {
 		if errors.Is(err, control.ErrCommandProtocolUpgradeRequired) {
-			return nil, devicewrite.NotDispatched(fleeterror.NewFailedPreconditionError(FrigateUpdateUpgradeReason))
+			_, reason := frigateUpdateCommandVersion(action)
+			return nil, devicewrite.NotDispatched(fleeterror.NewFailedPreconditionError(reason))
 		}
 		return nil, err
 	}
@@ -118,7 +160,8 @@ func (m *Miner) FrigateStagePackage(ctx context.Context, pkg interfaces.FrigateP
 		}
 		stage.Targets = append(stage.Targets, &gatewaypb.FrigateUpdateStageTarget{BeginRequest: begin, ManifestSha256: target.ManifestSHA256})
 	}
-	command := frigateUpdateCommand(&gatewaypb.FrigateUpdateAction{Call: &gatewaypb.FrigateUpdateAction_Stage{Stage: stage}})
+	action := &gatewaypb.FrigateUpdateAction{Call: &gatewaypb.FrigateUpdateAction_Stage{Stage: stage}}
+	command := frigateUpdateCommand(action)
 	expectation := control.ArtifactExpectation{
 		Direction:        control.ArtifactDirectionDownload,
 		Purpose:          ref.GetPurpose(),
@@ -134,7 +177,7 @@ func (m *Miner) FrigateStagePackage(ctx context.Context, pkg interfaces.FrigateP
 	stageCtx, cancel := context.WithTimeout(ctx, remoteFrigateStageCommandTimeout)
 	defer cancel()
 	ack, _, err := m.sendInSlotWithArtifactResults(stageCtx, command, []control.ArtifactExpectation{expectation})
-	outcomes, err := frigateUpdateOutcomes(ack, err, len(targets))
+	outcomes, err := frigateUpdateOutcomes(action, ack, err, len(targets))
 	if err != nil {
 		return nil, err
 	}
