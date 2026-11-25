@@ -196,4 +196,3 @@ const SubtankDetail = ({
 };
 
 export default SubtankDetail;
-export type { SubtankDetailProps as SubtankDetailComponentProps };

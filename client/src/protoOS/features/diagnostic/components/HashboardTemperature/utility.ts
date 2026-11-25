@@ -43,9 +43,3 @@ export const groupAsicsByRow = (asics: AsicData[]): { row: number; asics: AsicDa
 
   return rows;
 };
-
-const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-
-export const getRowLabel = (row: number) => {
-  return alphabet.charAt(row);
-};

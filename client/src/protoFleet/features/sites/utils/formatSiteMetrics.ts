@@ -12,17 +12,3 @@ export const formatLocation = (city: string, state: string): string | null => {
   if (s) return s;
   return null;
 };
-
-// Convenience re-exports so existing callsites that pulled both
-// `formatLocation` and the telemetry helpers from this module don't
-// have to change their imports. Prefer importing directly from
-// `@/shared/utils/telemetryFormat` for new code.
-export {
-  formatEfficiency,
-  formatEfficiencyOrDash,
-  formatHashrate,
-  formatHashrateOrDash,
-  formatPowerMwOrDash,
-  formatPowerUsedCapacity,
-  KW_PER_MW,
-} from "@/shared/utils/telemetryFormat";

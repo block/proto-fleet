@@ -26,8 +26,6 @@ const useOutcomeStore = create<{ generation?: number; outcome?: PlantAlarmOutcom
 export const setPlantAlarmOutcome = (generation: number, outcome: PlantAlarmOutcome | undefined) =>
   useOutcomeStore.setState({ generation, outcome });
 
-export const resetPlantAlarmOutcome = () => useOutcomeStore.setState({ generation: undefined, outcome: undefined });
-
 export function usePlantAlarmOutcome() {
   const generation = useMinerStore((state) => state.connectionGeneration);
   const outcome = useOutcomeStore((state) => (state.generation === generation ? state.outcome : undefined));

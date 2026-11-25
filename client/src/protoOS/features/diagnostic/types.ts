@@ -1,6 +1,3 @@
-import { HashboardHardwareData } from "@/protoOS/store";
-import type { ComponentType } from "@/shared/components/StatusModal";
-
 // Re-export component types from shared
 export type { ComponentType, ErrorData } from "@/shared/components/StatusModal";
 
@@ -66,23 +63,3 @@ export interface ControlBoardData {
   hasWarning?: boolean;
   meta: ControlBoardMetadata;
 }
-
-export type HashboardData = HashboardHardwareData & {
-  position: number;
-  hasWarning: boolean;
-  loading: boolean;
-};
-
-// Union types for slot states
-export type EmptySlot = {
-  isEmpty: true;
-  position: number;
-  type: ComponentType;
-};
-
-export type HashboardSlot = HashboardHardwareData | EmptySlot;
-export type FanSlot = FanData | EmptySlot;
-export type PsuSlot = PsuData | EmptySlot;
-
-// Type guards
-export const isEmptySlot = (slot: any): slot is EmptySlot => slot.isEmpty === true;

@@ -13,20 +13,6 @@ export const ERROR_COMPONENT_TO_SHARED: Partial<Record<ErrorComponentType, Compo
 };
 
 /**
- * Mapping from shared component types to error API component types
- */
-export const SHARED_TO_ERROR_COMPONENT: Record<ComponentType, ErrorComponentType> = {
-  hashboard: ErrorComponentType.HASH_BOARD,
-  psu: ErrorComponentType.PSU,
-  fan: ErrorComponentType.FAN,
-  controlBoard: ErrorComponentType.CONTROL_BOARD,
-  // Tanks are container infrastructure, not a miner error source; the error API
-  // has no tank component, so it maps to UNSPECIFIED like "other".
-  tank: ErrorComponentType.UNSPECIFIED,
-  other: ErrorComponentType.UNSPECIFIED,
-};
-
-/**
  * Component display titles
  */
 export const COMPONENT_TITLES: Record<ComponentType, string> = {

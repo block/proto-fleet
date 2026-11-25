@@ -1,8 +1,3 @@
-const ResolutionSection = () => {
-  // TODO: wire to ticket data — only shown when status is COMPLETED
-  return null;
-};
-
 export const ResolutionSectionContent = ({
   resolution,
   repairLocation,
@@ -64,5 +59,3 @@ export const ResolutionSectionContent = ({
     </table>
   </div>
 );
-
-export default ResolutionSection;

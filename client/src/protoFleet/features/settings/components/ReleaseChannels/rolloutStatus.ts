@@ -207,10 +207,6 @@ export function isBatchStage(rollout: Rollout): boolean {
   return isActive(rollout) && rollout.stage === RolloutStage.BATCH;
 }
 
-export function isTerminal(rollout: Rollout): boolean {
-  return !isActive(rollout);
-}
-
 export function failedCount(rollout: Rollout): number {
   return rollout.deviceCounts?.failed ?? 0;
 }

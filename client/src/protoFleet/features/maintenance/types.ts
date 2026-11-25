@@ -107,4 +107,3 @@ export type InventoryInsightsItem = {
   sitesCount: number;
   partTypes: string[];
 };
-export type LoadState<T> = { data: T; loading: boolean; error: string | null };

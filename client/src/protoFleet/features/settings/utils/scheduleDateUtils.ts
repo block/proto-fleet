@@ -40,30 +40,6 @@ export const parseDate = (value: string) => {
   return formatDateValue(date) === value ? date : null;
 };
 
-export const parseTime = (value: string) => {
-  const parts = parseTimeParts(value);
-
-  if (!parts) {
-    return null;
-  }
-
-  const date = new Date();
-  date.setHours(parts.hours, parts.minutes, 0, 0);
-  return date;
-};
-
-export const parseDateTime = (dateValue: string, timeValue: string) => {
-  const date = parseDate(dateValue);
-  const time = parseTime(timeValue);
-
-  if (!date || !time) {
-    return null;
-  }
-
-  date.setHours(time.getHours(), time.getMinutes(), 0, 0);
-  return date;
-};
-
 export const formatDateParts = (parts: DateParts) =>
   `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
 
