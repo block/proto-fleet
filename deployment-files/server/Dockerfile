@@ -1,4 +1,4 @@
-FROM alpine:3.22.7
+FROM alpine:3.22.8
 
 RUN apk add --no-cache gcompat
 
