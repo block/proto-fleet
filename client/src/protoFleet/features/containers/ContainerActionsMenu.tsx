@@ -10,7 +10,7 @@ import {
 } from "./containerActions";
 import ContainerSiteDialog from "./ContainerSiteDialog";
 import ContainerUnpairDialog from "./ContainerUnpairDialog";
-import { FRIGATE_UPDATE_PERMISSION } from "./frigateUpdate";
+import { FRIGATE_UPDATE_PERMISSION, UPDATABLE_KIND_RULES, UPDATABLE_KINDS, type UpdatableKind } from "./frigateUpdate";
 import FrigateUpdateDialog from "./FrigateUpdateDialog";
 import { hasMiningGroupPermissions } from "./miningGroupPermissions";
 import MiningGroupsDialog from "./MiningGroupsDialog";
@@ -75,7 +75,7 @@ export default function ContainerActionsMenu({
   const navigate = useNavigate();
   const [action, setAction] = useState<ContainerAction>();
   const [unpairOpen, setUnpairOpen] = useState(false);
-  const [frigateUpdateOpen, setFrigateUpdateOpen] = useState(false);
+  const [frigateUpdateKind, setFrigateUpdateKind] = useState<UpdatableKind>();
   const [open, setOpen] = useState(false);
   const [assigningSite, setAssigningSite] = useState(false);
   const [status, setStatus] = useState<{
@@ -212,12 +212,14 @@ export default function ContainerActionsMenu({
 
   // Updating the controllers' software is its own permission, independent of miner access.
   if (permissions.includes(FRIGATE_UPDATE_PERMISSION))
-    actions.push({
-      label: "Update controller software",
-      icon: <Download />,
-      showGroupDivider: true,
-      onClick: () => setFrigateUpdateOpen(true),
-    });
+    actions.push(
+      ...UPDATABLE_KINDS.map((kind, index) => ({
+        label: `Update ${UPDATABLE_KIND_RULES[kind].noun}`,
+        icon: <Download />,
+        showGroupDivider: index === 0,
+        onClick: () => setFrigateUpdateKind(kind),
+      })),
+    );
 
   if (container.canAssignSite)
     actions.push({
@@ -302,11 +304,12 @@ export default function ContainerActionsMenu({
           onClose={() => setAction(undefined)}
         />
       ) : null}
-      {frigateUpdateOpen && permissions.includes(FRIGATE_UPDATE_PERMISSION) ? (
+      {frigateUpdateKind !== undefined && permissions.includes(FRIGATE_UPDATE_PERMISSION) ? (
         <FrigateUpdateDialog
-          key={deviceIdentifier}
+          key={`${deviceIdentifier}:${frigateUpdateKind}`}
           container={container}
-          onClose={() => setFrigateUpdateOpen(false)}
+          kind={frigateUpdateKind}
+          onClose={() => setFrigateUpdateKind(undefined)}
           onStarted={onFrigateUpdateStarted}
         />
       ) : null}

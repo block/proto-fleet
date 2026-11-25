@@ -3,13 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 import userEvent from "@testing-library/user-event";
+import type { UpdatableKind } from "./frigateUpdate";
 import FrigateUpdateDialog from "./FrigateUpdateDialog";
 import {
   FrigateInstallationType,
+  FrigatePackageKind,
   FrigatePackageSchema,
   type GetSupportResponse,
   GetSupportResponseSchema,
   InstanceSupportSchema,
+  ProtoOSBundleSource,
 } from "@/protoFleet/api/generated/frigateupdate/v1/frigateupdate_pb";
 import { STATUSES } from "@/shared/features/toaster";
 
@@ -40,10 +43,23 @@ const UNCHECKED = /Fleet did not verify this package's signature/;
 const pkg = (id: string, version: string, releaseKeyId = KEY_ID) =>
   create(FrigatePackageSchema, {
     id,
+    kind: FrigatePackageKind.CONTROLLER_SOFTWARE,
     version,
     architecture: "arm64",
     filename: `frigate_${version}_arm64.deb`,
     releaseKeyId,
+    storedOnThisHost: true,
+  });
+
+const PROTO_OS_PACKAGE = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const protoOSPackage = () =>
+  create(FrigatePackageSchema, {
+    id: PROTO_OS_PACKAGE,
+    kind: FrigatePackageKind.PROTO_OS,
+    version: "0.6.2~internal.14",
+    architecture: "all",
+    filename: "proto-os_v0.6.2-internal.14_all.deb",
+    releaseKeyId: KEY_ID,
     storedOnThisHost: true,
   });
 
@@ -69,10 +85,10 @@ const eligible = (): GetSupportResponse =>
 
 const container = { deviceIdentifier: "ct1/board", name: "Container 1" };
 
-const renderDialog = () => {
+const renderDialog = (kind: UpdatableKind = FrigatePackageKind.CONTROLLER_SOFTWARE) => {
   const onClose = vi.fn();
   const onStarted = vi.fn();
-  render(<FrigateUpdateDialog container={container} onClose={onClose} onStarted={onStarted} />);
+  render(<FrigateUpdateDialog container={container} kind={kind} onClose={onClose} onStarted={onStarted} />);
   return { onClose, onStarted };
 };
 
@@ -219,13 +235,13 @@ describe("FrigateUpdateDialog", () => {
   it("points to Settings when there are no packages", async () => {
     mocks.listPackages.mockResolvedValue([]);
     renderDialog();
-    expect(await screen.findByText(/No controller software is uploaded/)).toBeInTheDocument();
+    expect(await screen.findByText(/No controller software package is uploaded/)).toBeInTheDocument();
     expect(startButton()).toBeDisabled();
   });
 
   it("offers only packages stored on this Fleet host and says why others are missing", async () => {
     mocks.listPackages.mockResolvedValue([
-      create(FrigatePackageSchema, { id: PACKAGE_B, version: "1.5.0", storedOnThisHost: false }),
+      { ...pkg(PACKAGE_B, "1.5.0"), storedOnThisHost: false },
       pkg(PACKAGE_A, "1.4.0"),
     ]);
     renderDialog();
@@ -236,10 +252,10 @@ describe("FrigateUpdateDialog", () => {
   });
 
   it("does not claim nothing was uploaded when every package is on another host", async () => {
-    mocks.listPackages.mockResolvedValue([create(FrigatePackageSchema, { id: PACKAGE_B, version: "1.5.0" })]);
+    mocks.listPackages.mockResolvedValue([{ ...pkg(PACKAGE_B, "1.5.0"), storedOnThisHost: false }]);
     renderDialog();
     expect(await screen.findByText(/stored on another Fleet host/)).toBeInTheDocument();
-    expect(screen.queryByText(/No controller software is uploaded/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No controller software package is uploaded/)).not.toBeInTheDocument();
     expect(startButton()).toBeDisabled();
   });
 
@@ -328,5 +344,141 @@ describe("FrigateUpdateDialog", () => {
     const [first, second] = mocks.startUpdate.mock.calls;
     expect(second[0].packageId).toBe(PACKAGE_B);
     expect(second[0].idempotencyKey).not.toBe(first[0].idempotencyKey);
+  });
+
+  it("does not offer a ProtoOS package for a controller software update", async () => {
+    mocks.listPackages.mockResolvedValue([pkg(PACKAGE_A, "1.4.0"), protoOSPackage()]);
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(await screen.findByRole("button", { name: "Package" }));
+    expect(screen.getByRole("option", { name: /1\.4\.0/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /0\.6\.2/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("FrigateUpdateDialog for ProtoOS", () => {
+  const protoOSInstance = (instanceId: string, overrides: Record<string, unknown> = {}) =>
+    create(InstanceSupportSchema, {
+      instanceId,
+      runningVersion: "1.3.0",
+      remoteTriggerAllowed: true,
+      protoOs: {
+        selfSupported: true,
+        servedSource: ProtoOSBundleSource.PROTO_OS_BUNDLE_SOURCE_PACKAGE,
+        servedReleaseTag: "v0.6.1",
+      },
+      ...overrides,
+    });
+
+  beforeEach(() => {
+    mocks.listPackages.mockResolvedValue([pkg(PACKAGE_A, "1.4.0"), protoOSPackage()]);
+    mocks.getSupport.mockResolvedValue(
+      create(GetSupportResponseSchema, {
+        eligible: true,
+        instances: [protoOSInstance("frigate-a"), protoOSInstance("frigate-b")],
+      }),
+    );
+  });
+
+  it("names ProtoOS and says that the controllers keep running and a committed install can't be cancelled", async () => {
+    renderDialog(FrigatePackageKind.PROTO_OS);
+
+    expect(screen.getByRole("dialog", { name: "Update ProtoOS: Container 1" })).toBeInTheDocument();
+    const warning = screen.getByTestId("frigate-update-disruption");
+    expect(warning).toHaveTextContent("An install can't be cancelled after a controller commits its copy.");
+    expect(warning).toHaveTextContent("The controllers and mining keep running during the update.");
+    expect(warning).not.toHaveTextContent("stop mining control");
+  });
+
+  it("offers only ProtoOS packages and checks the controllers against the chosen one", async () => {
+    renderDialog(FrigatePackageKind.PROTO_OS);
+
+    // The only ProtoOS package is preselected; the controller software package is never offered.
+    await waitFor(() => expect(mocks.getSupport.mock.lastCall?.slice(0, 2)).toEqual(["ct1/board", PROTO_OS_PACKAGE]));
+    expect(screen.queryByText(/1\.4\.0/)).not.toBeInTheDocument();
+  });
+
+  it("shows the ProtoOS each controller serves, without the controller software checks", async () => {
+    renderDialog(FrigatePackageKind.PROTO_OS);
+
+    const controllers = await screen.findByRole("list", { name: "Controllers" });
+    expect(within(controllers).getAllByText("ProtoOS v0.6.1")).toHaveLength(2);
+    expect(within(controllers).getAllByText("Ready")).toHaveLength(2);
+    expect(within(controllers).queryByText(/update helper/)).not.toBeInTheDocument();
+  });
+
+  it("shows the server's ProtoOS refusal with its reason and code, and keeps starting disabled", async () => {
+    mocks.getSupport.mockResolvedValue(
+      create(GetSupportResponseSchema, {
+        eligible: false,
+        ineligibleCode: "FLEET_PROTOOS_UNSUPPORTED",
+        ineligibleReason: "controller frigate-b does not accept ProtoOS packages from Fleet",
+        instances: [
+          protoOSInstance("frigate-a"),
+          protoOSInstance("frigate-b", { protoOs: { selfSupported: false, supportMessage: "frigate 1.2 is too old" } }),
+        ],
+      }),
+    );
+    renderDialog(FrigatePackageKind.PROTO_OS);
+
+    const callout = await screen.findByTestId("frigate-update-ineligible");
+    expect(callout).toHaveTextContent("A controller doesn't accept ProtoOS updates from Fleet.");
+    expect(callout).toHaveTextContent("controller frigate-b does not accept ProtoOS packages from Fleet");
+    expect(callout).toHaveTextContent("Code: FLEET_PROTOOS_UNSUPPORTED");
+    const rows = within(screen.getByRole("list", { name: "Controllers" })).getAllByRole("listitem");
+    expect(rows[1]).toHaveTextContent("Update its controller software first.");
+    expect(rows[1]).toHaveTextContent("frigate 1.2 is too old");
+    expect(startButton()).toBeDisabled();
+  });
+
+  it("shows no verdict until a ProtoOS package is chosen, because the verdict without one is for controller software", async () => {
+    const second = { ...protoOSPackage(), id: PACKAGE_B, version: "0.6.1" };
+    mocks.listPackages.mockResolvedValue([protoOSPackage(), second]);
+    mocks.getSupport.mockImplementation(async (_device: string, packageId?: string) =>
+      create(GetSupportResponseSchema, {
+        eligible: false,
+        ineligibleCode: packageId ? "FLEET_PROTOOS_REPOSITORY_UNTRUSTED" : "UPDATE_HELPER_UNAVAILABLE",
+        instances: [protoOSInstance("frigate-a")],
+      }),
+    );
+    const user = userEvent.setup();
+    renderDialog(FrigatePackageKind.PROTO_OS);
+
+    expect(await screen.findByRole("list", { name: "Controllers" })).toBeInTheDocument();
+    expect(screen.queryByTestId("frigate-update-ineligible")).not.toBeInTheDocument();
+
+    await choosePackage(user, "0.6.1");
+
+    expect(await screen.findByTestId("frigate-update-ineligible")).toHaveTextContent(
+      "A controller doesn't accept ProtoOS releases from the repository of this package.",
+    );
+  });
+
+  it("says when no ProtoOS package is uploaded", async () => {
+    mocks.listPackages.mockResolvedValue([pkg(PACKAGE_A, "1.4.0")]);
+    renderDialog(FrigatePackageKind.PROTO_OS);
+    expect(await screen.findByText(/No ProtoOS package is uploaded/)).toBeInTheDocument();
+    expect(startButton()).toBeDisabled();
+  });
+
+  it("starts a full ProtoOS update, never a package check only, and reports it", async () => {
+    const user = userEvent.setup();
+    const { onClose, onStarted } = renderDialog(FrigatePackageKind.PROTO_OS);
+    await waitFor(() => expect(startButton()).toBeEnabled());
+
+    await user.click(startButton());
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(mocks.startUpdate).toHaveBeenCalledWith({
+      deviceIdentifier: "ct1/board",
+      packageId: PROTO_OS_PACKAGE,
+      idempotencyKey: expect.stringMatching(/^[0-9a-f-]{36}$/),
+    });
+    expect(onStarted).toHaveBeenCalledWith({ jobId: "job-1" });
+    expect(mocks.pushToast).toHaveBeenCalledWith({
+      message: "Container 1: ProtoOS update started.",
+      status: STATUSES.success,
+    });
   });
 });
