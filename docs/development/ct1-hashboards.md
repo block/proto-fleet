@@ -148,5 +148,5 @@ to module telemetry. Missing health and unchanged retried snapshots reduce it.
 Payload size depends on firmware diagnostics. Deployment sizing must measure
 representative row/index bytes and ingestion/query performance at fleet scale;
 one-day chunks are a starting configuration, not a capacity benchmark. The
-large-fleet guidance referenced as issue #614 in #163 was unavailable when this
+large-fleet guidance in issue #614 was unavailable when this
 implementation was validated, so that guidance has not been confirmed.

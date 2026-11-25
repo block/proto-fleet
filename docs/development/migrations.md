@@ -596,10 +596,11 @@ immutable legacy migrations describe their original implementation.
 
 ### Migration 1026 collision recovery
 
-PRs #229 and #232 both merged migration 1026. The resulting duplicate prevents
+Commits d3fe0f370 (Fleet Node details) and 9cc2c5a02 (container telemetry
+compression) both merged migration 1026. The resulting duplicate prevents
 the migration source from loading, so a later corrective migration cannot run.
-Fleet Node details (#229, merged first) remains at 1026. Container telemetry
-compression (#232) moves to 1027 with both SQL files byte-for-byte unchanged.
+Fleet Node details (merged first) remains at 1026. Container telemetry
+compression moves to 1027 with both SQL files byte-for-byte unchanged.
 The history checker permits only this exact rename, pinned by SHA-256 checksums,
 including when checking against the broken merged history.
 

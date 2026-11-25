@@ -134,7 +134,7 @@ jobs:
 
       # Fetch only ancestors of the pinned commits. A full checkout also downloads
       # later fixes; deleting their refs would leave those Git objects readable.
-      # The source is public, so fetching must not depend on this internal repo's token.
+      # The source is public, so fetching must not depend on a repository token.
       - name: Fetch and validate fixed historical range
         env:
           GIT_TERMINAL_PROMPT: 0

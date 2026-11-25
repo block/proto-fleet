@@ -309,8 +309,8 @@ remains unavailable. Ticket counts retain their independent register-completenes
 and observation qualifications. A mapping never supplies outage, SLA or credit
 rules; those still require explicit reviewed obligations and contractual evidence.
 
-[PR 344](https://github.com/btc-mining/proto-fleet-internal/pull/344) being merged
-does not establish that qualified ticket capture is deployed, active or complete
+[Commit 290d5ee3e](https://github.com/block/proto-fleet/commit/290d5ee3e0229d80f49db9cad81a695178d0e9ac)
+being merged does not establish that qualified ticket capture is deployed, active or complete
 for this account. Verify the deployed build, source semantics, account visibility,
 coverage start, receipt/correction handling and the consuming report field before
 calling that adapter an authoritative contractual source. Allocation transfer
