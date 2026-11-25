@@ -66,3 +66,26 @@ it("keeps an isolated unlocated board fault visible without detailed errors", ()
   board.isolated = true;
   expect(getScopeHealth({ kind: "container" }, snapshot.hardware, snapshot.telemetry, [])?.needsAttention).toBe(true);
 });
+
+it.each([
+  ["mining", "Hashing"],
+  ["stopped", "Sleeping"],
+  ["curtailed", "Sleeping"],
+  ["error", "Needs attention"],
+] as const)("uses the module status label for %s boards", (miningStatus, label) => {
+  const snapshot = toCanonicalContainer(
+    { containerMap: { tanks: [{ id: 0, modules: [{ id: 0, slots: [{ hashboard: { serial: "unlocated" } }] }] }] } },
+    {},
+    {},
+    "ct1",
+  );
+  const board = [...snapshot.telemetry.hashboards.values()][0];
+  board.health = "ok";
+  board.miningStatus = miningStatus;
+  useMinerStore.getState().hardware.replaceHardware(snapshot.hardware);
+  useMinerStore.getState().telemetry.mergeTelemetry(snapshot.telemetry);
+  render(<ContainerUnlocatedHashboards />);
+  fireEvent.click(screen.getByRole("button", { name: "View hashboards" }));
+  expect(screen.getByText(label)).toBeInTheDocument();
+  expect(screen.queryByText("Healthy")).not.toBeInTheDocument();
+});

@@ -1,5 +1,6 @@
 import ContainerMappingSetup from "@/protoOS/features/feedMapping/MappingSetup";
-import { boardStatus, statusLabels } from "@/protoOS/features/tanks/tankView";
+import { moduleStatusLabels } from "@/protoOS/features/modules/moduleListFilters";
+import { boardStatus } from "@/protoOS/features/tanks/tankView";
 import { usePsuObservationTime } from "@/protoOS/hooks/usePsuObservationTime";
 import { useDetailedErrors } from "@/protoOS/store/hooks/useMinerStatus";
 import { useTemperatureUnit } from "@/protoOS/store/hooks/useUI";
@@ -38,7 +39,7 @@ export default function ContainerUnlocatedHashboards({
         identity: board.identity.value,
         serial: details?.serialNumber,
         firmware: details?.firmware?.version,
-        status: statusLabels[boardStatus(reading)],
+        status: moduleStatusLabels[boardStatus(reading)],
         power: formatPowerKwOrDash(reading?.power?.latest?.value == null ? null : reading.power.latest.value / 1000),
         efficiency: formatEfficiencyOrDash(reading?.efficiency?.latest?.value ?? null),
         hashrate: formatHashrateOrDash(reading?.hashrate?.latest?.value ?? null),

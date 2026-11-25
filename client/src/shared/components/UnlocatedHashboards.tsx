@@ -75,6 +75,7 @@ export default function UnlocatedHashboards({
           size="large"
           open
           manageFocus
+          navigationKey={selected ? selected.id : "list"}
           title="Unlocated hashboards"
           dialogLabel="Unlocated hashboards"
           onDismiss={() => setOpen(false)}

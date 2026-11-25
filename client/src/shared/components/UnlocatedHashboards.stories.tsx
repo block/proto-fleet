@@ -10,7 +10,7 @@ const meta = {
       identity: `aa:bb:cc:dd:ee:${String(index).padStart(2, "0")}`,
       serial: `CT1-${index}`,
       firmware: "v1.2.0",
-      status: index === 0 ? "Needs attention" : "Mining",
+      status: index === 0 ? "Needs attention" : "Hashing",
       hashrate: index === 0 ? "—" : "2.5 TH/s",
       temperature: "28.0 °C",
       issues: index === 0 ? ["Board over temperature"] : [],

@@ -1,3 +1,4 @@
+import { getModuleStatusPresentation } from "./moduleStatusPresentation";
 import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { useTemperatureUnit } from "@/protoFleet/store";
 import UnlocatedHashboards from "@/shared/components/UnlocatedHashboards";
@@ -7,17 +8,6 @@ import {
   formatHashrateOrDash,
   formatPowerKwOrDash,
 } from "@/shared/utils/telemetryFormat";
-
-const statuses: Record<string, string> = {
-  active: "Mining",
-  error: "Needs attention",
-  offline: "Offline",
-  inactive: "Stopped",
-  maintenance: "Isolated",
-  updating: "Updating",
-  needs_mining_pool: "Needs pool",
-  reboot_required: "Reboot required",
-};
 
 export default function ContainerUnlocatedHashboards({
   container,
@@ -36,7 +26,7 @@ export default function ContainerUnlocatedHashboards({
     efficiency: formatEfficiencyOrDash(
       board.stale || board.efficiencyJh === undefined ? null : board.efficiencyJh * 1e12,
     ),
-    status: board.stale ? "Unknown" : (statuses[board.state] ?? "Unknown"),
+    status: board.stale ? "Unknown" : getModuleStatusPresentation(board.state).label,
     hashrate: formatHashrateOrDash(board.stale || board.hashrateHs === undefined ? null : board.hashrateHs / 1e12),
     temperature:
       board.stale || board.temperatureC === undefined

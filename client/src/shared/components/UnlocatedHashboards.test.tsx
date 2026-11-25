@@ -6,7 +6,7 @@ const boards: UnlocatedHashboard[] = Array.from({ length: 28 }, (_, i) => ({
   id: `board-${i}`,
   identity: `aa:bb:cc:dd:ee:${String(i).padStart(2, "0")}`,
   serial: `serial-${i}`,
-  status: "Mining",
+  status: "Hashing",
   hashrate: "2.0 TH/s",
   temperature: "28.0 °C",
   firmware: "v1.2",
@@ -54,4 +54,25 @@ describe("Unlocated hashboards", () => {
     const { container } = render(<UnlocatedHashboards boards={[]} />);
     expect(container).toBeEmptyDOMElement();
   });
+});
+
+it("opens lower-row details at the top and restores list scroll and focus on return", () => {
+  render(<UnlocatedHashboards boards={boards} />);
+  fireEvent.click(screen.getByRole("button", { name: "View hashboards" }));
+  const scrollArea = screen.getByTestId("modal");
+  fireEvent.scroll(scrollArea, { target: { scrollTop: 800 } });
+  const lowerRow = screen.getByRole("button", { name: `View hashboard ${boards[24].identity}` });
+  lowerRow.focus();
+  expect(lowerRow).toHaveFocus();
+  fireEvent.click(lowerRow);
+  expect(scrollArea.scrollTop).toBe(0);
+  expect(scrollArea.querySelector("button")).toHaveFocus();
+  expect(lowerRow.isConnected).toBe(false);
+  fireEvent.scroll(scrollArea, { target: { scrollTop: 120 } });
+  const back = screen.getByRole("button", { name: "Back to hashboards" });
+  back.focus();
+  fireEvent.click(back);
+  expect(scrollArea.scrollTop).toBe(800);
+  expect(scrollArea.querySelector("button")).toHaveFocus();
+  expect(back.isConnected).toBe(false);
 });
