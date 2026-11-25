@@ -39,10 +39,10 @@ create_release() {
   local archive_root="fleetnode-${version}-linux-amd64"
   mkdir -p "$release_dir/$archive_root/plugins"
 
-  printf '#!/usr/bin/env bash\nexit 0\n' > "$release_dir/$archive_root/fleetnode"
+  printf '#!/usr/bin/env bash\n# fixture version: %s\nexit 0\n' "$version" > "$release_dir/$archive_root/fleetnode"
   chmod 0755 "$release_dir/$archive_root/fleetnode"
   cp "$FLEETNODE_DIR/fleetnode-enroll" "$release_dir/$archive_root/fleetnode-enroll"
-  printf '# fixture version: %s\n' "$version" >> "$release_dir/$archive_root/fleetnode-enroll"
+  printf '# fixture version: %s\n' "${5:-$version}" >> "$release_dir/$archive_root/fleetnode-enroll"
   chmod 0755 "$release_dir/$archive_root/fleetnode-enroll"
   printf 'version: %s\n' "$version" > "$release_dir/$archive_root/version.txt"
   if [[ -n "$repository" ]]; then
@@ -106,6 +106,10 @@ fi
 if [[ "${1:-}" == "show" && "${2:-}" == "--property=LoadState" ]]; then
   [[ "${FAKE_SYSTEMCTL_FAIL_LOAD_STATE:-0}" == "0" ]] || exit 1
   printf '%s\n' "${FAKE_FLEETNODE_LOAD_STATE:-not-found}"
+  exit 0
+fi
+if [[ "${1:-}" == "show" && "${2:-}" == "--property=Type" ]]; then
+  echo notify
   exit 0
 fi
 if [[ "${1:-}" == "show" && "${2:-}" == "--property=ActiveState" ]]; then
@@ -280,7 +284,7 @@ run_installer() {
       ${release_args[@]+"${release_args[@]}"} "$version" "$@"
 }
 
-run_uninstaller() {
+run_without_release() {
   FAKE_FLEETNODE_ENABLED="${FAKE_FLEETNODE_ENABLED:-0}" \
   FAKE_FLEETNODE_LOAD_STATE="${FAKE_FLEETNODE_LOAD_STATE:-not-found}" \
   FAKE_SYSTEMCTL_FAIL_LOAD_STATE="${FAKE_SYSTEMCTL_FAIL_LOAD_STATE:-0}" \
@@ -290,7 +294,11 @@ run_uninstaller() {
   FLEETNODE_TEST_MODE=1 \
   FLEETNODE_ROOT_PREFIX="$ROOT_PREFIX" \
   FLEETNODE_SYSTEMCTL="$TEST_DIR/bin/systemctl" \
-    /bin/bash "$FLEETNODE_DIR/install-fleet-node.sh" uninstall "$@"
+    /bin/bash "$FLEETNODE_DIR/install-fleet-node.sh" "$@"
+}
+
+run_uninstaller() {
+  run_without_release uninstall "$@"
 }
 
 start_installer() {
@@ -917,5 +925,96 @@ assert_file_contains "$TEST_DIR/staged-wrong-repository.out" "release bundle rep
 assert_no_service_change "staged bundle from another repository"
 assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.1.0"
 [[ ! -s "$CURL_LOG" ]] || fail "staged installs contacted the network: $(cat "$CURL_LOG")"
+
+# A repository switch is explicit and uses the staged bundle checks.
+ROOT_PREFIX="$TEST_DIR/migration-root"
+mkdir -p "$ROOT_PREFIX/run/systemd/system"
+create_release v3.0.0 "" "" btc-mining/proto-fleet-internal migration-fixture
+create_release v3.1.0 "" "" btc-mining/proto-fleet-internal migration-fixture
+create_release v3.2.0 "" "" block/proto-fleet migration-fixture
+create_release v3.3.0 "" "" block/proto-fleet migration-fixture
+bash "$FLEETNODE_DIR/../scripts/package-release-installers.sh" \
+  btc-mining/proto-fleet-internal "$TEST_DIR/internal-installers"
+INSTALLER_PATH="$TEST_DIR/internal-installers/install-fleet-node.sh" run_installer v3.0.0
+for version in v3.1.0 v3.2.0 v3.3.0; do
+  cp -R "$ASSETS_DIR/$version" "$STAGED_DIR/$version"
+done
+chmod -R go-w "$STAGED_DIR"
+printf 'fleet_node_id: 42\napi_key: fixture-key\n' > "$TEST_DIR/state.yaml"
+printf 'FLEETNODE_LOG_LEVEL=debug\n' > "$TEST_DIR/fleetnode.env"
+cp "$TEST_DIR/state.yaml" "$ROOT_PREFIX/var/lib/fleetnode/state.yaml"
+cp "$TEST_DIR/fleetnode.env" "$ROOT_PREFIX/etc/fleetnode/fleetnode.env"
+cp "$ROOT_PREFIX/opt/fleetnode/fleetnode" "$TEST_DIR/internal-fleetnode"
+printf '# Local unit configuration\n' >> "$ROOT_PREFIX/etc/systemd/system/fleet-node.service"
+cp "$ROOT_PREFIX/etc/systemd/system/fleet-node.service" "$TEST_DIR/local-unit"
+
+assert_migration_state() {
+  local version="$1" repository="$2"
+  assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: $version"
+  assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "release_repository: $repository"
+  [[ "$(cat "$ROOT_PREFIX/etc/fleetnode/release-repository")" == "$repository" ]] || fail "wrong repository pin"
+  cmp "$TEST_DIR/state.yaml" "$ROOT_PREFIX/var/lib/fleetnode/state.yaml"
+  cmp "$TEST_DIR/fleetnode.env" "$ROOT_PREFIX/etc/fleetnode/fleetnode.env"
+  cmp "$TEST_DIR/local-unit" "$ROOT_PREFIX/etc/systemd/system/fleet-node.service"
+}
+
+: > "$SYSTEMCTL_LOG"
+if run_staged_installer v3.2.0 > "$TEST_DIR/migration-ordinary.out" 2>&1; then
+  fail "ordinary installer accepted a cross-repository upgrade"
+fi
+assert_file_contains "$TEST_DIR/migration-ordinary.out" "installed release repository conflicts"
+assert_no_service_change "ordinary cross-repository upgrade"
+
+if run_staged_installer v3.1.0 migrate-to-public > "$TEST_DIR/migration-mismatch.out" 2>&1; then
+  fail "migration accepted a staged archive from the internal repository"
+fi
+assert_file_contains "$TEST_DIR/migration-mismatch.out" "release bundle repository conflicts with selected source"
+assert_no_service_change "a mismatched migration archive"
+assert_migration_state v3.0.0 btc-mining/proto-fleet-internal
+
+: > "$FAIL_START_ONCE"
+: > "$SYSTEMCTL_LOG"
+if FAKE_SYSTEMCTL_FAIL_START_ONCE="$FAIL_START_ONCE" \
+    run_staged_installer v3.2.0 migrate-to-public > "$TEST_DIR/migration-rollback.out" 2>&1; then
+  fail "migration accepted a candidate that failed to start"
+fi
+assert_migration_state v3.0.0 btc-mining/proto-fleet-internal
+cmp "$TEST_DIR/internal-fleetnode" "$ROOT_PREFIX/opt/fleetnode/fleetnode"
+[[ "$(grep -Fxc 'start fleet-node.service' "$SYSTEMCTL_LOG")" == 2 ]] || fail "rollback did not restart the previous program"
+MIGRATION_DIR="$ROOT_PREFIX/opt/.fleetnode-public-migration"
+[[ ! -e "$MIGRATION_DIR" ]] || fail "rollback retained the migration directory"
+
+if FAKE_SYSTEMCTL_FAIL_START=1 run_staged_installer v3.2.0 migrate-to-public > "$TEST_DIR/migration-restart.out" 2>&1; then
+  fail "migration accepted a failed rollback restart"
+fi
+assert_file_contains "$TEST_DIR/migration-restart.out" "rollback failed"
+[[ -f "$MIGRATION_DIR/pending" ]] || fail "failed rollback lost the recovery marker"
+assert_migration_state v3.0.0 btc-mining/proto-fleet-internal
+: > "$SYSTEMCTL_LOG"
+if run_staged_installer v3.2.0 migrate-to-public > "$TEST_DIR/migration-pending.out" 2>&1; then
+  fail "migration accepted a retry before recovery"
+fi
+assert_file_contains "$TEST_DIR/migration-pending.out" "Run recover-public-migration first"
+assert_no_service_change "retry before recovery"
+run_without_release recover-public-migration
+assert_migration_state v3.0.0 btc-mining/proto-fleet-internal
+[[ ! -e "$MIGRATION_DIR" ]] || fail "recovery retained the migration directory"
+
+: > "$SYSTEMCTL_LOG"
+run_staged_installer v3.2.0 migrate-to-public
+assert_migration_state v3.2.0 block/proto-fleet
+assert_file_contains "$SYSTEMCTL_LOG" "stop fleet-node.service"
+assert_file_contains "$SYSTEMCTL_LOG" "start fleet-node.service"
+[[ ! -e "$MIGRATION_DIR" ]] || fail "success retained the migration directory"
+
+: > "$SYSTEMCTL_LOG"
+if run_staged_installer v3.2.0 migrate-to-public > "$TEST_DIR/migration-repeat.out" 2>&1; then
+  fail "migration accepted an already migrated installation"
+fi
+assert_no_service_change "repeated migration"
+run_staged_installer v3.3.0
+assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v3.3.0"
+[[ "$(cat "$ROOT_PREFIX/etc/fleetnode/release-repository")" == block/proto-fleet ]] || fail "ordinary upgrade changed the public repository"
+[[ ! -s "$CURL_LOG" ]] || fail "staged migration contacted the network"
 
 echo "Fleet Node installer tests passed"
