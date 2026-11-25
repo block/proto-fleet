@@ -37,7 +37,7 @@ export default function ContainerUnlocatedHashboards({
   return (
     <UnlocatedHashboards
       boards={boards}
-      count={container.unlocatedHashboards ?? boards.length}
+      count={boards.length || container.unlocatedHashboards}
       stale={failed || container.stale}
     />
   );

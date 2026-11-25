@@ -65,6 +65,7 @@ it("keeps an isolated unlocated board fault visible without detailed errors", ()
   );
   const board = [...snapshot.telemetry.hashboards.values()][0];
   board.health = "fault";
+  board.healthObservedAt = Date.now();
   board.isolated = true;
   expect(getScopeHealth({ kind: "container" }, snapshot.hardware, snapshot.telemetry, [])?.needsAttention).toBe(true);
 });

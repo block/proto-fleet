@@ -76,6 +76,30 @@ func TestUnlocatedInventoryPersistsAndClearsWithoutInventingPlacements(t *testin
 	require.NoError(t, db.QueryRowContext(ctx, "SELECT count(*) FROM hashboard_installation WHERE removed_at IS NULL").Scan(&count))
 	require.Equal(t, 1, count, "unlocated boards must not get an installation")
 
+	// A later poll with older source health must not replace a known fault
+	// with a false "no issues" result while the old sample is still fresh.
+	snapshot.ObservedAt = now.Add(time.Second)
+	snapshot.UnlocatedHashboards[0].ObservedAt = now.Add(-time.Second)
+	olderHealth, err := json.Marshal(map[string]any{"timestamp": now.Add(-time.Second), "errors": []any{}, "warnings": []any{}})
+	require.NoError(t, err)
+	snapshot.UnlocatedHashboards[0].HealthJSON = olderHealth
+	write()
+	regressed, err := service.Get(ctx, org, d.DeviceIdentifier, allow)
+	require.NoError(t, err)
+	require.False(t, regressed.UnlocatedBoards[0].IssuesKnown)
+	require.Nil(t, regressed.UnlocatedBoards[0].HashrateHs)
+
+	snapshot.ObservedAt = now.Add(2 * time.Second)
+	snapshot.UnlocatedHashboards[0] = unlocated
+	snapshot.UnlocatedHashboards[0].ObservedAt = snapshot.ObservedAt
+	snapshot.UnlocatedHashboards[0].HealthJSON, err = json.Marshal(map[string]any{"timestamp": snapshot.ObservedAt, "errors": []any{}, "warnings": []any{}})
+	require.NoError(t, err)
+	write()
+	recovered, err := service.Get(ctx, org, d.DeviceIdentifier, allow)
+	require.NoError(t, err)
+	require.True(t, recovered.UnlocatedBoards[0].IssuesKnown)
+	require.Empty(t, recovered.UnlocatedBoards[0].Issues)
+
 	// Access checks must apply to inventory identities and diagnostic details.
 	denied, err := service.List(ctx, org+1, nil, false, allow)
 	require.NoError(t, err)
