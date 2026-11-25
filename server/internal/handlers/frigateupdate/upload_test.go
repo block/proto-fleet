@@ -109,6 +109,9 @@ type uploadEnv struct {
 	svc      *domain.Service
 	auth     *allowAll
 	mgr      *UploadManager
+	database *testutil.DatabaseService
+	// alice is the session of the user "alice".
+	alice *session.Info
 }
 
 // newUploadEnv returns a Fleet that has the release signing key installed.
@@ -152,7 +155,7 @@ func newUploadEnvWithVerifiers(t *testing.T, verifiers func(signer frigatereleas
 		"alice": {UserID: alice.DatabaseID, OrganizationID: alice.OrganizationID, AuthMethod: session.AuthMethodSession, Username: alice.Username, ExternalUserID: "ext-alice"},
 		"bob":   {UserID: alice.DatabaseID + 1000, OrganizationID: alice.OrganizationID, AuthMethod: session.AuthMethodSession, Username: "bob", ExternalUserID: "ext-bob"},
 	}}
-	e := &uploadEnv{t: t, svc: svc, auth: auth, mgr: mgr, priv: priv,
+	e := &uploadEnv{t: t, svc: svc, auth: auth, mgr: mgr, priv: priv, database: database, alice: authenticator.users["alice"],
 		handlers: NewUploadHandlers(mgr, svc, store, auth, authenticator)}
 	e.deb = buildDeb(t, 2<<20+123)
 	sum := sha256.Sum256(e.deb)

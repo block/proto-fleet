@@ -10,6 +10,11 @@ import "google/protobuf/timestamp.proto";
 // every controller and starts a self-coordinated rollout that the controllers'
 // root helpers drive themselves; Fleet then tracks it to a terminal state.
 //
+// The same service updates the ProtoOS browser UI (a package of kind
+// FRIGATE_PACKAGE_KIND_PROTO_OS). Each controller installs its copy of a
+// ProtoOS package alone as soon as the copy is committed. Fleet sends no Start
+// and tracks each controller's install through its update support.
+//
 // Every method requires controller:software_update. Methods that name a
 // container or a job need it at that container's site, ListPackages needs it at
 // any site, and DeletePackage needs it organization-wide because packages are
@@ -32,9 +37,12 @@ service FrigateUpdateService {
   // ListUpdates returns the container's update jobs, newest first.
   rpc ListUpdates(ListUpdatesRequest) returns (ListUpdatesResponse);
   // RetryUpdate asks Frigate to resume a rollout that failed after the
-  // controllers were stopped.
+  // controllers were stopped. It is refused for a ProtoOS job: a new job for
+  // the same package is the retry.
   rpc RetryUpdate(RetryUpdateRequest) returns (RetryUpdateResponse);
-  // CancelUpdate abandons a job that has not stopped any controller.
+  // CancelUpdate abandons a job that has not stopped any controller. A ProtoOS
+  // job can be cancelled only until Fleet sends the first call that can commit
+  // a copy.
   rpc CancelUpdate(CancelUpdateRequest) returns (CancelUpdateResponse);
 }
 
@@ -47,7 +55,9 @@ enum FrigateUpdateState {
   FRIGATE_UPDATE_STATE_STAGED = 2;
   // Fleet is asking Frigate to start the rollout.
   FRIGATE_UPDATE_STATE_STARTING = 3;
-  // Frigate accepted the rollout and is running it; see rollout_phase.
+  // Frigate accepted the rollout and is running it; see rollout_phase. For a
+  // ProtoOS job, every controller committed its copy and installs it; see the
+  // proto_os_* fields of each instance.
   FRIGATE_UPDATE_STATE_RUNNING = 4;
   FRIGATE_UPDATE_STATE_SUCCEEDED = 5;
   // Fleet or Frigate failed the job. Frigate rollouts that fail after the
@@ -99,6 +109,42 @@ enum InstanceStageState {
   INSTANCE_STAGE_STATE_FAILED = 4;
 }
 
+// FrigatePackageKind is what an uploaded package installs. The server derives
+// it from the package name in the signed release statement.
+enum FrigatePackageKind {
+  FRIGATE_PACKAGE_KIND_UNSPECIFIED = 0;
+  // The controller software: the frigate Debian package.
+  FRIGATE_PACKAGE_KIND_CONTROLLER_SOFTWARE = 1;
+  // The ProtoOS browser UI: the proto-os Debian package.
+  FRIGATE_PACKAGE_KIND_PROTO_OS = 2;
+}
+
+// ProtoOSJobState is one controller's state of a ProtoOS install job.
+enum ProtoOSJobState {
+  PROTO_OS_JOB_STATE_UNSPECIFIED = 0;
+  // The controller verifies the committed copy before it installs it.
+  PROTO_OS_JOB_STATE_QUEUED = 1;
+  PROTO_OS_JOB_STATE_INSTALLING = 2;
+  // The target version is installed, or was installed already.
+  PROTO_OS_JOB_STATE_SUCCEEDED = 3;
+  PROTO_OS_JOB_STATE_FAILED = 4;
+  // A state this Fleet version does not know. Treat it as not final.
+  PROTO_OS_JOB_STATE_UNKNOWN = 5;
+}
+
+// ProtoOSBundleSource tells where the ProtoOS that a controller serves comes
+// from.
+enum ProtoOSBundleSource {
+  PROTO_OS_BUNDLE_SOURCE_UNSPECIFIED = 0;
+  // The controller serves no ProtoOS.
+  PROTO_OS_BUNDLE_SOURCE_NONE = 1;
+  // An installed proto-os package.
+  PROTO_OS_BUNDLE_SOURCE_PACKAGE = 2;
+  // The copy that the controller software includes.
+  PROTO_OS_BUNDLE_SOURCE_BUNDLED = 3;
+  PROTO_OS_BUNDLE_SOURCE_UNKNOWN = 4;
+}
+
 enum FrigateInstallationType {
   FRIGATE_INSTALLATION_TYPE_UNSPECIFIED = 0;
   FRIGATE_INSTALLATION_TYPE_DEBIAN_PACKAGE = 1;
@@ -112,7 +158,8 @@ message GetSupportRequest {
     max_len: 255
   }];
   // package_id optionally checks eligibility for this package: architecture,
-  // trusted release key and version.
+  // trusted release key and version. For a ProtoOS package, the server checks
+  // the ProtoOS support of each controller instead.
   string package_id = 2 [(buf.validate.field) = {
     ignore: IGNORE_IF_UNPOPULATED
     string: {uuid: true}
@@ -148,6 +195,39 @@ message InstanceSupport {
   bool self_coordination_supported = 14;
   bool remote_trigger_allowed = 15;
   string error = 16;
+  ProtoOSSupport proto_os = 17;
+}
+
+// ProtoOSSupport is one controller's support for ProtoOS packages from Fleet.
+message ProtoOSSupport {
+  // self_supported is true when the controller accepts a ProtoOS package that
+  // it installs alone. support_message explains a false value.
+  bool self_supported = 1;
+  string support_message = 2;
+  // installed_version is the Debian version of the installed proto-os
+  // package. It is empty when none is installed.
+  string installed_version = 3;
+  // release_repositories are the repositories whose ProtoOS releases the
+  // controller accepts.
+  repeated string release_repositories = 4;
+  ProtoOSBundleSource served_source = 5;
+  // served_release_tag is the release tag of the ProtoOS that the controller
+  // serves now. It is empty for the bundled copy.
+  string served_release_tag = 6;
+  // job is the controller's most recent ProtoOS job. It is absent when the
+  // controller reports none.
+  ProtoOSJob job = 7;
+}
+
+// ProtoOSJob is one controller's ProtoOS install job.
+message ProtoOSJob {
+  // job_id is the Fleet update job that staged the package.
+  string job_id = 1;
+  string release_tag = 2;
+  string target_version = 3;
+  ProtoOSJobState state = 4;
+  string message = 5;
+  google.protobuf.Timestamp updated_at = 6;
 }
 
 // FrigatePackage is an uploaded Frigate Debian package. Fleet checked the
@@ -178,6 +258,7 @@ message FrigatePackage {
   // that starts from it fails with FLEET_PACKAGE_MISSING. Only ListPackages sets
   // it; other messages that embed a package leave it false.
   bool stored_on_this_host = 13;
+  FrigatePackageKind kind = 14;
 }
 
 message ListPackagesRequest {}
@@ -204,7 +285,9 @@ message StartUpdateRequest {
   }];
   string package_id = 2 [(buf.validate.field).string.uuid = true];
   // stage_only verifies the package on every controller and stops before any
-  // controller is stopped.
+  // controller is stopped. The server refuses it for a ProtoOS package with
+  // InvalidArgument, because each controller installs its copy as soon as the
+  // copy is committed.
   bool stage_only = 3;
   // idempotency_key identifies one operator action. A repeat with the same key
   // returns the existing job.
@@ -325,5 +408,13 @@ message InstanceProgress {
   string running_version = 8;
   bool migration_executed = 9;
   string error_code = 10;
+  // error_message is the error text. For a ProtoOS job, it is the message of
+  // the controller's install job.
   string error_message = 11;
+  // The fields below are set for a ProtoOS job. proto_os_job_state is the
+  // controller's state of this job, and UNSPECIFIED while the controller
+  // reports another job or none.
+  ProtoOSJobState proto_os_job_state = 12;
+  string proto_os_installed_version = 13;
+  string proto_os_served_release_tag = 14;
 }

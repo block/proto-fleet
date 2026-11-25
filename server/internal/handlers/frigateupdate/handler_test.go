@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -108,4 +109,82 @@ func TestInstanceSupportToProto(t *testing.T) {
 	assert.Equal(t, int64(5), out.SpoolFreeBytes)
 	assert.Equal(t, "x", out.Error)
 	assert.Equal(t, []string{"k"}, out.TrustedReleaseKeyIds)
+}
+
+func TestPackageToProtoCarriesTheKind(t *testing.T) {
+	assert.Equal(t, pb.FrigatePackageKind_FRIGATE_PACKAGE_KIND_CONTROLLER_SOFTWARE, PackageToProto(domain.Package{Kind: domain.PackageKindFrigate}).Kind)
+	assert.Equal(t, pb.FrigatePackageKind_FRIGATE_PACKAGE_KIND_PROTO_OS, PackageToProto(domain.Package{Kind: domain.PackageKindProtoOS}).Kind)
+	assert.Equal(t, pb.FrigatePackageKind_FRIGATE_PACKAGE_KIND_UNSPECIFIED, PackageToProto(domain.Package{Kind: "weird"}).Kind)
+}
+
+func TestInstanceSupportToProtoCarriesProtoOSSupport(t *testing.T) {
+	updated := time.Now().UTC().Truncate(time.Second)
+	out := instanceSupportToProto(sdk.FrigateInstanceSupport{InstanceID: "a", ProtoOS: sdk.FrigateProtoOSSupport{
+		SelfSupported: true, SupportMessage: "m", InstalledVersion: "0.6.1", ReleaseRepositories: []string{"block/proto-fleet"},
+		Served: sdk.FrigateProtoOSBundle{Source: sdk.FrigateProtoOSBundlePackage, ReleaseTag: "v0.6.1"},
+		Job: sdk.FrigateProtoOSJob{
+			JobID: "job-1", ReleaseTag: "v0.6.2", TargetVersion: "0.6.2", State: sdk.FrigateProtoOSJobInstalling, Message: "Installing", UpdatedAt: updated,
+		},
+	}})
+	require.NotNil(t, out.ProtoOs)
+	assert.True(t, out.ProtoOs.SelfSupported)
+	assert.Equal(t, "m", out.ProtoOs.SupportMessage)
+	assert.Equal(t, "0.6.1", out.ProtoOs.InstalledVersion)
+	assert.Equal(t, []string{"block/proto-fleet"}, out.ProtoOs.ReleaseRepositories)
+	assert.Equal(t, pb.ProtoOSBundleSource_PROTO_OS_BUNDLE_SOURCE_PACKAGE, out.ProtoOs.ServedSource)
+	assert.Equal(t, "v0.6.1", out.ProtoOs.ServedReleaseTag)
+	require.NotNil(t, out.ProtoOs.Job)
+	assert.Equal(t, "job-1", out.ProtoOs.Job.JobId)
+	assert.Equal(t, "v0.6.2", out.ProtoOs.Job.ReleaseTag)
+	assert.Equal(t, "0.6.2", out.ProtoOs.Job.TargetVersion)
+	assert.Equal(t, pb.ProtoOSJobState_PROTO_OS_JOB_STATE_INSTALLING, out.ProtoOs.Job.State)
+	assert.Equal(t, "Installing", out.ProtoOs.Job.Message)
+	assert.Equal(t, updated, out.ProtoOs.Job.UpdatedAt.AsTime())
+
+	noJob := instanceSupportToProto(sdk.FrigateInstanceSupport{InstanceID: "a", ProtoOS: sdk.FrigateProtoOSSupport{SelfSupported: true}})
+	assert.Nil(t, noJob.ProtoOs.Job, "a controller that reports no job has none")
+	assert.Nil(t, instanceSupportToProto(sdk.FrigateInstanceSupport{InstanceID: "a", Err: "down"}).ProtoOs, "an unread controller reports nothing")
+	assert.Equal(t, pb.ProtoOSJobState_PROTO_OS_JOB_STATE_UNKNOWN, protoOSJobStateToProto("weird"))
+	assert.Equal(t, pb.ProtoOSBundleSource_PROTO_OS_BUNDLE_SOURCE_UNKNOWN, bundleSourceToProto("weird"))
+}
+
+func TestJobToProtoCarriesProtoOSProgress(t *testing.T) {
+	now := time.Now().UTC()
+	out := jobToProto(domain.Job{
+		Package: domain.Package{Kind: domain.PackageKindProtoOS, Version: "0.6.2"},
+		Row:     sqlc.FrigateUpdateJob{ID: uuid.New(), State: domain.StateRunning, TargetVersion: "0.6.2", CreatedAt: now, UpdatedAt: now},
+		Instances: []sqlc.FrigateUpdateInstance{{
+			InstanceID: "a", StageState: domain.StageStaged, ProtoosJobState: string(sdk.FrigateProtoOSJobSucceeded),
+			ProtoosInstalledVersion: "0.6.2", ProtoosServedReleaseTag: "v0.6.2", ErrorMessage: "proto-os 0.6.2 is installed",
+		}},
+	})
+	assert.Equal(t, pb.FrigatePackageKind_FRIGATE_PACKAGE_KIND_PROTO_OS, out.Package.Kind)
+	require.Len(t, out.Instances, 1)
+	assert.Equal(t, pb.ProtoOSJobState_PROTO_OS_JOB_STATE_SUCCEEDED, out.Instances[0].ProtoOsJobState)
+	assert.Equal(t, "0.6.2", out.Instances[0].ProtoOsInstalledVersion)
+	assert.Equal(t, "v0.6.2", out.Instances[0].ProtoOsServedReleaseTag)
+	assert.Equal(t, "proto-os 0.6.2 is installed", out.Instances[0].ErrorMessage)
+}
+
+func TestHandler_ProtoOSPackageIsListedAndRefusesStageOnly(t *testing.T) {
+	e, _ := newProtoOSUploadEnv(t)
+	_, uploaded := e.uploadBody("alice", e.protoOSBody())
+	ctx := authn.SetInfo(t.Context(), e.alice)
+	h := NewHandler(e.svc)
+
+	listed, err := h.ListPackages(ctx, connect.NewRequest(&pb.ListPackagesRequest{}))
+	require.NoError(t, err)
+	require.Len(t, listed.Msg.Packages, 1)
+	assert.Equal(t, uploaded.Package.ID, listed.Msg.Packages[0].Id)
+	assert.Equal(t, pb.FrigatePackageKind_FRIGATE_PACKAGE_KIND_PROTO_OS, listed.Msg.Packages[0].Kind)
+
+	device := e.database.CreateDevice(e.alice.OrganizationID, "proto")
+	_, err = e.database.DB.ExecContext(ctx, `UPDATE discovered_device SET device_class = 2 WHERE device_identifier = $1`, device.ID)
+	require.NoError(t, err)
+	_, err = e.database.DB.ExecContext(ctx, `INSERT INTO device_pairing (device_id, pairing_status) VALUES ($1, 'PAIRED')`, device.DatabaseID)
+	require.NoError(t, err)
+	_, err = h.StartUpdate(ctx, connect.NewRequest(&pb.StartUpdateRequest{
+		DeviceIdentifier: device.ID, PackageId: uploaded.Package.ID, StageOnly: true, IdempotencyKey: "key-1",
+	}))
+	assert.True(t, fleeterror.IsInvalidArgumentError(err), err)
 }

@@ -15,7 +15,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_frigateupdate_v1_frigateupdate: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "CiRmcmlnYXRldXBkYXRlL3YxL2ZyaWdhdGV1cGRhdGUucHJvdG8SEGZyaWdhdGV1cGRhdGUudjEiWwoRR2V0U3VwcG9ydFJlcXVlc3QSJQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAlCCrpIB3IFEAEY/wESHwoKcGFja2FnZV9pZBgCIAEoCUILukgI2AEBcgOwAQEikAEKEkdldFN1cHBvcnRSZXNwb25zZRIQCghlbGlnaWJsZRgBIAEoCBIXCg9pbmVsaWdpYmxlX2NvZGUYAiABKAkSGQoRaW5lbGlnaWJsZV9yZWFzb24YAyABKAkSNAoJaW5zdGFuY2VzGAQgAygLMiEuZnJpZ2F0ZXVwZGF0ZS52MS5JbnN0YW5jZVN1cHBvcnQi3AMKD0luc3RhbmNlU3VwcG9ydBITCgtpbnN0YW5jZV9pZBgBIAEoCRIYChBwZWVyX2luc3RhbmNlX2lkGAIgASgJEhcKD3J1bm5pbmdfdmVyc2lvbhgDIAEoCRIUCgxhcmNoaXRlY3R1cmUYBCABKAkSRAoRaW5zdGFsbGF0aW9uX3R5cGUYBSABKA4yKS5mcmlnYXRldXBkYXRlLnYxLkZyaWdhdGVJbnN0YWxsYXRpb25UeXBlEhgKEGhlbHBlcl9hdmFpbGFibGUYBiABKAgSFwoPc3VwcG9ydF9tZXNzYWdlGAcgASgJEhIKCmNsdXN0ZXJfaWQYCCABKAkSFQoNYWN0aXZlX2pvYl9pZBgJIAEoCRIYChBzcG9vbF9mcmVlX2J5dGVzGAogASgDEhoKEmV0Y2RfbWVtYmVyc190b3RhbBgLIAEoDRIcChRldGNkX21lbWJlcnNfaGVhbHRoeRgMIAEoDRIfChd0cnVzdGVkX3JlbGVhc2Vfa2V5X2lkcxgNIAMoCRIjChtzZWxmX2Nvb3JkaW5hdGlvbl9zdXBwb3J0ZWQYDiABKAgSHgoWcmVtb3RlX3RyaWdnZXJfYWxsb3dlZBgPIAEoCBINCgVlcnJvchgQIAEoCSLWAgoORnJpZ2F0ZVBhY2thZ2USCgoCaWQYASABKAkSEAoIZmlsZW5hbWUYAiABKAkSDwoHdmVyc2lvbhgDIAEoCRIUCgxhcmNoaXRlY3R1cmUYBCABKAkSDgoGc2hhMjU2GAUgASgJEhIKCnNpemVfYnl0ZXMYBiABKAMSEgoKcmVwb3NpdG9yeRgHIAEoCRIWCg5yZWxlYXNlX2tleV9pZBgIIAEoCRIdChVtaW5faW5zdGFsbGVkX3ZlcnNpb24YCSABKAkSLQoJaXNzdWVkX2F0GAogASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgt1cGxvYWRlZF9hdBgLIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEwoLdXBsb2FkZWRfYnkYDCABKAkSGwoTc3RvcmVkX29uX3RoaXNfaG9zdBgNIAEoCCIVChNMaXN0UGFja2FnZXNSZXF1ZXN0ImsKFExpc3RQYWNrYWdlc1Jlc3BvbnNlEjIKCHBhY2thZ2VzGAEgAygLMiAuZnJpZ2F0ZXVwZGF0ZS52MS5GcmlnYXRlUGFja2FnZRIfChdoYXNfdXBkYXRhYmxlX2NvbnRhaW5lchgCIAEoCCI0ChREZWxldGVQYWNrYWdlUmVxdWVzdBIcCgpwYWNrYWdlX2lkGAEgASgJQgi6SAVyA7ABASIXChVEZWxldGVQYWNrYWdlUmVzcG9uc2UiogEKElN0YXJ0VXBkYXRlUmVxdWVzdBIlChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCUIKukgHcgUQARj/ARIcCgpwYWNrYWdlX2lkGAIgASgJQgi6SAVyA7ABARISCgpzdGFnZV9vbmx5GAMgASgIEjMKD2lkZW1wb3RlbmN5X2tleRgEIAEoCUIaukgXchUQARiAATIOXltceDIwLVx4N2VdKyQiPwoTU3RhcnRVcGRhdGVSZXNwb25zZRIoCgNqb2IYASABKAsyGy5mcmlnYXRldXBkYXRlLnYxLlVwZGF0ZUpvYiIsChBHZXRVcGRhdGVSZXF1ZXN0EhgKBmpvYl9pZBgBIAEoCUIIukgFcgOwAQEiPQoRR2V0VXBkYXRlUmVzcG9uc2USKAoDam9iGAEgASgLMhsuZnJpZ2F0ZXVwZGF0ZS52MS5VcGRhdGVKb2IiWQoSTGlzdFVwZGF0ZXNSZXF1ZXN0EiUKEWRldmljZV9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BEhwKCXBhZ2Vfc2l6ZRgCIAEoBUIJukgGGgQYZCgAIkAKE0xpc3RVcGRhdGVzUmVzcG9uc2USKQoEam9icxgBIAMoCzIbLmZyaWdhdGV1cGRhdGUudjEuVXBkYXRlSm9iImMKElJldHJ5VXBkYXRlUmVxdWVzdBIYCgZqb2JfaWQYASABKAlCCLpIBXIDsAEBEjMKD2lkZW1wb3RlbmN5X2tleRgCIAEoCUIaukgXchUQARiAATIOXltceDIwLVx4N2VdKyQiPwoTUmV0cnlVcGRhdGVSZXNwb25zZRIoCgNqb2IYASABKAsyGy5mcmlnYXRldXBkYXRlLnYxLlVwZGF0ZUpvYiJkChNDYW5jZWxVcGRhdGVSZXF1ZXN0EhgKBmpvYl9pZBgBIAEoCUIIukgFcgOwAQESMwoPaWRlbXBvdGVuY3lfa2V5GAIgASgJQhq6SBdyFRABGIABMg5eW1x4MjAtXHg3ZV0rJCJAChRDYW5jZWxVcGRhdGVSZXNwb25zZRIoCgNqb2IYASABKAsyGy5mcmlnYXRldXBkYXRlLnYxLlVwZGF0ZUpvYiLVBgoJVXBkYXRlSm9iEg4KBmpvYl9pZBgBIAEoCRIZChFkZXZpY2VfaWRlbnRpZmllchgCIAEoCRIxCgdwYWNrYWdlGAMgASgLMiAuZnJpZ2F0ZXVwZGF0ZS52MS5GcmlnYXRlUGFja2FnZRIzCgVzdGF0ZRgEIAEoDjIkLmZyaWdhdGV1cGRhdGUudjEuRnJpZ2F0ZVVwZGF0ZVN0YXRlEjwKDXJvbGxvdXRfcGhhc2UYBSABKA4yJS5mcmlnYXRldXBkYXRlLnYxLkZyaWdhdGVSb2xsb3V0UGhhc2USFAoMZnJvbV92ZXJzaW9uGAYgASgJEhYKDnRhcmdldF92ZXJzaW9uGAcgASgJEhIKCnN0YWdlX29ubHkYCCABKAgSNQoJaW5zdGFuY2VzGAkgAygLMiIuZnJpZ2F0ZXVwZGF0ZS52MS5JbnN0YW5jZVByb2dyZXNzEhoKEmRyaXZlcl9pbnN0YW5jZV9pZBgKIAEoCRISCgplcnJvcl9jb2RlGAsgASgJEhUKDWVycm9yX21lc3NhZ2UYDCABKAkSEQoJbmV4dF9zdGVwGA0gASgJEhEKCXJldHJ5YWJsZRgOIAEoCBITCgtjYW5jZWxsYWJsZRgPIAEoCBIaChJkaXNydXB0aW9uX3N0YXJ0ZWQYECABKAgSHQoVc2VydmVkX2J5X21haW50ZW5hbmNlGBEgASgIEjAKDGxhc3RfY29udGFjdBgSIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASNQoRdW5yZWFjaGFibGVfc2luY2UYEyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg0KBWFjdG9yGBQgASgJEi4KCmNyZWF0ZWRfYXQYFSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYFiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjAKDGNvbXBsZXRlZF9hdBgXIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASNwoTY2FuY2VsX3JlcXVlc3RlZF9hdBgYIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAi7wIKEEluc3RhbmNlUHJvZ3Jlc3MSEwoLaW5zdGFuY2VfaWQYASABKAkSOQoLc3RhZ2Vfc3RhdGUYAiABKA4yJC5mcmlnYXRldXBkYXRlLnYxLkluc3RhbmNlU3RhZ2VTdGF0ZRIUCgxzdGFnZWRfYnl0ZXMYAyABKAMSEgoKc2l6ZV9ieXRlcxgEIAEoAxI4CgthZ2VudF9waGFzZRgFIAEoDjIjLmZyaWdhdGV1cGRhdGUudjEuRnJpZ2F0ZUFnZW50UGhhc2USMAoMbGFzdF9jb250YWN0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIVCg1jb250YWN0X3N0YWxlGAcgASgIEhcKD3J1bm5pbmdfdmVyc2lvbhgIIAEoCRIaChJtaWdyYXRpb25fZXhlY3V0ZWQYCSABKAgSEgoKZXJyb3JfY29kZRgKIAEoCRIVCg1lcnJvcl9tZXNzYWdlGAsgASgJKvICChJGcmlnYXRlVXBkYXRlU3RhdGUSJAogRlJJR0FURV9VUERBVEVfU1RBVEVfVU5TUEVDSUZJRUQQABIgChxGUklHQVRFX1VQREFURV9TVEFURV9TVEFHSU5HEAESHwobRlJJR0FURV9VUERBVEVfU1RBVEVfU1RBR0VEEAISIQodRlJJR0FURV9VUERBVEVfU1RBVEVfU1RBUlRJTkcQAxIgChxGUklHQVRFX1VQREFURV9TVEFURV9SVU5OSU5HEAQSIgoeRlJJR0FURV9VUERBVEVfU1RBVEVfU1VDQ0VFREVEEAUSHwobRlJJR0FURV9VUERBVEVfU1RBVEVfRkFJTEVEEAYSIgoeRlJJR0FURV9VUERBVEVfU1RBVEVfQ0FOQ0VMTEVEEAcSIQodRlJJR0FURV9VUERBVEVfU1RBVEVfVkVSSUZJRUQQCBIiCh5GUklHQVRFX1VQREFURV9TVEFURV9BQkFORE9ORUQQCSrMAwoTRnJpZ2F0ZVJvbGxvdXRQaGFzZRIlCiFGUklHQVRFX1JPTExPVVRfUEhBU0VfVU5TUEVDSUZJRUQQABIjCh9GUklHQVRFX1JPTExPVVRfUEhBU0VfVkVSSUZZSU5HEAESIgoeRlJJR0FURV9ST0xMT1VUX1BIQVNFX1NUT1BQSU5HEAISJAogRlJJR0FURV9ST0xMT1VUX1BIQVNFX0lOU1RBTExJTkcQAxIjCh9GUklHQVRFX1JPTExPVVRfUEhBU0VfTUlHUkFUSU5HEAQSIgoeRlJJR0FURV9ST0xMT1VUX1BIQVNFX1NUQVJUSU5HEAUSIwofRlJJR0FURV9ST0xMT1VUX1BIQVNFX1NVQ0NFRURFRBAGEiAKHEZSSUdBVEVfUk9MTE9VVF9QSEFTRV9GQUlMRUQQBxIjCh9GUklHQVRFX1JPTExPVVRfUEhBU0VfQ0FOQ0VMTEVEEAgSIgoeRlJJR0FURV9ST0xMT1VUX1BIQVNFX1ZFUklGSUVEEAkSIwofRlJJR0FURV9ST0xMT1VUX1BIQVNFX0FCQU5ET05FRBAKEiEKHUZSSUdBVEVfUk9MTE9VVF9QSEFTRV9VTktOT1dOEAsqxAIKEUZyaWdhdGVBZ2VudFBoYXNlEiMKH0ZSSUdBVEVfQUdFTlRfUEhBU0VfVU5TUEVDSUZJRUQQABIiCh5GUklHQVRFX0FHRU5UX1BIQVNFX0NPTk5FQ1RJTkcQARIeChpGUklHQVRFX0FHRU5UX1BIQVNFX1NUQUdFRBACEh8KG0ZSSUdBVEVfQUdFTlRfUEhBU0VfU1RPUFBFRBADEiEKHUZSSUdBVEVfQUdFTlRfUEhBU0VfSU5TVEFMTEVEEAQSIAocRlJJR0FURV9BR0VOVF9QSEFTRV9NSUdSQVRFRBAFEh8KG0ZSSUdBVEVfQUdFTlRfUEhBU0VfU1RBUlRFRBAGEh4KGkZSSUdBVEVfQUdFTlRfUEhBU0VfRkFJTEVEEAcSHwobRlJJR0FURV9BR0VOVF9QSEFTRV9VTktOT1dOEAgqwAEKEkluc3RhbmNlU3RhZ2VTdGF0ZRIkCiBJTlNUQU5DRV9TVEFHRV9TVEFURV9VTlNQRUNJRklFRBAAEiAKHElOU1RBTkNFX1NUQUdFX1NUQVRFX1BFTkRJTkcQARIgChxJTlNUQU5DRV9TVEFHRV9TVEFURV9TVEFHSU5HEAISHwobSU5TVEFOQ0VfU1RBR0VfU1RBVEVfU1RBR0VEEAMSHwobSU5TVEFOQ0VfU1RBR0VfU1RBVEVfRkFJTEVEEAQqxgEKF0ZyaWdhdGVJbnN0YWxsYXRpb25UeXBlEikKJUZSSUdBVEVfSU5TVEFMTEFUSU9OX1RZUEVfVU5TUEVDSUZJRUQQABIsCihGUklHQVRFX0lOU1RBTExBVElPTl9UWVBFX0RFQklBTl9QQUNLQUdFEAESKwonRlJJR0FURV9JTlNUQUxMQVRJT05fVFlQRV9ESVJFQ1RfQklOQVJZEAISJQohRlJJR0FURV9JTlNUQUxMQVRJT05fVFlQRV9VTktOT1dOEAMy+QUKFEZyaWdhdGVVcGRhdGVTZXJ2aWNlElcKCkdldFN1cHBvcnQSIy5mcmlnYXRldXBkYXRlLnYxLkdldFN1cHBvcnRSZXF1ZXN0GiQuZnJpZ2F0ZXVwZGF0ZS52MS5HZXRTdXBwb3J0UmVzcG9uc2USXQoMTGlzdFBhY2thZ2VzEiUuZnJpZ2F0ZXVwZGF0ZS52MS5MaXN0UGFja2FnZXNSZXF1ZXN0GiYuZnJpZ2F0ZXVwZGF0ZS52MS5MaXN0UGFja2FnZXNSZXNwb25zZRJgCg1EZWxldGVQYWNrYWdlEiYuZnJpZ2F0ZXVwZGF0ZS52MS5EZWxldGVQYWNrYWdlUmVxdWVzdBonLmZyaWdhdGV1cGRhdGUudjEuRGVsZXRlUGFja2FnZVJlc3BvbnNlEloKC1N0YXJ0VXBkYXRlEiQuZnJpZ2F0ZXVwZGF0ZS52MS5TdGFydFVwZGF0ZVJlcXVlc3QaJS5mcmlnYXRldXBkYXRlLnYxLlN0YXJ0VXBkYXRlUmVzcG9uc2USVAoJR2V0VXBkYXRlEiIuZnJpZ2F0ZXVwZGF0ZS52MS5HZXRVcGRhdGVSZXF1ZXN0GiMuZnJpZ2F0ZXVwZGF0ZS52MS5HZXRVcGRhdGVSZXNwb25zZRJaCgtMaXN0VXBkYXRlcxIkLmZyaWdhdGV1cGRhdGUudjEuTGlzdFVwZGF0ZXNSZXF1ZXN0GiUuZnJpZ2F0ZXVwZGF0ZS52MS5MaXN0VXBkYXRlc1Jlc3BvbnNlEloKC1JldHJ5VXBkYXRlEiQuZnJpZ2F0ZXVwZGF0ZS52MS5SZXRyeVVwZGF0ZVJlcXVlc3QaJS5mcmlnYXRldXBkYXRlLnYxLlJldHJ5VXBkYXRlUmVzcG9uc2USXQoMQ2FuY2VsVXBkYXRlEiUuZnJpZ2F0ZXVwZGF0ZS52MS5DYW5jZWxVcGRhdGVSZXF1ZXN0GiYuZnJpZ2F0ZXVwZGF0ZS52MS5DYW5jZWxVcGRhdGVSZXNwb25zZULgAQoUY29tLmZyaWdhdGV1cGRhdGUudjFCEkZyaWdhdGV1cGRhdGVQcm90b1ABWlNnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9mcmlnYXRldXBkYXRlL3YxO2ZyaWdhdGV1cGRhdGV2MaICA0ZYWKoCEEZyaWdhdGV1cGRhdGUuVjHKAhBGcmlnYXRldXBkYXRlXFYx4gIcRnJpZ2F0ZXVwZGF0ZVxWMVxHUEJNZXRhZGF0YeoCEUZyaWdhdGV1cGRhdGU6OlYxYgZwcm90bzM",
+    "CiRmcmlnYXRldXBkYXRlL3YxL2ZyaWdhdGV1cGRhdGUucHJvdG8SEGZyaWdhdGV1cGRhdGUudjEiWwoRR2V0U3VwcG9ydFJlcXVlc3QSJQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAlCCrpIB3IFEAEY/wESHwoKcGFja2FnZV9pZBgCIAEoCUILukgI2AEBcgOwAQEikAEKEkdldFN1cHBvcnRSZXNwb25zZRIQCghlbGlnaWJsZRgBIAEoCBIXCg9pbmVsaWdpYmxlX2NvZGUYAiABKAkSGQoRaW5lbGlnaWJsZV9yZWFzb24YAyABKAkSNAoJaW5zdGFuY2VzGAQgAygLMiEuZnJpZ2F0ZXVwZGF0ZS52MS5JbnN0YW5jZVN1cHBvcnQikAQKD0luc3RhbmNlU3VwcG9ydBITCgtpbnN0YW5jZV9pZBgBIAEoCRIYChBwZWVyX2luc3RhbmNlX2lkGAIgASgJEhcKD3J1bm5pbmdfdmVyc2lvbhgDIAEoCRIUCgxhcmNoaXRlY3R1cmUYBCABKAkSRAoRaW5zdGFsbGF0aW9uX3R5cGUYBSABKA4yKS5mcmlnYXRldXBkYXRlLnYxLkZyaWdhdGVJbnN0YWxsYXRpb25UeXBlEhgKEGhlbHBlcl9hdmFpbGFibGUYBiABKAgSFwoPc3VwcG9ydF9tZXNzYWdlGAcgASgJEhIKCmNsdXN0ZXJfaWQYCCABKAkSFQoNYWN0aXZlX2pvYl9pZBgJIAEoCRIYChBzcG9vbF9mcmVlX2J5dGVzGAogASgDEhoKEmV0Y2RfbWVtYmVyc190b3RhbBgLIAEoDRIcChRldGNkX21lbWJlcnNfaGVhbHRoeRgMIAEoDRIfChd0cnVzdGVkX3JlbGVhc2Vfa2V5X2lkcxgNIAMoCRIjChtzZWxmX2Nvb3JkaW5hdGlvbl9zdXBwb3J0ZWQYDiABKAgSHgoWcmVtb3RlX3RyaWdnZXJfYWxsb3dlZBgPIAEoCBINCgVlcnJvchgQIAEoCRIyCghwcm90b19vcxgRIAEoCzIgLmZyaWdhdGV1cGRhdGUudjEuUHJvdG9PU1N1cHBvcnQi/wEKDlByb3RvT1NTdXBwb3J0EhYKDnNlbGZfc3VwcG9ydGVkGAEgASgIEhcKD3N1cHBvcnRfbWVzc2FnZRgCIAEoCRIZChFpbnN0YWxsZWRfdmVyc2lvbhgDIAEoCRIcChRyZWxlYXNlX3JlcG9zaXRvcmllcxgEIAMoCRI8Cg1zZXJ2ZWRfc291cmNlGAUgASgOMiUuZnJpZ2F0ZXVwZGF0ZS52MS5Qcm90b09TQnVuZGxlU291cmNlEhoKEnNlcnZlZF9yZWxlYXNlX3RhZxgGIAEoCRIpCgNqb2IYByABKAsyHC5mcmlnYXRldXBkYXRlLnYxLlByb3RvT1NKb2IivAEKClByb3RvT1NKb2ISDgoGam9iX2lkGAEgASgJEhMKC3JlbGVhc2VfdGFnGAIgASgJEhYKDnRhcmdldF92ZXJzaW9uGAMgASgJEjAKBXN0YXRlGAQgASgOMiEuZnJpZ2F0ZXVwZGF0ZS52MS5Qcm90b09TSm9iU3RhdGUSDwoHbWVzc2FnZRgFIAEoCRIuCgp1cGRhdGVkX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKKAwoORnJpZ2F0ZVBhY2thZ2USCgoCaWQYASABKAkSEAoIZmlsZW5hbWUYAiABKAkSDwoHdmVyc2lvbhgDIAEoCRIUCgxhcmNoaXRlY3R1cmUYBCABKAkSDgoGc2hhMjU2GAUgASgJEhIKCnNpemVfYnl0ZXMYBiABKAMSEgoKcmVwb3NpdG9yeRgHIAEoCRIWCg5yZWxlYXNlX2tleV9pZBgIIAEoCRIdChVtaW5faW5zdGFsbGVkX3ZlcnNpb24YCSABKAkSLQoJaXNzdWVkX2F0GAogASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgt1cGxvYWRlZF9hdBgLIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEwoLdXBsb2FkZWRfYnkYDCABKAkSGwoTc3RvcmVkX29uX3RoaXNfaG9zdBgNIAEoCBIyCgRraW5kGA4gASgOMiQuZnJpZ2F0ZXVwZGF0ZS52MS5GcmlnYXRlUGFja2FnZUtpbmQiFQoTTGlzdFBhY2thZ2VzUmVxdWVzdCJrChRMaXN0UGFja2FnZXNSZXNwb25zZRIyCghwYWNrYWdlcxgBIAMoCzIgLmZyaWdhdGV1cGRhdGUudjEuRnJpZ2F0ZVBhY2thZ2USHwoXaGFzX3VwZGF0YWJsZV9jb250YWluZXIYAiABKAgiNAoURGVsZXRlUGFja2FnZVJlcXVlc3QSHAoKcGFja2FnZV9pZBgBIAEoCUIIukgFcgOwAQEiFwoVRGVsZXRlUGFja2FnZVJlc3BvbnNlIqIBChJTdGFydFVwZGF0ZVJlcXVlc3QSJQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAlCCrpIB3IFEAEY/wESHAoKcGFja2FnZV9pZBgCIAEoCUIIukgFcgOwAQESEgoKc3RhZ2Vfb25seRgDIAEoCBIzCg9pZGVtcG90ZW5jeV9rZXkYBCABKAlCGrpIF3IVEAEYgAEyDl5bXHgyMC1ceDdlXSskIj8KE1N0YXJ0VXBkYXRlUmVzcG9uc2USKAoDam9iGAEgASgLMhsuZnJpZ2F0ZXVwZGF0ZS52MS5VcGRhdGVKb2IiLAoQR2V0VXBkYXRlUmVxdWVzdBIYCgZqb2JfaWQYASABKAlCCLpIBXIDsAEBIj0KEUdldFVwZGF0ZVJlc3BvbnNlEigKA2pvYhgBIAEoCzIbLmZyaWdhdGV1cGRhdGUudjEuVXBkYXRlSm9iIlkKEkxpc3RVcGRhdGVzUmVxdWVzdBIlChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCUIKukgHcgUQARj/ARIcCglwYWdlX3NpemUYAiABKAVCCbpIBhoEGGQoACJAChNMaXN0VXBkYXRlc1Jlc3BvbnNlEikKBGpvYnMYASADKAsyGy5mcmlnYXRldXBkYXRlLnYxLlVwZGF0ZUpvYiJjChJSZXRyeVVwZGF0ZVJlcXVlc3QSGAoGam9iX2lkGAEgASgJQgi6SAVyA7ABARIzCg9pZGVtcG90ZW5jeV9rZXkYAiABKAlCGrpIF3IVEAEYgAEyDl5bXHgyMC1ceDdlXSskIj8KE1JldHJ5VXBkYXRlUmVzcG9uc2USKAoDam9iGAEgASgLMhsuZnJpZ2F0ZXVwZGF0ZS52MS5VcGRhdGVKb2IiZAoTQ2FuY2VsVXBkYXRlUmVxdWVzdBIYCgZqb2JfaWQYASABKAlCCLpIBXIDsAEBEjMKD2lkZW1wb3RlbmN5X2tleRgCIAEoCUIaukgXchUQARiAATIOXltceDIwLVx4N2VdKyQiQAoUQ2FuY2VsVXBkYXRlUmVzcG9uc2USKAoDam9iGAEgASgLMhsuZnJpZ2F0ZXVwZGF0ZS52MS5VcGRhdGVKb2Ii1QYKCVVwZGF0ZUpvYhIOCgZqb2JfaWQYASABKAkSGQoRZGV2aWNlX2lkZW50aWZpZXIYAiABKAkSMQoHcGFja2FnZRgDIAEoCzIgLmZyaWdhdGV1cGRhdGUudjEuRnJpZ2F0ZVBhY2thZ2USMwoFc3RhdGUYBCABKA4yJC5mcmlnYXRldXBkYXRlLnYxLkZyaWdhdGVVcGRhdGVTdGF0ZRI8Cg1yb2xsb3V0X3BoYXNlGAUgASgOMiUuZnJpZ2F0ZXVwZGF0ZS52MS5GcmlnYXRlUm9sbG91dFBoYXNlEhQKDGZyb21fdmVyc2lvbhgGIAEoCRIWCg50YXJnZXRfdmVyc2lvbhgHIAEoCRISCgpzdGFnZV9vbmx5GAggASgIEjUKCWluc3RhbmNlcxgJIAMoCzIiLmZyaWdhdGV1cGRhdGUudjEuSW5zdGFuY2VQcm9ncmVzcxIaChJkcml2ZXJfaW5zdGFuY2VfaWQYCiABKAkSEgoKZXJyb3JfY29kZRgLIAEoCRIVCg1lcnJvcl9tZXNzYWdlGAwgASgJEhEKCW5leHRfc3RlcBgNIAEoCRIRCglyZXRyeWFibGUYDiABKAgSEwoLY2FuY2VsbGFibGUYDyABKAgSGgoSZGlzcnVwdGlvbl9zdGFydGVkGBAgASgIEh0KFXNlcnZlZF9ieV9tYWludGVuYW5jZRgRIAEoCBIwCgxsYXN0X2NvbnRhY3QYEiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjUKEXVucmVhY2hhYmxlX3NpbmNlGBMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBINCgVhY3RvchgUIAEoCRIuCgpjcmVhdGVkX2F0GBUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgp1cGRhdGVkX2F0GBYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIwCgxjb21wbGV0ZWRfYXQYFyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjcKE2NhbmNlbF9yZXF1ZXN0ZWRfYXQYGCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIvcDChBJbnN0YW5jZVByb2dyZXNzEhMKC2luc3RhbmNlX2lkGAEgASgJEjkKC3N0YWdlX3N0YXRlGAIgASgOMiQuZnJpZ2F0ZXVwZGF0ZS52MS5JbnN0YW5jZVN0YWdlU3RhdGUSFAoMc3RhZ2VkX2J5dGVzGAMgASgDEhIKCnNpemVfYnl0ZXMYBCABKAMSOAoLYWdlbnRfcGhhc2UYBSABKA4yIy5mcmlnYXRldXBkYXRlLnYxLkZyaWdhdGVBZ2VudFBoYXNlEjAKDGxhc3RfY29udGFjdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASFQoNY29udGFjdF9zdGFsZRgHIAEoCBIXCg9ydW5uaW5nX3ZlcnNpb24YCCABKAkSGgoSbWlncmF0aW9uX2V4ZWN1dGVkGAkgASgIEhIKCmVycm9yX2NvZGUYCiABKAkSFQoNZXJyb3JfbWVzc2FnZRgLIAEoCRI9ChJwcm90b19vc19qb2Jfc3RhdGUYDCABKA4yIS5mcmlnYXRldXBkYXRlLnYxLlByb3RvT1NKb2JTdGF0ZRIiChpwcm90b19vc19pbnN0YWxsZWRfdmVyc2lvbhgNIAEoCRIjChtwcm90b19vc19zZXJ2ZWRfcmVsZWFzZV90YWcYDiABKAkq8gIKEkZyaWdhdGVVcGRhdGVTdGF0ZRIkCiBGUklHQVRFX1VQREFURV9TVEFURV9VTlNQRUNJRklFRBAAEiAKHEZSSUdBVEVfVVBEQVRFX1NUQVRFX1NUQUdJTkcQARIfChtGUklHQVRFX1VQREFURV9TVEFURV9TVEFHRUQQAhIhCh1GUklHQVRFX1VQREFURV9TVEFURV9TVEFSVElORxADEiAKHEZSSUdBVEVfVVBEQVRFX1NUQVRFX1JVTk5JTkcQBBIiCh5GUklHQVRFX1VQREFURV9TVEFURV9TVUNDRUVERUQQBRIfChtGUklHQVRFX1VQREFURV9TVEFURV9GQUlMRUQQBhIiCh5GUklHQVRFX1VQREFURV9TVEFURV9DQU5DRUxMRUQQBxIhCh1GUklHQVRFX1VQREFURV9TVEFURV9WRVJJRklFRBAIEiIKHkZSSUdBVEVfVVBEQVRFX1NUQVRFX0FCQU5ET05FRBAJKswDChNGcmlnYXRlUm9sbG91dFBoYXNlEiUKIUZSSUdBVEVfUk9MTE9VVF9QSEFTRV9VTlNQRUNJRklFRBAAEiMKH0ZSSUdBVEVfUk9MTE9VVF9QSEFTRV9WRVJJRllJTkcQARIiCh5GUklHQVRFX1JPTExPVVRfUEhBU0VfU1RPUFBJTkcQAhIkCiBGUklHQVRFX1JPTExPVVRfUEhBU0VfSU5TVEFMTElORxADEiMKH0ZSSUdBVEVfUk9MTE9VVF9QSEFTRV9NSUdSQVRJTkcQBBIiCh5GUklHQVRFX1JPTExPVVRfUEhBU0VfU1RBUlRJTkcQBRIjCh9GUklHQVRFX1JPTExPVVRfUEhBU0VfU1VDQ0VFREVEEAYSIAocRlJJR0FURV9ST0xMT1VUX1BIQVNFX0ZBSUxFRBAHEiMKH0ZSSUdBVEVfUk9MTE9VVF9QSEFTRV9DQU5DRUxMRUQQCBIiCh5GUklHQVRFX1JPTExPVVRfUEhBU0VfVkVSSUZJRUQQCRIjCh9GUklHQVRFX1JPTExPVVRfUEhBU0VfQUJBTkRPTkVEEAoSIQodRlJJR0FURV9ST0xMT1VUX1BIQVNFX1VOS05PV04QCyrEAgoRRnJpZ2F0ZUFnZW50UGhhc2USIwofRlJJR0FURV9BR0VOVF9QSEFTRV9VTlNQRUNJRklFRBAAEiIKHkZSSUdBVEVfQUdFTlRfUEhBU0VfQ09OTkVDVElORxABEh4KGkZSSUdBVEVfQUdFTlRfUEhBU0VfU1RBR0VEEAISHwobRlJJR0FURV9BR0VOVF9QSEFTRV9TVE9QUEVEEAMSIQodRlJJR0FURV9BR0VOVF9QSEFTRV9JTlNUQUxMRUQQBBIgChxGUklHQVRFX0FHRU5UX1BIQVNFX01JR1JBVEVEEAUSHwobRlJJR0FURV9BR0VOVF9QSEFTRV9TVEFSVEVEEAYSHgoaRlJJR0FURV9BR0VOVF9QSEFTRV9GQUlMRUQQBxIfChtGUklHQVRFX0FHRU5UX1BIQVNFX1VOS05PV04QCCrAAQoSSW5zdGFuY2VTdGFnZVN0YXRlEiQKIElOU1RBTkNFX1NUQUdFX1NUQVRFX1VOU1BFQ0lGSUVEEAASIAocSU5TVEFOQ0VfU1RBR0VfU1RBVEVfUEVORElORxABEiAKHElOU1RBTkNFX1NUQUdFX1NUQVRFX1NUQUdJTkcQAhIfChtJTlNUQU5DRV9TVEFHRV9TVEFURV9TVEFHRUQQAxIfChtJTlNUQU5DRV9TVEFHRV9TVEFURV9GQUlMRUQQBCqLAQoSRnJpZ2F0ZVBhY2thZ2VLaW5kEiQKIEZSSUdBVEVfUEFDS0FHRV9LSU5EX1VOU1BFQ0lGSUVEEAASLAooRlJJR0FURV9QQUNLQUdFX0tJTkRfQ09OVFJPTExFUl9TT0ZUV0FSRRABEiEKHUZSSUdBVEVfUEFDS0FHRV9LSU5EX1BST1RPX09TEAIq2AEKD1Byb3RvT1NKb2JTdGF0ZRIiCh5QUk9UT19PU19KT0JfU1RBVEVfVU5TUEVDSUZJRUQQABIdChlQUk9UT19PU19KT0JfU1RBVEVfUVVFVUVEEAESIQodUFJPVE9fT1NfSk9CX1NUQVRFX0lOU1RBTExJTkcQAhIgChxQUk9UT19PU19KT0JfU1RBVEVfU1VDQ0VFREVEEAMSHQoZUFJPVE9fT1NfSk9CX1NUQVRFX0ZBSUxFRBAEEh4KGlBST1RPX09TX0pPQl9TVEFURV9VTktOT1dOEAUqygEKE1Byb3RvT1NCdW5kbGVTb3VyY2USJgoiUFJPVE9fT1NfQlVORExFX1NPVVJDRV9VTlNQRUNJRklFRBAAEh8KG1BST1RPX09TX0JVTkRMRV9TT1VSQ0VfTk9ORRABEiIKHlBST1RPX09TX0JVTkRMRV9TT1VSQ0VfUEFDS0FHRRACEiIKHlBST1RPX09TX0JVTkRMRV9TT1VSQ0VfQlVORExFRBADEiIKHlBST1RPX09TX0JVTkRMRV9TT1VSQ0VfVU5LTk9XThAEKsYBChdGcmlnYXRlSW5zdGFsbGF0aW9uVHlwZRIpCiVGUklHQVRFX0lOU1RBTExBVElPTl9UWVBFX1VOU1BFQ0lGSUVEEAASLAooRlJJR0FURV9JTlNUQUxMQVRJT05fVFlQRV9ERUJJQU5fUEFDS0FHRRABEisKJ0ZSSUdBVEVfSU5TVEFMTEFUSU9OX1RZUEVfRElSRUNUX0JJTkFSWRACEiUKIUZSSUdBVEVfSU5TVEFMTEFUSU9OX1RZUEVfVU5LTk9XThADMvkFChRGcmlnYXRlVXBkYXRlU2VydmljZRJXCgpHZXRTdXBwb3J0EiMuZnJpZ2F0ZXVwZGF0ZS52MS5HZXRTdXBwb3J0UmVxdWVzdBokLmZyaWdhdGV1cGRhdGUudjEuR2V0U3VwcG9ydFJlc3BvbnNlEl0KDExpc3RQYWNrYWdlcxIlLmZyaWdhdGV1cGRhdGUudjEuTGlzdFBhY2thZ2VzUmVxdWVzdBomLmZyaWdhdGV1cGRhdGUudjEuTGlzdFBhY2thZ2VzUmVzcG9uc2USYAoNRGVsZXRlUGFja2FnZRImLmZyaWdhdGV1cGRhdGUudjEuRGVsZXRlUGFja2FnZVJlcXVlc3QaJy5mcmlnYXRldXBkYXRlLnYxLkRlbGV0ZVBhY2thZ2VSZXNwb25zZRJaCgtTdGFydFVwZGF0ZRIkLmZyaWdhdGV1cGRhdGUudjEuU3RhcnRVcGRhdGVSZXF1ZXN0GiUuZnJpZ2F0ZXVwZGF0ZS52MS5TdGFydFVwZGF0ZVJlc3BvbnNlElQKCUdldFVwZGF0ZRIiLmZyaWdhdGV1cGRhdGUudjEuR2V0VXBkYXRlUmVxdWVzdBojLmZyaWdhdGV1cGRhdGUudjEuR2V0VXBkYXRlUmVzcG9uc2USWgoLTGlzdFVwZGF0ZXMSJC5mcmlnYXRldXBkYXRlLnYxLkxpc3RVcGRhdGVzUmVxdWVzdBolLmZyaWdhdGV1cGRhdGUudjEuTGlzdFVwZGF0ZXNSZXNwb25zZRJaCgtSZXRyeVVwZGF0ZRIkLmZyaWdhdGV1cGRhdGUudjEuUmV0cnlVcGRhdGVSZXF1ZXN0GiUuZnJpZ2F0ZXVwZGF0ZS52MS5SZXRyeVVwZGF0ZVJlc3BvbnNlEl0KDENhbmNlbFVwZGF0ZRIlLmZyaWdhdGV1cGRhdGUudjEuQ2FuY2VsVXBkYXRlUmVxdWVzdBomLmZyaWdhdGV1cGRhdGUudjEuQ2FuY2VsVXBkYXRlUmVzcG9uc2VC4AEKFGNvbS5mcmlnYXRldXBkYXRlLnYxQhJGcmlnYXRldXBkYXRlUHJvdG9QAVpTZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvZnJpZ2F0ZXVwZGF0ZS92MTtmcmlnYXRldXBkYXRldjGiAgNGWFiqAhBGcmlnYXRldXBkYXRlLlYxygIQRnJpZ2F0ZXVwZGF0ZVxWMeICHEZyaWdhdGV1cGRhdGVcVjFcR1BCTWV0YWRhdGHqAhFGcmlnYXRldXBkYXRlOjpWMWIGcHJvdG8z",
     [file_buf_validate_validate, file_google_protobuf_timestamp],
   );
 
@@ -30,7 +30,8 @@ export type GetSupportRequest = Message<"frigateupdate.v1.GetSupportRequest"> & 
 
   /**
    * package_id optionally checks eligibility for this package: architecture,
-   * trusted release key and version.
+   * trusted release key and version. For a ProtoOS package, the server checks
+   * the ProtoOS support of each controller instead.
    *
    * @generated from field: string package_id = 2;
    */
@@ -169,6 +170,11 @@ export type InstanceSupport = Message<"frigateupdate.v1.InstanceSupport"> & {
    * @generated from field: string error = 16;
    */
   error: string;
+
+  /**
+   * @generated from field: frigateupdate.v1.ProtoOSSupport proto_os = 17;
+   */
+  protoOs?: ProtoOSSupport | undefined;
 };
 
 /**
@@ -178,6 +184,118 @@ export type InstanceSupport = Message<"frigateupdate.v1.InstanceSupport"> & {
 export const InstanceSupportSchema: GenMessage<InstanceSupport> =
   /*@__PURE__*/
   messageDesc(file_frigateupdate_v1_frigateupdate, 2);
+
+/**
+ * ProtoOSSupport is one controller's support for ProtoOS packages from Fleet.
+ *
+ * @generated from message frigateupdate.v1.ProtoOSSupport
+ */
+export type ProtoOSSupport = Message<"frigateupdate.v1.ProtoOSSupport"> & {
+  /**
+   * self_supported is true when the controller accepts a ProtoOS package that
+   * it installs alone. support_message explains a false value.
+   *
+   * @generated from field: bool self_supported = 1;
+   */
+  selfSupported: boolean;
+
+  /**
+   * @generated from field: string support_message = 2;
+   */
+  supportMessage: string;
+
+  /**
+   * installed_version is the Debian version of the installed proto-os
+   * package. It is empty when none is installed.
+   *
+   * @generated from field: string installed_version = 3;
+   */
+  installedVersion: string;
+
+  /**
+   * release_repositories are the repositories whose ProtoOS releases the
+   * controller accepts.
+   *
+   * @generated from field: repeated string release_repositories = 4;
+   */
+  releaseRepositories: string[];
+
+  /**
+   * @generated from field: frigateupdate.v1.ProtoOSBundleSource served_source = 5;
+   */
+  servedSource: ProtoOSBundleSource;
+
+  /**
+   * served_release_tag is the release tag of the ProtoOS that the controller
+   * serves now. It is empty for the bundled copy.
+   *
+   * @generated from field: string served_release_tag = 6;
+   */
+  servedReleaseTag: string;
+
+  /**
+   * job is the controller's most recent ProtoOS job. It is absent when the
+   * controller reports none.
+   *
+   * @generated from field: frigateupdate.v1.ProtoOSJob job = 7;
+   */
+  job?: ProtoOSJob | undefined;
+};
+
+/**
+ * Describes the message frigateupdate.v1.ProtoOSSupport.
+ * Use `create(ProtoOSSupportSchema)` to create a new message.
+ */
+export const ProtoOSSupportSchema: GenMessage<ProtoOSSupport> =
+  /*@__PURE__*/
+  messageDesc(file_frigateupdate_v1_frigateupdate, 3);
+
+/**
+ * ProtoOSJob is one controller's ProtoOS install job.
+ *
+ * @generated from message frigateupdate.v1.ProtoOSJob
+ */
+export type ProtoOSJob = Message<"frigateupdate.v1.ProtoOSJob"> & {
+  /**
+   * job_id is the Fleet update job that staged the package.
+   *
+   * @generated from field: string job_id = 1;
+   */
+  jobId: string;
+
+  /**
+   * @generated from field: string release_tag = 2;
+   */
+  releaseTag: string;
+
+  /**
+   * @generated from field: string target_version = 3;
+   */
+  targetVersion: string;
+
+  /**
+   * @generated from field: frigateupdate.v1.ProtoOSJobState state = 4;
+   */
+  state: ProtoOSJobState;
+
+  /**
+   * @generated from field: string message = 5;
+   */
+  message: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp updated_at = 6;
+   */
+  updatedAt?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message frigateupdate.v1.ProtoOSJob.
+ * Use `create(ProtoOSJobSchema)` to create a new message.
+ */
+export const ProtoOSJobSchema: GenMessage<ProtoOSJob> =
+  /*@__PURE__*/
+  messageDesc(file_frigateupdate_v1_frigateupdate, 4);
 
 /**
  * FrigatePackage is an uploaded Frigate Debian package. Fleet checked the
@@ -265,6 +383,11 @@ export type FrigatePackage = Message<"frigateupdate.v1.FrigatePackage"> & {
    * @generated from field: bool stored_on_this_host = 13;
    */
   storedOnThisHost: boolean;
+
+  /**
+   * @generated from field: frigateupdate.v1.FrigatePackageKind kind = 14;
+   */
+  kind: FrigatePackageKind;
 };
 
 /**
@@ -273,7 +396,7 @@ export type FrigatePackage = Message<"frigateupdate.v1.FrigatePackage"> & {
  */
 export const FrigatePackageSchema: GenMessage<FrigatePackage> =
   /*@__PURE__*/
-  messageDesc(file_frigateupdate_v1_frigateupdate, 3);
+  messageDesc(file_frigateupdate_v1_frigateupdate, 5);
 
 /**
  * @generated from message frigateupdate.v1.ListPackagesRequest
@@ -286,7 +409,7 @@ export type ListPackagesRequest = Message<"frigateupdate.v1.ListPackagesRequest"
  */
 export const ListPackagesRequestSchema: GenMessage<ListPackagesRequest> =
   /*@__PURE__*/
-  messageDesc(file_frigateupdate_v1_frigateupdate, 4);
+  messageDesc(file_frigateupdate_v1_frigateupdate, 6);
 
 /**
  * @generated from message frigateupdate.v1.ListPackagesResponse
@@ -314,7 +437,7 @@ export type ListPackagesResponse = Message<"frigateupdate.v1.ListPackagesRespons
  */
 export const ListPackagesResponseSchema: GenMessage<ListPackagesResponse> =
   /*@__PURE__*/
-  messageDesc(file_frigateupdate_v1_frigateupdate, 5);
+  messageDesc(file_frigateupdate_v1_frigateupdate, 7);
 
 /**
  * @generated from message frigateupdate.v1.DeletePackageRequest
@@ -332,7 +455,7 @@ export type DeletePackageRequest = Message<"frigateupdate.v1.DeletePackageReques
  */
 export const DeletePackageRequestSchema: GenMessage<DeletePackageRequest> =
   /*@__PURE__*/
-  messageDesc(file_frigateupdate_v1_frigateupdate, 6);
+  messageDesc(file_frigateupdate_v1_frigateupdate, 8);
 
 /**
  * @generated from message frigateupdate.v1.DeletePackageResponse
@@ -345,7 +468,7 @@ export type DeletePackageResponse = Message<"frigateupdate.v1.DeletePackageRespo
  */
 export const DeletePackageResponseSchema: GenMessage<DeletePackageResponse> =
   /*@__PURE__*/
-  messageDesc(file_frigateupdate_v1_frigateupdate, 7);
+  messageDesc(file_frigateupdate_v1_frigateupdate, 9);
 
 /**
  * @generated from message frigateupdate.v1.StartUpdateRequest
@@ -363,7 +486,9 @@ export type StartUpdateRequest = Message<"frigateupdate.v1.StartUpdateRequest"> 
 
   /**
    * stage_only verifies the package on every controller and stops before any
-   * controller is stopped.
+   * controller is stopped. The server refuses it for a ProtoOS package with
+   * InvalidArgument, because each controller installs its copy as soon as the
+   * copy is committed.
    *
    * @generated from field: bool stage_only = 3;
    */
@@ -384,7 +509,7 @@ export type StartUpdateRequest = Message<"frigateupdate.v1.StartUpdateRequest"> 
  */
 export const StartUpdateRequestSchema: GenMessage<StartUpdateRequest> =
   /*@__PURE__*/
-  messageDesc(file_frigateupdate_v1_frigateupdate, 8);
+  messageDesc(file_frigateupdate_v1_frigateupdate, 10);
 
 /**
  * @generated from message frigateupdate.v1.StartUpdateResponse
@@ -402,7 +527,7 @@ export type StartUpdateResponse = Message<"frigateupdate.v1.StartUpdateResponse"
  */
 export const StartUpdateResponseSchema: GenMessage<StartUpdateResponse> =
   /*@__PURE__*/
-  messageDesc(file_frigateupdate_v1_frigateupdate, 9);
+  messageDesc(file_frigateupdate_v1_frigateupdate, 11);
 
 /**
  * @generated from message frigateupdate.v1.GetUpdateRequest
@@ -420,7 +545,7 @@ export type GetUpdateRequest = Message<"frigateupdate.v1.GetUpdateRequest"> & {
  */
 export const GetUpdateRequestSchema: GenMessage<GetUpdateRequest> =
   /*@__PURE__*/
-  messageDesc(file_frigateupdate_v1_frigateupdate, 10);
+  messageDesc(file_frigateupdate_v1_frigateupdate, 12);
 
 /**
  * @generated from message frigateupdate.v1.GetUpdateResponse
@@ -438,7 +563,7 @@ export type GetUpdateResponse = Message<"frigateupdate.v1.GetUpdateResponse"> & 
  */
 export const GetUpdateResponseSchema: GenMessage<GetUpdateResponse> =
   /*@__PURE__*/
-  messageDesc(file_frigateupdate_v1_frigateupdate, 11);
+  messageDesc(file_frigateupdate_v1_frigateupdate, 13);
 
 /**
  * @generated from message frigateupdate.v1.ListUpdatesRequest
@@ -463,7 +588,7 @@ export type ListUpdatesRequest = Message<"frigateupdate.v1.ListUpdatesRequest"> 
  */
 export const ListUpdatesRequestSchema: GenMessage<ListUpdatesRequest> =
   /*@__PURE__*/
-  messageDesc(file_frigateupdate_v1_frigateupdate, 12);
+  messageDesc(file_frigateupdate_v1_frigateupdate, 14);
 
 /**
  * @generated from message frigateupdate.v1.ListUpdatesResponse
@@ -481,7 +606,7 @@ export type ListUpdatesResponse = Message<"frigateupdate.v1.ListUpdatesResponse"
  */
 export const ListUpdatesResponseSchema: GenMessage<ListUpdatesResponse> =
   /*@__PURE__*/
-  messageDesc(file_frigateupdate_v1_frigateupdate, 13);
+  messageDesc(file_frigateupdate_v1_frigateupdate, 15);
 
 /**
  * @generated from message frigateupdate.v1.RetryUpdateRequest
@@ -507,7 +632,7 @@ export type RetryUpdateRequest = Message<"frigateupdate.v1.RetryUpdateRequest"> 
  */
 export const RetryUpdateRequestSchema: GenMessage<RetryUpdateRequest> =
   /*@__PURE__*/
-  messageDesc(file_frigateupdate_v1_frigateupdate, 14);
+  messageDesc(file_frigateupdate_v1_frigateupdate, 16);
 
 /**
  * @generated from message frigateupdate.v1.RetryUpdateResponse
@@ -525,7 +650,7 @@ export type RetryUpdateResponse = Message<"frigateupdate.v1.RetryUpdateResponse"
  */
 export const RetryUpdateResponseSchema: GenMessage<RetryUpdateResponse> =
   /*@__PURE__*/
-  messageDesc(file_frigateupdate_v1_frigateupdate, 15);
+  messageDesc(file_frigateupdate_v1_frigateupdate, 17);
 
 /**
  * @generated from message frigateupdate.v1.CancelUpdateRequest
@@ -548,7 +673,7 @@ export type CancelUpdateRequest = Message<"frigateupdate.v1.CancelUpdateRequest"
  */
 export const CancelUpdateRequestSchema: GenMessage<CancelUpdateRequest> =
   /*@__PURE__*/
-  messageDesc(file_frigateupdate_v1_frigateupdate, 16);
+  messageDesc(file_frigateupdate_v1_frigateupdate, 18);
 
 /**
  * @generated from message frigateupdate.v1.CancelUpdateResponse
@@ -566,7 +691,7 @@ export type CancelUpdateResponse = Message<"frigateupdate.v1.CancelUpdateRespons
  */
 export const CancelUpdateResponseSchema: GenMessage<CancelUpdateResponse> =
   /*@__PURE__*/
-  messageDesc(file_frigateupdate_v1_frigateupdate, 17);
+  messageDesc(file_frigateupdate_v1_frigateupdate, 19);
 
 /**
  * UpdateJob is one update of one container. The job ID is also the Frigate
@@ -723,7 +848,7 @@ export type UpdateJob = Message<"frigateupdate.v1.UpdateJob"> & {
  */
 export const UpdateJobSchema: GenMessage<UpdateJob> =
   /*@__PURE__*/
-  messageDesc(file_frigateupdate_v1_frigateupdate, 18);
+  messageDesc(file_frigateupdate_v1_frigateupdate, 20);
 
 /**
  * @generated from message frigateupdate.v1.InstanceProgress
@@ -782,9 +907,31 @@ export type InstanceProgress = Message<"frigateupdate.v1.InstanceProgress"> & {
   errorCode: string;
 
   /**
+   * error_message is the error text. For a ProtoOS job, it is the message of
+   * the controller's install job.
+   *
    * @generated from field: string error_message = 11;
    */
   errorMessage: string;
+
+  /**
+   * The fields below are set for a ProtoOS job. proto_os_job_state is the
+   * controller's state of this job, and UNSPECIFIED while the controller
+   * reports another job or none.
+   *
+   * @generated from field: frigateupdate.v1.ProtoOSJobState proto_os_job_state = 12;
+   */
+  protoOsJobState: ProtoOSJobState;
+
+  /**
+   * @generated from field: string proto_os_installed_version = 13;
+   */
+  protoOsInstalledVersion: string;
+
+  /**
+   * @generated from field: string proto_os_served_release_tag = 14;
+   */
+  protoOsServedReleaseTag: string;
 };
 
 /**
@@ -793,7 +940,7 @@ export type InstanceProgress = Message<"frigateupdate.v1.InstanceProgress"> & {
  */
 export const InstanceProgressSchema: GenMessage<InstanceProgress> =
   /*@__PURE__*/
-  messageDesc(file_frigateupdate_v1_frigateupdate, 19);
+  messageDesc(file_frigateupdate_v1_frigateupdate, 21);
 
 /**
  * FrigateUpdateState is Fleet's view of one update job.
@@ -828,7 +975,9 @@ export enum FrigateUpdateState {
   STARTING = 3,
 
   /**
-   * Frigate accepted the rollout and is running it; see rollout_phase.
+   * Frigate accepted the rollout and is running it; see rollout_phase. For a
+   * ProtoOS job, every controller committed its copy and installs it; see the
+   * proto_os_* fields of each instance.
    *
    * @generated from enum value: FRIGATE_UPDATE_STATE_RUNNING = 4;
    */
@@ -1049,6 +1198,136 @@ export const InstanceStageStateSchema: GenEnum<InstanceStageState> =
   enumDesc(file_frigateupdate_v1_frigateupdate, 3);
 
 /**
+ * FrigatePackageKind is what an uploaded package installs. The server derives
+ * it from the package name in the signed release statement.
+ *
+ * @generated from enum frigateupdate.v1.FrigatePackageKind
+ */
+export enum FrigatePackageKind {
+  /**
+   * @generated from enum value: FRIGATE_PACKAGE_KIND_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * The controller software: the frigate Debian package.
+   *
+   * @generated from enum value: FRIGATE_PACKAGE_KIND_CONTROLLER_SOFTWARE = 1;
+   */
+  CONTROLLER_SOFTWARE = 1,
+
+  /**
+   * The ProtoOS browser UI: the proto-os Debian package.
+   *
+   * @generated from enum value: FRIGATE_PACKAGE_KIND_PROTO_OS = 2;
+   */
+  PROTO_OS = 2,
+}
+
+/**
+ * Describes the enum frigateupdate.v1.FrigatePackageKind.
+ */
+export const FrigatePackageKindSchema: GenEnum<FrigatePackageKind> =
+  /*@__PURE__*/
+  enumDesc(file_frigateupdate_v1_frigateupdate, 4);
+
+/**
+ * ProtoOSJobState is one controller's state of a ProtoOS install job.
+ *
+ * @generated from enum frigateupdate.v1.ProtoOSJobState
+ */
+export enum ProtoOSJobState {
+  /**
+   * @generated from enum value: PROTO_OS_JOB_STATE_UNSPECIFIED = 0;
+   */
+  PROTO_OS_JOB_STATE_UNSPECIFIED = 0,
+
+  /**
+   * The controller verifies the committed copy before it installs it.
+   *
+   * @generated from enum value: PROTO_OS_JOB_STATE_QUEUED = 1;
+   */
+  PROTO_OS_JOB_STATE_QUEUED = 1,
+
+  /**
+   * @generated from enum value: PROTO_OS_JOB_STATE_INSTALLING = 2;
+   */
+  PROTO_OS_JOB_STATE_INSTALLING = 2,
+
+  /**
+   * The target version is installed, or was installed already.
+   *
+   * @generated from enum value: PROTO_OS_JOB_STATE_SUCCEEDED = 3;
+   */
+  PROTO_OS_JOB_STATE_SUCCEEDED = 3,
+
+  /**
+   * @generated from enum value: PROTO_OS_JOB_STATE_FAILED = 4;
+   */
+  PROTO_OS_JOB_STATE_FAILED = 4,
+
+  /**
+   * A state this Fleet version does not know. Treat it as not final.
+   *
+   * @generated from enum value: PROTO_OS_JOB_STATE_UNKNOWN = 5;
+   */
+  PROTO_OS_JOB_STATE_UNKNOWN = 5,
+}
+
+/**
+ * Describes the enum frigateupdate.v1.ProtoOSJobState.
+ */
+export const ProtoOSJobStateSchema: GenEnum<ProtoOSJobState> =
+  /*@__PURE__*/
+  enumDesc(file_frigateupdate_v1_frigateupdate, 5);
+
+/**
+ * ProtoOSBundleSource tells where the ProtoOS that a controller serves comes
+ * from.
+ *
+ * @generated from enum frigateupdate.v1.ProtoOSBundleSource
+ */
+export enum ProtoOSBundleSource {
+  /**
+   * @generated from enum value: PROTO_OS_BUNDLE_SOURCE_UNSPECIFIED = 0;
+   */
+  PROTO_OS_BUNDLE_SOURCE_UNSPECIFIED = 0,
+
+  /**
+   * The controller serves no ProtoOS.
+   *
+   * @generated from enum value: PROTO_OS_BUNDLE_SOURCE_NONE = 1;
+   */
+  PROTO_OS_BUNDLE_SOURCE_NONE = 1,
+
+  /**
+   * An installed proto-os package.
+   *
+   * @generated from enum value: PROTO_OS_BUNDLE_SOURCE_PACKAGE = 2;
+   */
+  PROTO_OS_BUNDLE_SOURCE_PACKAGE = 2,
+
+  /**
+   * The copy that the controller software includes.
+   *
+   * @generated from enum value: PROTO_OS_BUNDLE_SOURCE_BUNDLED = 3;
+   */
+  PROTO_OS_BUNDLE_SOURCE_BUNDLED = 3,
+
+  /**
+   * @generated from enum value: PROTO_OS_BUNDLE_SOURCE_UNKNOWN = 4;
+   */
+  PROTO_OS_BUNDLE_SOURCE_UNKNOWN = 4,
+}
+
+/**
+ * Describes the enum frigateupdate.v1.ProtoOSBundleSource.
+ */
+export const ProtoOSBundleSourceSchema: GenEnum<ProtoOSBundleSource> =
+  /*@__PURE__*/
+  enumDesc(file_frigateupdate_v1_frigateupdate, 6);
+
+/**
  * @generated from enum frigateupdate.v1.FrigateInstallationType
  */
 export enum FrigateInstallationType {
@@ -1078,13 +1357,18 @@ export enum FrigateInstallationType {
  */
 export const FrigateInstallationTypeSchema: GenEnum<FrigateInstallationType> =
   /*@__PURE__*/
-  enumDesc(file_frigateupdate_v1_frigateupdate, 4);
+  enumDesc(file_frigateupdate_v1_frigateupdate, 7);
 
 /**
  * FrigateUpdateService drives signed Frigate software updates for a CT1
  * container (an HA pair of controllers). Fleet stages one verified package on
  * every controller and starts a self-coordinated rollout that the controllers'
  * root helpers drive themselves; Fleet then tracks it to a terminal state.
+ *
+ * The same service updates the ProtoOS browser UI (a package of kind
+ * FRIGATE_PACKAGE_KIND_PROTO_OS). Each controller installs its copy of a
+ * ProtoOS package alone as soon as the copy is committed. Fleet sends no Start
+ * and tracks each controller's install through its update support.
  *
  * Every method requires controller:software_update. Methods that name a
  * container or a job need it at that container's site, ListPackages needs it at
@@ -1158,7 +1442,8 @@ export const FrigateUpdateService: GenService<{
   };
   /**
    * RetryUpdate asks Frigate to resume a rollout that failed after the
-   * controllers were stopped.
+   * controllers were stopped. It is refused for a ProtoOS job: a new job for
+   * the same package is the retry.
    *
    * @generated from rpc frigateupdate.v1.FrigateUpdateService.RetryUpdate
    */
@@ -1168,7 +1453,9 @@ export const FrigateUpdateService: GenService<{
     output: typeof RetryUpdateResponseSchema;
   };
   /**
-   * CancelUpdate abandons a job that has not stopped any controller.
+   * CancelUpdate abandons a job that has not stopped any controller. A ProtoOS
+   * job can be cancelled only until Fleet sends the first call that can commit
+   * a copy.
    *
    * @generated from rpc frigateupdate.v1.FrigateUpdateService.CancelUpdate
    */
