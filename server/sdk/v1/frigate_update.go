@@ -621,11 +621,34 @@ func ProtoOSAssetName(releaseTag string) string {
 	return "proto-os_" + releaseTag + "_all.deb"
 }
 
+// ProtoOSReleaseTag is the inverse of ProtoOSDebianVersion. It returns false
+// for a version that no v-prefixed release tag maps to, for example "1.0.0-1",
+// whose tag would map back to "1.0.0~1".
+func ProtoOSReleaseTag(debianVersion string) (string, bool) {
+	tag := "v" + strings.Replace(debianVersion, "~", "-", 1)
+	if !protoOSReleaseTagShape(tag) || ProtoOSDebianVersion(tag) != debianVersion {
+		return "", false
+	}
+	return tag, true
+}
+
+func protoOSReleaseTagShape(tag string) bool {
+	if len(tag) < 2 || len(tag) > maxFrigateVersionLength || tag[0] != 'v' || tag[1] < '0' || tag[1] > '9' {
+		return false
+	}
+	for _, c := range tag[1:] {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && c != '.' && c != '-' {
+			return false
+		}
+	}
+	return true
+}
+
 // validateProtoOSRelease checks that the release tag, asset name and target
 // version agree. Frigate also checks that the tag is a semantic version.
 func validateProtoOSRelease(m FrigateManifest) error {
 	tag := m.ReleaseTag
-	if len(tag) < 2 || len(tag) > maxFrigateVersionLength || tag[0] != 'v' || tag[1] < '0' || tag[1] > '9' {
+	if !protoOSReleaseTagShape(tag) {
 		return errors.New("frigate proto-os manifest needs a v-prefixed release tag")
 	}
 	if m.AssetName != ProtoOSAssetName(tag) {

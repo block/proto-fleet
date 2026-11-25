@@ -415,6 +415,16 @@ func TestProtoOSReleaseNames(t *testing.T) {
 	require.Equal(t, "1.0.0~rc-1", ProtoOSDebianVersion("v1.0.0-rc-1"), "only the first hyphen becomes a tilde")
 	require.Equal(t, "0.6.2", ProtoOSDebianVersion("v0.6.2"))
 	require.Equal(t, "proto-os_v0.6.2-internal.14_all.deb", ProtoOSAssetName("v0.6.2-internal.14"))
+
+	for _, tag := range []string{"v0.6.2-internal.14", "v1.0.0-rc-1", "v0.6.2", "v10.0.0-rc.1"} {
+		got, ok := ProtoOSReleaseTag(ProtoOSDebianVersion(tag))
+		require.True(t, ok, tag)
+		require.Equal(t, tag, got)
+	}
+	for _, version := range []string{"1.0.0-1", "1.0.0~rc~1", "", "~1.0.0", "v1.0.0", "1.0.0+build"} {
+		_, ok := ProtoOSReleaseTag(version)
+		require.False(t, ok, "%q has no release tag", version)
+	}
 }
 
 func TestFrigateManifestMustTargetTheCalledInstance(t *testing.T) {
