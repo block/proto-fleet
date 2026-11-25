@@ -4,7 +4,7 @@ import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
 import FrigatePackages from "./FrigatePackages";
-import { FrigatePackageSchema } from "@/protoFleet/api/generated/frigateupdate/v1/frigateupdate_pb";
+import { FrigatePackageKind, FrigatePackageSchema } from "@/protoFleet/api/generated/frigateupdate/v1/frigateupdate_pb";
 import { STATUSES } from "@/shared/features/toaster";
 
 const mocks = vi.hoisted(() => ({
@@ -28,13 +28,18 @@ vi.mock("./FrigatePackageUploadDialog", () => ({
     onDismiss,
   }: {
     open?: boolean;
-    onSuccess: (result: { reused: boolean }) => void;
+    onSuccess: (result: { package: { kind: string }; reused: boolean }) => void;
     onDismiss: () => void;
   }) =>
     open ? (
-      <div role="dialog" aria-label="Upload controller software">
-        <button onClick={() => onSuccess({ reused: false })}>Finish upload</button>
-        <button onClick={() => onSuccess({ reused: true })}>Finish duplicate upload</button>
+      <div role="dialog" aria-label="Upload package">
+        <button onClick={() => onSuccess({ package: { kind: "frigate" }, reused: false })}>Finish upload</button>
+        <button onClick={() => onSuccess({ package: { kind: "proto_os" }, reused: false })}>
+          Finish ProtoOS upload
+        </button>
+        <button onClick={() => onSuccess({ package: { kind: "frigate" }, reused: true })}>
+          Finish duplicate upload
+        </button>
         <button onClick={onDismiss}>Dismiss upload</button>
       </div>
     ) : null,
@@ -51,6 +56,7 @@ const KEY_ID = `sha256:${"cd".repeat(32)}`;
 const item = () =>
   create(FrigatePackageSchema, {
     id: PACKAGE_ID,
+    kind: FrigatePackageKind.CONTROLLER_SOFTWARE,
     filename: "frigate_1.4.0_arm64.deb",
     version: "1.4.0",
     architecture: "arm64",
@@ -86,12 +92,26 @@ describe("FrigatePackages list", () => {
     expect(await screen.findByText("1.4.0")).toBeInTheDocument();
     expect(screen.getByText(/frigate_1\.4\.0_arm64\.deb, 5\.0 MB/)).toBeInTheDocument();
     expect(screen.getByText("arm64")).toBeInTheDocument();
-    for (const title of ["Version", "Architecture", "Digest", "Signer key", "Uploaded"]) {
+    for (const title of ["Version", "Type", "Architecture", "Digest", "Signer key", "Uploaded"]) {
       expect(screen.getByText(title)).toBeInTheDocument();
     }
     // The full values stay available in the title when the display is shortened.
     expect(screen.getByTitle(DIGEST)).toHaveTextContent(`${DIGEST.slice(0, 22)}…`);
     expect(screen.getByTitle(KEY_ID)).toBeInTheDocument();
+  });
+
+  it("lists controller software and ProtoOS packages together with the type of each", async () => {
+    mocks.listPackages.mockResolvedValue([
+      item(),
+      { ...item(), id: "p2", kind: FrigatePackageKind.PROTO_OS, version: "0.6.2~internal.14", architecture: "all" },
+      { ...item(), id: "p3", kind: 42 as FrigatePackageKind, version: "9.9.9" },
+    ]);
+    render(<FrigatePackages />);
+
+    const row = async (version: string) => (await screen.findByText(version)).closest("tr")!;
+    expect(within(await row("1.4.0")).getByText("Controller software")).toBeInTheDocument();
+    expect(within(await row("0.6.2~internal.14")).getByText("ProtoOS")).toBeInTheDocument();
+    expect(within(await row("9.9.9")).getByText("Other software")).toBeInTheDocument();
   });
 
   it("says when Fleet stored a package without verifying its signature", async () => {
@@ -109,7 +129,7 @@ describe("FrigatePackages list", () => {
   it("shows an empty state", async () => {
     mocks.listPackages.mockResolvedValue([]);
     render(<FrigatePackages />);
-    expect(await screen.findByText("No controller software uploaded")).toBeInTheDocument();
+    expect(await screen.findByText("No packages uploaded")).toBeInTheDocument();
   });
 
   it("shows a load failure", async () => {
@@ -121,8 +141,8 @@ describe("FrigatePackages list", () => {
   it("keeps the upload action with its own heading", async () => {
     render(<FrigatePackages />);
     await screen.findByText("1.4.0");
-    const section = screen.getByRole("heading", { name: "Controller software" }).closest("section");
-    expect(within(section!).getByRole("button", { name: "Upload controller software" })).toBeInTheDocument();
+    const section = screen.getByRole("heading", { name: "Controller software and ProtoOS" }).closest("section");
+    expect(within(section!).getByRole("button", { name: "Upload package" })).toBeInTheDocument();
   });
 });
 
@@ -132,7 +152,7 @@ describe("FrigatePackages upload", () => {
     await screen.findByText("1.4.0");
     mocks.listPackages.mockClear();
 
-    fireEvent.click(screen.getByRole("button", { name: "Upload controller software" }));
+    fireEvent.click(screen.getByRole("button", { name: "Upload package" }));
     fireEvent.click(await screen.findByRole("button", { name: "Finish upload" }));
 
     await waitFor(() => expect(mocks.listPackages).toHaveBeenCalledTimes(1));
@@ -140,14 +160,24 @@ describe("FrigatePackages upload", () => {
       message: "Controller software uploaded",
       status: STATUSES.success,
     });
-    expect(screen.queryByRole("dialog", { name: "Upload controller software" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Upload package" })).not.toBeInTheDocument();
+  });
+
+  it("names ProtoOS in the confirmation of a ProtoOS upload", async () => {
+    render(<FrigatePackages />);
+    await screen.findByText("1.4.0");
+
+    fireEvent.click(screen.getByRole("button", { name: "Upload package" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Finish ProtoOS upload" }));
+
+    expect(mocks.pushToast).toHaveBeenCalledWith({ message: "ProtoOS uploaded", status: STATUSES.success });
   });
 
   it("says when the package was already uploaded", async () => {
     render(<FrigatePackages />);
     await screen.findByText("1.4.0");
 
-    fireEvent.click(screen.getByRole("button", { name: "Upload controller software" }));
+    fireEvent.click(screen.getByRole("button", { name: "Upload package" }));
     fireEvent.click(await screen.findByRole("button", { name: "Finish duplicate upload" }));
 
     expect(mocks.pushToast).toHaveBeenCalledWith({
@@ -191,6 +221,12 @@ describe("FrigatePackages delete", () => {
 
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("package is in use by an active update");
     expect(screen.getByTestId("delete-frigate-package-dialog")).toBeInTheDocument();
+  });
+
+  it("names the kind of the package to delete", async () => {
+    mocks.listPackages.mockResolvedValue([{ ...item(), kind: FrigatePackageKind.PROTO_OS }]);
+    const dialog = await openDelete();
+    expect(dialog).toHaveTextContent("Delete ProtoOS package?");
   });
 
   it("deletes nothing when the dialog is cancelled", async () => {
