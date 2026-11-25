@@ -19,7 +19,7 @@ State lives in `state.yaml` under one of, in order:
 2. `$XDG_STATE_HOME/fleetnode`
 3. `~/.local/state/fleetnode`
 
-The file holds `server_url`, `fleet_node_id`, `identity_fingerprint`, both keypairs, the `api_key`, and the current `session_token`. It is created `0600` under a `0700` directory. See [state.go](../../internal/fleetnodebootstrap/state.go).
+The file holds `server_url`, `fleet_node_id`, `identity_fingerprint`, both keypairs, the `api_key`, and the current `session_token`. It is created `0600` under a `0700` directory. See [state.go](../../internal/fleetnode/bootstrap/state.go).
 
 A `state.lock` file in the same directory serializes commands. Only one process may hold it at a time (`LOCK_EX | LOCK_NB`). The PID of the holder is written under the lock; if another invocation hits contention, the error includes that PID. To clear a stale lock, identify the owner with `ps -p <pid>`; remove the lock file only if the process is gone.
 
@@ -37,8 +37,8 @@ server/.fleetnode/
 └── plugins/
     ├── proto-plugin
     ├── antminer-plugin
-    ├── virtual-plugin
-    └── asicrs-plugin
+    ├── asicrs-plugin
+    └── asicrs-config.yaml
 ```
 
 ## TCP discovery
@@ -271,7 +271,7 @@ Revoking either node dissolves the pair once any pending credential-key installa
 
 ## Security model
 
-- **Transport.** `ValidateServerURL` requires `https://` for non-loopback servers; `--allow-insecure-transport` permits `http://` for testing only. The HTTP/2 transport is scheme-aware: `https://` goes through a TLS-validating `http2.Transport`, `http://` goes through h2c. See [client.go](../../internal/fleetnodebootstrap/client.go).
+- **Transport.** `ValidateServerURL` requires `https://` for non-loopback servers; `--allow-insecure-transport` permits `http://` for testing only. The HTTP/2 transport is scheme-aware: `https://` goes through a TLS-validating `http2.Transport`, `http://` goes through h2c. See [client.go](../../internal/fleetnode/bootstrap/client.go).
 - **State file.** `state.yaml` is `0600` under a `0700` directory; the writer fsyncs the temp file, renames, then fsyncs the directory. Symlinks at the state dir leaf are refused.
 - **Lock contention.** PID is written under the lock so contention reports are actionable.
 - **Plugins.** The directory must be owned by root or the running uid and must not be group- or world-writable; the agent refuses to load otherwise. The Windows build performs an existence-only check — production Windows installs must place the binary under an Administrator-only directory (e.g., `%ProgramFiles%\fleetnode\`) so the `plugins\` subdirectory inherits a safe ACL.
@@ -299,7 +299,6 @@ This starts the backend, isolated fake miners, an enrolled fleet node with `FLEE
 | Symptom | Cause | Action |
 |---------|-------|--------|
 | `exec format error` from plugin | Plugins were built for a different OS/arch (often Linux ELF on macOS). | Re-run `just build-fleetnode` on the host that will execute the agent. |
-| `state lock held by PID N` | Another `fleetnode` process is holding the lock; or a stale lock file with a dead PID. | `ps -p N`. If dead, remove the lock file. |
-| `control stream returned Unimplemented` | Server is older than RFC-0001 phase 2. | Upgrade fleetd to a build that implements `ControlStream` and `ReportDiscoveredDevices`. Until then the agent stays in heartbeat-only mode. |
-| `fleet node already has an active control stream` | A prior stream is still being reaped on the server. | Self-resolves: the server now applies newest-wins, evicting the prior stream on the next connect. |
-| `BeginAuth rejected` | Revoked `api_key`, identity_pubkey mismatch, expired challenge, or server clock drift. | Verify the `api_key` in the operator UI; re-enroll if revoked. Check clock skew. |
+| `state lock <path> held by fleetnode pid=N` | Another `fleetnode` process is holding the lock; or a stale lock file with a dead PID. | `ps -p N`. If dead, remove the lock file. |
+| `control stream unimplemented by server; running heartbeat-only` | Server is older than RFC-0001 phase 2. | Upgrade fleetd to a build that implements `ControlStream` and `ReportDiscoveredDevices`. Until then the agent stays in heartbeat-only mode. |
+| `BeginAuthHandshake rejected` | Revoked `api_key`, identity_pubkey mismatch, expired challenge, or server clock drift. | Verify the `api_key` in the operator UI; re-enroll if revoked. Check clock skew. |

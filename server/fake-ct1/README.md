@@ -608,9 +608,10 @@ curl -s localhost:9091/api/v2/system/status | jq
 GOWORK=off go test ./...
 ```
 
-> **Note:** This fixture is consumed by the CT1 adapter (#34), device bundle
-> (#36), and local fleet testing. See the `fake-rig-fixtures` skill — a change
-> here can ripple into contract and E2E suites.
+> **Note:** This fixture is consumed by the CT1 adapter, device bundle,
+> and local fleet testing. See the `fake-rig-fixtures` skill — a change
+> here can ripple into the Proto plugin and Fleet Node CT1 tests and the
+> ProtoOS CT1 E2E suite.
 
 The dry-cooler inlet temperature models the mixed return from the two tank outlets. Fleet can display this dedicated plant reading alongside the average of current individual fan speeds; the automatic temperature setpoint is a target, not a measured temperature.
 
@@ -680,7 +681,7 @@ Generate a development signing key:
 ```bash
 openssl ecparam -genkey -name prime256v1 -noout -out release.key
 openssl ec -in release.key -pubout -out release.pub
-CT1_HA_PAIR=1 CT1_UPDATE_TRUSTED_KEY_FILES=$PWD/release.pub go run .
+CT1_HA_PAIR=1 CT1_UPDATE_TRUSTED_KEY_FILES=$PWD/release.pub GOWORK=off go run .
 ```
 
 | Variable | Effect |

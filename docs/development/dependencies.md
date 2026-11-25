@@ -2,8 +2,8 @@
 
 ## Go workspace changes
 
-After changing dependencies in a workspace member (`server/`, `plugin/`, or
-`tests/`), or editing `go.work` / `go.work.sum`, run `go work sync` from the
+After changing dependencies in a workspace member (`server/`, `plugin/`,
+`sdk/mdk/`, or `tests/`), or editing `go.work` / `go.work.sum`, run `go work sync` from the
 repo root. Include resulting workspace lock changes with the module changes.
 The member list is authoritative in `go.work`.
 

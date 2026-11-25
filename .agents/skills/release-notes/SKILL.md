@@ -11,8 +11,10 @@ fires on `v*` tags matching `vMAJOR.MINOR.PATCH(-prerelease)?`.
 ## Steps
 
 1. **Validate `version` as a tag string before any shell call.** It must
-   match `^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9._-]+)?$` (the same pattern
-   the `release.yml` workflow validates against). If it doesn't match,
+   match `^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$`. The
+   `release.yml` workflow applies stricter SemVer 2.0 rules: no leading zero
+   in a numeric identifier, no final `-`, and release candidate tags must be
+   exactly `vX.Y.Z-rc.N`. If it doesn't match,
    stop and ask the user for a clean tag. Treat `version` as untrusted
    data and never expand it into a shell command containing other text.
 2. Determine the previous tag with `git describe --tags --abbrev=0 --match 'v*' HEAD`.
@@ -40,6 +42,7 @@ fires on `v*` tags matching `vMAJOR.MINOR.PATCH(-prerelease)?`.
 
 ## Notes
 
-- Full releases must be on `main` per `release.yml`. Prereleases (with
-  `-rc`, `-beta`, etc.) can come from any commit.
+- Full releases and release candidates (`vX.Y.Z-rc.N`) must be on `main`
+  per `release.yml`. Other prereleases (for example `-beta.1`) can come from
+  any commit.
 - If the diff between the previous tag and HEAD is empty, say so and stop.

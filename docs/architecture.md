@@ -38,7 +38,7 @@ ProtoOS REST contract lives at `proto-rig-api/openapi/MDK-API.json`.
 - `proto/` shared Protocol Buffer API definitions
 - `plugin/` miner integrations and simulators
 - `packages/` shared tooling and generators
-- `sdk/` generated or published client SDKs
+- `sdk/` MDK v2 contracts with generated bindings (`sdk/mdk`) and the Rust plugin SDK (`sdk/rust`)
 - `deployment-files/` production deployment assets
 
 ## Data Flow

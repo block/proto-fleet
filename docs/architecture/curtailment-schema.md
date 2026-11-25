@@ -137,7 +137,7 @@ a null timestamp, so use the target state to determine ownership. Use
 `curtail_completed_at`/`restore_completed_at` for phase completion; release must
 not be interpreted as confirmed restoration.
 
-## Hosted reporting capture (1076)
+## Hosted reporting capture (1092)
 
 The reconciler writes `hosted_curtailment_confirmation` prospectively in the same
 transaction as a positive telemetry promotion. Both confirmation paths guard the

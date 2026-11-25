@@ -8,7 +8,7 @@ Please see [Privately reporting a security vulnerability](https://docs.github.co
 
 ## Scope
 
-This policy applies to the [Proto Fleet](https://github.com/proto-at-block/proto-fleet) repository.
+This policy applies to the [Proto Fleet](https://github.com/block/proto-fleet) repository.
 
 ## Disclosure Procedures
 

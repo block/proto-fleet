@@ -464,9 +464,9 @@ npx playwright install chromium # once per browser version
 npm run test:e2e:ct1
 ```
 
-This builds protoOS, starts its own `fake-ct1` on port 18081 serving `dist/protoOS`, and checks desktop/mobile boot, tank/module deep-link reloads, no login gate, and scoped tank stop/start with actor-only decoration and untouched neighboring tank state. It refuses to reuse an existing server and restores the touched simulator scope. See [the E2E guide](e2eTests/protoOS/README.md) for focused commands. The simulator preview does not replace the MDK v2 host's artifact verification or an on-hardware deployment check.
+This builds protoOS, starts its own `fake-ct1` on port 18081 serving `dist/protoOS`, and checks desktop/mobile boot, Systems and module deep-link reloads, no login gate, and scoped tank stop/start with actor-only decoration and untouched neighboring tank state. It refuses to reuse an existing server and restores the touched simulator scope. See [the E2E guide](e2eTests/protoOS/README.md) for focused commands. The simulator preview does not replace the MDK v2 host's artifact verification or an on-hardware deployment check.
 
-For rollout, select a published validated tarball, advance the MDK v2 host's release pin in a separate change, and run its package/image verification. On an authorized controller, check root and tank/module refreshes, reads, and a narrowly scoped stop/start round trip on the management network. This repository's browser smoke does not install a package, update the host's pin, or validate a physical controller.
+For rollout, select a published validated tarball, advance the MDK v2 host's release pin in a separate change, and run its package/image verification. On an authorized controller, check root, Systems, and module refreshes, reads, and a narrowly scoped stop/start round trip on the management network. This repository's browser smoke does not install a package, update the host's pin, or validate a physical controller.
 
 ## Testing
 
@@ -512,8 +512,8 @@ npm run storybook
 
 **ProtoFleet** uses Zustand with a slice-based architecture (`useFleetStore`):
 
-- Fleet, UI, Auth, Onboarding slices
-- Fleet slice handles miner collection, device status counts, filtering, and streaming telemetry
+- Auth, Batch, UI, Onboarding slices
+- Batch slice tracks in-progress bulk miner operations by batch and by device
 
 ### ProtoOS container Home
 
@@ -565,8 +565,8 @@ board. See [CT1 hashboard inventory and telemetry](../docs/development/ct1-hashb
 `protoFleet/features/containers` owns the page and container presentation;
 `shared/components` owns `ChartWidget`, which both apps use. App-neutral
 primitives and telemetry formatters remain in `shared`. ProtoOS owns its on-device Systems view, adapters,
-and controls. Fan readings and equipment-control states are not collected by
-Fleet yet, so this page identifies those gaps and offers no device commands.
+and controls. Fleet collects fan readings and equipment-control states for this
+page; see [container inventory](../docs/architecture/container-inventory.md).
 
 ### Native tank detail
 
@@ -585,7 +585,7 @@ and module status markers shared with the legend. Isolated modules retain their
 state and count under Needs Attention with the same warning marker.
 Unknown modules use an outlined marker and, only when present, a small count
 annotation below the status legend, including when the controller remains fresh.
-The three hashboard outlines remain neutral until hashboard-level Fleet data lands in #163; board states and
+The three hashboard outlines remain neutral; board states and
 drill-downs are not wired yet.
 
 Performance requests a single server-aggregated tank history response using the
@@ -872,10 +872,12 @@ Components follow a feature-based structure:
 features/
 └── kpis/
     ├── components/       # Feature-specific components
-    ├── utils/            # Feature utilities
+    ├── hooks/            # Feature hooks
     ├── types.ts          # Feature types
-    └── index.ts          # Public exports
+    └── utility.ts        # Feature utilities
 ```
+
+Import feature modules by their file path. Most features do not have an `index.ts` barrel.
 
 - Components used within a single feature live in that feature's `components/` directory
 - Components shared across features within one app live in `src/{app}/components/`
@@ -886,13 +888,13 @@ features/
 
 Reusable components in `src/shared/components/` include:
 
-- **Layout**: Card, ContentHeader, Divider, BackgroundImage
-- **Interactive**: Button, ButtonGroup, Dialog, Modal, DurationSelector, Toggle
-- **Data Display**: Chart, DataNullState, Callout, Chip, StatusBadge
-- **Forms**: Checkbox, Input, Select, TextArea
-- **Feedback**: Spinner, ErrorBoundary, Toast
+- **Layout**: Card, ContentHeader, Divider
+- **Interactive**: Button, ButtonGroup, Dialog, Modal, DurationSelector, Switch
+- **Data Display**: Chart, DataNullState, Callout, StatusPill
+- **Forms**: Checkbox, Input, Select, Textarea
+- **Feedback**: ProgressCircular, ErrorBoundary (toasts are in `src/shared/features/toaster/`)
 
-All shared components have Storybook stories, support light/dark themes, and include TypeScript prop types.
+Most shared components have Storybook stories. All support light/dark themes and include TypeScript prop types.
 
 ### Storybook organization
 

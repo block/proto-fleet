@@ -96,7 +96,7 @@ Validates that the docker-compose environment is properly configured and all ser
 │     └─ Can create admin user via API                      │
 │                                                              │
 │  8. Authentication                                          │
-│     └─ Can authenticate and receive JWT token             │
+│     └─ Can authenticate (cookie session)                  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -153,8 +153,8 @@ To run the test again against the same stack, run the `go test` command at the e
 
 1. **Just installed**: Task runner for commands
 2. **Docker running**: Docker Desktop or Docker daemon
-3. **Go installed**: Go 1.21+ for running tests
-4. **Hermit activated**: Run `./bin/activate-hermit` from repo root
+3. **Go installed**: The Go version in `server/go.mod` (Hermit provides it)
+4. **Hermit activated**: Run `source ./bin/activate-hermit` from repo root
 
 ### Quick Start
 
@@ -269,11 +269,11 @@ just rebuild-all
 
 **Solution**:
 ```bash
-# Rebuild plugins for correct architecture
-just build-plugins
+# Rebuild plugins for correct architecture (run from the repository root)
+just build-plugins-docker
 
 # Verify architecture
-file plugins/proto-plugin
+file server/plugins/proto-plugin
 # Should output: ELF 64-bit LSB executable, ARM aarch64
 ```
 
@@ -286,10 +286,9 @@ file plugins/proto-plugin
 ```go
 // ✅ Correct - gRPC protocol
 plugin.Serve(&plugin.ServeConfig{
-    HandshakeConfig: Handshake,
+    HandshakeConfig: sdk.HandshakeConfig,
     Plugins: map[string]plugin.Plugin{
-        "discoverer": &plugins.GRPCDiscovererPlugin{Impl: discoverer},
-        "pairer":     &plugins.GRPCPairerPlugin{Impl: pairer},
+        "driver": &sdk.DriverPlugin{Impl: driver},
     },
     GRPCServer: plugin.DefaultGRPCServer, // Important!
 })
@@ -479,7 +478,7 @@ jobs:
 |----------|--------|---------|
 | `/health/ready` | GET | Readiness check (no auth required) |
 | `/onboarding.v1.OnboardingService/CreateAdminLogin` | POST | Create first admin user |
-| `/auth.v1.AuthService/Authenticate` | POST | Get JWT token |
+| `/auth.v1.AuthService/Authenticate` | POST | Start a cookie session |
 | `/pairing.v1.PairingService/Discover` | Stream | Discover mining devices |
 | `/pairing.v1.PairingService/Pair` | POST | Pair discovered devices |
 
@@ -487,13 +486,16 @@ jobs:
 
 ```go
 const (
-    fleetAPIURL       = "http://localhost:4000"
-    protoSimIP        = "127.0.0.1"  // localhost since test runs on host
-    protoSimPort      = "8080"
-    testUsername      = "admin"
-    testPassword      = "proto"
-    requestTimeout    = 10 * time.Second
-    containerPrefix   = "server-"
+    protoSimDiscoveryHost = "proto-sim" // the sim as seen from fleet-api on the compose network
+    protoSimPort          = "8080"
+    requestTimeout        = 10 * time.Second
+    containerPrefix       = "server-"
+)
+
+var (
+    fleetAPIURL  = envOrDefault("FLEET_E2E_API_URL", "http://localhost:4000")
+    testUsername = envOrDefault("FLEET_E2E_USERNAME", "admin")
+    testPassword = envOrDefault("FLEET_E2E_PASSWORD", "proto")
 )
 ```
 
@@ -508,9 +510,9 @@ const (
 ### Related Documentation
 
 - **Server development**: `../README.md`
-- **Plugin architecture**: `../internal/domain/pairing/plugin/README.md` (if exists)
+- **Plugin SDK**: `../sdk/v1/README.md`
 - **API definitions**: `../../proto/`
-- **Docker setup**: `../docker-compose.yml`
+- **Docker setup**: `../docker-compose.yaml`
 
 ---
 

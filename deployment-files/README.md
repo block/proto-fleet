@@ -503,7 +503,7 @@ The alerts deployment runs an extra grafana service:
 
 | Service   | Image (pinned)                        | Purpose                                                                       |
 | --------- | ------------------------------------- | ----------------------------------------------------------------------------- |
-| `grafana` | `grafana/grafana:13.1.0-25771031703`  | Evaluates alert rules over `notification_metric_sample` and routes alerts via its built-in Alertmanager. |
+| `grafana` | `grafana/grafana:13.0`                | Evaluates alert rules over `notification_metric_sample` and routes alerts via its built-in Alertmanager. |
 
 ### Network topology
 

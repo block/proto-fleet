@@ -12,7 +12,7 @@ The existing `containerTanks` spec is opt-in via `CT1_BASE_URL`. It expects a se
 
 ## CT1 production standalone
 
-`playwright.ct1.config.ts` is a separate, self-contained suite for the on-device production contract. It uses the built `client/dist/protoOS` directly—not Vite dev/preview or an API proxy. Its web server starts an isolated fake-ct1 on `http://127.0.0.1:18081` with two tanks, two modules per tank, and demo states disabled. Browser entry, assets, probe, reads, and scoped writes all share that origin. A second isolated simulator at `http://127.0.0.1:18082` supplies the complete six-tank, one-module-per-tank map for local firmware tests. Both use ephemeral native gRPC ports.
+`playwright.ct1.config.ts` is a separate, self-contained suite for the on-device production contract. It uses the built `client/dist/protoOS` directly—not Vite dev/preview or an API proxy. Its web server starts an isolated fake-ct1 on `http://127.0.0.1:18081` with two tanks, two modules per tank, and demo states disabled. Browser entry, assets, probe, reads, and scoped writes all share that origin. A second isolated simulator at `http://127.0.0.1:18082` supplies the complete six-tank, one-module-per-tank map for local firmware tests. Two more simulators at `:18083` and `:18084` run with `CT1_UNLOCATED_BOARDS=all` for the feed-mapping tests. All four use ephemeral native gRPC ports.
 
 Activate Hermit from the repository root before project commands. From `client/`:
 
@@ -33,7 +33,7 @@ npx playwright test --config e2eTests/protoOS/playwright.ct1.config.ts --project
 The suite refuses to reuse a running server, so an occupied port is a setup error, not permission to test a different miner. It does not use `CT1_BASE_URL` or the rig's local configuration. Tests assert:
 
 - CT1 probe resolution and successful production JavaScript, stylesheets, and body/monospace font loads from the same server;
-- container Home's chart-free schematic Overview and live stat labels, plus successful aggregate history and plotted data on Hashrate; tank/module deep-link refreshes without login/onboarding, including successful selected-board ASIC reads and populated temperatures;
+- container Home's chart-free schematic Overview and live stat labels, plus successful aggregate history and plotted data on Hashrate; Systems and module deep-link refreshes without login/onboarding, including successful selected-board ASIC reads and populated temperatures;
 - container Home's 48h range, Power legend series, Fluid temperature mode, a missing fan-power metric shown as `—`, and no horizontal overflow at 393 px;
 - diagram Fit, zoom below Fit, bounded pan, keyboard navigation, native two-finger pinch, and equipment clicks after dragging, without issuing control writes;
 - fresh-storage boot separately from returning users with persisted synthetic v1 bearer credentials;

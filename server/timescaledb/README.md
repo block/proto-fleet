@@ -123,22 +123,11 @@ docker build -t proto-fleet/timescaledb:latest server/timescaledb/
 
 ## Usage
 
-This image is referenced as a build target in `docker-compose.base.yaml`:
-
-```yaml
-timescaledb:
-  build:
-    context: ./timescaledb
-  environment:
-    POSTGRES_DB: "fleet"
-    POSTGRES_USER: "fleet"
-    POSTGRES_PASSWORD: "fleet"
-  volumes:
-    - timescaledb-data:/home/postgres/pgdata/data
-```
-
-Both `docker-compose.yaml` (dev) and `deployment-files/docker-compose.yaml`
-(prod) extend from the base, so they pick up this image automatically.
+The development stack builds this image: `server/docker-compose.yaml` sets
+`build.context: ./timescaledb` for the `timescaledb` service.
+`docker-compose.base.yaml` holds the shared environment, command, volume, and
+health check. Production (`deployment-files/docker-compose.yaml`) uses the
+prebuilt `proto-fleet-timescaledb:latest` image with `pull_policy: never`.
 
 ## Environment Variables
 

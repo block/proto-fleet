@@ -16,7 +16,7 @@ A new, unmerged migration can be revised in its feature branch unless it is
 known to have been deployed. Do not delete or renumber immutable migrations.
 
 For an immutable migration, implement the requested correction in a new pair
-using `cd server && just db-migration-new <name>`. Include both up and down
+using `cd server && just db-migration-new shared_<name>`. Include both up and down
 files and follow the [generation skill](../code-generation/SKILL.md) to select
 and run the root generation command after schema/query changes. This is the
 normal way to complete a schema fix, not a reason to stop at proposing one.

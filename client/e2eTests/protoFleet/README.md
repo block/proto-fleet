@@ -85,7 +85,7 @@ E2E_TARGET=fake npx playwright test --project=mocked-mobile
 **Using Playwright directly:**
 
 ```bash
-cd e2eTests
+cd e2eTests/protoFleet
 npx playwright test --project=desktop    # Desktop viewport (1600x900)
 npx playwright test --project=mobile     # Mobile viewport (393x852)
 npx playwright test --headed             # See browser
@@ -93,7 +93,6 @@ npx playwright test --debug              # Debug mode
 npx playwright test --ui                 # Interactive UI
 npx playwright test spec/auth.spec.ts    # Run specific file
 PW_UI_NO_DEPS=1 npx playwright test --ui --project=desktop  # Skip setup project deps for targeted reruns
-npm run test:e2e:visual:update:linux -- --project=desktop   # Refresh visual baselines in Linux on macOS
 ```
 
 ### Viewing Test Reports
@@ -158,10 +157,10 @@ copy from `~/.npm/_npx` and prints a warning if the version does not match `clie
 
 ### Configuration
 
-Test configuration is in `config/test.config.ts`:
+Default configuration is in `config/test.config.defaults.ts`. `config/test.config.ts` merges it with an optional, ignored `config/test.config.local.ts` and `E2E_TARGET`:
 
 ```typescript
-export const testConfig = {
+export const defaultTestConfig = {
   baseUrl: "http://localhost:5173",
   users: {
     admin: {
@@ -197,7 +196,7 @@ npx playwright test --project=mobile
 ## Project Structure
 
 ```
-e2eTests/
+e2eTests/protoFleet/
 ├── config/                    # Test configuration files
 │   └── test.config.ts         # Base URL, user credentials, timeouts
 ├── fixtures/                  # Playwright fixtures for dependency injection
@@ -396,7 +395,7 @@ await responsePromise;
 
 ### Timeouts
 
-- Increase timeout in `config/test.config.ts`
+- Increase the timeout in `config/test.config.local.ts`
 - Check for slow network or server responses
 - Verify selectors are correct and elements are rendered
 
@@ -421,7 +420,7 @@ See [`.github/workflows/protofleet-e2e-tests.yml`](/.github/workflows/protofleet
 
 The workflow:
 
-1. Builds ProtoFleet client (both ProtoOS and ProtoFleet apps)
+1. Builds the ProtoFleet client (`npm run build:protoFleet`)
 2. Starts TimescaleDB service
 3. Builds and runs 14 fake miners via Docker Compose
 4. Runs backend server

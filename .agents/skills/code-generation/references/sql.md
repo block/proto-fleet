@@ -1,6 +1,6 @@
 # SQL generation
 
-Schema sources are in `server/migrations/`; query sources are in
+Schema sources are in `server/migrations/current/`; query sources are in
 `server/sqlc/queries/`; configuration is `server/sqlc.yaml`. Root `just gen-db-queries`
 regenerates `server/generated/sqlc/` after schema or query changes. Use full
 `just gen` for sqlc configuration changes or changes spanning generators.

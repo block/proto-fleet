@@ -37,7 +37,8 @@ rather than application suites.
 | --- | --- |
 | Server behavior | `cd server && just test`, or affected Go packages |
 | Client behavior | Affected Vitest tests via `cd client && npm test -- --run`; typecheck when types/imports change |
-| Miner protocol or shared fake rigs | `just test-contract`; relevant E2E when changed behavior is consumed there |
+| Miner protocol | `just test-contract`; relevant E2E when changed behavior is consumed there |
+| Shared fake rigs (`server/fake-*`) | Affected plugin tests (`cd plugin/antminer && just test`, `cd plugin/proto && just test`); relevant E2E |
 | ASIC-rs, Rust SDK, or `server/sdk/v1/pb/` | [ASIC-rs build guidance](../asicrs-build/SKILL.md), then affected contract coverage |
 | Proto/schema/query or generator config | [Generation skill](../code-generation/SKILL.md), affected consumer tests |
 | Python generator | [Packaging skill](../python-gen-tarball/SKILL.md); `just package` includes its tests |
