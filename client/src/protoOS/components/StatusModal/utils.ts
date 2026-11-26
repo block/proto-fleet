@@ -11,7 +11,14 @@ import type {
   PsuTelemetry,
 } from "@/protoOS/store/contract";
 import { isPlantAlarmError } from "@/protoOS/store/hooks/useMinerStatus";
-import { psuFaultMessage, psuFreshness, psuHealth, psuReadingNotice } from "@/protoOS/store/utils/psuFreshness";
+import {
+  projectPsuReadings,
+  psuFaultMessage,
+  psuFreshness,
+  psuHealth,
+  psuReadingNotice,
+  psuThermalNotice,
+} from "@/protoOS/store/utils/psuFreshness";
 import EfficiencyValue from "@/shared/components/EfficiencyValue";
 import HashRateValue from "@/shared/components/HashRateValue";
 import PowerValue from "@/shared/components/PowerValue";
@@ -252,7 +259,7 @@ export function buildComponentStatusProps(
         (reporter) => reporter.component.kind === component.kind && reporter.component.id === component.id,
       ),
   );
-  const psu = component.kind === "psu" ? (telemetry as PsuTelemetry | undefined) : undefined;
+  const psu = component.kind === "psu" && telemetry ? projectPsuReadings(telemetry as PsuTelemetry, now) : undefined;
   const health =
     component.kind === "psu" ? psuHealth(psu, now) : telemetry && "health" in telemetry ? telemetry.health : undefined;
   const freshness = psu?.observedAt ? psuFreshness(psu, now) : undefined;
@@ -260,7 +267,7 @@ export function buildComponentStatusProps(
     ? [
         psuReadingNotice("Electrical readings", freshness.electrical),
         psuReadingNotice("Temperatures", freshness.temperatures),
-        psuReadingNotice("Thermal status", freshness.thermalState),
+        psuThermalNotice(telemetry as PsuTelemetry | undefined, now, freshness.thermalState),
       ]
         .filter(Boolean)
         .join(". ")
@@ -287,7 +294,7 @@ export function buildComponentStatusProps(
     health,
     notice,
     errors: transformErrorsForModal(componentErrors, () => name, undefined, now),
-    metrics: getComponentMetrics(componentType, telemetry, now),
+    metrics: getComponentMetrics(componentType, psu ?? telemetry, now),
     metadata,
   };
 }

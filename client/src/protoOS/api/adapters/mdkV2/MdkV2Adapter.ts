@@ -59,7 +59,6 @@ import {
   toCanonicalContainerFans,
   toCanonicalContainerTelemetry,
   toCanonicalContainerTimeSeries,
-  toCanonicalErrors,
   toCanonicalHashboards,
   toCanonicalHashboardStatus,
   toCanonicalLifecycle,
@@ -69,6 +68,7 @@ import {
   toCanonicalPoolRecordedShares,
   toCanonicalPools,
   toCanonicalSystemInfo,
+  toErrorObservations,
 } from "./normalize";
 import { createPoolAssignment } from "./poolAssignment";
 import {
@@ -83,6 +83,8 @@ import { createPoolStatistics } from "./poolStatistics";
 import { containerWriteError } from "./writeErrors";
 import type { CoolingMode, MiningTarget, MiningTargetUpdate } from "@/protoOS/store/contract";
 import { getHashboardId } from "@/protoOS/store/utils/entityIds";
+import { ControllerClock, MAX_CLOCK_ROUND_TRIP_MS } from "@/protoOS/store/utils/readingFreshness";
+import { visibleMinerErrors } from "@/protoOS/store/utils/visibleMinerErrors";
 import type { PoolInfo } from "@/shared/types/pool";
 
 type QueryTimeSeriesResponse = Awaited<ReturnType<MdkV2Client["telemetryServiceQueryTimeSeries"]>>["data"];
@@ -173,6 +175,25 @@ const toWirePllAlgorithm = (value: string | undefined): V2PLLAlgorithm | undefin
 };
 
 export class MdkV2Adapter implements MinerAdapter {
+  private readonly clock = new ControllerClock();
+  private clockRefresh?: {
+    controller: AbortController;
+    promise: Promise<void>;
+  };
+
+  telemetryNow = () => this.clock.now();
+
+  async checkTelemetryClock(params: AdapterRequestOptions = {}) {
+    params.signal?.throwIfAborted();
+    if (this.clock.checkForDiscontinuity("timer")) await this.revalidateTelemetryClock(params, true);
+  }
+
+  async resumeTelemetryClock(params: AdapterRequestOptions = {}) {
+    params.signal?.throwIfAborted();
+    const gap = this.clock.checkForDiscontinuity("resume");
+    if (!Number.isFinite(this.telemetryNow())) await this.revalidateTelemetryClock(params, gap);
+  }
+
   readonly hashboardFirmware;
   readonly feedMapping?: MinerAdapter["feedMapping"];
   readonly frigateServerUpdate?: MinerAdapter["frigateServerUpdate"];
@@ -335,13 +356,63 @@ export class MdkV2Adapter implements MinerAdapter {
     unsupported("System tags");
   }
 
+  private async readMiningStatus(params: AdapterRequestOptions) {
+    const observation = this.clock.startObservation();
+    const { data } = await this.client.miningServiceGetMiningStatus(params);
+    if (!params.signal?.aborted) this.clock.observe(data.currentMeasurements?.evaluatedAt, observation);
+    return data;
+  }
+
+  private async refreshTelemetryClock(params: AdapterRequestOptions) {
+    // Regular mining-status polls will discover a firmware upgrade on this connection.
+    if (this.clock.supportsEvaluationTime === false) return;
+    try {
+      await withDeadline(params, MAX_CLOCK_ROUND_TRIP_MS, (options) => this.readMiningStatus(options));
+    } catch (error) {
+      if (params.signal?.aborted) throw error;
+    }
+  }
+
+  private revalidateTelemetryClock(params: AdapterRequestOptions, newGap: boolean) {
+    const pending = this.clockRefresh;
+    if (pending && !pending.controller.signal.aborted && !newGap) return pending.promise;
+    pending?.controller.abort();
+
+    const controller = new AbortController();
+    const caller = params.signal;
+    const onAbort = () => controller.abort(caller?.reason);
+    if (caller?.aborted) onAbort();
+    else caller?.addEventListener("abort", onAbort, { once: true });
+    const promise = this.refreshTelemetryClock(this.decorate({ ...params, signal: controller.signal }))
+      .catch((error: unknown) => {
+        if (caller?.aborted || !controller.signal.aborted) throw error;
+      })
+      .finally(() => {
+        caller?.removeEventListener("abort", onAbort);
+        if (this.clockRefresh?.controller === controller) this.clockRefresh = undefined;
+      });
+    this.clockRefresh = { controller, promise };
+    return promise;
+  }
+
   async getMiningStatus(params: AdapterRequestOptions = {}) {
-    const { data: wire } = await this.client.miningServiceGetMiningStatus(this.decorate(params));
+    const wire = await this.readMiningStatus(this.decorate(params));
     return toCanonicalOperationalStatus(wire, ct1ContainerId(this.containerDeviceId()));
   }
 
   async getErrors(params: AdapterRequestOptions = {}) {
+    const observations = await this.getErrorObservations(params);
+    return visibleMinerErrors(observations, this.telemetryNow());
+  }
+
+  async getErrorObservations(params: AdapterRequestOptions = {}) {
     const decorated = this.decorate(params);
+    // The shell rechecks retained thermal observations when this clock sample arrives.
+    if (!Number.isFinite(this.telemetryNow())) {
+      void this.revalidateTelemetryClock(params, false).catch((error: unknown) => {
+        if (!params.signal?.aborted) console.error("Could not refresh the controller clock", error);
+      });
+    }
     const [map, health] = await Promise.all([
       this.client.hashboardServiceGetContainerMap(decorated),
       this.client.telemetryServiceGetContainerHealth({}, decorated).catch((error) => {
@@ -352,7 +423,7 @@ export class MdkV2Adapter implements MinerAdapter {
         throw error;
       }),
     ]);
-    return toCanonicalErrors(map.data, this.containerDeviceId(), health.data);
+    return toErrorObservations(map.data, this.containerDeviceId(), health.data);
   }
 
   async getPools(params: AdapterRequestOptions = {}) {
@@ -527,10 +598,10 @@ export class MdkV2Adapter implements MinerAdapter {
     const decorated = this.decorate(params);
     const [map, status, telemetry] = await Promise.all([
       this.client.hashboardServiceGetContainerMap(decorated),
-      this.client.miningServiceGetMiningStatus(decorated),
+      this.readMiningStatus(decorated),
       this.client.telemetryServiceGetContainerHealth({}, decorated),
     ]);
-    return toCanonicalContainer(map.data, status.data, telemetry.data, deviceId);
+    return toCanonicalContainer(map.data, status, telemetry.data, deviceId, this.telemetryNow());
   }
 
   async getMiningTarget(params: AdapterRequestOptions = {}): Promise<MiningTarget> {
@@ -814,10 +885,10 @@ export class MdkV2Adapter implements MinerAdapter {
     }
     const decorated = this.decorate(params);
     const [status, telemetry] = await Promise.all([
-      this.client.miningServiceGetMiningStatus(decorated),
+      this.readMiningStatus(decorated),
       this.client.telemetryServiceGetContainerHealth({}, decorated),
     ]);
-    return toCanonicalContainerTelemetry(status.data, telemetry.data, this.containerDeviceId());
+    return toCanonicalContainerTelemetry(status, telemetry.data, this.containerDeviceId());
   }
 
   async getTimeSeries(request: TimeSeriesQuery, params: AdapterRequestOptions = {}) {

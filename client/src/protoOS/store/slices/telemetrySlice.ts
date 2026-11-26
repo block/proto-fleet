@@ -1,14 +1,19 @@
 import { enableMapSet } from "immer";
 import type { StateCreator } from "zustand";
+import { shallow } from "zustand/shallow";
 
 import {
   asEntityKey,
+  type ComponentId,
+  type ContainerId,
   type CoolingMode,
+  type EntityKey,
   type FanTelemetry,
+  type HardwareState,
   type LevelRollup,
   type Measurement,
   type MetricTelemetry,
-  type PlantTelemetry,
+  type PsuHardware,
   type PsuTelemetry,
   ROOT_MODULE_KEY,
   type TelemetrySnapshot,
@@ -17,6 +22,9 @@ import {
 import type { MinerStore } from "../useMinerStore";
 import { createEmptyTelemetryState } from "../utils/createEmptyTelemetryState";
 import { getFanId, getHashboardId, getPsuId } from "../utils/entityIds";
+import { projectPsuReadings, psuRollupPower } from "../utils/psuFreshness";
+import { boardTemperatures } from "../utils/readingFreshness";
+import { containerModuleInventoryKey, containerPlantInventoryKey, replaceHardwareSnapshot } from "./hardwareSlice";
 
 enableMapSet();
 
@@ -79,6 +87,17 @@ const metricFields = [
   "activeEnergy",
 ] as const;
 
+type MetricReadings = Partial<Record<(typeof metricFields)[number], MetricTelemetry>>;
+
+const clearedLatestReadings = (previous: MetricReadings) => {
+  const cleared: MetricReadings = {};
+  for (const field of metricFields) {
+    const latest = previous[field]?.latest;
+    if (latest) cleared[field] = { latest: { ...latest, value: null } };
+  }
+  return cleared;
+};
+
 // When `preferCurrent` is true the incoming snapshot is stale for this entity
 // (an older request landing after a newer one already wrote): current values win
 // on conflict, and stale data may only fill fields the current snapshot lacks.
@@ -112,16 +131,75 @@ interface StalenessGate {
   prefix: string;
 }
 
+const isStaleWrite = (gate: StalenessGate | undefined, key: string) => {
+  if (!gate) return false;
+  const entityId = `${gate.prefix}:${key}`;
+  if (gate.requestId < (gate.lastApplied.get(entityId) ?? 0)) return true;
+  gate.lastApplied.set(entityId, gate.requestId);
+  return false;
+};
+
 const mergeMap = <K, V extends object>(target: Map<K, V>, incoming: Map<K, V>, gate?: StalenessGate) => {
   incoming.forEach((value, key) => {
-    let preferCurrent = false;
-    if (gate) {
-      const entityId = `${gate.prefix}:${String(key)}`;
-      if (gate.requestId < (gate.lastApplied.get(entityId) ?? 0)) preferCurrent = true;
-      else gate.lastApplied.set(entityId, gate.requestId);
-    }
-    target.set(key, mergeMetrics(target.get(key), value, preferCurrent));
+    target.set(key, mergeMetrics(target.get(key), value, isStaleWrite(gate, String(key))));
   });
+};
+
+const boardTemperatureFields = ["temperature", "minimumTemperature", "maximumTemperature"] as const;
+
+const refreshPsuRollup = (rollup: LevelRollup, readPower: (id: ComponentId) => number | null | undefined) => {
+  if (rollup.psuInputIds === undefined) return rollup;
+  const { power, efficiency, powerCoverage } = psuRollupPower(
+    rollup.psuInputIds,
+    readPower,
+    rollup.hashrate?.latest?.value ?? undefined,
+  );
+  if (
+    rollup.power?.latest?.value === power.latest?.value &&
+    rollup.efficiency?.latest?.value === efficiency.latest?.value &&
+    rollup.powerCoverage?.kind === powerCoverage.kind
+  )
+    return rollup;
+  return {
+    ...rollup,
+    power: { ...rollup.power, ...power },
+    efficiency: { ...rollup.efficiency, ...efficiency },
+    powerCoverage,
+  };
+};
+
+const mergeRollups = (
+  target: TelemetryState["rollupsByEntity"],
+  incoming: TelemetryState["rollupsByEntity"],
+  psus: TelemetryState["psus"],
+  rollupGate: StalenessGate | undefined,
+  boardTemperatureGate: StalenessGate | undefined,
+) => {
+  for (const [key, rollup] of incoming) {
+    const current = target.get(key);
+    const merged = mergeMetrics(current, rollup, isStaleWrite(rollupGate, key));
+    const hasBoardSnapshot = rollup.boardTemperatureSnapshot !== undefined;
+    if (hasBoardSnapshot || current?.boardTemperatureSnapshot !== undefined) {
+      // Miner-only and history polls do not set the order of full board snapshots.
+      const source = hasBoardSnapshot && !isStaleWrite(boardTemperatureGate, key) ? rollup : current;
+      if (source?.boardTemperatureSnapshot === undefined) delete merged.boardTemperatureSnapshot;
+      else merged.boardTemperatureSnapshot = source.boardTemperatureSnapshot;
+      if (source?.psuInputIds === undefined) delete merged.psuInputIds;
+      else merged.psuInputIds = source.psuInputIds;
+      for (const field of boardTemperatureFields) {
+        const metric = merged[field] ?? {};
+        const latest = source?.[field]?.latest;
+        if (latest === undefined) delete metric.latest;
+        else metric.latest = latest;
+        if (metric.latest === undefined && metric.timeSeries === undefined) delete merged[field];
+        else merged[field] = metric;
+      }
+    }
+    target.set(
+      key,
+      refreshPsuRollup(merged, (id) => psus.get(id)?.inputPower?.latest?.value),
+    );
+  }
 };
 
 export interface TelemetrySlice extends TelemetryState {
@@ -129,7 +207,10 @@ export interface TelemetrySlice extends TelemetryState {
   // per entity, independent of the caller's resource-key string. Not part of the
   // persisted/reset TelemetryState contract; cleared explicitly in clearAllData.
   lastAppliedRequestByEntity: Map<string, number>;
-  mergeTelemetry: (telemetry: TelemetrySnapshot, requestId?: number) => void;
+  /** Tank and module readings and PSU identities belong to the latest complete map. */
+  mapInventoryByContainer: Map<ContainerId, { rollupKeys: EntityKey[]; psus: Map<ComponentId, PsuHardware> }>;
+  /** A hardware fetch includes topology and telemetry from one snapshot. */
+  mergeTelemetry: (telemetry: TelemetrySnapshot, requestId?: number, hardware?: HardwareState) => void;
   updateHashboardTemperatures: (
     serial: string,
     inlet?: Measurement,
@@ -144,10 +225,19 @@ export interface TelemetrySlice extends TelemetryState {
   clearOldData: (olderThanTimestamp: number) => void;
   clearTimeSeriesData: () => void;
   clearLatestData: () => void;
+  refreshBoardTemperatures: (now: number) => void;
+  refreshPsuReadings: (now: number) => void;
   clearAllData: () => void;
 }
 
 const clearMetricPart = (state: TelemetryState, part: "latest" | "timeSeries") => {
+  if (part === "latest") {
+    for (const rollup of state.rollupsByEntity.values()) {
+      delete rollup.boardTemperatureSnapshot;
+      delete rollup.psuInputIds;
+    }
+    for (const psu of state.psus.values()) delete psu.rawObservations;
+  }
   const values: object[] = [
     ...state.rollupsByEntity.values(),
     ...state.hashboards.values(),
@@ -166,42 +256,23 @@ const clearMetricPart = (state: TelemetryState, part: "latest" | "timeSeries") =
 
 export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", never]], [], TelemetrySlice> = (
   set,
+  get,
 ) => ({
   ...createEmptyTelemetryState(),
   lastAppliedRequestByEntity: new Map<string, number>(),
-  mergeTelemetry: (incoming, requestId) =>
+  mapInventoryByContainer: new Map(),
+  mergeTelemetry: (incoming, requestId, hardware) =>
     set((state) => {
+      if (hardware) replaceHardwareSnapshot(state, hardware, requestId);
       const lastApplied = state.telemetry.lastAppliedRequestByEntity;
       const gate = (prefix: string): StalenessGate | undefined =>
         requestId === undefined ? undefined : { requestId, lastApplied, prefix };
       const rollups = new Map(incoming.rollupsByEntity);
       const topology = state.hardware.topology;
-      if (topology?.kind === "container" && incoming.containerModuleRollups?.containerId === topology.containerId) {
-        // A module's reported ID can disappear with its last board. Clear the
-        // bootstrap ID's live readings when the full map no longer reports it.
-        // Merge through the usual gate to retain history and reject stale writes.
-        for (const id of topology.modules.keys()) {
-          const key = asEntityKey(id);
-          const previous = state.telemetry.rollupsByEntity.get(key);
-          if (rollups.has(key) || !previous) continue;
-          const cleared: LevelRollup = {
-            health: "unknown",
-            miningStatus: "unknown",
-            boardCount: undefined,
-            onlineBoardCount: undefined,
-            powerCoverage: undefined,
-          };
-          for (const field of metricFields) {
-            const metric = (previous as MetricContainer)[field] as MetricTelemetry | undefined;
-            if (metric?.latest) (cleared as MetricContainer)[field] = { latest: { ...metric.latest, value: null } };
-          }
-          rollups.set(key, cleared);
-        }
-      }
       const plant = new Map(incoming.plant);
       if (incoming.containerPlant) {
         const { containerId, hardware } = incoming.containerPlant;
-        const inventoryKey = `container-plant:${containerId}`;
+        const inventoryKey = containerPlantInventoryKey(containerId);
         if (requestId !== undefined && requestId < (lastApplied.get(inventoryKey) ?? 0)) {
           // An older complete snapshot must not restore components or readings.
           plant.clear();
@@ -213,63 +284,143 @@ export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", n
               continue;
             const previous = state.telemetry.plant.get(id);
             if (!previous) continue;
-            const cleared: PlantTelemetry = { componentId: id, health: "unknown" };
-            for (const field of metricFields) {
-              const metric = (previous as unknown as MetricContainer)[field] as MetricTelemetry | undefined;
-              if (metric?.latest)
-                (cleared as unknown as MetricContainer)[field] = {
-                  latest: { ...metric.latest, value: null },
-                };
-            }
-            plant.set(id, cleared);
+            plant.set(id, { ...clearedLatestReadings(previous), componentId: id, health: "unknown" });
           }
         }
       }
       const psus = new Map(incoming.psus);
       // PSU inventory and readings come from the same successful module snapshot.
       // Keep known hardware when data disappears, but clear its current readings.
-      for (const moduleId of incoming.modulePsus?.moduleIds ?? []) {
-        const module = state.hardware.topology?.modules.get(moduleId);
-        if (!module) continue;
-        const inventoryKey = `module-psus:${moduleId}`;
-        const reported = [...incoming.modulePsus!.hardware.values()].filter(
-          (psu) => psu.ref.owner.kind === "module" && psu.ref.owner.id === moduleId,
-        );
+      if (incoming.containerModules) {
+        const { containerId, moduleIds, psus: hardware } = incoming.containerModules;
+        const inventoryKey = containerModuleInventoryKey(containerId);
         if (requestId !== undefined && requestId < (lastApplied.get(inventoryKey) ?? 0)) {
-          for (const psu of reported) psus.delete(psu.ref.id);
-          continue;
-        }
-        if (requestId !== undefined) lastApplied.set(inventoryKey, requestId);
-        for (const psu of reported) {
-          const id = psu.ref.id;
-          if (requestId !== undefined && requestId < (lastApplied.get(`psu:${id}`) ?? 0)) continue;
-          state.hardware.psus.set(id, psu);
-          if (!module.psuIds.includes(id)) module.psuIds.push(id);
-        }
-        for (const id of module.psuIds) {
-          const previous = state.telemetry.psus.get(id);
-          if (psus.has(id) || !previous) continue;
-          const cleared: PsuTelemetry = { componentId: id, health: "unknown", observedAt: {} };
-          for (const field of metricFields) {
-            const metric = (previous as unknown as MetricContainer)[field] as MetricTelemetry | undefined;
-            if (metric?.latest)
-              (cleared as unknown as MetricContainer)[field] = {
-                latest: { ...metric.latest, value: null },
-              };
+          psus.clear();
+          rollups.clear();
+        } else {
+          if (requestId !== undefined) lastApplied.set(inventoryKey, requestId);
+          const previousInventory = state.telemetry.mapInventoryByContainer.get(containerId);
+          const reportedModules = new Set(moduleIds);
+          const installedKeys =
+            topology?.kind === "container" && topology.containerId === containerId
+              ? [...topology.tanks.keys(), ...topology.modules.keys()].map(asEntityKey)
+              : [];
+          for (const key of new Set([...(previousInventory?.rollupKeys ?? []), ...installedKeys])) {
+            if (rollups.has(key)) continue;
+            const previous = state.telemetry.rollupsByEntity.get(key);
+            if (!previous) continue;
+            rollups.set(key, {
+              ...clearedLatestReadings(previous),
+              boardTemperatureSnapshot: { samples: [], evaluatedAt: NaN, nextChangeAt: Infinity },
+              psuInputIds: null,
+              health: "unknown",
+              miningStatus: "unknown",
+              boardCount: undefined,
+              onlineBoardCount: undefined,
+              powerCoverage: undefined,
+            });
           }
-          psus.set(id, cleared);
+          const reportedPsus = new Map<ComponentId, PsuHardware>();
+          // A module can omit its PSU readings while its first topology request is in flight.
+          for (const [id, psu] of new Map([...(previousInventory?.psus ?? []), ...hardware])) {
+            if (psu.ref.owner.kind !== "module" || !reportedModules.has(psu.ref.owner.id)) continue;
+            const stale = requestId !== undefined && requestId < (lastApplied.get(`psu:${id}`) ?? 0);
+            const reported = stale ? (previousInventory?.psus.get(id) ?? state.hardware.psus.get(id)) : psu;
+            if (!reported) continue;
+            reportedPsus.set(id, reported);
+            // A poll can report an identity before a topology response names its module.
+            const module = topology?.modules.get(psu.ref.owner.id);
+            if (!module || stale) continue;
+            state.hardware.psus.set(id, psu);
+            if (!module.psuIds.includes(id)) module.psuIds.push(id);
+          }
+          state.telemetry.mapInventoryByContainer.set(containerId, {
+            rollupKeys: [...incoming.rollupsByEntity.keys()],
+            psus: reportedPsus,
+          });
+          const knownPsus = [...state.hardware.psus.values(), ...(previousInventory?.psus.values() ?? [])];
+          for (const { ref } of knownPsus) {
+            const id = ref.id;
+            if (ref.owner.kind !== "module" || psus.has(id)) continue;
+            if (!reportedModules.has(ref.owner.id) && !previousInventory?.psus.has(id)) continue;
+            const previous = state.telemetry.psus.get(id);
+            if (previous)
+              psus.set(id, {
+                ...clearedLatestReadings(previous),
+                componentId: id,
+                health: "unknown",
+                observedAt: {},
+                rawObservations: undefined,
+              });
+          }
         }
       }
       incoming.resourceByScope.forEach((value, key) => state.telemetry.resourceByScope.set(key, value));
-      mergeMap(state.telemetry.rollupsByEntity, rollups, gate("rollup"));
+      mergeMap(state.telemetry.psus, psus, gate("psu"));
+      mergeRollups(
+        state.telemetry.rollupsByEntity,
+        rollups,
+        state.telemetry.psus,
+        gate("rollup"),
+        gate("board-temperature"),
+      );
       mergeMap(state.telemetry.hashboards, incoming.hashboards, gate("hashboard"));
       mergeMap(state.telemetry.asics, incoming.asics, gate("asic"));
-      mergeMap(state.telemetry.psus, psus, gate("psu"));
       mergeMap(state.telemetry.fans, incoming.fans, gate("fan"));
       mergeMap(state.telemetry.plant, plant, gate("plant"));
       incoming.coolingModeByOwner.forEach((value, key) => state.telemetry.coolingModeByOwner.set(key, value));
       incoming.asicLoadByHashboard.forEach((value, key) => state.telemetry.asicLoadByHashboard.set(key, value));
     }),
+  refreshBoardTemperatures: (now) => {
+    const changes: TelemetryState["rollupsByEntity"] = new Map();
+    for (const [key, rollup] of get().telemetry.rollupsByEntity) {
+      const snapshot = rollup.boardTemperatureSnapshot;
+      if (!snapshot?.samples.length) continue;
+      // Recompute on clock loss, recovery, a backwards correction or a sample crossing its age limit.
+      const sameWindow = Number.isFinite(now)
+        ? now >= snapshot.evaluatedAt && now < snapshot.nextChangeAt
+        : !Number.isFinite(snapshot.evaluatedAt);
+      if (sameWindow) continue;
+      changes.set(key, mergeMetrics(rollup, boardTemperatures(snapshot.samples, now)));
+    }
+    if (changes.size)
+      set((state) => {
+        changes.forEach((rollup, key) => state.telemetry.rollupsByEntity.set(key, rollup));
+      });
+  },
+  refreshPsuReadings: (now) => {
+    const { psus, rollupsByEntity } = get().telemetry;
+    const changes: TelemetryState["psus"] = new Map();
+    const changedPower = new Set<ComponentId>();
+    for (const [id, psu] of psus) {
+      if (!psu.rawObservations) continue;
+      const projected = projectPsuReadings(psu, now);
+      const before: MetricReadings = psu;
+      const after: MetricReadings = projected;
+      if (
+        projected.health === psu.health &&
+        shallow(projected.observedAt, psu.observedAt) &&
+        metricFields.every((field) => before[field]?.latest?.value === after[field]?.latest?.value)
+      )
+        continue;
+      changes.set(id, mergeMetrics(psu, projected));
+      if (projected.inputPower?.latest?.value !== psu.inputPower?.latest?.value) changedPower.add(id);
+    }
+    const rollupChanges: TelemetryState["rollupsByEntity"] = new Map();
+    if (changedPower.size) {
+      const readPower = (id: ComponentId) => (changes.get(id) ?? psus.get(id))?.inputPower?.latest?.value;
+      for (const [key, rollup] of rollupsByEntity) {
+        if (!rollup.psuInputIds?.some((id) => changedPower.has(id))) continue;
+        const refreshed = refreshPsuRollup(rollup, readPower);
+        if (refreshed !== rollup) rollupChanges.set(key, refreshed);
+      }
+    }
+    if (changes.size)
+      set((state) => {
+        changes.forEach((psu, id) => state.telemetry.psus.set(id, psu));
+        rollupChanges.forEach((rollup, key) => state.telemetry.rollupsByEntity.set(key, rollup));
+      });
+  },
   updateHashboardTemperatures: (serial, inlet, outlet, average, maximum) =>
     set((state) => {
       const id = getHashboardId(serial);
@@ -320,5 +471,6 @@ export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", n
     set((state) => {
       Object.assign(state.telemetry, createEmptyTelemetryState());
       state.telemetry.lastAppliedRequestByEntity.clear();
+      state.telemetry.mapInventoryByContainer.clear();
     }),
 });

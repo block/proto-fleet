@@ -6,10 +6,13 @@ import { asComponentId, asHashboardId, asModuleId } from "@/protoOS/store/contra
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
 vi.mock("@/protoOS/components/StatusModal", () => ({ ProtoOSStatusModal: () => null }));
+const { telemetryNow } = vi.hoisted(() => ({ telemetryNow: vi.fn(() => Date.now()) }));
+vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({ useMinerHosting: () => ({ adapter: { telemetryNow } }) }));
 const ids = [asComponentId("module:a:psu:1"), asComponentId("module:b:psu:1")];
 
 beforeEach(() => {
   vi.useFakeTimers();
+  telemetryNow.mockImplementation(() => Date.now());
   useMinerStore.getState().resetDeviceData();
   useMinerStore.setState((state) => {
     ids.forEach((id) =>
@@ -112,4 +115,31 @@ test("groups currents with the correct input/output readings and expires reading
   );
   expect(screen.getByText("123.4 A")).toBeInTheDocument();
   expect(screen.queryByText("Readings stale")).not.toBeInTheDocument();
+});
+
+test.each([
+  ["fault", "fault"],
+  ["degraded", "warning"],
+] as const)("shows the last reported %s until the controller clock recovers", (health, label) => {
+  const observedAt = Date.now();
+  telemetryNow.mockReturnValue(NaN);
+  useMinerStore.setState((state) => {
+    const psu = state.telemetry.psus.get(ids[0])!;
+    psu.health = "unknown";
+    psu.rawObservations = {
+      electrical: [{ frameAt: observedAt, observedAt, values: { inputPower: { latest: { value: 0, units: "W" } } } }],
+      temperatures: [],
+      thermalState: [{ frameAt: observedAt, observedAt, health }],
+    };
+  });
+  render(<PsuStatusCard componentId={ids[0]} />);
+  expect(screen.getByText(`Last reported over-temperature ${label} (age unknown)`)).toBeInTheDocument();
+  expect(screen.queryByText("0.0 kW")).not.toBeInTheDocument();
+  expect(screen.queryByRole("img")).not.toBeInTheDocument();
+
+  telemetryNow.mockReturnValue(observedAt + 1_000);
+  act(() => vi.advanceTimersByTime(1_000));
+  expect(screen.queryByText(`Last reported over-temperature ${label} (age unknown)`)).not.toBeInTheDocument();
+  expect(screen.getByText("0.0 kW")).toBeInTheDocument();
+  expect(screen.getByRole("img", { name: "PSU 1 needs attention" })).toBeInTheDocument();
 });

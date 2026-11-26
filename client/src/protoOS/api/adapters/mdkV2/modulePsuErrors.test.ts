@@ -3,8 +3,11 @@ import {
   V2HashboardErrorCause as Cause,
   type V2GetContainerMapResponse,
   type V2Hashboard,
+  V2MiningState,
 } from "./generated/generatedApi";
-import { toCanonicalContainer, toCanonicalErrors } from "./normalize";
+import { toCanonicalContainer, toCanonicalErrors, toErrorObservations } from "./normalize";
+import { getScopeHealth } from "@/protoOS/components/StatusModal/scopeHealth";
+import useMinerStore from "@/protoOS/store/useMinerStore";
 
 const supply = Cause.HASHBOARD_ERROR_CAUSE_BOARD_POWER_SUPPLY;
 const thermal = Cause.HASHBOARD_ERROR_CAUSE_BOARD_POWER_SUPPLY_OVER_TEMPERATURE;
@@ -95,6 +98,87 @@ test("coalesces board overtemperature reports and PSU thermal flags into one iss
     severity: "critical",
     reportedBy: [{ label: "Board 1" }],
   });
+});
+
+test.each([false, true])("expires thermal evidence between polls (board warning present: %s)", (boardWarning) => {
+  const at = Date.parse(now);
+  const response = wire([
+    [
+      {
+        miningState: V2MiningState.MINING_STATE_MINING,
+        health: {
+          timestamp: now,
+          warnings: boardWarning ? [{ cause: thermal }] : [],
+          psuThermal: { thermalStateValid: true, thermalStateAgeMs: 119_000, overTemperatureFault: true },
+        },
+      },
+    ],
+  ]);
+  const { hardware, telemetry } = toCanonicalContainer(response, {}, {}, "ct1", at);
+  const status = () => useMinerStore.getState().minerStatus;
+  const errors = () => [...status().errorsByOwner.values()].flat();
+  const scope = { kind: "container" } as const;
+  status().setErrors(toErrorObservations(response, "ct1"), at);
+  try {
+    status().refreshThermalFaults(at + 999);
+    expect(errors()).toMatchObject([{ severity: "critical" }]);
+    expect(getScopeHealth(scope, hardware, telemetry, errors(), at + 999)?.needsAttention).toBe(true);
+    status().refreshThermalFaults(at + 1_000);
+    expect(getScopeHealth(scope, hardware, telemetry, errors(), at + 1_000)?.needsAttention).toBe(boardWarning);
+    if (boardWarning) {
+      expect(errors()).toMatchObject([{ code: thermal, severity: "warning", reportedBy: [{ label: "Board 1" }] }]);
+    } else {
+      expect(errors()).toEqual([]);
+    }
+  } finally {
+    status().setErrors([]);
+  }
+});
+
+test.each([false, true])(
+  "recovers a thermal fault from a map received without a clock (board warning: %s)",
+  (boardWarning) => {
+    const at = Date.parse(now);
+    const response = wire([
+      [
+        {
+          health: {
+            timestamp: now,
+            warnings: boardWarning ? [{ cause: thermal }] : [],
+            psuThermal: { thermalStateValid: true, overTemperatureFault: true },
+          },
+        },
+      ],
+    ]);
+    const status = () => useMinerStore.getState().minerStatus;
+    const errors = () => [...status().errorsByOwner.values()].flat();
+    try {
+      status().setErrors(toErrorObservations(response, "ct1"), NaN);
+      expect(errors().map((error) => error.severity)).toEqual(boardWarning ? ["warning"] : []);
+      status().refreshThermalFaults(at + 5_000);
+      expect(errors()).toMatchObject([{ severity: "critical" }]);
+      status().refreshThermalFaults(at + 120_000);
+      expect(errors().map((error) => error.severity)).toEqual(boardWarning ? ["warning"] : []);
+      status().setErrors([]);
+      status().refreshThermalFaults(at);
+      expect(errors()).toEqual([]);
+    } finally {
+      status().setErrors([]);
+    }
+  },
+);
+
+test("uses the latest eligible thermal state and rejects a future enclosing frame even when its adjusted age is current", () => {
+  const at = Date.parse(now);
+  const board = (offset: number, fault: boolean, age: number): V2Hashboard => ({
+    health: {
+      timestamp: new Date(at + offset).toISOString(),
+      psuThermal: { thermalStateValid: true, overTemperatureFault: fault, thermalStateAgeMs: age },
+    },
+  });
+  const response = wire([[board(-2_000, true, 0), board(-1_000, false, 0), board(10_000, true, 10_000)]]);
+  expect(toCanonicalErrors(response, "ct1", {}, at)).toEqual([]);
+  expect(toCanonicalErrors(response, "ct1", {}, at + 10_000)).toMatchObject([{ severity: "critical" }]);
 });
 
 test("keeps source observation time and stable identity across report reordering and recovery", () => {

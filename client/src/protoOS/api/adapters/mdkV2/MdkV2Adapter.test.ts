@@ -9,6 +9,7 @@ import { AUDIT_READ_TIMEOUT_MS } from "./controllerRecords";
 import {
   type V2GetContainerMapResponse,
   V2HashboardErrorCause,
+  type V2HashboardHealth,
   V2MiningOperatingState,
   V2PerformanceMode,
   V2PlantWriteConfirmationState,
@@ -18,10 +19,14 @@ import {
 } from "./generated/generatedApi";
 import { MdkV2Adapter, type MdkV2Client } from "./MdkV2Adapter";
 import { ROOT_MODULE_KEY } from "@/protoOS/store/contract";
+import { psuFaultReportNotice, psuFreshness, psuHealth } from "@/protoOS/store/utils/psuFreshness";
 import { isAbortError } from "@/shared/utils/abort";
 
 const client = (overrides: Partial<MdkV2Client> = {}) =>
   ({
+    miningServiceGetMiningStatus: vi.fn(async () => ({
+      data: { currentMeasurements: { evaluatedAt: new Date().toISOString() } },
+    })),
     miningGroupServiceGetMiningGroupCapability: vi.fn().mockResolvedValue({
       data: {
         capability: {
@@ -48,7 +53,373 @@ const client = (overrides: Partial<MdkV2Client> = {}) =>
     ...overrides,
   }) as unknown as MdkV2Client;
 
+const mapWithBoardHealth = (health: V2HashboardHealth): V2GetContainerMapResponse => {
+  const slot = { hashboard: { serial: "board", health } };
+  const tank = { id: 1, modules: [{ id: 1, slots: [slot] }] };
+  return { containerMap: { tanks: [tank] } };
+};
+
+const pendingMiningStatus = () => {
+  type Response = Awaited<ReturnType<MdkV2Client["miningServiceGetMiningStatus"]>>;
+  let resolve!: (response: Response) => void;
+  const promise = new Promise<Response>((finish) => (resolve = finish));
+  return { promise, resolve };
+};
+
 describe("MdkV2Adapter", () => {
+  test.each([-180_000, 180_000])("uses controller time with browser skew of %i ms", async (skew) => {
+    const controllerMs = Date.parse("2026-11-25T18:00:00Z");
+    const observation = new Date(controllerMs - 10_000).toISOString();
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(controllerMs + skew);
+    const monotonic = vi.spyOn(performance, "now").mockReturnValue(100);
+    try {
+      const adapter = new MdkV2Adapter(
+        client({
+          miningServiceGetMiningStatus: vi.fn().mockResolvedValue({
+            data: {
+              currentMeasurements: { evaluatedAt: new Date(controllerMs).toISOString() },
+            },
+          }),
+          hashboardServiceGetContainerMap: vi.fn().mockResolvedValue({
+            data: mapWithBoardHealth({
+              timestamp: observation,
+              temperatures: [0],
+              psuElectrical: { inputPower: 0, sampleAgeMs: 110_000 },
+              psuThermal: { thermalStateValid: true, thermalStateAgeMs: 109_999 },
+            }),
+          }),
+        }),
+      );
+      const data = await adapter.getCurrentTelemetry();
+      const psu = [...data.psus.values()][0];
+      expect(data.rollupsByEntity.get(ROOT_MODULE_KEY)?.temperature?.latest?.value).toBe(0);
+      expect(psuHealth(psu, adapter.telemetryNow())).toBe("ok");
+      expect(psuFreshness(psu, adapter.telemetryNow()).electrical).toBe("stale");
+      dateNow.mockReturnValue(controllerMs - skew);
+      monotonic.mockReturnValue(101);
+      expect(psuHealth(psu, adapter.telemetryNow())).toBe("unknown");
+    } finally {
+      dateNow.mockRestore();
+      monotonic.mockRestore();
+    }
+  });
+
+  test("preserves board faults and retained power when the controller does not report an evaluation time", async () => {
+    const getStatus = vi.fn().mockResolvedValue({ data: {} });
+    const adapter = new MdkV2Adapter(
+      client({
+        miningServiceGetMiningStatus: getStatus,
+        hashboardServiceGetContainerMap: vi.fn().mockResolvedValue({
+          data: mapWithBoardHealth({
+            timestamp: new Date().toISOString(),
+            temperatures: [32],
+            psuElectrical: { inputPower: 100 },
+            errors: [{ cause: V2HashboardErrorCause.HASHBOARD_ERROR_CAUSE_BOARD_POWER_SUPPLY }],
+          }),
+        }),
+      }),
+    );
+    const data = await adapter.getCurrentTelemetry();
+    expect(data.rollupsByEntity.get(ROOT_MODULE_KEY)?.temperature?.latest?.value).toBeNull();
+    const psu = [...data.psus.values()][0];
+    expect(psu.inputPower?.latest?.value).toBe(100);
+    expect(psuFreshness(psu, adapter.telemetryNow()).electrical).toBe("unavailable");
+    const faults = await adapter.getErrors();
+    expect(faults).toHaveLength(1);
+    expect(psuFaultReportNotice(faults, adapter.telemetryNow())).toBe("Board fault report age unavailable");
+    await adapter.getErrors();
+    expect(getStatus).toHaveBeenCalledTimes(1);
+
+    getStatus.mockResolvedValue({ data: { currentMeasurements: { evaluatedAt: new Date().toISOString() } } });
+    await adapter.getMiningStatus();
+    expect(psuFreshness(psu, adapter.telemetryNow()).electrical).toBe("current");
+    expect(psuFaultReportNotice(await adapter.getErrors(), adapter.telemetryNow())).toBe("");
+    expect(getStatus).toHaveBeenCalledTimes(2);
+  });
+
+  test("returns board and plant faults without AbortSignal.any on firmware that omits controller time", async () => {
+    class LegacyAbortSignal extends AbortSignal {}
+    Object.defineProperty(LegacyAbortSignal, "any", { value: undefined });
+    vi.stubGlobal("AbortSignal", LegacyAbortSignal);
+    try {
+      const boardFault = V2HashboardErrorCause.HASHBOARD_ERROR_CAUSE_BOARD_POWER_SUPPLY;
+      const getStatus = vi.fn().mockResolvedValue({ data: {} });
+      const adapter = new MdkV2Adapter(
+        client({
+          miningServiceGetMiningStatus: getStatus,
+          hashboardServiceGetContainerMap: vi.fn().mockResolvedValue({
+            data: mapWithBoardHealth({ errors: [{ cause: boardFault }] }),
+          }),
+          telemetryServiceGetContainerHealth: vi.fn().mockResolvedValue({
+            data: { alarms: [{ id: "pump_overload", severity: V2Severity.SEVERITY_CRITICAL }] },
+          }),
+        }),
+      );
+      const { signal } = new AbortController();
+      for (let poll = 0; poll < 2; poll++) {
+        const faults = await adapter.getErrors({ signal });
+        expect(faults.map((fault) => fault.code)).toEqual([boardFault, "pump_overload"]);
+      }
+      expect(getStatus).toHaveBeenCalledOnce();
+      expect(adapter.telemetryNow()).toBeNaN();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("returns board faults immediately and ignores a clock probe that times out", async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = pendingMiningStatus();
+      const getStatus = vi.fn<MdkV2Client["miningServiceGetMiningStatus"]>(() => pending.promise);
+      const adapter = new MdkV2Adapter(
+        client({
+          miningServiceGetMiningStatus: getStatus,
+          hashboardServiceGetContainerMap: vi.fn().mockResolvedValue({
+            data: mapWithBoardHealth({
+              timestamp: new Date().toISOString(),
+              errors: [{ cause: V2HashboardErrorCause.HASHBOARD_ERROR_CAUSE_BOARD_POWER_SUPPLY }],
+            }),
+          }),
+        }),
+      );
+      const faults = await adapter.getErrors();
+      expect(getStatus.mock.calls[0][0]?.signal?.aborted).toBe(false);
+      await adapter.getErrors();
+      expect(getStatus).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(getStatus.mock.calls[0][0]?.signal?.aborted).toBe(true);
+      expect(faults).toHaveLength(1);
+      expect(psuFaultReportNotice(faults, adapter.telemetryNow())).toBe("Board fault report age unavailable");
+
+      pending.resolve({ data: { currentMeasurements: { evaluatedAt: new Date().toISOString() } } });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(adapter.telemetryNow()).toBeNaN();
+      getStatus.mockResolvedValueOnce({ data: { currentMeasurements: { evaluatedAt: new Date().toISOString() } } });
+      await adapter.getErrors();
+      expect(getStatus).toHaveBeenCalledTimes(2);
+      expect(Number.isFinite(adapter.telemetryNow())).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("accepts a slow clock probe without delaying fault polling", async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = pendingMiningStatus();
+      const adapter = new MdkV2Adapter(
+        client({
+          miningServiceGetMiningStatus: () => pending.promise,
+          hashboardServiceGetContainerMap: vi.fn().mockResolvedValue({ data: {} }),
+        }),
+      );
+      await adapter.getErrors();
+      expect(adapter.telemetryNow()).toBeNaN();
+      await vi.advanceTimersByTimeAsync(3_000);
+      const evaluatedAt = Date.now();
+      pending.resolve({ data: { currentMeasurements: { evaluatedAt: new Date(evaluatedAt).toISOString() } } });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(adapter.telemetryNow()).toBe(evaluatedAt + 1_500);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("discards a first status response delivered after sleep and recovers on the next evaluation", async () => {
+    const at = Date.parse("2026-11-25T18:00:00Z");
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(at);
+    const monotonic = vi.spyOn(performance, "now").mockReturnValue(10);
+    try {
+      const first = pendingMiningStatus();
+      const afterSleep = at + 180_000;
+      const getStatus = vi
+        .fn()
+        .mockReturnValueOnce(first.promise)
+        .mockResolvedValueOnce({ data: { currentMeasurements: { evaluatedAt: new Date(afterSleep).toISOString() } } });
+      const adapter = new MdkV2Adapter(client({ miningServiceGetMiningStatus: getStatus }));
+      const request = adapter.getMiningStatus();
+      dateNow.mockReturnValue(afterSleep);
+      monotonic.mockReturnValue(30);
+      first.resolve({ data: { currentMeasurements: { evaluatedAt: new Date(at).toISOString() } } });
+      await request;
+      expect(adapter.telemetryNow()).toBeNaN();
+
+      await adapter.checkTelemetryClock();
+      expect(adapter.telemetryNow()).toBe(afterSleep);
+      expect(getStatus).toHaveBeenCalledTimes(2);
+    } finally {
+      dateNow.mockRestore();
+      monotonic.mockRestore();
+    }
+  });
+
+  test.each([0, 240_000])(
+    "refreshes the stopped clock on resume after correcting %i ms of browser skew",
+    async (skew) => {
+      const controllerMs = Date.parse("2026-11-25T18:00:00Z");
+      const readAt = (at: number) => ({ data: { currentMeasurements: { evaluatedAt: new Date(at).toISOString() } } });
+      const dateNow = vi.spyOn(Date, "now").mockReturnValue(controllerMs + skew);
+      const monotonic = vi.spyOn(performance, "now").mockReturnValue(100);
+      try {
+        const pending = pendingMiningStatus();
+        const getStatus = vi.fn().mockResolvedValueOnce(readAt(controllerMs)).mockReturnValueOnce(pending.promise);
+        const adapter = new MdkV2Adapter(client({ miningServiceGetMiningStatus: getStatus }));
+
+        await adapter.getMiningStatus();
+        dateNow.mockReturnValue(controllerMs + 180_000);
+        // A foreground timer can see the backward correction before the focus event.
+        if (skew) {
+          await adapter.checkTelemetryClock();
+          expect(getStatus).toHaveBeenCalledTimes(1);
+        }
+        const resumed = adapter.resumeTelemetryClock();
+        expect(adapter.telemetryNow()).toBeNaN();
+        expect(getStatus).toHaveBeenCalledTimes(2);
+
+        pending.resolve(readAt(controllerMs + 180_000));
+        await resumed;
+        expect(adapter.telemetryNow()).toBe(controllerMs + 180_000);
+      } finally {
+        dateNow.mockRestore();
+        monotonic.mockRestore();
+      }
+    },
+  );
+
+  test.each([
+    ["before", 0],
+    ["after", 0],
+    ["before", 240_000],
+    ["after", 240_000],
+  ] as const)("keeps a post-wake poll that finishes %s resume with %i ms of initial skew", async (order, skew) => {
+    const at = Date.parse("2026-11-25T18:00:00Z");
+    const afterWake = at + 180_000;
+    const response = (time: number) => ({
+      data: { currentMeasurements: { evaluatedAt: new Date(time).toISOString() } },
+    });
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(at + skew);
+    const monotonic = vi.spyOn(performance, "now").mockReturnValue(100);
+    try {
+      const poll = pendingMiningStatus();
+      const getStatus = vi
+        .fn()
+        .mockResolvedValueOnce(response(at))
+        .mockReturnValueOnce(poll.promise)
+        .mockRejectedValue(new Error("Clock check failed"));
+      const adapter = new MdkV2Adapter(client({ miningServiceGetMiningStatus: getStatus }));
+      await adapter.getMiningStatus();
+      dateNow.mockReturnValue(afterWake);
+      monotonic.mockReturnValue(120);
+      const regularPoll = adapter.getMiningStatus();
+      if (order === "after") {
+        await adapter.resumeTelemetryClock();
+        expect(adapter.telemetryNow()).toBeNaN();
+      }
+      poll.resolve(response(afterWake));
+      await regularPoll;
+      await adapter.resumeTelemetryClock();
+      expect(adapter.telemetryNow()).toBe(afterWake);
+      expect(getStatus).toHaveBeenCalledTimes(order === "before" ? 2 : 3);
+    } finally {
+      dateNow.mockRestore();
+      monotonic.mockRestore();
+    }
+  });
+
+  test.each([false, true])("discards the unconfirmed clock after system sleep (focus event: %s)", async (focus) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const controllerMs = Date.parse("2026-11-25T18:00:00Z");
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(controllerMs);
+    const monotonic = vi.spyOn(performance, "now").mockReturnValue(100);
+    try {
+      const getStatus = vi
+        .fn<MdkV2Client["miningServiceGetMiningStatus"]>()
+        .mockResolvedValueOnce({ data: { currentMeasurements: { evaluatedAt: new Date(controllerMs).toISOString() } } })
+        .mockReturnValueOnce(pendingMiningStatus().promise);
+      const adapter = new MdkV2Adapter(client({ miningServiceGetMiningStatus: getStatus }));
+      await adapter.getMiningStatus();
+      dateNow.mockReturnValue(controllerMs + 1_000);
+      monotonic.mockReturnValue(1_100);
+      await adapter.checkTelemetryClock();
+      expect(getStatus).toHaveBeenCalledTimes(1);
+
+      dateNow.mockReturnValue(controllerMs + 180_000);
+      const afterSleep = adapter.checkTelemetryClock();
+      expect(adapter.telemetryNow()).toBeNaN();
+      const resumed = focus ? adapter.resumeTelemetryClock() : undefined;
+      expect(getStatus).toHaveBeenCalledTimes(2);
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      await afterSleep;
+      await resumed;
+      expect(getStatus.mock.calls[1][0]?.signal?.aborted).toBe(true);
+      expect(adapter.telemetryNow()).toBeNaN();
+    } finally {
+      dateNow.mockRestore();
+      monotonic.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  test("cancels a pending clock check when the caller aborts", async () => {
+    const controllerMs = Date.parse("2026-11-25T18:00:00Z");
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(controllerMs);
+    const monotonic = vi.spyOn(performance, "now").mockReturnValue(100);
+    try {
+      const getStatus = vi
+        .fn<MdkV2Client["miningServiceGetMiningStatus"]>()
+        .mockResolvedValueOnce({ data: { currentMeasurements: { evaluatedAt: new Date(controllerMs).toISOString() } } })
+        .mockReturnValueOnce(pendingMiningStatus().promise);
+      const adapter = new MdkV2Adapter(client({ miningServiceGetMiningStatus: getStatus }));
+      await adapter.getMiningStatus();
+      dateNow.mockReturnValue(controllerMs + 180_000);
+
+      const caller = new AbortController();
+      const check = adapter.checkTelemetryClock({ signal: caller.signal });
+      caller.abort();
+      await expect(check).rejects.toBe(caller.signal.reason);
+      expect(getStatus.mock.calls[1][0]?.signal?.aborted).toBe(true);
+      expect(adapter.telemetryNow()).toBeNaN();
+    } finally {
+      dateNow.mockRestore();
+      monotonic.mockRestore();
+    }
+  });
+
+  test("confirms a forward wall-clock adjustment and keeps the clock after a backward adjustment", async () => {
+    const controllerMs = Date.parse("2026-11-25T18:00:00Z");
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(controllerMs);
+    const monotonic = vi.spyOn(performance, "now").mockReturnValue(100);
+    try {
+      const getStatus = vi.fn<MdkV2Client["miningServiceGetMiningStatus"]>().mockResolvedValueOnce({
+        data: { currentMeasurements: { evaluatedAt: new Date(controllerMs).toISOString() } },
+      });
+      const pending = pendingMiningStatus();
+      getStatus.mockReturnValueOnce(pending.promise);
+      const adapter = new MdkV2Adapter(client({ miningServiceGetMiningStatus: getStatus }));
+      await adapter.getMiningStatus();
+
+      const nextControllerMs = controllerMs + 1_000;
+      dateNow.mockReturnValue(nextControllerMs + 180_000);
+      monotonic.mockReturnValue(1_100);
+      const adjusted = adapter.checkTelemetryClock();
+      expect(adapter.telemetryNow()).toBeNaN();
+      pending.resolve({ data: { currentMeasurements: { evaluatedAt: new Date(nextControllerMs).toISOString() } } });
+      await adjusted;
+      expect(getStatus).toHaveBeenCalledTimes(2);
+      expect(adapter.telemetryNow()).toBe(nextControllerMs);
+
+      dateNow.mockReturnValue(nextControllerMs - 180_000);
+      await adapter.checkTelemetryClock();
+      expect(getStatus).toHaveBeenCalledTimes(2);
+      expect(adapter.telemetryNow()).toBe(nextControllerMs);
+    } finally {
+      dateNow.mockRestore();
+      monotonic.mockRestore();
+    }
+  });
+
   test("pool settings preserve string IDs and use masked edits without resetting credentials or weights", async () => {
     const update = vi.fn();
     const create = vi.fn();

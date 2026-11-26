@@ -29,7 +29,7 @@ import {
   tankModules,
 } from "@/protoOS/features/tanks/tankView";
 import { useTankPower } from "@/protoOS/features/tanks/useTankPower";
-import { usePsuObservationTime } from "@/protoOS/hooks/usePsuObservationTime";
+import { useObservationTime } from "@/protoOS/hooks/usePsuObservationTime";
 import {
   asEntityKey,
   type ContainerTopology,
@@ -552,7 +552,7 @@ const DryCoolerDiagnostics = ({ data }: { data: NonNullable<ReturnType<typeof us
   const [showSettings, setShowSettings] = useState(false);
   const [selectedFan, setSelectedFan] = useState<string>();
   const infoFan = data.fans.find((fan) => fan.id === selectedFan);
-  const nowMs = usePsuObservationTime(data.fans.some((fan) => fan.telemetry?.observedAtMs !== undefined));
+  const nowMs = useObservationTime(data.fans.some((fan) => fan.telemetry?.observedAtMs !== undefined));
   const infoStale = isFanStale(infoFan?.telemetry, nowMs);
   const infoSpeed = infoStale ? undefined : latest(infoFan?.telemetry?.speedPercent);
   const plant = data.plant;

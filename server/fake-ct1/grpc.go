@@ -129,7 +129,10 @@ func (a *grpcAPI) GetMiningStatus(context.Context, *mdk.GetMiningStatusRequest) 
 	out := new(mdk.GetMiningStatusResponse)
 	err := a.snapshot(func(s *ContainerState) any { return s.miningStatusDTO() }, out)
 	if err == nil {
-		out.CurrentMeasurements = &mdk.MiningCurrentMeasurements{Source: mdk.MiningMeasurementSource_MINING_MEASUREMENT_SOURCE_PERSISTED_BOARD_HEALTH, Scope: mdk.MiningMeasurementScope_MINING_MEASUREMENT_SCOPE_SHARED_ASSIGNMENTS, HashboardPowerW: &mdk.MiningCurrentMeasurement{Value: &out.Power, Complete: true, ExpectedBoards: uint32(out.TotalBoards), ReportingBoards: uint32(out.TotalBoards)}}
+		measurements := out.CurrentMeasurements
+		measurements.Source = mdk.MiningMeasurementSource_MINING_MEASUREMENT_SOURCE_PERSISTED_BOARD_HEALTH
+		measurements.Scope = mdk.MiningMeasurementScope_MINING_MEASUREMENT_SCOPE_SHARED_ASSIGNMENTS
+		measurements.HashboardPowerW = &mdk.MiningCurrentMeasurement{Value: &out.Power, Complete: true, ExpectedBoards: uint32(out.TotalBoards), ReportingBoards: uint32(out.TotalBoards)}
 	}
 	return out, err
 }

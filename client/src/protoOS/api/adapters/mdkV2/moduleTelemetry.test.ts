@@ -1,11 +1,14 @@
 import { describe, expect, test } from "vitest";
 
-import type { V2Hashboard } from "./generated/generatedApi";
+import type { V2GetContainerHealthResponse, V2Hashboard } from "./generated/generatedApi";
 import { toCanonicalContainer, toCanonicalHashboardStatus } from "./normalize";
+import { containerInventory } from "@/protoOS/features/settings/components/Hardware/containerInventory";
 import { asEntityKey, ROOT_MODULE_KEY } from "@/protoOS/store/contract";
+import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
 import useMinerStore from "@/protoOS/store/useMinerStore";
+import { createEmptyTelemetryState } from "@/protoOS/store/utils/createEmptyTelemetryState";
 
-const normalizeModules = (modules: V2Hashboard[][]) =>
+const normalizeModules = (modules: V2Hashboard[][], health: V2GetContainerHealthResponse = {}, now?: number) =>
   toCanonicalContainer(
     {
       containerMap: {
@@ -27,8 +30,9 @@ const normalizeModules = (modules: V2Hashboard[][]) =>
       },
     },
     {},
-    {},
+    health,
     "ct1",
+    now,
   );
 
 describe("CT1 efficiency", () => {
@@ -76,6 +80,93 @@ describe("CT1 efficiency", () => {
 });
 
 describe("module PSU telemetry", () => {
+  test.each([0, undefined])(
+    "reprojects retained module and tank input (%s W) before topology bootstrap",
+    (inputPower) => {
+      const now = Date.parse("2026-11-17T19:00:00Z");
+      const snapshot = normalizeModules(
+        [
+          [
+            {
+              health: {
+                timestamp: new Date(now - 150_000).toISOString(),
+                hashrate: 25,
+                psuElectrical: { inputPower: 500, inputVoltage: 410 },
+                psuThermal: { inletTemperature: 30 },
+              },
+            },
+            {
+              health: {
+                timestamp: new Date(now + 6_000).toISOString(),
+                hashrate: 25,
+                psuElectrical: { inputPower, inputVoltage: 490, sampleAgeMs: 10_000 },
+                psuThermal: { inletTemperature: 60 },
+              },
+            },
+          ],
+          [{ health: { timestamp: new Date(now).toISOString(), hashrate: 100, psuElectrical: { inputPower: 1000 } } }],
+        ],
+        { plant: { facilityPowerW: 12_000 } },
+        NaN,
+      );
+      const [module, sibling] = [...snapshot.hardware.topology!.modules.values()];
+      const moduleKey = asEntityKey(module.id);
+      const siblingKey = asEntityKey(sibling.id);
+      const tankKey = asEntityKey(module.tankId!);
+      const points = [{ timestampMs: now - 10_000, value: 2000 }];
+      snapshot.telemetry.rollupsByEntity.get(tankKey)!.power!.timeSeries = { points, units: "W" };
+      const store = useMinerStore.getState;
+      store().resetDeviceData();
+      try {
+        const telemetry = () => store().telemetry;
+        telemetry().mergeTelemetry(snapshot.telemetry);
+        const row = (key: typeof moduleKey) => telemetry().rollupsByEntity.get(key);
+        const check = (key: typeof moduleKey, power: number | null, efficiency: number | null) => {
+          expect(row(key)).toMatchObject({
+            power: { latest: { value: power } },
+            efficiency: { latest: { value: efficiency } },
+            powerCoverage: { kind: power === null ? "unknown" : "complete" },
+          });
+        };
+        const unaffected = [row(siblingKey), row(ROOT_MODULE_KEY), telemetry().plant];
+        const retainedTankPower = inputPower === 0 ? 1000 : null;
+
+        expect(store().hardware.topology).toBeUndefined();
+        check(moduleKey, inputPower ?? null, inputPower ?? null);
+        check(tankKey, retainedTankPower, inputPower === 0 ? 1000 / 150 : null);
+        telemetry().refreshPsuReadings(now);
+        const psu = () => telemetry().psus.get(module.psuIds[0]);
+        expect(psu()).toMatchObject({
+          inputVoltage: { latest: { value: 410 } },
+          inletTemperature: { latest: { value: 30 } },
+          observedAt: { electrical: now - 150_000, temperatures: now - 150_000 },
+        });
+        check(moduleKey, 500, 10);
+        check(tankKey, 1500, 10);
+
+        telemetry().refreshPsuReadings(now + 1_000);
+        expect(psu()).toMatchObject({
+          inputVoltage: { latest: { value: 490 } },
+          inletTemperature: { latest: { value: 60 } },
+          observedAt: { electrical: now - 4_000, temperatures: now + 6_000 },
+        });
+        check(moduleKey, inputPower ?? null, inputPower ?? null);
+        check(tankKey, retainedTankPower, inputPower === 0 ? 1000 / 150 : null);
+        expect(row(tankKey)?.power?.timeSeries?.points).toEqual(points);
+        expect(row(siblingKey)).toBe(unaffected[0]);
+        expect(row(ROOT_MODULE_KEY)).toBe(unaffected[1]);
+        expect(telemetry().plant).toBe(unaffected[2]);
+        expect([...telemetry().plant.values()][0].facilityPower?.latest?.value).toBe(12_000);
+
+        const prior = telemetry();
+        telemetry().refreshPsuReadings(now + 2_000);
+        expect(telemetry()).toBe(prior);
+      } finally {
+        store().resetDeviceData();
+      }
+    },
+  );
+
   test("uses each module's freshest PSU input once for module and tank power and efficiency", () => {
     const { hardware, telemetry } = normalizeModules([
       [
@@ -218,6 +309,183 @@ describe("module PSU telemetry", () => {
     expect(useMinerStore.getState().telemetry.psus).toBe(before.telemetry.psus);
   });
 
+  test.each([false, true])(
+    "keeps newer PSU and plant inventory during hardware refresh (topology exists: %s)",
+    (ready) => {
+      const store = useMinerStore.getState;
+      store().resetDeviceData();
+      try {
+        if (ready) store().hardware.replaceHardware(normalizeModules([[{}], [{}]]).hardware);
+        const acceptHardware = beginStoreWrite("hardware");
+        const acceptTelemetry = beginStoreWrite("telemetry:current:hashboard,miner");
+        const older = normalizeModules(
+          [
+            [{ psuIdentity: { serial: "old-psu" }, health: { psuElectrical: { inputPower: 1000 } } }],
+            [{ psuIdentity: { serial: "unreported-psu" }, health: { psuElectrical: { inputPower: 2000 } } }],
+          ],
+          { powerDistributions: [{ componentId: "old-feed", activePowerW: 6000 }] },
+        );
+        const current = normalizeModules(
+          [[{ psuIdentity: { serial: "new-psu" }, health: { psuElectrical: { inputPower: 3000 } } }], [{}]],
+          { powerDistributions: [{ componentId: "new-feed", activePowerW: 7000 }] },
+        );
+        expect(acceptTelemetry()).toBe(true);
+        store().telemetry.mergeTelemetry(current.telemetry, acceptTelemetry.requestId);
+        expect([...store().hardware.psus.keys()]).toEqual(ready ? [...current.hardware.psus.keys()] : []);
+        expect(acceptHardware()).toBe(true);
+        store().telemetry.mergeTelemetry(older.telemetry, acceptHardware.requestId, older.hardware);
+
+        const { hardware, telemetry } = store();
+        const topology = hardware.topology;
+        if (topology?.kind !== "container") throw new Error("Expected installed container topology");
+        const [reported, unreported] = [...topology.modules.values()];
+        const [id] = current.hardware.psus.keys();
+        expect(reported.psuIds).toEqual([id]);
+        expect(unreported.psuIds).toEqual([]);
+        expect([...hardware.psus.keys()]).toEqual([id]);
+        expect(hardware.psus.get(id)?.serialNumber).toBe("new-psu");
+        expect(telemetry.psus.get(id)?.inputPower?.latest?.value).toBe(3000);
+        expect([...telemetry.psus.keys()]).toEqual([id]);
+        expect([...hardware.plant.keys()]).toEqual([...current.hardware.plant.keys()]);
+        expect(topology.container.plantComponentIds).toEqual([...current.hardware.plant.keys()]);
+        const feed = [...hardware.plant.values()].find((component) => component.name === "new-feed");
+        expect(feed && telemetry.plant.get(feed.ref.id)?.totalPower?.latest?.value).toBe(7000);
+        expect([...telemetry.plant.keys()]).toEqual([...current.telemetry.plant.keys()]);
+      } finally {
+        store().resetDeviceData();
+      }
+    },
+  );
+
+  test("publishes a pending PSU only after its reported module joins the topology", () => {
+    const reportedModuleId = "0011223344556677";
+    const snapshot = (moduleId: string | undefined, model: string, inputPower: number) =>
+      normalizeModules([
+        [{ moduleId, psuIdentity: { serial: "PSU-A", model }, health: { psuElectrical: { inputPower } } }],
+      ]);
+    const initial = snapshot(undefined, "original", 1000);
+    const delayed = snapshot(reportedModuleId, "older inventory", 2000);
+    const first = snapshot(reportedModuleId, "first poll", 3000);
+    const latest = snapshot(reportedModuleId, "latest poll", 4000);
+    const [originalPsuId] = initial.hardware.psus.keys();
+    const [reportedPsuId] = latest.hardware.psus.keys();
+    expect(reportedPsuId).not.toBe(originalPsuId);
+
+    const store = useMinerStore.getState;
+    const psuInventory = () => containerInventory(store().hardware).find(({ name }) => name === "PSUs")?.items;
+    store().resetDeviceData();
+    try {
+      const acceptInitial = beginStoreWrite("hardware");
+      expect(acceptInitial()).toBe(true);
+      store().telemetry.mergeTelemetry(initial.telemetry, acceptInitial.requestId, initial.hardware);
+      const acceptDelayed = beginStoreWrite("hardware");
+      for (const [result, power] of [
+        [first, 3000],
+        [latest, 4000],
+      ] as const) {
+        const acceptPoll = beginStoreWrite("telemetry:current:hashboard,miner");
+        expect(acceptPoll()).toBe(true);
+        store().telemetry.mergeTelemetry(result.telemetry, acceptPoll.requestId);
+        expect(psuInventory()).toMatchObject([{ id: originalPsuId, serialNumber: "PSU-A" }]);
+        expect(store().telemetry.psus.get(reportedPsuId)?.inputPower?.latest?.value).toBe(power);
+      }
+
+      expect(acceptDelayed()).toBe(true);
+      store().telemetry.mergeTelemetry(delayed.telemetry, acceptDelayed.requestId, delayed.hardware);
+      expect(psuInventory()).toMatchObject([{ id: reportedPsuId, serialNumber: "PSU-A", model: "latest poll" }]);
+      expect([...store().hardware.topology!.modules.values()][0].psuIds).toEqual([reportedPsuId]);
+      expect(store().telemetry.psus.get(reportedPsuId)?.inputPower?.latest?.value).toBe(4000);
+    } finally {
+      store().resetDeviceData();
+    }
+  });
+
+  test.each([false, true])("keeps a pending PSU through a missing reading (module removed: %s)", (removed) => {
+    const moduleId = "0011223344556677";
+    const ready = normalizeModules([
+      [
+        {
+          moduleId,
+          psuIdentity: { serial: "PSU-A" },
+          health: { temperatures: [42], psuElectrical: { inputPower: 5000 } },
+        },
+      ],
+    ]);
+    const missing = normalizeModules(removed ? [] : [[{ moduleId }]]);
+    const [id] = ready.hardware.psus.keys();
+    const [reportedModule] = ready.hardware.topology!.modules.keys();
+    const store = useMinerStore.getState;
+    store().resetDeviceData();
+    try {
+      store().telemetry.mergeTelemetry(ready.telemetry, 2);
+      const moduleReadings = () => store().telemetry.rollupsByEntity.get(asEntityKey(reportedModule));
+      expect(moduleReadings()?.power?.latest?.value).toBe(5000);
+      expect(moduleReadings()?.temperature?.latest?.value).toBe(42);
+      store().telemetry.mergeTelemetry(missing.telemetry, 3);
+      expect(store().hardware.psus.size).toBe(0);
+      expect(moduleReadings()?.power?.latest?.value).toBeNull();
+      expect(moduleReadings()?.temperature?.latest?.value).toBeNull();
+
+      store().telemetry.mergeTelemetry(ready.telemetry, 1, ready.hardware);
+      const inventory = containerInventory(store().hardware).find(({ name }) => name === "PSUs");
+      expect(inventory?.items ?? []).toMatchObject(removed ? [] : [{ id, serialNumber: "PSU-A" }]);
+      expect([...store().hardware.topology!.modules.values()][0].psuIds).toEqual(removed ? [] : [id]);
+      expect(store().telemetry.psus.get(id)?.inputPower?.latest?.value).toBeNull();
+      expect(moduleReadings()?.power?.latest?.value).toBeNull();
+      expect(moduleReadings()?.temperature?.latest?.value).toBeNull();
+    } finally {
+      store().resetDeviceData();
+    }
+  });
+
+  test("a delayed hardware refresh keeps the PSU only for the module still reported", () => {
+    const initial = normalizeModules([[{ psuIdentity: { serial: "PSU-A" } }], [{ psuIdentity: { serial: "PSU-B" } }]]);
+    const delayed = normalizeModules([[{}], [{}]]);
+    const latest = normalizeModules([[{}]]);
+    const store = useMinerStore.getState;
+    const serials = () =>
+      containerInventory(store().hardware)
+        .find(({ name }) => name === "PSUs")
+        ?.items?.map((psu) => psu.serialNumber);
+    store().resetDeviceData();
+    try {
+      store().telemetry.mergeTelemetry(initial.telemetry, 1, initial.hardware);
+      expect(serials()).toEqual(["PSU-A", "PSU-B"]);
+      const [firstPsuId] = initial.hardware.psus.keys();
+
+      store().telemetry.mergeTelemetry(latest.telemetry, 3);
+      store().telemetry.mergeTelemetry(delayed.telemetry, 2, delayed.hardware);
+      expect(serials()).toEqual(["PSU-A"]);
+      const [first, second] = store().hardware.topology!.modules.values();
+      expect(first.psuIds).toEqual([firstPsuId]);
+      expect(second.psuIds).toEqual([]);
+    } finally {
+      store().resetDeviceData();
+    }
+  });
+
+  test("a delayed map cannot restore a removed tank's readings", () => {
+    const ready = normalizeModules([[{ health: { temperatures: [42], psuElectrical: { inputPower: 5000 } } }]]);
+    const empty = toCanonicalContainer({ containerMap: { tanks: [] } }, {}, {}, "ct1");
+    const [module] = ready.hardware.topology!.modules.values();
+    const key = asEntityKey(module.tankId!);
+    const store = useMinerStore.getState;
+    const tank = () => store().telemetry.rollupsByEntity.get(key);
+    store().resetDeviceData();
+    try {
+      store().telemetry.mergeTelemetry(ready.telemetry, 2);
+      expect(tank()?.temperature?.latest?.value).toBe(42);
+      expect(tank()?.power?.latest?.value).toBe(5000);
+      store().telemetry.mergeTelemetry(empty.telemetry, 3);
+      store().telemetry.mergeTelemetry(ready.telemetry, 1, ready.hardware);
+      expect(tank()?.temperature?.latest?.value).toBeNull();
+      expect(tank()?.power?.latest?.value).toBeNull();
+      expect(tank()?.miningStatus).toBe("unknown");
+    } finally {
+      store().resetDeviceData();
+    }
+  });
+
   test("shares one PSU per module and keeps warnings on their owning module", () => {
     const result = normalizeModules([
       [
@@ -345,4 +613,96 @@ describe("CT1 ASIC display positions", () => {
 test("retains explicit isolation separately from offline health", () => {
   const { telemetry } = normalizeModules([[{ isolated: true }]]);
   expect([...telemetry.hashboards.values()][0]).toMatchObject({ isolated: true, health: "offline" });
+});
+
+test("expires board-sensor summaries in every scope even if the next poll fails", () => {
+  const now = Date.now();
+  const snapshot = normalizeModules([
+    [
+      { health: { temperatures: [0], timestamp: new Date(now).toISOString() } },
+      { health: { temperatures: [40, 50], timestamp: new Date(now - 60_000).toISOString() } },
+    ],
+  ]);
+  const store = () => useMinerStore.getState().telemetry;
+  store().clearAllData();
+  try {
+    store().mergeTelemetry(snapshot.telemetry);
+    // A summary poll supplies no new board observations.
+    const summary = toCanonicalContainer(undefined, { averageHashboardTemperatureC: 90 }, {}, "ct1").telemetry;
+    store().mergeTelemetry(summary);
+    for (const [elapsed, average, minimum, maximum] of [
+      [0, 30, 0, 50],
+      [60_000, 0, 0, 0],
+      [120_000, null, null, null],
+    ] as const) {
+      store().refreshBoardTemperatures(now + elapsed);
+      for (const row of store().rollupsByEntity.values()) {
+        expect(row.temperature?.latest?.value).toBe(average);
+        expect(row.minimumTemperature?.latest?.value).toBe(minimum);
+        expect(row.maximumTemperature?.latest?.value).toBe(maximum);
+      }
+    }
+  } finally {
+    store().clearAllData();
+  }
+});
+
+test.each([NaN, -20_000])("recovers temperatures after a clock interruption and a map read at offset %s", (offset) => {
+  const at = Date.parse("2026-01-01T00:00:00Z");
+  const full = (value: number, now: number) =>
+    normalizeModules([[{ health: { temperatures: [value], timestamp: new Date(at).toISOString() } }]], {}, now);
+  const store = () => useMinerStore.getState().telemetry;
+  const temperature = () => store().rollupsByEntity.get(ROOT_MODULE_KEY)?.temperature?.latest?.value;
+  store().clearAllData();
+  try {
+    store().mergeTelemetry(full(42, at).telemetry);
+    store().refreshBoardTemperatures(NaN);
+    expect(temperature()).toBeNull();
+    store().refreshBoardTemperatures(at + 5_000);
+    expect(temperature()).toBe(42);
+
+    store().mergeTelemetry(full(0, at + offset).telemetry);
+    expect(temperature()).toBeNull();
+    store().refreshBoardTemperatures(at + 5_000);
+    expect(temperature()).toBe(0);
+    store().refreshBoardTemperatures(at + 120_000);
+    expect(temperature()).toBeNull();
+  } finally {
+    store().clearAllData();
+  }
+});
+
+test.each([
+  { state: "an empty store", cached: false },
+  { state: "a cached board summary", cached: true },
+])("applies a full board summary after a newer miner-only poll with $state", ({ cached }) => {
+  const full = (temperatures: number[]) => normalizeModules([[{ health: { temperatures } }]]);
+  const summary = toCanonicalContainer(undefined, { averageHashboardTemperatureC: 90, power: 600 }, {}, "ct1");
+  const history = createEmptyTelemetryState();
+  const timeSeries = { points: [{ timestampMs: 1, value: 100 }], units: "°C" as const };
+  history.rollupsByEntity.set(ROOT_MODULE_KEY, { temperature: { timeSeries } });
+  const store = () => useMinerStore.getState().telemetry;
+  store().clearAllData();
+  try {
+    if (cached) store().mergeTelemetry(full([20, 40]).telemetry, 1);
+    store().mergeTelemetry(summary.telemetry, 4);
+    store().mergeTelemetry(history, 5);
+    const updated = full([30, 50]);
+    store().mergeTelemetry(updated.telemetry, 3);
+    store().mergeTelemetry(full([60, 80]).telemetry, 2);
+
+    const topology = updated.hardware.topology;
+    if (topology?.kind !== "container") throw new Error("Expected a container fixture");
+    for (const key of [ROOT_MODULE_KEY, asEntityKey(topology.containerId)]) {
+      expect(store().rollupsByEntity.get(key)).toMatchObject({
+        minimumTemperature: { latest: { value: 30 } },
+        temperature: { latest: { value: 40 } },
+        maximumTemperature: { latest: { value: 50 } },
+        power: { latest: { value: 600 } },
+      });
+    }
+    expect(store().rollupsByEntity.get(ROOT_MODULE_KEY)?.temperature?.timeSeries).toEqual(timeSeries);
+  } finally {
+    store().clearAllData();
+  }
 });

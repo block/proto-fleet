@@ -30,10 +30,10 @@ const useErrors = ({ enabled = true, poll = false, pollIntervalMs }: UseErrorsPr
       setPending(true);
       const accept = beginStoreWrite("errors:current");
       setError(undefined);
-      return adapter
-        .getErrors({ signal })
+      const request = adapter.getErrorObservations?.({ signal }) ?? adapter.getErrors({ signal });
+      return request
         .then((errors) => {
-          if (accept()) setErrors(errors);
+          if (accept()) setErrors(errors, adapter.telemetryNow?.());
         })
         .catch((err) => {
           // A cancel from navigation/unmount is teardown, not an auth failure.

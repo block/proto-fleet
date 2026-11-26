@@ -16,6 +16,7 @@ import type {
   Measurement,
   MinerAdapterId,
   MinerError,
+  MinerErrorObservations,
   MiningTarget,
   MiningTargetUpdate,
   NetworkInfoState,
@@ -259,7 +260,12 @@ export interface MinerAdapter {
   getControllerDiagnostics?(params?: AdapterRequestOptions): Promise<ControllerDiagnosticsResult>;
   getSystemTag(params?: AdapterRequestOptions): Promise<string>;
   setSystemTag(value: string, params?: AdapterRequestOptions): Promise<void>;
+  /** Current controller epoch in milliseconds, or NaN until calibrated. */
+  telemetryNow?(): number;
+  checkTelemetryClock?(params?: AdapterRequestOptions): Promise<void>;
+  resumeTelemetryClock?(params?: AdapterRequestOptions): Promise<void>;
   getMiningStatus(params?: AdapterRequestOptions): Promise<OperationalStatus>;
+  getErrorObservations?(params?: AdapterRequestOptions): Promise<MinerErrorObservations>;
   getErrors(params?: AdapterRequestOptions): Promise<MinerError[]>;
   getPools(params?: AdapterRequestOptions): Promise<PoolInfo[]>;
   getPoolHistory?(request: PoolHistoryRequest, params?: AdapterRequestOptions): Promise<PoolHistoryResult>;

@@ -733,7 +733,9 @@ describe("container Home integration", () => {
     useMinerStore.getState().hardware.replaceHardware(fixture.hardware);
     const client = {
       hashboardServiceGetContainerMap: vi.fn().mockResolvedValue({ data: map }),
-      miningServiceGetMiningStatus: vi.fn().mockResolvedValue({ data: {} }),
+      miningServiceGetMiningStatus: vi.fn(async () => ({
+        data: { currentMeasurements: { evaluatedAt: new Date().toISOString() } },
+      })),
       telemetryServiceGetContainerHealth: vi.fn().mockResolvedValue({ data: {} }),
       telemetryServiceQueryTimeSeries: vi.fn(),
     };

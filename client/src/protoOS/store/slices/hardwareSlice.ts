@@ -6,9 +6,12 @@ import {
   asDeviceId,
   type AsicHardware,
   type AsicId,
+  type ComponentId,
+  type ContainerId,
   type HardwareState,
   type HashboardId,
   type HashboardNode,
+  type ModuleId,
   ROOT_MODULE_ID,
   type Topology,
 } from "../contract";
@@ -223,6 +226,65 @@ const upsertFan = (state: HardwareSlice, item: FanHardwareData) => {
   state.fans.set(id, { ref: { id, kind: "fan", owner }, slot: item.slot, name: item.name });
 };
 
+export const containerPlantInventoryKey = (id: ContainerId) => `container-plant:${id}`;
+export const containerModuleInventoryKey = (id: ContainerId) => `container-modules:${id}`;
+
+export function replaceHardwareSnapshot(state: MinerStore, hardware: HardwareState, requestId?: number) {
+  const previous = state.hardware;
+  const asics = new Map(hardware.asics);
+  const preservedAsicIds = new Map<HashboardId, AsicId[]>();
+  previous.asics.forEach((asic, id) => {
+    if (!hardware.hashboards.has(asic.hashboardId) || asics.has(id)) return;
+    asics.set(id, asic);
+    const ids = preservedAsicIds.get(asic.hashboardId) ?? [];
+    ids.push(id);
+    preservedAsicIds.set(asic.hashboardId, ids);
+  });
+  const topology = hardware.topology
+    ? ({
+        ...hardware.topology,
+        hashboards: new Map(
+          [...hardware.topology.hashboards].map(([id, node]) => [
+            id,
+            {
+              ...node,
+              asicIds: [...new Set([...node.asicIds, ...(preservedAsicIds.get(id) ?? [])])],
+            },
+          ]),
+        ),
+      } satisfies Topology)
+    : undefined;
+
+  let { psus, plant } = hardware;
+  if (topology?.kind === "container" && requestId !== undefined) {
+    const { containerId } = topology;
+    const lastApplied = state.telemetry.lastAppliedRequestByEntity;
+    // A delayed topology response can still install the topology. Keep
+    // inventory from any newer component poll and link it to the new nodes.
+    if (requestId < (lastApplied.get(containerModuleInventoryKey(containerId)) ?? 0)) {
+      const reported = state.telemetry.mapInventoryByContainer.get(containerId)?.psus;
+      psus = new Map();
+      const psuIdsByModule = new Map<ModuleId, ComponentId[]>();
+      for (const [id, psu] of reported ?? []) {
+        const { ref } = psu;
+        if (ref.owner.kind !== "module" || !topology.modules.has(ref.owner.id)) continue;
+        psus.set(id, psu);
+        const ids = psuIdsByModule.get(ref.owner.id) ?? [];
+        ids.push(ref.id);
+        psuIdsByModule.set(ref.owner.id, ids);
+      }
+      topology.modules = new Map(
+        [...topology.modules].map(([id, module]) => [id, { ...module, psuIds: psuIdsByModule.get(id) ?? [] }]),
+      );
+    }
+    if (requestId < (lastApplied.get(containerPlantInventoryKey(containerId)) ?? 0)) {
+      plant = previous.plant;
+      topology.container = { ...topology.container, plantComponentIds: [...plant.keys()] };
+    }
+  }
+  Object.assign(state.hardware, { ...hardware, topology, asics, psus, plant });
+}
+
 export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", never]], [], HardwareSlice> = (
   set,
   get,
@@ -249,36 +311,7 @@ export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", ne
         plant: new Map(),
       });
     }),
-  replaceHardware: (hardware) => {
-    const previous = get().hardware;
-    const asics = new Map(hardware.asics);
-    const preservedAsicIds = new Map<HashboardId, AsicId[]>();
-    previous.asics.forEach((asic, id) => {
-      if (!hardware.hashboards.has(asic.hashboardId) || asics.has(id)) return;
-      asics.set(id, asic);
-      const ids = preservedAsicIds.get(asic.hashboardId) ?? [];
-      ids.push(id);
-      preservedAsicIds.set(asic.hashboardId, ids);
-    });
-    const topology = hardware.topology
-      ? ({
-          ...hardware.topology,
-          hashboards: new Map(
-            [...hardware.topology.hashboards].map(([id, node]) => [
-              id,
-              {
-                ...node,
-                asicIds: [...new Set([...node.asicIds, ...(preservedAsicIds.get(id) ?? [])])],
-              },
-            ]),
-          ),
-        } satisfies Topology)
-      : undefined;
-
-    set((state) => {
-      Object.assign(state.hardware, { ...hardware, topology, asics });
-    });
-  },
+  replaceHardware: (hardware) => set((state) => replaceHardwareSnapshot(state, hardware)),
   setMiner: () => undefined,
   getMiner: () => {
     const state = get().hardware;

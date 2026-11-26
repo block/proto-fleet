@@ -33,8 +33,7 @@ export default function ContainerFeedMappingProvider({ children }: { children: R
       const accept = beginStoreWrite("hardware");
       const result = await adapter.getHardware({ deviceId: String(deviceId), profile: "ct1" }, { signal });
       if (signal.aborted || !accept()) return;
-      useMinerStore.getState().hardware.replaceHardware(result.hardware);
-      useMinerStore.getState().telemetry.mergeTelemetry(result.telemetry);
+      useMinerStore.getState().telemetry.mergeTelemetry(result.telemetry, accept.requestId, result.hardware);
     },
     [adapter, deviceId],
   );
