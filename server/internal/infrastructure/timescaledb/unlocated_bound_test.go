@@ -14,7 +14,7 @@ import (
 func TestBoundedUnlocatedInventoryCapsAccumulation(t *testing.T) {
 	base := time.Now().UTC()
 	previous := make([]sdk.ContainerHashboard, 0, maxRetainedUnlocatedHashboards*2)
-	for i := 0; i < maxRetainedUnlocatedHashboards*2; i++ {
+	for i := range maxRetainedUnlocatedHashboards * 2 {
 		previous = append(previous, sdk.ContainerHashboard{
 			Serial: fmt.Sprintf("retained-%d", i), ObservedAt: base.Add(time.Duration(i) * time.Second),
 		})
