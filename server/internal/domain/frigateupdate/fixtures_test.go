@@ -505,7 +505,9 @@ func newEnv(t *testing.T) *env {
 	svc := NewService(conn, getter, store, nil, auth, nil, Config{
 		PollInterval: time.Second, StageStallTimeout: 10 * time.Minute, CallTimeout: 10 * time.Second, ChunkTimeout: 10 * time.Second,
 	})
-	clock := &testClock{t: time.Now()}
+	// Postgres keeps microseconds. A finer clock makes a stored time earlier
+	// than the clock, and a test at the exact end of a timeout then fails.
+	clock := &testClock{t: time.Now().Truncate(time.Microsecond)}
 	svc.now = clock.now
 
 	e := &env{t: t, conn: conn, db: database, svc: svc, ctx: ctx, orgID: user.OrganizationID, userID: user.DatabaseID, device: device,
