@@ -3,13 +3,40 @@ import { act, render, screen, within } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 
 import { OtherHardwareSection } from "./DiagnosticView";
-import { moduleFixture } from "@/protoOS/api/adapters/mdkV2/moduleFixtures";
+import { toCanonicalContainer } from "@/protoOS/api/adapters/mdkV2/normalize";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
 vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({ useMinerHosting: vi.fn() }));
 
 const getMiningStatus = vi.fn(() => new Promise(() => {}));
+
+const moduleReadings = (firstPower: number) =>
+  toCanonicalContainer(
+    {
+      containerMap: {
+        tanks: [
+          {
+            id: 1,
+            modules: [firstPower, 4300].map((inputPower, index) => ({
+              id: index + 1,
+              slots: [
+                {
+                  hashboard: {
+                    serial: `board-${index + 1}`,
+                    health: { timestamp: new Date().toISOString(), psuElectrical: { inputPower } },
+                  },
+                },
+              ],
+            })),
+          },
+        ],
+      },
+    },
+    {},
+    {},
+    "ct1",
+  );
 
 beforeEach(() => {
   getMiningStatus.mockClear();
@@ -18,11 +45,8 @@ beforeEach(() => {
     isFleetHosted: true,
   } as unknown as ReturnType<typeof useMinerHosting>);
   useMinerStore.getState().resetDeviceData();
-  const fixture = moduleFixture();
-  const firstPsu = [...fixture.telemetry.psus.values()][0];
-  firstPsu.inputPower = { latest: { value: 0, units: "W" } };
-  useMinerStore.getState().hardware.replaceHardware(fixture.hardware);
-  useMinerStore.getState().telemetry.mergeTelemetry(fixture.telemetry);
+  const fixture = moduleReadings(0);
+  useMinerStore.getState().telemetry.mergeTelemetry(fixture.telemetry, 1, fixture.hardware);
 });
 
 test("container PSU cards expose status details without fetching mining status on mount", () => {
@@ -51,12 +75,7 @@ test("keeps module PSUs distinct when they share slot 1 and updates their own re
     expect(within(first).getByText("0.0 kW")).toBeInTheDocument();
     expect(within(second).getByText("4.3 kW")).toBeInTheDocument();
 
-    const [firstId] = useMinerStore.getState().hardware.psus.keys();
-    act(() =>
-      useMinerStore.setState((state) => {
-        state.telemetry.psus.get(firstId)!.inputPower = { latest: { value: 1000, units: "W" } };
-      }),
-    );
+    act(() => useMinerStore.getState().telemetry.mergeTelemetry(moduleReadings(1000).telemetry, 2));
     expect(within(first).getByText("1.0 kW")).toBeInTheDocument();
     expect(within(second).getByText("4.3 kW")).toBeInTheDocument();
     expect(errors).not.toHaveBeenCalled();
