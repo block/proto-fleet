@@ -53,7 +53,7 @@ function SchematicStory(args: SchematicStoryArgs) {
     tankBanks: (["A", "B"] as const).map((bank, bankIndex) => ({
       id: `Tank ${bank}`,
       tanks: Array.from({ length: 3 }, (_, tankIndex) => {
-        const number = bankIndex * 3 + tankIndex + 1;
+        const number = bankIndex * 3 + 3 - tankIndex;
         return {
           id: `tank-${number}`,
           label: `${number}`,

@@ -2,6 +2,8 @@
 set -euo pipefail
 
 PACKAGED_RELEASE_REPOSITORY="block/proto-fleet"
+INTERNAL_RELEASE_REPOSITORY="btc-mining/proto-fleet-internal"
+PUBLIC_RELEASE_REPOSITORY="block/proto-fleet"
 validate_release_repository() {
   local repository="$1"
   [[ "$repository" =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$ ]] \
@@ -11,14 +13,14 @@ validate_release_repository() {
 # Parse data only: never source configuration or release metadata as shell.
 release_repository_from_metadata() {
   local contents="$1" repository
-  repository=$(printf '%s\n' "$contents" | awk '
+  repository=$(printf '%s\n' "$contents" | awk -v public_repository="$PUBLIC_RELEASE_REPOSITORY" '
     /^[[:space:]]*release_repository/ {
       count++
       if ($0 !~ /^release_repository: /) exit 2
       sub(/^release_repository: /, "")
       value=$0
     }
-    END { if (count > 1) exit 2; if (count == 0) print "block/proto-fleet"; else print value }
+    END { if (count > 1) exit 2; if (count == 0) print public_repository; else print value }
   ') || return 1
   validate_release_repository "$repository" || return 1
   printf '%s' "$repository"
@@ -50,6 +52,8 @@ usage() {
   cat <<'EOF'
 Usage: install-fleet-node.sh VERSION
        install-fleet-node.sh --release-dir DIR VERSION
+       install-fleet-node.sh migrate-to-public [--release-dir DIR] VERSION
+       install-fleet-node.sh recover-public-migration
        install-fleet-node.sh uninstall
 
 Install one exact Proto Fleet Node release on Linux. VERSION must be a
@@ -65,6 +69,10 @@ writable by group or others; a directory above DIR may be only if it is
 sticky, like /tmp. Missing or invalid files fail without falling back to a
 download.
 
+migrate-to-public switches a running Node from btc-mining/proto-fleet-internal
+to block/proto-fleet. Use recover-public-migration after an interruption to
+restore the previous release.
+
 uninstall removes the program and systemd unit while preserving configuration,
 state, and the service account.
 
@@ -76,7 +84,11 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help) usage; exit 0 ;;
-    uninstall) ACTION=uninstall; shift ;;
+    uninstall|migrate-to-public|recover-public-migration)
+      [[ "$ACTION" == install ]] || { usage >&2; exit 2; }
+      ACTION="$1"
+      shift
+      ;;
     --release-dir)
       [[ $# -ge 2 && "$RELEASE_DIR_SET" == "0" ]] || { usage >&2; exit 2; }
       RELEASE_DIR="$2"
@@ -97,7 +109,9 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
-if [[ "$ACTION" == install ]]; then
+INSTALL_RELEASE=0
+if [[ "$ACTION" == install || "$ACTION" == migrate-to-public ]]; then
+  INSTALL_RELEASE=1
   [[ -n "$VERSION" ]] || { usage >&2; exit 2; }
   if [[ ! "$VERSION" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]] || [[ "$VERSION" == latest ]]; then
     echo "version must be an explicit release identifier (1-128 letters, numbers, dots, underscores, or hyphens; not latest)" >&2
@@ -121,6 +135,12 @@ if [[ "$ACTION" == install ]]; then
   fi
 elif [[ -n "$VERSION" || "$RELEASE_DIR_SET" == "1" ]]; then
   usage >&2; exit 2
+fi
+if [[ "$ACTION" == migrate-to-public || "$ACTION" == recover-public-migration ]]; then
+  if [[ "$PACKAGED_RELEASE_REPOSITORY" != "$PUBLIC_RELEASE_REPOSITORY" ]]; then
+    echo "use the public Fleet Node installer for repository migration" >&2
+    exit 1
+  fi
 fi
 if [[ "$TEST_MODE" == "0" ]]; then
   if [[ -n "$ROOT_PREFIX" || -n "${FLEETNODE_ARCH:-}" || -n "$DOWNLOAD_BASE_URL" || -n "${FLEETNODE_SYSTEMCTL:-}" ]]; then
@@ -150,7 +170,7 @@ as_root() {
   fi
 }
 
-if [[ "$ACTION" == "install" ]]; then
+if [[ "$INSTALL_RELEASE" == "1" ]]; then
   case "${FLEETNODE_ARCH:-$(uname -m)}" in
     x86_64|amd64) ARCH=amd64 ;;
     aarch64|arm64) ARCH=arm64 ;;
@@ -168,6 +188,8 @@ fi
 PROGRAM_DIR="${ROOT_PREFIX}/opt/fleetnode"
 CONFIG_DIR="${ROOT_PREFIX}/etc/fleetnode"
 STATE_DIR="${ROOT_PREFIX}/var/lib/fleetnode"
+source_config="$CONFIG_DIR/release-repository"
+migration_dir="${PROGRAM_DIR%/*}/.fleetnode-public-migration"
 UNIT_PATH="${ROOT_PREFIX}/etc/systemd/system/fleet-node.service"
 ENROLL_HELPER_PATH="${ROOT_PREFIX}/usr/local/bin/fleetnode-enroll"
 INSTALL_LOCK_DIR="${ROOT_PREFIX}/run/proto-fleet"
@@ -175,15 +197,19 @@ INSTALL_LOCK_PATH="$INSTALL_LOCK_DIR/fleetnode-installer.lock"
 SYSTEMCTL="${FLEETNODE_SYSTEMCTL:-systemctl}"
 ARCHIVE_ROOT=""
 ARCHIVE_NAME=""
-if [[ "$ACTION" == "install" ]]; then
+if [[ "$INSTALL_RELEASE" == "1" ]]; then
   ARCHIVE_ROOT="fleetnode-${VERSION}-linux-${ARCH}"
   ARCHIVE_NAME="${ARCHIVE_ROOT}.tar.gz"
 fi
 
-for command in install flock "$SYSTEMCTL"; do
+required_commands=(install flock "$SYSTEMCTL")
+if [[ "$ACTION" == migrate-to-public || "$ACTION" == recover-public-migration ]]; then
+  required_commands+=(sync)
+fi
+for command in "${required_commands[@]}"; do
   command -v "$command" >/dev/null 2>&1 || { echo "required command not found: $command" >&2; exit 1; }
 done
-if [[ "$ACTION" == "install" ]]; then
+if [[ "$INSTALL_RELEASE" == "1" ]]; then
   release_commands=(sha256sum tar)
   if [[ -n "$RELEASE_DIR" ]]; then
     release_commands+=(cp stat)
@@ -215,7 +241,7 @@ if ! as_root "$SYSTEMCTL" show --property=Version --value >/dev/null 2>&1; then
   exit 1
 fi
 
-for path in "${PROGRAM_DIR%/*}" "${UNIT_PATH%/*}" "${ENROLL_HELPER_PATH%/*}" "$PROGRAM_DIR" "$CONFIG_DIR" "$STATE_DIR" "$UNIT_PATH" "$ENROLL_HELPER_PATH" "$INSTALL_LOCK_DIR" "$INSTALL_LOCK_PATH"; do
+for path in "${PROGRAM_DIR%/*}" "${UNIT_PATH%/*}" "${ENROLL_HELPER_PATH%/*}" "$PROGRAM_DIR" "$CONFIG_DIR" "$STATE_DIR" "$UNIT_PATH" "$ENROLL_HELPER_PATH" "$INSTALL_LOCK_DIR" "$INSTALL_LOCK_PATH" "$migration_dir"; do
   if [[ -L "$path" ]]; then
     if [[ "$ACTION" == "uninstall" && "$path" == "$UNIT_PATH" && "$path" -ef /dev/null ]]; then
       continue
@@ -352,7 +378,7 @@ validate_existing_enroll_helper() {
   }
 }
 
-if [[ "$ACTION" == "install" ]]; then
+if [[ "$INSTALL_RELEASE" == "1" ]]; then
   validate_existing_service_account
   validate_preserved_access
 fi
@@ -402,9 +428,59 @@ program_replaced=0
 unit_replaced=0
 enroll_helper_replaced=0
 install_complete=0
+migration_phase=""
+
+flush_migration_paths() {
+  as_root sync -f "$@"
+}
+
+replace_repository_pin() {
+  local pin_temp="$CONFIG_DIR/.release-repository.migration"
+  as_root rm -f "$pin_temp" &&
+    as_root cp -p "$1" "$pin_temp" &&
+    as_root mv -f "$pin_temp" "$source_config"
+}
+
+finish_public_migration() {
+  as_root rm -f "$migration_dir/pending" &&
+    flush_migration_paths "$migration_dir" &&
+    as_root rm -rf "$migration_dir"
+}
+
+rollback_public_migration() {
+  if as_root test -f "$migration_dir/committed"; then
+    as_root mv "$migration_dir/committed" "$migration_dir/pending" || return 1
+  fi
+  # A prior recovery attempt may have failed to flush the rollback marker.
+  flush_migration_paths "$migration_dir" || return 1
+  as_root "$SYSTEMCTL" stop fleet-node.service || return 1
+  if as_root test -d "$migration_dir/previous"; then
+    as_root rm -rf "$PROGRAM_DIR" || return 1
+    as_root mv "$migration_dir/previous" "$PROGRAM_DIR" || return 1
+  fi
+  replace_repository_pin "$migration_dir/release-repository" || return 1
+  flush_migration_paths "$migration_dir" "$source_config" || return 1
+  # systemd can unload a disabled unit after it stops. Start loads it again.
+  as_root "$SYSTEMCTL" reset-failed fleet-node.service >/dev/null 2>&1 || true
+  as_root "$SYSTEMCTL" start fleet-node.service || return 1
+  as_root "$SYSTEMCTL" is-active --quiet fleet-node.service || return 1
+  echo "Restored the previous Fleet Node program and repository pin."
+  finish_public_migration
+}
+
+recover_public_migration() {
+  if as_root test -f "$migration_dir/pending"; then
+    rollback_public_migration
+  else
+    finish_public_migration
+  fi
+}
 
 cleanup() {
   status=$?
+  if [[ "$ACTION" == migrate-to-public || "$ACTION" == recover-public-migration ]]; then
+    trap '' HUP INT TERM
+  fi
   set +e
   rollback_failed=0
   rollback_error() {
@@ -412,6 +488,10 @@ cleanup() {
     rollback_failed=1
   }
   if [[ "$install_complete" != "1" ]]; then
+    case "$migration_phase" in
+      preparing) finish_public_migration || rollback_error "run recover-public-migration with this installer" ;;
+      activating) rollback_public_migration || rollback_error "run recover-public-migration with this installer" ;;
+    esac
     if [[ "$service_stopped" == "1" ]]; then
       as_root "$SYSTEMCTL" stop fleet-node.service || rollback_error "stop candidate Fleet Node service"
     fi
@@ -456,7 +536,29 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [[ "$ACTION" == "install" ]]; then
+if [[ "$ACTION" == migrate-to-public || "$ACTION" == recover-public-migration ]]; then
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+fi
+
+if as_root test -e "$migration_dir"; then
+  if [[ "$ACTION" != recover-public-migration ]]; then
+    echo "Fleet Node repository migration exists. Run recover-public-migration first." >&2
+    exit 1
+  fi
+  if ! recover_public_migration; then
+    echo "Fleet Node recovery failed. Correct the error and run recover-public-migration again." >&2
+    exit 1
+  fi
+  echo "Fleet Node repository migration recovery complete."
+  exit 0
+elif [[ "$ACTION" == recover-public-migration ]]; then
+  echo "No Fleet Node repository migration to recover."
+  exit 0
+fi
+
+if [[ "$INSTALL_RELEASE" == "1" ]]; then
   validate_existing_enroll_helper
 fi
 
@@ -503,7 +605,7 @@ RELEASE_REPOSITORY="$PACKAGED_RELEASE_REPOSITORY"
 validate_release_repository "$RELEASE_REPOSITORY" || { echo "invalid packaged repository" >&2; exit 1; }
 installed_repository=""
 if [[ -e "$PROGRAM_DIR" ]]; then
-  installed_repository="block/proto-fleet"
+  installed_repository="$PUBLIC_RELEASE_REPOSITORY"
 fi
 if [[ -f "$PROGRAM_DIR/version.txt" ]]; then
   installed_metadata=$(as_root cat "$PROGRAM_DIR/version.txt") || { echo "cannot read installed release metadata" >&2; exit 1; }
@@ -511,20 +613,35 @@ if [[ -f "$PROGRAM_DIR/version.txt" ]]; then
     echo "invalid installed release repository" >&2; exit 1;
   }
 fi
-if [[ -n "$installed_repository" && "$installed_repository" != "$RELEASE_REPOSITORY" ]]; then
+expected_installed_repository="$RELEASE_REPOSITORY"
+if [[ "$ACTION" == migrate-to-public ]]; then
+  expected_installed_repository="$INTERNAL_RELEASE_REPOSITORY"
+  if [[ "$fresh_install" == "1" || "$installed_repository" != "$expected_installed_repository" ]]; then
+    echo "repository migration requires a complete installation from $expected_installed_repository" >&2
+    exit 1
+  fi
+elif [[ -n "$installed_repository" && "$installed_repository" != "$expected_installed_repository" ]]; then
   echo "installed release repository conflicts with this packaged installer" >&2; exit 1
 fi
-source_config="$CONFIG_DIR/release-repository"
 if as_root test -e "$source_config" || as_root test -L "$source_config"; then
   as_root test -f "$source_config" && ! as_root test -L "$source_config" || {
     echo "release repository configuration must be a regular file" >&2; exit 1;
   }
   persisted_repository=$(as_root cat "$source_config")
   validate_release_repository "$persisted_repository" || { echo "invalid persisted release repository" >&2; exit 1; }
-  if [[ "$persisted_repository" != "$RELEASE_REPOSITORY" ]]; then
-    echo "persisted release repository conflicts with this packaged installer" >&2; exit 1
+  if [[ "$persisted_repository" != "$expected_installed_repository" ]]; then
+    if [[ "$ACTION" == migrate-to-public ]]; then
+      echo "persisted release repository conflicts with the internal installation" >&2
+    else
+      echo "persisted release repository conflicts with this packaged installer" >&2
+    fi
+    exit 1
   fi
+elif [[ "$ACTION" == migrate-to-public ]]; then
+  echo "repository migration requires the persisted repository pin for $expected_installed_repository" >&2
+  exit 1
 fi
+
 staged_path_owner_and_mode() {
   stat -c '%u %a' -- "$1" 2>/dev/null || stat -f '%u %Mp%Lp' -- "$1"
 }
@@ -677,6 +794,85 @@ if ! grep -Fxq "version: $VERSION" "$source_dir/version.txt"; then
   exit 1
 fi
 
+stage_program() {
+  local target="$1" name
+  as_root install -d -m 0755 "$target" "$target/plugins"
+  for name in fleetnode fleetnode-enroll plugins/proto-plugin plugins/antminer-plugin plugins/asicrs-plugin; do
+    as_root install -m 0755 "$source_dir/$name" "$target/$name"
+  done
+  for name in version.txt fleet-node.service plugins/asicrs-config.yaml; do
+    as_root install -m 0644 "$source_dir/$name" "$target/$name"
+  done
+  if [[ "$TEST_MODE" != "1" ]]; then
+    as_root chown -R root:root "$target"
+  fi
+}
+
+migrate_to_public() {
+  if ! grep -Fxq "release_repository: $PUBLIC_RELEASE_REPOSITORY" "$source_dir/version.txt"; then
+    echo "repository migration requires explicit public repository metadata" >&2
+    return 1
+  fi
+
+  # Keep the live unit (including local changes) and enrollment helper. Use
+  # ordinary upgrades for releases that change these packaged files.
+  local name
+  for name in fleet-node.service fleetnode-enroll; do
+    if ! as_root cmp -s "$source_dir/$name" "$PROGRAM_DIR/$name"; then
+      echo "repository migration requires matching packaged files: $name" >&2
+      return 1
+    fi
+  done
+  local service_type
+  service_type=$(as_root "$SYSTEMCTL" show --property=Type --value fleet-node.service)
+  if [[ "$service_type" != notify ]]; then
+    echo "repository migration requires a Fleet Node service with Type=notify" >&2
+    return 1
+  fi
+  if ! as_root "$SYSTEMCTL" is-active --quiet fleet-node.service; then
+    echo "start the enrolled Fleet Node before repository migration" >&2
+    return 1
+  fi
+
+  if ! flush_migration_paths "${PROGRAM_DIR%/*}" "$CONFIG_DIR"; then
+    echo "repository migration requires sync -f to work on the program and configuration filesystems" >&2
+    return 1
+  fi
+  as_root mkdir -m 0700 "$migration_dir"
+  migration_phase=preparing
+  stage_program "$migration_dir/candidate"
+  as_root cp -p "$source_config" "$migration_dir/release-repository"
+  as_root install -m 0644 "$work_dir/release-repository" "$migration_dir/public-repository"
+  flush_migration_paths "$migration_dir"
+  # This marker is durable before the first change to the live installation.
+  as_root touch "$migration_dir/pending"
+  flush_migration_paths "$migration_dir"
+
+  migration_phase=activating
+  as_root "$SYSTEMCTL" stop fleet-node.service
+  as_root mv "$PROGRAM_DIR" "$migration_dir/previous"
+  flush_migration_paths "$migration_dir"
+  as_root mv "$migration_dir/candidate" "$PROGRAM_DIR"
+  replace_repository_pin "$migration_dir/public-repository"
+  flush_migration_paths "$migration_dir" "$source_config"
+  as_root "$SYSTEMCTL" start fleet-node.service
+  as_root "$SYSTEMCTL" is-active --quiet fleet-node.service
+
+  as_root mv "$migration_dir/pending" "$migration_dir/committed"
+  flush_migration_paths "$migration_dir"
+  install_complete=1
+  if ! as_root rm -rf "$migration_dir"; then
+    echo "Cannot remove the saved migration files. Run recover-public-migration." >&2
+  fi
+  echo "Fleet Node switched to $PUBLIC_RELEASE_REPOSITORY at $VERSION."
+}
+
+printf '%s\n' "$RELEASE_REPOSITORY" > "$work_dir/release-repository"
+if [[ "$ACTION" == migrate-to-public ]]; then
+  migrate_to_public
+  exit 0
+fi
+
 if [[ "$fresh_install" == "1" ]]; then
   load_state=$(as_root "$SYSTEMCTL" show --property=LoadState --value fleet-node.service) || {
     echo "cannot inspect Fleet Node systemd unit load state" >&2
@@ -741,20 +937,8 @@ else
 fi
 
 as_root rm -rf "$incoming" "$previous"
-as_root install -d -m 0755 "$incoming" "$incoming/plugins"
-as_root install -m 0755 "$source_dir/fleetnode" "$incoming/fleetnode"
-as_root install -m 0755 "$source_dir/fleetnode-enroll" "$incoming/fleetnode-enroll"
-printf '%s\n' "$RELEASE_REPOSITORY" > "$work_dir/release-repository"
-as_root install -m 0644 "$work_dir/release-repository" "$CONFIG_DIR/release-repository"
-as_root install -m 0644 "$source_dir/version.txt" "$incoming/version.txt"
-as_root install -m 0644 "$source_dir/fleet-node.service" "$incoming/fleet-node.service"
-as_root install -m 0755 "$source_dir/plugins/proto-plugin" "$incoming/plugins/proto-plugin"
-as_root install -m 0755 "$source_dir/plugins/antminer-plugin" "$incoming/plugins/antminer-plugin"
-as_root install -m 0755 "$source_dir/plugins/asicrs-plugin" "$incoming/plugins/asicrs-plugin"
-as_root install -m 0644 "$source_dir/plugins/asicrs-config.yaml" "$incoming/plugins/asicrs-config.yaml"
-if [[ "$TEST_MODE" != "1" ]]; then
-  as_root chown -R root:root "$incoming"
-fi
+stage_program "$incoming"
+as_root install -m 0644 "$work_dir/release-repository" "$source_config"
 if [[ -d "$PROGRAM_DIR" ]]; then
   as_root mv "$PROGRAM_DIR" "$previous"
   previous_saved=1

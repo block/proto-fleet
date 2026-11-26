@@ -176,18 +176,18 @@ must belong to that source. Downloaded bundle metadata must match before
 activation. Manual runs check metadata against `.env` before host changes.
 HA records the repository in protected base/updater configuration, checks it
 in prepared peer bundles, and downloads peer installers from that repository.
-Fleet Node additionally persists `/etc/fleetnode/release-repository`; its existing
-rollback restores a payload from the same source, and uninstall preserves the
-pin with its configuration. The Windows installer reads
+Fleet Node persists its repository in `/etc/fleetnode/release-repository`.
+Normal upgrades and rollback use the same repository. Uninstall keeps the pin
+with the configuration. The Windows installer reads
 the selected local archive's metadata, rejects a different installed source
 before extraction, and persists the same environment key inside WSL.
 
 Missing releases, inaccessible sources, and invalid metadata are errors. There
 is no fallback to upstream. Repository transfers/renames and cross-repository
-migrations require a separate operator-planned migration; editing only one
-configuration value is not a supported migration procedure. Normal update
-channel behavior is unchanged: the UI/host updater supports stable and canonical
-RC releases, while the shell installer also resolves nightly builds.
+migrations require a separate procedure. For Linux Fleet Nodes on the internal
+repository, use the [Fleet Node repository migration](#migrate-an-internal-fleet-node-to-the-public-repository).
+The UI and host updater support stable and canonical release candidates. The
+shell installer also resolves nightly builds.
 
 ### Building fork releases
 
@@ -253,6 +253,87 @@ that fork's packaged installer. The checksum and `release_repository` come
 from the staged files themselves, so they detect a damaged copy but not a
 replaced one. Move the files over a channel you trust, or compare the `.sha256`
 on the host with the one you downloaded.
+
+### Migrate an internal Fleet Node to the public repository
+
+The rollout target is [`v0.7.0-rc.1`](https://github.com/block/proto-fleet/releases/tag/v0.7.0-rc.1).
+This public release candidate has Linux Fleet Node bundles and SHA-256 files
+for amd64 and arm64. Use an exact release tag for this migration.
+
+Use a public [installer](fleetnode/install-fleet-node.sh) that lists
+`migrate-to-public` in its help. Get it from an approved revision of
+`block/proto-fleet` or a later public release that includes the command.
+The installer attached to `v0.7.0-rc.1` predates this command.
+The host's `sync` command must support `-f` for migration and recovery.
+
+1. Confirm that the enrolled Node is active in Fleet. Record its Node ID
+   and the last telemetry time for one assigned miner.
+2. Check that both the installed metadata and the pin show
+   `btc-mining/proto-fleet-internal`.
+
+   ```bash
+   grep '^release_repository: ' /opt/fleetnode/version.txt
+   sudo cat /etc/fleetnode/release-repository
+   systemctl is-active fleet-node.service
+   ```
+
+3. Run the switch during a maintenance window.
+
+   ```bash
+   bash ./install-fleet-node.sh migrate-to-public v0.7.0-rc.1
+   ```
+
+   For an offline host, stage the public archive and SHA-256 file as
+   [described above](#staged-fleet-node-releases). Run the installer as the user
+   who owns the staged files.
+
+   ```bash
+   bash ./install-fleet-node.sh migrate-to-public --release-dir /path/to/releases v0.7.0-rc.1
+   ```
+
+   The installer checks the checksum, archive contents, requested version, and
+   explicit public repository metadata before it stops the service. It requires
+   the same packaged service unit and enrollment helper in both bundles.
+   The live service must use `Type=notify`. The migration keeps its unit and
+   drop-ins, the enrollment helper, local configuration, and enrollment state.
+   The Node ID and server-side miner assignments carry over. Let the installer
+   control the service during the switch.
+
+4. Confirm the version, the repository pin, and the service state.
+
+   ```bash
+   /opt/fleetnode/fleetnode --version
+   /opt/fleetnode/fleetnode --print-release-repository
+   sudo cat /etc/fleetnode/release-repository
+   systemctl is-active fleet-node.service
+   ```
+
+   In Fleet, confirm that the same Node ID reconnects. Check for telemetry
+   collected after the switch. Send a read-only command to the same miner, such
+   as Get Cooling Mode on a supported miner. Use the ordinary public installer
+   for subsequent updates.
+
+#### Recover a failed or interrupted switch
+
+If the candidate fails to start or the installer cannot record completion,
+the installer tries to restore the previous program and its repository pin.
+A successful rollback starts the previous service. Check the installed version
+and pin. Check that the previous Node reconnects before you retry.
+
+If the installer was interrupted or reports a rollback failure, keep the
+recovery files in `/opt/.fleetnode-public-migration`. Use the same
+migration-capable installer before you retry or run another installer.
+
+```bash
+bash ./install-fleet-node.sh recover-public-migration
+```
+
+If recovery reports an error, check the service log with
+`sudo journalctl -u fleet-node.service`. Correct the cause and run recovery
+again. After recovery, verify the installed version, pin, and Node connection.
+If the Node runs the internal release, retry the switch. If the switch already
+completed and saved files remain, recovery removes them without restarting the
+Node.
 
 ## Resetting the SUPER_ADMIN password
 
