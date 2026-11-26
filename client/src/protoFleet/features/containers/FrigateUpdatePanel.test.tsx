@@ -420,6 +420,7 @@ describe("FrigateUpdatePanel for a ProtoOS job", () => {
     expect(row("frigate-a")).toHaveTextContent("Installed 0.6.1");
     expect(row("frigate-a")).toHaveTextContent("Serves v0.6.1");
     expect(row("frigate-b")).toHaveTextContent("Verifying the copy");
+    expect(screen.queryByRole("alert")).toBeNull();
     // The rollout details of a controller software update don't apply.
     expect(screen.queryByText("Driving the update")).toBeNull();
     expect(row("frigate-a")).not.toHaveTextContent("Staged");
@@ -448,6 +449,7 @@ describe("FrigateUpdatePanel for a ProtoOS job", () => {
     expect(row("frigate-a")).toHaveTextContent("Installed");
     expect(row("frigate-a")).toHaveTextContent("Installed 0.6.2~internal.14");
     expect(row("frigate-a")).toHaveTextContent("Serves v0.6.2-internal.14");
+    expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.queryByRole("button", { name: "Cancel update" })).toBeNull();
   });
 
@@ -478,6 +480,7 @@ describe("FrigateUpdatePanel for a ProtoOS job", () => {
       "Next step: Resolve the cause, then start the update again.",
     );
     expect(row("frigate-a")).toHaveTextContent("Install failed");
+    expect(within(row("frigate-a")).getByRole("alert")).toHaveTextContent("Code: FLEET_PROTOOS_INSTALL_FAILED");
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
     expect(screen.getByRole("link", { name: "ProtoOS update runbook" })).toHaveAttribute(
       "href",

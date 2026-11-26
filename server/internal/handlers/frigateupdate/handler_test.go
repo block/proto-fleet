@@ -155,7 +155,7 @@ func TestJobToProtoCarriesProtoOSProgress(t *testing.T) {
 		Row:     sqlc.FrigateUpdateJob{ID: uuid.New(), State: domain.StateRunning, TargetVersion: "0.6.2", CreatedAt: now, UpdatedAt: now},
 		Instances: []sqlc.FrigateUpdateInstance{{
 			InstanceID: "a", StageState: domain.StageStaged, ProtoosJobState: string(sdk.FrigateProtoOSJobSucceeded),
-			ProtoosInstalledVersion: "0.6.2", ProtoosServedReleaseTag: "v0.6.2", ErrorMessage: "proto-os 0.6.2 is installed",
+			ProtoosInstalledVersion: "0.6.2", ProtoosServedReleaseTag: "v0.6.2",
 		}},
 	})
 	assert.Equal(t, pb.FrigatePackageKind_FRIGATE_PACKAGE_KIND_PROTO_OS, out.Package.Kind)
@@ -163,7 +163,6 @@ func TestJobToProtoCarriesProtoOSProgress(t *testing.T) {
 	assert.Equal(t, pb.ProtoOSJobState_PROTO_OS_JOB_STATE_SUCCEEDED, out.Instances[0].ProtoOsJobState)
 	assert.Equal(t, "0.6.2", out.Instances[0].ProtoOsInstalledVersion)
 	assert.Equal(t, "v0.6.2", out.Instances[0].ProtoOsServedReleaseTag)
-	assert.Equal(t, "proto-os 0.6.2 is installed", out.Instances[0].ErrorMessage)
 }
 
 func TestHandler_ProtoOSPackageIsListedAndRefusesStageOnly(t *testing.T) {

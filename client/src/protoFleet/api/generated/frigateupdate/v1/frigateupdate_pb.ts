@@ -908,7 +908,8 @@ export type InstanceProgress = Message<"frigateupdate.v1.InstanceProgress"> & {
 
   /**
    * error_message is the error text. For a ProtoOS job, it is the message of
-   * the controller's install job.
+   * the controller's install job when that job failed, and empty in other
+   * states.
    *
    * @generated from field: string error_message = 11;
    */

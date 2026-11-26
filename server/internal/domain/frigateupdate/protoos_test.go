@@ -70,8 +70,41 @@ func TestProtoOS_SucceedsOnAPair(t *testing.T) {
 		assert.Equal(t, string(sdk.FrigateProtoOSJobSucceeded), in.ProtoosJobState)
 		assert.Equal(t, "0.6.2~internal.14", in.ProtoosInstalledVersion)
 		assert.Equal(t, protoOSTestTag, in.ProtoosServedReleaseTag)
-		assert.Equal(t, "proto-os 0.6.2~internal.14 is installed", in.ErrorMessage)
 	}
+}
+
+func TestProtoOS_OnlyAFailedControllerHasAnInstanceError(t *testing.T) {
+	e := newProtoOSEnv(t)
+	job := e.startProtoOSRunning("key-1")
+	assertState := func(id string, state sdk.FrigateProtoOSJobState, code, message string) {
+		t.Helper()
+		in := e.instance(job, id)
+		assert.Equal(t, string(state), in.ProtoosJobState, id)
+		assert.Equal(t, code, in.ErrorCode, id)
+		assert.Equal(t, message, in.ErrorMessage, id)
+	}
+
+	for state, message := range map[sdk.FrigateProtoOSJobState]string{
+		sdk.FrigateProtoOSJobQueued:     "Queued proto-os 0.6.2~internal.14.",
+		sdk.FrigateProtoOSJobInstalling: "Installing proto-os 0.6.2~internal.14.",
+	} {
+		e.updater.finishProtoOS(instanceA, state, message)
+		e.updater.finishProtoOS(instanceB, state, message)
+		e.svc.runOnce(e.ctx)
+		require.Equal(t, StateRunning, e.job(job.Row.ID).Row.State)
+		assertState(instanceA, state, "", "")
+		assertState(instanceB, state, "", "")
+	}
+
+	e.updater.finishProtoOS(instanceA, sdk.FrigateProtoOSJobSucceeded, "proto-os 0.6.2~internal.14 is installed")
+	e.svc.runOnce(e.ctx)
+	assertState(instanceA, sdk.FrigateProtoOSJobSucceeded, "", "")
+
+	e.updater.finishProtoOS(instanceB, sdk.FrigateProtoOSJobFailed, "dpkg exited 1")
+	e.svc.runOnce(e.ctx)
+	require.Equal(t, StateFailed, e.job(job.Row.ID).Row.State)
+	assertState(instanceA, sdk.FrigateProtoOSJobSucceeded, "", "")
+	assertState(instanceB, sdk.FrigateProtoOSJobFailed, CodeProtoOSInstallFailed, "dpkg exited 1")
 }
 
 func TestProtoOS_OneFailingControllerFailsTheJobWithoutBlocking(t *testing.T) {

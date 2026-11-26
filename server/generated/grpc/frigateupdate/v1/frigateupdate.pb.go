@@ -2111,7 +2111,8 @@ type InstanceProgress struct {
 	MigrationExecuted bool   `protobuf:"varint,9,opt,name=migration_executed,json=migrationExecuted,proto3" json:"migration_executed,omitempty"`
 	ErrorCode         string `protobuf:"bytes,10,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
 	// error_message is the error text. For a ProtoOS job, it is the message of
-	// the controller's install job.
+	// the controller's install job when that job failed, and empty in other
+	// states.
 	ErrorMessage string `protobuf:"bytes,11,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
 	// The fields below are set for a ProtoOS job. proto_os_job_state is the
 	// controller's state of this job, and UNSPECIFIED while the controller

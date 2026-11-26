@@ -409,7 +409,8 @@ message InstanceProgress {
   bool migration_executed = 9;
   string error_code = 10;
   // error_message is the error text. For a ProtoOS job, it is the message of
-  // the controller's install job.
+  // the controller's install job when that job failed, and empty in other
+  // states.
   string error_message = 11;
   // The fields below are set for a ProtoOS job. proto_os_job_state is the
   // controller's state of this job, and UNSPECIFIED while the controller

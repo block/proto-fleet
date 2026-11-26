@@ -145,9 +145,10 @@ func (s *Service) applyProtoOSReports(ctx context.Context, id uuid.UUID, reports
 		for instanceID, r := range reports {
 			var state, code, message string
 			if r.Job.JobID == cur.ID.String() {
-				state, message = string(r.Job.State), r.Job.Message
+				state = string(r.Job.State)
+				// A controller reports a message in every state; only a failure is an error.
 				if r.Job.State == sdk.FrigateProtoOSJobFailed {
-					code = CodeProtoOSInstallFailed
+					code, message = CodeProtoOSInstallFailed, r.Job.Message
 				}
 			}
 			if err := q.UpdateFrigateUpdateInstanceProtoOS(ctx, sqlc.UpdateFrigateUpdateInstanceProtoOSParams{
