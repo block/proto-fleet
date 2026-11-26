@@ -11,6 +11,7 @@ import {
   psuFreshness,
   psuHealth,
   psuReadingNotice,
+  psuThermalNotice,
 } from "@/protoOS/store/utils/psuFreshness";
 import { Alert, PsuIndicatorV2 as PsuIndicator } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
@@ -133,7 +134,7 @@ function PsuStatusCard({ slot, componentId, showComponentIcon = componentId === 
         groups={groups}
         status={
           componentId
-            ? [psuReadingNotice("Thermal status", freshness.thermalState), psuFaultReportNotice(errors, now)]
+            ? [psuThermalNotice(readings, now, freshness.thermalState), psuFaultReportNotice(errors, now)]
                 .filter(Boolean)
                 .join(". ")
             : undefined

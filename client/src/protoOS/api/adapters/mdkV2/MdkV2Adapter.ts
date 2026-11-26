@@ -83,7 +83,7 @@ import { createPoolStatistics } from "./poolStatistics";
 import { containerWriteError } from "./writeErrors";
 import type { CoolingMode, MiningTarget, MiningTargetUpdate } from "@/protoOS/store/contract";
 import { getHashboardId } from "@/protoOS/store/utils/entityIds";
-import { ControllerClock } from "@/protoOS/store/utils/readingFreshness";
+import { ControllerClock, MAX_CLOCK_ROUND_TRIP_MS } from "@/protoOS/store/utils/readingFreshness";
 import { visibleMinerErrors } from "@/protoOS/store/utils/visibleMinerErrors";
 import type { PoolInfo } from "@/shared/types/pool";
 
@@ -102,7 +102,6 @@ const HASHBOARD_TIMESERIES_CACHE_MS = 5 * 60_000;
 export const CONTROLLER_DIAGNOSTICS_TIMEOUT_MS = 8_000;
 // Fleet's plugin gives the same reads ten seconds in all.
 export const POWER_FEED_READ_TIMEOUT_MS = 10_000;
-const TELEMETRY_CLOCK_TIMEOUT_MS = 2_000;
 const SERIES_METRICS: Record<ContainerSeriesField, TelemetryServiceQueryTimeSeriesParams["metric"]> = {
   hashrate: "TIME_SERIES_METRIC_HASHRATE",
   temperature: "TIME_SERIES_METRIC_TEMPERATURE",
@@ -179,7 +178,6 @@ export class MdkV2Adapter implements MinerAdapter {
   private readonly clock = new ControllerClock();
   private clockRefresh?: {
     controller: AbortController;
-    signal: AbortSignal;
     promise: Promise<void>;
   };
 
@@ -369,7 +367,7 @@ export class MdkV2Adapter implements MinerAdapter {
     // Regular mining-status polls will discover a firmware upgrade on this connection.
     if (this.clock.supportsEvaluationTime === false) return;
     try {
-      await withDeadline(params, TELEMETRY_CLOCK_TIMEOUT_MS, (options) => this.readMiningStatus(options));
+      await withDeadline(params, MAX_CLOCK_ROUND_TRIP_MS, (options) => this.readMiningStatus(options));
     } catch (error) {
       if (params.signal?.aborted) throw error;
     }
@@ -377,19 +375,23 @@ export class MdkV2Adapter implements MinerAdapter {
 
   private revalidateTelemetryClock(params: AdapterRequestOptions, newGap: boolean) {
     const pending = this.clockRefresh;
-    if (pending && !pending.signal.aborted && !newGap) return pending.promise;
+    if (pending && !pending.controller.signal.aborted && !newGap) return pending.promise;
     pending?.controller.abort();
 
     const controller = new AbortController();
-    const signal = params.signal ? AbortSignal.any([params.signal, controller.signal]) : controller.signal;
-    const promise = this.refreshTelemetryClock(this.decorate({ ...params, signal }))
+    const caller = params.signal;
+    const onAbort = () => controller.abort(caller?.reason);
+    if (caller?.aborted) onAbort();
+    else caller?.addEventListener("abort", onAbort, { once: true });
+    const promise = this.refreshTelemetryClock(this.decorate({ ...params, signal: controller.signal }))
       .catch((error: unknown) => {
-        if (!controller.signal.aborted) throw error;
+        if (caller?.aborted || !controller.signal.aborted) throw error;
       })
       .finally(() => {
+        caller?.removeEventListener("abort", onAbort);
         if (this.clockRefresh?.controller === controller) this.clockRefresh = undefined;
       });
-    this.clockRefresh = { controller, signal, promise };
+    this.clockRefresh = { controller, promise };
     return promise;
   }
 
@@ -405,6 +407,12 @@ export class MdkV2Adapter implements MinerAdapter {
 
   async getErrorObservations(params: AdapterRequestOptions = {}) {
     const decorated = this.decorate(params);
+    // The shell rechecks retained thermal observations when this clock sample arrives.
+    if (!Number.isFinite(this.telemetryNow())) {
+      void this.revalidateTelemetryClock(params, false).catch((error: unknown) => {
+        if (!params.signal?.aborted) console.error("Could not refresh the controller clock", error);
+      });
+    }
     const [map, health] = await Promise.all([
       this.client.hashboardServiceGetContainerMap(decorated),
       this.client.telemetryServiceGetContainerHealth({}, decorated).catch((error) => {
@@ -414,10 +422,8 @@ export class MdkV2Adapter implements MinerAdapter {
         if (status === 404 || status === 405 || status === 501) return { data: {} };
         throw error;
       }),
-      // Faults remain visible even if an older controller cannot supply its clock.
-      Number.isFinite(this.telemetryNow()) ? undefined : this.refreshTelemetryClock(decorated),
     ]);
-    return toErrorObservations(map.data, this.containerDeviceId(), health.data, this.telemetryNow());
+    return toErrorObservations(map.data, this.containerDeviceId(), health.data);
   }
 
   async getPools(params: AdapterRequestOptions = {}) {

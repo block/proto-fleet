@@ -9,6 +9,7 @@ import type {
 
 import { efficiencyValue } from "./efficiency";
 import { readingStatus, type ReadingStatus } from "./readingFreshness";
+import { sensorReading } from "./sensorReading";
 
 export function selectPsuObservation<T extends PsuObservationTime>(
   observations: readonly T[],
@@ -26,12 +27,6 @@ export function selectPsuObservation<T extends PsuObservationTime>(
 
 const thermalHealth = (state: PsuThermalObservation | undefined, now: number) =>
   state && readingStatus(state.observedAt, now) === "current" ? state.health : "unknown";
-
-export function retainedPsuInputPower(psu: PsuTelemetry, now: number): number | null {
-  const raw = psu.rawObservations;
-  const electrical = raw && selectPsuObservation(raw.electrical, now);
-  return (electrical?.values ?? raw?.fallbackElectrical ?? psu).inputPower?.latest?.value ?? null;
-}
 
 export function psuRollupPower(
   ids: readonly ComponentId[] | null,
@@ -52,8 +47,8 @@ export function psuRollupPower(
     if (Number.isFinite(total)) power = total;
   }
   return {
-    power: { latest: { value: power, units: "W" } },
-    efficiency: { latest: { value: efficiencyValue(power ?? undefined, hashrate), units: "J/TH" } },
+    power: sensorReading(power, "W"),
+    efficiency: sensorReading(efficiencyValue(power ?? undefined, hashrate), "J/TH"),
     powerCoverage: {
       kind: power === null ? "unknown" : "complete",
       includesNonHashboardLoads: true,
@@ -71,7 +66,7 @@ export function projectPsuReadings(psu: PsuTelemetry, now: number): PsuTelemetry
   return {
     ...base,
     ...(electrical?.values ?? rawObservations.fallbackElectrical),
-    ...temperatures?.values,
+    ...(temperatures?.values ?? rawObservations.fallbackTemperatures),
     observedAt: {
       electrical: electrical?.observedAt,
       temperatures: temperatures?.observedAt,
@@ -98,6 +93,15 @@ export function psuFreshness(psu: PsuTelemetry | undefined, now = Date.now()) {
 
 export function psuReadingNotice(label: string, status: ReadingStatus) {
   return status === "current" ? undefined : `${label} ${status}`;
+}
+
+export function psuThermalNotice(psu: PsuTelemetry | undefined, now: number, status: ReadingStatus) {
+  if (!Number.isFinite(now) && psu?.rawObservations) {
+    const sample = selectPsuObservation(psu.rawObservations.thermalState, now);
+    if (sample?.health === "fault") return "Last reported over-temperature fault (age unknown)";
+    if (sample?.health === "degraded") return "Last reported over-temperature warning (age unknown)";
+  }
+  return psuReadingNotice("Thermal status", status);
 }
 
 export function psuFaultReportNotice(errors: MinerError[], now: number) {

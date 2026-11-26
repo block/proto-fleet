@@ -118,7 +118,7 @@ test.each([false, true])("expires thermal evidence between polls (board warning 
   const status = () => useMinerStore.getState().minerStatus;
   const errors = () => [...status().errorsByOwner.values()].flat();
   const scope = { kind: "container" } as const;
-  status().setErrors(toErrorObservations(response, "ct1", {}, at), at);
+  status().setErrors(toErrorObservations(response, "ct1"), at);
   try {
     status().refreshThermalFaults(at + 999);
     expect(errors()).toMatchObject([{ severity: "critical" }]);
@@ -153,7 +153,7 @@ test.each([false, true])(
     const status = () => useMinerStore.getState().minerStatus;
     const errors = () => [...status().errorsByOwner.values()].flat();
     try {
-      status().setErrors(toErrorObservations(response, "ct1", {}, NaN), NaN);
+      status().setErrors(toErrorObservations(response, "ct1"), NaN);
       expect(errors().map((error) => error.severity)).toEqual(boardWarning ? ["warning"] : []);
       status().refreshThermalFaults(at + 5_000);
       expect(errors()).toMatchObject([{ severity: "critical" }]);

@@ -91,14 +91,16 @@ describe("module PSU telemetry", () => {
               health: {
                 timestamp: new Date(now - 150_000).toISOString(),
                 hashrate: 25,
-                psuElectrical: { inputPower: 500 },
+                psuElectrical: { inputPower: 500, inputVoltage: 410 },
+                psuThermal: { inletTemperature: 30 },
               },
             },
             {
               health: {
                 timestamp: new Date(now + 6_000).toISOString(),
                 hashrate: 25,
-                psuElectrical: { inputPower, sampleAgeMs: 10_000 },
+                psuElectrical: { inputPower, inputVoltage: 490, sampleAgeMs: 10_000 },
+                psuThermal: { inletTemperature: 60 },
               },
             },
           ],
@@ -133,10 +135,21 @@ describe("module PSU telemetry", () => {
         check(moduleKey, inputPower ?? null, inputPower ?? null);
         check(tankKey, retainedTankPower, inputPower === 0 ? 1000 / 150 : null);
         telemetry().refreshPsuReadings(now);
+        const psu = () => telemetry().psus.get(module.psuIds[0]);
+        expect(psu()).toMatchObject({
+          inputVoltage: { latest: { value: 410 } },
+          inletTemperature: { latest: { value: 30 } },
+          observedAt: { electrical: now - 150_000, temperatures: now - 150_000 },
+        });
         check(moduleKey, 500, 10);
         check(tankKey, 1500, 10);
 
         telemetry().refreshPsuReadings(now + 1_000);
+        expect(psu()).toMatchObject({
+          inputVoltage: { latest: { value: 490 } },
+          inletTemperature: { latest: { value: 60 } },
+          observedAt: { electrical: now - 4_000, temperatures: now + 6_000 },
+        });
         check(moduleKey, inputPower ?? null, inputPower ?? null);
         check(tankKey, retainedTankPower, inputPower === 0 ? 1000 / 150 : null);
         expect(row(tankKey)?.power?.timeSeries?.points).toEqual(points);

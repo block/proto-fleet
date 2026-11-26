@@ -100,3 +100,31 @@ test("a post-wake poll can confirm the clock before the timer checks it", () => 
   expect(clock.checkForDiscontinuity("timer", 130, now + 180_030)).toBe(false);
   expect(clock.now(130)).toBe(now + 180_030);
 });
+
+test.each(["before", "during"])("invalidates an established clock when sleep occurs %s a poll", (order) => {
+  const clock = new ControllerClock();
+  clock.observe(evaluatedAt, clock.startObservation(100, now), 100, now);
+  const afterSleep = now + 600_000;
+  const request = clock.startObservation(100, order === "before" ? afterSleep : now);
+  if (order === "before") expect(clock.now(100)).toBeNaN();
+  clock.observe(evaluatedAt, request, 110, afterSleep + 10);
+  expect(readingStatus(now, clock.now(110))).toBe("unavailable");
+  expect(clock.checkForDiscontinuity("timer", 110, afterSleep + 10)).toBe(true);
+});
+
+test("keeps clock probes enabled after a capable controller omits one timestamp", () => {
+  const clock = new ControllerClock();
+  clock.observe(evaluatedAt, clock.startObservation(0, now), 0, now);
+  clock.observe(undefined, clock.startObservation(10, now + 10), 10, now + 10);
+  expect(clock.now(10)).toBeNaN();
+  expect(clock.supportsEvaluationTime).toBe(true);
+});
+
+test("invalidates a clock when only the full request reveals the forward gap", () => {
+  const clock = new ControllerClock();
+  clock.observe(evaluatedAt, clock.startObservation(100, now), 100, now);
+  const pending = clock.startObservation(100, now);
+  expect(clock.checkForDiscontinuity("timer", 100, now + 700)).toBe(false);
+  clock.observe(evaluatedAt, pending, 100, now + 1_400);
+  expect(clock.now(100)).toBeNaN();
+});

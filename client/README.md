@@ -427,10 +427,9 @@ local request, measured with `performance.now()`. Elapsed time advances the
 estimate between polls, including when a poll fails. A round trip over ten
 seconds cannot establish a reference within the five-second tolerance. Older
 controllers that omit the field show age-dependent readings as unavailable.
-Fault polling waits up to two seconds for an initial clock sample. If that
-request stalls, ProtoOS still shows the faults reported by the boards and plant.
-Once a status response omits the timestamp, fault polling skips extra clock
-requests. Regular mining-status polls can still detect a firmware upgrade.
+Fault polling returns board and plant reports while a clock request runs in
+the background. Concurrent checks share that request. On older firmware that
+omits the timestamp, regular mining-status polls can detect a firmware upgrade.
 After system sleep, the browser's monotonic clock can lose elapsed time. If
 the clocks disagree on resume, ProtoOS requires a new controller evaluation
 before it can confirm reading ages again. It also compares elapsed wall and
@@ -438,9 +437,10 @@ monotonic time during each clock request, including the first, and discards
 samples from requests interrupted by sleep. A regular status poll that starts
 after wake can confirm the clock before the browser delivers its resume event.
 A one-second timer also checks for sleep when wall time advances faster than
-the monotonic clock. When the timer detects a gap, ProtoOS marks reading ages
-as unknown until the controller confirms the time. A backward wall-clock correction waits for a resume event
-or a regular status poll. On resume, a gap in either direction requires confirmation.
+the monotonic clock. When a poll or the timer detects a forward gap, ProtoOS
+marks reading ages as unknown until the controller confirms the time. A backward
+wall-clock correction waits for a resume event or a regular status poll.
+On resume, a gap in either direction requires confirmation.
 
 Full board snapshots update the live temperature average, minimum, and maximum
 together. A concurrent summary or history request cannot replace these values.
@@ -450,8 +450,10 @@ Overlapping requests keep each PSU identity with its telemetry. Module and tank
 power use the most recent retained PSU input, even when its age is unknown.
 If clock recovery changes which board supplied that input, ProtoOS updates
 module and tank power and efficiency from the same reading as the PSU card.
-Thermal faults expire with their PSU sample. If a board also reported the
-fault, its message and severity still apply after the thermal sample expires.
+When the clock is unknown, PSU details show the last reported thermal fault or
+warning with an unknown age. Health stays unknown. Thermal faults expire with
+their PSU sample. If a board also reported the fault, its message and severity
+still apply after the thermal sample expires.
 
 | Consumer                                                             | Treatment of source observations                                                                                                                                                                                                          |
 | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

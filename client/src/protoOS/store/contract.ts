@@ -395,6 +395,7 @@ export interface PsuTelemetry {
   rawObservations?: {
     electrical: (PsuObservationTime & { values: PsuElectricalMetrics })[];
     fallbackElectrical?: PsuElectricalMetrics;
+    fallbackTemperatures?: PsuTemperatureMetrics;
     temperatures: (PsuObservationTime & { values: PsuTemperatureMetrics })[];
     thermalState: PsuThermalObservation[];
   };

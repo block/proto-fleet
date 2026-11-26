@@ -5,26 +5,22 @@ import {
   type ModuleId,
   type PsuHardware,
   type PsuObservationTime,
-  type PsuTelemetry,
   type PsuThermalObservation,
 } from "@/protoOS/store/contract";
-import { projectPsuReadings } from "@/protoOS/store/utils/psuFreshness";
+import { projectPsuReadings, selectPsuObservation } from "@/protoOS/store/utils/psuFreshness";
 import { sourceObservationTime } from "@/protoOS/store/utils/readingFreshness";
+import { sensorReading } from "@/protoOS/store/utils/sensorReading";
 
 const observedSamples = <T>(samples: { time: PsuObservationTime | undefined; values: T }[]) =>
   samples.flatMap(({ time, values }) => (time ? [{ ...time, values }] : []));
 
-const metric = (value: number | undefined, units: "W" | "V" | "A" | "°C") => ({
-  latest: { value: value !== undefined && Number.isFinite(value) ? value : null, units },
-});
-
 const electricalMetrics = (value?: V2PsuElectricalHealth) => ({
-  inputVoltage: metric(value?.inputVoltage, "V"),
-  inputCurrent: metric(value?.inputCurrent, "A"),
-  inputPower: metric(value?.inputPower, "W"),
-  outputVoltage: metric(value?.outputVoltage, "V"),
-  outputCurrent: metric(value?.outputCurrent, "A"),
-  outputPower: metric(value?.outputPower, "W"),
+  inputVoltage: sensorReading(value?.inputVoltage, "V"),
+  inputCurrent: sensorReading(value?.inputCurrent, "A"),
+  inputPower: sensorReading(value?.inputPower, "W"),
+  outputVoltage: sensorReading(value?.outputVoltage, "V"),
+  outputCurrent: sensorReading(value?.outputCurrent, "A"),
+  outputPower: sensorReading(value?.outputPower, "W"),
 });
 
 const temperatureMetrics = (value?: V2PsuThermalHealth) => {
@@ -32,15 +28,15 @@ const temperatureMetrics = (value?: V2PsuThermalHealth) => {
     (reading): reading is number => reading !== undefined && Number.isFinite(reading),
   );
   return {
-    ambientTemperature: metric(value?.inletTemperature, "°C"),
-    inletTemperature: metric(value?.inletTemperature, "°C"),
-    srHeatsinkTemperature: metric(value?.srHeatsinkTemperature, "°C"),
-    pfcHeatsinkTemperature: metric(value?.pfcHeatsinkTemperature, "°C"),
-    averageTemperature: metric(
+    ambientTemperature: sensorReading(value?.inletTemperature, "°C"),
+    inletTemperature: sensorReading(value?.inletTemperature, "°C"),
+    srHeatsinkTemperature: sensorReading(value?.srHeatsinkTemperature, "°C"),
+    pfcHeatsinkTemperature: sensorReading(value?.pfcHeatsinkTemperature, "°C"),
+    averageTemperature: sensorReading(
       readings.length ? readings.reduce((sum, reading) => sum + reading, 0) / readings.length : undefined,
       "°C",
     ),
-    hotspotTemperature: metric(readings.length ? Math.max(...readings) : undefined, "°C"),
+    hotspotTemperature: sensorReading(readings.length ? Math.max(...readings) : undefined, "°C"),
   };
 };
 
@@ -48,6 +44,16 @@ function thermalHealth(value: V2PsuThermalHealth): PsuThermalObservation["health
   if (value.thermalStateValid !== true) return "unknown";
   if (value.overTemperatureFault) return "fault";
   return value.overTemperatureWarning ? "degraded" : "ok";
+}
+
+export const modulePsuRef = (moduleId: ModuleId) =>
+  ({ id: asComponentId(`${moduleId}:psu:1`), kind: "psu", owner: { kind: "module", id: moduleId } }) as const;
+
+export function psuThermalState({ health }: V2Hashboard): PsuThermalObservation[] {
+  const value = health?.psuThermal;
+  if (!value) return [];
+  const time = sourceObservationTime(health.timestamp, value.thermalStateAgeMs);
+  return time ? [{ ...time, health: thermalHealth(value) }] : [];
 }
 
 /** The three boards report snapshots of the same module-owned PSU. */
@@ -66,9 +72,9 @@ export const normalizeModulePsu = (moduleId: ModuleId, boards: V2Hashboard[], no
   );
   if (!identity && !electrical.length && !thermal.length && !hasReportedFault) return undefined;
 
-  const id = asComponentId(`${moduleId}:psu:1`);
+  const ref = modulePsuRef(moduleId);
   const hardware: PsuHardware = {
-    ref: { id, kind: "psu", owner: { kind: "module", id: moduleId } },
+    ref,
     slot: 1,
     serialNumber: identity?.serial,
     manufacturer: identity?.vendor,
@@ -76,34 +82,25 @@ export const normalizeModulePsu = (moduleId: ModuleId, boards: V2Hashboard[], no
     hardwareRevision: identity?.revision,
     firmware: identity?.firmwareVersion ? { application: { version: identity.firmwareVersion } } : undefined,
   };
-  const thermalStates = thermal.flatMap(({ value, timestamp }) => {
-    const time = sourceObservationTime(timestamp, value.thermalStateAgeMs);
-    return time ? [{ ...time, health: thermalHealth(value) }] : [];
-  });
-  const fallbackElectrical = electricalMetrics(electrical[0]?.value);
-  const rawObservations: NonNullable<PsuTelemetry["rawObservations"]> = {
-    electrical: observedSamples(
-      electrical.map(({ value, timestamp }) => ({
-        time: sourceObservationTime(timestamp, value.sampleAgeMs),
-        values: electricalMetrics(value),
-      })),
-    ),
-    fallbackElectrical,
+  const electricalSamples = observedSamples(
+    electrical.map(({ value, timestamp }) => ({
+      time: sourceObservationTime(timestamp, value.sampleAgeMs),
+      values: electricalMetrics(value),
+    })),
+  );
+  const rawObservations = {
+    electrical: electricalSamples,
+    // Keep the newest retained input for power totals when all frames are ineligible.
+    fallbackElectrical: selectPsuObservation(electricalSamples, NaN)?.values ?? electricalMetrics(electrical[0]?.value),
     temperatures: observedSamples(
       thermal.map(({ value, timestamp }) => ({
         time: sourceObservationTime(timestamp, value.temperaturesAgeMs),
         values: temperatureMetrics(value),
       })),
     ),
-    thermalState: thermalStates,
+    fallbackTemperatures: temperatureMetrics(thermal[0]?.value),
+    thermalState: boards.flatMap(psuThermalState),
   };
-  // Retain values for existing power totals even if none of the frames have a valid timestamp.
-  const fallback: PsuTelemetry = {
-    componentId: id,
-    ...fallbackElectrical,
-    ...temperatureMetrics(thermal[0]?.value),
-    rawObservations,
-  };
-  const telemetry = { ...projectPsuReadings(fallback, now), rawObservations };
-  return { id, hardware, telemetry, thermalStates };
+  const telemetry = projectPsuReadings({ componentId: ref.id, rawObservations }, now);
+  return { id: ref.id, hardware, telemetry: { ...telemetry, rawObservations } };
 };

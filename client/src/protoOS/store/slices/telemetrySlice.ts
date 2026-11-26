@@ -1,5 +1,6 @@
 import { enableMapSet } from "immer";
 import type { StateCreator } from "zustand";
+import { shallow } from "zustand/shallow";
 
 import {
   asEntityKey,
@@ -21,7 +22,7 @@ import {
 import type { MinerStore } from "../useMinerStore";
 import { createEmptyTelemetryState } from "../utils/createEmptyTelemetryState";
 import { getFanId, getHashboardId, getPsuId } from "../utils/entityIds";
-import { psuHealth, psuRollupPower, retainedPsuInputPower } from "../utils/psuFreshness";
+import { projectPsuReadings, psuRollupPower } from "../utils/psuFreshness";
 import { boardTemperatures } from "../utils/readingFreshness";
 import { containerModuleInventoryKey, containerPlantInventoryKey, replaceHardwareSnapshot } from "./hardwareSlice";
 
@@ -393,13 +394,17 @@ export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", n
     const changedPower = new Set<ComponentId>();
     for (const [id, psu] of psus) {
       if (!psu.rawObservations) continue;
-      const health = psuHealth(psu, now);
-      const power = retainedPsuInputPower(psu, now);
-      if (power !== (psu.inputPower?.latest?.value ?? null)) {
-        const inputPower = { ...psu.inputPower, latest: { value: power, units: "W" as const } };
-        changes.set(id, { ...psu, health, inputPower });
-        changedPower.add(id);
-      } else if (health !== psu.health) changes.set(id, { ...psu, health });
+      const projected = projectPsuReadings(psu, now);
+      const before: MetricReadings = psu;
+      const after: MetricReadings = projected;
+      if (
+        projected.health === psu.health &&
+        shallow(projected.observedAt, psu.observedAt) &&
+        metricFields.every((field) => before[field]?.latest?.value === after[field]?.latest?.value)
+      )
+        continue;
+      changes.set(id, mergeMetrics(psu, projected));
+      if (projected.inputPower?.latest?.value !== psu.inputPower?.latest?.value) changedPower.add(id);
     }
     const rollupChanges: TelemetryState["rollupsByEntity"] = new Map();
     if (changedPower.size) {

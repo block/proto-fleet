@@ -137,7 +137,37 @@ describe("MdkV2Adapter", () => {
     expect(getStatus).toHaveBeenCalledTimes(2);
   });
 
-  test("returns board faults after the optional clock request times out", async () => {
+  test("returns board and plant faults without AbortSignal.any on firmware that omits controller time", async () => {
+    class LegacyAbortSignal extends AbortSignal {}
+    Object.defineProperty(LegacyAbortSignal, "any", { value: undefined });
+    vi.stubGlobal("AbortSignal", LegacyAbortSignal);
+    try {
+      const boardFault = V2HashboardErrorCause.HASHBOARD_ERROR_CAUSE_BOARD_POWER_SUPPLY;
+      const getStatus = vi.fn().mockResolvedValue({ data: {} });
+      const adapter = new MdkV2Adapter(
+        client({
+          miningServiceGetMiningStatus: getStatus,
+          hashboardServiceGetContainerMap: vi.fn().mockResolvedValue({
+            data: mapWithBoardHealth({ errors: [{ cause: boardFault }] }),
+          }),
+          telemetryServiceGetContainerHealth: vi.fn().mockResolvedValue({
+            data: { alarms: [{ id: "pump_overload", severity: V2Severity.SEVERITY_CRITICAL }] },
+          }),
+        }),
+      );
+      const { signal } = new AbortController();
+      for (let poll = 0; poll < 2; poll++) {
+        const faults = await adapter.getErrors({ signal });
+        expect(faults.map((fault) => fault.code)).toEqual([boardFault, "pump_overload"]);
+      }
+      expect(getStatus).toHaveBeenCalledOnce();
+      expect(adapter.telemetryNow()).toBeNaN();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("returns board faults immediately and ignores a clock probe that times out", async () => {
     vi.useFakeTimers();
     try {
       const pending = pendingMiningStatus();
@@ -153,10 +183,12 @@ describe("MdkV2Adapter", () => {
           }),
         }),
       );
-      const request = adapter.getErrors();
-      await vi.advanceTimersByTimeAsync(2_000);
+      const faults = await adapter.getErrors();
+      expect(getStatus.mock.calls[0][0]?.signal?.aborted).toBe(false);
+      await adapter.getErrors();
+      expect(getStatus).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(10_000);
       expect(getStatus.mock.calls[0][0]?.signal?.aborted).toBe(true);
-      const faults = await request;
       expect(faults).toHaveLength(1);
       expect(psuFaultReportNotice(faults, adapter.telemetryNow())).toBe("Board fault report age unavailable");
 
@@ -167,6 +199,28 @@ describe("MdkV2Adapter", () => {
       await adapter.getErrors();
       expect(getStatus).toHaveBeenCalledTimes(2);
       expect(Number.isFinite(adapter.telemetryNow())).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("accepts a slow clock probe without delaying fault polling", async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = pendingMiningStatus();
+      const adapter = new MdkV2Adapter(
+        client({
+          miningServiceGetMiningStatus: () => pending.promise,
+          hashboardServiceGetContainerMap: vi.fn().mockResolvedValue({ data: {} }),
+        }),
+      );
+      await adapter.getErrors();
+      expect(adapter.telemetryNow()).toBeNaN();
+      await vi.advanceTimersByTimeAsync(3_000);
+      const evaluatedAt = Date.now();
+      pending.resolve({ data: { currentMeasurements: { evaluatedAt: new Date(evaluatedAt).toISOString() } } });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(adapter.telemetryNow()).toBe(evaluatedAt + 1_500);
     } finally {
       vi.useRealTimers();
     }
@@ -296,7 +350,7 @@ describe("MdkV2Adapter", () => {
       const resumed = focus ? adapter.resumeTelemetryClock() : undefined;
       expect(getStatus).toHaveBeenCalledTimes(2);
 
-      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(10_000);
       await afterSleep;
       await resumed;
       expect(getStatus.mock.calls[1][0]?.signal?.aborted).toBe(true);

@@ -17,6 +17,7 @@ import {
   psuFreshness,
   psuHealth,
   psuReadingNotice,
+  psuThermalNotice,
 } from "@/protoOS/store/utils/psuFreshness";
 import EfficiencyValue from "@/shared/components/EfficiencyValue";
 import HashRateValue from "@/shared/components/HashRateValue";
@@ -266,7 +267,7 @@ export function buildComponentStatusProps(
     ? [
         psuReadingNotice("Electrical readings", freshness.electrical),
         psuReadingNotice("Temperatures", freshness.temperatures),
-        psuReadingNotice("Thermal status", freshness.thermalState),
+        psuThermalNotice(telemetry as PsuTelemetry | undefined, now, freshness.thermalState),
       ]
         .filter(Boolean)
         .join(". ")

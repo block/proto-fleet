@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { normalizeModulePsu } from "./modulePsu";
 import { asModuleId } from "@/protoOS/store/contract";
-import { projectPsuReadings, psuFreshness, psuHealth, retainedPsuInputPower } from "@/protoOS/store/utils/psuFreshness";
+import { projectPsuReadings, psuFreshness, psuHealth } from "@/protoOS/store/utils/psuFreshness";
 
 const moduleId = asModuleId("container:ct1:module:1");
 const now = Date.parse("2026-11-17T19:00:00Z");
@@ -109,7 +109,7 @@ test("prefers the newest raw sample for retained power until the clock is known"
 });
 
 test("reselects electrical, temperature, and thermal state when a retained frame becomes valid", () => {
-  const { telemetry, thermalStates } = normalizeModulePsu(
+  const { telemetry } = normalizeModulePsu(
     moduleId,
     [
       {
@@ -135,7 +135,7 @@ test("reselects electrical, temperature, and thermal state when a retained frame
     ],
     NaN,
   )!;
-  expect(thermalStates).toEqual([
+  expect(telemetry.rawObservations.thermalState).toEqual([
     { frameAt: now - 9_000, observedAt: now - 9_000, health: "ok" },
     { frameAt: now + 6_000, observedAt: now - 4_000, health: "fault" },
   ]);
@@ -149,6 +149,5 @@ test("reselects electrical, temperature, and thermal state when a retained frame
   expect(recovered.inputPower?.latest?.value).toBe(200);
   expect(recovered.inletTemperature?.latest?.value).toBe(60);
   expect(psuHealth(telemetry, now + 6_000)).toBe("fault");
-  expect(retainedPsuInputPower(telemetry, now - 20_000)).toBe(100);
-  expect(projectPsuReadings(telemetry, now - 20_000).inputPower?.latest?.value).toBe(100);
+  expect(projectPsuReadings(telemetry, now - 20_000).inputPower?.latest?.value).toBe(200);
 });

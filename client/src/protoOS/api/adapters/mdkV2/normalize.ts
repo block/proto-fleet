@@ -24,7 +24,7 @@ import {
   V2PoolConnState,
   V2Severity,
 } from "./generated/generatedApi";
-import { normalizeModulePsu } from "./modulePsu";
+import { modulePsuRef, normalizeModulePsu, psuThermalState } from "./modulePsu";
 import { groupPsuErrors, isPsuFaultCause, thermalFaultId } from "./modulePsuErrors";
 import {
   asAsicId,
@@ -76,6 +76,7 @@ import { createEmptyTelemetryState } from "@/protoOS/store/utils/createEmptyTele
 import { efficiencyValue } from "@/protoOS/store/utils/efficiency";
 import { psuRollupPower } from "@/protoOS/store/utils/psuFreshness";
 import { boardTemperatures } from "@/protoOS/store/utils/readingFreshness";
+import { sensorReading } from "@/protoOS/store/utils/sensorReading";
 import { visibleMinerErrors } from "@/protoOS/store/utils/visibleMinerErrors";
 import { containerAsicPlacement } from "@/shared/utils/containerAsicLayout";
 
@@ -108,7 +109,7 @@ const efficiencyMetric = (
   reported?: number,
 ): MetricTelemetry => {
   // Explicit null clears an earlier reading when a later snapshot lacks data.
-  return { latest: { value: efficiencyValue(power, hashrate, reported), units: "J/TH" } };
+  return sensorReading(efficiencyValue(power, hashrate, reported), "J/TH");
 };
 
 export const ct1DeviceId = (value: string | undefined) => asDeviceId(`device:${value || "ct1"}`);
@@ -356,9 +357,6 @@ const flattenBoards = (wire: V2GetContainerMapResponse, containerId: string): Bo
 };
 
 const boardRollup = (boards: BoardEntry[], now: number): LevelRollup => {
-  const metric = (value: number | undefined, units: MetricUnit): MetricTelemetry => ({
-    latest: { value: value ?? null, units },
-  });
   const sum = (read: (entry: BoardEntry) => number | undefined) => {
     if (!boards.length) return undefined;
     let total = 0;
@@ -389,10 +387,10 @@ const boardRollup = (boards: BoardEntry[], now: number): LevelRollup => {
     ({ board }) => !board.isolated && board.miningState === V2MiningState.MINING_STATE_MINING,
   ).length;
   return {
-    hashrate: metric(hashrate, "TH/s"),
-    idealHashrate: metric(idealHashrate, "TH/s"),
+    hashrate: sensorReading(hashrate, "TH/s"),
+    idealHashrate: sensorReading(idealHashrate, "TH/s"),
     ...boardTemperatures(samples, now),
-    averageAsicTemperature: metric(average(asicTemps), "°C"),
+    averageAsicTemperature: sensorReading(average(asicTemps), "°C"),
     miningStatus: onlineBoardCount === 0 ? "stopped" : onlineBoardCount === boards.length ? "mining" : "degradedMining",
     health:
       boards.length === 0
@@ -509,10 +507,6 @@ const plantComponents = (containerId: string, wire: V2GetContainerHealthResponse
   };
   const plantId = asComponentId(`${containerId}:plant`);
   const plant = wire.plant;
-  // Missing or invalid sensors in a successful snapshot must clear the previous reading.
-  const sensorReading = (value: unknown, units: MetricUnit): MetricTelemetry => ({
-    latest: { value: typeof value === "number" && Number.isFinite(value) ? value : null, units },
-  });
   addPlantComponent(plantId, "plant", "Plant", {
     componentId: plantId,
     operatingState: plant?.operatingState,
@@ -852,7 +846,6 @@ export const toErrorObservations = (
   wire: V2GetContainerMapResponse,
   deviceId: string,
   health: V2GetContainerHealthResponse = {},
-  now = Date.now(),
 ): MinerErrorObservations => {
   const containerId = ct1ContainerId(deviceId);
   const boards = flattenBoards(wire, containerId);
@@ -889,7 +882,7 @@ export const toErrorObservations = (
           code,
           message: details.join(" · "),
           owner,
-          component: psuFault ? { kind: "psu", id: asComponentId(`${entry.moduleId}:psu:1`), owner } : component,
+          component: psuFault ? modulePsuRef(entry.moduleId) : component,
           source: psuFault ? { kind: "psu", slot: 1 } : { kind: "hashboard", slot: entry.slot },
           severity,
           ...(psuFault
@@ -914,13 +907,10 @@ export const toErrorObservations = (
   }
   const thermal: MinerErrorObservations["thermal"] = [];
   for (const [moduleId, entries] of groupBoards(boards, (entry) => entry.moduleId)) {
-    const psu = normalizeModulePsu(
-      moduleId,
-      entries.map((entry) => entry.board),
-      now,
-    );
-    if (psu?.thermalStates.some((sample) => sample.health === "fault" || sample.health === "degraded")) {
-      thermal.push({ id: thermalFaultId(psu.id), component: psu.hardware.ref, samples: psu.thermalStates });
+    const samples = entries.flatMap(({ board }) => psuThermalState(board));
+    if (samples.some((sample) => sample.health === "fault" || sample.health === "degraded")) {
+      const component = modulePsuRef(moduleId);
+      thermal.push({ id: thermalFaultId(component.id), component, samples });
     }
   }
   for (const [index, alarm] of (health.alarms ?? []).entries()) {
@@ -959,7 +949,7 @@ export const toCanonicalErrors = (
   deviceId: string,
   health: V2GetContainerHealthResponse = {},
   now = Date.now(),
-) => visibleMinerErrors(toErrorObservations(wire, deviceId, health, now), now);
+) => visibleMinerErrors(toErrorObservations(wire, deviceId, health), now);
 
 export const toCanonicalContainerTelemetry = (
   statusWire: V2GetMiningStatusResponse,

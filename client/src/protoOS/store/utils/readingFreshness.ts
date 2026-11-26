@@ -1,8 +1,10 @@
 import type { BoardTemperatureSnapshot, PsuObservationTime } from "../contract";
+import { sensorReading } from "./sensorReading";
 
 // CT1 health observations expire after two minutes. Polling does not renew them.
 export const HEALTH_MAX_AGE_MS = 120_000;
 const MAX_FUTURE_SKEW_MS = 5_000;
+export const MAX_CLOCK_ROUND_TRIP_MS = 2 * MAX_FUTURE_SKEW_MS;
 const MAX_BROWSER_CLOCK_GAP_MS = 1_000;
 export type ReadingStatus = "current" | "stale" | "unavailable";
 
@@ -49,9 +51,11 @@ export class ControllerClock {
     receivedAt = performance.now(),
     wallMs = Date.now(),
   ) {
-    if (requestId <= this.latestRequestId) return;
+    const received = { localMs: receivedAt, wallMs };
+    this.recordBrowserTime(received);
+    if (requestId <= this.latestRequestId || this.detectGap(start, received)) return;
     this.latestRequestId = requestId;
-    this.supportsEvaluationTime = timestamp != null;
+    if (!this.supportsEvaluationTime) this.supportsEvaluationTime = timestamp != null;
     const controllerMs = Date.parse(timestamp ?? "");
     if (!Number.isFinite(controllerMs)) {
       this.sample = undefined;
@@ -59,29 +63,31 @@ export class ControllerClock {
     }
     // A repeated evaluation is the same sample, even if the client fetched it again.
     if (controllerMs === this.latestEvaluation) return;
-    const halfTrip = (receivedAt - start.localMs) / 2;
+    const roundTrip = receivedAt - start.localMs;
     // The midpoint bounds the estimate's error to half the request duration.
-    if (
-      halfTrip > MAX_FUTURE_SKEW_MS ||
-      Math.abs(browserClockGap(start, { localMs: receivedAt, wallMs })) > MAX_BROWSER_CLOCK_GAP_MS
-    )
-      return;
+    if (roundTrip > MAX_CLOCK_ROUND_TRIP_MS) return;
     this.latestEvaluation = controllerMs;
-    this.sample = { controllerMs, localMs: start.localMs + halfTrip };
+    this.sample = { controllerMs, localMs: start.localMs + roundTrip / 2 };
     this.pendingGap = undefined;
   }
 
   private recordBrowserTime(reading: BrowserClockReading) {
     const previous = this.browserReading;
     this.browserReading = reading;
-    if (!previous) return;
-    const gap = browserClockGap(previous, reading);
-    if (Math.abs(gap) <= MAX_BROWSER_CLOCK_GAP_MS) return;
+    if (previous) this.detectGap(previous, reading);
+  }
+
+  private detectGap(start: BrowserClockReading, end: BrowserClockReading): boolean {
+    const gap = browserClockGap(start, end);
+    if (Math.abs(gap) <= MAX_BROWSER_CLOCK_GAP_MS) return false;
     this.latestRequestId = this.requestId;
     // A backward correction alone need not trigger a foreground request. Remember
     // it in case the browser delivers a resume event before the next good poll.
-    if (gap > 0) this.pendingGap = "timer";
-    else this.pendingGap ??= "resume";
+    if (gap > 0) {
+      this.sample = undefined;
+      this.pendingGap = "timer";
+    } else this.pendingGap ??= "resume";
+    return true;
   }
 
   checkForDiscontinuity(trigger: "timer" | "resume", localMs = performance.now(), wallMs = Date.now()): boolean {
@@ -111,11 +117,10 @@ export function boardTemperatures(samples: BoardTemperatureSnapshot["samples"], 
       }
     }
   }
-  const metric = (value: number | null) => ({ latest: { value, units: "°C" as const } });
   return {
     boardTemperatureSnapshot: { samples, evaluatedAt: now, nextChangeAt },
-    temperature: metric(values.length ? values.reduce((a, b) => a + b, 0) / values.length : null),
-    minimumTemperature: metric(values.length ? Math.min(...values) : null),
-    maximumTemperature: metric(values.length ? Math.max(...values) : null),
+    temperature: sensorReading(values.length ? values.reduce((a, b) => a + b, 0) / values.length : null, "°C"),
+    minimumTemperature: sensorReading(values.length ? Math.min(...values) : null, "°C"),
+    maximumTemperature: sensorReading(values.length ? Math.max(...values) : null, "°C"),
   };
 }

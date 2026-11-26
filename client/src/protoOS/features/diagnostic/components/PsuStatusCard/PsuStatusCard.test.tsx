@@ -117,7 +117,10 @@ test("groups currents with the correct input/output readings and expires reading
   expect(screen.queryByText("Readings stale")).not.toBeInTheDocument();
 });
 
-test("restores retained PSU readings and thermal status when the controller clock recovers", () => {
+test.each([
+  ["fault", "fault"],
+  ["degraded", "warning"],
+] as const)("shows the last reported %s until the controller clock recovers", (health, label) => {
   const observedAt = Date.now();
   telemetryNow.mockReturnValue(NaN);
   useMinerStore.setState((state) => {
@@ -126,17 +129,17 @@ test("restores retained PSU readings and thermal status when the controller cloc
     psu.rawObservations = {
       electrical: [{ frameAt: observedAt, observedAt, values: { inputPower: { latest: { value: 0, units: "W" } } } }],
       temperatures: [],
-      thermalState: [{ frameAt: observedAt, observedAt, health: "degraded" }],
+      thermalState: [{ frameAt: observedAt, observedAt, health }],
     };
   });
   render(<PsuStatusCard componentId={ids[0]} />);
-  expect(screen.getByText("Thermal status unavailable")).toBeInTheDocument();
+  expect(screen.getByText(`Last reported over-temperature ${label} (age unknown)`)).toBeInTheDocument();
   expect(screen.queryByText("0.0 kW")).not.toBeInTheDocument();
   expect(screen.queryByRole("img")).not.toBeInTheDocument();
 
   telemetryNow.mockReturnValue(observedAt + 1_000);
   act(() => vi.advanceTimersByTime(1_000));
-  expect(screen.queryByText("Thermal status unavailable")).not.toBeInTheDocument();
+  expect(screen.queryByText(`Last reported over-temperature ${label} (age unknown)`)).not.toBeInTheDocument();
   expect(screen.getByText("0.0 kW")).toBeInTheDocument();
   expect(screen.getByRole("img", { name: "PSU 1 needs attention" })).toBeInTheDocument();
 });
