@@ -36,8 +36,7 @@ const useHardware = () => {
         ),
       onSuccess: ({ hardware: normalized, telemetry }) => {
         if (!accept()) return;
-        useMinerStore.getState().hardware.replaceHardware(normalized);
-        useMinerStore.getState().telemetry.mergeTelemetry(telemetry);
+        useMinerStore.getState().telemetry.mergeTelemetry(telemetry, accept.requestId, normalized);
       },
       onError: (err) => setError(err?.error?.message ?? "An error occurred"),
     }).finally(() => setPending(false));

@@ -2,11 +2,15 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { useErrors } from "./useErrors";
 import { useMinerStatusSummary } from "@/protoOS/hooks/status";
-import { asModuleId, type MinerError } from "@/protoOS/store/contract";
+import { asComponentId, asModuleId, type MinerError, type MinerErrorObservations } from "@/protoOS/store/contract";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
 const mocks = vi.hoisted(() => ({
-  adapter: null as { getErrors: ReturnType<typeof vi.fn> } | null,
+  adapter: null as {
+    getErrors: ReturnType<typeof vi.fn>;
+    getErrorObservations?: () => Promise<MinerErrorObservations>;
+    telemetryNow?: () => number;
+  } | null,
   getErrors: vi.fn(),
   handleAuthErrors: vi.fn(),
 }));
@@ -40,6 +44,26 @@ beforeEach(() => {
   useMinerStore.getState().resetDeviceData();
 });
 afterEach(() => vi.useRealTimers());
+
+test("restores a CT1 thermal fault when the clock recovers without another error poll", async () => {
+  const getErrorObservations = vi.fn(async (): Promise<MinerErrorObservations> => ({
+    reports: [],
+    thermal: [
+      {
+        id: "thermal",
+        component: { kind: "psu", id: asComponentId("psu:1"), owner: { kind: "module", id: asModuleId("module:1") } },
+        samples: [{ frameAt: 100_000, observedAt: 100_000, health: "fault" }],
+      },
+    ],
+  }));
+  mocks.adapter = { getErrorObservations, getErrors: mocks.getErrors, telemetryNow: () => NaN };
+  const { result } = renderHook(() => useErrors());
+  await act(async () => {});
+  expect(result.current.data).toEqual([]);
+  act(() => useMinerStore.getState().minerStatus.refreshThermalFaults(105_000));
+  expect(result.current.data).toMatchObject([{ id: "thermal", severity: "critical" }]);
+  expect(getErrorObservations).toHaveBeenCalledOnce();
+});
 
 test("updates the header as soon as the adapter resolves, without opening its status dialog or waiting for a poll", async () => {
   const { result, rerender, unmount } = renderHook(() => {

@@ -5,7 +5,13 @@ import { useMinerStore } from "@/protoOS/store";
 import type { ComponentId, MetricTelemetry } from "@/protoOS/store/contract";
 import { useErrorsByRef } from "@/protoOS/store/hooks/useMinerStatus";
 import { getPsuId } from "@/protoOS/store/utils/entityIds";
-import { psuFaultReportNotice, psuFreshness, psuHealth, psuReadingNotice } from "@/protoOS/store/utils/psuFreshness";
+import {
+  projectPsuReadings,
+  psuFaultReportNotice,
+  psuFreshness,
+  psuHealth,
+  psuReadingNotice,
+} from "@/protoOS/store/utils/psuFreshness";
 import { Alert, PsuIndicatorV2 as PsuIndicator } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import PowerValue from "@/shared/components/PowerValue";
@@ -23,8 +29,9 @@ type PsuStatusCardProps = ({ slot: number; componentId?: never } | { componentId
 function PsuStatusCard({ slot, componentId, showComponentIcon = componentId === undefined }: PsuStatusCardProps) {
   const id = componentId ?? getPsuId(slot!);
   const hardware = useMinerStore((state) => state.hardware.psus.get(id));
-  const psuData = useMinerStore((state) => state.telemetry.psus.get(id));
+  const readings = useMinerStore((state) => state.telemetry.psus.get(id));
   const now = usePsuObservationTime(componentId !== undefined);
+  const psuData = readings && projectPsuReadings(readings, now);
   const freshness = psuFreshness(psuData, now);
   const [showComponentStatusModal, setShowComponentStatusModal] = useState(false);
   const value = (metric: MetricTelemetry | undefined, group: "electrical" | "temperatures") => {

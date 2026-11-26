@@ -314,7 +314,17 @@ export interface PowerCoverage {
   unattributedPower?: Measurement;
 }
 
+export interface BoardTemperatureSnapshot {
+  samples: { at: number; values: number[] }[];
+  evaluatedAt: number;
+  nextChangeAt: number;
+}
+
 export interface LevelRollup extends LevelTelemetry {
+  /** Source readings and the time at which their current aggregate next changes. */
+  boardTemperatureSnapshot?: BoardTemperatureSnapshot;
+  /** PSU inputs for this module or tank. Null means the map did not report every module's PSU. */
+  psuInputIds?: ComponentId[] | null;
   /** Mean of available per-hashboard ASIC temperature averages, separate from board sensors. */
   averageAsicTemperature?: MetricTelemetry;
   /** Firmware's expected hashrate for the same boards as `hashrate`; null unless every board reports one. */
@@ -353,11 +363,41 @@ export interface AsicTelemetry {
   passRate?: MetricTelemetry;
 }
 
+export interface PsuObservationTime {
+  frameAt: number;
+  observedAt: number;
+}
+
+export interface PsuThermalObservation extends PsuObservationTime {
+  health: Exclude<HealthState, "offline">;
+}
+
+type PsuElectricalMetrics = Pick<
+  PsuTelemetry,
+  "inputVoltage" | "inputCurrent" | "inputPower" | "outputVoltage" | "outputCurrent" | "outputPower"
+>;
+type PsuTemperatureMetrics = Pick<
+  PsuTelemetry,
+  | "ambientTemperature"
+  | "inletTemperature"
+  | "srHeatsinkTemperature"
+  | "pfcHeatsinkTemperature"
+  | "averageTemperature"
+  | "hotspotTemperature"
+>;
+
 export interface PsuTelemetry {
   componentId: ComponentId;
   health?: HealthState;
   /** CT1 source sample times, independent of the client poll. Missing entries are unreported. */
   observedAt?: { electrical?: number; temperatures?: number; thermalState?: number };
+  /** Retained CT1 observations. The controller clock can change without a new telemetry poll. */
+  rawObservations?: {
+    electrical: (PsuObservationTime & { values: PsuElectricalMetrics })[];
+    fallbackElectrical?: PsuElectricalMetrics;
+    temperatures: (PsuObservationTime & { values: PsuTemperatureMetrics })[];
+    thermalState: PsuThermalObservation[];
+  };
   inputVoltage?: MetricTelemetry;
   inputCurrent?: MetricTelemetry;
   inputPower?: MetricTelemetry;
@@ -478,12 +518,10 @@ export interface TelemetryState {
 
 /** A polling result may also discover hardware while reading component health. */
 export interface TelemetrySnapshot extends TelemetryState {
-  /** Full-map module rollups for this container; omitted module IDs have unavailable live readings. */
-  containerModuleRollups?: { containerId: ContainerId };
   /** Complete plant observations for this container; omitted components have unavailable live readings. */
   containerPlant?: { containerId: ContainerId; hardware: Map<ComponentId, PlantHardware> };
-  /** Complete PSU observations for these modules; absence means readings are unavailable, not removal. */
-  modulePsus?: { moduleIds: ModuleId[]; hardware: Map<ComponentId, PsuHardware> };
+  /** A complete map identifies the current modules and their reported PSUs. */
+  containerModules?: { containerId: ContainerId; moduleIds: ModuleId[]; psus: Map<ComponentId, PsuHardware> };
 }
 
 export interface DeviceIdentity {
@@ -613,6 +651,11 @@ export interface MinerError {
   timestampMs?: number;
   /** Boards reporting a shared PSU issue; health sample times qualify report freshness. */
   reportedBy?: { component: ComponentRef; label: string; observedAt?: number }[];
+}
+
+export interface MinerErrorObservations {
+  reports: MinerError[];
+  thermal: { id: string; component: ComponentRef; samples: PsuThermalObservation[] }[];
 }
 
 export interface DeviceLifecycle {

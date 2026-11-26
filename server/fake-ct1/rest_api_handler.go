@@ -282,6 +282,9 @@ type hashboardHealthError struct {
 }
 
 type miningStatusResponse struct {
+	CurrentMeasurements struct {
+		EvaluatedAt time.Time `json:"evaluatedAt"`
+	} `json:"currentMeasurements"`
 	Hashrate                     float64          `json:"hashrate"`
 	HashrateIdeal                float64          `json:"hashrateIdeal"`
 	Power                        float64          `json:"power"`
@@ -779,6 +782,7 @@ func (s *ContainerState) miningStatusDTO() miningStatusResponse {
 		resp.Mining = s.miningGroups.groups["default"].DesiredMining
 	}
 
+	resp.CurrentMeasurements.EvaluatedAt = time.Now().UTC()
 	return resp
 }
 

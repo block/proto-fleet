@@ -136,6 +136,9 @@ func TestConnectGatewayServesBrowserMDKClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetMiningStatus: %v", err)
 	}
+	if miningStatus.Msg.GetCurrentMeasurements().GetEvaluatedAt() == nil {
+		t.Fatal("missing controller evaluation time")
+	}
 	if miningStatus.Msg.GetTotalBoards() != int32(state.BoardCount()) {
 		t.Fatalf("total boards = %d, want %d", miningStatus.Msg.GetTotalBoards(), state.BoardCount())
 	}

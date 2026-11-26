@@ -25,7 +25,7 @@ import {
   V2Severity,
 } from "./generated/generatedApi";
 import { normalizeModulePsu } from "./modulePsu";
-import { groupPsuErrors, isPsuFaultCause } from "./modulePsuErrors";
+import { groupPsuErrors, isPsuFaultCause, thermalFaultId } from "./modulePsuErrors";
 import {
   asAsicId,
   asComponentId,
@@ -52,6 +52,7 @@ import {
   type MetricTelemetry,
   type MetricUnit,
   type MinerError,
+  type MinerErrorObservations,
   type MiningStatus,
   type MiningTarget,
   type ModuleId,
@@ -73,7 +74,9 @@ import {
 import type { HashboardHardwareData } from "@/protoOS/store/types";
 import { createEmptyTelemetryState } from "@/protoOS/store/utils/createEmptyTelemetryState";
 import { efficiencyValue } from "@/protoOS/store/utils/efficiency";
-import { observationTime, readingStatus } from "@/protoOS/store/utils/readingFreshness";
+import { psuRollupPower } from "@/protoOS/store/utils/psuFreshness";
+import { boardTemperatures } from "@/protoOS/store/utils/readingFreshness";
+import { visibleMinerErrors } from "@/protoOS/store/utils/visibleMinerErrors";
 import { containerAsicPlacement } from "@/shared/utils/containerAsicLayout";
 
 export const CT1_COMMANDS: CommandCapabilities = {
@@ -352,7 +355,7 @@ const flattenBoards = (wire: V2GetContainerMapResponse, containerId: string): Bo
   return boards;
 };
 
-const boardRollup = (boards: BoardEntry[], power?: number): LevelRollup => {
+const boardRollup = (boards: BoardEntry[], now: number): LevelRollup => {
   const metric = (value: number | undefined, units: MetricUnit): MetricTelemetry => ({
     latest: { value: value ?? null, units },
   });
@@ -368,14 +371,13 @@ const boardRollup = (boards: BoardEntry[], power?: number): LevelRollup => {
   };
   // A map response can retain old board health; only timestamped, current
   // readings contribute to live temperature summaries, as with PSU readings.
-  const now = Date.now();
-  const temps = boards
-    .flatMap(({ board }) => {
-      if (board.miningState === V2MiningState.MINING_STATE_DISCONNECTED) return [];
-      if (readingStatus(observationTime(board.health?.timestamp, 0, now), now) !== "current") return [];
-      return board.health?.temperatures ?? [];
-    })
-    .filter(Number.isFinite);
+  const samples = boards.flatMap(({ board }) => {
+    if (board.miningState === V2MiningState.MINING_STATE_DISCONNECTED) return [];
+    const at = Date.parse(board.health?.timestamp ?? "");
+    if (!Number.isFinite(at)) return [];
+    const values = board.health?.temperatures?.filter(Number.isFinite);
+    return values?.length ? [{ at, values }] : [];
+  });
   const asicTemps = boards.flatMap(({ board }) => {
     const value = board.health?.averageAsicTemperatureC;
     return typeof value === "number" && Number.isFinite(value) ? [value] : [];
@@ -389,12 +391,8 @@ const boardRollup = (boards: BoardEntry[], power?: number): LevelRollup => {
   return {
     hashrate: metric(hashrate, "TH/s"),
     idealHashrate: metric(idealHashrate, "TH/s"),
-    power: metric(power, "W"),
-    efficiency: efficiencyMetric(power, hashrate),
-    temperature: metric(average(temps), "°C"),
+    ...boardTemperatures(samples, now),
     averageAsicTemperature: metric(average(asicTemps), "°C"),
-    minimumTemperature: metric(temps.length ? Math.min(...temps) : undefined, "°C"),
-    maximumTemperature: metric(temps.length ? Math.max(...temps) : undefined, "°C"),
     miningStatus: onlineBoardCount === 0 ? "stopped" : onlineBoardCount === boards.length ? "mining" : "degradedMining",
     health:
       boards.length === 0
@@ -410,11 +408,6 @@ const boardRollup = (boards: BoardEntry[], power?: number): LevelRollup => {
                 : "degraded",
     boardCount: boards.length,
     onlineBoardCount,
-    powerCoverage: {
-      kind: power === undefined ? "unknown" : "complete",
-      includesNonHashboardLoads: true,
-      methods: ["topologyMapping"],
-    },
   };
 };
 
@@ -668,6 +661,7 @@ export const toCanonicalContainer = (
   statusWire: V2GetMiningStatusResponse,
   telemetryWire: V2GetContainerHealthResponse,
   deviceIdValue: string,
+  now = Date.now(),
 ): { hardware: HardwareState; telemetry: TelemetrySnapshot } => {
   const normalizedDeviceId = ct1DeviceId(deviceIdValue);
   const containerId = ct1ContainerId(deviceIdValue);
@@ -775,6 +769,7 @@ export const toCanonicalContainer = (
     const psu = normalizeModulePsu(
       id,
       moduleBoards.map((entry) => entry.board),
+      now,
     );
     if (!psu) continue;
     hardware.psus.set(psu.id, psu.hardware);
@@ -782,24 +777,30 @@ export const toCanonicalContainer = (
     modules.get(id)?.psuIds.push(psu.id);
   }
   if (mapWire !== undefined) {
-    telemetry.containerModuleRollups = { containerId };
-    telemetry.modulePsus = { moduleIds: [...modules.keys()], hardware: hardware.psus };
+    telemetry.containerModules = { containerId, moduleIds: [...modules.keys()], psus: hardware.psus };
   }
-  // Boards share a PSU: use its normalized, freshest input reading once per
-  // module. A missing module reading makes the aggregate unknown, not partial.
-  const moduleInputPower = (moduleIds: ModuleId[]): number | undefined => {
-    if (!moduleIds.length) return undefined;
-    let total = 0;
+  // Keep full snapshot membership even when the store has no topology yet.
+  const modulePsuInputIds = (moduleIds: ModuleId[]) => {
+    const inputs: ComponentId[] = [];
     for (const id of moduleIds) {
       const psuIds = modules.get(id)?.psuIds;
-      if (!psuIds?.length) return undefined;
-      for (const psuId of psuIds) {
-        const value = telemetry.psus.get(psuId)?.inputPower?.latest?.value;
-        if (value == null || !Number.isFinite(value)) return undefined;
-        total += value;
-      }
+      if (!psuIds?.length) return null;
+      inputs.push(...psuIds);
     }
-    return total;
+    return inputs.length ? inputs : null;
+  };
+  const scopedRollup = (entries: BoardEntry[], moduleIds: ModuleId[]): LevelRollup => {
+    const rollup = boardRollup(entries, now);
+    const psuInputIds = modulePsuInputIds(moduleIds);
+    return {
+      ...rollup,
+      psuInputIds,
+      ...psuRollupPower(
+        psuInputIds,
+        (id) => telemetry.psus.get(id)?.inputPower?.latest?.value,
+        rollup.hashrate?.latest?.value ?? undefined,
+      ),
+    };
   };
   const timestampMs = Date.parse(telemetryWire.timestamp ?? "");
   telemetry.resourceByScope.set(
@@ -809,7 +810,7 @@ export const toCanonicalContainer = (
   telemetry.plant = plant.telemetry;
   telemetry.containerPlant = { containerId, hardware: plant.hardware };
   telemetry.fans = plant.fanTelemetry;
-  const boardSummary = mapWire === undefined ? undefined : boardRollup(boards);
+  const boardSummary = mapWire === undefined ? undefined : boardRollup(boards, now);
   const containerRollup: LevelRollup = {
     ...boardSummary,
     // Home requests the bulk map: its board health is the live device rate.
@@ -835,13 +836,10 @@ export const toCanonicalContainer = (
   // container/tank entities directly.
   telemetry.rollupsByEntity.set(ROOT_MODULE_KEY, containerRollup);
   for (const [id, tank] of tanks) {
-    telemetry.rollupsByEntity.set(
-      asEntityKey(id),
-      boardRollup(boardsByTank.get(id) ?? [], moduleInputPower(tank.moduleIds)),
-    );
+    telemetry.rollupsByEntity.set(asEntityKey(id), scopedRollup(boardsByTank.get(id) ?? [], tank.moduleIds));
   }
   for (const [id] of modules) {
-    telemetry.rollupsByEntity.set(asEntityKey(id), boardRollup(boardsByModule.get(id) ?? [], moduleInputPower([id])));
+    telemetry.rollupsByEntity.set(asEntityKey(id), scopedRollup(boardsByModule.get(id) ?? [], [id]));
   }
   for (const entry of boards) {
     telemetry.hashboards.set(entry.hashboardId, toHashboardTelemetry(entry));
@@ -850,11 +848,12 @@ export const toCanonicalContainer = (
 };
 
 /** Active health arrays and plant alarms are snapshots; lastShutdownError is latched history. */
-export const toCanonicalErrors = (
+export const toErrorObservations = (
   wire: V2GetContainerMapResponse,
   deviceId: string,
   health: V2GetContainerHealthResponse = {},
-): MinerError[] => {
+  now = Date.now(),
+): MinerErrorObservations => {
   const containerId = ct1ContainerId(deviceId);
   const boards = flattenBoards(wire, containerId);
   const errors: MinerError[] = [];
@@ -913,12 +912,16 @@ export const toCanonicalErrors = (
       }
     }
   }
+  const thermal: MinerErrorObservations["thermal"] = [];
   for (const [moduleId, entries] of groupBoards(boards, (entry) => entry.moduleId)) {
     const psu = normalizeModulePsu(
       moduleId,
       entries.map((entry) => entry.board),
+      now,
     );
-    if (psu) errors.push(...psu.errors);
+    if (psu?.thermalStates.some((sample) => sample.health === "fault" || sample.health === "degraded")) {
+      thermal.push({ id: thermalFaultId(psu.id), component: psu.hardware.ref, samples: psu.thermalStates });
+    }
   }
   for (const [index, alarm] of (health.alarms ?? []).entries()) {
     const severity =
@@ -948,8 +951,15 @@ export const toCanonicalErrors = (
       severity,
     });
   }
-  return groupPsuErrors(errors);
+  return { reports: groupPsuErrors(errors), thermal };
 };
+
+export const toCanonicalErrors = (
+  wire: V2GetContainerMapResponse,
+  deviceId: string,
+  health: V2GetContainerHealthResponse = {},
+  now = Date.now(),
+) => visibleMinerErrors(toErrorObservations(wire, deviceId, health, now), now);
 
 export const toCanonicalContainerTelemetry = (
   statusWire: V2GetMiningStatusResponse,

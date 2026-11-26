@@ -260,6 +260,9 @@ func TestMiningStatus(t *testing.T) {
 	srv, _ := newTestServer(t)
 	var resp miningStatusResponse
 	getJSON(t, srv, "/api/v2/mining/status", &resp)
+	if resp.CurrentMeasurements.EvaluatedAt.IsZero() {
+		t.Fatal("missing controller evaluation time")
+	}
 	if resp.OperatingState != "MINING_OPERATING_STATE_MINING" {
 		t.Errorf("operatingState = %q", resp.OperatingState)
 	}

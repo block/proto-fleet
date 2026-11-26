@@ -51,11 +51,9 @@ test("PSU details show named temperatures and identity, and qualify stale data e
       hardwareRevision: "R3",
       firmware: { application: { version: "2.3.4" } },
     });
-    state.telemetry.psus.get(psu.ref.id)!.observedAt = {
-      electrical: Date.now(),
-      temperatures: Date.now() - 119_000,
-      thermalState: undefined,
-    };
+    const readings = state.telemetry.psus.get(psu.ref.id)!.rawObservations!;
+    for (const sample of readings.temperatures) sample.observedAt = Date.now() - 119_000;
+    readings.thermalState = [];
   });
   useMinerStore.getState().minerStatus.setErrors([fault(psu.ref, "Previously reported PSU warning")]);
   render(<StatusModal componentAddress={psu.ref} onClose={() => {}} />);

@@ -62,7 +62,10 @@ func TestUnlocatedInventoryMap(t *testing.T) {
 			if tc.want == state.BoardCount() && (len(rest.ContainerMap.Tanks) != 1 || rest.ContainerMap.Tanks[0].ID != 0) {
 				t.Fatal("entirely unlocated inventory must not report physical tanks")
 			}
-			if !reflect.DeepEqual(before, state.miningStatusDTO()) {
+			after := state.miningStatusDTO()
+			// Each request evaluates the same readings at a new controller time.
+			before.CurrentMeasurements.EvaluatedAt = after.CurrentMeasurements.EvaluatedAt
+			if !reflect.DeepEqual(before, after) {
 				t.Fatal("location mode changed mining telemetry")
 			}
 			var repeated containerMapResponse

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { normalizeModulePsu } from "./modulePsu";
 import { asModuleId } from "@/protoOS/store/contract";
+import { projectPsuReadings, psuFreshness, psuHealth, retainedPsuInputPower } from "@/protoOS/store/utils/psuFreshness";
 
 const moduleId = asModuleId("container:ct1:module:1");
 const now = Date.parse("2026-11-17T19:00:00Z");
@@ -66,7 +67,6 @@ test("selects the newest actual PSU sample, not the smallest age on an older boa
   ])!;
   expect(psu.telemetry.inputPower?.latest?.value).toBe(0);
   expect(psu.telemetry.health).toBe("ok");
-  expect(psu.errors).toEqual([]);
 });
 
 test.each([
@@ -76,7 +76,7 @@ test.each([
   { timestamp: timestamp(110_000), thermalStateAgeMs: 10_000 },
   { timestamp: timestamp(), thermalStateAgeMs: -1 },
   { timestamp: timestamp(), thermalStateAgeMs: NaN },
-])("does not claim healthy or active faults from invalid/stale thermal evidence: %j", (sample) => {
+])("does not claim thermal health from invalid or stale evidence: %j", (sample) => {
   const psu = normalizeModulePsu(moduleId, [
     {
       health: {
@@ -90,5 +90,65 @@ test.each([
     },
   ])!;
   expect(psu.telemetry.health).toBe("unknown");
-  expect(psu.errors).toEqual([]);
+});
+
+test("prefers the newest raw sample for retained power until the clock is known", () => {
+  const { telemetry } = normalizeModulePsu(
+    moduleId,
+    [
+      { health: { timestamp: "invalid", psuElectrical: { inputPower: 999 } } },
+      { health: { timestamp: timestamp(90_000), psuElectrical: { inputPower: 123 } } },
+      { health: { timestamp: timestamp(), psuElectrical: { inputPower: 0, sampleAgeMs: 1_000 } } },
+    ],
+    NaN,
+  )!;
+  expect(telemetry.inputPower?.latest?.value).toBe(0);
+  expect(psuFreshness(telemetry, NaN).electrical).toBe("unavailable");
+  expect(psuFreshness(telemetry, now).electrical).toBe("current");
+  expect(projectPsuReadings(telemetry, now).inputPower?.latest?.value).toBe(0);
+});
+
+test("reselects electrical, temperature, and thermal state when a retained frame becomes valid", () => {
+  const { telemetry, thermalStates } = normalizeModulePsu(
+    moduleId,
+    [
+      {
+        health: {
+          timestamp: timestamp(9_000),
+          psuElectrical: { inputPower: 100 },
+          psuThermal: { inletTemperature: 30, thermalStateValid: true },
+        },
+      },
+      {
+        health: {
+          timestamp: timestamp(-6_000),
+          psuElectrical: { inputPower: 200, sampleAgeMs: 10_000 },
+          psuThermal: {
+            inletTemperature: 60,
+            temperaturesAgeMs: 10_000,
+            thermalStateAgeMs: 10_000,
+            thermalStateValid: true,
+            overTemperatureFault: true,
+          },
+        },
+      },
+    ],
+    NaN,
+  )!;
+  expect(thermalStates).toEqual([
+    { frameAt: now - 9_000, observedAt: now - 9_000, health: "ok" },
+    { frameAt: now + 6_000, observedAt: now - 4_000, health: "fault" },
+  ]);
+  expect(psuHealth(telemetry, NaN)).toBe("unknown");
+  const initial = projectPsuReadings(telemetry, now);
+  expect(initial.inputPower?.latest?.value).toBe(100);
+  expect(initial.inletTemperature?.latest?.value).toBe(30);
+  expect(psuHealth(telemetry, now)).toBe("ok");
+
+  const recovered = projectPsuReadings(telemetry, now + 6_000);
+  expect(recovered.inputPower?.latest?.value).toBe(200);
+  expect(recovered.inletTemperature?.latest?.value).toBe(60);
+  expect(psuHealth(telemetry, now + 6_000)).toBe("fault");
+  expect(retainedPsuInputPower(telemetry, now - 20_000)).toBe(100);
+  expect(projectPsuReadings(telemetry, now - 20_000).inputPower?.latest?.value).toBe(100);
 });

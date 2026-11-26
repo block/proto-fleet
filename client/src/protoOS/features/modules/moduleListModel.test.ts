@@ -3,8 +3,36 @@ import { describe, expect, test } from "vitest";
 import { buildModuleRows, compareModuleRows } from "./moduleListModel";
 import { tanksFixture } from "@/protoOS/features/tanks/Tanks.fixtures";
 import { asEntityKey } from "@/protoOS/store/contract";
+import useMinerStore from "@/protoOS/store/useMinerStore";
 
 describe("module inventory", () => {
+  test("updates PSU attention from retained telemetry when the clock recovers", () => {
+    const { topology, telemetry } = tanksFixture(1, 1);
+    const module = [...topology.modules.values()][0];
+    const now = 200_000;
+    telemetry.psus.get(module.psuIds[0])!.rawObservations = {
+      electrical: [],
+      temperatures: [],
+      thermalState: [{ frameAt: now, observedAt: now, health: "degraded" }],
+    };
+    useMinerStore.getState().resetDeviceData();
+    try {
+      const store = () => useMinerStore.getState().telemetry;
+      store().mergeTelemetry(telemetry);
+      const hasErrors = () => buildModuleRows(topology, store())[0].hasErrors;
+      store().refreshPsuReadings(now);
+      expect(hasErrors()).toBe(true);
+      store().refreshPsuReadings(NaN);
+      expect(hasErrors()).toBe(false);
+      store().refreshPsuReadings(now + 1_000);
+      expect(hasErrors()).toBe(true);
+      store().refreshPsuReadings(now + 120_000);
+      expect(hasErrors()).toBe(false);
+    } finally {
+      useMinerStore.getState().resetDeviceData();
+    }
+  });
+
   test("retains known faults and issues when a board position is missing", () => {
     const { topology, telemetry } = tanksFixture(1, 1);
     const module = [...topology.modules.values()][0];

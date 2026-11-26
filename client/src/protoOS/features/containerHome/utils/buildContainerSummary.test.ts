@@ -314,7 +314,8 @@ it.each([
   const module = [...topology.modules.values()][0];
   const errors: MinerError[] = [];
   if (source === "psu") {
-    telemetry.psus.get(module.psuIds[0])!.health = severity === "critical" ? "fault" : "degraded";
+    const states = telemetry.psus.get(module.psuIds[0])!.rawObservations!.thermalState;
+    for (const state of states) state.health = severity === "critical" ? "fault" : "degraded";
   } else {
     errors.push({
       id: "module-fault",

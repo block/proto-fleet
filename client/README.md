@@ -417,6 +417,49 @@ Frigate's `UPDATE_*` codes are worded for both apps in
 (`CT1_HA_PAIR=1`) serves `ServerUpdateService` over Connect; see
 `server/fake-ct1/README.md` for its trusted-key and refusal faults.
 
+### CT1 health reading age
+
+ProtoOS uses `GetMiningStatus.current_measurements.evaluated_at` as controller
+time. The controller sets it when it evaluates board health for the request.
+Direct Connect and Fleet's proxied REST `GET /api/v2/mining/status` return this
+field in the response body. Each connection pairs it with the midpoint of the
+local request, measured with `performance.now()`. Elapsed time advances the
+estimate between polls, including when a poll fails. A round trip over ten
+seconds cannot establish a reference within the five-second tolerance. Older
+controllers that omit the field show age-dependent readings as unavailable.
+Fault polling waits up to two seconds for an initial clock sample. If that
+request stalls, ProtoOS still shows the faults reported by the boards and plant.
+Once a status response omits the timestamp, fault polling skips extra clock
+requests. Regular mining-status polls can still detect a firmware upgrade.
+After system sleep, the browser's monotonic clock can lose elapsed time. If
+the clocks disagree on resume, ProtoOS requires a new controller evaluation
+before it can confirm reading ages again. It also compares elapsed wall and
+monotonic time during each clock request, including the first, and discards
+samples from requests interrupted by sleep. A regular status poll that starts
+after wake can confirm the clock before the browser delivers its resume event.
+A one-second timer also checks for sleep when wall time advances faster than
+the monotonic clock. When the timer detects a gap, ProtoOS marks reading ages
+as unknown until the controller confirms the time. A backward wall-clock correction waits for a resume event
+or a regular status poll. On resume, a gap in either direction requires confirmation.
+
+Full board snapshots update the live temperature average, minimum, and maximum
+together. A concurrent summary or history request cannot replace these values.
+ProtoOS keeps the latest board and PSU observations while it checks the clock.
+After the clock recovers, it can show current samples without another map read.
+Overlapping requests keep each PSU identity with its telemetry. Module and tank
+power use the most recent retained PSU input, even when its age is unknown.
+If clock recovery changes which board supplied that input, ProtoOS updates
+module and tank power and efficiency from the same reading as the PSU card.
+Thermal faults expire with their PSU sample. If a board also reported the
+fault, its message and severity still apply after the thermal sample expires.
+
+| Consumer                                                             | Treatment of source observations                                                                                                                                                                                                          |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Container, tank and module board-sensor average, minimum and maximum | Exclude disconnected boards, invalid timestamps, and samples at least 120 seconds old or more than five seconds in the future. Remaining sensors still contribute, including real zeroes.                                                 |
+| Module PSU details and thermal health                                | Subtract each electrical, temperature or thermal-state sample age from its board observation time. Cards hide expired values and show an age notice. Expired thermal states give unknown health.                                          |
+| Board-reported PSU faults                                            | Keep the fault visible. Label stale reports and reports whose age is unknown.                                                                                                                                                             |
+| Power totals and other telemetry                                     | Module and tank power can include the retained PSU input reading. Facility power, hashrate, efficiency, ambient and fluid readings, ASIC temperatures, individual board temperatures and historical buckets keep their existing policies. |
+
 ### CT1 on-device standalone
 
 CT1 uses the same `dist/protoOS` build as the standalone rig dashboard. The browser opens the MDK v2 API listener at `http://<controller>:8080/` and probes `/api/v2/system/info` on that origin. The CT1 adapter then makes same-origin Connect calls (`/mdk.v2.<Service>/<Method>`, binary protobuf) with the required `X-Frigate-Actor: proto-os` wire header, without a v1 bearer token or login/onboarding gate. No Vite server, minerproxy, CORS setup, or `PROXY_URL` is needed on the device. Locally, the ProtoOS Vite server proxies `/api/v1`, `/api/v2`, and `/mdk.v2.*` to `PROXY_URL`. Fleet-hosted CT1 views keep using the `/api/v2` REST routes because Fleet's miner proxy allowlists and authorizes those routes.
