@@ -44,10 +44,6 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 	if snapshot.ObservedAt.IsZero() || snapshot.ObservedAt.After(received.Add(5*time.Second)) {
 		return fmt.Errorf("invalid container observation time")
 	}
-	// The caller's completeness claim decides whether this poll is an authoritative
-	// full inventory. Capture it before the override below repurposes the flag for
-	// placement reconciliation, so a partial poll never erases retained inventory.
-	completeTopology := snapshot.TopologyComplete
 	if len(snapshot.UnlocatedHashboards) > 0 {
 		// Unlocated inventory cannot establish that absent placements are empty.
 		snapshot.TopologyComplete = false
@@ -220,11 +216,13 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 	if err := storeHashboards(ctx, q, orgID, id, snapshot); err != nil {
 		return err
 	}
-	// A complete inventory authoritatively replaces the list, including an empty
-	// list when boards acquire physical locations. A partial observation cannot:
-	// an omitted board was not confirmed removed, so its retained details survive.
+	// A complete enumeration authoritatively replaces the list, including an empty
+	// list when boards acquire physical locations or are removed. A partial poll
+	// cannot: an omitted board was not confirmed removed, so its retained details
+	// survive. The plugin reports enumeration completeness separately from
+	// topology_complete, which it clears whenever unlocated boards are present.
 	boards := snapshot.UnlocatedHashboards
-	if !completeTopology {
+	if !snapshot.UnlocatedInventoryComplete {
 		boards, err = retainUnlocatedHashboards(ctx, q, id, snapshot)
 		if err != nil {
 			return err

@@ -193,9 +193,16 @@ func TestUnlocatedInventoryRetainedAcrossPartialObservation(t *testing.T) {
 		return sdk.ContainerHashboard{Serial: serial, MACAddress: mac, Occupancy: "occupied", State: sdk.MinerStatusActive,
 			ObservedAt: observed, StateObservedAt: observed, HashrateHS: new(100e12), TemperatureC: new(65.0)}
 	}
-	writeAt := func(at time.Time, complete bool, unlocated []sdk.ContainerHashboard, tanks []sdk.ContainerTank) {
+	// enumerated marks a poll that saw every tank: the plugin sets
+	// UnlocatedInventoryComplete and (when unlocated boards are present) clears
+	// TopologyComplete, mirroring health.go. A partial poll leaves both false.
+	writeAt := func(at time.Time, enumerated bool, unlocated []sdk.ContainerHashboard, tanks []sdk.ContainerTank) {
 		t.Helper()
-		snap := &sdk.ContainerSnapshot{ObservedAt: at, TopologyComplete: complete, Tanks: tanks, UnlocatedHashboards: unlocated}
+		snap := &sdk.ContainerSnapshot{
+			ObservedAt: at, Tanks: tanks, UnlocatedHashboards: unlocated,
+			UnlocatedInventoryComplete: enumerated,
+			TopologyComplete:           enumerated && len(unlocated) == 0,
+		}
 		require.NoError(t, store.StoreDeviceMetrics(ctx, telemetry.DeviceMetrics{DeviceIdentifier: d.DeviceIdentifier, Timestamp: at, Container: snap}))
 	}
 
