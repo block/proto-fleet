@@ -211,7 +211,16 @@ export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", n
         }
         for (const [id, board] of inventory.hashboards) {
           const previousBoard = state.hardware.hashboards.get(id);
-          if (JSON.stringify(previousBoard) !== JSON.stringify(board)) state.hardware.hashboards.set(id, board);
+          // The container map omits detail-endpoint fields; preserve them from the
+          // prior board like upsertHashboard does so they survive each map poll.
+          const merged = {
+            ...board,
+            apiVersion: board.apiVersion ?? previousBoard?.apiVersion,
+            temperatureSensorCount: board.temperatureSensorCount ?? previousBoard?.temperatureSensorCount,
+            ecLogsPath: board.ecLogsPath ?? previousBoard?.ecLogsPath,
+            bootloader: board.bootloader ?? previousBoard?.bootloader,
+          };
+          if (JSON.stringify(previousBoard) !== JSON.stringify(merged)) state.hardware.hashboards.set(id, merged);
         }
         state.hardware.resource = { status: "ready", updatedAtMs: Date.now() };
       }
