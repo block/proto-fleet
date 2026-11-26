@@ -25,8 +25,9 @@ import (
 //     Fleet sends the first call that can commit a copy.
 //   - running: every copy is committed. Fleet reads update support until each
 //     controller reports this job as finished.
-//   - succeeded: each controller reports this job as succeeded and has the
-//     target version installed.
+//   - succeeded: each controller reported this job as succeeded with the
+//     target version installed. A success stays true while its controller does
+//     not answer; a later answer from that controller replaces it.
 //   - failed: a controller reports this job as failed, or does not finish it
 //     in time. The job does not block the container and cannot be retried; a
 //     new job for the same package is the retry, and a controller that already
@@ -159,11 +160,15 @@ func (s *Service) applyProtoOSReports(ctx context.Context, id uuid.UUID, reports
 				return sqlc.FrigateUpdateJob{}, err
 			}
 		}
+		rows, err := q.ListFrigateUpdateInstances(ctx, id)
+		if err != nil {
+			return sqlc.FrigateUpdateJob{}, err
+		}
 		p := paramsFromJob(cur)
 		p.LastPolledAt = nullTime(now)
 		p.LastContactAt = nullTime(now)
 		p.UnreachableSince = sql.NullTime{}
-		if v := protoOSOutcome(cur, reports, now, s.cfg.StartTimeout); v.state != StateRunning {
+		if v := protoOSOutcome(cur, protoOSControllers(cur, reports, rows), now, s.cfg.StartTimeout); v.state != StateRunning {
 			p.State = v.state
 			p.ErrorCode = v.code
 			p.ErrorMessage = truncate(v.message, maxStoredMessage)
@@ -192,25 +197,54 @@ type protoOSVerdict struct {
 	state, code, message, nextStep string
 }
 
-// protoOSOutcome decides a running job from the reports of the controllers
-// that answered. A controller that did not answer never fails the job; the
-// job is abandoned when one stays silent for unreachableGiveUp after the last
-// commit. installTimeout bounds how long a controller that answers may take to
-// finish this job after the last commit.
-func protoOSOutcome(job sqlc.FrigateUpdateJob, reports map[string]sdk.FrigateProtoOSSupport, now time.Time, installTimeout time.Duration) protoOSVerdict {
+// protoOSController is what Fleet knows about one controller of a running
+// ProtoOS job when it decides the job.
+type protoOSController struct {
+	// answered is true when the controller answered in this poll; report is
+	// then its answer.
+	answered bool
+	report   sdk.FrigateProtoOSSupport
+	// finished is true when the controller reports this job as succeeded with
+	// the target version installed. For a controller that did not answer in
+	// this poll, its last saved answer applies.
+	finished bool
+}
+
+// protoOSControllers merges the reports of this poll with the saved instance
+// rows. The report of a controller that answers replaces its row.
+func protoOSControllers(job sqlc.FrigateUpdateJob, reports map[string]sdk.FrigateProtoOSSupport, rows []sqlc.FrigateUpdateInstance) map[string]protoOSController {
+	controllers := make(map[string]protoOSController, len(rows))
+	for _, row := range rows {
+		controllers[row.InstanceID] = protoOSController{
+			finished: row.ProtoosJobState == string(sdk.FrigateProtoOSJobSucceeded) && row.ProtoosInstalledVersion == job.TargetVersion,
+		}
+	}
+	for id, r := range reports {
+		controllers[id] = protoOSController{
+			answered: true,
+			report:   r,
+			finished: r.Job.JobID == job.ID.String() && r.Job.State == sdk.FrigateProtoOSJobSucceeded && r.InstalledVersion == job.TargetVersion,
+		}
+	}
+	return controllers
+}
+
+// protoOSOutcome decides a running job. A controller that did not answer never
+// fails the job; the job is abandoned when one that has not finished stays
+// silent for unreachableGiveUp after the last commit. installTimeout bounds how
+// long a controller that answers may take to finish this job after the last
+// commit.
+func protoOSOutcome(job sqlc.FrigateUpdateJob, controllers map[string]protoOSController, now time.Time, installTimeout time.Duration) protoOSVerdict {
 	jobID := job.ID.String()
 	expected := sortedCopy(job.ExpectedInstanceIds)
-	finished := func(r sdk.FrigateProtoOSSupport) bool {
-		return r.Job.JobID == jobID && r.Job.State == sdk.FrigateProtoOSJobSucceeded && r.InstalledVersion == job.TargetVersion
-	}
 	succeeded := 0
 	for _, id := range expected {
-		r, ok := reports[id]
+		c := controllers[id]
 		switch {
-		case ok && r.Job.JobID == jobID && r.Job.State == sdk.FrigateProtoOSJobFailed:
+		case c.answered && c.report.Job.JobID == jobID && c.report.Job.State == sdk.FrigateProtoOSJobFailed:
 			return protoOSVerdict{state: StateFailed, code: CodeProtoOSInstallFailed, nextStep: nextStepProtoOSRestart,
-				message: withDetail(fmt.Sprintf("Controller %s could not install ProtoOS %s", id, job.TargetVersion), r.Job.Message)}
-		case ok && finished(r):
+				message: withDetail(fmt.Sprintf("Controller %s could not install ProtoOS %s", id, job.TargetVersion), c.report.Job.Message)}
+		case c.finished:
 			succeeded++
 		}
 	}
@@ -222,9 +256,10 @@ func protoOSOutcome(job sqlc.FrigateUpdateJob, reports map[string]sdk.FrigatePro
 		return protoOSVerdict{state: StateRunning}
 	}
 	for _, id := range expected {
-		r, ok := reports[id]
+		c := controllers[id]
+		r := c.report
 		switch {
-		case !ok || finished(r):
+		case !c.answered || c.finished:
 		case r.Job.JobID != jobID:
 			return protoOSVerdict{state: StateFailed, code: CodeProtoOSJobNotReported, nextStep: nextStepProtoOSRestart,
 				message: fmt.Sprintf("Controller %s did not report the ProtoOS install of this update within %s after its copy was committed.", id, installTimeout)}

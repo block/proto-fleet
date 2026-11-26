@@ -270,6 +270,114 @@ func TestProtoOS_SilentControllerAbandonsTheJob(t *testing.T) {
 	assert.Equal(t, CodeControllersLost, got.Row.ErrorCode)
 }
 
+// silenceController makes a controller stop answering update support. The
+// returned function makes it answer again with its last report.
+func (e *env) silenceController(id string) (answerAgain func()) {
+	e.t.Helper()
+	e.updater.mu.Lock()
+	defer e.updater.mu.Unlock()
+	for i, in := range e.updater.support {
+		if in.InstanceID == id {
+			e.updater.support[i] = sdk.FrigateInstanceSupport{InstanceID: id, Err: "controller did not answer"}
+			return func() {
+				e.updater.mu.Lock()
+				defer e.updater.mu.Unlock()
+				e.updater.support[i] = in
+			}
+		}
+	}
+	e.t.Fatalf("controller %s not found", id)
+	return nil
+}
+
+func TestProtoOS_SuccessOfASilentControllerCounts(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		restart bool
+	}{
+		{"same runner", false},
+		{"runner restarts between the polls", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newProtoOSEnv(t)
+			job := e.startProtoOSRunning("key-1")
+			e.updater.finishProtoOS(instanceA, sdk.FrigateProtoOSJobSucceeded, "")
+			e.svc.runOnce(e.ctx)
+			require.Equal(t, StateRunning, e.job(job.Row.ID).Row.State)
+
+			e.silenceController(instanceA)
+			if tc.restart {
+				e.svc = NewService(e.conn, e.getter, e.store, nil, e.auth, nil, e.svc.cfg)
+				e.svc.now = e.clock.now
+			}
+			e.updater.finishProtoOS(instanceB, sdk.FrigateProtoOSJobSucceeded, "")
+			e.svc.runOnce(e.ctx)
+
+			got := e.job(job.Row.ID)
+			require.Equal(t, StateSucceeded, got.Row.State, "%s: %s", got.Row.ErrorCode, got.Row.ErrorMessage)
+			assert.True(t, got.Row.CompletedAt.Valid)
+		})
+	}
+}
+
+func TestProtoOS_LaterAnswerReplacesASavedSuccess(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		report func(p *sdk.FrigateProtoOSSupport)
+		code   string
+		detail string
+	}{
+		{"another job", func(p *sdk.FrigateProtoOSSupport) {
+			p.Job = sdk.FrigateProtoOSJob{JobID: "job-9", State: sdk.FrigateProtoOSJobSucceeded}
+		}, CodeProtoOSJobNotReported, "did not report"},
+		{"another version", func(p *sdk.FrigateProtoOSSupport) { p.InstalledVersion = "0.5.0" }, CodeProtoOSInstallTimeout, `has version "0.5.0" installed`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newProtoOSEnv(t)
+			job := e.startProtoOSRunning("key-1")
+			e.updater.finishProtoOS(instanceA, sdk.FrigateProtoOSJobSucceeded, "")
+			e.svc.runOnce(e.ctx)
+
+			e.updater.reportProtoOS(instanceA, tc.report)
+			e.updater.finishProtoOS(instanceB, sdk.FrigateProtoOSJobSucceeded, "")
+			e.svc.runOnce(e.ctx)
+			require.Equal(t, StateRunning, e.job(job.Row.ID).Row.State, "the earlier success of %s no longer counts", instanceA)
+
+			answerAgain := e.silenceController(instanceA)
+			e.svc.runOnce(e.ctx)
+			require.Equal(t, StateRunning, e.job(job.Row.ID).Row.State, "a silent controller keeps its latest answer, not the earlier success")
+
+			answerAgain()
+			e.clock.advance(e.svc.cfg.StartTimeout + time.Second)
+			e.svc.runOnce(e.ctx)
+
+			got := e.job(job.Row.ID)
+			require.Equal(t, StateFailed, got.Row.State)
+			assert.Equal(t, tc.code, got.Row.ErrorCode)
+			assert.Contains(t, got.Row.ErrorMessage, instanceA)
+			assert.Contains(t, got.Row.ErrorMessage, tc.detail)
+		})
+	}
+}
+
+func TestProtoOS_InstallDeadlineSkipsASilentFinishedController(t *testing.T) {
+	e := newProtoOSEnv(t)
+	job := e.startProtoOSRunning("key-1")
+	e.updater.finishProtoOS(instanceA, sdk.FrigateProtoOSJobSucceeded, "")
+	e.updater.finishProtoOS(instanceB, sdk.FrigateProtoOSJobInstalling, "Installing proto-os 0.6.2~internal.14.")
+	e.svc.runOnce(e.ctx)
+	e.silenceController(instanceA)
+
+	e.clock.advance(e.svc.cfg.StartTimeout + time.Second)
+	e.svc.runOnce(e.ctx)
+
+	got := e.job(job.Row.ID)
+	require.Equal(t, StateFailed, got.Row.State)
+	assert.Equal(t, CodeProtoOSInstallTimeout, got.Row.ErrorCode)
+	assert.Contains(t, got.Row.ErrorMessage, instanceB)
+	assert.NotContains(t, got.Row.ErrorMessage, instanceA)
+}
+
 func TestProtoOS_NoControllerAnswersMarksUnreachable(t *testing.T) {
 	e := newProtoOSEnv(t)
 	job := e.startProtoOSRunning("key-1")

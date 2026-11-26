@@ -525,9 +525,13 @@ with `InvalidArgument`. The job states are:
 2. `running`: every copy is committed. Fleet reads update support every poll
    interval and records, for each controller, the state of this job, the
    installed version and the release tag that it serves.
-3. `succeeded`: each controller reports this job as succeeded and has the
+3. `succeeded`: each controller reported this job as succeeded with the
    target version installed. A controller that has the version installed
-   already reports success without an install.
+   already reports success without an install. Fleet keeps the success of a
+   controller that does not answer in a later poll, so the job can succeed
+   while that controller is silent. A later answer from the controller
+   replaces its success: if it then reports another job, no job or another
+   version, it has not finished.
 4. `failed`: a controller reports this job as failed
    (`FLEET_PROTOOS_INSTALL_FAILED`, with the controller's message). A failed
    ProtoOS job does not block the container and cannot be retried. Start a new
@@ -540,9 +544,10 @@ A controller that answers but does not report this job within
 `FRIGATE_UPDATE_START_TIMEOUT` after the last commit fails the job with
 `FLEET_PROTOOS_JOB_NOT_REPORTED`. A controller that reports the job but does
 not finish it in that time fails the job with `FLEET_PROTOOS_INSTALL_TIMEOUT`.
-A controller that does not answer never fails the job. When it stays silent
-for 24 hours after the last commit, Fleet abandons the job with
-`FLEET_CONTROLLERS_LOST`.
+A controller that does not answer never fails the job. When a controller that
+has not finished stays silent for 24 hours after the last commit, Fleet
+abandons the job with `FLEET_CONTROLLERS_LOST`. These deadlines do not apply
+to a controller that has finished.
 
 `RetryUpdate` is refused for a ProtoOS job. `CancelUpdate` is accepted only
 until Fleet sends the first call that can commit a copy: the commit of a
