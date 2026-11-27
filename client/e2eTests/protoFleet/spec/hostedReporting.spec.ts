@@ -206,8 +206,7 @@ test("notification links resolve older queue obligations without expanding the v
   });
   await page.getByRole("button", { name: "Create report", exact: true }).click();
   const preparation = page.getByRole("dialog", { name: "Create report", exact: true });
-  await expect(preparation.getByLabel("Period start (UTC)", { exact: true })).toHaveValue("2026-08-01T00:00");
-  await expect(preparation.getByLabel("Period end (exclusive) (UTC)", { exact: true })).toHaveValue("2026-09-01T00:00");
+  await expect(preparation.getByRole("button", { name: "Reporting month", exact: true })).toContainText("Aug");
   await expect(preparation).toHaveCSS("opacity", "1");
   await expect(preparation.locator("..")).toHaveCSS("opacity", "1");
   await test.info().attach("Resolved notification period", {
