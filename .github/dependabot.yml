@@ -179,3 +179,6 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # Patroni 4.1.5 requires ydiff < 1.5; lift this when Patroni accepts it.
+      - dependency-name: "ydiff"
+        versions: [">= 1.5"]
