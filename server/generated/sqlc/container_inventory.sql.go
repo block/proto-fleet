@@ -50,6 +50,17 @@ func (q *Queries) AdvanceContainerInventory(ctx context.Context, arg AdvanceCont
 	return device_id, err
 }
 
+const getUnlocatedHashboards = `-- name: GetUnlocatedHashboards :one
+SELECT unlocated_hashboards FROM container_inventory WHERE device_id = $1
+`
+
+func (q *Queries) GetUnlocatedHashboards(ctx context.Context, deviceID int64) (json.RawMessage, error) {
+	row := q.queryRow(ctx, q.getUnlocatedHashboardsStmt, getUnlocatedHashboards, deviceID)
+	var unlocated_hashboards json.RawMessage
+	err := row.Scan(&unlocated_hashboards)
+	return unlocated_hashboards, err
+}
+
 const insertContainerModuleMetrics = `-- name: InsertContainerModuleMetrics :exec
 WITH inserted AS (
   INSERT INTO container_module_metrics (module_id, time, collected_at, hashrate_hs, power_w, temperature_c, efficiency_jh, coverage,site_id,topology_version_id)
@@ -304,5 +315,21 @@ func (q *Queries) RetireContainerModules(ctx context.Context, arg RetireContaine
 		arg.Complete,
 		arg.Modules,
 	)
+	return err
+}
+
+const updateUnlocatedHashboards = `-- name: UpdateUnlocatedHashboards :exec
+UPDATE container_inventory SET unlocated_hashboards = $1::jsonb
+WHERE device_id = $2 AND observed_at = $3::timestamptz
+`
+
+type UpdateUnlocatedHashboardsParams struct {
+	Boards     json.RawMessage
+	DeviceID   int64
+	ObservedAt time.Time
+}
+
+func (q *Queries) UpdateUnlocatedHashboards(ctx context.Context, arg UpdateUnlocatedHashboardsParams) error {
+	_, err := q.exec(ctx, q.updateUnlocatedHashboardsStmt, updateUnlocatedHashboards, arg.Boards, arg.DeviceID, arg.ObservedAt)
 	return err
 }

@@ -175,12 +175,61 @@ export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", n
       const gate = (prefix: string): StalenessGate | undefined =>
         requestId === undefined ? undefined : { requestId, lastApplied, prefix };
       const rollups = new Map(incoming.rollupsByEntity);
+      const previousTopology = state.hardware.topology;
+      const inventory = incoming.containerInventory;
+      if (
+        inventory &&
+        state.hardware.topology?.kind === "container" &&
+        inventory.topology.containerId === state.hardware.topology.containerId &&
+        (requestId === undefined || requestId >= (lastApplied.get("container-inventory") ?? 0))
+      ) {
+        if (requestId !== undefined) lastApplied.set("container-inventory", requestId);
+        const previous = state.hardware.topology;
+        state.hardware.topology = {
+          ...inventory.topology,
+          modules: new Map(
+            [...inventory.topology.modules].map(([id, module]) => [
+              id,
+              {
+                ...module,
+                psuIds: [...new Set([...module.psuIds, ...(previous.modules.get(id)?.psuIds ?? [])])],
+              },
+            ]),
+          ),
+          hashboards: new Map(
+            [...inventory.topology.hashboards].map(([id, board]) => [
+              id,
+              {
+                ...board,
+                asicIds: previous.hashboards.get(id)?.asicIds ?? board.asicIds,
+              },
+            ]),
+          ),
+        };
+        for (const id of state.hardware.hashboards.keys()) {
+          if (!inventory.hashboards.has(id)) state.hardware.hashboards.delete(id);
+        }
+        for (const [id, board] of inventory.hashboards) {
+          const previousBoard = state.hardware.hashboards.get(id);
+          // The container map omits detail-endpoint fields; preserve them from the
+          // prior board like upsertHashboard does so they survive each map poll.
+          const merged = {
+            ...board,
+            apiVersion: board.apiVersion ?? previousBoard?.apiVersion,
+            temperatureSensorCount: board.temperatureSensorCount ?? previousBoard?.temperatureSensorCount,
+            ecLogsPath: board.ecLogsPath ?? previousBoard?.ecLogsPath,
+            bootloader: board.bootloader ?? previousBoard?.bootloader,
+          };
+          if (JSON.stringify(previousBoard) !== JSON.stringify(merged)) state.hardware.hashboards.set(id, merged);
+        }
+        state.hardware.resource = { status: "ready", updatedAtMs: Date.now() };
+      }
       const topology = state.hardware.topology;
       if (topology?.kind === "container" && incoming.containerModuleRollups?.containerId === topology.containerId) {
         // A module's reported ID can disappear with its last board. Clear the
         // bootstrap ID's live readings when the full map no longer reports it.
         // Merge through the usual gate to retain history and reject stale writes.
-        for (const id of topology.modules.keys()) {
+        for (const id of new Set([...topology.modules.keys(), ...(previousTopology?.modules.keys() ?? [])])) {
           const key = asEntityKey(id);
           const previous = state.telemetry.rollupsByEntity.get(key);
           if (rollups.has(key) || !previous) continue;

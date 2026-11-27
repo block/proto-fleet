@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { getScopeHealth } from "./scopeHealth";
 import { moduleFixture } from "@/protoOS/api/adapters/mdkV2/moduleFixtures";
 import { tanksFixture } from "@/protoOS/features/tanks/Tanks.fixtures";
-import type { ContainerTopology, MinerError } from "@/protoOS/store/contract";
+import { asHashboardId, type ContainerTopology, type MinerError } from "@/protoOS/store/contract";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
 const storeModuleFixture = () => {
@@ -192,4 +192,66 @@ test.each(["unknown", "offline"] as const)("keeps partial-module observations wh
     component: hardware.hashboards.get(partial.hashboardIds[0])!.ref,
     message: "Sleeping",
   });
+});
+
+const withUnlocatedBoard = () => {
+  const fixture = tanksFixture(1, 1);
+  const id = asHashboardId("unlocated");
+  fixture.topology.hashboards.set(id, { id, identity: { kind: "serial", value: "unlocated" }, asicIds: [] });
+  fixture.telemetry.hashboards.set(id, {
+    hashboardId: id,
+    health: "ok",
+    miningStatus: "mining",
+    healthObservedAt: Date.now(),
+  });
+  return { ...fixture, id };
+};
+
+test.each(["missing", "expired", "future"] as const)(
+  "marks %s unlocated health unknown beside healthy modules",
+  (age) => {
+    const { hardware, telemetry, topology, id } = withUnlocatedBoard();
+    const now = Date.now();
+    telemetry.hashboards.get(id)!.healthObservedAt =
+      age === "missing" ? undefined : now + (age === "expired" ? -120_000 : 60_000);
+    const result = getScopeHealth({ kind: "container" }, hardware, telemetry, [], now)!;
+    expect(result.title).toBe("Status unknown");
+    expect(result.observations).toContainEqual({
+      component: {
+        kind: "hashboard",
+        id,
+        owner: { kind: "container", id: topology.containerId },
+      },
+      message: "Readings unavailable",
+    });
+    expect(result.affectedModules).toBe(0);
+  },
+);
+
+test.each([true, false])(
+  "includes unlocated boards in mixed mining states (physical sleeping: %s)",
+  (physicalSleeping) => {
+    const { hardware, telemetry, topology, id } = withUnlocatedBoard();
+    for (const [boardId, reading] of telemetry.hashboards) {
+      reading.miningStatus = (boardId === id ? !physicalSleeping : physicalSleeping) ? "stopped" : "mining";
+    }
+    const result = getScopeHealth({ kind: "container" }, hardware, telemetry, [])!;
+    expect(result.title).toBe("Needs attention");
+    expect(result.affectedModules).toBe(physicalSleeping ? 1 : 0);
+    expect(result.affectedComponents).toBe(physicalSleeping ? 3 : 1);
+    const module = [...topology.modules.values()][0];
+    expect(getScopeHealth({ kind: "module", id: module.id }, hardware, telemetry, [])!.title).toBe(
+      physicalSleeping ? "Sleeping" : "All components operational",
+    );
+  },
+);
+
+test("derives status from unlocated boards when no physical modules exist", () => {
+  const { hardware, telemetry, topology, id } = withUnlocatedBoard();
+  topology.modules.clear();
+  topology.tanks.clear();
+  for (const boardId of topology.hashboards.keys()) if (boardId !== id) topology.hashboards.delete(boardId);
+  const result = getScopeHealth({ kind: "container" }, hardware, telemetry, [])!;
+  expect(result.title).toBe("All components operational");
+  expect(result.affectedModules).toBe(0);
 });

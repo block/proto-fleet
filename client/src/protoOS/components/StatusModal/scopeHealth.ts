@@ -3,6 +3,7 @@ import {
   asEntityKey,
   type ComponentRef,
   type HardwareState,
+  type HashboardId,
   type MinerError,
   type MiningStatus,
   type ModuleId,
@@ -10,6 +11,7 @@ import {
   type TelemetryState,
 } from "@/protoOS/store/contract";
 import { psuHealth } from "@/protoOS/store/utils/psuFreshness";
+import { readingStatus } from "@/protoOS/store/utils/readingFreshness";
 
 export type HealthScope = { kind: "container" } | { kind: "tank"; id: TankId } | { kind: "module"; id: ModuleId };
 
@@ -41,10 +43,18 @@ export function getScopeHealth(
   const affected = new Set(errorComponents);
   const observations: { component: ComponentRef; message: string }[] = [];
   const moduleStatuses = new Map<ModuleId, ModuleStatus>();
-  // Mixed mining states can span whole modules, not just boards within one module.
+  const unlocated =
+    scope.kind === "container" ? [...topology.hashboards.values()].filter((board) => !board.moduleId) : [];
+  const unlocatedReading = (id: HashboardId) => {
+    const reading = telemetry.hashboards.get(id);
+    return readingStatus(reading?.healthObservedAt, now) === "current" ? reading : undefined;
+  };
+  // Mixed mining states include container-owned boards without physical locations.
   const scopePartiallyStopped =
-    moduleStatus(modules.flatMap((module) => module.hashboardIds.map((id) => telemetry.hashboards.get(id)))) ===
-    "attention";
+    moduleStatus([
+      ...modules.flatMap((module) => module.hashboardIds.map((id) => telemetry.hashboards.get(id))),
+      ...unlocated.map((board) => unlocatedReading(board.id)),
+    ]) === "attention";
   const observe = (component: ComponentRef, status: ModuleStatus, message: string) => {
     if (status === "attention" || status === "offline") affected.add(component.id);
     if (!reportedComponents.has(component.id) && ["attention", "offline", "unknown"].includes(status)) {
@@ -111,11 +121,34 @@ export function getScopeHealth(
       status = "attention";
     moduleStatuses.set(module.id, status);
   }
+  // Unlocated boards have container ownership; their faults must not disappear
+  // when they are removed from physical module summaries.
+  const unlocatedStatuses: ModuleStatus[] = [];
+  for (const board of unlocated) {
+    const reading = unlocatedReading(board.id);
+    const status =
+      reading?.health === "fault" || reading?.health === "degraded" || reading?.miningStatus === "error"
+        ? "attention"
+        : boardStatus(reading);
+    const explainStopped = scopePartiallyStopped && (status === "sleeping" || status === "isolated");
+    unlocatedStatuses.push(explainStopped ? "attention" : status);
+    observe(
+      { kind: "hashboard", id: board.id, owner: { kind: "container", id: topology.containerId } },
+      explainStopped ? "attention" : status,
+      !reading
+        ? "Readings unavailable"
+        : explainStopped
+          ? status === "sleeping"
+            ? "Sleeping"
+            : "Isolated"
+          : "Location unknown",
+    );
+  }
   const parentTank = selectedModule?.tankId ? topology.tanks.get(selectedModule.tankId) : tank;
   const label = selectedModule
     ? `${parentTank?.label ?? "Tank"} · Module ${selectedModule.location?.moduleSlot ?? selectedModule.id}`
     : (tank?.label ?? (tank ? `Tank ${tank.slot ?? tank.id}` : "Container"));
-  const states = [...moduleStatuses.values()];
+  const states = [...moduleStatuses.values(), ...unlocatedStatuses];
   const needsAttention = affected.size > 0 || scopedErrors.length > 0 || states.includes("attention");
   const unknown = !states.length || states.includes("unknown") || (tank && modules.length !== tank.moduleIds.length);
   const title = needsAttention
@@ -127,10 +160,12 @@ export function getScopeHealth(
         : states.every((state) => state === "isolated")
           ? "Isolated"
           : "All components operational";
-  const affectedModules = states.filter((state) => state === "attention" || state === "offline").length;
+  const affectedModules = [...moduleStatuses.values()].filter(
+    (state) => state === "attention" || state === "offline",
+  ).length;
   const count = (value: number, word: string) => `${value} ${word}${value === 1 ? "" : "s"}`;
   const subtitle = needsAttention
-    ? `${count(affected.size, "component")} affected${scope.kind === "module" ? "" : ` across ${count(affectedModules, "module")}`} · ${count(scopedErrors.length, "reported issue")}`
+    ? `${count(affected.size, "component")} affected${scope.kind === "module" || affectedModules === 0 ? "" : ` across ${count(affectedModules, "module")}`} · ${count(scopedErrors.length, "reported issue")}`
     : unknown
       ? "Some component readings are unavailable"
       : "No active component errors reported";

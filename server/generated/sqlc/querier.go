@@ -1275,6 +1275,7 @@ type Querier interface {
 	GetTotalPairedMiners(ctx context.Context, arg GetTotalPairedMinersParams) (int64, error)
 	GetTotalPools(ctx context.Context, orgID int64) (int64, error)
 	GetUnfinishedCompletedPoolRemoval(ctx context.Context, arg GetUnfinishedCompletedPoolRemovalParams) (uuid.UUID, error)
+	GetUnlocatedHashboards(ctx context.Context, deviceID int64) (json.RawMessage, error)
 	GetUserByExternalId(ctx context.Context, userID string) (User, error)
 	GetUserById(ctx context.Context, id int64) (User, error)
 	GetUserByIdForUpdate(ctx context.Context, id int64) (User, error)
@@ -3193,6 +3194,7 @@ type Querier interface {
 	// unique-violation (uk_site_org_slug) maps to a collision sentinel so the
 	// service can retry with the next suffix, mirroring CreateSite.
 	UpdateSite(ctx context.Context, arg UpdateSiteParams) error
+	UpdateUnlocatedHashboards(ctx context.Context, arg UpdateUnlocatedHashboardsParams) error
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
 	UpdateUserPasswordAndFlag(ctx context.Context, arg UpdateUserPasswordAndFlagParams) error
 	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) error

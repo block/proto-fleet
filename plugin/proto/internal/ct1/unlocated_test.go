@@ -55,10 +55,12 @@ func TestCollectUnlocatedInventory(t *testing.T) {
 			require.Contains(t, logs.String(), `"hashboards":6`)
 			if !mapped {
 				require.Empty(t, got.Container.Tanks)
+				require.False(t, got.Container.UnlocatedInventoryComplete, "partial enumeration cannot replace retained inventory")
 				require.NotNil(t, got.HashrateHS)
 				require.Equal(t, 6*999e12, got.HashrateHS.Value, "unlocated readings contribute only at container level")
 				return
 			}
+			require.True(t, got.Container.UnlocatedInventoryComplete, "every tank enumerated, so unlocated inventory is authoritative")
 			require.Len(t, got.Container.Tanks, 6)
 			for i, tank := range got.Container.Tanks {
 				require.EqualValues(t, i+1, tank.Position)

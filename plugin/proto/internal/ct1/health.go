@@ -315,6 +315,11 @@ func snapshotEvidence(wire MapResponse, now time.Time, collect *errorCollector) 
 		result.Tanks = append(result.Tanks, out)
 	}
 	sort.Slice(result.Tanks, func(i, j int) bool { return result.Tanks[i].Position < result.Tanks[j].Position })
+	// Every physical tank was enumerated, so the unlocated list is authoritative
+	// even though the unlocated branch above cleared topology_complete. The server
+	// may replace retained inventory; a partial poll (a missing tank) leaves this
+	// false and merges instead.
+	result.UnlocatedInventoryComplete = len(result.Tanks) == sdk.CT1TankCount
 	return result, nil
 }
 
