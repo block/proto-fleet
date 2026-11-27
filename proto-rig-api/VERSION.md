@@ -27,14 +27,14 @@ fake-proto-rig simulator is updated for the `lines=0` and `message` changes.
 
 - Published mirror: btc-mining/proto-api
   - Source path: `mdk/v2/spec-all.json`
-  - Specification version: `2-43ff7b686bba04e5`
-  - Mirror commit SHA: cbbedfd39bd9dd3c9a2c6f062346e132872a5311
-  - SHA-256: `b5e7ca0b1b8a60fb38ba6a153dd1a3aa835b971626182c689232dbe8b46a7b2b`
-  - Extraction Date: 2026-11-23
-- Contract source: Frigate [PR #1044](https://github.com/btc-mining/frigate/pull/1044)
+  - Specification version: `2-66d8aaeeb335a519`
+  - Mirror commit SHA: 5e7d2c36e232983428d7b70b209dcbb7e25aa6b5
+  - SHA-256: `c94f18973c857da47574a881f90849c16e4addff3d2d8a2cd3d899b56a69136c`
+  - Extraction Date: 2026-11-27
+- Contract source: Frigate [PR #1074](https://github.com/btc-mining/frigate/pull/1074)
   - Source path: `proto/mdk/v2/`
-  - Commit SHA: d4721d4ed1abcbc68491fe86cf253d77655620f7
-  - Commit Date: 2026-11-23
+  - Commit SHA: 2c83c42b486309aa3db314f12362d1bcc0f221c1
+  - Commit Date: 2026-11-24
 
 `openapi/MDK-v2-API.json` matches the published `spec-all.json` byte for byte.
 The Frigate export at the commit above reproduces the mirror's checksum

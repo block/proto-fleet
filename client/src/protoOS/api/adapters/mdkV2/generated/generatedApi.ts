@@ -3214,6 +3214,8 @@ export interface V2HashboardASICThermalThrottleHealth {
  *
  *  - HASHBOARD_ERROR_CAUSE_ASIC_THERMAL_THROTTLING: Frigate derives thermal throttling from asic_thermal_throttle; firmware
  * does not emit this value in its errors or warnings arrays.
+ *  - HASHBOARD_ERROR_CAUSE_STACK_BRINGUP_FAILED: Firmware enumerated the stack, but it failed before it could start mining.
+ *  - HASHBOARD_ERROR_CAUSE_STACK_RUNTIME_FAILED: Firmware observed a stack transition from RUNNING to FAILED.
  *  - HASHBOARD_ERROR_CAUSE_STACK_DROPOUT: Frigate derives a stack dropout warning when a stack that hashed in the
  * current mining session, whether enumerated at session start or joining
  * later, stops hashing while other stacks continue. The warning clears when
@@ -3252,6 +3254,8 @@ export enum V2HashboardErrorCause {
   HASHBOARD_ERROR_CAUSE_ASIC_THERMAL_THROTTLING = "HASHBOARD_ERROR_CAUSE_ASIC_THERMAL_THROTTLING",
   HASHBOARD_ERROR_CAUSE_STACK_ENUMERATION = "HASHBOARD_ERROR_CAUSE_STACK_ENUMERATION",
   HASHBOARD_ERROR_CAUSE_STACK_DELTA_THERMAL_THROTTLE = "HASHBOARD_ERROR_CAUSE_STACK_DELTA_THERMAL_THROTTLE",
+  HASHBOARD_ERROR_CAUSE_STACK_BRINGUP_FAILED = "HASHBOARD_ERROR_CAUSE_STACK_BRINGUP_FAILED",
+  HASHBOARD_ERROR_CAUSE_STACK_RUNTIME_FAILED = "HASHBOARD_ERROR_CAUSE_STACK_RUNTIME_FAILED",
   HASHBOARD_ERROR_CAUSE_UNKNOWN_ERROR = "HASHBOARD_ERROR_CAUSE_UNKNOWN_ERROR",
   HASHBOARD_ERROR_CAUSE_STACK_DROPOUT = "HASHBOARD_ERROR_CAUSE_STACK_DROPOUT",
 }
@@ -3407,6 +3411,8 @@ export interface V2HashboardHealthError {
    *
    *  - HASHBOARD_ERROR_CAUSE_ASIC_THERMAL_THROTTLING: Frigate derives thermal throttling from asic_thermal_throttle; firmware
    * does not emit this value in its errors or warnings arrays.
+   *  - HASHBOARD_ERROR_CAUSE_STACK_BRINGUP_FAILED: Firmware enumerated the stack, but it failed before it could start mining.
+   *  - HASHBOARD_ERROR_CAUSE_STACK_RUNTIME_FAILED: Firmware observed a stack transition from RUNNING to FAILED.
    *  - HASHBOARD_ERROR_CAUSE_STACK_DROPOUT: Frigate derives a stack dropout warning when a stack that hashed in the
    * current mining session, whether enumerated at session start or joining
    * later, stops hashing while other stacks continue. The warning clears when
@@ -3562,6 +3568,8 @@ export interface V2HashboardRecovery {
    *
    *  - HASHBOARD_ERROR_CAUSE_ASIC_THERMAL_THROTTLING: Frigate derives thermal throttling from asic_thermal_throttle; firmware
    * does not emit this value in its errors or warnings arrays.
+   *  - HASHBOARD_ERROR_CAUSE_STACK_BRINGUP_FAILED: Firmware enumerated the stack, but it failed before it could start mining.
+   *  - HASHBOARD_ERROR_CAUSE_STACK_RUNTIME_FAILED: Firmware observed a stack transition from RUNNING to FAILED.
    *  - HASHBOARD_ERROR_CAUSE_STACK_DROPOUT: Frigate derives a stack dropout warning when a stack that hashed in the
    * current mining session, whether enumerated at session start or joining
    * later, stops hashing while other stacks continue. The warning clears when
@@ -7759,7 +7767,7 @@ export class HttpClient<SecurityDataType = unknown> {
 
 /**
  * @title Proto MDK v2
- * @version 2-43ff7b686bba04e5
+ * @version 2-66d8aaeeb335a519
  *
  * Latest MDK v2 REST contract. Device support depends on product and firmware version.
  */

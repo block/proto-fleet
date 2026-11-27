@@ -412,6 +412,10 @@ enum HashboardErrorCause {
   HASHBOARD_ERROR_CAUSE_ASIC_THERMAL_THROTTLING = 27;
   HASHBOARD_ERROR_CAUSE_STACK_ENUMERATION = 30;
   HASHBOARD_ERROR_CAUSE_STACK_DELTA_THERMAL_THROTTLE = 31;
+  // Firmware enumerated the stack, but it failed before it could start mining.
+  HASHBOARD_ERROR_CAUSE_STACK_BRINGUP_FAILED = 32;
+  // Firmware observed a stack transition from RUNNING to FAILED.
+  HASHBOARD_ERROR_CAUSE_STACK_RUNTIME_FAILED = 33;
   HASHBOARD_ERROR_CAUSE_UNKNOWN_ERROR = 99;
   // Frigate derives a stack dropout warning when a stack that hashed in the
   // current mining session, whether enumerated at session start or joining

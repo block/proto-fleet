@@ -23,6 +23,15 @@ func TestCanonicalCT1CauseCoverage(t *testing.T) {
 	}
 	code, _ := canonicalIssue("future_cause", false)
 	require.Equal(t, sdkerrors.VendorErrorUnmapped, code)
+	// Frigate reports the F1 stack failures as warnings.
+	for cause, want := range map[string]sdkerrors.MinerError{
+		"HASHBOARD_ERROR_CAUSE_STACK_BRINGUP_FAILED": sdkerrors.HashboardStartupFailed,
+		"HASHBOARD_ERROR_CAUSE_STACK_RUNTIME_FAILED": sdkerrors.HashboardNoStackRunning,
+	} {
+		code, severity := canonicalIssue(cause, true)
+		require.Equal(t, want, code, cause)
+		require.Equal(t, sdkerrors.SeverityMinor, severity, cause)
+	}
 	for _, cause := range []string{"ASIC_ENUMERATION", "ASIC_ECC", "ASIC_HOTSPOT_TEMPERATURE_DELTA"} {
 		code, _ := canonicalIssue(cause, false)
 		require.NotContains(t, []sdkerrors.MinerError{sdkerrors.HashboardMissingChips, sdkerrors.ASICCRCErrorExcessive, sdkerrors.HashboardASICOverTemperature}, code)

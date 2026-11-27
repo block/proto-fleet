@@ -216,6 +216,11 @@ message GetServerUpdateSupportResponse {
   // stage a PROTO_OS manifest on an instance that reports false: older
   // instances install unsigned packages.
   bool proto_os_signed_packages = 21;
+  // proto_os_release_repositories lists the GitHub repositories whose signed
+  // proto-os release statements this instance accepts. Callers must not stage
+  // a PROTO_OS manifest whose statement names a repository missing here. An
+  // instance that omits the field accepts only btc-mining/proto-fleet-internal.
+  repeated string proto_os_release_repositories = 22;
 }
 
 // ServerUpdatePackage selects the Debian package that a staged manifest
