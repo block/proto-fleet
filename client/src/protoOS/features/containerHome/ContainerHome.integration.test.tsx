@@ -918,6 +918,7 @@ describe("container Home integration", () => {
       "ct1",
     );
     useMinerStore.getState().hardware.replaceHardware(fixture.hardware);
+    mocks.adapter.getCurrentTelemetry.mockResolvedValue(fixture.telemetry);
     const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
     render(<RouterProvider router={router} />);
     fireEvent.click(screen.getByRole("button", { name: /^Tank 1 module 1,/ }));

@@ -3,6 +3,8 @@ import { Outlet, useLocation, useMatch } from "react-router-dom";
 import { kpiFields, metricFromRouteParam, perBoardFieldsForMetric } from "./kpiMetricScoping";
 import { useTelemetry, useTimeSeries } from "@/protoOS/api";
 import type { TelemetryLevel, TimeSeriesLevel } from "@/protoOS/api/adapters/types";
+import { PAGE_GUTTERS, PAGE_PADDING, PAGE_TOP_PADDING } from "@/protoOS/components/ContentLayout/spacing";
+import type { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import NoPoolsCallout from "@/protoOS/components/NoPoolsCallout";
 import { useNoPoolsCalloutState } from "@/protoOS/components/NoPoolsCallout/useNoPoolsCalloutState";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
@@ -16,7 +18,7 @@ const telemetryLevels: TelemetryLevel[] = ["miner"];
 const containerHashboardIndexes = (hardware: ReturnType<typeof useMinerStore.getState>["hardware"]) =>
   hardware.topology?.kind === "container" ? Array.from(hardware.hashboards.keys(), (_, index) => index) : [];
 
-const KpiLayout = () => {
+const KpiLayout = ({ callout: containerCallout }: ContentLayoutProps) => {
   const poolsInfo = usePoolsInfo();
   const duration = useDuration();
   const setDuration = useSetDuration();
@@ -75,7 +77,8 @@ const KpiLayout = () => {
 
   return (
     <ErrorBoundary>
-      <div className="p-6 tablet:p-10 laptop:p-14">
+      <div className={`${PAGE_GUTTERS} ${PAGE_TOP_PADDING} empty:hidden`}>{containerCallout}</div>
+      <div className={PAGE_PADDING}>
         {shouldShowNoPoolsCallout ? <NoPoolsCallout arePoolsConfigured={arePoolsConfigured} /> : null}
 
         <div className="relative flex h-[calc(100vh-theme(spacing.36))] min-h-[800px] flex-col phone:min-h-[1000px]">

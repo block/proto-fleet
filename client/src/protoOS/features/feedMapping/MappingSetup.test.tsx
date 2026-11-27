@@ -4,6 +4,9 @@ import { readMappingAttempts } from "./attemptStorage";
 import { FeedMappingProvider } from "./FeedMappingProvider";
 import ContainerMappingSetup from "./MappingSetup";
 import type { FeedMapping, MappingAssessment, MappingRun } from "@/protoOS/api/adapters/feedMapping";
+import { toCanonicalContainer } from "@/protoOS/api/adapters/mdkV2/normalize";
+import ContainerUnlocatedHashboards from "@/protoOS/components/UnlocatedHashboards";
+import useMinerStore from "@/protoOS/store/useMinerStore";
 
 function MappingSetup(props: Omit<Parameters<typeof FeedMappingProvider>[0], "children">) {
   return (
@@ -219,3 +222,32 @@ for (const [phase, copy] of [
     expect(screen.getByText(copy)).toBeInTheDocument();
   });
 }
+
+test("combines unlocated inventory and mapping into one callout with both actions", async () => {
+  useMinerStore.getState().resetDeviceData();
+  const snapshot = toCanonicalContainer(
+    {
+      containerMap: {
+        tanks: [{ id: 0, modules: [{ id: 0, slots: [{ hashboard: { macAddress: "aa:bb:cc:00:00:01" } }] }] }],
+      },
+    },
+    {},
+    {},
+    "ct1",
+  );
+  useMinerStore.getState().hardware.replaceHardware(snapshot.hardware);
+  const mapping = api();
+  render(
+    <FeedMappingProvider mapping={mapping} deviceId="ct1">
+      <ContainerUnlocatedHashboards withMapping />
+    </FeedMappingProvider>,
+  );
+  await screen.findByText("Hashboard mapping needs attention");
+  expect(screen.getAllByTestId("callout")).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "Refresh mapping" }));
+  const mappingDialog = await screen.findByRole("dialog", { name: "Hashboard mapping" });
+  fireEvent.click(within(mappingDialog).getByRole("button", { name: "Close" }));
+  fireEvent.click(screen.getByRole("button", { name: "View hashboards" }));
+  expect(await screen.findByRole("dialog", { name: "Unlocated hashboards" })).toBeInTheDocument();
+  expect(mapping.start).not.toHaveBeenCalled();
+});

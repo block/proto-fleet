@@ -265,6 +265,23 @@ reload membership after a confirmed move.
 Fleet-hosted ProtoOS keeps its existing read-only pool view; hosted assignments
 are managed in Fleet.
 
+### Unlocated CT1 hashboards
+
+Boards reported under tank 0 / module 0 have no physical location. ProtoOS
+retains these boards as container inventory. Physical tank and module views,
+counts, and charts exclude them. Container totals and board faults remain visible.
+The shared app layout shows the combined inventory and mapping callout above
+page headings, including Home, Modules, Systems, Pools, Logs, and Settings.
+Select **View hashboards** to search by MAC or serial number and page through
+the list. **Refresh mapping** opens the mapping dialog (**View progress** during a run).
+Select a board identity for its firmware and issue details. The modal has no
+module controls. Live inventory refreshes move boards into or out of the list
+when their reported location changes.
+
+ProtoFleet exposes the same modal from the container overview. Fleet retains
+accepted unlocated observations separately from physical installations. Old
+inventory remains accessible with a stale notice; current readings are withheld.
+
 ### CT1 configuration statistics
 
 With mining groups enabled on a direct CT1 connection, **Pools** lists the named

@@ -151,6 +151,9 @@ func Project(rows []sqlc.ListContainersRow, canRead func(*int64) (bool, error)) 
 				c.UnlocatedHashboards = &coverage.UnlocatedHashboards
 			}
 		}
+		if err := projectUnlocated(c, r.UnlocatedBoards, now); err != nil {
+			return nil, err
+		}
 		if err := projectEquipment(c, r.Fans, r.Controls, now); err != nil {
 			return nil, err
 		}

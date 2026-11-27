@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { type FeedMappingState, useFeedMappingState } from "./feedMappingContext";
 import {
   type MappingBoard,
@@ -93,8 +93,20 @@ function BoardEvidence({ board }: { board: MappingBoard }) {
   );
 }
 
+interface UnlocatedInventory {
+  count: number;
+  stale?: boolean;
+  onView: () => void;
+}
+
 /** Shared primitives match ProtoOS's existing pool and wake callouts. */
-export function MappingSetup({ state }: { state: FeedMappingState }) {
+export function MappingSetup({
+  state,
+  unlocated: inventory,
+}: {
+  state: FeedMappingState;
+  unlocated?: UnlocatedInventory;
+}) {
   const [open, setOpen] = useState(false);
   const [verify, setVerify] = useState(false);
   const [clearUnknown, setClearUnknown] = useState(false);
@@ -107,6 +119,7 @@ export function MappingSetup({ state }: { state: FeedMappingState }) {
   const unknown = state.unresolved && !active;
   const unavailable = state.error || state.assessment?.unavailable;
   const visible = !!(
+    inventory?.count ||
     affected.length ||
     active ||
     unknown ||
@@ -118,13 +131,16 @@ export function MappingSetup({ state }: { state: FeedMappingState }) {
     ? "Hashboard mapping is running"
     : unknown
       ? "Mapping outcome is unknown"
-      : affected.length
+      : affected.length || inventory?.count
         ? "Hashboard mapping needs attention"
         : unavailable
           ? "Hashboard mapping is unavailable"
           : "Hashboard mapping finished";
+  const unlocatedCount = inventory?.count ?? unlocated;
   const summary = [
-    unlocated ? `${unlocated} ${unlocated === 1 ? "hashboard has" : "hashboards have"} no assigned location.` : "",
+    unlocatedCount
+      ? `${unlocatedCount} ${unlocatedCount === 1 ? "hashboard has" : "hashboards have"} no assigned location.`
+      : "",
     conflicts
       ? `${conflicts} ${conflicts === 1 ? "hashboard has" : "hashboards have"} conflicting mapping evidence.`
       : "",
@@ -145,12 +161,24 @@ export function MappingSetup({ state }: { state: FeedMappingState }) {
       {visible ? (
         <div role="status">
           <Callout
-            intent={active ? "information" : affected.length || unknown || unavailable ? "danger" : "success"}
+            intent={
+              active
+                ? "information"
+                : affected.length || inventory?.count || unknown || unavailable
+                  ? "danger"
+                  : "success"
+            }
             prefixIcon={active ? <ProgressCircular indeterminate /> : <Alert />}
             title={title}
-            subtitle={summary || (unavailable ? "The last mapping result may be out of date." : undefined)}
-            buttonText={active ? "View progress" : "Refresh mapping"}
-            buttonOnClick={() => setOpen(true)}
+            subtitle={
+              [summary, inventory?.stale || unavailable ? "Location information may be out of date." : ""]
+                .filter(Boolean)
+                .join(" ") || undefined
+            }
+            buttonText={inventory?.count ? "View hashboards" : active ? "View progress" : "Refresh mapping"}
+            buttonOnClick={inventory?.count ? inventory.onView : () => setOpen(true)}
+            secondaryButtonText={inventory?.count ? (active ? "View progress" : "Refresh mapping") : undefined}
+            secondaryButtonOnClick={() => setOpen(true)}
           />
         </div>
       ) : null}
@@ -376,7 +404,13 @@ export function MappingSetup({ state }: { state: FeedMappingState }) {
   );
 }
 
-export default function ContainerMappingSetup() {
+export default function ContainerMappingSetup({
+  unlocated,
+  fallback = null,
+}: {
+  unlocated?: UnlocatedInventory;
+  fallback?: ReactNode;
+}) {
   const state = useFeedMappingState();
-  return state ? <MappingSetup state={state} /> : null;
+  return state ? <MappingSetup state={state} unlocated={unlocated} /> : fallback;
 }

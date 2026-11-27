@@ -7,9 +7,10 @@ const LocationBreadcrumb = ({
   board,
 }: {
   topology: ContainerTopology;
-  moduleId: ModuleId;
+  moduleId?: ModuleId;
   board?: HashboardNode;
 }) => {
+  if (!moduleId) return <span className="text-text-primary-50">Location unknown</span>;
   const module = topology.modules.get(moduleId);
   const tank = module?.tankId ? topology.tanks.get(module.tankId) : undefined;
   if (!module || !tank || (board && board.moduleId !== module.id)) return null;

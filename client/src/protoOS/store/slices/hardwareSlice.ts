@@ -38,7 +38,7 @@ const unknownCommands = {
 
 export interface HardwareSlice extends HardwareState {
   reset: () => void;
-  replaceHardware: (hardware: HardwareState) => void;
+  replaceHardware: (hardware: HardwareState, requestId?: number) => void;
 
   // Compatibility writers/selectors for existing diagnostic stories and the
   // v1 hashboard-detail endpoint. Stored values remain contract types.
@@ -165,7 +165,7 @@ const upsertHashboard = (state: HardwareSlice, input: HashboardHardwareData) => 
     ...prior,
     id,
     identity: prior?.identity ?? { kind: "serial", value: input.serial },
-    moduleId: prior?.moduleId ?? ROOT_MODULE_ID,
+    moduleId: topology.kind === "container" ? prior?.moduleId : (prior?.moduleId ?? ROOT_MODULE_ID),
     asicIds: (input.asicIds ?? prior?.asicIds ?? []).map(asAsicId),
     location: {
       slot: input.slot ?? prior?.location?.slot,
@@ -249,7 +249,13 @@ export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", ne
         plant: new Map(),
       });
     }),
-  replaceHardware: (hardware) => {
+  replaceHardware: (hardware, requestId) => {
+    if (
+      hardware.topology?.kind === "container" &&
+      requestId !== undefined &&
+      requestId < (get().telemetry.lastAppliedRequestByEntity.get("container-inventory") ?? 0)
+    )
+      return;
     const previous = get().hardware;
     const asics = new Map(hardware.asics);
     const preservedAsicIds = new Map<HashboardId, AsicId[]>();
@@ -276,6 +282,9 @@ export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", ne
       : undefined;
 
     set((state) => {
+      if (topology?.kind === "container" && requestId !== undefined) {
+        state.telemetry.lastAppliedRequestByEntity.set("container-inventory", requestId);
+      }
       Object.assign(state.hardware, { ...hardware, topology, asics });
     });
   },

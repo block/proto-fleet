@@ -41,3 +41,17 @@ func TestProjectUnlocatedHashboards(t *testing.T) {
 		})
 	}
 }
+
+func TestUnlocatedInventoryAuthorizationPrecedesProjection(t *testing.T) {
+	var checkedSite *int64
+	rows, err := containers.Project([]sqlc.ListContainersRow{{
+		ID: 1, DeviceIdentifier: "private-ct1", SiteID: sql.NullInt64{Int64: 42, Valid: true},
+		UnlocatedBoards: json.RawMessage(`invalid unlocated inventory`),
+	}}, func(siteID *int64) (bool, error) {
+		checkedSite = siteID
+		return false, nil
+	})
+	require.NoError(t, err, "denied inventory must not be decoded or exposed")
+	require.Equal(t, new(int64(42)), checkedSite)
+	require.Empty(t, rows)
+}

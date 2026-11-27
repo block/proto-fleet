@@ -14,6 +14,7 @@ import { usePlantAlarmAction } from "../hooks/usePlantAlarmAction";
 import { usePlantAlarmErrors } from "../hooks/usePlantAlarmErrors";
 import { modulePath } from "../moduleDetail";
 import { hasPlantAlarmSurface } from "../plantAlarms";
+import ContainerUnlocatedHashboards from "../UnlocatedHashboards";
 import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import { useFrigateUpdates } from "@/protoFleet/api/useFrigateUpdates";
 import { entityScopeTarget, useSyncScopeToEntity } from "@/protoFleet/hooks/useSyncScopeToEntity";
@@ -73,7 +74,7 @@ export default function ContainerPage() {
           />
         }
         title={container.name}
-        unlocatedHashboards={view.unlocatedHashboards}
+        unlocatedNotice={<ContainerUnlocatedHashboards key={identifier} container={container} failed={!!error} />}
         breadcrumb={
           container.site
             ? [
