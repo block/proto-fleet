@@ -766,7 +766,19 @@ it("prepares official calendar periods in the approved reporting timezone", asyn
   expect(form.getByRole("button", { name: "Year" })).toHaveTextContent("2026");
   expect(form.getByRole("button", { name: "Reporting month" })).toHaveTextContent("November");
   await user.click(form.getByRole("button", { name: "Reporting month" }));
-  expect(screen.getAllByRole("option")).toHaveLength(11);
+  expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+  ]);
   await user.click(await screen.findByRole("option", { name: "October" }));
   await user.click(form.getByRole("button", { name: "Accountable reporting owner" }));
   await user.click(await screen.findByRole("option", { name: "Casey" }));

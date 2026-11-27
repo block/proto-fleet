@@ -111,7 +111,8 @@ const ReportPeriodFields = ({
           pick(periods.find((option) => option.start.slice(5) === selected?.start.slice(5)) ?? periods[0]);
         }}
       />
-      {period(options.filter((option) => option.year === year))}
+      {/* Years run newest first; within a year, months and quarters run in calendar order. */}
+      {period(options.filter((option) => option.year === year).reverse())}
     </div>
   );
 };
