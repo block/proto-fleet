@@ -18,9 +18,10 @@ export interface ReportingYearStart {
 export interface ReportPeriodOption extends CalendarRange {
   value: string;
   label: string;
+  // The year the period starts in, and its label within that year.
+  year: string;
+  periodLabel: string;
 }
-
-const optionCounts: Record<string, number> = { monthly: 24, quarterly: 12, annual: 5 };
 
 // Calendar days are carried as UTC midnights so month arithmetic never crosses a clock change.
 const utcDay = (year: number, monthIndex: number, day: number) => new Date(Date.UTC(year, monthIndex, day));
@@ -66,16 +67,19 @@ export const calendarRangeLabel = ({ start, end }: CalendarRange) => {
 };
 
 // Completed periods only, newest first: a report's evidence cannot predate the end of its period.
+// The list reaches back five years, or to `earliest` (a calendar day) when that is further back.
 export const scheduledPeriodOptions = (
   kind: string,
   today: string,
   yearStart: ReportingYearStart,
   // Month (1–12) that any scheduled quarter starts in; quarters follow the reporting year without one.
   quarterMonth = yearStart.month,
+  earliest?: string,
 ): ReportPeriodOption[] => {
-  const count = optionCounts[kind];
   const [year, month] = today.split("-").map(Number);
-  if (!count || !year || !month) return [];
+  if (!["monthly", "quarterly", "annual"].includes(kind) || !year || !month) return [];
+  const fiveYearsBack = `${String(year - 5).padStart(4, "0")}${today.slice(4)}`;
+  const floor = earliest && earliest < fiveYearsBack ? earliest : fiveYearsBack;
   const monthIndex = month - 1;
   const yearMonthIndex = yearStart.month - 1;
   const period = (back: number): [Date, Date] => {
@@ -90,17 +94,25 @@ export const scheduledPeriodOptions = (
     return [utcDay(year, first, 1), utcDay(year, first + months, 1)];
   };
   const options: ReportPeriodOption[] = [];
-  for (let back = 0; options.length < count && back < count + 2; back += 1) {
+  for (let back = 0; back < 1200; back += 1) {
     const [first, next] = period(back);
     const range = { start: dayValue(first), end: dayValue(next) };
+    if (range.end <= floor) break;
     if (range.end > today) continue;
     const last = new Date(next.getTime() - 86400000);
     let label = calendarRangeLabel(range);
-    if (kind === "monthly") label = format(first, { month: "long", year: "numeric" });
-    else if (kind === "quarterly")
-      label = `${format(first, first.getUTCFullYear() === last.getUTCFullYear() ? { month: "short" } : { month: "short", year: "numeric" })}–${format(last, { month: "short", year: "numeric" })}`;
-    else if (yearStart.month === 1 && yearStart.day === 1) label = format(first, { year: "numeric" });
-    options.push({ ...range, value: calendarRangeValue(range), label });
+    let periodLabel = label;
+    if (kind === "monthly") {
+      label = format(first, { month: "long", year: "numeric" });
+      periodLabel = format(first, { month: "long" });
+    } else if (kind === "quarterly") {
+      const sameYear = first.getUTCFullYear() === last.getUTCFullYear();
+      const from = format(first, sameYear ? { month: "short" } : { month: "short", year: "numeric" });
+      label = `${from}–${format(last, { month: "short", year: "numeric" })}`;
+      // A quarter that crosses into the next year keeps both years so it is not misread.
+      periodLabel = sameYear ? `${from}–${format(last, { month: "short" })}` : label;
+    } else if (yearStart.month === 1 && yearStart.day === 1) label = periodLabel = format(first, { year: "numeric" });
+    options.push({ ...range, value: calendarRangeValue(range), label, year: range.start.slice(0, 4), periodLabel });
   }
   return options;
 };

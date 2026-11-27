@@ -763,9 +763,11 @@ it("prepares official calendar periods in the approved reporting timezone", asyn
     .mockResolvedValue(create(PrepareHostReportResponseSchema));
   await user.click(await screen.findByRole("button", { name: "Create report" }));
   const form = within(screen.getByRole("dialog", { name: "Create report" }));
-  expect(form.getByRole("button", { name: "Reporting month" })).toHaveTextContent("November 2026");
+  expect(form.getByRole("button", { name: "Year" })).toHaveTextContent("2026");
+  expect(form.getByRole("button", { name: "Reporting month" })).toHaveTextContent("November");
   await user.click(form.getByRole("button", { name: "Reporting month" }));
-  await user.click(await screen.findByRole("option", { name: "October 2026" }));
+  expect(screen.getAllByRole("option")).toHaveLength(11);
+  await user.click(await screen.findByRole("option", { name: "October" }));
   await user.click(form.getByRole("button", { name: "Accountable reporting owner" }));
   await user.click(await screen.findByRole("option", { name: "Casey" }));
   await user.click(form.getByRole("button", { name: "Create draft" }));

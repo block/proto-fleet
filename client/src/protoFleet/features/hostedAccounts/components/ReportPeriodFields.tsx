@@ -4,6 +4,7 @@ import {
   calendarRangeValue,
   calendarToday,
   type ReportingYearStart,
+  type ReportPeriodOption,
   scheduledPeriodOptions,
 } from "../reportPeriodOptions";
 import { addDaysToDateValue, formatDateValue, parseDate } from "@/protoFleet/features/settings/utils/scheduleDateUtils";
@@ -17,13 +18,14 @@ const periodLabels: Record<string, string> = {
 };
 
 // Scheduled reports cover one whole month, quarter or reporting year, so the user picks the period
-// rather than its boundaries. Ad hoc reports take a first and last day; every boundary is a
+// (a year, then a month or quarter within it) rather than its boundaries. Ad hoc reports take a first and last day; every boundary is a
 // midnight in the reporting timezone.
 const ReportPeriodFields = ({
   kind,
   timezone,
   yearStart,
   quarterMonth,
+  earliest,
   range,
   onChange,
 }: {
@@ -31,6 +33,8 @@ const ReportPeriodFields = ({
   timezone: string;
   yearStart: ReportingYearStart;
   quarterMonth: number;
+  // Calendar day the list must reach back to, when that is further than its default.
+  earliest?: string;
   range: Partial<CalendarRange>;
   onChange: (range: Partial<CalendarRange>) => void;
 }) => {
@@ -63,22 +67,52 @@ const ReportPeriodFields = ({
       </div>
     );
   }
-  const options = scheduledPeriodOptions(kind, today, yearStart, quarterMonth);
+  // A period seeded from the work queue or an existing draft may be older than the offered list, or
+  // not line up with it at all.
+  const floor = range.start && (!earliest || range.start < earliest) ? range.start : earliest;
+  const options = scheduledPeriodOptions(kind, today, yearStart, quarterMonth, floor);
   const value = calendarRangeValue(range);
-  // A period seeded from the work queue or an existing draft may fall outside the offered list.
-  if (range.start && range.end && !options.some((option) => option.value === value))
-    options.unshift({ start: range.start, end: range.end, value, label: calendarRangeLabel(range as CalendarRange) });
-  return (
+  if (range.start && range.end && !options.some((option) => option.value === value)) {
+    const label = calendarRangeLabel(range as CalendarRange);
+    options.push({
+      start: range.start,
+      end: range.end,
+      value,
+      label,
+      year: range.start.slice(0, 4),
+      periodLabel: label,
+    });
+    options.sort((a, b) => (a.start < b.start ? 1 : -1));
+  }
+  const selected = options.find((option) => option.value === value);
+  const pick = (option?: ReportPeriodOption) => option && onChange({ start: option.start, end: option.end });
+  const period = (periods: ReportPeriodOption[]) => (
     <Select
       id="report-period"
       label={periodLabels[kind] ?? "Reporting period"}
-      value={range.start && range.end ? value : ""}
-      options={options}
-      onChange={(next) => {
-        const option = options.find((candidate) => candidate.value === next);
-        if (option) onChange({ start: option.start, end: option.end });
-      }}
+      value={selected?.value ?? ""}
+      options={periods.map((option) => ({ value: option.value, label: option.periodLabel }))}
+      onChange={(next) => pick(options.find((option) => option.value === next))}
     />
+  );
+  if (kind === "annual") return period(options);
+  const years = [...new Set(options.map((option) => option.year))];
+  const year = selected?.year ?? years[0] ?? "";
+  return (
+    <div className="grid gap-4 tablet:grid-cols-2">
+      <Select
+        id="report-period-year"
+        label="Year"
+        value={year}
+        options={years.map((value) => ({ value, label: value }))}
+        onChange={(next) => {
+          // Keep the same month or quarter when that year has it, otherwise take its latest period.
+          const periods = options.filter((option) => option.year === next);
+          pick(periods.find((option) => option.start.slice(5) === selected?.start.slice(5)) ?? periods[0]);
+        }}
+      />
+      {period(options.filter((option) => option.year === year))}
+    </div>
   );
 };
 

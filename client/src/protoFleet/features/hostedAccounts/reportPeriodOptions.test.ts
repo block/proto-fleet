@@ -13,14 +13,33 @@ const january = { month: 1, day: 1 };
 describe("scheduledPeriodOptions", () => {
   it("offers only completed months, newest first", () => {
     const options = scheduledPeriodOptions("monthly", "2026-11-27", january);
-    expect(options).toHaveLength(24);
-    expect(options[0]).toMatchObject({ start: "2026-10-01", end: "2026-11-01", label: "October 2026" });
-    expect(options[23]).toMatchObject({ start: "2024-11-01", end: "2024-12-01" });
+    expect(options).toHaveLength(60);
+    expect(options[0]).toMatchObject({
+      start: "2026-10-01",
+      end: "2026-11-01",
+      label: "October 2026",
+      year: "2026",
+      periodLabel: "October",
+    });
+    expect(options[59]).toMatchObject({ start: "2021-11-01", end: "2021-12-01", year: "2021" });
   });
 
   it("offers a month on the day after it ends", () => {
     expect(scheduledPeriodOptions("monthly", "2026-11-01", january)[0].label).toBe("October 2026");
     expect(scheduledPeriodOptions("monthly", "2026-10-31", january)[0].label).toBe("September 2026");
+  });
+
+  it("reaches back to an earlier schedule start, but never less than five years", () => {
+    const from = (earliest: string) =>
+      scheduledPeriodOptions("monthly", "2026-11-27", january, 1, earliest).slice(-1)[0];
+    expect(from("2019-03-01")).toMatchObject({ start: "2019-03-01" });
+    expect(from("2026-06-01")).toMatchObject({ start: "2021-11-01" });
+  });
+
+  it("labels a quarter that crosses a year boundary with both years", () => {
+    const [crossing, , , previous] = scheduledPeriodOptions("quarterly", "2026-03-10", { month: 2, day: 1 });
+    expect(crossing).toMatchObject({ year: "2025", periodLabel: "Nov 2025–Jan 2026" });
+    expect(previous).toMatchObject({ start: "2025-02-01", year: "2025", periodLabel: "Feb–Apr" });
   });
 
   it("aligns quarters to the reporting year", () => {

@@ -1,7 +1,7 @@
 import { useCallback, useLayoutEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
-import { timestampFromDate } from "@bufbuild/protobuf/wkt";
+import { type Timestamp, timestampFromDate } from "@bufbuild/protobuf/wkt";
 
 import { ACCOUNT_READ_TIMEOUT_MS, hostedAccountsClient } from "../api";
 import {
@@ -111,6 +111,12 @@ const PrepareReport = ({
   // Scheduled obligations step from the configured quarterly start, which need not match the reporting year.
   const quarterMonth =
     Number(calendarDay(configuration?.schedule?.quarterlyStart, zone)?.split("-")[1]) || yearStart.month;
+  const schedule = configuration?.schedule;
+  const scheduleStarts: Record<string, Timestamp | undefined> = {
+    monthly: schedule?.monthlyStart,
+    quarterly: schedule?.quarterlyStart,
+    annual: schedule?.annualStart,
+  };
   const latestPeriod = (kind: string): Partial<CalendarRange> =>
     scheduledPeriodOptions(kind, calendarToday(zone), yearStart, quarterMonth)[0] ?? {};
   // Calendar days the user chose. Until they choose, a seeded period keeps its exact instants.
@@ -187,6 +193,7 @@ const PrepareReport = ({
             timezone={zone}
             yearStart={yearStart}
             quarterMonth={quarterMonth}
+            earliest={calendarDay(scheduleStarts[period.kind], zone)}
             range={range}
             onChange={setChosen}
           />
