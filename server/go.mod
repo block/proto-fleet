@@ -16,7 +16,7 @@ require (
 	github.com/btcsuite/btcd/btcec/v2 v2.5.1
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.2.0
 	github.com/coreos/go-systemd/v22 v22.7.0
-	github.com/eclipse/paho.mqtt.golang v1.5.1
+	github.com/eclipse/paho.mqtt.golang v1.5.2
 	github.com/fatih/color v1.19.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/golang-migrate/migrate/v4 v4.20.1
