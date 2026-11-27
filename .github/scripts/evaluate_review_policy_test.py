@@ -1792,16 +1792,78 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertNotIn(workflow["name"], triggers["workflow_run"]["workflows"])
         self.assertNotIn(relay["name"], triggers["workflow_run"]["workflows"])
         self.assertNotIn(relay["name"], relay_triggers["workflow_run"]["workflows"])
-        relay_job = relay["jobs"]["reevaluate"]
-        self.assertEqual(relay_job["uses"], "./.github/workflows/review-policy.yml")
+        source_job = relay["jobs"]["source"]
         self.assertEqual(
-            relay_job["if"],
+            source_job["if"],
             'contains(fromJSON(\'["pull_request","pull_request_review"]\'), github.event.workflow_run.event)',
         )
+        self.assertEqual(source_job["permissions"], {"actions": "read"})
+        relay_job = relay["jobs"]["reevaluate"]
+        self.assertEqual(relay_job["uses"], "./.github/workflows/review-policy.yml")
+        self.assertEqual(relay_job["needs"], "source")
+        self.assertEqual(relay_job["if"], "needs.source.outputs.evaluate == 'true'")
+        self.assertNotIn("inherit", str(relay_job.get("secrets")))
         for job_id in ("publish-status", "sync-label"):
             condition = workflow["jobs"][job_id]["if"]
             for event in ("pull_request", "pull_request_review"):
                 self.assertIn(f"github.event_name != '{event}'", condition)
+
+    def test_relay_skips_source_runs_that_skipped_evaluation(self):
+        workflow = load_workflow("review-policy.yml")
+        relay = load_workflow("review-policy-relay.yml")
+        check = find_step(relay, "source", "check")
+        evaluate_name = workflow["jobs"]["evaluate"]["name"]
+        self.assertIn(f'select(.name == "{evaluate_name}")', check["run"])
+        self.assertEqual(
+            check["env"]["SOURCE_RUN_ATTEMPT"],
+            "${{ github.event.workflow_run.run_attempt }}",
+        )
+
+        cases = [
+            ("commented-review", "skipped", "false"),
+            ("approved-review", "success", "true"),
+            ("failed-evaluation", "failure", "true"),
+            ("cancelled-evaluation", "cancelled", "true"),
+            ("missing-job", None, "true"),
+        ]
+        for name, conclusion, expected in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                jobs = [{"name": "Sync Label", "conclusion": "skipped"}]
+                if conclusion is not None:
+                    jobs.append({"name": evaluate_name, "conclusion": conclusion})
+                fake_bin = Path(tmp) / "bin"
+                fake_bin.mkdir()
+                fake_gh = fake_bin / "gh"
+                fake_gh.write_text(
+                    "#!/usr/bin/env python3\n"
+                    "import json, subprocess, sys\n"
+                    "args = sys.argv[1:]\n"
+                    "assert args[:2] == ['api', '--paginate'], args\n"
+                    "assert args[2] == 'repos/block/proto-fleet/actions/runs/42/attempts/3/jobs', args\n"
+                    "query = args[args.index('--jq') + 1]\n"
+                    f"data = {json.dumps({'jobs': jobs})!r}\n"
+                    "sys.exit(subprocess.run(['jq', '-r', query], input=data, text=True).returncode)\n"
+                )
+                fake_gh.chmod(0o755)
+                output_file = Path(tmp) / "output"
+                completed = subprocess.run(
+                    ["bash", "-c", check["run"]],
+                    env={
+                        **os.environ,
+                        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+                        "GITHUB_OUTPUT": str(output_file),
+                        "GITHUB_REPOSITORY": "block/proto-fleet",
+                        "SOURCE_RUN_ID": "42",
+                        "SOURCE_RUN_ATTEMPT": "3",
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertEqual(
+                    output_file.read_text().strip(), f"evaluate={expected}"
+                )
 
     def test_workflow_completion_resolves_current_fork_head_without_associations(self):
         workflow = load_workflow("review-policy.yml")

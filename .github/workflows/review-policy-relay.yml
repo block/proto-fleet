@@ -9,10 +9,42 @@ permissions:
   contents: read
 
 jobs:
-  reevaluate:
+  source:
+    name: Check Source Run
     # Direct fork/Dependabot PR and review events can have read-only tokens.
     # Completion runs use trusted default-branch code and fresh GitHub state.
     if: contains(fromJSON('["pull_request","pull_request_review"]'), github.event.workflow_run.event)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      evaluate: ${{ steps.check.outputs.evaluate }}
+    steps:
+      # The called workflow sees a workflow_run event, so the direct run's
+      # event filters (such as ignored `commented` reviews) do not apply
+      # there. Carry the direct run's decision forward instead.
+      - name: Check whether the source run evaluated
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          set -euo pipefail
+          conclusion="$(gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/attempts/${SOURCE_RUN_ATTEMPT}/jobs" \
+            --jq '.jobs[] | select(.name == "Evaluate Review Policy") | .conclusion')"
+          if [[ "$conclusion" == "skipped" ]]; then
+            echo "::notice::Source run ${SOURCE_RUN_ID} skipped Evaluate Review Policy; not reevaluating."
+            echo "evaluate=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "evaluate=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  reevaluate:
+    needs: source
+    if: needs.source.outputs.evaluate == 'true'
     uses: ./.github/workflows/review-policy.yml
     permissions:
       actions: read
