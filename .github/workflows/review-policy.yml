@@ -146,6 +146,30 @@ jobs:
               return data;
             }
 
+            async function findOpenPrForHeadBranch(run) {
+              const owner = run?.head_repository?.owner?.login;
+              const branch = run?.head_branch;
+              const sha = run?.head_sha;
+              if (!owner || !branch || !sha) return undefined;
+              const { data: candidates } = await github.rest.pulls.list({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                head: `${owner}:${branch}`,
+              });
+              const candidate = candidates.find((item) =>
+                item.head.sha === sha &&
+                item.head.repo?.full_name === run.head_repository.full_name
+              );
+              if (!candidate) return undefined;
+
+              const data = await getOpenPrByNumber(candidate.number);
+              if (!data || !isCurrentHeadForEvent(data, sha, 'workflow_run')) {
+                return undefined;
+              }
+              return data;
+            }
+
             const managedStatusContexts = new Set(['Review Policy', 'Review Policy Advisory']);
 
             let pr;
@@ -181,8 +205,10 @@ jobs:
                   pr = data;
                 }
               } else {
-                // GitHub can omit pull_requests for runs on fork heads.
-                pr = await findOpenPrForSha(run?.head_sha);
+                // GitHub omits pull_requests for runs on fork heads, and the
+                // commit association lookup returns no PRs for fork commits.
+                pr = await findOpenPrForSha(run?.head_sha) ||
+                  await findOpenPrForHeadBranch(run);
               }
             }
 

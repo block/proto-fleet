@@ -32,9 +32,14 @@ jobs:
           SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         run: |
           set -euo pipefail
-          conclusion="$(gh api --paginate \
+          # A lookup failure reevaluates: the direct run no longer publishes
+          # for these events, so skipping would leave a stale status.
+          if ! conclusion="$(gh api --paginate \
             "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/attempts/${SOURCE_RUN_ATTEMPT}/jobs" \
-            --jq '.jobs[] | select(.name == "Evaluate Review Policy") | .conclusion')"
+            --jq '.jobs[] | select(.name == "Evaluate Review Policy") | .conclusion')"; then
+            echo "::warning::Could not read jobs for source run ${SOURCE_RUN_ID}; reevaluating."
+            conclusion=""
+          fi
           if [[ "$conclusion" == "skipped" ]]; then
             echo "::notice::Source run ${SOURCE_RUN_ID} skipped Evaluate Review Policy; not reevaluating."
             echo "evaluate=false" >> "$GITHUB_OUTPUT"

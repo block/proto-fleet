@@ -178,6 +178,11 @@ const github = {
         maybeFail('pulls.get');
         return {data: scenario.pull_request};
       },
+      list: async args => {
+        maybeFail('pulls.list');
+        calls.push({type: 'pulls.list', args});
+        return {data: scenario.listed_pull_requests || []};
+      },
     },
     actions: {
       getWorkflowRun: async () => {
@@ -1815,6 +1820,9 @@ class ReviewPolicyTest(unittest.TestCase):
         evaluate_name = workflow["jobs"]["evaluate"]["name"]
         self.assertIn(f'select(.name == "{evaluate_name}")', check["run"])
         self.assertEqual(
+            check["env"]["SOURCE_RUN_ID"], "${{ github.event.workflow_run.id }}"
+        )
+        self.assertEqual(
             check["env"]["SOURCE_RUN_ATTEMPT"],
             "${{ github.event.workflow_run.run_attempt }}",
         )
@@ -1825,11 +1833,12 @@ class ReviewPolicyTest(unittest.TestCase):
             ("failed-evaluation", "failure", "true"),
             ("cancelled-evaluation", "cancelled", "true"),
             ("missing-job", None, "true"),
+            ("lookup-error", "error", "true"),
         ]
         for name, conclusion, expected in cases:
             with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
                 jobs = [{"name": "Sync Label", "conclusion": "skipped"}]
-                if conclusion is not None:
+                if conclusion not in (None, "error"):
                     jobs.append({"name": evaluate_name, "conclusion": conclusion})
                 fake_bin = Path(tmp) / "bin"
                 fake_bin.mkdir()
@@ -1840,6 +1849,7 @@ class ReviewPolicyTest(unittest.TestCase):
                     "args = sys.argv[1:]\n"
                     "assert args[:2] == ['api', '--paginate'], args\n"
                     "assert args[2] == 'repos/block/proto-fleet/actions/runs/42/attempts/3/jobs', args\n"
+                    f"sys.exit(1) if {conclusion == 'error'!r} else None\n"
                     "query = args[args.index('--jq') + 1]\n"
                     f"data = {json.dumps({'jobs': jobs})!r}\n"
                     "sys.exit(subprocess.run(['jq', '-r', query], input=data, text=True).returncode)\n"
@@ -1864,50 +1874,116 @@ class ReviewPolicyTest(unittest.TestCase):
                 self.assertEqual(
                     output_file.read_text().strip(), f"evaluate={expected}"
                 )
+                self.assertEqual(
+                    "Could not read jobs" in completed.stdout,
+                    conclusion == "error",
+                )
 
-    def test_workflow_completion_resolves_current_fork_head_without_associations(self):
+    def test_workflow_completion_resolves_current_pr_head(self):
         workflow = load_workflow("review-policy.yml")
         script = find_step(workflow, "evaluate", "pr")["with"]["script"]
         head_sha = "b" * 40
-        pr = {
+        base = {
+            "sha": "a" * 40,
+            "ref": "main",
+            "repo": {"full_name": "block/proto-fleet", "default_branch": "main"},
+        }
+        fork_repo = {
+            "full_name": "contributor/proto-fleet",
+            "owner": {"login": "contributor"},
+        }
+        fork_pr = {
             "number": 1115,
             "state": "open",
             "user": {"login": "contributor"},
             "head": {"sha": head_sha, "repo": {"full_name": "contributor/proto-fleet"}},
-            "base": {
-                "sha": "a" * 40,
-                "ref": "main",
-                "repo": {"full_name": "block/proto-fleet", "default_branch": "main"},
-            },
+            "base": base,
         }
+        same_repo_pr = {
+            **fork_pr,
+            "head": {"sha": head_sha, "repo": {"full_name": "block/proto-fleet"}},
+        }
+        same_repo = {"full_name": "block/proto-fleet", "owner": {"login": "block"}}
+
+        def run(event="pull_request_review", name="Review Policy", **overrides):
+            return {
+                "name": name,
+                "event": event,
+                "head_sha": head_sha,
+                "head_branch": "feature",
+                "head_repository": fork_repo,
+                "pull_requests": [],
+                **overrides,
+            }
+
+        # GitHub returns no commit associations and no workflow_run
+        # pull_requests for fork heads, so forks resolve through pulls.list.
+        fork = {"associated_pull_requests": [], "listed_pull_requests": [fork_pr]}
         scenarios = [
-            ("fork-review", "Review Policy", "pull_request_review", head_sha, pr, True),
-            ("fork-edit", "Review Policy", "pull_request", head_sha, pr, True),
-            ("ci-completion", "PR Gate", "pull_request", head_sha, pr, True),
-            ("stale-head", "Review Policy", "pull_request_review", "c" * 40, pr, False),
-            ("missing-head", "Review Policy", "pull_request_review", None, pr, False),
+            ("fork-review", run(), fork_pr, fork, True),
+            ("fork-edit", run(event="pull_request"), fork_pr, fork, True),
             (
-                "closed-pr",
-                "Review Policy",
-                "pull_request_review",
-                head_sha,
-                {**pr, "state": "closed"},
+                "fork-ci-completion",
+                run(event="pull_request", name="PR Gate"),
+                fork_pr,
+                fork,
+                True,
+            ),
+            ("fork-stale-head", run(head_sha="c" * 40), fork_pr, fork, False),
+            ("fork-missing-head", run(head_sha=None), fork_pr, fork, False),
+            ("fork-missing-branch", run(head_branch=None), fork_pr, fork, False),
+            ("fork-closed-pr", run(), {**fork_pr, "state": "closed"}, fork, False),
+            (
+                "fork-other-repo-same-branch",
+                run(
+                    head_repository={
+                        "full_name": "other/proto-fleet",
+                        "owner": {"login": "other"},
+                    }
+                ),
+                fork_pr,
+                fork,
+                False,
+            ),
+            (
+                "same-repo-association",
+                run(head_repository=same_repo),
+                same_repo_pr,
+                {"associated_pull_requests": [same_repo_pr]},
+                True,
+            ),
+            (
+                "same-repo-run-pr",
+                run(head_repository=same_repo, pull_requests=[{"number": 1115}]),
+                same_repo_pr,
+                {},
+                True,
+            ),
+            (
+                "same-repo-run-pr-stale-head",
+                run(
+                    head_repository=same_repo,
+                    head_sha="c" * 40,
+                    pull_requests=[{"number": 1115}],
+                ),
+                same_repo_pr,
+                {},
+                False,
+            ),
+            (
+                "same-repo-run-pr-closed",
+                run(head_repository=same_repo, pull_requests=[{"number": 1115}]),
+                {**same_repo_pr, "state": "closed"},
+                {},
                 False,
             ),
         ]
-        for name, run_name, event, run_sha, current_pr, expected_found in scenarios:
+        for name, workflow_run, current_pr, lookups, expected_found in scenarios:
             scenario = {
                 "event_name": "workflow_run",
-                "payload": {
-                    "workflow_run": {
-                        "name": run_name,
-                        "event": event,
-                        "head_sha": run_sha,
-                        "pull_requests": [],
-                    }
-                },
+                "payload": {"workflow_run": workflow_run},
                 "pull_request": current_pr,
-                "associated_pull_requests": [pr],
+                **lookups,
             }
             with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
                 completed, result = run_github_script(script, scenario, tmp)
@@ -1915,9 +1991,23 @@ class ReviewPolicyTest(unittest.TestCase):
                 self.assertEqual(
                     result["outputs"].get("found"), str(expected_found).lower()
                 )
+                list_calls = [c for c in result["calls"] if c["type"] == "pulls.list"]
+                if (
+                    name.startswith("fork-")
+                    and workflow_run["head_branch"]
+                    and workflow_run["head_sha"]
+                ):
+                    self.assertEqual(
+                        list_calls[0]["args"]["head"],
+                        f"{workflow_run['head_repository']['owner']['login']}:feature",
+                    )
+                    self.assertEqual(list_calls[0]["args"]["state"], "open")
                 if expected_found:
                     self.assertEqual(result["outputs"]["head_sha"], head_sha)
-                    self.assertEqual(result["outputs"]["same_repo"], "false")
+                    self.assertEqual(
+                        result["outputs"]["same_repo"],
+                        str(name.startswith("same-repo")).lower(),
+                    )
 
     def test_workflow_ignored_events_do_not_cancel_active_evaluations(self):
         workflow = load_workflow("review-policy.yml")
