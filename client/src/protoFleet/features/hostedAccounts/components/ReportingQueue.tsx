@@ -216,12 +216,8 @@ const PrepareReport = ({
         </div>
       )}
       {!replacement ? (
-        <Input
-          id="period-timezone"
-          label="Reporting timezone"
-          initValue={period.timezone}
-          onChange={(timezone) => setPeriod({ ...period, timezone })}
-        />
+        // The period must use the account's configured timezone, which is changed in Reporting settings.
+        <Input id="period-timezone" label="Reporting timezone" initValue={period.timezone} readOnly />
       ) : null}
       {period.kind === "ad_hoc" ? (
         <div>

@@ -763,6 +763,8 @@ it("prepares official calendar periods in the approved reporting timezone", asyn
     .mockResolvedValue(create(PrepareHostReportResponseSchema));
   await user.click(await screen.findByRole("button", { name: "Create report" }));
   const form = within(screen.getByRole("dialog", { name: "Create report" }));
+  expect(form.getByLabelText("Reporting timezone")).toHaveValue("Africa/Nairobi");
+  expect(form.getByLabelText("Reporting timezone")).toHaveAttribute("readonly");
   expect(form.getByRole("button", { name: "Year" })).toHaveTextContent("2026");
   expect(form.getByRole("button", { name: "Reporting month" })).toHaveTextContent("November");
   await user.click(form.getByRole("button", { name: "Reporting month" }));
