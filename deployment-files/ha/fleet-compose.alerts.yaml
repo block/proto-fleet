@@ -10,7 +10,7 @@ services:
     # SQLite state in its own grafana-data volume.
     # Pin the verified multi-architecture manifest because HA release installs
     # otherwise pull this image outside the checksummed release archive.
-    image: grafana/grafana:13.0@sha256:9b031995a5483a44f80a5dd214a70cecb31448b42d765b44d3756e17b855775f
+    image: grafana/grafana:13.0@sha256:5b9445edbd1a35e7a09a4c5688e03f2138d3f8a1b1b70619707d35dc4388a1bb
     depends_on: !reset []
     network_mode: host
     ports: !reset []
