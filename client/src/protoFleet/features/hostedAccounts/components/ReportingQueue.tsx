@@ -16,6 +16,7 @@ import {
   calendarDay,
   calendarDayStart,
   type CalendarRange,
+  calendarRangeOf,
   calendarToday,
   scheduledPeriodOptions,
 } from "../reportPeriodOptions";
@@ -107,13 +108,16 @@ const PrepareReport = ({
   const zone = period.timezone || "UTC";
   const configuration = setup.input?.configuration;
   const yearStart = { month: configuration?.reportingYearMonth || 1, day: configuration?.reportingYearDay || 1 };
+  // Scheduled obligations step from the configured quarterly start, which need not match the reporting year.
+  const quarterMonth =
+    Number(calendarDay(configuration?.schedule?.quarterlyStart, zone)?.split("-")[1]) || yearStart.month;
   const latestPeriod = (kind: string): Partial<CalendarRange> =>
-    scheduledPeriodOptions(kind, calendarToday(zone), yearStart)[0] ?? {};
+    scheduledPeriodOptions(kind, calendarToday(zone), yearStart, quarterMonth)[0] ?? {};
   // Calendar days the user chose. Until they choose, a seeded period keeps its exact instants.
   const [chosen, setChosen] = useState<Partial<CalendarRange> | undefined>(() =>
     seed ? undefined : latestPeriod(period.kind),
   );
-  const range = chosen ?? { start: calendarDay(period.start, zone), end: calendarDay(period.end, zone) };
+  const range = chosen ?? calendarRangeOf(period.start, period.end, zone);
   const start = chosen ? calendarDayStart(chosen.start, zone) : period.start;
   const end = chosen ? calendarDayStart(chosen.end, zone) : period.end;
   const [editingAsOf, setEditingAsOf] = useState(false);
@@ -182,6 +186,7 @@ const PrepareReport = ({
             kind={period.kind}
             timezone={zone}
             yearStart={yearStart}
+            quarterMonth={quarterMonth}
             range={range}
             onChange={setChosen}
           />

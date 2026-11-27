@@ -23,12 +23,14 @@ const ReportPeriodFields = ({
   kind,
   timezone,
   yearStart,
+  quarterMonth,
   range,
   onChange,
 }: {
   kind: string;
   timezone: string;
   yearStart: ReportingYearStart;
+  quarterMonth: number;
   range: Partial<CalendarRange>;
   onChange: (range: Partial<CalendarRange>) => void;
 }) => {
@@ -61,7 +63,7 @@ const ReportPeriodFields = ({
       </div>
     );
   }
-  const options = scheduledPeriodOptions(kind, today, yearStart);
+  const options = scheduledPeriodOptions(kind, today, yearStart, quarterMonth);
   const value = calendarRangeValue(range);
   // A period seeded from the work queue or an existing draft may fall outside the offered list.
   if (range.start && range.end && !options.some((option) => option.value === value))

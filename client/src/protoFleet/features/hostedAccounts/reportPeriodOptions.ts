@@ -39,6 +39,20 @@ export const calendarDay = (time: Timestamp | undefined, timezone: string) => {
   return parts ? formatDateParts(parts) : undefined;
 };
 
+// The calendar days an existing period covers. The end is read from the last covered instant, so a
+// period ending partway through a day still counts that day as covered.
+export const calendarRangeOf = (
+  start: Timestamp | undefined,
+  end: Timestamp | undefined,
+  timezone: string,
+): Partial<CalendarRange> => {
+  const last = end && calendarDay({ ...end, seconds: end.seconds - (end.nanos > 0 ? 0n : 1n) }, timezone);
+  return {
+    start: calendarDay(start, timezone),
+    end: last ? dayValue(new Date(new Date(`${last}T00:00:00Z`).getTime() + 86400000)) : undefined,
+  };
+};
+
 export const calendarToday = (timezone: string, now = new Date()) =>
   calendarDay(timestampFromDate(now), timezone) ?? dayValue(now);
 
@@ -56,6 +70,8 @@ export const scheduledPeriodOptions = (
   kind: string,
   today: string,
   yearStart: ReportingYearStart,
+  // Month (1–12) that any scheduled quarter starts in; quarters follow the reporting year without one.
+  quarterMonth = yearStart.month,
 ): ReportPeriodOption[] => {
   const count = optionCounts[kind];
   const [year, month] = today.split("-").map(Number);
@@ -69,8 +85,8 @@ export const scheduledPeriodOptions = (
         utcDay(year - back + 1, yearMonthIndex, yearStart.day),
       ];
     const months = kind === "quarterly" ? 3 : 1;
-    // Quarters follow the reporting year, so a July year start gives Jul–Sep, Oct–Dec, and so on.
-    const first = monthIndex - ((((monthIndex - yearMonthIndex) % months) + months) % months) - back * months;
+    // A February quarter start gives Feb–Apr, May–Jul, and so on.
+    const first = monthIndex - ((((monthIndex - (quarterMonth - 1)) % months) + months) % months) - back * months;
     return [utcDay(year, first, 1), utcDay(year, first + months, 1)];
   };
   const options: ReportPeriodOption[] = [];

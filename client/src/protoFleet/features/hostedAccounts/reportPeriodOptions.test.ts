@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { calendarDay, calendarDayStart, calendarRangeLabel, scheduledPeriodOptions } from "./reportPeriodOptions";
+import {
+  calendarDay,
+  calendarDayStart,
+  calendarRangeLabel,
+  calendarRangeOf,
+  scheduledPeriodOptions,
+} from "./reportPeriodOptions";
 
 const january = { month: 1, day: 1 };
 
@@ -27,6 +33,14 @@ describe("scheduledPeriodOptions", () => {
       start: "2025-11-01",
       end: "2026-02-01",
       label: "Nov 2025–Jan 2026",
+    });
+  });
+
+  it("aligns quarters to a scheduled quarterly start that differs from the reporting year", () => {
+    expect(scheduledPeriodOptions("quarterly", "2026-11-27", january, 2)[0]).toMatchObject({
+      start: "2026-08-01",
+      end: "2026-11-01",
+      label: "Aug–Oct 2026",
     });
   });
 
@@ -62,6 +76,21 @@ describe("calendar days", () => {
     expect(calendarDay({ $typeName: "google.protobuf.Timestamp", seconds: 1790802000n, nanos: 0 }, "UTC")).toBe(
       "2026-09-30",
     );
+  });
+
+  it("reads the days an existing period covers from its last covered instant", () => {
+    const time = (seconds: bigint) => ({ $typeName: "google.protobuf.Timestamp" as const, seconds, nanos: 0 });
+    // 2026-10-01 10:00–18:00 UTC stays within October 1.
+    expect(calendarRangeOf(time(1790848800n), time(1790877600n), "UTC")).toEqual({
+      start: "2026-10-01",
+      end: "2026-10-02",
+    });
+    // A whole October ends at the November 1 midnight.
+    expect(calendarRangeOf(time(1790812800n), time(1793491200n), "UTC")).toEqual({
+      start: "2026-10-01",
+      end: "2026-11-01",
+    });
+    expect(calendarRangeOf(undefined, undefined, "UTC")).toEqual({ start: undefined, end: undefined });
   });
 
   it("labels a range by its first and last covered day", () => {
