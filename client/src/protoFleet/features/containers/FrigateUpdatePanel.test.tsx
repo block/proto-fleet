@@ -7,10 +7,12 @@ import { FRIGATE_UPDATE_RUNBOOK_URL } from "./frigateUpdate";
 import FrigateUpdatePanel from "./FrigateUpdatePanel";
 import {
   FrigateAgentPhase,
+  FrigatePackageKind,
   FrigateRolloutPhase,
   FrigateUpdateState,
   InstanceProgressSchema,
   InstanceStageState,
+  ProtoOSJobState,
   type UpdateJob,
   UpdateJobSchema,
 } from "@/protoFleet/api/generated/frigateupdate/v1/frigateupdate_pb";
@@ -43,12 +45,27 @@ const instance = (overrides: Record<string, unknown> = {}) =>
 const job = (overrides: Record<string, unknown> = {}): UpdateJob =>
   create(UpdateJobSchema, {
     jobId: "11111111-1111-4111-8111-111111111111",
+    package: { kind: FrigatePackageKind.CONTROLLER_SOFTWARE },
     state: FrigateUpdateState.RUNNING,
     rolloutPhase: FrigateRolloutPhase.INSTALLING,
     fromVersion: "1.3.0",
     targetVersion: "1.4.0",
     driverInstanceId: "frigate-a",
     instances: [instance(), instance({ instanceId: "frigate-b", agentPhase: FrigateAgentPhase.INSTALLED })],
+    ...overrides,
+  });
+
+// A ProtoOS job as the server reports it: no rollout phase, no driver and no from version.
+const protoOSJob = (overrides: Record<string, unknown> = {}): UpdateJob =>
+  create(UpdateJobSchema, {
+    jobId: "44444444-4444-4444-8444-444444444444",
+    package: { kind: FrigatePackageKind.PROTO_OS },
+    state: FrigateUpdateState.RUNNING,
+    targetVersion: "0.6.2~internal.14",
+    instances: [
+      instance({ agentPhase: FrigateAgentPhase.UNSPECIFIED }),
+      instance({ instanceId: "frigate-b", agentPhase: FrigateAgentPhase.UNSPECIFIED }),
+    ],
     ...overrides,
   });
 
@@ -69,7 +86,7 @@ describe("FrigateUpdatePanel progress", () => {
     renderPanel([job()]);
 
     expect(screen.getByTestId("frigate-update-state")).toHaveTextContent("Update in progress: Installing");
-    expect(screen.getByText("1.3.0 to 1.4.0")).toBeInTheDocument();
+    expect(screen.getByText("Controller software 1.3.0 to 1.4.0")).toBeInTheDocument();
     expect(
       within(screen.getByTestId("frigate-instance-frigate-a")).getByText("Driving the update"),
     ).toBeInTheDocument();
@@ -351,6 +368,151 @@ describe("FrigateUpdatePanel retry and cancel", () => {
   });
 });
 
+describe("FrigateUpdatePanel for a ProtoOS job", () => {
+  const row = (id: string) => screen.getByTestId(`frigate-instance-${id}`);
+
+  it("shows each controller's copy progress while staging, and Cancel while the job is cancellable", () => {
+    renderPanel([
+      protoOSJob({
+        state: FrigateUpdateState.STAGING,
+        cancellable: true,
+        instances: [
+          instance({
+            stageState: InstanceStageState.STAGING,
+            agentPhase: FrigateAgentPhase.UNSPECIFIED,
+            stagedBytes: 1048576n,
+            sizeBytes: 4194304n,
+          }),
+          instance({ instanceId: "frigate-b", stageState: InstanceStageState.PENDING }),
+        ],
+      }),
+    ]);
+
+    expect(screen.getByTestId("frigate-update-state")).toHaveTextContent("Copying package to controllers");
+    expect(screen.getByText("ProtoOS to 0.6.2~internal.14")).toBeInTheDocument();
+    expect(row("frigate-a")).toHaveTextContent("Copying, 1.0 MB of 4.0 MB");
+    expect(row("frigate-b")).toHaveTextContent("Waiting to copy");
+    expect(screen.getByRole("button", { name: "Cancel update" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+
+  it("offers no Cancel once a controller has committed its copy", () => {
+    renderPanel([protoOSJob({ state: FrigateUpdateState.STAGING, cancellable: false })]);
+    expect(screen.queryByRole("button", { name: "Cancel update" })).toBeNull();
+  });
+
+  it("shows each controller's install state, installed version and served release while running", () => {
+    renderPanel([
+      protoOSJob({
+        instances: [
+          instance({
+            protoOsJobState: ProtoOSJobState.PROTO_OS_JOB_STATE_INSTALLING,
+            protoOsInstalledVersion: "0.6.1",
+            protoOsServedReleaseTag: "v0.6.1",
+          }),
+          instance({ instanceId: "frigate-b", protoOsJobState: ProtoOSJobState.PROTO_OS_JOB_STATE_QUEUED }),
+        ],
+      }),
+    ]);
+
+    expect(screen.getByTestId("frigate-update-state")).toHaveTextContent(/^Update in progress$/);
+    expect(row("frigate-a")).toHaveTextContent("Installing");
+    expect(row("frigate-a")).toHaveTextContent("Installed 0.6.1");
+    expect(row("frigate-a")).toHaveTextContent("Serves v0.6.1");
+    expect(row("frigate-b")).toHaveTextContent("Verifying the copy");
+    expect(screen.queryByRole("alert")).toBeNull();
+    // The rollout details of a controller software update don't apply.
+    expect(screen.queryByText("Driving the update")).toBeNull();
+    expect(row("frigate-a")).not.toHaveTextContent("Staged");
+  });
+
+  it("shows a controller state this client doesn't know as a generic state", () => {
+    renderPanel([protoOSJob({ instances: [instance({ protoOsJobState: 42 as ProtoOSJobState })] })]);
+    expect(row("frigate-a")).toHaveTextContent("Unknown state");
+  });
+
+  it("shows the installed version on each controller when the job succeeded", () => {
+    renderPanel([
+      protoOSJob({
+        state: FrigateUpdateState.SUCCEEDED,
+        instances: [
+          instance({
+            protoOsJobState: ProtoOSJobState.PROTO_OS_JOB_STATE_SUCCEEDED,
+            protoOsInstalledVersion: "0.6.2~internal.14",
+            protoOsServedReleaseTag: "v0.6.2-internal.14",
+          }),
+        ],
+      }),
+    ]);
+
+    expect(screen.getByTestId("frigate-update-state")).toHaveTextContent("Update complete");
+    expect(row("frigate-a")).toHaveTextContent("Installed");
+    expect(row("frigate-a")).toHaveTextContent("Installed 0.6.2~internal.14");
+    expect(row("frigate-a")).toHaveTextContent("Serves v0.6.2-internal.14");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel update" })).toBeNull();
+  });
+
+  it("shows a failed job's error and next step, and never offers Retry", () => {
+    renderPanel([
+      protoOSJob({
+        state: FrigateUpdateState.FAILED,
+        errorCode: "FLEET_PROTOOS_INSTALL_FAILED",
+        errorMessage: "Controller frigate-a could not install ProtoOS 0.6.2~internal.14: dpkg exited 1",
+        nextStep: "Resolve the cause, then start the update again.",
+        // The server never sets it for a ProtoOS job; the panel must not offer Retry even so.
+        retryable: true,
+        instances: [
+          instance({
+            protoOsJobState: ProtoOSJobState.PROTO_OS_JOB_STATE_FAILED,
+            errorCode: "FLEET_PROTOOS_INSTALL_FAILED",
+            errorMessage: "dpkg exited 1",
+          }),
+        ],
+      }),
+    ]);
+
+    const callout = screen.getByTestId("frigate-update-error");
+    expect(callout).toHaveTextContent("A controller couldn't install ProtoOS.");
+    expect(callout).toHaveTextContent("dpkg exited 1");
+    expect(callout).toHaveTextContent("Code: FLEET_PROTOOS_INSTALL_FAILED");
+    expect(screen.getByTestId("frigate-update-next-step")).toHaveTextContent(
+      "Next step: Resolve the cause, then start the update again.",
+    );
+    expect(row("frigate-a")).toHaveTextContent("Install failed");
+    expect(within(row("frigate-a")).getByRole("alert")).toHaveTextContent("Code: FLEET_PROTOOS_INSTALL_FAILED");
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(screen.getByRole("link", { name: "ProtoOS update runbook" })).toHaveAttribute(
+      "href",
+      FRIGATE_UPDATE_RUNBOOK_URL,
+    );
+  });
+
+  it("shows an unknown failure code with the server's message", () => {
+    renderPanel([
+      protoOSJob({ state: FrigateUpdateState.FAILED, errorCode: "FLEET_PROTOOS_NEW", errorMessage: "odd state" }),
+    ]);
+    const callout = screen.getByTestId("frigate-update-error");
+    expect(callout).toHaveTextContent("odd state");
+    expect(callout).toHaveTextContent("Code: FLEET_PROTOOS_NEW");
+  });
+
+  it("explains that a cancel leaves ProtoOS unchanged and reports the cancel", async () => {
+    mocks.cancelUpdate.mockResolvedValueOnce(protoOSJob({ state: FrigateUpdateState.CANCELLED }));
+    const { onChanged } = renderPanel([protoOSJob({ state: FrigateUpdateState.STAGING, cancellable: true })]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel update" }));
+    const dialog = await screen.findByTestId("frigate-update-cancel-dialog");
+    expect(dialog).toHaveTextContent("Cancel the ProtoOS update?");
+    expect(dialog).toHaveTextContent("No controller has committed its copy, so cancelling leaves ProtoOS unchanged.");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel update" }));
+
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    expect(mocks.cancelUpdate).toHaveBeenCalledWith("44444444-4444-4444-8444-444444444444", expect.any(String));
+    expect(mocks.pushToast).toHaveBeenCalledWith({ message: "ProtoOS update cancelled.", status: STATUSES.success });
+  });
+});
+
 describe("FrigateUpdatePanel history", () => {
   it("lists earlier updates under the latest one", () => {
     renderPanel([
@@ -369,11 +531,21 @@ describe("FrigateUpdatePanel history", () => {
       }),
     ]);
 
-    const history = screen.getByRole("list", { name: "Recent controller software updates" });
+    const history = screen.getByRole("list", { name: "Recent software updates" });
     expect(within(history).getAllByRole("listitem")).toHaveLength(2);
-    expect(within(history).getByText("1.2.0 to 1.3.0")).toBeInTheDocument();
+    expect(within(history).getByText("Controller software 1.2.0 to 1.3.0")).toBeInTheDocument();
     expect(within(history).getByText(/Update complete/)).toBeInTheDocument();
-    expect(within(history).getByText("To 1.2.0")).toBeInTheDocument();
+    expect(within(history).getByText("Controller software to 1.2.0")).toBeInTheDocument();
+  });
+
+  it("names the kind of each earlier update", () => {
+    renderPanel([
+      job(),
+      protoOSJob({ jobId: "22222222-2222-4222-8222-222222222222", state: FrigateUpdateState.FAILED }),
+    ]);
+
+    const history = screen.getByRole("list", { name: "Recent software updates" });
+    expect(within(history).getByText("ProtoOS to 0.6.2~internal.14")).toBeInTheDocument();
   });
 
   it("has no history section for a single job", () => {

@@ -8,13 +8,20 @@ import {
   frigateRolloutPhaseLabel,
   frigateStateLabel,
   instanceSupportProblems,
+  packageKindFromName,
+  packageKindRules,
+  protoOSJobStateLabel,
+  UPDATABLE_KIND_RULES,
 } from "./frigateUpdate";
 import {
   FrigateAgentPhase,
   FrigateInstallationType,
+  FrigatePackageKind,
   FrigateRolloutPhase,
   FrigateUpdateState,
   InstanceSupportSchema,
+  ProtoOSBundleSource,
+  ProtoOSJobState,
 } from "@/protoFleet/api/generated/frigateupdate/v1/frigateupdate_pb";
 
 describe("describeFrigateError", () => {
@@ -129,6 +136,122 @@ describe("instanceSupportProblems", () => {
 
   it("reports only the read failure when the controller could not be read", () => {
     expect(instanceSupportProblems(create(InstanceSupportSchema, { instanceId: "a", error: "timed out" }))).toEqual([
+      "Fleet couldn't read this controller: timed out",
+    ]);
+  });
+});
+
+describe("package kinds", () => {
+  const controllerSoftware = UPDATABLE_KIND_RULES[FrigatePackageKind.CONTROLLER_SOFTWARE];
+  const protoOS = UPDATABLE_KIND_RULES[FrigatePackageKind.PROTO_OS];
+
+  it("names each kind as the Fleet UI does", () => {
+    expect([controllerSoftware.title, controllerSoftware.noun]).toEqual(["Controller software", "controller software"]);
+    expect([protoOS.title, protoOS.noun]).toEqual(["ProtoOS", "ProtoOS"]);
+  });
+
+  it("offers Retry only for controller software, which the server can resume", () => {
+    expect(controllerSoftware.retryConfirm).toMatch(/resumes from the step that failed/);
+    expect(protoOS.retryConfirm).toBeUndefined();
+  });
+
+  it("warns that a ProtoOS install keeps the controllers running and can't be cancelled after a commit", () => {
+    expect(protoOS.startWarning.title).toBe("An install can't be cancelled after a controller commits its copy.");
+    expect(protoOS.startWarning.subtitle).toBe("The controllers and mining keep running during the update.");
+    expect(controllerSoftware.startWarning.title).toBe("Both controllers stop mining control together, briefly.");
+  });
+
+  it.each([FrigatePackageKind.UNSPECIFIED, 42 as FrigatePackageKind])(
+    "treats the unknown kind %s as other software with no Retry",
+    (kind) => {
+      const rules = packageKindRules(kind);
+      expect(rules.title).toBe("Other software");
+      expect(rules.retryConfirm).toBeUndefined();
+    },
+  );
+
+  it("reads the kind names the server stores", () => {
+    expect(packageKindFromName("frigate")).toBe(FrigatePackageKind.CONTROLLER_SOFTWARE);
+    expect(packageKindFromName("proto_os")).toBe(FrigatePackageKind.PROTO_OS);
+    for (const name of ["", undefined, "firmware", "toString"]) {
+      expect(packageKindFromName(name)).toBe(FrigatePackageKind.UNSPECIFIED);
+    }
+  });
+
+  it("maps the ProtoOS refusal codes and keeps unknown ones generic", () => {
+    expect(frigateCodeText("FLEET_PROTOOS_UNSUPPORTED")).toMatch(/Update its controller software first/);
+    expect(frigateCodeText("FLEET_PROTOOS_REPOSITORY_UNTRUSTED")).toMatch(/repository/);
+    expect(describeFrigateError("FLEET_PROTOOS_INSTALL_FAILED", "dpkg exited 1")).toEqual({
+      title: "A controller couldn't install ProtoOS.",
+      detail: "dpkg exited 1",
+      code: "FLEET_PROTOOS_INSTALL_FAILED",
+    });
+    expect(frigateCodeText("FLEET_PROTOOS_JOB_NOT_REPORTED")).toBeDefined();
+    expect(frigateCodeText("FLEET_PROTOOS_INSTALL_TIMEOUT")).toBeDefined();
+  });
+
+  it("labels ProtoOS job states, with a neutral label for one this client doesn't know", () => {
+    expect(protoOSJobStateLabel(ProtoOSJobState.PROTO_OS_JOB_STATE_INSTALLING)).toBe("Installing");
+    expect(protoOSJobStateLabel(ProtoOSJobState.PROTO_OS_JOB_STATE_UNSPECIFIED)).toBe("");
+    expect(protoOSJobStateLabel(ProtoOSJobState.PROTO_OS_JOB_STATE_UNKNOWN)).toBe("Unknown state");
+    expect(protoOSJobStateLabel(42 as ProtoOSJobState)).toBe("Unknown state");
+  });
+});
+
+describe("ProtoOS controller support", () => {
+  const support = UPDATABLE_KIND_RULES[FrigatePackageKind.PROTO_OS].support;
+  const ready = (overrides: Record<string, unknown> = {}) =>
+    create(InstanceSupportSchema, {
+      instanceId: "a",
+      remoteTriggerAllowed: true,
+      protoOs: {
+        selfSupported: true,
+        servedSource: ProtoOSBundleSource.PROTO_OS_BUNDLE_SOURCE_PACKAGE,
+        servedReleaseTag: "v0.6.1",
+      },
+      ...overrides,
+    });
+
+  it("ignores the controller software checks that don't apply to a ProtoOS install", () => {
+    expect(support(ready({ helperAvailable: false, etcdMembersTotal: 3, etcdMembersHealthy: 1 }))).toEqual({
+      summary: "ProtoOS v0.6.1",
+      problems: [],
+      note: undefined,
+    });
+  });
+
+  it("says when a controller doesn't accept ProtoOS from Fleet, with its own message", () => {
+    expect(support(ready({ protoOs: { selfSupported: false, supportMessage: "frigate 1.2 is too old" } }))).toEqual({
+      summary: "ProtoOS version unknown",
+      problems: ["A controller doesn't accept ProtoOS updates from Fleet. Update its controller software first."],
+      note: "frigate 1.2 is too old",
+    });
+  });
+
+  it("flags a ProtoOS install that is still running on the controller", () => {
+    const busy = ready({
+      protoOs: {
+        selfSupported: true,
+        job: { jobId: "job-0", state: ProtoOSJobState.PROTO_OS_JOB_STATE_INSTALLING },
+      },
+    });
+    expect(support(busy).problems).toEqual(["An update is already running on this controller."]);
+    const done = ready({
+      protoOs: { selfSupported: true, job: { jobId: "job-0", state: ProtoOSJobState.PROTO_OS_JOB_STATE_FAILED } },
+    });
+    expect(support(done).problems).toEqual([]);
+  });
+
+  it("names the ProtoOS that the controller serves", () => {
+    const served = (source: ProtoOSBundleSource) =>
+      support(ready({ protoOs: { selfSupported: true, servedSource: source } })).summary;
+    expect(served(ProtoOSBundleSource.PROTO_OS_BUNDLE_SOURCE_BUNDLED)).toBe("ProtoOS from the controller software");
+    expect(served(ProtoOSBundleSource.PROTO_OS_BUNDLE_SOURCE_NONE)).toBe("No ProtoOS");
+    expect(served(ProtoOSBundleSource.PROTO_OS_BUNDLE_SOURCE_UNKNOWN)).toBe("ProtoOS version unknown");
+  });
+
+  it("reports only the read failure when the controller could not be read", () => {
+    expect(support(create(InstanceSupportSchema, { instanceId: "a", error: "timed out" })).problems).toEqual([
       "Fleet couldn't read this controller: timed out",
     ]);
   });

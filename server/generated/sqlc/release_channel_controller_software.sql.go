@@ -16,6 +16,7 @@ const controllerSoftwareVersionUploaded = `-- name: ControllerSoftwareVersionUpl
 SELECT EXISTS (
     SELECT 1 FROM frigate_update_package p
     WHERE p.org_id = $1
+      AND p.kind = 'frigate'
       AND p.deleted_at IS NULL
       AND release_channel_controller_software_key(p.version) = release_channel_controller_software_key($2::text)
 )::boolean AS uploaded
@@ -27,7 +28,7 @@ type ControllerSoftwareVersionUploadedParams struct {
 }
 
 // Whether the organization has an uploaded controller software package of this
-// version, for any architecture.
+// version, for any architecture. A ProtoOS package is not controller software.
 func (q *Queries) ControllerSoftwareVersionUploaded(ctx context.Context, arg ControllerSoftwareVersionUploadedParams) (bool, error) {
 	row := q.queryRow(ctx, q.controllerSoftwareVersionUploadedStmt, controllerSoftwareVersionUploaded, arg.OrgID, arg.Version)
 	var uploaded bool

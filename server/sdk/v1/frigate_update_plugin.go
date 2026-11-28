@@ -228,7 +228,32 @@ func frigateSupportToProto(s FrigateInstanceSupport) *pb.FrigateInstanceSupport 
 		ClusterId: s.ClusterID, ActiveJobId: s.ActiveJobID, SpoolFreeBytes: s.SpoolFreeBytes,
 		EtcdMembersTotal: s.EtcdMembersTotal, EtcdMembersHealthy: s.EtcdMembersHealthy,
 		TrustedReleaseKeyIds: slices.Clone(s.TrustedReleaseKeyIDs), SelfCoordinationSupported: s.SelfCoordinationSupported,
-		RemoteTriggerAllowed: s.RemoteTriggerAllowed, Error: encodeFrigateSupportError(s.ErrReason, s.Err),
+		RemoteTriggerAllowed: s.RemoteTriggerAllowed, ProtoOs: frigateProtoOSSupportToProto(s.ProtoOS), Error: encodeFrigateSupportError(s.ErrReason, s.Err),
+	}
+}
+
+func frigateProtoOSSupportToProto(s FrigateProtoOSSupport) *pb.FrigateProtoOSSupport {
+	return &pb.FrigateProtoOSSupport{
+		SelfSupported: s.SelfSupported, SupportMessage: s.SupportMessage, InstalledVersion: s.InstalledVersion,
+		ReleaseRepositories: slices.Clone(s.ReleaseRepositories),
+		Served:              &pb.FrigateProtoOSBundle{Source: string(s.Served.Source), ReleaseTag: s.Served.ReleaseTag},
+		Job: &pb.FrigateProtoOSJob{
+			JobId: s.Job.JobID, ReleaseTag: s.Job.ReleaseTag, TargetVersion: s.Job.TargetVersion, State: string(s.Job.State),
+			Message: s.Job.Message, UpdatedAt: frigateTimeToProto(s.Job.UpdatedAt),
+		},
+	}
+}
+
+func frigateProtoOSSupportFromProto(s *pb.FrigateProtoOSSupport) FrigateProtoOSSupport {
+	job := s.GetJob()
+	return FrigateProtoOSSupport{
+		SelfSupported: s.GetSelfSupported(), SupportMessage: s.GetSupportMessage(), InstalledVersion: s.GetInstalledVersion(),
+		ReleaseRepositories: slices.Clone(s.GetReleaseRepositories()),
+		Served:              FrigateProtoOSBundle{Source: FrigateProtoOSBundleSource(s.GetServed().GetSource()), ReleaseTag: s.GetServed().GetReleaseTag()},
+		Job: FrigateProtoOSJob{
+			JobID: job.GetJobId(), ReleaseTag: job.GetReleaseTag(), TargetVersion: job.GetTargetVersion(), State: FrigateProtoOSJobState(job.GetState()),
+			Message: job.GetMessage(), UpdatedAt: frigateTimeFromProto(job.GetUpdatedAt()),
+		},
 	}
 }
 
@@ -240,8 +265,8 @@ func frigateSupportFromProto(s *pb.FrigateInstanceSupport) FrigateInstanceSuppor
 		ClusterID: s.GetClusterId(), ActiveJobID: s.GetActiveJobId(), SpoolFreeBytes: s.GetSpoolFreeBytes(),
 		EtcdMembersTotal: s.GetEtcdMembersTotal(), EtcdMembersHealthy: s.GetEtcdMembersHealthy(),
 		TrustedReleaseKeyIDs: slices.Clone(s.GetTrustedReleaseKeyIds()), SelfCoordinationSupported: s.GetSelfCoordinationSupported(),
-		RemoteTriggerAllowed: s.GetRemoteTriggerAllowed(),
-		Err:                  err, ErrReason: reason,
+		RemoteTriggerAllowed: s.GetRemoteTriggerAllowed(), ProtoOS: frigateProtoOSSupportFromProto(s.GetProtoOs()),
+		Err: err, ErrReason: reason,
 	}
 }
 
@@ -250,7 +275,7 @@ func frigateManifestToProto(m FrigateManifest) *pb.FrigateManifest {
 		JobId: m.JobID, SiteId: m.SiteID, ContainerId: m.ContainerID, InstanceId: m.InstanceID,
 		ExpectedInstanceIds: slices.Clone(m.ExpectedInstanceIDs), ReleaseTag: m.ReleaseTag, TargetVersion: m.TargetVersion,
 		AssetId: m.AssetID, AssetName: m.AssetName, Sha256: m.SHA256, SizeBytes: m.SizeBytes, Actor: m.Actor,
-		Coordination: string(m.Coordination), ReleaseStatement: slices.Clone(m.ReleaseStatement), ReleaseSignature: slices.Clone(m.ReleaseSignature),
+		Coordination: string(m.Coordination), Package: string(m.Package), ReleaseStatement: slices.Clone(m.ReleaseStatement), ReleaseSignature: slices.Clone(m.ReleaseSignature),
 	}
 }
 
@@ -259,7 +284,7 @@ func frigateManifestFromProto(m *pb.FrigateManifest) FrigateManifest {
 		JobID: m.GetJobId(), SiteID: m.GetSiteId(), ContainerID: m.GetContainerId(), InstanceID: m.GetInstanceId(),
 		ExpectedInstanceIDs: slices.Clone(m.GetExpectedInstanceIds()), ReleaseTag: m.GetReleaseTag(), TargetVersion: m.GetTargetVersion(),
 		AssetID: m.GetAssetId(), AssetName: m.GetAssetName(), SHA256: m.GetSha256(), SizeBytes: m.GetSizeBytes(), Actor: m.GetActor(),
-		Coordination: FrigateCoordination(m.GetCoordination()), ReleaseStatement: slices.Clone(m.GetReleaseStatement()), ReleaseSignature: slices.Clone(m.GetReleaseSignature()),
+		Coordination: FrigateCoordination(m.GetCoordination()), Package: FrigatePackageKind(m.GetPackage()), ReleaseStatement: slices.Clone(m.GetReleaseStatement()), ReleaseSignature: slices.Clone(m.GetReleaseSignature()),
 	}
 }
 

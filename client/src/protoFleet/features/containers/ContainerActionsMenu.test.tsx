@@ -66,23 +66,29 @@ vi.mock("@/protoFleet/features/poolConfigurations/ConfigurationSelector", () => 
   ),
 }));
 
-vi.mock("./FrigateUpdateDialog", () => ({
-  default: ({
-    container: target,
-    onClose,
-    onStarted,
-  }: {
-    container: { deviceIdentifier: string };
-    onClose: () => void;
-    onStarted?: (job: unknown) => void;
-  }) => (
-    <div role="dialog" aria-label="Update controller software">
-      <p>{target.deviceIdentifier}</p>
-      <button onClick={() => onStarted?.({ jobId: "job-1" })}>Report started</button>
-      <button onClick={onClose}>Close update</button>
-    </div>
-  ),
-}));
+vi.mock("./FrigateUpdateDialog", async () => {
+  const { UPDATABLE_KIND_RULES } = await import("./frigateUpdate");
+  return {
+    default: ({
+      container: target,
+      kind,
+      onClose,
+      onStarted,
+    }: {
+      container: { deviceIdentifier: string };
+      kind: keyof typeof UPDATABLE_KIND_RULES;
+      onClose: () => void;
+      onStarted?: (job: unknown) => void;
+    }) => (
+      <div role="dialog" aria-label="Software update">
+        <p>{target.deviceIdentifier}</p>
+        <p>Package kind: {UPDATABLE_KIND_RULES[kind].title}</p>
+        <button onClick={() => onStarted?.({ jobId: "job-1" })}>Report started</button>
+        <button onClick={onClose}>Close update</button>
+      </div>
+    ),
+  };
+});
 
 vi.mock("@/shared/features/toaster", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/shared/features/toaster")>()),
@@ -165,21 +171,26 @@ describe("container command dispatch", () => {
     expect(screen.queryByRole("button", { name: "Change site" })).not.toBeInTheDocument();
   });
 
-  it("hides Update controller software without the software update permission", () => {
+  it("hides the software updates without the software update permission", () => {
     renderMenu();
     fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
     expect(screen.queryByRole("button", { name: "Update controller software" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Update ProtoOS" })).not.toBeInTheDocument();
   });
 
-  it("offers Update controller software with only the software update permission", () => {
+  it("offers both software updates with only the software update permission", () => {
     state.permissions = ["controller:software_update"];
     renderMenu();
     fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
     expect(screen.getByRole("button", { name: "Update controller software" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Update ProtoOS" })).toBeEnabled();
     expect(statusRequest).not.toHaveBeenCalled();
   });
 
-  it("opens the update dialog for the container and reports a started update", () => {
+  it.each([
+    ["Update controller software", "Controller software"],
+    ["Update ProtoOS", "ProtoOS"],
+  ])("%s opens the update dialog for that kind and reports a started update", (action, kind) => {
     state.permissions = [...state.permissions, "controller:software_update"];
     const onFrigateUpdateStarted = vi.fn();
     render(
@@ -188,14 +199,15 @@ describe("container command dispatch", () => {
       </MemoryRouter>,
     );
     fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
-    fireEvent.click(screen.getByRole("button", { name: "Update controller software" }));
+    fireEvent.click(screen.getByRole("button", { name: action }));
 
-    const dialog = screen.getByRole("dialog", { name: "Update controller software" });
+    const dialog = screen.getByRole("dialog", { name: "Software update" });
     expect(dialog).toHaveTextContent("ct1/board");
+    expect(dialog).toHaveTextContent(`Package kind: ${kind}`);
     fireEvent.click(within(dialog).getByRole("button", { name: "Report started" }));
     expect(onFrigateUpdateStarted).toHaveBeenCalledWith({ jobId: "job-1" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Close update" }));
-    expect(screen.queryByRole("dialog", { name: "Update controller software" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Software update" })).not.toBeInTheDocument();
   });
 
   it.each([

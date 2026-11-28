@@ -170,7 +170,26 @@ func (c *Client) frigateSupport(ctx context.Context) supportResult {
 		TrustedReleaseKeyIDs:      slices.Clone(wire.GetTrustedReleaseKeyIds()),
 		SelfCoordinationSupported: wire.GetSelfCoordinationSupported(),
 		RemoteTriggerAllowed:      wire.GetRemoteTriggerAllowed(),
+		ProtoOS:                   protoOSSupportFromWire(wire),
 	}}
+}
+
+func protoOSSupportFromWire(wire *mdk.GetServerUpdateSupportResponse) sdk.FrigateProtoOSSupport {
+	job := wire.GetProtoOsJob()
+	return sdk.FrigateProtoOSSupport{
+		SelfSupported:       wire.GetProtoOsSelfSupported(),
+		SupportMessage:      wire.GetProtoOsSupportMessage(),
+		InstalledVersion:    wire.GetProtoOsInstalledVersion(),
+		ReleaseRepositories: slices.Clone(wire.GetProtoOsReleaseRepositories()),
+		Served: sdk.FrigateProtoOSBundle{
+			Source:     protoOSBundleSourceFromWire(wire.GetProtoOsServed().GetSource()),
+			ReleaseTag: wire.GetProtoOsServed().GetReleaseTag(),
+		},
+		Job: sdk.FrigateProtoOSJob{
+			JobID: job.GetJobId(), ReleaseTag: job.GetReleaseTag(), TargetVersion: job.GetTargetVersion(),
+			State: protoOSJobStateFromWire(job.GetState()), Message: job.GetMessage(), UpdatedAt: timeFromWire(job.GetUpdatedAt()),
+		},
+	}
 }
 
 func (d *Device) FrigateStageBegin(ctx context.Context, instanceID string, m sdk.FrigateManifest) (sdk.FrigateStageProgress, error) {
@@ -516,7 +535,42 @@ func manifestToWire(m sdk.FrigateManifest) *mdk.ServerUpdateManifest {
 	if m.Coordination == sdk.FrigateCoordinationSelf {
 		wire.Coordination = mdk.ServerUpdateCoordination_SERVER_UPDATE_COORDINATION_SELF
 	}
+	if m.Package == sdk.FrigatePackageProtoOS {
+		wire.Package = mdk.ServerUpdatePackage_SERVER_UPDATE_PACKAGE_PROTO_OS
+	}
 	return wire
+}
+
+func protoOSBundleSourceFromWire(s mdk.ProtoOSBundleSource) sdk.FrigateProtoOSBundleSource {
+	switch s {
+	case mdk.ProtoOSBundleSource_PROTO_OS_BUNDLE_SOURCE_UNSPECIFIED:
+		return sdk.FrigateProtoOSBundleUnspecified
+	case mdk.ProtoOSBundleSource_PROTO_OS_BUNDLE_SOURCE_NONE:
+		return sdk.FrigateProtoOSBundleNone
+	case mdk.ProtoOSBundleSource_PROTO_OS_BUNDLE_SOURCE_PACKAGE:
+		return sdk.FrigateProtoOSBundlePackage
+	case mdk.ProtoOSBundleSource_PROTO_OS_BUNDLE_SOURCE_BUNDLED:
+		return sdk.FrigateProtoOSBundleBundled
+	default:
+		return sdk.FrigateProtoOSBundleUnknown
+	}
+}
+
+func protoOSJobStateFromWire(s mdk.ProtoOSPackageJobState) sdk.FrigateProtoOSJobState {
+	switch s {
+	case mdk.ProtoOSPackageJobState_PROTO_OS_PACKAGE_JOB_STATE_UNSPECIFIED:
+		return sdk.FrigateProtoOSJobUnspecified
+	case mdk.ProtoOSPackageJobState_PROTO_OS_PACKAGE_JOB_STATE_QUEUED:
+		return sdk.FrigateProtoOSJobQueued
+	case mdk.ProtoOSPackageJobState_PROTO_OS_PACKAGE_JOB_STATE_INSTALLING:
+		return sdk.FrigateProtoOSJobInstalling
+	case mdk.ProtoOSPackageJobState_PROTO_OS_PACKAGE_JOB_STATE_SUCCEEDED:
+		return sdk.FrigateProtoOSJobSucceeded
+	case mdk.ProtoOSPackageJobState_PROTO_OS_PACKAGE_JOB_STATE_FAILED:
+		return sdk.FrigateProtoOSJobFailed
+	default:
+		return sdk.FrigateProtoOSJobUnknown
+	}
 }
 
 func installationTypeFromWire(t mdk.ServerInstallationType) sdk.FrigateInstallationType {

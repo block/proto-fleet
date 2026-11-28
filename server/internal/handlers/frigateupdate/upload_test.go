@@ -76,6 +76,11 @@ func controlTarGz(t *testing.T, control string) []byte {
 // buildDeb returns a deb of at least minSize bytes so uploads need several chunks.
 func buildDeb(t *testing.T, minSize int) []byte {
 	t.Helper()
+	return buildDebWithControl(t, minSize, "Package: frigate\nVersion: 2.1.0\nArchitecture: arm64\nMaintainer: x <x@example.com>\nDescription: t\n")
+}
+
+func buildDebWithControl(t *testing.T, minSize int, control string) []byte {
+	t.Helper()
 	var out bytes.Buffer
 	out.WriteString("!<arch>\n")
 	member := func(name string, data []byte) {
@@ -86,7 +91,7 @@ func buildDeb(t *testing.T, minSize int) []byte {
 		}
 	}
 	member("debian-binary", []byte("2.0\n"))
-	member("control.tar.gz", controlTarGz(t, "Package: frigate\nVersion: 2.1.0\nArchitecture: arm64\nMaintainer: x <x@example.com>\nDescription: t\n"))
+	member("control.tar.gz", controlTarGz(t, control))
 	payload := make([]byte, minSize)
 	_, err := rand.Read(payload)
 	require.NoError(t, err)
@@ -104,6 +109,9 @@ type uploadEnv struct {
 	svc      *domain.Service
 	auth     *allowAll
 	mgr      *UploadManager
+	database *testutil.DatabaseService
+	// alice is the session of the user "alice".
+	alice *session.Info
 }
 
 // newUploadEnv returns a Fleet that has the release signing key installed.
@@ -115,6 +123,18 @@ func newUploadEnv(t *testing.T) *uploadEnv {
 // newUploadEnvWithKey returns a Fleet with or without an installed release key.
 // The release is signed by the same key in both cases.
 func newUploadEnvWithKey(t *testing.T, installed bool) *uploadEnv {
+	t.Helper()
+	return newUploadEnvWithVerifiers(t, func(signer frigaterelease.TrustedKey) map[domain.PackageKind]*frigaterelease.Verifier {
+		if !installed {
+			return nil
+		}
+		return map[domain.PackageKind]*frigaterelease.Verifier{domain.PackageKindFrigate: frigaterelease.NewStaticVerifier(signer)}
+	})
+}
+
+// newUploadEnvWithVerifiers returns a Fleet whose installed release keys come
+// from verifiers, which gets the key that signs the release.
+func newUploadEnvWithVerifiers(t *testing.T, verifiers func(signer frigaterelease.TrustedKey) map[domain.PackageKind]*frigaterelease.Verifier) *uploadEnv {
 	t.Helper()
 	cfg, err := testutil.GetTestConfig()
 	require.NoError(t, err)
@@ -128,18 +148,14 @@ func newUploadEnvWithKey(t *testing.T, installed bool) *uploadEnv {
 	store, err := files.NewFrigatePackageStore(t.TempDir())
 	require.NoError(t, err)
 	auth := &allowAll{}
-	var verifier *frigaterelease.Verifier
-	if installed {
-		verifier = frigaterelease.NewStaticVerifier(key)
-	}
-	svc := domain.NewService(database.DB, nil, store, verifier, auth, nil, domain.Config{})
+	svc := domain.NewService(database.DB, nil, store, verifiers(key), auth, nil, domain.Config{})
 	mgr := NewUploadManager()
 
 	authenticator := headerAuthenticator{users: map[string]*session.Info{
 		"alice": {UserID: alice.DatabaseID, OrganizationID: alice.OrganizationID, AuthMethod: session.AuthMethodSession, Username: alice.Username, ExternalUserID: "ext-alice"},
 		"bob":   {UserID: alice.DatabaseID + 1000, OrganizationID: alice.OrganizationID, AuthMethod: session.AuthMethodSession, Username: "bob", ExternalUserID: "ext-bob"},
 	}}
-	e := &uploadEnv{t: t, svc: svc, auth: auth, mgr: mgr, priv: priv,
+	e := &uploadEnv{t: t, svc: svc, auth: auth, mgr: mgr, priv: priv, database: database, alice: authenticator.users["alice"],
 		handlers: NewUploadHandlers(mgr, svc, store, auth, authenticator)}
 	e.deb = buildDeb(t, 2<<20+123)
 	sum := sha256.Sum256(e.deb)
@@ -230,8 +246,10 @@ func (e *uploadEnv) uploadBody(user string, body initiateRequest) (initiateRespo
 	rec := e.initiate(user, body)
 	require.Equal(e.t, http.StatusOK, rec.Code, rec.Body.String())
 	init := decode[initiateResponse](e.t, rec)
-	assert.Equal(e.t, "2.1.0", init.Version)
-	assert.Equal(e.t, "arm64", init.Architecture)
+	statement, err := frigaterelease.ParseStatement(e.statemnt)
+	require.NoError(e.t, err)
+	assert.Equal(e.t, statement.Version, init.Version)
+	assert.Equal(e.t, statement.Architecture, init.Architecture)
 	const chunk = 1 << 20
 	for start := 0; start < len(e.deb); start += chunk {
 		end := min(start+chunk, len(e.deb))

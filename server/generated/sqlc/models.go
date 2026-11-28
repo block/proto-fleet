@@ -1912,20 +1912,23 @@ type FrigateUpdateAction struct {
 }
 
 type FrigateUpdateInstance struct {
-	JobID             uuid.UUID
-	InstanceID        string
-	StageState        string
-	ManifestSha256    string
-	StagedBytes       int64
-	SizeBytes         int64
-	AgentPhase        string
-	LastContact       sql.NullTime
-	ContactStale      bool
-	RunningVersion    string
-	MigrationExecuted bool
-	ErrorCode         string
-	ErrorMessage      string
-	UpdatedAt         time.Time
+	JobID                   uuid.UUID
+	InstanceID              string
+	StageState              string
+	ManifestSha256          string
+	StagedBytes             int64
+	SizeBytes               int64
+	AgentPhase              string
+	LastContact             sql.NullTime
+	ContactStale            bool
+	RunningVersion          string
+	MigrationExecuted       bool
+	ErrorCode               string
+	ErrorMessage            string
+	UpdatedAt               time.Time
+	ProtoosJobState         string
+	ProtoosInstalledVersion string
+	ProtoosServedReleaseTag string
 }
 
 type FrigateUpdateJob struct {
@@ -1986,6 +1989,7 @@ type FrigateUpdatePackage struct {
 	UploadedBy          sql.NullInt64
 	UploadedAt          time.Time
 	DeletedAt           sql.NullTime
+	Kind                string
 }
 
 type Hashboard struct {

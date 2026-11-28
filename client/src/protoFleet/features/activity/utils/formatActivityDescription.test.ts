@@ -7,6 +7,7 @@ import {
   formatActivityErrorMessage,
   formatActivityErrorSummary,
 } from "./formatActivityDescription";
+import { formatActivityFilterLabel } from "./formatLabel";
 import { ActivityEntrySchema } from "@/protoFleet/api/generated/activity/v1/activity_pb";
 
 describe("formatActivityDescription", () => {
@@ -165,6 +166,31 @@ describe("formatActivityDescription", () => {
 
     expect(formatActivityDescription(entry)).toBe(description);
     expect(formatActivityDescription(create(ActivityEntrySchema, { eventType }))).toBe(label);
+  });
+
+  describe("software updates of a container", () => {
+    const entry = (eventType: string, description: string, metadata: Record<string, string> = {}) =>
+      create(ActivityEntrySchema, { eventType, description, metadata });
+
+    it.each([
+      ["frigate_update_started", "Started ProtoOS update to 0.6.2~internal.14"],
+      [
+        "frigate_update_running",
+        "The controllers committed the package for ProtoOS 0.6.2~internal.14 and are installing it",
+      ],
+      ["frigate_update_succeeded", "ProtoOS updated to 0.6.2~internal.14"],
+      ["frigate_update_failed", "ProtoOS update to 0.6.2~internal.14 failed"],
+      ["frigate_update_cancelled", "Cancelled the ProtoOS update to 0.6.2~internal.14"],
+      ["frigate_update_abandoned", "The ProtoOS update to 0.6.2~internal.14 was abandoned"],
+    ])("keeps the server's text for %s, which names ProtoOS", (eventType, description) => {
+      const metadata = { package_kind: "proto_os", target_version: "0.6.2~internal.14" };
+      expect(formatActivityDescription(entry(eventType, description, metadata))).toBe(description);
+    });
+
+    it("never shows the internal name of the controller software", () => {
+      expect(formatActivityDescription(entry("frigate_update_failed", ""))).toBe("Software update failed");
+      expect(formatActivityFilterLabel("frigate_update_started")).toBe("Software update started");
+    });
   });
 
   it("keeps the channel, model and version of a controller software version change", () => {

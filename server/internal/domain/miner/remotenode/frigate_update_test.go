@@ -273,6 +273,111 @@ func TestFrigateStagePackageFailures(t *testing.T) {
 	require.Greater(t, remoteFrigateStageCommandTimeout, 10*time.Minute)
 }
 
+func protoOSTestManifest(instanceID string) sdk.FrigateManifest {
+	m := frigateTestManifest(instanceID)
+	m.Package, m.ReleaseTag, m.AssetName, m.TargetVersion = sdk.FrigatePackageProtoOS, "v0.6.2", sdk.ProtoOSAssetName("v0.6.2"), "0.6.2"
+	return m
+}
+
+func TestProtoOSStagingRequiresV21(t *testing.T) {
+	pkg := interfaces.FrigatePackageRef{ID: frigateTestPackage, Filename: sdk.ProtoOSAssetName("v0.6.2"), SizeBytes: 4096, SHA256: frigateTestDigest}
+	stage := func(m sdk.FrigateManifest) []interfaces.FrigateStageTarget {
+		return []interfaces.FrigateStageTarget{{InstanceID: "a", Manifest: m, ManifestSHA256: frigateTestFingerprint}}
+	}
+
+	t.Run("each call names the protocol that its package needs", func(t *testing.T) {
+		for name, tc := range map[string]struct {
+			call func(*Miner) error
+			want gatewaypb.CommandProtocolVersion
+		}{
+			"ProtoOS begin": {want: ProtoOSUpdateCommandProtocolVersion, call: func(m *Miner) error {
+				_, err := m.FrigateRelay().FrigateStageBegin(t.Context(), "a", protoOSTestManifest("a"))
+				return err
+			}},
+			"ProtoOS stage": {want: ProtoOSUpdateCommandProtocolVersion, call: func(m *Miner) error {
+				_, err := m.FrigateStagePackage(t.Context(), pkg, stage(protoOSTestManifest("a")))
+				return err
+			}},
+			"controller software begin": {want: FrigateUpdateCommandProtocolVersion, call: func(m *Miner) error {
+				_, err := m.FrigateRelay().FrigateStageBegin(t.Context(), "a", frigateTestManifest("a"))
+				return err
+			}},
+			"controller software stage": {want: FrigateUpdateCommandProtocolVersion, call: func(m *Miner) error {
+				_, err := m.FrigateStagePackage(t.Context(), pkg, stage(frigateTestManifest("a")))
+				return err
+			}},
+			"support": {want: FrigateUpdateCommandProtocolVersion, call: func(m *Miner) error {
+				_, err := m.FrigateRelay().FrigateUpdateSupport(t.Context())
+				return err
+			}},
+		} {
+			sender := &fakeSender{ack: frigateAck(&gatewaypb.FrigateUpdateOutcome{Outcome: &gatewaypb.FrigateUpdateOutcome_Error{Error: "controller a did not answer"}})}
+			_ = tc.call(newTestMiner(t, sender))
+			require.NotNil(t, sender.cmd, name)
+			require.Equal(t, tc.want, sender.minimumCommandProtocolVersion, name)
+		}
+		require.Equal(t, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V21, ProtoOSUpdateCommandProtocolVersion)
+	})
+
+	t.Run("a V20 node is refused for ProtoOS before anything is sent", func(t *testing.T) {
+		registry := control.NewRegistry()
+		stream, err := registry.RegisterAuthenticated(7, "v20", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V20)
+		require.NoError(t, err)
+		defer stream.Unregister()
+		miner := newTestMiner(t, registry)
+
+		for name, call := range map[string]func() error{
+			"check": func() error { return miner.CheckProtoOSUpdates(t.Context()) },
+			"begin": func() error {
+				_, err := miner.FrigateRelay().FrigateStageBegin(t.Context(), "a", protoOSTestManifest("a"))
+				return err
+			},
+			"stage": func() error {
+				_, err := miner.FrigateStagePackage(t.Context(), pkg, stage(protoOSTestManifest("a")))
+				return err
+			},
+		} {
+			err := call()
+			require.True(t, fleeterror.IsFailedPreconditionError(err), "%s: %v", name, err)
+			require.ErrorContains(t, err, ProtoOSUpdateUpgradeReason, name)
+		}
+		select {
+		case <-stream.Outgoing:
+			t.Fatal("a ProtoOS call was sent to a node that cannot run it")
+		default:
+		}
+
+		// A controller software call still goes to the same node.
+		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		defer cancel()
+		go func() { _, _ = miner.FrigateRelay().FrigateStageBegin(ctx, "a", frigateTestManifest("a")) }()
+		select {
+		case <-stream.Outgoing:
+		case <-time.After(time.Second):
+			t.Fatal("a controller software call was not sent to a V20 node")
+		}
+	})
+
+	t.Run("a V21 node runs the ProtoOS stage", func(t *testing.T) {
+		registry := control.NewRegistry()
+		stream, err := registry.RegisterAuthenticated(7, "v21", ProtoOSUpdateCommandProtocolVersion)
+		require.NoError(t, err)
+		defer stream.Unregister()
+		require.NoError(t, newTestMiner(t, registry).CheckProtoOSUpdates(t.Context()))
+
+		response, err := sdk.ServeFrigateRelay(t.Context(), committed{staged: 4096}, mustCommitRequest(t))
+		require.NoError(t, err)
+		sender := &fakeSender{ack: frigateAck(&gatewaypb.FrigateUpdateOutcome{Outcome: &gatewaypb.FrigateUpdateOutcome_Response{Response: response}})}
+		outcomes, err := newTestMiner(t, sender).FrigateStagePackage(t.Context(), pkg, stage(protoOSTestManifest("a")))
+		require.NoError(t, err)
+		require.Len(t, outcomes, 1)
+		require.NoError(t, outcomes[0].Err)
+		require.Equal(t, sdk.FrigateStageCommit{JobID: frigateTestJob, BytesStaged: 4096, SHA256: frigateTestDigest}, outcomes[0].Commit)
+		_, action := sentFrigateUpdate(t, sender.cmd)
+		require.True(t, sdk.FrigateRelayStagesProtoOS(action.GetStage().GetTargets()[0].GetBeginRequest()))
+	})
+}
+
 // committed answers a stage commit with a fixed size.
 type committed struct {
 	sdk.DeviceFrigateUpdater

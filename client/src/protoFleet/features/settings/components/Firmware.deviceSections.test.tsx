@@ -155,7 +155,7 @@ describe("Controller software on the firmware page", () => {
     render(page());
 
     await screen.findByText("No firmware files uploaded");
-    expect(screen.queryByRole("heading", { name: "Controller software" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Controller software and ProtoOS" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Proto Containers" })).not.toBeInTheDocument();
     expect(mocks.listPackages).not.toHaveBeenCalled();
   });
@@ -167,9 +167,9 @@ describe("Controller software on the firmware page", () => {
 
     await screen.findByText(rigFile.filename);
     const containers = section("Proto Containers");
-    expect(await containers.findByText("No controller software uploaded")).toBeInTheDocument();
-    expect(containers.getByRole("heading", { name: "Controller software" })).toBeInTheDocument();
-    expect(containers.getByRole("button", { name: "Upload controller software" })).toBeInTheDocument();
+    expect(await containers.findByText("No packages uploaded")).toBeInTheDocument();
+    expect(containers.getByRole("heading", { name: "Controller software and ProtoOS" })).toBeInTheDocument();
+    expect(containers.getByRole("button", { name: "Upload package" })).toBeInTheDocument();
     expect(containers.getByText(hashboardFile.filename)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Upload firmware" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Files" })).toHaveAttribute("aria-current", "page");
@@ -181,7 +181,7 @@ describe("Controller software on the firmware page", () => {
     render(page());
 
     expect(await screen.findByText("No firmware files uploaded")).toBeInTheDocument();
-    expect(await section("Proto Containers").findByText("No controller software uploaded")).toBeInTheDocument();
+    expect(await section("Proto Containers").findByText("No packages uploaded")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Miners" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Hashboard firmware" })).not.toBeInTheDocument();
   });
@@ -190,7 +190,7 @@ describe("Controller software on the firmware page", () => {
     setPermissions(["miner:firmware_update", "controller:software_update"]);
     render(page("frigate-packages"));
 
-    expect(await section("Proto Containers").findByText("No controller software uploaded")).toBeInTheDocument();
+    expect(await section("Proto Containers").findByText("No packages uploaded")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Files" })).toHaveAttribute("aria-current", "page");
   });
 
@@ -198,8 +198,8 @@ describe("Controller software on the firmware page", () => {
     setPermissions(["controller:software_update"]);
     render(page());
 
-    expect(await section("Proto Containers").findByText("No controller software uploaded")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Upload controller software" })).toBeInTheDocument();
+    expect(await section("Proto Containers").findByText("No packages uploaded")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Upload package" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Files" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Release channels" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Upload firmware" })).not.toBeInTheDocument();
@@ -218,10 +218,10 @@ describe("Firmware files when no Proto Container is paired", () => {
 
     expect(await screen.findByText(rigFile.filename)).toBeInTheDocument();
     expect(screen.getByText(hashboardFile.filename)).toBeInTheDocument();
-    for (const heading of ["Miners", "Proto Containers", "Hashboard firmware", "Controller software"]) {
+    for (const heading of ["Miners", "Proto Containers", "Hashboard firmware", "Controller software and ProtoOS"]) {
       expect(screen.queryByRole("heading", { name: heading })).not.toBeInTheDocument();
     }
-    expect(screen.queryByRole("button", { name: "Upload controller software" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Upload package" })).not.toBeInTheDocument();
     expect(mocks.listPackages).not.toHaveBeenCalled();
     // The empty list alone did not decide it for a user who may update controller software.
     expect(mocks.hasUpdatableContainer).toHaveBeenCalledTimes(1);
@@ -249,8 +249,8 @@ describe("Firmware files when no Proto Container is paired", () => {
     render(page());
 
     await screen.findByText(rigFile.filename);
-    expect(await section("Proto Containers").findByText("No controller software uploaded")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Upload controller software" })).toBeInTheDocument();
+    expect(await section("Proto Containers").findByText("No packages uploaded")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Upload package" })).toBeInTheDocument();
   });
 
   it("wait for the server's answer before hiding the section", async () => {
@@ -276,7 +276,7 @@ describe("Firmware files when no Proto Container is paired", () => {
     render(page());
 
     await screen.findByText(rigFile.filename);
-    expect(await section("Proto Containers").findByText("No controller software uploaded")).toBeInTheDocument();
+    expect(await section("Proto Containers").findByText("No packages uploaded")).toBeInTheDocument();
   });
 
   it("show the section once a container is paired", async () => {
@@ -286,7 +286,7 @@ describe("Firmware files when no Proto Container is paired", () => {
 
     await screen.findByText(rigFile.filename);
     expect(section("Proto Containers").getByText(hashboardFile.filename)).toBeInTheDocument();
-    expect(await section("Proto Containers").findByText("No controller software uploaded")).toBeInTheDocument();
+    expect(await section("Proto Containers").findByText("No packages uploaded")).toBeInTheDocument();
     expect(mocks.useContainers).toHaveBeenCalledWith([], false, true);
   });
 
@@ -322,7 +322,7 @@ describe("Firmware files when no Proto Container is paired", () => {
     mocks.useContainers.mockReturnValue(containerCatalog([]));
     render(page());
 
-    expect(await section("Proto Containers").findByText("No controller software uploaded")).toBeInTheDocument();
+    expect(await section("Proto Containers").findByText("No packages uploaded")).toBeInTheDocument();
     expect(mocks.useContainers).toHaveBeenCalledWith([], false, false);
   });
 });

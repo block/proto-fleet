@@ -39,6 +39,8 @@ export interface FrigatePackageUploadResult {
 /** The REST completion response, which mirrors FrigatePackage in snake_case. */
 export interface FrigatePackageRecord {
   id: string;
+  /** What the package installs, as the server stores it: "frigate" or "proto_os". */
+  kind: string;
   filename: string;
   version: string;
   architecture: string;

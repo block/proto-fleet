@@ -403,7 +403,7 @@ type Querier interface {
 	ContainerOwnsCommandBatch(ctx context.Context, arg ContainerOwnsCommandBatchParams) (bool, error)
 	ContainsContainerIdentifiers(ctx context.Context, arg ContainsContainerIdentifiersParams) (bool, error)
 	// Whether the organization has an uploaded controller software package of this
-	// version, for any architecture.
+	// version, for any architecture. A ProtoOS package is not controller software.
 	ControllerSoftwareVersionUploaded(ctx context.Context, arg ControllerSoftwareVersionUploadedParams) (bool, error)
 	// Counts live (user_organization_role, user) pairs. Filtering on
 	// u.deleted_at IS NULL matches the resolver and the last-SUPER_ADMIN
@@ -1000,6 +1000,8 @@ type Querier interface {
 	GetFrigateUpdateDeviceSite(ctx context.Context, id int64) (GetFrigateUpdateDeviceSiteRow, error)
 	GetFrigateUpdateJob(ctx context.Context, arg GetFrigateUpdateJobParams) (FrigateUpdateJob, error)
 	GetFrigateUpdateJobByRequestKey(ctx context.Context, arg GetFrigateUpdateJobByRequestKeyParams) (FrigateUpdateJob, error)
+	// The package kind selects the job's state machine.
+	GetFrigateUpdateJobPackageKind(ctx context.Context, id uuid.UUID) (string, error)
 	// Includes deleted packages so job history keeps resolving them.
 	GetFrigateUpdatePackage(ctx context.Context, arg GetFrigateUpdatePackageParams) (GetFrigateUpdatePackageRow, error)
 	GetFrigateUpdatePackageBySHA256(ctx context.Context, arg GetFrigateUpdatePackageBySHA256Params) (FrigateUpdatePackage, error)
@@ -3104,6 +3106,9 @@ type Querier interface {
 	UpdateDiscoveredDeviceFirmwareVersion(ctx context.Context, arg UpdateDiscoveredDeviceFirmwareVersionParams) error
 	UpdateFleetNodeLastSeenAt(ctx context.Context, arg UpdateFleetNodeLastSeenAtParams) (int64, error)
 	UpdateFrigateUpdateInstance(ctx context.Context, arg UpdateFrigateUpdateInstanceParams) error
+	// What one controller reports about a ProtoOS job. The staging columns are
+	// Fleet's and stay as they are.
+	UpdateFrigateUpdateInstanceProtoOS(ctx context.Context, arg UpdateFrigateUpdateInstanceProtoOSParams) error
 	// Staging progress is written per acknowledgement without the job lock. It
 	// affects no row once the job has left staging, which tells the uploader to stop.
 	UpdateFrigateUpdateInstanceStaging(ctx context.Context, arg UpdateFrigateUpdateInstanceStagingParams) (int64, error)

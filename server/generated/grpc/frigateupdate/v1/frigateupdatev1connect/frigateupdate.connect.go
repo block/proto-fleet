@@ -78,9 +78,12 @@ type FrigateUpdateServiceClient interface {
 	// ListUpdates returns the container's update jobs, newest first.
 	ListUpdates(context.Context, *connect.Request[v1.ListUpdatesRequest]) (*connect.Response[v1.ListUpdatesResponse], error)
 	// RetryUpdate asks Frigate to resume a rollout that failed after the
-	// controllers were stopped.
+	// controllers were stopped. It is refused for a ProtoOS job: a new job for
+	// the same package is the retry.
 	RetryUpdate(context.Context, *connect.Request[v1.RetryUpdateRequest]) (*connect.Response[v1.RetryUpdateResponse], error)
-	// CancelUpdate abandons a job that has not stopped any controller.
+	// CancelUpdate abandons a job that has not stopped any controller. A ProtoOS
+	// job can be cancelled only until Fleet sends the first call that can commit
+	// a copy.
 	CancelUpdate(context.Context, *connect.Request[v1.CancelUpdateRequest]) (*connect.Response[v1.CancelUpdateResponse], error)
 }
 
@@ -208,9 +211,12 @@ type FrigateUpdateServiceHandler interface {
 	// ListUpdates returns the container's update jobs, newest first.
 	ListUpdates(context.Context, *connect.Request[v1.ListUpdatesRequest]) (*connect.Response[v1.ListUpdatesResponse], error)
 	// RetryUpdate asks Frigate to resume a rollout that failed after the
-	// controllers were stopped.
+	// controllers were stopped. It is refused for a ProtoOS job: a new job for
+	// the same package is the retry.
 	RetryUpdate(context.Context, *connect.Request[v1.RetryUpdateRequest]) (*connect.Response[v1.RetryUpdateResponse], error)
-	// CancelUpdate abandons a job that has not stopped any controller.
+	// CancelUpdate abandons a job that has not stopped any controller. A ProtoOS
+	// job can be cancelled only until Fleet sends the first call that can commit
+	// a copy.
 	CancelUpdate(context.Context, *connect.Request[v1.CancelUpdateRequest]) (*connect.Response[v1.CancelUpdateResponse], error)
 }
 

@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"sync"
 	"testing"
@@ -301,20 +302,48 @@ func startCT1BehindNode(t *testing.T, pair bool, env ...string) *ct1BehindNode {
 	return &ct1BehindNode{miner: miner, link: link, artifacts: artifacts, driver: plugin.Driver, info: info}
 }
 
-func TestCT1SimulatorControllerSoftwareUpdateThroughNode(t *testing.T) {
-	const job, targetVersion, actor = "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4be1", "9.9.9", "fleet:tester@example.com"
+// ct1ReleaseKey returns a new release signing key and the path of its PEM
+// public key.
+func ct1ReleaseKey(t *testing.T) (*ecdsa.PrivateKey, string) {
+	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
 	der, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
 	require.NoError(t, err)
 	keyFile := filepath.Join(t.TempDir(), "release.pub")
 	require.NoError(t, os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}), 0o600))
+	return key, keyFile
+}
+
+// ct1SignedPackage returns a package of size bytes with its digest, and a
+// release statement for it that key signs.
+func ct1SignedPackage(t *testing.T, key *ecdsa.PrivateKey, size int, statement map[string]any) (pkg []byte, digest string, signed, signature []byte) {
+	t.Helper()
+	pkg = make([]byte, size)
+	for i := range pkg {
+		pkg[i] = byte(i*13 + 5)
+	}
+	sum := sha256.Sum256(pkg)
+	digest = hex.EncodeToString(sum[:])
+	statement["schema"], statement["sha256"], statement["size"], statement["issued_at"] = "frigate-release-statement/v1", digest, size, "2026-01-01T00:00:00Z"
+	signed, err := json.Marshal(statement)
+	require.NoError(t, err)
+	statementDigest := sha256.Sum256(signed)
+	signature, err = ecdsa.SignASN1(rand.Reader, key, statementDigest[:])
+	require.NoError(t, err)
+	return pkg, digest, signed, signature
+}
+
+func TestCT1SimulatorControllerSoftwareUpdateThroughNode(t *testing.T) {
+	const job, targetVersion, actor = "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4be1", "9.9.9", "fleet:tester@example.com"
+	key, keyFile := ct1ReleaseKey(t)
 	container := startCT1BehindNode(t, true, "CT1_TANKS=1", "CT1_MODULES_PER_TANK=1", "CT1_UPDATE_TRUSTED_KEY_FILES="+keyFile, "CT1_UPDATE_STEP=150ms")
 	updater := container.miner.FrigateRelay()
 	instances := []string{"pair-a", "pair-b"}
 
 	// A read does not go through the write gate.
 	var before []sdk.FrigateInstanceSupport
+	var err error
 	require.Eventually(t, func() bool {
 		before, err = updater.FrigateUpdateSupport(t.Context())
 		return err == nil && len(before) == 2 && before[0].Err == "" && before[1].Err == ""
@@ -323,20 +352,9 @@ func TestCT1SimulatorControllerSoftwareUpdateThroughNode(t *testing.T) {
 	require.Len(t, before[0].TrustedReleaseKeyIDs, 1)
 
 	// A signed release. The package is larger than two copy chunks.
-	pkg := make([]byte, 2<<20+4321)
-	for i := range pkg {
-		pkg[i] = byte(i*13 + 5)
-	}
-	sum := sha256.Sum256(pkg)
-	digest := hex.EncodeToString(sum[:])
-	statement, err := json.Marshal(map[string]any{
-		"schema": "frigate-release-statement/v1", "package": "frigate", "version": targetVersion, "architecture": "arm64",
-		"repository": "example/frigate", "sha256": digest, "size": len(pkg), "min_installed_version": "", "issued_at": "2026-01-01T00:00:00Z",
+	pkg, digest, statement, signature := ct1SignedPackage(t, key, 2<<20+4321, map[string]any{
+		"package": "frigate", "version": targetVersion, "architecture": "arm64", "repository": "example/frigate", "min_installed_version": "",
 	})
-	require.NoError(t, err)
-	statementDigest := sha256.Sum256(statement)
-	signature, err := ecdsa.SignASN1(rand.Reader, key, statementDigest[:])
-	require.NoError(t, err)
 	ref := interfaces.FrigatePackageRef{ID: "5a0c7a50-7a2b-4f0e-9d44-2f6f3f3a1b10", Filename: "frigate_9.9.9_linux_arm64.deb", SizeBytes: int64(len(pkg)), SHA256: digest}
 	container.artifacts.files[ref.ID] = pkg
 
@@ -408,6 +426,105 @@ func TestCT1SimulatorControllerSoftwareUpdateThroughNode(t *testing.T) {
 		require.Equal(t, commandtype.FrigateServerUpdate, kind)
 	}
 	require.Len(t, writes, 6, "two begins, one copy, two begins, one start")
+}
+
+func TestCT1SimulatorProtoOSPackageUpdateThroughNode(t *testing.T) {
+	const tag, version, actor = "v0.6.2-internal.14", "0.6.2~internal.14", "fleet:tester@example.com"
+	frigateKey, frigateKeyFile := ct1ReleaseKey(t)
+	protoOSKey, protoOSKeyFile := ct1ReleaseKey(t)
+	container := startCT1BehindNode(t, true, "CT1_TANKS=1", "CT1_MODULES_PER_TANK=1", "CT1_UPDATE_STEP=150ms",
+		"CT1_UPDATE_TRUSTED_KEY_FILES="+frigateKeyFile, "CT1_PROTOOS_TRUSTED_KEY_FILES="+protoOSKeyFile)
+	updater := container.miner.FrigateRelay()
+	instances := []string{"pair-a", "pair-b"}
+
+	var supports []sdk.FrigateInstanceSupport
+	var err error
+	require.Eventually(t, func() bool {
+		supports, err = updater.FrigateUpdateSupport(t.Context())
+		return err == nil && len(supports) == 2 && supports[0].Err == "" && supports[1].Err == ""
+	}, 20*time.Second, 100*time.Millisecond, "the controllers did not report update support: %v", err)
+	for _, s := range supports {
+		require.True(t, s.ProtoOS.SelfSupported && s.RemoteTriggerAllowed, s.InstanceID)
+		require.Contains(t, s.ProtoOS.ReleaseRepositories, "block/proto-fleet")
+	}
+
+	// stage begins a copy on each controller and then copies the package to
+	// all of them with one stage command, as Fleet does.
+	stage := func(job, tag string, key *ecdsa.PrivateKey, on []string) {
+		t.Helper()
+		pkg, digest, statement, signature := ct1SignedPackage(t, key, 1<<20+777, map[string]any{
+			"package": "proto-os", "version": sdk.ProtoOSDebianVersion(tag), "architecture": "all",
+			"repository": "block/proto-fleet", "min_installed_version": "",
+		})
+		ref := interfaces.FrigatePackageRef{ID: "pkg-" + job, Filename: sdk.ProtoOSAssetName(tag), SizeBytes: int64(len(pkg)), SHA256: digest}
+		container.artifacts.files[ref.ID] = pkg
+		targets := make([]interfaces.FrigateStageTarget, 0, len(on))
+		for _, instance := range on {
+			manifest := sdk.FrigateManifest{
+				JobID: job, InstanceID: instance, ExpectedInstanceIDs: instances, ReleaseTag: tag, AssetName: sdk.ProtoOSAssetName(tag),
+				TargetVersion: sdk.ProtoOSDebianVersion(tag), SHA256: digest, SizeBytes: int64(len(pkg)), Actor: actor,
+				Coordination: sdk.FrigateCoordinationSelf, Package: sdk.FrigatePackageProtoOS, ReleaseStatement: statement, ReleaseSignature: signature,
+			}
+			progress, err := updater.FrigateStageBegin(t.Context(), instance, manifest)
+			require.NoError(t, err)
+			targets = append(targets, interfaces.FrigateStageTarget{InstanceID: instance, Manifest: manifest, ManifestSHA256: progress.ManifestSHA256})
+		}
+		outcomes, err := interfaces.FrigatePackageStager(container.miner).FrigateStagePackage(t.Context(), ref, targets)
+		require.NoError(t, err)
+		require.Len(t, outcomes, len(on))
+		for i, outcome := range outcomes {
+			require.NoError(t, outcome.Err, on[i])
+			require.Equal(t, sdk.FrigateStageCommit{JobID: job, BytesStaged: int64(len(pkg)), SHA256: digest}, outcome.Commit, on[i])
+		}
+	}
+	// finished waits until the controllers in on report job in a final state.
+	finished := func(job string, on []string) []sdk.FrigateInstanceSupport {
+		t.Helper()
+		var done []sdk.FrigateInstanceSupport
+		require.Eventually(t, func() bool {
+			supports, err = updater.FrigateUpdateSupport(t.Context())
+			if err != nil {
+				return false
+			}
+			done = done[:0]
+			for _, s := range supports {
+				state := s.ProtoOS.Job.State
+				if slices.Contains(on, s.InstanceID) && s.ProtoOS.Job.JobID == job && (state == sdk.FrigateProtoOSJobSucceeded || state == sdk.FrigateProtoOSJobFailed) {
+					done = append(done, s)
+				}
+			}
+			return len(done) == len(on)
+		}, 40*time.Second, 50*time.Millisecond, "the controllers did not finish job %s: %+v", job, supports)
+		return done
+	}
+
+	// Each controller installs its copy when the copy is committed. No Start.
+	const job = "d1e2f3a4-0000-4000-8000-000000000001"
+	stage(job, tag, protoOSKey, instances)
+	require.Equal(t, 1, container.artifacts.downloadsOf(pb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_CONTROLLER_SOFTWARE_PACKAGE), "one download serves both controllers")
+	for _, s := range finished(job, instances) {
+		require.Equal(t, sdk.FrigateProtoOSJobSucceeded, s.ProtoOS.Job.State, "%s: %s", s.InstanceID, s.ProtoOS.Job.Message)
+		require.Equal(t, version, s.ProtoOS.Job.TargetVersion, s.InstanceID)
+		require.Equal(t, version, s.ProtoOS.InstalledVersion, s.InstanceID)
+		require.Equal(t, sdk.FrigateProtoOSBundle{Source: sdk.FrigateProtoOSBundlePackage, ReleaseTag: tag}, s.ProtoOS.Served, s.InstanceID)
+	}
+
+	// A ProtoOS package that the Frigate release key signs is refused, and the
+	// controller keeps the installed release.
+	const refusedJob = "d1e2f3a4-0000-4000-8000-000000000002"
+	stage(refusedJob, "v0.6.3", frigateKey, instances[:1])
+	refused := finished(refusedJob, instances[:1])[0]
+	require.Equal(t, sdk.FrigateProtoOSJobFailed, refused.ProtoOS.Job.State)
+	require.Contains(t, refused.ProtoOS.Job.Message, "UPDATE_SIGNATURE_INVALID")
+	require.Equal(t, version, refused.ProtoOS.InstalledVersion)
+	require.Equal(t, tag, refused.ProtoOS.Served.ReleaseTag)
+
+	// Each change went through the write gate as a controller software update.
+	writes := container.link.gatedWrites()
+	for _, kind := range writes {
+		require.Equal(t, commandtype.FrigateServerUpdate, kind)
+	}
+	require.Len(t, writes, 5, "two begins and one copy, then one begin and one copy")
 }
 
 // The node refuses a package above its download limit before it downloads

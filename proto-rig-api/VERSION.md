@@ -53,6 +53,11 @@ in `sdk/mdk/README.md`. They generate the protobuf-es bindings that the ProtoOS
 Connect client encodes and decodes with, so this snapshot and those protos must
 describe compatible contracts. Refresh both from the same Frigate commit.
 
+One skew exists. The vendored `server_update.proto` also has
+`GetServerUpdateSupportResponse.proto_os_self_supported` from Frigate
+[PR #1075](https://github.com/btc-mining/frigate/pull/1075). This snapshot does
+not have that field. ProtoOS does not read it.
+
 ## Files Extracted
 
 ### MDK v1 OpenAPI Spec (from `services/mdk-server/docs/`)

@@ -91,6 +91,8 @@ func envDuration(key string, fallback time.Duration) (time.Duration, error) {
 //	                                  ETCD_UNHEALTHY, HELPER_UNAVAILABLE, OUTSIDE_WINDOW,
 //	                                  STALE_CONTACT, DRIVER_REBOOT (booleans),
 //	                                  MIGRATE_FAILURES (count), COOLDOWN (duration)
+//	CT1_PROTOOS_TRUSTED_KEY_FILES     comma-separated PEM P-256 ProtoOS release public keys
+//	CT1_PROTOOS_FAULT_*               SELF_UNSUPPORTED, INSTALL_FAILED (booleans)
 func haPairSettingsFromEnv(cfg ContainerConfig, grpcPort, httpPort int) (haPairSettings, bool, error) {
 	if !envBool("CT1_HA_PAIR") {
 		return haPairSettings{}, false, nil
@@ -133,13 +135,11 @@ func haPairSettingsFromEnv(cfg ContainerConfig, grpcPort, httpPort int) (haPairS
 	if err != nil {
 		return settings, false, err
 	}
-	var keyFiles []string
-	for _, path := range strings.Split(os.Getenv("CT1_UPDATE_TRUSTED_KEY_FILES"), ",") {
-		if path = strings.TrimSpace(path); path != "" {
-			keyFiles = append(keyFiles, path)
-		}
+	keys, err := loadTrustedKeys(envList("CT1_UPDATE_TRUSTED_KEY_FILES"))
+	if err != nil {
+		return settings, false, err
 	}
-	keys, err := loadTrustedKeys(keyFiles)
+	protoOSKeys, err := loadTrustedKeys(envList("CT1_PROTOOS_TRUSTED_KEY_FILES"))
 	if err != nil {
 		return settings, false, err
 	}
@@ -160,7 +160,7 @@ func haPairSettingsFromEnv(cfg ContainerConfig, grpcPort, httpPort int) (haPairS
 	// too.
 	etcdCluster := getEnv("CT1_UPDATE_ETCD_CLUSTER_ID", fmt.Sprintf("%x", sha256.Sum256([]byte(settings.ClusterID)))[:16])
 	settings.Update = updateSimConfig{
-		Primary: primary, EtcdClusterID: etcdCluster, StepDelay: step, SpoolFreeBytes: spool, TrustedKeys: keys,
+		Primary: primary, EtcdClusterID: etcdCluster, StepDelay: step, SpoolFreeBytes: spool, TrustedKeys: keys, ProtoOSTrustedKeys: protoOSKeys,
 		Faults: updateFaults{
 			RemoteTriggerDisabled:       envBool("CT1_UPDATE_FAULT_REMOTE_TRIGGER_DISABLED"),
 			SelfCoordinationUnsupported: envBool("CT1_UPDATE_FAULT_SELF_COORDINATION_UNSUPPORTED"),
@@ -172,9 +172,22 @@ func haPairSettingsFromEnv(cfg ContainerConfig, grpcPort, httpPort int) (haPairS
 			FirmwareActive:              envBool("CT1_UPDATE_FAULT_FIRMWARE_ACTIVE"),
 			MigrateFailures:             failures,
 			Cooldown:                    cooldown,
+			ProtoOSSelfUnsupported:      envBool("CT1_PROTOOS_FAULT_SELF_UNSUPPORTED"),
+			ProtoOSInstallFails:         envBool("CT1_PROTOOS_FAULT_INSTALL_FAILED"),
 		},
 	}
 	return settings, true, nil
+}
+
+// envList splits a comma-separated variable and drops empty items.
+func envList(key string) []string {
+	var items []string
+	for _, item := range strings.Split(os.Getenv(key), ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			items = append(items, item)
+		}
+	}
+	return items
 }
 
 // peerConfig derives the second controller: the same container identity under

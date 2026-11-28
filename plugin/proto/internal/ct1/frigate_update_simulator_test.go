@@ -83,29 +83,39 @@ func freePorts(t *testing.T, n int) []string {
 	return ports
 }
 
-// simulatedPair is a fake-ct1 HA pair, its release signing key and a Device.
+// simulatedPair is a fake-ct1 HA pair, its Frigate and ProtoOS release
+// signing keys and a Device.
 type simulatedPair struct {
-	key     *ecdsa.PrivateKey
-	process *exec.Cmd
-	info    sdk.DeviceInfo
-	device  *Device
+	key        *ecdsa.PrivateKey
+	protoOSKey *ecdsa.PrivateKey
+	process    *exec.Cmd
+	info       sdk.DeviceInfo
+	device     *Device
 }
 
-func startSimulatedPair(t *testing.T, env ...string) *simulatedPair {
+// releaseKey returns a new signing key and the path of its PEM public key.
+func releaseKey(t *testing.T) (*ecdsa.PrivateKey, string) {
 	t.Helper()
-	binary := fakeCT1(t)
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
 	der, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
 	require.NoError(t, err)
 	keyFile := filepath.Join(t.TempDir(), "release.pub")
 	require.NoError(t, os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}), 0o600))
+	return key, keyFile
+}
+
+func startSimulatedPair(t *testing.T, env ...string) *simulatedPair {
+	t.Helper()
+	binary := fakeCT1(t)
+	key, keyFile := releaseKey(t)
+	protoOSKey, protoOSKeyFile := releaseKey(t)
 	ports := freePorts(t, 4)
 	process := exec.CommandContext(t.Context(), binary)
 	process.Env = append(os.Environ(),
 		"HTTP_PORT="+ports[0], "GRPC_PORT="+ports[1], "SERVER_ID=pair-a", "CT1_TANKS=1", "CT1_MODULES_PER_TANK=1", "CT1_DEMO_MODULE_STATES=false",
 		"CT1_HA_PAIR=1", "CT1_HA_PEER_SERVER_ID=pair-b", "CT1_HA_PEER_HTTP_PORT="+ports[2], "CT1_HA_PEER_GRPC_PORT="+ports[3], "CT1_HA_CLUSTER_ID="+testClusterID,
-		"CT1_UPDATE_TRUSTED_KEY_FILES="+keyFile, "CT1_UPDATE_STEP=150ms")
+		"CT1_UPDATE_TRUSTED_KEY_FILES="+keyFile, "CT1_PROTOOS_TRUSTED_KEY_FILES="+protoOSKeyFile, "CT1_UPDATE_STEP=150ms")
 	process.Env = append(process.Env, env...)
 	require.NoError(t, process.Start())
 	t.Cleanup(func() { _ = process.Process.Kill(); _ = process.Wait() })
@@ -115,7 +125,7 @@ func startSimulatedPair(t *testing.T, env ...string) *simulatedPair {
 	}
 	info := sdk.DeviceInfo{Host: "127.0.0.1", Port: atoi(ports[0]), RPCPort: atoi(ports[1]), URLScheme: "http", SerialNumber: "pair-a",
 		Endpoints: []sdk.DeviceEndpoint{endpoint("pair-a", ports[0], ports[1]), endpoint("pair-b", ports[2], ports[3])}}
-	pair := &simulatedPair{key: key, process: process, info: info}
+	pair := &simulatedPair{key: key, protoOSKey: protoOSKey, process: process, info: info}
 	pair.device = pair.connect(t)
 	require.Eventually(t, func() bool {
 		supports, err := pair.device.FrigateUpdateSupport(t.Context())
@@ -307,6 +317,14 @@ func TestFrigateUpdateSimulatorRefusals(t *testing.T) {
 		refusal := sdk.AsFrigateRefusal(err)
 		require.NotNil(t, refusal, "%v", err)
 		require.Equal(t, "UPDATE_REMOTE_TRIGGER_DISABLED", refusal.Reason)
+
+		// A ProtoOS package installs at commit, so staging it is refused.
+		pkg := protoOSRelease(t, pair.protoOSKey, "v0.6.2", 800)
+		_, err = pair.device.FrigateStageBegin(t.Context(), "pair-a", protoOSManifest("7b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4be8", "pair-a", "v0.6.2", pkg))
+		refusal = sdk.AsFrigateRefusal(err)
+		require.NotNil(t, refusal, "%v", err)
+		require.Equal(t, "UPDATE_REMOTE_TRIGGER_DISABLED", refusal.Reason)
+		require.Equal(t, codes.FailedPrecondition, refusal.Code)
 	})
 	t.Run("insufficient space", func(t *testing.T) {
 		pair := startSimulatedPair(t, "CT1_UPDATE_SPOOL_FREE_BYTES=10")
@@ -323,6 +341,94 @@ func TestFrigateUpdateSimulatorRefusals(t *testing.T) {
 		require.Equal(t, "UPDATE_NOT_FOUND", refusal.Reason)
 		require.Equal(t, codes.NotFound, refusal.Code)
 	})
+}
+
+// protoOSRelease is a proto-os package for tag whose statement key signs.
+func protoOSRelease(t *testing.T, key *ecdsa.PrivateKey, tag string, size int) simulatedPackage {
+	t.Helper()
+	pkg := make([]byte, size)
+	for i := range pkg {
+		pkg[i] = byte(i*7 + 3)
+	}
+	sum := sha256.Sum256(pkg)
+	statement, err := json.Marshal(map[string]any{
+		"schema": "frigate-release-statement/v1", "package": "proto-os", "version": sdk.ProtoOSDebianVersion(tag), "architecture": "all",
+		"repository": "block/proto-fleet", "sha256": hex.EncodeToString(sum[:]), "size": size, "min_installed_version": "", "issued_at": "2026-01-01T00:00:00Z",
+	})
+	require.NoError(t, err)
+	digest := sha256.Sum256(statement)
+	signature, err := ecdsa.SignASN1(rand.Reader, key, digest[:])
+	require.NoError(t, err)
+	return simulatedPackage{bytes: pkg, sha: hex.EncodeToString(sum[:]), statement: statement, signature: signature}
+}
+
+func protoOSManifest(job, instance, tag string, pkg simulatedPackage) sdk.FrigateManifest {
+	return sdk.FrigateManifest{
+		JobID: job, InstanceID: instance, ExpectedInstanceIDs: []string{"pair-a", "pair-b"}, ReleaseTag: tag, AssetName: sdk.ProtoOSAssetName(tag),
+		TargetVersion: sdk.ProtoOSDebianVersion(tag), SHA256: pkg.sha, SizeBytes: int64(len(pkg.bytes)), Actor: "fleet:tester@example.com",
+		Coordination: sdk.FrigateCoordinationSelf, Package: sdk.FrigatePackageProtoOS, ReleaseStatement: pkg.statement, ReleaseSignature: pkg.signature,
+	}
+}
+
+// waitProtoOSJob returns the support of the controller at index once it
+// reports job in a final state.
+func (p *simulatedPair) waitProtoOSJob(t *testing.T, index int, job string) sdk.FrigateInstanceSupport {
+	t.Helper()
+	var support sdk.FrigateInstanceSupport
+	require.Eventually(t, func() bool {
+		supports, err := p.device.FrigateUpdateSupport(t.Context())
+		if err != nil || supports[index].Err != "" {
+			return false
+		}
+		support = supports[index]
+		state := support.ProtoOS.Job.State
+		return support.ProtoOS.Job.JobID == job && (state == sdk.FrigateProtoOSJobSucceeded || state == sdk.FrigateProtoOSJobFailed)
+	}, 20*time.Second, 25*time.Millisecond)
+	return support
+}
+
+func TestFrigateUpdateSimulatorProtoOSPackage(t *testing.T) {
+	const tag, version = "v0.6.2-internal.14", "0.6.2~internal.14"
+	pair := startSimulatedPair(t)
+	supports, err := pair.device.FrigateUpdateSupport(t.Context())
+	require.NoError(t, err)
+	for _, s := range supports {
+		require.True(t, s.ProtoOS.SelfSupported && s.RemoteTriggerAllowed, s.InstanceID)
+		require.Contains(t, s.ProtoOS.ReleaseRepositories, "block/proto-fleet")
+		require.Equal(t, sdk.FrigateProtoOSBundleBundled, s.ProtoOS.Served.Source)
+		require.Empty(t, s.ProtoOS.InstalledVersion)
+	}
+
+	// Each controller installs its own copy as soon as the copy is committed.
+	pkg := protoOSRelease(t, pair.protoOSKey, tag, 3500)
+	const job = "c1d2e3f4-0000-4000-8000-000000000001"
+	for _, instance := range []string{"pair-a", "pair-b"} {
+		stageInstance(t, pair.device, protoOSManifest(job, instance, tag, pkg), pkg, 0)
+	}
+	for i := range 2 {
+		support := pair.waitProtoOSJob(t, i, job)
+		require.Equal(t, sdk.FrigateProtoOSJobSucceeded, support.ProtoOS.Job.State, support.ProtoOS.Job.Message)
+		require.Equal(t, tag, support.ProtoOS.Job.ReleaseTag)
+		require.Equal(t, version, support.ProtoOS.Job.TargetVersion)
+		require.Equal(t, version, support.ProtoOS.InstalledVersion)
+		require.Equal(t, sdk.FrigateProtoOSBundle{Source: sdk.FrigateProtoOSBundlePackage, ReleaseTag: tag}, support.ProtoOS.Served)
+	}
+
+	// An older release is refused, and the controller keeps its version.
+	older := protoOSRelease(t, pair.protoOSKey, "v0.6.1", 900)
+	stageInstance(t, pair.device, protoOSManifest("c1d2e3f4-0000-4000-8000-000000000002", "pair-a", "v0.6.1", older), older, 0)
+	refused := pair.waitProtoOSJob(t, 0, "c1d2e3f4-0000-4000-8000-000000000002")
+	require.Equal(t, sdk.FrigateProtoOSJobFailed, refused.ProtoOS.Job.State)
+	require.Contains(t, refused.ProtoOS.Job.Message, "downgrade")
+	require.Equal(t, version, refused.ProtoOS.InstalledVersion)
+
+	// The Frigate release key does not sign a ProtoOS package.
+	foreign := protoOSRelease(t, pair.key, "v0.6.3", 900)
+	stageInstance(t, pair.device, protoOSManifest("c1d2e3f4-0000-4000-8000-000000000003", "pair-b", "v0.6.3", foreign), foreign, 0)
+	untrusted := pair.waitProtoOSJob(t, 1, "c1d2e3f4-0000-4000-8000-000000000003")
+	require.Equal(t, sdk.FrigateProtoOSJobFailed, untrusted.ProtoOS.Job.State)
+	require.Contains(t, untrusted.ProtoOS.Job.Message, "UPDATE_SIGNATURE_INVALID")
+	require.Equal(t, version, untrusted.ProtoOS.InstalledVersion)
 }
 
 func TestFrigateUpdateSimulatorMigrateFailureRetryAndMaintenanceStatus(t *testing.T) {

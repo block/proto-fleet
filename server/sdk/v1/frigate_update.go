@@ -62,6 +62,76 @@ const (
 	FrigateCoordinationSelf FrigateCoordination = "self"
 )
 
+// FrigatePackageKind selects the Debian package that a manifest installs.
+type FrigatePackageKind string
+
+const (
+	// FrigatePackageFrigate is the controller software.
+	FrigatePackageFrigate FrigatePackageKind = ""
+	// FrigatePackageProtoOS is the ProtoOS browser UI. Each controller installs
+	// it alone as soon as its copy is committed, so it needs no Start.
+	FrigatePackageProtoOS FrigatePackageKind = "proto_os"
+)
+
+// FrigateProtoOSBundleSource mirrors mdk.v2.ProtoOSBundleSource.
+type FrigateProtoOSBundleSource string
+
+const (
+	FrigateProtoOSBundleUnspecified FrigateProtoOSBundleSource = ""
+	FrigateProtoOSBundleNone        FrigateProtoOSBundleSource = "none"
+	FrigateProtoOSBundlePackage     FrigateProtoOSBundleSource = "package"
+	FrigateProtoOSBundleBundled     FrigateProtoOSBundleSource = "bundled"
+	// FrigateProtoOSBundleUnknown is any source this SDK does not know.
+	FrigateProtoOSBundleUnknown FrigateProtoOSBundleSource = "unknown"
+)
+
+// FrigateProtoOSJobState mirrors mdk.v2.ProtoOSPackageJobState.
+type FrigateProtoOSJobState string
+
+const (
+	FrigateProtoOSJobUnspecified FrigateProtoOSJobState = ""
+	FrigateProtoOSJobQueued      FrigateProtoOSJobState = "queued"
+	FrigateProtoOSJobInstalling  FrigateProtoOSJobState = "installing"
+	FrigateProtoOSJobSucceeded   FrigateProtoOSJobState = "succeeded"
+	FrigateProtoOSJobFailed      FrigateProtoOSJobState = "failed"
+	// FrigateProtoOSJobUnknown is any state this SDK does not know. Treat it as
+	// not final and show the job message.
+	FrigateProtoOSJobUnknown FrigateProtoOSJobState = "unknown"
+)
+
+// FrigateProtoOSBundle mirrors mdk.v2.ProtoOSBundleStatus: the ProtoOS bundle
+// that a controller serves now.
+type FrigateProtoOSBundle struct {
+	Source     FrigateProtoOSBundleSource
+	ReleaseTag string
+}
+
+// FrigateProtoOSJob mirrors mdk.v2.ProtoOSPackageJob: the most recent ProtoOS
+// package job on one controller.
+type FrigateProtoOSJob struct {
+	JobID         string
+	ReleaseTag    string
+	TargetVersion string
+	State         FrigateProtoOSJobState
+	Message       string
+	UpdatedAt     time.Time
+}
+
+// FrigateProtoOSSupport mirrors the proto_os_* fields of
+// mdk.v2.GetServerUpdateSupportResponse for one instance. A caller may stage
+// a ProtoOS manifest only when SelfSupported and the instance's
+// RemoteTriggerAllowed are both true, and only for a release statement whose
+// repository is in ReleaseRepositories.
+type FrigateProtoOSSupport struct {
+	SelfSupported       bool
+	SupportMessage      string
+	InstalledVersion    string
+	ReleaseRepositories []string
+	Served              FrigateProtoOSBundle
+	// Job is the zero value when the controller reports no job.
+	Job FrigateProtoOSJob
+}
+
 // FrigateRolloutPhase mirrors mdk.v2.ServerUpdateRolloutPhase.
 type FrigateRolloutPhase string
 
@@ -132,6 +202,7 @@ type FrigateInstanceSupport struct {
 	TrustedReleaseKeyIDs      []string
 	SelfCoordinationSupported bool
 	RemoteTriggerAllowed      bool
+	ProtoOS                   FrigateProtoOSSupport
 	Err                       string
 	ErrReason                 string
 }
@@ -156,6 +227,7 @@ type FrigateManifest struct {
 	// x-frigate-actor header, so the manifest and the header agree.
 	Actor            string
 	Coordination     FrigateCoordination
+	Package          FrigatePackageKind
 	ReleaseStatement []byte
 	ReleaseSignature []byte
 }
@@ -207,6 +279,10 @@ type FrigateStageCopy struct {
 	// OnChunk, if set, gets the acknowledged offset after each chunk. An error
 	// from it stops the copy and CopyFrigateStage returns it unchanged.
 	OnChunk func(next int64) error
+	// BeforeCommit, if set, runs once every byte is appended, before the
+	// commit. An error from it stops the copy and CopyFrigateStage returns it
+	// unchanged.
+	BeforeCommit func() error
 }
 
 // CopyFrigateStage appends the package from c.Offset to its end, one chunk at a
@@ -239,6 +315,11 @@ func CopyFrigateStage(ctx context.Context, u DeviceFrigateUpdater, c FrigateStag
 			if err := c.OnChunk(next); err != nil {
 				return FrigateStageCommit{}, next, err
 			}
+		}
+	}
+	if c.BeforeCommit != nil {
+		if err := c.BeforeCommit(); err != nil {
+			return FrigateStageCommit{}, next, err
 		}
 	}
 	callCtx, cancel := context.WithTimeout(ctx, c.CallTimeout)
@@ -524,6 +605,66 @@ func (m FrigateManifest) Validate() error {
 	}
 	if len(m.ReleaseSignature) == 0 || len(m.ReleaseSignature) > maxFrigateSignatureBytes {
 		return fmt.Errorf("frigate release signature must be between 1 and %d bytes", maxFrigateSignatureBytes)
+	}
+	switch m.Package {
+	case FrigatePackageFrigate:
+		return nil
+	case FrigatePackageProtoOS:
+		return validateProtoOSRelease(m)
+	default:
+		return fmt.Errorf("frigate manifest package %q is unknown", m.Package)
+	}
+}
+
+// ProtoOSDebianVersion returns the Debian version of the proto-os package of a
+// ProtoOS release tag: the tag without its "v" and with the first "-" replaced
+// by "~", so that a prerelease sorts before its final release. Frigate refuses
+// a ProtoOS manifest whose target version is not this value.
+func ProtoOSDebianVersion(releaseTag string) string {
+	return strings.Replace(strings.TrimPrefix(releaseTag, "v"), "-", "~", 1)
+}
+
+// ProtoOSAssetName returns the only asset name that Frigate accepts for the
+// proto-os package of a ProtoOS release tag.
+func ProtoOSAssetName(releaseTag string) string {
+	return "proto-os_" + releaseTag + "_all.deb"
+}
+
+// ProtoOSReleaseTag is the inverse of ProtoOSDebianVersion. It returns false
+// for a version that no v-prefixed release tag maps to, for example "1.0.0-1",
+// whose tag would map back to "1.0.0~1".
+func ProtoOSReleaseTag(debianVersion string) (string, bool) {
+	tag := "v" + strings.Replace(debianVersion, "~", "-", 1)
+	if !protoOSReleaseTagShape(tag) || ProtoOSDebianVersion(tag) != debianVersion {
+		return "", false
+	}
+	return tag, true
+}
+
+func protoOSReleaseTagShape(tag string) bool {
+	if len(tag) < 2 || len(tag) > maxFrigateVersionLength || tag[0] != 'v' || tag[1] < '0' || tag[1] > '9' {
+		return false
+	}
+	for _, c := range tag[1:] {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && c != '.' && c != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+// validateProtoOSRelease checks that the release tag, asset name and target
+// version agree. Frigate also checks that the tag is a semantic version.
+func validateProtoOSRelease(m FrigateManifest) error {
+	tag := m.ReleaseTag
+	if !protoOSReleaseTagShape(tag) {
+		return errors.New("frigate proto-os manifest needs a v-prefixed release tag")
+	}
+	if m.AssetName != ProtoOSAssetName(tag) {
+		return fmt.Errorf("frigate proto-os manifest asset name must be %q", ProtoOSAssetName(tag))
+	}
+	if m.TargetVersion != ProtoOSDebianVersion(tag) {
+		return fmt.Errorf("frigate proto-os manifest target version must be %q", ProtoOSDebianVersion(tag))
 	}
 	return nil
 }

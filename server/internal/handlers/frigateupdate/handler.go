@@ -152,6 +152,18 @@ func PackageToProto(p domain.Package) *pb.FrigatePackage {
 		SizeBytes: p.SizeBytes, Repository: p.Repository, ReleaseKeyId: p.ReleaseKeyID,
 		MinInstalledVersion: p.MinInstalledVersion, IssuedAt: timestamppb.New(p.IssuedAt),
 		UploadedAt: timestamppb.New(p.UploadedAt), UploadedBy: p.UploadedBy, StoredOnThisHost: p.StoredOnThisHost,
+		Kind: packageKindToProto(p.Kind),
+	}
+}
+
+func packageKindToProto(k domain.PackageKind) pb.FrigatePackageKind {
+	switch k {
+	case domain.PackageKindFrigate:
+		return pb.FrigatePackageKind_FRIGATE_PACKAGE_KIND_CONTROLLER_SOFTWARE
+	case domain.PackageKindProtoOS:
+		return pb.FrigatePackageKind_FRIGATE_PACKAGE_KIND_PROTO_OS
+	default:
+		return pb.FrigatePackageKind_FRIGATE_PACKAGE_KIND_UNSPECIFIED
 	}
 }
 
@@ -163,7 +175,67 @@ func instanceSupportToProto(in sdk.FrigateInstanceSupport) *pb.InstanceSupport {
 		ActiveJobId: in.ActiveJobID, SpoolFreeBytes: in.SpoolFreeBytes, EtcdMembersTotal: in.EtcdMembersTotal,
 		EtcdMembersHealthy: in.EtcdMembersHealthy, TrustedReleaseKeyIds: in.TrustedReleaseKeyIDs,
 		SelfCoordinationSupported: in.SelfCoordinationSupported, RemoteTriggerAllowed: in.RemoteTriggerAllowed,
-		Error: in.Err,
+		Error: in.Err, ProtoOs: protoOSSupportToProto(in),
+	}
+}
+
+// protoOSSupportToProto converts the ProtoOS support of a controller that
+// answered. A controller that could not be read has none.
+func protoOSSupportToProto(in sdk.FrigateInstanceSupport) *pb.ProtoOSSupport {
+	if in.Err != "" {
+		return nil
+	}
+	p := in.ProtoOS
+	out := &pb.ProtoOSSupport{
+		SelfSupported: p.SelfSupported, SupportMessage: p.SupportMessage, InstalledVersion: p.InstalledVersion,
+		ReleaseRepositories: p.ReleaseRepositories, ServedSource: bundleSourceToProto(p.Served.Source),
+		ServedReleaseTag: p.Served.ReleaseTag,
+	}
+	if p.Job.JobID != "" {
+		out.Job = &pb.ProtoOSJob{
+			JobId: p.Job.JobID, ReleaseTag: p.Job.ReleaseTag, TargetVersion: p.Job.TargetVersion,
+			State: protoOSJobStateToProto(string(p.Job.State)), Message: p.Job.Message,
+		}
+		if !p.Job.UpdatedAt.IsZero() {
+			out.Job.UpdatedAt = timestamppb.New(p.Job.UpdatedAt)
+		}
+	}
+	return out
+}
+
+func bundleSourceToProto(s sdk.FrigateProtoOSBundleSource) pb.ProtoOSBundleSource {
+	switch s {
+	case sdk.FrigateProtoOSBundleNone:
+		return pb.ProtoOSBundleSource_PROTO_OS_BUNDLE_SOURCE_NONE
+	case sdk.FrigateProtoOSBundlePackage:
+		return pb.ProtoOSBundleSource_PROTO_OS_BUNDLE_SOURCE_PACKAGE
+	case sdk.FrigateProtoOSBundleBundled:
+		return pb.ProtoOSBundleSource_PROTO_OS_BUNDLE_SOURCE_BUNDLED
+	case sdk.FrigateProtoOSBundleUnspecified:
+		return pb.ProtoOSBundleSource_PROTO_OS_BUNDLE_SOURCE_UNSPECIFIED
+	case sdk.FrigateProtoOSBundleUnknown:
+		return pb.ProtoOSBundleSource_PROTO_OS_BUNDLE_SOURCE_UNKNOWN
+	default:
+		return pb.ProtoOSBundleSource_PROTO_OS_BUNDLE_SOURCE_UNKNOWN
+	}
+}
+
+func protoOSJobStateToProto(s string) pb.ProtoOSJobState {
+	switch sdk.FrigateProtoOSJobState(s) {
+	case sdk.FrigateProtoOSJobQueued:
+		return pb.ProtoOSJobState_PROTO_OS_JOB_STATE_QUEUED
+	case sdk.FrigateProtoOSJobInstalling:
+		return pb.ProtoOSJobState_PROTO_OS_JOB_STATE_INSTALLING
+	case sdk.FrigateProtoOSJobSucceeded:
+		return pb.ProtoOSJobState_PROTO_OS_JOB_STATE_SUCCEEDED
+	case sdk.FrigateProtoOSJobFailed:
+		return pb.ProtoOSJobState_PROTO_OS_JOB_STATE_FAILED
+	case sdk.FrigateProtoOSJobUnspecified:
+		return pb.ProtoOSJobState_PROTO_OS_JOB_STATE_UNSPECIFIED
+	case sdk.FrigateProtoOSJobUnknown:
+		return pb.ProtoOSJobState_PROTO_OS_JOB_STATE_UNKNOWN
+	default:
+		return pb.ProtoOSJobState_PROTO_OS_JOB_STATE_UNKNOWN
 	}
 }
 
@@ -308,6 +380,8 @@ func jobToProto(j domain.Job) *pb.UpdateJob {
 			SizeBytes: in.SizeBytes, AgentPhase: agentPhaseToProto(in.AgentPhase), ContactStale: in.ContactStale,
 			RunningVersion: in.RunningVersion, MigrationExecuted: in.MigrationExecuted,
 			ErrorCode: in.ErrorCode, ErrorMessage: in.ErrorMessage,
+			ProtoOsJobState: protoOSJobStateToProto(in.ProtoosJobState), ProtoOsInstalledVersion: in.ProtoosInstalledVersion,
+			ProtoOsServedReleaseTag: in.ProtoosServedReleaseTag,
 		}
 		if in.LastContact.Valid {
 			p.LastContact = timestamppb.New(in.LastContact.Time)

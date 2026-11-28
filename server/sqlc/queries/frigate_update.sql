@@ -23,10 +23,10 @@ SELECT device_identifier, site_id FROM device WHERE id = $1 AND deleted_at IS NU
 
 -- name: InsertFrigateUpdatePackage :one
 INSERT INTO frigate_update_package (
-    id, org_id, filename, version, architecture, sha256, size_bytes, repository,
+    id, org_id, kind, filename, version, architecture, sha256, size_bytes, repository,
     release_key_id, min_installed_version, issued_at, statement, signature, uploaded_by
 ) VALUES (
-    sqlc.arg('id'), sqlc.arg('org_id'), sqlc.arg('filename'), sqlc.arg('version'), sqlc.arg('architecture'),
+    sqlc.arg('id'), sqlc.arg('org_id'), sqlc.arg('kind'), sqlc.arg('filename'), sqlc.arg('version'), sqlc.arg('architecture'),
     sqlc.arg('sha256'), sqlc.arg('size_bytes'), sqlc.arg('repository'), sqlc.arg('release_key_id'),
     sqlc.arg('min_installed_version'), sqlc.arg('issued_at'), sqlc.arg('statement'), sqlc.arg('signature'),
     sqlc.narg('uploaded_by')
@@ -111,6 +111,13 @@ WHERE j.device_id = $1
 -- name: LockFrigateUpdateJob :one
 SELECT * FROM frigate_update_job WHERE id = $1 FOR UPDATE;
 
+-- name: GetFrigateUpdateJobPackageKind :one
+-- The package kind selects the job's state machine.
+SELECT p.kind
+FROM frigate_update_job j
+JOIN frigate_update_package p ON p.id = j.package_id
+WHERE j.id = $1;
+
 -- name: ListFrigateUpdateJobsForDevice :many
 SELECT j.*
 FROM frigate_update_job j
@@ -186,6 +193,19 @@ UPDATE frigate_update_instance SET
     contact_stale = sqlc.arg('contact_stale'),
     running_version = sqlc.arg('running_version'),
     migration_executed = sqlc.arg('migration_executed'),
+    error_code = sqlc.arg('error_code'),
+    error_message = sqlc.arg('error_message'),
+    updated_at = CURRENT_TIMESTAMP
+WHERE job_id = sqlc.arg('job_id') AND instance_id = sqlc.arg('instance_id');
+
+-- name: UpdateFrigateUpdateInstanceProtoOS :exec
+-- What one controller reports about a ProtoOS job. The staging columns are
+-- Fleet's and stay as they are.
+UPDATE frigate_update_instance SET
+    protoos_job_state = sqlc.arg('protoos_job_state'),
+    protoos_installed_version = sqlc.arg('protoos_installed_version'),
+    protoos_served_release_tag = sqlc.arg('protoos_served_release_tag'),
+    last_contact = sqlc.narg('last_contact'),
     error_code = sqlc.arg('error_code'),
     error_message = sqlc.arg('error_message'),
     updated_at = CURRENT_TIMESTAMP

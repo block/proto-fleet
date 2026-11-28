@@ -116,9 +116,14 @@ func (h *updateHarness) manifest(job, instance string, pkg []byte) *mdk.ServerUp
 // connection with x-frigate-server-id to prove header routing.
 func (h *updateHarness) stage(job string, instanceIndex int, pkg []byte, chunk int) string {
 	h.t.Helper()
+	return h.stageManifest(instanceIndex, h.manifest(job, h.states[instanceIndex].ServerID, pkg), pkg, chunk)
+}
+
+func (h *updateHarness) stageManifest(instanceIndex int, m *mdk.ServerUpdateManifest, pkg []byte, chunk int) string {
+	h.t.Helper()
 	ctx := context.Background()
-	instance := h.states[instanceIndex].ServerID
-	begin, err := h.update(instanceIndex).BeginServerUpdateStage(ctx, &mdk.BeginServerUpdateStageRequest{Manifest: h.manifest(job, instance, pkg)})
+	job, instance := m.GetJobId(), m.GetInstanceId()
+	begin, err := h.update(instanceIndex).BeginServerUpdateStage(ctx, &mdk.BeginServerUpdateStageRequest{Manifest: m})
 	if err != nil {
 		h.t.Fatal(err)
 	}

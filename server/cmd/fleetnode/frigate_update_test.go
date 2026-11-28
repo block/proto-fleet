@@ -308,7 +308,7 @@ func TestFrigateUpdateStageUsesTheFirmwareCommandBudget(t *testing.T) {
 	call := &pb.MinerCommand{Action: &pb.MinerCommand_FrigateUpdate{FrigateUpdate: &pb.FrigateUpdateAction{Call: &pb.FrigateUpdateAction_Request{Request: []byte{1}}}}}
 	assert.Equal(t, firmwareMinerCommandTimeout, minerCommandActionTimeout(stage))
 	assert.Equal(t, minerCommandTimeout, minerCommandActionTimeout(call))
-	assert.Equal(t, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V20, latestCommandProtocolVersion, "the node tells Fleet that it runs update calls")
+	assert.Equal(t, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V21, latestCommandProtocolVersion, "the node tells Fleet that it stages ProtoOS packages")
 }
 
 func TestFrigateUpdateOutcomeKeepsItsTextInTheContract(t *testing.T) {

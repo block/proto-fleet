@@ -226,6 +226,15 @@ const descriptionFormatters: Record<string, (entry: ActivityEntry) => string | u
   rollout_retried: formatRolloutDescription,
   // Carries the channel, model and version the server recorded.
   release_channel_controller_software_changed: formatRolloutDescription,
+  // The server names the package kind and the version.
+  frigate_update_started: formatRolloutDescription,
+  frigate_update_running: formatRolloutDescription,
+  frigate_update_succeeded: formatRolloutDescription,
+  frigate_update_verified: formatRolloutDescription,
+  frigate_update_failed: formatRolloutDescription,
+  frigate_update_cancelled: formatRolloutDescription,
+  frigate_update_abandoned: formatRolloutDescription,
+  frigate_update_cancel_refused: formatRolloutDescription,
 
   command_preflight_blocked: (entry) => {
     const skippedCount = metadataNumber(entry, "skipped_count");

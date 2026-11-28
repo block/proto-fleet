@@ -67,6 +67,11 @@ type updateFaults struct {
 	// FirmwareActive reports a hashboard or PSU flash running on a node even
 	// when no simulated hashboard job is, so Start returns UPDATE_FIRMWARE_ACTIVE.
 	FirmwareActive bool
+	// ProtoOSSelfUnsupported models a Frigate that does not accept a
+	// self-coordinated proto-os manifest.
+	ProtoOSSelfUnsupported bool
+	// ProtoOSInstallFails makes every proto-os install fail after verification.
+	ProtoOSInstallFails bool
 }
 
 type updateSimConfig struct {
@@ -76,9 +81,13 @@ type updateSimConfig struct {
 	StepDelay      time.Duration
 	SpoolFreeBytes int64
 	TrustedKeys    []*ecdsa.PublicKey
-	Architecture   string
-	Faults         updateFaults
-	Now            func() time.Time
+	// ProtoOSTrustedKeys sign proto-os releases. They are a separate trust
+	// domain: a Frigate release key never verifies a proto-os package, and the
+	// reverse.
+	ProtoOSTrustedKeys []*ecdsa.PublicKey
+	Architecture       string
+	Faults             updateFaults
+	Now                func() time.Time
 }
 
 type stagedPackage struct {
@@ -94,6 +103,7 @@ type updateInstance struct {
 	state          *ContainerState
 	runningVersion string
 	stages         map[string]*stagedPackage
+	protoOS        protoOSState
 }
 
 type helperState struct {
@@ -123,18 +133,19 @@ type idempotentRecord struct {
 type updateSim struct {
 	// mu is never held while taking a ContainerState lock: request handlers
 	// hold their state lock while reading the HA role through the sim.
-	mu          sync.Mutex
-	cfg         updateSimConfig
-	instances   map[string]*updateInstance
-	trusted     map[string]*ecdsa.PublicKey
-	rollouts    map[string]*rollout
-	order       []string // job IDs, oldest first
-	activeID    string
-	idempotency map[string]idempotentRecord
-	primary     string
-	maintenance bool
-	lastSuccess time.Time
-	closed      bool
+	mu             sync.Mutex
+	cfg            updateSimConfig
+	instances      map[string]*updateInstance
+	trusted        map[string]*ecdsa.PublicKey
+	protoOSTrusted map[string]*ecdsa.PublicKey
+	rollouts       map[string]*rollout
+	order          []string // job IDs, oldest first
+	activeID       string
+	idempotency    map[string]idempotentRecord
+	primary        string
+	maintenance    bool
+	lastSuccess    time.Time
+	closed         bool
 }
 
 func newUpdateSim(cfg updateSimConfig) *updateSim {
@@ -150,20 +161,27 @@ func newUpdateSim(cfg updateSimConfig) *updateSim {
 	if cfg.Architecture == "" {
 		cfg.Architecture = "arm64"
 	}
-	s := &updateSim{cfg: cfg, instances: map[string]*updateInstance{}, trusted: map[string]*ecdsa.PublicKey{}, rollouts: map[string]*rollout{}, idempotency: map[string]idempotentRecord{}, primary: cfg.Primary}
-	for _, key := range cfg.TrustedKeys {
+	return &updateSim{
+		cfg: cfg, instances: map[string]*updateInstance{}, trusted: keyring(cfg.TrustedKeys), protoOSTrusted: keyring(cfg.ProtoOSTrustedKeys),
+		rollouts: map[string]*rollout{}, idempotency: map[string]idempotentRecord{}, primary: cfg.Primary,
+	}
+}
+
+func keyring(keys []*ecdsa.PublicKey) map[string]*ecdsa.PublicKey {
+	ring := map[string]*ecdsa.PublicKey{}
+	for _, key := range keys {
 		if id, err := releaseKeyID(key); err == nil {
-			s.trusted[id] = key
+			ring[id] = key
 		}
 	}
-	return s
+	return ring
 }
 
 // attach registers an instance; the first two attached form the pair.
 func (s *updateSim) attach(state *ContainerState) *updateInstance {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	inst := &updateInstance{id: state.ServerID, state: state, runningVersion: state.Version, stages: map[string]*stagedPackage{}}
+	inst := &updateInstance{id: state.ServerID, state: state, runningVersion: state.Version, stages: map[string]*stagedPackage{}, protoOS: newProtoOSState()}
 	s.instances[inst.id] = inst
 	if s.primary == "" {
 		s.primary = inst.id
@@ -284,21 +302,12 @@ func (s *updateSim) verifyReleaseLocked(m *mdk.ServerUpdateManifest) (string, er
 	if len(statement) == 0 || len(statement) > maxStatementBytes || len(signature) == 0 || len(signature) > maxSignatureBytes {
 		return "", refusal(codes.FailedPrecondition, "UPDATE_SIGNATURE_INVALID", "release statement or signature is missing or oversized")
 	}
-	digest := sha256.Sum256(statement)
-	keyID := ""
-	for id, key := range s.trusted {
-		if ecdsa.VerifyASN1(key, digest[:], signature) {
-			keyID = id
-			break
-		}
-	}
+	keyID := verifySignature(s.trusted, statement, signature)
 	if keyID == "" {
 		return "", refusal(codes.FailedPrecondition, "UPDATE_SIGNATURE_INVALID", "no trusted release key validates the signature")
 	}
-	var decoded releaseStatement
-	decoder := json.NewDecoder(bytes.NewReader(statement))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&decoded); err != nil || decoded.Schema != releaseStatementSchema {
+	decoded, ok := parseStatement(statement)
+	if !ok {
 		return "", refusal(codes.FailedPrecondition, "UPDATE_SIGNATURE_INVALID", "release statement is malformed or has an unsupported schema")
 	}
 	if decoded.Package != "frigate" || decoded.Architecture != s.cfg.Architecture || decoded.Version != m.GetTargetVersion() ||
@@ -306,6 +315,28 @@ func (s *updateSim) verifyReleaseLocked(m *mdk.ServerUpdateManifest) (string, er
 		return "", refusal(codes.FailedPrecondition, "UPDATE_STAGE_MISMATCH", "release statement does not match the staged manifest")
 	}
 	return keyID, nil
+}
+
+// verifySignature returns the ID of the key in trusted that verifies the
+// signature over statement, or "" when none does.
+func verifySignature(trusted map[string]*ecdsa.PublicKey, statement, signature []byte) string {
+	digest := sha256.Sum256(statement)
+	for id, key := range trusted {
+		if ecdsa.VerifyASN1(key, digest[:], signature) {
+			return id
+		}
+	}
+	return ""
+}
+
+func parseStatement(statement []byte) (releaseStatement, bool) {
+	var decoded releaseStatement
+	decoder := json.NewDecoder(bytes.NewReader(statement))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&decoded); err != nil || decoded.Schema != releaseStatementSchema {
+		return releaseStatement{}, false
+	}
+	return decoded, true
 }
 
 func manifestFingerprint(m *mdk.ServerUpdateManifest) string {
@@ -349,6 +380,13 @@ func (s *updateSim) validateManifestLocked(m *mdk.ServerUpdateManifest) error {
 		return invalidManifest("manifest expected_instance_ids must include instance_id")
 	}
 	hasRelease := len(m.GetReleaseStatement()) > 0 || len(m.GetReleaseSignature()) > 0
+	switch m.GetPackage() {
+	case mdk.ServerUpdatePackage_SERVER_UPDATE_PACKAGE_UNSPECIFIED:
+	case mdk.ServerUpdatePackage_SERVER_UPDATE_PACKAGE_PROTO_OS:
+		return s.validateProtoOSManifestLocked(m)
+	default:
+		return invalidManifest("unknown manifest package")
+	}
 	switch m.GetCoordination() {
 	case mdk.ServerUpdateCoordination_SERVER_UPDATE_COORDINATION_SELF:
 		if s.cfg.Faults.SelfCoordinationUnsupported {
@@ -357,8 +395,7 @@ func (s *updateSim) validateManifestLocked(m *mdk.ServerUpdateManifest) error {
 		if len(m.GetReleaseStatement()) == 0 || len(m.GetReleaseSignature()) == 0 {
 			return invalidManifest("a self-coordinated manifest requires a release statement and signature")
 		}
-		if m.GetMaintenanceToken() != "" || m.GetFlotillaAddress() != "" || m.GetTlsServerName() != "" || m.GetRootCaFile() != "" ||
-			m.GetClientCertificateFile() != "" || m.GetClientKeyFile() != "" || m.GetSiteToken() != "" {
+		if hasFlotillaFields(m) {
 			return invalidManifest("a self-coordinated manifest must not carry Flotilla connection fields")
 		}
 	case mdk.ServerUpdateCoordination_SERVER_UPDATE_COORDINATION_UNSPECIFIED:
@@ -369,6 +406,11 @@ func (s *updateSim) validateManifestLocked(m *mdk.ServerUpdateManifest) error {
 		return invalidManifest("unknown manifest coordination")
 	}
 	return nil
+}
+
+func hasFlotillaFields(m *mdk.ServerUpdateManifest) bool {
+	return m.GetMaintenanceToken() != "" || m.GetFlotillaAddress() != "" || m.GetTlsServerName() != "" || m.GetRootCaFile() != "" ||
+		m.GetClientCertificateFile() != "" || m.GetClientKeyFile() != "" || m.GetSiteToken() != ""
 }
 
 // ---------------------------------------------------------------------------
@@ -384,6 +426,10 @@ func (s *updateSim) instanceLocked(id string) (*updateInstance, error) {
 
 func stageProgress(p *stagedPackage) *mdk.BeginServerUpdateStageResponse {
 	next := int64(len(p.data))
+	if p.committed {
+		// A committed proto-os copy drops its bytes once the job ends.
+		next = p.manifest.GetSizeBytes()
+	}
 	return &mdk.BeginServerUpdateStageResponse{JobId: p.manifest.GetJobId(), ManifestSha256: p.fingerprint, NextOffset: next, SizeBytes: p.manifest.GetSizeBytes()}
 }
 
@@ -411,8 +457,8 @@ func (s *updateSim) beginStage(m *mdk.ServerUpdateManifest, addressed string) (*
 		}
 		return stageProgress(existing), nil
 	}
-	if s.activeID != "" {
-		return nil, refusal(codes.FailedPrecondition, "UPDATE_ACTIVE_JOB", "update %s is active", s.activeID)
+	if err := s.checkNoActiveJobLocked(inst); err != nil {
+		return nil, err
 	}
 	staged := &stagedPackage{manifest: proto.Clone(m).(*mdk.ServerUpdateManifest), fingerprint: fingerprint}
 	inst.stages[m.GetJobId()] = staged
@@ -482,6 +528,9 @@ func (s *updateSim) commitStage(instanceID, jobID, fingerprint string) (*mdk.Com
 	if err != nil {
 		return nil, err
 	}
+	if staged.committed {
+		return &mdk.CommitServerUpdateStageResponse{JobId: jobID, BytesStaged: staged.manifest.GetSizeBytes(), Sha256: staged.sha256}, nil
+	}
 	if int64(len(staged.data)) != staged.manifest.GetSizeBytes() {
 		return nil, refusal(codes.InvalidArgument, "UPDATE_PACKAGE_REJECTED", "staged %d of %d bytes", len(staged.data), staged.manifest.GetSizeBytes())
 	}
@@ -490,7 +539,16 @@ func (s *updateSim) commitStage(instanceID, jobID, fingerprint string) (*mdk.Com
 	if digest != staged.manifest.GetSha256() {
 		return nil, refusal(codes.InvalidArgument, "UPDATE_PACKAGE_REJECTED", "staged package digest does not match the manifest")
 	}
+	protoOS := staged.manifest.GetPackage() == mdk.ServerUpdatePackage_SERVER_UPDATE_PACKAGE_PROTO_OS
+	if protoOS {
+		if err := s.checkNoActiveJobLocked(inst); err != nil {
+			return nil, err
+		}
+	}
 	staged.committed, staged.sha256 = true, digest
+	if protoOS {
+		s.queueProtoOSLocked(inst, staged)
+	}
 	return &mdk.CommitServerUpdateStageResponse{JobId: jobID, BytesStaged: int64(len(staged.data)), Sha256: digest}, nil
 }
 
@@ -515,6 +573,9 @@ func (s *updateSim) abortStage(instanceID, jobID, fingerprint string) error {
 	if r, ok := s.rollouts[jobID]; staged.committed && ok && !isTerminalPhase(r.msg.Phase) {
 		return refusal(codes.FailedPrecondition, "UPDATE_ACTIVE_JOB", "server update %s has started; cancel it instead", jobID)
 	}
+	if job := inst.protoOS.activeJob(); job != nil && job.GetJobId() == jobID {
+		return refusal(codes.FailedPrecondition, "UPDATE_ACTIVE_JOB", "proto-os package job %s is installing", jobID)
+	}
 	delete(inst.stages, jobID)
 	return nil
 }
@@ -537,21 +598,40 @@ func (s *updateSim) supportFor(instanceID string) (*mdk.GetServerUpdateSupportRe
 	}
 	slices.Sort(keys)
 	return &mdk.GetServerUpdateSupportResponse{
-		InstanceId:                inst.id,
-		PeerInstanceId:            s.peerOfLocked(inst.id),
-		RunningVersion:            inst.runningVersion,
-		Architecture:              s.cfg.Architecture,
-		InstallationType:          mdk.ServerInstallationType_SERVER_INSTALLATION_TYPE_DEBIAN_PACKAGE,
-		HelperAvailable:           !s.cfg.Faults.HelperUnavailable,
-		ClusterId:                 s.cfg.EtcdClusterID,
-		ActiveJobId:               s.activeID,
-		SpoolFreeBytes:            s.cfg.SpoolFreeBytes,
-		EtcdMembersTotal:          3,
-		EtcdMembersHealthy:        healthy,
-		TrustedReleaseKeyIds:      keys,
-		SelfCoordinationSupported: !s.cfg.Faults.SelfCoordinationUnsupported,
-		RemoteTriggerAllowed:      !s.cfg.Faults.RemoteTriggerDisabled,
+		InstanceId:                 inst.id,
+		PeerInstanceId:             s.peerOfLocked(inst.id),
+		RunningVersion:             inst.runningVersion,
+		Architecture:               s.cfg.Architecture,
+		InstallationType:           mdk.ServerInstallationType_SERVER_INSTALLATION_TYPE_DEBIAN_PACKAGE,
+		HelperAvailable:            !s.cfg.Faults.HelperUnavailable,
+		ClusterId:                  s.cfg.EtcdClusterID,
+		ActiveJobId:                s.activeID,
+		SpoolFreeBytes:             s.cfg.SpoolFreeBytes,
+		EtcdMembersTotal:           3,
+		EtcdMembersHealthy:         healthy,
+		TrustedReleaseKeyIds:       keys,
+		SelfCoordinationSupported:  !s.cfg.Faults.SelfCoordinationUnsupported,
+		RemoteTriggerAllowed:       !s.cfg.Faults.RemoteTriggerDisabled,
+		ProtoOsSelfSupported:       !s.cfg.Faults.ProtoOSSelfUnsupported,
+		ProtoOsSupportMessage:      s.protoOSSupportMessageLocked(),
+		ProtoOsInstalledVersion:    inst.protoOS.installed,
+		ProtoOsServed:              proto.Clone(inst.protoOS.served).(*mdk.ProtoOSBundleStatus),
+		ProtoOsJob:                 cloneProtoOSJob(inst.protoOS.job),
+		ProtoOsReleaseRepositories: slices.Clone(protoOSReleaseRepositories),
 	}, nil
+}
+
+// checkNoActiveJobLocked refuses a new job on inst while a Frigate rollout runs
+// on the pair or a proto-os job runs on inst: a controller holds one update
+// job at a time.
+func (s *updateSim) checkNoActiveJobLocked(inst *updateInstance) error {
+	if s.activeID != "" {
+		return refusal(codes.FailedPrecondition, "UPDATE_ACTIVE_JOB", "update %s is active", s.activeID)
+	}
+	if job := inst.protoOS.activeJob(); job != nil {
+		return refusal(codes.FailedPrecondition, "UPDATE_ACTIVE_JOB", "proto-os package job %s is active on %s", job.GetJobId(), inst.id)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -647,6 +727,11 @@ func (s *updateSim) startRollout(in *mdk.StartServerUpdateRequest, actor string,
 	if s.activeID != "" {
 		return nil, refusal(codes.FailedPrecondition, "UPDATE_ACTIVE_JOB", "update %s is already active", s.activeID)
 	}
+	for _, id := range s.sortedIDsLocked() {
+		if job := s.instances[id].protoOS.activeJob(); job != nil {
+			return nil, refusal(codes.FailedPrecondition, "UPDATE_ACTIVE_JOB", "proto-os package job %s is active on %s", job.GetJobId(), id)
+		}
+	}
 	if len(flashing) > 0 {
 		return nil, refusal(codes.FailedPrecondition, "UPDATE_FIRMWARE_ACTIVE", "a firmware update is running: %s", strings.Join(flashing, ", "))
 	}
@@ -674,7 +759,7 @@ func (s *updateSim) startRollout(in *mdk.StartServerUpdateRequest, actor string,
 		}
 		m := staged.manifest
 		if m.GetTargetVersion() != in.GetTargetVersion() || m.GetCoordination() != mdk.ServerUpdateCoordination_SERVER_UPDATE_COORDINATION_SELF ||
-			!slices.Equal(sortedCopy(m.GetExpectedInstanceIds()), expected) {
+			m.GetPackage() != mdk.ServerUpdatePackage_SERVER_UPDATE_PACKAGE_UNSPECIFIED || !slices.Equal(sortedCopy(m.GetExpectedInstanceIds()), expected) {
 			return nil, refusal(codes.FailedPrecondition, "UPDATE_STAGE_MISMATCH", "the staged manifest on %s does not match the request", id)
 		}
 		if want, ok := in.GetExpectedManifestSha256()[id]; ok && want != staged.fingerprint {

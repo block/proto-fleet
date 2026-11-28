@@ -105,6 +105,12 @@ type fakeUpdater struct {
 	// being answered from a recorded idempotency key.
 	hookRuns int
 
+	// commits counts the copies each controller committed.
+	commits map[string]int
+	// protoOSCheckErr is what CheckProtoOSUpdates returns, as for a Fleet
+	// Node that is too old to stage the ProtoOS package.
+	protoOSCheckErr error
+
 	beginHook func(instanceID string) error
 	// beginReplyHook runs after Begin has created the copy, so it can lose the
 	// reply of a call the controller already carried out.
@@ -123,7 +129,7 @@ type fakeUpdater struct {
 var _ interfaces.FrigateUpdater = (*fakeUpdater)(nil)
 
 func newFakeUpdater() *fakeUpdater {
-	f := &fakeUpdater{stages: map[string]*stagedCopy{}, appendOffset: map[string][]int64{}, startKeys: map[string]sdk.FrigateRollout{}, actionKeys: map[string]sdk.FrigateRollout{}}
+	f := &fakeUpdater{stages: map[string]*stagedCopy{}, appendOffset: map[string][]int64{}, startKeys: map[string]sdk.FrigateRollout{}, actionKeys: map[string]sdk.FrigateRollout{}, commits: map[string]int{}}
 	for _, id := range []string{instanceA, instanceB} {
 		peer := instanceB
 		if id == instanceB {
@@ -134,6 +140,10 @@ func newFakeUpdater() *fakeUpdater {
 			InstallationType: sdk.FrigateInstallationDebianPackage, HelperAvailable: true, ClusterID: "cluster-1",
 			SpoolFreeBytes: 8 << 30, EtcdMembersTotal: 3, EtcdMembersHealthy: 3,
 			TrustedReleaseKeyIDs: []string{testKeyID}, SelfCoordinationSupported: true, RemoteTriggerAllowed: true,
+			ProtoOS: sdk.FrigateProtoOSSupport{
+				SelfSupported: true, InstalledVersion: "0.5.0", ReleaseRepositories: []string{"btc-mining/proto-fleet-internal", "block/proto-fleet"},
+				Served: sdk.FrigateProtoOSBundle{Source: sdk.FrigateProtoOSBundleBundled},
+			},
 		})
 	}
 	return f
@@ -215,6 +225,13 @@ func (f *fakeUpdater) FrigateStageCommit(_ context.Context, instanceID string, r
 	st, ok := f.stages[instanceID+"/"+r.JobID]
 	if !ok {
 		return sdk.FrigateStageCommit{}, fmt.Errorf("not staged")
+	}
+	f.commits[instanceID]++
+	if st.manifest.Package == sdk.FrigatePackageProtoOS {
+		// The controller's update helper takes the job as soon as the copy commits.
+		f.setProtoOSLocked(instanceID, func(p *sdk.FrigateProtoOSSupport) {
+			p.Job = sdk.FrigateProtoOSJob{JobID: r.JobID, ReleaseTag: st.manifest.ReleaseTag, TargetVersion: st.manifest.TargetVersion, State: sdk.FrigateProtoOSJobQueued, UpdatedAt: time.Now()}
+		})
 	}
 	sum := sha256.Sum256(st.data)
 	return sdk.FrigateStageCommit{JobID: r.JobID, BytesStaged: int64(len(st.data)), SHA256: hex.EncodeToString(sum[:])}, nil
@@ -353,6 +370,45 @@ func (f *fakeUpdater) FrigateUpdateCancel(_ context.Context, a sdk.FrigateAction
 	})
 }
 
+// CheckProtoOSUpdates answers as a Fleet Node does before a ProtoOS update.
+func (f *fakeUpdater) CheckProtoOSUpdates(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.protoOSCheckErr
+}
+
+func (f *fakeUpdater) setProtoOSLocked(instanceID string, mutate func(p *sdk.FrigateProtoOSSupport)) {
+	for i := range f.support {
+		if f.support[i].InstanceID == instanceID {
+			mutate(&f.support[i].ProtoOS)
+		}
+	}
+}
+
+// reportProtoOS changes what a controller reports about ProtoOS.
+func (f *fakeUpdater) reportProtoOS(instanceID string, mutate func(p *sdk.FrigateProtoOSSupport)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.setProtoOSLocked(instanceID, mutate)
+}
+
+// finishProtoOS ends a controller's ProtoOS job as its update helper does.
+func (f *fakeUpdater) finishProtoOS(instanceID string, state sdk.FrigateProtoOSJobState, message string) {
+	f.reportProtoOS(instanceID, func(p *sdk.FrigateProtoOSSupport) {
+		p.Job.State, p.Job.Message = state, message
+		if state == sdk.FrigateProtoOSJobSucceeded {
+			p.InstalledVersion = p.Job.TargetVersion
+			p.Served = sdk.FrigateProtoOSBundle{Source: sdk.FrigateProtoOSBundlePackage, ReleaseTag: p.Job.ReleaseTag}
+		}
+	})
+}
+
+func (f *fakeUpdater) commitCount(instanceID string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.commits[instanceID]
+}
+
 // setRollout replaces the rollout Frigate reports.
 func (f *fakeUpdater) setRollout(mutate func(r *sdk.FrigateRollout)) {
 	f.mu.Lock()
@@ -449,7 +505,9 @@ func newEnv(t *testing.T) *env {
 	svc := NewService(conn, getter, store, nil, auth, nil, Config{
 		PollInterval: time.Second, StageStallTimeout: 10 * time.Minute, CallTimeout: 10 * time.Second, ChunkTimeout: 10 * time.Second,
 	})
-	clock := &testClock{t: time.Now()}
+	// Postgres keeps microseconds. A finer clock makes a stored time earlier
+	// than the clock, and a test at the exact end of a timeout then fails.
+	clock := &testClock{t: time.Now().Truncate(time.Microsecond)}
 	svc.now = clock.now
 
 	e := &env{t: t, conn: conn, db: database, svc: svc, ctx: ctx, orgID: user.OrganizationID, userID: user.DatabaseID, device: device,
@@ -462,6 +520,25 @@ func newEnv(t *testing.T) *env {
 // controllers never open the package, so it need not be a real .deb.
 func (e *env) seedPackage(version string) (sqlc.FrigateUpdatePackage, []byte) {
 	e.t.Helper()
+	return e.seedPackageRow(sqlc.InsertFrigateUpdatePackageParams{
+		Kind: string(PackageKindFrigate), Filename: "frigate_" + version + "_arm64.deb", Version: version, Architecture: "arm64",
+		Repository: "btc-mining/frigate",
+	})
+}
+
+// seedProtoOSPackage stores a proto-os package for a release tag.
+func (e *env) seedProtoOSPackage(tag string) (sqlc.FrigateUpdatePackage, []byte) {
+	e.t.Helper()
+	return e.seedPackageRow(sqlc.InsertFrigateUpdatePackageParams{
+		Kind: string(PackageKindProtoOS), Filename: sdk.ProtoOSAssetName(tag), Version: sdk.ProtoOSDebianVersion(tag), Architecture: "all",
+		Repository: "block/proto-fleet",
+	})
+}
+
+// seedPackageRow stores a random blob and the package row that params
+// describes, with the blob's size and digest.
+func (e *env) seedPackageRow(params sqlc.InsertFrigateUpdatePackageParams) (sqlc.FrigateUpdatePackage, []byte) {
+	e.t.Helper()
 	blob := make([]byte, blobSize)
 	_, err := rand.Read(blob)
 	require.NoError(e.t, err)
@@ -471,12 +548,10 @@ func (e *env) seedPackage(version string) (sqlc.FrigateUpdatePackage, []byte) {
 	require.NoError(e.t, err)
 	require.NoError(e.t, writeFile(staged, blob))
 	require.NoError(e.t, e.store.Publish(id, staged))
-	row, err := sqlc.New(e.conn).InsertFrigateUpdatePackage(e.ctx, sqlc.InsertFrigateUpdatePackageParams{
-		ID: id, OrgID: e.orgID, Filename: "frigate_" + version + "_arm64.deb", Version: version, Architecture: "arm64",
-		Sha256: hex.EncodeToString(sum[:]), SizeBytes: int64(len(blob)), Repository: "btc-mining/frigate",
-		ReleaseKeyID: testKeyID, IssuedAt: time.Now().UTC(), Statement: []byte(`{"stmt":true}`), Signature: []byte{1, 2, 3},
-		UploadedBy: sql.NullInt64{Int64: e.userID, Valid: true},
-	})
+	params.ID, params.OrgID, params.Sha256, params.SizeBytes = id, e.orgID, hex.EncodeToString(sum[:]), int64(len(blob))
+	params.ReleaseKeyID, params.IssuedAt, params.Statement, params.Signature = testKeyID, time.Now().UTC(), []byte(`{"stmt":true}`), []byte{1, 2, 3}
+	params.UploadedBy = sql.NullInt64{Int64: e.userID, Valid: true}
+	row, err := sqlc.New(e.conn).InsertFrigateUpdatePackage(e.ctx, params)
 	require.NoError(e.t, err)
 	return row, blob
 }

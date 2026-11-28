@@ -1545,7 +1545,7 @@ class FrigateUpdateSupportResponse(_message.Message):
     def __init__(self, instances: _Optional[_Iterable[_Union[FrigateInstanceSupport, _Mapping]]] = ...) -> None: ...
 
 class FrigateInstanceSupport(_message.Message):
-    __slots__ = ("instance_id", "peer_instance_id", "running_version", "architecture", "installation_type", "helper_available", "support_message", "cluster_id", "active_job_id", "spool_free_bytes", "etcd_members_total", "etcd_members_healthy", "trusted_release_key_ids", "self_coordination_supported", "remote_trigger_allowed", "error")
+    __slots__ = ("instance_id", "peer_instance_id", "running_version", "architecture", "installation_type", "helper_available", "support_message", "cluster_id", "active_job_id", "spool_free_bytes", "etcd_members_total", "etcd_members_healthy", "trusted_release_key_ids", "self_coordination_supported", "remote_trigger_allowed", "error", "proto_os")
     INSTANCE_ID_FIELD_NUMBER: _ClassVar[int]
     PEER_INSTANCE_ID_FIELD_NUMBER: _ClassVar[int]
     RUNNING_VERSION_FIELD_NUMBER: _ClassVar[int]
@@ -1562,6 +1562,7 @@ class FrigateInstanceSupport(_message.Message):
     SELF_COORDINATION_SUPPORTED_FIELD_NUMBER: _ClassVar[int]
     REMOTE_TRIGGER_ALLOWED_FIELD_NUMBER: _ClassVar[int]
     ERROR_FIELD_NUMBER: _ClassVar[int]
+    PROTO_OS_FIELD_NUMBER: _ClassVar[int]
     instance_id: str
     peer_instance_id: str
     running_version: str
@@ -1578,10 +1579,51 @@ class FrigateInstanceSupport(_message.Message):
     self_coordination_supported: bool
     remote_trigger_allowed: bool
     error: str
-    def __init__(self, instance_id: _Optional[str] = ..., peer_instance_id: _Optional[str] = ..., running_version: _Optional[str] = ..., architecture: _Optional[str] = ..., installation_type: _Optional[str] = ..., helper_available: bool = ..., support_message: _Optional[str] = ..., cluster_id: _Optional[str] = ..., active_job_id: _Optional[str] = ..., spool_free_bytes: _Optional[int] = ..., etcd_members_total: _Optional[int] = ..., etcd_members_healthy: _Optional[int] = ..., trusted_release_key_ids: _Optional[_Iterable[str]] = ..., self_coordination_supported: bool = ..., remote_trigger_allowed: bool = ..., error: _Optional[str] = ...) -> None: ...
+    proto_os: FrigateProtoOSSupport
+    def __init__(self, instance_id: _Optional[str] = ..., peer_instance_id: _Optional[str] = ..., running_version: _Optional[str] = ..., architecture: _Optional[str] = ..., installation_type: _Optional[str] = ..., helper_available: bool = ..., support_message: _Optional[str] = ..., cluster_id: _Optional[str] = ..., active_job_id: _Optional[str] = ..., spool_free_bytes: _Optional[int] = ..., etcd_members_total: _Optional[int] = ..., etcd_members_healthy: _Optional[int] = ..., trusted_release_key_ids: _Optional[_Iterable[str]] = ..., self_coordination_supported: bool = ..., remote_trigger_allowed: bool = ..., error: _Optional[str] = ..., proto_os: _Optional[_Union[FrigateProtoOSSupport, _Mapping]] = ...) -> None: ...
+
+class FrigateProtoOSSupport(_message.Message):
+    __slots__ = ("self_supported", "support_message", "installed_version", "release_repositories", "served", "job")
+    SELF_SUPPORTED_FIELD_NUMBER: _ClassVar[int]
+    SUPPORT_MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    INSTALLED_VERSION_FIELD_NUMBER: _ClassVar[int]
+    RELEASE_REPOSITORIES_FIELD_NUMBER: _ClassVar[int]
+    SERVED_FIELD_NUMBER: _ClassVar[int]
+    JOB_FIELD_NUMBER: _ClassVar[int]
+    self_supported: bool
+    support_message: str
+    installed_version: str
+    release_repositories: _containers.RepeatedScalarFieldContainer[str]
+    served: FrigateProtoOSBundle
+    job: FrigateProtoOSJob
+    def __init__(self, self_supported: bool = ..., support_message: _Optional[str] = ..., installed_version: _Optional[str] = ..., release_repositories: _Optional[_Iterable[str]] = ..., served: _Optional[_Union[FrigateProtoOSBundle, _Mapping]] = ..., job: _Optional[_Union[FrigateProtoOSJob, _Mapping]] = ...) -> None: ...
+
+class FrigateProtoOSBundle(_message.Message):
+    __slots__ = ("source", "release_tag")
+    SOURCE_FIELD_NUMBER: _ClassVar[int]
+    RELEASE_TAG_FIELD_NUMBER: _ClassVar[int]
+    source: str
+    release_tag: str
+    def __init__(self, source: _Optional[str] = ..., release_tag: _Optional[str] = ...) -> None: ...
+
+class FrigateProtoOSJob(_message.Message):
+    __slots__ = ("job_id", "release_tag", "target_version", "state", "message", "updated_at")
+    JOB_ID_FIELD_NUMBER: _ClassVar[int]
+    RELEASE_TAG_FIELD_NUMBER: _ClassVar[int]
+    TARGET_VERSION_FIELD_NUMBER: _ClassVar[int]
+    STATE_FIELD_NUMBER: _ClassVar[int]
+    MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    UPDATED_AT_FIELD_NUMBER: _ClassVar[int]
+    job_id: str
+    release_tag: str
+    target_version: str
+    state: str
+    message: str
+    updated_at: _timestamp_pb2.Timestamp
+    def __init__(self, job_id: _Optional[str] = ..., release_tag: _Optional[str] = ..., target_version: _Optional[str] = ..., state: _Optional[str] = ..., message: _Optional[str] = ..., updated_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
 
 class FrigateManifest(_message.Message):
-    __slots__ = ("job_id", "site_id", "container_id", "instance_id", "expected_instance_ids", "release_tag", "target_version", "asset_id", "asset_name", "sha256", "size_bytes", "actor", "coordination", "release_statement", "release_signature")
+    __slots__ = ("job_id", "site_id", "container_id", "instance_id", "expected_instance_ids", "release_tag", "target_version", "asset_id", "asset_name", "sha256", "size_bytes", "actor", "coordination", "release_statement", "release_signature", "package")
     JOB_ID_FIELD_NUMBER: _ClassVar[int]
     SITE_ID_FIELD_NUMBER: _ClassVar[int]
     CONTAINER_ID_FIELD_NUMBER: _ClassVar[int]
@@ -1597,6 +1639,7 @@ class FrigateManifest(_message.Message):
     COORDINATION_FIELD_NUMBER: _ClassVar[int]
     RELEASE_STATEMENT_FIELD_NUMBER: _ClassVar[int]
     RELEASE_SIGNATURE_FIELD_NUMBER: _ClassVar[int]
+    PACKAGE_FIELD_NUMBER: _ClassVar[int]
     job_id: str
     site_id: str
     container_id: str
@@ -1612,7 +1655,8 @@ class FrigateManifest(_message.Message):
     coordination: str
     release_statement: bytes
     release_signature: bytes
-    def __init__(self, job_id: _Optional[str] = ..., site_id: _Optional[str] = ..., container_id: _Optional[str] = ..., instance_id: _Optional[str] = ..., expected_instance_ids: _Optional[_Iterable[str]] = ..., release_tag: _Optional[str] = ..., target_version: _Optional[str] = ..., asset_id: _Optional[int] = ..., asset_name: _Optional[str] = ..., sha256: _Optional[str] = ..., size_bytes: _Optional[int] = ..., actor: _Optional[str] = ..., coordination: _Optional[str] = ..., release_statement: _Optional[bytes] = ..., release_signature: _Optional[bytes] = ...) -> None: ...
+    package: str
+    def __init__(self, job_id: _Optional[str] = ..., site_id: _Optional[str] = ..., container_id: _Optional[str] = ..., instance_id: _Optional[str] = ..., expected_instance_ids: _Optional[_Iterable[str]] = ..., release_tag: _Optional[str] = ..., target_version: _Optional[str] = ..., asset_id: _Optional[int] = ..., asset_name: _Optional[str] = ..., sha256: _Optional[str] = ..., size_bytes: _Optional[int] = ..., actor: _Optional[str] = ..., coordination: _Optional[str] = ..., release_statement: _Optional[bytes] = ..., release_signature: _Optional[bytes] = ..., package: _Optional[str] = ...) -> None: ...
 
 class FrigateStageBeginRequest(_message.Message):
     __slots__ = ("instance_id", "manifest")

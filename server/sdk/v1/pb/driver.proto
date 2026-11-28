@@ -1227,6 +1227,35 @@ message FrigateInstanceSupport {
   bool self_coordination_supported = 14;
   bool remote_trigger_allowed = 15;
   string error = 16;
+  FrigateProtoOSSupport proto_os = 17;
+}
+
+// FrigateProtoOSSupport mirrors the proto_os_* fields of
+// mdk.v2.GetServerUpdateSupportResponse.
+message FrigateProtoOSSupport {
+  bool self_supported = 1;
+  string support_message = 2;
+  string installed_version = 3;
+  repeated string release_repositories = 4;
+  FrigateProtoOSBundle served = 5;
+  FrigateProtoOSJob job = 6;
+}
+
+// FrigateProtoOSBundle mirrors mdk.v2.ProtoOSBundleStatus.
+message FrigateProtoOSBundle {
+  string source = 1; // "", "none", "package", "bundled", or "unknown"
+  string release_tag = 2;
+}
+
+// FrigateProtoOSJob mirrors mdk.v2.ProtoOSPackageJob. It is empty when the
+// controller reports no job.
+message FrigateProtoOSJob {
+  string job_id = 1;
+  string release_tag = 2;
+  string target_version = 3;
+  string state = 4; // "", "queued", "installing", "succeeded", "failed", or "unknown"
+  string message = 5;
+  google.protobuf.Timestamp updated_at = 6;
 }
 
 // FrigateManifest mirrors the mdk.v2.ServerUpdateManifest fields a self-coordinated
@@ -1248,6 +1277,7 @@ message FrigateManifest {
   string coordination = 13; // "" (legacy) or "self"
   bytes release_statement = 14;
   bytes release_signature = 15;
+  string package = 16; // "" (frigate) or "proto_os"
 }
 
 message FrigateStageBeginRequest {

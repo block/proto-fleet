@@ -40,6 +40,14 @@ type FrigatePackageStager interface {
 	FrigateStagePackage(ctx context.Context, pkg FrigatePackageRef, targets []FrigateStageTarget) ([]FrigateStageOutcome, error)
 }
 
+// ProtoOSUpdateChecker is implemented by a controller handle that reaches the
+// controllers through a relay that may be too old to stage the ProtoOS
+// package. CheckProtoOSUpdates returns a FailedPrecondition error with
+// operator text in that case.
+type ProtoOSUpdateChecker interface {
+	CheckProtoOSUpdates(ctx context.Context) error
+}
+
 // FrigatePackageRef identifies an uploaded package in Fleet's package store.
 type FrigatePackageRef struct {
 	ID        string

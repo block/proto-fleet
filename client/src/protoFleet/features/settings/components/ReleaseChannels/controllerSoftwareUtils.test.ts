@@ -7,7 +7,9 @@ import {
   controllerSoftwareOptions,
   controllerSoftwareOptionValue,
   controllerSoftwareStatus,
+  controllerSoftwareVersions,
 } from "./controllerSoftwareUtils";
+import { FrigatePackageKind, FrigatePackageSchema } from "@/protoFleet/api/generated/frigateupdate/v1/frigateupdate_pb";
 import { ReleaseChannelControllerSoftwareSchema } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 
 const software = (targetVersion: string, containerCount: number, onTargetCount: number) =>
@@ -18,6 +20,24 @@ const software = (targetVersion: string, containerCount: number, onTargetCount: 
     containerCount,
     onTargetCount,
   });
+
+describe("controllerSoftwareVersions", () => {
+  it("offers only controller software packages, never ProtoOS or an unknown kind", () => {
+    const uploaded = [
+      create(FrigatePackageSchema, { kind: FrigatePackageKind.CONTROLLER_SOFTWARE, version: "1.6.0" }),
+      create(FrigatePackageSchema, { kind: FrigatePackageKind.PROTO_OS, version: "0.6.2~internal.14" }),
+      create(FrigatePackageSchema, { kind: FrigatePackageKind.UNSPECIFIED, version: "9.9.9" }),
+      create(FrigatePackageSchema, { kind: FrigatePackageKind.CONTROLLER_SOFTWARE, version: "1.5.2" }),
+    ];
+
+    expect(controllerSoftwareVersions(uploaded)).toEqual(["1.6.0", "1.5.2"]);
+    expect(controllerSoftwareOptions(controllerSoftwareVersions(uploaded), "").map((option) => option.label)).toEqual([
+      "Not set",
+      "1.6.0",
+      "1.5.2",
+    ]);
+  });
+});
 
 describe("controller software in a channel", () => {
   it("counts no container as behind when no version is set", () => {

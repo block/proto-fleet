@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { type ComponentType, useCallback, useRef, useState } from "react";
 import {
   describeFrigateError,
   FRIGATE_UPDATE_RUNBOOK_URL,
@@ -6,10 +6,15 @@ import {
   frigateRolloutPhaseLabel,
   frigateStageLabel,
   frigateStateLabel,
+  type PackageKindRules,
+  packageKindRules,
+  type ProgressStyle,
+  protoOSJobStateLabel,
   timestampSeconds,
 } from "./frigateUpdate";
 import {
   FrigateAgentPhase,
+  FrigatePackageKind,
   FrigateUpdateState,
   type InstanceProgress,
   InstanceStageState,
@@ -30,12 +35,30 @@ type Confirming = "retry" | "cancel" | undefined;
 
 const formatContact = (seconds?: number) => (seconds ? formatTimestamp(seconds, { includeSeconds: true }) : "never");
 
-function InstanceRow({ instance, driver }: { instance: InstanceProgress; driver: boolean }) {
-  const staging = instance.stageState === InstanceStageState.STAGING && instance.sizeBytes > 0n;
-  const failure =
-    instance.errorCode || instance.errorMessage
-      ? describeFrigateError(instance.errorCode, instance.errorMessage)
-      : undefined;
+const versionText = (job: UpdateJob) =>
+  job.fromVersion ? `${job.fromVersion} to ${job.targetVersion}` : `to ${job.targetVersion}`;
+
+const jobKindRules = (job: UpdateJob) => packageKindRules(job.package?.kind ?? FrigatePackageKind.UNSPECIFIED);
+
+function stagedBytes(instance: InstanceProgress): string {
+  if (instance.stageState !== InstanceStageState.STAGING || instance.sizeBytes <= 0n) return "";
+  return `, ${formatFileSize(Number(instance.stagedBytes))} of ${formatFileSize(Number(instance.sizeBytes))}`;
+}
+
+function InstanceFailure({ instance }: { instance: InstanceProgress }) {
+  if (!instance.errorCode && !instance.errorMessage) return null;
+  const failure = describeFrigateError(instance.errorCode, instance.errorMessage);
+  return (
+    <div role="alert" className="text-200 text-intent-critical-text">
+      {failure.title}
+      {failure.detail ? ` ${failure.detail}` : ""} Code: {failure.code || "unknown"}
+    </div>
+  );
+}
+
+type InstanceRowProps = { instance: InstanceProgress; driver: boolean };
+
+function RolloutInstanceRow({ instance, driver }: InstanceRowProps) {
   const contact = timestampSeconds(instance.lastContact);
   const phase =
     instance.agentPhase === FrigateAgentPhase.UNSPECIFIED
@@ -52,9 +75,7 @@ function InstanceRow({ instance, driver }: { instance: InstanceProgress; driver:
       </div>
       <div className="text-300 text-text-primary">
         {phase}
-        {staging
-          ? `, ${formatFileSize(Number(instance.stagedBytes))} of ${formatFileSize(Number(instance.sizeBytes))}`
-          : ""}
+        {stagedBytes(instance)}
       </div>
       <div className="flex flex-wrap items-center gap-2 text-200 text-text-primary-70">
         <span>Last contact {formatContact(contact)}</span>
@@ -65,24 +86,49 @@ function InstanceRow({ instance, driver }: { instance: InstanceProgress; driver:
         ) : null}
         {instance.runningVersion ? <span>Version {instance.runningVersion}</span> : null}
       </div>
-      {failure ? (
-        <div role="alert" className="text-200 text-intent-critical-text">
-          {failure.title}
-          {failure.detail ? ` ${failure.detail}` : ""} Code: {failure.code || "unknown"}
-        </div>
-      ) : null}
+      <InstanceFailure instance={instance} />
     </li>
   );
 }
 
+function InstallInstanceRow({ instance }: InstanceRowProps) {
+  const contact = timestampSeconds(instance.lastContact);
+  // The copy progress shows until the controller reports its install of this job.
+  const state =
+    protoOSJobStateLabel(instance.protoOsJobState) ||
+    `${frigateStageLabel(instance.stageState) || "Not reported"}${stagedBytes(instance)}`;
+  return (
+    <li
+      className="flex flex-col gap-1 rounded-lg border border-border-5 p-3"
+      data-testid={`frigate-instance-${instance.instanceId}`}
+    >
+      <span className="text-emphasis-300 text-text-primary">{instance.instanceId}</span>
+      <div className="text-300 text-text-primary">{state}</div>
+      <div className="flex flex-wrap items-center gap-2 text-200 text-text-primary-70">
+        <span>Last contact {formatContact(contact)}</span>
+        {instance.protoOsInstalledVersion ? <span>Installed {instance.protoOsInstalledVersion}</span> : null}
+        {instance.protoOsServedReleaseTag ? <span>Serves {instance.protoOsServedReleaseTag}</span> : null}
+      </div>
+      <InstanceFailure instance={instance} />
+    </li>
+  );
+}
+
+const INSTANCE_ROWS: Record<ProgressStyle, ComponentType<InstanceRowProps>> = {
+  rollout: RolloutInstanceRow,
+  install: InstallInstanceRow,
+};
+
 function ConfirmDialog({
   kind,
+  rules,
   busy,
   error,
   onConfirm,
   onDismiss,
 }: {
   kind: Exclude<Confirming, undefined>;
+  rules: PackageKindRules;
   busy: boolean;
   error?: string;
   onConfirm: () => void;
@@ -92,7 +138,7 @@ function ConfirmDialog({
   return (
     <Dialog
       open
-      title={retry ? "Retry the controller software update?" : "Cancel the controller software update?"}
+      title={retry ? `Retry the ${rules.noun} update?` : `Cancel the ${rules.noun} update?`}
       testId={`frigate-update-${kind}-dialog`}
       onDismiss={busy ? undefined : onDismiss}
       buttons={[
@@ -105,11 +151,7 @@ function ConfirmDialog({
         },
       ]}
     >
-      <p className="text-300 text-text-primary-70">
-        {retry
-          ? "The update resumes from the step that failed. Both controllers stop mining control together, briefly."
-          : "No controller has been stopped, so cancelling leaves the controller software unchanged. You can start a new update afterwards."}
-      </p>
+      <p className="text-300 text-text-primary-70">{retry ? rules.retryConfirm : rules.cancel.confirm}</p>
       {error ? (
         <p role="alert" className="mt-3 text-intent-critical-text">
           {error}
@@ -120,6 +162,9 @@ function ConfirmDialog({
 }
 
 function JobDetail({ job, onChanged }: { job: UpdateJob; onChanged: () => void }) {
+  const rules = jobKindRules(job);
+  const InstanceRow = INSTANCE_ROWS[rules.progress];
+  const canRetry = job.retryable && !!rules.retryConfirm;
   const { retryUpdate, cancelUpdate } = useFrigateUpdateActions();
   const { keyFor, reset } = useTicketOperationKey();
   const [confirming, setConfirming] = useState<Confirming>();
@@ -142,15 +187,13 @@ function JobDetail({ job, onChanged }: { job: UpdateJob; onChanged: () => void }
       // The key lives as long as the confirmation, so resubmitting the same
       // action after a failure reuses it.
       const key = keyFor({ action: confirming, jobId: job.jobId });
-      let message = "Controller software update retry requested.";
+      let message = `${rules.title} update retry requested.`;
       if (confirming === "cancel") {
         // A cancel can be accepted while Start is still in flight, or queued
         // for Frigate's driver. Only a cancelled job has really stopped.
         const updated = await cancelUpdate(job.jobId, key);
         message =
-          updated?.state === FrigateUpdateState.CANCELLED
-            ? "Controller software update cancelled."
-            : "Cancel requested. The update stops only if no controller has stopped yet.";
+          updated?.state === FrigateUpdateState.CANCELLED ? `${rules.title} update cancelled.` : rules.cancel.pending;
       } else {
         await retryUpdate(job.jobId, key);
       }
@@ -165,7 +208,7 @@ function JobDetail({ job, onChanged }: { job: UpdateJob; onChanged: () => void }
       inFlight.current = false;
       setBusy(false);
     }
-  }, [cancelUpdate, close, confirming, job.jobId, keyFor, onChanged, retryUpdate]);
+  }, [cancelUpdate, close, confirming, job.jobId, keyFor, onChanged, retryUpdate, rules]);
 
   const phase = frigateRolloutPhaseLabel(job.rolloutPhase);
   const failure = job.errorCode || job.errorMessage ? describeFrigateError(job.errorCode, job.errorMessage) : undefined;
@@ -186,12 +229,12 @@ function JobDetail({ job, onChanged }: { job: UpdateJob; onChanged: () => void }
             {stateLine}
           </div>
           <div className="text-200 text-text-primary-70">
-            {job.fromVersion ? `${job.fromVersion} to ${job.targetVersion}` : `To ${job.targetVersion}`}
+            {rules.title} {versionText(job)}
             {job.stageOnly ? ", package check only" : ""}
           </div>
         </div>
         <div className="flex gap-2">
-          {job.retryable ? (
+          {canRetry ? (
             <Button
               variant={variants.primary}
               size={sizes.compact}
@@ -253,18 +296,25 @@ function JobDetail({ job, onChanged }: { job: UpdateJob; onChanged: () => void }
           ))}
         </ul>
       ) : null}
-      {failure || job.retryable ? (
+      {failure || canRetry ? (
         <a
           href={FRIGATE_UPDATE_RUNBOOK_URL}
           target="_blank"
           rel="noopener noreferrer"
           className="text-300 text-core-accent-fill underline"
         >
-          Controller software update runbook
+          {rules.title} update runbook
         </a>
       ) : null}
       {confirming ? (
-        <ConfirmDialog kind={confirming} busy={busy} error={error} onConfirm={() => void confirm()} onDismiss={close} />
+        <ConfirmDialog
+          kind={confirming}
+          rules={rules}
+          busy={busy}
+          error={error}
+          onConfirm={() => void confirm()}
+          onDismiss={close}
+        />
       ) : null}
     </div>
   );
@@ -286,11 +336,11 @@ export default function FrigateUpdatePanel({
   if (!latest && !error) return null;
   return (
     <section
-      aria-label="Controller software update"
+      aria-label="Software updates"
       className="flex flex-col gap-4 rounded-xl bg-core-primary-5 p-6"
       data-testid="frigate-update-panel"
     >
-      <h2 className="text-heading-200 text-text-primary">Controller software update</h2>
+      <h2 className="text-heading-200 text-text-primary">Software updates</h2>
       {error ? (
         <p role="alert" className="text-300 text-intent-critical-text">
           {error}
@@ -300,11 +350,11 @@ export default function FrigateUpdatePanel({
       {earlier.length > 0 ? (
         <div className="flex flex-col gap-2">
           <h3 className="text-emphasis-300 text-text-primary">Recent updates</h3>
-          <ul aria-label="Recent controller software updates" className="flex flex-col divide-y divide-border-5">
+          <ul aria-label="Recent software updates" className="flex flex-col divide-y divide-border-5">
             {earlier.map((job) => (
               <li key={job.jobId} className="flex flex-wrap items-baseline justify-between gap-2 py-2 text-300">
                 <span className="text-text-primary">
-                  {job.fromVersion ? `${job.fromVersion} to ${job.targetVersion}` : `To ${job.targetVersion}`}
+                  {jobKindRules(job).title} {versionText(job)}
                   {isFrigateUpdateActive(job) ? " (in progress)" : ""}
                 </span>
                 <span className="text-text-primary-70">

@@ -11,6 +11,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -74,6 +75,12 @@ const (
 	CodeRolloutLost             = "FLEET_ROLLOUT_NOT_FOUND"
 	CodeStartTimeout            = "FLEET_START_TIMEOUT"
 	CodeControllersLost         = "FLEET_CONTROLLERS_LOST"
+
+	CodeProtoOSUnsupported         = "FLEET_PROTOOS_UNSUPPORTED"
+	CodeProtoOSRepositoryUntrusted = "FLEET_PROTOOS_REPOSITORY_UNTRUSTED"
+	CodeProtoOSInstallFailed       = "FLEET_PROTOOS_INSTALL_FAILED"
+	CodeProtoOSJobNotReported      = "FLEET_PROTOOS_JOB_NOT_REPORTED"
+	CodeProtoOSInstallTimeout      = "FLEET_PROTOOS_INSTALL_TIMEOUT"
 )
 
 const (
@@ -104,15 +111,17 @@ type MinerGetter interface {
 
 // Service owns update packages and jobs.
 type Service struct {
-	conn     *sql.DB
-	queries  sqlc.Querier
-	miners   MinerGetter
-	store    *files.FrigatePackageStore
-	verifier *frigaterelease.Verifier
-	auth     Authorizer
-	activity *activity.Service
-	cfg      Config
-	now      func() time.Time
+	conn    *sql.DB
+	queries sqlc.Querier
+	miners  MinerGetter
+	store   *files.FrigatePackageStore
+	// verifiers holds the installed release keys of each package kind. A kind
+	// without an entry has no installed release key.
+	verifiers map[PackageKind]*frigaterelease.Verifier
+	auth      Authorizer
+	activity  *activity.Service
+	cfg       Config
+	now       func() time.Time
 
 	mu       sync.Mutex
 	inflight map[uuid.UUID]struct{}
@@ -128,24 +137,24 @@ type Service struct {
 	afterStartLease func()
 }
 
-// NewService creates the service. verifier may be nil: Fleet then has no
-// installed release key, and checks an uploaded release as checkRelease
-// describes. activitySvc may be nil.
+// NewService creates the service. A package kind without a verifier has no
+// installed release key, and Fleet checks an uploaded release of that kind as
+// checkRelease describes. activitySvc may be nil.
 func NewService(
 	conn *sql.DB,
 	miners MinerGetter,
 	store *files.FrigatePackageStore,
-	verifier *frigaterelease.Verifier,
+	verifiers map[PackageKind]*frigaterelease.Verifier,
 	auth Authorizer,
 	activitySvc *activity.Service,
 	cfg Config,
 ) *Service {
-	return &Service{
+	s := &Service{
 		conn:       conn,
 		queries:    db.NewFailoverResettingQuerier(db.NewRetryDB(conn)),
 		miners:     miners,
 		store:      store,
-		verifier:   verifier,
+		verifiers:  make(map[PackageKind]*frigaterelease.Verifier, len(packageKinds)),
 		auth:       auth,
 		activity:   activitySvc,
 		cfg:        cfg.withDefaults(),
@@ -155,6 +164,8 @@ func NewService(
 		lost:       make(map[uuid.UUID]int),
 		dispatched: make(map[uuid.UUID]uint64),
 	}
+	maps.Copy(s.verifiers, verifiers)
+	return s
 }
 
 // MaxPackageSize is the largest package Fleet accepts.

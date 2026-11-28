@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { FrigatePackage } from "@/protoFleet/api/generated/frigateupdate/v1/frigateupdate_pb";
+import type { FrigatePackage, FrigatePackageKind } from "@/protoFleet/api/generated/frigateupdate/v1/frigateupdate_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useFrigatePackages } from "@/protoFleet/api/useFrigatePackages";
+import { packageKindFromName, packageKindRules } from "@/protoFleet/features/containers/frigateUpdate";
 import { FirmwareArtifactSection } from "@/protoFleet/features/settings/components/FirmwareSections";
 import FrigatePackageUploadDialog from "@/protoFleet/features/settings/components/FrigatePackageUploadDialog";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
@@ -14,10 +15,11 @@ import { ColConfig, ColTitles } from "@/shared/components/List/types";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { formatTimestamp } from "@/shared/utils/formatTimestamp";
 
-type PackageColumns = "version" | "architecture" | "sha256" | "releaseKeyId" | "uploadedAt";
+type PackageColumns = "version" | "kind" | "architecture" | "sha256" | "releaseKeyId" | "uploadedAt";
 
 type PackageRow = {
   id: string;
+  kind: FrigatePackageKind;
   filename: string;
   version: string;
   architecture: string;
@@ -30,13 +32,14 @@ type PackageRow = {
 
 const colTitles: ColTitles<PackageColumns> = {
   version: "Version",
+  kind: "Type",
   architecture: "Architecture",
   sha256: "Digest",
   releaseKeyId: "Signer key",
   uploadedAt: "Uploaded",
 };
 
-const activeCols: PackageColumns[] = ["version", "architecture", "sha256", "releaseKeyId", "uploadedAt"];
+const activeCols: PackageColumns[] = ["version", "kind", "architecture", "sha256", "releaseKeyId", "uploadedAt"];
 
 // Digests and key IDs are long hex strings: show the start and keep the whole value in the title.
 const Hash = ({ value }: { value: string }) => (
@@ -63,6 +66,7 @@ const colConfig: ColConfig<PackageRow, string, PackageColumns> = {
     width: "w-64",
     allowWrap: true,
   },
+  kind: { component: (row) => <span>{packageKindRules(row.kind).title}</span>, width: "w-40" },
   architecture: { component: (row) => <span>{row.architecture}</span>, width: "w-32" },
   sha256: { component: (row) => <Hash value={row.sha256} />, width: "w-56" },
   releaseKeyId: {
@@ -81,6 +85,7 @@ const colConfig: ColConfig<PackageRow, string, PackageColumns> = {
 function toRow(item: FrigatePackage): PackageRow {
   return {
     id: item.id,
+    kind: item.kind,
     filename: item.filename,
     version: item.version,
     architecture: item.architecture,
@@ -113,7 +118,7 @@ const FrigatePackages = () => {
         })
         .catch((error) => {
           if (signal?.aborted) return;
-          setLoadError(getErrorMessage(error, "Couldn't load controller software."));
+          setLoadError(getErrorMessage(error, "Couldn't load packages."));
         })
         .finally(() => {
           if (!signal?.aborted) setIsLoading(false);
@@ -165,21 +170,21 @@ const FrigatePackages = () => {
     <Button
       variant={variants.secondary}
       size={sizes.compact}
-      text="Upload controller software"
+      text="Upload package"
       onClick={() => setShowUpload(true)}
       className="shrink-0 phone:w-full"
     />
   );
 
   return (
-    <FirmwareArtifactSection title="Controller software" action={uploadAction}>
+    <FirmwareArtifactSection title="Controller software and ProtoOS" action={uploadAction}>
       {loadError ? (
         <p role="alert" className="mb-4 text-300 text-intent-critical-text">
           {loadError}
         </p>
       ) : null}
       {isLoading && rows.length === 0 ? (
-        <div className="text-center text-text-primary-50">Loading controller software...</div>
+        <div className="text-center text-text-primary-50">Loading packages...</div>
       ) : (
         <List<PackageRow, string, PackageColumns>
           items={rows}
@@ -191,8 +196,8 @@ const FrigatePackages = () => {
           itemName={{ singular: "package", plural: "packages" }}
           noDataElement={
             <SettingsEmptyState
-              title="No controller software uploaded"
-              description="Upload a signed release to update container controllers."
+              title="No packages uploaded"
+              description="Upload a signed release to update the controller software or ProtoOS of a container."
             />
           }
           actions={actions}
@@ -206,7 +211,9 @@ const FrigatePackages = () => {
           setShowUpload(false);
           fetchPackages();
           pushToast({
-            message: result.reused ? "That package was already uploaded" : "Controller software uploaded",
+            message: result.reused
+              ? "That package was already uploaded"
+              : `${packageKindRules(packageKindFromName(result.package.kind)).title} uploaded`,
             status: STATUSES.success,
           });
         }}
@@ -214,7 +221,7 @@ const FrigatePackages = () => {
 
       <Dialog
         open={toDelete !== null}
-        title="Delete controller software package?"
+        title={toDelete ? `Delete ${packageKindRules(toDelete.kind).noun} package?` : "Delete package?"}
         testId="delete-frigate-package-dialog"
         onDismiss={() => {
           if (!isDeleting) setToDelete(null);

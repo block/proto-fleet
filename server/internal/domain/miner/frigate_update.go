@@ -17,8 +17,19 @@ type frigateRelayer interface {
 var (
 	_ interfaces.FrigateUpdater       = (*RemoteFleetNodeMiner)(nil)
 	_ interfaces.FrigatePackageStager = (*RemoteFleetNodeMiner)(nil)
+	_ interfaces.ProtoOSUpdateChecker = (*RemoteFleetNodeMiner)(nil)
+	_ interfaces.ProtoOSUpdateChecker = (*remotenode.Miner)(nil)
 	_ frigateRelayer                  = (*remotenode.Miner)(nil)
 )
+
+// CheckProtoOSUpdates refuses a ProtoOS update when the Fleet Node is too old
+// to stage the ProtoOS package.
+func (m *RemoteFleetNodeMiner) CheckProtoOSUpdates(ctx context.Context) error {
+	if checker, ok := m.delegate.(interfaces.ProtoOSUpdateChecker); ok {
+		return checker.CheckProtoOSUpdates(ctx)
+	}
+	return fleeterror.NewFailedPreconditionError("ProtoOS updates are not available on this Fleet Node handle")
+}
 
 // frigateUpdater returns the relay of the command miner, which runs update
 // calls on the Fleet Node. A handle without one, such as a telemetry handle,

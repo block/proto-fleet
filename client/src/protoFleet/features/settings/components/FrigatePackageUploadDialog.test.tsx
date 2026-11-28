@@ -15,7 +15,7 @@ const statement = new File(["{}"], "frigate_1.4.0_linux_arm64.deb.statement.json
 const signature = new File([new Uint8Array([0x30, 0x80])], "frigate_1.4.0_linux_arm64.deb.statement.sig");
 const publicKey = new File(["-----BEGIN PUBLIC KEY-----"], "frigate-release-2026.pem");
 
-const picker = () => screen.getByLabelText("Controller software files");
+const picker = () => screen.getByLabelText("Package files");
 const choose = (...files: File[]) => fireEvent.change(picker(), { target: { files } });
 const upload = () => screen.getByRole("button", { name: /^(Upload|Try again)$/ });
 const hint = () => screen.getByRole("status");
@@ -260,6 +260,47 @@ describe("FrigatePackageUploadDialog upload", () => {
 
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Upload" })).toBeEnabled();
+  });
+
+  it("names the file name rule of a ProtoOS package", () => {
+    renderDialog();
+    expect(screen.getByText("Upload package")).toBeInTheDocument();
+    expect(
+      screen.getByText("Keep the release file name of a ProtoOS package: proto-os_<tag>_all.deb."),
+    ).toBeInTheDocument();
+  });
+
+  it("uploads a ProtoOS package with the same files", async () => {
+    const protoOS = [
+      new File(["deb"], "proto-os_v0.6.2-internal.14_all.deb"),
+      new File(["{}"], "proto-os_v0.6.2-internal.14_all.deb.statement.json"),
+      new File([new Uint8Array([0x30, 0x80])], "proto-os_v0.6.2-internal.14_all.deb.statement.sig"),
+    ];
+    const result = { package: { id: "p", kind: "proto_os" }, reused: false };
+    mocks.uploadPackage.mockResolvedValue(result);
+    const { onSuccess } = renderDialog();
+    choose(...protoOS);
+
+    fireEvent.click(upload());
+
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledWith(result));
+    const [deb, statement, signature] = protoOS;
+    expect(mocks.uploadPackage).toHaveBeenCalledWith(expect.objectContaining({ deb, statement, signature }));
+  });
+
+  it("shows the server's refusal of a renamed ProtoOS package and keeps the files", async () => {
+    const refusal = 'a ProtoOS package for v0.6.2-internal.14 must be named "proto-os_v0.6.2-internal.14_all.deb"';
+    mocks.uploadPackage.mockRejectedValue(new Error(refusal));
+    const { onSuccess } = renderDialog();
+    const renamed = new File(["deb"], "proto-os-latest.deb");
+    choose(renamed, statement, signature);
+
+    fireEvent.click(upload());
+
+    expect(await screen.findByTestId("frigate-upload-error")).toHaveTextContent(refusal);
+    expect(screen.getByText(renamed.name)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
+    expect(onSuccess).not.toHaveBeenCalled();
   });
 
   it("cancels an upload in progress when dismissed", async () => {

@@ -122,7 +122,7 @@ const FrigatePackageUploadDialog = ({ open, onSuccess, onDismiss }: Props) => {
     return (
       <Modal
         open={open}
-        title="Upload controller software"
+        title="Upload package"
         onDismiss={dismiss}
         divider={false}
         buttons={[{ text: "Done", variant: variants.primary, onClick: dismiss, dismissModalOnClick: false }]}
@@ -143,7 +143,7 @@ const FrigatePackageUploadDialog = ({ open, onSuccess, onDismiss }: Props) => {
   return (
     <Modal
       open={open}
-      title="Upload controller software"
+      title="Upload package"
       onDismiss={dismiss}
       divider={false}
       buttons={[
@@ -171,14 +171,19 @@ const FrigatePackageUploadDialog = ({ open, onSuccess, onDismiss }: Props) => {
         {uploading && deb ? (
           <FileProcessingStatus state="uploading" fileName={deb.name} fileSize={deb.size} uploadProgress={progress} />
         ) : (
-          <ReleaseFilePicker
-            kinds={FILE_KINDS}
-            files={files}
-            onChange={choose}
-            onReject={setSelectionError}
-            emptyHint="Select the .deb, release statement and signature. Public key is optional."
-            inputLabel="Controller software files"
-          />
+          <>
+            <ReleaseFilePicker
+              kinds={FILE_KINDS}
+              files={files}
+              onChange={choose}
+              onReject={setSelectionError}
+              emptyHint="Select the .deb, release statement and signature. Public key is optional."
+              inputLabel="Package files"
+            />
+            <p className="text-200 text-text-primary-70">
+              Keep the release file name of a ProtoOS package: proto-os_&lt;tag&gt;_all.deb.
+            </p>
+          </>
         )}
       </div>
     </Modal>

@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { frigateCodeText, instanceSupportProblems, timestampSeconds } from "./frigateUpdate";
+import {
+  type ControllerSupport,
+  frigateCodeText,
+  timestampSeconds,
+  UPDATABLE_KIND_RULES,
+  type UpdatableKind,
+} from "./frigateUpdate";
 import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import {
   type FrigatePackage,
   type GetSupportResponse,
+  type InstanceSupport,
   type UpdateJob,
 } from "@/protoFleet/api/generated/frigateupdate/v1/frigateupdate_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
@@ -34,14 +41,17 @@ type Loaded<T> = { status: "loading" } | { status: "error"; message: string } | 
 
 export default function FrigateUpdateDialog({
   container,
+  kind,
   onClose,
   onStarted,
 }: {
   container: Pick<Container, "deviceIdentifier" | "name">;
+  kind: UpdatableKind;
   onClose: () => void;
   onStarted?: (job: UpdateJob | undefined) => void;
 }) {
   const { deviceIdentifier, name } = container;
+  const rules = UPDATABLE_KIND_RULES[kind];
   const { listPackages } = useFrigatePackages();
   const { getSupport, startUpdate } = useFrigateUpdateActions();
   const { keyFor, reset } = useTicketOperationKey();
@@ -58,8 +68,10 @@ export default function FrigateUpdateDialog({
   useEffect(() => {
     const abort = new AbortController();
     listPackages(abort.signal)
-      .then((items) => {
+      .then((all) => {
         if (abort.signal.aborted) return;
+        // The server refuses a package of another kind, so it is never offered.
+        const items = all.filter((item) => item.kind === kind);
         const usable = items.filter((item) => item.storedOnThisHost);
         setElsewhereCount(items.length - usable.length);
         setPackages({ status: "ready", value: usable });
@@ -72,7 +84,7 @@ export default function FrigateUpdateDialog({
         }
       });
     return () => abort.abort();
-  }, [listPackages]);
+  }, [kind, listPackages]);
 
   // Readiness is read once without a package, then again for the chosen package
   // so architecture, signing key and version problems show before starting.
@@ -124,7 +136,7 @@ export default function FrigateUpdateDialog({
         idempotencyKey: keyFor({ deviceIdentifier, packageId }),
       });
       reset();
-      pushToast({ message: `${name}: controller software update started.`, status: STATUSES.success });
+      pushToast({ message: `${name}: ${rules.noun} update started.`, status: STATUSES.success });
       onStarted?.(job);
       onClose();
     } catch (cause) {
@@ -133,12 +145,12 @@ export default function FrigateUpdateDialog({
       inFlight.current = false;
       setBusy(false);
     }
-  }, [canStart, deviceIdentifier, keyFor, name, onClose, onStarted, packageId, reset, startUpdate]);
+  }, [canStart, deviceIdentifier, keyFor, name, onClose, onStarted, packageId, reset, rules.noun, startUpdate]);
 
   return (
     <Dialog
       open
-      title={`Update controller software: ${name}`}
+      title={`Update ${rules.noun}: ${name}`}
       onDismiss={busy ? undefined : onClose}
       testId="frigate-update-dialog"
       buttons={[
@@ -155,8 +167,8 @@ export default function FrigateUpdateDialog({
         <Callout
           intent="warning"
           prefixIcon={<Alert />}
-          title="Both controllers stop mining control together, briefly."
-          subtitle="Miners keep hashing, but this container can't be managed from Fleet until both controllers restart."
+          title={rules.startWarning.title}
+          subtitle={rules.startWarning.subtitle}
           testId="frigate-update-disruption"
         />
         {packages.status === "error" ? (
@@ -165,7 +177,7 @@ export default function FrigateUpdateDialog({
           </p>
         ) : null}
         {packages.status === "ready" && packages.value.length === 0 && elsewhereCount === 0 ? (
-          <p role="status">No controller software is uploaded. Upload a package in Settings, Firmware.</p>
+          <p role="status">No {rules.noun} package is uploaded. Upload one in Settings, Firmware.</p>
         ) : null}
         {packages.status === "ready" && elsewhereCount > 0 ? (
           <p role="status">
@@ -190,7 +202,12 @@ export default function FrigateUpdateDialog({
             Fleet did not verify this package's signature. The controllers verify it before they install.
           </p>
         ) : null}
-        <SupportSummary support={support} onCheckAgain={() => setRecheck((value) => value + 1)} />
+        <SupportSummary
+          support={support}
+          describe={rules.support}
+          showVerdict={!rules.verdictNeedsPackage || !!packageId}
+          onCheckAgain={() => setRecheck((value) => value + 1)}
+        />
         {error ? (
           <p role="alert" className="text-intent-critical-text">
             {error}
@@ -201,7 +218,17 @@ export default function FrigateUpdateDialog({
   );
 }
 
-function SupportSummary({ support, onCheckAgain }: { support: Loaded<GetSupportResponse>; onCheckAgain: () => void }) {
+function SupportSummary({
+  support,
+  describe,
+  showVerdict,
+  onCheckAgain,
+}: {
+  support: Loaded<GetSupportResponse>;
+  describe: (instance: InstanceSupport) => ControllerSupport;
+  showVerdict: boolean;
+  onCheckAgain: () => void;
+}) {
   if (support.status === "loading") {
     return (
       <div role="status" className="flex items-center gap-2 text-300 text-text-primary-70">
@@ -233,7 +260,7 @@ function SupportSummary({ support, onCheckAgain }: { support: Loaded<GetSupportR
       .join(" ") || undefined;
   return (
     <div className="flex flex-col gap-3">
-      {!eligible ? (
+      {!eligible && showVerdict ? (
         <Callout
           intent="warning"
           prefixIcon={<Alert />}
@@ -246,15 +273,11 @@ function SupportSummary({ support, onCheckAgain }: { support: Loaded<GetSupportR
       ) : null}
       <ul aria-label="Controllers" className="flex flex-col gap-2">
         {instances.map((instance) => {
-          const problems = instanceSupportProblems(instance);
+          const { summary, problems, note } = describe(instance);
           return (
             <li key={instance.instanceId} className="rounded-lg border border-border-5 p-3">
               <div className="text-emphasis-300 text-text-primary">{instance.instanceId}</div>
-              <div className="text-200 text-text-primary-70">
-                {[instance.runningVersion && `Version ${instance.runningVersion}`, instance.architecture]
-                  .filter(Boolean)
-                  .join(", ") || "Version unknown"}
-              </div>
+              <div className="text-200 text-text-primary-70">{summary}</div>
               {problems.length > 0 ? (
                 <ul className="mt-1 list-disc pl-5 text-200 text-intent-critical-text">
                   {problems.map((problem) => (
@@ -264,9 +287,7 @@ function SupportSummary({ support, onCheckAgain }: { support: Loaded<GetSupportR
               ) : (
                 <div className="text-200 text-text-primary-70">Ready</div>
               )}
-              {instance.supportMessage ? (
-                <div className="text-200 text-text-primary-70">{instance.supportMessage}</div>
-              ) : null}
+              {note ? <div className="text-200 text-text-primary-70">{note}</div> : null}
             </li>
           );
         })}

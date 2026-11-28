@@ -674,7 +674,7 @@ func TestImportPackage_ReuploadRefreshesTheStatementWhenUnused(t *testing.T) {
 
 	// Re-signed by a rotated key with a newer statement for the same bytes.
 	rotated := newReleaseFixture(t, e)
-	e.svc.verifier = frigaterelease.NewStaticVerifier(rel.key, rotated.key)
+	e.svc.verifiers[PackageKindFrigate] = frigaterelease.NewStaticVerifier(rel.key, rotated.key)
 	second, secondStatement, err := e.importDeb(t, rotated, deb, func(s *frigaterelease.Statement) {
 		s.MinInstalledVersion = "1.5.0"
 		s.IssuedAt = s.IssuedAt.Add(time.Hour)
@@ -694,7 +694,7 @@ func TestImportPackage_ReuploadRefreshesTheStatementWhenUnused(t *testing.T) {
 }
 
 func (e *env) verifyStored(row sqlc.FrigateUpdatePackage) error {
-	_, err := e.svc.verifier.Verify(row.Statement, row.Signature, row.ReleaseKeyID)
+	_, err := e.svc.verifiers[PackageKindFrigate].Verify(row.Statement, row.Signature, row.ReleaseKeyID)
 	return err
 }
 

@@ -337,6 +337,8 @@ enum CommandProtocolVersion {
     COMMAND_PROTOCOL_VERSION_V19 = 19;
     // V20 adds controller software updates of a CT1 container.
     COMMAND_PROTOCOL_VERSION_V20 = 20;
+    // V21 adds ProtoOS package updates of a CT1 container.
+    COMMAND_PROTOCOL_VERSION_V21 = 21;
 }
 
 message ControlHello {
@@ -956,7 +958,8 @@ message ContainerPowerFeedAction {
 // refuse unknown operations. A new operation, or a new request field that a
 // node must obey, needs a new command protocol version. The server must require
 // that version before it sends such a request. Servers ignore unknown response
-// fields.
+// fields. A stage begin or a stage whose manifest selects the ProtoOS package
+// needs V21, because an older node ignores the package selector.
 message FrigateUpdateAction {
   oneof call {
     option (buf.validate.oneof).required = true;

@@ -11,6 +11,14 @@ Frigate at `41756dc6e26ce0dccc594d7794f1ca3a107d4192`, with one change:
 comments and descriptions say `Proto container firmware` where the source says
 `Frigate`. Identifiers, field numbers, and wire names are the same as in the
 source.
+
+`server_update.proto` is ahead of this pin. It also has the ProtoOS update
+contract for a direct MDK caller from Frigate
+[PR #1075](https://github.com/btc-mining/frigate/pull/1075):
+`proto_os_self_supported` and the comments that describe a `PROTO_OS` manifest
+with `SELF` coordination. Move the pin to a Frigate commit that contains that
+change at the next refresh, then remove this paragraph.
+
 No repository-root license file was present at this pin;
 these remain internal Frigate sources, not independently licensed public code.
 External annotation dependencies are pinned in `buf.lock` and retain their
