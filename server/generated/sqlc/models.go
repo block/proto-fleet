@@ -576,6 +576,7 @@ type ContainerInventory struct {
 	HashboardFirmwareMixed     bool
 	PsuFirmwareVersion         string
 	PsuFirmwareMixed           bool
+	UnlocatedHashboards        json.RawMessage
 }
 
 type ContainerLatestMetric struct {

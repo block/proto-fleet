@@ -1,15 +1,23 @@
 import { MemoryRouter } from "react-router-dom";
-import { render, screen, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import AppLayout from "./AppLayout";
+import { toCanonicalContainer } from "@/protoOS/api/adapters/mdkV2/normalize";
+import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultContentLayout";
+import FullScreenContentLayout from "@/protoOS/components/ContentLayout/FullScreenContentLayout";
+import ListContentLayout from "@/protoOS/components/ContentLayout/ListContentLayout";
+import SettingsContentLayout from "@/protoOS/components/ContentLayout/SettingsContentLayout";
+
 import { navigationMenuTypes } from "@/protoOS/components/NavigationMenu";
 import { MinerHostingProvider } from "@/protoOS/contexts/MinerHostingContext";
+import { FeedMappingProvider } from "@/protoOS/features/feedMapping/FeedMappingProvider";
 import { asDeviceId } from "@/protoOS/store/contract";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
 describe("AppLayout", () => {
   beforeEach(() => {
+    useMinerStore.getState().resetDeviceData();
     useMinerStore.getState().systemInfo.setSystemInfo({
       identity: {
         deviceId: asDeviceId("device:test"),
@@ -105,5 +113,65 @@ describe("AppLayout", () => {
     );
 
     expect(screen.queryByTestId("location-info-item")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["default", DefaultContentLayout],
+    ["list", ListContentLayout],
+    ["full screen", FullScreenContentLayout],
+    ["settings", SettingsContentLayout],
+  ] as const)("places one combined callout above the %s page header", async (_, ContentLayout) => {
+    const snapshot = toCanonicalContainer(
+      {
+        containerMap: {
+          tanks: [{ id: 0, modules: [{ id: 0, slots: [{ hashboard: { macAddress: "aa:bb:cc:00:00:01" } }] }] }],
+        },
+      },
+      {},
+      {},
+      "ct1",
+    );
+    useMinerStore.getState().hardware.replaceHardware(snapshot.hardware);
+    const mapping = {
+      assess: vi.fn().mockResolvedValue({
+        mode: "manual",
+        hardMappingAvailable: true,
+        configurationReasons: [],
+        changes: [],
+        boards: [],
+      }),
+      active: vi.fn().mockResolvedValue(null),
+      get: vi.fn(),
+      plan: vi.fn(),
+      start: vi.fn(),
+      cancel: vi.fn(),
+      verify: vi.fn(),
+    };
+    render(
+      <MemoryRouter>
+        <FeedMappingProvider mapping={mapping} deviceId="ct1">
+          <AppLayout
+            title="Review"
+            type={navigationMenuTypes.app}
+            customHeaderButtons={<div />}
+            ContentLayout={ContentLayout}
+          >
+            <h1>Page heading</h1>
+          </AppLayout>
+        </FeedMappingProvider>
+      </MemoryRouter>,
+    );
+    const refresh = await screen.findByRole("button", { name: "Refresh mapping" });
+    const callout = screen.getByTestId("callout");
+    expect(
+      callout.compareDocumentPosition(screen.getByRole("heading", { name: "Page heading" })) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    fireEvent.click(refresh);
+    const dialog = await screen.findByRole("dialog", { name: "Hashboard mapping" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    fireEvent.click(screen.getByRole("button", { name: "View hashboards" }));
+    expect(await screen.findByRole("dialog", { name: "Unlocated hashboards" })).toBeInTheDocument();
+    expect(mapping.start).not.toHaveBeenCalled();
   });
 });

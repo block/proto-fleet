@@ -139,7 +139,7 @@ export const tanksFixture = (tankCount = 2, moduleCount = 16, cooling = false) =
       [...topology.hashboards.values()].map((board) => [
         board.id,
         {
-          ref: { id: board.id, kind: "hashboard", owner: { kind: "module", id: board.moduleId } },
+          ref: { id: board.id, kind: "hashboard", owner: { kind: "module", id: board.moduleId! } },
           identity: board.identity,
         },
       ]),

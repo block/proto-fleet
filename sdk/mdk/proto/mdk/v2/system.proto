@@ -178,7 +178,7 @@ service SystemService {
     };
   }
 
-  // GetUnlockStatus returns the R2 hardware lock status. CT1 Frigate servers
+  // GetUnlockStatus returns the R2 hardware lock status. CT1 Proto container firmware servers
   // do not implement this R2-only RPC. Implementations without an authoritative
   // hardware observation must report LOCK_STATE_UNKNOWN, never infer UNLOCKED.
   rpc GetUnlockStatus(GetUnlockStatusRequest) returns (GetUnlockStatusResponse) {
@@ -323,7 +323,7 @@ message HANetworkInterface {
 
 // HAMemberStatus is one configured member and independently aged observations.
 message HAMemberStatus {
-  // Id is the configured Frigate server ID or provisioned witness name.
+  // Id is the configured Proto container firmware server ID or provisioned witness name.
   // The pair (kind, id) identifies a member; etcd names are separate.
   string id = 1;
   HAMemberRole kind = 2;
@@ -368,7 +368,7 @@ enum HARole {
   HA_ROLE_FENCED = 3;
 }
 
-// HARecoveryState describes whether this Frigate process has returned to a
+// HARecoveryState describes whether this Proto container firmware process has returned to a
 // trustworthy steady state after a Patroni primary transition.
 enum HARecoveryState {
   HA_RECOVERY_STATE_UNSPECIFIED = 0;
@@ -424,18 +424,18 @@ message SystemStatus {
   HARecoveryStatus ha_recovery = 13;
   // DcsHealthy reports whether the latest distributed-configuration-store
   // snapshot read succeeded and validated. It is absent for standalone
-  // deployments and older Frigate versions that do not publish DCS health.
+  // deployments and older Proto container firmware versions that do not publish DCS health.
   optional bool dcs_healthy = 14;
   // FlotillaTunnelConnected is populated by Flotilla when projecting a
   // container. It reports raw tunnel transport independently from the legacy
   // composite Container.connection field and is absent on older servers.
   optional bool flotilla_tunnel_connected = 15;
   // FlotillaOperationalHealth is populated by Flotilla from its retained
-  // Frigate status. It is independent of health, whose publication boundary
+  // Proto container firmware status. It is independent of health, whose publication boundary
   // remains unchanged for legacy clients, and is absent on older servers.
   optional HealthStatus flotilla_operational_health = 16;
   // HostDiagnostics reports additive, locally observed host safety signals.
-  // Older Frigate/Flotilla versions omit it, so consumers must render absence
+  // Older Proto container firmware/Flotilla versions omit it, so consumers must render absence
   // as "not reported" rather than healthy.
   HostDiagnostics host_diagnostics = 17;
   // HaMembers reports this server's cached, bounded probe of the distributed
@@ -460,7 +460,7 @@ message HostDiagnostics {
   optional double cpu_frequency_mhz = 6;
   // CpuMaxFrequencyMhz is CPU0's maximum scaling frequency.
   optional double cpu_max_frequency_mhz = 7;
-  // CpuQuota is the cgroup v2 CPU bandwidth state of the Frigate service.
+  // CpuQuota is the cgroup v2 CPU bandwidth state of the Proto container firmware service.
   HostCPUQuota cpu_quota = 8;
   // Nvme contains the most recent fresh SMART sample for each NVMe controller.
   repeated HostNVMeHealth nvme = 9;
@@ -491,7 +491,7 @@ message HostThrottleState {
   uint32 raw = 3;
 }
 
-// HostCPUQuota reports the Frigate service's cgroup v2 CPU bandwidth limit and
+// HostCPUQuota reports the Proto container firmware service's cgroup v2 CPU bandwidth limit and
 // cumulative throttling counters.
 message HostCPUQuota {
   // QuotaCores is cpu.max quota divided by period. Absent means unlimited.
@@ -523,7 +523,7 @@ message HostNVMeHealth {
 // HAMemberRole identifies why a host participates in the HA control plane.
 enum HAMemberRole {
   HA_MEMBER_ROLE_UNSPECIFIED = 0;
-  // HA_MEMBER_ROLE_FRIGATE is a Frigate control-server peer.
+  // HA_MEMBER_ROLE_FRIGATE is a Proto container firmware control-server peer.
   HA_MEMBER_ROLE_FRIGATE = 1;
   // HA_MEMBER_ROLE_WITNESS is an etcd-only voting witness.
   HA_MEMBER_ROLE_WITNESS = 2;
@@ -535,7 +535,7 @@ message HAMember {
   // membership is unavailable.
   string name = 1;
   HAMemberRole role = 2;
-  // Local reports whether this member runs on the reporting Frigate host.
+  // Local reports whether this member runs on the reporting Proto container firmware host.
   bool local = 3;
   // Reachable reports whether the member's etcd endpoint answered the latest
   // bounded status probe. It is absent when the probe could not determine
@@ -565,7 +565,7 @@ message GetSystemStatusResponse {
   SystemStatus status = 1;
 }
 
-// SystemResources contains one point-in-time host and Frigate process sample.
+// SystemResources contains one point-in-time host and Proto container firmware process sample.
 message SystemResources {
   double host_cpu_usage_percent = 1;
   uint64 host_memory_used_bytes = 2;
@@ -575,7 +575,7 @@ message SystemResources {
   uint64 process_memory_bytes = 6;
   uint32 host_logical_cpu_count = 7;
   google.protobuf.Timestamp observed_at = 8;
-  // Host disk values describe the root filesystem visible to Frigate.
+  // Host disk values describe the root filesystem visible to Proto container firmware.
   uint64 host_disk_used_bytes = 9;
   uint64 host_disk_total_bytes = 10;
 }

@@ -38,7 +38,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type PSUFirmwareServiceClient interface {
 	// UploadPSUFirmwareCapsule streams one signed capsule to the connected
-	// Frigate node. The first message must contain metadata; subsequent messages
+	// Proto container firmware node. The first message must contain metadata; subsequent messages
 	// carry bounded capsule chunks. The node verifies the capsule structure,
 	// digests, and embedded signature before caching it by SHA-256.
 	UploadPSUFirmwareCapsule(ctx context.Context, opts ...grpc.CallOption) (PSUFirmwareService_UploadPSUFirmwareCapsuleClient, error)
@@ -214,7 +214,7 @@ func (c *pSUFirmwareServiceClient) CancelPSUFirmwareUpdate(ctx context.Context, 
 // for forward compatibility
 type PSUFirmwareServiceServer interface {
 	// UploadPSUFirmwareCapsule streams one signed capsule to the connected
-	// Frigate node. The first message must contain metadata; subsequent messages
+	// Proto container firmware node. The first message must contain metadata; subsequent messages
 	// carry bounded capsule chunks. The node verifies the capsule structure,
 	// digests, and embedded signature before caching it by SHA-256.
 	UploadPSUFirmwareCapsule(PSUFirmwareService_UploadPSUFirmwareCapsuleServer) error

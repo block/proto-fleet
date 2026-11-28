@@ -10,6 +10,8 @@ interface CalloutProps {
   className?: string;
   buttonOnClick?: () => void;
   buttonText?: string;
+  secondaryButtonText?: string;
+  secondaryButtonOnClick?: () => void;
   header?: string;
   intent: keyof typeof intents;
   prefixIcon: ReactNode;
@@ -24,6 +26,8 @@ const Callout = ({
   className,
   buttonOnClick,
   buttonText,
+  secondaryButtonText,
+  secondaryButtonOnClick,
   header,
   intent,
   prefixIcon,
@@ -61,6 +65,10 @@ const Callout = ({
       });
     }
 
+    if (secondaryButtonText) {
+      result.push({ text: secondaryButtonText, onClick: secondaryButtonOnClick, variant: variants.secondary });
+    }
+
     if (dismissible && onDismiss) {
       result.push({
         ariaLabel: "Dismiss callout",
@@ -73,7 +81,7 @@ const Callout = ({
       });
     }
     return result;
-  }, [buttonOnClick, buttonText, dismissible, onDismiss]);
+  }, [buttonOnClick, buttonText, secondaryButtonText, secondaryButtonOnClick, dismissible, onDismiss]);
 
   let iconColor = "text-intent-info-fill"; // default value
   switch (intent) {
@@ -108,13 +116,13 @@ const Callout = ({
         >
           {prefixIcon}
         </div>
-        <div className="flex w-full items-center justify-between">
+        <div className="flex w-full flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-emphasis-300">{title}</div>
             {subtitle ? <div className="text-300 text-text-primary-70">{subtitle}</div> : null}
           </div>
           {buttons.length !== 0 ? (
-            <div className="ml-4">
+            <div className="ml-auto">
               <ButtonGroup
                 variant={groupVariants.rightAligned}
                 size={sizes.compact}

@@ -336,7 +336,7 @@ message FirmwareUpdate {
   google.protobuf.Timestamp started_at = 6;
   google.protobuf.Timestamp completed_at = 7;
   repeated FirmwareUpdateTarget targets = 8;
-  // server_id is the CT1 Frigate node that owns this update job. It is empty
+  // server_id is the CT1 Proto container firmware node that owns this update job. It is empty
   // for R2, whose singleton device service already identifies the owner.
   string server_id = 9;
 }
@@ -530,7 +530,7 @@ message StartFirmwareUpdateResponse {
 
 message GetFirmwareUpdateRequest {
   string task_id = 1;
-  // server_id optionally selects which Frigate node owns task_id. Empty means
+  // server_id optionally selects which Proto container firmware node owns task_id. Empty means
   // the connected node, preserving pre-cluster behavior.
   string server_id = 2;
 }
@@ -551,7 +551,7 @@ message ListFirmwareUpdatesResponse {
 
 message CancelFirmwareUpdateRequest {
   string task_id = 1;
-  // server_id optionally selects which Frigate node owns task_id. Empty means
+  // server_id optionally selects which Proto container firmware node owns task_id. Empty means
   // the connected node, preserving pre-cluster behavior.
   string server_id = 2;
 }

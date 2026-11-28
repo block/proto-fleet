@@ -27,18 +27,21 @@ fake-proto-rig simulator is updated for the `lines=0` and `message` changes.
 
 - Published mirror: btc-mining/proto-api
   - Source path: `mdk/v2/spec-all.json`
-  - Specification version: `2-43ff7b686bba04e5`
-  - Mirror commit SHA: cbbedfd39bd9dd3c9a2c6f062346e132872a5311
-  - SHA-256: `b5e7ca0b1b8a60fb38ba6a153dd1a3aa835b971626182c689232dbe8b46a7b2b`
-  - Extraction Date: 2026-11-23
-- Contract source: Frigate [PR #1044](https://github.com/btc-mining/frigate/pull/1044)
+  - Specification version: `2-86148743bfb7d20f`
+  - Mirror commit SHA: 0b9f5ca18d7ec1e98ecd0bf96ee1b3ec8412a753
+  - SHA-256: `acb1393b539e7496af93cf295ebc94314dce97388d1a488f08ce7689dedf2480`
+  - Extraction Date: 2026-11-28
+- Contract source: Frigate [PR #1090](https://github.com/btc-mining/frigate/pull/1090)
   - Source path: `proto/mdk/v2/`
-  - Commit SHA: d4721d4ed1abcbc68491fe86cf253d77655620f7
-  - Commit Date: 2026-11-23
+  - Commit SHA: 41756dc6e26ce0dccc594d7794f1ca3a107d4192
+  - Commit Date: 2026-11-27
 
-`openapi/MDK-v2-API.json` matches the published `spec-all.json` byte for byte.
+`openapi/MDK-v2-API.json` is the published `spec-all.json` with one change:
+descriptions say `Proto container firmware` where the publication says
+`Frigate`. The SHA-256 above is that of the published file.
 The Frigate export at the commit above reproduces the mirror's checksum
-manifest. The vendored protobuf files come from the same Frigate commit.
+manifest. The vendored protobuf files come from the same Frigate commit and
+have the same change.
 
 The snapshot documents the protobuf-first `/api/v2/...` REST/JSON gateway.
 ProtoOS generates a private TypeScript client from it under the MDK v2 adapter,
@@ -49,6 +52,11 @@ The MDK v2 protos are vendored separately in `sdk/mdk/proto/mdk/v2` and pinned
 in `sdk/mdk/README.md`. They generate the protobuf-es bindings that the ProtoOS
 Connect client encodes and decodes with, so this snapshot and those protos must
 describe compatible contracts. Refresh both from the same Frigate commit.
+
+One skew exists. The vendored `server_update.proto` also has
+`GetServerUpdateSupportResponse.proto_os_self_supported` from Frigate
+[PR #1075](https://github.com/btc-mining/frigate/pull/1075). This snapshot does
+not have that field. ProtoOS does not read it.
 
 ## Files Extracted
 
@@ -85,14 +93,16 @@ To update the MDK v2 API specification:
    `gen/mdkv2-public/source.json` matches the mirror's `source.json`
 3. Copy that commit's `proto/mdk/v2` sources to `sdk/mdk/proto/mdk/v2` and
    update the pin in `sdk/mdk/README.md`
-4. Update this VERSION.md with the mirror version, both commit SHAs, and dates
-5. Regenerate the dependent generated code:
+4. Replace the name in both vendored copies with the command in
+   `sdk/mdk/README.md`
+5. Update this VERSION.md with the mirror version, both commit SHAs, and dates
+6. Regenerate the dependent generated code:
    - Client: `cd client && npm run generate-api-types`
    - MDK v2 bindings: `just gen-mdk-protos` from the repository root
-6. Update the fake CT1 simulator if the consumed MDK v2 surface changed
+7. Update the fake CT1 simulator if the consumed MDK v2 surface changed
    (see `server/fake-ct1/README.md`)
-7. Run tests to verify compatibility
-8. Commit all changes together
+8. Run tests to verify compatibility
+9. Commit all changes together
 
 **Note**: The OpenAPI specs are the consumed miner API contracts. They drive the
 generated ProtoOS TypeScript clients and serve as references for the

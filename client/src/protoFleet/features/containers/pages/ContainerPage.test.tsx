@@ -290,23 +290,25 @@ it.each([1, 6, 288])("shows %i unlocated hashboards below the container title", 
   const container = mocks.load("ct1").data!.container;
   container.unlocatedHashboards = count;
   renderPage();
-  const notice = screen.getByText(
-    count === 1
-      ? "1 hashboard has an unknown location and is excluded from tank and module telemetry."
-      : `${count} hashboards have unknown locations and are excluded from tank and module telemetry.`,
-  );
-  expect(notice).toHaveClass("text-text-critical");
-  expect(notice).toHaveAttribute("role", "status");
-  expect(notice.parentElement).toContainElement(screen.getByRole("heading", { name: "CT1 North", level: 1 }));
+  expect(screen.getByText(`Unlocated hashboards (${count})`)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "View hashboards" }));
+  expect(screen.getByRole("dialog", { name: "Unlocated hashboards" })).toBeInTheDocument();
 });
 
-it.each(["zero", "unknown", "stale", "refresh error"])("hides the unlocated notice for %s evidence", (state) => {
+it.each(["zero", "unknown"])("hides the unlocated notice for %s evidence", (state) => {
   const current = mocks.load("ct1");
-  current.data!.container.unlocatedHashboards = state === "unknown" ? undefined : state === "zero" ? 0 : 6;
+  current.data!.container.unlocatedHashboards = state === "unknown" ? undefined : 0;
+  renderPage();
+  expect(screen.queryByText(/Unlocated hashboards/)).not.toBeInTheDocument();
+});
+
+it.each(["stale", "refresh error"])("keeps retained unlocated inventory accessible after %s", (state) => {
+  const current = mocks.load("ct1");
+  current.data!.container.unlocatedHashboards = 6;
   current.data!.container.stale = state === "stale";
   if (state === "refresh error") current.error = "Connection unavailable";
   renderPage();
-  expect(screen.queryByText(/unknown location/)).not.toBeInTheDocument();
+  expect(screen.getByText("Location information may be out of date.")).toBeInTheDocument();
 });
 
 it("removes headline hashrate coverage without treating nonreporting boards as unlocated", () => {

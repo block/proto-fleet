@@ -347,6 +347,8 @@ message GetRunInCapabilitiesResponse {
   bool outside_ambient_start = 10;
   // voltage_tuning_restart permits tuning_sweep.restart_voltage_tuning_each_point.
   bool voltage_tuning_restart = 11;
+  // prepared_module_targets permits selecting PSU module IDs in prepared runs.
+  bool prepared_module_targets = 12;
 }
 
 message CancelHashboardRunInRequest {
@@ -448,6 +450,9 @@ enum RunInWaitMode {
 message RunInBoardSelector {
   bool all = 1;
   repeated string serials = 2;
+  // module_ids selects the boards currently reporting these PSU identities
+  // when the campaign starts. Use exactly one of all, serials, or module_ids.
+  repeated string module_ids = 3;
 }
 
 message RunInStabilization {

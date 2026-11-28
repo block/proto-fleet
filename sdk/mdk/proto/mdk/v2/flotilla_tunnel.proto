@@ -240,7 +240,7 @@ message TunnelHello {
   repeated TunnelDataset datasets = 9;
   repeated string mdk_methods = 10;
   string configuration_revision = 11;
-  // etcd_cluster_id is observational and may be empty when Frigate cannot
+  // etcd_cluster_id is observational and may be empty when Proto container firmware cannot
   // report it. Container identity never depends on this value.
   string etcd_cluster_id = 12;
   string architecture = 13;
@@ -275,7 +275,7 @@ message TunnelHello {
   string parent_connection_id = 25;
   bytes attachment_token = 26;
   // ha_recovery lets Flotilla retain the prior authoritative snapshot while a
-  // promoted Frigate deliberately delays its heavyweight full synchronization.
+  // promoted Proto container firmware deliberately delays its heavyweight full synchronization.
   HARecoveryStatus ha_recovery = 27;
 }
 
@@ -488,7 +488,7 @@ message PlantMinuteHistorySeries {
   repeated PlantMinuteHistoryPoint points = 4;
 }
 
-// PlantMinuteHistorySnapshot is prepared asynchronously by Frigate and
+// PlantMinuteHistorySnapshot is prepared asynchronously by Proto container firmware and
 // published through the dedicated staged plant-history dataset. Browser reads
 // never trigger its collection.
 message PlantMinuteHistorySnapshot {

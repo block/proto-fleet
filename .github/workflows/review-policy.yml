@@ -8,6 +8,10 @@ on: # zizmor: ignore[dangerous-triggers] review policy runs from trusted workflo
   workflow_run:
     workflows: ["PR Gate", "Codex Security Review", "Semgrep OSS", "zizmor"]
     types: [completed]
+  workflow_call:
+    secrets:
+      OPENAI_API_KEY:
+        required: false
   pull_request:
     types: [edited]
   pull_request_review:
@@ -142,6 +146,30 @@ jobs:
               return data;
             }
 
+            async function findOpenPrForHeadBranch(run) {
+              const owner = run?.head_repository?.owner?.login;
+              const branch = run?.head_branch;
+              const sha = run?.head_sha;
+              if (!owner || !branch || !sha) return undefined;
+              const { data: candidates } = await github.rest.pulls.list({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                head: `${owner}:${branch}`,
+              });
+              const candidate = candidates.find((item) =>
+                item.head.sha === sha &&
+                item.head.repo?.full_name === run.head_repository.full_name
+              );
+              if (!candidate) return undefined;
+
+              const data = await getOpenPrByNumber(candidate.number);
+              if (!data || !isCurrentHeadForEvent(data, sha, 'workflow_run')) {
+                return undefined;
+              }
+              return data;
+            }
+
             const managedStatusContexts = new Set(['Review Policy', 'Review Policy Advisory']);
 
             let pr;
@@ -168,12 +196,19 @@ jobs:
                 return;
               }
               pr = await findOpenPrForSha(context.payload.check_suite?.head_sha);
-            } else if (context.payload.workflow_run?.pull_requests?.length) {
-              const candidate = context.payload.workflow_run.pull_requests[0];
-              const workflowRunHeadSha = context.payload.workflow_run.head_sha;
-              const data = await getOpenPrByNumber(candidate.number);
-              if (data && isCurrentHeadForEvent(data, workflowRunHeadSha, 'workflow_run')) {
-                pr = data;
+            } else if (context.eventName === 'workflow_run') {
+              const run = context.payload.workflow_run;
+              const candidate = run?.pull_requests?.[0];
+              if (candidate) {
+                const data = await getOpenPrByNumber(candidate.number);
+                if (data && isCurrentHeadForEvent(data, run.head_sha, 'workflow_run')) {
+                  pr = data;
+                }
+              } else {
+                // GitHub omits pull_requests for runs on fork heads, and the
+                // commit association lookup returns no PRs for fork commits.
+                pr = await findOpenPrForSha(run?.head_sha) ||
+                  await findOpenPrForHeadBranch(run);
               }
             }
 
@@ -357,7 +392,7 @@ jobs:
           steps.preflight.outputs.eligible == 'true'
         continue-on-error: true
         timeout-minutes: 10
-        uses: openai/codex-action@bdf19a4a223ec2549a3e2274a0cf61556bc07675 # v1.13
+        uses: openai/codex-action@306c6a196a99dcc6582530c396a19d2672d5e9ec # v1.14
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           model: ${{ env.CODEX_MODEL }}
@@ -518,6 +553,8 @@ jobs:
     needs: evaluate
     if: >-
       always() &&
+      github.event_name != 'pull_request' &&
+      github.event_name != 'pull_request_review' &&
       needs.evaluate.outputs.found == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -651,6 +688,8 @@ jobs:
     needs: evaluate
     if: >-
       always() &&
+      github.event_name != 'pull_request' &&
+      github.event_name != 'pull_request_review' &&
       needs.evaluate.outputs.found == 'true' &&
       needs.evaluate.result != 'cancelled'
     runs-on: ubuntu-latest

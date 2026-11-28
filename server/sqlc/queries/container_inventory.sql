@@ -196,3 +196,10 @@ WITH eligible AS (
 INSERT INTO container_module_diagnostic_observation(module_id,collected_at,site_id,attribution_since,state,state_observed_at,issues)
 SELECT id,last_seen_at,observation_site_id,attribution_since,state,state_observed_at,issues FROM attributed
 ON CONFLICT DO NOTHING;
+
+-- name: GetUnlocatedHashboards :one
+SELECT unlocated_hashboards FROM container_inventory WHERE device_id = sqlc.arg('device_id');
+
+-- name: UpdateUnlocatedHashboards :exec
+UPDATE container_inventory SET unlocated_hashboards = sqlc.arg('boards')::jsonb
+WHERE device_id = sqlc.arg('device_id') AND observed_at = sqlc.arg('observed_at')::timestamptz;

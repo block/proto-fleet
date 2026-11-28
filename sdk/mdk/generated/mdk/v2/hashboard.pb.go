@@ -387,7 +387,7 @@ func (HashboardPerformanceTuningAlgorithm) EnumDescriptor() ([]byte, []int) {
 	return file_mdk_v2_hashboard_proto_rawDescGZIP(), []int{5}
 }
 
-// HashboardErrorCause identifies a firmware-reported or Frigate-derived
+// HashboardErrorCause identifies a firmware-reported or Proto container firmware-derived
 // hashboard error or warning cause.
 type HashboardErrorCause int32
 
@@ -418,13 +418,17 @@ const (
 	HashboardErrorCause_HASHBOARD_ERROR_CAUSE_MC3_NO_STACK_RUNNING                 HashboardErrorCause = 24
 	HashboardErrorCause_HASHBOARD_ERROR_CAUSE_MC3_RUNTIME_COMMS_BUSY_TIMEOUT       HashboardErrorCause = 25
 	HashboardErrorCause_HASHBOARD_ERROR_CAUSE_MC3_KNOWN_GOOD_STARTUP_DROP          HashboardErrorCause = 26
-	// Frigate derives thermal throttling from asic_thermal_throttle; firmware
+	// Proto container firmware derives thermal throttling from asic_thermal_throttle; firmware
 	// does not emit this value in its errors or warnings arrays.
 	HashboardErrorCause_HASHBOARD_ERROR_CAUSE_ASIC_THERMAL_THROTTLING      HashboardErrorCause = 27
 	HashboardErrorCause_HASHBOARD_ERROR_CAUSE_STACK_ENUMERATION            HashboardErrorCause = 30
 	HashboardErrorCause_HASHBOARD_ERROR_CAUSE_STACK_DELTA_THERMAL_THROTTLE HashboardErrorCause = 31
-	HashboardErrorCause_HASHBOARD_ERROR_CAUSE_UNKNOWN_ERROR                HashboardErrorCause = 99
-	// Frigate derives a stack dropout warning when a stack that hashed in the
+	// Firmware enumerated the stack, but it failed before it could start mining.
+	HashboardErrorCause_HASHBOARD_ERROR_CAUSE_STACK_BRINGUP_FAILED HashboardErrorCause = 32
+	// Firmware observed a stack transition from RUNNING to FAILED.
+	HashboardErrorCause_HASHBOARD_ERROR_CAUSE_STACK_RUNTIME_FAILED HashboardErrorCause = 33
+	HashboardErrorCause_HASHBOARD_ERROR_CAUSE_UNKNOWN_ERROR        HashboardErrorCause = 99
+	// Proto container firmware derives a stack dropout warning when a stack that hashed in the
 	// current mining session, whether enumerated at session start or joining
 	// later, stops hashing while other stacks continue. The warning clears when
 	// the stack hashes again. Firmware does not emit this value; it sits outside
@@ -465,6 +469,8 @@ var (
 		27:   "HASHBOARD_ERROR_CAUSE_ASIC_THERMAL_THROTTLING",
 		30:   "HASHBOARD_ERROR_CAUSE_STACK_ENUMERATION",
 		31:   "HASHBOARD_ERROR_CAUSE_STACK_DELTA_THERMAL_THROTTLE",
+		32:   "HASHBOARD_ERROR_CAUSE_STACK_BRINGUP_FAILED",
+		33:   "HASHBOARD_ERROR_CAUSE_STACK_RUNTIME_FAILED",
 		99:   "HASHBOARD_ERROR_CAUSE_UNKNOWN_ERROR",
 		1000: "HASHBOARD_ERROR_CAUSE_STACK_DROPOUT",
 	}
@@ -498,6 +504,8 @@ var (
 		"HASHBOARD_ERROR_CAUSE_ASIC_THERMAL_THROTTLING":              27,
 		"HASHBOARD_ERROR_CAUSE_STACK_ENUMERATION":                    30,
 		"HASHBOARD_ERROR_CAUSE_STACK_DELTA_THERMAL_THROTTLE":         31,
+		"HASHBOARD_ERROR_CAUSE_STACK_BRINGUP_FAILED":                 32,
+		"HASHBOARD_ERROR_CAUSE_STACK_RUNTIME_FAILED":                 33,
 		"HASHBOARD_ERROR_CAUSE_UNKNOWN_ERROR":                        99,
 		"HASHBOARD_ERROR_CAUSE_STACK_DROPOUT":                        1000,
 	}
@@ -870,7 +878,7 @@ func (x *SetIdentifyLEDResponse) GetExpiresAt() *timestamppb.Timestamp {
 
 // PsuIdentity is manufacturer metadata for the shared power supply
 // identified by Hashboard.module_id. It is absent until compatible firmware
-// has reported and Frigate has durably retained the details.
+// has reported and Proto container firmware has durably retained the details.
 type PsuIdentity struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	PsuType string                 `protobuf:"bytes,1,opt,name=psu_type,json=psuType,proto3" json:"psu_type,omitempty"`
@@ -1303,7 +1311,7 @@ type HashboardLocation struct {
 	// slot is the optional one-based R2 chassis slot.
 	Slot *uint32 `protobuf:"varint,5,opt,name=slot,proto3,oneof" json:"slot,omitempty"`
 	// hashboard_position is the resolved one-based board position within a CT1
-	// module. Values 1-3 are displayed as HB1-HB3. It is absent when Frigate
+	// module. Values 1-3 are displayed as HB1-HB3. It is absent when Proto container firmware
 	// cannot place the board safely.
 	HashboardPosition *uint32 `protobuf:"varint,6,opt,name=hashboard_position,json=hashboardPosition,proto3,oneof" json:"hashboard_position,omitempty"`
 	// hashboard_position_source describes whether the resolved position came
@@ -1981,10 +1989,10 @@ type HashboardASICErrorState struct {
 	Voltage       float64                `protobuf:"fixed64,2,opt,name=voltage,proto3" json:"voltage,omitempty"`
 	Temperature   float64                `protobuf:"fixed64,3,opt,name=temperature,proto3" json:"temperature,omitempty"`
 	VoltageDomain HashboardVoltageDomain `protobuf:"varint,4,opt,name=voltage_domain,json=voltageDomain,proto3,enum=mdk.v2.HashboardVoltageDomain" json:"voltage_domain,omitempty"`
-	// PhysicalPosition is the owning Frigate's mapping of id onto the board's
+	// PhysicalPosition is the owning Proto container firmware's mapping of id onto the board's
 	// physical ASIC layout at capture time. Its index uses the same physical
 	// index space as ASIC.index. It is absent when the layout could not
-	// resolve id unambiguously, from older Frigate releases, and for latched
+	// resolve id unambiguously, from older Proto container firmware releases, and for latched
 	// last-shutdown errors whose firmware topology may predate the current one.
 	PhysicalPosition *HashboardASICPhysicalPosition `protobuf:"bytes,5,opt,name=physical_position,json=physicalPosition,proto3" json:"physical_position,omitempty"`
 	unknownFields    protoimpl.UnknownFields
@@ -2122,7 +2130,7 @@ func (x *HashboardASICPhysicalPosition) GetStackIndex() uint32 {
 	return 0
 }
 
-// HashboardHealthError is a firmware-reported or Frigate-derived error or
+// HashboardHealthError is a firmware-reported or Proto container firmware-derived error or
 // warning.
 type HashboardHealthError struct {
 	state             protoimpl.MessageState   `protogen:"open.v1"`
@@ -2216,7 +2224,7 @@ type ASIC struct {
 	CompactIndex *int32 `protobuf:"varint,8,opt,name=compact_index,json=compactIndex,proto3,oneof" json:"compact_index,omitempty"`
 	// debug_health is the newest sampled production debug-health observation
 	// for this ASIC from the shared database, which may have been recorded by
-	// either HA node. It is absent when the Frigate node serving this request
+	// either HA node. It is absent when the Proto container firmware node serving this request
 	// has opt-in production debug-health capture disabled (even if its HA peer
 	// captures the board), when firmware does not publish debug-health frames,
 	// when no sample is newer than three sample intervals, or when the newest
@@ -2388,7 +2396,7 @@ func (x *ASICECCCounters) GetUecc2() uint32 {
 // ASIC: ECC counters and raw voltage-domain sensor readings.
 type ASICDebugHealth struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// observed_at is when Frigate accepted the sampled firmware frame.
+	// observed_at is when Proto container firmware accepted the sampled firmware frame.
 	ObservedAt *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=observed_at,json=observedAt,proto3" json:"observed_at,omitempty"`
 	// ecc_total holds the cumulative firmware counters at observed_at.
 	EccTotal *ASICECCCounters `protobuf:"bytes,2,opt,name=ecc_total,json=eccTotal,proto3" json:"ecc_total,omitempty"`
@@ -5426,7 +5434,7 @@ var file_mdk_v2_hashboard_proto_rawDesc = string([]byte{
 	0x52, 0x4d, 0x41, 0x4e, 0x43, 0x45, 0x5f, 0x54, 0x55, 0x4e, 0x49, 0x4e, 0x47, 0x5f, 0x41, 0x4c,
 	0x47, 0x4f, 0x52, 0x49, 0x54, 0x48, 0x4d, 0x5f, 0x46, 0x4d, 0x41, 0x52, 0x47, 0x49, 0x4e, 0x5f,
 	0x44, 0x45, 0x4c, 0x54, 0x41, 0x5f, 0x54, 0x48, 0x45, 0x52, 0x4d, 0x41, 0x4c, 0x5f, 0x54, 0x48,
-	0x52, 0x4f, 0x54, 0x54, 0x4c, 0x45, 0x10, 0x09, 0x2a, 0x8f, 0x0c, 0x0a, 0x13, 0x48, 0x61, 0x73,
+	0x52, 0x4f, 0x54, 0x54, 0x4c, 0x45, 0x10, 0x09, 0x2a, 0xef, 0x0c, 0x0a, 0x13, 0x48, 0x61, 0x73,
 	0x68, 0x62, 0x6f, 0x61, 0x72, 0x64, 0x45, 0x72, 0x72, 0x6f, 0x72, 0x43, 0x61, 0x75, 0x73, 0x65,
 	0x12, 0x25, 0x0a, 0x21, 0x48, 0x41, 0x53, 0x48, 0x42, 0x4f, 0x41, 0x52, 0x44, 0x5f, 0x45, 0x52,
 	0x52, 0x4f, 0x52, 0x5f, 0x43, 0x41, 0x55, 0x53, 0x45, 0x5f, 0x55, 0x4e, 0x53, 0x50, 0x45, 0x43,
@@ -5518,7 +5526,13 @@ var file_mdk_v2_hashboard_proto_rawDesc = string([]byte{
 	0x36, 0x0a, 0x32, 0x48, 0x41, 0x53, 0x48, 0x42, 0x4f, 0x41, 0x52, 0x44, 0x5f, 0x45, 0x52, 0x52,
 	0x4f, 0x52, 0x5f, 0x43, 0x41, 0x55, 0x53, 0x45, 0x5f, 0x53, 0x54, 0x41, 0x43, 0x4b, 0x5f, 0x44,
 	0x45, 0x4c, 0x54, 0x41, 0x5f, 0x54, 0x48, 0x45, 0x52, 0x4d, 0x41, 0x4c, 0x5f, 0x54, 0x48, 0x52,
-	0x4f, 0x54, 0x54, 0x4c, 0x45, 0x10, 0x1f, 0x12, 0x27, 0x0a, 0x23, 0x48, 0x41, 0x53, 0x48, 0x42,
+	0x4f, 0x54, 0x54, 0x4c, 0x45, 0x10, 0x1f, 0x12, 0x2e, 0x0a, 0x2a, 0x48, 0x41, 0x53, 0x48, 0x42,
+	0x4f, 0x41, 0x52, 0x44, 0x5f, 0x45, 0x52, 0x52, 0x4f, 0x52, 0x5f, 0x43, 0x41, 0x55, 0x53, 0x45,
+	0x5f, 0x53, 0x54, 0x41, 0x43, 0x4b, 0x5f, 0x42, 0x52, 0x49, 0x4e, 0x47, 0x55, 0x50, 0x5f, 0x46,
+	0x41, 0x49, 0x4c, 0x45, 0x44, 0x10, 0x20, 0x12, 0x2e, 0x0a, 0x2a, 0x48, 0x41, 0x53, 0x48, 0x42,
+	0x4f, 0x41, 0x52, 0x44, 0x5f, 0x45, 0x52, 0x52, 0x4f, 0x52, 0x5f, 0x43, 0x41, 0x55, 0x53, 0x45,
+	0x5f, 0x53, 0x54, 0x41, 0x43, 0x4b, 0x5f, 0x52, 0x55, 0x4e, 0x54, 0x49, 0x4d, 0x45, 0x5f, 0x46,
+	0x41, 0x49, 0x4c, 0x45, 0x44, 0x10, 0x21, 0x12, 0x27, 0x0a, 0x23, 0x48, 0x41, 0x53, 0x48, 0x42,
 	0x4f, 0x41, 0x52, 0x44, 0x5f, 0x45, 0x52, 0x52, 0x4f, 0x52, 0x5f, 0x43, 0x41, 0x55, 0x53, 0x45,
 	0x5f, 0x55, 0x4e, 0x4b, 0x4e, 0x4f, 0x57, 0x4e, 0x5f, 0x45, 0x52, 0x52, 0x4f, 0x52, 0x10, 0x63,
 	0x12, 0x28, 0x0a, 0x23, 0x48, 0x41, 0x53, 0x48, 0x42, 0x4f, 0x41, 0x52, 0x44, 0x5f, 0x45, 0x52,

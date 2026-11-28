@@ -307,7 +307,7 @@ func (HARole) EnumDescriptor() ([]byte, []int) {
 	return file_mdk_v2_system_proto_rawDescGZIP(), []int{4}
 }
 
-// HARecoveryState describes whether this Frigate process has returned to a
+// HARecoveryState describes whether this Proto container firmware process has returned to a
 // trustworthy steady state after a Patroni primary transition.
 type HARecoveryState int32
 
@@ -426,7 +426,7 @@ type HAMemberRole int32
 
 const (
 	HAMemberRole_HA_MEMBER_ROLE_UNSPECIFIED HAMemberRole = 0
-	// HA_MEMBER_ROLE_FRIGATE is a Frigate control-server peer.
+	// HA_MEMBER_ROLE_FRIGATE is a Proto container firmware control-server peer.
 	HAMemberRole_HA_MEMBER_ROLE_FRIGATE HAMemberRole = 1
 	// HA_MEMBER_ROLE_WITNESS is an etcd-only voting witness.
 	HAMemberRole_HA_MEMBER_ROLE_WITNESS HAMemberRole = 2
@@ -1542,7 +1542,7 @@ func (x *HANetworkInterface) GetPrimary() bool {
 // HAMemberStatus is one configured member and independently aged observations.
 type HAMemberStatus struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Id is the configured Frigate server ID or provisioned witness name.
+	// Id is the configured Proto container firmware server ID or provisioned witness name.
 	// The pair (kind, id) identifies a member; etcd names are separate.
 	Id                   string                `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Kind                 HAMemberRole          `protobuf:"varint,2,opt,name=kind,proto3,enum=mdk.v2.HAMemberRole" json:"kind,omitempty"`
@@ -1962,18 +1962,18 @@ type SystemStatus struct {
 	HaRecovery            *HARecoveryStatus      `protobuf:"bytes,13,opt,name=ha_recovery,json=haRecovery,proto3" json:"ha_recovery,omitempty"`
 	// DcsHealthy reports whether the latest distributed-configuration-store
 	// snapshot read succeeded and validated. It is absent for standalone
-	// deployments and older Frigate versions that do not publish DCS health.
+	// deployments and older Proto container firmware versions that do not publish DCS health.
 	DcsHealthy *bool `protobuf:"varint,14,opt,name=dcs_healthy,json=dcsHealthy,proto3,oneof" json:"dcs_healthy,omitempty"`
 	// FlotillaTunnelConnected is populated by Flotilla when projecting a
 	// container. It reports raw tunnel transport independently from the legacy
 	// composite Container.connection field and is absent on older servers.
 	FlotillaTunnelConnected *bool `protobuf:"varint,15,opt,name=flotilla_tunnel_connected,json=flotillaTunnelConnected,proto3,oneof" json:"flotilla_tunnel_connected,omitempty"`
 	// FlotillaOperationalHealth is populated by Flotilla from its retained
-	// Frigate status. It is independent of health, whose publication boundary
+	// Proto container firmware status. It is independent of health, whose publication boundary
 	// remains unchanged for legacy clients, and is absent on older servers.
 	FlotillaOperationalHealth *HealthStatus `protobuf:"varint,16,opt,name=flotilla_operational_health,json=flotillaOperationalHealth,proto3,enum=mdk.v2.HealthStatus,oneof" json:"flotilla_operational_health,omitempty"`
 	// HostDiagnostics reports additive, locally observed host safety signals.
-	// Older Frigate/Flotilla versions omit it, so consumers must render absence
+	// Older Proto container firmware/Flotilla versions omit it, so consumers must render absence
 	// as "not reported" rather than healthy.
 	HostDiagnostics *HostDiagnostics `protobuf:"bytes,17,opt,name=host_diagnostics,json=hostDiagnostics,proto3" json:"host_diagnostics,omitempty"`
 	// HaMembers reports this server's cached, bounded probe of the distributed
@@ -2143,7 +2143,7 @@ type HostDiagnostics struct {
 	CpuFrequencyMhz *float64 `protobuf:"fixed64,6,opt,name=cpu_frequency_mhz,json=cpuFrequencyMhz,proto3,oneof" json:"cpu_frequency_mhz,omitempty"`
 	// CpuMaxFrequencyMhz is CPU0's maximum scaling frequency.
 	CpuMaxFrequencyMhz *float64 `protobuf:"fixed64,7,opt,name=cpu_max_frequency_mhz,json=cpuMaxFrequencyMhz,proto3,oneof" json:"cpu_max_frequency_mhz,omitempty"`
-	// CpuQuota is the cgroup v2 CPU bandwidth state of the Frigate service.
+	// CpuQuota is the cgroup v2 CPU bandwidth state of the Proto container firmware service.
 	CpuQuota *HostCPUQuota `protobuf:"bytes,8,opt,name=cpu_quota,json=cpuQuota,proto3" json:"cpu_quota,omitempty"`
 	// Nvme contains the most recent fresh SMART sample for each NVMe controller.
 	Nvme []*HostNVMeHealth `protobuf:"bytes,9,rep,name=nvme,proto3" json:"nvme,omitempty"`
@@ -2405,7 +2405,7 @@ func (x *HostThrottleState) GetRaw() uint32 {
 	return 0
 }
 
-// HostCPUQuota reports the Frigate service's cgroup v2 CPU bandwidth limit and
+// HostCPUQuota reports the Proto container firmware service's cgroup v2 CPU bandwidth limit and
 // cumulative throttling counters.
 type HostCPUQuota struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -2605,7 +2605,7 @@ type HAMember struct {
 	// membership is unavailable.
 	Name string       `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	Role HAMemberRole `protobuf:"varint,2,opt,name=role,proto3,enum=mdk.v2.HAMemberRole" json:"role,omitempty"`
-	// Local reports whether this member runs on the reporting Frigate host.
+	// Local reports whether this member runs on the reporting Proto container firmware host.
 	Local bool `protobuf:"varint,3,opt,name=local,proto3" json:"local,omitempty"`
 	// Reachable reports whether the member's etcd endpoint answered the latest
 	// bounded status probe. It is absent when the probe could not determine
@@ -2818,7 +2818,7 @@ func (x *GetSystemStatusResponse) GetStatus() *SystemStatus {
 	return nil
 }
 
-// SystemResources contains one point-in-time host and Frigate process sample.
+// SystemResources contains one point-in-time host and Proto container firmware process sample.
 type SystemResources struct {
 	state                  protoimpl.MessageState `protogen:"open.v1"`
 	HostCpuUsagePercent    float64                `protobuf:"fixed64,1,opt,name=host_cpu_usage_percent,json=hostCpuUsagePercent,proto3" json:"host_cpu_usage_percent,omitempty"`
@@ -2829,7 +2829,7 @@ type SystemResources struct {
 	ProcessMemoryBytes     uint64                 `protobuf:"varint,6,opt,name=process_memory_bytes,json=processMemoryBytes,proto3" json:"process_memory_bytes,omitempty"`
 	HostLogicalCpuCount    uint32                 `protobuf:"varint,7,opt,name=host_logical_cpu_count,json=hostLogicalCpuCount,proto3" json:"host_logical_cpu_count,omitempty"`
 	ObservedAt             *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=observed_at,json=observedAt,proto3" json:"observed_at,omitempty"`
-	// Host disk values describe the root filesystem visible to Frigate.
+	// Host disk values describe the root filesystem visible to Proto container firmware.
 	HostDiskUsedBytes  uint64 `protobuf:"varint,9,opt,name=host_disk_used_bytes,json=hostDiskUsedBytes,proto3" json:"host_disk_used_bytes,omitempty"`
 	HostDiskTotalBytes uint64 `protobuf:"varint,10,opt,name=host_disk_total_bytes,json=hostDiskTotalBytes,proto3" json:"host_disk_total_bytes,omitempty"`
 	unknownFields      protoimpl.UnknownFields

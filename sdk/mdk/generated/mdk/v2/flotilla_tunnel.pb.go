@@ -1526,7 +1526,7 @@ type TunnelHello struct {
 	Datasets               []TunnelDataset        `protobuf:"varint,9,rep,packed,name=datasets,proto3,enum=mdk.v2.TunnelDataset" json:"datasets,omitempty"`
 	MdkMethods             []string               `protobuf:"bytes,10,rep,name=mdk_methods,json=mdkMethods,proto3" json:"mdk_methods,omitempty"`
 	ConfigurationRevision  string                 `protobuf:"bytes,11,opt,name=configuration_revision,json=configurationRevision,proto3" json:"configuration_revision,omitempty"`
-	// etcd_cluster_id is observational and may be empty when Frigate cannot
+	// etcd_cluster_id is observational and may be empty when Proto container firmware cannot
 	// report it. Container identity never depends on this value.
 	EtcdClusterId         string                 `protobuf:"bytes,12,opt,name=etcd_cluster_id,json=etcdClusterId,proto3" json:"etcd_cluster_id,omitempty"`
 	Architecture          string                 `protobuf:"bytes,13,opt,name=architecture,proto3" json:"architecture,omitempty"`
@@ -1559,7 +1559,7 @@ type TunnelHello struct {
 	ParentConnectionId string `protobuf:"bytes,25,opt,name=parent_connection_id,json=parentConnectionId,proto3" json:"parent_connection_id,omitempty"`
 	AttachmentToken    []byte `protobuf:"bytes,26,opt,name=attachment_token,json=attachmentToken,proto3" json:"attachment_token,omitempty"`
 	// ha_recovery lets Flotilla retain the prior authoritative snapshot while a
-	// promoted Frigate deliberately delays its heavyweight full synchronization.
+	// promoted Proto container firmware deliberately delays its heavyweight full synchronization.
 	HaRecovery    *HARecoveryStatus `protobuf:"bytes,27,opt,name=ha_recovery,json=haRecovery,proto3" json:"ha_recovery,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3179,7 +3179,7 @@ func (x *PlantMinuteHistorySeries) GetPoints() []*PlantMinuteHistoryPoint {
 	return nil
 }
 
-// PlantMinuteHistorySnapshot is prepared asynchronously by Frigate and
+// PlantMinuteHistorySnapshot is prepared asynchronously by Proto container firmware and
 // published through the dedicated staged plant-history dataset. Browser reads
 // never trigger its collection.
 type PlantMinuteHistorySnapshot struct {

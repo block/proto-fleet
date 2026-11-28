@@ -183,6 +183,7 @@ func storeHashboards(ctx context.Context, q *sqlc.Queries, orgID, deviceID int64
 			boundary = sql.NullTime{Time: snapshot.ObservedAt, Valid: true}
 		}
 		if old.SourceAt.Valid && v.ObservedAt.Before(old.SourceAt.Time) {
+			v.HealthJSON = nil
 			v.HashrateHS, v.PowerW, v.TemperatureC, v.EfficiencyJH = nil, nil, nil, nil
 		}
 		if boundary.Valid {
@@ -202,6 +203,7 @@ func storeHashboards(ctx context.Context, q *sqlc.Queries, orgID, deviceID int64
 	for i := range observations {
 		v := &observations[i]
 		if v.ObservedAt.Before(sourceTimes[v.BoardID]) {
+			v.HealthJSON = nil
 			v.HashrateHS = nil
 			v.PowerW = nil
 			v.TemperatureC = nil

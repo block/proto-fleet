@@ -1788,6 +1788,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getUnfinishedCompletedPoolRemovalStmt, err = db.PrepareContext(ctx, getUnfinishedCompletedPoolRemoval); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUnfinishedCompletedPoolRemoval: %w", err)
 	}
+	if q.getUnlocatedHashboardsStmt, err = db.PrepareContext(ctx, getUnlocatedHashboards); err != nil {
+		return nil, fmt.Errorf("error preparing query GetUnlocatedHashboards: %w", err)
+	}
 	if q.getUserByExternalIdStmt, err = db.PrepareContext(ctx, getUserByExternalId); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUserByExternalId: %w", err)
 	}
@@ -3956,6 +3959,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.updateSiteStmt, err = db.PrepareContext(ctx, updateSite); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateSite: %w", err)
+	}
+	if q.updateUnlocatedHashboardsStmt, err = db.PrepareContext(ctx, updateUnlocatedHashboards); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateUnlocatedHashboards: %w", err)
 	}
 	if q.updateUserPasswordStmt, err = db.PrepareContext(ctx, updateUserPassword); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateUserPassword: %w", err)
@@ -7011,6 +7017,11 @@ func (q *Queries) Close() error {
 	if q.getUnfinishedCompletedPoolRemovalStmt != nil {
 		if cerr := q.getUnfinishedCompletedPoolRemovalStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getUnfinishedCompletedPoolRemovalStmt: %w", cerr)
+		}
+	}
+	if q.getUnlocatedHashboardsStmt != nil {
+		if cerr := q.getUnlocatedHashboardsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getUnlocatedHashboardsStmt: %w", cerr)
 		}
 	}
 	if q.getUserByExternalIdStmt != nil {
@@ -10628,6 +10639,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateSiteStmt: %w", cerr)
 		}
 	}
+	if q.updateUnlocatedHashboardsStmt != nil {
+		if cerr := q.updateUnlocatedHashboardsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateUnlocatedHashboardsStmt: %w", cerr)
+		}
+	}
 	if q.updateUserPasswordStmt != nil {
 		if cerr := q.updateUserPasswordStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateUserPasswordStmt: %w", cerr)
@@ -11440,6 +11456,7 @@ type Queries struct {
 	getTotalPairedMinersStmt                                    *sql.Stmt
 	getTotalPoolsStmt                                           *sql.Stmt
 	getUnfinishedCompletedPoolRemovalStmt                       *sql.Stmt
+	getUnlocatedHashboardsStmt                                  *sql.Stmt
 	getUserByExternalIdStmt                                     *sql.Stmt
 	getUserByIdStmt                                             *sql.Stmt
 	getUserByIdForUpdateStmt                                    *sql.Stmt
@@ -12163,6 +12180,7 @@ type Queries struct {
 	updateScheduleAfterRunStmt                                  *sql.Stmt
 	updateSessionActivityStmt                                   *sql.Stmt
 	updateSiteStmt                                              *sql.Stmt
+	updateUnlocatedHashboardsStmt                               *sql.Stmt
 	updateUserPasswordStmt                                      *sql.Stmt
 	updateUserPasswordAndFlagStmt                               *sql.Stmt
 	updateUserRoleStmt                                          *sql.Stmt
@@ -12794,6 +12812,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getTotalPairedMinersStmt:                                    q.getTotalPairedMinersStmt,
 		getTotalPoolsStmt:                                           q.getTotalPoolsStmt,
 		getUnfinishedCompletedPoolRemovalStmt:                       q.getUnfinishedCompletedPoolRemovalStmt,
+		getUnlocatedHashboardsStmt:                                  q.getUnlocatedHashboardsStmt,
 		getUserByExternalIdStmt:                                     q.getUserByExternalIdStmt,
 		getUserByIdStmt:                                             q.getUserByIdStmt,
 		getUserByIdForUpdateStmt:                                    q.getUserByIdForUpdateStmt,
@@ -13517,6 +13536,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateScheduleAfterRunStmt:                                  q.updateScheduleAfterRunStmt,
 		updateSessionActivityStmt:                                   q.updateSessionActivityStmt,
 		updateSiteStmt:                                              q.updateSiteStmt,
+		updateUnlocatedHashboardsStmt:                               q.updateUnlocatedHashboardsStmt,
 		updateUserPasswordStmt:                                      q.updateUserPasswordStmt,
 		updateUserPasswordAndFlagStmt:                               q.updateUserPasswordAndFlagStmt,
 		updateUserRoleStmt:                                          q.updateUserRoleStmt,

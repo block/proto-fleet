@@ -139,7 +139,7 @@ const HomeIndexRoute = () => {
   );
 };
 
-const HomeContentLayout = () => {
+const HomeContentLayout = ({ callout }: ContentLayoutProps) => {
   const systemInfo = useSystemInfo();
   const error = useSystemInfoError();
   const supportsContainerHome = useSupportsContainerHome();
@@ -149,7 +149,7 @@ const HomeContentLayout = () => {
         <ProgressCircular indeterminate />
       </div>
     );
-  return supportsContainerHome ? <ContainerHomeLayout /> : <KpiLayout />;
+  return supportsContainerHome ? <ContainerHomeLayout callout={callout} /> : <KpiLayout callout={callout} />;
 };
 
 const HomeMetricRoute = ({ tab, children }: { tab: HomeTab; children: ReactNode }) => {

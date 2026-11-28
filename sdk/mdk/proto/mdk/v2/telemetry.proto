@@ -20,7 +20,7 @@ service TelemetryService {
     description: "Real-time health streaming for hashboards, ASICs, containers, and device metrics."
   };
   // QueryTankSensorHistory reads source-identified C1 acquisitions from the
-  // owning Frigate's durable PostgreSQL/TimescaleDB store.
+  // owning Proto container firmware's durable PostgreSQL/TimescaleDB store.
   rpc QueryTankSensorHistory(QueryTankSensorHistoryRequest) returns (QueryTankSensorHistoryResponse) {
     option (mdk.v2.product) = PRODUCT_FOGHASHING_C1;
     option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
@@ -472,7 +472,7 @@ message GetContainerHealthResponse {
   // Present only when include_module_distribution is requested and supported.
   ModuleDistribution module_distribution = 16;
   // Whether the controller can honor PowerService.MuteContainerAlarm on its
-  // active command path, reported with live plant telemetry. Older Frigate
+  // active command path, reported with live plant telemetry. Older Proto container firmware
   // releases omit it; consumers then keep assuming mute is supported.
   optional bool alarm_mute_supported = 17;
 }

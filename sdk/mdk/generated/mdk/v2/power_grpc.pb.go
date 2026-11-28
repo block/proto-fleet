@@ -49,7 +49,7 @@ type PowerServiceClient interface {
 	// SetPowerFeedState enables or disables one container power feed.
 	SetPowerFeedState(ctx context.Context, in *SetPowerFeedStateRequest, opts ...grpc.CallOption) (*SetPowerFeedStateResponse, error)
 	// CyclePowerFeed disables one enabled container power feed, holds it off for
-	// 30 seconds, and restores it as one durable Frigate-owned operation. The
+	// 30 seconds, and restores it as one durable Proto container firmware-owned operation. The
 	// restore survives disconnects, restart, and HA handoff. CT1 only.
 	CyclePowerFeed(ctx context.Context, in *CyclePowerFeedRequest, opts ...grpc.CallOption) (*CyclePowerFeedResponse, error)
 	// GetActivePowerRecoveryCycle returns the singleton durable outlet restore
@@ -70,7 +70,7 @@ type PowerServiceClient interface {
 	// CT1 only.
 	SetContainerControl(ctx context.Context, in *SetContainerControlRequest, opts ...grpc.CallOption) (*SetContainerControlResponse, error)
 	// SetContainerSetpoint writes one analog tank/container setpoint and echoes
-	// the applied value. Temperature setpoints are Celsius. Frigate validates
+	// the applied value. Temperature setpoints are Celsius. Proto container firmware validates
 	// only the finite float32 wire representation; the PLC owns operational
 	// limits and final command acceptance. CT1 only.
 	SetContainerSetpoint(ctx context.Context, in *SetContainerSetpointRequest, opts ...grpc.CallOption) (*SetContainerSetpointResponse, error)
@@ -234,7 +234,7 @@ type PowerServiceServer interface {
 	// SetPowerFeedState enables or disables one container power feed.
 	SetPowerFeedState(context.Context, *SetPowerFeedStateRequest) (*SetPowerFeedStateResponse, error)
 	// CyclePowerFeed disables one enabled container power feed, holds it off for
-	// 30 seconds, and restores it as one durable Frigate-owned operation. The
+	// 30 seconds, and restores it as one durable Proto container firmware-owned operation. The
 	// restore survives disconnects, restart, and HA handoff. CT1 only.
 	CyclePowerFeed(context.Context, *CyclePowerFeedRequest) (*CyclePowerFeedResponse, error)
 	// GetActivePowerRecoveryCycle returns the singleton durable outlet restore
@@ -255,7 +255,7 @@ type PowerServiceServer interface {
 	// CT1 only.
 	SetContainerControl(context.Context, *SetContainerControlRequest) (*SetContainerControlResponse, error)
 	// SetContainerSetpoint writes one analog tank/container setpoint and echoes
-	// the applied value. Temperature setpoints are Celsius. Frigate validates
+	// the applied value. Temperature setpoints are Celsius. Proto container firmware validates
 	// only the finite float32 wire representation; the PLC owns operational
 	// limits and final command acceptance. CT1 only.
 	SetContainerSetpoint(context.Context, *SetContainerSetpointRequest) (*SetContainerSetpointResponse, error)

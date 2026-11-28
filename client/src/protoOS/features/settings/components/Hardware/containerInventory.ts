@@ -86,7 +86,9 @@ export const containerInventory = (hardware?: HardwareState, systemInfo?: System
         const details = hardware.hashboards.get(board.id);
         return {
           id: board.id,
-          label: `${moduleLabel(board.moduleId)}-${board.location?.slot ?? "?"}`,
+          label: board.moduleId
+            ? `${moduleLabel(board.moduleId)}-${board.location?.slot ?? "?"}`
+            : `${board.identity.value} · Location unknown`,
           model: details?.boardModel,
           serialNumber: details?.serialNumber || (board.identity.kind === "serial" ? board.identity.value : undefined),
           firmware: details?.firmware?.version,

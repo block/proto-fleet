@@ -123,7 +123,10 @@ const HashboardTemperature = ({ serial, readingsStale = false, onClose, onSelect
       return [...topology.hashboards.values()]
         .filter((board) => currentBoard && board.moduleId === currentBoard.moduleId)
         .sort((a, b) => (a.location?.slot ?? Infinity) - (b.location?.slot ?? Infinity))
-        .map((board) => ({ serial: board.identity.value, name: layout.card.title(board.location?.slot) }));
+        .map((board) => ({
+          serial: board.identity.value,
+          name: board.moduleId ? layout.card.title(board.location?.slot) : board.identity.value,
+        }));
     }
     return hardwareHashboards
       .filter((h): h is HashboardData & { slot: number } => !!h.slot)
@@ -174,7 +177,13 @@ const HashboardTemperature = ({ serial, readingsStale = false, onClose, onSelect
         icon={
           layout.headerIcon === "back" ? <ArrowRight className="rotate-180" width="w-5" /> : <Dismiss width="w-3.5" />
         }
-        iconAriaLabel={layout.headerIcon === "back" ? "Back to module" : "Close hashboards"}
+        iconAriaLabel={
+          layout.headerIcon === "back"
+            ? currentBoard?.moduleId
+              ? "Back to module"
+              : "Back to hashboards"
+            : "Close hashboards"
+        }
         iconVariant="textOnly"
         iconTextColor="text-text-primary"
         iconOnClick={close}
