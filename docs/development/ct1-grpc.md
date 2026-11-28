@@ -9,7 +9,7 @@ Retained historical ingestion remains #179.
 ## Firmware contract
 
 The shared [MDK module](../../sdk/mdk/README.md) pins Frigate commit
-`2c83c42b486309aa3db314f12362d1bcc0f221c1`. This is a source compatibility
+`41756dc6e26ce0dccc594d7794f1ca3a107d4192`. This is a source compatibility
 target, not a qualified hardware deployment. Both the plugin and fake-ct1 use
 the same generated types.
 

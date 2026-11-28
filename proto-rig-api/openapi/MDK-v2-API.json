@@ -10140,7 +10140,7 @@
     },
     "v2TimeSeriesMetric": {
       "default": "TIME_SERIES_METRIC_UNSPECIFIED",
-      "description": "TimeSeriesMetric identifies the metric type for time series queries.\n\n - TIME_SERIES_METRIC_PLANT_INLET_TEMPERATURE: Plant metrics are container-scoped and ignore the identifier field.\n - TIME_SERIES_METRIC_PLANT_PHASE_POWER: Component metrics require identifier to select a phase, distribution\nunit, fan, or power feed.\n - TIME_SERIES_METRIC_TEMPERATURE_SENSOR: Sensor-specific board or PSU temperature history. Requests must include a\nTemperatureSeriesSelector; the legacy TEMPERATURE metric remains the\naggregate across every board sensor.",
+      "description": "TimeSeriesMetric identifies the metric type for time series queries.\n\n - TIME_SERIES_METRIC_PLANT_INLET_TEMPERATURE: Plant metrics are container-scoped and ignore the identifier field.\n - TIME_SERIES_METRIC_PLANT_PHASE_POWER: Component metrics require identifier to select a phase, distribution\nunit, fan, or power feed.\n - TIME_SERIES_METRIC_TEMPERATURE_SENSOR: Sensor-specific board or PSU temperature history. Requests must include a\nTemperatureSeriesSelector; the legacy TEMPERATURE metric remains the\naggregate across every board sensor.\n - TIME_SERIES_METRIC_ASIC_TEMPERATURE: Each board's mean ASIC die temperature from its recent ASIC frames,\nseparate from the board sensors that TEMPERATURE aggregates. Without an\nidentifier the buckets pool every reporting board. It has no hourly\nrollup, so it is retained only in the raw tier.",
       "enum": [
         "TIME_SERIES_METRIC_UNSPECIFIED",
         "TIME_SERIES_METRIC_HASHRATE",
@@ -10202,7 +10202,8 @@
         "TIME_SERIES_METRIC_PLANT_INSIDE_AMBIENT_TEMPERATURE",
         "TIME_SERIES_METRIC_PLANT_INSIDE_AMBIENT_HUMIDITY",
         "TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_TEMPERATURE",
-        "TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_HUMIDITY"
+        "TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_HUMIDITY",
+        "TIME_SERIES_METRIC_ASIC_TEMPERATURE"
       ],
       "type": "string"
     },
@@ -10667,7 +10668,7 @@
   "info": {
     "description": "Latest MDK v2 REST contract. Device support depends on product and firmware version.",
     "title": "Proto MDK v2",
-    "version": "2-66d8aaeeb335a519"
+    "version": "2-86148743bfb7d20f"
   },
   "paths": {
     "/api/v2/alerts": {
@@ -16452,7 +16453,7 @@
         "parameters": [
           {
             "default": "TIME_SERIES_METRIC_UNSPECIFIED",
-            "description": " - TIME_SERIES_METRIC_PLANT_INLET_TEMPERATURE: Plant metrics are container-scoped and ignore the identifier field.\n - TIME_SERIES_METRIC_PLANT_PHASE_POWER: Component metrics require identifier to select a phase, distribution\nunit, fan, or power feed.\n - TIME_SERIES_METRIC_TEMPERATURE_SENSOR: Sensor-specific board or PSU temperature history. Requests must include a\nTemperatureSeriesSelector; the legacy TEMPERATURE metric remains the\naggregate across every board sensor.",
+            "description": " - TIME_SERIES_METRIC_PLANT_INLET_TEMPERATURE: Plant metrics are container-scoped and ignore the identifier field.\n - TIME_SERIES_METRIC_PLANT_PHASE_POWER: Component metrics require identifier to select a phase, distribution\nunit, fan, or power feed.\n - TIME_SERIES_METRIC_TEMPERATURE_SENSOR: Sensor-specific board or PSU temperature history. Requests must include a\nTemperatureSeriesSelector; the legacy TEMPERATURE metric remains the\naggregate across every board sensor.\n - TIME_SERIES_METRIC_ASIC_TEMPERATURE: Each board's mean ASIC die temperature from its recent ASIC frames,\nseparate from the board sensors that TEMPERATURE aggregates. Without an\nidentifier the buckets pool every reporting board. It has no hourly\nrollup, so it is retained only in the raw tier.",
             "enum": [
               "TIME_SERIES_METRIC_UNSPECIFIED",
               "TIME_SERIES_METRIC_HASHRATE",
@@ -16514,7 +16515,8 @@
               "TIME_SERIES_METRIC_PLANT_INSIDE_AMBIENT_TEMPERATURE",
               "TIME_SERIES_METRIC_PLANT_INSIDE_AMBIENT_HUMIDITY",
               "TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_TEMPERATURE",
-              "TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_HUMIDITY"
+              "TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_HUMIDITY",
+              "TIME_SERIES_METRIC_ASIC_TEMPERATURE"
             ],
             "in": "query",
             "name": "metric",

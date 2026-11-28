@@ -917,6 +917,10 @@ export interface TelemetryServiceQueryTimeSeriesParams {
    *  - TIME_SERIES_METRIC_TEMPERATURE_SENSOR: Sensor-specific board or PSU temperature history. Requests must include a
    * TemperatureSeriesSelector; the legacy TEMPERATURE metric remains the
    * aggregate across every board sensor.
+   *  - TIME_SERIES_METRIC_ASIC_TEMPERATURE: Each board's mean ASIC die temperature from its recent ASIC frames,
+   * separate from the board sensors that TEMPERATURE aggregates. Without an
+   * identifier the buckets pool every reporting board. It has no hourly
+   * rollup, so it is retained only in the raw tier.
    * @default "TIME_SERIES_METRIC_UNSPECIFIED"
    */
   metric?:
@@ -980,7 +984,8 @@ export interface TelemetryServiceQueryTimeSeriesParams {
     | "TIME_SERIES_METRIC_PLANT_INSIDE_AMBIENT_TEMPERATURE"
     | "TIME_SERIES_METRIC_PLANT_INSIDE_AMBIENT_HUMIDITY"
     | "TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_TEMPERATURE"
-    | "TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_HUMIDITY";
+    | "TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_HUMIDITY"
+    | "TIME_SERIES_METRIC_ASIC_TEMPERATURE";
 }
 
 export interface TelemetryServiceStreamAsicHealthParams {
@@ -5905,6 +5910,10 @@ export interface V2QueryTimeSeriesResponse {
    *  - TIME_SERIES_METRIC_TEMPERATURE_SENSOR: Sensor-specific board or PSU temperature history. Requests must include a
    * TemperatureSeriesSelector; the legacy TEMPERATURE metric remains the
    * aggregate across every board sensor.
+   *  - TIME_SERIES_METRIC_ASIC_TEMPERATURE: Each board's mean ASIC die temperature from its recent ASIC frames,
+   * separate from the board sensors that TEMPERATURE aggregates. Without an
+   * identifier the buckets pool every reporting board. It has no hourly
+   * rollup, so it is retained only in the raw tier.
    */
   metric?: V2TimeSeriesMetric;
   unit?: string;
@@ -7186,6 +7195,10 @@ export interface V2TimeSeriesBucket {
  *  - TIME_SERIES_METRIC_TEMPERATURE_SENSOR: Sensor-specific board or PSU temperature history. Requests must include a
  * TemperatureSeriesSelector; the legacy TEMPERATURE metric remains the
  * aggregate across every board sensor.
+ *  - TIME_SERIES_METRIC_ASIC_TEMPERATURE: Each board's mean ASIC die temperature from its recent ASIC frames,
+ * separate from the board sensors that TEMPERATURE aggregates. Without an
+ * identifier the buckets pool every reporting board. It has no hourly
+ * rollup, so it is retained only in the raw tier.
  * @default "TIME_SERIES_METRIC_UNSPECIFIED"
  */
 export enum V2TimeSeriesMetric {
@@ -7250,6 +7263,7 @@ export enum V2TimeSeriesMetric {
   TIME_SERIES_METRIC_PLANT_INSIDE_AMBIENT_HUMIDITY = "TIME_SERIES_METRIC_PLANT_INSIDE_AMBIENT_HUMIDITY",
   TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_TEMPERATURE = "TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_TEMPERATURE",
   TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_HUMIDITY = "TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_HUMIDITY",
+  TIME_SERIES_METRIC_ASIC_TEMPERATURE = "TIME_SERIES_METRIC_ASIC_TEMPERATURE",
 }
 
 /**
@@ -7767,7 +7781,7 @@ export class HttpClient<SecurityDataType = unknown> {
 
 /**
  * @title Proto MDK v2
- * @version 2-66d8aaeeb335a519
+ * @version 2-86148743bfb7d20f
  *
  * Latest MDK v2 REST contract. Device support depends on product and firmware version.
  */

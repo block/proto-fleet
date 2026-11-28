@@ -123,6 +123,11 @@ enum TimeSeriesMetric {
   TIME_SERIES_METRIC_PLANT_INSIDE_AMBIENT_HUMIDITY = 58;
   TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_TEMPERATURE = 59;
   TIME_SERIES_METRIC_PLANT_OUTSIDE_AMBIENT_HUMIDITY = 60;
+  // Each board's mean ASIC die temperature from its recent ASIC frames,
+  // separate from the board sensors that TEMPERATURE aggregates. Without an
+  // identifier the buckets pool every reporting board. It has no hourly
+  // rollup, so it is retained only in the raw tier.
+  TIME_SERIES_METRIC_ASIC_TEMPERATURE = 61;
 }
 
 // HealthStatus represents the overall health of the system.
