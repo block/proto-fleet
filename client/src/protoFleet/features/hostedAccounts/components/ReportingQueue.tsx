@@ -1,7 +1,7 @@
 import { useCallback, useLayoutEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
-import { timestampFromDate } from "@bufbuild/protobuf/wkt";
+import { type Timestamp, timestampFromDate } from "@bufbuild/protobuf/wkt";
 
 import { ACCOUNT_READ_TIMEOUT_MS, hostedAccountsClient } from "../api";
 import {
@@ -12,6 +12,14 @@ import {
   reportTime,
   reportWorkflow,
 } from "../reportFormat";
+import {
+  calendarDay,
+  calendarDayStart,
+  type CalendarRange,
+  calendarRangeOf,
+  calendarToday,
+  scheduledPeriodOptions,
+} from "../reportPeriodOptions";
 import { useAccountQuery } from "../useAccountQuery";
 import { type HostReportFile, useReportDownload } from "../useReportDownload";
 import { AccountState } from "./AccountState";
@@ -20,6 +28,7 @@ import ReportingActivity from "./ReportingActivity";
 import { ReportingError } from "./ReportingError";
 import { ReportingDate, ReportingForm } from "./ReportingForm";
 import ReportingSetup from "./ReportingSetup";
+import ReportPeriodFields from "./ReportPeriodFields";
 import ReportPublicationHistory from "./ReportPublicationHistory";
 import {
   type HostReport,
@@ -96,13 +105,35 @@ const PrepareReport = ({
           requestReceivedAt: request?.receivedAt,
         }),
   );
+  const zone = period.timezone || "UTC";
+  const configuration = setup.input?.configuration;
+  const yearStart = { month: configuration?.reportingYearMonth || 1, day: configuration?.reportingYearDay || 1 };
+  // Scheduled obligations step from the configured quarterly start, which need not match the reporting year.
+  const quarterMonth =
+    Number(calendarDay(configuration?.schedule?.quarterlyStart, zone)?.split("-")[1]) || yearStart.month;
+  const schedule = configuration?.schedule;
+  const scheduleStarts: Record<string, Timestamp | undefined> = {
+    monthly: schedule?.monthlyStart,
+    quarterly: schedule?.quarterlyStart,
+    annual: schedule?.annualStart,
+  };
+  const latestPeriod = (kind: string): Partial<CalendarRange> =>
+    scheduledPeriodOptions(kind, calendarToday(zone), yearStart, quarterMonth)[0] ?? {};
+  // Calendar days the user chose. Until they choose, a seeded period keeps its exact instants.
+  const [chosen, setChosen] = useState<Partial<CalendarRange> | undefined>(() =>
+    seed ? undefined : latestPeriod(period.kind),
+  );
+  const range = chosen ?? calendarRangeOf(period.start, period.end, zone);
+  const start = chosen ? calendarDayStart(chosen.start, zone) : period.start;
+  const end = chosen ? calendarDayStart(chosen.end, zone) : period.end;
+  const [editingAsOf, setEditingAsOf] = useState(false);
   const [owner, setOwner] = useState(() => setup.owners.find((owner) => owner.username === username)?.userId ?? "");
   const [reason, setReason] = useState("");
   const valid =
-    !!period.start &&
-    !!period.end &&
+    !!start &&
+    !!end &&
     !!period.asOf &&
-    period.end.seconds > period.start.seconds &&
+    end.seconds > start.seconds &&
     !!period.timezone &&
     !!owner &&
     (!replacement || !!reason.trim()) &&
@@ -119,7 +150,7 @@ const PrepareReport = ({
         const response = await hostedAccountsClient.prepareHostReport(
           {
             accountId: setup.accountId,
-            period,
+            period: { ...period, start, end },
             inputRevision: setup.input!.revision,
             ownerUserId: owner,
             reportId: existing?.report?.reportId,
@@ -146,45 +177,47 @@ const PrepareReport = ({
             options={(request || seed?.kind === "ad_hoc" ? ["ad_hoc"] : ["monthly", "quarterly", "annual"]).map(
               (value) => ({ value, label: reportLabel(value) }),
             )}
-            onChange={(kind) =>
+            onChange={(kind) => {
+              if (kind === period.kind) return;
               setPeriod({
                 ...period,
                 kind,
                 requestRef: kind === "ad_hoc" ? period.requestRef : "",
                 requestReceivedAt: kind === "ad_hoc" ? period.requestReceivedAt : undefined,
-              })
-            }
+              });
+              setChosen(latestPeriod(kind));
+            }}
           />
-          <ReportingDate
-            id="period-start"
-            timezone={period.timezone || "UTC"}
-            label="Period start"
-            value={period.start}
-            onChange={(start) => setPeriod({ ...period, start })}
-          />
-          <ReportingDate
-            id="period-end"
-            timezone={period.timezone || "UTC"}
-            label="Period end (exclusive)"
-            value={period.end}
-            onChange={(end) => setPeriod({ ...period, end })}
+          <ReportPeriodFields
+            kind={period.kind}
+            timezone={zone}
+            yearStart={yearStart}
+            quarterMonth={quarterMonth}
+            earliest={calendarDay(scheduleStarts[period.kind], zone)}
+            range={range}
+            onChange={setChosen}
           />
         </>
       )}
-      <ReportingDate
-        id="period-as-of"
-        timezone={period.timezone || "UTC"}
-        label="Evidence as of"
-        value={period.asOf}
-        onChange={(asOf) => setPeriod({ ...period, asOf })}
-      />
-      {!replacement ? (
-        <Input
-          id="period-timezone"
-          label="Reporting timezone"
-          initValue={period.timezone}
-          onChange={(timezone) => setPeriod({ ...period, timezone })}
+      {editingAsOf ? (
+        <ReportingDate
+          id="period-as-of"
+          timezone={zone}
+          label="Evidence as of"
+          value={period.asOf}
+          onChange={(asOf) => setPeriod({ ...period, asOf })}
         />
+      ) : (
+        <div className="flex items-center justify-between gap-4">
+          <p>Evidence as of {reportTime(period.asOf, zone)}</p>
+          <Button variant="textOnly" onClick={() => setEditingAsOf(true)}>
+            Change
+          </Button>
+        </div>
+      )}
+      {!replacement ? (
+        // The period must use the account's configured timezone, which is changed in Reporting settings.
+        <Input id="period-timezone" label="Reporting timezone" initValue={period.timezone} readOnly />
       ) : null}
       {period.kind === "ad_hoc" ? (
         <div>
@@ -207,10 +240,12 @@ const PrepareReport = ({
           onChange={setReason}
         />
       ) : null}
-      <p>
-        Enter times in the reporting timezone. Times skipped or repeated by a clock change must be adjusted to a unique
-        local time.
-      </p>
+      {editingAsOf ? (
+        <p>
+          Enter the time in the reporting timezone. A time skipped or repeated by a clock change must be adjusted to a
+          unique local time.
+        </p>
+      ) : null}
     </ReportingForm>
   );
 };

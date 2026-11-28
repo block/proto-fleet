@@ -33,7 +33,10 @@ import {
 } from "@/protoFleet/api/generated/hosted/v1/reporting_pb";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
 function mount(
   canPublish = true,
   status = "draft",
@@ -201,7 +204,7 @@ describe("host report publication", () => {
     await user.click(screen.getByRole("button", { name: "Report actions" }));
     await user.click(screen.getByText("Replace report"));
     const form = within(screen.getByRole("dialog", { name: "Replace report" }));
-    expect(form.queryByLabelText("Period start")).not.toBeInTheDocument();
+    expect(form.queryByRole("button", { name: "Reporting month" })).not.toBeInTheDocument();
     expect(form.getByRole("button", { name: "Create draft" })).toBeDisabled();
     await user.type(form.getByLabelText("Replacement reason (visible to client)"), "Reviewed late meter evidence");
     await user.click(form.getByRole("button", { name: "Accountable reporting owner" }));
@@ -507,6 +510,8 @@ describe("reporting access and recorded requests", () => {
   });
 
   it("prepares an ad hoc report with the canonical recorded request and immutable receipt", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-15T12:00:00Z"));
     const user = userEvent.setup();
     const request = create(HostReportRequestSchema, {
       requestId: "a36b08fe-e8f5-4d5c-8f35-64dc6c639054",
@@ -533,8 +538,13 @@ describe("reporting access and recorded requests", () => {
     await user.click(form.getByRole("button", { name: "Report type" }));
     expect(screen.queryByRole("option", { name: "Monthly" })).not.toBeInTheDocument();
     await user.click(await screen.findByRole("option", { name: "Ad hoc" }));
-    fireEvent.change(form.getByLabelText("Period start (UTC)"), { target: { value: "2026-10-01T00:00" } });
-    fireEvent.change(form.getByLabelText("Period end (exclusive) (UTC)"), { target: { value: "2026-11-01T00:00" } });
+    expect(form.getByRole("button", { name: "Create draft" })).toBeDisabled();
+    fireEvent.click(screen.getByTestId("period-first-day-trigger"));
+    fireEvent.click(screen.getByTestId("period-first-day-calendar-prev-month"));
+    fireEvent.click(screen.getByTestId("period-first-day-calendar-day-1"));
+    fireEvent.click(screen.getByTestId("period-last-day-trigger"));
+    fireEvent.click(screen.getByTestId("period-last-day-calendar-prev-month"));
+    fireEvent.click(screen.getByTestId("period-last-day-calendar-day-31"));
     await user.click(form.getByRole("button", { name: "Accountable reporting owner" }));
     await user.click(await screen.findByRole("option", { name: "Casey" }));
     await user.click(form.getByRole("button", { name: "Create draft" }));
@@ -545,6 +555,9 @@ describe("reporting access and recorded requests", () => {
             kind: "ad_hoc",
             requestRef: request.requestId,
             requestReceivedAt: request.receivedAt,
+            // The last day is inclusive, so the period ends at the following midnight.
+            start: expect.objectContaining({ seconds: 1790812800n }),
+            end: expect.objectContaining({ seconds: 1793491200n }),
           }),
         }),
         expect.anything(),
@@ -731,6 +744,8 @@ it("can continue past an empty admitted queue page", async () => {
 });
 
 it("prepares official calendar periods in the approved reporting timezone", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-12-10T12:00:00Z"));
   const user = userEvent.setup();
   mount(
     true,
@@ -748,10 +763,25 @@ it("prepares official calendar periods in the approved reporting timezone", asyn
     .mockResolvedValue(create(PrepareHostReportResponseSchema));
   await user.click(await screen.findByRole("button", { name: "Create report" }));
   const form = within(screen.getByRole("dialog", { name: "Create report" }));
-  fireEvent.change(form.getByLabelText("Period start (Africa/Nairobi)"), { target: { value: "2026-10-01T00:00" } });
-  fireEvent.change(form.getByLabelText("Period end (exclusive) (Africa/Nairobi)"), {
-    target: { value: "2026-11-01T00:00" },
-  });
+  expect(form.getByLabelText("Reporting timezone")).toHaveValue("Africa/Nairobi");
+  expect(form.getByLabelText("Reporting timezone")).toHaveAttribute("readonly");
+  expect(form.getByRole("button", { name: "Year" })).toHaveTextContent("2026");
+  expect(form.getByRole("button", { name: "Reporting month" })).toHaveTextContent("November");
+  await user.click(form.getByRole("button", { name: "Reporting month" }));
+  expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+  ]);
+  await user.click(await screen.findByRole("option", { name: "October" }));
   await user.click(form.getByRole("button", { name: "Accountable reporting owner" }));
   await user.click(await screen.findByRole("option", { name: "Casey" }));
   await user.click(form.getByRole("button", { name: "Create draft" }));
@@ -832,8 +862,7 @@ it("resolves a notification target beyond the first 50 rows without expanding vi
   );
   await user.click(await screen.findByRole("button", { name: "Create report" }));
   const preparation = within(screen.getByRole("dialog", { name: "Create report" }));
-  expect(preparation.getByLabelText("Period start (UTC)")).toHaveValue("2026-08-01T00:00");
-  expect(preparation.getByLabelText("Period end (exclusive) (UTC)")).toHaveValue("2026-09-01T00:00");
+  expect(preparation.getByRole("button", { name: "Reporting month" })).toHaveTextContent("Aug");
   await user.click(preparation.getByRole("button", { name: "Cancel" }));
   await user.click(screen.getByRole("button", { name: "Work queue" }));
   expect(screen.getAllByRole("row")).toHaveLength(51);
