@@ -19,7 +19,9 @@ on: # zizmor: ignore[dangerous-triggers] review policy runs from trusted workflo
 # per commit. Only the pull request head can change the decision, so events for
 # other commits are dropped before a runner is allocated. GitHub fills
 # check_run.pull_requests only for same-repository heads and leaves
-# check_suite.head_branch null for forks, so fork events are still evaluated.
+# check_suite.head_branch null for forks, so fork events pass this filter. The
+# evaluate job then finds their pull request by scanning open pull requests for
+# the head SHA, because GitHub associates no pull requests with fork commits.
 concurrency:
   group: >-
     review-policy-${{
@@ -123,6 +125,46 @@ jobs:
               return true;
             }
 
+            // Commit associations omit pull requests whose head is in a fork,
+            // and status and check payloads carry no fork branch to filter
+            // pulls.list by, so scan open pull requests for the head SHA.
+            // A push bumps updated_at, so the PR an event is for sorts early;
+            // the page cap bounds the cost of events for non-PR commits.
+            async function findOpenPrByHeadSha(sha) {
+              const perPage = 100;
+              const maxPages = 3;
+              for (let page = 1; page <= maxPages; page++) {
+                const { data: candidates } = await github.rest.pulls.list({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  state: 'open',
+                  sort: 'updated',
+                  direction: 'desc',
+                  per_page: perPage,
+                  page,
+                });
+                const candidate = candidates.find((item) => item.head.sha === sha);
+                if (candidate) {
+                  const data = await getOpenPrByNumber(candidate.number);
+                  if (!data || !isCurrentHeadForEvent(data, sha, 'commit SHA')) {
+                    return undefined;
+                  }
+                  return data;
+                }
+                if (candidates.length < perPage) return undefined;
+              }
+              core.notice(
+                `No open pull request has head ${sha} among the ` +
+                `${maxPages * perPage} most recently updated.`
+              );
+              return undefined;
+            }
+
+            async function findOpenPrForEventSha(sha) {
+              if (!sha) return undefined;
+              return await findOpenPrForSha(sha) || await findOpenPrByHeadSha(sha);
+            }
+
             async function findOpenPrForSha(sha) {
               if (!sha) return undefined;
               const { data: candidates } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
@@ -153,21 +195,21 @@ jobs:
                 core.setOutput('found', 'false');
                 return;
               }
-              pr = await findOpenPrForSha(context.payload.sha);
+              pr = await findOpenPrForEventSha(context.payload.sha);
             } else if (context.eventName === 'check_run') {
               if (context.payload.check_run?.app?.slug === 'github-actions') {
                 core.notice('Ignoring GitHub Actions check_run event; workflow_run handles in-repo workflows.');
                 core.setOutput('found', 'false');
                 return;
               }
-              pr = await findOpenPrForSha(context.payload.check_run?.head_sha);
+              pr = await findOpenPrForEventSha(context.payload.check_run?.head_sha);
             } else if (context.eventName === 'check_suite') {
               if (context.payload.check_suite?.app?.slug === 'github-actions') {
                 core.notice('Ignoring GitHub Actions check_suite event; workflow_run handles in-repo workflows.');
                 core.setOutput('found', 'false');
                 return;
               }
-              pr = await findOpenPrForSha(context.payload.check_suite?.head_sha);
+              pr = await findOpenPrForEventSha(context.payload.check_suite?.head_sha);
             } else if (context.payload.workflow_run?.pull_requests?.length) {
               const candidate = context.payload.workflow_run.pull_requests[0];
               const workflowRunHeadSha = context.payload.workflow_run.head_sha;

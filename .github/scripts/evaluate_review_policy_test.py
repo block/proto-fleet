@@ -151,6 +151,8 @@ const context = {
   runId: scenario.run_id || 100,
   sha: scenario.head_sha || 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
   repo: {owner: 'block', repo: 'proto-fleet'},
+  eventName: scenario.event_name || 'workflow_run',
+  payload: scenario.payload || {},
 };
 const core = {
   info: message => calls.push({type: 'info', message}),
@@ -165,10 +167,21 @@ const github = {
     return response.data || response;
   },
   rest: {
+    repos: {
+      listPullRequestsAssociatedWithCommit: async () => {
+        maybeFail('repos.listPullRequestsAssociatedWithCommit');
+        return {data: scenario.associated_pull_requests || []};
+      },
+    },
     pulls: {
       get: async () => {
         maybeFail('pulls.get');
         return {data: scenario.pull_request};
+      },
+      list: async args => {
+        maybeFail('pulls.list');
+        calls.push({type: 'pulls.list', args});
+        return {data: scenario.listed_pull_requests || []};
       },
     },
     actions: {
@@ -1820,6 +1833,143 @@ class ReviewPolicyTest(unittest.TestCase):
             self.assertIn(f"({non_head_check_suite})", expression)
         self.assertIn(f"!({non_head_check_run})", evaluate_condition)
         self.assertIn(f"!({non_head_check_suite})", evaluate_condition)
+
+    def test_commit_events_resolve_fork_pr_by_head_sha(self):
+        workflow = load_workflow("review-policy.yml")
+        script = find_step(workflow, "evaluate", "pr")["with"]["script"]
+        head_sha = "b" * 40
+        base = {
+            "sha": "a" * 40,
+            "ref": "main",
+            "repo": {"full_name": "block/proto-fleet", "default_branch": "main"},
+        }
+        fork_pr = {
+            "number": 1132,
+            "state": "open",
+            "user": {"login": "contributor"},
+            "head": {"sha": head_sha, "repo": {"full_name": "contributor/proto-fleet"}},
+            "base": base,
+        }
+        same_repo_pr = {
+            **fork_pr,
+            "head": {"sha": head_sha, "repo": {"full_name": "block/proto-fleet"}},
+        }
+        other_pr = {
+            **fork_pr,
+            "number": 1,
+            "head": {"sha": "d" * 40, "repo": {"full_name": "other/proto-fleet"}},
+        }
+
+        def payload(event, sha):
+            app = {"slug": "block-dco-check"}
+            if event == "status":
+                return {"sha": sha, "context": "DCO", "branches": []}
+            # GitHub leaves head_branch null and pull_requests empty for forks.
+            return {
+                event: {
+                    "head_sha": sha,
+                    "head_branch": None,
+                    "pull_requests": [],
+                    "app": app,
+                }
+            }
+
+        # GitHub returns no commit associations for fork head commits, so the
+        # fork PR is only reachable by scanning open pull requests.
+        fork = {
+            "associated_pull_requests": [],
+            "listed_pull_requests": [other_pr, fork_pr],
+        }
+        full_page = {
+            "associated_pull_requests": [],
+            "listed_pull_requests": [other_pr] * 100,
+        }
+        # (name, event sha, current PR, lookups, found, expected pulls.list pages)
+        scenarios = [
+            ("fork-head", head_sha, fork_pr, fork, True, [1]),
+            ("fork-stale-head", "c" * 40, fork_pr, fork, False, [1]),
+            (
+                "fork-head-moved",
+                head_sha,
+                {**fork_pr, "head": {**fork_pr["head"], "sha": "c" * 40}},
+                fork,
+                False,
+                [1],
+            ),
+            (
+                "fork-closed-pr",
+                head_sha,
+                {**fork_pr, "state": "closed"},
+                fork,
+                False,
+                [1],
+            ),
+            (
+                "no-open-pr-scan-is-bounded",
+                head_sha,
+                fork_pr,
+                full_page,
+                False,
+                [1, 2, 3],
+            ),
+            ("missing-sha", None, fork_pr, fork, False, []),
+            (
+                "same-repo-association",
+                head_sha,
+                same_repo_pr,
+                {"associated_pull_requests": [same_repo_pr]},
+                True,
+                [],
+            ),
+        ]
+        for event in ("status", "check_run", "check_suite"):
+            for name, sha, current_pr, lookups, expected_found, pages in scenarios:
+                scenario = {
+                    "event_name": event,
+                    "payload": payload(event, sha),
+                    "pull_request": current_pr,
+                    **lookups,
+                }
+                with (
+                    self.subTest(event=event, name=name),
+                    tempfile.TemporaryDirectory() as tmp,
+                ):
+                    completed, result = run_github_script(script, scenario, tmp)
+                    self.assertEqual(completed.returncode, 0, completed.stderr)
+                    self.assertEqual(
+                        result["outputs"].get("found"), str(expected_found).lower()
+                    )
+                    list_calls = [
+                        c["args"] for c in result["calls"] if c["type"] == "pulls.list"
+                    ]
+                    self.assertEqual([c["page"] for c in list_calls], pages)
+                    for args in list_calls:
+                        self.assertEqual(args["state"], "open")
+                        self.assertEqual(args["sort"], "updated")
+                        self.assertEqual(args["direction"], "desc")
+                        self.assertEqual(args["per_page"], 100)
+                        self.assertNotIn("head", args)
+                    if expected_found:
+                        self.assertEqual(result["outputs"]["number"], "1132")
+                        self.assertEqual(result["outputs"]["head_sha"], head_sha)
+                        self.assertEqual(
+                            result["outputs"]["same_repo"],
+                            str(name.startswith("same-repo")).lower(),
+                        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            completed, result = run_github_script(
+                script,
+                {
+                    "event_name": "status",
+                    "payload": {"sha": head_sha, "context": "Review Policy"},
+                    **fork,
+                },
+                tmp,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(result["outputs"].get("found"), "false")
+            self.assertFalse([c for c in result["calls"] if c["type"] == "pulls.list"])
 
     def test_workflow_publishes_pending_status_for_cancelled_evaluation(self):
         workflow = load_workflow("review-policy.yml")
