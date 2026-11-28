@@ -9,7 +9,7 @@ option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
 // TankTelemetryBatch contains only configured, read-only FH controllers.
 message TankTelemetryBatch {
   repeated TankTelemetry controllers = 1;
-  // Desired membership is sourced solely from validated Frigate configuration.
+  // Desired membership is sourced solely from validated Proto container firmware configuration.
   repeated ConfiguredTank tanks = 2;
   string configuration_generation = 3;
 }

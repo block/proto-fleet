@@ -2711,7 +2711,7 @@ type GetContainerHealthResponse struct {
 	// Present only when include_module_distribution is requested and supported.
 	ModuleDistribution *ModuleDistribution `protobuf:"bytes,16,opt,name=module_distribution,json=moduleDistribution,proto3" json:"module_distribution,omitempty"`
 	// Whether the controller can honor PowerService.MuteContainerAlarm on its
-	// active command path, reported with live plant telemetry. Older Frigate
+	// active command path, reported with live plant telemetry. Older Proto container firmware
 	// releases omit it; consumers then keep assuming mute is supported.
 	AlarmMuteSupported *bool `protobuf:"varint,17,opt,name=alarm_mute_supported,json=alarmMuteSupported,proto3,oneof" json:"alarm_mute_supported,omitempty"`
 	unknownFields      protoimpl.UnknownFields

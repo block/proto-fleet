@@ -134,7 +134,7 @@ message SetIdentifyLEDResponse {
 
 // PsuIdentity is manufacturer metadata for the shared power supply
 // identified by Hashboard.module_id. It is absent until compatible firmware
-// has reported and Frigate has durably retained the details.
+// has reported and Proto container firmware has durably retained the details.
 message PsuIdentity {
   string psu_type = 1;
   string vendor = 2;
@@ -238,7 +238,7 @@ message HashboardLocation {
   // slot is the optional one-based R2 chassis slot.
   optional uint32 slot = 5;
   // hashboard_position is the resolved one-based board position within a CT1
-  // module. Values 1-3 are displayed as HB1-HB3. It is absent when Frigate
+  // module. Values 1-3 are displayed as HB1-HB3. It is absent when Proto container firmware
   // cannot place the board safely.
   optional uint32 hashboard_position = 6;
   // hashboard_position_source describes whether the resolved position came
@@ -378,7 +378,7 @@ message HashboardHealth {
   google.protobuf.Timestamp asic_temperature_observed_at = 23;
 }
 
-// HashboardErrorCause identifies a firmware-reported or Frigate-derived
+// HashboardErrorCause identifies a firmware-reported or Proto container firmware-derived
 // hashboard error or warning cause.
 enum HashboardErrorCause {
   HASHBOARD_ERROR_CAUSE_UNSPECIFIED = 0;
@@ -407,13 +407,17 @@ enum HashboardErrorCause {
   HASHBOARD_ERROR_CAUSE_MC3_NO_STACK_RUNNING = 24;
   HASHBOARD_ERROR_CAUSE_MC3_RUNTIME_COMMS_BUSY_TIMEOUT = 25;
   HASHBOARD_ERROR_CAUSE_MC3_KNOWN_GOOD_STARTUP_DROP = 26;
-  // Frigate derives thermal throttling from asic_thermal_throttle; firmware
+  // Proto container firmware derives thermal throttling from asic_thermal_throttle; firmware
   // does not emit this value in its errors or warnings arrays.
   HASHBOARD_ERROR_CAUSE_ASIC_THERMAL_THROTTLING = 27;
   HASHBOARD_ERROR_CAUSE_STACK_ENUMERATION = 30;
   HASHBOARD_ERROR_CAUSE_STACK_DELTA_THERMAL_THROTTLE = 31;
+  // Firmware enumerated the stack, but it failed before it could start mining.
+  HASHBOARD_ERROR_CAUSE_STACK_BRINGUP_FAILED = 32;
+  // Firmware observed a stack transition from RUNNING to FAILED.
+  HASHBOARD_ERROR_CAUSE_STACK_RUNTIME_FAILED = 33;
   HASHBOARD_ERROR_CAUSE_UNKNOWN_ERROR = 99;
-  // Frigate derives a stack dropout warning when a stack that hashed in the
+  // Proto container firmware derives a stack dropout warning when a stack that hashed in the
   // current mining session, whether enumerated at session start or joining
   // later, stops hashing while other stacks continue. The warning clears when
   // the stack hashes again. Firmware does not emit this value; it sits outside
@@ -443,10 +447,10 @@ message HashboardASICErrorState {
   double voltage = 2;
   double temperature = 3;
   HashboardVoltageDomain voltage_domain = 4;
-  // PhysicalPosition is the owning Frigate's mapping of id onto the board's
+  // PhysicalPosition is the owning Proto container firmware's mapping of id onto the board's
   // physical ASIC layout at capture time. Its index uses the same physical
   // index space as ASIC.index. It is absent when the layout could not
-  // resolve id unambiguously, from older Frigate releases, and for latched
+  // resolve id unambiguously, from older Proto container firmware releases, and for latched
   // last-shutdown errors whose firmware topology may predate the current one.
   HashboardASICPhysicalPosition physical_position = 5;
 }
@@ -463,7 +467,7 @@ message HashboardASICPhysicalPosition {
   uint32 stack_index = 3;
 }
 
-// HashboardHealthError is a firmware-reported or Frigate-derived error or
+// HashboardHealthError is a firmware-reported or Proto container firmware-derived error or
 // warning.
 message HashboardHealthError {
   HashboardErrorCause cause = 1;
@@ -495,7 +499,7 @@ message ASIC {
   optional int32 compact_index = 8;
   // debug_health is the newest sampled production debug-health observation
   // for this ASIC from the shared database, which may have been recorded by
-  // either HA node. It is absent when the Frigate node serving this request
+  // either HA node. It is absent when the Proto container firmware node serving this request
   // has opt-in production debug-health capture disabled (even if its HA peer
   // captures the board), when firmware does not publish debug-health frames,
   // when no sample is newer than three sample intervals, or when the newest
@@ -517,7 +521,7 @@ message ASICECCCounters {
 // ASICDebugHealth is one sampled firmware debug-health observation for one
 // ASIC: ECC counters and raw voltage-domain sensor readings.
 message ASICDebugHealth {
-  // observed_at is when Frigate accepted the sampled firmware frame.
+  // observed_at is when Proto container firmware accepted the sampled firmware frame.
   google.protobuf.Timestamp observed_at = 1;
   // ecc_total holds the cumulative firmware counters at observed_at.
   ASICECCCounters ecc_total = 2;

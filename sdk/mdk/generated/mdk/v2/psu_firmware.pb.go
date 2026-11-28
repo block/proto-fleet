@@ -244,7 +244,7 @@ func (PSUFirmwareComponentRole) EnumDescriptor() ([]byte, []int) {
 	return file_mdk_v2_psu_firmware_proto_rawDescGZIP(), []int{2}
 }
 
-// PSUFirmwareUpdateState is the Frigate job lifecycle.
+// PSUFirmwareUpdateState is the Proto container firmware job lifecycle.
 type PSUFirmwareUpdateState int32
 
 const (
@@ -1427,7 +1427,7 @@ type PSUFirmwareUpdateMember struct {
 	MiningBefore bool `protobuf:"varint,2,opt,name=mining_before,json=miningBefore,proto3" json:"mining_before,omitempty"`
 	// restore_error is set when mining could not be restored.
 	RestoreError string `protobuf:"bytes,3,opt,name=restore_error,json=restoreError,proto3" json:"restore_error,omitempty"`
-	// reserved reports whether Frigate reserved the member. Disconnected or
+	// reserved reports whether Proto container firmware reserved the member. Disconnected or
 	// unmanaged members are not reserved; board firmware still fences them.
 	Reserved      bool `protobuf:"varint,4,opt,name=reserved,proto3" json:"reserved,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1496,7 +1496,7 @@ func (x *PSUFirmwareUpdateMember) GetReserved() bool {
 type PSUFirmwareUpdate struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	TaskId string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	// server_id is the Frigate node that owns this job.
+	// server_id is the Proto container firmware node that owns this job.
 	ServerId         string                     `protobuf:"bytes,2,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
 	ModuleId         string                     `protobuf:"bytes,3,opt,name=module_id,json=moduleId,proto3" json:"module_id,omitempty"`
 	CapsuleId        string                     `protobuf:"bytes,4,opt,name=capsule_id,json=capsuleId,proto3" json:"capsule_id,omitempty"`

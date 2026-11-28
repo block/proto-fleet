@@ -43,7 +43,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type TelemetryServiceClient interface {
 	// QueryTankSensorHistory reads source-identified C1 acquisitions from the
-	// owning Frigate's durable PostgreSQL/TimescaleDB store.
+	// owning Proto container firmware's durable PostgreSQL/TimescaleDB store.
 	QueryTankSensorHistory(ctx context.Context, in *QueryTankSensorHistoryRequest, opts ...grpc.CallOption) (*QueryTankSensorHistoryResponse, error)
 	QueryTankProductionHistory(ctx context.Context, in *QueryTankProductionHistoryRequest, opts ...grpc.CallOption) (*QueryTankProductionHistoryResponse, error)
 	// StreamHashboardHealth streams hashboard health snapshots at ~1Hz.
@@ -386,7 +386,7 @@ func (c *telemetryServiceClient) GetHashboardLifetime(ctx context.Context, in *G
 // for forward compatibility
 type TelemetryServiceServer interface {
 	// QueryTankSensorHistory reads source-identified C1 acquisitions from the
-	// owning Frigate's durable PostgreSQL/TimescaleDB store.
+	// owning Proto container firmware's durable PostgreSQL/TimescaleDB store.
 	QueryTankSensorHistory(context.Context, *QueryTankSensorHistoryRequest) (*QueryTankSensorHistoryResponse, error)
 	QueryTankProductionHistory(context.Context, *QueryTankProductionHistoryRequest) (*QueryTankProductionHistoryResponse, error)
 	// StreamHashboardHealth streams hashboard health snapshots at ~1Hz.

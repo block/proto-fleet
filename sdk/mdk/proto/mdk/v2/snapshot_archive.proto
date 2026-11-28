@@ -8,7 +8,7 @@ import "mdk/v2/options.proto";
 option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
 
 // SnapshotArchiveService prepares and uploads one immutable closed-hour
-// telemetry archive on an exact Frigate instance.
+// telemetry archive on an exact Proto container firmware instance.
 service SnapshotArchiveService {
   rpc PrepareSnapshotArchive(PrepareSnapshotArchiveRequest) returns (PrepareSnapshotArchiveResponse) {
     option (mdk.v2.product) = PRODUCT_CT1;
