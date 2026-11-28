@@ -70,7 +70,7 @@ export const SetIdentifyLEDResponseSchema: GenMessage<SetIdentifyLEDResponse> = 
 /**
  * PsuIdentity is manufacturer metadata for the shared power supply
  * identified by Hashboard.module_id. It is absent until compatible firmware
- * has reported and Frigate has durably retained the details.
+ * has reported and Proto container firmware has durably retained the details.
  *
  * @generated from message mdk.v2.PsuIdentity
  */
@@ -362,7 +362,7 @@ export type HashboardLocation = Message<"mdk.v2.HashboardLocation"> & {
 
   /**
    * hashboard_position is the resolved one-based board position within a CT1
-   * module. Values 1-3 are displayed as HB1-HB3. It is absent when Frigate
+   * module. Values 1-3 are displayed as HB1-HB3. It is absent when Proto container firmware
    * cannot place the board safely.
    *
    * @generated from field: optional uint32 hashboard_position = 6;
@@ -749,10 +749,10 @@ export type HashboardASICErrorState = Message<"mdk.v2.HashboardASICErrorState"> 
   voltageDomain: HashboardVoltageDomain;
 
   /**
-   * PhysicalPosition is the owning Frigate's mapping of id onto the board's
+   * PhysicalPosition is the owning Proto container firmware's mapping of id onto the board's
    * physical ASIC layout at capture time. Its index uses the same physical
    * index space as ASIC.index. It is absent when the layout could not
-   * resolve id unambiguously, from older Frigate releases, and for latched
+   * resolve id unambiguously, from older Proto container firmware releases, and for latched
    * last-shutdown errors whose firmware topology may predate the current one.
    *
    * @generated from field: mdk.v2.HashboardASICPhysicalPosition physical_position = 5;
@@ -805,7 +805,7 @@ export const HashboardASICPhysicalPositionSchema: GenMessage<HashboardASICPhysic
   messageDesc(file_mdk_v2_hashboard, 12);
 
 /**
- * HashboardHealthError is a firmware-reported or Frigate-derived error or
+ * HashboardHealthError is a firmware-reported or Proto container firmware-derived error or
  * warning.
  *
  * @generated from message mdk.v2.HashboardHealthError
@@ -908,7 +908,7 @@ export type ASIC = Message<"mdk.v2.ASIC"> & {
   /**
    * debug_health is the newest sampled production debug-health observation
    * for this ASIC from the shared database, which may have been recorded by
-   * either HA node. It is absent when the Frigate node serving this request
+   * either HA node. It is absent when the Proto container firmware node serving this request
    * has opt-in production debug-health capture disabled (even if its HA peer
    * captures the board), when firmware does not publish debug-health frames,
    * when no sample is newer than three sample intervals, or when the newest
@@ -967,7 +967,7 @@ export const ASICECCCountersSchema: GenMessage<ASICECCCounters> = /*@__PURE__*/
  */
 export type ASICDebugHealth = Message<"mdk.v2.ASICDebugHealth"> & {
   /**
-   * observed_at is when Frigate accepted the sampled firmware frame.
+   * observed_at is when Proto container firmware accepted the sampled firmware frame.
    *
    * @generated from field: google.protobuf.Timestamp observed_at = 1;
    */
@@ -2350,7 +2350,7 @@ export const HashboardPerformanceTuningAlgorithmSchema: GenEnum<HashboardPerform
   enumDesc(file_mdk_v2_hashboard, 5);
 
 /**
- * HashboardErrorCause identifies a firmware-reported or Frigate-derived
+ * HashboardErrorCause identifies a firmware-reported or Proto container firmware-derived
  * hashboard error or warning cause.
  *
  * @generated from enum mdk.v2.HashboardErrorCause
@@ -2487,7 +2487,7 @@ export enum HashboardErrorCause {
   MC3_KNOWN_GOOD_STARTUP_DROP = 26,
 
   /**
-   * Frigate derives thermal throttling from asic_thermal_throttle; firmware
+   * Proto container firmware derives thermal throttling from asic_thermal_throttle; firmware
    * does not emit this value in its errors or warnings arrays.
    *
    * @generated from enum value: HASHBOARD_ERROR_CAUSE_ASIC_THERMAL_THROTTLING = 27;
@@ -2524,7 +2524,7 @@ export enum HashboardErrorCause {
   UNKNOWN_ERROR = 99,
 
   /**
-   * Frigate derives a stack dropout warning when a stack that hashed in the
+   * Proto container firmware derives a stack dropout warning when a stack that hashed in the
    * current mining session, whether enumerated at session start or joining
    * later, stops hashing while other stacks continue. The warning clears when
    * the stack hashes again. Firmware does not emit this value; it sits outside

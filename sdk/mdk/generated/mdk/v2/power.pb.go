@@ -789,7 +789,7 @@ type SetPowerFeedStateRequest struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	PowerFeedId string                 `protobuf:"bytes,1,opt,name=power_feed_id,json=powerFeedId,proto3" json:"power_feed_id,omitempty"`
 	Disabled    bool                   `protobuf:"varint,2,opt,name=disabled,proto3" json:"disabled,omitempty"`
-	// Deprecated compatibility bit for Frigate versions that enforced
+	// Deprecated compatibility bit for Proto container firmware versions that enforced
 	// application-side plant safety policy. Current servers ignore it.
 	//
 	// Deprecated: Marked as deprecated in mdk/v2/power.proto.
@@ -1346,7 +1346,7 @@ type ContainerSetpoint struct {
 	// value is the current (or just-applied) setpoint value.
 	Value float64 `protobuf:"fixed64,2,opt,name=value,proto3" json:"value,omitempty"`
 	Unit  string  `protobuf:"bytes,3,opt,name=unit,proto3" json:"unit,omitempty"`
-	// Documented PLC range metadata for operator display. Frigate does not use
+	// Documented PLC range metadata for operator display. Proto container firmware does not use
 	// these values as an application-side write limit.
 	Min         float64 `protobuf:"fixed64,4,opt,name=min,proto3" json:"min,omitempty"`
 	Max         float64 `protobuf:"fixed64,5,opt,name=max,proto3" json:"max,omitempty"`
@@ -1683,7 +1683,7 @@ type SetContainerControlRequest struct {
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// enabled selects the target state: true starts/enables, false stops/disables.
 	Enabled bool `protobuf:"varint,2,opt,name=enabled,proto3" json:"enabled,omitempty"`
-	// Deprecated compatibility bit for Frigate versions that enforced
+	// Deprecated compatibility bit for Proto container firmware versions that enforced
 	// application-side plant safety policy. Current servers ignore it.
 	//
 	// Deprecated: Marked as deprecated in mdk/v2/power.proto.
@@ -1806,7 +1806,7 @@ type SetContainerSetpointRequest struct {
 	// value must be representable as a finite float32 PLC wire value. The PLC
 	// owns operational limits and final command acceptance.
 	Value float64 `protobuf:"fixed64,2,opt,name=value,proto3" json:"value,omitempty"`
-	// Deprecated compatibility bit for Frigate versions that enforced
+	// Deprecated compatibility bit for Proto container firmware versions that enforced
 	// application-side plant safety policy. Current servers ignore it.
 	//
 	// Deprecated: Marked as deprecated in mdk/v2/power.proto.

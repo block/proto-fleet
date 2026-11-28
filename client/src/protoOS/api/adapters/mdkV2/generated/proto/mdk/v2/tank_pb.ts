@@ -26,7 +26,7 @@ export type TankTelemetryBatch = Message<"mdk.v2.TankTelemetryBatch"> & {
   controllers: TankTelemetry[];
 
   /**
-   * Desired membership is sourced solely from validated Frigate configuration.
+   * Desired membership is sourced solely from validated Proto container firmware configuration.
    *
    * @generated from field: repeated mdk.v2.ConfiguredTank tanks = 2;
    */

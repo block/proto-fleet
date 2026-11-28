@@ -272,7 +272,7 @@ const (
 	// stopped.
 	ServerUpdateRolloutPhase_SERVER_UPDATE_ROLLOUT_PHASE_VERIFIED ServerUpdateRolloutPhase = 9
 	// An operator ran the on-host abandon command. The rollout is terminal, but
-	// if ServerUpdateRollout.disruption_started is true Frigate may still be held
+	// if ServerUpdateRollout.disruption_started is true Proto container firmware may still be held
 	// stopped on one or both instances until the operator restores service.
 	ServerUpdateRolloutPhase_SERVER_UPDATE_ROLLOUT_PHASE_ABANDONED ServerUpdateRolloutPhase = 10
 )
@@ -342,7 +342,7 @@ const (
 	// UNSPECIFIED is the frigate package. Legacy manifests use it.
 	ServerUpdatePackage_SERVER_UPDATE_PACKAGE_UNSPECIFIED ServerUpdatePackage = 0
 	// PROTO_OS is the arch-independent, static proto-os web UI package. The root
-	// helper installs it on one instance without stopping Frigate or holding
+	// helper installs it on one instance without stopping Proto container firmware or holding
 	// HA peers at barriers.
 	ServerUpdatePackage_SERVER_UPDATE_PACKAGE_PROTO_OS ServerUpdatePackage = 1
 )
@@ -562,7 +562,7 @@ type GetServerUpdateSupportResponse struct {
 	// (the update.allow_remote_trigger setting).
 	RemoteTriggerAllowed bool `protobuf:"varint,15,opt,name=remote_trigger_allowed,json=remoteTriggerAllowed,proto3" json:"remote_trigger_allowed,omitempty"`
 	// proto_os_package_supported is true only when the root update helper can
-	// install a static proto-os package without stopping Frigate. Callers must
+	// install a static proto-os package without stopping Proto container firmware. Callers must
 	// not stage a SERVER_UPDATE_PACKAGE_PROTO_OS manifest unless it is true.
 	ProtoOsPackageSupported bool `protobuf:"varint,16,opt,name=proto_os_package_supported,json=protoOsPackageSupported,proto3" json:"proto_os_package_supported,omitempty"`
 	// proto_os_installed_version is the dpkg version of the installed proto-os
@@ -971,7 +971,7 @@ type ServerUpdateManifest struct {
 	// release_signature holds the DER ECDSA P-256 signature over
 	// release_statement. Required when coordination is SELF or package is
 	// PROTO_OS; forbidden otherwise. A PROTO_OS signature must verify against
-	// the ProtoOS release keys, never the Frigate release keys.
+	// the ProtoOS release keys, never the Proto container firmware release keys.
 	ReleaseSignature []byte `protobuf:"bytes,22,opt,name=release_signature,json=releaseSignature,proto3" json:"release_signature,omitempty"`
 	// package selects the Debian package this manifest installs. UNSPECIFIED is
 	// frigate. PROTO_OS requires proto_os_package_supported and
@@ -1369,7 +1369,7 @@ type GetServerUpdateStatusResponse struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	Rollout *ServerUpdateRollout   `protobuf:"bytes,1,opt,name=rollout,proto3" json:"rollout,omitempty"`
 	// served_by_maintenance is true when the answering process is the
-	// maintenance service rather than the regular Frigate daemon.
+	// maintenance service rather than the regular Proto container firmware daemon.
 	ServedByMaintenance bool `protobuf:"varint,2,opt,name=served_by_maintenance,json=servedByMaintenance,proto3" json:"served_by_maintenance,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
@@ -1639,7 +1639,7 @@ type ServerUpdateRollout struct {
 	// UPDATE_IDEMPOTENCY_CONFLICT (same idempotency key, different request),
 	// UPDATE_MANIFEST_INVALID (malformed manifest) and UPDATE_FIRMWARE_ACTIVE (a
 	// hashboard or PSU firmware update is running on an instance; retry after it
-	// finishes). While a rollout that can stop Frigate is in progress, hashboard
+	// finishes). While a rollout that can stop Proto container firmware is in progress, hashboard
 	// and PSU firmware updates are refused with FIRMWARE_SERVER_UPDATE_ACTIVE.
 	//
 	// Runtime failures recorded while a rollout runs: UPDATE_PACKAGE_REJECTED

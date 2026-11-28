@@ -95,7 +95,7 @@ type SystemServiceClient interface {
 	GetCoolingConfig(ctx context.Context, in *GetCoolingConfigRequest, opts ...grpc.CallOption) (*GetCoolingConfigResponse, error)
 	// SetCoolingConfig updates the cooling configuration.
 	SetCoolingConfig(ctx context.Context, in *SetCoolingConfigRequest, opts ...grpc.CallOption) (*SetCoolingConfigResponse, error)
-	// GetUnlockStatus returns the R2 hardware lock status. CT1 Frigate servers
+	// GetUnlockStatus returns the R2 hardware lock status. CT1 Proto container firmware servers
 	// do not implement this R2-only RPC. Implementations without an authoritative
 	// hardware observation must report LOCK_STATE_UNKNOWN, never infer UNLOCKED.
 	GetUnlockStatus(ctx context.Context, in *GetUnlockStatusRequest, opts ...grpc.CallOption) (*GetUnlockStatusResponse, error)
@@ -439,7 +439,7 @@ type SystemServiceServer interface {
 	GetCoolingConfig(context.Context, *GetCoolingConfigRequest) (*GetCoolingConfigResponse, error)
 	// SetCoolingConfig updates the cooling configuration.
 	SetCoolingConfig(context.Context, *SetCoolingConfigRequest) (*SetCoolingConfigResponse, error)
-	// GetUnlockStatus returns the R2 hardware lock status. CT1 Frigate servers
+	// GetUnlockStatus returns the R2 hardware lock status. CT1 Proto container firmware servers
 	// do not implement this R2-only RPC. Implementations without an authoritative
 	// hardware observation must report LOCK_STATE_UNKNOWN, never infer UNLOCKED.
 	GetUnlockStatus(context.Context, *GetUnlockStatusRequest) (*GetUnlockStatusResponse, error)

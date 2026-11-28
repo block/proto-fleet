@@ -36,9 +36,12 @@ fake-proto-rig simulator is updated for the `lines=0` and `message` changes.
   - Commit SHA: 41756dc6e26ce0dccc594d7794f1ca3a107d4192
   - Commit Date: 2026-11-27
 
-`openapi/MDK-v2-API.json` matches the published `spec-all.json` byte for byte.
+`openapi/MDK-v2-API.json` is the published `spec-all.json` with one change:
+descriptions say `Proto container firmware` where the publication says
+`Frigate`. The SHA-256 above is that of the published file.
 The Frigate export at the commit above reproduces the mirror's checksum
-manifest. The vendored protobuf files come from the same Frigate commit.
+manifest. The vendored protobuf files come from the same Frigate commit and
+have the same change.
 
 The snapshot documents the protobuf-first `/api/v2/...` REST/JSON gateway.
 ProtoOS generates a private TypeScript client from it under the MDK v2 adapter,
@@ -85,14 +88,16 @@ To update the MDK v2 API specification:
    `gen/mdkv2-public/source.json` matches the mirror's `source.json`
 3. Copy that commit's `proto/mdk/v2` sources to `sdk/mdk/proto/mdk/v2` and
    update the pin in `sdk/mdk/README.md`
-4. Update this VERSION.md with the mirror version, both commit SHAs, and dates
-5. Regenerate the dependent generated code:
+4. Replace the name in both vendored copies with the command in
+   `sdk/mdk/README.md`
+5. Update this VERSION.md with the mirror version, both commit SHAs, and dates
+6. Regenerate the dependent generated code:
    - Client: `cd client && npm run generate-api-types`
    - MDK v2 bindings: `just gen-mdk-protos` from the repository root
-6. Update the fake CT1 simulator if the consumed MDK v2 surface changed
+7. Update the fake CT1 simulator if the consumed MDK v2 surface changed
    (see `server/fake-ct1/README.md`)
-7. Run tests to verify compatibility
-8. Commit all changes together
+8. Run tests to verify compatibility
+9. Commit all changes together
 
 **Note**: The OpenAPI specs are the consumed miner API contracts. They drive the
 generated ProtoOS TypeScript clients and serve as references for the

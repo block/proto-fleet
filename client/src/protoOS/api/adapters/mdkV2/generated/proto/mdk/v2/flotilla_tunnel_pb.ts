@@ -549,7 +549,7 @@ export type TunnelHello = Message<"mdk.v2.TunnelHello"> & {
   configurationRevision: string;
 
   /**
-   * etcd_cluster_id is observational and may be empty when Frigate cannot
+   * etcd_cluster_id is observational and may be empty when Proto container firmware cannot
    * report it. Container identity never depends on this value.
    *
    * @generated from field: string etcd_cluster_id = 12;
@@ -642,7 +642,7 @@ export type TunnelHello = Message<"mdk.v2.TunnelHello"> & {
 
   /**
    * ha_recovery lets Flotilla retain the prior authoritative snapshot while a
-   * promoted Frigate deliberately delays its heavyweight full synchronization.
+   * promoted Proto container firmware deliberately delays its heavyweight full synchronization.
    *
    * @generated from field: mdk.v2.HARecoveryStatus ha_recovery = 27;
    */
@@ -1435,7 +1435,7 @@ export const PlantMinuteHistorySeriesSchema: GenMessage<PlantMinuteHistorySeries
   messageDesc(file_mdk_v2_flotilla_tunnel, 24);
 
 /**
- * PlantMinuteHistorySnapshot is prepared asynchronously by Frigate and
+ * PlantMinuteHistorySnapshot is prepared asynchronously by Proto container firmware and
  * published through the dedicated staged plant-history dataset. Browser reads
  * never trigger its collection.
  *

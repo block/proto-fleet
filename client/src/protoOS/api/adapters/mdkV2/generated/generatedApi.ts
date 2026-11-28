@@ -106,7 +106,7 @@ export interface FirmwareServiceAbortFirmwareArtifactUploadParams {
 
 export interface FirmwareServiceCancelFirmwareUpdateParams {
   /**
-   * server_id optionally selects which Frigate node owns task_id. Empty means
+   * server_id optionally selects which Proto container firmware node owns task_id. Empty means
    * the connected node, preserving pre-cluster behavior.
    */
   serverId?: string;
@@ -119,7 +119,7 @@ export interface FirmwareServiceCommitFirmwareArtifactUploadParams {
 
 export interface FirmwareServiceGetFirmwareUpdateParams {
   /**
-   * server_id optionally selects which Frigate node owns task_id. Empty means
+   * server_id optionally selects which Proto container firmware node owns task_id. Empty means
    * the connected node, preserving pre-cluster behavior.
    */
   serverId?: string;
@@ -469,7 +469,7 @@ export interface PowerServiceSetContainerControlBody {
   /** enabled selects the target state: true starts/enables, false stops/disables. */
   enabled?: boolean;
   /**
-   * Deprecated compatibility bit for Frigate versions that enforced
+   * Deprecated compatibility bit for Proto container firmware versions that enforced
    * application-side plant safety policy. Current servers ignore it.
    */
   force?: boolean;
@@ -483,7 +483,7 @@ export interface PowerServiceSetContainerControlParams {
 /** SetContainerSetpointRequest writes one analog container setpoint. */
 export interface PowerServiceSetContainerSetpointBody {
   /**
-   * Deprecated compatibility bit for Frigate versions that enforced
+   * Deprecated compatibility bit for Proto container firmware versions that enforced
    * application-side plant safety policy. Current servers ignore it.
    */
   force?: boolean;
@@ -503,7 +503,7 @@ export interface PowerServiceSetContainerSetpointParams {
 export interface PowerServiceSetPowerFeedStateBody {
   disabled?: boolean;
   /**
-   * Deprecated compatibility bit for Frigate versions that enforced
+   * Deprecated compatibility bit for Proto container firmware versions that enforced
    * application-side plant safety policy. Current servers ignore it.
    */
   force?: boolean;
@@ -1014,7 +1014,7 @@ export interface V2ASIC {
   /**
    * debug_health is the newest sampled production debug-health observation
    * for this ASIC from the shared database, which may have been recorded by
-   * either HA node. It is absent when the Frigate node serving this request
+   * either HA node. It is absent when the Proto container firmware node serving this request
    * has opt-in production debug-health capture disabled (even if its HA peer
    * captures the board), when firmware does not publish debug-health frames,
    * when no sample is newer than three sample intervals, or when the newest
@@ -1091,7 +1091,7 @@ export interface V2ASICDebugHealth {
   /** ecc_total holds the cumulative firmware counters at observed_at. */
   eccTotal?: V2ASICECCCounters;
   /**
-   * observed_at is when Frigate accepted the sampled firmware frame.
+   * observed_at is when Proto container firmware accepted the sampled firmware frame.
    * @format date-time
    */
   observedAt?: string;
@@ -1589,7 +1589,7 @@ export interface V2ContainerSetpoint {
   /** @format double */
   max?: number;
   /**
-   * Documented PLC range metadata for operator display. Frigate does not use
+   * Documented PLC range metadata for operator display. Proto container firmware does not use
    * these values as an application-side write limit.
    * @format double
    */
@@ -2171,7 +2171,7 @@ export interface V2FirmwareUpdate {
    */
   options?: V2FirmwareUpdateOptions;
   /**
-   * server_id is the CT1 Frigate node that owns this update job. It is empty
+   * server_id is the CT1 Proto container firmware node that owns this update job. It is empty
    * for R2, whose singleton device service already identifies the owner.
    */
   serverId?: string;
@@ -2344,7 +2344,7 @@ export interface V2GetContainerControlsResponse {
 export interface V2GetContainerHealthResponse {
   /**
    * Whether the controller can honor PowerService.MuteContainerAlarm on its
-   * active command path, reported with live plant telemetry. Older Frigate
+   * active command path, reported with live plant telemetry. Older Proto container firmware
    * releases omit it; consumers then keep assuming mute is supported.
    */
   alarmMuteSupported?: boolean;
@@ -2812,7 +2812,7 @@ export interface V2HAMember {
    * @format date-time
    */
   lastSeenAt?: string;
-  /** Local reports whether this member runs on the reporting Frigate host. */
+  /** Local reports whether this member runs on the reporting Proto container firmware host. */
   local?: boolean;
   /**
    * Name is the etcd member name, or the configured witness name when etcd
@@ -2833,7 +2833,7 @@ export interface V2HAMember {
   /**
    * HAMemberRole identifies why a host participates in the HA control plane.
    *
-   *  - HA_MEMBER_ROLE_FRIGATE: HA_MEMBER_ROLE_FRIGATE is a Frigate control-server peer.
+   *  - HA_MEMBER_ROLE_FRIGATE: HA_MEMBER_ROLE_FRIGATE is a Proto container firmware control-server peer.
    *  - HA_MEMBER_ROLE_WITNESS: HA_MEMBER_ROLE_WITNESS is an etcd-only voting witness.
    */
   role?: V2HAMemberRole;
@@ -2847,7 +2847,7 @@ export interface V2HAMember {
 /**
  * HAMemberRole identifies why a host participates in the HA control plane.
  *
- *  - HA_MEMBER_ROLE_FRIGATE: HA_MEMBER_ROLE_FRIGATE is a Frigate control-server peer.
+ *  - HA_MEMBER_ROLE_FRIGATE: HA_MEMBER_ROLE_FRIGATE is a Proto container firmware control-server peer.
  *  - HA_MEMBER_ROLE_WITNESS: HA_MEMBER_ROLE_WITNESS is an etcd-only voting witness.
  * @default "HA_MEMBER_ROLE_UNSPECIFIED"
  */
@@ -2871,7 +2871,7 @@ export interface V2HAMemberStatus {
   haRole?: V2HARole;
   hostname?: string;
   /**
-   * Id is the configured Frigate server ID or provisioned witness name.
+   * Id is the configured Proto container firmware server ID or provisioned witness name.
    * The pair (kind, id) identifies a member; etcd names are separate.
    */
   id?: string;
@@ -2881,7 +2881,7 @@ export interface V2HAMemberStatus {
   /**
    * HAMemberRole identifies why a host participates in the HA control plane.
    *
-   *  - HA_MEMBER_ROLE_FRIGATE: HA_MEMBER_ROLE_FRIGATE is a Frigate control-server peer.
+   *  - HA_MEMBER_ROLE_FRIGATE: HA_MEMBER_ROLE_FRIGATE is a Proto container firmware control-server peer.
    *  - HA_MEMBER_ROLE_WITNESS: HA_MEMBER_ROLE_WITNESS is an etcd-only voting witness.
    */
   kind?: V2HAMemberRole;
@@ -2937,7 +2937,7 @@ export enum V2HARecoveryPhase {
 }
 
 /**
- * HARecoveryState describes whether this Frigate process has returned to a
+ * HARecoveryState describes whether this Proto container firmware process has returned to a
  * trustworthy steady state after a Patroni primary transition.
  * @default "HA_RECOVERY_STATE_UNSPECIFIED"
  */
@@ -2972,7 +2972,7 @@ export interface V2HARecoveryStatus {
   /** @format date-time */
   startedAt?: string;
   /**
-   * HARecoveryState describes whether this Frigate process has returned to a
+   * HARecoveryState describes whether this Proto container firmware process has returned to a
    * trustworthy steady state after a Patroni primary transition.
    */
   state?: V2HARecoveryState;
@@ -3153,10 +3153,10 @@ export interface V2HashboardASICErrorState {
    */
   id?: number;
   /**
-   * PhysicalPosition is the owning Frigate's mapping of id onto the board's
+   * PhysicalPosition is the owning Proto container firmware's mapping of id onto the board's
    * physical ASIC layout at capture time. Its index uses the same physical
    * index space as ASIC.index. It is absent when the layout could not
-   * resolve id unambiguously, from older Frigate releases, and for latched
+   * resolve id unambiguously, from older Proto container firmware releases, and for latched
    * last-shutdown errors whose firmware topology may predate the current one.
    */
   physicalPosition?: V2HashboardASICPhysicalPosition;
@@ -3214,14 +3214,14 @@ export interface V2HashboardASICThermalThrottleHealth {
 }
 
 /**
- * HashboardErrorCause identifies a firmware-reported or Frigate-derived
+ * HashboardErrorCause identifies a firmware-reported or Proto container firmware-derived
  * hashboard error or warning cause.
  *
- *  - HASHBOARD_ERROR_CAUSE_ASIC_THERMAL_THROTTLING: Frigate derives thermal throttling from asic_thermal_throttle; firmware
+ *  - HASHBOARD_ERROR_CAUSE_ASIC_THERMAL_THROTTLING: Proto container firmware derives thermal throttling from asic_thermal_throttle; firmware
  * does not emit this value in its errors or warnings arrays.
  *  - HASHBOARD_ERROR_CAUSE_STACK_BRINGUP_FAILED: Firmware enumerated the stack, but it failed before it could start mining.
  *  - HASHBOARD_ERROR_CAUSE_STACK_RUNTIME_FAILED: Firmware observed a stack transition from RUNNING to FAILED.
- *  - HASHBOARD_ERROR_CAUSE_STACK_DROPOUT: Frigate derives a stack dropout warning when a stack that hashed in the
+ *  - HASHBOARD_ERROR_CAUSE_STACK_DROPOUT: Proto container firmware derives a stack dropout warning when a stack that hashed in the
  * current mining session, whether enumerated at session start or joining
  * later, stops hashing while other stacks continue. The warning clears when
  * the stack hashes again. Firmware does not emit this value; it sits outside
@@ -3404,21 +3404,21 @@ export interface V2HashboardHealth {
 }
 
 /**
- * HashboardHealthError is a firmware-reported or Frigate-derived error or
+ * HashboardHealthError is a firmware-reported or Proto container firmware-derived error or
  * warning.
  */
 export interface V2HashboardHealthError {
   /** HashboardASICErrorState contains ASIC-specific detail for an error. */
   asic?: V2HashboardASICErrorState;
   /**
-   * HashboardErrorCause identifies a firmware-reported or Frigate-derived
+   * HashboardErrorCause identifies a firmware-reported or Proto container firmware-derived
    * hashboard error or warning cause.
    *
-   *  - HASHBOARD_ERROR_CAUSE_ASIC_THERMAL_THROTTLING: Frigate derives thermal throttling from asic_thermal_throttle; firmware
+   *  - HASHBOARD_ERROR_CAUSE_ASIC_THERMAL_THROTTLING: Proto container firmware derives thermal throttling from asic_thermal_throttle; firmware
    * does not emit this value in its errors or warnings arrays.
    *  - HASHBOARD_ERROR_CAUSE_STACK_BRINGUP_FAILED: Firmware enumerated the stack, but it failed before it could start mining.
    *  - HASHBOARD_ERROR_CAUSE_STACK_RUNTIME_FAILED: Firmware observed a stack transition from RUNNING to FAILED.
-   *  - HASHBOARD_ERROR_CAUSE_STACK_DROPOUT: Frigate derives a stack dropout warning when a stack that hashed in the
+   *  - HASHBOARD_ERROR_CAUSE_STACK_DROPOUT: Proto container firmware derives a stack dropout warning when a stack that hashed in the
    * current mining session, whether enumerated at session start or joining
    * later, stops hashing while other stacks continue. The warning clears when
    * the stack hashes again. Firmware does not emit this value; it sits outside
@@ -3463,7 +3463,7 @@ export interface V2HashboardLocation {
   expectedPowerFeedId?: string;
   /**
    * hashboard_position is the resolved one-based board position within a CT1
-   * module. Values 1-3 are displayed as HB1-HB3. It is absent when Frigate
+   * module. Values 1-3 are displayed as HB1-HB3. It is absent when Proto container firmware
    * cannot place the board safely.
    * @format int64
    */
@@ -3568,14 +3568,14 @@ export interface V2HashboardPower {
 /** HashboardRecovery is the shared HA-safe automatic READY retry state. */
 export interface V2HashboardRecovery {
   /**
-   * HashboardErrorCause identifies a firmware-reported or Frigate-derived
+   * HashboardErrorCause identifies a firmware-reported or Proto container firmware-derived
    * hashboard error or warning cause.
    *
-   *  - HASHBOARD_ERROR_CAUSE_ASIC_THERMAL_THROTTLING: Frigate derives thermal throttling from asic_thermal_throttle; firmware
+   *  - HASHBOARD_ERROR_CAUSE_ASIC_THERMAL_THROTTLING: Proto container firmware derives thermal throttling from asic_thermal_throttle; firmware
    * does not emit this value in its errors or warnings arrays.
    *  - HASHBOARD_ERROR_CAUSE_STACK_BRINGUP_FAILED: Firmware enumerated the stack, but it failed before it could start mining.
    *  - HASHBOARD_ERROR_CAUSE_STACK_RUNTIME_FAILED: Firmware observed a stack transition from RUNNING to FAILED.
-   *  - HASHBOARD_ERROR_CAUSE_STACK_DROPOUT: Frigate derives a stack dropout warning when a stack that hashed in the
+   *  - HASHBOARD_ERROR_CAUSE_STACK_DROPOUT: Proto container firmware derives a stack dropout warning when a stack that hashed in the
    * current mining session, whether enumerated at session start or joining
    * later, stops hashing while other stacks continue. The warning clears when
    * the stack hashes again. Firmware does not emit this value; it sits outside
@@ -3817,7 +3817,7 @@ export enum V2HistorySource {
 }
 
 /**
- * HostCPUQuota reports the Frigate service's cgroup v2 CPU bandwidth limit and
+ * HostCPUQuota reports the Proto container firmware service's cgroup v2 CPU bandwidth limit and
  * cumulative throttling counters.
  */
 export interface V2HostCPUQuota {
@@ -3866,7 +3866,7 @@ export interface V2HostDiagnostics {
    * @format double
    */
   cpuMaxFrequencyMhz?: number;
-  /** CpuQuota is the cgroup v2 CPU bandwidth state of the Frigate service. */
+  /** CpuQuota is the cgroup v2 CPU bandwidth state of the Proto container firmware service. */
   cpuQuota?: V2HostCPUQuota;
   /**
    * HostBootId is the kernel boot ID from /proc/sys/kernel/random/boot_id.
@@ -4204,7 +4204,7 @@ export interface V2ManagedDuration {
 export interface V2ManagedErrorCauses {
   causes?: V2HashboardErrorCause[];
   managed?: boolean;
-  /** Legacy numeric values retained for mixed-version Frigate deployments. */
+  /** Legacy numeric values retained for mixed-version Proto container firmware deployments. */
   values?: number[];
 }
 
@@ -4213,7 +4213,7 @@ export interface V2ManagedOperationalPolicy {
   insideAmbientCriticalC?: V2ManagedDouble;
   insideAmbientHysteresisC?: V2ManagedDouble;
   /**
-   * Container thermal alarm thresholds. Older Frigate releases ignore these
+   * Container thermal alarm thresholds. Older Proto container firmware releases ignore these
    * fields and report thermal_alarms_active false, so Flotilla shows the
    * profile as inactive rather than silently applied.
    */
@@ -4884,7 +4884,7 @@ export interface V2OperationalPolicyCapabilities {
   mappedFeedsAvailable?: boolean;
   powerControllerActive?: boolean;
   recoveryActive?: boolean;
-  /** True when this Frigate evaluates container thermal alarms. */
+  /** True when this Proto container firmware evaluates container thermal alarms. */
   thermalAlarmsActive?: boolean;
 }
 
@@ -5070,12 +5070,12 @@ export interface V2PSUFirmwareUpdate {
   members?: V2PSUFirmwareUpdateMember[];
   moduleId?: string;
   recover?: boolean;
-  /** server_id is the Frigate node that owns this job. */
+  /** server_id is the Proto container firmware node that owns this job. */
   serverId?: string;
   /** @format date-time */
   startedAt?: string;
   /**
-   * PSUFirmwareUpdateState is the Frigate job lifecycle.
+   * PSUFirmwareUpdateState is the Proto container firmware job lifecycle.
    *
    *  - PSU_FIRMWARE_UPDATE_STATE_QUEUED: QUEUED waits for a module update slot.
    *  - PSU_FIRMWARE_UPDATE_STATE_PREPARING: PREPARING stops member mining and resolves the PSU leader.
@@ -5094,7 +5094,7 @@ export interface V2PSUFirmwareUpdateMember {
   /** mining_before reports whether mining intent was set when the job started. */
   miningBefore?: boolean;
   /**
-   * reserved reports whether Frigate reserved the member. Disconnected or
+   * reserved reports whether Proto container firmware reserved the member. Disconnected or
    * unmanaged members are not reserved; board firmware still fences them.
    */
   reserved?: boolean;
@@ -5103,7 +5103,7 @@ export interface V2PSUFirmwareUpdateMember {
 }
 
 /**
- * PSUFirmwareUpdateState is the Frigate job lifecycle.
+ * PSUFirmwareUpdateState is the Proto container firmware job lifecycle.
  *
  *  - PSU_FIRMWARE_UPDATE_STATE_QUEUED: QUEUED waits for a module update slot.
  *  - PSU_FIRMWARE_UPDATE_STATE_PREPARING: PREPARING stops member mining and resolves the PSU leader.
@@ -5818,7 +5818,7 @@ export interface V2PsuElectricalHealth {
 /**
  * PsuIdentity is manufacturer metadata for the shared power supply
  * identified by Hashboard.module_id. It is absent until compatible firmware
- * has reported and Frigate has durably retained the details.
+ * has reported and Proto container firmware has durably retained the details.
  */
 export interface V2PsuIdentity {
   /**
@@ -6986,14 +6986,14 @@ export interface V2SystemInfo {
   version?: string;
 }
 
-/** SystemResources contains one point-in-time host and Frigate process sample. */
+/** SystemResources contains one point-in-time host and Proto container firmware process sample. */
 export interface V2SystemResources {
   /** @format double */
   hostCpuUsagePercent?: number;
   /** @format uint64 */
   hostDiskTotalBytes?: string;
   /**
-   * Host disk values describe the root filesystem visible to Frigate.
+   * Host disk values describe the root filesystem visible to Proto container firmware.
    * @format uint64
    */
   hostDiskUsedBytes?: string;
@@ -7023,12 +7023,12 @@ export interface V2SystemStatus {
   /**
    * DcsHealthy reports whether the latest distributed-configuration-store
    * snapshot read succeeded and validated. It is absent for standalone
-   * deployments and older Frigate versions that do not publish DCS health.
+   * deployments and older Proto container firmware versions that do not publish DCS health.
    */
   dcsHealthy?: boolean;
   /**
    * FlotillaOperationalHealth is populated by Flotilla from its retained
-   * Frigate status. It is independent of health, whose publication boundary
+   * Proto container firmware status. It is independent of health, whose publication boundary
    * remains unchanged for legacy clients, and is absent on older servers.
    */
   flotillaOperationalHealth?: V2HealthStatus;
@@ -7057,7 +7057,7 @@ export interface V2SystemStatus {
   health?: V2HealthStatus;
   /**
    * HostDiagnostics reports additive, locally observed host safety signals.
-   * Older Frigate/Flotilla versions omit it, so consumers must render absence
+   * Older Proto container firmware/Flotilla versions omit it, so consumers must render absence
    * as "not reported" rather than healthy.
    */
   hostDiagnostics?: V2HostDiagnostics;
@@ -9924,7 +9924,7 @@ export class Api<
      *
      * @tags Power, CT1
      * @name PowerServiceSetContainerSetpoint
-     * @summary SetContainerSetpoint writes one analog tank/container setpoint and echoes the applied value. Temperature setpoints are Celsius. Frigate validates only the finite float32 wire representation; the PLC owns operational limits and final command acceptance. CT1 only.
+     * @summary SetContainerSetpoint writes one analog tank/container setpoint and echoes the applied value. Temperature setpoints are Celsius. Proto container firmware validates only the finite float32 wire representation; the PLC owns operational limits and final command acceptance. CT1 only.
      * @request POST:/api/v2/power/container/setpoints/{name}
      */
     powerServiceSetContainerSetpoint: (
@@ -10022,7 +10022,7 @@ export class Api<
      *
      * @tags Power, CT1
      * @name PowerServiceCyclePowerFeed
-     * @summary CyclePowerFeed disables one enabled container power feed, holds it off for 30 seconds, and restores it as one durable Frigate-owned operation. The restore survives disconnects, restart, and HA handoff. CT1 only.
+     * @summary CyclePowerFeed disables one enabled container power feed, holds it off for 30 seconds, and restores it as one durable Proto container firmware-owned operation. The restore survives disconnects, restart, and HA handoff. CT1 only.
      * @request POST:/api/v2/power/feeds/{powerFeedId}:cycle
      */
     powerServiceCyclePowerFeed: (
@@ -10795,7 +10795,7 @@ export class Api<
      *
      * @tags System, R2
      * @name SystemServiceGetUnlockStatus
-     * @summary GetUnlockStatus returns the R2 hardware lock status. CT1 Frigate servers do not implement this R2-only RPC. Implementations without an authoritative hardware observation must report LOCK_STATE_UNKNOWN, never infer UNLOCKED.
+     * @summary GetUnlockStatus returns the R2 hardware lock status. CT1 Proto container firmware servers do not implement this R2-only RPC. Implementations without an authoritative hardware observation must report LOCK_STATE_UNKNOWN, never infer UNLOCKED.
      * @request GET:/api/v2/system/unlock
      */
     systemServiceGetUnlockStatus: (params: RequestParams = {}) =>
@@ -10972,7 +10972,7 @@ export class Api<
      *
      * @tags Telemetry
      * @name TelemetryServiceQueryTankSensorHistory
-     * @summary QueryTankSensorHistory reads source-identified C1 acquisitions from the owning Frigate's durable PostgreSQL/TimescaleDB store.
+     * @summary QueryTankSensorHistory reads source-identified C1 acquisitions from the owning Proto container firmware's durable PostgreSQL/TimescaleDB store.
      * @request GET:/api/v2/telemetry/foghashing/tanks/{tankKey}/history
      */
     telemetryServiceQueryTankSensorHistory: (

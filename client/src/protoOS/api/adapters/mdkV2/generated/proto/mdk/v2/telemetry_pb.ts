@@ -1321,7 +1321,7 @@ export type GetContainerHealthResponse = Message<"mdk.v2.GetContainerHealthRespo
 
   /**
    * Whether the controller can honor PowerService.MuteContainerAlarm on its
-   * active command path, reported with live plant telemetry. Older Frigate
+   * active command path, reported with live plant telemetry. Older Proto container firmware
    * releases omit it; consumers then keep assuming mute is supported.
    *
    * @generated from field: optional bool alarm_mute_supported = 17;
@@ -2484,7 +2484,7 @@ export const ShareQualityWindowSchema: GenEnum<ShareQualityWindow> = /*@__PURE__
 export const TelemetryService: GenService<{
   /**
    * QueryTankSensorHistory reads source-identified C1 acquisitions from the
-   * owning Frigate's durable PostgreSQL/TimescaleDB store.
+   * owning Proto container firmware's durable PostgreSQL/TimescaleDB store.
    *
    * @generated from rpc mdk.v2.TelemetryService.QueryTankSensorHistory
    */

@@ -17,7 +17,7 @@ option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
 service OperationalPolicyService {
   option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_tag) = {
     name: "Operational policy"
-    description: "Allowlisted live Frigate guardrail and recovery policy."
+    description: "Allowlisted live Proto container firmware guardrail and recovery policy."
   };
 
   rpc GetManagedOperationalPolicy(GetManagedOperationalPolicyRequest) returns (GetManagedOperationalPolicyResponse) {
@@ -53,7 +53,7 @@ message ManagedDuration {
 
 message ManagedErrorCauses {
   bool managed = 1;
-  // Legacy numeric values retained for mixed-version Frigate deployments.
+  // Legacy numeric values retained for mixed-version Proto container firmware deployments.
   repeated int32 values = 2 [deprecated = true];
   repeated HashboardErrorCause causes = 3;
 }
@@ -67,7 +67,7 @@ message ManagedOperationalPolicy {
   ManagedErrorCauses recovery_causes = 8;
   ManagedDuration recovery_holdoff = 9;
   ManagedDuration recovery_off_duration = 10;
-  // Container thermal alarm thresholds. Older Frigate releases ignore these
+  // Container thermal alarm thresholds. Older Proto container firmware releases ignore these
   // fields and report thermal_alarms_active false, so Flotilla shows the
   // profile as inactive rather than silently applied.
   ManagedDouble inside_ambient_warning_c = 11;
@@ -100,7 +100,7 @@ message OperationalPolicyCapabilities {
   bool power_controller_active = 2;
   bool recovery_active = 3;
   bool mapped_feeds_available = 4;
-  // True when this Frigate evaluates container thermal alarms.
+  // True when this Proto container firmware evaluates container thermal alarms.
   bool thermal_alarms_active = 5;
 }
 

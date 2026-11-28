@@ -6,8 +6,11 @@ CT1 adapter. Generation produces native gRPC and Connect-Go bindings under
 `client/src/protoOS/api/adapters/mdkV2/generated/proto` for the browser Connect
 client. These are separate from Fleet's public/browser APIs.
 
-`proto/mdk/v2` contains the complete, unmodified `proto/mdk/v2` sources from
-Frigate at `41756dc6e26ce0dccc594d7794f1ca3a107d4192`.
+`proto/mdk/v2` contains the complete `proto/mdk/v2` sources from
+Frigate at `41756dc6e26ce0dccc594d7794f1ca3a107d4192`, with one change:
+comments and descriptions say `Proto container firmware` where the source says
+`Frigate`. Identifiers, field numbers, and wire names are the same as in the
+source.
 No repository-root license file was present at this pin;
 these remain internal Frigate sources, not independently licensed public code.
 External annotation dependencies are pinned in `buf.lock` and retain their
@@ -17,6 +20,17 @@ Keep this pin and the MDK v2 OpenAPI snapshot in `proto-rig-api/` on the same
 Frigate commit. The ProtoOS Connect client encodes with these protos but types
 its results with the snapshot's REST types; `proto-rig-api/VERSION.md` records
 any skew between the two.
+
+After you copy new sources or a new snapshot, apply the same change to both
+before you regenerate:
+
+```sh
+perl -pi -e 's/(?:\b|(?<=\\n))Frigate\b/Proto container firmware/g' \
+  sdk/mdk/proto/mdk/v2/*.proto proto-rig-api/openapi/MDK-v2-API.json
+```
+
+To compare the vendored files with their sources, apply the same command to a
+copy of the source files.
 
 Run `just gen-mdk-protos` from the repository root after updating sources.
 It installs client dependencies when they are missing or stale, then runs the

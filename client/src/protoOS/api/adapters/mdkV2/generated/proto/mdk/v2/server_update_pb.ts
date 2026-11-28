@@ -126,7 +126,7 @@ export type GetServerUpdateSupportResponse = Message<"mdk.v2.GetServerUpdateSupp
 
   /**
    * proto_os_package_supported is true only when the root update helper can
-   * install a static proto-os package without stopping Frigate. Callers must
+   * install a static proto-os package without stopping Proto container firmware. Callers must
    * not stage a SERVER_UPDATE_PACKAGE_PROTO_OS manifest unless it is true.
    *
    * @generated from field: bool proto_os_package_supported = 16;
@@ -402,7 +402,7 @@ export type ServerUpdateManifest = Message<"mdk.v2.ServerUpdateManifest"> & {
    * release_signature holds the DER ECDSA P-256 signature over
    * release_statement. Required when coordination is SELF or package is
    * PROTO_OS; forbidden otherwise. A PROTO_OS signature must verify against
-   * the ProtoOS release keys, never the Frigate release keys.
+   * the ProtoOS release keys, never the Proto container firmware release keys.
    *
    * @generated from field: bytes release_signature = 22;
    */
@@ -540,7 +540,7 @@ export type GetServerUpdateStatusResponse = Message<"mdk.v2.GetServerUpdateStatu
 
   /**
    * served_by_maintenance is true when the answering process is the
-   * maintenance service rather than the regular Frigate daemon.
+   * maintenance service rather than the regular Proto container firmware daemon.
    *
    * @generated from field: bool served_by_maintenance = 2;
    */
@@ -690,7 +690,7 @@ export type ServerUpdateRollout = Message<"mdk.v2.ServerUpdateRollout"> & {
    * UPDATE_IDEMPOTENCY_CONFLICT (same idempotency key, different request),
    * UPDATE_MANIFEST_INVALID (malformed manifest) and UPDATE_FIRMWARE_ACTIVE (a
    * hashboard or PSU firmware update is running on an instance; retry after it
-   * finishes). While a rollout that can stop Frigate is in progress, hashboard
+   * finishes). While a rollout that can stop Proto container firmware is in progress, hashboard
    * and PSU firmware updates are refused with FIRMWARE_SERVER_UPDATE_ACTIVE.
    *
    * Runtime failures recorded while a rollout runs: UPDATE_PACKAGE_REJECTED
@@ -1450,7 +1450,7 @@ export enum ServerUpdateRolloutPhase {
 
   /**
    * An operator ran the on-host abandon command. The rollout is terminal, but
-   * if ServerUpdateRollout.disruption_started is true Frigate may still be held
+   * if ServerUpdateRollout.disruption_started is true Proto container firmware may still be held
    * stopped on one or both instances until the operator restores service.
    *
    * @generated from enum value: SERVER_UPDATE_ROLLOUT_PHASE_ABANDONED = 10;
@@ -1480,7 +1480,7 @@ export enum ServerUpdatePackage {
 
   /**
    * PROTO_OS is the arch-independent, static proto-os web UI package. The root
-   * helper installs it on one instance without stopping Frigate or holding
+   * helper installs it on one instance without stopping Proto container firmware or holding
    * HA peers at barriers.
    *
    * @generated from enum value: SERVER_UPDATE_PACKAGE_PROTO_OS = 1;
@@ -1570,7 +1570,7 @@ export const ProtoOSPackageJobStateSchema: GenEnum<ProtoOSPackageJobState> = /*@
   enumDesc(file_mdk_v2_server_update, 7);
 
 /**
- * ServerUpdateService stages one verified Frigate package on an exact host and,
+ * ServerUpdateService stages one verified Proto container firmware package on an exact host and,
  * for self-coordinated updates, starts and tracks one site-wide rollout.
  *
  * The staging methods and GetServerUpdateSupport are instance-scoped: they are
@@ -1583,7 +1583,7 @@ export const ProtoOSPackageJobStateSchema: GenEnum<ProtoOSPackageJobState> = /*@
  * RetryServerUpdate and CancelServerUpdate operate on shared rollout state
  * (routed SharedState) and are not instance-scoped. None of the four new
  * methods is on the Flotilla tunnel registry yet, so no Flotilla destination can
- * call them; MDK clients call the Frigate API directly.
+ * call them; MDK clients call the Proto container firmware API directly.
  *
  * StartServerUpdate, GetServerUpdateStatus, RetryServerUpdate and
  * CancelServerUpdate are a published contract only: current servers return
@@ -1661,7 +1661,7 @@ export const ServerUpdateService: GenService<{
     output: typeof StartServerUpdateResponseSchema;
   },
   /**
-   * GetServerUpdateStatus returns the shared rollout state. While Frigate is
+   * GetServerUpdateStatus returns the shared rollout state. While Proto container firmware is
    * stopped for an update the response may be served by the maintenance
    * service, which sets served_by_maintenance.
    *
@@ -1701,7 +1701,7 @@ export const ServerUpdateService: GenService<{
 
 /**
  * FrigateUpdateMaintenanceService keeps a package installer reachable while
- * the main Frigate process and its regular tunnel are stopped.
+ * the main Proto container firmware process and its regular tunnel are stopped.
  *
  * @generated from service mdk.v2.FrigateUpdateMaintenanceService
  */

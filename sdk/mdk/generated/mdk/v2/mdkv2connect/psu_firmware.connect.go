@@ -72,7 +72,7 @@ const (
 // PSUFirmwareServiceClient is a client for the mdk.v2.PSUFirmwareService service.
 type PSUFirmwareServiceClient interface {
 	// UploadPSUFirmwareCapsule streams one signed capsule to the connected
-	// Frigate node. The first message must contain metadata; subsequent messages
+	// Proto container firmware node. The first message must contain metadata; subsequent messages
 	// carry bounded capsule chunks. The node verifies the capsule structure,
 	// digests, and embedded signature before caching it by SHA-256.
 	UploadPSUFirmwareCapsule(context.Context) *connect.ClientStreamForClient[v2.UploadPSUFirmwareCapsuleRequest, v2.UploadPSUFirmwareCapsuleResponse]
@@ -253,7 +253,7 @@ func (c *pSUFirmwareServiceClient) CancelPSUFirmwareUpdate(ctx context.Context, 
 // PSUFirmwareServiceHandler is an implementation of the mdk.v2.PSUFirmwareService service.
 type PSUFirmwareServiceHandler interface {
 	// UploadPSUFirmwareCapsule streams one signed capsule to the connected
-	// Frigate node. The first message must contain metadata; subsequent messages
+	// Proto container firmware node. The first message must contain metadata; subsequent messages
 	// carry bounded capsule chunks. The node verifies the capsule structure,
 	// digests, and embedded signature before caching it by SHA-256.
 	UploadPSUFirmwareCapsule(context.Context, *connect.ClientStream[v2.UploadPSUFirmwareCapsuleRequest]) (*connect.Response[v2.UploadPSUFirmwareCapsuleResponse], error)

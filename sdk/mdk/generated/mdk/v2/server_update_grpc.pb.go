@@ -52,7 +52,7 @@ type ServerUpdateServiceClient interface {
 	// google.rpc.ErrorInfo in domain mdk.v2.frigate with one of the UPDATE_*
 	// reasons documented on ServerUpdateRollout.error_code.
 	StartServerUpdate(ctx context.Context, in *StartServerUpdateRequest, opts ...grpc.CallOption) (*StartServerUpdateResponse, error)
-	// GetServerUpdateStatus returns the shared rollout state. While Frigate is
+	// GetServerUpdateStatus returns the shared rollout state. While Proto container firmware is
 	// stopped for an update the response may be served by the maintenance
 	// service, which sets served_by_maintenance.
 	GetServerUpdateStatus(ctx context.Context, in *GetServerUpdateStatusRequest, opts ...grpc.CallOption) (*GetServerUpdateStatusResponse, error)
@@ -209,7 +209,7 @@ type ServerUpdateServiceServer interface {
 	// google.rpc.ErrorInfo in domain mdk.v2.frigate with one of the UPDATE_*
 	// reasons documented on ServerUpdateRollout.error_code.
 	StartServerUpdate(context.Context, *StartServerUpdateRequest) (*StartServerUpdateResponse, error)
-	// GetServerUpdateStatus returns the shared rollout state. While Frigate is
+	// GetServerUpdateStatus returns the shared rollout state. While Proto container firmware is
 	// stopped for an update the response may be served by the maintenance
 	// service, which sets served_by_maintenance.
 	GetServerUpdateStatus(context.Context, *GetServerUpdateStatusRequest) (*GetServerUpdateStatusResponse, error)

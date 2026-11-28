@@ -87,7 +87,7 @@ const (
 // TelemetryServiceClient is a client for the mdk.v2.TelemetryService service.
 type TelemetryServiceClient interface {
 	// QueryTankSensorHistory reads source-identified C1 acquisitions from the
-	// owning Frigate's durable PostgreSQL/TimescaleDB store.
+	// owning Proto container firmware's durable PostgreSQL/TimescaleDB store.
 	QueryTankSensorHistory(context.Context, *connect.Request[v2.QueryTankSensorHistoryRequest]) (*connect.Response[v2.QueryTankSensorHistoryResponse], error)
 	QueryTankProductionHistory(context.Context, *connect.Request[v2.QueryTankProductionHistoryRequest]) (*connect.Response[v2.QueryTankProductionHistoryResponse], error)
 	// StreamHashboardHealth streams hashboard health snapshots at ~1Hz.
@@ -331,7 +331,7 @@ func (c *telemetryServiceClient) GetHashboardLifetime(ctx context.Context, req *
 // TelemetryServiceHandler is an implementation of the mdk.v2.TelemetryService service.
 type TelemetryServiceHandler interface {
 	// QueryTankSensorHistory reads source-identified C1 acquisitions from the
-	// owning Frigate's durable PostgreSQL/TimescaleDB store.
+	// owning Proto container firmware's durable PostgreSQL/TimescaleDB store.
 	QueryTankSensorHistory(context.Context, *connect.Request[v2.QueryTankSensorHistoryRequest]) (*connect.Response[v2.QueryTankSensorHistoryResponse], error)
 	QueryTankProductionHistory(context.Context, *connect.Request[v2.QueryTankProductionHistoryRequest]) (*connect.Response[v2.QueryTankProductionHistoryResponse], error)
 	// StreamHashboardHealth streams hashboard health snapshots at ~1Hz.

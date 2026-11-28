@@ -27,7 +27,7 @@ const (
 type TankTelemetryBatch struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	Controllers []*TankTelemetry       `protobuf:"bytes,1,rep,name=controllers,proto3" json:"controllers,omitempty"`
-	// Desired membership is sourced solely from validated Frigate configuration.
+	// Desired membership is sourced solely from validated Proto container firmware configuration.
 	Tanks                   []*ConfiguredTank `protobuf:"bytes,2,rep,name=tanks,proto3" json:"tanks,omitempty"`
 	ConfigurationGeneration string            `protobuf:"bytes,3,opt,name=configuration_generation,json=configurationGeneration,proto3" json:"configuration_generation,omitempty"`
 	unknownFields           protoimpl.UnknownFields

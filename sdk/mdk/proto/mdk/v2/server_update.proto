@@ -7,7 +7,7 @@ import "mdk/v2/options.proto";
 
 option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
 
-// ServerUpdateService stages one verified Frigate package on an exact host and,
+// ServerUpdateService stages one verified Proto container firmware package on an exact host and,
 // for self-coordinated updates, starts and tracks one site-wide rollout.
 //
 // The staging methods and GetServerUpdateSupport are instance-scoped: they are
@@ -20,7 +20,7 @@ option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
 // RetryServerUpdate and CancelServerUpdate operate on shared rollout state
 // (routed SharedState) and are not instance-scoped. None of the four new
 // methods is on the Flotilla tunnel registry yet, so no Flotilla destination can
-// call them; MDK clients call the Frigate API directly.
+// call them; MDK clients call the Proto container firmware API directly.
 //
 // StartServerUpdate, GetServerUpdateStatus, RetryServerUpdate and
 // CancelServerUpdate are a published contract only: current servers return
@@ -68,7 +68,7 @@ service ServerUpdateService {
     option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
   }
 
-  // GetServerUpdateStatus returns the shared rollout state. While Frigate is
+  // GetServerUpdateStatus returns the shared rollout state. While Proto container firmware is
   // stopped for an update the response may be served by the maintenance
   // service, which sets served_by_maintenance.
   rpc GetServerUpdateStatus(GetServerUpdateStatusRequest) returns (GetServerUpdateStatusResponse) {
@@ -94,7 +94,7 @@ service ServerUpdateService {
 }
 
 // FrigateUpdateMaintenanceService keeps a package installer reachable while
-// the main Frigate process and its regular tunnel are stopped.
+// the main Proto container firmware process and its regular tunnel are stopped.
 service FrigateUpdateMaintenanceService {
   // Preserve the established maintenance transport message names.
   // buf:lint:ignore RPC_REQUEST_STANDARD_NAME
@@ -161,7 +161,7 @@ enum ServerUpdateRolloutPhase {
   // stopped.
   SERVER_UPDATE_ROLLOUT_PHASE_VERIFIED = 9;
   // An operator ran the on-host abandon command. The rollout is terminal, but
-  // if ServerUpdateRollout.disruption_started is true Frigate may still be held
+  // if ServerUpdateRollout.disruption_started is true Proto container firmware may still be held
   // stopped on one or both instances until the operator restores service.
   SERVER_UPDATE_ROLLOUT_PHASE_ABANDONED = 10;
 }
@@ -196,7 +196,7 @@ message GetServerUpdateSupportResponse {
   // (the update.allow_remote_trigger setting).
   bool remote_trigger_allowed = 15;
   // proto_os_package_supported is true only when the root update helper can
-  // install a static proto-os package without stopping Frigate. Callers must
+  // install a static proto-os package without stopping Proto container firmware. Callers must
   // not stage a SERVER_UPDATE_PACKAGE_PROTO_OS manifest unless it is true.
   bool proto_os_package_supported = 16;
   // proto_os_installed_version is the dpkg version of the installed proto-os
@@ -229,7 +229,7 @@ enum ServerUpdatePackage {
   // UNSPECIFIED is the frigate package. Legacy manifests use it.
   SERVER_UPDATE_PACKAGE_UNSPECIFIED = 0;
   // PROTO_OS is the arch-independent, static proto-os web UI package. The root
-  // helper installs it on one instance without stopping Frigate or holding
+  // helper installs it on one instance without stopping Proto container firmware or holding
   // HA peers at barriers.
   SERVER_UPDATE_PACKAGE_PROTO_OS = 1;
 }
@@ -305,7 +305,7 @@ message ServerUpdateManifest {
   // release_signature holds the DER ECDSA P-256 signature over
   // release_statement. Required when coordination is SELF or package is
   // PROTO_OS; forbidden otherwise. A PROTO_OS signature must verify against
-  // the ProtoOS release keys, never the Frigate release keys.
+  // the ProtoOS release keys, never the Proto container firmware release keys.
   bytes release_signature = 22;
   // package selects the Debian package this manifest installs. UNSPECIFIED is
   // frigate. PROTO_OS requires proto_os_package_supported and
@@ -354,7 +354,7 @@ message GetServerUpdateStatusRequest {
 message GetServerUpdateStatusResponse {
   ServerUpdateRollout rollout = 1;
   // served_by_maintenance is true when the answering process is the
-  // maintenance service rather than the regular Frigate daemon.
+  // maintenance service rather than the regular Proto container firmware daemon.
   bool served_by_maintenance = 2;
 }
 
@@ -403,7 +403,7 @@ message ServerUpdateRollout {
   // UPDATE_IDEMPOTENCY_CONFLICT (same idempotency key, different request),
   // UPDATE_MANIFEST_INVALID (malformed manifest) and UPDATE_FIRMWARE_ACTIVE (a
   // hashboard or PSU firmware update is running on an instance; retry after it
-  // finishes). While a rollout that can stop Frigate is in progress, hashboard
+  // finishes). While a rollout that can stop Proto container firmware is in progress, hashboard
   // and PSU firmware updates are refused with FIRMWARE_SERVER_UPDATE_ACTIVE.
   //
   // Runtime failures recorded while a rollout runs: UPDATE_PACKAGE_REJECTED

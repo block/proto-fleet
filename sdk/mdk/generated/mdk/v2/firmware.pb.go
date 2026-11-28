@@ -1263,7 +1263,7 @@ type FirmwareUpdate struct {
 	StartedAt   *timestamppb.Timestamp  `protobuf:"bytes,6,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
 	CompletedAt *timestamppb.Timestamp  `protobuf:"bytes,7,opt,name=completed_at,json=completedAt,proto3" json:"completed_at,omitempty"`
 	Targets     []*FirmwareUpdateTarget `protobuf:"bytes,8,rep,name=targets,proto3" json:"targets,omitempty"`
-	// server_id is the CT1 Frigate node that owns this update job. It is empty
+	// server_id is the CT1 Proto container firmware node that owns this update job. It is empty
 	// for R2, whose singleton device service already identifies the owner.
 	ServerId      string `protobuf:"bytes,9,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -3099,7 +3099,7 @@ func (x *StartFirmwareUpdateResponse) GetUpdate() *FirmwareUpdate {
 type GetFirmwareUpdateRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	TaskId string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	// server_id optionally selects which Frigate node owns task_id. Empty means
+	// server_id optionally selects which Proto container firmware node owns task_id. Empty means
 	// the connected node, preserving pre-cluster behavior.
 	ServerId      string `protobuf:"bytes,2,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -3287,7 +3287,7 @@ func (x *ListFirmwareUpdatesResponse) GetUpdates() []*FirmwareUpdate {
 type CancelFirmwareUpdateRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	TaskId string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	// server_id optionally selects which Frigate node owns task_id. Empty means
+	// server_id optionally selects which Proto container firmware node owns task_id. Empty means
 	// the connected node, preserving pre-cluster behavior.
 	ServerId      string `protobuf:"bytes,2,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
 	unknownFields protoimpl.UnknownFields

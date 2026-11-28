@@ -261,7 +261,7 @@ export const UploadPreparedSnapshotArchiveResponseSchema: GenMessage<UploadPrepa
 
 /**
  * SnapshotArchiveService prepares and uploads one immutable closed-hour
- * telemetry archive on an exact Frigate instance.
+ * telemetry archive on an exact Proto container firmware instance.
  *
  * @generated from service mdk.v2.SnapshotArchiveService
  */
