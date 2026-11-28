@@ -13,6 +13,7 @@ import {
 import type { ContainerToggleControl } from "@/protoFleet/features/containers/components/ContainerControls";
 import type { ContainerFan, ContainerTank } from "@/protoFleet/features/containers/components/ContainerOverviewLayout";
 import type { TankModuleState } from "@/protoFleet/features/containers/components/TankModuleGrid";
+import UnlocatedHashboardsNotice from "@/shared/components/UnlocatedHashboards";
 
 /** Deterministic shuffle so the module layout is stable across renders. */
 function seededShuffle<T>(arr: T[], seed: number): T[] {
@@ -202,7 +203,19 @@ function InteractiveContainerOverview({ unlocatedHashboards }: { unlocatedHashbo
     () => ({
       breadcrumb,
       title: "Container 01",
-      unlocatedHashboards,
+      unlocatedNotice: (
+        <UnlocatedHashboardsNotice
+          count={unlocatedHashboards ?? 0}
+          boards={Array.from({ length: unlocatedHashboards ?? 0 }, (_, i) => ({
+            id: String(i),
+            identity: `aa:bb:cc:dd:ee:${String(i).padStart(2, "0")}`,
+            status: "Mining",
+            hashrate: "2.5 TH/s",
+            temperature: "28.0 °C",
+            issues: [],
+          }))}
+        />
+      ),
       kpis,
       tanks,
       fans,

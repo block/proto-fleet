@@ -41,10 +41,16 @@ type ContainerSnapshot struct {
 	Controls          *ContainerControls `json:"controls,omitempty"`
 	// TopologyComplete permits reconciliation of missing members. Partial or
 	// telemetry-only observations never remove inventory.
-	TopologyComplete bool            `json:"topology_complete"`
-	Plant            *ContainerPlant `json:"plant,omitempty"`
-	ObservedAt       time.Time       `json:"observed_at"`
-	Tanks            []ContainerTank `json:"tanks"`
+	TopologyComplete bool `json:"topology_complete"`
+	// UnlocatedInventoryComplete reports that this poll enumerated every tank, so
+	// the unlocated hashboard list is authoritative and may replace retained
+	// inventory. It stays true on a complete enumeration that still holds
+	// unlocated boards, where TopologyComplete is cleared to protect placement
+	// reconciliation. A partial poll leaves it false and merges retained inventory.
+	UnlocatedInventoryComplete bool            `json:"unlocated_inventory_complete,omitempty"`
+	Plant                      *ContainerPlant `json:"plant,omitempty"`
+	ObservedAt                 time.Time       `json:"observed_at"`
+	Tanks                      []ContainerTank `json:"tanks"`
 }
 
 type ContainerTank struct {

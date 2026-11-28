@@ -131,7 +131,7 @@ const useContainerDiagnostics = () => {
     // Boards report the outlet that feeds them, which names the module on each outlet.
     const feedModules = new Map<string, string>();
     for (const board of topology.hashboards.values()) {
-      const module = topology.modules.get(board.moduleId);
+      const module = board.moduleId ? topology.modules.get(board.moduleId) : undefined;
       const tank = module?.tankId ? topology.tanks.get(module.tankId) : undefined;
       const slot = module?.location?.moduleSlot;
       if (board.powerFeedId && tank?.slot !== undefined && slot !== undefined) {

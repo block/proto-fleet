@@ -886,6 +886,13 @@ message ContainerSnapshot {
   repeated ContainerTank tanks = 2;
   ContainerPlant plant = 3;
   bool topology_complete = 4;
+  // Set when the poll enumerated every tank, so the unlocated hashboard list is
+  // authoritative and may replace retained inventory. Unlike topology_complete
+  // (which a plugin clears whenever unlocated boards are present, to protect
+  // placement reconciliation), this stays true on a complete enumeration that
+  // still contains unlocated boards. A partial poll leaves it false, so retained
+  // inventory is merged rather than erased.
+  bool unlocated_inventory_complete = 14;
 }
 message ContainerTank {
  ContainerRollup metrics = 3;

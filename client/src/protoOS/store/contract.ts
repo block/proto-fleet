@@ -195,7 +195,8 @@ export interface ModuleNode {
 export interface HashboardNode {
   id: HashboardId;
   identity: BoardIdentity;
-  moduleId: ModuleId;
+  /** Absent for container inventory without a physical location. */
+  moduleId?: ModuleId;
   asicIds: AsicId[];
   location?: { slot?: number; bay?: number; port?: number };
   breakerId?: string;
@@ -327,6 +328,8 @@ export interface LevelRollup extends LevelTelemetry {
 }
 
 export interface HashboardTelemetry extends LevelTelemetry {
+  /** Source health observation time; polling does not renew this timestamp. */
+  healthObservedAt?: number;
   hashboardId: HashboardId;
   /** Explicit isolation reported by firmware; offline alone does not imply isolation. */
   isolated?: boolean;
@@ -478,6 +481,8 @@ export interface TelemetryState {
 
 /** A polling result may also discover hardware while reading component health. */
 export interface TelemetrySnapshot extends TelemetryState {
+  /** Current physical membership, including container-owned unlocated boards. */
+  containerInventory?: { topology: ContainerTopology; hashboards: Map<HashboardId, HashboardHardware> };
   /** Full-map module rollups for this container; omitted module IDs have unavailable live readings. */
   containerModuleRollups?: { containerId: ContainerId };
   /** Complete plant observations for this container; omitted components have unavailable live readings. */

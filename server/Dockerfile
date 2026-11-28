@@ -21,7 +21,7 @@ COPY server/ ./
 # Build the Go application
 RUN go build -gcflags="all=-N -l" -o out/ -v ./...
 
-FROM alpine:3.22.7 AS runner
+FROM alpine:3.22.8 AS runner
 
 # Set the working directory
 WORKDIR /app

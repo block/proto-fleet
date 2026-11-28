@@ -23,6 +23,11 @@ func TestPoolRemovalPublicAndInternalUpgrade(t *testing.T) {
 			paths, err := fs.Glob(migrations.Current, "current/*.sql")
 			require.NoError(t, err)
 			for _, path := range paths {
+				// This fixture tests the historical split schemas. Later migrations
+				// require the consolidated schema, covered by TestConsolidationUpgradesPublicBaseline.
+				if path >= "current/"+migrations.ConsolidationName {
+					continue
+				}
 				if !internal && strings.Contains(path, "_internal_") {
 					continue
 				}

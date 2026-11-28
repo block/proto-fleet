@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -215,6 +216,25 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 	if err := storeHashboards(ctx, q, orgID, id, snapshot); err != nil {
 		return err
 	}
+	// A complete enumeration authoritatively replaces the list, including an empty
+	// list when boards acquire physical locations or are removed. A partial poll
+	// cannot: an omitted board was not confirmed removed, so its retained details
+	// survive. The plugin reports enumeration completeness separately from
+	// topology_complete, which it clears whenever unlocated boards are present.
+	boards := snapshot.UnlocatedHashboards
+	if !snapshot.UnlocatedInventoryComplete {
+		boards, err = retainUnlocatedHashboards(ctx, q, id, snapshot)
+		if err != nil {
+			return err
+		}
+	}
+	unlocated, err := json.Marshal(boards)
+	if err != nil {
+		return fmt.Errorf("encode unlocated hashboards: %w", err)
+	}
+	if err := q.UpdateUnlocatedHashboards(ctx, sqlc.UpdateUnlocatedHashboardsParams{DeviceID: id, ObservedAt: snapshot.ObservedAt, Boards: unlocated}); err != nil {
+		return err
+	}
 	if snapshot.Metrics != nil {
 		samples = []moduleSample{}
 		for _, t := range snapshot.Tanks {
@@ -240,4 +260,92 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 		return err
 	}
 	return retireChangedPoolAssignments(ctx, q, poolSelection, poolBindings)
+}
+
+// unlocatedIdentityKeys returns the normalized identities a board can be matched
+// on. An entry without a stable identity returns none and cannot be deduplicated.
+func unlocatedIdentityKeys(b sdk.ContainerHashboard) []string {
+	keys := make([]string, 0, 2)
+	if mac := normalizeHashboardMAC(b.MACAddress); mac != "" {
+		keys = append(keys, "mac:"+mac)
+	}
+	if serial := strings.TrimSpace(b.Serial); serial != "" {
+		keys = append(keys, "serial:"+serial)
+	}
+	return keys
+}
+
+// retainUnlocatedHashboards merges a partial observation with the stored
+// placement-free inventory. The current observations win, a board confirmed in a
+// physical slot leaves the set, and every other previously stored entry is kept:
+// omission in a partial poll is not a confirmed removal.
+func retainUnlocatedHashboards(ctx context.Context, q *sqlc.Queries, deviceID int64, snapshot *sdk.ContainerSnapshot) ([]sdk.ContainerHashboard, error) {
+	stored, err := q.GetUnlocatedHashboards(ctx, deviceID)
+	if err != nil {
+		return nil, err
+	}
+	var previous []sdk.ContainerHashboard
+	if len(stored) > 0 {
+		if err := json.Unmarshal(stored, &previous); err != nil {
+			return nil, fmt.Errorf("decode retained unlocated hashboards: %w", err)
+		}
+	}
+	accounted := map[string]bool{}
+	for _, b := range snapshot.UnlocatedHashboards {
+		for _, key := range unlocatedIdentityKeys(b) {
+			accounted[key] = true
+		}
+	}
+	for ti := range snapshot.Tanks {
+		for mi := range snapshot.Tanks[ti].Modules {
+			for _, b := range snapshot.Tanks[ti].Modules[mi].Hashboards {
+				if b.Occupancy != occupiedHashboardSlot {
+					continue
+				}
+				for _, key := range unlocatedIdentityKeys(b) {
+					accounted[key] = true
+				}
+			}
+		}
+	}
+	return boundedUnlocatedInventory(snapshot.UnlocatedHashboards, previous, accounted), nil
+}
+
+// maxRetainedUnlocatedHashboards caps the merged placement-free inventory. A
+// container's real board population is far below this, so the bound only trips on
+// a faulty or hostile controller that reports fresh identities every partial poll;
+// without it the stored JSON, its decode/rewrite under the org lock, and every
+// list projection would grow without limit.
+const maxRetainedUnlocatedHashboards = 1024
+
+// boundedUnlocatedInventory merges the current observations with retained entries
+// the poll neither re-observed nor placed (accounted), keeping current entries and
+// then the most-recently observed retained ones up to the cap. Current entries are
+// already bounded by per-message limits; the cap bounds accumulation across polls.
+func boundedUnlocatedInventory(current, previous []sdk.ContainerHashboard, accounted map[string]bool) []sdk.ContainerHashboard {
+	retained := append([]sdk.ContainerHashboard(nil), current...)
+	kept := make([]sdk.ContainerHashboard, 0, len(previous))
+	for _, b := range previous {
+		keys := unlocatedIdentityKeys(b)
+		if len(keys) == 0 {
+			continue
+		}
+		seen := false
+		for _, key := range keys {
+			if accounted[key] {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			kept = append(kept, b)
+		}
+	}
+	// Evict the stalest identities first when bounded, never the fresh poll.
+	sort.SliceStable(kept, func(i, j int) bool { return kept[i].ObservedAt.After(kept[j].ObservedAt) })
+	retained = append(retained, kept...)
+	if len(retained) > maxRetainedUnlocatedHashboards {
+		retained = retained[:maxRetainedUnlocatedHashboards]
+	}
+	return retained
 }

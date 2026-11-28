@@ -3,10 +3,11 @@ import ContainerHomeToolbar from "./components/ContainerHomeToolbar";
 import type { HomeTab } from "./types";
 import type { TelemetryLevel } from "@/protoOS/api/adapters/types";
 import { useTelemetry } from "@/protoOS/api/hooks/useTelemetry";
+import { PAGE_PADDING } from "@/protoOS/components/ContentLayout/spacing";
+import type { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import NoPoolsCallout from "@/protoOS/components/NoPoolsCallout";
 import { useNoPoolsCalloutState } from "@/protoOS/components/NoPoolsCallout/useNoPoolsCalloutState";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import ContainerMappingSetup from "@/protoOS/features/feedMapping/MappingSetup";
 import { useDuration, usePoolsInfo, useSetDuration } from "@/protoOS/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 
@@ -14,7 +15,7 @@ import ErrorBoundary from "@/shared/components/ErrorBoundary";
 // mining-status and plant-health poll; no per-board requests or histories.
 const LIVE_LEVELS: TelemetryLevel[] = ["miner", "hashboard"];
 
-export default function ContainerHomeLayout() {
+export default function ContainerHomeLayout({ callout }: ContentLayoutProps) {
   const { minerRoot } = useMinerHosting();
   const { pathname, search } = useLocation();
   const duration = useDuration();
@@ -33,12 +34,14 @@ export default function ContainerHomeLayout() {
     (Object.keys(links) as HomeTab[]).find((key) => links[key].replace(/\/$/, "") === pathname.replace(/\/$/, "")) ??
     "overview";
   const tab = pathTab === "overview" && new URLSearchParams(search).get("view") === "system" ? "system" : pathTab;
-  const callout = useNoPoolsCalloutState(pools, pathname);
+  const poolsCallout = useNoPoolsCalloutState(pools, pathname);
   return (
     <ErrorBoundary>
-      <div className="flex min-w-0 flex-col gap-6 p-4 tablet:p-10">
-        {callout.shouldShowNoPoolsCallout ? <NoPoolsCallout arePoolsConfigured={callout.arePoolsConfigured} /> : null}
-        <ContainerMappingSetup />
+      <div className={`flex min-w-0 flex-col gap-6 ${PAGE_PADDING}`}>
+        <div className="empty:hidden">{callout}</div>
+        {poolsCallout.shouldShowNoPoolsCallout ? (
+          <NoPoolsCallout arePoolsConfigured={poolsCallout.arePoolsConfigured} />
+        ) : null}
         <ContainerHomeToolbar tab={tab} links={links} duration={duration} onDurationChange={setDuration} />
         {live.error ? (
           <p role="alert" className="text-300 text-text-critical">

@@ -6,6 +6,7 @@ import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import NavigationMenu, { NavigationMenuType } from "@/protoOS/components/NavigationMenu";
 
 import PageHeader from "@/protoOS/components/PageHeader";
+import ContainerUnlocatedHashboards from "@/protoOS/components/UnlocatedHashboards";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import {
   useIpAddress,
@@ -83,7 +84,9 @@ const AppLayout = ({
         <PageHeader title={title} openMenu={() => setIsMenuOpen(true)} customButtons={customHeaderButtons} />
         <div className="relative w-full pt-[100px] pl-0 laptop:pt-[60px] laptop:pl-50">
           <ErrorBoundary>
-            <ContentLayout>{children}</ContentLayout>
+            <ContentLayout callout={type === "app" ? <ContainerUnlocatedHashboards withMapping /> : undefined}>
+              {children}
+            </ContentLayout>
           </ErrorBoundary>
         </div>
       </div>
